@@ -1,0 +1,152 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"myclaw/internal/compaction"
+	"myclaw/internal/config"
+	"myclaw/internal/diagnostics"
+	"myclaw/internal/llm"
+	"myclaw/internal/permissions"
+	"myclaw/internal/runtime"
+	"myclaw/internal/session"
+	"myclaw/internal/tui"
+	"myclaw/internal/workspace"
+)
+
+var runTUI = func(ctx context.Context, _ []string, stdout, stderr io.Writer) error {
+	cfg := config.LoadFromDir(".")
+	workspaceRoots, err := resolveTUIWorkspaceRoots(".", cfg.Permissions.WorkspaceRoots)
+	if err != nil {
+		return fmt.Errorf("resolve workspace roots: %w", err)
+	}
+	policy, err := permissions.SetupPolicy(permissions.Policy{
+		Mode:                     permissions.Mode(cfg.Permissions.Mode),
+		SubagentMode:             permissions.Mode(cfg.Permissions.SubagentMode),
+		PlanMode:                 cfg.Permissions.PlanMode,
+		AutoMode:                 cfg.Permissions.AutoMode,
+		WorkspaceRoots:           workspaceRoots,
+		Rules:                    cfg.Permissions.Rules,
+		DangerousCommandPatterns: cfg.Permissions.DangerousCommandPatterns,
+	})
+	if err != nil {
+		return fmt.Errorf("invalid permission policy: %w", err)
+	}
+	sessions := session.NewManager(nil)
+	runner := runtime.NewRunnerWithOptions(sessions, llm.NewClientFromConfig(cfg.LLM), workspace.NewLoader(""), nil, runtime.Options{
+		PermissionPolicy: policy,
+		Compactor:        newTUICompactor(cfg),
+	})
+	logPath := filepath.Join("logs", "myclaw.jsonl")
+	logger, err := diagnostics.NewLogger(logPath)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "warning: failed to open diagnostics log %q: %v\n", logPath, err)
+	}
+	if logger != nil {
+		defer logger.Close()
+	}
+	llmLabel := cfg.LLM.Provider
+	if cfg.LLM.Model != "" {
+		llmLabel = llmLabel + " / " + cfg.LLM.Model
+	}
+	if cfg.LLM.APIKey == "" {
+		llmLabel = "mock / builtin"
+	}
+	return tui.Run(ctx, sessions, runner, stdout, stderr, tui.Options{
+		LLMLabel: llmLabel,
+		Logger:   logger,
+	})
+}
+
+func resolveTUIWorkspaceRoots(baseDir string, roots []string) ([]string, error) {
+	if len(roots) > 0 {
+		return roots, nil
+	}
+	base := baseDir
+	if strings.TrimSpace(base) == "" {
+		base = "."
+	}
+	if _, err := os.Stat(base); err != nil {
+		return nil, err
+	}
+	abs, err := filepath.Abs(base)
+	if err != nil {
+		return nil, err
+	}
+	return []string{filepath.Clean(abs)}, nil
+}
+
+func newTUICompactor(cfg config.Config) *compaction.Service {
+	if !cfg.Compact.VerificationMode {
+		return nil
+	}
+	return compaction.NewService(compaction.Config{
+		MaxMessages:             4,
+		MaxEstimatedTokens:      48,
+		ContextWindowTokens:     64,
+		WarningBufferTokens:     28,
+		ErrorBufferTokens:       20,
+		AutoCompactBufferTokens: 16,
+		BlockingBufferTokens:    6,
+		PreserveRecentTurns:     2,
+		SummaryPrefix:           "Summary:",
+	})
+}
+
+func RunCLI(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	if len(args) == 0 {
+		printCLIHelp(stdout)
+		return nil
+	}
+
+	switch args[0] {
+	case "help", "--help", "-h":
+		printCLIHelp(stdout)
+		return nil
+	case "version", "--version", "-v":
+		_, err := fmt.Fprintln(stdout, "myclaw dev")
+		return err
+	case "tui":
+		return runTUI(ctx, args[1:], stdout, stderr)
+	default:
+		_, err := fmt.Fprintf(stderr, "unknown command %q\n\n", args[0])
+		if err != nil {
+			return err
+		}
+		printCLIHelp(stderr)
+		return errors.New("invalid command")
+	}
+}
+
+func printCLIHelp(w io.Writer) {
+	lines := []string{
+		"myclaw - a Go learning replica of openclaw",
+		"",
+		"Usage:",
+		"  myclaw [command]",
+		"",
+		"Available commands:",
+		"  help      Show this help message",
+		"  tui       Launch the interactive terminal UI",
+		"  version   Print build version",
+		"",
+		"Planned chat commands:",
+		"  /status   Show runtime status",
+		"  /new      Create a new session",
+		"  /reset    Reset the current session",
+	}
+
+	_, _ = fmt.Fprintln(w, strings.Join(lines, "\n"))
+}

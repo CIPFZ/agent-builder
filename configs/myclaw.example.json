@@ -1,0 +1,28 @@
+{
+  "llm": {
+    "provider": "openai-compatible",
+    "base_url": "https://api.longcat.chat/openai/v1/chat/completions",
+    "api_key": "${MYCLAW_LLM_API_KEY}",
+    "model": "LongCat-Flash-Chat"
+  },
+  "compact": {
+    "verification_mode": false
+  },
+  "permissions": {
+    "mode": "workspace-write",
+    "subagent_mode": "ask",
+    "plan_mode": false,
+    "auto_mode": false,
+    "workspace_roots": [
+      "."
+    ],
+    "dangerous_command_patterns": [
+      "rm -rf",
+      "del /f /s",
+      "format",
+      "shutdown",
+      "reboot",
+      "powershell -enc"
+    ]
+  }
+}

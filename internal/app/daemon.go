@@ -1,0 +1,98 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"time"
+
+	"myclaw/internal/config"
+	"myclaw/internal/gateway"
+	"myclaw/internal/llm"
+	"myclaw/internal/permissions"
+	"myclaw/internal/session"
+)
+
+func RunDaemon(ctx context.Context, cfg config.Config, stdout io.Writer) error {
+	mux, _ := newDaemonHandler(cfg, stdout)
+
+	server := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, _ = fmt.Fprintf(stdout, "myclawd listening on http://%s\n", cfg.HTTPAddr)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		return nil
+	case err := <-errCh:
+		return err
+	}
+}
+
+func newDaemonHandler(cfg config.Config, stdout io.Writer) (*http.ServeMux, *gateway.Server) {
+	mux := http.NewServeMux()
+	logger := log.New(stdout, "[gateway] ", log.LstdFlags)
+	workspaceRoots := cfg.Permissions.WorkspaceRoots
+	if len(workspaceRoots) == 0 {
+		workspaceRoots = []string{"configs/workspace"}
+	}
+	policy, err := permissions.SetupPolicy(permissions.Policy{
+		Mode:                     permissions.Mode(cfg.Permissions.Mode),
+		SubagentMode:             permissions.Mode(cfg.Permissions.SubagentMode),
+		PlanMode:                 cfg.Permissions.PlanMode,
+		AutoMode:                 cfg.Permissions.AutoMode,
+		WorkspaceRoots:           workspaceRoots,
+		Rules:                    cfg.Permissions.Rules,
+		DangerousCommandPatterns: cfg.Permissions.DangerousCommandPatterns,
+	})
+	if err != nil {
+		logger.Printf("invalid permission policy: %v", err)
+		policy = permissions.Policy{
+			Mode:           permissions.ModeWorkspaceWrite,
+			WorkspaceRoots: []string{"configs/workspace"},
+		}
+	}
+	gatewayServer := gateway.NewServerWithOptions(logger, session.NewManager(nil), llm.NewClientFromConfig(cfg.LLM), gateway.Options{
+		PermissionPolicy: policy,
+	})
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = fmt.Fprintln(w, "myclawd is running")
+	})
+	mux.HandleFunc("/ui", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, webUIHTML(cfg.WSPath))
+	})
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintln(w, "ok")
+	})
+	mux.HandleFunc("/statusz", StatusHandler(gatewayServer.SessionManager()))
+	mux.HandleFunc(cfg.WSPath, gatewayServer.HandleWebSocket)
+	return mux, gatewayServer
+}
