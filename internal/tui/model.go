@@ -485,7 +485,7 @@ func (m Model) renderFooter(width int) string {
 	b.WriteString(strings.Repeat("─", width) + "\n")
 
 	// Build input string with cursor at correct position
-	inputWithCursor := m.buildInputWithCursor()
+	inputWithCursor := m.buildInputWithCursor(width)
 
 	// Show input with cursor
 	b.WriteString("❯ " + inputWithCursor + "\n")
@@ -511,7 +511,9 @@ func (m Model) renderFooter(width int) string {
 }
 
 // buildInputWithCursor builds the input string with cursor at the correct visual position
-func (m Model) buildInputWithCursor() string {
+// buildInputWithCursor builds the input string with cursor at the correct visual position
+// It handles automatic text wrapping when input exceeds the available width
+func (m Model) buildInputWithCursor(width int) string {
 	runes := []rune(m.input)
 	pos := m.cursorPos
 	if pos > len(runes) {
@@ -521,14 +523,87 @@ func (m Model) buildInputWithCursor() string {
 		pos = 0
 	}
 
-	// If cursor is at the end of input, show blinking cursor
-	if pos >= len(runes) {
-		return InputTextStyle.Render(m.input) + CursorStyle.Render(" ")
+	// Calculate available width (subtract ❯  prefix)
+	availableWidth := width - 2
+	if availableWidth < 10 {
+		availableWidth = 40
 	}
 
-	// Highlight the character at cursor position
-	before := InputTextStyle.Render(string(runes[:pos]))
-	highlighted := CursorStyle.Render(string(runes[pos]))
-	after := InputTextStyle.Render(string(runes[pos+1:]))
-	return before + highlighted + after
+	// Handle empty input - show cursor at position 0
+	if len(runes) == 0 {
+		return CursorStyle.Render(" ")
+	}
+
+	// If cursor is at the end of input
+	if pos >= len(runes) {
+		// Check if we need to wrap
+		if lipgloss.Width(m.input) <= availableWidth {
+			return InputTextStyle.Render(m.input) + CursorStyle.Render(" ")
+		}
+		// Need to wrap - show cursor on last visible position
+		return m.wrapTextWithCursor("", pos, availableWidth)
+	}
+
+	// Normal case: cursor in middle of text
+	return m.wrapTextWithCursor(m.input, pos, availableWidth)
+}
+
+// wrapTextWithCursor wraps text and places cursor at the specified rune position
+func (m Model) wrapTextWithCursor(text string, cursorPos int, width int) string {
+	runes := []rune(text)
+	var result strings.Builder
+	var line strings.Builder
+	lineWidth := 0
+	processed := 0
+
+	for processed < len(runes) {
+		// Check if we're at cursor position
+		if processed == cursorPos {
+			// Render current line content before cursor
+			if line.Len() > 0 {
+				result.WriteString(InputTextStyle.Render(line.String()))
+				line.Reset()
+				lineWidth = 0
+			}
+			// Render cursor (highlighting the next character)
+			if processed < len(runes) {
+				char := string(runes[processed])
+				result.WriteString(CursorStyle.Render(char))
+				processed++
+			} else {
+				result.WriteString(CursorStyle.Render(" "))
+			}
+			continue
+		}
+
+		char := string(runes[processed])
+		charWidth := lipgloss.Width(char)
+
+		// Check if adding this character would exceed width
+		if lineWidth+charWidth > width {
+			// Wrap to next line
+			if line.Len() > 0 {
+				result.WriteString(InputTextStyle.Render(line.String()))
+				result.WriteString("\n")
+				line.Reset()
+				lineWidth = 0
+			}
+		}
+
+		line.WriteString(char)
+		lineWidth += charWidth
+		processed++
+	}
+
+	// Render remaining content in line buffer
+	if line.Len() > 0 {
+		result.WriteString(InputTextStyle.Render(line.String()))
+	}
+
+	// If cursor is at the very end of input
+	if cursorPos >= len(runes) {
+		result.WriteString(CursorStyle.Render(" "))
+	}
+
+	return result.String()
 }
