@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"myclaw/internal/approval"
 	"myclaw/internal/runtime"
 )
+
+var greenStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#52B788")).Bold(true)
 
 type Bridge interface {
 	SendUserMessage(string) error
@@ -28,6 +31,9 @@ type transcriptEntry struct {
 	Role      string
 	Content   string
 	Streaming bool
+	ToolName  string
+	ToolInput string
+	ToolStatus string
 }
 
 type ModelConfig struct {
@@ -55,17 +61,28 @@ type Model struct {
 	transcript      []transcriptEntry
 	events          []string
 	input           string
+	cursorPos       int  // cursor position in runes
 	busy            bool
 	pendingApproval *approval.Request
 	diagnostics     diagnosticsState
 	activity        activityState
+	width           int
+	height          int
+	history         []string
+	historyIndex    int
+	suggestions     []string
+	selectedIndex   int
 }
+
+var slashCommands = []string{"/help", "/clear", "/model", "/session", "/compact", "/debug"}
 
 func NewModel(bridge Bridge, cfg ...ModelConfig) Model {
 	model := Model{
-		bridge:     bridge,
-		transcript: make([]transcriptEntry, 0, 32),
-		events:     []string{"Welcome to myclaw TUI"},
+		bridge:       bridge,
+		transcript:   make([]transcriptEntry, 0, 32),
+		events:       []string{"Welcome to myclaw TUI"},
+		history:      make([]string, 0, 32),
+		historyIndex: -1,
 	}
 	if len(cfg) > 0 {
 		model.diagnostics.SessionID = cfg[0].SessionID
@@ -75,85 +92,193 @@ func NewModel(bridge Bridge, cfg ...ModelConfig) Model {
 	return model
 }
 
-func (m Model) Init() tea.Cmd {
-	return nil
-}
+func (m Model) Init() tea.Cmd { return nil }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch typed := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = typed.Width
+		m.height = typed.Height
 	case tea.KeyMsg:
-		m.diagnostics.LastMsg = "tea.KeyMsg"
 		return m.updateKey(typed)
 	case RuntimeEventMsg:
-		m.diagnostics.LastMsg = "RuntimeEventMsg"
-		return m.updateRuntimeEvent(typed.Event), nil
+		m.updateRuntimeEvent(typed.Event)
 	case BridgeErrMsg:
-		m.diagnostics.LastMsg = "BridgeErrMsg"
 		if typed.Err != nil {
 			m.events = append(m.events, "error: "+typed.Err.Error())
 			m.busy = false
 			m.diagnostics.LastError = typed.Err.Error()
 		}
-		return m, nil
 	}
 	return m, nil
 }
 
 func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Normalize cursor position
+	runes := []rune(m.input)
+	if m.cursorPos < 0 {
+		m.cursorPos = 0
+	}
+	if m.cursorPos > len(runes) {
+		m.cursorPos = len(runes)
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyEnter:
+		if m.pendingApproval != nil {
+			m.clearSuggestions()
+			return m, nil
+		}
+		// Enter sends the message
+		m.clearSuggestions()
 		text := strings.TrimSpace(m.input)
-		if text == "" || m.pendingApproval != nil {
+		if text == "" {
 			return m, nil
 		}
-		if err := m.bridge.SendUserMessage(text); err != nil {
-			m.events = append(m.events, "send failed: "+err.Error())
-			return m, nil
+		if text != "" && (len(m.history) == 0 || m.history[len(m.history)-1] != text) {
+			m.history = append(m.history, text)
 		}
+		m.historyIndex = -1
+		m.cursorPos = 0
+		m.bridge.SendUserMessage(text)
 		m.transcript = append(m.transcript, transcriptEntry{Role: "user", Content: text})
 		m.input = ""
 		m.busy = true
 		return m, nil
-	case tea.KeyBackspace, tea.KeyDelete:
-		if len(m.input) > 0 {
-			m.input = m.input[:len(m.input)-1]
+	case tea.KeyLeft:
+		if m.cursorPos > 0 {
+			m.cursorPos--
 		}
+		return m, nil
+	case tea.KeyRight:
+		if m.cursorPos < len(runes) {
+			m.cursorPos++
+		}
+		return m, nil
+	case tea.KeyHome:
+		m.cursorPos = 0
+		return m, nil
+	case tea.KeyEnd:
+		m.cursorPos = len(runes)
+		return m, nil
+	case tea.KeyUp:
+		if len(m.suggestions) > 0 && m.selectedIndex > 0 {
+			m.selectedIndex--
+		} else if len(m.history) > 0 {
+			if m.historyIndex == -1 {
+				m.historyIndex = len(m.history) - 1
+			} else if m.historyIndex > 0 {
+				m.historyIndex--
+			}
+			m.input = m.history[m.historyIndex]
+			m.cursorPos = len([]rune(m.input))
+		}
+		return m, nil
+	case tea.KeyDown:
+		if len(m.suggestions) > 0 && m.selectedIndex < len(m.suggestions)-1 {
+			m.selectedIndex++
+		} else if m.historyIndex != -1 {
+			if m.historyIndex < len(m.history)-1 {
+				m.historyIndex++
+				m.input = m.history[m.historyIndex]
+			} else {
+				m.historyIndex = -1
+				m.input = ""
+			}
+			m.cursorPos = len([]rune(m.input))
+		}
+		return m, nil
+	case tea.KeyTab:
+		m.acceptSuggestion()
+		return m, nil
+	case tea.KeySpace:
+		// Insert space at cursor position
+		m.input = string(runes[:m.cursorPos]) + " " + string(runes[m.cursorPos:])
+		m.cursorPos++
+		m.historyIndex = -1
+		m.updateSuggestions()
+		return m, nil
+	case tea.KeyEscape:
+		m.clearSuggestions()
+		return m, nil
+	case tea.KeyBackspace:
+		if m.cursorPos > 0 {
+			m.input = string(runes[:m.cursorPos-1]) + string(runes[m.cursorPos:])
+			m.cursorPos--
+		}
+		m.historyIndex = -1
+		m.updateSuggestions()
+		return m, nil
+	case tea.KeyDelete:
+		if m.cursorPos < len(runes) {
+			m.input = string(runes[:m.cursorPos]) + string(runes[m.cursorPos+1:])
+		}
+		m.historyIndex = -1
+		m.updateSuggestions()
 		return m, nil
 	case tea.KeyCtrlY:
-		if m.pendingApproval == nil {
-			return m, nil
+		if m.pendingApproval != nil {
+			m.bridge.Approve(m.pendingApproval.ID)
+			m.pendingApproval = nil
+			m.busy = true
 		}
-		if err := m.bridge.Approve(m.pendingApproval.ID); err != nil {
-			m.events = append(m.events, "approve failed: "+err.Error())
-			return m, nil
-		}
-		m.events = append(m.events, "approval approved: "+m.pendingApproval.ID)
-		m.pendingApproval = nil
-		m.busy = true
 		return m, nil
 	case tea.KeyCtrlN:
-		if m.pendingApproval == nil {
-			return m, nil
+		if m.pendingApproval != nil {
+			m.bridge.Reject(m.pendingApproval.ID)
+			m.pendingApproval = nil
+			m.busy = false
 		}
-		if err := m.bridge.Reject(m.pendingApproval.ID); err != nil {
-			m.events = append(m.events, "reject failed: "+err.Error())
-			return m, nil
-		}
-		m.events = append(m.events, "approval rejected: "+m.pendingApproval.ID)
-		m.pendingApproval = nil
-		m.busy = false
 		return m, nil
 	case tea.KeyRunes:
-		m.input += string(msg.Runes)
+		// Insert at cursor position
+		m.input = string(runes[:m.cursorPos]) + string(msg.Runes) + string(runes[m.cursorPos:])
+		m.cursorPos += len(msg.Runes)
+		m.historyIndex = -1
+		m.updateSuggestions()
 		return m, nil
 	default:
 		return m, nil
 	}
 }
 
-func (m Model) updateRuntimeEvent(event runtime.RuntimeEvent) Model {
+func (m Model) updateSuggestions() {
+	if !strings.HasPrefix(m.input, "/") || m.input == "/" {
+		m.suggestions = slashCommands
+		m.selectedIndex = 0
+		return
+	}
+	input := strings.ToLower(m.input)
+	var matches []string
+	for _, cmd := range slashCommands {
+		if strings.HasPrefix(strings.ToLower(cmd), input) {
+			matches = append(matches, cmd)
+		}
+	}
+	m.suggestions = matches
+	if len(m.suggestions) > 0 {
+		m.selectedIndex = 0
+	} else {
+		m.selectedIndex = -1
+	}
+}
+
+func (m Model) acceptSuggestion() {
+	if m.selectedIndex >= 0 && m.selectedIndex < len(m.suggestions) {
+		m.input = m.suggestions[m.selectedIndex]
+		m.suggestions = nil
+		m.selectedIndex = -1
+	}
+}
+
+func (m *Model) clearSuggestions() {
+	m.suggestions = nil
+	m.selectedIndex = -1
+}
+
+func (m *Model) updateRuntimeEvent(event runtime.RuntimeEvent) {
 	m.diagnostics.LastEvent = event.Type
 	m.diagnostics.EventCount++
 	if event.Session.ID != "" && m.diagnostics.SessionID == "" {
@@ -182,107 +307,228 @@ func (m Model) updateRuntimeEvent(event runtime.RuntimeEvent) Model {
 			}
 		}
 	case "tool.called":
-		m.events = append(m.events, fmt.Sprintf("tool called: %s %s", event.ToolName, event.ToolInput))
-		m.activity.Label = strings.TrimSpace(fmt.Sprintf("Running tool: %s %s", event.ToolName, event.ToolInput))
+		m.activity.Label = fmt.Sprintf("Running tool: %s %s", event.ToolName, event.ToolInput)
+		m.transcript = append(m.transcript, transcriptEntry{Role: "tool", ToolName: event.ToolName, ToolInput: event.ToolInput, ToolStatus: "called", Content: fmt.Sprintf("Calling %s...", event.ToolName)})
 	case "tool.result":
-		m.events = append(m.events, fmt.Sprintf("tool result: %s", event.ToolName))
-		m.activity.Label = strings.TrimSpace(fmt.Sprintf("Tool finished: %s", event.ToolName))
+		m.activity.Label = fmt.Sprintf("Tool finished: %s", event.ToolName)
+		for i := len(m.transcript) - 1; i >= 0; i-- {
+			if m.transcript[i].Role == "tool" && m.transcript[i].ToolStatus == "called" {
+				m.transcript[i].ToolStatus = "result"
+				if event.Message != nil {
+					m.transcript[i].Content = event.Message.Content
+				} else {
+					m.transcript[i].Content = "(no output)"
+				}
+				break
+			}
+		}
 	case "permission.required":
 		m.pendingApproval = event.Approval
 		if event.Approval != nil {
-			m.events = append(m.events, fmt.Sprintf("approval required: %s %s", event.Approval.ToolName, event.Approval.ToolInput))
-			m.activity.Label = strings.TrimSpace(fmt.Sprintf("Awaiting approval: %s %s", event.Approval.ToolName, event.Approval.ToolInput))
+			m.activity.Label = fmt.Sprintf("Awaiting approval: %s %s", event.Approval.ToolName, event.Approval.ToolInput)
 		}
 		m.busy = false
 	case "run.error":
 		if event.Error != "" {
-			m.events = append(m.events, "run error: "+event.Error)
 			m.diagnostics.LastError = event.Error
 			m.activity.Label = "Run error"
 		}
 	case "agent.lifecycle.start":
 		m.busy = true
-		if strings.TrimSpace(m.activity.Label) == "" {
+		if m.activity.Label == "" {
 			m.activity.Label = "Running turn"
 		}
 	case "agent.lifecycle.end":
 		m.busy = false
 		m.activity.Label = "Idle"
-	case "compact.warning":
-		m.events = append(m.events, "compact warning")
-		m.activity.Label = "Compaction: warning"
-	case "compact.error":
-		m.events = append(m.events, "compact error")
-		m.activity.Label = "Compaction: error"
-	case "compact.auto":
-		m.events = append(m.events, "compact auto")
-		m.activity.Label = "Compaction: auto"
-	case "compact.blocked":
-		m.events = append(m.events, "compact blocked")
-		m.activity.Label = "Compaction: blocked"
-	case "compact.boundary":
-		m.events = append(m.events, "compact boundary")
-		m.activity.Label = "Compaction: boundary"
-	case "compact.replayed":
-		m.events = append(m.events, "compact replayed")
-		m.activity.Label = "Compaction: replayed"
-	case "compact.memory_saved":
-		m.events = append(m.events, "compact memory saved")
-		m.activity.Label = "Compaction: memory saved"
-	case "compact.cleaned":
-		m.events = append(m.events, "compact cleaned")
-		m.activity.Label = "Compaction: cleaned"
 	}
-	return m
 }
 
 func (m Model) View() string {
+	width := m.width
+	if width == 0 {
+		width = 120
+	}
+	return m.renderLayout(width)
+}
+
+func (m Model) renderLayout(width int) string {
 	var b strings.Builder
-	b.WriteString("myclaw TUI\n\n")
-	b.WriteString("Diagnostics\n")
-	b.WriteString("  Session: " + fallback(m.diagnostics.SessionID, "(pending)") + "\n")
-	b.WriteString("  LLM: " + fallback(m.diagnostics.LLMLabel, "(unknown)") + "\n")
-	b.WriteString("  Log: " + fallback(m.diagnostics.LogPath, "(disabled)") + "\n")
-	b.WriteString("  Last Event: " + fallback(m.diagnostics.LastEvent, "(none)") + "\n")
-	b.WriteString("  Last Msg: " + fallback(m.diagnostics.LastMsg, "(none)") + "\n")
-	b.WriteString("  Last Error: " + fallback(m.diagnostics.LastError, "(none)") + "\n")
-	b.WriteString(fmt.Sprintf("  Event Count: %d\n\n", m.diagnostics.EventCount))
-	b.WriteString("Activity\n")
-	b.WriteString("  " + fallback(m.activity.Label, "(idle)") + "\n\n")
-	b.WriteString("Transcript\n")
-	if len(m.transcript) == 0 {
-		b.WriteString("  (empty)\n")
-	} else {
-		for _, entry := range m.transcript {
-			b.WriteString(fmt.Sprintf("  [%s] %s\n", entry.Role, entry.Content))
-		}
-	}
-	b.WriteString("\nEvents\n")
-	start := 0
-	if len(m.events) > 8 {
-		start = len(m.events) - 8
-	}
-	for _, event := range m.events[start:] {
-		b.WriteString("  - " + event + "\n")
-	}
-	b.WriteString("\nInput\n")
-	b.WriteString("> " + m.input + "\n")
-	if m.pendingApproval != nil {
-		b.WriteString(fmt.Sprintf("\nApproval pending: %s %s\n", m.pendingApproval.ToolName, m.pendingApproval.ToolInput))
-		b.WriteString("Press Ctrl+Y to approve, Ctrl+N to reject.\n")
-	}
-	if m.busy {
-		b.WriteString("\nStatus: busy\n")
-	} else {
-		b.WriteString("\nStatus: idle\n")
-	}
-	b.WriteString("Ctrl+C to quit.\n")
+	b.WriteString(m.renderHeader(width))
+	b.WriteString(m.renderMessages(width))
+	b.WriteString(m.renderFooter(width))
 	return b.String()
 }
 
-func fallback(value, alt string) string {
-	if strings.TrimSpace(value) == "" {
-		return alt
+func (m Model) renderHeader(width int) string {
+	// Fixed layout with exact character positions
+	// ╭─────────────────────────────── myclaw v0.1.0 ──────────────────────────────╮
+	// │ Welcome back!                                      │ Tips for getting started │
+	// │                                                    │ ─────────────────────── │
+	// │ [ASCII ART]                                        │ /help - see commands    │
+	// │                                                    │ /clear - clear conv     │
+	// │ MiniMax-M2.7 · Agent Builder                      │ /model - switch model   │
+
+	leftW := 56
+	// Row format: │ content(pad leftW) │ content(pad rightW) │
+	// Total = 2 (left │) + leftW + 3 ( │ ) + rightW + 2 ( │ + \n)
+	// We want width = 2 + leftW + 3 + rightW + 2 => rightW = width - leftW - 7
+	rightW := width - leftW - 7
+	if rightW < 20 {
+		rightW = 20
 	}
-	return value
+
+	borderW := width - 2
+	title := " myclaw v0.1.0 "
+	titlePad := borderW - len(title)
+	if titlePad < 0 {
+		titlePad = 0
+	}
+
+	var b strings.Builder
+	b.WriteString("╭" + title + strings.Repeat("─", titlePad) + "╮\n")
+
+	// Pre-defined rows with exact content
+	type row struct{ left, right string }
+	rows := []row{
+		{"Welcome back!", "Tips for getting started"},
+		{"", "─────────────────────────"},
+		{greenStyle.Render("███╗   ███╗██╗   ██╗ ██████╗██╗      █████╗ ██╗    ██╗"), "/help - see available commands"},
+		{greenStyle.Render("████╗ ████║╚██╗ ██╔╝██╔════╝██║     ██╔══██╗██║    ██║"), "/clear - clear conversation"},
+		{greenStyle.Render("██╔████╔██║ ╚████╔╝ ██║     ██║     ███████║██║ █╗ ██║"), "/model - switch models"},
+		{greenStyle.Render("██║╚██╔╝██║  ╚██╔╝  ██║     ██║     ██╔══██║██║███╗██║"), ""},
+		{greenStyle.Render("██║ ╚═╝ ██║   ██║   ╚██████╗███████╗██║  ██║╚███╔███╔╝"), ""},
+		{greenStyle.Render("╚═╝     ╚═╝   ╚═╝    ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝"), ""},
+		{"", ""},
+		{"MiniMax-M2.7 · Agent Builder", ""},
+	}
+
+	for _, r := range rows {
+		l := r.left
+		rStr := r.right
+
+		// Left side
+		b.WriteString("│ ")
+		b.WriteString(l)
+		lWidth := lipgloss.Width(l)
+		for lWidth < leftW {
+			b.WriteString(" ")
+			lWidth++
+		}
+		// Divider
+		b.WriteString(" │ ")
+		// Right side
+		b.WriteString(rStr)
+		rWidth := lipgloss.Width(rStr)
+		for rWidth < rightW {
+			b.WriteString(" ")
+			rWidth++
+		}
+		b.WriteString(" │\n")
+	}
+
+	b.WriteString("╰" + strings.Repeat("─", borderW) + "╯\n")
+	return b.String()
+}
+
+func (m Model) renderMessages(width int) string {
+	var b strings.Builder
+	b.WriteString(strings.Repeat("─", width) + "\n")
+
+	if len(m.transcript) == 0 {
+		msg := "(no messages yet - start a conversation!)"
+		pad := (width - len(msg)) / 2
+		b.WriteString(strings.Repeat(" ", pad) + msg + "\n")
+	} else {
+		start := 0
+		if len(m.transcript) > 8 {
+			start = len(m.transcript) - 8
+		}
+		for _, e := range m.transcript[start:] {
+			switch e.Role {
+			case "tool":
+				status := "◐"
+				if e.ToolStatus == "result" {
+					status = "✓"
+				}
+				b.WriteString(fmt.Sprintf("%s %s: %s\n", status, e.ToolName, e.ToolInput))
+			default:
+				prefix := ""
+				if e.Role == "user" {
+					prefix = "user: "
+				} else if e.Role == "assistant" {
+					prefix = "assistant: "
+				}
+				content := e.Content
+				if e.Streaming {
+					content += "▊"
+				}
+				if len(content) > width-15 {
+					content = content[:width-18] + "..."
+				}
+				b.WriteString(prefix + content + "\n")
+			}
+		}
+	}
+
+	if m.pendingApproval != nil {
+		b.WriteString(fmt.Sprintf("\n⚠ Permission Required: %s %s\nCtrl+Y approve | Ctrl+N reject\n",
+			m.pendingApproval.ToolName, m.pendingApproval.ToolInput))
+	}
+	return b.String()
+}
+
+func (m Model) renderFooter(width int) string {
+	var b strings.Builder
+
+	// Top border
+	b.WriteString(strings.Repeat("─", width) + "\n")
+
+	// Build input string with cursor at correct position
+	inputWithCursor := m.buildInputWithCursor()
+
+	// Show input with cursor
+	b.WriteString("❯ " + inputWithCursor + "\n")
+
+	// Bottom border
+	b.WriteString(strings.Repeat("─", width) + "\n")
+
+	// Help text on the right
+	help := "Enter to send  |  ↑↓ history  |  / for commands"
+	if m.pendingApproval != nil {
+		help = "Ctrl+Y approve  |  Ctrl+N reject"
+	}
+
+	// Right-align help text
+	helpWidth := lipgloss.Width(help)
+	helpPad := width - helpWidth
+	if helpPad < 0 {
+		helpPad = 0
+	}
+	b.WriteString(strings.Repeat(" ", helpPad) + help + "\n")
+
+	return b.String()
+}
+
+// buildInputWithCursor builds the input string with cursor at the correct visual position
+func (m Model) buildInputWithCursor() string {
+	runes := []rune(m.input)
+	pos := m.cursorPos
+	if pos > len(runes) {
+		pos = len(runes)
+	}
+	if pos < 0 {
+		pos = 0
+	}
+
+	// If cursor is at the end of input, show blinking cursor
+	if pos >= len(runes) {
+		return InputTextStyle.Render(m.input) + CursorStyle.Render(" ")
+	}
+
+	// Highlight the character at cursor position
+	before := InputTextStyle.Render(string(runes[:pos]))
+	highlighted := CursorStyle.Render(string(runes[pos]))
+	after := InputTextStyle.Render(string(runes[pos+1:]))
+	return before + highlighted + after
 }
