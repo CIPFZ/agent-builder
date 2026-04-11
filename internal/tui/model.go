@@ -569,79 +569,110 @@ func (m Model) buildInputWithCursor(width int) string {
 }
 
 // renderMultiLineInput renders multi-line input with cursor at correct position
+// It handles both explicit \n newlines AND automatic text wrapping
 func (m Model) renderMultiLineInput(runes []rune, cursorPos int, width int) string {
-	// First, split input into original lines (preserving \n as part of content)
-	var originalLines []string
+	// Split input into explicit lines by \n
+	var explicitLines [][]rune
 	var currentLine []rune
-	for i, r := range runes {
+	for _, r := range runes {
 		if r == '\n' {
-			currentLine = append(currentLine, r)
-			originalLines = append(originalLines, string(currentLine))
+			explicitLines = append(explicitLines, currentLine)
 			currentLine = nil
 		} else {
 			currentLine = append(currentLine, r)
 		}
-		_ = i // silence unused variable warning
 	}
-	if len(currentLine) > 0 || len(originalLines) == 0 {
-		originalLines = append(originalLines, string(currentLine))
-	}
-
-	// Find which line and column the cursor is on
-	cursorLine := 0
-	cursorCol := cursorPos
-	charsBeforeCurrentLine := 0
-
-	for lineIdx, line := range originalLines {
-		lineRunes := []rune(line)
-		lineLen := len(lineRunes)
-
-		if cursorPos <= charsBeforeCurrentLine+lineLen {
-			// Cursor is in this line
-			cursorLine = lineIdx
-			cursorCol = cursorPos - charsBeforeCurrentLine
-			break
-		}
-		charsBeforeCurrentLine += lineLen
+	if len(currentLine) > 0 || len(explicitLines) == 0 {
+		explicitLines = append(explicitLines, currentLine)
 	}
 
-	var result strings.Builder
+	// Build visual lines with automatic wrapping
+	type visualLine struct {
+		runes      []rune
+		isCursor   bool
+		cursorCol  int // column within this visual line where cursor should be
+		origPos    int // original rune position in input
+	}
 
-	for lineIdx, line := range originalLines {
+	var visualLines []visualLine
+
+	for lineIdx, lineRunes := range explicitLines {
+		var visLine []rune
+		visLineWidth := 0
+		lineStartOrigPos := 0
 		if lineIdx > 0 {
+			// Account for the \n character from previous line
+			for i := 0; i < len(explicitLines[:lineIdx]); i++ {
+				for j := 0; j < len(explicitLines[i]); j++ {
+					lineStartOrigPos++
+				}
+				lineStartOrigPos++ // for \n
+			}
+		}
+
+		origPos := 0
+		for origPos <= len(lineRunes) {
+			if origPos == len(lineRunes) {
+				// End of explicit line
+				if len(visLine) > 0 {
+					isCursor := cursorPos >= lineStartOrigPos && cursorPos <= lineStartOrigPos+len(lineRunes)
+					cursorCol := 0
+					if isCursor {
+						cursorCol = cursorPos - lineStartOrigPos
+					}
+					visualLines = append(visualLines, visualLine{runes: visLine, isCursor: isCursor, cursorCol: cursorCol, origPos: lineStartOrigPos})
+				}
+				break
+			}
+
+			char := string(lineRunes[origPos])
+			charWidth := lipgloss.Width(char)
+
+			// Check if adding this character exceeds width
+			if visLineWidth+charWidth > width {
+				// Need to wrap to new visual line
+				isCursor := cursorPos >= lineStartOrigPos && cursorPos <= lineStartOrigPos+len(visLine)
+				cursorCol := 0
+				if isCursor {
+					cursorCol = cursorPos - lineStartOrigPos
+				}
+				visualLines = append(visualLines, visualLine{runes: visLine, isCursor: isCursor, cursorCol: cursorCol, origPos: lineStartOrigPos})
+
+				// Start new visual line
+				visLine = []rune{lineRunes[origPos]}
+				visLineWidth = charWidth
+				lineStartOrigPos += len(visLine) - 1
+				origPos++
+			} else {
+				visLine = append(visLine, lineRunes[origPos])
+				visLineWidth += charWidth
+				origPos++
+			}
+		}
+	}
+
+	// Render visual lines
+	var result strings.Builder
+	for i, vline := range visualLines {
+		if i > 0 {
 			result.WriteString("\n")
 		}
 
-		lineContent := line
-		// Remove trailing \n for display (we already added newline above)
-		if len(lineContent) > 0 && lineContent[len(lineContent)-1] == '\n' {
-			lineContent = lineContent[:len(lineContent)-1]
-		}
-
-		if lineIdx == cursorLine {
-			// This line has the cursor
-			lineRunes := []rune(lineContent)
-			if cursorCol >= len(lineRunes) {
-				// Cursor at end of line
-				result.WriteString(InputTextStyle.Render(lineContent))
-				result.WriteString(CursorStyle.Render(" "))
-			} else if cursorCol < 0 {
-				// Cursor at beginning
-				result.WriteString(CursorStyle.Render(string(lineRunes[0])))
-				result.WriteString(InputTextStyle.Render(string(lineRunes[1:])))
-			} else {
-				// Cursor in middle
-				if cursorCol > 0 {
-					result.WriteString(InputTextStyle.Render(string(lineRunes[:cursorCol])))
-				}
-				result.WriteString(CursorStyle.Render(string(lineRunes[cursorCol])))
-				if cursorCol < len(lineRunes)-1 {
-					result.WriteString(InputTextStyle.Render(string(lineRunes[cursorCol+1:])))
-				}
-			}
+		if vline.isCursor && vline.cursorCol >= 0 && vline.cursorCol < len(vline.runes) {
+			// Cursor is within this line
+			before := string(vline.runes[:vline.cursorCol])
+			cursorChar := string(vline.runes[vline.cursorCol])
+			after := string(vline.runes[vline.cursorCol+1:])
+			result.WriteString(InputTextStyle.Render(before))
+			result.WriteString(CursorStyle.Render(cursorChar))
+			result.WriteString(InputTextStyle.Render(after))
+		} else if vline.isCursor && vline.cursorCol >= len(vline.runes) {
+			// Cursor at end of line
+			result.WriteString(InputTextStyle.Render(string(vline.runes)))
+			result.WriteString(CursorStyle.Render(" "))
 		} else {
-			// Regular line without cursor
-			result.WriteString(InputTextStyle.Render(lineContent))
+			// No cursor in this line
+			result.WriteString(InputTextStyle.Render(string(vline.runes)))
 		}
 	}
 
