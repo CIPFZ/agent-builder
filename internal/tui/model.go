@@ -149,19 +149,31 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyLeft:
 		if m.cursorPos > 0 {
-			m.cursorPos--
+			// Check if we're on a line boundary (after \n)
+			if m.cursorPos > 0 && runes[m.cursorPos-1] == '\n' {
+				// Don't move past the \n, stay on current line's first character
+				// Actually, move to before the \n (end of previous line)
+				m.cursorPos--
+			} else {
+				m.cursorPos--
+			}
 		}
 		return m, nil
 	case tea.KeyRight:
 		if m.cursorPos < len(runes) {
-			m.cursorPos++
+			// Don't move past \n, stay on current line
+			if runes[m.cursorPos] != '\n' {
+				m.cursorPos++
+			}
 		}
 		return m, nil
 	case tea.KeyHome:
-		m.cursorPos = 0
+		// Move to beginning of current line
+		m.cursorPos = m.lineStartPosition(runes, m.cursorPos)
 		return m, nil
 	case tea.KeyEnd:
-		m.cursorPos = len(runes)
+		// Move to end of current line (before \n or end of text)
+		m.cursorPos = m.lineEndPosition(runes, m.cursorPos)
 		return m, nil
 	case tea.KeyUp:
 		if len(m.suggestions) > 0 && m.selectedIndex > 0 {
@@ -510,9 +522,28 @@ func (m Model) renderFooter(width int) string {
 	return b.String()
 }
 
+// lineStartPosition returns the position of the first character in the current line
+func (m Model) lineStartPosition(runes []rune, pos int) int {
+	for pos > 0 {
+		if runes[pos-1] == '\n' {
+			break
+		}
+		pos--
+	}
+	return pos
+}
+
+// lineEndPosition returns the position after the last character in the current line
+// (before the \n or at the end of text)
+func (m Model) lineEndPosition(runes []rune, pos int) int {
+	for pos < len(runes) && runes[pos] != '\n' {
+		pos++
+	}
+	return pos
+}
+
 // buildInputWithCursor builds the input string with cursor at the correct visual position
-// buildInputWithCursor builds the input string with cursor at the correct visual position
-// It handles automatic text wrapping when input exceeds the available width
+// For multi-line input, it preserves the original line structure and renders cursor on the correct line
 func (m Model) buildInputWithCursor(width int) string {
 	runes := []rune(m.input)
 	pos := m.cursorPos
@@ -534,75 +565,84 @@ func (m Model) buildInputWithCursor(width int) string {
 		return CursorStyle.Render(" ")
 	}
 
-	// If cursor is at the end of input
-	if pos >= len(runes) {
-		// Check if we need to wrap
-		if lipgloss.Width(m.input) <= availableWidth {
-			return InputTextStyle.Render(m.input) + CursorStyle.Render(" ")
-		}
-		// Need to wrap - show cursor on last visible position
-		return m.wrapTextWithCursor("", pos, availableWidth)
-	}
-
-	// Normal case: cursor in middle of text
-	return m.wrapTextWithCursor(m.input, pos, availableWidth)
+	return m.renderMultiLineInput(runes, pos, availableWidth)
 }
 
-// wrapTextWithCursor wraps text and places cursor at the specified rune position
-func (m Model) wrapTextWithCursor(text string, cursorPos int, width int) string {
-	runes := []rune(text)
+// renderMultiLineInput renders multi-line input with cursor at correct position
+func (m Model) renderMultiLineInput(runes []rune, cursorPos int, width int) string {
+	// First, split input into original lines (preserving \n as part of content)
+	var originalLines []string
+	var currentLine []rune
+	for i, r := range runes {
+		if r == '\n' {
+			currentLine = append(currentLine, r)
+			originalLines = append(originalLines, string(currentLine))
+			currentLine = nil
+		} else {
+			currentLine = append(currentLine, r)
+		}
+		_ = i // silence unused variable warning
+	}
+	if len(currentLine) > 0 || len(originalLines) == 0 {
+		originalLines = append(originalLines, string(currentLine))
+	}
+
+	// Find which line and column the cursor is on
+	cursorLine := 0
+	cursorCol := cursorPos
+	charsBeforeCurrentLine := 0
+
+	for lineIdx, line := range originalLines {
+		lineRunes := []rune(line)
+		lineLen := len(lineRunes)
+
+		if cursorPos <= charsBeforeCurrentLine+lineLen {
+			// Cursor is in this line
+			cursorLine = lineIdx
+			cursorCol = cursorPos - charsBeforeCurrentLine
+			break
+		}
+		charsBeforeCurrentLine += lineLen
+	}
+
 	var result strings.Builder
-	var line strings.Builder
-	lineWidth := 0
-	processed := 0
 
-	for processed < len(runes) {
-		// Check if we're at cursor position
-		if processed == cursorPos {
-			// Render current line content before cursor
-			if line.Len() > 0 {
-				result.WriteString(InputTextStyle.Render(line.String()))
-				line.Reset()
-				lineWidth = 0
-			}
-			// Render cursor (highlighting the next character)
-			if processed < len(runes) {
-				char := string(runes[processed])
-				result.WriteString(CursorStyle.Render(char))
-				processed++
-			} else {
+	for lineIdx, line := range originalLines {
+		if lineIdx > 0 {
+			result.WriteString("\n")
+		}
+
+		lineContent := line
+		// Remove trailing \n for display (we already added newline above)
+		if len(lineContent) > 0 && lineContent[len(lineContent)-1] == '\n' {
+			lineContent = lineContent[:len(lineContent)-1]
+		}
+
+		if lineIdx == cursorLine {
+			// This line has the cursor
+			lineRunes := []rune(lineContent)
+			if cursorCol >= len(lineRunes) {
+				// Cursor at end of line
+				result.WriteString(InputTextStyle.Render(lineContent))
 				result.WriteString(CursorStyle.Render(" "))
+			} else if cursorCol < 0 {
+				// Cursor at beginning
+				result.WriteString(CursorStyle.Render(string(lineRunes[0])))
+				result.WriteString(InputTextStyle.Render(string(lineRunes[1:])))
+			} else {
+				// Cursor in middle
+				if cursorCol > 0 {
+					result.WriteString(InputTextStyle.Render(string(lineRunes[:cursorCol])))
+				}
+				result.WriteString(CursorStyle.Render(string(lineRunes[cursorCol])))
+				if cursorCol < len(lineRunes)-1 {
+					result.WriteString(InputTextStyle.Render(string(lineRunes[cursorCol+1:])))
+				}
 			}
-			continue
+		} else {
+			// Regular line without cursor
+			result.WriteString(InputTextStyle.Render(lineContent))
 		}
-
-		char := string(runes[processed])
-		charWidth := lipgloss.Width(char)
-
-		// Check if adding this character would exceed width
-		if lineWidth+charWidth > width {
-			// Wrap to next line
-			if line.Len() > 0 {
-				result.WriteString(InputTextStyle.Render(line.String()))
-				result.WriteString("\n")
-				line.Reset()
-				lineWidth = 0
-			}
-		}
-
-		line.WriteString(char)
-		lineWidth += charWidth
-		processed++
-	}
-
-	// Render remaining content in line buffer
-	if line.Len() > 0 {
-		result.WriteString(InputTextStyle.Render(line.String()))
-	}
-
-	// If cursor is at the very end of input
-	if cursorPos >= len(runes) {
-		result.WriteString(CursorStyle.Render(" "))
 	}
 
 	return result.String()
