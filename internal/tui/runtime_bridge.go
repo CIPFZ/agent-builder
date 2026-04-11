@@ -209,7 +209,7 @@ func Run(ctx context.Context, sessions *session.Manager, runner *runtime.Runner,
 			return options.Logger.Path()
 		}(),
 	})
-	program := tea.NewProgram(model, tea.WithAltScreen())
+	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	bridge.Attach(program.Send)
 	_, err := program.Run()
 	if err != nil {

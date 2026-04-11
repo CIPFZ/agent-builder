@@ -99,6 +99,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = typed.Width
 		m.height = typed.Height
+	case tea.MouseMsg:
+		return m, m.handleMouse(typed)
 	case tea.KeyMsg:
 		return m.updateKey(typed)
 	case RuntimeEventMsg:
@@ -260,6 +262,12 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		return m, nil
 	}
+}
+
+func (m Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
+	// Mouse wheel scrolling is handled by the terminal's scrollback buffer
+	// No local scrolling needed - just let the terminal handle it
+	return nil
 }
 
 func (m Model) updateSuggestions() {
@@ -455,14 +463,10 @@ func (m Model) renderMessages(width int) string {
 
 	if len(m.transcript) == 0 {
 		msg := "(no messages yet - start a conversation!)"
-		pad := (width - len(msg)) / 2
+		pad := (width - lipgloss.Width(msg)) / 2
 		b.WriteString(strings.Repeat(" ", pad) + msg + "\n")
 	} else {
-		start := 0
-		if len(m.transcript) > 8 {
-			start = len(m.transcript) - 8
-		}
-		for _, e := range m.transcript[start:] {
+		for _, e := range m.transcript {
 			switch e.Role {
 			case "tool":
 				status := "◐"
@@ -470,21 +474,36 @@ func (m Model) renderMessages(width int) string {
 					status = "✓"
 				}
 				b.WriteString(fmt.Sprintf("%s %s: %s\n", status, e.ToolName, e.ToolInput))
-			default:
-				prefix := ""
-				if e.Role == "user" {
-					prefix = "user: "
-				} else if e.Role == "assistant" {
-					prefix = "assistant: "
-				}
+			case "user":
 				content := e.Content
 				if e.Streaming {
 					content += "▊"
 				}
-				if len(content) > width-15 {
-					content = content[:width-18] + "..."
+				availableWidth := width - 6
+				if availableWidth < 10 {
+					availableWidth = 60
 				}
-				b.WriteString(prefix + content + "\n")
+				lines := m.wrapMessageContent(content, availableWidth)
+				for i, line := range lines {
+					if i == 0 {
+						b.WriteString(UserMessageStyle.Render("❯ " + line) + "\n")
+					} else {
+						b.WriteString(UserMessageStyle.Render("  " + line) + "\n")
+					}
+				}
+			case "assistant":
+				content := e.Content
+				if e.Streaming {
+					content += "▊"
+				}
+				availableWidth := width - 2
+				if availableWidth < 10 {
+					availableWidth = 60
+				}
+				lines := m.wrapMessageContent(content, availableWidth)
+				for _, line := range lines {
+					b.WriteString(line + "\n")
+				}
 			}
 		}
 	}
@@ -673,6 +692,37 @@ func (m Model) moveCursorDown(runes []rune, cursorPos int) int {
 	}
 
 	return targetPos
+}
+
+// wrapMessageContent wraps message content by visual width, preserving line breaks
+func (m Model) wrapMessageContent(content string, width int) []string {
+	var lines []string
+	var currentLine strings.Builder
+	lineWidth := 0
+
+	for _, r := range content {
+		if r == '\n' {
+			lines = append(lines, currentLine.String())
+			currentLine.Reset()
+			lineWidth = 0
+			continue
+		}
+
+		charWidth := lipgloss.Width(string(r))
+		if lineWidth+charWidth > width && lineWidth > 0 {
+			lines = append(lines, currentLine.String())
+			currentLine.Reset()
+			lineWidth = 0
+		}
+		currentLine.WriteRune(r)
+		lineWidth += charWidth
+	}
+
+	if currentLine.Len() > 0 || len(lines) == 0 {
+		lines = append(lines, currentLine.String())
+	}
+
+	return lines
 }
 
 // buildInputWithCursor builds the input string with cursor at the correct visual position

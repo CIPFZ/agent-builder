@@ -24,6 +24,9 @@ var (
 	DarkBgSubtle   = lipgloss.Color("#21262D")
 	DarkBorder     = lipgloss.Color("#30363D")
 
+	// User message background (gray)
+	UserMsgBg      = lipgloss.Color("#5e5c64")
+
 	// Text colors
 	DarkText       = lipgloss.Color("#E6EDF3")
 	DarkTextMuted  = lipgloss.Color("#8B949E")
@@ -70,7 +73,7 @@ var (
 // Text styles
 var (
 	TitleStyle = lipgloss.NewStyle().
-			Foreground(DarkText).
+			Foreground(lipgloss.Color("#1F1F1F")).
 			Bold(true)
 
 	HeaderStyle = lipgloss.NewStyle().
@@ -98,7 +101,9 @@ var (
 // Message styles
 var (
 	UserMessageStyle = lipgloss.NewStyle().
-				Foreground(UserRoleColor)
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Background(UserMsgBg).
+				Bold(true)
 
 	AssistantMessageStyle = lipgloss.NewStyle().
 				Foreground(AssistantColor)
@@ -141,7 +146,7 @@ var (
 	ApprovalBoxStyle = lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(PermissionBlue).
-			Foreground(DarkText).
+			Foreground(lipgloss.Color("#1F1F1F")).
 			Padding(1, 2)
 
 	ApprovalTitleStyle = lipgloss.NewStyle().
