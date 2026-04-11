@@ -186,6 +186,9 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.input = m.history[m.historyIndex]
 			m.cursorPos = len([]rune(m.input))
+		} else {
+			// Multi-line visual navigation
+			m.cursorPos = m.moveCursorUp(runes, m.cursorPos)
 		}
 		return m, nil
 	case tea.KeyDown:
@@ -200,6 +203,9 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.input = ""
 			}
 			m.cursorPos = len([]rune(m.input))
+		} else {
+			// Multi-line visual navigation
+			m.cursorPos = m.moveCursorDown(runes, m.cursorPos)
 		}
 		return m, nil
 	case tea.KeyTab:
@@ -522,24 +528,151 @@ func (m Model) renderFooter(width int) string {
 	return b.String()
 }
 
-// lineStartPosition returns the position of the first character in the current line
+// lineStartPosition returns the position of the first character in the current visual line
 func (m Model) lineStartPosition(runes []rune, pos int) int {
-	for pos > 0 {
-		if runes[pos-1] == '\n' {
-			break
-		}
-		pos--
+	if len(runes) == 0 {
+		return 0
 	}
-	return pos
+	width := m.width - 2
+	if width < 20 {
+		width = 80
+	}
+
+	visLineStart := 0
+	visLineWidth := 0
+
+	for i := 0; i < len(runes); i++ {
+		charWidth := lipgloss.Width(string(runes[i]))
+
+		if visLineWidth+charWidth > width && visLineWidth > 0 {
+			// Would exceed width - this char starts a new visual line
+			if i <= pos {
+				visLineStart = i
+				visLineWidth = charWidth
+			} else {
+				// pos is in previous visual line
+				return visLineStart
+			}
+		} else {
+			visLineWidth += charWidth
+		}
+	}
+
+	return visLineStart
 }
 
-// lineEndPosition returns the position after the last character in the current line
-// (before the \n or at the end of text)
+// lineEndPosition returns the position after the last character in the current visual line
 func (m Model) lineEndPosition(runes []rune, pos int) int {
-	for pos < len(runes) && runes[pos] != '\n' {
-		pos++
+	if len(runes) == 0 {
+		return 0
 	}
-	return pos
+	width := m.width - 2
+	if width < 20 {
+		width = 80
+	}
+
+	visLineWidth := 0
+
+	for i := 0; i < len(runes); i++ {
+		charWidth := lipgloss.Width(string(runes[i]))
+
+		if visLineWidth+charWidth > width && visLineWidth > 0 {
+			// Would exceed width - previous line ends before this char
+			if i <= pos {
+				visLineWidth = charWidth
+			} else {
+				return i
+			}
+		} else {
+			visLineWidth += charWidth
+		}
+	}
+
+	return len(runes)
+}
+
+// moveCursorUp moves cursor to the same column in the previous visual line
+func (m Model) moveCursorUp(runes []rune, cursorPos int) int {
+	if len(runes) == 0 || cursorPos == 0 {
+		return 0
+	}
+
+	width := m.width - 2
+	if width < 20 {
+		width = 80
+	}
+
+	// Find current visual line boundaries and column
+	currentLineStart := m.lineStartPosition(runes, cursorPos)
+	currentCol := cursorPos - currentLineStart
+
+	if currentLineStart == 0 {
+		// Already at first visual line, stay at position 0
+		return 0
+	}
+
+	// Find the start of previous visual line
+	prevLineStart := 0
+	visLineWidth := 0
+	for i := 0; i < currentLineStart; i++ {
+		charWidth := lipgloss.Width(string(runes[i]))
+		if visLineWidth+charWidth > width && visLineWidth > 0 {
+			prevLineStart = i
+		}
+		visLineWidth += charWidth
+	}
+
+	// Calculate target position in previous line
+	targetPos := prevLineStart + currentCol
+	if targetPos > currentLineStart-1 {
+		targetPos = currentLineStart - 1
+	}
+
+	return targetPos
+}
+
+// moveCursorDown moves cursor to the same column in the next visual line
+func (m Model) moveCursorDown(runes []rune, cursorPos int) int {
+	if len(runes) == 0 {
+		return 0
+	}
+
+	width := m.width - 2
+	if width < 20 {
+		width = 80
+	}
+
+	// Find current visual line boundaries
+	currentLineStart := m.lineStartPosition(runes, cursorPos)
+	currentLineEnd := m.lineEndPosition(runes, cursorPos)
+	currentCol := cursorPos - currentLineStart
+
+	// Find the end of current visual line
+	visLineWidth := 0
+	for i := currentLineStart; i < len(runes); i++ {
+		charWidth := lipgloss.Width(string(runes[i]))
+		if visLineWidth+charWidth > width && visLineWidth > 0 {
+			currentLineEnd = i
+			break
+		}
+		visLineWidth += charWidth
+	}
+
+	if currentLineEnd >= len(runes) {
+		// Already at last visual line, stay at end
+		return len(runes)
+	}
+
+	// Find start of next visual line (which is currentLineEnd)
+	nextLineStart := currentLineEnd
+
+	// Calculate target position in next line
+	targetPos := nextLineStart + currentCol
+	if targetPos >= len(runes) {
+		targetPos = len(runes)
+	}
+
+	return targetPos
 }
 
 // buildInputWithCursor builds the input string with cursor at the correct visual position
@@ -645,7 +778,7 @@ func (m Model) renderMultiLineInput(runes []rune, cursorPos int, width int) stri
 			globalStart := lineStart + visLineStart
 			globalEnd := lineStart + visLineEnd
 
-			isCursor := cursorPos >= globalStart && cursorPos <= globalEnd
+			isCursor := cursorPos >= globalStart && cursorPos < globalEnd
 			cursorCol := -1
 			if isCursor {
 				cursorCol = cursorPos - globalStart
@@ -662,12 +795,35 @@ func (m Model) renderMultiLineInput(runes []rune, cursorPos int, width int) stri
 		}
 	}
 
+	// Special case: if cursor is at the end of content and no line claimed it,
+	// mark the last line as having cursor at end
+	if cursorPos == len(runes) {
+		cursorClaimed := false
+		for _, vl := range visualLines {
+			if vl.isCursor {
+				cursorClaimed = true
+				break
+			}
+		}
+		if !cursorClaimed && len(visualLines) > 0 {
+			lastIdx := len(visualLines) - 1
+			visualLines[lastIdx].isCursor = true
+			visualLines[lastIdx].cursorCol = len(visualLines[lastIdx].runes)
+		}
+	}
+
 	// Step 3: Render visual lines
 	var result strings.Builder
+	totalLines := len(visualLines)
+
 	for i, vl := range visualLines {
+		isLastLine := (i == totalLines-1)
 		if i > 0 {
 			result.WriteString("\n")
 		}
+
+		// Check if cursor should be shown at end of this line
+		cursorAtEnd := vl.isCursor && (vl.cursorCol >= len(vl.runes) || (isLastLine && cursorPos == len(runes)))
 
 		if vl.isCursor && vl.cursorCol >= 0 && vl.cursorCol < len(vl.runes) {
 			// Cursor within this line
@@ -677,13 +833,10 @@ func (m Model) renderMultiLineInput(runes []rune, cursorPos int, width int) stri
 			result.WriteString(InputTextStyle.Render(before))
 			result.WriteString(CursorStyle.Render(cursorChar))
 			result.WriteString(InputTextStyle.Render(after))
-		} else if vl.isCursor && vl.cursorCol >= len(vl.runes) {
-			// Cursor at end of this line
+		} else if cursorAtEnd {
+			// Cursor at end of this line (including end of last line)
 			result.WriteString(InputTextStyle.Render(string(vl.runes)))
 			result.WriteString(CursorStyle.Render(" "))
-		} else if vl.isCursor && vl.cursorCol < 0 {
-			// Cursor before this line (shouldn't happen normally)
-			result.WriteString(InputTextStyle.Render(string(vl.runes)))
 		} else {
 			// No cursor
 			result.WriteString(InputTextStyle.Render(string(vl.runes)))
