@@ -8,7 +8,7 @@ import (
 
 func SetupPolicy(policy Policy) (Policy, error) {
 	policy.Mode = normalizeMode(policy.Mode)
-	policy.SubagentMode = normalizeMode(policy.SubagentMode)
+	policy.SubagentMode = normalizeOptionalMode(policy.SubagentMode)
 	if !isKnownMode(policy.Mode) {
 		return Policy{}, fmt.Errorf("unknown permission mode %q", policy.Mode)
 	}
@@ -34,7 +34,13 @@ func SetupPolicy(policy Policy) (Policy, error) {
 	policy.RuleLayers = layers
 	policy.Rules = mergeRuleLayers(policy.Rules, policy.RuleLayers)
 
-	if policy.Mode == ModeWorkspaceWrite && len(policy.WorkspaceRoots) == 0 {
+	if policy.Mode == ModePlan {
+		policy.PlanMode = true
+	}
+	if policy.Mode == ModeAuto {
+		policy.AutoMode = true
+	}
+	if (policy.Mode == ModeWorkspaceWrite || policy.Mode == ModeAuto) && len(policy.WorkspaceRoots) == 0 {
 		return Policy{}, fmt.Errorf("workspace-write mode requires at least one workspace root")
 	}
 	if policy.PlanMode && policy.AutoMode {
@@ -61,12 +67,28 @@ func SetupPolicy(policy Policy) (Policy, error) {
 }
 
 func normalizeMode(mode Mode) Mode {
-	return Mode(strings.TrimSpace(string(mode)))
+	switch strings.TrimSpace(string(mode)) {
+	case "":
+		return ModeDefault
+	case "bypass-permissions":
+		return ModeBypassPermissions
+	case "dont-ask":
+		return ModeDontAsk
+	default:
+		return Mode(strings.TrimSpace(string(mode)))
+	}
+}
+
+func normalizeOptionalMode(mode Mode) Mode {
+	if strings.TrimSpace(string(mode)) == "" {
+		return ""
+	}
+	return normalizeMode(mode)
 }
 
 func isKnownMode(mode Mode) bool {
 	switch mode {
-	case ModeAsk, ModeWorkspaceWrite, ModeDangerFullAccess:
+	case ModeDefault, ModeAsk, ModeAcceptEdits, ModePlan, ModeAuto, ModeWorkspaceWrite, ModeDangerFullAccess, ModeBypassPermissions, ModeDontAsk:
 		return true
 	default:
 		return false
@@ -75,12 +97,14 @@ func isKnownMode(mode Mode) bool {
 
 func modeRank(mode Mode) int {
 	switch mode {
-	case ModeAsk:
+	case ModeDefault, ModeAsk, ModePlan, ModeDontAsk:
 		return 1
-	case ModeWorkspaceWrite:
+	case ModeAuto, ModeAcceptEdits, ModeWorkspaceWrite:
 		return 2
 	case ModeDangerFullAccess:
 		return 3
+	case ModeBypassPermissions:
+		return 4
 	default:
 		return 0
 	}
@@ -180,15 +204,25 @@ func mergeRuleLayers(inline []Rule, layers []RuleLayer) []Rule {
 func ruleSourceRank(source RuleSource) int {
 	switch source {
 	case RuleSourceSession:
+		return 8
+	case RuleSourceCommand:
+		return 7
+	case RuleSourceCLIArg:
+		return 6
+	case RuleSourcePolicy:
+		return 5
+	case RuleSourceFlag:
 		return 4
-	case RuleSourceProject:
+	case RuleSourceLocal:
 		return 3
-	case RuleSourceConfig:
+	case RuleSourceProject:
 		return 2
-	case RuleSourceSystem:
+	case RuleSourceConfig:
 		return 1
-	default:
+	case RuleSourceSystem:
 		return 0
+	default:
+		return -1
 	}
 }
 

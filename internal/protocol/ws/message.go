@@ -11,10 +11,11 @@ type Message struct {
 }
 
 type ConnectPayload struct {
-	Role           string `json:"role"`
-	ClientIdentity string `json:"client_identity"`
-	AgentID        string `json:"agent_id,omitempty"`
-	SessionKey     string `json:"session_key,omitempty"`
+	Role                      string `json:"role"`
+	ClientIdentity            string `json:"client_identity"`
+	AgentID                   string `json:"agent_id,omitempty"`
+	SessionKey                string `json:"session_key,omitempty"`
+	SupportsPermissionControl bool   `json:"supports_permission_control,omitempty"`
 }
 
 type SendMessagePayload struct {
@@ -36,8 +37,16 @@ type SessionSetPermissionPayload struct {
 	SessionKey       string   `json:"session_key,omitempty"`
 	Mode             string   `json:"mode"`
 	SubagentMode     string   `json:"subagent_mode,omitempty"`
+	PlanMode         *bool    `json:"plan_mode,omitempty"`
+	AutoMode         *bool    `json:"auto_mode,omitempty"`
 	WorkspaceRoots   []string `json:"workspace_roots,omitempty"`
 	CascadeSubagents bool     `json:"cascade_subagents,omitempty"`
+}
+
+type SessionSetModelPayload struct {
+	SessionID  string `json:"session_id,omitempty"`
+	SessionKey string `json:"session_key,omitempty"`
+	Model      string `json:"model"`
 }
 
 type ApprovalListPayload struct {
@@ -89,15 +98,18 @@ type OrchestrationPlanExecutionHistoryPayload struct {
 }
 
 const (
-	TypeRequest  = "req"
-	TypeResponse = "res"
-	TypeEvent    = "event"
+	TypeRequest         = "req"
+	TypeResponse        = "res"
+	TypeEvent           = "event"
+	TypeControlRequest  = "control_request"
+	TypeControlResponse = "control_response"
 
 	MethodConnect                           = "connect"
 	MethodSendMessage                       = "send_message"
 	MethodSpawnSubagent                     = "spawn_subagent"
 	MethodSessionStatus                     = "session_status"
 	MethodSessionSetPermission              = "session_set_permission"
+	MethodSessionSetModel                   = "session_set_model"
 	MethodOrchestrationStatus               = "orchestration_status"
 	MethodOrchestrationHistory              = "orchestration_history"
 	MethodOrchestrationSummary              = "orchestration_summary"

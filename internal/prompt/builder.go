@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"myclaw/internal/memory"
@@ -21,6 +22,8 @@ type BuildInput struct {
 	DefaultSystemPrompt []string
 	CustomSystemPrompt  string
 	AgentSystemPrompt   string
+	CoordinatorSystemPrompt string
+	ProactiveAgentPrompt bool
 	AppendSystemPrompt  string
 	OverrideSystemPrompt string
 	UserContextLines    []string
@@ -80,7 +83,14 @@ func buildSystemPrompt(input BuildInput) string {
 		baseParts = []string{custom}
 	}
 	if agentPrompt := strings.TrimSpace(input.AgentSystemPrompt); agentPrompt != "" {
-		baseParts = []string{agentPrompt}
+		if input.ProactiveAgentPrompt {
+			baseParts = append(append([]string(nil), baseParts...), "\n# Custom Agent Instructions\n"+agentPrompt)
+		} else {
+			baseParts = []string{agentPrompt}
+		}
+	}
+	if coordinatorPrompt := strings.TrimSpace(input.CoordinatorSystemPrompt); coordinatorPrompt != "" {
+		baseParts = []string{coordinatorPrompt}
 	}
 	if appendPrompt := strings.TrimSpace(input.AppendSystemPrompt); appendPrompt != "" {
 		baseParts = append(append([]string(nil), baseParts...), appendPrompt)
@@ -158,8 +168,29 @@ func buildWorkspaceLines(ctx workspace.Context) []string {
 }
 
 func buildToolLines(defs []tools.Definition) []string {
-	lines := make([]string, 0, len(defs))
+	defs = append([]tools.Definition(nil), defs...)
+	slices.SortFunc(defs, func(a, b tools.Definition) int {
+		aBuiltin := toolSortPartition(a) == 0
+		bBuiltin := toolSortPartition(b) == 0
+		if aBuiltin != bBuiltin {
+			if aBuiltin {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	deduped := defs[:0]
+	seen := make(map[string]struct{}, len(defs))
 	for _, def := range defs {
+		if _, ok := seen[def.Name]; ok {
+			continue
+		}
+		seen[def.Name] = struct{}{}
+		deduped = append(deduped, def)
+	}
+	lines := make([]string, 0, len(defs))
+	for _, def := range deduped {
 		line := fmt.Sprintf("%s: %s", def.Name, def.Description)
 		if def.SearchHint != "" {
 			line += fmt.Sprintf(" [search hint: %s]", def.SearchHint)
@@ -173,6 +204,14 @@ func buildToolLines(defs []tools.Definition) []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func toolSortPartition(def tools.Definition) int {
+	source := strings.TrimSpace(def.Source)
+	if source == "" || strings.EqualFold(source, "builtin") {
+		return 0
+	}
+	return 1
 }
 
 func ComposeSystemContent(ctx Context) string {

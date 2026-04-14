@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,16 +19,34 @@ import (
 	"myclaw/internal/orchestration"
 	"myclaw/internal/permissions"
 	protocolws "myclaw/internal/protocol/ws"
+	"myclaw/internal/queryengine"
 	"myclaw/internal/session"
 )
 
 type orchestrationHook struct {
+	mu     sync.Mutex
 	events []orchestration.Event
 }
 
+type permissionHookFunc func(context.Context, queryengine.PermissionHookRequest) (permissions.Decision, bool, error)
+
+func (f permissionHookFunc) CheckPermission(ctx context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
+	return f(ctx, request)
+}
+
 func (h *orchestrationHook) Handle(_ context.Context, event orchestration.Event) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.events = append(h.events, event)
 	return nil
+}
+
+func (h *orchestrationHook) Events() []orchestration.Event {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]orchestration.Event, len(h.events))
+	copy(out, h.events)
+	return out
 }
 
 func waitForPermissionRequired(t *testing.T, conn *websocket.Conn) string {
@@ -54,6 +73,65 @@ func waitForPermissionRequired(t *testing.T, conn *websocket.Conn) string {
 
 	t.Fatal("expected permission.required event")
 	return ""
+}
+
+func waitForEvent(t *testing.T, conn *websocket.Conn, eventName string) protocolws.Message {
+	t.Helper()
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set %s read deadline: %v", eventName, err)
+	}
+	defer func() {
+		if err := conn.SetReadDeadline(time.Time{}); err != nil {
+			t.Fatalf("clear %s read deadline: %v", eventName, err)
+		}
+	}()
+
+	for i := 0; i < 24; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			t.Fatalf("read event while waiting for %s: %v", eventName, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == eventName {
+			return event
+		}
+	}
+
+	t.Fatalf("expected %s event", eventName)
+	return protocolws.Message{}
+}
+
+func readCanUseToolControlRequest(t *testing.T, conn *websocket.Conn) protocolws.Message {
+	t.Helper()
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set can_use_tool read deadline: %v", err)
+	}
+	defer func() {
+		if err := conn.SetReadDeadline(time.Time{}); err != nil {
+			t.Fatalf("clear can_use_tool read deadline: %v", err)
+		}
+	}()
+
+	for i := 0; i < 16; i++ {
+		var message protocolws.Message
+		if err := conn.ReadJSON(&message); err != nil {
+			t.Fatalf("read can_use_tool event %d: %v", i, err)
+		}
+		if message.Type == protocolws.TypeControlRequest {
+			request, _ := message.Payload["request"].(map[string]any)
+			if request["subtype"] == "can_use_tool" {
+				return message
+			}
+		}
+		if message.Type == protocolws.TypeEvent && message.Event == "permission.required" {
+			t.Fatalf("unexpected permission.required before can_use_tool: %#v", message.Payload)
+		}
+		if message.Type == protocolws.TypeEvent && message.Event == "run.error" {
+			t.Fatalf("unexpected run.error before can_use_tool: %#v", message.Payload)
+		}
+	}
+
+	t.Fatal("expected can_use_tool control_request")
+	return protocolws.Message{}
 }
 
 func TestHandleWebSocketConnectAndSendMessage(t *testing.T) {
@@ -336,7 +414,7 @@ func TestHandleWebSocketDoesNotEmitRunErrorWhenApprovalIsRequired(t *testing.T) 
 		Payload: map[string]any{
 			"content": "tool run pwd",
 		},
-		}); err != nil {
+	}); err != nil {
 		t.Fatalf("write inbound: %v", err)
 	}
 
@@ -366,6 +444,1066 @@ func TestHandleWebSocketDoesNotEmitRunErrorWhenApprovalIsRequired(t *testing.T) 
 
 	if !foundPermissionRequired {
 		t.Fatal("expected permission.required event")
+	}
+}
+
+func TestHandleWebSocketPermissionHookAllowBypassesApprovalPrompt(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	var hookCalls int
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+		PermissionHook: permissionHookFunc(func(_ context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
+			hookCalls++
+			if request.ToolName != "system.run" {
+				t.Fatalf("permission hook tool = %q, want system.run", request.ToolName)
+			}
+			return permissions.Decision{
+				Allowed: true,
+				DecisionReason: permissions.DecisionReason{
+					Type:     permissions.DecisionReasonHook,
+					HookName: "PermissionRequest",
+					Reason:   "allowed by gateway hook",
+				},
+			}, true, nil
+		}),
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	_ = conn.ReadJSON(&discard)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	foundToolCalled := false
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	for i := 0; i < 12; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			if foundToolCalled {
+				break
+			}
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "permission.required" {
+			t.Fatalf("unexpected permission.required payload = %#v", event.Payload)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.called" {
+			foundToolCalled = true
+			if got := event.Payload["tool_name"]; got != "system.run" {
+				t.Fatalf("tool.called tool_name = %#v, want system.run", got)
+			}
+			break
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "run.error" {
+			t.Fatalf("unexpected run.error payload = %#v", event.Payload)
+		}
+	}
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		t.Fatalf("clear read deadline: %v", err)
+	}
+
+	if hookCalls != 1 {
+		t.Fatalf("hook calls = %d, want one PermissionRequest hook call", hookCalls)
+	}
+	if !foundToolCalled {
+		t.Fatal("expected hook-allowed tool.called event")
+	}
+}
+
+func TestHandleWebSocketPermissionHookDenyContinuesWithErrorToolResult(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+		PermissionHook: permissionHookFunc(func(_ context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
+			return permissions.Decision{
+				Reason: "denied by gateway hook",
+				DecisionReason: permissions.DecisionReason{
+					Type:     permissions.DecisionReasonHook,
+					HookName: "PermissionRequest",
+					Reason:   "denied by gateway hook",
+				},
+			}, true, nil
+		}),
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	_ = conn.ReadJSON(&discard)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
+	foundToolResult := false
+	foundAssistant := false
+	for i := 0; i < 24; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			if foundToolResult && foundAssistant {
+				break
+			}
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "permission.required" {
+			t.Fatalf("unexpected permission.required payload = %#v", event.Payload)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.called" {
+			t.Fatalf("unexpected tool.called payload = %#v", event.Payload)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "run.error" {
+			t.Fatalf("unexpected run.error payload = %#v", event.Payload)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.result" {
+			foundToolResult = true
+			message, _ := event.Payload["message"].(map[string]any)
+			content, _ := message["content"].(string)
+			if !strings.Contains(content, "denied by gateway hook") {
+				t.Fatalf("tool.result payload = %#v, want hook denial reason", event.Payload)
+			}
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == protocolws.EventMessageCreated {
+			message, _ := event.Payload["message"].(map[string]any)
+			if message["role"] == "assistant" {
+				foundAssistant = true
+			}
+		}
+		if foundToolResult && foundAssistant {
+			break
+		}
+	}
+	if !foundToolResult || !foundAssistant {
+		t.Fatalf("found tool.result=%v assistant=%v, want both after hook deny", foundToolResult, foundAssistant)
+	}
+}
+
+func TestHandleWebSocketPermissionRequiredIncludesPromptMetadata(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+		PermissionHook: permissionHookFunc(func(_ context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
+			return permissions.Decision{
+				RequiresApproval: true,
+				Reason:           "review rich prompt metadata",
+				AcceptFeedback:   "Provide changes before approval",
+				ContentBlocks: []map[string]any{{
+					"type": "text",
+					"text": "metadata block",
+				}},
+				DecisionReason: permissions.DecisionReason{
+					Type:     permissions.DecisionReasonHook,
+					HookName: "PermissionRequest",
+					Reason:   "review rich prompt metadata",
+				},
+			}, true, nil
+		}),
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	_ = conn.ReadJSON(&discard)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
+	for i := 0; i < 12; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type != protocolws.TypeEvent || event.Event != "permission.required" {
+			continue
+		}
+		if got := event.Payload["accept_feedback"]; got != "Provide changes before approval" {
+			t.Fatalf("accept_feedback = %#v, want hook feedback prompt", got)
+		}
+		blocks, ok := event.Payload["content_blocks"].([]any)
+		if !ok || len(blocks) != 1 {
+			t.Fatalf("content_blocks = %#v, want one block", event.Payload["content_blocks"])
+		}
+		return
+	}
+	t.Fatal("expected permission.required")
+}
+
+func TestHandleWebSocketApprovalListIncludesPromptMetadata(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+		PermissionHook: permissionHookFunc(func(_ context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
+			return permissions.Decision{
+				RequiresApproval: true,
+				Reason:           "review metadata",
+				AcceptFeedback:   "Explain why this command is needed",
+				ContentBlocks: []map[string]any{{
+					"type": "text",
+					"text": "approval list block",
+				}},
+				DecisionReason: permissions.DecisionReason{
+					Type:     permissions.DecisionReasonHook,
+					HookName: "PermissionRequest",
+					Reason:   "review metadata",
+				},
+			}, true, nil
+		}),
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	_ = conn.ReadJSON(&discard)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+	_ = waitForPermissionRequired(t, conn)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "3",
+		Method: protocolws.MethodApprovalList,
+		Payload: map[string]any{
+			"status": "pending",
+		},
+	}); err != nil {
+		t.Fatalf("write approval_list: %v", err)
+	}
+	var res protocolws.Message
+	if err := conn.ReadJSON(&res); err != nil {
+		t.Fatalf("read approval_list: %v", err)
+	}
+	approvals, _ := res.Payload["approvals"].([]any)
+	if len(approvals) != 1 {
+		t.Fatalf("approvals = %#v, want one approval", res.Payload["approvals"])
+	}
+	item, _ := approvals[0].(map[string]any)
+	if got := item["accept_feedback"]; got != "Explain why this command is needed" {
+		t.Fatalf("approval accept_feedback = %#v, want metadata", got)
+	}
+	blocks, ok := item["content_blocks"].([]any)
+	if !ok || len(blocks) != 1 {
+		t.Fatalf("approval content_blocks = %#v, want one block", item["content_blocks"])
+	}
+}
+
+func TestHandleWebSocketApprovalApproveCarriesFeedbackBlocksIntoToolResult(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectResponse protocolws.Message
+	if err := conn.ReadJSON(&connectResponse); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+
+	sessionID, _ := connectResponse.Payload["session_id"].(string)
+	if sessionID == "" {
+		t.Fatalf("connect response payload = %#v, want session_id", connectResponse.Payload)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+	approvalID := waitForPermissionRequired(t, conn)
+	if approvalID == "" {
+		t.Fatal("permission.required event did not include approval_id")
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "3",
+		Method: protocolws.MethodApprovalApprove,
+		Payload: map[string]any{
+			"approval_id":     approvalID,
+			"accept_feedback": "approved with UI note",
+			"content_blocks": []map[string]any{{
+				"type": "text",
+				"text": "extra UI block",
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("write approval approve: %v", err)
+	}
+	waitForEvent(t, conn, "tool.result")
+
+	messages, ok := sessionManager.Messages(sessionID)
+	if !ok {
+		t.Fatalf("messages for session %q not found", sessionID)
+	}
+	var toolMessage session.Message
+	for _, message := range messages {
+		if message.Role == "tool" {
+			toolMessage = message
+			break
+		}
+	}
+	if toolMessage.ID == "" {
+		t.Fatalf("messages = %#v, want tool message", messages)
+	}
+	if len(toolMessage.Blocks) != 3 {
+		t.Fatalf("tool message blocks = %#v, want tool result plus approval feedback blocks", toolMessage.Blocks)
+	}
+	if toolMessage.Blocks[1].Text != "approved with UI note" || toolMessage.Blocks[2].Text != "extra UI block" {
+		t.Fatalf("tool message blocks = %#v, want approval feedback blocks", toolMessage.Blocks)
+	}
+}
+
+func TestHandleWebSocketCanUseToolControlRequestAllowRunsTool(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":                        "sdk",
+			"client_identity":             "sdk-host",
+			"agent_id":                    "main",
+			"supports_permission_control": true,
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	_ = conn.ReadJSON(&discard)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	var control protocolws.Message
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	for i := 0; i < 12; i++ {
+		if err := conn.ReadJSON(&control); err != nil {
+			t.Fatalf("read control request %d: %v", i, err)
+		}
+		if control.Type == protocolws.TypeControlRequest {
+			break
+		}
+		if control.Type == protocolws.TypeEvent && control.Event == "permission.required" {
+			t.Fatalf("unexpected permission.required before can_use_tool: %#v", control.Payload)
+		}
+		if control.Type == protocolws.TypeEvent && control.Event == "run.error" {
+			t.Fatalf("unexpected run.error before can_use_tool: %#v", control.Payload)
+		}
+	}
+	if control.Type != protocolws.TypeControlRequest {
+		t.Fatalf("message = %#v, want control_request", control)
+	}
+	request, _ := control.Payload["request"].(map[string]any)
+	if got := request["subtype"]; got != "can_use_tool" {
+		t.Fatalf("control request subtype = %#v, want can_use_tool", got)
+	}
+	if got := request["tool_name"]; got != "system.run" {
+		t.Fatalf("control request tool_name = %#v, want system.run", got)
+	}
+	if got := request["input"]; got != "pwd" {
+		t.Fatalf("control request input = %#v, want pwd", got)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type: protocolws.TypeControlResponse,
+		ID:   control.ID,
+		Payload: map[string]any{
+			"behavior": "allow",
+		},
+	}); err != nil {
+		t.Fatalf("write control response: %v", err)
+	}
+
+	foundToolCalled := false
+	for i := 0; i < 12; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			if foundToolCalled {
+				break
+			}
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.called" {
+			foundToolCalled = true
+			if got := event.Payload["tool_name"]; got != "system.run" {
+				t.Fatalf("tool.called tool_name = %#v, want system.run", got)
+			}
+			break
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "permission.required" {
+			t.Fatalf("unexpected permission.required after can_use_tool allow: %#v", event.Payload)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "run.error" {
+			t.Fatalf("unexpected run.error after can_use_tool allow: %#v", event.Payload)
+		}
+	}
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		t.Fatalf("clear read deadline: %v", err)
+	}
+	if !foundToolCalled {
+		t.Fatal("expected can_use_tool allow to continue to tool.called")
+	}
+}
+
+func TestHandleWebSocketCanUseToolControlRequestIncludesStructuredDecisionReason(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{
+			Mode: permissions.ModeAsk,
+			Rules: []permissions.Rule{{
+				ToolName: "system.run",
+				Action:   permissions.ActionAsk,
+				Source:   string(permissions.RuleSourceProject),
+			}},
+		},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":                        "sdk",
+			"client_identity":             "sdk-host",
+			"agent_id":                    "main",
+			"supports_permission_control": true,
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	_ = conn.ReadJSON(&discard)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	control := readCanUseToolControlRequest(t, conn)
+	request, _ := control.Payload["request"].(map[string]any)
+	details, _ := request["decision_reason_details"].(map[string]any)
+	if details["type"] != "rule" {
+		t.Fatalf("decision_reason_details = %#v, want rule object", details)
+	}
+	if request["decision_reason"] != nil {
+		t.Fatalf("decision_reason = %#v, want nil for rule reason per Claude structuredIO serialization", request["decision_reason"])
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type: protocolws.TypeControlResponse,
+		ID:   control.ID,
+		Payload: map[string]any{
+			"behavior": "deny",
+			"message":  "stop after reason assertion",
+		},
+	}); err != nil {
+		t.Fatalf("write control response: %v", err)
+	}
+}
+
+func TestHandleWebSocketPermissionRequiredIncludesStructuredDecisionReason(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{
+			Mode: permissions.ModeAsk,
+			Rules: []permissions.Rule{{
+				ToolName: "system.run",
+				Action:   permissions.ActionAsk,
+				Source:   string(permissions.RuleSourceProject),
+			}},
+		},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	_ = conn.ReadJSON(&discard)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
+	for i := 0; i < 12; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "permission.required" {
+			details, _ := event.Payload["decision_reason_details"].(map[string]any)
+			if details["type"] != "rule" {
+				t.Fatalf("decision_reason_details = %#v, want rule object", details)
+			}
+			if got := event.Payload["decision_reason"]; got != nil {
+				t.Fatalf("decision_reason = %#v, want omitted string for rule reason", got)
+			}
+			return
+		}
+	}
+	t.Fatal("expected permission.required")
+}
+
+func TestHandleWebSocketCanUseToolControlResponseDenyContinuesWithErrorToolResult(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":                        "sdk",
+			"client_identity":             "sdk-host",
+			"agent_id":                    "main",
+			"supports_permission_control": true,
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	_ = conn.ReadJSON(&discard)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	control := readCanUseToolControlRequest(t, conn)
+	if err := conn.WriteJSON(protocolws.Message{
+		Type: protocolws.TypeControlResponse,
+		ID:   control.ID,
+		Payload: map[string]any{
+			"behavior": "deny",
+			"message":  "denied by sdk host",
+		},
+	}); err != nil {
+		t.Fatalf("write control response: %v", err)
+	}
+
+	foundToolResult := false
+	foundAssistant := false
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set deny continuation read deadline: %v", err)
+	}
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
+	for i := 0; i < 24; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			if foundToolResult && foundAssistant {
+				break
+			}
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "permission.required" {
+			t.Fatalf("unexpected permission.required after can_use_tool deny: %#v", event.Payload)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.called" {
+			t.Fatalf("unexpected tool.called after can_use_tool deny: %#v", event.Payload)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "run.error" {
+			t.Fatalf("unexpected run.error after can_use_tool deny: %#v", event.Payload)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.result" {
+			foundToolResult = true
+			message, _ := event.Payload["message"].(map[string]any)
+			content, _ := message["content"].(string)
+			if !strings.Contains(content, "denied by sdk host") {
+				t.Fatalf("tool.result payload = %#v, want sdk denial reason", event.Payload)
+			}
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == protocolws.EventMessageCreated {
+			message, _ := event.Payload["message"].(map[string]any)
+			if message["role"] == "assistant" {
+				foundAssistant = true
+			}
+		}
+		if foundToolResult && foundAssistant {
+			break
+		}
+	}
+	if !foundToolResult || !foundAssistant {
+		t.Fatalf("found tool.result=%v assistant=%v, want both after can_use_tool deny", foundToolResult, foundAssistant)
+	}
+}
+
+func TestHandleWebSocketCanUseToolControlResponseUpdatedInputDrivesToolCall(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":                        "sdk",
+			"client_identity":             "sdk-host",
+			"agent_id":                    "main",
+			"supports_permission_control": true,
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	_ = conn.ReadJSON(&discard)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	control := readCanUseToolControlRequest(t, conn)
+	if err := conn.WriteJSON(protocolws.Message{
+		Type: protocolws.TypeControlResponse,
+		ID:   control.ID,
+		Payload: map[string]any{
+			"behavior":      "allow",
+			"updated_input": "echo sdk-host",
+		},
+	}); err != nil {
+		t.Fatalf("write control response: %v", err)
+	}
+
+	foundToolCalled := false
+	for i := 0; i < 12; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			if foundToolCalled {
+				break
+			}
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.called" {
+			foundToolCalled = true
+			if got := event.Payload["tool_input"]; got != "echo sdk-host" {
+				t.Fatalf("tool.called tool_input = %#v, want updated input", got)
+			}
+			break
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "permission.required" {
+			t.Fatalf("unexpected permission.required after can_use_tool allow: %#v", event.Payload)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "run.error" {
+			t.Fatalf("unexpected run.error after can_use_tool allow: %#v", event.Payload)
+		}
+	}
+	if !foundToolCalled {
+		t.Fatal("expected updated can_use_tool input to continue to tool.called")
+	}
+}
+
+func TestHandleWebSocketCanUseToolControlRequestCarriesObjectNativeInput(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, &objectToolCallClient{}, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":                        "sdk",
+			"client_identity":             "sdk-host",
+			"agent_id":                    "main",
+			"supports_permission_control": true,
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	_ = conn.ReadJSON(&discard)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "emit object tool input",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	control := readCanUseToolControlRequest(t, conn)
+	request, _ := control.Payload["request"].(map[string]any)
+	input, ok := request["input"].(map[string]any)
+	if !ok {
+		t.Fatalf("control request input = %#v, want object-native map", request["input"])
+	}
+	if got := input["command"]; got != "pwd" {
+		t.Fatalf("control request input.command = %#v, want pwd", got)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type: protocolws.TypeControlResponse,
+		ID:   control.ID,
+		Payload: map[string]any{
+			"behavior": "deny",
+			"message":  "stop after input assertion",
+		},
+	}); err != nil {
+		t.Fatalf("write control response: %v", err)
+	}
+}
+
+func TestHandleWebSocketCanUseToolControlRequestRacesFallbackPermissionHook(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy:         permissions.Policy{Mode: permissions.ModeAsk},
+		PermissionControlTimeout: 2 * time.Second,
+		PermissionHook: permissionHookFunc(func(_ context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
+			if request.ToolName != "system.run" {
+				t.Fatalf("permission hook tool = %q, want system.run", request.ToolName)
+			}
+			return permissions.Decision{
+				Allowed: true,
+				DecisionReason: permissions.DecisionReason{
+					Type:     permissions.DecisionReasonHook,
+					HookName: "PermissionRequest",
+					Reason:   "allowed before sdk host responded",
+				},
+			}, true, nil
+		}),
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":                        "sdk",
+			"client_identity":             "sdk-host",
+			"agent_id":                    "main",
+			"supports_permission_control": true,
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	_ = conn.ReadJSON(&discard)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	foundControlRequest := false
+	foundToolCalled := false
+	if err := conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	for i := 0; i < 16; i++ {
+		var message protocolws.Message
+		if err := conn.ReadJSON(&message); err != nil {
+			if foundToolCalled {
+				break
+			}
+			t.Fatalf("read message %d: %v", i, err)
+		}
+		if message.Type == protocolws.TypeControlRequest {
+			foundControlRequest = true
+			continue
+		}
+		if message.Type == protocolws.TypeEvent && message.Event == "tool.called" {
+			foundToolCalled = true
+			break
+		}
+		if message.Type == protocolws.TypeEvent && message.Event == "permission.required" {
+			t.Fatalf("unexpected permission.required while hook should win race: %#v", message.Payload)
+		}
+		if message.Type == protocolws.TypeEvent && message.Event == "run.error" {
+			t.Fatalf("unexpected run.error while hook should win race: %#v", message.Payload)
+		}
+	}
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		t.Fatalf("clear read deadline: %v", err)
+	}
+	if !foundControlRequest {
+		t.Fatal("expected sdk can_use_tool control_request to be emitted")
+	}
+	if !foundToolCalled {
+		t.Fatal("expected PermissionRequest hook to win race before sdk timeout")
 	}
 }
 
@@ -406,7 +1544,7 @@ func TestHandleWebSocketApprovalListReturnsPendingRequests(t *testing.T) {
 		Payload: map[string]any{
 			"content": "tool run pwd",
 		},
-		}); err != nil {
+	}); err != nil {
 		t.Fatalf("write send_message: %v", err)
 	}
 
@@ -434,7 +1572,7 @@ func TestHandleWebSocketApprovalListReturnsPendingRequests(t *testing.T) {
 	if err := conn.WriteJSON(protocolws.Message{
 		Type:   protocolws.TypeRequest,
 		ID:     "3",
- 		Method: protocolws.MethodApprovalList,
+		Method: protocolws.MethodApprovalList,
 	}); err != nil {
 		t.Fatalf("write approval_list: %v", err)
 	}
@@ -498,7 +1636,7 @@ func TestHandleWebSocketApprovalApproveUpdatesRequestStatus(t *testing.T) {
 		Payload: map[string]any{
 			"content": "tool run pwd",
 		},
-		}); err != nil {
+	}); err != nil {
 		t.Fatalf("write send_message: %v", err)
 	}
 
@@ -530,7 +1668,7 @@ func TestHandleWebSocketApprovalApproveUpdatesRequestStatus(t *testing.T) {
 		Payload: map[string]any{
 			"approval_id": approvalID,
 		},
-		}); err != nil {
+	}); err != nil {
 		t.Fatalf("write approval_approve: %v", err)
 	}
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
@@ -612,7 +1750,7 @@ func TestHandleWebSocketApprovalRejectUpdatesRequestStatus(t *testing.T) {
 		Payload: map[string]any{
 			"content": "tool run pwd",
 		},
-		}); err != nil {
+	}); err != nil {
 		t.Fatalf("write send_message: %v", err)
 	}
 
@@ -644,7 +1782,7 @@ func TestHandleWebSocketApprovalRejectUpdatesRequestStatus(t *testing.T) {
 		Payload: map[string]any{
 			"approval_id": approvalID,
 		},
-		}); err != nil {
+	}); err != nil {
 		t.Fatalf("write approval_reject: %v", err)
 	}
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
@@ -659,6 +1797,98 @@ func TestHandleWebSocketApprovalRejectUpdatesRequestStatus(t *testing.T) {
 	}
 	if got := rejectRes.Payload["status"]; got != "rejected" {
 		t.Fatalf("approval status = %#v, want rejected", got)
+	}
+}
+
+func TestHandleWebSocketApprovalRejectWithFeedbackContinuesWithErrorToolResult(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectResponse protocolws.Message
+	if err := conn.ReadJSON(&connectResponse); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	sessionID, _ := connectResponse.Payload["session_id"].(string)
+	if sessionID == "" {
+		t.Fatalf("connect response payload = %#v, want session_id", connectResponse.Payload)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write send_message: %v", err)
+	}
+	approvalID := waitForPermissionRequired(t, conn)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "3",
+		Method: protocolws.MethodApprovalReject,
+		Payload: map[string]any{
+			"approval_id":     approvalID,
+			"reject_feedback": "use a safer command",
+			"content_blocks": []map[string]any{{
+				"type": "text",
+				"text": "extra rejection block",
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("write approval_reject: %v", err)
+	}
+	waitForEvent(t, conn, "tool.result")
+
+	messages, ok := sessionManager.Messages(sessionID)
+	if !ok {
+		t.Fatalf("messages for session %q not found", sessionID)
+	}
+	var toolMessage session.Message
+	for _, message := range messages {
+		if message.Role == "tool" {
+			toolMessage = message
+			break
+		}
+	}
+	if toolMessage.ID == "" {
+		t.Fatalf("messages = %#v, want rejected tool result message", messages)
+	}
+	if len(toolMessage.Blocks) != 2 {
+		t.Fatalf("tool message blocks = %#v, want error tool result plus reject content block", toolMessage.Blocks)
+	}
+	if !toolMessage.Blocks[0].IsError || !strings.Contains(toolMessage.Blocks[0].Content, "use a safer command") {
+		t.Fatalf("tool result block = %#v, want rejection feedback error", toolMessage.Blocks[0])
+	}
+	if toolMessage.Blocks[1].Text != "extra rejection block" {
+		t.Fatalf("reject content block = %#v, want appended reject block", toolMessage.Blocks[1])
 	}
 }
 
@@ -699,7 +1929,7 @@ func TestHandleWebSocketApprovalListCanFilterByStatus(t *testing.T) {
 		Payload: map[string]any{
 			"content": "tool run pwd",
 		},
-		}); err != nil {
+	}); err != nil {
 		t.Fatalf("write send_message: %v", err)
 	}
 
@@ -731,7 +1961,7 @@ func TestHandleWebSocketApprovalListCanFilterByStatus(t *testing.T) {
 		Payload: map[string]any{
 			"approval_id": approvalID,
 		},
-		}); err != nil {
+	}); err != nil {
 		t.Fatalf("write approval_reject: %v", err)
 	}
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
@@ -751,10 +1981,10 @@ func TestHandleWebSocketApprovalListCanFilterByStatus(t *testing.T) {
 			t.Fatalf("set approval.updated read deadline: %v", err)
 		}
 		if err := conn.ReadJSON(&maybeEvent); err == nil {
- 			if maybeEvent.Type == protocolws.TypeEvent && maybeEvent.Event == "approval.updated" {
- 				break
- 			}
- 		}
+			if maybeEvent.Type == protocolws.TypeEvent && maybeEvent.Event == "approval.updated" {
+				break
+			}
+		}
 	}
 
 	if err := conn.WriteJSON(protocolws.Message{
@@ -764,7 +1994,7 @@ func TestHandleWebSocketApprovalListCanFilterByStatus(t *testing.T) {
 		Payload: map[string]any{
 			"status": "pending",
 		},
-		}); err != nil {
+	}); err != nil {
 		t.Fatalf("write approval_list pending: %v", err)
 	}
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
@@ -789,7 +2019,7 @@ func TestHandleWebSocketApprovalListCanFilterByStatus(t *testing.T) {
 		Payload: map[string]any{
 			"status": "rejected",
 		},
-		}); err != nil {
+	}); err != nil {
 		t.Fatalf("write approval_list rejected: %v", err)
 	}
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
@@ -842,7 +2072,7 @@ func TestHandleWebSocketApprovalDecisionEmitsAuditEvent(t *testing.T) {
 		Payload: map[string]any{
 			"content": "tool run pwd",
 		},
-		}); err != nil {
+	}); err != nil {
 		t.Fatalf("write send_message: %v", err)
 	}
 
@@ -874,7 +2104,7 @@ func TestHandleWebSocketApprovalDecisionEmitsAuditEvent(t *testing.T) {
 		Payload: map[string]any{
 			"approval_id": approvalID,
 		},
-		}); err != nil {
+	}); err != nil {
 		t.Fatalf("write approval_reject: %v", err)
 	}
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
@@ -894,8 +2124,8 @@ func TestHandleWebSocketApprovalDecisionEmitsAuditEvent(t *testing.T) {
 			t.Fatalf("set audit read deadline: %v", err)
 		}
 		if err := conn.ReadJSON(&event); err != nil {
- 			t.Fatalf("read audit event %d: %v", i, err)
- 		}
+			t.Fatalf("read audit event %d: %v", i, err)
+		}
 		if event.Type == protocolws.TypeEvent && event.Event == "approval.updated" {
 			if got := event.Payload["status"]; got != "rejected" {
 				t.Fatalf("approval.updated status = %#v, want rejected", got)
@@ -1328,6 +2558,745 @@ func TestHandleWebSocketSessionSetPermissionUpdatesStatusAndEnforcement(t *testi
 	}
 
 	t.Fatal("expected permission.required after session permission was switched to ask")
+}
+
+func TestHandleWebSocketSessionSetPermissionUpdatesPlanAndAutoModeStatus(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectRes protocolws.Message
+	if err := conn.ReadJSON(&connectRes); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	sessionID, _ := connectRes.Payload["session_id"].(string)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSessionSetPermission,
+		Payload: map[string]any{
+			"session_id":      sessionID,
+			"mode":            "workspace-write",
+			"plan_mode":       true,
+			"workspace_roots": []string{"C:/repo", "C:/repo/subdir"},
+		},
+	}); err != nil {
+		t.Fatalf("write session_set_permission: %v", err)
+	}
+	var setRes protocolws.Message
+	if err := conn.ReadJSON(&setRes); err != nil {
+		t.Fatalf("read session_set_permission: %v", err)
+	}
+	if !setRes.OK {
+		t.Fatalf("set permission response = %#v, want ok", setRes)
+	}
+	if got := setRes.Payload["plan_mode"]; got != true {
+		t.Fatalf("set permission plan_mode = %#v, want true", got)
+	}
+	if got := setRes.Payload["auto_mode"]; got != false {
+		t.Fatalf("set permission auto_mode = %#v, want false", got)
+	}
+	roots, ok := setRes.Payload["workspace_roots"].([]any)
+	if !ok || len(roots) != 1 || roots[0] != "C:/repo" {
+		t.Fatalf("set permission workspace_roots = %#v, want collapsed root", setRes.Payload["workspace_roots"])
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "3",
+		Method: protocolws.MethodSessionStatus,
+		Payload: map[string]any{
+			"session_id": sessionID,
+		},
+	}); err != nil {
+		t.Fatalf("write session status: %v", err)
+	}
+	var statusRes protocolws.Message
+	if err := conn.ReadJSON(&statusRes); err != nil {
+		t.Fatalf("read session status: %v", err)
+	}
+	if got := statusRes.Payload["plan_mode"]; got != true {
+		t.Fatalf("status plan_mode = %#v, want true", got)
+	}
+	if got := statusRes.Payload["auto_mode"]; got != false {
+		t.Fatalf("status auto_mode = %#v, want false", got)
+	}
+	roots, ok = statusRes.Payload["workspace_roots"].([]any)
+	if !ok || len(roots) != 1 || roots[0] != "C:/repo" {
+		t.Fatalf("status workspace_roots = %#v, want collapsed root", statusRes.Payload["workspace_roots"])
+	}
+}
+
+func TestHandleWebSocketSessionSetPermissionRejectsInvalidPlanAndAutoCombination(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectRes protocolws.Message
+	if err := conn.ReadJSON(&connectRes); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	sessionID, _ := connectRes.Payload["session_id"].(string)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSessionSetPermission,
+		Payload: map[string]any{
+			"session_id": sessionID,
+			"mode":       "danger-full-access",
+			"plan_mode":  true,
+			"auto_mode":  true,
+		},
+	}); err != nil {
+		t.Fatalf("write session_set_permission: %v", err)
+	}
+	var setRes protocolws.Message
+	if err := conn.ReadJSON(&setRes); err != nil {
+		t.Fatalf("read session_set_permission: %v", err)
+	}
+	if setRes.OK {
+		t.Fatalf("set permission response = %#v, want error", setRes)
+	}
+	if setRes.Error == nil || !strings.Contains(setRes.Error.Message, "plan mode and auto mode cannot be enabled together") {
+		t.Fatalf("set permission error = %#v, want plan/auto validation message", setRes.Error)
+	}
+}
+
+func TestHandleWebSocketSessionSetPermissionNormalizesClaudeCodeExternalModes(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectRes protocolws.Message
+	if err := conn.ReadJSON(&connectRes); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	sessionID, _ := connectRes.Payload["session_id"].(string)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSessionSetPermission,
+		Payload: map[string]any{
+			"session_id":    sessionID,
+			"mode":          "bypass-permissions",
+			"subagent_mode": "dont-ask",
+		},
+	}); err != nil {
+		t.Fatalf("write session_set_permission: %v", err)
+	}
+	var setRes protocolws.Message
+	if err := conn.ReadJSON(&setRes); err != nil {
+		t.Fatalf("read session_set_permission: %v", err)
+	}
+	if !setRes.OK {
+		t.Fatalf("set permission response = %#v, want ok", setRes)
+	}
+	if got := setRes.Payload["permission_mode"]; got != "bypassPermissions" {
+		t.Fatalf("permission mode = %#v, want normalized bypassPermissions", got)
+	}
+	if got := setRes.Payload["subagent_mode"]; got != "dontAsk" {
+		t.Fatalf("subagent mode = %#v, want normalized dontAsk", got)
+	}
+}
+
+func TestHandleWebSocketSessionStatusIncludesMainLoopModelState(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MainLoopModel:    "claude-sonnet-4-6",
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectRes protocolws.Message
+	if err := conn.ReadJSON(&connectRes); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	sessionID, _ := connectRes.Payload["session_id"].(string)
+
+	if err := server.runner.SetSessionMainLoopModelOverride(sessionID, "claude-opus-4-6"); err != nil {
+		t.Fatalf("set session main loop model override: %v", err)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSessionStatus,
+		Payload: map[string]any{
+			"session_id": sessionID,
+		},
+	}); err != nil {
+		t.Fatalf("write session status: %v", err)
+	}
+	var statusRes protocolws.Message
+	if err := conn.ReadJSON(&statusRes); err != nil {
+		t.Fatalf("read session status: %v", err)
+	}
+	if got := statusRes.Payload["main_loop_model"]; got != "claude-sonnet-4-6" {
+		t.Fatalf("main loop model = %#v, want base model", got)
+	}
+	if got := statusRes.Payload["session_main_loop_model_override"]; got != "claude-opus-4-6" {
+		t.Fatalf("session model override = %#v, want override model", got)
+	}
+	if got := statusRes.Payload["resolved_main_loop_model"]; got != "claude-opus-4-6" {
+		t.Fatalf("resolved main loop model = %#v, want resolved override model", got)
+	}
+	updated, ok := sessionManager.GetByID(sessionID)
+	if !ok {
+		t.Fatalf("session %q not found", sessionID)
+	}
+	if updated.Metadata.InitialMainLoopModel != "claude-sonnet-4-6" {
+		t.Fatalf("metadata = %#v, want initial main loop model latched before first query", updated.Metadata)
+	}
+}
+
+func TestHandleWebSocketSessionStatusLatchesInitialMainLoopModelWithoutOverride(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MainLoopModel:    "claude-sonnet-4-6",
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectRes protocolws.Message
+	if err := conn.ReadJSON(&connectRes); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	sessionID, _ := connectRes.Payload["session_id"].(string)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSessionStatus,
+		Payload: map[string]any{
+			"session_id": sessionID,
+		},
+	}); err != nil {
+		t.Fatalf("write session status: %v", err)
+	}
+	var statusRes protocolws.Message
+	if err := conn.ReadJSON(&statusRes); err != nil {
+		t.Fatalf("read session status: %v", err)
+	}
+	if got := statusRes.Payload["main_loop_model"]; got != "claude-sonnet-4-6" {
+		t.Fatalf("main loop model = %#v, want base model", got)
+	}
+	updated, ok := sessionManager.GetByID(sessionID)
+	if !ok {
+		t.Fatalf("session %q not found", sessionID)
+	}
+	if updated.Metadata.InitialMainLoopModel != "claude-sonnet-4-6" {
+		t.Fatalf("metadata = %#v, want initial main loop model latched on status read", updated.Metadata)
+	}
+}
+
+func TestHandleWebSocketSessionSetModelUpdatesStatusAndResolvedModelState(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MainLoopModel:    "claude-sonnet-4-6",
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectRes protocolws.Message
+	if err := conn.ReadJSON(&connectRes); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	sessionID, _ := connectRes.Payload["session_id"].(string)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSessionSetModel,
+		Payload: map[string]any{
+			"session_id": sessionID,
+			"model":      "claude-opus-4-6",
+		},
+	}); err != nil {
+		t.Fatalf("write session_set_model: %v", err)
+	}
+	var setRes protocolws.Message
+	if err := conn.ReadJSON(&setRes); err != nil {
+		t.Fatalf("read session_set_model: %v", err)
+	}
+	if !setRes.OK {
+		t.Fatalf("set model response = %#v, want ok", setRes)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "3",
+		Method: protocolws.MethodSessionStatus,
+		Payload: map[string]any{
+			"session_id": sessionID,
+		},
+	}); err != nil {
+		t.Fatalf("write session status: %v", err)
+	}
+	var statusRes protocolws.Message
+	if err := conn.ReadJSON(&statusRes); err != nil {
+		t.Fatalf("read session status: %v", err)
+	}
+	if got := statusRes.Payload["session_main_loop_model_override"]; got != "claude-opus-4-6" {
+		t.Fatalf("session model override = %#v, want override model", got)
+	}
+	if got := statusRes.Payload["resolved_main_loop_model"]; got != "claude-opus-4-6" {
+		t.Fatalf("resolved main loop model = %#v, want resolved override model", got)
+	}
+}
+
+func TestHandleWebSocketSessionSetModelAliasUpdatesResolvedModelState(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MainLoopModel:    "claude-sonnet-4-6",
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectRes protocolws.Message
+	if err := conn.ReadJSON(&connectRes); err != nil {
+		t.Fatalf("read connect: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	sessionID, _ := connectRes.Payload["session_id"].(string)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSessionSetModel,
+		Payload: map[string]any{
+			"session_id": sessionID,
+			"model":      "best",
+		},
+	}); err != nil {
+		t.Fatalf("write session_set_model: %v", err)
+	}
+	var setRes protocolws.Message
+	if err := conn.ReadJSON(&setRes); err != nil {
+		t.Fatalf("read session_set_model: %v", err)
+	}
+	if !setRes.OK {
+		t.Fatalf("set model response = %#v, want ok", setRes)
+	}
+	if got := setRes.Payload["session_main_loop_model_override"]; got != "best" {
+		t.Fatalf("session model override = %#v, want raw alias override", got)
+	}
+	if got := setRes.Payload["resolved_main_loop_model"]; got != "claude-opus-4-6" {
+		t.Fatalf("resolved main loop model = %#v, want resolved alias model", got)
+	}
+}
+
+func TestHandleWebSocketSessionSetModelDefaultClearsOverride(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MainLoopModel:    "claude-sonnet-4-6",
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectRes protocolws.Message
+	if err := conn.ReadJSON(&connectRes); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	sessionID, _ := connectRes.Payload["session_id"].(string)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSessionSetModel,
+		Payload: map[string]any{
+			"session_id": sessionID,
+			"model":      "claude-opus-4-6",
+		},
+	}); err != nil {
+		t.Fatalf("write session_set_model override: %v", err)
+	}
+	var setOverrideRes protocolws.Message
+	if err := conn.ReadJSON(&setOverrideRes); err != nil {
+		t.Fatalf("read session_set_model override: %v", err)
+	}
+	if !setOverrideRes.OK {
+		t.Fatalf("set override response = %#v, want ok", setOverrideRes)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "3",
+		Method: protocolws.MethodSessionSetModel,
+		Payload: map[string]any{
+			"session_id": sessionID,
+			"model":      "default",
+		},
+	}); err != nil {
+		t.Fatalf("write session_set_model default: %v", err)
+	}
+	var clearRes protocolws.Message
+	if err := conn.ReadJSON(&clearRes); err != nil {
+		t.Fatalf("read session_set_model default: %v", err)
+	}
+	if !clearRes.OK {
+		t.Fatalf("clear model response = %#v, want ok", clearRes)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "4",
+		Method: protocolws.MethodSessionStatus,
+		Payload: map[string]any{
+			"session_id": sessionID,
+		},
+	}); err != nil {
+		t.Fatalf("write session status: %v", err)
+	}
+	var statusRes protocolws.Message
+	if err := conn.ReadJSON(&statusRes); err != nil {
+		t.Fatalf("read session status: %v", err)
+	}
+	if got := statusRes.Payload["session_main_loop_model_override"]; got != "" {
+		t.Fatalf("session model override = %#v, want cleared override", got)
+	}
+	if got := statusRes.Payload["resolved_main_loop_model"]; got != "claude-sonnet-4-6" {
+		t.Fatalf("resolved main loop model = %#v, want fallback base model", got)
+	}
+}
+
+func TestHandleWebSocketSessionSetModelAffectsSubsequentQueryRequests(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	client := &captureModelClient{}
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, client, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MainLoopModel:    "claude-sonnet-4-6",
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectRes protocolws.Message
+	if err := conn.ReadJSON(&connectRes); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	sessionID, _ := connectRes.Payload["session_id"].(string)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSessionSetModel,
+		Payload: map[string]any{
+			"session_id": sessionID,
+			"model":      "claude-opus-4-6",
+		},
+	}); err != nil {
+		t.Fatalf("write session_set_model: %v", err)
+	}
+	var setRes protocolws.Message
+	if err := conn.ReadJSON(&setRes); err != nil {
+		t.Fatalf("read session_set_model: %v", err)
+	}
+	if !setRes.OK {
+		t.Fatalf("set model response = %#v, want ok", setRes)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "3",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "hello",
+		},
+	}); err != nil {
+		t.Fatalf("write send_message: %v", err)
+	}
+
+	for i := 0; i < 12; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "agent.lifecycle.end" {
+			break
+		}
+	}
+
+	if client.lastRequest.Model != "claude-opus-4-6" {
+		t.Fatalf("request model = %q, want session-set model override", client.lastRequest.Model)
+	}
+}
+
+func TestHandleWebSocketSessionSetModelDefaultRestoresBaseModelForQueries(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	client := &captureModelClient{}
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, client, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MainLoopModel:    "claude-sonnet-4-6",
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectRes protocolws.Message
+	if err := conn.ReadJSON(&connectRes); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	sessionID, _ := connectRes.Payload["session_id"].(string)
+
+	for idx, model := range []string{"claude-opus-4-6", "default"} {
+		if err := conn.WriteJSON(protocolws.Message{
+			Type:   protocolws.TypeRequest,
+			ID:     string(rune('2' + idx)),
+			Method: protocolws.MethodSessionSetModel,
+			Payload: map[string]any{
+				"session_id": sessionID,
+				"model":      model,
+			},
+		}); err != nil {
+			t.Fatalf("write session_set_model %d: %v", idx, err)
+		}
+		var setRes protocolws.Message
+		if err := conn.ReadJSON(&setRes); err != nil {
+			t.Fatalf("read session_set_model %d: %v", idx, err)
+		}
+		if !setRes.OK {
+			t.Fatalf("set model response %d = %#v, want ok", idx, setRes)
+		}
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "4",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "hello",
+		},
+	}); err != nil {
+		t.Fatalf("write send_message: %v", err)
+	}
+
+	for i := 0; i < 12; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "agent.lifecycle.end" {
+			break
+		}
+	}
+
+	if client.lastRequest.Model != "claude-sonnet-4-6" {
+		t.Fatalf("request model = %q, want base model after default reset", client.lastRequest.Model)
+	}
 }
 
 func TestHandleWebSocketSessionSetPermissionCascadeUpdatesExistingSubagentStatus(t *testing.T) {
@@ -2026,7 +3995,7 @@ func TestHandleWebSocketSubagentUpdatedIsSentToOrchestrationHook(t *testing.T) {
 	}
 
 	found := false
-	for _, event := range hook.events {
+	for _, event := range hook.Events() {
 		if event.Type == "subagent.updated" && event.RunID == run.ID && event.Status == "steered" {
 			found = true
 			break
@@ -2035,7 +4004,7 @@ func TestHandleWebSocketSubagentUpdatedIsSentToOrchestrationHook(t *testing.T) {
 	if !found {
 		deadline := time.Now().Add(500 * time.Millisecond)
 		for time.Now().Before(deadline) {
-			for _, event := range hook.events {
+			for _, event := range hook.Events() {
 				if event.Type == "subagent.updated" && event.RunID == run.ID && event.Status == "steered" {
 					found = true
 					break
@@ -2048,7 +4017,7 @@ func TestHandleWebSocketSubagentUpdatedIsSentToOrchestrationHook(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("expected subagent.updated orchestration hook event, got %#v", hook.events)
+		t.Fatalf("expected subagent.updated orchestration hook event, got %#v", hook.Events())
 	}
 }
 
@@ -5404,6 +7373,22 @@ func TestHandleWebSocketSubagentResumeReusesChildSession(t *testing.T) {
 	}
 	firstRunID, _ := spawn.Payload["run_id"].(string)
 	firstChildSessionKey, _ := spawn.Payload["child_session_key"].(string)
+	completed := false
+	for i := 0; i < 6; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			t.Fatalf("read spawn follow-up %d: %v", i, err)
+		}
+		runID, _ := event.Payload["run_id"].(string)
+		status, _ := event.Payload["status"].(string)
+		if runID == firstRunID && status == "completed" {
+			completed = true
+			break
+		}
+	}
+	if !completed {
+		t.Fatalf("did not observe completion event for first run %q", firstRunID)
+	}
 
 	if err := conn.WriteJSON(protocolws.Message{
 		Type:   protocolws.TypeRequest,
@@ -5805,6 +7790,89 @@ func (c *slowMockClient) Stream(ctx context.Context, req llm.GenerateRequest, ha
 		}
 	}
 	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+}
+
+type objectToolCallClient struct{}
+
+func (c *objectToolCallClient) Stream(_ context.Context, _ llm.GenerateRequest, handler llm.StreamHandler) error {
+	if err := handler.OnEvent(llm.StreamEvent{
+		Type:            "tool.call",
+		ToolName:        "system.run",
+		ToolInput:       `{"command":"pwd"}`,
+		ToolInputObject: map[string]any{"command": "pwd"},
+	}); err != nil {
+		return err
+	}
+	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+}
+
+type captureModelClient struct {
+	lastRequest llm.GenerateRequest
+}
+
+func (c *captureModelClient) Stream(_ context.Context, req llm.GenerateRequest, handler llm.StreamHandler) error {
+	c.lastRequest = req
+	if err := handler.OnEvent(llm.StreamEvent{Type: "text.delta", Delta: "Captured"}); err != nil {
+		return err
+	}
+	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+}
+
+func TestHandleWebSocketPassesConfiguredMainLoopModelIntoGenerateRequest(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	client := &captureModelClient{}
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, client, Options{
+		MainLoopModel: "claude-opus-4-6",
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	_ = conn.ReadJSON(&protocolws.Message{})
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "hello",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	for i := 0; i < 12; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "agent.lifecycle.end" {
+			break
+		}
+	}
+
+	if client.lastRequest.Model != "claude-opus-4-6" {
+		t.Fatalf("request model = %q, want %q", client.lastRequest.Model, "claude-opus-4-6")
+	}
 }
 
 func helloCommand() string {

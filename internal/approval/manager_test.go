@@ -60,3 +60,32 @@ func TestManagerCreateStoresRuleSource(t *testing.T) {
 		t.Fatalf("approval rule source = %q, want session", request.RuleSource)
 	}
 }
+
+func TestManagerUpdatePromptMetadataStoresClonedApprovalFeedbackBlocks(t *testing.T) {
+	manager := approval.NewManager()
+	request := manager.Create("session-1", "run-1", "msg-1", "system.run", "pwd", "approval required", "approval", "")
+	contentBlocks := []map[string]any{{
+		"type": "text",
+		"text": "reviewer note",
+	}}
+
+	updated, err := manager.UpdatePromptMetadata(request.ID, "approved with context", contentBlocks)
+	if err != nil {
+		t.Fatalf("update prompt metadata: %v", err)
+	}
+	contentBlocks[0]["text"] = "mutated"
+
+	if updated.AcceptFeedback != "approved with context" {
+		t.Fatalf("accept feedback = %q, want stored feedback", updated.AcceptFeedback)
+	}
+	if len(updated.ContentBlocks) != 1 || updated.ContentBlocks[0]["text"] != "reviewer note" {
+		t.Fatalf("content blocks = %#v, want cloned block", updated.ContentBlocks)
+	}
+	restored, ok := manager.Get(request.ID)
+	if !ok {
+		t.Fatal("expected stored approval")
+	}
+	if len(restored.ContentBlocks) != 1 || restored.ContentBlocks[0]["text"] != "reviewer note" {
+		t.Fatalf("stored content blocks = %#v, want cloned block", restored.ContentBlocks)
+	}
+}

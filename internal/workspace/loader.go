@@ -29,7 +29,7 @@ func (l *Loader) Load() (Context, error) {
 		Root: l.root,
 	}
 
-	for _, name := range []string{"AGENTS.md", "SOUL.md", "TOOLS.md"} {
+	for _, name := range []string{"CLAUDE.md", "AGENTS.md", "SOUL.md", "TOOLS.md"} {
 		path := filepath.Join(l.root, name)
 		data, err := os.ReadFile(path)
 		if err != nil {

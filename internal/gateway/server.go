@@ -20,6 +20,7 @@ import (
 	"myclaw/internal/orchestration"
 	"myclaw/internal/permissions"
 	protocolws "myclaw/internal/protocol/ws"
+	"myclaw/internal/queryengine"
 	"myclaw/internal/runtime"
 	"myclaw/internal/session"
 	"myclaw/internal/workspace"
@@ -29,20 +30,30 @@ type Server struct {
 	upgrader websocket.Upgrader
 	logger   *log.Logger
 
-	nextID         atomic.Uint64
-	sessionManager *session.Manager
-	runner         *runtime.Runner
-	coordinator    *orchestration.Coordinator
-	orchestrator   orchestration.Hook
-	queue          *runtime.Queue
-	mu             sync.RWMutex
-	clients        map[string]*Client
+	nextID                   atomic.Uint64
+	sessionManager           *session.Manager
+	runner                   *runtime.Runner
+	coordinator              *orchestration.Coordinator
+	orchestrator             orchestration.Hook
+	queue                    *runtime.Queue
+	fallbackPermissionHook   queryengine.PermissionHook
+	permissionControlTimeout time.Duration
+	mu                       sync.RWMutex
+	clients                  map[string]*Client
 }
 
 type Options struct {
-	PermissionPolicy permissions.Policy
-	Compactor        *compaction.Service
-	Orchestrator     orchestration.Hook
+	PermissionPolicy          permissions.Policy
+	Compactor                 *compaction.Service
+	Orchestrator              orchestration.Hook
+	PermissionHook            queryengine.PermissionHook
+	PreToolUseHook            queryengine.PreToolUseHook
+	PostToolUseHook           queryengine.PostToolUseHook
+	PostToolUseFailureHook    queryengine.PostToolUseFailureHook
+	PermissionUpdatePersister queryengine.PermissionUpdatePersister
+	PermissionControlTimeout  time.Duration
+	MainLoopModel             string
+	LLMProvider               string
 }
 
 func NewServer(logger *log.Logger, sessionManager *session.Manager, llmClient llm.Client) *Server {
@@ -76,26 +87,39 @@ func NewServerWithOptions(logger *log.Logger, sessionManager *session.Manager, l
 		hook = orchestration.Chain{coordinator, options.Orchestrator}
 	}
 
-	runner := runtime.NewRunnerWithOptions(sessionManager, llmClient, workspace.NewLoader(defaultWorkspaceRoot()), nil, runtime.Options{
-		PermissionPolicy: options.PermissionPolicy,
-		Compactor:        options.Compactor,
-		Orchestrator:     hook,
-	})
-
-	return &Server{
+	server := &Server{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(*http.Request) bool {
 				return true
 			},
 		},
-		logger:         logger,
-		sessionManager: sessionManager,
-		runner:         runner,
-		coordinator:    coordinator,
-		orchestrator:   hook,
-		queue:          runtime.NewQueue(runner),
-		clients:        make(map[string]*Client),
+		logger:                   logger,
+		sessionManager:           sessionManager,
+		coordinator:              coordinator,
+		orchestrator:             hook,
+		fallbackPermissionHook:   options.PermissionHook,
+		permissionControlTimeout: options.PermissionControlTimeout,
+		clients:                  make(map[string]*Client),
 	}
+	if server.permissionControlTimeout == 0 {
+		server.permissionControlTimeout = 30 * time.Second
+	}
+
+	runner := runtime.NewRunnerWithOptions(sessionManager, llmClient, workspace.NewLoader(defaultWorkspaceRoot()), nil, runtime.Options{
+		PermissionPolicy:          options.PermissionPolicy,
+		Compactor:                 options.Compactor,
+		Orchestrator:              hook,
+		PermissionHook:            server,
+		PreToolUseHook:            options.PreToolUseHook,
+		PostToolUseHook:           options.PostToolUseHook,
+		PostToolUseFailureHook:    options.PostToolUseFailureHook,
+		PermissionUpdatePersister: options.PermissionUpdatePersister,
+		MainLoopModel:             options.MainLoopModel,
+		LLMProvider:               options.LLMProvider,
+	})
+	server.runner = runner
+	server.queue = runtime.NewQueue(runner)
+	return server
 }
 
 func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +164,7 @@ func (s *Server) handleClient(client *Client) error {
 		return nil
 	}
 	client.BindSession(sess.ID, sess.Key)
+	client.SetSupportsPermissionControl(connectPayload.SupportsPermissionControl || connectPayload.Role == "sdk")
 
 	if err := client.WriteJSON(protocolws.ConnectResponse(first.ID, sess.ID, sess.Key)); err != nil {
 		return err
@@ -161,6 +186,14 @@ func (s *Server) handleClient(client *Client) error {
 			return err
 		}
 
+		if inbound.Type == protocolws.TypeControlResponse {
+			if !client.ResolveControlResponse(inbound) {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, "control response does not match a pending request")); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if inbound.Type != protocolws.TypeRequest {
 			if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, "only req messages are supported")); err != nil {
 				return err
@@ -312,13 +345,19 @@ func (s *Server) handleClient(client *Client) error {
 				ID:   inbound.ID,
 				OK:   true,
 				Payload: map[string]any{
-					"session_id":      targetSession.ID,
-					"session_key":     targetSession.Key,
-					"agent_id":        targetSession.AgentID,
-					"is_main":         targetSession.IsMain,
-					"message_count":   len(messages),
-					"permission_mode": string(s.runner.PermissionPolicyForSession(targetSession.ID).Mode),
-					"subagent_mode":   string(s.runner.PermissionPolicyForSession(targetSession.ID).SubagentMode),
+					"session_id":                       targetSession.ID,
+					"session_key":                      targetSession.Key,
+					"agent_id":                         targetSession.AgentID,
+					"is_main":                          targetSession.IsMain,
+					"message_count":                    len(messages),
+					"permission_mode":                  string(s.runner.PermissionPolicyForSession(targetSession.ID).Mode),
+					"subagent_mode":                    string(s.runner.PermissionPolicyForSession(targetSession.ID).SubagentMode),
+					"plan_mode":                        s.runner.PermissionPolicyForSession(targetSession.ID).PlanMode,
+					"auto_mode":                        s.runner.PermissionPolicyForSession(targetSession.ID).AutoMode,
+					"workspace_roots":                  toAnySlice(s.runner.PermissionPolicyForSession(targetSession.ID).WorkspaceRoots),
+					"main_loop_model":                  s.runner.BaseMainLoopModelForSession(targetSession.ID),
+					"session_main_loop_model_override": s.runner.SessionMainLoopModelOverride(targetSession.ID),
+					"resolved_main_loop_model":         s.runner.ResolvedMainLoopModelForSession(targetSession.ID),
 				},
 			}); err != nil {
 				return err
@@ -781,8 +820,21 @@ func (s *Server) handleClient(client *Client) error {
 			if setPayload.SubagentMode != "" {
 				updatedPolicy.SubagentMode = permissions.Mode(setPayload.SubagentMode)
 			}
+			if setPayload.PlanMode != nil {
+				updatedPolicy.PlanMode = *setPayload.PlanMode
+			}
+			if setPayload.AutoMode != nil {
+				updatedPolicy.AutoMode = *setPayload.AutoMode
+			}
 			if len(setPayload.WorkspaceRoots) > 0 {
 				updatedPolicy.WorkspaceRoots = append([]string(nil), setPayload.WorkspaceRoots...)
+			}
+			updatedPolicy, err = permissions.SetupPolicy(updatedPolicy)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
 			}
 			s.runner.SetSessionPermissionPolicy(targetSession.ID, updatedPolicy, setPayload.CascadeSubagents)
 			if err := client.WriteJSON(protocolws.Message{
@@ -794,7 +846,57 @@ func (s *Server) handleClient(client *Client) error {
 					"session_key":       targetSession.Key,
 					"permission_mode":   string(updatedPolicy.Mode),
 					"subagent_mode":     string(updatedPolicy.SubagentMode),
+					"plan_mode":         updatedPolicy.PlanMode,
+					"auto_mode":         updatedPolicy.AutoMode,
+					"workspace_roots":   toAnySlice(updatedPolicy.WorkspaceRoots),
 					"cascade_subagents": setPayload.CascadeSubagents,
+				},
+			}); err != nil {
+				return err
+			}
+		case protocolws.MethodSessionSetModel:
+			setPayload, err := parseSessionSetModelPayload(inbound.Payload)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			targetSession, resolveErr := s.resolveSessionForStatus(client, protocolws.SessionStatusPayload{
+				SessionID:  setPayload.SessionID,
+				SessionKey: setPayload.SessionKey,
+			})
+			if resolveErr != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, resolveErr.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(setPayload.Model), "default") {
+				if err := s.runner.ClearSessionMainLoopModelOverride(targetSession.ID); err != nil {
+					if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+						return err
+					}
+					continue
+				}
+			} else {
+				if err := s.runner.SetSessionMainLoopModelOverride(targetSession.ID, setPayload.Model); err != nil {
+					if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+			if err := client.WriteJSON(protocolws.Message{
+				Type: protocolws.TypeResponse,
+				ID:   inbound.ID,
+				OK:   true,
+				Payload: map[string]any{
+					"session_id":                       targetSession.ID,
+					"session_key":                      targetSession.Key,
+					"main_loop_model":                  s.runner.BaseMainLoopModelForSession(targetSession.ID),
+					"session_main_loop_model_override": s.runner.SessionMainLoopModelOverride(targetSession.ID),
+					"resolved_main_loop_model":         s.runner.ResolvedMainLoopModelForSession(targetSession.ID),
 				},
 			}); err != nil {
 				return err
@@ -925,13 +1027,17 @@ func (s *Server) handleClient(client *Client) error {
 			items := make([]map[string]any, 0, len(approvals))
 			for _, approval := range approvals {
 				items = append(items, map[string]any{
-					"id":         approval.ID,
-					"session_id": approval.SessionID,
-					"run_id":     approval.RunID,
-					"tool_name":  approval.ToolName,
-					"tool_input": approval.ToolInput,
-					"reason":     approval.Reason,
-					"status":     string(approval.Status),
+					"id":                approval.ID,
+					"session_id":        approval.SessionID,
+					"run_id":            approval.RunID,
+					"tool_name":         approval.ToolName,
+					"tool_input":        approval.ToolInput,
+					"tool_input_object": approval.ToolInputObject,
+					"reason":            approval.Reason,
+					"decision_reason":   approval.DecisionReason,
+					"accept_feedback":   approval.AcceptFeedback,
+					"content_blocks":    approval.ContentBlocks,
+					"status":            string(approval.Status),
 				})
 			}
 			if err := client.WriteJSON(protocolws.Message{
@@ -956,7 +1062,29 @@ func (s *Server) handleClient(client *Client) error {
 			if inbound.Method == protocolws.MethodApprovalReject {
 				status = approval.StatusRejected
 			}
-			updated, err := s.runner.ApprovalManager().UpdateStatus(approvalID, status)
+			contentBlocks, err := decodeContentBlockMaps(inbound.Payload["content_blocks"])
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if inbound.Method == protocolws.MethodApprovalApprove {
+				acceptFeedback, _ := inbound.Payload["accept_feedback"].(string)
+				if strings.TrimSpace(acceptFeedback) != "" || contentBlocks != nil {
+					if _, err := s.runner.UpdateApprovalPromptMetadata(approvalID, strings.TrimSpace(acceptFeedback), contentBlocks); err != nil {
+						if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+							return err
+						}
+						continue
+					}
+				}
+			}
+			rejectFeedback, _ := inbound.Payload["reject_feedback"].(string)
+			if rejectFeedback == "" {
+				rejectFeedback, _ = inbound.Payload["feedback"].(string)
+			}
+			updated, err := s.runner.UpdateApprovalStatus(approvalID, status)
 			if err != nil {
 				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
 					return err
@@ -985,6 +1113,16 @@ func (s *Server) handleClient(client *Client) error {
 			if inbound.Method == protocolws.MethodApprovalApprove {
 				go func() {
 					if err := s.runner.ApproveAndContinue(context.Background(), approvalID, runtimeSink{client: client}); err != nil {
+						_ = client.WriteJSON(protocolws.EventMessage("run.error", map[string]any{
+							"run_id":     updated.RunID,
+							"session_id": updated.SessionID,
+							"message":    err.Error(),
+						}))
+					}
+				}()
+			} else if strings.TrimSpace(rejectFeedback) != "" || contentBlocks != nil {
+				go func() {
+					if err := s.runner.RejectAndContinue(context.Background(), approvalID, rejectFeedback, contentBlocks, runtimeSink{client: client}); err != nil {
 						_ = client.WriteJSON(protocolws.EventMessage("run.error", map[string]any{
 							"run_id":     updated.RunID,
 							"session_id": updated.SessionID,
@@ -1108,6 +1246,214 @@ func (s *Server) handleClient(client *Client) error {
 	}
 }
 
+func (s *Server) CheckPermission(ctx context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
+	if client := s.permissionControlClient(request.Session.ID); client != nil {
+		decision, decided, err := s.requestCanUseTool(ctx, client, request, s.fallbackPermissionHook)
+		if err != nil {
+			return decision, decided, err
+		}
+		if decided {
+			return decision, true, nil
+		}
+	}
+
+	if s.fallbackPermissionHook != nil {
+		return s.fallbackPermissionHook.CheckPermission(ctx, request)
+	}
+	return permissions.Decision{}, false, nil
+}
+
+type permissionHookResult struct {
+	decision permissions.Decision
+	decided  bool
+	err      error
+}
+
+func (s *Server) requestCanUseTool(ctx context.Context, client *Client, request queryengine.PermissionHookRequest, fallback queryengine.PermissionHook) (permissions.Decision, bool, error) {
+	requestID := "control-" + formatID(s.nextID.Add(1))
+	responseCh := client.RegisterControlRequest(requestID)
+	defer client.CancelControlRequest(requestID)
+
+	input := any(request.ToolInput)
+	if request.ToolInputObject != nil {
+		input = request.ToolInputObject
+	}
+	controlRequest := map[string]any{
+		"subtype":     "can_use_tool",
+		"tool_name":   request.ToolName,
+		"input":       input,
+		"tool_use_id": request.ToolUseID,
+		"agent_id":    request.Session.AgentID,
+	}
+	if serializedReason := request.Decision.SerializedDecisionReason(); serializedReason != "" {
+		controlRequest["decision_reason"] = serializedReason
+	}
+	if structuredReason := request.Decision.DecisionReason.Structured(); structuredReason != nil {
+		controlRequest["decision_reason_details"] = structuredReason
+	}
+	payload := map[string]any{
+		"request": controlRequest,
+	}
+	if err := client.WriteJSON(protocolws.Message{
+		Type:    protocolws.TypeControlRequest,
+		ID:      requestID,
+		Payload: payload,
+	}); err != nil {
+		return permissions.Decision{}, false, err
+	}
+
+	var hookCh <-chan permissionHookResult
+	if fallback != nil {
+		ch := make(chan permissionHookResult, 1)
+		hookCh = ch
+		go func() {
+			decision, decided, err := fallback.CheckPermission(ctx, request)
+			ch <- permissionHookResult{decision: decision, decided: decided, err: err}
+		}()
+	}
+
+	timeout := time.NewTimer(s.permissionControlTimeout)
+	defer timeout.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return permissions.Decision{}, false, ctx.Err()
+		case <-timeout.C:
+			return permissions.Decision{}, false, nil
+		case result := <-hookCh:
+			hookCh = nil
+			if result.err != nil {
+				return result.decision, result.decided, result.err
+			}
+			if result.decided {
+				return result.decision, true, nil
+			}
+		case response := <-responseCh:
+			return permissionDecisionFromControlResponse(response)
+		}
+	}
+}
+
+func permissionDecisionFromControlResponse(response protocolws.Message) (permissions.Decision, bool, error) {
+	payload := response.Payload
+	if nested, ok := payload["response"].(map[string]any); ok {
+		payload = nested
+	}
+	behavior, _ := payload["behavior"].(string)
+	switch strings.ToLower(strings.TrimSpace(behavior)) {
+	case "allow":
+		decision := permissions.Decision{
+			Allowed: true,
+			DecisionReason: permissions.DecisionReason{
+				Type:     permissions.DecisionReasonHook,
+				HookName: "PermissionRequest",
+				Reason:   controlString(payload, "message", "reason"),
+			},
+		}
+		if updatedInput, ok := payload["updated_input"]; ok {
+			applyControlUpdatedInput(&decision, updatedInput)
+		} else if updatedInput, ok := payload["updatedInput"]; ok {
+			applyControlUpdatedInput(&decision, updatedInput)
+		}
+		if updates, ok := payload["updated_permissions"]; ok {
+			decoded, err := decodePermissionUpdates(updates)
+			if err != nil {
+				return permissions.Decision{}, false, err
+			}
+			decision.UpdatedPermissions = decoded
+		} else if updates, ok := payload["updatedPermissions"]; ok {
+			decoded, err := decodePermissionUpdates(updates)
+			if err != nil {
+				return permissions.Decision{}, false, err
+			}
+			decision.UpdatedPermissions = decoded
+		}
+		return decision, true, nil
+	case "deny":
+		reason := controlString(payload, "message", "reason")
+		if strings.TrimSpace(reason) == "" {
+			reason = "Permission denied by can_use_tool host"
+		}
+		return permissions.Decision{
+			Reason: reason,
+			DecisionReason: permissions.DecisionReason{
+				Type:     permissions.DecisionReasonHook,
+				HookName: "PermissionRequest",
+				Reason:   reason,
+			},
+		}, true, nil
+	default:
+		return permissions.Decision{}, false, nil
+	}
+}
+
+func applyControlUpdatedInput(decision *permissions.Decision, updatedInput any) {
+	switch typed := updatedInput.(type) {
+	case string:
+		decision.UpdatedInput = typed
+	case map[string]any:
+		decision.UpdatedInputObject = typed
+	}
+}
+
+func decodePermissionUpdates(value any) ([]permissions.PermissionUpdate, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var updates []permissions.PermissionUpdate
+	if err := json.Unmarshal(raw, &updates); err != nil {
+		return nil, err
+	}
+	return updates, nil
+}
+
+func decodeContentBlockMaps(value any) ([]map[string]any, error) {
+	if value == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var blocks []map[string]any
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return nil, err
+	}
+	return cloneAnyMaps(blocks), nil
+}
+
+func cloneAnyMap(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(input))
+	for key, value := range input {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func cloneAnyMaps(input []map[string]any) []map[string]any {
+	if input == nil {
+		return nil
+	}
+	cloned := make([]map[string]any, 0, len(input))
+	for _, item := range input {
+		cloned = append(cloned, cloneAnyMap(item))
+	}
+	return cloned
+}
+
+func controlString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, _ := payload[key].(string); strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 type runtimeSink struct {
 	client *Client
 }
@@ -1144,11 +1490,12 @@ func (s runtimeSink) Emit(event runtime.RuntimeEvent) error {
 		}))
 	case "tool.called":
 		return s.client.WriteJSON(protocolws.EventMessage("tool.called", map[string]any{
-			"run_id":      event.RunID,
-			"session_id":  event.Session.ID,
-			"session_key": event.Session.Key,
-			"tool_name":   event.ToolName,
-			"tool_input":  event.ToolInput,
+			"run_id":            event.RunID,
+			"session_id":        event.Session.ID,
+			"session_key":       event.Session.Key,
+			"tool_name":         event.ToolName,
+			"tool_input":        event.ToolInput,
+			"tool_input_object": event.ToolInputObject,
 		}))
 	case "tool.result":
 		if event.Message == nil {
@@ -1175,16 +1522,35 @@ func (s runtimeSink) Emit(event runtime.RuntimeEvent) error {
 		}))
 	case "permission.required":
 		payload := map[string]any{
-			"run_id":      event.RunID,
-			"session_id":  event.Session.ID,
-			"session_key": event.Session.Key,
-			"tool_name":   event.ToolName,
-			"tool_input":  event.ToolInput,
+			"run_id":            event.RunID,
+			"session_id":        event.Session.ID,
+			"session_key":       event.Session.Key,
+			"tool_name":         event.ToolName,
+			"tool_input":        event.ToolInput,
+			"tool_input_object": event.ToolInputObject,
 		}
 		if event.Approval != nil {
 			payload["approval_id"] = event.Approval.ID
 			payload["reason"] = event.Approval.Reason
 			payload["status"] = string(event.Approval.Status)
+			if event.AcceptFeedback == "" {
+				event.AcceptFeedback = event.Approval.AcceptFeedback
+			}
+			if event.ContentBlocks == nil {
+				event.ContentBlocks = event.Approval.ContentBlocks
+			}
+		}
+		if event.DecisionReason != "" {
+			payload["decision_reason"] = event.DecisionReason
+		}
+		if event.DecisionReasonDetails != nil {
+			payload["decision_reason_details"] = event.DecisionReasonDetails
+		}
+		if event.AcceptFeedback != "" {
+			payload["accept_feedback"] = event.AcceptFeedback
+		}
+		if event.ContentBlocks != nil {
+			payload["content_blocks"] = event.ContentBlocks
 		}
 		return s.client.WriteJSON(protocolws.EventMessage("permission.required", payload))
 	default:
@@ -1275,6 +1641,21 @@ func parseSessionSetPermissionPayload(payload map[string]any) (protocolws.Sessio
 	return setPayload, nil
 }
 
+func parseSessionSetModelPayload(payload map[string]any) (protocolws.SessionSetModelPayload, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return protocolws.SessionSetModelPayload{}, err
+	}
+	var setPayload protocolws.SessionSetModelPayload
+	if err := json.Unmarshal(raw, &setPayload); err != nil {
+		return protocolws.SessionSetModelPayload{}, err
+	}
+	if strings.TrimSpace(setPayload.Model) == "" {
+		return protocolws.SessionSetModelPayload{}, &connectError{message: "session_set_model payload requires model"}
+	}
+	return setPayload, nil
+}
+
 func (s *Server) resolveSessionForStatus(client *Client, payload protocolws.SessionStatusPayload) (session.Session, error) {
 	if payload.SessionID != "" {
 		if sess, ok := s.sessionManager.GetByID(payload.SessionID); ok {
@@ -1327,6 +1708,18 @@ func (s *Server) addClient(client *Client) {
 	defer s.mu.Unlock()
 
 	s.clients[client.ID()] = client
+}
+
+func (s *Server) permissionControlClient(sessionID string) *Client {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, client := range s.clients {
+		if client.SessionID() == sessionID && client.SupportsPermissionControl() {
+			return client
+		}
+	}
+	return nil
 }
 
 func (s *Server) removeClient(id string) {

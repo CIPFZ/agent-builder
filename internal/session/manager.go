@@ -2,6 +2,8 @@ package session
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 )
 
 type Session = model.Session
+type SessionMetadata = model.SessionMetadata
 
 type Manager struct {
 	nextID    atomic.Uint64
@@ -24,9 +27,11 @@ func NewManager(sessionStore store.SessionStore) *Manager {
 		sessionStore = memorystore.NewSessionStore()
 	}
 
-	return &Manager{
+	manager := &Manager{
 		store: sessionStore,
 	}
+	manager.seedCountersFromStore()
+	return manager
 }
 
 func (m *Manager) GetByID(id string) (Session, bool) {
@@ -102,6 +107,10 @@ func (m *Manager) CreateChild(agentID, key string) Session {
 }
 
 func (m *Manager) AppendMessage(sessionID, role, content string) (Message, error) {
+	return m.AppendMessageWithBlocks(sessionID, role, content, "", nil)
+}
+
+func (m *Manager) AppendMessageWithBlocks(sessionID, role, content, providerMessageID string, blocks []model.MessageBlock) (Message, error) {
 	session, ok := m.store.GetSessionByID(sessionID)
 	if !ok {
 		return Message{}, fmt.Errorf("session %q not found", sessionID)
@@ -109,19 +118,54 @@ func (m *Manager) AppendMessage(sessionID, role, content string) (Message, error
 
 	msgID := m.nextMsgID.Add(1)
 	msg := Message{
-		ID:        fmt.Sprintf("msg-%06d", msgID),
-		SessionID: session.ID,
-		Role:      role,
-		Content:   content,
-		CreatedAt: time.Now().UTC(),
+		ID:                fmt.Sprintf("msg-%06d", msgID),
+		SessionID:         session.ID,
+		Role:              role,
+		Content:           content,
+		ProviderMessageID: providerMessageID,
+		Blocks:            append([]model.MessageBlock(nil), blocks...),
+		CreatedAt:         time.Now().UTC(),
 	}
 	m.store.AppendMessage(msg)
+	session.Metadata.LastActivityAt = msg.CreatedAt
+	switch role {
+	case "user":
+		session.Metadata.LastUserMessageID = msg.ID
+	case "assistant":
+		session.Metadata.LastAssistantMessageID = msg.ID
+	}
+	m.store.SaveSession(session)
 
 	return msg, nil
 }
 
 func (m *Manager) Messages(sessionID string) ([]Message, bool) {
 	return m.store.Messages(sessionID)
+}
+
+func (m *Manager) ContinuationMessages(sessionID string) ([]Message, bool) {
+	snapshot, ok := m.RecoverySnapshot(sessionID)
+	if !ok {
+		return nil, false
+	}
+	return append([]Message(nil), snapshot.Continuation...), true
+}
+
+func (m *Manager) RecoverySnapshot(sessionID string) (RecoverySnapshot, bool) {
+	sess, ok := m.store.GetSessionByID(sessionID)
+	if !ok {
+		return RecoverySnapshot{}, false
+	}
+	messages, _ := m.store.Messages(sessionID)
+	return BuildRecoverySnapshot(sess, messages), true
+}
+
+func (m *Manager) ContinuationState(sessionID string) (ContinuationState, bool) {
+	snapshot, ok := m.RecoverySnapshot(sessionID)
+	if !ok {
+		return ContinuationState{}, false
+	}
+	return snapshot.ContinuationState(), true
 }
 
 func (m *Manager) ListSessions() []Session {
@@ -134,4 +178,51 @@ func (m *Manager) ReplaceMessages(sessionID string, messages []Message) error {
 	}
 	m.store.ReplaceMessages(sessionID, messages)
 	return nil
+}
+
+func (m *Manager) UpdateMetadata(sessionID string, update func(*SessionMetadata)) error {
+	sess, ok := m.store.GetSessionByID(sessionID)
+	if !ok {
+		return fmt.Errorf("session %q not found", sessionID)
+	}
+	update(&sess.Metadata)
+	m.store.SaveSession(sess)
+	return nil
+}
+
+func (m *Manager) seedCountersFromStore() {
+	var maxSessionID uint64
+	var maxMessageID uint64
+
+	for _, sess := range m.store.ListSessions() {
+		if n, ok := parseCounterSuffix(sess.ID, "main-", "session-"); ok && n > maxSessionID {
+			maxSessionID = n
+		}
+		messages, ok := m.store.Messages(sess.ID)
+		if !ok {
+			continue
+		}
+		for _, msg := range messages {
+			if n, ok := parseCounterSuffix(msg.ID, "msg-"); ok && n > maxMessageID {
+				maxMessageID = n
+			}
+		}
+	}
+
+	m.nextID.Store(maxSessionID)
+	m.nextMsgID.Store(maxMessageID)
+}
+
+func parseCounterSuffix(value string, prefixes ...string) (uint64, bool) {
+	for _, prefix := range prefixes {
+		if !strings.HasPrefix(value, prefix) {
+			continue
+		}
+		n, err := strconv.ParseUint(strings.TrimPrefix(value, prefix), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return n, true
+	}
+	return 0, false
 }

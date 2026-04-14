@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"myclaw/internal/permissions"
 	"myclaw/internal/session"
 )
 
@@ -24,10 +25,18 @@ func (t *ToolSearchTool) Definition() Definition {
 }
 
 func (t *ToolSearchTool) Invoke(_ context.Context, _ session.Session, input string) (string, error) {
+	return t.InvokeWithPolicy(context.Background(), session.Session{}, input, permissions.Policy{})
+}
+
+func (t *ToolSearchTool) InvokeWithPolicy(_ context.Context, _ session.Session, input string, policy permissions.Policy) (string, error) {
 	if t.registry == nil {
 		return "", nil
 	}
-	results := t.registry.Search(input, SearchOptions{})
+	results := t.registry.Search(input, SearchOptions{
+		Policy:       policy,
+		DeferredOnly: true,
+		MaxResults:   5,
+	})
 	if len(results) == 0 {
 		return "No matching tools found.", nil
 	}
@@ -49,7 +58,7 @@ func (t *ToolSearchTool) Invoke(_ context.Context, _ session.Session, input stri
 }
 
 func (t *ToolSearchTool) IsEnabled() bool {
-	return true
+	return toolSearchEnabledOptimistic()
 }
 
 func (t *ToolSearchTool) IsReadOnly(_ string) bool {

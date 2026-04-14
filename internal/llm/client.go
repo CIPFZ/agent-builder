@@ -14,6 +14,7 @@ type GenerateRequest struct {
 	UserMessage session.Message
 	History     []session.Message
 	Context     prompt.Context
+	Model       string
 }
 
 type GenerateResponse struct {
@@ -25,10 +26,13 @@ type Client interface {
 }
 
 type StreamEvent struct {
-	Type      string
-	Delta     string
-	ToolName  string
-	ToolInput string
+	Type              string
+	Delta             string
+	ToolName          string
+	ToolInput         string
+	ToolInputObject   map[string]any
+	ToolUseID         string
+	ProviderMessageID string
 }
 
 type StreamHandler interface {

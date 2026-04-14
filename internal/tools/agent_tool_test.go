@@ -87,6 +87,27 @@ func TestAgentTaskToolMetadataMatchesAdvancedToolShape(t *testing.T) {
 	}
 }
 
+func TestAgentTaskToolAutoClassifierInputMatchesClaudeAgentProjection(t *testing.T) {
+	tool := tools.NewAgentTaskTool(agent.NewManager(), nil)
+
+	classifier, ok := any(tool).(tools.AutoClassifyingTool)
+	if !ok {
+		t.Fatal("AgentTaskTool must expose a Claude-style auto classifier input projection")
+	}
+
+	got := classifier.ToAutoClassifierInput(`{"subagent_type":"explorer","mode":"plan","prompt":"inspect permissions"}`)
+	want := "(explorer, mode=plan): inspect permissions"
+	if got != want {
+		t.Fatalf("structured classifier input = %#v, want %q", got, want)
+	}
+
+	got = classifier.ToAutoClassifierInput("research: inspect permissions")
+	want = "(research): inspect permissions"
+	if got != want {
+		t.Fatalf("legacy classifier input = %#v, want %q", got, want)
+	}
+}
+
 func TestAgentTaskToolSteerAppendsControlMessage(t *testing.T) {
 	manager := agent.NewManager()
 	block := make(chan struct{})
@@ -235,5 +256,36 @@ func TestAgentTaskToolResumeReusesChildSession(t *testing.T) {
 	}
 	if !strings.Contains(result.Output, "second pass") {
 		t.Fatalf("resumed output = %q, want resumed prompt", result.Output)
+	}
+}
+
+func TestAgentTaskToolResumeRejectsRunningRun(t *testing.T) {
+	manager := agent.NewManager()
+	blocked := make(chan struct{})
+	tool := tools.NewAgentTaskTool(manager, func(ctx context.Context, _ session.Session, _ agent.RunContext, prompt string) (string, error) {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-blocked:
+			return "handled: " + prompt, nil
+		}
+	})
+	sess := session.NewManager(nil).GetOrCreateMain("main")
+
+	if _, err := tool.Invoke(context.Background(), sess, "research: first pass"); err != nil {
+		t.Fatalf("spawn agent task: %v", err)
+	}
+	runs := manager.List()
+	if len(runs) != 1 {
+		t.Fatalf("run count = %d, want 1", len(runs))
+	}
+	defer close(blocked)
+
+	_, err := tool.Invoke(context.Background(), sess, "resume "+runs[0].ID+" second pass")
+	if err == nil {
+		t.Fatal("expected resume to reject running run")
+	}
+	if !strings.Contains(err.Error(), "still running") || !strings.Contains(err.Error(), runs[0].ID) {
+		t.Fatalf("error = %v, want running-run rejection mentioning %q", err, runs[0].ID)
 	}
 }

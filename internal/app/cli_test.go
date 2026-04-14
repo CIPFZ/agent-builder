@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"myclaw/internal/config"
 	"myclaw/internal/model"
@@ -79,5 +81,100 @@ func TestNewTUICompactorUsesLowThresholdsForVerificationMode(t *testing.T) {
 	}
 	if !analysis.IsAboveAutoCompactThreshold {
 		t.Fatal("auto-compact threshold not reached in verification mode")
+	}
+}
+
+func TestNewPersistentSessionManagerPersistsMessagesAcrossReload(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "logs", "sessions")
+
+	manager, err := newPersistentSessionManager(root)
+	if err != nil {
+		t.Fatalf("newPersistentSessionManager: %v", err)
+	}
+	main := manager.GetOrCreateMain("main")
+	if _, err := manager.AppendMessage(main.ID, "user", "hello"); err != nil {
+		t.Fatalf("append message: %v", err)
+	}
+
+	reloaded, err := newPersistentSessionManager(root)
+	if err != nil {
+		t.Fatalf("reload persistent session manager: %v", err)
+	}
+	sessions := reloaded.ListSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %#v, want one reloaded session", sessions)
+	}
+	messages, ok := reloaded.Messages(main.ID)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("messages = %#v, want one persisted message", messages)
+	}
+	if messages[0].Content != "hello" {
+		t.Fatalf("message content = %q, want hello", messages[0].Content)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sessions.json")); err != nil {
+		t.Fatalf("sessions.json missing: %v", err)
+	}
+}
+
+func TestNewPersistentSessionManagerKeepsIDsMonotonicAcrossReload(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "logs", "sessions")
+
+	manager, err := newPersistentSessionManager(root)
+	if err != nil {
+		t.Fatalf("newPersistentSessionManager: %v", err)
+	}
+	main := manager.GetOrCreateMain("main")
+	first, err := manager.AppendMessage(main.ID, "user", "hello")
+	if err != nil {
+		t.Fatalf("append first message: %v", err)
+	}
+
+	reloaded, err := newPersistentSessionManager(root)
+	if err != nil {
+		t.Fatalf("reload persistent session manager: %v", err)
+	}
+	second, err := reloaded.AppendMessage(main.ID, "assistant", "world")
+	if err != nil {
+		t.Fatalf("append second message: %v", err)
+	}
+	if second.ID == first.ID {
+		t.Fatalf("second message id = %q, want unique id after reload", second.ID)
+	}
+	if second.ID != "msg-000002" {
+		t.Fatalf("second message id = %q, want msg-000002", second.ID)
+	}
+}
+
+func TestNewPersistentSessionManagerReloadsSessionMetadata(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "logs", "sessions")
+
+	manager, err := newPersistentSessionManager(root)
+	if err != nil {
+		t.Fatalf("newPersistentSessionManager: %v", err)
+	}
+	main := manager.GetOrCreateMain("main")
+	now := time.Unix(123, 0).UTC()
+	if err := manager.UpdateMetadata(main.ID, func(metadata *model.SessionMetadata) {
+		metadata.LastCompactBoundaryID = "compact-1"
+		metadata.LastCompactionSummaryID = "summary-1"
+		metadata.LastCompactionReason = "message-limit"
+		metadata.LastCompactedAt = now
+	}); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+
+	reloaded, err := newPersistentSessionManager(root)
+	if err != nil {
+		t.Fatalf("reload persistent session manager: %v", err)
+	}
+	got, ok := reloaded.GetByID(main.ID)
+	if !ok {
+		t.Fatalf("session %q not found after reload", main.ID)
+	}
+	if got.Metadata.LastCompactBoundaryID != "compact-1" {
+		t.Fatalf("metadata = %#v, want compact boundary", got.Metadata)
+	}
+	if got.Metadata.LastCompactedAt != now {
+		t.Fatalf("metadata = %#v, want compaction time %v", got.Metadata, now)
 	}
 }

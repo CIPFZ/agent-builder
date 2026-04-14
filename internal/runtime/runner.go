@@ -25,24 +25,36 @@ type EventSink interface {
 }
 
 type RuntimeEvent struct {
-	Type      string
-	Session   session.Session
-	RunID     string
-	Message   *session.Message
-	Delta     string
-	ToolName  string
-	ToolInput string
-	Error     string
-	Approval  *approval.Request
+	Type                  string
+	Session               session.Session
+	RunID                 string
+	Message               *session.Message
+	Delta                 string
+	ToolName              string
+	ToolInput             string
+	ToolInputObject       map[string]any
+	DecisionReason        string
+	DecisionReasonDetails map[string]any
+	AcceptFeedback        string
+	ContentBlocks         []map[string]any
+	Error                 string
+	Approval              *approval.Request
 }
 
 type Options struct {
-	PermissionPolicy permissions.Policy
-	Compactor        *compaction.Service
-	AgentManager     *agent.Manager
-	MemoryService    *memory.Service
-	ApprovalManager  *approval.Manager
-	Orchestrator     orchestration.Hook
+	PermissionPolicy          permissions.Policy
+	Compactor                 *compaction.Service
+	AgentManager              *agent.Manager
+	MemoryService             *memory.Service
+	ApprovalManager           *approval.Manager
+	Orchestrator              orchestration.Hook
+	PermissionHook            queryengine.PermissionHook
+	PreToolUseHook            queryengine.PreToolUseHook
+	PostToolUseHook           queryengine.PostToolUseHook
+	PostToolUseFailureHook    queryengine.PostToolUseFailureHook
+	PermissionUpdatePersister queryengine.PermissionUpdatePersister
+	MainLoopModel             string
+	LLMProvider               string
 }
 
 type Runner struct {
@@ -96,20 +108,28 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 			SummaryPrefix:           "Summary:",
 		})
 	}
+	rehydratePendingApprovals(sessions, options.ApprovalManager)
 
 	return &Runner{
-		sessions:  sessions,
-		options:   options,
+		sessions: sessions,
+		options:  options,
 		engine: queryengine.New(queryengine.Config{
-			Sessions:         sessions,
-			Client:           client,
-			WorkspaceLoader:  workspaceLoader,
-			ToolRegistry:     toolRegistry,
-			AgentManager:     options.AgentManager,
-			PermissionPolicy: options.PermissionPolicy,
-			Compactor:        options.Compactor,
-			MemoryService:    options.MemoryService,
-			ApprovalManager:  options.ApprovalManager,
+			Sessions:                  sessions,
+			Client:                    client,
+			WorkspaceLoader:           workspaceLoader,
+			ToolRegistry:              toolRegistry,
+			AgentManager:              options.AgentManager,
+			PermissionPolicy:          options.PermissionPolicy,
+			Compactor:                 options.Compactor,
+			MemoryService:             options.MemoryService,
+			ApprovalManager:           options.ApprovalManager,
+			PermissionHook:            options.PermissionHook,
+			PreToolUseHook:            options.PreToolUseHook,
+			PostToolUseHook:           options.PostToolUseHook,
+			PostToolUseFailureHook:    options.PostToolUseFailureHook,
+			PermissionUpdatePersister: options.PermissionUpdatePersister,
+			MainLoopModel:             options.MainLoopModel,
+			LLMProvider:               options.LLMProvider,
 		}),
 	}
 }
@@ -172,6 +192,28 @@ func (r *Runner) ResumeSubagent(ctx context.Context, runID, label, promptText st
 	if !ok {
 		return nil, fmt.Errorf("child session %q not found", previous.ChildSessionID)
 	}
+	continuation, ok := r.sessions.ContinuationState(previous.ChildSessionID)
+	if !ok {
+		return nil, fmt.Errorf("child session %q recovery state not found", previous.ChildSessionID)
+	}
+	if previous.Status == agent.StatusRunning {
+		return nil, fmt.Errorf("run %q is still running and cannot be resumed", previous.ID)
+	}
+	if pending, ok := r.pendingApprovalForSession(previous.ChildSessionID); ok {
+		return nil, fmt.Errorf(
+			"child session %q has pending approval %q and is not ready for a new prompt",
+			previous.ChildSessionID,
+			pending.ID,
+		)
+	}
+	if !continuation.ReadyForPrompt {
+		return nil, fmt.Errorf(
+			"child session %q is not ready for a new prompt (status=%s anchor=%s)",
+			previous.ChildSessionID,
+			continuation.Status,
+			continuation.ResumeFromMessageID,
+		)
+	}
 	if label == "" {
 		label = previous.Label
 	}
@@ -208,6 +250,14 @@ func (r *Runner) ResumeSubagent(ctx context.Context, runID, label, promptText st
 	})
 }
 
+func (r *Runner) pendingApprovalForSession(sessionID string) (approval.Request, bool) {
+	items := r.options.ApprovalManager.ListBySessionAndStatus(sessionID, approval.StatusPending)
+	if len(items) == 0 {
+		return approval.Request{}, false
+	}
+	return items[0], true
+}
+
 func emitRunError(sink EventSink, event RuntimeEvent) {
 	if sink == nil {
 		return
@@ -242,6 +292,26 @@ func (r *Runner) SetSessionPermissionPolicy(sessionID string, policy permissions
 	r.cascadeSessionPolicy(sessionID, policy)
 }
 
+func (r *Runner) SetSessionMainLoopModelOverride(sessionID, model string) error {
+	return r.engine.SetSessionMainLoopModelOverride(sessionID, model)
+}
+
+func (r *Runner) ClearSessionMainLoopModelOverride(sessionID string) error {
+	return r.engine.ClearSessionMainLoopModelOverride(sessionID)
+}
+
+func (r *Runner) BaseMainLoopModelForSession(sessionID string) string {
+	return r.engine.BaseMainLoopModelForSession(sessionID)
+}
+
+func (r *Runner) SessionMainLoopModelOverride(sessionID string) string {
+	return r.engine.SessionMainLoopModelOverride(sessionID)
+}
+
+func (r *Runner) ResolvedMainLoopModelForSession(sessionID string) string {
+	return r.engine.ResolvedMainLoopModelForSession(sessionID)
+}
+
 func (r *Runner) MemoryService() *memory.Service {
 	return r.engine.MemoryService()
 }
@@ -250,12 +320,68 @@ func (r *Runner) ApprovalManager() *approval.Manager {
 	return r.engine.ApprovalManager()
 }
 
+func (r *Runner) UpdateApprovalStatus(approvalID string, status approval.Status) (approval.Request, error) {
+	updated, err := r.options.ApprovalManager.UpdateStatus(approvalID, status)
+	if err != nil {
+		return approval.Request{}, err
+	}
+	_ = r.sessions.UpdateMetadata(updated.SessionID, func(metadata *session.SessionMetadata) {
+		if metadata.PendingApprovalID == updated.ID {
+			if status == approval.StatusPending {
+				metadata.PendingApprovalStatus = string(status)
+				return
+			}
+			metadata.PendingApprovalID = ""
+			metadata.PendingApprovalStatus = ""
+			metadata.PendingApprovalToolName = ""
+			metadata.PendingApprovalToolInput = ""
+			metadata.PendingApprovalToolInputObject = nil
+			metadata.PendingApprovalToolUseID = ""
+			metadata.PendingApprovalProviderMsgID = ""
+			metadata.PendingApprovalReason = ""
+			metadata.PendingApprovalDecisionReason = ""
+			metadata.PendingApprovalAcceptFeedback = ""
+			metadata.PendingApprovalContentBlocks = nil
+			metadata.PendingApprovalRunID = ""
+			metadata.PendingApprovalUserMessageID = ""
+			metadata.PendingApprovalCategory = ""
+			metadata.PendingApprovalRuleSource = ""
+		}
+	})
+	return updated, nil
+}
+
+func (r *Runner) UpdateApprovalPromptMetadata(approvalID, acceptFeedback string, contentBlocks []map[string]any) (approval.Request, error) {
+	updated, err := r.options.ApprovalManager.UpdatePromptMetadata(approvalID, acceptFeedback, contentBlocks)
+	if err != nil {
+		return approval.Request{}, err
+	}
+	_ = r.sessions.UpdateMetadata(updated.SessionID, func(metadata *session.SessionMetadata) {
+		if metadata.PendingApprovalID == updated.ID {
+			metadata.PendingApprovalAcceptFeedback = updated.AcceptFeedback
+			metadata.PendingApprovalContentBlocks = cloneAnyMaps(updated.ContentBlocks)
+		}
+	})
+	return updated, nil
+}
+
 func (r *Runner) Orchestrator() orchestration.Hook {
 	return r.options.Orchestrator
 }
 
 func (r *Runner) ApproveAndContinue(ctx context.Context, approvalID string, sink EventSink) error {
 	return r.engine.ApproveAndContinue(ctx, approvalID, querySinkFunc(func(event queryengine.Event) error {
+		runtimeEvent := fromQueryEvent(event)
+		if runtimeEvent.Type == "run.error" {
+			emitRunError(sink, runtimeEvent)
+			return nil
+		}
+		return r.emitEvent(ctx, sink, runtimeEvent)
+	}))
+}
+
+func (r *Runner) RejectAndContinue(ctx context.Context, approvalID, feedback string, contentBlocks []map[string]any, sink EventSink) error {
+	return r.engine.RejectAndContinue(ctx, approvalID, feedback, contentBlocks, querySinkFunc(func(event queryengine.Event) error {
 		runtimeEvent := fromQueryEvent(event)
 		if runtimeEvent.Type == "run.error" {
 			emitRunError(sink, runtimeEvent)
@@ -328,14 +454,72 @@ func (s querySinkFunc) Emit(event queryengine.Event) error {
 
 func fromQueryEvent(event queryengine.Event) RuntimeEvent {
 	return RuntimeEvent{
-		Type:      event.Type,
-		Session:   event.Session,
-		RunID:     event.RunID,
-		Message:   event.Message,
-		Delta:     event.Delta,
-		ToolName:  event.ToolName,
-		ToolInput: event.ToolInput,
-		Error:     event.Error,
-		Approval:  event.Approval,
+		Type:                  event.Type,
+		Session:               event.Session,
+		RunID:                 event.RunID,
+		Message:               event.Message,
+		Delta:                 event.Delta,
+		ToolName:              event.ToolName,
+		ToolInput:             event.ToolInput,
+		ToolInputObject:       cloneAnyMap(event.ToolInputObject),
+		DecisionReason:        event.DecisionReason,
+		DecisionReasonDetails: cloneAnyMap(event.DecisionReasonDetails),
+		AcceptFeedback:        event.AcceptFeedback,
+		ContentBlocks:         cloneAnyMaps(event.ContentBlocks),
+		Error:                 event.Error,
+		Approval:              event.Approval,
 	}
+}
+
+func rehydratePendingApprovals(sessions *session.Manager, approvals *approval.Manager) {
+	if sessions == nil || approvals == nil {
+		return
+	}
+	for _, sess := range sessions.ListSessions() {
+		meta := sess.Metadata
+		if meta.PendingApprovalID == "" || meta.PendingApprovalStatus != string(approval.StatusPending) {
+			continue
+		}
+		approvals.Restore(approval.Request{
+			ID:                meta.PendingApprovalID,
+			SessionID:         sess.ID,
+			RunID:             meta.PendingApprovalRunID,
+			UserMessageID:     meta.PendingApprovalUserMessageID,
+			ToolName:          meta.PendingApprovalToolName,
+			ToolInput:         meta.PendingApprovalToolInput,
+			ToolInputObject:   cloneAnyMap(meta.PendingApprovalToolInputObject),
+			ToolUseID:         meta.PendingApprovalToolUseID,
+			ProviderMessageID: meta.PendingApprovalProviderMsgID,
+			Category:          meta.PendingApprovalCategory,
+			RuleSource:        meta.PendingApprovalRuleSource,
+			Reason:            meta.PendingApprovalReason,
+			DecisionReason:    meta.PendingApprovalDecisionReason,
+			AcceptFeedback:    meta.PendingApprovalAcceptFeedback,
+			ContentBlocks:     cloneAnyMaps(meta.PendingApprovalContentBlocks),
+			Status:            approval.StatusPending,
+			CreatedAt:         meta.LastActivityAt,
+		})
+	}
+}
+
+func cloneAnyMap(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(input))
+	for key, value := range input {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func cloneAnyMaps(input []map[string]any) []map[string]any {
+	if input == nil {
+		return nil
+	}
+	cloned := make([]map[string]any, 0, len(input))
+	for _, item := range input {
+		cloned = append(cloned, cloneAnyMap(item))
+	}
+	return cloned
 }

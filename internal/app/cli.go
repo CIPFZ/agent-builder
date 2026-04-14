@@ -12,37 +12,23 @@ import (
 	"myclaw/internal/compaction"
 	"myclaw/internal/config"
 	"myclaw/internal/diagnostics"
-	"myclaw/internal/llm"
-	"myclaw/internal/permissions"
-	"myclaw/internal/runtime"
-	"myclaw/internal/session"
 	"myclaw/internal/tui"
-	"myclaw/internal/workspace"
 )
 
 var runTUI = func(ctx context.Context, _ []string, stdout, stderr io.Writer) error {
 	cfg := config.LoadFromDir(".")
-	workspaceRoots, err := resolveTUIWorkspaceRoots(".", cfg.Permissions.WorkspaceRoots)
-	if err != nil {
-		return fmt.Errorf("resolve workspace roots: %w", err)
-	}
-	policy, err := permissions.SetupPolicy(permissions.Policy{
-		Mode:                     permissions.Mode(cfg.Permissions.Mode),
-		SubagentMode:             permissions.Mode(cfg.Permissions.SubagentMode),
-		PlanMode:                 cfg.Permissions.PlanMode,
-		AutoMode:                 cfg.Permissions.AutoMode,
-		WorkspaceRoots:           workspaceRoots,
-		Rules:                    cfg.Permissions.Rules,
-		DangerousCommandPatterns: cfg.Permissions.DangerousCommandPatterns,
+	bootstrap, err := bootstrapRuntime(".", cfg, bootstrapOptions{
+		Compactor: newTUICompactor(cfg),
 	})
 	if err != nil {
-		return fmt.Errorf("invalid permission policy: %w", err)
+		_, _ = fmt.Fprintf(stderr, "warning: failed to bootstrap runtime: %v\n", err)
+		bootstrap, err = bootstrapRuntime(".", config.Default(), bootstrapOptions{
+			Compactor: newTUICompactor(cfg),
+		})
+		if err != nil {
+			return err
+		}
 	}
-	sessions := session.NewManager(nil)
-	runner := runtime.NewRunnerWithOptions(sessions, llm.NewClientFromConfig(cfg.LLM), workspace.NewLoader(""), nil, runtime.Options{
-		PermissionPolicy: policy,
-		Compactor:        newTUICompactor(cfg),
-	})
 	logPath := filepath.Join("logs", "myclaw.jsonl")
 	logger, err := diagnostics.NewLogger(logPath)
 	if err != nil {
@@ -58,7 +44,7 @@ var runTUI = func(ctx context.Context, _ []string, stdout, stderr io.Writer) err
 	if cfg.LLM.APIKey == "" {
 		llmLabel = "mock / builtin"
 	}
-	return tui.Run(ctx, sessions, runner, stdout, stderr, tui.Options{
+	return tui.Run(ctx, bootstrap.Sessions, bootstrap.Runner, stdout, stderr, tui.Options{
 		LLMLabel: llmLabel,
 		Logger:   logger,
 	})
