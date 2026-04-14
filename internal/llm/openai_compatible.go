@@ -40,7 +40,7 @@ func NewOpenAICompatibleClient(cfg OpenAICompatibleConfig) *OpenAICompatibleClie
 
 func (c *OpenAICompatibleClient) Stream(ctx context.Context, req GenerateRequest, handler StreamHandler) error {
 	payload := openAIChatRequest{
-		Model:    c.model,
+		Model:    effectiveModel(req.Model, c.model),
 		Messages: buildChatMessages(req),
 		Stream:   true,
 	}
@@ -69,6 +69,13 @@ func (c *OpenAICompatibleClient) Stream(ctx context.Context, req GenerateRequest
 	}
 
 	return consumeSSE(resp.Body, handler)
+}
+
+func effectiveModel(requestModel, defaultModel string) string {
+	if strings.TrimSpace(requestModel) != "" {
+		return strings.TrimSpace(requestModel)
+	}
+	return defaultModel
 }
 
 type openAIChatRequest struct {

@@ -101,7 +101,10 @@ func TestRuntimeBridgeApproveContinuesBlockedExecution(t *testing.T) {
 			Mode: permissions.ModeAsk,
 			Rules: []permissions.Rule{{
 				ToolName: "text.upper",
-				Action:   permissions.ActionDeny,
+				Action:   permissions.ActionAsk,
+				Match: permissions.Match{
+					CommandContains: []string{"hello world"},
+				},
 			}},
 		},
 		ApprovalManager: approval.NewManager(),

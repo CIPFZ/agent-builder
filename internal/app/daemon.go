@@ -12,8 +12,6 @@ import (
 	"myclaw/internal/config"
 	"myclaw/internal/gateway"
 	"myclaw/internal/llm"
-	"myclaw/internal/permissions"
-	"myclaw/internal/session"
 )
 
 func RunDaemon(ctx context.Context, cfg config.Config, stdout io.Writer) error {
@@ -51,28 +49,23 @@ func RunDaemon(ctx context.Context, cfg config.Config, stdout io.Writer) error {
 func newDaemonHandler(cfg config.Config, stdout io.Writer) (*http.ServeMux, *gateway.Server) {
 	mux := http.NewServeMux()
 	logger := log.New(stdout, "[gateway] ", log.LstdFlags)
-	workspaceRoots := cfg.Permissions.WorkspaceRoots
-	if len(workspaceRoots) == 0 {
-		workspaceRoots = []string{"configs/workspace"}
-	}
-	policy, err := permissions.SetupPolicy(permissions.Policy{
-		Mode:                     permissions.Mode(cfg.Permissions.Mode),
-		SubagentMode:             permissions.Mode(cfg.Permissions.SubagentMode),
-		PlanMode:                 cfg.Permissions.PlanMode,
-		AutoMode:                 cfg.Permissions.AutoMode,
-		WorkspaceRoots:           workspaceRoots,
-		Rules:                    cfg.Permissions.Rules,
-		DangerousCommandPatterns: cfg.Permissions.DangerousCommandPatterns,
+	bootstrap, err := bootstrapRuntime(".", cfg, bootstrapOptions{
+		FallbackWorkspaceRoots: []string{"configs/workspace"},
 	})
 	if err != nil {
-		logger.Printf("invalid permission policy: %v", err)
-		policy = permissions.Policy{
-			Mode:           permissions.ModeWorkspaceWrite,
-			WorkspaceRoots: []string{"configs/workspace"},
+		logger.Printf("failed to bootstrap runtime: %v", err)
+		bootstrap, err = bootstrapRuntime(".", config.Default(), bootstrapOptions{
+			FallbackWorkspaceRoots: []string{"configs/workspace"},
+		})
+		if err != nil {
+			logger.Printf("failed to bootstrap fallback runtime: %v", err)
+			return mux, gateway.NewServerWithOptions(logger, nil, nil, gateway.Options{})
 		}
 	}
-	gatewayServer := gateway.NewServerWithOptions(logger, session.NewManager(nil), llm.NewClientFromConfig(cfg.LLM), gateway.Options{
-		PermissionPolicy: policy,
+	gatewayServer := gateway.NewServerWithOptions(logger, bootstrap.Sessions, llm.NewClientFromConfig(cfg.LLM), gateway.Options{
+		PermissionPolicy: bootstrap.Policy,
+		MainLoopModel:    cfg.LLM.Model,
+		LLMProvider:      cfg.LLM.Provider,
 	})
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

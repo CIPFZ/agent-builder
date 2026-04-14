@@ -337,6 +337,112 @@ func TestBuildSupportsCustomAppendAndOverrideSystemPrompt(t *testing.T) {
 	if !strings.Contains(agentPrompt.SystemPrompt, "agent prompt") || strings.Contains(agentPrompt.SystemPrompt, "custom prompt") || strings.Contains(agentPrompt.SystemPrompt, "default prompt") {
 		t.Fatalf("agent system prompt = %q, want agent prompt to take precedence over custom/default", agentPrompt.SystemPrompt)
 	}
+
+	coordinatorPrompt := Build(BuildInput{
+		Session:                 sess,
+		UserMessage:             session.Message{ID: "msg-4", Role: "user", Content: "hello coordinator"},
+		DefaultSystemPrompt:     []string{"default prompt"},
+		CustomSystemPrompt:      "custom prompt",
+		AgentSystemPrompt:       "agent prompt",
+		CoordinatorSystemPrompt: "coordinator prompt",
+		AppendSystemPrompt:      "append prompt",
+	})
+	if !strings.Contains(coordinatorPrompt.SystemPrompt, "coordinator prompt") {
+		t.Fatalf("coordinator system prompt = %q, want coordinator prompt", coordinatorPrompt.SystemPrompt)
+	}
+	for _, blocked := range []string{"agent prompt", "custom prompt", "default prompt"} {
+		if strings.Contains(coordinatorPrompt.SystemPrompt, blocked) {
+			t.Fatalf("coordinator system prompt = %q, did not want %q", coordinatorPrompt.SystemPrompt, blocked)
+		}
+	}
+	if !strings.Contains(coordinatorPrompt.SystemPrompt, "append prompt") {
+		t.Fatalf("coordinator system prompt = %q, want append prompt", coordinatorPrompt.SystemPrompt)
+	}
+
+	proactiveAgentPrompt := Build(BuildInput{
+		Session:              sess,
+		UserMessage:          session.Message{ID: "msg-5", Role: "user", Content: "hello proactive"},
+		DefaultSystemPrompt:  []string{"default prompt"},
+		AgentSystemPrompt:    "agent prompt",
+		AppendSystemPrompt:   "append prompt",
+		ProactiveAgentPrompt: true,
+	})
+	for _, want := range []string{"default prompt", "# Custom Agent Instructions", "agent prompt", "append prompt"} {
+		if !strings.Contains(proactiveAgentPrompt.SystemPrompt, want) {
+			t.Fatalf("proactive agent system prompt = %q, want %q", proactiveAgentPrompt.SystemPrompt, want)
+		}
+	}
+}
+
+func TestBuildToolLinesKeepBuiltinsAsSortedPrefixForPromptStability(t *testing.T) {
+	sess := session.Session{
+		ID:      "main-000001",
+		Key:     "agent:main:main",
+		AgentID: "main",
+		IsMain:  true,
+	}
+
+	ctx := Build(BuildInput{
+		Session:     sess,
+		UserMessage: session.Message{ID: "msg-1", Role: "user", Content: "show tools"},
+		Tools: []tools.Definition{
+			{Name: "z.mcp", Description: "Late MCP tool.", Source: "mcp"},
+			{Name: "tool.search", Description: "Search tools."},
+			{Name: "agent.task", Description: "Delegate work."},
+			{Name: "a.mcp", Description: "Early MCP tool.", Source: "mcp"},
+			{Name: "system.run", Description: "Run command."},
+		},
+	})
+
+	want := []string{
+		"agent.task: Delegate work.",
+		"system.run: Run command.",
+		"tool.search: Search tools.",
+		"a.mcp: Early MCP tool.",
+		"z.mcp: Late MCP tool.",
+	}
+	if len(ctx.ToolLines) != len(want) {
+		t.Fatalf("tool lines = %#v, want %#v", ctx.ToolLines, want)
+	}
+	for i := range want {
+		if ctx.ToolLines[i] != want[i] {
+			t.Fatalf("tool lines = %#v, want %#v", ctx.ToolLines, want)
+		}
+	}
+}
+
+func TestBuildToolLinesDeduplicateByNameWithBuiltinPrecedence(t *testing.T) {
+	sess := session.Session{
+		ID:      "main-000001",
+		Key:     "agent:main:main",
+		AgentID: "main",
+		IsMain:  true,
+	}
+
+	ctx := Build(BuildInput{
+		Session:     sess,
+		UserMessage: session.Message{ID: "msg-1", Role: "user", Content: "show tools"},
+		Tools: []tools.Definition{
+			{Name: "system.run", Description: "MCP system.run shadow.", Source: "mcp"},
+			{Name: "agent.task", Description: "Delegate work."},
+			{Name: "system.run", Description: "Builtin system.run.", Source: "builtin"},
+			{Name: "tool.search", Description: "Search tools."},
+		},
+	})
+
+	want := []string{
+		"agent.task: Delegate work.",
+		"system.run: Builtin system.run.",
+		"tool.search: Search tools.",
+	}
+	if len(ctx.ToolLines) != len(want) {
+		t.Fatalf("tool lines = %#v, want %#v", ctx.ToolLines, want)
+	}
+	for i := range want {
+		if ctx.ToolLines[i] != want[i] {
+			t.Fatalf("tool lines = %#v, want %#v", ctx.ToolLines, want)
+		}
+	}
 }
 
 func TestComposeSystemContentIncludesWorkspaceTranscriptAndMemories(t *testing.T) {

@@ -1,9 +1,15 @@
 package config
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"myclaw/internal/permissions"
+	"myclaw/internal/session"
 )
 
 func TestDefaultLoadsPermissionSettingsFromEnv(t *testing.T) {
@@ -142,6 +148,41 @@ func TestLoadFromDirEnvOverridesConfigFile(t *testing.T) {
 	}
 }
 
+func TestLoadFromDirUsesAnthropicModelEnvWhenMyclawModelUnset(t *testing.T) {
+	dir := t.TempDir()
+	configsDir := filepath.Join(dir, "configs")
+	if err := os.MkdirAll(configsDir, 0o755); err != nil {
+		t.Fatalf("mkdir configs: %v", err)
+	}
+	raw := `{
+  "llm": {
+    "model": "file-model"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(configsDir, "myclaw.json"), []byte(raw), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	t.Setenv("ANTHROPIC_MODEL", "anthropic-env-model")
+
+	cfg := LoadFromDir(dir)
+
+	if cfg.LLM.Model != "anthropic-env-model" {
+		t.Fatalf("model = %q, want ANTHROPIC_MODEL override", cfg.LLM.Model)
+	}
+}
+
+func TestLoadFromDirPrefersMyclawModelEnvOverAnthropicModel(t *testing.T) {
+	t.Setenv("MYCLAW_LLM_MODEL", "myclaw-env-model")
+	t.Setenv("ANTHROPIC_MODEL", "anthropic-env-model")
+
+	cfg := Default()
+
+	if cfg.LLM.Model != "myclaw-env-model" {
+		t.Fatalf("model = %q, want MYCLAW_LLM_MODEL to win", cfg.LLM.Model)
+	}
+}
+
 func TestLoadFromDirReadsPermissionRunModesFromConfigFile(t *testing.T) {
 	dir := t.TempDir()
 	configsDir := filepath.Join(dir, "configs")
@@ -231,5 +272,224 @@ func TestLoadFromDirReadsCompactVerificationModeFromConfigFile(t *testing.T) {
 
 	if !cfg.Compact.VerificationMode {
 		t.Fatal("compact verification mode = false, want true")
+	}
+}
+
+func TestPermissionUpdatePersisterAddsUserSettingRuleToConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	userSettings := filepath.Join(dir, "user-settings.json")
+	t.Setenv("MYCLAW_USER_SETTINGS_FILE", userSettings)
+	persister := NewPermissionUpdatePersister(dir)
+
+	if err := persister.PersistPermissionUpdates(context.Background(), session.Session{ID: "main-1"}, []permissions.PermissionUpdate{{
+		Type:        permissions.PermissionUpdateAddRules,
+		Destination: permissions.PermissionUpdateDestinationUserSettings,
+		Behavior:    permissions.ActionAllow,
+		Rules: []permissions.PermissionRuleValue{{
+			ToolName:    "system.run",
+			RuleContent: "go test",
+		}},
+	}}); err != nil {
+		t.Fatalf("persist permission update: %v", err)
+	}
+
+	data, err := os.ReadFile(userSettings)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var decoded struct {
+		Permissions struct {
+			Rules []permissions.Rule `json:"rules"`
+		} `json:"permissions"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	if len(decoded.Permissions.Rules) != 1 {
+		t.Fatalf("rules = %#v, want one persisted rule", decoded.Permissions.Rules)
+	}
+	rule := decoded.Permissions.Rules[0]
+	if rule.ToolName != "system.run" || rule.Action != permissions.ActionAllow || rule.Source != string(permissions.RuleSourceConfig) {
+		t.Fatalf("rule = %#v, want userSettings allow rule", rule)
+	}
+	if len(rule.Match.CommandContains) != 1 || rule.Match.CommandContains[0] != "go test" {
+		t.Fatalf("rule match = %#v, want command content", rule.Match)
+	}
+}
+
+func TestPermissionUpdatePersisterWritesProjectAndLocalSettingsSeparately(t *testing.T) {
+	dir := t.TempDir()
+	userSettings := filepath.Join(dir, "user-settings.json")
+	t.Setenv("MYCLAW_USER_SETTINGS_FILE", userSettings)
+	persister := NewPermissionUpdatePersister(dir)
+
+	if err := persister.PersistPermissionUpdates(context.Background(), session.Session{ID: "main-1"}, []permissions.PermissionUpdate{
+		{
+			Type:        permissions.PermissionUpdateSetMode,
+			Destination: permissions.PermissionUpdateDestinationUserSettings,
+			Mode:        permissions.ModeAsk,
+		},
+		{
+			Type:        permissions.PermissionUpdateSetMode,
+			Destination: permissions.PermissionUpdateDestinationProjectSettings,
+			Mode:        permissions.ModeWorkspaceWrite,
+		},
+		{
+			Type:        permissions.PermissionUpdateAddRules,
+			Destination: permissions.PermissionUpdateDestinationLocalSettings,
+			Behavior:    permissions.ActionDeny,
+			Rules: []permissions.PermissionRuleValue{{
+				ToolName: "system.run",
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("persist permission updates: %v", err)
+	}
+
+	if _, err := os.Stat(userSettings); err != nil {
+		t.Fatalf("user settings not written: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "settings.json")); err != nil {
+		t.Fatalf("project settings not written: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "settings.local.json")); err != nil {
+		t.Fatalf("local settings not written: %v", err)
+	}
+	gitignore, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read gitignore: %v", err)
+	}
+	if !strings.Contains(string(gitignore), ".claude/settings.local.json") {
+		t.Fatalf("gitignore = %q, want local settings entry", string(gitignore))
+	}
+}
+
+func TestLoadFromDirMergesClaudeStyleSettingsSourcesInPrecedenceOrder(t *testing.T) {
+	dir := t.TempDir()
+	userSettings := filepath.Join(dir, "user-settings.json")
+	t.Setenv("MYCLAW_USER_SETTINGS_FILE", userSettings)
+	if err := os.WriteFile(userSettings, []byte(`{
+  "permissions": {
+    "mode": "ask",
+    "rules": [{"tool_name":"text.upper","source":"config","action":"allow"}]
+  }
+}`), 0o644); err != nil {
+		t.Fatalf("write user settings: %v", err)
+	}
+	projectDir := filepath.Join(dir, ".claude")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project settings: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "settings.json"), []byte(`{
+  "permissions": {
+    "mode": "workspace-write",
+    "workspace_roots": ["."],
+    "rules": [{"tool_name":"system.run","source":"project","action":"allow"}]
+  }
+}`), 0o644); err != nil {
+		t.Fatalf("write project settings: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "settings.local.json"), []byte(`{
+  "permissions": {
+    "mode": "danger-full-access",
+    "rules": [{"tool_name":"agent.task","source":"local","action":"deny"}]
+  }
+}`), 0o644); err != nil {
+		t.Fatalf("write local settings: %v", err)
+	}
+
+	cfg := LoadFromDir(dir)
+
+	if cfg.Permissions.Mode != string(permissions.ModeDangerFullAccess) {
+		t.Fatalf("mode = %q, want local settings override", cfg.Permissions.Mode)
+	}
+	if len(cfg.Permissions.Rules) != 3 {
+		t.Fatalf("rules = %#v, want merged rules from user, project, local", cfg.Permissions.Rules)
+	}
+}
+
+func TestPermissionUpdatePersisterReplacesAndRemovesRules(t *testing.T) {
+	dir := t.TempDir()
+	userSettings := filepath.Join(dir, "user-settings.json")
+	t.Setenv("MYCLAW_USER_SETTINGS_FILE", userSettings)
+	raw := `{
+  "permissions": {
+    "rules": [
+      {"tool_name":"system.run","source":"config","action":"allow","match":{"command_contains":["old"]}},
+      {"tool_name":"text.upper","source":"config","action":"deny"}
+    ]
+  }
+}`
+	if err := os.WriteFile(userSettings, []byte(raw), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	persister := NewPermissionUpdatePersister(dir)
+	if err := persister.PersistPermissionUpdates(context.Background(), session.Session{ID: "main-1"}, []permissions.PermissionUpdate{
+		{
+			Type:        permissions.PermissionUpdateReplaceRules,
+			Destination: permissions.PermissionUpdateDestinationUserSettings,
+			Behavior:    permissions.ActionAllow,
+			Rules: []permissions.PermissionRuleValue{{
+				ToolName:    "system.run",
+				RuleContent: "new",
+			}},
+		},
+		{
+			Type:        permissions.PermissionUpdateRemoveRules,
+			Destination: permissions.PermissionUpdateDestinationUserSettings,
+			Behavior:    permissions.ActionDeny,
+			Rules: []permissions.PermissionRuleValue{{
+				ToolName: "text.upper",
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("persist permission updates: %v", err)
+	}
+
+	cfg := LoadFromDir(dir)
+	if len(cfg.Permissions.Rules) != 1 {
+		t.Fatalf("rules = %#v, want only replacement allow rule", cfg.Permissions.Rules)
+	}
+	rule := cfg.Permissions.Rules[0]
+	if rule.ToolName != "system.run" || rule.Action != permissions.ActionAllow {
+		t.Fatalf("rule = %#v, want replacement allow rule", rule)
+	}
+	if len(rule.Match.CommandContains) != 1 || rule.Match.CommandContains[0] != "new" {
+		t.Fatalf("rule match = %#v, want new rule content", rule.Match)
+	}
+}
+
+func TestPermissionUpdatePersisterPersistsModeAndDirectories(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MYCLAW_USER_SETTINGS_FILE", filepath.Join(dir, "user-settings.json"))
+	persister := NewPermissionUpdatePersister(dir)
+
+	if err := persister.PersistPermissionUpdates(context.Background(), session.Session{ID: "main-1"}, []permissions.PermissionUpdate{
+		{
+			Type:        permissions.PermissionUpdateSetMode,
+			Destination: permissions.PermissionUpdateDestinationProjectSettings,
+			Mode:        permissions.ModeAsk,
+		},
+		{
+			Type:        permissions.PermissionUpdateAddDirectories,
+			Destination: permissions.PermissionUpdateDestinationProjectSettings,
+			Directories: []string{"C:/repo", "C:/repo/tools"},
+		},
+		{
+			Type:        permissions.PermissionUpdateRemoveDirectories,
+			Destination: permissions.PermissionUpdateDestinationProjectSettings,
+			Directories: []string{"C:/repo/tools"},
+		},
+	}); err != nil {
+		t.Fatalf("persist permission updates: %v", err)
+	}
+
+	cfg := LoadFromDir(dir)
+	if cfg.Permissions.Mode != string(permissions.ModeAsk) {
+		t.Fatalf("mode = %q, want ask", cfg.Permissions.Mode)
+	}
+	if len(cfg.Permissions.WorkspaceRoots) != 1 || filepath.ToSlash(cfg.Permissions.WorkspaceRoots[0]) != "C:/repo" {
+		t.Fatalf("workspace roots = %#v, want only C:/repo", cfg.Permissions.WorkspaceRoots)
 	}
 }

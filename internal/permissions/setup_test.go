@@ -45,6 +45,71 @@ func TestSetupPolicyRejectsUnknownModes(t *testing.T) {
 	}
 }
 
+func TestSetupPolicyNormalizesClaudeCodeExternalModes(t *testing.T) {
+	policy, err := permissions.SetupPolicy(permissions.Policy{
+		Mode:         permissions.Mode("bypass-permissions"),
+		SubagentMode: permissions.Mode("dont-ask"),
+	})
+	if err != nil {
+		t.Fatalf("SetupPolicy returned unexpected error: %v", err)
+	}
+
+	if policy.Mode != permissions.ModeBypassPermissions {
+		t.Fatalf("mode = %q, want %q", policy.Mode, permissions.ModeBypassPermissions)
+	}
+	if policy.SubagentMode != permissions.ModeDontAsk {
+		t.Fatalf("subagent mode = %q, want %q", policy.SubagentMode, permissions.ModeDontAsk)
+	}
+}
+
+func TestSetupPolicyAcceptsClaudeCodeUserAddressableModes(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    permissions.Mode
+		wantMode permissions.Mode
+		wantPlan bool
+		wantAuto bool
+	}{
+		{name: "default", input: permissions.Mode("default"), wantMode: permissions.ModeDefault},
+		{name: "accept edits", input: permissions.Mode("acceptEdits"), wantMode: permissions.ModeAcceptEdits},
+		{name: "plan", input: permissions.Mode("plan"), wantMode: permissions.ModePlan, wantPlan: true},
+		{name: "auto", input: permissions.Mode("auto"), wantMode: permissions.ModeAuto, wantAuto: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			policy, err := permissions.SetupPolicy(permissions.Policy{
+				Mode:           tc.input,
+				WorkspaceRoots: []string{"/workspace/project"},
+			})
+			if err != nil {
+				t.Fatalf("SetupPolicy returned unexpected error: %v", err)
+			}
+			if policy.Mode != tc.wantMode {
+				t.Fatalf("mode = %q, want %q", policy.Mode, tc.wantMode)
+			}
+			if policy.PlanMode != tc.wantPlan {
+				t.Fatalf("plan mode = %v, want %v", policy.PlanMode, tc.wantPlan)
+			}
+			if policy.AutoMode != tc.wantAuto {
+				t.Fatalf("auto mode = %v, want %v", policy.AutoMode, tc.wantAuto)
+			}
+		})
+	}
+}
+
+func TestSetupPolicyKeepsEmptySubagentModeUnset(t *testing.T) {
+	policy, err := permissions.SetupPolicy(permissions.Policy{
+		Mode:           permissions.ModeWorkspaceWrite,
+		WorkspaceRoots: []string{"/workspace/project"},
+	})
+	if err != nil {
+		t.Fatalf("SetupPolicy returned unexpected error: %v", err)
+	}
+	if policy.SubagentMode != "" {
+		t.Fatalf("subagent mode = %q, want empty optional mode", policy.SubagentMode)
+	}
+}
+
 func TestSetupPolicyRejectsSubagentEscalation(t *testing.T) {
 	_, err := permissions.SetupPolicy(permissions.Policy{
 		Mode:         permissions.ModeWorkspaceWrite,
@@ -319,6 +384,86 @@ func TestSetupPolicyLayeredRulesAffectEvaluationInMergedOrder(t *testing.T) {
 	})
 	if decision.Allowed || decision.RequiresApproval {
 		t.Fatalf("expected higher-precedence session deny to win, got %#v", decision)
+	}
+}
+
+func TestSetupPolicySortsExpandedRuleSourcesByPrecedence(t *testing.T) {
+	policy, err := permissions.SetupPolicy(permissions.Policy{
+		Mode: permissions.ModeWorkspaceWrite,
+		WorkspaceRoots: []string{
+			"/workspace/project",
+		},
+		RuleLayers: []permissions.RuleLayer{
+			{
+				Source: permissions.RuleSourceConfig,
+				Rules: []permissions.Rule{
+					{ToolName: "config.tool", Action: permissions.ActionAllow},
+				},
+			},
+			{
+				Source: permissions.RuleSourceLocal,
+				Rules: []permissions.Rule{
+					{ToolName: "local.tool", Action: permissions.ActionAllow},
+				},
+			},
+			{
+				Source: permissions.RuleSourceFlag,
+				Rules: []permissions.Rule{
+					{ToolName: "flag.tool", Action: permissions.ActionAllow},
+				},
+			},
+			{
+				Source: permissions.RuleSourcePolicy,
+				Rules: []permissions.Rule{
+					{ToolName: "policy.tool", Action: permissions.ActionAllow},
+				},
+			},
+			{
+				Source: permissions.RuleSourceCLIArg,
+				Rules: []permissions.Rule{
+					{ToolName: "cli.tool", Action: permissions.ActionAllow},
+				},
+			},
+			{
+				Source: permissions.RuleSourceCommand,
+				Rules: []permissions.Rule{
+					{ToolName: "command.tool", Action: permissions.ActionAllow},
+				},
+			},
+			{
+				Source: permissions.RuleSourceSession,
+				Rules: []permissions.Rule{
+					{ToolName: "session.tool", Action: permissions.ActionAllow},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SetupPolicy returned unexpected error: %v", err)
+	}
+
+	got := []string{
+		policy.Rules[0].Source,
+		policy.Rules[1].Source,
+		policy.Rules[2].Source,
+		policy.Rules[3].Source,
+		policy.Rules[4].Source,
+		policy.Rules[5].Source,
+		policy.Rules[6].Source,
+	}
+	want := []string{
+		string(permissions.RuleSourceSession),
+		string(permissions.RuleSourceCommand),
+		string(permissions.RuleSourceCLIArg),
+		string(permissions.RuleSourcePolicy),
+		string(permissions.RuleSourceFlag),
+		string(permissions.RuleSourceLocal),
+		string(permissions.RuleSourceConfig),
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("rule source order = %#v, want %#v", got, want)
+		}
 	}
 }
 

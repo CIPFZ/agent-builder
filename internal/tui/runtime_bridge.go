@@ -115,7 +115,7 @@ func (b *RuntimeBridge) Reject(id string) error {
 	if err := b.ctx.Err(); err != nil {
 		return err
 	}
-	updated, err := b.runner.ApprovalManager().UpdateStatus(id, approval.StatusRejected)
+	updated, err := b.runner.UpdateApprovalStatus(id, approval.StatusRejected)
 	if err != nil {
 		return err
 	}
@@ -144,6 +144,9 @@ func (b *RuntimeBridge) logRuntimeEvent(event runtime.RuntimeEvent) {
 	}
 	if event.ToolInput != "" {
 		fields["tool_input"] = event.ToolInput
+	}
+	if event.ToolInputObject != nil {
+		fields["tool_input_object"] = event.ToolInputObject
 	}
 	if event.Approval != nil {
 		fields["approval_id"] = event.Approval.ID

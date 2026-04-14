@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"myclaw/internal/agent"
 	"myclaw/internal/session"
 )
+
+var _ AutoClassifyingTool = (*AgentTaskTool)(nil)
 
 type AgentTaskRunner func(context.Context, session.Session, agent.RunContext, string) (string, error)
 
@@ -70,6 +73,18 @@ func (t *AgentTaskTool) IsReadOnly(input string) bool {
 
 func (t *AgentTaskTool) IsDestructive(_ string) bool {
 	return false
+}
+
+func (t *AgentTaskTool) ToAutoClassifierInput(input string) any {
+	if projected, ok := projectStructuredAgentTaskClassifierInput(input); ok {
+		return projected
+	}
+	label, prompt := parseAgentTaskInput(input)
+	tags := []string{}
+	if label != "" && label != "task" {
+		tags = append(tags, label)
+	}
+	return formatAgentTaskClassifierInput(tags, prompt)
 }
 
 func (t *AgentTaskTool) ShouldDefer() bool {
@@ -174,6 +189,9 @@ func (t *AgentTaskTool) resume(ctx context.Context, sess session.Session, input 
 	if !ok || previous.ParentSessionID != sess.ID {
 		return "", fmt.Errorf("agent run %q not found", runID)
 	}
+	if previous.Status == agent.StatusRunning {
+		return "", fmt.Errorf("run %q is still running and cannot be resumed", previous.ID)
+	}
 	run, err := t.manager.Spawn(ctx, agent.SpawnRequest{
 		ParentSessionID: previous.ParentSessionID,
 		ParentAgentID:   previous.ParentAgentID,
@@ -240,6 +258,34 @@ func parseAgentTaskInput(input string) (label, prompt string) {
 		prompt = input
 	}
 	return label, prompt
+}
+
+func projectStructuredAgentTaskClassifierInput(input string) (string, bool) {
+	var object map[string]any
+	if err := json.Unmarshal([]byte(input), &object); err != nil {
+		return "", false
+	}
+	prompt, _ := object["prompt"].(string)
+	if strings.TrimSpace(prompt) == "" {
+		return "", false
+	}
+	tags := []string{}
+	if subagentType, ok := object["subagent_type"].(string); ok && strings.TrimSpace(subagentType) != "" {
+		tags = append(tags, strings.TrimSpace(subagentType))
+	}
+	if mode, ok := object["mode"].(string); ok && strings.TrimSpace(mode) != "" {
+		tags = append(tags, "mode="+strings.TrimSpace(mode))
+	}
+	return formatAgentTaskClassifierInput(tags, prompt), true
+}
+
+func formatAgentTaskClassifierInput(tags []string, prompt string) string {
+	prompt = strings.TrimSpace(prompt)
+	prefix := ": "
+	if len(tags) > 0 {
+		prefix = "(" + strings.Join(tags, ", ") + "): "
+	}
+	return prefix + prompt
 }
 
 func formatAgentTaskSummary(action string, run agent.Run, extra map[string]string) string {

@@ -44,7 +44,10 @@ func Default() Config {
 
 func LoadFromDir(dir string) Config {
 	cfg := defaultConfig()
-	mergeFileConfig(&cfg, dir)
+	mergeFileConfig(&cfg, userSettingsPath())
+	mergeFileConfig(&cfg, configPath(dir))
+	mergeFileConfig(&cfg, projectSettingsPath(dir))
+	mergeFileConfig(&cfg, localSettingsPath(dir))
 	applyEnvOverrides(&cfg)
 	resolvePermissionPaths(&cfg, dir)
 	return cfg
@@ -58,7 +61,7 @@ func defaultConfig() Config {
 			Provider: "openai-compatible",
 			BaseURL:  envOrDefault("MYCLAW_LLM_BASE_URL", "https://api.longcat.chat/openai/v1/chat/completions"),
 			APIKey:   os.Getenv("MYCLAW_LLM_API_KEY"),
-			Model:    envOrDefault("MYCLAW_LLM_MODEL", "LongCat-Flash-Chat"),
+			Model:    firstNonEmptyEnv([]string{"MYCLAW_LLM_MODEL", "ANTHROPIC_MODEL"}, "LongCat-Flash-Chat"),
 		},
 		Permissions: PermissionConfig{
 			Mode:                     envOrDefault("MYCLAW_PERMISSION_MODE", "workspace-write"),
@@ -104,8 +107,7 @@ type fileCompactConfig struct {
 	VerificationMode *bool `json:"verification_mode"`
 }
 
-func mergeFileConfig(cfg *Config, dir string) {
-	path := configPath(dir)
+func mergeFileConfig(cfg *Config, path string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
@@ -150,7 +152,7 @@ func mergeFileConfig(cfg *Config, dir string) {
 		cfg.Permissions.WorkspaceRoots = expandEnvList(fileCfg.Permissions.WorkspaceRoots)
 	}
 	if len(fileCfg.Permissions.Rules) > 0 {
-		cfg.Permissions.Rules = fileCfg.Permissions.Rules
+		cfg.Permissions.Rules = append(cfg.Permissions.Rules, fileCfg.Permissions.Rules...)
 	}
 	if len(fileCfg.Permissions.DangerousCommandPatterns) > 0 {
 		cfg.Permissions.DangerousCommandPatterns = expandEnvList(fileCfg.Permissions.DangerousCommandPatterns)
@@ -168,7 +170,7 @@ func applyEnvOverrides(cfg *Config) {
 	if value := os.Getenv("MYCLAW_LLM_API_KEY"); value != "" {
 		cfg.LLM.APIKey = value
 	}
-	cfg.LLM.Model = envOrDefault("MYCLAW_LLM_MODEL", cfg.LLM.Model)
+	cfg.LLM.Model = firstNonEmptyEnv([]string{"MYCLAW_LLM_MODEL", "ANTHROPIC_MODEL"}, cfg.LLM.Model)
 	cfg.Permissions.Mode = envOrDefault("MYCLAW_PERMISSION_MODE", cfg.Permissions.Mode)
 	if value := os.Getenv("MYCLAW_PERMISSION_SUBAGENT_MODE"); value != "" {
 		cfg.Permissions.SubagentMode = value
@@ -213,6 +215,42 @@ func expandEnvList(values []string) []string {
 func envOrDefault(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return fallback
+}
+
+func userSettingsPath() string {
+	if override := os.Getenv("MYCLAW_USER_SETTINGS_FILE"); override != "" {
+		return override
+	}
+	base, err := os.UserConfigDir()
+	if err != nil || strings.TrimSpace(base) == "" {
+		base = "."
+	}
+	return filepath.Join(base, "myclaw", "settings.json")
+}
+
+func projectSettingsPath(dir string) string {
+	return filepath.Join(settingsBaseDir(dir), ".claude", "settings.json")
+}
+
+func localSettingsPath(dir string) string {
+	return filepath.Join(settingsBaseDir(dir), ".claude", "settings.local.json")
+}
+
+func settingsBaseDir(dir string) string {
+	base := dir
+	if strings.TrimSpace(base) == "" {
+		base = "."
+	}
+	return base
+}
+
+func firstNonEmptyEnv(keys []string, fallback string) string {
+	for _, key := range keys {
+		if value := os.Getenv(key); value != "" {
+			return value
+		}
 	}
 	return fallback
 }

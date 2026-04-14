@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"strings"
 
 	"myclaw/internal/sandbox"
 	"myclaw/internal/session"
@@ -9,6 +10,7 @@ import (
 )
 
 var _ tools.Tool = (*RunTool)(nil)
+var _ tools.AutoClassifyingTool = (*RunTool)(nil)
 
 type RunTool struct {
 	router *sandbox.Router
@@ -45,6 +47,10 @@ func (t *RunTool) IsReadOnly(_ string) bool {
 
 func (t *RunTool) IsDestructive(_ string) bool {
 	return true
+}
+
+func (t *RunTool) ToAutoClassifierInput(input string) any {
+	return strings.TrimSpace(input)
 }
 
 func (t *RunTool) ShouldDefer() bool {

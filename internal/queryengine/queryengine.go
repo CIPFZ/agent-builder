@@ -2,6 +2,7 @@ package queryengine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"myclaw/internal/compaction"
 	"myclaw/internal/llm"
 	"myclaw/internal/memory"
+	"myclaw/internal/model"
 	"myclaw/internal/permissions"
 	"myclaw/internal/prompt"
 	"myclaw/internal/sandbox"
@@ -28,33 +30,182 @@ type EventSink interface {
 }
 
 type Event struct {
-	Type      string
-	Session   session.Session
-	RunID     string
-	Message   *session.Message
-	Delta     string
-	ToolName  string
-	ToolInput string
-	Error     string
-	Approval  *approval.Request
+	Type                  string
+	Session               session.Session
+	RunID                 string
+	Message               *session.Message
+	Delta                 string
+	ToolName              string
+	ToolInput             string
+	ToolInputObject       map[string]any
+	DecisionReason        string
+	DecisionReasonDetails map[string]any
+	AcceptFeedback        string
+	ContentBlocks         []map[string]any
+	Error                 string
+	Approval              *approval.Request
+}
+
+type PermissionHookRequest struct {
+	Session           session.Session
+	RunID             string
+	ToolName          string
+	ToolInput         string
+	ToolInputObject   map[string]any
+	ToolUseID         string
+	ProviderMessageID string
+	Decision          permissions.Decision
+	Policy            permissions.Policy
+}
+
+type PermissionHook interface {
+	CheckPermission(context.Context, PermissionHookRequest) (permissions.Decision, bool, error)
+}
+
+type PreToolUseHookRequest struct {
+	Session           session.Session
+	RunID             string
+	ToolName          string
+	ToolInput         string
+	ToolInputObject   map[string]any
+	ToolUseID         string
+	ProviderMessageID string
+	Policy            permissions.Policy
+}
+
+type PreToolUseHookResult struct {
+	UpdatedInput          string
+	UpdatedInputObject    map[string]any
+	HasPermissionDecision bool
+	PermissionDecision    permissions.Decision
+	BlockingError         string
+	PreventContinuation   bool
+	StopReason            string
+	AdditionalContexts    []string
+	HookMessages          []map[string]any
+	Cancelled             bool
+	ExecutionError        string
+}
+
+func (r PreToolUseHookResult) UpdatedInputValue() (string, bool, error) {
+	return permissions.Decision{
+		UpdatedInput:       r.UpdatedInput,
+		UpdatedInputObject: r.UpdatedInputObject,
+	}.UpdatedInputValue()
+}
+
+type PreToolUseHook interface {
+	BeforeToolUse(context.Context, PreToolUseHookRequest) (PreToolUseHookResult, bool, error)
+}
+
+type PostToolUseHookRequest struct {
+	Session           session.Session
+	RunID             string
+	ToolName          string
+	ToolInput         string
+	ToolInputObject   map[string]any
+	ToolUseID         string
+	ProviderMessageID string
+	ToolOutput        string
+	Policy            permissions.Policy
+}
+
+type PostToolUseHookResult struct {
+	BlockingError        string
+	PreventContinuation  bool
+	StopReason           string
+	AdditionalContexts   []string
+	UpdatedMCPToolOutput string
+	HookMessages         []map[string]any
+	Cancelled            bool
+	ExecutionError       string
+}
+
+type PostToolUseHook interface {
+	AfterToolUse(context.Context, PostToolUseHookRequest) (PostToolUseHookResult, bool, error)
+}
+
+type PostToolUseFailureHookRequest struct {
+	Session           session.Session
+	RunID             string
+	ToolName          string
+	ToolInput         string
+	ToolInputObject   map[string]any
+	ToolUseID         string
+	ProviderMessageID string
+	Error             string
+	IsInterrupt       bool
+	Policy            permissions.Policy
+}
+
+type PostToolUseFailureHookResult struct {
+	BlockingError      string
+	AdditionalContexts []string
+	HookMessages       []map[string]any
+	Cancelled          bool
+	ExecutionError     string
+}
+
+type PostToolUseFailureHook interface {
+	AfterToolUseFailure(context.Context, PostToolUseFailureHookRequest) (PostToolUseFailureHookResult, bool, error)
+}
+
+type PermissionUpdatePersister interface {
+	PersistPermissionUpdates(context.Context, session.Session, []permissions.PermissionUpdate) error
 }
 
 type Config struct {
-	Sessions         *session.Manager
-	Client           llm.Client
-	WorkspaceLoader  *workspace.Loader
-	ToolRegistry     *tools.Registry
-	AgentManager     *agent.Manager
-	InputProcessor   InputProcessor
+	Sessions                   *session.Manager
+	Client                     llm.Client
+	WorkspaceLoader            *workspace.Loader
+	ToolRegistry               *tools.Registry
+	AgentManager               *agent.Manager
+	UserContextProvider        UserContextProvider
+	SystemContextProvider      SystemContextProvider
+	DefaultSystemPrompt        []string
+	CustomSystemPrompt         string
+	AgentSystemPrompt          string
+	CoordinatorSystemPrompt    string
+	ProactiveAgentPrompt       bool
+	AppendSystemPrompt         string
+	OverrideSystemPrompt       string
+	MainLoopModel              string
+	LLMProvider                string
+	Debug                      bool
+	Verbose                    bool
+	ThinkingConfig             map[string]any
+	AgentDefinitions           tools.AgentDefinitions
+	MaxBudgetUSD               float64
+	IsNonInteractiveSession    bool
+	RequireCanUseTool          bool
+	QueryTracking              tools.QueryTracking
+	SystemPromptInjection      string
+	DisableClaudeMd            bool
+	DisableGitStatus           bool
+	InputProcessor             InputProcessor
 	IncludePartialStreamEvents bool
-	EstimatedTokenBudget int
-	MaxTurns         int
-	SnipReplay       func(session.Message, []session.Message) *SnipReplayResult
-	PostCompactCleanup func(session.Message, []session.Message) *PostCompactCleanupResult
-	PermissionPolicy permissions.Policy
-	Compactor        *compaction.Service
-	MemoryService    *memory.Service
-	ApprovalManager  *approval.Manager
+	EstimatedTokenBudget       int
+	MaxTurns                   int
+	SnipReplay                 func(session.Message, []session.Message) *SnipReplayResult
+	PostCompactCleanup         func(session.Message, []session.Message) *PostCompactCleanupResult
+	SessionStartCompactHook    SessionStartCompactHook
+	TranscriptPathProvider     TranscriptPathProvider
+	PermissionPolicy           permissions.Policy
+	Compactor                  *compaction.Service
+	MemoryService              *memory.Service
+	ApprovalManager            *approval.Manager
+	PermissionHook             PermissionHook
+	PreToolUseHook             PreToolUseHook
+	PostToolUseHook            PostToolUseHook
+	PostToolUseFailureHook     PostToolUseFailureHook
+	PermissionUpdatePersister  PermissionUpdatePersister
+	FileReadingLimits          tools.ResourceLimits
+	GlobLimits                 tools.ResourceLimits
+	MCPClients                 []tools.MCPConnection
+	MCPResources               map[string][]tools.MCPResource
+	RequestPrompt              tools.RequestPromptFunc
+	ReportToolProgress         tools.ProgressFunc
+	AddNotification            tools.AddNotificationFunc
 }
 
 type ProcessResult struct {
@@ -123,87 +274,132 @@ type PostCompactCleanupResult struct {
 	Executed bool
 }
 
+type SessionStartCompactHook interface {
+	ProcessSessionStartCompact(context.Context, session.Session) ([]session.Message, error)
+}
+
+type TranscriptPathProvider func(session.Session) string
+
 type State struct {
-	ActiveRunID        string
-	LastRunID          string
-	LastEvent          string
-	LastError          string
-	LastSessionID      string
-	PermissionDenials  []PermissionDenial
-	LastAssistantReply string
-	LastUserInput      string
-	MessageCount       int
-	LastTurnStartedAt  time.Time
-	LastTurnCompletedAt time.Time
-	LastTurnDuration   time.Duration
-	StreamDeltaCount   int
-	ActiveAssistantText string
-	StreamEventCount    int
-	LastStreamEvent     string
-	RecentStreamEvents  []string
-	LastPromptTokens    int
-	LastCompletionTokens int
-	LastTotalTokens     int
-	TotalEstimatedTokens int
-	TokenBudget          int
-	BudgetExceeded       bool
-	TurnCount            int
-	LastInputMode         string
-	LastCommandName       string
-	LastImmediateMessageCount int
-	CompactBoundaryCount   int
-	LastCompactBoundaryID  string
-	LastModelPassCount     int
-	MaxTurns               int
-	MaxTurnsExceeded       bool
-	LastEstimatedContextTokens int
-	ContextWindowTokens        int
-	WarningThresholdTokens     int
-	ErrorThresholdTokens       int
-	AutoCompactThresholdTokens int
-	BlockingThresholdTokens    int
-	IsAboveWarningThreshold    bool
-	IsAboveErrorThreshold      bool
-	IsAboveAutoCompactThreshold bool
-	IsAtBlockingContextLimit   bool
-	LastCompactionReason       string
-	LastCompactionOriginalCount int
-	LastCompactionResultCount   int
-	LastCompactionPhase         string
-	LastCompactionReplayExecuted bool
-	LastCompactionReplayCount    int
-	LastCompactionMemorySaved    bool
-	LastCompactionSummaryID      string
+	ActiveRunID                   string
+	LastRunID                     string
+	LastEvent                     string
+	LastError                     string
+	LastSessionID                 string
+	PermissionDenials             []PermissionDenial
+	LastAssistantReply            string
+	LastUserInput                 string
+	MessageCount                  int
+	LastTurnStartedAt             time.Time
+	LastTurnCompletedAt           time.Time
+	LastTurnDuration              time.Duration
+	StreamDeltaCount              int
+	ActiveAssistantText           string
+	StreamEventCount              int
+	LastStreamEvent               string
+	RecentStreamEvents            []string
+	LastPromptTokens              int
+	LastCompletionTokens          int
+	LastTotalTokens               int
+	TotalEstimatedTokens          int
+	TokenBudget                   int
+	BudgetExceeded                bool
+	TurnCount                     int
+	LastInputMode                 string
+	LastCommandName               string
+	LastImmediateMessageCount     int
+	CompactBoundaryCount          int
+	LastCompactBoundaryID         string
+	LastModelPassCount            int
+	MaxTurns                      int
+	MaxTurnsExceeded              bool
+	LastEstimatedContextTokens    int
+	ContextWindowTokens           int
+	WarningThresholdTokens        int
+	ErrorThresholdTokens          int
+	AutoCompactThresholdTokens    int
+	BlockingThresholdTokens       int
+	IsAboveWarningThreshold       bool
+	IsAboveErrorThreshold         bool
+	IsAboveAutoCompactThreshold   bool
+	IsAtBlockingContextLimit      bool
+	LastCompactionReason          string
+	LastCompactionOriginalCount   int
+	LastCompactionResultCount     int
+	LastCompactionPhase           string
+	LastCompactionReplayExecuted  bool
+	LastCompactionReplayCount     int
+	LastCompactionMemorySaved     bool
+	LastCompactionSummaryID       string
 	LastCompactionCleanupExecuted bool
 	LastCompactionCleanupCount    int
 }
 
 type QueryEngine struct {
-	nextRunID atomic.Uint64
-	nextBoundaryID atomic.Uint64
-	sessions  *session.Manager
-	client    llm.Client
-	workspace *workspace.Loader
-	tools     *tools.Registry
-	compactor *compaction.Service
-	memory    *memory.Service
-	approvals *approval.Manager
-	tokenBudget int
-	maxTurns  int
-	policy    permissions.Policy
-	policyMu  sync.RWMutex
-	policies  map[string]permissions.Policy
-	stateMu   sync.RWMutex
-	state     State
-	cancelMu  sync.Mutex
-	cancel    context.CancelFunc
-	cancelRun string
-	msgMu     sync.RWMutex
-	messages  map[string][]session.Message
-	inputs    InputProcessor
+	nextRunID                  atomic.Uint64
+	nextBoundaryID             atomic.Uint64
+	sessions                   *session.Manager
+	client                     llm.Client
+	workspace                  *workspace.Loader
+	tools                      *tools.Registry
+	compactor                  *compaction.Service
+	memory                     *memory.Service
+	approvals                  *approval.Manager
+	permissionHook             PermissionHook
+	preToolUseHook             PreToolUseHook
+	postToolUseHook            PostToolUseHook
+	postToolUseFailureHook     PostToolUseFailureHook
+	permissionUpdatePersister  PermissionUpdatePersister
+	tokenBudget                int
+	maxTurns                   int
+	policy                     permissions.Policy
+	policyMu                   sync.RWMutex
+	policies                   map[string]permissions.Policy
+	toolContextMu              sync.Mutex
+	toolAppStates              map[string]map[string]any
+	toolDecisions              map[string]map[string]tools.ToolDecision
+	fileReadingLimits          tools.ResourceLimits
+	globLimits                 tools.ResourceLimits
+	mcpClients                 []tools.MCPConnection
+	mcpResources               map[string][]tools.MCPResource
+	requestPrompt              tools.RequestPromptFunc
+	reportToolProgress         tools.ProgressFunc
+	addNotification            tools.AddNotificationFunc
+	stateMu                    sync.RWMutex
+	state                      State
+	cancelMu                   sync.Mutex
+	cancel                     context.CancelFunc
+	cancelRun                  string
+	msgMu                      sync.RWMutex
+	messages                   map[string][]session.Message
+	inputs                     InputProcessor
+	userContextProvider        UserContextProvider
+	systemContextProvider      SystemContextProvider
+	defaultSystemPrompt        []string
+	customSystemPrompt         string
+	agentSystemPrompt          string
+	coordinatorSystemPrompt    string
+	proactiveAgentPrompt       bool
+	appendSystemPrompt         string
+	overrideSystemPrompt       string
+	mainLoopModel              string
+	llmProvider                string
+	debug                      bool
+	verbose                    bool
+	thinkingConfig             map[string]any
+	agentDefinitions           tools.AgentDefinitions
+	maxBudgetUSD               float64
+	isNonInteractiveSession    bool
+	requireCanUseTool          bool
+	queryTracking              tools.QueryTracking
+	systemPromptInjection      string
+	disableClaudeMd            bool
+	disableGitStatus           bool
 	includePartialStreamEvents bool
-	snipReplay func(session.Message, []session.Message) *SnipReplayResult
-	postCompactCleanup func(session.Message, []session.Message) *PostCompactCleanupResult
+	snipReplay                 func(session.Message, []session.Message) *SnipReplayResult
+	postCompactCleanup         func(session.Message, []session.Message) *PostCompactCleanupResult
+	sessionStartCompactHook    SessionStartCompactHook
+	transcriptPathProvider     TranscriptPathProvider
 }
 
 func New(cfg Config) *QueryEngine {
@@ -249,24 +445,73 @@ func New(cfg Config) *QueryEngine {
 	if inputs == nil {
 		inputs = noopInputProcessor{}
 	}
+	userContextProvider := cfg.UserContextProvider
+	if userContextProvider == nil {
+		userContextProvider = defaultUserContextProvider(cfg.DisableClaudeMd)
+	}
+	systemContextProvider := cfg.SystemContextProvider
+	if systemContextProvider == nil {
+		systemContextProvider = defaultSystemContextProvider(cfg.SystemPromptInjection, cfg.DisableGitStatus)
+	}
 
 	return &QueryEngine{
-		sessions:  sessionsMgr,
-		client:    client,
-		workspace: workspaceLoader,
-		tools:     toolRegistry,
-		compactor: cfg.Compactor,
-		memory:    memSvc,
-		approvals: approvalMgr,
-		tokenBudget: cfg.EstimatedTokenBudget,
-		maxTurns:  cfg.MaxTurns,
-		policy:    policy,
-		policies:  make(map[string]permissions.Policy),
-		messages:  make(map[string][]session.Message),
-		inputs:    inputs,
+		sessions:                  sessionsMgr,
+		client:                    client,
+		workspace:                 workspaceLoader,
+		tools:                     toolRegistry,
+		compactor:                 cfg.Compactor,
+		memory:                    memSvc,
+		approvals:                 approvalMgr,
+		permissionHook:            cfg.PermissionHook,
+		preToolUseHook:            cfg.PreToolUseHook,
+		postToolUseHook:           cfg.PostToolUseHook,
+		postToolUseFailureHook:    cfg.PostToolUseFailureHook,
+		permissionUpdatePersister: cfg.PermissionUpdatePersister,
+		tokenBudget:               cfg.EstimatedTokenBudget,
+		maxTurns:                  cfg.MaxTurns,
+		policy:                    policy,
+		policies:                  make(map[string]permissions.Policy),
+		toolAppStates:             make(map[string]map[string]any),
+		toolDecisions:             make(map[string]map[string]tools.ToolDecision),
+		fileReadingLimits:         defaultFileReadingLimits(cfg.FileReadingLimits),
+		globLimits:                defaultGlobLimits(cfg.GlobLimits),
+		mcpClients:                append([]tools.MCPConnection(nil), cfg.MCPClients...),
+		mcpResources:              cloneMCPResources(cfg.MCPResources),
+		requestPrompt:             cfg.RequestPrompt,
+		reportToolProgress:        cfg.ReportToolProgress,
+		addNotification:           cfg.AddNotification,
+		messages:                  make(map[string][]session.Message),
+		inputs:                    inputs,
+		userContextProvider:       userContextProvider,
+		systemContextProvider:     systemContextProvider,
+		defaultSystemPrompt:       cfg.DefaultSystemPrompt,
+		customSystemPrompt:        cfg.CustomSystemPrompt,
+		agentSystemPrompt:         cfg.AgentSystemPrompt,
+		coordinatorSystemPrompt:   cfg.CoordinatorSystemPrompt,
+		proactiveAgentPrompt:      cfg.ProactiveAgentPrompt,
+		appendSystemPrompt:        cfg.AppendSystemPrompt,
+		overrideSystemPrompt:      cfg.OverrideSystemPrompt,
+		mainLoopModel:             cfg.MainLoopModel,
+		llmProvider:               cfg.LLMProvider,
+		debug:                     cfg.Debug,
+		verbose:                   cfg.Verbose,
+		thinkingConfig:            cloneAnyMap(cfg.ThinkingConfig),
+		agentDefinitions: tools.AgentDefinitions{
+			ActiveAgents:      append([]string(nil), cfg.AgentDefinitions.ActiveAgents...),
+			AllowedAgentTypes: append([]string(nil), cfg.AgentDefinitions.AllowedAgentTypes...),
+		},
+		maxBudgetUSD:               cfg.MaxBudgetUSD,
+		isNonInteractiveSession:    cfg.IsNonInteractiveSession,
+		requireCanUseTool:          cfg.RequireCanUseTool,
+		queryTracking:              cfg.QueryTracking,
+		systemPromptInjection:      cfg.SystemPromptInjection,
+		disableClaudeMd:            cfg.DisableClaudeMd,
+		disableGitStatus:           cfg.DisableGitStatus,
 		includePartialStreamEvents: cfg.IncludePartialStreamEvents,
-		snipReplay: cfg.SnipReplay,
-		postCompactCleanup: cfg.PostCompactCleanup,
+		snipReplay:                 cfg.SnipReplay,
+		postCompactCleanup:         cfg.PostCompactCleanup,
+		sessionStartCompactHook:    cfg.SessionStartCompactHook,
+		transcriptPathProvider:     cfg.TranscriptPathProvider,
 	}
 }
 
@@ -304,6 +549,7 @@ func (q *QueryEngine) SubmitPrompt(ctx context.Context, sess session.Session, pr
 	if strings.TrimSpace(normalized) == "" {
 		return nil
 	}
+	q.ensureMutableMessages(sess.ID)
 	msg, err := q.sessions.AppendMessage(sess.ID, "user", normalized)
 	if err != nil {
 		return err
@@ -340,8 +586,11 @@ func (q *QueryEngine) SubmitMessage(ctx context.Context, sess session.Session, u
 	}
 	q.recordModelPass()
 	reply, err := q.executeTurnLoop(ctx, sess, userMessage, runID, sink, &toolCall{
-		name:  stream.ToolName,
-		input: stream.ToolInput,
+		name:              stream.ToolName,
+		input:             stream.ToolInput,
+		inputObject:       normalizedToolInputObject(stream.ToolInput, stream.ToolInputObject),
+		toolUseID:         stream.ToolUseID,
+		providerMessageID: stream.ProviderMessageID,
 	}, stream)
 	if err != nil {
 		if !isApprovalRequiredError(err) {
@@ -374,6 +623,25 @@ func (q *QueryEngine) ApproveAndContinue(ctx context.Context, approvalID string,
 		}
 		request = updated
 	}
+	_ = q.sessions.UpdateMetadata(request.SessionID, func(metadata *session.SessionMetadata) {
+		if metadata.PendingApprovalID == request.ID {
+			metadata.PendingApprovalID = ""
+			metadata.PendingApprovalStatus = ""
+			metadata.PendingApprovalToolName = ""
+			metadata.PendingApprovalToolInput = ""
+			metadata.PendingApprovalToolInputObject = nil
+			metadata.PendingApprovalToolUseID = ""
+			metadata.PendingApprovalProviderMsgID = ""
+			metadata.PendingApprovalReason = ""
+			metadata.PendingApprovalDecisionReason = ""
+			metadata.PendingApprovalAcceptFeedback = ""
+			metadata.PendingApprovalContentBlocks = nil
+			metadata.PendingApprovalRunID = ""
+			metadata.PendingApprovalUserMessageID = ""
+			metadata.PendingApprovalCategory = ""
+			metadata.PendingApprovalRuleSource = ""
+		}
+	})
 
 	sess, ok := q.sessions.GetByID(request.SessionID)
 	if !ok {
@@ -385,9 +653,14 @@ func (q *QueryEngine) ApproveAndContinue(ctx context.Context, approvalID string,
 	}
 
 	reply, err := q.executeTurnLoop(ctx, sess, userMessage, request.RunID, sink, &toolCall{
-		name:           request.ToolName,
-		input:          request.ToolInput,
-		skipPermission: true,
+		name:              request.ToolName,
+		input:             request.ToolInput,
+		inputObject:       cloneAnyMap(request.ToolInputObject),
+		toolUseID:         request.ToolUseID,
+		providerMessageID: request.ProviderMessageID,
+		acceptFeedback:    request.AcceptFeedback,
+		contentBlocks:     cloneAnyMaps(request.ContentBlocks),
+		skipPermission:    true,
 	}, nil)
 	if err != nil {
 		if !isApprovalRequiredError(err) {
@@ -400,6 +673,131 @@ func (q *QueryEngine) ApproveAndContinue(ctx context.Context, approvalID string,
 		Session: sess,
 		RunID:   request.RunID,
 		Message: &reply,
+	})
+}
+
+func (q *QueryEngine) RejectAndContinue(ctx context.Context, approvalID, feedback string, contentBlocks []map[string]any, sink EventSink) error {
+	request, ok := q.approvals.Get(approvalID)
+	if !ok {
+		return fmt.Errorf("approval %q not found", approvalID)
+	}
+	ctx, release := q.beginRun(ctx, request.RunID, request.SessionID)
+	defer release()
+	if request.Status == approval.StatusApproved {
+		return fmt.Errorf("approval %q was already approved", approvalID)
+	}
+	if request.Status == approval.StatusPending {
+		updated, err := q.approvals.UpdateStatus(approvalID, approval.StatusRejected)
+		if err != nil {
+			return err
+		}
+		request = updated
+	}
+	q.clearPendingApprovalMetadata(request)
+
+	sess, ok := q.sessions.GetByID(request.SessionID)
+	if !ok {
+		return fmt.Errorf("session %q not found", request.SessionID)
+	}
+
+	toolUseID := strings.TrimSpace(request.ToolUseID)
+	if toolUseID == "" {
+		toolUseID = fmt.Sprintf("toolu-%s-%s", request.RunID, strings.ReplaceAll(request.ToolName, ".", "-"))
+	}
+	rejectionMessage := rejectMessageWithFeedback(strings.TrimSpace(feedback))
+	blocks := []model.MessageBlock{
+		{
+			Type:      model.MessageBlockToolResult,
+			ToolUseID: toolUseID,
+			Content:   rejectionMessage,
+			IsError:   true,
+		},
+	}
+	blocks = append(blocks, messageBlocksFromContentMaps(contentBlocks)...)
+	toolMsg, err := q.sessions.AppendMessageWithBlocks(sess.ID, "tool", fmt.Sprintf("%s: Error: %s", request.ToolName, rejectionMessage), "", blocks)
+	if err != nil {
+		return err
+	}
+	q.appendMutableMessage(sess.ID, toolMsg)
+	if err := q.emit(sink, Event{
+		Type:      "tool.result",
+		Session:   sess,
+		RunID:     request.RunID,
+		Message:   &toolMsg,
+		ToolName:  request.ToolName,
+		ToolInput: request.ToolInput,
+	}); err != nil {
+		return err
+	}
+	reply, err := q.completeWithToolResult(sess, request.RunID, sink, toolMsg)
+	if err != nil {
+		q.emitRunError(sink, Event{Type: "run.error", Session: sess, RunID: request.RunID, Error: err.Error()})
+		return err
+	}
+	return q.emit(sink, Event{
+		Type:    "agent.lifecycle.end",
+		Session: sess,
+		RunID:   request.RunID,
+		Message: &reply,
+	})
+}
+
+func (q *QueryEngine) completeWithPermissionRejection(sess session.Session, runID string, sink EventSink, pending *toolCall, reason string, contentBlocks []map[string]any) (session.Message, error) {
+	toolUseID := strings.TrimSpace(pending.toolUseID)
+	if toolUseID == "" {
+		toolUseID = fmt.Sprintf("toolu-%s-%s", runID, strings.ReplaceAll(pending.name, ".", "-"))
+	}
+	rejectionMessage := strings.TrimSpace(reason)
+	if rejectionMessage == "" {
+		rejectionMessage = rejectMessage
+	}
+	blocks := []model.MessageBlock{
+		{
+			Type:      model.MessageBlockToolResult,
+			ToolUseID: toolUseID,
+			Content:   rejectionMessage,
+			IsError:   true,
+		},
+	}
+	blocks = append(blocks, messageBlocksFromContentMaps(contentBlocks)...)
+	toolMsg, err := q.sessions.AppendMessageWithBlocks(sess.ID, "tool", fmt.Sprintf("%s: Error: %s", pending.name, rejectionMessage), "", blocks)
+	if err != nil {
+		return session.Message{}, err
+	}
+	q.appendMutableMessage(sess.ID, toolMsg)
+	if err := q.emit(sink, Event{
+		Type:            "tool.result",
+		Session:         sess,
+		RunID:           runID,
+		Message:         &toolMsg,
+		ToolName:        pending.name,
+		ToolInput:       pending.input,
+		ToolInputObject: cloneAnyMap(pending.inputObject),
+	}); err != nil {
+		return session.Message{}, err
+	}
+	return q.completeWithToolResult(sess, runID, sink, toolMsg)
+}
+
+func (q *QueryEngine) clearPendingApprovalMetadata(request approval.Request) {
+	_ = q.sessions.UpdateMetadata(request.SessionID, func(metadata *session.SessionMetadata) {
+		if metadata.PendingApprovalID == request.ID {
+			metadata.PendingApprovalID = ""
+			metadata.PendingApprovalStatus = ""
+			metadata.PendingApprovalToolName = ""
+			metadata.PendingApprovalToolInput = ""
+			metadata.PendingApprovalToolInputObject = nil
+			metadata.PendingApprovalToolUseID = ""
+			metadata.PendingApprovalProviderMsgID = ""
+			metadata.PendingApprovalReason = ""
+			metadata.PendingApprovalDecisionReason = ""
+			metadata.PendingApprovalAcceptFeedback = ""
+			metadata.PendingApprovalContentBlocks = nil
+			metadata.PendingApprovalRunID = ""
+			metadata.PendingApprovalUserMessageID = ""
+			metadata.PendingApprovalCategory = ""
+			metadata.PendingApprovalRuleSource = ""
+		}
 	})
 }
 
@@ -421,6 +819,301 @@ func (q *QueryEngine) Messages(sessionID string) []session.Message {
 	defer q.msgMu.RUnlock()
 	items := q.messages[sessionID]
 	return append([]session.Message(nil), items...)
+}
+
+func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, pending *toolCall) tools.ToolUseContext {
+	policy := q.PermissionPolicyForSession(sess.ID)
+	q.toolContextMu.Lock()
+	appState := q.toolAppStates[sess.ID]
+	if appState == nil {
+		appState = make(map[string]any)
+		q.toolAppStates[sess.ID] = appState
+	}
+	decisions := q.toolDecisions[sess.ID]
+	if decisions == nil {
+		decisions = make(map[string]tools.ToolDecision)
+		q.toolDecisions[sess.ID] = decisions
+	}
+	q.toolContextMu.Unlock()
+
+	reportProgress := q.reportToolProgress
+	if reportProgress == nil {
+		reportProgress = func(tools.ToolProgress) {}
+	}
+	requestPrompt := q.requestPrompt
+	if requestPrompt == nil {
+		requestPrompt = func(string, string, tools.PromptRequest) (tools.PromptResponse, error) {
+			return tools.PromptResponse{}, nil
+		}
+	}
+	addNotification := q.addNotification
+	if addNotification == nil {
+		addNotification = func(tools.Notification) {}
+	}
+	refreshTools := func() []tools.Definition {
+		return q.tools.Expose(tools.ExposeOptions{IncludeDeferred: true, Policy: q.PermissionPolicyForSession(sess.ID)})
+	}
+
+	return tools.ToolUseContext{
+		AbortContext:   ctx,
+		Session:        sess,
+		ToolName:       pending.name,
+		ToolUseID:      pending.toolUseID,
+		Input:          pending.input,
+		InputObject:    cloneAnyMap(pending.inputObject),
+		Policy:         policy,
+		AvailableTools: q.tools.Expose(tools.ExposeOptions{IncludeDeferred: true, Policy: policy}),
+		AgentID:        sess.AgentID,
+		MainLoopModel:  q.mainLoopModelForSession(sess.ID),
+		LLMProvider:    q.llmProvider,
+		Debug:          q.debug,
+		Verbose:        q.verbose,
+		ThinkingConfig: cloneAnyMap(q.thinkingConfig),
+		AgentDefinitions: tools.AgentDefinitions{
+			ActiveAgents:      append([]string(nil), q.agentDefinitions.ActiveAgents...),
+			AllowedAgentTypes: append([]string(nil), q.agentDefinitions.AllowedAgentTypes...),
+		},
+		MaxBudgetUSD:      q.maxBudgetUSD,
+		IsNonInteractive:  q.isNonInteractiveSession,
+		RequireCanUseTool: q.requireCanUseTool,
+		QueryTracking:     q.queryTracking,
+		Messages:          q.Messages(sess.ID),
+		AppState:          appState,
+		SetAppState:       q.setToolAppStateFunc(sess.ID),
+		ToolDecisions:     decisions,
+		FileReadingLimits: q.fileReadingLimits,
+		GlobLimits:        q.globLimits,
+		MCPClients:        append([]tools.MCPConnection(nil), q.mcpClients...),
+		MCPResources:      cloneMCPResources(q.mcpResources),
+		RequestPrompt:     requestPrompt,
+		ReportProgress:    reportProgress,
+		AddNotification:   addNotification,
+		RefreshTools:      refreshTools,
+		CanUseTool:        q.canUseToolFunc(ctx, sess),
+	}
+}
+
+func (q *QueryEngine) canUseToolFunc(parentCtx context.Context, sess session.Session) tools.CanUseToolFunc {
+	return func(ctx context.Context, req tools.CanUseToolRequest) (permissions.Decision, error) {
+		if req.ForceDecision != nil {
+			return *req.ForceDecision, nil
+		}
+		if ctx == nil {
+			ctx = parentCtx
+		}
+		input := strings.TrimSpace(req.Input)
+		inputObject := cloneAnyMap(req.InputObject)
+		if input == "" && len(inputObject) > 0 {
+			encoded, err := json.Marshal(inputObject)
+			if err != nil {
+				return permissions.Decision{}, err
+			}
+			input = string(encoded)
+		}
+		policy := q.PermissionPolicyForSession(sess.ID)
+		toolDef, ok := q.tools.InspectWithPolicy(req.ToolName, input, policy)
+		if !ok {
+			return permissions.Decision{
+				Category: permissions.CategoryRuleDenied,
+				Reason:   fmt.Sprintf("tool %q is not available under the current tool policy", strings.TrimSpace(req.ToolName)),
+			}, nil
+		}
+		toolDecision, checked, err := q.tools.CheckPermissionsWithContext(ctx, tools.ToolUseContext{
+			AbortContext:   ctx,
+			Session:        sess,
+			ToolName:       req.ToolName,
+			Input:          input,
+			InputObject:    inputObject,
+			Policy:         policy,
+			AvailableTools: q.tools.Expose(tools.ExposeOptions{IncludeDeferred: true, Policy: policy}),
+			AgentID:        sess.AgentID,
+			MainLoopModel:  q.mainLoopModelForSession(sess.ID),
+			LLMProvider:    q.llmProvider,
+			Debug:          q.debug,
+			Verbose:        q.verbose,
+			ThinkingConfig: cloneAnyMap(q.thinkingConfig),
+			AgentDefinitions: tools.AgentDefinitions{
+				ActiveAgents:      append([]string(nil), q.agentDefinitions.ActiveAgents...),
+				AllowedAgentTypes: append([]string(nil), q.agentDefinitions.AllowedAgentTypes...),
+			},
+			MaxBudgetUSD:      q.maxBudgetUSD,
+			IsNonInteractive:  q.isNonInteractiveSession,
+			RequireCanUseTool: q.requireCanUseTool,
+			QueryTracking:     q.queryTracking,
+			Messages:          q.Messages(sess.ID),
+			CanUseTool:        q.canUseToolFunc(ctx, sess),
+		})
+		if err != nil {
+			return permissions.Decision{}, err
+		}
+		if checked {
+			if updated, ok, err := toolDecision.UpdatedInputValue(); err != nil {
+				return permissions.Decision{}, err
+			} else if ok {
+				input = updated
+				inputObject = cloneAnyMap(toolDecision.UpdatedInputObject)
+				toolDef, ok = q.tools.InspectWithPolicy(req.ToolName, input, policy)
+				if !ok {
+					return permissions.Decision{
+						Category: permissions.CategoryRuleDenied,
+						Reason:   fmt.Sprintf("tool %q is not available under the current tool policy", strings.TrimSpace(req.ToolName)),
+					}, nil
+				}
+			}
+			if !toolDecision.Allowed && (toolDecision.RequiresApproval || strings.TrimSpace(toolDecision.Reason) != "") {
+				if toolDecision.RequiresApproval && q.permissionHook != nil {
+					observableInput, observableInputObject := q.observableToolInput(req.ToolName, input, inputObject)
+					hookDecision, decided, err := q.permissionHook.CheckPermission(ctx, PermissionHookRequest{
+						Session:           sess,
+						ToolName:          req.ToolName,
+						ToolInput:         observableInput,
+						ToolInputObject:   observableInputObject,
+						ToolUseID:         req.ToolUseID,
+						ProviderMessageID: req.ProviderMessageID,
+						Decision:          toolDecision,
+						Policy:            policy,
+					})
+					if err != nil {
+						return permissions.Decision{}, err
+					}
+					if decided {
+						if updated, ok, err := hookDecision.UpdatedInputValue(); err != nil {
+							return permissions.Decision{}, err
+						} else if ok {
+							input = updated
+							inputObject = cloneAnyMap(hookDecision.UpdatedInputObject)
+							toolDef, ok = q.tools.InspectWithPolicy(req.ToolName, input, policy)
+							if !ok {
+								return permissions.Decision{
+									Category: permissions.CategoryRuleDenied,
+									Reason:   fmt.Sprintf("tool %q is not available under the current tool policy", strings.TrimSpace(req.ToolName)),
+								}, nil
+							}
+						}
+						if hookDecision.Allowed {
+							toolDecision = hookDecision
+						} else {
+							return hookDecision, nil
+						}
+					} else {
+						return toolDecision, nil
+					}
+				} else {
+					return toolDecision, nil
+				}
+			}
+		}
+		autoClassifierInput, _ := q.tools.AutoClassifierInput(req.ToolName, input)
+		decision := policy.Evaluate(permissions.Request{
+			ToolName:            req.ToolName,
+			Command:             input,
+			WorkDir:             resolveWorkDir(sess, q.workspace),
+			ReadOnly:            toolDef.ReadOnly,
+			Destructive:         toolDef.Destructive,
+			AutoClassifierInput: autoClassifierInput,
+		})
+		if !decision.Allowed && decision.RequiresApproval && q.permissionHook != nil {
+			observableInput, observableInputObject := q.observableToolInput(req.ToolName, input, inputObject)
+			hookDecision, decided, err := q.permissionHook.CheckPermission(ctx, PermissionHookRequest{
+				Session:           sess,
+				ToolName:          req.ToolName,
+				ToolInput:         observableInput,
+				ToolInputObject:   observableInputObject,
+				ToolUseID:         req.ToolUseID,
+				ProviderMessageID: req.ProviderMessageID,
+				Decision:          decision,
+				Policy:            policy,
+			})
+			if err != nil {
+				return permissions.Decision{}, err
+			}
+			if decided {
+				return hookDecision, nil
+			}
+		}
+		if decision.Allowed {
+			if updated, ok, err := toolDecision.UpdatedInputValue(); err != nil {
+				return permissions.Decision{}, err
+			} else if ok {
+				decision.UpdatedInput = updated
+				decision.UpdatedInputObject = cloneAnyMap(toolDecision.UpdatedInputObject)
+			}
+		}
+		return decision, nil
+	}
+}
+
+func (q *QueryEngine) setToolAppStateFunc(sessionID string) func(func(map[string]any) map[string]any) {
+	return func(update func(map[string]any) map[string]any) {
+		if update == nil {
+			return
+		}
+		q.toolContextMu.Lock()
+		defer q.toolContextMu.Unlock()
+		previous := q.toolAppStates[sessionID]
+		if previous == nil {
+			previous = make(map[string]any)
+		}
+		next := update(previous)
+		if next == nil {
+			next = make(map[string]any)
+		}
+		q.toolAppStates[sessionID] = next
+	}
+}
+
+func (q *QueryEngine) applyToolContextModifier(sessionID string, current tools.ToolUseContext, modifier func(tools.ToolUseContext) tools.ToolUseContext) {
+	if modifier == nil {
+		return
+	}
+	next := modifier(current)
+	q.toolContextMu.Lock()
+	defer q.toolContextMu.Unlock()
+	if next.AppState != nil {
+		q.toolAppStates[sessionID] = cloneAnyMap(next.AppState)
+	}
+	if next.ToolDecisions != nil {
+		q.toolDecisions[sessionID] = cloneToolDecisions(next.ToolDecisions)
+	}
+}
+
+func defaultFileReadingLimits(limits tools.ResourceLimits) tools.ResourceLimits {
+	if limits.MaxTokens == 0 {
+		limits.MaxTokens = 120000
+	}
+	if limits.MaxSizeBytes == 0 {
+		limits.MaxSizeBytes = 10 * 1024 * 1024
+	}
+	return limits
+}
+
+func defaultGlobLimits(limits tools.ResourceLimits) tools.ResourceLimits {
+	if limits.MaxResults == 0 {
+		limits.MaxResults = 10000
+	}
+	return limits
+}
+
+func cloneMCPResources(resources map[string][]tools.MCPResource) map[string][]tools.MCPResource {
+	if resources == nil {
+		return nil
+	}
+	out := make(map[string][]tools.MCPResource, len(resources))
+	for name, items := range resources {
+		out[name] = append([]tools.MCPResource(nil), items...)
+	}
+	return out
+}
+
+func cloneToolDecisions(decisions map[string]tools.ToolDecision) map[string]tools.ToolDecision {
+	if decisions == nil {
+		return nil
+	}
+	out := make(map[string]tools.ToolDecision, len(decisions))
+	for name, decision := range decisions {
+		out[name] = decision
+	}
+	return out
 }
 
 func (q *QueryEngine) State() State {
@@ -457,8 +1150,66 @@ func (q *QueryEngine) SetSessionPermissionPolicy(sessionID string, policy permis
 	q.policies[sessionID] = policy
 }
 
+func (q *QueryEngine) applyUpdatedPermissions(ctx context.Context, sess session.Session, updates []permissions.PermissionUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	if q.permissionUpdatePersister != nil {
+		if err := q.permissionUpdatePersister.PersistPermissionUpdates(ctx, sess, updates); err != nil {
+			return err
+		}
+	}
+	q.policyMu.Lock()
+	defer q.policyMu.Unlock()
+	policy, ok := q.policies[sess.ID]
+	if !ok {
+		policy = q.policy
+	}
+	q.policies[sess.ID] = policy.ApplyPermissionUpdates(updates)
+	return nil
+}
+
+func (q *QueryEngine) SetSessionMainLoopModelOverride(sessionID, model string) error {
+	return q.sessions.UpdateMetadata(sessionID, func(metadata *session.SessionMetadata) {
+		if strings.TrimSpace(metadata.InitialMainLoopModel) == "" {
+			metadata.InitialMainLoopModel = parseUserSpecifiedMainLoopModel(q.mainLoopModel, q.llmProvider)
+		}
+		metadata.MainLoopModelOverride = strings.TrimSpace(model)
+	})
+}
+
+func (q *QueryEngine) ClearSessionMainLoopModelOverride(sessionID string) error {
+	return q.sessions.UpdateMetadata(sessionID, func(metadata *session.SessionMetadata) {
+		metadata.MainLoopModelOverride = ""
+	})
+}
+
+func (q *QueryEngine) BaseMainLoopModelForSession(sessionID string) string {
+	q.ensureSessionModelMetadata(sessionID)
+	sess, ok := q.sessions.GetByID(sessionID)
+	if ok {
+		if initial := strings.TrimSpace(sess.Metadata.InitialMainLoopModel); initial != "" {
+			return initial
+		}
+	}
+	return parseUserSpecifiedMainLoopModel(q.mainLoopModel, q.llmProvider)
+}
+
+func (q *QueryEngine) SessionMainLoopModelOverride(sessionID string) string {
+	sess, ok := q.sessions.GetByID(sessionID)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(sess.Metadata.MainLoopModelOverride)
+}
+
+func (q *QueryEngine) ResolvedMainLoopModelForSession(sessionID string) string {
+	return q.mainLoopModelForSession(sessionID)
+}
+
 func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, userMessage session.Message, runID string, sink EventSink) (*textStreamCollector, error) {
 	q.ensureMutableMessages(sess.ID)
+	q.ensureSessionModelMetadata(sess.ID)
 	history := q.Messages(sess.ID)
 	if q.compactor != nil {
 		analysis := q.compactor.Analyze(history)
@@ -472,6 +1223,22 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 			}); err != nil {
 				return nil, err
 			}
+			micro := q.compactor.Microcompact(history)
+			if micro.Changed {
+				if err := q.sessions.ReplaceMessages(sess.ID, micro.Messages); err != nil {
+					return nil, err
+				}
+				q.replaceMutableMessages(sess.ID, micro.Messages)
+				history = micro.Messages
+				q.recordCompactionResult(micro)
+				if err := q.emit(sink, Event{
+					Type:    "compact.micro",
+					Session: sess,
+					RunID:   runID,
+				}); err != nil {
+					return nil, err
+				}
+			}
 		}
 		if analysis.IsAboveErrorThreshold {
 			q.recordCompactionPhase("error")
@@ -483,7 +1250,11 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 				return nil, err
 			}
 		}
-		result := q.compactor.Compact(history)
+		compactOptions, err := q.sessionMemoryCompactOptions(ctx, sess, analysis)
+		if err != nil {
+			return nil, err
+		}
+		result := q.compactor.CompactWithSessionMemoryOptions(history, q.latestSummaryMemory(sess.ID), q.lastSummarizedMessageID(sess.ID), compactOptions)
 		q.recordCompactionResult(result)
 		if analysis.IsAboveAutoCompactThreshold && result.Changed {
 			q.recordCompactionPhase("auto")
@@ -508,13 +1279,25 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 		}
 		if result.Changed {
 			compacted := result.Messages
-			if err := q.sessions.ReplaceMessages(sess.ID, compacted); err != nil {
+			boundary := q.newCompactBoundary(sess.ID)
+			compactedWithBoundary := append(cloneSessionMessages(compacted), boundary)
+			if err := q.sessions.ReplaceMessages(sess.ID, compactedWithBoundary); err != nil {
 				return nil, err
 			}
-			q.replaceMutableMessages(sess.ID, compacted)
-			history = compacted
-			boundary := q.newCompactBoundary(sess.ID)
+			q.replaceMutableMessages(sess.ID, compactedWithBoundary)
+			history = compactedWithBoundary
 			q.recordCompactBoundary(boundary)
+			_ = q.sessions.UpdateMetadata(sess.ID, func(metadata *session.SessionMetadata) {
+				metadata.LastCompactBoundaryID = boundary.ID
+				metadata.LastCompactionReason = string(result.Reason)
+				metadata.LastCompactedAt = boundary.CreatedAt
+				if result.SummaryMessage != nil {
+					metadata.LastCompactionSummaryID = result.SummaryMessage.ID
+				}
+				if result.SummarizedThroughID != "" {
+					metadata.LastSummarizedMessageID = result.SummarizedThroughID
+				}
+			})
 			if err := q.emit(sink, Event{
 				Type:    "compact.boundary",
 				Session: sess,
@@ -573,12 +1356,19 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 		return nil, err
 	}
 	contextInput := prompt.Build(prompt.BuildInput{
-		Session:            sess,
-		History:            history,
-		UserMessage:        userMessage,
-		UserContextLines:   q.userContextLines(sess),
-		SystemContextLines: q.systemContextLines(sess, workspaceContext),
-		WorkspaceContext:   workspaceContext,
+		Session:                 sess,
+		History:                 history,
+		UserMessage:             userMessage,
+		DefaultSystemPrompt:     q.defaultSystemPrompt,
+		CustomSystemPrompt:      q.customSystemPrompt,
+		AgentSystemPrompt:       q.agentSystemPrompt,
+		CoordinatorSystemPrompt: q.coordinatorSystemPrompt,
+		ProactiveAgentPrompt:    q.proactiveAgentPrompt,
+		AppendSystemPrompt:      q.appendSystemPrompt,
+		OverrideSystemPrompt:    q.overrideSystemPrompt,
+		UserContextLines:        q.userContextLines(sess, workspaceContext),
+		SystemContextLines:      q.systemContextLines(sess, workspaceContext),
+		WorkspaceContext:        workspaceContext,
 		Tools: q.tools.Expose(tools.ExposeOptions{
 			Policy: q.PermissionPolicyForSession(sess.ID),
 		}),
@@ -599,6 +1389,7 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 		UserMessage: userMessage,
 		History:     history,
 		Context:     contextInput,
+		Model:       q.mainLoopModelForSessionWithHistory(sess.ID, history),
 	}, stream); err != nil {
 		return nil, err
 	}
@@ -624,32 +1415,92 @@ func (q *QueryEngine) memoryItems(sessionID string) []memory.Item {
 	return q.memory.List(sessionID)
 }
 
-func (q *QueryEngine) userContextLines(sess session.Session) []string {
-	return []string{
-		"session_id=" + sess.ID,
-		"session_key=" + sess.Key,
-		"agent_id=" + sess.AgentID,
+func (q *QueryEngine) sessionMemoryCompactOptions(ctx context.Context, sess session.Session, analysis compaction.Analysis) (compaction.SessionMemoryOptions, error) {
+	var hookMessages []session.Message
+	if q.sessionStartCompactHook != nil {
+		messages, err := q.sessionStartCompactHook.ProcessSessionStartCompact(ctx, sess)
+		if err != nil {
+			return compaction.SessionMemoryOptions{}, err
+		}
+		hookMessages = append([]session.Message(nil), messages...)
 	}
+	transcriptPath := ""
+	if q.transcriptPathProvider != nil {
+		transcriptPath = q.transcriptPathProvider(sess)
+	}
+	threshold := 0
+	if analysis.IsAboveAutoCompactThreshold {
+		threshold = analysis.AutoCompactThreshold
+	}
+	return compaction.SessionMemoryOptions{
+		HookMessages:         hookMessages,
+		TranscriptPath:       transcriptPath,
+		AutoCompactThreshold: threshold,
+	}, nil
+}
+
+func (q *QueryEngine) latestSummaryMemory(sessionID string) string {
+	if q.memory == nil {
+		return ""
+	}
+	items := q.memory.List(sessionID)
+	for i := len(items) - 1; i >= 0; i-- {
+		if items[i].Type == memory.TypeSummary {
+			return items[i].Content
+		}
+	}
+	return ""
+}
+
+func (q *QueryEngine) lastSummarizedMessageID(sessionID string) string {
+	sess, ok := q.sessions.GetByID(sessionID)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(sess.Metadata.LastSummarizedMessageID)
+}
+
+func (q *QueryEngine) ensureSessionModelMetadata(sessionID string) {
+	baseModel := parseUserSpecifiedMainLoopModel(q.mainLoopModel, q.llmProvider)
+	if baseModel == "" {
+		return
+	}
+	_ = q.sessions.UpdateMetadata(sessionID, func(metadata *session.SessionMetadata) {
+		if strings.TrimSpace(metadata.InitialMainLoopModel) == "" {
+			metadata.InitialMainLoopModel = baseModel
+		}
+	})
+}
+
+func (q *QueryEngine) mainLoopModelForSession(sessionID string) string {
+	history, _ := q.sessions.Messages(sessionID)
+	return q.mainLoopModelForSessionWithHistory(sessionID, history)
+}
+
+func (q *QueryEngine) mainLoopModelForSessionWithHistory(sessionID string, history []session.Message) string {
+	policy := q.PermissionPolicyForSession(sessionID)
+	exceeds200kTokens := estimateMessagesTokens(history) > 200000
+	sess, ok := q.sessions.GetByID(sessionID)
+	if ok {
+		if override := strings.TrimSpace(sess.Metadata.MainLoopModelOverride); override != "" {
+			return resolveRuntimeMainLoopModelWithProviderAndContext(override, policy, q.llmProvider, exceeds200kTokens)
+		}
+	}
+	return resolveRuntimeMainLoopModelWithProviderAndContext(strings.TrimSpace(q.mainLoopModel), policy, q.llmProvider, exceeds200kTokens)
+}
+
+func (q *QueryEngine) userContextLines(sess session.Session, workspaceContext workspace.Context) []string {
+	if q.userContextProvider == nil {
+		return nil
+	}
+	return q.userContextProvider.Lines(sess, workspaceContext)
 }
 
 func (q *QueryEngine) systemContextLines(sess session.Session, workspaceContext workspace.Context) []string {
-	policy := q.PermissionPolicyForSession(sess.ID)
-	lines := []string{
-		"permission_mode=" + string(policy.Mode),
+	if q.systemContextProvider == nil {
+		return nil
 	}
-	if policy.PlanMode {
-		lines = append(lines, "plan_mode=true")
-	}
-	if policy.AutoMode {
-		lines = append(lines, "auto_mode=true")
-	}
-	if workspaceContext.Root != "" {
-		lines = append(lines, "workspace_root="+workspaceContext.Root)
-	}
-	if len(policy.WorkspaceRoots) > 0 {
-		lines = append(lines, "workspace_roots="+strings.Join(policy.WorkspaceRoots, ","))
-	}
-	return lines
+	return q.systemContextProvider.Lines(sess, workspaceContext, q.PermissionPolicyForSession(sess.ID))
 }
 
 func (q *QueryEngine) findMessageByID(sessionID, messageID string) (session.Message, bool) {
@@ -928,8 +1779,13 @@ func (q *QueryEngine) ensureMutableMessages(sessionID string) {
 	if ok {
 		return
 	}
-	items, _ := q.sessions.Messages(sessionID)
-	q.replaceMutableMessages(sessionID, items)
+	snapshot, ok := q.sessions.RecoverySnapshot(sessionID)
+	if !ok {
+		q.replaceMutableMessages(sessionID, nil)
+		return
+	}
+	q.replaceMutableMessages(sessionID, snapshot.Continuation)
+	q.restoreStateFromSession(snapshot)
 }
 
 func (q *QueryEngine) ensureUserMessageTracked(sessionID string, msg session.Message) {
@@ -976,16 +1832,19 @@ func (q *QueryEngine) replaceMutableMessages(sessionID string, items []session.M
 }
 
 type textStreamCollector struct {
-	sink          EventSink
-	session       session.Session
-	runID         string
-	builder       strings.Builder
-	ToolName      string
-	ToolInput     string
-	onDelta       func(string)
-	onMessageEnd  func()
-	onStreamEvent func(llm.StreamEvent)
-	includePartial bool
+	sink              EventSink
+	session           session.Session
+	runID             string
+	builder           strings.Builder
+	ToolName          string
+	ToolInput         string
+	ToolInputObject   map[string]any
+	ToolUseID         string
+	ProviderMessageID string
+	onDelta           func(string)
+	onMessageEnd      func()
+	onStreamEvent     func(llm.StreamEvent)
+	includePartial    bool
 }
 
 func (c *textStreamCollector) OnEvent(event llm.StreamEvent) error {
@@ -994,12 +1853,13 @@ func (c *textStreamCollector) OnEvent(event llm.StreamEvent) error {
 	}
 	if c.includePartial && c.sink != nil {
 		if err := c.sink.Emit(Event{
-			Type:      "stream.event",
-			Session:   c.session,
-			RunID:     c.runID,
-			Delta:     event.Delta,
-			ToolName:  event.ToolName,
-			ToolInput: event.ToolInput,
+			Type:            "stream.event",
+			Session:         c.session,
+			RunID:           c.runID,
+			Delta:           event.Delta,
+			ToolName:        event.ToolName,
+			ToolInput:       normalizedToolInput(event.ToolInput, event.ToolInputObject),
+			ToolInputObject: cloneAnyMap(event.ToolInputObject),
 		}); err != nil {
 			return err
 		}
@@ -1032,7 +1892,10 @@ func (c *textStreamCollector) OnEvent(event llm.StreamEvent) error {
 		return nil
 	case "tool.call":
 		c.ToolName = event.ToolName
-		c.ToolInput = event.ToolInput
+		c.ToolInput = normalizedToolInput(event.ToolInput, event.ToolInputObject)
+		c.ToolInputObject = cloneAnyMap(event.ToolInputObject)
+		c.ToolUseID = event.ToolUseID
+		c.ProviderMessageID = event.ProviderMessageID
 		return nil
 	}
 	return nil
@@ -1067,6 +1930,336 @@ func parseToolCallBlock(content string) (string, string, bool) {
 	return name, input, true
 }
 
+func normalizedToolInput(input string, inputObject map[string]any) string {
+	if input != "" || inputObject == nil {
+		return input
+	}
+	encoded, err := json.Marshal(inputObject)
+	if err != nil {
+		return input
+	}
+	return string(encoded)
+}
+
+func normalizedToolInputObject(input string, inputObject map[string]any) map[string]any {
+	if inputObject != nil {
+		return cloneAnyMap(inputObject)
+	}
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return nil
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(input), &parsed); err != nil {
+		return nil
+	}
+	if parsed == nil {
+		return nil
+	}
+	return parsed
+}
+
+func (q *QueryEngine) observableToolInput(name, input string, inputObject map[string]any) (string, map[string]any) {
+	normalizedObject := normalizedToolInputObject(input, inputObject)
+	if normalizedObject == nil {
+		return input, nil
+	}
+	observableObject := q.tools.BackfillObservableInput(name, normalizedObject)
+	encoded, err := json.Marshal(observableObject)
+	if err != nil {
+		return input, observableObject
+	}
+	return string(encoded), observableObject
+}
+
+func cloneAnyMap(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(input))
+	for key, value := range input {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func cloneAnyMaps(input []map[string]any) []map[string]any {
+	if input == nil {
+		return nil
+	}
+	cloned := make([]map[string]any, 0, len(input))
+	for _, item := range input {
+		cloned = append(cloned, cloneAnyMap(item))
+	}
+	return cloned
+}
+
+func messageBlocksFromContentMaps(input []map[string]any) []model.MessageBlock {
+	if len(input) == 0 {
+		return nil
+	}
+	blocks := make([]model.MessageBlock, 0, len(input))
+	for _, item := range input {
+		if item == nil {
+			continue
+		}
+		blockType, _ := item["type"].(string)
+		switch model.MessageBlockType(blockType) {
+		case model.MessageBlockText:
+			text, _ := item["text"].(string)
+			blocks = append(blocks, model.MessageBlock{
+				Type: model.MessageBlockText,
+				Text: text,
+			})
+		default:
+			blocks = append(blocks, model.MessageBlock{
+				Type: model.MessageBlockType(blockType),
+				Raw:  cloneAnyMap(item),
+			})
+		}
+	}
+	return blocks
+}
+
+func postToolUseHookBlocks(toolName, toolUseID string, result PostToolUseHookResult) []model.MessageBlock {
+	blocks := make([]model.MessageBlock, 0, len(result.HookMessages)+5)
+	hookName := "PostToolUse:" + toolName
+	for _, message := range result.HookMessages {
+		if message == nil {
+			continue
+		}
+		if message["type"] == "hook_blocking_error" {
+			continue
+		}
+		blocks = append(blocks, hookMessageBlock(message, hookName, toolUseID, "PostToolUse"))
+	}
+	if blockingError := strings.TrimSpace(result.BlockingError); blockingError != "" {
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_blocking_error"),
+			Raw: map[string]any{
+				"type":          "hook_blocking_error",
+				"hookName":      hookName,
+				"toolUseID":     toolUseID,
+				"hookEvent":     "PostToolUse",
+				"blockingError": blockingError,
+			},
+		})
+	}
+	if result.Cancelled {
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_cancelled"),
+			Raw: map[string]any{
+				"type":      "hook_cancelled",
+				"hookName":  hookName,
+				"toolUseID": toolUseID,
+				"hookEvent": "PostToolUse",
+			},
+		})
+	}
+	if len(result.AdditionalContexts) > 0 {
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_additional_context"),
+			Raw: map[string]any{
+				"type":      "hook_additional_context",
+				"content":   append([]string(nil), result.AdditionalContexts...),
+				"hookName":  hookName,
+				"toolUseID": toolUseID,
+				"hookEvent": "PostToolUse",
+			},
+		})
+	}
+	if executionError := strings.TrimSpace(result.ExecutionError); executionError != "" {
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_error_during_execution"),
+			Raw: map[string]any{
+				"type":      "hook_error_during_execution",
+				"content":   executionError,
+				"hookName":  hookName,
+				"toolUseID": toolUseID,
+				"hookEvent": "PostToolUse",
+			},
+		})
+	}
+	if result.PreventContinuation {
+		stopReason := strings.TrimSpace(result.StopReason)
+		if stopReason == "" {
+			stopReason = "Execution stopped by PostToolUse hook"
+		}
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_stopped_continuation"),
+			Raw: map[string]any{
+				"type":      "hook_stopped_continuation",
+				"message":   stopReason,
+				"hookName":  hookName,
+				"toolUseID": toolUseID,
+				"hookEvent": "PostToolUse",
+			},
+		})
+	}
+	return blocks
+}
+
+func preToolUseHookBlocks(toolName, toolUseID string, result PreToolUseHookResult) []model.MessageBlock {
+	blocks := make([]model.MessageBlock, 0, len(result.HookMessages)+4)
+	hookName := "PreToolUse:" + toolName
+	for _, message := range result.HookMessages {
+		if message == nil {
+			continue
+		}
+		blocks = append(blocks, hookMessageBlock(message, hookName, toolUseID, "PreToolUse"))
+	}
+	if len(result.AdditionalContexts) > 0 {
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_additional_context"),
+			Raw: map[string]any{
+				"type":      "hook_additional_context",
+				"content":   append([]string(nil), result.AdditionalContexts...),
+				"hookName":  hookName,
+				"toolUseID": toolUseID,
+				"hookEvent": "PreToolUse",
+			},
+		})
+	}
+	if result.Cancelled {
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_cancelled"),
+			Raw: map[string]any{
+				"type":      "hook_cancelled",
+				"hookName":  hookName,
+				"toolUseID": toolUseID,
+				"hookEvent": "PreToolUse",
+			},
+		})
+	}
+	if executionError := strings.TrimSpace(result.ExecutionError); executionError != "" {
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_error_during_execution"),
+			Raw: map[string]any{
+				"type":      "hook_error_during_execution",
+				"content":   executionError,
+				"hookName":  hookName,
+				"toolUseID": toolUseID,
+				"hookEvent": "PreToolUse",
+			},
+		})
+	}
+	if result.PreventContinuation {
+		stopReason := strings.TrimSpace(result.StopReason)
+		if stopReason == "" {
+			stopReason = "Execution stopped by hook"
+		}
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_stopped_continuation"),
+			Raw: map[string]any{
+				"type":      "hook_stopped_continuation",
+				"message":   stopReason,
+				"hookName":  hookName,
+				"toolUseID": toolUseID,
+				"hookEvent": "PreToolUse",
+			},
+		})
+	}
+	return blocks
+}
+
+func postToolUseFailureHookBlocks(toolName, toolUseID string, result PostToolUseFailureHookResult) []model.MessageBlock {
+	blocks := make([]model.MessageBlock, 0, len(result.HookMessages)+4)
+	hookName := "PostToolUseFailure:" + toolName
+	for _, message := range result.HookMessages {
+		if message == nil {
+			continue
+		}
+		if message["type"] == "hook_blocking_error" {
+			continue
+		}
+		blocks = append(blocks, hookMessageBlock(message, hookName, toolUseID, "PostToolUseFailure"))
+	}
+	if blockingError := strings.TrimSpace(result.BlockingError); blockingError != "" {
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_blocking_error"),
+			Raw: map[string]any{
+				"type":          "hook_blocking_error",
+				"hookName":      hookName,
+				"toolUseID":     toolUseID,
+				"hookEvent":     "PostToolUseFailure",
+				"blockingError": blockingError,
+			},
+		})
+	}
+	if len(result.AdditionalContexts) > 0 {
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_additional_context"),
+			Raw: map[string]any{
+				"type":      "hook_additional_context",
+				"content":   append([]string(nil), result.AdditionalContexts...),
+				"hookName":  hookName,
+				"toolUseID": toolUseID,
+				"hookEvent": "PostToolUseFailure",
+			},
+		})
+	}
+	if result.Cancelled {
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_cancelled"),
+			Raw: map[string]any{
+				"type":      "hook_cancelled",
+				"hookName":  hookName,
+				"toolUseID": toolUseID,
+				"hookEvent": "PostToolUseFailure",
+			},
+		})
+	}
+	if executionError := strings.TrimSpace(result.ExecutionError); executionError != "" {
+		blocks = append(blocks, model.MessageBlock{
+			Type: model.MessageBlockType("hook_error_during_execution"),
+			Raw: map[string]any{
+				"type":      "hook_error_during_execution",
+				"content":   executionError,
+				"hookName":  hookName,
+				"toolUseID": toolUseID,
+				"hookEvent": "PostToolUseFailure",
+			},
+		})
+	}
+	return blocks
+}
+
+func hookMessageBlock(message map[string]any, hookName, toolUseID, hookEvent string) model.MessageBlock {
+	raw := cloneAnyMap(message)
+	if _, ok := raw["type"]; !ok {
+		raw["type"] = "hook_message"
+	}
+	if _, ok := raw["hookName"]; !ok {
+		raw["hookName"] = hookName
+	}
+	if _, ok := raw["toolUseID"]; !ok {
+		raw["toolUseID"] = toolUseID
+	}
+	if _, ok := raw["hookEvent"]; !ok {
+		raw["hookEvent"] = hookEvent
+	}
+	blockType, _ := raw["type"].(string)
+	return model.MessageBlock{
+		Type: model.MessageBlockType(blockType),
+		Raw:  raw,
+	}
+}
+
+func isMCPToolDefinition(def tools.Definition) bool {
+	return strings.EqualFold(strings.TrimSpace(def.Source), "mcp") || strings.HasPrefix(strings.TrimSpace(def.Name), "mcp__")
+}
+
+const rejectMessage = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed."
+
+const rejectMessageWithReasonPrefix = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). To tell you how to proceed, the user said:\n"
+
+func rejectMessageWithFeedback(feedback string) string {
+	if strings.TrimSpace(feedback) == "" {
+		return rejectMessage
+	}
+	return rejectMessageWithReasonPrefix + strings.TrimSpace(feedback)
+}
+
 func estimateMessagesTokens(messages []session.Message) int {
 	total := 0
 	for _, msg := range messages {
@@ -1095,9 +2288,14 @@ func resolveWorkDir(sess session.Session, loader *workspace.Loader) string {
 }
 
 type toolCall struct {
-	name           string
-	input          string
-	skipPermission bool
+	name              string
+	input             string
+	inputObject       map[string]any
+	toolUseID         string
+	providerMessageID string
+	acceptFeedback    string
+	contentBlocks     []map[string]any
+	skipPermission    bool
 }
 
 func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session, userMessage session.Message, runID string, sink EventSink, pending *toolCall, current *textStreamCollector) (session.Message, error) {
@@ -1114,73 +2312,492 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 				}
 				return session.Message{}, fmt.Errorf("repeated identical tool call detected: %s %s", pending.name, pending.input)
 			}
-			toolDef, _ := q.tools.Inspect(pending.name, pending.input)
+			toolDef, ok := q.tools.InspectWithPolicy(pending.name, pending.input, q.PermissionPolicyForSession(sess.ID))
+			if !ok {
+				return session.Message{}, fmt.Errorf("tool %q is not available under the current tool policy", strings.TrimSpace(pending.name))
+			}
 			if deferredToolExecuted && toolDef.ShouldDefer {
 				if lastToolMessage != nil {
 					return q.completeWithToolResult(sess, runID, sink, *lastToolMessage)
 				}
 				return session.Message{}, fmt.Errorf("repeated deferred tool call detected: %s", pending.name)
 			}
-			if !pending.skipPermission {
-				decision := q.PermissionPolicyForSession(sess.ID).Evaluate(permissions.Request{
-					ToolName:    pending.name,
-					Command:     pending.input,
-					WorkDir:     resolveWorkDir(sess, q.workspace),
-					ReadOnly:    toolDef.ReadOnly,
-					Destructive: toolDef.Destructive,
+			skipPolicyEvaluation := false
+			toolPermissionResolved := false
+			var preHookResult PreToolUseHookResult
+			var preHookHandled bool
+			if !pending.skipPermission && q.preToolUseHook != nil {
+				observableInput, observableInputObject := q.observableToolInput(pending.name, pending.input, pending.inputObject)
+				var err error
+				preHookResult, preHookHandled, err = q.preToolUseHook.BeforeToolUse(ctx, PreToolUseHookRequest{
+					Session:           sess,
+					RunID:             runID,
+					ToolName:          pending.name,
+					ToolInput:         observableInput,
+					ToolInputObject:   observableInputObject,
+					ToolUseID:         pending.toolUseID,
+					ProviderMessageID: pending.providerMessageID,
+					Policy:            q.PermissionPolicyForSession(sess.ID),
 				})
-				if !decision.Allowed {
-					q.recordPermissionDenial(PermissionDenial{
-						RunID:     runID,
-						SessionID: sess.ID,
-						ToolName:  pending.name,
-						ToolInput: pending.input,
-						Reason:    decision.Reason,
-					})
-					req := q.approvals.Create(sess.ID, runID, userMessage.ID, pending.name, pending.input, decision.Reason, string(decision.Category), decision.RuleSource)
-					if err := q.emit(sink, Event{
-						Type:      "permission.required",
-						Session:   sess,
-						RunID:     runID,
-						ToolName:  pending.name,
-						ToolInput: pending.input,
-						Approval:  &req,
-					}); err != nil {
+				if err != nil {
+					return session.Message{}, err
+				}
+				if preHookHandled {
+					if updated, ok, err := preHookResult.UpdatedInputValue(); err != nil {
 						return session.Message{}, err
+					} else if ok {
+						pending.input = updated
+						pending.inputObject = cloneAnyMap(preHookResult.UpdatedInputObject)
+						toolDef, ok = q.tools.InspectWithPolicy(pending.name, pending.input, q.PermissionPolicyForSession(sess.ID))
+						if !ok {
+							return session.Message{}, fmt.Errorf("tool %q is not available under the current tool policy", strings.TrimSpace(pending.name))
+						}
 					}
-					return session.Message{}, &ApprovalRequiredError{
-						ToolName:  pending.name,
-						ToolInput: pending.input,
-						Reason:    decision.Reason,
+					if blockingError := strings.TrimSpace(preHookResult.BlockingError); blockingError != "" {
+						decision := permissions.Decision{
+							Reason: blockingError,
+							DecisionReason: permissions.DecisionReason{
+								Type:     permissions.DecisionReasonHook,
+								HookName: "PreToolUse:" + pending.name,
+								Reason:   blockingError,
+							},
+						}
+						q.recordPermissionDenial(PermissionDenial{
+							RunID:     runID,
+							SessionID: sess.ID,
+							ToolName:  pending.name,
+							ToolInput: pending.input,
+							Reason:    decision.Reason,
+						})
+						return q.completeWithPermissionRejection(sess, runID, sink, pending, decision.Reason, decision.ContentBlocks)
+					}
+					if preHookResult.HasPermissionDecision {
+						decision := preHookResult.PermissionDecision
+						if decision.Allowed {
+							if err := q.applyUpdatedPermissions(ctx, sess, decision.UpdatedPermissions); err != nil {
+								return session.Message{}, err
+							}
+							toolPermissionResolved = true
+						} else if !decision.RequiresApproval {
+							q.recordPermissionDenial(PermissionDenial{
+								RunID:     runID,
+								SessionID: sess.ID,
+								ToolName:  pending.name,
+								ToolInput: pending.input,
+								Reason:    decision.Reason,
+							})
+							return q.completeWithPermissionRejection(sess, runID, sink, pending, decision.Reason, decision.ContentBlocks)
+						} else {
+							q.recordPermissionDenial(PermissionDenial{
+								RunID:     runID,
+								SessionID: sess.ID,
+								ToolName:  pending.name,
+								ToolInput: pending.input,
+								Reason:    decision.Reason,
+							})
+							req := q.approvals.CreateWithPromptMetadata(sess.ID, runID, userMessage.ID, pending.name, pending.input, pending.inputObject, pending.toolUseID, pending.providerMessageID, decision.Reason, decision.SerializedDecisionReason(), decision.AcceptFeedback, decision.ContentBlocks, string(decision.Category), decision.RuleSource)
+							_ = q.sessions.UpdateMetadata(sess.ID, func(metadata *session.SessionMetadata) {
+								metadata.PendingApprovalID = req.ID
+								metadata.PendingApprovalStatus = string(req.Status)
+								metadata.PendingApprovalToolName = req.ToolName
+								metadata.PendingApprovalToolInput = req.ToolInput
+								metadata.PendingApprovalToolInputObject = cloneAnyMap(req.ToolInputObject)
+								metadata.PendingApprovalToolUseID = req.ToolUseID
+								metadata.PendingApprovalProviderMsgID = req.ProviderMessageID
+								metadata.PendingApprovalReason = req.Reason
+								metadata.PendingApprovalDecisionReason = req.DecisionReason
+								metadata.PendingApprovalAcceptFeedback = req.AcceptFeedback
+								metadata.PendingApprovalContentBlocks = cloneAnyMaps(req.ContentBlocks)
+								metadata.PendingApprovalRunID = req.RunID
+								metadata.PendingApprovalUserMessageID = req.UserMessageID
+								metadata.PendingApprovalCategory = req.Category
+								metadata.PendingApprovalRuleSource = req.RuleSource
+							})
+							if err := q.emit(sink, Event{
+								Type:                  "permission.required",
+								Session:               sess,
+								RunID:                 runID,
+								ToolName:              pending.name,
+								ToolInput:             pending.input,
+								DecisionReason:        decision.SerializedDecisionReason(),
+								DecisionReasonDetails: decision.DecisionReason.Structured(),
+								AcceptFeedback:        decision.AcceptFeedback,
+								ContentBlocks:         cloneAnyMaps(decision.ContentBlocks),
+								Approval:              &req,
+							}); err != nil {
+								return session.Message{}, err
+							}
+							return session.Message{}, &ApprovalRequiredError{
+								ToolName:  pending.name,
+								ToolInput: pending.input,
+								Reason:    decision.Reason,
+							}
+						}
 					}
 				}
 			}
-
-			if err := q.emit(sink, Event{
-				Type:      "tool.called",
-				Session:   sess,
-				RunID:     runID,
-				ToolName:  pending.name,
-				ToolInput: pending.input,
-			}); err != nil {
-				return session.Message{}, err
+			if !pending.skipPermission {
+				if !toolPermissionResolved {
+					toolDecision, checked, err := q.tools.CheckPermissionsWithContext(ctx, q.toolUseContext(ctx, sess, pending))
+					if err != nil {
+						return session.Message{}, err
+					}
+					if checked {
+						if updated, ok, err := toolDecision.UpdatedInputValue(); err != nil {
+							return session.Message{}, err
+						} else if ok {
+							pending.input = updated
+							pending.inputObject = cloneAnyMap(toolDecision.UpdatedInputObject)
+							toolDef, ok = q.tools.InspectWithPolicy(pending.name, pending.input, q.PermissionPolicyForSession(sess.ID))
+							if !ok {
+								return session.Message{}, fmt.Errorf("tool %q is not available under the current tool policy", strings.TrimSpace(pending.name))
+							}
+						}
+						if !toolDecision.Allowed && (toolDecision.RequiresApproval || strings.TrimSpace(toolDecision.Reason) != "") {
+							if toolDecision.RequiresApproval && q.permissionHook != nil {
+								observableInput, observableInputObject := q.observableToolInput(pending.name, pending.input, pending.inputObject)
+								hookDecision, decided, err := q.permissionHook.CheckPermission(ctx, PermissionHookRequest{
+									Session:           sess,
+									RunID:             runID,
+									ToolName:          pending.name,
+									ToolInput:         observableInput,
+									ToolInputObject:   observableInputObject,
+									ToolUseID:         pending.toolUseID,
+									ProviderMessageID: pending.providerMessageID,
+									Decision:          toolDecision,
+									Policy:            q.PermissionPolicyForSession(sess.ID),
+								})
+								if err != nil {
+									return session.Message{}, err
+								}
+								if decided {
+									if updated, ok, err := hookDecision.UpdatedInputValue(); err != nil {
+										return session.Message{}, err
+									} else if ok {
+										pending.input = updated
+										pending.inputObject = cloneAnyMap(hookDecision.UpdatedInputObject)
+										toolDef, ok = q.tools.InspectWithPolicy(pending.name, pending.input, q.PermissionPolicyForSession(sess.ID))
+										if !ok {
+											return session.Message{}, fmt.Errorf("tool %q is not available under the current tool policy", strings.TrimSpace(pending.name))
+										}
+									}
+									if hookDecision.Allowed {
+										if err := q.applyUpdatedPermissions(ctx, sess, hookDecision.UpdatedPermissions); err != nil {
+											return session.Message{}, err
+										}
+										toolPermissionResolved = true
+									} else if !hookDecision.RequiresApproval {
+										return q.completeWithPermissionRejection(sess, runID, sink, pending, hookDecision.Reason, hookDecision.ContentBlocks)
+									} else {
+										toolDecision = hookDecision
+									}
+								}
+							}
+							if !toolPermissionResolved {
+								q.recordPermissionDenial(PermissionDenial{
+									RunID:     runID,
+									SessionID: sess.ID,
+									ToolName:  pending.name,
+									ToolInput: pending.input,
+									Reason:    toolDecision.Reason,
+								})
+								if !toolDecision.RequiresApproval {
+									return q.completeWithPermissionRejection(sess, runID, sink, pending, toolDecision.Reason, toolDecision.ContentBlocks)
+								}
+								req := q.approvals.CreateWithPromptMetadata(sess.ID, runID, userMessage.ID, pending.name, pending.input, pending.inputObject, pending.toolUseID, pending.providerMessageID, toolDecision.Reason, toolDecision.SerializedDecisionReason(), toolDecision.AcceptFeedback, toolDecision.ContentBlocks, string(toolDecision.Category), toolDecision.RuleSource)
+								_ = q.sessions.UpdateMetadata(sess.ID, func(metadata *session.SessionMetadata) {
+									metadata.PendingApprovalID = req.ID
+									metadata.PendingApprovalStatus = string(req.Status)
+									metadata.PendingApprovalToolName = req.ToolName
+									metadata.PendingApprovalToolInput = req.ToolInput
+									metadata.PendingApprovalToolInputObject = cloneAnyMap(req.ToolInputObject)
+									metadata.PendingApprovalToolUseID = req.ToolUseID
+									metadata.PendingApprovalProviderMsgID = req.ProviderMessageID
+									metadata.PendingApprovalReason = req.Reason
+									metadata.PendingApprovalDecisionReason = req.DecisionReason
+									metadata.PendingApprovalAcceptFeedback = req.AcceptFeedback
+									metadata.PendingApprovalContentBlocks = cloneAnyMaps(req.ContentBlocks)
+									metadata.PendingApprovalRunID = req.RunID
+									metadata.PendingApprovalUserMessageID = req.UserMessageID
+									metadata.PendingApprovalCategory = req.Category
+									metadata.PendingApprovalRuleSource = req.RuleSource
+								})
+								if err := q.emit(sink, Event{
+									Type:                  "permission.required",
+									Session:               sess,
+									RunID:                 runID,
+									ToolName:              pending.name,
+									ToolInput:             pending.input,
+									DecisionReason:        toolDecision.SerializedDecisionReason(),
+									DecisionReasonDetails: toolDecision.DecisionReason.Structured(),
+									AcceptFeedback:        toolDecision.AcceptFeedback,
+									ContentBlocks:         cloneAnyMaps(toolDecision.ContentBlocks),
+									Approval:              &req,
+								}); err != nil {
+									return session.Message{}, err
+								}
+								return session.Message{}, &ApprovalRequiredError{
+									ToolName:  pending.name,
+									ToolInput: pending.input,
+									Reason:    toolDecision.Reason,
+								}
+							}
+						}
+					}
+				}
+				if !skipPolicyEvaluation {
+					autoClassifierInput, _ := q.tools.AutoClassifierInput(pending.name, pending.input)
+					decision := q.PermissionPolicyForSession(sess.ID).Evaluate(permissions.Request{
+						ToolName:            pending.name,
+						Command:             pending.input,
+						WorkDir:             resolveWorkDir(sess, q.workspace),
+						ReadOnly:            toolDef.ReadOnly,
+						Destructive:         toolDef.Destructive,
+						AutoClassifierInput: autoClassifierInput,
+					})
+					if !decision.Allowed {
+						if decision.RequiresApproval && q.permissionHook != nil {
+							observableInput, observableInputObject := q.observableToolInput(pending.name, pending.input, pending.inputObject)
+							hookDecision, decided, err := q.permissionHook.CheckPermission(ctx, PermissionHookRequest{
+								Session:           sess,
+								RunID:             runID,
+								ToolName:          pending.name,
+								ToolInput:         observableInput,
+								ToolInputObject:   observableInputObject,
+								ToolUseID:         pending.toolUseID,
+								ProviderMessageID: pending.providerMessageID,
+								Decision:          decision,
+								Policy:            q.PermissionPolicyForSession(sess.ID),
+							})
+							if err != nil {
+								return session.Message{}, err
+							}
+							if decided {
+								if updated, ok, err := hookDecision.UpdatedInputValue(); err != nil {
+									return session.Message{}, err
+								} else if ok {
+									pending.input = updated
+									pending.inputObject = cloneAnyMap(hookDecision.UpdatedInputObject)
+									toolDef, ok = q.tools.InspectWithPolicy(pending.name, pending.input, q.PermissionPolicyForSession(sess.ID))
+									if !ok {
+										return session.Message{}, fmt.Errorf("tool %q is not available under the current tool policy", strings.TrimSpace(pending.name))
+									}
+								}
+								if hookDecision.Allowed {
+									if err := q.applyUpdatedPermissions(ctx, sess, hookDecision.UpdatedPermissions); err != nil {
+										return session.Message{}, err
+									}
+									skipPolicyEvaluation = true
+								} else if !hookDecision.RequiresApproval {
+									return q.completeWithPermissionRejection(sess, runID, sink, pending, hookDecision.Reason, hookDecision.ContentBlocks)
+								} else {
+									decision = hookDecision
+								}
+							}
+						}
+					}
+					if !decision.Allowed && !skipPolicyEvaluation {
+						q.recordPermissionDenial(PermissionDenial{
+							RunID:     runID,
+							SessionID: sess.ID,
+							ToolName:  pending.name,
+							ToolInput: pending.input,
+							Reason:    decision.Reason,
+						})
+						if !decision.RequiresApproval {
+							return q.completeWithPermissionRejection(sess, runID, sink, pending, decision.Reason, decision.ContentBlocks)
+						}
+						req := q.approvals.CreateWithPromptMetadata(sess.ID, runID, userMessage.ID, pending.name, pending.input, pending.inputObject, pending.toolUseID, pending.providerMessageID, decision.Reason, decision.SerializedDecisionReason(), decision.AcceptFeedback, decision.ContentBlocks, string(decision.Category), decision.RuleSource)
+						_ = q.sessions.UpdateMetadata(sess.ID, func(metadata *session.SessionMetadata) {
+							metadata.PendingApprovalID = req.ID
+							metadata.PendingApprovalStatus = string(req.Status)
+							metadata.PendingApprovalToolName = req.ToolName
+							metadata.PendingApprovalToolInput = req.ToolInput
+							metadata.PendingApprovalToolInputObject = cloneAnyMap(req.ToolInputObject)
+							metadata.PendingApprovalToolUseID = req.ToolUseID
+							metadata.PendingApprovalProviderMsgID = req.ProviderMessageID
+							metadata.PendingApprovalReason = req.Reason
+							metadata.PendingApprovalDecisionReason = req.DecisionReason
+							metadata.PendingApprovalAcceptFeedback = req.AcceptFeedback
+							metadata.PendingApprovalContentBlocks = cloneAnyMaps(req.ContentBlocks)
+							metadata.PendingApprovalRunID = req.RunID
+							metadata.PendingApprovalUserMessageID = req.UserMessageID
+							metadata.PendingApprovalCategory = req.Category
+							metadata.PendingApprovalRuleSource = req.RuleSource
+						})
+						if err := q.emit(sink, Event{
+							Type:                  "permission.required",
+							Session:               sess,
+							RunID:                 runID,
+							ToolName:              pending.name,
+							ToolInput:             pending.input,
+							DecisionReason:        decision.SerializedDecisionReason(),
+							DecisionReasonDetails: decision.DecisionReason.Structured(),
+							AcceptFeedback:        decision.AcceptFeedback,
+							ContentBlocks:         cloneAnyMaps(decision.ContentBlocks),
+							Approval:              &req,
+						}); err != nil {
+							return session.Message{}, err
+						}
+						return session.Message{}, &ApprovalRequiredError{
+							ToolName:  pending.name,
+							ToolInput: pending.input,
+							Reason:    decision.Reason,
+						}
+					}
+				}
 			}
-			toolOutput, err := q.tools.Invoke(ctx, sess, pending.name, pending.input)
+			toolUseID := strings.TrimSpace(pending.toolUseID)
+			if toolUseID == "" {
+				toolUseID = fmt.Sprintf("toolu-%s-%s", runID, strings.ReplaceAll(pending.name, ".", "-"))
+			}
+			providerMessageID := strings.TrimSpace(pending.providerMessageID)
+			if providerMessageID == "" {
+				providerMessageID = "msg-" + toolUseID
+			}
+			observableInput, observableInputObject := q.observableToolInput(pending.name, pending.input, pending.inputObject)
+			toolUseMsg, err := q.sessions.AppendMessageWithBlocks(sess.ID, "assistant", fmt.Sprintf("%s: %s", pending.name, observableInput), providerMessageID, []model.MessageBlock{
+				{
+					Type:        model.MessageBlockToolUse,
+					ID:          toolUseID,
+					Name:        pending.name,
+					Input:       observableInput,
+					InputObject: observableInputObject,
+				},
+			})
 			if err != nil {
 				return session.Message{}, err
 			}
-			toolMsg, err := q.sessions.AppendMessage(sess.ID, "tool", fmt.Sprintf("%s: %s", pending.name, toolOutput))
+			q.appendMutableMessage(sess.ID, toolUseMsg)
+
+			if err := q.emit(sink, Event{
+				Type:            "tool.called",
+				Session:         sess,
+				RunID:           runID,
+				ToolName:        pending.name,
+				ToolInput:       observableInput,
+				ToolInputObject: observableInputObject,
+			}); err != nil {
+				return session.Message{}, err
+			}
+			executionContext := q.toolUseContext(ctx, sess, pending)
+			toolResult, err := q.tools.InvokeWithContext(ctx, executionContext)
+			if err != nil {
+				errorText := strings.TrimSpace(err.Error())
+				if errorText == "" {
+					errorText = "tool execution failed"
+				}
+				failureBlocks := []model.MessageBlock{
+					{
+						Type:      model.MessageBlockToolResult,
+						ToolUseID: toolUseID,
+						Content:   errorText,
+						IsError:   true,
+					},
+				}
+				if q.postToolUseFailureHook != nil {
+					failureResult, handled, hookErr := q.postToolUseFailureHook.AfterToolUseFailure(ctx, PostToolUseFailureHookRequest{
+						Session:           sess,
+						RunID:             runID,
+						ToolName:          pending.name,
+						ToolInput:         observableInput,
+						ToolInputObject:   observableInputObject,
+						ToolUseID:         toolUseID,
+						ProviderMessageID: providerMessageID,
+						Error:             errorText,
+						Policy:            q.PermissionPolicyForSession(sess.ID),
+					})
+					if hookErr != nil {
+						return session.Message{}, hookErr
+					}
+					if handled {
+						failureBlocks = append(failureBlocks, postToolUseFailureHookBlocks(pending.name, toolUseID, failureResult)...)
+					}
+				}
+				toolMsg, err := q.sessions.AppendMessageWithBlocks(sess.ID, "tool", fmt.Sprintf("%s: %s", pending.name, errorText), "", failureBlocks)
+				if err != nil {
+					return session.Message{}, err
+				}
+				q.appendMutableMessage(sess.ID, toolMsg)
+				if err := q.emit(sink, Event{
+					Type:            "tool.result",
+					Session:         sess,
+					RunID:           runID,
+					Message:         &toolMsg,
+					ToolName:        pending.name,
+					ToolInput:       observableInput,
+					ToolInputObject: observableInputObject,
+				}); err != nil {
+					return session.Message{}, err
+				}
+				lastToolMessage = &toolMsg
+				lastExecutedToolName = pending.name
+				lastExecutedToolInput = pending.input
+				if toolDef.ShouldDefer {
+					deferredToolExecuted = true
+				}
+				pending = nil
+				current = nil
+				continue
+			}
+			toolOutput := toolResult.Output
+			q.applyToolContextModifier(sess.ID, executionContext, toolResult.ContextModifier)
+			var postHookResult PostToolUseHookResult
+			var postHookHandled bool
+			if q.postToolUseHook != nil {
+				postHookResult, postHookHandled, err = q.postToolUseHook.AfterToolUse(ctx, PostToolUseHookRequest{
+					Session:           sess,
+					RunID:             runID,
+					ToolName:          pending.name,
+					ToolInput:         observableInput,
+					ToolInputObject:   observableInputObject,
+					ToolUseID:         toolUseID,
+					ProviderMessageID: providerMessageID,
+					ToolOutput:        toolOutput,
+					Policy:            q.PermissionPolicyForSession(sess.ID),
+				})
+				if err != nil {
+					return session.Message{}, err
+				}
+				if isMCPToolDefinition(toolDef) {
+					if updatedOutput := strings.TrimSpace(postHookResult.UpdatedMCPToolOutput); updatedOutput != "" {
+						toolOutput = updatedOutput
+					}
+				}
+			}
+			toolResultBlocks := []model.MessageBlock{
+				{
+					Type:      model.MessageBlockToolResult,
+					ToolUseID: toolUseID,
+					Content:   toolOutput,
+				},
+			}
+			if feedback := strings.TrimSpace(pending.acceptFeedback); feedback != "" {
+				toolResultBlocks = append(toolResultBlocks, model.MessageBlock{
+					Type: model.MessageBlockText,
+					Text: feedback,
+				})
+			}
+			toolResultBlocks = append(toolResultBlocks, messageBlocksFromContentMaps(pending.contentBlocks)...)
+			if preHookHandled {
+				toolResultBlocks = append(toolResultBlocks, preToolUseHookBlocks(pending.name, toolUseID, preHookResult)...)
+			}
+			if postHookHandled {
+				toolResultBlocks = append(toolResultBlocks, postToolUseHookBlocks(pending.name, toolUseID, postHookResult)...)
+			}
+			toolMsg, err := q.sessions.AppendMessageWithBlocks(sess.ID, "tool", fmt.Sprintf("%s: %s", pending.name, toolOutput), "", toolResultBlocks)
 			if err != nil {
 				return session.Message{}, err
 			}
 			q.appendMutableMessage(sess.ID, toolMsg)
 			if err := q.emit(sink, Event{
-				Type:      "tool.result",
-				Session:   sess,
-				RunID:     runID,
-				Message:   &toolMsg,
-				ToolName:  pending.name,
-				ToolInput: pending.input,
+				Type:            "tool.result",
+				Session:         sess,
+				RunID:           runID,
+				Message:         &toolMsg,
+				ToolName:        pending.name,
+				ToolInput:       observableInput,
+				ToolInputObject: observableInputObject,
 			}); err != nil {
 				return session.Message{}, err
 			}
@@ -1192,6 +2809,12 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 			}
 			if toolDef.ShouldDefer {
 				deferredToolExecuted = true
+			}
+			if preHookHandled && preHookResult.PreventContinuation {
+				return toolMsg, nil
+			}
+			if postHookHandled && postHookResult.PreventContinuation {
+				return toolMsg, nil
 			}
 			pending = nil
 			current = nil
@@ -1214,7 +2837,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 			if approvedToolExecuted && lastToolMessage != nil {
 				return q.completeWithToolResult(sess, runID, sink, *lastToolMessage)
 			}
-			pending = &toolCall{name: current.ToolName, input: current.ToolInput}
+			pending = &toolCall{name: current.ToolName, input: current.ToolInput, inputObject: normalizedToolInputObject(current.ToolInput, current.ToolInputObject), toolUseID: current.ToolUseID, providerMessageID: current.ProviderMessageID}
 			current = nil
 			continue
 		}
@@ -1271,5 +2894,50 @@ func fallbackRole(role string) string {
 		return role
 	default:
 		return "assistant"
+	}
+}
+
+func cloneSessionMessages(messages []session.Message) []session.Message {
+	out := make([]session.Message, len(messages))
+	copy(out, messages)
+	return out
+}
+
+func (q *QueryEngine) restoreStateFromSession(snapshot session.RecoverySnapshot) {
+	if snapshot.Session.ID == "" {
+		return
+	}
+
+	lastUserInput := ""
+	if message, ok := snapshot.LastUserMessage(); ok {
+		lastUserInput = message.Content
+	}
+	lastAssistantReply := ""
+	if message, ok := snapshot.LastAssistantMessage(); ok {
+		lastAssistantReply = message.Content
+	}
+
+	q.stateMu.Lock()
+	defer q.stateMu.Unlock()
+	q.state.LastSessionID = snapshot.Session.ID
+	q.state.MessageCount = len(snapshot.Continuation)
+	if lastUserInput != "" {
+		q.state.LastUserInput = lastUserInput
+	}
+	if lastAssistantReply != "" {
+		q.state.LastAssistantReply = lastAssistantReply
+	}
+	if boundary, ok := snapshot.CompactBoundary(); ok {
+		q.state.LastCompactBoundaryID = boundary.ID
+		q.state.CompactBoundaryCount = 1
+		q.state.LastCompactionPhase = "restored"
+	}
+	if summary, ok := snapshot.CompactionSummary(); ok {
+		q.state.LastCompactionSummaryID = summary.ID
+		q.state.LastCompactionPhase = "restored"
+	}
+	if snapshot.Metadata.LastCompactionReason != "" {
+		q.state.LastCompactionReason = snapshot.Metadata.LastCompactionReason
+		q.state.LastCompactionPhase = "restored"
 	}
 }
