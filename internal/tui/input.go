@@ -8,15 +8,6 @@ import (
 )
 
 func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Normalize cursor position
-	runes := []rune(m.input)
-	if m.cursorPos < 0 {
-		m.cursorPos = 0
-	}
-	if m.cursorPos > len(runes) {
-		m.cursorPos = len(runes)
-	}
-
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
@@ -31,95 +22,6 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.bridge.SendUserMessage(text)
 		return m, nil
-	case tea.KeyLeft:
-		if m.cursorPos > 0 {
-			// Check if we're on a line boundary (after \n)
-			if m.cursorPos > 0 && runes[m.cursorPos-1] == '\n' {
-				// Don't move past the \n, stay on current line's first character
-				// Actually, move to before the \n (end of previous line)
-				m.cursorPos--
-			} else {
-				m.cursorPos--
-			}
-		}
-		return m, nil
-	case tea.KeyRight:
-		if m.cursorPos < len(runes) {
-			// Don't move past \n, stay on current line
-			if runes[m.cursorPos] != '\n' {
-				m.cursorPos++
-			}
-		}
-		return m, nil
-	case tea.KeyHome:
-		// Move to beginning of current line
-		m.cursorPos = m.lineStartPosition(runes, m.cursorPos)
-		return m, nil
-	case tea.KeyEnd:
-		// Move to end of current line (before \n or end of text)
-		m.cursorPos = m.lineEndPosition(runes, m.cursorPos)
-		return m, nil
-	case tea.KeyUp:
-		if len(m.suggestions) > 0 && m.selectedIndex > 0 {
-			m.selectedIndex--
-		} else if len(m.history) > 0 {
-			if m.historyIndex == -1 {
-				m.historyIndex = len(m.history) - 1
-			} else if m.historyIndex > 0 {
-				m.historyIndex--
-			}
-			m.input = m.history[m.historyIndex]
-			m.cursorPos = len([]rune(m.input))
-		} else {
-			// Multi-line visual navigation
-			m.cursorPos = m.moveCursorUp(runes, m.cursorPos)
-		}
-		return m, nil
-	case tea.KeyDown:
-		if len(m.suggestions) > 0 && m.selectedIndex < len(m.suggestions)-1 {
-			m.selectedIndex++
-		} else if m.historyIndex != -1 {
-			if m.historyIndex < len(m.history)-1 {
-				m.historyIndex++
-				m.input = m.history[m.historyIndex]
-			} else {
-				m.historyIndex = -1
-				m.input = ""
-			}
-			m.cursorPos = len([]rune(m.input))
-		} else {
-			// Multi-line visual navigation
-			m.cursorPos = m.moveCursorDown(runes, m.cursorPos)
-		}
-		return m, nil
-	case tea.KeyTab:
-		m.acceptSuggestion()
-		return m, nil
-	case tea.KeySpace:
-		// Insert space at cursor position
-		m.input = string(runes[:m.cursorPos]) + " " + string(runes[m.cursorPos:])
-		m.cursorPos++
-		m.historyIndex = -1
-		m.updateSuggestions()
-		return m, nil
-	case tea.KeyEscape:
-		m.clearSuggestions()
-		return m, nil
-	case tea.KeyBackspace:
-		if m.cursorPos > 0 {
-			m.input = string(runes[:m.cursorPos-1]) + string(runes[m.cursorPos:])
-			m.cursorPos--
-		}
-		m.historyIndex = -1
-		m.updateSuggestions()
-		return m, nil
-	case tea.KeyDelete:
-		if m.cursorPos < len(runes) {
-			m.input = string(runes[:m.cursorPos]) + string(runes[m.cursorPos+1:])
-		}
-		m.historyIndex = -1
-		m.updateSuggestions()
-		return m, nil
 	case tea.KeyCtrlY:
 		if id, ok := m.approvePending(); ok {
 			m.bridge.Approve(id)
@@ -130,101 +32,230 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.bridge.Reject(id)
 		}
 		return m, nil
-	case tea.KeyRunes:
-		// Insert at cursor position
-		m.input = string(runes[:m.cursorPos]) + string(msg.Runes) + string(runes[m.cursorPos:])
-		m.cursorPos += len(msg.Runes)
-		m.historyIndex = -1
-		m.updateSuggestions()
-		return m, nil
 	default:
+		if m.inputState.handleEditingKey(msg, m.width, slashCommands) {
+			return m, nil
+		}
 		return m, nil
 	}
 }
 
-func (m Model) updateSuggestions() {
-	if !strings.HasPrefix(m.input, "/") || m.input == "/" {
-		m.suggestions = slashCommands
-		m.selectedIndex = 0
+func (s *inputState) handleEditingKey(msg tea.KeyMsg, width int, commands []string) bool {
+	s.normalizeCursor()
+	switch msg.Type {
+	case tea.KeyLeft:
+		s.moveLeft()
+	case tea.KeyRight:
+		s.moveRight()
+	case tea.KeyHome:
+		s.cursorPos = s.lineStartPosition(width)
+	case tea.KeyEnd:
+		s.cursorPos = s.lineEndPosition(width)
+	case tea.KeyUp:
+		s.moveUp(width)
+	case tea.KeyDown:
+		s.moveDown(width)
+	case tea.KeyTab:
+		s.acceptSuggestion()
+	case tea.KeySpace:
+		s.insertRunes([]rune(" "), commands)
+	case tea.KeyEscape:
+		s.clearSuggestions()
+	case tea.KeyBackspace:
+		s.backspace(commands)
+	case tea.KeyDelete:
+		s.deleteAtCursor(commands)
+	case tea.KeyRunes:
+		s.insertRunes(msg.Runes, commands)
+	default:
+		return false
+	}
+	return true
+}
+
+func (s *inputState) normalizeCursor() {
+	runes := []rune(s.input)
+	if s.cursorPos < 0 {
+		s.cursorPos = 0
+	}
+	if s.cursorPos > len(runes) {
+		s.cursorPos = len(runes)
+	}
+}
+
+func (s *inputState) insertRunes(runes []rune, commands []string) {
+	current := []rune(s.input)
+	s.input = string(current[:s.cursorPos]) + string(runes) + string(current[s.cursorPos:])
+	s.cursorPos += len(runes)
+	s.historyIndex = -1
+	s.updateSuggestions(commands)
+}
+
+func (s *inputState) backspace(commands []string) {
+	current := []rune(s.input)
+	if s.cursorPos > 0 {
+		s.input = string(current[:s.cursorPos-1]) + string(current[s.cursorPos:])
+		s.cursorPos--
+	}
+	s.historyIndex = -1
+	s.updateSuggestions(commands)
+}
+
+func (s *inputState) deleteAtCursor(commands []string) {
+	current := []rune(s.input)
+	if s.cursorPos < len(current) {
+		s.input = string(current[:s.cursorPos]) + string(current[s.cursorPos+1:])
+	}
+	s.historyIndex = -1
+	s.updateSuggestions(commands)
+}
+
+func (s *inputState) moveLeft() {
+	if s.cursorPos > 0 {
+		s.cursorPos--
+	}
+}
+
+func (s *inputState) moveRight() {
+	if s.cursorPos < len([]rune(s.input)) {
+		s.cursorPos++
+	}
+}
+
+func (s *inputState) moveUp(width int) {
+	if len(s.suggestions) > 0 && s.selectedIndex > 0 {
+		s.selectedIndex--
 		return
 	}
-	input := strings.ToLower(m.input)
+	if len(s.history) > 0 {
+		if s.historyIndex == -1 {
+			s.historyIndex = len(s.history) - 1
+		} else if s.historyIndex > 0 {
+			s.historyIndex--
+		}
+		s.input = s.history[s.historyIndex]
+		s.cursorPos = len([]rune(s.input))
+		s.clearSuggestions()
+		return
+	}
+	s.cursorPos = s.moveCursorUp(width)
+}
+
+func (s *inputState) moveDown(width int) {
+	if len(s.suggestions) > 0 && s.selectedIndex < len(s.suggestions)-1 {
+		s.selectedIndex++
+		return
+	}
+	if s.historyIndex != -1 {
+		if s.historyIndex < len(s.history)-1 {
+			s.historyIndex++
+			s.input = s.history[s.historyIndex]
+		} else {
+			s.historyIndex = -1
+			s.input = ""
+		}
+		s.cursorPos = len([]rune(s.input))
+		s.clearSuggestions()
+		return
+	}
+	s.cursorPos = s.moveCursorDown(width)
+}
+
+func (s *inputState) updateSuggestions(commands []string) {
+	if !strings.HasPrefix(s.input, "/") {
+		s.clearSuggestions()
+		return
+	}
+	if s.input == "/" {
+		s.suggestions = append([]string(nil), commands...)
+		s.selectedIndex = 0
+		return
+	}
+	input := strings.ToLower(s.input)
 	var matches []string
-	for _, cmd := range slashCommands {
+	for _, cmd := range commands {
 		if strings.HasPrefix(strings.ToLower(cmd), input) {
 			matches = append(matches, cmd)
 		}
 	}
-	m.suggestions = matches
-	if len(m.suggestions) > 0 {
-		m.selectedIndex = 0
+	s.suggestions = matches
+	if len(s.suggestions) > 0 {
+		s.selectedIndex = 0
 	} else {
-		m.selectedIndex = -1
+		s.selectedIndex = -1
 	}
 }
 
-func (m Model) acceptSuggestion() {
-	if m.selectedIndex >= 0 && m.selectedIndex < len(m.suggestions) {
-		m.input = m.suggestions[m.selectedIndex]
-		m.suggestions = nil
-		m.selectedIndex = -1
+func (s *inputState) acceptSuggestion() {
+	if s.selectedIndex >= 0 && s.selectedIndex < len(s.suggestions) {
+		s.input = s.suggestions[s.selectedIndex]
+		s.cursorPos = len([]rune(s.input))
+		s.historyIndex = -1
+		s.clearSuggestions()
 	}
+}
+
+func (s *inputState) clearSuggestions() {
+	s.suggestions = nil
+	s.selectedIndex = -1
 }
 
 func (m *Model) clearSuggestions() {
 	m.tuiState.clearSuggestions()
 }
 
-func (m Model) lineStartPosition(runes []rune, pos int) int {
+func (m Model) updateSuggestions() {
+	m.inputState.updateSuggestions(slashCommands)
+}
+
+func (m Model) acceptSuggestion() {
+	m.inputState.acceptSuggestion()
+}
+
+func (s inputState) visualWidth(width int) int {
+	visualWidth := width - 2
+	if visualWidth < 20 {
+		return 80
+	}
+	return visualWidth
+}
+
+func (s inputState) lineStartPosition(width int) int {
+	runes := []rune(s.input)
+	pos := s.cursorPos
 	if len(runes) == 0 {
 		return 0
 	}
-	width := m.width - 2
-	if width < 20 {
-		width = 80
-	}
-
+	visualWidth := s.visualWidth(width)
 	visLineStart := 0
 	visLineWidth := 0
-
 	for i := 0; i < len(runes); i++ {
 		charWidth := lipgloss.Width(string(runes[i]))
-
-		if visLineWidth+charWidth > width && visLineWidth > 0 {
-			// Would exceed width - this char starts a new visual line
+		if visLineWidth+charWidth > visualWidth && visLineWidth > 0 {
 			if i <= pos {
 				visLineStart = i
 				visLineWidth = charWidth
 			} else {
-				// pos is in previous visual line
 				return visLineStart
 			}
 		} else {
 			visLineWidth += charWidth
 		}
 	}
-
 	return visLineStart
 }
 
-// lineEndPosition returns the position after the last character in the current visual line
-func (m Model) lineEndPosition(runes []rune, pos int) int {
+func (s inputState) lineEndPosition(width int) int {
+	runes := []rune(s.input)
 	if len(runes) == 0 {
 		return 0
 	}
-	width := m.width - 2
-	if width < 20 {
-		width = 80
-	}
-
+	visualWidth := s.visualWidth(width)
 	visLineWidth := 0
-
 	for i := 0; i < len(runes); i++ {
 		charWidth := lipgloss.Width(string(runes[i]))
-
-		if visLineWidth+charWidth > width && visLineWidth > 0 {
-			// Would exceed width - previous line ends before this char
-			if i <= pos {
+		if visLineWidth+charWidth > visualWidth && visLineWidth > 0 {
+			if i <= s.cursorPos {
 				visLineWidth = charWidth
 			} else {
 				return i
@@ -233,92 +264,89 @@ func (m Model) lineEndPosition(runes []rune, pos int) int {
 			visLineWidth += charWidth
 		}
 	}
-
 	return len(runes)
 }
 
-// moveCursorUp moves cursor to the same column in the previous visual line
-func (m Model) moveCursorUp(runes []rune, cursorPos int) int {
-	if len(runes) == 0 || cursorPos == 0 {
+func (s inputState) moveCursorUp(width int) int {
+	runes := []rune(s.input)
+	if len(runes) == 0 || s.cursorPos == 0 {
 		return 0
 	}
-
-	width := m.width - 2
-	if width < 20 {
-		width = 80
-	}
-
-	// Find current visual line boundaries and column
-	currentLineStart := m.lineStartPosition(runes, cursorPos)
-	currentCol := cursorPos - currentLineStart
-
+	visualWidth := s.visualWidth(width)
+	currentLineStart := s.lineStartPosition(width)
+	currentCol := s.cursorPos - currentLineStart
 	if currentLineStart == 0 {
-		// Already at first visual line, stay at position 0
 		return 0
 	}
-
-	// Find the start of previous visual line
 	prevLineStart := 0
 	visLineWidth := 0
 	for i := 0; i < currentLineStart; i++ {
 		charWidth := lipgloss.Width(string(runes[i]))
-		if visLineWidth+charWidth > width && visLineWidth > 0 {
+		if visLineWidth+charWidth > visualWidth && visLineWidth > 0 {
 			prevLineStart = i
+			visLineWidth = 0
 		}
 		visLineWidth += charWidth
 	}
-
-	// Calculate target position in previous line
 	targetPos := prevLineStart + currentCol
 	if targetPos > currentLineStart-1 {
 		targetPos = currentLineStart - 1
 	}
-
 	return targetPos
 }
 
-// moveCursorDown moves cursor to the same column in the next visual line
-func (m Model) moveCursorDown(runes []rune, cursorPos int) int {
+func (s inputState) moveCursorDown(width int) int {
+	runes := []rune(s.input)
 	if len(runes) == 0 {
 		return 0
 	}
-
-	width := m.width - 2
-	if width < 20 {
-		width = 80
-	}
-
-	// Find current visual line boundaries
-	currentLineStart := m.lineStartPosition(runes, cursorPos)
-	currentLineEnd := m.lineEndPosition(runes, cursorPos)
-	currentCol := cursorPos - currentLineStart
-
-	// Find the end of current visual line
+	visualWidth := s.visualWidth(width)
+	currentLineStart := s.lineStartPosition(width)
+	currentLineEnd := s.lineEndPosition(width)
+	currentCol := s.cursorPos - currentLineStart
 	visLineWidth := 0
 	for i := currentLineStart; i < len(runes); i++ {
 		charWidth := lipgloss.Width(string(runes[i]))
-		if visLineWidth+charWidth > width && visLineWidth > 0 {
+		if visLineWidth+charWidth > visualWidth && visLineWidth > 0 {
 			currentLineEnd = i
 			break
 		}
 		visLineWidth += charWidth
 	}
-
 	if currentLineEnd >= len(runes) {
-		// Already at last visual line, stay at end
 		return len(runes)
 	}
-
-	// Find start of next visual line (which is currentLineEnd)
-	nextLineStart := currentLineEnd
-
-	// Calculate target position in next line
-	targetPos := nextLineStart + currentCol
+	targetPos := currentLineEnd + currentCol
 	if targetPos >= len(runes) {
 		targetPos = len(runes)
 	}
-
 	return targetPos
 }
 
-// wrapMessageContent wraps message content by visual width, preserving line breaks
+func (m Model) lineStartPosition(runes []rune, pos int) int {
+	state := m.inputState
+	state.input = string(runes)
+	state.cursorPos = pos
+	return state.lineStartPosition(m.width)
+}
+
+func (m Model) lineEndPosition(runes []rune, pos int) int {
+	state := m.inputState
+	state.input = string(runes)
+	state.cursorPos = pos
+	return state.lineEndPosition(m.width)
+}
+
+func (m Model) moveCursorUp(runes []rune, cursorPos int) int {
+	state := m.inputState
+	state.input = string(runes)
+	state.cursorPos = cursorPos
+	return state.moveCursorUp(m.width)
+}
+
+func (m Model) moveCursorDown(runes []rune, cursorPos int) int {
+	state := m.inputState
+	state.input = string(runes)
+	state.cursorPos = cursorPos
+	return state.moveCursorDown(m.width)
+}
