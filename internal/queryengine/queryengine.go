@@ -36,15 +36,31 @@ type Event struct {
 	RunID                 string
 	Message               *session.Message
 	Delta                 string
+	ToolUseID             string
+	ProviderMessageID     string
 	ToolName              string
 	ToolInput             string
 	ToolInputObject       map[string]any
+	ToolError             bool
+	Progress              *tools.ToolProgress
 	DecisionReason        string
 	DecisionReasonDetails map[string]any
 	AcceptFeedback        string
 	ContentBlocks         []map[string]any
 	Error                 string
 	Approval              *approval.Request
+}
+
+func toolResultIdentity(message *session.Message) (string, bool) {
+	if message == nil {
+		return "", false
+	}
+	for _, block := range message.Blocks {
+		if block.Type == model.MessageBlockToolResult {
+			return block.ToolUseID, block.IsError
+		}
+	}
+	return "", false
 }
 
 type PermissionHookRequest struct {
@@ -836,12 +852,15 @@ func (q *QueryEngine) RejectAndContinue(ctx context.Context, approvalID, feedbac
 	}
 	q.appendMutableMessage(sess.ID, toolMsg)
 	if err := q.emit(sink, Event{
-		Type:      "tool.result",
-		Session:   sess,
-		RunID:     request.RunID,
-		Message:   &toolMsg,
-		ToolName:  request.ToolName,
-		ToolInput: request.ToolInput,
+		Type:              "tool.result",
+		Session:           sess,
+		RunID:             request.RunID,
+		Message:           &toolMsg,
+		ToolUseID:         toolUseID,
+		ProviderMessageID: request.ProviderMessageID,
+		ToolName:          request.ToolName,
+		ToolInput:         request.ToolInput,
+		ToolError:         true,
 	}); err != nil {
 		return err
 	}
@@ -882,13 +901,16 @@ func (q *QueryEngine) completeWithPermissionRejection(ctx context.Context, sess 
 	}
 	q.appendMutableMessage(sess.ID, toolMsg)
 	if err := q.emit(sink, Event{
-		Type:            "tool.result",
-		Session:         sess,
-		RunID:           runID,
-		Message:         &toolMsg,
-		ToolName:        pending.name,
-		ToolInput:       pending.input,
-		ToolInputObject: cloneAnyMap(pending.inputObject),
+		Type:              "tool.result",
+		Session:           sess,
+		RunID:             runID,
+		Message:           &toolMsg,
+		ToolUseID:         toolUseID,
+		ProviderMessageID: pending.providerMessageID,
+		ToolName:          pending.name,
+		ToolInput:         pending.input,
+		ToolInputObject:   cloneAnyMap(pending.inputObject),
+		ToolError:         true,
 	}); err != nil {
 		return session.Message{}, err
 	}
@@ -927,6 +949,10 @@ func (q *QueryEngine) MemoryService() *memory.Service {
 
 func (q *QueryEngine) ApprovalManager() *approval.Manager {
 	return q.approvals
+}
+
+func (q *QueryEngine) SetReportToolProgress(report tools.ProgressFunc) {
+	q.reportToolProgress = report
 }
 
 func (q *QueryEngine) Messages(sessionID string) []session.Message {
@@ -2675,6 +2701,8 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 								Type:                  "permission.required",
 								Session:               sess,
 								RunID:                 runID,
+								ToolUseID:             pending.toolUseID,
+								ProviderMessageID:     pending.providerMessageID,
 								ToolName:              pending.name,
 								ToolInput:             pending.input,
 								DecisionReason:        decision.SerializedDecisionReason(),
@@ -2784,6 +2812,8 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 									Type:                  "permission.required",
 									Session:               sess,
 									RunID:                 runID,
+									ToolUseID:             pending.toolUseID,
+									ProviderMessageID:     pending.providerMessageID,
 									ToolName:              pending.name,
 									ToolInput:             pending.input,
 									DecisionReason:        toolDecision.SerializedDecisionReason(),
@@ -2887,6 +2917,8 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 							Type:                  "permission.required",
 							Session:               sess,
 							RunID:                 runID,
+							ToolUseID:             pending.toolUseID,
+							ProviderMessageID:     pending.providerMessageID,
 							ToolName:              pending.name,
 							ToolInput:             pending.input,
 							DecisionReason:        decision.SerializedDecisionReason(),
@@ -2913,6 +2945,8 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 			if providerMessageID == "" {
 				providerMessageID = "msg-" + toolUseID
 			}
+			pending.toolUseID = toolUseID
+			pending.providerMessageID = providerMessageID
 			observableInput, observableInputObject := q.observableToolInput(pending.name, pending.input, pending.inputObject)
 			toolUseMsg, err := q.sessions.AppendMessageWithBlocks(sess.ID, "assistant", fmt.Sprintf("%s: %s", pending.name, observableInput), providerMessageID, []model.MessageBlock{
 				{
@@ -2929,12 +2963,14 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 			q.appendMutableMessage(sess.ID, toolUseMsg)
 
 			if err := q.emit(sink, Event{
-				Type:            "tool.called",
-				Session:         sess,
-				RunID:           runID,
-				ToolName:        pending.name,
-				ToolInput:       observableInput,
-				ToolInputObject: observableInputObject,
+				Type:              "tool.called",
+				Session:           sess,
+				RunID:             runID,
+				ToolUseID:         toolUseID,
+				ProviderMessageID: providerMessageID,
+				ToolName:          pending.name,
+				ToolInput:         observableInput,
+				ToolInputObject:   observableInputObject,
 			}); err != nil {
 				return session.Message{}, err
 			}
@@ -2978,13 +3014,16 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 				}
 				q.appendMutableMessage(sess.ID, toolMsg)
 				if err := q.emit(sink, Event{
-					Type:            "tool.result",
-					Session:         sess,
-					RunID:           runID,
-					Message:         &toolMsg,
-					ToolName:        pending.name,
-					ToolInput:       observableInput,
-					ToolInputObject: observableInputObject,
+					Type:              "tool.result",
+					Session:           sess,
+					RunID:             runID,
+					Message:           &toolMsg,
+					ToolUseID:         toolUseID,
+					ProviderMessageID: providerMessageID,
+					ToolName:          pending.name,
+					ToolInput:         observableInput,
+					ToolInputObject:   observableInputObject,
+					ToolError:         true,
 				}); err != nil {
 					return session.Message{}, err
 				}
@@ -3049,13 +3088,15 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 			}
 			q.appendMutableMessage(sess.ID, toolMsg)
 			if err := q.emit(sink, Event{
-				Type:            "tool.result",
-				Session:         sess,
-				RunID:           runID,
-				Message:         &toolMsg,
-				ToolName:        pending.name,
-				ToolInput:       observableInput,
-				ToolInputObject: observableInputObject,
+				Type:              "tool.result",
+				Session:           sess,
+				RunID:             runID,
+				Message:           &toolMsg,
+				ToolUseID:         toolUseID,
+				ProviderMessageID: providerMessageID,
+				ToolName:          pending.name,
+				ToolInput:         observableInput,
+				ToolInputObject:   observableInputObject,
 			}); err != nil {
 				return session.Message{}, err
 			}

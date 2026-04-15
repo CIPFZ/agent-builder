@@ -13,6 +13,7 @@ import (
 	"myclaw/internal/queryengine"
 	"myclaw/internal/runtime"
 	"myclaw/internal/session"
+	"myclaw/internal/tools"
 )
 
 type RuntimeBridge struct {
@@ -34,13 +35,24 @@ func NewRuntimeBridgeWithContext(ctx context.Context, sessions *session.Manager,
 	if sessions == nil {
 		sessions = session.NewManager(nil)
 	}
-	return &RuntimeBridge{
+	bridge := &RuntimeBridge{
 		ctx:      ctx,
 		sessions: sessions,
 		runner:   runner,
 		session:  sessions.GetOrCreateMain(agentID),
 		logger:   logger,
 	}
+	if runner != nil {
+		runner.SetReportToolProgress(func(progress tools.ToolProgress) {
+			bridge.dispatch(RuntimeEventMsg{Event: runtime.RuntimeEvent{
+				Type:      "tool.progress",
+				Session:   bridge.session,
+				ToolUseID: progress.ToolUseID,
+				Progress:  cloneToolProgress(progress),
+			}})
+		})
+	}
+	return bridge
 }
 
 func (b *RuntimeBridge) Attach(send func(tea.Msg)) {
@@ -141,6 +153,9 @@ func (b *RuntimeBridge) logRuntimeEvent(event runtime.RuntimeEvent) {
 	fields := map[string]any{}
 	if event.ToolName != "" {
 		fields["tool_name"] = event.ToolName
+	}
+	if event.ToolUseID != "" {
+		fields["tool_use_id"] = event.ToolUseID
 	}
 	if event.ToolInput != "" {
 		fields["tool_input"] = event.ToolInput

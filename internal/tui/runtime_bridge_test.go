@@ -52,6 +52,33 @@ func TestRuntimeBridgeSurfacesPermissionRequired(t *testing.T) {
 	assertHasEventType(t, events, "permission.required")
 }
 
+func TestRuntimeBridgeDispatchesToolProgress(t *testing.T) {
+	sessions := session.NewManager(nil)
+	runner := runtime.NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, runtime.Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	bridge := NewRuntimeBridge(sessions, runner, "main")
+
+	ch := make(chan tea.Msg, 32)
+	bridge.Attach(func(msg tea.Msg) { ch <- msg })
+
+	if err := bridge.SendUserMessage("tool run pwd"); err != nil {
+		t.Fatalf("SendUserMessage: %v", err)
+	}
+
+	events := waitForEventTypes(t, ch, 2*time.Second, "tool.progress", "tool.result")
+	var progress runtime.RuntimeEvent
+	for _, event := range events {
+		if event.Type == "tool.progress" {
+			progress = event
+			break
+		}
+	}
+	if progress.Progress == nil || progress.Progress.ToolUseID == "" {
+		t.Fatalf("progress event = %#v, want tool progress with tool use id", progress)
+	}
+}
+
 func TestRuntimeBridgeDoesNotSurfaceBridgeErrorForPermissionRequired(t *testing.T) {
 	sessions := session.NewManager(nil)
 	runner := runtime.NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, runtime.Options{

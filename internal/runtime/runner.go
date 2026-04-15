@@ -32,9 +32,13 @@ type RuntimeEvent struct {
 	RunID                 string
 	Message               *session.Message
 	Delta                 string
+	ToolUseID             string
+	ProviderMessageID     string
 	ToolName              string
 	ToolInput             string
 	ToolInputObject       map[string]any
+	ToolError             bool
+	Progress              *tools.ToolProgress
 	DecisionReason        string
 	DecisionReasonDetails map[string]any
 	AcceptFeedback        string
@@ -480,6 +484,13 @@ func (r *Runner) ApprovalManager() *approval.Manager {
 	return r.engine.ApprovalManager()
 }
 
+func (r *Runner) SetReportToolProgress(report tools.ProgressFunc) {
+	r.options.ReportToolProgress = report
+	if r.engine != nil {
+		r.engine.SetReportToolProgress(report)
+	}
+}
+
 func (r *Runner) UpdateApprovalStatus(approvalID string, status approval.Status) (approval.Request, error) {
 	updated, err := r.options.ApprovalManager.UpdateStatus(approvalID, status)
 	if err != nil {
@@ -619,9 +630,13 @@ func fromQueryEvent(event queryengine.Event) RuntimeEvent {
 		RunID:                 event.RunID,
 		Message:               event.Message,
 		Delta:                 event.Delta,
+		ToolUseID:             event.ToolUseID,
+		ProviderMessageID:     event.ProviderMessageID,
 		ToolName:              event.ToolName,
 		ToolInput:             event.ToolInput,
 		ToolInputObject:       cloneAnyMap(event.ToolInputObject),
+		ToolError:             event.ToolError,
+		Progress:              cloneToolProgress(event.Progress),
 		DecisionReason:        event.DecisionReason,
 		DecisionReasonDetails: cloneAnyMap(event.DecisionReasonDetails),
 		AcceptFeedback:        event.AcceptFeedback,
@@ -682,4 +697,13 @@ func cloneAnyMaps(input []map[string]any) []map[string]any {
 		cloned = append(cloned, cloneAnyMap(item))
 	}
 	return cloned
+}
+
+func cloneToolProgress(input *tools.ToolProgress) *tools.ToolProgress {
+	if input == nil {
+		return nil
+	}
+	cloned := *input
+	cloned.Data = cloneAnyMap(input.Data)
+	return &cloned
 }
