@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"myclaw/internal/model"
 	"myclaw/internal/permissions"
 	"myclaw/internal/session"
 )
@@ -288,12 +289,32 @@ func (listMcpResourcesTool) Invoke(_ context.Context, _ session.Session, input s
 	return "", fmt.Errorf("ListMcpResources requires ToolUseContext")
 }
 
-func (listMcpResourcesTool) InvokeWithContext(_ context.Context, toolCtx ToolUseContext) (ToolResult, error) {
+func (listMcpResourcesTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseContext) (ToolResult, error) {
+	toolCtx = toolCtx.Normalized()
 	filter := stringField(toolCtx.InputObject, "server")
 	if filter == "" {
 		if object, ok := parseObjectInput(toolCtx.Input); ok {
 			filter = stringField(object, "server")
 		}
+	}
+	if toolCtx.MCPResourceLister != nil {
+		listed, err := toolCtx.MCPResourceLister(ctx, filter)
+		if err != nil {
+			return ToolResult{}, err
+		}
+		resources := make([]map[string]any, 0, len(listed))
+		for _, resource := range listed {
+			resources = append(resources, map[string]any{
+				"uri":         resource.URI,
+				"name":        resource.Name,
+				"description": resource.Description,
+			})
+		}
+		encoded, err := json.Marshal(resources)
+		if err != nil {
+			return ToolResult{}, err
+		}
+		return ToolResult{Output: string(encoded)}, nil
 	}
 	var servers []string
 	for server := range toolCtx.MCPResources {
@@ -303,15 +324,25 @@ func (listMcpResourcesTool) InvokeWithContext(_ context.Context, toolCtx ToolUse
 	}
 	sort.Strings(servers)
 	if len(servers) == 0 {
-		return ToolResult{Output: "No resources found."}, nil
+		return ToolResult{Output: `[]`}, nil
 	}
-	var lines []string
+	resources := make([]map[string]any, 0)
 	for _, server := range servers {
 		for _, resource := range toolCtx.MCPResources[server] {
-			lines = append(lines, fmt.Sprintf("%s\t%s\t%s\t%s", server, resource.URI, resource.Name, resource.Description))
+			item := map[string]any{
+				"server":      server,
+				"uri":         resource.URI,
+				"name":        resource.Name,
+				"description": resource.Description,
+			}
+			resources = append(resources, item)
 		}
 	}
-	return ToolResult{Output: strings.Join(lines, "\n")}, nil
+	encoded, err := json.Marshal(resources)
+	if err != nil {
+		return ToolResult{}, err
+	}
+	return ToolResult{Output: string(encoded)}, nil
 }
 
 func (readMcpResourceTool) Definition() Definition {
@@ -331,13 +362,26 @@ func (readMcpResourceTool) Invoke(_ context.Context, _ session.Session, input st
 	return "", fmt.Errorf("ReadMcpResource requires ToolUseContext")
 }
 
-func (readMcpResourceTool) InvokeWithContext(_ context.Context, toolCtx ToolUseContext) (ToolResult, error) {
+func (readMcpResourceTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseContext) (ToolResult, error) {
 	object := toolCtx.InputObject
 	if object == nil {
 		object, _ = parseObjectInput(toolCtx.Input)
 	}
 	server := stringField(object, "server")
 	uri := stringField(object, "uri")
+	if toolCtx.MCPResourceReader != nil {
+		result, err := toolCtx.MCPResourceReader(ctx, server, uri)
+		if err != nil {
+			return ToolResult{}, err
+		}
+		encoded, err := json.Marshal(map[string]any{
+			"contents": result.Contents,
+		})
+		if err != nil {
+			return ToolResult{}, err
+		}
+		return ToolResult{Output: string(encoded)}, nil
+	}
 	for _, resource := range toolCtx.MCPResources[server] {
 		if resource.URI == uri {
 			text := resource.Description
@@ -398,12 +442,17 @@ type MCPToolResult struct {
 type MCPToolCaller func(context.Context, string, string, map[string]any) (MCPToolResult, error)
 
 type mcpTool struct {
-	def    MCPToolDefinition
-	caller MCPToolCaller
+	def              MCPToolDefinition
+	caller           MCPToolCaller
+	contextualCaller MCPContextualToolCaller
 }
 
 func NewMCPTool(def MCPToolDefinition, caller MCPToolCaller) Tool {
 	return &mcpTool{def: def, caller: caller}
+}
+
+func NewMCPContextualTool(def MCPToolDefinition, caller MCPContextualToolCaller) Tool {
+	return &mcpTool{def: def, contextualCaller: caller}
 }
 
 func BuildMCPToolName(server, name string) string {
@@ -457,6 +506,7 @@ func (t *mcpTool) Invoke(ctx context.Context, _ session.Session, input string) (
 	if err != nil {
 		return "", fmt.Errorf("MCP tool %s/%s failed: %w", t.def.Server, t.def.Name, err)
 	}
+	result = normalizeMCPToolResult(result, t.def.Server)
 	encoded, err := json.Marshal(mcpResultEnvelope{
 		Content:           result.Content,
 		StructuredContent: result.StructuredContent,
@@ -467,6 +517,99 @@ func (t *mcpTool) Invoke(ctx context.Context, _ session.Session, input string) (
 		return "", err
 	}
 	return string(encoded), nil
+}
+
+func (t *mcpTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseContext) (ToolResult, error) {
+	toolCtx = toolCtx.Normalized()
+	object := toolCtx.InputObject
+	if object == nil {
+		var ok bool
+		object, ok = parseObjectInput(toolCtx.Input)
+		if !ok {
+			return ToolResult{}, fmt.Errorf("invalid JSON object input")
+		}
+	}
+	caller := t.contextualCaller
+	if caller == nil {
+		caller = toolCtx.MCPContextualToolCaller
+	}
+	if caller == nil {
+		output, err := t.Invoke(ctx, toolCtx.Session, toolCtx.Input)
+		return ToolResult{Output: output}, err
+	}
+	timeout := 60 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > 0 && remaining < timeout {
+			timeout = remaining
+		}
+	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if toolCtx.ReportProgress != nil {
+		toolCtx.ReportProgress(ToolProgress{
+			ToolUseID: toolCtx.ToolUseID,
+			Type:      "started",
+			Message:   "MCP tool call started",
+			Data:      map[string]any{"server": t.def.Server, "tool": t.def.Name},
+		})
+	}
+	result, err := caller(callCtx, MCPToolCallRequest{
+		Server:            t.def.Server,
+		Name:              t.def.Name,
+		Input:             object,
+		ToolUseID:         toolCtx.ToolUseID,
+		Meta:              mcpToolUseMeta(toolCtx.ToolUseID),
+		Timeout:           timeout,
+		ReportProgress:    toolCtx.ReportProgress,
+		HandleElicitation: toolCtx.HandleElicitation,
+	})
+	if err != nil {
+		if toolCtx.ReportProgress != nil {
+			toolCtx.ReportProgress(ToolProgress{
+				ToolUseID: toolCtx.ToolUseID,
+				Type:      "failed",
+				Message:   err.Error(),
+				Data:      map[string]any{"server": t.def.Server, "tool": t.def.Name},
+			})
+		}
+		return ToolResult{}, fmt.Errorf("MCP tool %s/%s failed: %w", t.def.Server, t.def.Name, err)
+	}
+	result = normalizeMCPToolResult(result, t.def.Server)
+	encoded, err := json.Marshal(mcpResultEnvelope{
+		Content:           result.Content,
+		StructuredContent: result.StructuredContent,
+		Meta:              result.Meta,
+		IsError:           result.IsError,
+	})
+	if err != nil {
+		return ToolResult{}, err
+	}
+	toolResult := ToolResult{
+		Output:            string(encoded),
+		StructuredContent: result.StructuredContent,
+		Meta:              cloneAnyMap(result.Meta),
+		IsError:           result.IsError,
+	}
+	if result.IsError {
+		if toolCtx.ReportProgress != nil {
+			toolCtx.ReportProgress(ToolProgress{
+				ToolUseID: toolCtx.ToolUseID,
+				Type:      "failed",
+				Message:   "MCP tool returned an error result",
+				Data:      map[string]any{"server": t.def.Server, "tool": t.def.Name, "_meta": result.Meta},
+			})
+		}
+		return toolResult, fmt.Errorf("MCP tool %s/%s returned an error result", t.def.Server, t.def.Name)
+	}
+	if toolCtx.ReportProgress != nil {
+		toolCtx.ReportProgress(ToolProgress{
+			ToolUseID: toolCtx.ToolUseID,
+			Type:      "completed",
+			Message:   "MCP tool call completed",
+			Data:      map[string]any{"server": t.def.Server, "tool": t.def.Name},
+		})
+	}
+	return toolResult, nil
 }
 
 func (t *mcpTool) IsEnabled() bool           { return true }
@@ -486,6 +629,131 @@ type mcpResultEnvelope struct {
 	IsError           bool             `json:"isError,omitempty"`
 }
 
+type mcpAuthTool struct {
+	serverName string
+	authURL    string
+	message    string
+}
+
+func NewMCPAuthTool(serverName, authURL, message string) Tool {
+	return mcpAuthTool{
+		serverName: serverName,
+		authURL:    authURL,
+		message:    message,
+	}
+}
+
+func (t mcpAuthTool) Definition() Definition {
+	return Definition{
+		Name:        BuildMCPToolName(t.serverName, "authenticate"),
+		Description: strings.TrimSpace(t.message),
+		InputSchema: objectSchema(map[string]any{
+			"server": map[string]any{"type": "string"},
+		}, nil),
+		Enabled:  true,
+		ReadOnly: false,
+	}
+}
+
+func (t mcpAuthTool) Invoke(_ context.Context, _ session.Session, _ string) (string, error) {
+	payload := map[string]any{
+		"status":  "needs-auth",
+		"message": t.message,
+	}
+	if t.authURL != "" {
+		payload["authUrl"] = t.authURL
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
+func (t mcpAuthTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseContext) (ToolResult, error) {
+	toolCtx = toolCtx.Normalized()
+	connection := MCPConnection{Name: t.serverName}
+	for _, candidate := range toolCtx.MCPClients {
+		if candidate.Name == t.serverName {
+			connection = candidate
+			break
+		}
+	}
+	status := "unsupported"
+	authURL := t.authURL
+	message := t.message
+	authStarted := false
+	if toolCtx.MCPAuthenticator != nil {
+		started, err := toolCtx.MCPAuthenticator(ctx, t.serverName, connection)
+		if err != nil {
+			return ToolResult{}, err
+		}
+		authStarted = true
+		status = strings.TrimSpace(started.Status)
+		if status == "" {
+			status = "auth_url"
+		}
+		if started.AuthURL != "" {
+			authURL = started.AuthURL
+		}
+		if started.Message != "" {
+			message = started.Message
+		}
+	} else if authURL != "" {
+		status = "auth_url"
+	}
+	payload := map[string]any{
+		"status":  status,
+		"message": message,
+	}
+	if authURL != "" {
+		payload["authUrl"] = authURL
+	}
+	if toolCtx.MCPReconnect != nil && authStarted && isMCPAuthCompleteStatus(status) {
+		reconnected, err := toolCtx.MCPReconnect(ctx, t.serverName)
+		if err != nil {
+			payload["reconnected"] = false
+			payload["reconnectError"] = err.Error()
+		} else {
+			payload["reconnected"] = true
+			payload["tools"] = reconnected.Tools.Tools
+			payload["resources"] = reconnected.Resources
+		}
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return ToolResult{}, err
+	}
+	return ToolResult{Output: string(encoded)}, nil
+}
+
+func mcpToolUseMeta(toolUseID string) map[string]any {
+	toolUseID = strings.TrimSpace(toolUseID)
+	if toolUseID == "" {
+		return nil
+	}
+	return map[string]any{"claudecode/toolUseId": toolUseID}
+}
+
+func isMCPAuthCompleteStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "authenticated", "complete", "completed", "success", "reconnected":
+		return true
+	default:
+		return false
+	}
+}
+
+func (mcpAuthTool) IsEnabled() bool           { return true }
+func (mcpAuthTool) IsReadOnly(string) bool    { return false }
+func (mcpAuthTool) IsDestructive(string) bool { return false }
+func (mcpAuthTool) ShouldDefer() bool         { return false }
+func (mcpAuthTool) AlwaysLoad() bool          { return false }
+func (t mcpAuthTool) PromptDescription() string {
+	return t.Definition().Description
+}
+func (t mcpAuthTool) SearchHint() string { return "mcp authenticate auth url" }
+
 type skillTool struct{}
 
 func NewSkillTool() skillTool { return skillTool{} }
@@ -502,7 +770,7 @@ func (skillTool) Definition() Definition {
 	}
 }
 
-func (skillTool) Invoke(_ context.Context, _ session.Session, input string) (string, error) {
+func (skillTool) Invoke(ctx context.Context, _ session.Session, input string) (string, error) {
 	object, err := objectInput(input)
 	if err != nil {
 		return "", err
@@ -514,7 +782,19 @@ func (skillTool) Invoke(_ context.Context, _ session.Session, input string) (str
 	if command.DisableModelInvocation {
 		return "", fmt.Errorf("Skill %q has disable-model-invocation enabled", command.Name)
 	}
-	return "Launching skill: " + command.Name + "\n\n" + command.renderedContent(stringField(object, "args"), ""), nil
+	content := command.renderedContent(stringField(object, "args"), "")
+	content, err = executeSkillShellCommandsInPrompt(
+		ctx,
+		content,
+		ToolUseContext{AbortContext: ctx},
+		command.Name,
+		skillBaseDir(command.Path),
+		command.Shell,
+	)
+	if err != nil {
+		return "", err
+	}
+	return "Launching skill: " + command.Name + "\n\n" + content, nil
 }
 
 func (skillTool) InvokeWithContext(_ context.Context, toolCtx ToolUseContext) (ToolResult, error) {
@@ -551,6 +831,7 @@ func (skillTool) InvokeWithContext(_ context.Context, toolCtx ToolUseContext) (T
 				SkillName: command.Name,
 				SkillPath: command.Path,
 				Content:   content,
+				Hooks:     command.Hooks,
 				InvokedAt: time.Now().UTC(),
 				AgentID:   toolCtx.AgentID,
 			})
@@ -560,15 +841,28 @@ func (skillTool) InvokeWithContext(_ context.Context, toolCtx ToolUseContext) (T
 			"success":     true,
 			"commandName": command.Name,
 			"status":      "inline",
-			"content":     "Launching skill: " + command.Name + "\n\n" + content,
+		}
+		if command.Hooks != nil {
+			output["hooks"] = command.Hooks
 		}
 		encoded, err := json.Marshal(output)
 		if err != nil {
 			return ToolResult{}, err
 		}
-		return ToolResult{Output: string(encoded)}, nil
+		return skillInlineToolResult(command, content, toolCtx, string(encoded)), nil
 	}
 	content := command.renderedContent(args, toolCtx.Session.ID)
+	content, err = executeSkillShellCommandsInPrompt(
+		toolCtx.AbortContext,
+		content,
+		toolCtx,
+		command.Name,
+		skillBaseDir(command.Path),
+		command.Shell,
+	)
+	if err != nil {
+		return ToolResult{}, err
+	}
 	toolCtx.SetAppState(func(previous map[string]any) map[string]any {
 		next := cloneAnyMap(previous)
 		if next == nil {
@@ -578,6 +872,7 @@ func (skillTool) InvokeWithContext(_ context.Context, toolCtx ToolUseContext) (T
 			SkillName: command.Name,
 			SkillPath: command.Path,
 			Content:   content,
+			Hooks:     command.Hooks,
 			InvokedAt: time.Now().UTC(),
 			AgentID:   toolCtx.AgentID,
 		})
@@ -607,6 +902,9 @@ func (skillTool) InvokeWithContext(_ context.Context, toolCtx ToolUseContext) (T
 		if command.Model != "" {
 			output["model"] = command.Model
 		}
+		if command.Hooks != nil {
+			output["hooks"] = command.Hooks
+		}
 		encoded, err := json.Marshal(output)
 		if err != nil {
 			return ToolResult{}, err
@@ -617,11 +915,13 @@ func (skillTool) InvokeWithContext(_ context.Context, toolCtx ToolUseContext) (T
 		"success":      true,
 		"commandName":  command.Name,
 		"status":       "inline",
-		"content":      "Launching skill: " + command.Name + "\n\n" + content,
 		"allowedTools": command.AllowedTools,
 	}
 	if command.Model != "" {
 		output["model"] = command.Model
+	}
+	if command.Hooks != nil {
+		output["hooks"] = command.Hooks
 	}
 	if strings.EqualFold(command.Context, "fork") {
 		output["status"] = "forked"
@@ -632,22 +932,76 @@ func (skillTool) InvokeWithContext(_ context.Context, toolCtx ToolUseContext) (T
 	if err != nil {
 		return ToolResult{}, err
 	}
-	return ToolResult{Output: string(encoded)}, nil
+	return skillInlineToolResult(command, content, toolCtx, string(encoded)), nil
+}
+
+func skillInlineToolResult(command skillCommand, content string, toolCtx ToolUseContext, output string) ToolResult {
+	messageID := strings.TrimSpace(toolCtx.ToolUseID)
+	if messageID == "" {
+		messageID = "skill-" + command.Name
+	} else {
+		messageID = messageID + "-skill"
+	}
+	result := ToolResult{
+		Output: output,
+		NewMessages: []model.Message{{
+			ID:              messageID,
+			SessionID:       toolCtx.Session.ID,
+			Role:            "user",
+			Subtype:         "skill",
+			Content:         content,
+			IsMeta:          true,
+			LogicalParentID: toolCtx.ToolUseID,
+			CreatedAt:       time.Now().UTC(),
+		}},
+	}
+	if len(command.AllowedTools) > 0 || command.Model != "" || command.Effort != "" {
+		result.ContextModifier = func(next ToolUseContext) ToolUseContext {
+			appState := cloneAnyMap(next.AppState)
+			if appState == nil {
+				appState = make(map[string]any)
+			}
+			if len(command.AllowedTools) > 0 {
+				appState["skillAllowedTools"] = append([]string(nil), command.AllowedTools...)
+			}
+			if command.Model != "" {
+				appState["skillModel"] = command.Model
+				next.MainLoopModel = command.Model
+			}
+			if command.Effort != "" {
+				appState["skillEffort"] = command.Effort
+			}
+			next.AppState = appState
+			return next
+		}
+	}
+	return result
 }
 
 type skillCommand struct {
-	Name                   string
-	Path                   string
-	Content                string
-	ArgumentNames          []string
-	AllowedTools           []string
-	Model                  string
-	Context                string
-	Agent                  string
-	DisableModelInvocation bool
-	MCPPrompt              bool
-	MCPServer              string
-	MCPPromptName          string
+	Name                        string
+	DisplayName                 string
+	Description                 string
+	HasUserSpecifiedDescription bool
+	WhenToUse                   string
+	Version                     string
+	UserInvocable               bool
+	ArgumentHint                string
+	Path                        string
+	Content                     string
+	ArgumentNames               []string
+	AllowedTools                []string
+	Model                       string
+	Context                     string
+	Agent                       string
+	Effort                      string
+	Paths                       []string
+	Shell                       FrontmatterShell
+	Hooks                       any
+	DisableModelInvocation      bool
+	MCPPrompt                   bool
+	MCPServer                   string
+	MCPPromptName               string
 }
 
 func (c skillCommand) renderedContent(args, sessionID string) string {
@@ -656,7 +1010,7 @@ func (c skillCommand) renderedContent(args, sessionID string) string {
 	if baseDir != "" {
 		content = "Base directory for this skill: " + baseDir + "\n\n" + content
 	}
-	content = substituteSkillArguments(content, args, c.ArgumentNames)
+	content = SubstituteSkillArguments(content, args, true, c.ArgumentNames)
 	if baseDir != "" {
 		normalizedDir := baseDir
 		if runtime.GOOS == "windows" {
@@ -677,6 +1031,12 @@ func resolveSkillCommand(object map[string]any, appState map[string]any) (skillC
 	if name == "" {
 		return skillCommand{}, fmt.Errorf("Skill requires skill")
 	}
+	if command, ok := skillCommandFromAppState(appState, name); ok {
+		return command, nil
+	}
+	if command, ok := lookupDynamicSkill(name); ok {
+		return command, nil
+	}
 	if command, ok := resolveMCPPromptSkill(name, appState); ok {
 		return command, nil
 	}
@@ -696,7 +1056,7 @@ func resolveSkillCommand(object map[string]any, appState map[string]any) (skillC
 	if err != nil {
 		return skillCommand{}, err
 	}
-	command := parseSkillFile(name, path, string(data))
+	command := ParseSkillFile(name, path, string(data))
 	return command, nil
 }
 
@@ -735,6 +1095,38 @@ func resolveMCPPromptSkill(name string, appState map[string]any) (skillCommand, 
 	return skillCommand{}, false
 }
 
+func MCPPromptSkillCommands(prompts map[string]MCPPromptsListResult) []SkillCommand {
+	if len(prompts) == 0 {
+		return nil
+	}
+	servers := make([]string, 0, len(prompts))
+	for server := range prompts {
+		servers = append(servers, server)
+	}
+	sort.Strings(servers)
+	out := make([]SkillCommand, 0)
+	for _, server := range servers {
+		result := prompts[server]
+		for _, prompt := range result.Prompts {
+			name := BuildMCPToolName(server, prompt.Name)
+			args := make([]string, 0, len(prompt.Arguments))
+			for _, argument := range prompt.Arguments {
+				args = append(args, argument.Name)
+			}
+			out = append(out, skillCommand{
+				Name:          name,
+				Description:   prompt.Description,
+				Content:       prompt.Description,
+				ArgumentNames: args,
+				MCPPrompt:     true,
+				MCPServer:     server,
+				MCPPromptName: prompt.Name,
+			})
+		}
+	}
+	return out
+}
+
 func mcpPromptCallerFromAppState(appState map[string]any) MCPPromptCaller {
 	if appState == nil {
 		return nil
@@ -745,12 +1137,12 @@ func mcpPromptCallerFromAppState(appState map[string]any) MCPPromptCaller {
 
 func mapSkillArgsToPromptArguments(args string, names []string) map[string]any {
 	arguments := make(map[string]any)
-	values := splitSkillArguments(args)
+	values := parseSkillArguments(args)
 	for i, name := range names {
 		if name == "" {
 			continue
 		}
-		arguments[name] = valueAt(values, i)
+		arguments[name] = skillArgumentValue(values, i)
 	}
 	return arguments
 }
@@ -789,48 +1181,6 @@ func renderMCPPromptContent(content any) string {
 		encoded, _ := json.Marshal(typed)
 		return string(encoded)
 	}
-}
-
-func parseSkillFile(name, path, data string) skillCommand {
-	command := skillCommand{Name: name, Path: path, Content: data}
-	if strings.HasPrefix(data, "---") {
-		rest := strings.TrimPrefix(data, "---")
-		rest = strings.TrimPrefix(rest, "\r\n")
-		rest = strings.TrimPrefix(rest, "\n")
-		if idx := strings.Index(rest, "\n---"); idx >= 0 {
-			frontmatter := rest[:idx]
-			body := rest[idx+len("\n---"):]
-			body = strings.TrimPrefix(body, "\r\n")
-			body = strings.TrimPrefix(body, "\n")
-			command.Content = body
-			for _, line := range strings.Split(frontmatter, "\n") {
-				key, value, ok := strings.Cut(line, ":")
-				if !ok {
-					continue
-				}
-				key = strings.TrimSpace(strings.ToLower(key))
-				value = strings.TrimSpace(value)
-				switch key {
-				case "name":
-					// Claude keeps the directory/file-derived command name.
-					// Frontmatter name is only the user-facing display name.
-				case "allowed-tools":
-					command.AllowedTools = splitSkillFrontmatterList(value)
-				case "arguments":
-					command.ArgumentNames = splitSkillFrontmatterList(value)
-				case "model":
-					command.Model = value
-				case "context":
-					command.Context = value
-				case "agent":
-					command.Agent = value
-				case "disable-model-invocation":
-					command.DisableModelInvocation = strings.EqualFold(value, "true")
-				}
-			}
-		}
-	}
-	return command
 }
 
 func splitCommaList(value string) []string {

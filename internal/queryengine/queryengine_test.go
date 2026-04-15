@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -7695,6 +7697,168 @@ func TestQueryEngineSessionMemoryCompactInjectsCompactHookAndTranscriptNote(t *t
 	if !foundBoundaryEvent {
 		t.Fatalf("events = %#v, want compact.boundary event", sink.events)
 	}
+}
+
+func TestQueryEngineSessionMemoryCompactIncludesInvokedSkillAttachment(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	skillRoot := t.TempDir()
+	skillDir := filepath.Join(skillRoot, "research")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	skillPath := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(skillPath, []byte("---\ndescription: Research helper\n---\nUse the research skill content."), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	client := &scriptedClient{
+		scripts: [][]llm.StreamEvent{
+			{
+				{Type: "tool.call", ToolName: "Skill", ToolInput: `{"skill":"research"}`, ToolUseID: "toolu-skill"},
+				{Type: "message.end"},
+			},
+			{
+				{Type: "text.delta", Delta: "skill loaded"},
+				{Type: "message.end"},
+			},
+			{
+				{Type: "text.delta", Delta: "after compact"},
+				{Type: "message.end"},
+			},
+		},
+	}
+	memSvc := memory.NewService()
+	engine := queryengine.New(queryengine.Config{
+		Sessions:        sessions,
+		Client:          client,
+		WorkspaceLoader: workspace.NewLoader(""),
+		MemoryService:   memSvc,
+		ToolRegistry:    tools.NewRegistry(tools.NewSkillTool()),
+		SkillRoots:      []string{skillRoot},
+		Compactor: compaction.NewService(compaction.Config{
+			MaxMessages:                99,
+			MaxEstimatedTokens:         200,
+			PreserveRecentTurns:        2,
+			SummaryPrefix:              "Summary:",
+			SessionMemoryMinTokens:     1,
+			SessionMemoryMinTextBlocks: 1,
+			SessionMemoryMaxTokens:     100,
+		}),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+
+	first, err := sessions.AppendMessage(sess.ID, "user", "load research skill")
+	if err != nil {
+		t.Fatalf("append first message: %v", err)
+	}
+	if err := engine.SubmitMessage(context.Background(), sess, first, &captureSink{}); err != nil {
+		t.Fatalf("submit first message: %v", err)
+	}
+
+	memSvc.SaveCompactionSummary(sess, session.Message{
+		ID:        "summary-prev",
+		SessionID: sess.ID,
+		Role:      "summary",
+		Content:   "Summary: previous compact memory",
+	})
+	second, err := sessions.AppendMessage(sess.ID, "user", strings.Repeat("trigger compact ", 80))
+	if err != nil {
+		t.Fatalf("append second message: %v", err)
+	}
+	if err := engine.SubmitMessage(context.Background(), sess, second, &captureSink{}); err != nil {
+		t.Fatalf("submit second message: %v", err)
+	}
+
+	messages, ok := sessions.Messages(sess.ID)
+	if !ok {
+		t.Fatalf("messages for %q not found", sess.ID)
+	}
+	for _, message := range messages {
+		if message.Role != "attachment" || message.Subtype != "invoked_skills" {
+			continue
+		}
+		if !message.IsMeta || !message.IsVisibleInTranscriptOnly {
+			t.Fatalf("attachment = %#v, want meta transcript-only invoked skills attachment", message)
+		}
+		var payload struct {
+			Type   string `json:"type"`
+			Skills []struct {
+				SkillName string `json:"skillName"`
+				SkillPath string `json:"skillPath"`
+				Content   string `json:"content"`
+				AgentID   string `json:"agentId"`
+				InvokedAt string `json:"invokedAt"`
+			} `json:"skills"`
+		}
+		if err := json.Unmarshal([]byte(message.Content), &payload); err != nil {
+			t.Fatalf("unmarshal attachment: %v", err)
+		}
+		if payload.Type != "invoked_skills" || len(payload.Skills) != 1 {
+			t.Fatalf("payload = %#v, want one invoked skill attachment", payload)
+		}
+		skill := payload.Skills[0]
+		if skill.SkillName != "research" ||
+			skill.SkillPath != skillPath ||
+			skill.AgentID != sess.AgentID ||
+			!strings.Contains(skill.Content, "Use the research skill content.") {
+			t.Fatalf("skill payload = %#v, want invoked skill payload", skill)
+		}
+		invokedAt, err := time.Parse(time.RFC3339Nano, skill.InvokedAt)
+		if err != nil || invokedAt.IsZero() {
+			t.Fatalf("invokedAt = %q, want non-zero RFC3339 timestamp", skill.InvokedAt)
+		}
+		return
+	}
+	t.Fatalf("messages = %#v, want invoked_skills attachment after compact", messages)
+}
+
+func TestQueryEngineRegistersMCPAuthToolWhenClientNeedsAuth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer authorization_uri="https://auth.example/authorize"`)
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","error":{"code":401,"message":"Unauthorized"}}`))
+	}))
+	defer server.Close()
+
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "hello auth")
+	if err != nil {
+		t.Fatalf("append message: %v", err)
+	}
+	client := &scriptedClient{scripts: [][]llm.StreamEvent{{
+		{Type: "text.delta", Delta: "done"},
+		{Type: "message.end"},
+	}}}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:        sessions,
+		Client:          client,
+		WorkspaceLoader: workspace.NewLoader(""),
+		MCPClients: []tools.MCPConnection{{
+			Name:    "filesystem",
+			Type:    "streamable_http",
+			BaseURL: server.URL,
+		}},
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+	requests := client.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("request count = %d, want one", len(requests))
+	}
+	for _, tool := range requests[0].Tools {
+		if tool.Name == "mcp__filesystem__authenticate" {
+			if tool.Description == "" || !strings.Contains(tool.Description, "authenticate") {
+				t.Fatalf("auth tool = %#v, want auth guidance description", tool)
+			}
+			return
+		}
+	}
+	t.Fatalf("tools = %#v, want MCP authenticate pseudo tool", requests[0].Tools)
 }
 
 func TestQueryEngineHydratesCompactionPhaseFromRecoveryAnchorsWithoutReason(t *testing.T) {

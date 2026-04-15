@@ -1541,7 +1541,7 @@ func TestNewRunnerWithOptionsInjectsSkillForkExecutor(t *testing.T) {
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\ncontext: fork\nagent: verifier\n---\nVerify it."), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\ncontext: fork\nagent: verifier\nallowed-tools: Read,Grep\nmodel: claude-sonnet-4-5\neffort: high\n---\nVerify it."), 0o644); err != nil {
 		t.Fatalf("write skill: %v", err)
 	}
 	msg, err := sessions.AppendMessage(sess.ID, "user", "invoke skill")
@@ -1586,7 +1586,85 @@ func TestNewRunnerWithOptionsInjectsSkillForkExecutor(t *testing.T) {
 	t.Fatalf("messages = %#v, want fork executor output", messages)
 }
 
+func TestNewRunnerWithOptionsLoadsDynamicSkillsFromSkillRoots(t *testing.T) {
+	tools.ClearDynamicSkills()
+	defer tools.ClearDynamicSkills()
+
+	sessions := session.NewManager(nil)
+	dir := t.TempDir()
+	root := filepath.Join(dir, "skills")
+	skillDir := filepath.Join(root, "review")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\ndescription: Review helper\n---\nReview it."), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	_ = NewRunnerWithOptions(sessions, &scriptedClient{}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		SkillRoots:       []string{root},
+	})
+
+	for _, skill := range tools.GetDynamicSkills() {
+		if skill.Name == "review" && skill.Path == filepath.Join(skillDir, "SKILL.md") {
+			return
+		}
+	}
+	t.Fatalf("dynamic skills = %#v, want runner to load skill root", tools.GetDynamicSkills())
+}
+
+func TestNewRunnerWithOptionsLoadsClaudeSkillDiscoveryLifecycle(t *testing.T) {
+	tools.ClearDynamicSkills()
+	defer tools.ClearDynamicSkills()
+
+	sessions := session.NewManager(nil)
+	dir := t.TempDir()
+	configHome := filepath.Join(dir, "home", ".claude")
+	project := filepath.Join(dir, "workspace")
+	additional := filepath.Join(dir, "extra")
+	for path, body := range map[string]string{
+		filepath.Join(configHome, "skills", "user", "SKILL.md"):             "---\ndescription: User helper\n---\nUser body.",
+		filepath.Join(project, ".claude", "skills", "project", "SKILL.md"):  "---\ndescription: Project helper\n---\nProject body.",
+		filepath.Join(additional, ".claude", "skills", "extra", "SKILL.md"): "---\ndescription: Extra helper\n---\nExtra body.",
+		filepath.Join(project, ".claude", "commands", "legacy.md"):          "---\ndescription: Legacy helper\n---\nLegacy body.",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir %q: %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatalf("write %q: %v", path, err)
+		}
+	}
+
+	_ = NewRunnerWithOptions(sessions, &scriptedClient{}, workspace.NewLoader(project), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		SkillDiscovery: tools.SkillDiscoveryOptions{
+			CWD:             project,
+			ConfigHome:      configHome,
+			AdditionalDirs:  []string{additional},
+			IncludeUser:     true,
+			IncludeProject:  true,
+			IncludeExplicit: true,
+			IncludeLegacy:   true,
+		},
+	})
+
+	names := make(map[string]bool)
+	for _, skill := range tools.GetDynamicSkills() {
+		names[skill.Name] = true
+	}
+	for _, want := range []string{"user", "project", "extra", "legacy"} {
+		if !names[want] {
+			t.Fatalf("dynamic skills = %#v, missing %q", tools.GetDynamicSkills(), want)
+		}
+	}
+}
+
 func TestNewRunnerWithOptionsDefaultsSkillForkToSubagentRuntime(t *testing.T) {
+	tools.ClearDynamicSkills()
+	defer tools.ClearDynamicSkills()
+
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")
 	dir := t.TempDir()
@@ -1595,7 +1673,7 @@ func TestNewRunnerWithOptionsDefaultsSkillForkToSubagentRuntime(t *testing.T) {
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\ncontext: fork\nagent: verifier\n---\nVerify it."), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\ncontext: fork\nagent: verifier\nallowed-tools:\n  - Read\n  - Grep\nmodel: claude-sonnet-4-5\neffort: high\n---\nVerify it."), 0o644); err != nil {
 		t.Fatalf("write skill: %v", err)
 	}
 	msg, err := sessions.AppendMessage(sess.ID, "user", "invoke skill")
@@ -1620,6 +1698,40 @@ func TestNewRunnerWithOptionsDefaultsSkillForkToSubagentRuntime(t *testing.T) {
 	}
 	if len(runner.AgentManager().List()) != 1 {
 		t.Fatalf("runs = %#v, want one forked skill subagent run", runner.AgentManager().List())
+	}
+	run := runner.AgentManager().List()[0]
+	if got, want := run.AllowedTools, []string{"Read", "Grep"}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("run allowed tools = %#v, want %#v", got, want)
+	}
+	if run.Model != "claude-sonnet-4-5" {
+		t.Fatalf("run model = %q, want skill model", run.Model)
+	}
+	if run.Effort != "high" {
+		t.Fatalf("run effort = %q, want skill effort", run.Effort)
+	}
+	child, ok := sessions.GetByID(run.ChildSessionID)
+	if !ok {
+		t.Fatalf("child session %q not found", run.ChildSessionID)
+	}
+	if child.Metadata.MainLoopModelOverride != "claude-sonnet-4-5" {
+		t.Fatalf("child metadata = %#v, want skill model override", child.Metadata)
+	}
+	if child.Metadata.MainLoopEffortOverride != "high" {
+		t.Fatalf("child metadata = %#v, want skill effort override", child.Metadata)
+	}
+	childPolicy := runner.PermissionPolicyForSession(run.ChildSessionID)
+	readDecision := childPolicy.Evaluate(permissions.Request{ToolName: "Read"})
+	if !readDecision.Allowed || readDecision.RuleSource != string(permissions.RuleSourceCommand) {
+		t.Fatalf("Read decision = %#v, want command-sourced allow rule", readDecision)
+	}
+	grepDecision := childPolicy.Evaluate(permissions.Request{ToolName: "Grep"})
+	if !grepDecision.Allowed || grepDecision.RuleSource != string(permissions.RuleSourceCommand) {
+		t.Fatalf("Grep decision = %#v, want command-sourced allow rule", grepDecision)
+	}
+	for _, want := range []string{"Allowed tools: Read, Grep", "Model: claude-sonnet-4-5", "Effort: high", "Verify it."} {
+		if !strings.Contains(run.Prompt, want) {
+			t.Fatalf("subagent prompt = %q, missing %q", run.Prompt, want)
+		}
 	}
 	messages, ok := sessions.Messages(sess.ID)
 	if !ok {

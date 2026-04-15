@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"myclaw/internal/model"
+	"myclaw/internal/tools"
 )
 
 type Config struct {
@@ -80,6 +81,7 @@ type SessionMemoryOptions struct {
 	TranscriptPath       string
 	AutoCompactThreshold int
 	PlanAttachment       *model.Message
+	InvokedSkills        []tools.InvokedSkillInfo
 	SessionMemoryPath    string
 }
 
@@ -187,9 +189,12 @@ func (s *Service) CompactWithSessionMemoryOptions(messages []model.Message, summ
 	boundary.CompactMetadata.PreCompactDiscoveredTools = extractDiscoveredToolNames(messages)
 	annotateBoundaryWithPreservedSegment(&boundary, summary.ID, recent)
 
-	attachments := make([]model.Message, 0, 1)
+	attachments := make([]model.Message, 0, 1+len(opts.InvokedSkills))
 	if opts.PlanAttachment != nil {
 		attachments = append(attachments, cloneMessage(*opts.PlanAttachment))
+	}
+	if len(opts.InvokedSkills) > 0 {
+		attachments = append(attachments, tools.BuildInvokedSkillsAttachmentMessage(newUUID(), sessionID, opts.InvokedSkills))
 	}
 
 	compacted := make([]model.Message, 0, 2+len(recent)+len(attachments)+len(opts.HookMessages))

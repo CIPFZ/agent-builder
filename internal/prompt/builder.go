@@ -225,6 +225,14 @@ func ComposeSystemContent(ctx Context) string {
 			"If a tool call is denied or requires approval, do not blindly repeat the same call.",
 			"Instead, explain what happened, adapt your plan, or wait for approval when appropriate.",
 		}, "\n"))
+		if hasSkillToolLine(ctx.ToolLines) {
+			parts = append(parts, strings.Join([]string{
+				"# Skill Usage",
+				"Use the Skill tool when a named skill is relevant to the user's task.",
+				"Skill content is injected as additional context after the tool result.",
+				"Do not invoke skills just to inspect their full text; call Skill only when you intend to use it.",
+			}, "\n"))
+		}
 	}
 	if len(ctx.UserContextLines) > 0 {
 		parts = append(parts, "User Context:\n"+strings.Join(ctx.UserContextLines, "\n"))
@@ -263,6 +271,16 @@ func ComposeSystemContent(ctx Context) string {
 		parts = append(parts, "Summary Memory:\n"+strings.Join(ctx.MemoryByType[memory.TypeSummary], "\n"))
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func hasSkillToolLine(lines []string) bool {
+	for _, line := range lines {
+		name, _, ok := strings.Cut(line, ":")
+		if ok && strings.TrimSpace(name) == "Skill" {
+			return true
+		}
+	}
+	return false
 }
 
 func buildExecutionBoundaryLines(systemContextLines []string) []string {

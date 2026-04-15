@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -125,8 +126,16 @@ func TestMCPResourceToolsListAndReadContextResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list mcp resources: %v", err)
 	}
-	if !strings.Contains(listed.Output, "filesystem") || !strings.Contains(listed.Output, "file:///tmp/a") {
-		t.Fatalf("output = %q, want listed MCP resource", listed.Output)
+	var resources []any
+	if err := json.Unmarshal([]byte(listed.Output), &resources); err != nil {
+		t.Fatalf("list output JSON: %v", err)
+	}
+	if len(resources) != 1 {
+		t.Fatalf("output = %q, want Claude-style resources array", listed.Output)
+	}
+	resource := resources[0].(map[string]any)
+	if resource["server"] != "filesystem" || resource["uri"] != "file:///tmp/a" || resource["name"] != "a" || resource["description"] != "resource a" {
+		t.Fatalf("resource = %#v, want structured MCP resource payload", resource)
 	}
 
 	readCtx := ctx
@@ -179,6 +188,159 @@ func TestDynamicMCPToolUsesClaudeNameSchemaAndCaller(t *testing.T) {
 	}
 }
 
+func TestDynamicMCPToolContextualLifecyclePreservesMetaAndReportsProgress(t *testing.T) {
+	var events []tools.ToolProgress
+	tool := tools.NewMCPContextualTool(tools.MCPToolDefinition{
+		Server:      "filesystem",
+		Name:        "read_file",
+		Description: "Read a file",
+		InputSchema: map[string]any{"type": "object"},
+	}, func(_ context.Context, req tools.MCPToolCallRequest) (tools.MCPToolResult, error) {
+		if req.Server != "filesystem" || req.Name != "read_file" || req.Input["path"] != "README.md" {
+			t.Fatalf("request = %#v, want server/name/input", req)
+		}
+		if req.ToolUseID != "toolu-1" || req.Timeout <= 0 {
+			t.Fatalf("request = %#v, want tool use id and timeout", req)
+		}
+		if req.Meta["claudecode/toolUseId"] != "toolu-1" {
+			t.Fatalf("request meta = %#v, want Claude toolUseId", req.Meta)
+		}
+		if req.ReportProgress != nil {
+			req.ReportProgress(tools.ToolProgress{ToolUseID: req.ToolUseID, Type: "progress", Message: "server progress"})
+		}
+		return tools.MCPToolResult{
+			Content:           []map[string]any{{"type": "text", "text": "file contents"}},
+			StructuredContent: map[string]any{"ok": true},
+			Meta:              map[string]any{"server": "filesystem"},
+		}, nil
+	})
+
+	result, err := tool.(tools.ContextualTool).InvokeWithContext(context.Background(), tools.ToolUseContext{
+		ToolName:  "mcp__filesystem__read_file",
+		ToolUseID: "toolu-1",
+		Input:     `{"path":"README.md"}`,
+		ReportProgress: func(progress tools.ToolProgress) {
+			events = append(events, progress)
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke contextual mcp tool: %v", err)
+	}
+	if result.StructuredContent == nil || result.Meta["server"] != "filesystem" {
+		t.Fatalf("result = %#v, want structured content and metadata preserved", result)
+	}
+	if !strings.Contains(result.Output, "file contents") {
+		t.Fatalf("output = %q, want text content envelope", result.Output)
+	}
+	var types []string
+	for _, event := range events {
+		types = append(types, event.Type)
+	}
+	if !reflect.DeepEqual(types, []string{"started", "progress", "completed"}) {
+		t.Fatalf("progress types = %#v, want started/progress/completed", types)
+	}
+}
+
+func TestDynamicMCPToolContextualLifecycleReturnsIsErrorWithMeta(t *testing.T) {
+	tool := tools.NewMCPContextualTool(tools.MCPToolDefinition{
+		Server: "filesystem",
+		Name:   "read_file",
+	}, func(context.Context, tools.MCPToolCallRequest) (tools.MCPToolResult, error) {
+		return tools.MCPToolResult{
+			Content: []map[string]any{{"type": "text", "text": "denied"}},
+			Meta:    map[string]any{"reason": "policy"},
+			IsError: true,
+		}, nil
+	})
+
+	result, err := tool.(tools.ContextualTool).InvokeWithContext(context.Background(), tools.ToolUseContext{
+		ToolName: "mcp__filesystem__read_file",
+		Input:    `{}`,
+	})
+	if err == nil {
+		t.Fatal("invoke contextual mcp tool: expected error for MCP isError result")
+	}
+	if !result.IsError || result.Meta["reason"] != "policy" || !strings.Contains(result.Output, "denied") {
+		t.Fatalf("result = %#v, want isError result with preserved meta and content", result)
+	}
+}
+
+func TestMCPAuthToolReturnsAuthURLBeforeReconnectCompletes(t *testing.T) {
+	var authenticated bool
+	var reconnected bool
+	tool := tools.NewMCPAuthTool("filesystem", "https://auth.example/start", "Authenticate filesystem")
+	result, err := tool.(tools.ContextualTool).InvokeWithContext(context.Background(), tools.ToolUseContext{
+		ToolName: "mcp__filesystem__authenticate",
+		MCPClients: []tools.MCPConnection{{
+			Name:    "filesystem",
+			Type:    "streamable_http",
+			BaseURL: "https://mcp.example",
+		}},
+		MCPAuthenticator: func(_ context.Context, server string, connection tools.MCPConnection) (tools.MCPAuthStartResult, error) {
+			authenticated = true
+			if server != "filesystem" || connection.BaseURL != "https://mcp.example" {
+				t.Fatalf("auth server=%q connection=%#v, want filesystem connection", server, connection)
+			}
+			return tools.MCPAuthStartResult{Status: "auth_url", AuthURL: "https://auth.example/authorize", Message: "Open browser"}, nil
+		},
+		MCPReconnect: func(_ context.Context, server string) (tools.MCPReconnectResult, error) {
+			reconnected = true
+			if server != "filesystem" {
+				t.Fatalf("reconnect server=%q, want filesystem", server)
+			}
+			return tools.MCPReconnectResult{
+				Tools:     tools.MCPToolsListResult{Tools: []tools.MCPToolListItem{{Name: "read_file"}}},
+				Resources: []tools.MCPResource{{URI: "file:///README.md", Name: "README"}},
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke auth tool: %v", err)
+	}
+	if !authenticated {
+		t.Fatal("expected authenticator to be called")
+	}
+	if reconnected {
+		t.Fatal("auth_url result must return before reconnecting; reconnect waits for OAuth completion")
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &parsed); err != nil {
+		t.Fatalf("auth output JSON: %v", err)
+	}
+	if parsed["status"] != "auth_url" || parsed["authUrl"] != "https://auth.example/authorize" {
+		t.Fatalf("auth output = %#v, want auth_url", parsed)
+	}
+	if _, ok := parsed["reconnected"]; ok {
+		t.Fatalf("auth output = %#v, did not want synchronous reconnect state", parsed)
+	}
+}
+
+func TestListMcpResourcesUsesLiveListerAndReturnsClaudeArray(t *testing.T) {
+	tool := tools.NewListMcpResourcesTool()
+	result, err := tool.InvokeWithContext(context.Background(), tools.ToolUseContext{
+		ToolName: "ListMcpResources",
+		MCPResources: map[string][]tools.MCPResource{
+			"filesystem": {{URI: "file:///stale.txt", Name: "stale"}},
+		},
+		MCPResourceLister: func(_ context.Context, server string) ([]tools.MCPResource, error) {
+			if server != "" {
+				t.Fatalf("server filter = %q, want all servers", server)
+			}
+			return []tools.MCPResource{{URI: "file:///fresh.txt", Name: "fresh", Description: "live"}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("list resources: %v", err)
+	}
+	var parsed []map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &parsed); err != nil {
+		t.Fatalf("list output should be Claude array JSON, got %q: %v", result.Output, err)
+	}
+	if len(parsed) != 1 || parsed[0]["uri"] != "file:///fresh.txt" || parsed[0]["name"] != "fresh" {
+		t.Fatalf("resources = %#v, want live resource array", parsed)
+	}
+}
+
 func TestSkillToolLoadsSkillPathAndRecordsInvocation(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/SKILL.md"
@@ -208,8 +370,11 @@ func TestSkillToolLoadsSkillPathAndRecordsInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invoke skill: %v", err)
 	}
-	if !strings.Contains(result.Output, "Use demo skill.") {
-		t.Fatalf("output = %q, want skill file contents", result.Output)
+	if strings.Contains(result.Output, "Use demo skill.") {
+		t.Fatalf("output = %q, should not include expanded skill content", result.Output)
+	}
+	if len(result.NewMessages) != 1 || !strings.Contains(result.NewMessages[0].Content, "Use demo skill.") {
+		t.Fatalf("new messages = %#v, want skill file contents injected as meta message", result.NewMessages)
 	}
 	invoked, _ := appState["invokedSkills"].([]any)
 	if len(invoked) != 1 {
@@ -255,8 +420,402 @@ func TestSkillToolLoadsCatalogFrontmatterAndReturnsInlineJSON(t *testing.T) {
 	if parsed["status"] != "inline" || parsed["commandName"] != "verify" || parsed["model"] != "claude-sonnet-4-5" {
 		t.Fatalf("output = %#v, want inline skill metadata", parsed)
 	}
-	if !strings.Contains(parsed["content"].(string), "Run verification.") || !strings.Contains(parsed["content"].(string), "unit tests") {
-		t.Fatalf("content = %q, want skill content and args", parsed["content"])
+	if _, hasContent := parsed["content"]; hasContent {
+		t.Fatalf("output = %#v, should not include expanded skill content", parsed)
+	}
+	if len(result.NewMessages) != 1 || !strings.Contains(result.NewMessages[0].Content, "Run verification.") || !strings.Contains(result.NewMessages[0].Content, "unit tests") {
+		t.Fatalf("new messages = %#v, want skill content and args", result.NewMessages)
+	}
+}
+
+func TestLoadClaudeSkillDirectoriesLoadsSourcesLegacyCommandsAndDedupesRealpath(t *testing.T) {
+	tools.ClearDynamicSkills()
+	t.Cleanup(tools.ClearDynamicSkills)
+
+	dir := t.TempDir()
+	configHome := filepath.Join(dir, "home", ".claude")
+	managedRoot := filepath.Join(dir, "managed")
+	project := filepath.Join(dir, "workspace", "pkg")
+	additional := filepath.Join(dir, "extra")
+
+	managedSkill := filepath.Join(managedRoot, ".claude", "skills", "managed", "SKILL.md")
+	userSkill := filepath.Join(configHome, "skills", "user", "SKILL.md")
+	projectSkill := filepath.Join(project, ".claude", "skills", "project", "SKILL.md")
+	additionalSkill := filepath.Join(additional, ".claude", "skills", "extra", "SKILL.md")
+	legacyCommand := filepath.Join(project, ".claude", "commands", "legacy.md")
+	for path, body := range map[string]string{
+		managedSkill:    "---\ndescription: managed skill\n---\nManaged body.",
+		userSkill:       "---\ndescription: user skill\n---\nUser body.",
+		projectSkill:    "---\ndescription: project skill\n---\nProject body.",
+		additionalSkill: "---\ndescription: extra skill\n---\nExtra body.",
+		legacyCommand:   "---\ndescription: legacy command\n---\nLegacy body.",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir %q: %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatalf("write %q: %v", path, err)
+		}
+	}
+	duplicateRoot := filepath.Join(dir, "dupe")
+	if err := os.MkdirAll(filepath.Join(duplicateRoot, ".claude", "skills"), 0o755); err != nil {
+		t.Fatalf("mkdir duplicate root: %v", err)
+	}
+	duplicateSkillDir := filepath.Join(duplicateRoot, ".claude", "skills", "project")
+	if err := os.Symlink(filepath.Dir(projectSkill), duplicateSkillDir); err == nil {
+		// Include a realpath duplicate only on filesystems that support symlinks.
+		additional = duplicateRoot
+	}
+
+	loaded := tools.LoadClaudeSkillDirectories(tools.SkillDiscoveryOptions{
+		CWD:             project,
+		ConfigHome:      configHome,
+		ManagedRoot:     managedRoot,
+		AdditionalDirs:  []string{additional},
+		IncludeUser:     true,
+		IncludeProject:  true,
+		IncludeManaged:  true,
+		IncludeLegacy:   true,
+		IncludeExplicit: true,
+	})
+
+	names := make([]string, 0, len(loaded))
+	for _, skill := range loaded {
+		names = append(names, skill.Name)
+	}
+	want := []string{"managed", "user", "project", "legacy"}
+	if additional != duplicateRoot {
+		want = []string{"managed", "user", "project", "extra", "legacy"}
+	}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("loaded skill names = %#v, want %#v", names, want)
+	}
+	if got := tools.GetDynamicSkills(); len(got) != len(want) {
+		t.Fatalf("dynamic skills = %#v, want loaded skills registered", got)
+	}
+	gotNames := make([]string, 0, len(want))
+	for _, skill := range tools.GetDynamicSkills() {
+		gotNames = append(gotNames, skill.Name)
+	}
+	if !reflect.DeepEqual(gotNames, want) {
+		t.Fatalf("dynamic skill order = %#v, want Claude load order %#v", gotNames, want)
+	}
+}
+
+func TestLoadClaudeSkillDirectoriesBareModeLoadsOnlyAdditionalDirs(t *testing.T) {
+	tools.ClearDynamicSkills()
+	t.Cleanup(tools.ClearDynamicSkills)
+
+	dir := t.TempDir()
+	configHome := filepath.Join(dir, "home", ".claude")
+	project := filepath.Join(dir, "workspace")
+	additional := filepath.Join(dir, "extra")
+	for path, body := range map[string]string{
+		filepath.Join(configHome, "skills", "user", "SKILL.md"):             "---\ndescription: user skill\n---\nUser body.",
+		filepath.Join(project, ".claude", "skills", "project", "SKILL.md"):  "---\ndescription: project skill\n---\nProject body.",
+		filepath.Join(additional, ".claude", "skills", "extra", "SKILL.md"): "---\ndescription: extra skill\n---\nExtra body.",
+		filepath.Join(project, ".claude", "commands", "legacy", "SKILL.md"): "---\ndescription: legacy command\n---\nLegacy body.",
+		filepath.Join(project, ".claude", "commands", "legacy-file.md"):     "---\ndescription: legacy file command\n---\nLegacy file body.",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir %q: %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatalf("write %q: %v", path, err)
+		}
+	}
+
+	loaded := tools.LoadClaudeSkillDirectories(tools.SkillDiscoveryOptions{
+		CWD:             project,
+		ConfigHome:      configHome,
+		AdditionalDirs:  []string{additional},
+		IncludeUser:     true,
+		IncludeProject:  true,
+		IncludeLegacy:   true,
+		IncludeExplicit: true,
+		BareMode:        true,
+	})
+
+	if len(loaded) != 1 || loaded[0].Name != "extra" {
+		t.Fatalf("bare loaded = %#v, want only additional skill", loaded)
+	}
+}
+
+func TestSkillToolInjectsInlineSkillAsMetaMessageAndCompactToolResult(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "skills")
+	skillDir := filepath.Join(root, "review")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	path := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(path, []byte("---\nallowed-tools: Read,Grep\nmodel: claude-sonnet-4-5\neffort: high\n---\nReview content."), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	appState := map[string]any{"skillRoots": []any{root}}
+	result, err := tools.NewSkillTool().InvokeWithContext(context.Background(), tools.ToolUseContext{
+		Session:   session.Session{ID: "sess-1", AgentID: "agent-1"},
+		AgentID:   "agent-1",
+		ToolName:  "Skill",
+		ToolUseID: "toolu-skill",
+		Input:     `{"skill":"review","args":"README.md"}`,
+		AppState:  appState,
+		SetAppState: func(update func(map[string]any) map[string]any) {
+			appState = update(appState)
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke skill: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &parsed); err != nil {
+		t.Fatalf("skill output JSON: %v", err)
+	}
+	if parsed["success"] != true || parsed["commandName"] != "review" || parsed["status"] != "inline" {
+		t.Fatalf("output = %#v, want compact success metadata", parsed)
+	}
+	if _, hasContent := parsed["content"]; hasContent {
+		t.Fatalf("output = %#v, should not include expanded skill content in tool_result", parsed)
+	}
+	if len(result.NewMessages) != 1 {
+		t.Fatalf("new messages = %#v, want one injected meta message", result.NewMessages)
+	}
+	msg := result.NewMessages[0]
+	if msg.Role != "user" || !msg.IsMeta || msg.Subtype != "skill" || !strings.Contains(msg.Content, "Review content.") {
+		t.Fatalf("new message = %#v, want Claude-style meta user skill content", msg)
+	}
+	if msg.LogicalParentID != "toolu-skill" {
+		t.Fatalf("new message logical parent = %q, want tool use id", msg.LogicalParentID)
+	}
+	modified := result.ContextModifier(tools.ToolUseContext{AppState: map[string]any{}})
+	if got := testStringList(modified.AppState["skillAllowedTools"]); !reflect.DeepEqual(got, []string{"Read", "Grep"}) {
+		t.Fatalf("skillAllowedTools = %#v, want allowed tools", got)
+	}
+	if modified.AppState["skillModel"] != "claude-sonnet-4-5" || modified.AppState["skillEffort"] != "high" {
+		t.Fatalf("appState = %#v, want model/effort context propagation", modified.AppState)
+	}
+}
+
+func TestBuildSkillListingAttachmentFormatsNewSkillsWithinBudget(t *testing.T) {
+	skills := []tools.SkillCommand{
+		{Name: "commit", Description: "Create a git commit", WhenToUse: "when changes should be committed"},
+		{Name: "verbose", Description: strings.Repeat("x", 300)},
+	}
+	msg := tools.BuildSkillListingAttachmentMessage("skill-listing-1", "sess-1", skills, 16000, true)
+	if msg.Role != "attachment" || msg.Subtype != "skill_listing" || !msg.IsMeta || !msg.IsVisibleInTranscriptOnly {
+		t.Fatalf("message = %#v, want Claude-style skill_listing attachment metadata", msg)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(msg.Content), &payload); err != nil {
+		t.Fatalf("skill listing payload JSON: %v", err)
+	}
+	if payload["type"] != "skill_listing" || payload["skillCount"] != float64(2) || payload["isInitial"] != true {
+		t.Fatalf("payload = %#v, want skill_listing count metadata", payload)
+	}
+	content, _ := payload["content"].(string)
+	if !strings.Contains(content, "- commit: Create a git commit - when changes should be committed") {
+		t.Fatalf("content = %q, want description plus when-to-use", content)
+	}
+	if strings.Contains(content, strings.Repeat("x", 260)) {
+		t.Fatalf("content = %q, want long descriptions capped like Claude", content)
+	}
+}
+
+func testStringList(value any) []string {
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text, ok := item.(string); ok {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func TestDiscoverSkillDirsForPathsFindsNestedDirsAndSkipsNodeModules(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), "workspace")
+	nested := filepath.Join(cwd, "pkg", "feature")
+	nestedSkillDir := filepath.Join(nested, ".claude", "skills")
+	cwdSkillDir := filepath.Join(cwd, ".claude", "skills")
+	nodeModules := filepath.Join(cwd, "node_modules", "pkg")
+	nodeModulesSkillDir := filepath.Join(nodeModules, ".claude", "skills")
+
+	for _, dir := range []string{nestedSkillDir, cwdSkillDir, nodeModulesSkillDir} {
+		if err := os.MkdirAll(filepath.Join(dir, "demo"), 0o755); err != nil {
+			t.Fatalf("mkdir skill dir %q: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "demo", "SKILL.md"), []byte("---\n---\nbody"), 0o644); err != nil {
+			t.Fatalf("write skill dir %q: %v", dir, err)
+		}
+	}
+
+	got := tools.DiscoverSkillDirsForPaths([]string{
+		filepath.Join(nested, "file.go"),
+		filepath.Join(nodeModules, "file.go"),
+	}, cwd)
+
+	want := []string{nestedSkillDir}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("discover skill dirs = %#v, want %#v", got, want)
+	}
+}
+
+func TestAddSkillDirectoriesLoadsDynamicSkillsAndActivatesConditionalSkills(t *testing.T) {
+	tools.ClearDynamicSkills()
+	t.Cleanup(tools.ClearDynamicSkills)
+
+	cwd := filepath.Join(t.TempDir(), "workspace")
+	skillRoot := filepath.Join(cwd, "pkg", ".claude", "skills")
+	unconditionalDir := filepath.Join(skillRoot, "alpha")
+	conditionalDir := filepath.Join(skillRoot, "beta")
+	for _, dir := range []string{unconditionalDir, conditionalDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %q: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(unconditionalDir, "SKILL.md"), []byte("---\nname: alpha-display\n---\nAlpha body."), 0o644); err != nil {
+		t.Fatalf("write alpha skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(conditionalDir, "SKILL.md"), []byte("---\npaths:\n  - src/**/*.go\n---\nBeta body."), 0o644); err != nil {
+		t.Fatalf("write beta skill: %v", err)
+	}
+
+	tools.AddSkillDirectories([]string{skillRoot})
+
+	got := tools.GetDynamicSkills()
+	if len(got) != 1 || got[0].Name != "alpha" {
+		t.Fatalf("dynamic skills = %#v, want unconditional skill only before activation", got)
+	}
+
+	activated := tools.ActivateConditionalSkillsForPaths([]string{
+		filepath.Join(cwd, "src", "main.go"),
+	}, cwd)
+	if !reflect.DeepEqual(activated, []string{"beta"}) {
+		t.Fatalf("activated = %#v, want beta", activated)
+	}
+
+	got = tools.GetDynamicSkills()
+	if len(got) != 2 {
+		t.Fatalf("dynamic skills after activation = %#v, want 2 skills", got)
+	}
+	names := []string{got[0].Name, got[1].Name}
+	if !containsAllStrings(names, []string{"alpha", "beta"}) {
+		t.Fatalf("dynamic skill names = %#v, want alpha and beta", names)
+	}
+}
+
+func TestSkillToolResolvesSkillFromAppStateDynamicSkills(t *testing.T) {
+	tool := tools.NewSkillTool()
+	appState := map[string]any{
+		"dynamicSkills": map[string]any{
+			"app-dynamic": map[string]any{
+				"name":    "app-dynamic",
+				"path":    filepath.Join(t.TempDir(), "app-dynamic", "SKILL.md"),
+				"content": "App-state dynamic skill body.",
+			},
+		},
+	}
+
+	result, err := tool.InvokeWithContext(context.Background(), tools.ToolUseContext{
+		Input:    `{"skill":"app-dynamic","args":"demo args"}`,
+		AppState: appState,
+	})
+	if err != nil {
+		t.Fatalf("invoke dynamic skill: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &parsed); err != nil {
+		t.Fatalf("dynamic skill output JSON: %v\n%s", err, result.Output)
+	}
+	content := ""
+	if len(result.NewMessages) > 0 {
+		content = result.NewMessages[0].Content
+	}
+	if !strings.Contains(content, "App-state dynamic skill body.") || !strings.Contains(content, "demo args") {
+		t.Fatalf("content = %q, want appState dynamic skill content and args", content)
+	}
+}
+
+func TestSkillToolExecutesInlineAndFencedShellBlocksAndExposesHooks(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "skills", "shelly")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	path := filepath.Join(skillDir, "SKILL.md")
+	tick := string('`')
+	contents := "---\n" +
+		"shell: powershell\n" +
+		"hooks:\n" +
+		"  PreToolUse:\n" +
+		"    - matcher: \"*\"\n" +
+		"      command: echo hook\n" +
+		"---\n" +
+		"Shell inline: !" + tick + "echo inline" + tick + "\n\n" +
+		"Shell block:\n" +
+		tick + tick + tick + "!\n" +
+		"echo block\n" +
+		tick + tick + tick + "\n"
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	var calls []tools.SkillShellRequest
+	appState := map[string]any{
+		"skillRoots": []any{filepath.Join(dir, "skills")},
+		"skillShellExecutor": tools.SkillShellExecutor(func(_ context.Context, request tools.SkillShellRequest) (string, error) {
+			calls = append(calls, request)
+			return "[" + string(request.Shell) + "] " + strings.TrimSpace(request.Command), nil
+		}),
+	}
+
+	result, err := tools.NewSkillTool().InvokeWithContext(context.Background(), tools.ToolUseContext{
+		Session:  session.Session{ID: "session-shell", AgentID: "agent-shell"},
+		ToolName: "Skill",
+		Input:    `{"skill":"shelly","args":"alpha beta"}`,
+		AppState: appState,
+		SetAppState: func(update func(map[string]any) map[string]any) {
+			appState = update(appState)
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke shell skill: %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("shell calls = %#v, want inline and fenced execution", calls)
+	}
+	for _, call := range calls {
+		if call.Shell != tools.FrontmatterShellPowershell {
+			t.Fatalf("shell call = %#v, want powershell frontmatter selection", call)
+		}
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &parsed); err != nil {
+		t.Fatalf("shell skill output JSON: %v\n%s", err, result.Output)
+	}
+	content := ""
+	if len(result.NewMessages) > 0 {
+		content = result.NewMessages[0].Content
+	}
+	if !strings.Contains(content, "[powershell] echo inline") || !strings.Contains(content, "[powershell] echo block") {
+		t.Fatalf("content = %q, want shell execution output replacements", content)
+	}
+	if hooks, ok := parsed["hooks"].(map[string]any); !ok || hooks["raw"] == "" {
+		t.Fatalf("parsed hooks = %#v, want hooks metadata surfaced in output", parsed["hooks"])
+	}
+	invoked, _ := appState["invokedSkills"].([]any)
+	if len(invoked) != 1 {
+		t.Fatalf("invoked skills = %#v, want one recorded skill", invoked)
+	}
+	record := invoked[0].(map[string]any)
+	if record["hooks"] == nil {
+		t.Fatalf("invoked skill record = %#v, want hooks metadata captured in context", record)
 	}
 }
 
@@ -283,6 +842,143 @@ func TestSkillToolKeepsDirectoryNameWhenFrontmatterHasDisplayName(t *testing.T) 
 	}
 	if parsed["commandName"] != "verify" {
 		t.Fatalf("commandName = %q, want directory skill name", parsed["commandName"])
+	}
+}
+
+func TestParseSkillFileSupportsYAMLishFrontmatterAndBraceExpansion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "skills", "verify", "SKILL.md")
+	command := tools.ParseSkillFile("verify", path, `---
+name: Verification Display
+description: Run verification.
+when_to_use: Use this when you want verification.
+version: 1.2.3
+user-invocable: true
+allowed-tools:
+  - Read
+  - Grep
+argument-hint: <target> <pattern>
+arguments:
+  - target
+  - pattern
+model: inherit
+disable-model-invocation: false
+context: fork
+agent: verifier
+effort: high
+paths:
+  - src/**/*.{ts,tsx}
+  - docs/**
+shell: powershell
+---
+Body text.
+`)
+
+	if command.Name != "verify" {
+		t.Fatalf("name = %q, want directory-derived command name", command.Name)
+	}
+	if command.DisplayName != "Verification Display" {
+		t.Fatalf("displayName = %q, want frontmatter display name", command.DisplayName)
+	}
+	if command.Description != "Run verification." {
+		t.Fatalf("description = %q, want parsed frontmatter description", command.Description)
+	}
+	if command.WhenToUse != "Use this when you want verification." {
+		t.Fatalf("whenToUse = %q, want parsed frontmatter when_to_use", command.WhenToUse)
+	}
+	if command.Version != "1.2.3" {
+		t.Fatalf("version = %q, want parsed frontmatter version", command.Version)
+	}
+	if !command.UserInvocable {
+		t.Fatal("userInvocable = false, want true")
+	}
+	if !reflect.DeepEqual(command.AllowedTools, []string{"Read", "Grep"}) {
+		t.Fatalf("allowedTools = %#v, want parsed list", command.AllowedTools)
+	}
+	if command.ArgumentHint != "<target> <pattern>" {
+		t.Fatalf("argumentHint = %q, want parsed argument hint", command.ArgumentHint)
+	}
+	if !reflect.DeepEqual(command.ArgumentNames, []string{"target", "pattern"}) {
+		t.Fatalf("argumentNames = %#v, want parsed argument names", command.ArgumentNames)
+	}
+	if command.Model != "" {
+		t.Fatalf("model = %q, want inherit to clear model override", command.Model)
+	}
+	if command.DisableModelInvocation {
+		t.Fatal("disableModelInvocation = true, want false")
+	}
+	if command.Context != "fork" {
+		t.Fatalf("context = %q, want fork", command.Context)
+	}
+	if command.Agent != "verifier" {
+		t.Fatalf("agent = %q, want verifier", command.Agent)
+	}
+	if command.Effort != "high" {
+		t.Fatalf("effort = %q, want parsed effort", command.Effort)
+	}
+	if !reflect.DeepEqual(command.Paths, []string{"src/**/*.ts", "src/**/*.tsx", "docs/**"}) {
+		t.Fatalf("paths = %#v, want brace-expanded glob list", command.Paths)
+	}
+	if command.Shell != "powershell" {
+		t.Fatalf("shell = %q, want parsed shell", command.Shell)
+	}
+	if command.Content != "Body text.\n" {
+		t.Fatalf("content = %q, want body without frontmatter", command.Content)
+	}
+}
+
+func TestSubstituteSkillArgumentsUsesShellAwareParsingAndBoundaryMatching(t *testing.T) {
+	got := tools.SubstituteSkillArguments(
+		`first=$0 second=$1 named=$target keep=$targetX args=$ARGUMENTS indexed=$ARGUMENTS[0] nochange=$ARGUMENTS[99]`,
+		`alpha "beta gamma"`,
+		true,
+		[]string{"target"},
+	)
+
+	if !strings.Contains(got, "first=alpha") {
+		t.Fatalf("output = %q, want $0 substitution", got)
+	}
+	if !strings.Contains(got, "second=beta gamma") {
+		t.Fatalf("output = %q, want quoted args to stay intact as one token", got)
+	}
+	if !strings.Contains(got, "named=alpha") {
+		t.Fatalf("output = %q, want named substitution", got)
+	}
+	if !strings.Contains(got, "keep=$targetX") {
+		t.Fatalf("output = %q, want boundary-safe named substitution", got)
+	}
+	if !strings.Contains(got, `args=alpha "beta gamma"`) {
+		t.Fatalf("output = %q, want $ARGUMENTS to keep raw shell text", got)
+	}
+	if !strings.Contains(got, "indexed=alpha") {
+		t.Fatalf("output = %q, want indexed substitution", got)
+	}
+	if !strings.Contains(got, "nochange=") {
+		t.Fatalf("output = %q, want out-of-range indexes to become empty", got)
+	}
+	if strings.Contains(got, "ARGUMENTS: alpha \"beta gamma\"") {
+		t.Fatalf("output = %q, did not want append when placeholders were present", got)
+	}
+
+	appended := tools.SubstituteSkillArguments("No placeholders here.", "alpha beta", true, nil)
+	if !strings.Contains(appended, "ARGUMENTS: alpha beta") {
+		t.Fatalf("output = %q, want append when no placeholders are present", appended)
+	}
+
+	empty := tools.SubstituteSkillArguments("No placeholders here.", "", true, nil)
+	if empty != "No placeholders here." {
+		t.Fatalf("output = %q, want empty args to leave content unchanged", empty)
+	}
+
+	exactNamed := tools.SubstituteSkillArguments("$target", "alpha", true, []string{"target"})
+	if exactNamed != "alpha" {
+		t.Fatalf("output = %q, want exact named argument at end to be replaced", exactNamed)
+	}
+}
+
+func TestParseSkillFileDefaultsUserInvocableToTrue(t *testing.T) {
+	command := tools.ParseSkillFile("verify", filepath.Join(t.TempDir(), "SKILL.md"), "Use this skill.")
+	if !command.UserInvocable {
+		t.Fatal("userInvocable = false, want Claude default true")
 	}
 }
 
@@ -353,7 +1049,10 @@ func TestSkillToolExpandsArgumentsSessionAndSkillDirPlaceholders(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.Output), &parsed); err != nil {
 		t.Fatalf("skill output JSON: %v\n%s", err, result.Output)
 	}
-	content, _ := parsed["content"].(string)
+	content := ""
+	if len(result.NewMessages) > 0 {
+		content = result.NewMessages[0].Content
+	}
 	if !strings.Contains(content, "Base directory for this skill: "+skillDir) {
 		t.Fatalf("content = %q, want skill base directory prefix", content)
 	}
@@ -397,6 +1096,19 @@ func TestSkillInvokedSkillsAreAgentScoped(t *testing.T) {
 	if len(agentB) != 1 || agentB[0].SkillName != "beta" {
 		t.Fatalf("agent-b skills = %#v, want beta preserved", agentB)
 	}
+}
+
+func containsAllStrings(values []string, expected []string) bool {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		seen[value] = struct{}{}
+	}
+	for _, value := range expected {
+		if _, ok := seen[value]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func TestSkillToolUsesForkExecutorHookFromAppState(t *testing.T) {

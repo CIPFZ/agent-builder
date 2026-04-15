@@ -141,6 +141,33 @@ func (m *Manager) AppendMessageWithBlocks(sessionID, role, content, providerMess
 	return msg, nil
 }
 
+func (m *Manager) AppendModelMessage(sessionID string, msg Message) (Message, error) {
+	session, ok := m.store.GetSessionByID(sessionID)
+	if !ok {
+		return Message{}, fmt.Errorf("session %q not found", sessionID)
+	}
+	if msg.ID == "" {
+		msg.ID = fmt.Sprintf("msg-%06d", m.nextMsgID.Add(1))
+	}
+	msg.SessionID = session.ID
+	if msg.CreatedAt.IsZero() {
+		msg.CreatedAt = time.Now().UTC()
+	}
+	msg.Blocks = append([]model.MessageBlock(nil), msg.Blocks...)
+	if err := m.store.AppendMessage(msg); err != nil {
+		return Message{}, err
+	}
+	session.Metadata.LastActivityAt = msg.CreatedAt
+	switch msg.Role {
+	case "user":
+		session.Metadata.LastUserMessageID = msg.ID
+	case "assistant":
+		session.Metadata.LastAssistantMessageID = msg.ID
+	}
+	m.store.SaveSession(session)
+	return msg, nil
+}
+
 func (m *Manager) Messages(sessionID string) ([]Message, bool) {
 	return m.store.Messages(sessionID)
 }

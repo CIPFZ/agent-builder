@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
+	"myclaw/internal/model"
 	"myclaw/internal/permissions"
 	"myclaw/internal/session"
 )
@@ -50,8 +52,12 @@ type StructuredPolicyAwareTool interface {
 }
 
 type ToolResult struct {
-	Output          string
-	ContextModifier func(ToolUseContext) ToolUseContext
+	Output            string
+	StructuredContent any
+	Meta              map[string]any
+	IsError           bool
+	NewMessages       []model.Message
+	ContextModifier   func(ToolUseContext) ToolUseContext
 }
 
 type ContextualTool interface {
@@ -69,14 +75,15 @@ type ResourceLimits struct {
 }
 
 type MCPConnection struct {
-	Name    string
-	Type    string
-	BaseURL string
-	URL     string
-	Command string
-	Args    []string
-	Env     map[string]string
-	Headers map[string]string
+	Name          string
+	Type          string
+	BaseURL       string
+	URL           string
+	Command       string
+	Args          []string
+	Env           map[string]string
+	Headers       map[string]string
+	HeadersHelper string
 }
 
 type MCPResource struct {
@@ -86,6 +93,36 @@ type MCPResource struct {
 }
 
 type MCPPromptCaller func(ctx context.Context, server, name string, arguments map[string]any) (MCPPromptResult, error)
+type MCPResourceLister func(ctx context.Context, server string) ([]MCPResource, error)
+
+type MCPToolCallRequest struct {
+	Server            string
+	Name              string
+	Input             map[string]any
+	ToolUseID         string
+	Meta              map[string]any
+	Timeout           time.Duration
+	ReportProgress    ProgressFunc
+	HandleElicitation ElicitationFunc
+}
+
+type MCPContextualToolCaller func(context.Context, MCPToolCallRequest) (MCPToolResult, error)
+
+type MCPAuthStartResult struct {
+	Status  string
+	AuthURL string
+	Message string
+}
+
+type MCPAuthenticator func(context.Context, string, MCPConnection) (MCPAuthStartResult, error)
+
+type MCPReconnectResult struct {
+	Tools     MCPToolsListResult
+	Prompts   MCPPromptsListResult
+	Resources []MCPResource
+}
+
+type MCPReconnectFunc func(context.Context, string) (MCPReconnectResult, error)
 
 type ToolDecision struct {
 	Source             string
@@ -202,6 +239,11 @@ type ToolUseContext struct {
 	GlobLimits              ResourceLimits
 	MCPClients              []MCPConnection
 	MCPResources            map[string][]MCPResource
+	MCPResourceReader       MCPResourceReader
+	MCPResourceLister       MCPResourceLister
+	MCPContextualToolCaller MCPContextualToolCaller
+	MCPAuthenticator        MCPAuthenticator
+	MCPReconnect            MCPReconnectFunc
 	RequestPrompt           RequestPromptFunc
 	ReportProgress          ProgressFunc
 	AddNotification         AddNotificationFunc
@@ -336,6 +378,29 @@ func (r *Registry) Register(tool Tool) {
 	for _, alias := range def.Aliases {
 		r.aliases[alias] = def.Name
 	}
+}
+
+func (r *Registry) Unregister(name string) {
+	name = strings.TrimSpace(name)
+	if canonical, ok := r.aliases[name]; ok {
+		name = canonical
+	}
+	if _, exists := r.tools[name]; !exists {
+		return
+	}
+	delete(r.tools, name)
+	for alias, canonical := range r.aliases {
+		if alias == name || canonical == name {
+			delete(r.aliases, alias)
+		}
+	}
+	filtered := r.order[:0]
+	for _, existing := range r.order {
+		if existing != name {
+			filtered = append(filtered, existing)
+		}
+	}
+	r.order = filtered
 }
 
 func (r *Registry) Definitions() []Definition {

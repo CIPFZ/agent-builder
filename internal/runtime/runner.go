@@ -80,11 +80,17 @@ type Options struct {
 	GlobLimits                tools.ResourceLimits
 	MCPClients                []tools.MCPConnection
 	MCPResources              map[string][]tools.MCPResource
+	MCPResourceReader         tools.MCPResourceReader
+	MCPResourceLister         tools.MCPResourceLister
 	MCPTools                  map[string]tools.MCPToolsListResult
 	MCPToolCaller             tools.MCPToolCaller
+	MCPContextualToolCaller   tools.MCPContextualToolCaller
 	MCPPrompts                map[string]tools.MCPPromptsListResult
 	MCPPromptCaller           tools.MCPPromptCaller
+	MCPAuthenticator          tools.MCPAuthenticator
+	MCPReconnect              tools.MCPReconnectFunc
 	SkillRoots                []string
+	SkillDiscovery            tools.SkillDiscoveryOptions
 	SkillForkExecutor         tools.SkillForkExecutor
 	RequestPrompt             tools.RequestPromptFunc
 	ReportToolProgress        tools.ProgressFunc
@@ -190,8 +196,30 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 			if options.MCPToolCaller == nil {
 				options.MCPToolCaller = discovered.Caller
 			}
+			if options.MCPContextualToolCaller == nil {
+				options.MCPContextualToolCaller = discovered.ContextualCaller
+			}
 			if options.MCPPromptCaller == nil {
 				options.MCPPromptCaller = discovered.PromptCaller
+			}
+			if len(discovered.Resources) > 0 {
+				if options.MCPResources == nil {
+					options.MCPResources = make(map[string][]tools.MCPResource)
+				}
+				for server, resources := range discovered.Resources {
+					if _, exists := options.MCPResources[server]; !exists {
+						options.MCPResources[server] = append([]tools.MCPResource(nil), resources...)
+					}
+				}
+			}
+			if options.MCPResourceReader == nil {
+				options.MCPResourceReader = discovered.ResourceReader
+			}
+			if options.MCPResourceLister == nil {
+				options.MCPResourceLister = discovered.ResourceLister
+			}
+			if options.MCPReconnect == nil {
+				options.MCPReconnect = discovered.Reconnect
 			}
 		}
 	}
@@ -203,6 +231,15 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 	}
 	if runner.options.SkillForkExecutor == nil {
 		runner.options.SkillForkExecutor = runner.defaultSkillForkExecutor
+	}
+	if len(runner.options.SkillRoots) > 0 {
+		tools.AddSkillDirectories(runner.options.SkillRoots)
+	}
+	if runner.options.SkillDiscovery.CWD != "" ||
+		runner.options.SkillDiscovery.ConfigHome != "" ||
+		runner.options.SkillDiscovery.ManagedRoot != "" ||
+		len(runner.options.SkillDiscovery.AdditionalDirs) > 0 {
+		tools.LoadClaudeSkillDirectories(runner.options.SkillDiscovery)
 	}
 	runner.engine = queryengine.New(queryengine.Config{
 		Sessions:                  sessions,
@@ -244,10 +281,15 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		GlobLimits:                options.GlobLimits,
 		MCPClients:                options.MCPClients,
 		MCPResources:              options.MCPResources,
+		MCPResourceReader:         options.MCPResourceReader,
+		MCPResourceLister:         options.MCPResourceLister,
 		MCPTools:                  runner.options.MCPTools,
 		MCPToolCaller:             runner.options.MCPToolCaller,
+		MCPContextualToolCaller:   runner.options.MCPContextualToolCaller,
 		MCPPrompts:                runner.options.MCPPrompts,
 		MCPPromptCaller:           runner.options.MCPPromptCaller,
+		MCPAuthenticator:          runner.options.MCPAuthenticator,
+		MCPReconnect:              runner.options.MCPReconnect,
 		SkillRoots:                runner.options.SkillRoots,
 		SkillForkExecutor:         runner.options.SkillForkExecutor,
 		RequestPrompt:             options.RequestPrompt,
@@ -265,13 +307,30 @@ func (r *Runner) defaultSkillForkExecutor(ctx context.Context, request tools.Ski
 		label = request.Command.Name
 	}
 	promptText := strings.TrimSpace(request.Command.Content)
+	var frontmatter []string
+	if len(request.Command.AllowedTools) > 0 {
+		frontmatter = append(frontmatter, "Allowed tools: "+strings.Join(request.Command.AllowedTools, ", "))
+	}
+	if request.Command.Model != "" {
+		frontmatter = append(frontmatter, "Model: "+request.Command.Model)
+	}
+	if request.Command.Effort != "" {
+		frontmatter = append(frontmatter, "Effort: "+request.Command.Effort)
+	}
+	if len(frontmatter) > 0 {
+		promptText = strings.Join(frontmatter, "\n") + "\n\n" + promptText
+	}
 	if request.Args != "" {
 		promptText += "\n\nArguments: " + request.Args
 	}
 	if promptText == "" {
 		promptText = request.Command.Name
 	}
-	run, err := r.SpawnSubagent(ctx, request.ToolContext.Session, label, promptText)
+	run, err := r.SpawnSubagentWithOptions(ctx, request.ToolContext.Session, label, promptText, SubagentOptions{
+		AllowedTools: request.Command.AllowedTools,
+		Model:        request.Command.Model,
+		Effort:       request.Command.Effort,
+	})
 	if err != nil {
 		return tools.ToolResult{}, err
 	}
@@ -306,9 +365,32 @@ func (r *Runner) HandleUserMessage(ctx context.Context, sess session.Session, us
 }
 
 func (r *Runner) SpawnSubagent(ctx context.Context, parent session.Session, label, promptText string) (*agent.Run, error) {
+	return r.SpawnSubagentWithOptions(ctx, parent, label, promptText, SubagentOptions{})
+}
+
+type SubagentOptions struct {
+	AllowedTools []string
+	Model        string
+	Effort       string
+}
+
+func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Session, label, promptText string, options SubagentOptions) (*agent.Run, error) {
 	key := fmt.Sprintf("agent:%s:child:%d", parent.AgentID, len(r.options.AgentManager.List())+1)
 	child := r.sessions.CreateChild(parent.AgentID, key)
-	r.engine.SetSessionPermissionPolicy(child.ID, r.PermissionPolicyForSession(parent.ID).DeriveForSubagent())
+	childPolicy := r.PermissionPolicyForSession(parent.ID).DeriveForSubagent()
+	childPolicy.Rules = append(skillAllowedToolRules(options.AllowedTools), childPolicy.Rules...)
+	r.engine.SetSessionPermissionPolicy(child.ID, childPolicy)
+	if options.Model != "" || options.Effort != "" {
+		_ = r.sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+			if strings.TrimSpace(options.Model) != "" {
+				if strings.TrimSpace(metadata.InitialMainLoopModel) == "" {
+					metadata.InitialMainLoopModel = r.BaseMainLoopModelForSession(parent.ID)
+				}
+				metadata.MainLoopModelOverride = strings.TrimSpace(options.Model)
+			}
+			metadata.MainLoopEffortOverride = strings.TrimSpace(options.Effort)
+		})
+	}
 
 	run, err := r.options.AgentManager.Spawn(ctx, agent.SpawnRequest{
 		ParentSessionID: parent.ID,
@@ -317,6 +399,9 @@ func (r *Runner) SpawnSubagent(ctx context.Context, parent session.Session, labe
 		ChildSessionKey: child.Key,
 		Label:           label,
 		Prompt:          promptText,
+		AllowedTools:    append([]string(nil), options.AllowedTools...),
+		Model:           strings.TrimSpace(options.Model),
+		Effort:          strings.TrimSpace(options.Effort),
 		Run: func(ctx context.Context, runCtx agent.RunContext) (string, error) {
 			msg, err := r.sessions.AppendMessage(runCtx.ChildSessionID, "user", promptText)
 			if err != nil {
@@ -341,6 +426,28 @@ func (r *Runner) SpawnSubagent(ctx context.Context, parent session.Session, labe
 		return nil, err
 	}
 	return run, nil
+}
+
+func skillAllowedToolRules(toolNames []string) []permissions.Rule {
+	rules := make([]permissions.Rule, 0, len(toolNames))
+	seen := make(map[string]struct{}, len(toolNames))
+	for _, toolName := range toolNames {
+		toolName = strings.TrimSpace(toolName)
+		if toolName == "" {
+			continue
+		}
+		key := strings.ToLower(toolName)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		rules = append(rules, permissions.Rule{
+			ToolName: toolName,
+			Source:   string(permissions.RuleSourceCommand),
+			Action:   permissions.ActionAllow,
+		})
+	}
+	return rules
 }
 
 func (r *Runner) ResumeSubagent(ctx context.Context, runID, label, promptText string) (*agent.Run, error) {

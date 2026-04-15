@@ -162,6 +162,37 @@ func TestComposeSystemContentIncludesApprovalAndToolResultGuidance(t *testing.T)
 	}
 }
 
+func TestComposeSystemContentIncludesSkillToolGuidanceWhenSkillToolAvailable(t *testing.T) {
+	ctx := Context{
+		SystemPrompt: "base",
+		ToolLines: []string{
+			"Skill: Loads and invokes a local skill by name.",
+			"Read: Read files",
+		},
+	}
+	content := ComposeSystemContent(ctx)
+	for _, want := range []string{
+		"# Skill Usage",
+		"Use the Skill tool when a named skill is relevant to the user's task.",
+		"Skill content is injected as additional context after the tool result.",
+		"Do not invoke skills just to inspect their full text; call Skill only when you intend to use it.",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("system content missing %q:\n%s", want, content)
+		}
+	}
+}
+
+func TestComposeSystemContentOmitsSkillGuidanceWithoutSkillTool(t *testing.T) {
+	content := ComposeSystemContent(Context{
+		SystemPrompt: "base",
+		ToolLines:    []string{"Read: Read files"},
+	})
+	if strings.Contains(content, "# Skill Usage") {
+		t.Fatalf("system content should omit skill guidance without Skill tool:\n%s", content)
+	}
+}
+
 func TestBuildIncludesSessionMemories(t *testing.T) {
 	sess := session.Session{
 		ID:      "main-000001",

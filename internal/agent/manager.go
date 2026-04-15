@@ -30,6 +30,9 @@ type SpawnRequest struct {
 	ChildSessionKey string
 	Label           string
 	Prompt          string
+	AllowedTools    []string
+	Model           string
+	Effort          string
 	Run             func(context.Context, RunContext) (string, error)
 }
 
@@ -41,6 +44,9 @@ type Run struct {
 	ChildSessionKey string
 	Label          string
 	Prompt         string
+	AllowedTools   []string
+	Model          string
+	Effort         string
 	Status         Status
 	Output         string
 	Err            error
@@ -76,6 +82,9 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (*Run, error) {
 		ChildSessionKey: req.ChildSessionKey,
 		Label:           req.Label,
 		Prompt:          req.Prompt,
+		AllowedTools:    append([]string(nil), req.AllowedTools...),
+		Model:           req.Model,
+		Effort:          req.Effort,
 		Status:          StatusRunning,
 		cancel:          cancel,
 		done:            make(chan struct{}),
