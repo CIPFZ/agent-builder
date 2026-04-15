@@ -238,12 +238,15 @@ func TestBuildSystemPromptIncludesToolProtocolInstructions(t *testing.T) {
 		"Available Tools:",
 		"system.run: Run a shell command on the host system and return stdout and stderr.",
 		"text.upper: Convert the given input text to uppercase.",
-		"<tool_call>",
-		"name: system.run",
-		"input: pwd",
+		"# Tool And Approval Handling",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("system content missing %q:\n%s", want, content)
+		}
+	}
+	for _, forbidden := range []string{"<tool_call>", "</tool_call>", "Tool Call Protocol:"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("system content contains legacy XML tool protocol %q:\n%s", forbidden, content)
 		}
 	}
 }
@@ -301,11 +304,11 @@ func TestBuildSupportsCustomAppendAndOverrideSystemPrompt(t *testing.T) {
 	}
 
 	custom := Build(BuildInput{
-		Session:            sess,
-		UserMessage:        session.Message{ID: "msg-1", Role: "user", Content: "hello"},
+		Session:             sess,
+		UserMessage:         session.Message{ID: "msg-1", Role: "user", Content: "hello"},
 		DefaultSystemPrompt: []string{"default prompt"},
-		CustomSystemPrompt: "custom prompt",
-		AppendSystemPrompt: "append prompt",
+		CustomSystemPrompt:  "custom prompt",
+		AppendSystemPrompt:  "append prompt",
 	})
 	if !strings.Contains(custom.SystemPrompt, "custom prompt") || strings.Contains(custom.SystemPrompt, "default prompt") {
 		t.Fatalf("custom system prompt = %q, want custom to replace default", custom.SystemPrompt)
@@ -454,7 +457,7 @@ func TestComposeSystemContentIncludesWorkspaceTranscriptAndMemories(t *testing.T
 	}
 
 	ctx := Build(BuildInput{
-		Session:     sess,
+		Session: sess,
 		History: []session.Message{
 			{ID: "msg-1", Role: "user", Content: "old question"},
 			{ID: "msg-2", Role: "assistant", Content: "old answer"},

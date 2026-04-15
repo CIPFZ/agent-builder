@@ -15,6 +15,7 @@ type Definition struct {
 	Name        string
 	Aliases     []string
 	Description string
+	InputSchema map[string]any
 	Source      string
 	SearchHint  string
 	Enabled     bool
@@ -71,6 +72,11 @@ type MCPConnection struct {
 	Name    string
 	Type    string
 	BaseURL string
+	URL     string
+	Command string
+	Args    []string
+	Env     map[string]string
+	Headers map[string]string
 }
 
 type MCPResource struct {
@@ -78,6 +84,8 @@ type MCPResource struct {
 	Name        string
 	Description string
 }
+
+type MCPPromptCaller func(ctx context.Context, server, name string, arguments map[string]any) (MCPPromptResult, error)
 
 type ToolDecision struct {
 	Source             string
@@ -106,6 +114,11 @@ type ToolProgress struct {
 
 type ProgressFunc func(ToolProgress)
 
+type Command struct {
+	Name        string
+	Description string
+}
+
 type AgentDefinitions struct {
 	ActiveAgents      []string
 	AllowedAgentTypes []string
@@ -126,6 +139,20 @@ type Notification struct {
 type AddNotificationFunc func(Notification)
 type RefreshToolsFunc func() []Definition
 
+type ElicitationRequest struct {
+	ServerName string
+	Params     map[string]any
+}
+
+type ElicitationResult struct {
+	Value     string
+	Cancelled bool
+	Data      map[string]any
+}
+
+type ElicitationFunc func(context.Context, ElicitationRequest) (ElicitationResult, error)
+type SetConversationIDFunc func(string)
+
 type CanUseToolRequest struct {
 	ToolName          string
 	Input             string
@@ -138,40 +165,51 @@ type CanUseToolRequest struct {
 type CanUseToolFunc func(context.Context, CanUseToolRequest) (permissions.Decision, error)
 
 type ToolUseContext struct {
-	AbortContext      context.Context
-	Session           session.Session
-	ToolName          string
-	ToolUseID         string
-	Input             string
-	InputObject       map[string]any
-	Policy            permissions.Policy
-	AvailableTools    []Definition
-	AgentID           string
-	AgentType         string
-	MainLoopModel     string
-	LLMProvider       string
-	Debug             bool
-	Verbose           bool
-	ThinkingConfig    map[string]any
-	AgentDefinitions  AgentDefinitions
-	MaxBudgetUSD      float64
-	IsNonInteractive  bool
-	RequireCanUseTool bool
-	QueryTracking     QueryTracking
-	Messages          []session.Message
-	AppState          map[string]any
-	SetAppState       func(func(map[string]any) map[string]any)
-	ToolDecisions     map[string]ToolDecision
-	FileReadingLimits ResourceLimits
-	GlobLimits        ResourceLimits
-	MCPClients        []MCPConnection
-	MCPResources      map[string][]MCPResource
-	RequestPrompt     RequestPromptFunc
-	ReportProgress    ProgressFunc
-	AddNotification   AddNotificationFunc
-	RefreshTools      RefreshToolsFunc
-	CanUseTool        CanUseToolFunc
-	ContextModifier   func(ToolUseContext) ToolUseContext
+	AbortContext            context.Context
+	Session                 session.Session
+	ToolName                string
+	ToolUseID               string
+	Input                   string
+	InputObject             map[string]any
+	Policy                  permissions.Policy
+	AvailableTools          []Definition
+	AgentID                 string
+	AgentType               string
+	MainLoopModel           string
+	LLMProvider             string
+	Commands                []Command
+	QuerySource             string
+	CustomSystemPrompt      string
+	AppendSystemPrompt      string
+	Debug                   bool
+	Verbose                 bool
+	ThinkingConfig          map[string]any
+	AgentDefinitions        AgentDefinitions
+	MaxBudgetUSD            float64
+	IsNonInteractive        bool
+	RequireCanUseTool       bool
+	QueryTracking           QueryTracking
+	ReadFileState           map[string]any
+	ContentReplacementState map[string]any
+	CriticalSystemReminder  string
+	PreserveToolUseResults  bool
+	RenderedSystemPrompt    string
+	Messages                []session.Message
+	AppState                map[string]any
+	SetAppState             func(func(map[string]any) map[string]any)
+	ToolDecisions           map[string]ToolDecision
+	FileReadingLimits       ResourceLimits
+	GlobLimits              ResourceLimits
+	MCPClients              []MCPConnection
+	MCPResources            map[string][]MCPResource
+	RequestPrompt           RequestPromptFunc
+	ReportProgress          ProgressFunc
+	AddNotification         AddNotificationFunc
+	RefreshTools            RefreshToolsFunc
+	HandleElicitation       ElicitationFunc
+	SetConversationID       SetConversationIDFunc
+	CanUseTool              CanUseToolFunc
+	ContextModifier         func(ToolUseContext) ToolUseContext
 }
 
 func (c ToolUseContext) Normalized() ToolUseContext {
@@ -190,9 +228,12 @@ func (c ToolUseContext) Normalized() ToolUseContext {
 		out.InputObject = cloneAnyMap(out.InputObject)
 	}
 	out.AvailableTools = append([]Definition(nil), out.AvailableTools...)
+	out.Commands = append([]Command(nil), out.Commands...)
 	out.ThinkingConfig = cloneAnyMap(out.ThinkingConfig)
 	out.AgentDefinitions.ActiveAgents = append([]string(nil), out.AgentDefinitions.ActiveAgents...)
 	out.AgentDefinitions.AllowedAgentTypes = append([]string(nil), out.AgentDefinitions.AllowedAgentTypes...)
+	out.ReadFileState = cloneAnyMap(out.ReadFileState)
+	out.ContentReplacementState = cloneAnyMap(out.ContentReplacementState)
 	out.Messages = append([]session.Message(nil), out.Messages...)
 	out.AppState = cloneAnyMap(out.AppState)
 	out.ToolDecisions = cloneToolDecisions(out.ToolDecisions)
@@ -216,6 +257,14 @@ func (c ToolUseContext) Normalized() ToolUseContext {
 		out.RefreshTools = func() []Definition {
 			return append([]Definition(nil), out.AvailableTools...)
 		}
+	}
+	if out.HandleElicitation == nil {
+		out.HandleElicitation = func(context.Context, ElicitationRequest) (ElicitationResult, error) {
+			return ElicitationResult{}, nil
+		}
+	}
+	if out.SetConversationID == nil {
+		out.SetConversationID = func(string) {}
 	}
 	if out.CanUseTool == nil {
 		out.CanUseTool = func(context.Context, CanUseToolRequest) (permissions.Decision, error) {
@@ -674,6 +723,7 @@ func normalizeDefinition(def Definition) Definition {
 	def.Description = strings.TrimSpace(def.Description)
 	def.Source = strings.TrimSpace(def.Source)
 	def.SearchHint = strings.TrimSpace(def.SearchHint)
+	def.InputSchema = cloneAnyMap(def.InputSchema)
 	if def.Source == "" {
 		def.Source = "builtin"
 	}
@@ -745,6 +795,32 @@ func cloneAnyMap(input map[string]any) map[string]any {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+func deepCloneAnyMap(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(input))
+	for key, value := range input {
+		cloned[key] = deepCloneAny(value)
+	}
+	return cloned
+}
+
+func deepCloneAny(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return deepCloneAnyMap(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = deepCloneAny(item)
+		}
+		return out
+	default:
+		return typed
+	}
 }
 
 func cloneToolDecisions(input map[string]ToolDecision) map[string]ToolDecision {

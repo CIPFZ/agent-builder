@@ -2,7 +2,9 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"myclaw/internal/agent"
@@ -55,6 +57,40 @@ type Options struct {
 	PermissionUpdatePersister queryengine.PermissionUpdatePersister
 	MainLoopModel             string
 	LLMProvider               string
+	Commands                  []tools.Command
+	QuerySource               string
+	CustomSystemPrompt        string
+	AppendSystemPrompt        string
+	ToolCustomSystemPrompt    string
+	ToolAppendSystemPrompt    string
+	Debug                     bool
+	Verbose                   bool
+	ThinkingConfig            map[string]any
+	AgentDefinitions          tools.AgentDefinitions
+	MaxBudgetUSD              float64
+	IsNonInteractiveSession   bool
+	RequireCanUseTool         bool
+	QueryTracking             tools.QueryTracking
+	ReadFileState             map[string]any
+	ContentReplacementState   map[string]any
+	CriticalSystemReminder    string
+	PreserveToolUseResults    bool
+	RenderedSystemPrompt      string
+	FileReadingLimits         tools.ResourceLimits
+	GlobLimits                tools.ResourceLimits
+	MCPClients                []tools.MCPConnection
+	MCPResources              map[string][]tools.MCPResource
+	MCPTools                  map[string]tools.MCPToolsListResult
+	MCPToolCaller             tools.MCPToolCaller
+	MCPPrompts                map[string]tools.MCPPromptsListResult
+	MCPPromptCaller           tools.MCPPromptCaller
+	SkillRoots                []string
+	SkillForkExecutor         tools.SkillForkExecutor
+	RequestPrompt             tools.RequestPromptFunc
+	ReportToolProgress        tools.ProgressFunc
+	AddNotification           tools.AddNotificationFunc
+	HandleElicitation         tools.ElicitationFunc
+	SetConversationID         tools.SetConversationIDFunc
 }
 
 type Runner struct {
@@ -84,9 +120,29 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		router := sandbox.NewRouter(nil, nil)
 		toolRegistry = tools.NewRegistry(
 			tools.NewTextUpperTool(),
+			systemtools.NewBashTool(router),
+			systemtools.NewPowerShellTool(router),
 			systemtools.NewRunTool(router),
+			tools.NewReadTool(),
+			tools.NewWriteTool(),
+			tools.NewEditTool(),
+			tools.NewMultiEditTool(),
+			tools.NewGlobTool(),
+			tools.NewGrepTool(),
+			tools.NewLSTool(),
+			tools.NewTodoWriteTool(),
+			tools.NewWebFetchTool(nil),
+			tools.NewWebSearchTool(),
+			tools.NewListMcpResourcesTool(),
+			tools.NewReadMcpResourceTool(),
+			tools.NewSkillTool(),
+			tools.NewNotebookEditTool(),
+			tools.NewEnterPlanModeTool(),
+			tools.NewExitPlanModeTool(),
 		)
+		toolRegistry.Register(tools.NewClaudeAgentTool(options.AgentManager, nil))
 		toolRegistry.Register(tools.NewAgentTaskTool(options.AgentManager, nil))
+		toolRegistry.Register(tools.NewClaudeToolSearchTool(toolRegistry))
 		toolRegistry.Register(tools.NewToolSearchTool(toolRegistry))
 	}
 	if options.MemoryService == nil {
@@ -108,30 +164,134 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 			SummaryPrefix:           "Summary:",
 		})
 	}
+	if len(options.MCPClients) > 0 {
+		discovered, err := tools.DiscoverMCPClientTools(context.Background(), options.MCPClients)
+		if err == nil {
+			if len(discovered.Tools) > 0 {
+				if options.MCPTools == nil {
+					options.MCPTools = make(map[string]tools.MCPToolsListResult)
+				}
+				for server, result := range discovered.Tools {
+					if _, exists := options.MCPTools[server]; !exists {
+						options.MCPTools[server] = result
+					}
+				}
+			}
+			if len(discovered.Prompts) > 0 {
+				if options.MCPPrompts == nil {
+					options.MCPPrompts = make(map[string]tools.MCPPromptsListResult)
+				}
+				for server, result := range discovered.Prompts {
+					if _, exists := options.MCPPrompts[server]; !exists {
+						options.MCPPrompts[server] = result
+					}
+				}
+			}
+			if options.MCPToolCaller == nil {
+				options.MCPToolCaller = discovered.Caller
+			}
+			if options.MCPPromptCaller == nil {
+				options.MCPPromptCaller = discovered.PromptCaller
+			}
+		}
+	}
 	rehydratePendingApprovals(sessions, options.ApprovalManager)
 
-	return &Runner{
+	runner := &Runner{
 		sessions: sessions,
 		options:  options,
-		engine: queryengine.New(queryengine.Config{
-			Sessions:                  sessions,
-			Client:                    client,
-			WorkspaceLoader:           workspaceLoader,
-			ToolRegistry:              toolRegistry,
-			AgentManager:              options.AgentManager,
-			PermissionPolicy:          options.PermissionPolicy,
-			Compactor:                 options.Compactor,
-			MemoryService:             options.MemoryService,
-			ApprovalManager:           options.ApprovalManager,
-			PermissionHook:            options.PermissionHook,
-			PreToolUseHook:            options.PreToolUseHook,
-			PostToolUseHook:           options.PostToolUseHook,
-			PostToolUseFailureHook:    options.PostToolUseFailureHook,
-			PermissionUpdatePersister: options.PermissionUpdatePersister,
-			MainLoopModel:             options.MainLoopModel,
-			LLMProvider:               options.LLMProvider,
-		}),
 	}
+	if runner.options.SkillForkExecutor == nil {
+		runner.options.SkillForkExecutor = runner.defaultSkillForkExecutor
+	}
+	runner.engine = queryengine.New(queryengine.Config{
+		Sessions:                  sessions,
+		Client:                    client,
+		WorkspaceLoader:           workspaceLoader,
+		ToolRegistry:              toolRegistry,
+		AgentManager:              options.AgentManager,
+		PermissionPolicy:          options.PermissionPolicy,
+		Compactor:                 options.Compactor,
+		MemoryService:             options.MemoryService,
+		ApprovalManager:           options.ApprovalManager,
+		PermissionHook:            options.PermissionHook,
+		PreToolUseHook:            options.PreToolUseHook,
+		PostToolUseHook:           options.PostToolUseHook,
+		PostToolUseFailureHook:    options.PostToolUseFailureHook,
+		PermissionUpdatePersister: options.PermissionUpdatePersister,
+		MainLoopModel:             options.MainLoopModel,
+		LLMProvider:               options.LLMProvider,
+		Commands:                  options.Commands,
+		QuerySource:               options.QuerySource,
+		CustomSystemPrompt:        options.CustomSystemPrompt,
+		AppendSystemPrompt:        options.AppendSystemPrompt,
+		ToolCustomSystemPrompt:    options.ToolCustomSystemPrompt,
+		ToolAppendSystemPrompt:    options.ToolAppendSystemPrompt,
+		Debug:                     options.Debug,
+		Verbose:                   options.Verbose,
+		ThinkingConfig:            options.ThinkingConfig,
+		AgentDefinitions:          options.AgentDefinitions,
+		MaxBudgetUSD:              options.MaxBudgetUSD,
+		IsNonInteractiveSession:   options.IsNonInteractiveSession,
+		RequireCanUseTool:         options.RequireCanUseTool,
+		QueryTracking:             options.QueryTracking,
+		ReadFileState:             options.ReadFileState,
+		ContentReplacementState:   options.ContentReplacementState,
+		CriticalSystemReminder:    options.CriticalSystemReminder,
+		PreserveToolUseResults:    options.PreserveToolUseResults,
+		RenderedSystemPrompt:      options.RenderedSystemPrompt,
+		FileReadingLimits:         options.FileReadingLimits,
+		GlobLimits:                options.GlobLimits,
+		MCPClients:                options.MCPClients,
+		MCPResources:              options.MCPResources,
+		MCPTools:                  runner.options.MCPTools,
+		MCPToolCaller:             runner.options.MCPToolCaller,
+		MCPPrompts:                runner.options.MCPPrompts,
+		MCPPromptCaller:           runner.options.MCPPromptCaller,
+		SkillRoots:                runner.options.SkillRoots,
+		SkillForkExecutor:         runner.options.SkillForkExecutor,
+		RequestPrompt:             options.RequestPrompt,
+		ReportToolProgress:        options.ReportToolProgress,
+		AddNotification:           options.AddNotification,
+		HandleElicitation:         options.HandleElicitation,
+		SetConversationID:         options.SetConversationID,
+	})
+	return runner
+}
+
+func (r *Runner) defaultSkillForkExecutor(ctx context.Context, request tools.SkillForkRequest) (tools.ToolResult, error) {
+	label := request.Command.Agent
+	if label == "" {
+		label = request.Command.Name
+	}
+	promptText := strings.TrimSpace(request.Command.Content)
+	if request.Args != "" {
+		promptText += "\n\nArguments: " + request.Args
+	}
+	if promptText == "" {
+		promptText = request.Command.Name
+	}
+	run, err := r.SpawnSubagent(ctx, request.ToolContext.Session, label, promptText)
+	if err != nil {
+		return tools.ToolResult{}, err
+	}
+	completed, err := r.options.AgentManager.Wait(ctx, run.ID, 0)
+	if err != nil {
+		return tools.ToolResult{}, err
+	}
+	output := map[string]any{
+		"success":   true,
+		"status":    "forked",
+		"agent":     label,
+		"runId":     completed.ID,
+		"result":    completed.Output,
+		"sessionId": completed.ChildSessionID,
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		return tools.ToolResult{}, err
+	}
+	return tools.ToolResult{Output: string(encoded)}, nil
 }
 
 func (r *Runner) HandleUserMessage(ctx context.Context, sess session.Session, userMessage session.Message, sink EventSink) error {

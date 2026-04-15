@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -171,6 +172,10 @@ type Config struct {
 	OverrideSystemPrompt       string
 	MainLoopModel              string
 	LLMProvider                string
+	Commands                   []tools.Command
+	QuerySource                string
+	ToolCustomSystemPrompt     string
+	ToolAppendSystemPrompt     string
 	Debug                      bool
 	Verbose                    bool
 	ThinkingConfig             map[string]any
@@ -179,6 +184,11 @@ type Config struct {
 	IsNonInteractiveSession    bool
 	RequireCanUseTool          bool
 	QueryTracking              tools.QueryTracking
+	ReadFileState              map[string]any
+	ContentReplacementState    map[string]any
+	CriticalSystemReminder     string
+	PreserveToolUseResults     bool
+	RenderedSystemPrompt       string
 	SystemPromptInjection      string
 	DisableClaudeMd            bool
 	DisableGitStatus           bool
@@ -203,9 +213,17 @@ type Config struct {
 	GlobLimits                 tools.ResourceLimits
 	MCPClients                 []tools.MCPConnection
 	MCPResources               map[string][]tools.MCPResource
+	MCPTools                   map[string]tools.MCPToolsListResult
+	MCPToolCaller              tools.MCPToolCaller
+	MCPPrompts                 map[string]tools.MCPPromptsListResult
+	MCPPromptCaller            tools.MCPPromptCaller
+	SkillRoots                 []string
+	SkillForkExecutor          tools.SkillForkExecutor
 	RequestPrompt              tools.RequestPromptFunc
 	ReportToolProgress         tools.ProgressFunc
 	AddNotification            tools.AddNotificationFunc
+	HandleElicitation          tools.ElicitationFunc
+	SetConversationID          tools.SetConversationIDFunc
 }
 
 type ProcessResult struct {
@@ -362,9 +380,15 @@ type QueryEngine struct {
 	globLimits                 tools.ResourceLimits
 	mcpClients                 []tools.MCPConnection
 	mcpResources               map[string][]tools.MCPResource
+	mcpPrompts                 map[string]tools.MCPPromptsListResult
+	mcpPromptCaller            tools.MCPPromptCaller
+	skillRoots                 []string
+	skillForkExecutor          tools.SkillForkExecutor
 	requestPrompt              tools.RequestPromptFunc
 	reportToolProgress         tools.ProgressFunc
 	addNotification            tools.AddNotificationFunc
+	handleElicitation          tools.ElicitationFunc
+	setConversationID          tools.SetConversationIDFunc
 	stateMu                    sync.RWMutex
 	state                      State
 	cancelMu                   sync.Mutex
@@ -384,6 +408,10 @@ type QueryEngine struct {
 	overrideSystemPrompt       string
 	mainLoopModel              string
 	llmProvider                string
+	commands                   []tools.Command
+	querySource                string
+	toolCustomSystemPrompt     string
+	toolAppendSystemPrompt     string
 	debug                      bool
 	verbose                    bool
 	thinkingConfig             map[string]any
@@ -392,6 +420,11 @@ type QueryEngine struct {
 	isNonInteractiveSession    bool
 	requireCanUseTool          bool
 	queryTracking              tools.QueryTracking
+	readFileState              map[string]any
+	contentReplacementState    map[string]any
+	criticalSystemReminder     string
+	preserveToolUseResults     bool
+	renderedSystemPrompt       string
 	systemPromptInjection      string
 	disableClaudeMd            bool
 	disableGitStatus           bool
@@ -424,9 +457,29 @@ func New(cfg Config) *QueryEngine {
 		}
 		toolRegistry = tools.NewRegistry(
 			tools.NewTextUpperTool(),
+			systemtools.NewBashTool(router),
+			systemtools.NewPowerShellTool(router),
 			systemtools.NewRunTool(router),
+			tools.NewReadTool(),
+			tools.NewWriteTool(),
+			tools.NewEditTool(),
+			tools.NewMultiEditTool(),
+			tools.NewGlobTool(),
+			tools.NewGrepTool(),
+			tools.NewLSTool(),
+			tools.NewTodoWriteTool(),
+			tools.NewWebFetchTool(nil),
+			tools.NewWebSearchTool(),
+			tools.NewListMcpResourcesTool(),
+			tools.NewReadMcpResourceTool(),
+			tools.NewSkillTool(),
+			tools.NewNotebookEditTool(),
+			tools.NewEnterPlanModeTool(),
+			tools.NewExitPlanModeTool(),
 		)
+		toolRegistry.Register(tools.NewClaudeAgentTool(agentManager, nil))
 		toolRegistry.Register(tools.NewAgentTaskTool(agentManager, nil))
+		toolRegistry.Register(tools.NewClaudeToolSearchTool(toolRegistry))
 		toolRegistry.Register(tools.NewToolSearchTool(toolRegistry))
 	}
 	memSvc := cfg.MemoryService
@@ -453,8 +506,40 @@ func New(cfg Config) *QueryEngine {
 	if systemContextProvider == nil {
 		systemContextProvider = defaultSystemContextProvider(cfg.SystemPromptInjection, cfg.DisableGitStatus)
 	}
+	if len(cfg.MCPClients) > 0 {
+		discovered, err := tools.DiscoverMCPClientTools(context.Background(), cfg.MCPClients)
+		if err == nil {
+			if len(discovered.Tools) > 0 {
+				if cfg.MCPTools == nil {
+					cfg.MCPTools = make(map[string]tools.MCPToolsListResult)
+				}
+				for server, result := range discovered.Tools {
+					if _, exists := cfg.MCPTools[server]; !exists {
+						cfg.MCPTools[server] = result
+					}
+				}
+			}
+			if len(discovered.Prompts) > 0 {
+				if cfg.MCPPrompts == nil {
+					cfg.MCPPrompts = make(map[string]tools.MCPPromptsListResult)
+				}
+				for server, result := range discovered.Prompts {
+					if _, exists := cfg.MCPPrompts[server]; !exists {
+						cfg.MCPPrompts[server] = result
+					}
+				}
+			}
+			if cfg.MCPToolCaller == nil {
+				cfg.MCPToolCaller = discovered.Caller
+			}
+			if cfg.MCPPromptCaller == nil {
+				cfg.MCPPromptCaller = discovered.PromptCaller
+			}
+		}
+	}
+	registerConfiguredMCPTools(toolRegistry, cfg.MCPTools, cfg.MCPToolCaller)
 
-	return &QueryEngine{
+	engine := &QueryEngine{
 		sessions:                  sessionsMgr,
 		client:                    client,
 		workspace:                 workspaceLoader,
@@ -477,9 +562,15 @@ func New(cfg Config) *QueryEngine {
 		globLimits:                defaultGlobLimits(cfg.GlobLimits),
 		mcpClients:                append([]tools.MCPConnection(nil), cfg.MCPClients...),
 		mcpResources:              cloneMCPResources(cfg.MCPResources),
+		mcpPrompts:                cloneMCPPrompts(cfg.MCPPrompts),
+		mcpPromptCaller:           cfg.MCPPromptCaller,
+		skillRoots:                append([]string(nil), cfg.SkillRoots...),
+		skillForkExecutor:         cfg.SkillForkExecutor,
 		requestPrompt:             cfg.RequestPrompt,
 		reportToolProgress:        cfg.ReportToolProgress,
 		addNotification:           cfg.AddNotification,
+		handleElicitation:         cfg.HandleElicitation,
+		setConversationID:         cfg.SetConversationID,
 		messages:                  make(map[string][]session.Message),
 		inputs:                    inputs,
 		userContextProvider:       userContextProvider,
@@ -493,6 +584,10 @@ func New(cfg Config) *QueryEngine {
 		overrideSystemPrompt:      cfg.OverrideSystemPrompt,
 		mainLoopModel:             cfg.MainLoopModel,
 		llmProvider:               cfg.LLMProvider,
+		commands:                  append([]tools.Command(nil), cfg.Commands...),
+		querySource:               cfg.QuerySource,
+		toolCustomSystemPrompt:    cfg.ToolCustomSystemPrompt,
+		toolAppendSystemPrompt:    cfg.ToolAppendSystemPrompt,
 		debug:                     cfg.Debug,
 		verbose:                   cfg.Verbose,
 		thinkingConfig:            cloneAnyMap(cfg.ThinkingConfig),
@@ -504,6 +599,11 @@ func New(cfg Config) *QueryEngine {
 		isNonInteractiveSession:    cfg.IsNonInteractiveSession,
 		requireCanUseTool:          cfg.RequireCanUseTool,
 		queryTracking:              cfg.QueryTracking,
+		readFileState:              cloneAnyMap(cfg.ReadFileState),
+		contentReplacementState:    cloneAnyMap(cfg.ContentReplacementState),
+		criticalSystemReminder:     cfg.CriticalSystemReminder,
+		preserveToolUseResults:     cfg.PreserveToolUseResults,
+		renderedSystemPrompt:       cfg.RenderedSystemPrompt,
 		systemPromptInjection:      cfg.SystemPromptInjection,
 		disableClaudeMd:            cfg.DisableClaudeMd,
 		disableGitStatus:           cfg.DisableGitStatus,
@@ -512,6 +612,22 @@ func New(cfg Config) *QueryEngine {
 		postCompactCleanup:         cfg.PostCompactCleanup,
 		sessionStartCompactHook:    cfg.SessionStartCompactHook,
 		transcriptPathProvider:     cfg.TranscriptPathProvider,
+	}
+	engine.seedCompactBoundaryCounter()
+	return engine
+}
+
+func registerConfiguredMCPTools(registry *tools.Registry, configured map[string]tools.MCPToolsListResult, caller tools.MCPToolCaller) {
+	if registry == nil || len(configured) == 0 {
+		return
+	}
+	servers := make([]string, 0, len(configured))
+	for server := range configured {
+		servers = append(servers, server)
+	}
+	sort.Strings(servers)
+	for _, server := range servers {
+		tools.RegisterDiscoveredMCPTools(registry, server, configured[server], caller)
 	}
 }
 
@@ -729,7 +845,7 @@ func (q *QueryEngine) RejectAndContinue(ctx context.Context, approvalID, feedbac
 	}); err != nil {
 		return err
 	}
-	reply, err := q.completeWithToolResult(sess, request.RunID, sink, toolMsg)
+	reply, err := q.completeWithToolResult(ctx, sess, request.RunID, sink, toolMsg)
 	if err != nil {
 		q.emitRunError(sink, Event{Type: "run.error", Session: sess, RunID: request.RunID, Error: err.Error()})
 		return err
@@ -742,7 +858,7 @@ func (q *QueryEngine) RejectAndContinue(ctx context.Context, approvalID, feedbac
 	})
 }
 
-func (q *QueryEngine) completeWithPermissionRejection(sess session.Session, runID string, sink EventSink, pending *toolCall, reason string, contentBlocks []map[string]any) (session.Message, error) {
+func (q *QueryEngine) completeWithPermissionRejection(ctx context.Context, sess session.Session, runID string, sink EventSink, pending *toolCall, reason string, contentBlocks []map[string]any) (session.Message, error) {
 	toolUseID := strings.TrimSpace(pending.toolUseID)
 	if toolUseID == "" {
 		toolUseID = fmt.Sprintf("toolu-%s-%s", runID, strings.ReplaceAll(pending.name, ".", "-"))
@@ -776,7 +892,7 @@ func (q *QueryEngine) completeWithPermissionRejection(sess session.Session, runI
 	}); err != nil {
 		return session.Message{}, err
 	}
-	return q.completeWithToolResult(sess, runID, sink, toolMsg)
+	return q.completeWithToolResult(ctx, sess, runID, sink, toolMsg)
 }
 
 func (q *QueryEngine) clearPendingApprovalMetadata(request approval.Request) {
@@ -829,6 +945,18 @@ func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, 
 		appState = make(map[string]any)
 		q.toolAppStates[sess.ID] = appState
 	}
+	if len(q.skillRoots) > 0 {
+		appState["skillRoots"] = append([]string(nil), q.skillRoots...)
+	}
+	if q.skillForkExecutor != nil {
+		appState["skillForkExecutor"] = q.skillForkExecutor
+	}
+	if len(q.mcpPrompts) > 0 {
+		appState["mcpPrompts"] = cloneMCPPrompts(q.mcpPrompts)
+	}
+	if q.mcpPromptCaller != nil {
+		appState["mcpPromptCaller"] = q.mcpPromptCaller
+	}
 	decisions := q.toolDecisions[sess.ID]
 	if decisions == nil {
 		decisions = make(map[string]tools.ToolDecision)
@@ -850,46 +978,67 @@ func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, 
 	if addNotification == nil {
 		addNotification = func(tools.Notification) {}
 	}
+	handleElicitation := q.handleElicitation
+	if handleElicitation == nil {
+		handleElicitation = func(context.Context, tools.ElicitationRequest) (tools.ElicitationResult, error) {
+			return tools.ElicitationResult{}, nil
+		}
+	}
+	setConversationID := q.setConversationID
+	if setConversationID == nil {
+		setConversationID = func(string) {}
+	}
 	refreshTools := func() []tools.Definition {
 		return q.tools.Expose(tools.ExposeOptions{IncludeDeferred: true, Policy: q.PermissionPolicyForSession(sess.ID)})
 	}
 
 	return tools.ToolUseContext{
-		AbortContext:   ctx,
-		Session:        sess,
-		ToolName:       pending.name,
-		ToolUseID:      pending.toolUseID,
-		Input:          pending.input,
-		InputObject:    cloneAnyMap(pending.inputObject),
-		Policy:         policy,
-		AvailableTools: q.tools.Expose(tools.ExposeOptions{IncludeDeferred: true, Policy: policy}),
-		AgentID:        sess.AgentID,
-		MainLoopModel:  q.mainLoopModelForSession(sess.ID),
-		LLMProvider:    q.llmProvider,
-		Debug:          q.debug,
-		Verbose:        q.verbose,
-		ThinkingConfig: cloneAnyMap(q.thinkingConfig),
+		AbortContext:       ctx,
+		Session:            sess,
+		ToolName:           pending.name,
+		ToolUseID:          pending.toolUseID,
+		Input:              pending.input,
+		InputObject:        cloneAnyMap(pending.inputObject),
+		Policy:             policy,
+		AvailableTools:     q.tools.Expose(tools.ExposeOptions{IncludeDeferred: true, Policy: policy}),
+		AgentID:            sess.AgentID,
+		MainLoopModel:      q.mainLoopModelForSession(sess.ID),
+		LLMProvider:        q.llmProvider,
+		Commands:           append([]tools.Command(nil), q.commands...),
+		QuerySource:        q.querySource,
+		CustomSystemPrompt: q.toolCustomSystemPrompt,
+		AppendSystemPrompt: q.toolAppendSystemPrompt,
+		Debug:              q.debug,
+		Verbose:            q.verbose,
+		ThinkingConfig:     cloneAnyMap(q.thinkingConfig),
 		AgentDefinitions: tools.AgentDefinitions{
 			ActiveAgents:      append([]string(nil), q.agentDefinitions.ActiveAgents...),
 			AllowedAgentTypes: append([]string(nil), q.agentDefinitions.AllowedAgentTypes...),
 		},
-		MaxBudgetUSD:      q.maxBudgetUSD,
-		IsNonInteractive:  q.isNonInteractiveSession,
-		RequireCanUseTool: q.requireCanUseTool,
-		QueryTracking:     q.queryTracking,
-		Messages:          q.Messages(sess.ID),
-		AppState:          appState,
-		SetAppState:       q.setToolAppStateFunc(sess.ID),
-		ToolDecisions:     decisions,
-		FileReadingLimits: q.fileReadingLimits,
-		GlobLimits:        q.globLimits,
-		MCPClients:        append([]tools.MCPConnection(nil), q.mcpClients...),
-		MCPResources:      cloneMCPResources(q.mcpResources),
-		RequestPrompt:     requestPrompt,
-		ReportProgress:    reportProgress,
-		AddNotification:   addNotification,
-		RefreshTools:      refreshTools,
-		CanUseTool:        q.canUseToolFunc(ctx, sess),
+		MaxBudgetUSD:            q.maxBudgetUSD,
+		IsNonInteractive:        q.isNonInteractiveSession,
+		RequireCanUseTool:       q.requireCanUseTool,
+		QueryTracking:           q.queryTracking,
+		ReadFileState:           cloneAnyMap(q.readFileState),
+		ContentReplacementState: cloneAnyMap(q.contentReplacementState),
+		CriticalSystemReminder:  q.criticalSystemReminder,
+		PreserveToolUseResults:  q.preserveToolUseResults,
+		RenderedSystemPrompt:    q.renderedSystemPrompt,
+		Messages:                q.Messages(sess.ID),
+		AppState:                appState,
+		SetAppState:             q.setToolAppStateFunc(sess.ID),
+		ToolDecisions:           decisions,
+		FileReadingLimits:       q.fileReadingLimits,
+		GlobLimits:              q.globLimits,
+		MCPClients:              append([]tools.MCPConnection(nil), q.mcpClients...),
+		MCPResources:            cloneMCPResources(q.mcpResources),
+		RequestPrompt:           requestPrompt,
+		ReportProgress:          reportProgress,
+		AddNotification:         addNotification,
+		RefreshTools:            refreshTools,
+		HandleElicitation:       handleElicitation,
+		SetConversationID:       setConversationID,
+		CanUseTool:              q.canUseToolFunc(ctx, sess),
 	}
 }
 
@@ -919,29 +1068,38 @@ func (q *QueryEngine) canUseToolFunc(parentCtx context.Context, sess session.Ses
 			}, nil
 		}
 		toolDecision, checked, err := q.tools.CheckPermissionsWithContext(ctx, tools.ToolUseContext{
-			AbortContext:   ctx,
-			Session:        sess,
-			ToolName:       req.ToolName,
-			Input:          input,
-			InputObject:    inputObject,
-			Policy:         policy,
-			AvailableTools: q.tools.Expose(tools.ExposeOptions{IncludeDeferred: true, Policy: policy}),
-			AgentID:        sess.AgentID,
-			MainLoopModel:  q.mainLoopModelForSession(sess.ID),
-			LLMProvider:    q.llmProvider,
-			Debug:          q.debug,
-			Verbose:        q.verbose,
-			ThinkingConfig: cloneAnyMap(q.thinkingConfig),
+			AbortContext:       ctx,
+			Session:            sess,
+			ToolName:           req.ToolName,
+			Input:              input,
+			InputObject:        inputObject,
+			Policy:             policy,
+			AvailableTools:     q.tools.Expose(tools.ExposeOptions{IncludeDeferred: true, Policy: policy}),
+			AgentID:            sess.AgentID,
+			MainLoopModel:      q.mainLoopModelForSession(sess.ID),
+			LLMProvider:        q.llmProvider,
+			Commands:           append([]tools.Command(nil), q.commands...),
+			QuerySource:        q.querySource,
+			CustomSystemPrompt: q.toolCustomSystemPrompt,
+			AppendSystemPrompt: q.toolAppendSystemPrompt,
+			Debug:              q.debug,
+			Verbose:            q.verbose,
+			ThinkingConfig:     cloneAnyMap(q.thinkingConfig),
 			AgentDefinitions: tools.AgentDefinitions{
 				ActiveAgents:      append([]string(nil), q.agentDefinitions.ActiveAgents...),
 				AllowedAgentTypes: append([]string(nil), q.agentDefinitions.AllowedAgentTypes...),
 			},
-			MaxBudgetUSD:      q.maxBudgetUSD,
-			IsNonInteractive:  q.isNonInteractiveSession,
-			RequireCanUseTool: q.requireCanUseTool,
-			QueryTracking:     q.queryTracking,
-			Messages:          q.Messages(sess.ID),
-			CanUseTool:        q.canUseToolFunc(ctx, sess),
+			MaxBudgetUSD:            q.maxBudgetUSD,
+			IsNonInteractive:        q.isNonInteractiveSession,
+			RequireCanUseTool:       q.requireCanUseTool,
+			QueryTracking:           q.queryTracking,
+			ReadFileState:           cloneAnyMap(q.readFileState),
+			ContentReplacementState: cloneAnyMap(q.contentReplacementState),
+			CriticalSystemReminder:  q.criticalSystemReminder,
+			PreserveToolUseResults:  q.preserveToolUseResults,
+			RenderedSystemPrompt:    q.renderedSystemPrompt,
+			Messages:                q.Messages(sess.ID),
+			CanUseTool:              q.canUseToolFunc(ctx, sess),
 		})
 		if err != nil {
 			return permissions.Decision{}, err
@@ -1101,6 +1259,23 @@ func cloneMCPResources(resources map[string][]tools.MCPResource) map[string][]to
 	out := make(map[string][]tools.MCPResource, len(resources))
 	for name, items := range resources {
 		out[name] = append([]tools.MCPResource(nil), items...)
+	}
+	return out
+}
+
+func cloneMCPPrompts(prompts map[string]tools.MCPPromptsListResult) map[string]tools.MCPPromptsListResult {
+	if prompts == nil {
+		return nil
+	}
+	out := make(map[string]tools.MCPPromptsListResult, len(prompts))
+	for server, result := range prompts {
+		cloned := tools.MCPPromptsListResult{
+			Prompts: append([]tools.MCPPromptListItem(nil), result.Prompts...),
+		}
+		for i := range cloned.Prompts {
+			cloned.Prompts[i].Arguments = append([]tools.MCPPromptArgument(nil), cloned.Prompts[i].Arguments...)
+		}
+		out[server] = cloned
 	}
 	return out
 }
@@ -1278,9 +1453,14 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 			return nil, fmt.Errorf("context window blocking limit reached")
 		}
 		if result.Changed {
-			compacted := result.Messages
-			boundary := q.newCompactBoundary(sess.ID)
-			compactedWithBoundary := append(cloneSessionMessages(compacted), boundary)
+			compactedWithBoundary := cloneSessionMessages(result.Messages)
+			var boundary session.Message
+			if result.BoundaryMessage != nil {
+				boundary = *result.BoundaryMessage
+			} else {
+				boundary = q.newCompactBoundary(sess.ID)
+				compactedWithBoundary = append(compactedWithBoundary, boundary)
+			}
 			if err := q.sessions.ReplaceMessages(sess.ID, compactedWithBoundary); err != nil {
 				return nil, err
 			}
@@ -1375,6 +1555,9 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 		SessionMemories:    q.memoryLines(sess.ID),
 		SessionMemoryItems: q.memoryItems(sess.ID),
 	})
+	exposedTools := q.tools.Expose(tools.ExposeOptions{
+		Policy: q.PermissionPolicyForSession(sess.ID),
+	})
 	stream := &textStreamCollector{
 		sink:           sink,
 		session:        sess,
@@ -1390,10 +1573,29 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 		History:     history,
 		Context:     contextInput,
 		Model:       q.mainLoopModelForSessionWithHistory(sess.ID, history),
+		Tools:       llmToolDefinitions(exposedTools),
 	}, stream); err != nil {
 		return nil, err
 	}
 	return stream, nil
+}
+
+func llmToolDefinitions(defs []tools.Definition) []llm.ToolDefinition {
+	if len(defs) == 0 {
+		return nil
+	}
+	out := make([]llm.ToolDefinition, 0, len(defs))
+	for _, def := range defs {
+		if strings.TrimSpace(def.Name) == "" {
+			continue
+		}
+		out = append(out, llm.ToolDefinition{
+			Name:        def.Name,
+			Description: def.Description,
+			InputSchema: cloneAnyMap(def.InputSchema),
+		})
+	}
+	return out
 }
 
 func (q *QueryEngine) memoryLines(sessionID string) []string {
@@ -1447,6 +1649,16 @@ func (q *QueryEngine) latestSummaryMemory(sessionID string) string {
 	for i := len(items) - 1; i >= 0; i-- {
 		if items[i].Type == memory.TypeSummary {
 			return items[i].Content
+		}
+	}
+	if messages, ok := q.sessions.Messages(sessionID); ok {
+		for i := len(messages) - 1; i >= 0; i-- {
+			message := messages[i]
+			if message.Role == "summary" || (message.Role == "user" && message.IsCompactSummary) {
+				if strings.TrimSpace(message.Content) != "" {
+					return message.Content
+				}
+			}
 		}
 	}
 	return ""
@@ -1770,6 +1982,42 @@ func (q *QueryEngine) newCompactBoundary(sessionID string) session.Message {
 		Content:   "[compact_boundary]",
 		CreatedAt: time.Now().UTC(),
 	}
+}
+
+func (q *QueryEngine) seedCompactBoundaryCounter() {
+	var maxID uint64
+	for _, sess := range q.sessions.ListSessions() {
+		messages, ok := q.sessions.Messages(sess.ID)
+		if !ok {
+			continue
+		}
+		for _, message := range messages {
+			if n, ok := compactBoundaryCounter(message.ID); ok && n > maxID {
+				maxID = n
+			}
+		}
+	}
+	if maxID > 0 {
+		q.nextBoundaryID.Store(maxID)
+	}
+}
+
+func compactBoundaryCounter(id string) (uint64, bool) {
+	if !strings.HasPrefix(id, "compact-") {
+		return 0, false
+	}
+	suffix := strings.TrimPrefix(id, "compact-")
+	if suffix == "" {
+		return 0, false
+	}
+	var n uint64
+	for _, r := range suffix {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		n = n*10 + uint64(r-'0')
+	}
+	return n, true
 }
 
 func (q *QueryEngine) ensureMutableMessages(sessionID string) {
@@ -2245,6 +2493,16 @@ func hookMessageBlock(message map[string]any, hookName, toolUseID, hookEvent str
 	}
 }
 
+func (q *QueryEngine) latestUserMessage(sessionID string) session.Message {
+	messages := q.Messages(sessionID)
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			return messages[i]
+		}
+	}
+	return session.Message{}
+}
+
 func isMCPToolDefinition(def tools.Definition) bool {
 	return strings.EqualFold(strings.TrimSpace(def.Source), "mcp") || strings.HasPrefix(strings.TrimSpace(def.Name), "mcp__")
 }
@@ -2308,7 +2566,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 		if pending != nil && pending.name != "" {
 			if pending.name == lastExecutedToolName && pending.input == lastExecutedToolInput {
 				if lastToolMessage != nil {
-					return q.completeWithToolResult(sess, runID, sink, *lastToolMessage)
+					return q.completeWithToolResult(ctx, sess, runID, sink, *lastToolMessage)
 				}
 				return session.Message{}, fmt.Errorf("repeated identical tool call detected: %s %s", pending.name, pending.input)
 			}
@@ -2318,7 +2576,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 			}
 			if deferredToolExecuted && toolDef.ShouldDefer {
 				if lastToolMessage != nil {
-					return q.completeWithToolResult(sess, runID, sink, *lastToolMessage)
+					return q.completeWithToolResult(ctx, sess, runID, sink, *lastToolMessage)
 				}
 				return session.Message{}, fmt.Errorf("repeated deferred tool call detected: %s", pending.name)
 			}
@@ -2369,7 +2627,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 							ToolInput: pending.input,
 							Reason:    decision.Reason,
 						})
-						return q.completeWithPermissionRejection(sess, runID, sink, pending, decision.Reason, decision.ContentBlocks)
+						return q.completeWithPermissionRejection(ctx, sess, runID, sink, pending, decision.Reason, decision.ContentBlocks)
 					}
 					if preHookResult.HasPermissionDecision {
 						decision := preHookResult.PermissionDecision
@@ -2386,7 +2644,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 								ToolInput: pending.input,
 								Reason:    decision.Reason,
 							})
-							return q.completeWithPermissionRejection(sess, runID, sink, pending, decision.Reason, decision.ContentBlocks)
+							return q.completeWithPermissionRejection(ctx, sess, runID, sink, pending, decision.Reason, decision.ContentBlocks)
 						} else {
 							q.recordPermissionDenial(PermissionDenial{
 								RunID:     runID,
@@ -2487,7 +2745,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 										}
 										toolPermissionResolved = true
 									} else if !hookDecision.RequiresApproval {
-										return q.completeWithPermissionRejection(sess, runID, sink, pending, hookDecision.Reason, hookDecision.ContentBlocks)
+										return q.completeWithPermissionRejection(ctx, sess, runID, sink, pending, hookDecision.Reason, hookDecision.ContentBlocks)
 									} else {
 										toolDecision = hookDecision
 									}
@@ -2502,7 +2760,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 									Reason:    toolDecision.Reason,
 								})
 								if !toolDecision.RequiresApproval {
-									return q.completeWithPermissionRejection(sess, runID, sink, pending, toolDecision.Reason, toolDecision.ContentBlocks)
+									return q.completeWithPermissionRejection(ctx, sess, runID, sink, pending, toolDecision.Reason, toolDecision.ContentBlocks)
 								}
 								req := q.approvals.CreateWithPromptMetadata(sess.ID, runID, userMessage.ID, pending.name, pending.input, pending.inputObject, pending.toolUseID, pending.providerMessageID, toolDecision.Reason, toolDecision.SerializedDecisionReason(), toolDecision.AcceptFeedback, toolDecision.ContentBlocks, string(toolDecision.Category), toolDecision.RuleSource)
 								_ = q.sessions.UpdateMetadata(sess.ID, func(metadata *session.SessionMetadata) {
@@ -2589,7 +2847,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 									}
 									skipPolicyEvaluation = true
 								} else if !hookDecision.RequiresApproval {
-									return q.completeWithPermissionRejection(sess, runID, sink, pending, hookDecision.Reason, hookDecision.ContentBlocks)
+									return q.completeWithPermissionRejection(ctx, sess, runID, sink, pending, hookDecision.Reason, hookDecision.ContentBlocks)
 								} else {
 									decision = hookDecision
 								}
@@ -2605,7 +2863,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 							Reason:    decision.Reason,
 						})
 						if !decision.RequiresApproval {
-							return q.completeWithPermissionRejection(sess, runID, sink, pending, decision.Reason, decision.ContentBlocks)
+							return q.completeWithPermissionRejection(ctx, sess, runID, sink, pending, decision.Reason, decision.ContentBlocks)
 						}
 						req := q.approvals.CreateWithPromptMetadata(sess.ID, runID, userMessage.ID, pending.name, pending.input, pending.inputObject, pending.toolUseID, pending.providerMessageID, decision.Reason, decision.SerializedDecisionReason(), decision.AcceptFeedback, decision.ContentBlocks, string(decision.Category), decision.RuleSource)
 						_ = q.sessions.UpdateMetadata(sess.ID, func(metadata *session.SessionMetadata) {
@@ -2835,7 +3093,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 
 		if current.ToolName != "" {
 			if approvedToolExecuted && lastToolMessage != nil {
-				return q.completeWithToolResult(sess, runID, sink, *lastToolMessage)
+				return q.completeWithToolResult(ctx, sess, runID, sink, *lastToolMessage)
 			}
 			pending = &toolCall{name: current.ToolName, input: current.ToolInput, inputObject: normalizedToolInputObject(current.ToolInput, current.ToolInputObject), toolUseID: current.ToolUseID, providerMessageID: current.ProviderMessageID}
 			current = nil
@@ -2861,23 +3119,17 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 	}
 }
 
-func (q *QueryEngine) completeWithToolResult(sess session.Session, runID string, sink EventSink, toolMsg session.Message) (session.Message, error) {
-	reply, err := q.sessions.AppendMessage(sess.ID, "assistant", "Using tool result: "+toolMsg.Content)
+func (q *QueryEngine) completeWithToolResult(ctx context.Context, sess session.Session, runID string, sink EventSink, toolMsg session.Message) (session.Message, error) {
+	userMessage := q.latestUserMessage(sess.ID)
+	if userMessage.ID == "" {
+		userMessage = toolMsg
+	}
+	stream, err := q.runModelPass(ctx, sess, userMessage, runID, sink)
 	if err != nil {
 		return session.Message{}, err
 	}
-	q.appendMutableMessage(sess.ID, reply)
-	q.recordUsageEstimate(sess.ID, reply.Content)
-	q.setLastAssistantReply(reply.Content)
-	if err := q.emit(sink, Event{
-		Type:    "message.created",
-		Session: sess,
-		RunID:   runID,
-		Message: &reply,
-	}); err != nil {
-		return session.Message{}, err
-	}
-	return reply, nil
+	q.recordModelPass()
+	return q.executeTurnLoop(ctx, sess, userMessage, runID, sink, nil, stream)
 }
 
 func (q *QueryEngine) effectiveMaxTurns() int {

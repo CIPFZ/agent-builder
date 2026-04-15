@@ -1,6 +1,7 @@
 package file
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -88,11 +89,19 @@ func (s *SessionStore) SaveMainSessionKey(agentID, sessionKey string) {
 	_ = s.persistMainSessionsLocked()
 }
 
-func (s *SessionStore) AppendMessage(msg model.Message) {
+func (s *SessionStore) AppendMessage(msg model.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var parentUUID *string
+	if messages := s.messagesByID[msg.SessionID]; len(messages) > 0 {
+		parent := messages[len(messages)-1].ID
+		parentUUID = &parent
+	}
+	if err := s.appendTranscriptMessagesLocked(msg.SessionID, []model.Message{msg}, parentUUID); err != nil {
+		return err
+	}
 	s.messagesByID[msg.SessionID] = append(s.messagesByID[msg.SessionID], msg)
-	_ = s.persistMessagesLocked(msg.SessionID)
+	return nil
 }
 
 func (s *SessionStore) Messages(sessionID string) ([]model.Message, bool) {
@@ -105,11 +114,15 @@ func (s *SessionStore) Messages(sessionID string) ([]model.Message, bool) {
 	return append([]model.Message(nil), messages...), true
 }
 
-func (s *SessionStore) ReplaceMessages(sessionID string, messages []model.Message) {
+func (s *SessionStore) ReplaceMessages(sessionID string, messages []model.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.messagesByID[sessionID] = append([]model.Message(nil), messages...)
-	_ = s.persistMessagesLocked(sessionID)
+	cloned := append([]model.Message(nil), messages...)
+	if err := s.appendTranscriptMessagesLocked(sessionID, cloned, nil); err != nil {
+		return err
+	}
+	s.messagesByID[sessionID] = cloned
+	return nil
 }
 
 func (s *SessionStore) load() error {
@@ -151,15 +164,28 @@ func (s *SessionStore) loadMessages() error {
 		return err
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+		if entry.IsDir() {
 			continue
 		}
-		sessionID := entry.Name()[:len(entry.Name())-len(".json")]
-		var messages []model.Message
-		if err := readJSON(filepath.Join(s.root, "messages", entry.Name()), &messages); err != nil {
-			return err
+		switch filepath.Ext(entry.Name()) {
+		case ".jsonl":
+			sessionID := entry.Name()[:len(entry.Name())-len(".jsonl")]
+			messages, err := s.loadTranscriptMessages(filepath.Join(s.root, "messages", entry.Name()), sessionID)
+			if err != nil {
+				return err
+			}
+			s.messagesByID[sessionID] = messages
+		case ".json":
+			sessionID := entry.Name()[:len(entry.Name())-len(".json")]
+			if _, hasJSONL := s.messagesByID[sessionID]; hasJSONL {
+				continue
+			}
+			var messages []model.Message
+			if err := readJSON(filepath.Join(s.root, "messages", entry.Name()), &messages); err != nil {
+				return err
+			}
+			s.messagesByID[sessionID] = messages
 		}
-		s.messagesByID[sessionID] = messages
 	}
 	return nil
 }
@@ -180,8 +206,86 @@ func (s *SessionStore) persistMainSessionsLocked() error {
 	return writeJSON(filepath.Join(s.root, "main_sessions.json"), data)
 }
 
-func (s *SessionStore) persistMessagesLocked(sessionID string) error {
-	return writeJSON(filepath.Join(s.root, "messages", sessionID+".json"), s.messagesByID[sessionID])
+func (s *SessionStore) appendTranscriptMessagesLocked(sessionID string, messages []model.Message, parentUUID *string) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	path := filepath.Join(s.root, "messages", sessionID+".jsonl")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	currentParent := parentUUID
+	encoder := json.NewEncoder(file)
+	for _, message := range messages {
+		entry := model.NewClaudeTranscriptMessage(message, model.ClaudeTranscriptOptions{ParentUUID: currentParent})
+		if err := encoder.Encode(entry); err != nil {
+			return err
+		}
+		nextParent := message.ID
+		currentParent = &nextParent
+	}
+	return nil
+}
+
+func (s *SessionStore) loadTranscriptMessages(path, sessionID string) ([]model.Message, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	entriesByID := make(map[string]model.ClaudeTranscriptMessage)
+	var ordered []model.ClaudeTranscriptMessage
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for scanner.Scan() {
+		var entry model.ClaudeTranscriptMessage
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			return nil, err
+		}
+		if entry.UUID == "" {
+			continue
+		}
+		entriesByID[entry.UUID] = entry
+		ordered = append(ordered, entry)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if len(ordered) == 0 {
+		return nil, nil
+	}
+
+	var chain []model.ClaudeTranscriptMessage
+	seen := make(map[string]bool)
+	for entry := ordered[len(ordered)-1]; ; {
+		if seen[entry.UUID] {
+			return nil, fmt.Errorf("cycle in transcript parent chain for %s", sessionID)
+		}
+		seen[entry.UUID] = true
+		chain = append(chain, entry)
+		if entry.ParentUUID == nil || *entry.ParentUUID == "" {
+			break
+		}
+		parent, ok := entriesByID[*entry.ParentUUID]
+		if !ok {
+			break
+		}
+		entry = parent
+	}
+
+	messages := make([]model.Message, 0, len(chain))
+	for i := len(chain) - 1; i >= 0; i-- {
+		message, err := model.MessageFromClaudeTranscript(chain[i], sessionID)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, message)
+	}
+	return messages, nil
 }
 
 func readJSON(path string, target any) error {

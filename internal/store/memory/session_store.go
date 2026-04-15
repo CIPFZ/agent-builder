@@ -76,11 +76,12 @@ func (s *SessionStore) SaveMainSessionKey(agentID, sessionKey string) {
 	s.mainByAgentID[agentID] = sessionKey
 }
 
-func (s *SessionStore) AppendMessage(msg model.Message) {
+func (s *SessionStore) AppendMessage(msg model.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.messagesBySessionID[msg.SessionID] = append(s.messagesBySessionID[msg.SessionID], msg)
+	return nil
 }
 
 func (s *SessionStore) Messages(sessionID string) ([]model.Message, bool) {
@@ -96,10 +97,11 @@ func (s *SessionStore) Messages(sessionID string) ([]model.Message, bool) {
 	return cloned, true
 }
 
-func (s *SessionStore) ReplaceMessages(sessionID string, messages []model.Message) {
+func (s *SessionStore) ReplaceMessages(sessionID string, messages []model.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	cloned := append([]model.Message(nil), messages...)
 	s.messagesBySessionID[sessionID] = cloned
+	return nil
 }

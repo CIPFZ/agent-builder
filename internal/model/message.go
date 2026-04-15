@@ -144,11 +144,33 @@ func (b *MessageBlock) UnmarshalJSON(data []byte) error {
 }
 
 type Message struct {
-	ID                string         `json:"id"`
-	SessionID         string         `json:"session_id"`
-	Role              string         `json:"role"`
-	Content           string         `json:"content"`
-	ProviderMessageID string         `json:"provider_message_id,omitempty"`
-	Blocks            []MessageBlock `json:"blocks,omitempty"`
-	CreatedAt         time.Time      `json:"created_at"`
+	ID                        string           `json:"id"`
+	SessionID                 string           `json:"session_id"`
+	Role                      string           `json:"role"`
+	Subtype                   string           `json:"subtype,omitempty"`
+	Content                   string           `json:"content"`
+	ProviderMessageID         string           `json:"provider_message_id,omitempty"`
+	Blocks                    []MessageBlock   `json:"blocks,omitempty"`
+	IsMeta                    bool             `json:"is_meta,omitempty"`
+	Level                     string           `json:"level,omitempty"`
+	LogicalParentID           string           `json:"logical_parent_id,omitempty"`
+	CompactMetadata           *CompactMetadata `json:"compactMetadata,omitempty"`
+	IsCompactSummary          bool             `json:"is_compact_summary,omitempty"`
+	IsVisibleInTranscriptOnly bool             `json:"is_visible_in_transcript_only,omitempty"`
+	CreatedAt                 time.Time        `json:"created_at"`
+}
+
+type CompactMetadata struct {
+	Trigger                   string                   `json:"trigger,omitempty"`
+	PreTokens                 int                      `json:"preTokens,omitempty"`
+	UserContext               string                   `json:"userContext,omitempty"`
+	MessagesSummarized        int                      `json:"messagesSummarized,omitempty"`
+	PreCompactDiscoveredTools []string                 `json:"preCompactDiscoveredTools,omitempty"`
+	PreservedSegment          *CompactPreservedSegment `json:"preservedSegment,omitempty"`
+}
+
+type CompactPreservedSegment struct {
+	HeadID   string `json:"headUuid,omitempty"`
+	AnchorID string `json:"anchorUuid,omitempty"`
+	TailID   string `json:"tailUuid,omitempty"`
 }

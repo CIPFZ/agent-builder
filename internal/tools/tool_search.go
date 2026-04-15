@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"myclaw/internal/permissions"
@@ -10,17 +11,31 @@ import (
 
 type ToolSearchTool struct {
 	registry *Registry
+	name     string
+	aliases  []string
 }
 
 func NewToolSearchTool(registry *Registry) *ToolSearchTool {
-	return &ToolSearchTool{registry: registry}
+	return &ToolSearchTool{registry: registry, name: "tool.search"}
+}
+
+func NewClaudeToolSearchTool(registry *Registry) *ToolSearchTool {
+	return &ToolSearchTool{registry: registry, name: "ToolSearch", aliases: []string{"tool.search"}}
 }
 
 func (t *ToolSearchTool) Definition() Definition {
 	return Definition{
-		Name:        "tool.search",
+		Name:        t.name,
+		Aliases:     append([]string(nil), t.aliases...),
 		Description: "Search available and deferred tools by capability keywords.",
-		AlwaysLoad:  true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string", "description": "Capability keywords or select:<tool names>"},
+			},
+			"required": []string{"query"},
+		},
+		AlwaysLoad: true,
 	}
 }
 
@@ -31,6 +46,9 @@ func (t *ToolSearchTool) Invoke(_ context.Context, _ session.Session, input stri
 func (t *ToolSearchTool) InvokeWithPolicy(_ context.Context, _ session.Session, input string, policy permissions.Policy) (string, error) {
 	if t.registry == nil {
 		return "", nil
+	}
+	if strings.HasPrefix(strings.TrimSpace(input), "{") {
+		input = queryFromStructuredInput(input)
 	}
 	results := t.registry.Search(input, SearchOptions{
 		Policy:       policy,
@@ -55,6 +73,17 @@ func (t *ToolSearchTool) InvokeWithPolicy(_ context.Context, _ session.Session, 
 		lines = append(lines, strings.Join(parts, " [")+strings.Repeat("]", len(parts)-1))
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+func queryFromStructuredInput(input string) string {
+	var object map[string]any
+	if err := json.Unmarshal([]byte(input), &object); err != nil {
+		return input
+	}
+	if query, ok := object["query"].(string); ok {
+		return query
+	}
+	return input
 }
 
 func (t *ToolSearchTool) IsEnabled() bool {

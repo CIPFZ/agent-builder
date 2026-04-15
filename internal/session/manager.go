@@ -126,7 +126,9 @@ func (m *Manager) AppendMessageWithBlocks(sessionID, role, content, providerMess
 		Blocks:            append([]model.MessageBlock(nil), blocks...),
 		CreatedAt:         time.Now().UTC(),
 	}
-	m.store.AppendMessage(msg)
+	if err := m.store.AppendMessage(msg); err != nil {
+		return Message{}, err
+	}
 	session.Metadata.LastActivityAt = msg.CreatedAt
 	switch role {
 	case "user":
@@ -176,8 +178,7 @@ func (m *Manager) ReplaceMessages(sessionID string, messages []Message) error {
 	if _, ok := m.store.GetSessionByID(sessionID); !ok {
 		return fmt.Errorf("session %q not found", sessionID)
 	}
-	m.store.ReplaceMessages(sessionID, messages)
-	return nil
+	return m.store.ReplaceMessages(sessionID, messages)
 }
 
 func (m *Manager) UpdateMetadata(sessionID string, update func(*SessionMetadata)) error {

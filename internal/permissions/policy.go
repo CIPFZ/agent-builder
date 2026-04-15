@@ -192,7 +192,7 @@ func (p Policy) Evaluate(req Request) Decision {
 	if p.Mode == ModeBypassPermissions {
 		return Decision{Allowed: true, Reason: "bypassed by permission mode", DecisionReason: DecisionReason{Type: DecisionReasonMode, Mode: p.Mode}}
 	}
-	if req.ToolName != "system.run" {
+	if !isShellTool(req.ToolName) {
 		if req.Destructive {
 			if p.PlanMode {
 				return p.finalizeDecision(Decision{
@@ -271,6 +271,15 @@ func (p Policy) Evaluate(req Request) Decision {
 			Category:         CategoryApproval,
 			Reason:           "policy requires explicit approval",
 		})
+	}
+}
+
+func isShellTool(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "system.run", "Bash", "PowerShell":
+		return true
+	default:
+		return false
 	}
 }
 

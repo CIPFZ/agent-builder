@@ -19,6 +19,8 @@ type AgentTaskRunner func(context.Context, session.Session, agent.RunContext, st
 type AgentTaskTool struct {
 	manager *agent.Manager
 	run     AgentTaskRunner
+	name    string
+	aliases []string
 }
 
 func NewAgentTaskTool(manager *agent.Manager, run AgentTaskRunner) *AgentTaskTool {
@@ -28,13 +30,31 @@ func NewAgentTaskTool(manager *agent.Manager, run AgentTaskRunner) *AgentTaskToo
 	return &AgentTaskTool{
 		manager: manager,
 		run:     run,
+		name:    "agent.task",
 	}
+}
+
+func NewClaudeAgentTool(manager *agent.Manager, run AgentTaskRunner) *AgentTaskTool {
+	tool := NewAgentTaskTool(manager, run)
+	tool.name = "Agent"
+	tool.aliases = []string{"Task", "agent.task"}
+	return tool
 }
 
 func (t *AgentTaskTool) Definition() Definition {
 	return Definition{
-		Name:        "agent.task",
+		Name:        t.name,
+		Aliases:     append([]string(nil), t.aliases...),
 		Description: "Delegate work to a subagent by prompt, or inspect prior delegated runs.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"description":   map[string]any{"type": "string"},
+				"prompt":        map[string]any{"type": "string"},
+				"subagent_type": map[string]any{"type": "string"},
+			},
+			"required": []string{"description", "prompt"},
+		},
 		AlwaysLoad:  true,
 		ShouldDefer: true,
 	}
@@ -42,6 +62,9 @@ func (t *AgentTaskTool) Definition() Definition {
 
 func (t *AgentTaskTool) Invoke(ctx context.Context, sess session.Session, input string) (string, error) {
 	input = strings.TrimSpace(input)
+	if structured, ok := structuredAgentPrompt(input); ok {
+		input = structured
+	}
 	switch {
 	case input == "":
 		return "", fmt.Errorf("agent.task requires a prompt or command")
@@ -60,6 +83,22 @@ func (t *AgentTaskTool) Invoke(ctx context.Context, sess session.Session, input 
 	default:
 		return t.spawn(ctx, sess, input)
 	}
+}
+
+func structuredAgentPrompt(input string) (string, bool) {
+	var object map[string]any
+	if err := json.Unmarshal([]byte(input), &object); err != nil {
+		return "", false
+	}
+	prompt, _ := object["prompt"].(string)
+	if strings.TrimSpace(prompt) == "" {
+		return "", false
+	}
+	description, _ := object["description"].(string)
+	if strings.TrimSpace(description) == "" {
+		return strings.TrimSpace(prompt), true
+	}
+	return strings.TrimSpace(description) + ": " + strings.TrimSpace(prompt), true
 }
 
 func (t *AgentTaskTool) IsEnabled() bool {

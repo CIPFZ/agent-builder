@@ -12,34 +12,34 @@ import (
 )
 
 type BuildInput struct {
-	Session            session.Session
-	History            []session.Message
-	UserMessage        session.Message
-	WorkspaceContext   workspace.Context
-	Tools              []tools.Definition
-	SessionMemories    []string
-	SessionMemoryItems []memory.Item
-	DefaultSystemPrompt []string
-	CustomSystemPrompt  string
-	AgentSystemPrompt   string
+	Session                 session.Session
+	History                 []session.Message
+	UserMessage             session.Message
+	WorkspaceContext        workspace.Context
+	Tools                   []tools.Definition
+	SessionMemories         []string
+	SessionMemoryItems      []memory.Item
+	DefaultSystemPrompt     []string
+	CustomSystemPrompt      string
+	AgentSystemPrompt       string
 	CoordinatorSystemPrompt string
-	ProactiveAgentPrompt bool
-	AppendSystemPrompt  string
-	OverrideSystemPrompt string
-	UserContextLines    []string
-	SystemContextLines  []string
+	ProactiveAgentPrompt    bool
+	AppendSystemPrompt      string
+	OverrideSystemPrompt    string
+	UserContextLines        []string
+	SystemContextLines      []string
 }
 
 type Context struct {
-	SystemPrompt   string
-	HistoryLines   []string
-	UserInput      string
-	UserContextLines []string
+	SystemPrompt       string
+	HistoryLines       []string
+	UserInput          string
+	UserContextLines   []string
 	SystemContextLines []string
-	WorkspaceLines []string
-	ToolLines      []string
-	MemoryLines    []string
-	MemoryByType   map[memory.Type][]string
+	WorkspaceLines     []string
+	ToolLines          []string
+	MemoryLines        []string
+	MemoryByType       map[memory.Type][]string
 }
 
 func Build(input BuildInput) Context {
@@ -58,15 +58,15 @@ func Build(input BuildInput) Context {
 	memoryLines := dedupeStrings(input.SessionMemories)
 	toolLines := buildToolLines(input.Tools)
 	return Context{
-		SystemPrompt:   buildSystemPrompt(input),
-		HistoryLines:   buildHistoryLines(input.History, input.UserMessage.ID),
-		UserInput:      input.UserMessage.Content,
-		UserContextLines: append([]string(nil), input.UserContextLines...),
+		SystemPrompt:       buildSystemPrompt(input),
+		HistoryLines:       buildHistoryLines(input.History, input.UserMessage.ID),
+		UserInput:          input.UserMessage.Content,
+		UserContextLines:   append([]string(nil), input.UserContextLines...),
 		SystemContextLines: append([]string(nil), input.SystemContextLines...),
-		WorkspaceLines: buildWorkspaceLines(input.WorkspaceContext),
-		ToolLines:      toolLines,
-		MemoryLines:    memoryLines,
-		MemoryByType:   memoryByType,
+		WorkspaceLines:     buildWorkspaceLines(input.WorkspaceContext),
+		ToolLines:          toolLines,
+		MemoryLines:        memoryLines,
+		MemoryByType:       memoryByType,
 	}
 }
 
@@ -219,17 +219,8 @@ func ComposeSystemContent(ctx Context) string {
 	if len(ctx.ToolLines) > 0 {
 		parts = append(parts, "Available Tools:\n"+strings.Join(ctx.ToolLines, "\n"))
 		parts = append(parts, strings.Join([]string{
-			"Tool Call Protocol:",
-			"If you need to use a tool, respond with exactly this format and nothing else:",
-			"<tool_call>",
-			"name: system.run",
-			"input: pwd",
-			"</tool_call>",
-			"Use the real tool name and tool input for your request.",
-			"After a tool result is returned, continue with a normal assistant answer.",
-		}, "\n"))
-		parts = append(parts, strings.Join([]string{
 			"# Tool And Approval Handling",
+			"Use the model's native tool calling interface when a tool is needed.",
 			"After a tool result is returned, continue with a normal assistant answer that uses the result.",
 			"If a tool call is denied or requires approval, do not blindly repeat the same call.",
 			"Instead, explain what happened, adapt your plan, or wait for approval when appropriate.",

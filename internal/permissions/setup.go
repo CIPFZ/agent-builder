@@ -228,9 +228,9 @@ func ruleSourceRank(source RuleSource) int {
 
 func isDangerousAutoModeRule(rule Rule) bool {
 	switch rule.ToolName {
-	case "agent.task":
+	case "agent.task", "Agent", "Task":
 		return true
-	case "system.run":
+	case "system.run", "Bash", "PowerShell":
 		if len(rule.Match.CommandContains) == 0 && len(rule.Match.WorkDirPrefixes) == 0 {
 			return true
 		}
