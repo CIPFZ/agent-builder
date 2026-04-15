@@ -57,14 +57,18 @@ type inputState struct {
 type dialogItem struct {
 	Label       string
 	Description string
+	Value       string
+	Disabled    bool
 }
 
 type dialogSpec struct {
-	Title      string
-	Subtitle   string
-	Items      []dialogItem
-	EmptyText  string
-	FooterHint string
+	Title        string
+	Subtitle     string
+	Items        []dialogItem
+	EmptyText    string
+	FooterHint   string
+	QueryEnabled bool
+	VisibleCount int
 }
 
 type dialogState struct {
@@ -74,6 +78,22 @@ type dialogState struct {
 	SelectedIndex int
 	EmptyText     string
 	FooterHint    string
+	Picker        listPickerState
+}
+
+type listPickerSpec struct {
+	Items        []dialogItem
+	QueryEnabled bool
+	VisibleCount int
+}
+
+type listPickerState struct {
+	Items            []dialogItem
+	Query            string
+	QueryEnabled     bool
+	SelectedIndex    int
+	VisibleFromIndex int
+	VisibleCount     int
 }
 
 func newInputState() inputState {

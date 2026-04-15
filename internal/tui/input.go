@@ -12,7 +12,10 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if msg.Type == tea.KeyCtrlC {
 			return m, tea.Quit
 		}
-		m.dialog.handleKey(msg)
+		if result := m.dialog.handleKey(msg); result.Selected {
+			item := result.Item
+			m.lastDialogSelection = &item
+		}
 		return m, nil
 	}
 	switch msg.Type {

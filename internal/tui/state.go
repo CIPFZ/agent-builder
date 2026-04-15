@@ -11,13 +11,14 @@ type tuiState struct {
 	transcript []transcriptEntry
 	events     []string
 	inputState
-	dialog          dialogState
-	busy            bool
-	pendingApproval *approval.Request
-	diagnostics     diagnosticsState
-	activity        activityState
-	width           int
-	height          int
+	dialog              dialogState
+	lastDialogSelection *dialogItem
+	busy                bool
+	pendingApproval     *approval.Request
+	diagnostics         diagnosticsState
+	activity            activityState
+	width               int
+	height              int
 }
 
 func newTUIState(cfg ...ModelConfig) tuiState {

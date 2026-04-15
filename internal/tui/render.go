@@ -45,6 +45,11 @@ type dialogRenderState struct {
 	SelectedIndex int
 	EmptyText     string
 	FooterHint    string
+	Query         string
+	QueryEnabled  bool
+	MatchCount    int
+	VisibleFrom   int
+	VisibleTotal  int
 }
 
 func newRenderSnapshot(m Model, width int) renderSnapshot {
@@ -79,13 +84,19 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 		}
 	}
 	if m.dialog.active() {
+		items := m.dialog.Picker.VisibleItems()
 		snapshot.Dialog = &dialogRenderState{
 			Title:         m.dialog.Title,
 			Subtitle:      m.dialog.Subtitle,
-			Items:         append([]dialogItem(nil), m.dialog.Items...),
-			SelectedIndex: m.dialog.SelectedIndex,
+			Items:         items,
+			SelectedIndex: m.dialog.Picker.SelectedIndex - m.dialog.Picker.VisibleFromIndex,
 			EmptyText:     m.dialog.EmptyText,
 			FooterHint:    m.dialog.FooterHint,
+			Query:         m.dialog.Picker.Query,
+			QueryEnabled:  m.dialog.Picker.QueryEnabled,
+			MatchCount:    m.dialog.Picker.MatchCount(),
+			VisibleFrom:   m.dialog.Picker.VisibleFromIndex,
+			VisibleTotal:  len(m.dialog.Picker.filteredItems()),
 		}
 	}
 	return snapshot
@@ -251,6 +262,15 @@ func (r renderer) renderDialog(snapshot renderSnapshot) string {
 	}
 	b.WriteString(borderLine(width, '#'))
 	b.WriteString("\n")
+	if dialog.QueryEnabled {
+		b.WriteString("  Search: ")
+		if dialog.Query == "" {
+			b.WriteString("(type to filter)")
+		} else {
+			b.WriteString(truncateCells(dialog.Query, innerWidth-8))
+		}
+		b.WriteString("\n")
+	}
 	if len(dialog.Items) == 0 {
 		empty := dialog.EmptyText
 		if empty == "" {
@@ -266,6 +286,9 @@ func (r renderer) renderDialog(snapshot renderSnapshot) string {
 				prefix = "> "
 			}
 			line := item.Label
+			if item.Disabled {
+				line += " (disabled)"
+			}
 			if item.Description != "" {
 				line += " - " + item.Description
 			}
@@ -283,6 +306,18 @@ func (r renderer) renderDialog(snapshot renderSnapshot) string {
 	hint := dialog.FooterHint
 	if hint == "" {
 		hint = "Enter select  |  Esc close"
+	}
+	if dialog.QueryEnabled {
+		matchLabel := fmt.Sprintf("%d matches", dialog.MatchCount)
+		if dialog.MatchCount == 1 {
+			matchLabel = "1 match"
+		}
+		b.WriteString("  ")
+		b.WriteString(matchLabel)
+		if dialog.VisibleTotal > len(dialog.Items) {
+			b.WriteString(fmt.Sprintf(" · showing %d-%d", dialog.VisibleFrom+1, dialog.VisibleFrom+len(dialog.Items)))
+		}
+		b.WriteString("\n")
 	}
 	b.WriteString(borderLine(width, '#'))
 	b.WriteString("\n")
