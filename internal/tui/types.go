@@ -54,6 +54,28 @@ type inputState struct {
 	selectedIndex int
 }
 
+type dialogItem struct {
+	Label       string
+	Description string
+}
+
+type dialogSpec struct {
+	Title      string
+	Subtitle   string
+	Items      []dialogItem
+	EmptyText  string
+	FooterHint string
+}
+
+type dialogState struct {
+	Title         string
+	Subtitle      string
+	Items         []dialogItem
+	SelectedIndex int
+	EmptyText     string
+	FooterHint    string
+}
+
 func newInputState() inputState {
 	return inputState{
 		history:      make([]string, 0, 32),

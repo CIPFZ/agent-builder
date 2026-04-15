@@ -19,6 +19,7 @@ type renderSnapshot struct {
 	Transcript  []transcriptEntry
 	Input       inputRenderState
 	Approval    *approvalRenderState
+	Dialog      *dialogRenderState
 	Busy        bool
 	Activity    string
 	Diagnostics diagnosticsState
@@ -35,6 +36,15 @@ type approvalRenderState struct {
 	ToolName  string
 	ToolInput string
 	Reason    string
+}
+
+type dialogRenderState struct {
+	Title         string
+	Subtitle      string
+	Items         []dialogItem
+	SelectedIndex int
+	EmptyText     string
+	FooterHint    string
 }
 
 func newRenderSnapshot(m Model, width int) renderSnapshot {
@@ -68,6 +78,16 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 			Reason:    m.pendingApproval.Reason,
 		}
 	}
+	if m.dialog.active() {
+		snapshot.Dialog = &dialogRenderState{
+			Title:         m.dialog.Title,
+			Subtitle:      m.dialog.Subtitle,
+			Items:         append([]dialogItem(nil), m.dialog.Items...),
+			SelectedIndex: m.dialog.SelectedIndex,
+			EmptyText:     m.dialog.EmptyText,
+			FooterHint:    m.dialog.FooterHint,
+		}
+	}
 	return snapshot
 }
 
@@ -83,6 +103,9 @@ func (r renderer) renderScreen(snapshot renderSnapshot) string {
 		b.WriteString(r.renderApproval(snapshot))
 	}
 	b.WriteString(r.renderPrompt(snapshot))
+	if snapshot.Dialog != nil {
+		b.WriteString(r.renderDialog(snapshot))
+	}
 	return b.String()
 }
 
@@ -172,7 +195,7 @@ func (r renderer) renderPrompt(snapshot renderSnapshot) string {
 	b.WriteString("> ")
 	b.WriteString(input)
 	b.WriteString("\n")
-	if len(snapshot.Input.Suggestions) > 0 {
+	if snapshot.Dialog == nil && len(snapshot.Input.Suggestions) > 0 {
 		b.WriteString(r.renderSuggestions(snapshot))
 	}
 	b.WriteString(borderLine(width, '-'))
@@ -180,6 +203,9 @@ func (r renderer) renderPrompt(snapshot renderSnapshot) string {
 	help := "Enter to send  |  Up/Down history  |  / for commands"
 	if snapshot.Approval != nil {
 		help = "Ctrl+Y approve  |  Ctrl+N reject"
+	}
+	if snapshot.Dialog != nil {
+		help = "Enter select  |  Esc close"
 	}
 	b.WriteString(rightAlign(help, width))
 	b.WriteString("\n")
@@ -197,6 +223,71 @@ func (r renderer) renderSuggestions(snapshot renderSnapshot) string {
 		b.WriteString(suggestion)
 		b.WriteString("\n")
 	}
+	return b.String()
+}
+
+func (r renderer) renderDialog(snapshot renderSnapshot) string {
+	dialog := snapshot.Dialog
+	if dialog == nil {
+		return ""
+	}
+	width := snapshot.Width
+	innerWidth := width - 4
+	if innerWidth < 20 {
+		innerWidth = 20
+	}
+	var b strings.Builder
+	b.WriteString(borderLine(width, '#'))
+	b.WriteString("\n")
+	b.WriteString("  ")
+	b.WriteString(truncateCells(dialog.Title, innerWidth))
+	b.WriteString("\n")
+	if dialog.Subtitle != "" {
+		for _, line := range wrapCells(dialog.Subtitle, innerWidth) {
+			b.WriteString("  ")
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString(borderLine(width, '#'))
+	b.WriteString("\n")
+	if len(dialog.Items) == 0 {
+		empty := dialog.EmptyText
+		if empty == "" {
+			empty = "(empty)"
+		}
+		b.WriteString("  ")
+		b.WriteString(empty)
+		b.WriteString("\n")
+	} else {
+		for i, item := range dialog.Items {
+			prefix := "  "
+			if i == dialog.SelectedIndex {
+				prefix = "> "
+			}
+			line := item.Label
+			if item.Description != "" {
+				line += " - " + item.Description
+			}
+			for j, wrapped := range wrapCells(line, innerWidth) {
+				if j == 0 {
+					b.WriteString(prefix)
+				} else {
+					b.WriteString("  ")
+				}
+				b.WriteString(wrapped)
+				b.WriteString("\n")
+			}
+		}
+	}
+	hint := dialog.FooterHint
+	if hint == "" {
+		hint = "Enter select  |  Esc close"
+	}
+	b.WriteString(borderLine(width, '#'))
+	b.WriteString("\n")
+	b.WriteString(rightAlign(hint, width))
+	b.WriteString("\n")
 	return b.String()
 }
 
