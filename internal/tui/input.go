@@ -8,12 +8,22 @@ import (
 )
 
 func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.dialog.active() {
+		if msg.Type == tea.KeyCtrlC {
+			return m, tea.Quit
+		}
+		m.dialog.handleKey(msg)
+		return m, nil
+	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
 	case tea.KeyEnter:
 		if m.pendingApproval != nil {
 			m.clearSuggestions()
+			return m, nil
+		}
+		if m.handleLocalCommand(strings.TrimSpace(m.input)) {
 			return m, nil
 		}
 		text, ok := m.submitUserInput()

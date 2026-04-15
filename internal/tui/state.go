@@ -11,6 +11,7 @@ type tuiState struct {
 	transcript []transcriptEntry
 	events     []string
 	inputState
+	dialog          dialogState
 	busy            bool
 	pendingApproval *approval.Request
 	diagnostics     diagnosticsState
@@ -24,6 +25,7 @@ func newTUIState(cfg ...ModelConfig) tuiState {
 		transcript: make([]transcriptEntry, 0, 32),
 		events:     []string{"Welcome to myclaw TUI"},
 		inputState: newInputState(),
+		dialog:     newDialogState(),
 	}
 	if len(cfg) > 0 {
 		state.diagnostics.SessionID = cfg[0].SessionID
