@@ -1,37 +1,18 @@
 package tui
 
-import (
-	tea "github.com/charmbracelet/bubbletea"
-
-	"myclaw/internal/approval"
-)
+import tea "github.com/charmbracelet/bubbletea"
 
 type Model struct {
-	bridge     Bridge
-	transcript []transcriptEntry
-	events     []string
-	inputState
-	busy            bool
-	pendingApproval *approval.Request
-	diagnostics     diagnosticsState
-	activity        activityState
-	width           int
-	height          int
+	bridge Bridge
+	tuiState
 }
 
 var slashCommands = []string{"/help", "/clear", "/model", "/session", "/compact", "/debug"}
 
 func NewModel(bridge Bridge, cfg ...ModelConfig) Model {
 	model := Model{
-		bridge:     bridge,
-		transcript: make([]transcriptEntry, 0, 32),
-		events:     []string{"Welcome to myclaw TUI"},
-		inputState: newInputState(),
-	}
-	if len(cfg) > 0 {
-		model.diagnostics.SessionID = cfg[0].SessionID
-		model.diagnostics.LLMLabel = cfg[0].LLMLabel
-		model.diagnostics.LogPath = cfg[0].LogPath
+		bridge:   bridge,
+		tuiState: newTUIState(cfg...),
 	}
 	return model
 }
@@ -41,8 +22,7 @@ func (m Model) Init() tea.Cmd { return nil }
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch typed := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = typed.Width
-		m.height = typed.Height
+		m.setSize(typed.Width, typed.Height)
 	case tea.MouseMsg:
 		return m, m.handleMouse(typed)
 	case tea.KeyMsg:
@@ -50,11 +30,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case RuntimeEventMsg:
 		m.updateRuntimeEvent(typed.Event)
 	case BridgeErrMsg:
-		if typed.Err != nil {
-			m.events = append(m.events, "error: "+typed.Err.Error())
-			m.busy = false
-			m.diagnostics.LastError = typed.Err.Error()
-		}
+		m.applyBridgeError(typed.Err)
 	}
 	return m, nil
 }

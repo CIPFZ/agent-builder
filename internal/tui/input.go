@@ -25,21 +25,11 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.clearSuggestions()
 			return m, nil
 		}
-		// Enter sends the message
-		m.clearSuggestions()
-		text := strings.TrimSpace(m.input)
-		if text == "" {
+		text, ok := m.submitUserInput()
+		if !ok {
 			return m, nil
 		}
-		if text != "" && (len(m.history) == 0 || m.history[len(m.history)-1] != text) {
-			m.history = append(m.history, text)
-		}
-		m.historyIndex = -1
-		m.cursorPos = 0
 		m.bridge.SendUserMessage(text)
-		m.transcript = append(m.transcript, transcriptEntry{Role: "user", Content: text})
-		m.input = ""
-		m.busy = true
 		return m, nil
 	case tea.KeyLeft:
 		if m.cursorPos > 0 {
@@ -131,17 +121,13 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.updateSuggestions()
 		return m, nil
 	case tea.KeyCtrlY:
-		if m.pendingApproval != nil {
-			m.bridge.Approve(m.pendingApproval.ID)
-			m.pendingApproval = nil
-			m.busy = true
+		if id, ok := m.approvePending(); ok {
+			m.bridge.Approve(id)
 		}
 		return m, nil
 	case tea.KeyCtrlN:
-		if m.pendingApproval != nil {
-			m.bridge.Reject(m.pendingApproval.ID)
-			m.pendingApproval = nil
-			m.busy = false
+		if id, ok := m.rejectPending(); ok {
+			m.bridge.Reject(id)
 		}
 		return m, nil
 	case tea.KeyRunes:
@@ -186,8 +172,7 @@ func (m Model) acceptSuggestion() {
 }
 
 func (m *Model) clearSuggestions() {
-	m.suggestions = nil
-	m.selectedIndex = -1
+	m.tuiState.clearSuggestions()
 }
 
 func (m Model) lineStartPosition(runes []rune, pos int) int {
