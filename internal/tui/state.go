@@ -12,6 +12,7 @@ type tuiState struct {
 	events     []string
 	inputState
 	dialog              dialogState
+	approvalDialog      approvalDialogState
 	lastDialogSelection *dialogItem
 	busy                bool
 	pendingApproval     *approval.Request
@@ -23,10 +24,11 @@ type tuiState struct {
 
 func newTUIState(cfg ...ModelConfig) tuiState {
 	state := tuiState{
-		transcript: make([]transcriptEntry, 0, 32),
-		events:     []string{"Welcome to myclaw TUI"},
-		inputState: newInputState(),
-		dialog:     newDialogState(),
+		transcript:     make([]transcriptEntry, 0, 32),
+		events:         []string{"Welcome to myclaw TUI"},
+		inputState:     newInputState(),
+		dialog:         newDialogState(),
+		approvalDialog: newApprovalDialogState(),
 	}
 	if len(cfg) > 0 {
 		state.diagnostics.SessionID = cfg[0].SessionID
@@ -69,6 +71,7 @@ func (s *tuiState) approvePending() (string, bool) {
 	}
 	id := s.pendingApproval.ID
 	s.pendingApproval = nil
+	s.approvalDialog.close()
 	s.busy = true
 	return id, true
 }
@@ -79,6 +82,7 @@ func (s *tuiState) rejectPending() (string, bool) {
 	}
 	id := s.pendingApproval.ID
 	s.pendingApproval = nil
+	s.approvalDialog.close()
 	s.busy = false
 	return id, true
 }
@@ -138,12 +142,15 @@ func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
 		}
 	case "permission.required":
 		s.pendingApproval = event.Approval
+		s.dialog.close()
+		s.approvalDialog.open(event.Approval)
 		if event.Approval != nil {
 			s.activity.Label = "Awaiting approval: " + event.Approval.ToolName + " " + event.Approval.ToolInput
 		}
 		s.busy = false
 	case "approval.updated":
 		s.pendingApproval = nil
+		s.approvalDialog.close()
 	case "run.error":
 		if event.Error != "" {
 			s.diagnostics.LastError = event.Error

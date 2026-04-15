@@ -8,6 +8,23 @@ import (
 )
 
 func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.approvalDialog.active() {
+		if msg.Type == tea.KeyCtrlC {
+			return m, tea.Quit
+		}
+		result := m.approvalDialog.handleKey(msg)
+		switch result.Action {
+		case approvalDialogApprove:
+			if id, ok := m.approvePending(); ok {
+				m.bridge.Approve(id)
+			}
+		case approvalDialogReject:
+			if id, ok := m.rejectPending(); ok {
+				m.bridge.Reject(id)
+			}
+		}
+		return m, nil
+	}
 	if m.dialog.active() {
 		if msg.Type == tea.KeyCtrlC {
 			return m, tea.Quit
