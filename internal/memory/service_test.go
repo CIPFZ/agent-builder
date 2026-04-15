@@ -36,6 +36,35 @@ func TestServiceSaveSummaryMemoryOnCompaction(t *testing.T) {
 	}
 }
 
+func TestServiceSaveClaudeCompactSummaryMemoryOnCompaction(t *testing.T) {
+	service := memory.NewService()
+	session := model.Session{
+		ID:      "main-000001",
+		Key:     "agent:main:main",
+		AgentID: "main",
+		IsMain:  true,
+	}
+
+	memories, saved := service.SaveCompactionSummary(session, model.Message{
+		ID:               "summary-1",
+		SessionID:        session.ID,
+		Role:             "user",
+		Content:          "This session is being continued from a previous conversation that ran out of context.",
+		IsCompactSummary: true,
+		CreatedAt:        time.Unix(10, 0).UTC(),
+	})
+
+	if !saved {
+		t.Fatal("expected Claude compact summary memory to be saved")
+	}
+	if len(memories) != 1 {
+		t.Fatalf("memory count = %d, want 1", len(memories))
+	}
+	if memories[0].Content == "" || memories[0].Content != "This session is being continued from a previous conversation that ran out of context." {
+		t.Fatalf("memory content = %q, want compact summary content", memories[0].Content)
+	}
+}
+
 func TestServiceSkipsNonSummaryMessages(t *testing.T) {
 	service := memory.NewService()
 	session := model.Session{ID: "main-000001"}

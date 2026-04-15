@@ -28,6 +28,26 @@ func TestPolicyEvaluateAskModeRequiresApproval(t *testing.T) {
 	}
 }
 
+func TestPolicyEvaluateAskModeRequiresApprovalForClaudeShellTools(t *testing.T) {
+	for _, toolName := range []string{"Bash", "PowerShell"} {
+		t.Run(toolName, func(t *testing.T) {
+			policy := permissions.Policy{Mode: permissions.ModeAsk}
+			decision := policy.Evaluate(permissions.Request{
+				ToolName:    toolName,
+				Command:     "pwd",
+				WorkDir:     "/tmp/project",
+				Destructive: true,
+			})
+			if decision.Allowed || !decision.RequiresApproval {
+				t.Fatalf("decision = %#v, want Claude shell tool to require approval like system.run", decision)
+			}
+			if decision.Category != permissions.CategoryApproval {
+				t.Fatalf("decision category = %q, want %q", decision.Category, permissions.CategoryApproval)
+			}
+		})
+	}
+}
+
 func TestPolicyEvaluateWorkspaceModeAllowsInsideWorkspace(t *testing.T) {
 	policy := permissions.Policy{
 		Mode:           permissions.ModeWorkspaceWrite,

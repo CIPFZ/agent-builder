@@ -2,6 +2,11 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +21,7 @@ import (
 	"myclaw/internal/permissions"
 	"myclaw/internal/queryengine"
 	"myclaw/internal/session"
+	"myclaw/internal/tools"
 	"myclaw/internal/workspace"
 )
 
@@ -1357,6 +1363,274 @@ func TestNewRunnerWithOptionsRestoresPendingApprovalPromptMetadataFromSessionMet
 		"type": "text",
 		"text": "approval prompt block",
 	})
+}
+
+func TestNewRunnerWithOptionsRegistersClaudeCoreToolSurface(t *testing.T) {
+	sessions := session.NewManager(nil)
+	client := &captureMemoryClient{}
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "inspect tool surface")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+
+	if err := runner.HandleUserMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("handle user message: %v", err)
+	}
+	names := map[string]bool{}
+	for _, tool := range client.lastRequest.Tools {
+		names[tool.Name] = true
+	}
+	for _, want := range []string{
+		"Bash", "PowerShell",
+		"Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS", "TodoWrite",
+		"Agent", "ToolSearch",
+		"WebFetch", "WebSearch",
+		"ListMcpResources", "ReadMcpResource",
+		"Skill", "NotebookEdit",
+		"EnterPlanMode", "ExitPlanMode",
+	} {
+		if !names[want] {
+			t.Fatalf("default tools = %#v, missing Claude core tool %q", names, want)
+		}
+	}
+}
+
+func TestNewRunnerWithOptionsRegistersConfiguredMCPTools(t *testing.T) {
+	sessions := session.NewManager(nil)
+	client := &captureMemoryClient{}
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MCPTools: map[string]tools.MCPToolsListResult{
+			"filesystem": {Tools: []tools.MCPToolListItem{{
+				Name:        "read_file",
+				Description: "Read a file",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{"type": "string"},
+					},
+				},
+			}}},
+		},
+	})
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "inspect mcp tool surface")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	if err := runner.HandleUserMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("handle user message: %v", err)
+	}
+	for _, tool := range client.lastRequest.Tools {
+		if tool.Name == "mcp__filesystem__read_file" {
+			properties, _ := tool.InputSchema["properties"].(map[string]any)
+			if properties["path"] == nil {
+				t.Fatalf("mcp tool schema = %#v, want configured schema", tool.InputSchema)
+			}
+			return
+		}
+	}
+	t.Fatalf("tools = %#v, want configured MCP tool", client.lastRequest.Tools)
+}
+
+func TestNewRunnerWithOptionsDiscoversMCPClientToolsAndCallsServer(t *testing.T) {
+	var calledTool bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		method, _ := request["method"].(string)
+		response := map[string]any{
+			"jsonrpc": "2.0",
+			"id":      request["id"],
+		}
+		switch method {
+		case "initialize":
+			response["result"] = map[string]any{
+				"protocolVersion": "2024-11-05",
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]any{"name": "filesystem", "version": "1.0.0"},
+			}
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+			return
+		case "tools/list":
+			response["result"] = map[string]any{
+				"tools": []any{map[string]any{
+					"name":        "read_file",
+					"description": "Read a file",
+					"inputSchema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"path": map[string]any{"type": "string"},
+						},
+					},
+				}},
+			}
+		case "tools/call":
+			params, _ := request["params"].(map[string]any)
+			if params["name"] != "read_file" {
+				t.Fatalf("tool call params = %#v, want read_file", params)
+			}
+			args, _ := params["arguments"].(map[string]any)
+			if args["path"] != "README.md" {
+				t.Fatalf("tool call args = %#v, want README.md", args)
+			}
+			calledTool = true
+			response["result"] = map[string]any{
+				"content": []any{map[string]any{"type": "text", "text": "remote file contents"}},
+			}
+		default:
+			t.Fatalf("unexpected MCP method %q", method)
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "invoke discovered mcp")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{
+		strings.Join([]string{
+			"<tool_call>",
+			"name: mcp__filesystem__read_file",
+			"input: {\"path\":\"README.md\"}",
+			"</tool_call>",
+		}, "\n"),
+		"done",
+	}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MCPClients: []tools.MCPConnection{{
+			Name:    "filesystem",
+			Type:    "streamable_http",
+			BaseURL: server.URL,
+		}},
+	})
+	if err := runner.HandleUserMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("handle user message: %v", err)
+	}
+	if !calledTool {
+		t.Fatal("expected MCP tools/call to be sent to discovered server")
+	}
+	messages, ok := sessions.Messages(sess.ID)
+	if !ok {
+		t.Fatalf("messages for session %q not found", sess.ID)
+	}
+	for _, message := range messages {
+		if message.Role == "tool" && strings.Contains(message.Content, "remote file contents") {
+			return
+		}
+	}
+	t.Fatalf("messages = %#v, want discovered MCP tool output", messages)
+}
+
+func TestNewRunnerWithOptionsInjectsSkillForkExecutor(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	dir := t.TempDir()
+	root := filepath.Join(dir, "skills")
+	skillDir := filepath.Join(root, "verify")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\ncontext: fork\nagent: verifier\n---\nVerify it."), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	msg, err := sessions.AppendMessage(sess.ID, "user", "invoke skill")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	called := false
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{
+		strings.Join([]string{
+			"<tool_call>",
+			"name: Skill",
+			"input: {\"skill\":\"verify\"}",
+			"</tool_call>",
+		}, "\n"),
+		"done",
+	}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		SkillRoots:       []string{root},
+		SkillForkExecutor: func(_ context.Context, request tools.SkillForkRequest) (tools.ToolResult, error) {
+			called = true
+			if request.Command.Name != "verify" || request.Command.Agent != "verifier" {
+				t.Fatalf("request = %#v, want verify verifier skill", request)
+			}
+			return tools.ToolResult{Output: `{"status":"forked","agent":"verifier","result":"runner executed"}`}, nil
+		},
+	})
+	if err := runner.HandleUserMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("handle user message: %v", err)
+	}
+	if !called {
+		t.Fatal("expected SkillForkExecutor to be called")
+	}
+	messages, ok := sessions.Messages(sess.ID)
+	if !ok {
+		t.Fatalf("messages for session %q not found", sess.ID)
+	}
+	for _, message := range messages {
+		if message.Role == "tool" && strings.Contains(message.Content, "runner executed") {
+			return
+		}
+	}
+	t.Fatalf("messages = %#v, want fork executor output", messages)
+}
+
+func TestNewRunnerWithOptionsDefaultsSkillForkToSubagentRuntime(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	dir := t.TempDir()
+	root := filepath.Join(dir, "skills")
+	skillDir := filepath.Join(root, "verify")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\ncontext: fork\nagent: verifier\n---\nVerify it."), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	msg, err := sessions.AppendMessage(sess.ID, "user", "invoke skill")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{
+		strings.Join([]string{
+			"<tool_call>",
+			"name: Skill",
+			"input: {\"skill\":\"verify\"}",
+			"</tool_call>",
+		}, "\n"),
+		"subagent verified",
+		"done",
+	}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		SkillRoots:       []string{root},
+	})
+	if err := runner.HandleUserMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("handle user message: %v", err)
+	}
+	if len(runner.AgentManager().List()) != 1 {
+		t.Fatalf("runs = %#v, want one forked skill subagent run", runner.AgentManager().List())
+	}
+	messages, ok := sessions.Messages(sess.ID)
+	if !ok {
+		t.Fatalf("messages for session %q not found", sess.ID)
+	}
+	for _, message := range messages {
+		if message.Role == "tool" && strings.Contains(message.Content, "subagent verified") {
+			return
+		}
+	}
+	t.Fatalf("messages = %#v, want forked subagent result", messages)
 }
 
 func TestRunnerApproveAndContinueWorksWithRestoredPendingApproval(t *testing.T) {

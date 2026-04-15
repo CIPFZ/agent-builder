@@ -1,6 +1,10 @@
 package compaction
 
 import (
+	"crypto/rand"
+	"encoding/json"
+	"fmt"
+	"sort"
 	"strings"
 
 	"myclaw/internal/model"
@@ -44,6 +48,7 @@ const (
 )
 
 const clearedToolResultMessage = "[Old tool result content cleared]"
+const maxSessionMemorySectionLength = 2000
 
 var compactableToolResultPrefixes = []string{
 	"system.run:",
@@ -51,15 +56,19 @@ var compactableToolResultPrefixes = []string{
 }
 
 type Result struct {
-	Changed               bool
-	Reason                Reason
-	Analysis              Analysis
-	OriginalCount         int
-	CompactedCount        int
-	Messages              []model.Message
-	SummaryMessage        *model.Message
-	SummarizedThroughID   string
-	PostCompactTokenCount int
+	Changed                   bool
+	Reason                    Reason
+	Analysis                  Analysis
+	OriginalCount             int
+	CompactedCount            int
+	Messages                  []model.Message
+	BoundaryMessage           *model.Message
+	SummaryMessage            *model.Message
+	Attachments               []model.Message
+	HookMessages              []model.Message
+	SummarizedThroughID       string
+	PostCompactTokenCount     int
+	TruePostCompactTokenCount int
 }
 
 type Service struct {
@@ -70,6 +79,8 @@ type SessionMemoryOptions struct {
 	HookMessages         []model.Message
 	TranscriptPath       string
 	AutoCompactThreshold int
+	PlanAttachment       *model.Message
+	SessionMemoryPath    string
 }
 
 func NewService(cfg Config) *Service {
@@ -170,20 +181,22 @@ func (s *Service) CompactWithSessionMemoryOptions(messages []model.Message, summ
 	}
 
 	recent := filterCompactBoundaryMessages(messages[startIndex:])
-	summary := model.Message{
-		ID:        "summary-1",
-		SessionID: firstSessionID(messages),
-		Role:      "summary",
-		Content:   s.cfg.SummaryPrefix + " " + trimmedSummary,
+	sessionID := firstSessionID(messages)
+	summary := sessionMemorySummaryMessage(sessionID, trimmedSummary, opts)
+	boundary := compactBoundaryMessage(sessionID, analysis.EstimatedTokens, messages, len(messages[:startIndex]))
+	boundary.CompactMetadata.PreCompactDiscoveredTools = extractDiscoveredToolNames(messages)
+	annotateBoundaryWithPreservedSegment(&boundary, summary.ID, recent)
+
+	attachments := make([]model.Message, 0, 1)
+	if opts.PlanAttachment != nil {
+		attachments = append(attachments, cloneMessage(*opts.PlanAttachment))
 	}
 
-	compacted := make([]model.Message, 0, 1+len(recent))
-	compacted = append(compacted, summary)
-	if transcriptNote := compactTranscriptNote(firstSessionID(messages), opts.TranscriptPath); transcriptNote != nil {
-		compacted = append(compacted, *transcriptNote)
-	}
-	compacted = append(compacted, cloneMessages(opts.HookMessages)...)
+	compacted := make([]model.Message, 0, 2+len(recent)+len(attachments)+len(opts.HookMessages))
+	compacted = append(compacted, boundary, summary)
 	compacted = append(compacted, recent...)
+	compacted = append(compacted, attachments...)
+	compacted = append(compacted, cloneMessages(opts.HookMessages)...)
 
 	postCompactTokenCount := estimateTokens(compacted)
 	if opts.AutoCompactThreshold > 0 && postCompactTokenCount >= opts.AutoCompactThreshold {
@@ -194,8 +207,12 @@ func (s *Service) CompactWithSessionMemoryOptions(messages []model.Message, summ
 	result.Reason = reason
 	result.Messages = compacted
 	result.CompactedCount = len(compacted)
+	result.BoundaryMessage = &boundary
 	result.SummaryMessage = &summary
+	result.Attachments = attachments
+	result.HookMessages = cloneMessages(opts.HookMessages)
 	result.PostCompactTokenCount = postCompactTokenCount
+	result.TruePostCompactTokenCount = postCompactTokenCount
 	if startIndex > 0 {
 		result.SummarizedThroughID = messages[startIndex-1].ID
 	}
@@ -304,24 +321,88 @@ func (s *Service) overTokenBudget(messages []model.Message) bool {
 func estimateTokens(messages []model.Message) int {
 	total := 0
 	for _, msg := range messages {
-		total += (len(msg.Content) + 3) / 4
+		total += roughTokenCount(msg.Content)
+		for _, block := range msg.Blocks {
+			total += estimateBlockTokens(block)
+		}
+		if msg.CompactMetadata != nil {
+			if encoded, err := json.Marshal(msg.CompactMetadata); err == nil {
+				total += roughTokenCount(string(encoded))
+			}
+		}
 	}
 	return total
 }
 
+func estimateBlockTokens(block model.MessageBlock) int {
+	if block.Raw != nil {
+		if encoded, err := json.Marshal(block.Raw); err == nil {
+			return roughTokenCount(string(encoded))
+		}
+	}
+	total := roughTokenCount(block.Text) + roughTokenCount(block.Content) + roughTokenCount(block.Name) + roughTokenCount(block.Input)
+	if block.InputObject != nil {
+		if encoded, err := json.Marshal(block.InputObject); err == nil {
+			total += roughTokenCount(string(encoded))
+		}
+	}
+	return total
+}
+
+func roughTokenCount(content string) int {
+	return (len(content) + 3) / 4
+}
+
 func cloneMessages(messages []model.Message) []model.Message {
 	out := make([]model.Message, len(messages))
-	copy(out, messages)
+	for i, message := range messages {
+		out[i] = cloneMessage(message)
+	}
+	return out
+}
+
+func cloneMessage(message model.Message) model.Message {
+	if len(message.Blocks) > 0 {
+		message.Blocks = append([]model.MessageBlock(nil), message.Blocks...)
+		for i := range message.Blocks {
+			if message.Blocks[i].InputObject != nil {
+				message.Blocks[i].InputObject = cloneAnyMap(message.Blocks[i].InputObject)
+			}
+			if message.Blocks[i].Raw != nil {
+				message.Blocks[i].Raw = cloneAnyMap(message.Blocks[i].Raw)
+			}
+		}
+	}
+	if message.CompactMetadata != nil {
+		metadata := *message.CompactMetadata
+		metadata.PreCompactDiscoveredTools = append([]string(nil), message.CompactMetadata.PreCompactDiscoveredTools...)
+		if message.CompactMetadata.PreservedSegment != nil {
+			segment := *message.CompactMetadata.PreservedSegment
+			metadata.PreservedSegment = &segment
+		}
+		message.CompactMetadata = &metadata
+	}
+	return message
+}
+
+func cloneAnyMap(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	out := make(map[string]any, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
 	return out
 }
 
 func filterCompactBoundaryMessages(messages []model.Message) []model.Message {
 	out := make([]model.Message, 0, len(messages))
 	for _, msg := range messages {
-		if msg.Role == "system" && msg.Content == "[compact_boundary]" {
+		if isCompactBoundaryMessage(msg) {
 			continue
 		}
-		out = append(out, msg)
+		out = append(out, cloneMessage(msg))
 	}
 	return out
 }
@@ -331,6 +412,158 @@ func firstSessionID(messages []model.Message) string {
 		return ""
 	}
 	return messages[0].SessionID
+}
+
+func sessionMemorySummaryMessage(sessionID, content string, opts SessionMemoryOptions) model.Message {
+	truncatedContent, wasTruncated := truncateSessionMemoryForCompact(content)
+	content = getCompactUserSummaryMessage(truncatedContent, true, strings.TrimSpace(opts.TranscriptPath), true)
+	if wasTruncated {
+		if sessionMemoryPath := strings.TrimSpace(opts.SessionMemoryPath); sessionMemoryPath != "" {
+			content += "\n\nSome session memory sections were truncated for length. The full session memory can be viewed at: " + sessionMemoryPath
+		}
+	}
+	return model.Message{
+		ID:                        newUUID(),
+		SessionID:                 sessionID,
+		Role:                      "user",
+		Content:                   content,
+		IsCompactSummary:          true,
+		IsVisibleInTranscriptOnly: true,
+	}
+}
+
+func compactBoundaryMessage(sessionID string, preTokens int, messages []model.Message, messagesSummarized int) model.Message {
+	boundary := model.Message{
+		ID:        newUUID(),
+		SessionID: sessionID,
+		Role:      "system",
+		Subtype:   "compact_boundary",
+		Content:   "Conversation compacted",
+		Level:     "info",
+		CompactMetadata: &model.CompactMetadata{
+			Trigger:            "auto",
+			PreTokens:          preTokens,
+			MessagesSummarized: messagesSummarized,
+		},
+	}
+	if len(messages) > 0 {
+		boundary.LogicalParentID = messages[len(messages)-1].ID
+	}
+	return boundary
+}
+
+func annotateBoundaryWithPreservedSegment(boundary *model.Message, anchorID string, messagesToKeep []model.Message) {
+	if boundary == nil || len(messagesToKeep) == 0 {
+		return
+	}
+	if boundary.CompactMetadata == nil {
+		boundary.CompactMetadata = &model.CompactMetadata{}
+	}
+	boundary.CompactMetadata.PreservedSegment = &model.CompactPreservedSegment{
+		HeadID:   messagesToKeep[0].ID,
+		AnchorID: anchorID,
+		TailID:   messagesToKeep[len(messagesToKeep)-1].ID,
+	}
+}
+
+func isCompactBoundaryMessage(message model.Message) bool {
+	return message.Role == "system" && (message.Subtype == "compact_boundary" || message.Content == "[compact_boundary]")
+}
+
+func getCompactUserSummaryMessage(summary string, suppressFollowUpQuestions bool, transcriptPath string, recentMessagesPreserved bool) string {
+	formattedSummary := formatCompactSummary(summary)
+	baseSummary := "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\n" + formattedSummary
+	if transcriptPath != "" {
+		baseSummary += "\n\nIf you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: " + transcriptPath
+	}
+	if recentMessagesPreserved {
+		baseSummary += "\n\nRecent messages are preserved verbatim."
+	}
+	if suppressFollowUpQuestions {
+		baseSummary += "\nContinue the conversation from where it left off without asking the user any further questions. Resume directly - do not acknowledge the summary, do not recap what was happening, do not preface with \"I'll continue\" or similar. Pick up the last task as if the break never happened."
+	}
+	return baseSummary
+}
+
+func formatCompactSummary(summary string) string {
+	formatted := summary
+	if start := strings.Index(formatted, "<analysis>"); start >= 0 {
+		if end := strings.Index(formatted[start:], "</analysis>"); end >= 0 {
+			formatted = formatted[:start] + formatted[start+end+len("</analysis>"):]
+		}
+	}
+	if start := strings.Index(formatted, "<summary>"); start >= 0 {
+		if end := strings.Index(formatted[start:], "</summary>"); end >= 0 {
+			inner := strings.TrimSpace(formatted[start+len("<summary>") : start+end])
+			formatted = formatted[:start] + "Summary:\n" + inner + formatted[start+end+len("</summary>"):]
+		}
+	}
+	for strings.Contains(formatted, "\n\n\n") {
+		formatted = strings.ReplaceAll(formatted, "\n\n\n", "\n\n")
+	}
+	return strings.TrimSpace(formatted)
+}
+
+func truncateSessionMemoryForCompact(content string) (string, bool) {
+	lines := strings.Split(content, "\n")
+	maxCharsPerSection := maxSessionMemorySectionLength * 4
+	output := make([]string, 0, len(lines))
+	currentHeader := ""
+	currentLines := make([]string, 0)
+	wasTruncated := false
+
+	flush := func() {
+		flushed, truncated := flushSessionMemorySection(currentHeader, currentLines, maxCharsPerSection)
+		output = append(output, flushed...)
+		wasTruncated = wasTruncated || truncated
+	}
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "# ") {
+			flush()
+			currentHeader = line
+			currentLines = currentLines[:0]
+			continue
+		}
+		currentLines = append(currentLines, line)
+	}
+	flush()
+	return strings.Join(output, "\n"), wasTruncated
+}
+
+func flushSessionMemorySection(sectionHeader string, sectionLines []string, maxCharsPerSection int) ([]string, bool) {
+	if sectionHeader == "" {
+		return append([]string(nil), sectionLines...), false
+	}
+	sectionContent := strings.Join(sectionLines, "\n")
+	if len(sectionContent) <= maxCharsPerSection {
+		out := make([]string, 0, 1+len(sectionLines))
+		out = append(out, sectionHeader)
+		out = append(out, sectionLines...)
+		return out, false
+	}
+
+	charCount := 0
+	kept := []string{sectionHeader}
+	for _, line := range sectionLines {
+		if charCount+len(line)+1 > maxCharsPerSection {
+			break
+		}
+		kept = append(kept, line)
+		charCount += len(line) + 1
+	}
+	kept = append(kept, "\n[... section truncated for length ...]")
+	return kept, true
+}
+
+func newUUID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return ""
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 func compactTranscriptNote(sessionID, transcriptPath string) *model.Message {
@@ -343,6 +576,50 @@ func compactTranscriptNote(sessionID, transcriptPath string) *model.Message {
 		SessionID: sessionID,
 		Role:      "system",
 		Content:   "Previous transcript before compact is available at: " + transcriptPath,
+	}
+}
+
+func extractDiscoveredToolNames(messages []model.Message) []string {
+	discovered := make(map[string]struct{})
+	for _, message := range messages {
+		if message.CompactMetadata != nil {
+			for _, name := range message.CompactMetadata.PreCompactDiscoveredTools {
+				name = strings.TrimSpace(name)
+				if name != "" {
+					discovered[name] = struct{}{}
+				}
+			}
+		}
+		if message.Role != "user" {
+			continue
+		}
+		for _, block := range message.Blocks {
+			extractToolReferences(discovered, block.Raw)
+		}
+	}
+	names := make([]string, 0, len(discovered))
+	for name := range discovered {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func extractToolReferences(discovered map[string]struct{}, value any) {
+	switch typed := value.(type) {
+	case map[string]any:
+		if typed["type"] == "tool_reference" {
+			if name := strings.TrimSpace(fmt.Sprint(typed["tool_name"])); name != "" && name != "<nil>" {
+				discovered[name] = struct{}{}
+			}
+		}
+		for _, child := range typed {
+			extractToolReferences(discovered, child)
+		}
+	case []any:
+		for _, child := range typed {
+			extractToolReferences(discovered, child)
+		}
 	}
 }
 
@@ -413,7 +690,7 @@ func (s *Service) sessionMemoryStartIndex(messages []model.Message, lastSummariz
 
 	floor := 0
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "system" && messages[i].Content == "[compact_boundary]" {
+		if isCompactBoundaryMessage(messages[i]) {
 			floor = i + 1
 			break
 		}

@@ -15,10 +15,17 @@ type GenerateRequest struct {
 	History     []session.Message
 	Context     prompt.Context
 	Model       string
+	Tools       []ToolDefinition
 }
 
 type GenerateResponse struct {
 	Content string
+}
+
+type ToolDefinition struct {
+	Name        string
+	Description string
+	InputSchema map[string]any
 }
 
 type Client interface {

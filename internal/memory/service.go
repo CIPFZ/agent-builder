@@ -30,8 +30,8 @@ type Entry struct {
 }
 
 type Service struct {
-	mu       sync.RWMutex
-	nextID   int
+	mu        sync.RWMutex
+	nextID    int
 	bySession map[string][]Item
 }
 
@@ -42,7 +42,7 @@ func NewService() *Service {
 }
 
 func (s *Service) SaveCompactionSummary(session model.Session, summary model.Message) ([]Item, bool) {
-	if summary.Role != "summary" {
+	if summary.Role != "summary" && !(summary.Role == "user" && summary.IsCompactSummary) {
 		return nil, false
 	}
 

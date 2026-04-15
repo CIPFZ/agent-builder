@@ -564,6 +564,37 @@ func TestRegistryDefinitionsUseBehaviorDrivenPromptMetadata(t *testing.T) {
 	}
 }
 
+func TestRegistryDefinitionsPreserveNativeInputSchema(t *testing.T) {
+	registry := tools.NewRegistry(
+		stubTool{
+			def: tools.Definition{
+				Name:        "Bash",
+				Description: "Run shell command.",
+				InputSchema: map[string]any{
+					"type":       "object",
+					"properties": map[string]any{"command": map[string]any{"type": "string"}},
+					"required":   []string{"command"},
+				},
+			},
+			enabled: true,
+		},
+	)
+
+	defs := registry.Definitions()
+	if len(defs) != 1 {
+		t.Fatalf("definitions len = %d, want 1", len(defs))
+	}
+	properties, ok := defs[0].InputSchema["properties"].(map[string]any)
+	if !ok || properties["command"] == nil {
+		t.Fatalf("input schema = %#v, want command property preserved", defs[0].InputSchema)
+	}
+	defs[0].InputSchema["mutated"] = true
+	again := registry.Definitions()
+	if again[0].InputSchema["mutated"] != nil {
+		t.Fatalf("input schema leaked mutation: %#v", again[0].InputSchema)
+	}
+}
+
 func TestRegistryExposeHidesDeferredToolsByDefault(t *testing.T) {
 	registry := tools.NewRegistry(
 		stubTool{

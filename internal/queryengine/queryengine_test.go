@@ -419,6 +419,54 @@ func TestQueryEngineSubmitMessageCompletesAssistantTurn(t *testing.T) {
 	}
 }
 
+func TestQueryEnginePassesNativeToolSchemasToModel(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "hello tools")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+
+	client := &scriptedClient{scripts: [][]llm.StreamEvent{{
+		{Type: "text.delta", Delta: "done"},
+		{Type: "message.end"},
+	}}}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           client,
+		WorkspaceLoader:  workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+
+	requests := client.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("request count = %d, want 1", len(requests))
+	}
+	if len(requests[0].Tools) == 0 {
+		t.Fatalf("tools = %#v, want native tool schemas", requests[0].Tools)
+	}
+	found := false
+	for _, tool := range requests[0].Tools {
+		if tool.Name == "Bash" && tool.InputSchema["type"] == "object" {
+			if _, ok := tool.InputSchema["additionalProperties"]; ok {
+				t.Fatalf("tool schema = %#v, did not want generic additionalProperties fallback", tool.InputSchema)
+			}
+			properties, ok := tool.InputSchema["properties"].(map[string]any)
+			if !ok || properties["command"] == nil {
+				t.Fatalf("tool schema = %#v, want native command property", tool.InputSchema)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("tools = %#v, want Bash native schema", requests[0].Tools)
+	}
+}
+
 func TestQueryEngineToolExecutionPersistsLinkedToolUseAndResultBlocks(t *testing.T) {
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")
@@ -587,6 +635,61 @@ func TestQueryEngineSubmitMessageTreatsDenyRuleAsFinalDenial(t *testing.T) {
 	}
 }
 
+func TestQueryEnginePermissionRejectionContinuesThroughModelWithToolResult(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "tool run pwd")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+
+	client := &scriptedClient{scripts: [][]llm.StreamEvent{
+		{
+			{Type: "tool.call", ToolName: "system.run", ToolInput: "pwd", ToolUseID: "toolu-denied"},
+			{Type: "message.end"},
+		},
+		{
+			{Type: "text.delta", Delta: "I cannot run that command."},
+			{Type: "message.end"},
+		},
+	}}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:        sessions,
+		Client:          client,
+		WorkspaceLoader: workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{
+			Mode: permissions.ModeDangerFullAccess,
+			Rules: []permissions.Rule{{
+				ToolName: "system.run",
+				Source:   string(permissions.RuleSourceSession),
+				Action:   permissions.ActionDeny,
+				Match:    permissions.Match{CommandContains: []string{"pwd"}},
+			}},
+		},
+	})
+
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+
+	requests := client.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("request count = %d, want model called again with tool_result", len(requests))
+	}
+	secondHistory := requests[1].History
+	if len(secondHistory) == 0 || secondHistory[len(secondHistory)-1].Role != "tool" {
+		t.Fatalf("second request history = %#v, want denied tool_result in model context", secondHistory)
+	}
+	messages, ok := sessions.Messages(sess.ID)
+	if !ok {
+		t.Fatalf("messages for %q not found", sess.ID)
+	}
+	last := messages[len(messages)-1]
+	if last.Role != "assistant" || last.Content != "I cannot run that command." {
+		t.Fatalf("last message = %#v, want model-authored continuation", last)
+	}
+}
+
 func TestQueryEngineApproveAndContinueCompletesPendingToolTurn(t *testing.T) {
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")
@@ -645,6 +748,10 @@ func TestQueryEngineApproveAndContinueStabilizesAfterApprovedToolInsteadOfExpand
 				{Type: "tool.call", ToolName: "system.run", ToolInput: "dir logs\\myclaw.jsonl"},
 				{Type: "message.end"},
 			},
+			{
+				{Type: "text.delta", Delta: "The approved command returned C:\\approved\\pwd."},
+				{Type: "message.end"},
+			},
 		},
 	}
 
@@ -699,7 +806,7 @@ func TestQueryEngineApproveAndContinueStabilizesAfterApprovedToolInsteadOfExpand
 		t.Fatalf("messages for %q not found", sess.ID)
 	}
 	last := messages[len(messages)-1]
-	if last.Role != "assistant" || last.Content != "Using tool result: system.run: C:\\approved\\pwd" {
+	if last.Role != "assistant" || last.Content != "The approved command returned C:\\approved\\pwd." {
 		t.Fatalf("last message = %#v, want stabilized assistant continuation using approved tool result", last)
 	}
 }
@@ -2414,19 +2521,32 @@ func TestQueryEnginePassesToolUseContextToContextualPermissionTool(t *testing.T)
 		},
 	)
 	engine := queryengine.New(queryengine.Config{
-		Sessions:         sessions,
-		Client:           client,
-		WorkspaceLoader:  workspace.NewLoader(""),
-		ToolRegistry:     registry,
-		PermissionPolicy: permissions.Policy{Mode: permissions.ModeWorkspaceWrite},
-		MainLoopModel:    "sonnet",
-		LLMProvider:      "anthropic",
-		Debug:            true,
-		Verbose:          true,
+		Sessions:               sessions,
+		Client:                 client,
+		WorkspaceLoader:        workspace.NewLoader(""),
+		ToolRegistry:           registry,
+		PermissionPolicy:       permissions.Policy{Mode: permissions.ModeWorkspaceWrite},
+		MainLoopModel:          "sonnet",
+		LLMProvider:            "anthropic",
+		Commands:               []tools.Command{{Name: "compact", Description: "Compact context"}},
+		QuerySource:            "cli",
+		Debug:                  true,
+		Verbose:                true,
+		ToolCustomSystemPrompt: "custom tool prompt",
+		ToolAppendSystemPrompt: "append tool prompt",
 		ThinkingConfig: map[string]any{
 			"type":          "enabled",
 			"budget_tokens": 2048,
 		},
+		ReadFileState: map[string]any{
+			"C:/repo/main.go": "cached",
+		},
+		ContentReplacementState: map[string]any{
+			"toolu-context": "kept",
+		},
+		CriticalSystemReminder: "stay aligned",
+		PreserveToolUseResults: true,
+		RenderedSystemPrompt:   "rendered parent prompt",
 		AgentDefinitions: tools.AgentDefinitions{
 			ActiveAgents:      []string{"explorer"},
 			AllowedAgentTypes: []string{"explorer", "worker"},
@@ -2462,6 +2582,14 @@ func TestQueryEnginePassesToolUseContextToContextualPermissionTool(t *testing.T)
 		AddNotification: func(item tools.Notification) {
 			notifications = append(notifications, item)
 		},
+		HandleElicitation: func(_ context.Context, request tools.ElicitationRequest) (tools.ElicitationResult, error) {
+			return tools.ElicitationResult{Value: "elicited:" + request.ServerName}, nil
+		},
+		SetConversationID: func(id string) {
+			if id != "conversation-1" {
+				t.Fatalf("conversation id = %q, want conversation-1", id)
+			}
+		},
 	})
 
 	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
@@ -2475,6 +2603,12 @@ func TestQueryEnginePassesToolUseContextToContextualPermissionTool(t *testing.T)
 	if got.Policy.Mode != permissions.ModeWorkspaceWrite || got.MainLoopModel != "claude-sonnet-4-5" || got.LLMProvider != "anthropic" {
 		t.Fatalf("tool context = %#v, want policy/model/provider metadata", got)
 	}
+	if len(got.Commands) != 1 || got.Commands[0].Name != "compact" || got.QuerySource != "cli" {
+		t.Fatalf("tool context = %#v, want commands and query source", got)
+	}
+	if got.CustomSystemPrompt != "custom tool prompt" || got.AppendSystemPrompt != "append tool prompt" {
+		t.Fatalf("tool context = %#v, want custom/append system prompt fields", got)
+	}
 	if !got.Debug || !got.Verbose || !got.IsNonInteractive || !got.RequireCanUseTool {
 		t.Fatalf("tool context = %#v, want Claude-style option flags", got)
 	}
@@ -2484,6 +2618,17 @@ func TestQueryEnginePassesToolUseContextToContextualPermissionTool(t *testing.T)
 	if got.ThinkingConfig["budget_tokens"] != 2048 || len(got.AgentDefinitions.ActiveAgents) != 1 || got.AgentDefinitions.ActiveAgents[0] != "explorer" {
 		t.Fatalf("tool context = %#v, want thinking config and agent definitions", got)
 	}
+	if got.ReadFileState["C:/repo/main.go"] != "cached" || got.ContentReplacementState["toolu-context"] != "kept" {
+		t.Fatalf("tool context = %#v, want read file and content replacement state", got)
+	}
+	if got.CriticalSystemReminder != "stay aligned" || !got.PreserveToolUseResults || got.RenderedSystemPrompt != "rendered parent prompt" {
+		t.Fatalf("tool context = %#v, want reminder/preserve/rendered prompt fields", got)
+	}
+	elicited, err := got.HandleElicitation(context.Background(), tools.ElicitationRequest{ServerName: "mcp"})
+	if err != nil || elicited.Value != "elicited:mcp" {
+		t.Fatalf("elicitation = %#v err=%v, want configured handler result", elicited, err)
+	}
+	got.SetConversationID("conversation-1")
 	if len(got.Messages) < 2 {
 		t.Fatalf("tool context messages = %#v, want current history", got.Messages)
 	}
@@ -3427,10 +3572,16 @@ func TestQueryEnginePolicyAskOverridesToolPermissionAllow(t *testing.T) {
 	}
 
 	client := &scriptedClient{
-		scripts: [][]llm.StreamEvent{{
-			{Type: "tool.call", ToolName: "rewrite.echo", ToolInput: "original"},
-			{Type: "message.end"},
-		}},
+		scripts: [][]llm.StreamEvent{
+			{
+				{Type: "tool.call", ToolName: "rewrite.echo", ToolInput: "original"},
+				{Type: "message.end"},
+			},
+			{
+				{Type: "text.delta", Delta: "Denied by policy."},
+				{Type: "message.end"},
+			},
+		},
 	}
 	var invocations []string
 	registry := tools.NewRegistry(
@@ -3484,10 +3635,16 @@ func TestQueryEnginePolicyDenyOverridesToolPermissionAllow(t *testing.T) {
 	}
 
 	client := &scriptedClient{
-		scripts: [][]llm.StreamEvent{{
-			{Type: "tool.call", ToolName: "rewrite.echo", ToolInput: "original"},
-			{Type: "message.end"},
-		}},
+		scripts: [][]llm.StreamEvent{
+			{
+				{Type: "tool.call", ToolName: "rewrite.echo", ToolInput: "original"},
+				{Type: "message.end"},
+			},
+			{
+				{Type: "text.delta", Delta: "Denied after hook rewrite."},
+				{Type: "message.end"},
+			},
+		},
 	}
 	var invocations []string
 	registry := tools.NewRegistry(
@@ -3620,10 +3777,16 @@ func TestQueryEnginePermissionHookAskEmitsSerializedDecisionReason(t *testing.T)
 	}
 
 	client := &scriptedClient{
-		scripts: [][]llm.StreamEvent{{
-			{Type: "tool.call", ToolName: "rewrite.echo", ToolInput: "original"},
-			{Type: "message.end"},
-		}},
+		scripts: [][]llm.StreamEvent{
+			{
+				{Type: "tool.call", ToolName: "rewrite.echo", ToolInput: "original"},
+				{Type: "message.end"},
+			},
+			{
+				{Type: "text.delta", Delta: "Denied after hook rewrite."},
+				{Type: "message.end"},
+			},
+		},
 	}
 	registry := tools.NewRegistry(
 		permissionRewritingToolForQueryEngine{
@@ -3693,10 +3856,16 @@ func TestQueryEnginePolicyDenyOverridesToolPermissionHookAllow(t *testing.T) {
 	}
 
 	client := &scriptedClient{
-		scripts: [][]llm.StreamEvent{{
-			{Type: "tool.call", ToolName: "rewrite.echo", ToolInput: "original"},
-			{Type: "message.end"},
-		}},
+		scripts: [][]llm.StreamEvent{
+			{
+				{Type: "tool.call", ToolName: "rewrite.echo", ToolInput: "original"},
+				{Type: "message.end"},
+			},
+			{
+				{Type: "text.delta", Delta: "Denied after hook rewrite."},
+				{Type: "message.end"},
+			},
+		},
 	}
 	var invocations []string
 	registry := tools.NewRegistry(
@@ -3891,6 +4060,10 @@ func TestQueryEngineStabilizesRepeatedIdenticalToolCallLoop(t *testing.T) {
 				{Type: "tool.call", ToolName: "text.upper", ToolInput: "hello world"},
 				{Type: "message.end"},
 			},
+			{
+				{Type: "text.delta", Delta: "HELLO WORLD"},
+				{Type: "message.end"},
+			},
 		},
 	}
 
@@ -3913,7 +4086,7 @@ func TestQueryEngineStabilizesRepeatedIdenticalToolCallLoop(t *testing.T) {
 		if event.Type == "tool.result" {
 			toolResults++
 		}
-		if event.Type == "message.created" && event.Message != nil && event.Message.Role == "assistant" && event.Message.Content == "Using tool result: text.upper: HELLO WORLD" {
+		if event.Type == "message.created" && event.Message != nil && event.Message.Role == "assistant" && event.Message.Content == "HELLO WORLD" {
 			foundAssistant = true
 		}
 	}
@@ -3943,6 +4116,10 @@ func TestQueryEngineStabilizesRepeatedDeferredToolDelegationLoop(t *testing.T) {
 				{Type: "tool.call", ToolName: "agent.task", ToolInput: "summarize current session again"},
 				{Type: "message.end"},
 			},
+			{
+				{Type: "text.delta", Delta: "Delegation result handled."},
+				{Type: "message.end"},
+			},
 		},
 	}
 
@@ -3965,7 +4142,7 @@ func TestQueryEngineStabilizesRepeatedDeferredToolDelegationLoop(t *testing.T) {
 		if event.Type == "tool.result" {
 			toolResults++
 		}
-		if event.Type == "message.created" && event.Message != nil && event.Message.Role == "assistant" && strings.Contains(event.Message.Content, "Using tool result: agent.task:") {
+		if event.Type == "message.created" && event.Message != nil && event.Message.Role == "assistant" && strings.Contains(event.Message.Content, "Delegation result handled.") {
 			foundAssistant = true
 		}
 	}
@@ -7312,8 +7489,9 @@ func TestQueryEngineCompactionUsesPersistedSummaryMemoryAndTracksSummarizedAncho
 	if len(items) != 1 {
 		t.Fatalf("memory count = %d, want single summary memory", len(items))
 	}
-	if items[0].Content != "Summary: previous summarized context" {
-		t.Fatalf("memory content = %q, want persisted session memory summary unchanged", items[0].Content)
+	if !strings.Contains(items[0].Content, "This session is being continued from a previous conversation that ran out of context") ||
+		!strings.Contains(items[0].Content, "previous summarized context") {
+		t.Fatalf("memory content = %q, want saved Claude compact summary memory", items[0].Content)
 	}
 	updated, ok := sessions.GetByID(sess.ID)
 	if !ok {
@@ -7321,6 +7499,101 @@ func TestQueryEngineCompactionUsesPersistedSummaryMemoryAndTracksSummarizedAncho
 	}
 	if updated.Metadata.LastSummarizedMessageID == "" {
 		t.Fatalf("metadata = %#v, want last summarized anchor", updated.Metadata)
+	}
+	state := engine.State()
+	if !state.LastCompactionMemorySaved {
+		t.Fatalf("state = %#v, want compact summary memory saved", state)
+	}
+}
+
+func TestQueryEngineCompactionRestoresSummaryMemoryFromTranscript(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	now := time.Now().UTC()
+	if err := sessions.ReplaceMessages(sess.ID, []session.Message{
+		{ID: "msg-1", SessionID: sess.ID, Role: "user", Content: "already summarized prompt", CreatedAt: now},
+		{ID: "summary-prev", SessionID: sess.ID, Role: "user", Content: "Summary: persisted transcript summary", IsCompactSummary: true, CreatedAt: now.Add(time.Second)},
+		{ID: "msg-2", SessionID: sess.ID, Role: "assistant", Content: strings.Repeat("tail ", 30), CreatedAt: now.Add(2 * time.Second)},
+	}); err != nil {
+		t.Fatalf("replace messages: %v", err)
+	}
+	if err := sessions.UpdateMetadata(sess.ID, func(metadata *session.SessionMetadata) {
+		metadata.LastSummarizedMessageID = "msg-1"
+	}); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+	msg, err := sessions.AppendMessage(sess.ID, "user", "hello restored memory")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+
+	memSvc := memory.NewService()
+	engine := queryengine.New(queryengine.Config{
+		Sessions:        sessions,
+		Client:          llm.NewMockClient(),
+		WorkspaceLoader: workspace.NewLoader(""),
+		MemoryService:   memSvc,
+		Compactor: compaction.NewService(compaction.Config{
+			MaxMessages:                99,
+			MaxEstimatedTokens:         20,
+			PreserveRecentTurns:        2,
+			SummaryPrefix:              "Summary:",
+			SessionMemoryMinTokens:     1,
+			SessionMemoryMinTextBlocks: 1,
+			SessionMemoryMaxTokens:     100,
+		}),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+	items := memSvc.List(sess.ID)
+	if len(items) != 1 {
+		t.Fatalf("memory count = %d, want restored transcript summary to be saved through session-memory compact", len(items))
+	}
+	if !strings.Contains(items[0].Content, "persisted transcript summary") {
+		t.Fatalf("memory content = %q, want transcript summary restored into session memory compact", items[0].Content)
+	}
+}
+
+func TestQueryEngineSeedsCompactBoundaryCounterFromExistingMessages(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	now := time.Now().UTC()
+	if err := sessions.ReplaceMessages(sess.ID, []session.Message{
+		{ID: "compact-000009", SessionID: sess.ID, Role: "system", Content: "[compact_boundary]", CreatedAt: now},
+		{ID: "msg-1", SessionID: sess.ID, Role: "user", Content: strings.Repeat("old ", 40), CreatedAt: now.Add(time.Second)},
+		{ID: "msg-2", SessionID: sess.ID, Role: "assistant", Content: strings.Repeat("answer ", 40), CreatedAt: now.Add(2 * time.Second)},
+	}); err != nil {
+		t.Fatalf("replace messages: %v", err)
+	}
+	msg, err := sessions.AppendMessage(sess.ID, "user", strings.Repeat("trigger ", 20))
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+
+	engine := queryengine.New(queryengine.Config{
+		Sessions:        sessions,
+		Client:          llm.NewMockClient(),
+		WorkspaceLoader: workspace.NewLoader(""),
+		Compactor: compaction.NewService(compaction.Config{
+			MaxMessages:         99,
+			MaxEstimatedTokens:  20,
+			PreserveRecentTurns: 2,
+			SummaryPrefix:       "Summary:",
+		}),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+	updated, ok := sessions.GetByID(sess.ID)
+	if !ok {
+		t.Fatalf("session %q not found", sess.ID)
+	}
+	if updated.Metadata.LastCompactBoundaryID != "compact-000010" {
+		t.Fatalf("last compact boundary id = %q, want compact-000010", updated.Metadata.LastCompactBoundaryID)
 	}
 }
 
@@ -7377,7 +7650,8 @@ func TestQueryEngineSessionMemoryCompactInjectsCompactHookAndTranscriptNote(t *t
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 	})
 
-	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+	sink := &captureSink{}
+	if err := engine.SubmitMessage(context.Background(), sess, msg, sink); err != nil {
 		t.Fatalf("submit message: %v", err)
 	}
 
@@ -7390,6 +7664,36 @@ func TestQueryEngineSessionMemoryCompactInjectsCompactHookAndTranscriptNote(t *t
 	}
 	if !containsMessageContent(messages, "C:/tmp/transcript.jsonl") {
 		t.Fatalf("messages = %#v, want transcript note", messages)
+	}
+	if len(messages) < 2 || messages[0].Subtype != "compact_boundary" || messages[0].CompactMetadata == nil {
+		t.Fatalf("messages = %#v, want Claude compact boundary first", messages)
+	}
+	if !messages[1].IsCompactSummary || messages[1].Role != "user" {
+		t.Fatalf("messages = %#v, want Claude compact summary after boundary", messages)
+	}
+	for _, message := range messages {
+		if message.Content == "[compact_boundary]" {
+			t.Fatalf("messages = %#v, did not want trailing legacy compact boundary", messages)
+		}
+	}
+	updated, ok := sessions.GetByID(sess.ID)
+	if !ok {
+		t.Fatalf("session %q not found", sess.ID)
+	}
+	if updated.Metadata.LastCompactBoundaryID != messages[0].ID {
+		t.Fatalf("metadata = %#v, want service boundary id %q", updated.Metadata, messages[0].ID)
+	}
+	foundBoundaryEvent := false
+	for _, event := range sink.events {
+		if event.Type == "compact.boundary" {
+			foundBoundaryEvent = true
+			if event.Message == nil || event.Message.ID != messages[0].ID {
+				t.Fatalf("boundary event = %#v, want service boundary id %q", event, messages[0].ID)
+			}
+		}
+	}
+	if !foundBoundaryEvent {
+		t.Fatalf("events = %#v, want compact.boundary event", sink.events)
 	}
 }
 

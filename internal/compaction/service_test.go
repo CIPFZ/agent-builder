@@ -1,6 +1,7 @@
 package compaction_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -293,10 +294,11 @@ func TestServiceCompactWithSessionMemoryUsesPersistedSummaryAndKeepsTailAfterAnc
 	if !result.Changed || result.SummaryMessage == nil {
 		t.Fatalf("result = %#v, want changed result with summary message", result)
 	}
-	if result.SummaryMessage.Content != "Summary: old summarized context" {
-		t.Fatalf("summary content = %q, want persisted session memory summary", result.SummaryMessage.Content)
+	if !strings.Contains(result.SummaryMessage.Content, "old summarized context") ||
+		!strings.Contains(result.SummaryMessage.Content, "This session is being continued from a previous conversation that ran out of context.") {
+		t.Fatalf("summary content = %q, want Claude continuation prompt with persisted session memory summary", result.SummaryMessage.Content)
 	}
-	if len(result.Messages) != 2 || result.Messages[1].ID != "msg-3" {
+	if len(result.Messages) != 3 || result.Messages[0].Subtype != "compact_boundary" || result.Messages[2].ID != "msg-3" {
 		t.Fatalf("messages = %#v, want preserved post-anchor tail only", result.Messages)
 	}
 	if result.SummarizedThroughID != "msg-2" {
@@ -347,8 +349,9 @@ func TestServiceCompactWithSessionMemorySupportsResumedSessionWithoutAnchor(t *t
 	if !result.Changed || result.SummaryMessage == nil {
 		t.Fatalf("result = %#v, want resumed-session compact result", result)
 	}
-	if result.SummaryMessage.Content != "Summary: resumed session memory" {
-		t.Fatalf("summary content = %q, want session memory summary", result.SummaryMessage.Content)
+	if !strings.Contains(result.SummaryMessage.Content, "resumed session memory") ||
+		!strings.Contains(result.SummaryMessage.Content, "This session is being continued from a previous conversation that ran out of context.") {
+		t.Fatalf("summary content = %q, want Claude continuation prompt with session memory summary", result.SummaryMessage.Content)
 	}
 	if len(result.Messages) < 2 {
 		t.Fatalf("messages = %#v, want preserved tail after resumed compact", result.Messages)
@@ -376,7 +379,7 @@ func TestServiceCompactWithSessionMemoryDoesNotSplitAssistantToolResultPair(t *t
 	if !result.Changed {
 		t.Fatalf("result = %#v, want changed result", result)
 	}
-	if len(result.Messages) < 3 || result.Messages[1].ID != "msg-3" || result.Messages[2].ID != "msg-4" {
+	if len(result.Messages) < 5 || result.Messages[2].ID != "msg-3" || result.Messages[3].ID != "msg-4" {
 		t.Fatalf("messages = %#v, want assistant/tool pair preserved together", result.Messages)
 	}
 	if result.SummarizedThroughID != "msg-2" {
@@ -441,7 +444,7 @@ func TestServiceCompactWithSessionMemoryPreservesBlockToolUseForKeptToolResult(t
 	if !result.Changed {
 		t.Fatalf("result = %#v, want changed result", result)
 	}
-	if len(result.Messages) < 5 || result.Messages[1].ID != "msg-2" || result.Messages[2].ID != "msg-3" || result.Messages[3].ID != "msg-4" || result.Messages[4].ID != "msg-5" {
+	if len(result.Messages) < 6 || result.Messages[2].ID != "msg-2" || result.Messages[3].ID != "msg-3" || result.Messages[4].ID != "msg-4" || result.Messages[5].ID != "msg-5" {
 		t.Fatalf("messages = %#v, want thinking plus both tool_use blocks preserved for kept tool_result blocks", result.Messages)
 	}
 	if result.SummarizedThroughID != "msg-1" {
@@ -495,7 +498,7 @@ func TestServiceCompactWithSessionMemoryPreservesThinkingBlocksForSameProviderMe
 	if !result.Changed {
 		t.Fatalf("result = %#v, want changed result", result)
 	}
-	if len(result.Messages) < 4 || result.Messages[1].ID != "msg-2" || result.Messages[2].ID != "msg-3" || result.Messages[3].ID != "msg-4" {
+	if len(result.Messages) < 5 || result.Messages[2].ID != "msg-2" || result.Messages[3].ID != "msg-3" || result.Messages[4].ID != "msg-4" {
 		t.Fatalf("messages = %#v, want earlier thinking block with same provider message id preserved", result.Messages)
 	}
 	if result.SummarizedThroughID != "msg-1" {
@@ -522,12 +525,12 @@ func TestServiceCompactWithSessionMemoryFiltersOldCompactBoundariesFromPreserved
 	if !result.Changed {
 		t.Fatalf("result = %#v, want changed result", result)
 	}
-	for _, message := range result.Messages[1:] {
+	for _, message := range result.Messages[2:] {
 		if message.Content == "[compact_boundary]" {
 			t.Fatalf("messages = %#v, did not want old compact boundary in preserved tail", result.Messages)
 		}
 	}
-	if len(result.Messages) != 2 || result.Messages[1].ID != "msg-2" {
+	if len(result.Messages) != 3 || result.Messages[0].Subtype != "compact_boundary" || result.Messages[2].ID != "msg-2" {
 		t.Fatalf("messages = %#v, want summary plus post-boundary tail", result.Messages)
 	}
 }
@@ -555,16 +558,273 @@ func TestServiceCompactWithSessionMemoryOptionsInjectsCompactHooksAndTranscriptN
 		t.Fatalf("result = %#v, want changed result", result)
 	}
 	if len(result.Messages) != 4 {
-		t.Fatalf("messages = %#v, want summary, transcript note, hook, tail", result.Messages)
+		t.Fatalf("messages = %#v, want boundary, summary, tail, hook", result.Messages)
+	}
+	if result.Messages[0].Subtype != "compact_boundary" {
+		t.Fatalf("boundary = %#v, want compact boundary first", result.Messages[0])
 	}
 	if !strings.Contains(result.Messages[1].Content, "C:/tmp/transcript.jsonl") {
-		t.Fatalf("transcript note = %#v, want transcript path note", result.Messages[1])
+		t.Fatalf("summary = %#v, want transcript path embedded in compact summary", result.Messages[1])
 	}
-	if result.Messages[2].ID != "hook-1" || result.Messages[3].ID != "msg-3" {
-		t.Fatalf("messages = %#v, want compact hook before preserved tail", result.Messages)
+	if result.Messages[2].ID != "msg-3" || result.Messages[3].ID != "hook-1" {
+		t.Fatalf("messages = %#v, want preserved tail before compact hook", result.Messages)
 	}
 	if result.PostCompactTokenCount == 0 {
 		t.Fatalf("post compact tokens = %d, want tracked token count", result.PostCompactTokenCount)
+	}
+}
+
+func TestServiceCompactWithSessionMemoryBuildsClaudePostCompactShape(t *testing.T) {
+	service := compaction.NewService(compaction.Config{
+		MaxMessages:                2,
+		PreserveRecentTurns:        1,
+		SummaryPrefix:              "Summary:",
+		SessionMemoryMinTokens:     1,
+		SessionMemoryMinTextBlocks: 1,
+		SessionMemoryMaxTokens:     100,
+	})
+
+	result := service.CompactWithSessionMemoryOptions([]model.Message{
+		{
+			ID:        "msg-1",
+			SessionID: "sess-1",
+			Role:      "user",
+			Content:   "tool search result",
+			Blocks: []model.MessageBlock{
+				{
+					Raw: map[string]any{
+						"type": "tool_result",
+						"content": []any{
+							map[string]any{"type": "tool_reference", "tool_name": "Bash"},
+						},
+					},
+				},
+			},
+		},
+		{ID: "msg-2", SessionID: "sess-1", Role: "assistant", Content: "already summarized answer"},
+		{ID: "msg-3", SessionID: "sess-1", Role: "user", Content: "latest prompt"},
+	}, "Summary: old summarized context", "msg-2", compaction.SessionMemoryOptions{
+		HookMessages: []model.Message{
+			{ID: "hook-1", SessionID: "sess-1", Role: "system", Content: "CLAUDE.md compact hook context"},
+		},
+		TranscriptPath: "C:/tmp/transcript.jsonl",
+		PlanAttachment: &model.Message{
+			ID:        "plan-1",
+			SessionID: "sess-1",
+			Role:      "attachment",
+			Subtype:   "plan_file_reference",
+			Content:   "plan content",
+		},
+	})
+
+	if !result.Changed || result.BoundaryMessage == nil || result.SummaryMessage == nil {
+		t.Fatalf("result = %#v, want changed result with boundary and summary", result)
+	}
+	if len(result.Messages) != 5 {
+		t.Fatalf("messages = %#v, want boundary, summary, tail, attachment, hook", result.Messages)
+	}
+	if result.Messages[0].Subtype != "compact_boundary" || result.Messages[0].CompactMetadata == nil {
+		t.Fatalf("boundary = %#v, want compact boundary metadata", result.Messages[0])
+	}
+	if result.Messages[0].CompactMetadata.Trigger != "auto" {
+		t.Fatalf("boundary metadata = %#v, want auto trigger", result.Messages[0].CompactMetadata)
+	}
+	if result.Messages[0].CompactMetadata.PreservedSegment == nil ||
+		result.Messages[0].CompactMetadata.PreservedSegment.HeadID != "msg-3" ||
+		result.Messages[0].CompactMetadata.PreservedSegment.AnchorID != result.SummaryMessage.ID ||
+		result.Messages[0].CompactMetadata.PreservedSegment.TailID != "msg-3" {
+		t.Fatalf("boundary metadata = %#v, want preserved segment relink info", result.Messages[0].CompactMetadata)
+	}
+	if len(result.Messages[0].CompactMetadata.PreCompactDiscoveredTools) == 0 ||
+		result.Messages[0].CompactMetadata.PreCompactDiscoveredTools[0] != "Bash" {
+		t.Fatalf("boundary metadata = %#v, want discovered tool names", result.Messages[0].CompactMetadata)
+	}
+	if result.Messages[1].Role != "user" || !result.Messages[1].IsCompactSummary || !result.Messages[1].IsVisibleInTranscriptOnly {
+		t.Fatalf("summary = %#v, want Claude compact summary user message visible only in transcript", result.Messages[1])
+	}
+	if !strings.Contains(result.Messages[1].Content, "C:/tmp/transcript.jsonl") {
+		t.Fatalf("summary content = %q, want transcript path embedded in summary message", result.Messages[1].Content)
+	}
+	if result.Messages[2].ID != "msg-3" || result.Messages[3].ID != "plan-1" || result.Messages[4].ID != "hook-1" {
+		t.Fatalf("messages = %#v, want kept tail before attachment and hook results", result.Messages)
+	}
+	if result.TruePostCompactTokenCount != result.PostCompactTokenCount || result.TruePostCompactTokenCount == 0 {
+		t.Fatalf("result = %#v, want true post compact token count", result)
+	}
+}
+
+func TestServiceCompactWithSessionMemoryUsesFreshIDsAndPreservedSegmentLinks(t *testing.T) {
+	service := compaction.NewService(compaction.Config{
+		MaxMessages:                2,
+		PreserveRecentTurns:        1,
+		SummaryPrefix:              "Summary:",
+		SessionMemoryMinTokens:     1,
+		SessionMemoryMinTextBlocks: 1,
+		SessionMemoryMaxTokens:     100,
+	})
+	messages := []model.Message{
+		{ID: "msg-1", SessionID: "sess-1", Role: "user", Content: "old prompt"},
+		{ID: "msg-2", SessionID: "sess-1", Role: "assistant", Content: "old answer"},
+		{ID: "msg-3", SessionID: "sess-1", Role: "user", Content: "latest prompt"},
+		{ID: "msg-4", SessionID: "sess-1", Role: "assistant", Content: "latest answer"},
+	}
+
+	first := service.CompactWithSessionMemory(messages, "Summary: old summarized context", "msg-2")
+	second := service.CompactWithSessionMemory(messages, "Summary: old summarized context", "msg-2")
+
+	if !first.Changed || !second.Changed || first.BoundaryMessage == nil || first.SummaryMessage == nil || second.BoundaryMessage == nil || second.SummaryMessage == nil {
+		t.Fatalf("first = %#v, second = %#v, want two changed session-memory compactions", first, second)
+	}
+	if first.BoundaryMessage.ID == "compact-boundary-1" || first.SummaryMessage.ID == "summary-1" {
+		t.Fatalf("boundary/summary IDs = %q/%q, want fresh IDs", first.BoundaryMessage.ID, first.SummaryMessage.ID)
+	}
+	if first.BoundaryMessage.ID == second.BoundaryMessage.ID || first.SummaryMessage.ID == second.SummaryMessage.ID {
+		t.Fatalf("first IDs = %q/%q, second IDs = %q/%q, want unique IDs", first.BoundaryMessage.ID, first.SummaryMessage.ID, second.BoundaryMessage.ID, second.SummaryMessage.ID)
+	}
+	segment := first.BoundaryMessage.CompactMetadata.PreservedSegment
+	if segment == nil {
+		t.Fatalf("boundary metadata = %#v, want preserved segment", first.BoundaryMessage.CompactMetadata)
+	}
+	if segment.AnchorID != first.SummaryMessage.ID || segment.HeadID != "msg-3" || segment.TailID != "msg-4" {
+		t.Fatalf("segment = %#v, want anchor summary and kept head/tail", segment)
+	}
+}
+
+func TestServiceCompactWithSessionMemorySummaryUsesClaudeContinuationPromptAndTruncatesSections(t *testing.T) {
+	service := compaction.NewService(compaction.Config{
+		MaxMessages:                2,
+		PreserveRecentTurns:        1,
+		SummaryPrefix:              "Summary:",
+		SessionMemoryMinTokens:     1,
+		SessionMemoryMinTextBlocks: 1,
+		SessionMemoryMaxTokens:     100,
+	})
+	longLines := make([]string, 0, 4100)
+	for i := 0; i < 4100; i++ {
+		longLines = append(longLines, "abcd")
+	}
+	sessionMemory := "Summary: # Current State\n" + strings.Join(longLines, "\n")
+
+	result := service.CompactWithSessionMemoryOptions([]model.Message{
+		{ID: "msg-1", SessionID: "sess-1", Role: "user", Content: "old prompt"},
+		{ID: "msg-2", SessionID: "sess-1", Role: "assistant", Content: "old answer"},
+		{ID: "msg-3", SessionID: "sess-1", Role: "user", Content: "latest prompt"},
+	}, sessionMemory, "msg-2", compaction.SessionMemoryOptions{
+		TranscriptPath:    "C:/tmp/transcript.jsonl",
+		SessionMemoryPath: "C:/tmp/session-memory.md",
+	})
+
+	if !result.Changed || result.SummaryMessage == nil {
+		t.Fatalf("result = %#v, want compacted summary", result)
+	}
+	content := result.SummaryMessage.Content
+	for _, want := range []string{
+		"This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.",
+		"read the full transcript at: C:/tmp/transcript.jsonl",
+		"Recent messages are preserved verbatim.",
+		"Continue the conversation from where it left off without asking the user any further questions.",
+		"[... section truncated for length ...]",
+		"The full session memory can be viewed at: C:/tmp/session-memory.md",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("summary content missing %q:\n%s", want, content)
+		}
+	}
+}
+
+func TestServiceCompactWithSessionMemoryDoesNotAppendSessionMemoryPathWithoutTruncation(t *testing.T) {
+	service := compaction.NewService(compaction.Config{
+		MaxMessages:                2,
+		PreserveRecentTurns:        1,
+		SummaryPrefix:              "Summary:",
+		SessionMemoryMinTokens:     1,
+		SessionMemoryMinTextBlocks: 1,
+		SessionMemoryMaxTokens:     100,
+	})
+
+	result := service.CompactWithSessionMemoryOptions([]model.Message{
+		{ID: "msg-1", SessionID: "sess-1", Role: "user", Content: "old prompt"},
+		{ID: "msg-2", SessionID: "sess-1", Role: "assistant", Content: "old answer"},
+		{ID: "msg-3", SessionID: "sess-1", Role: "user", Content: "latest prompt"},
+	}, "Summary: # Current State\nshort", "msg-2", compaction.SessionMemoryOptions{
+		SessionMemoryPath: "C:/tmp/session-memory.md",
+	})
+
+	if !result.Changed || result.SummaryMessage == nil {
+		t.Fatalf("result = %#v, want compacted summary", result)
+	}
+	if strings.Contains(result.SummaryMessage.Content, "full session memory can be viewed") {
+		t.Fatalf("summary content = %q, did not want truncation note without truncation", result.SummaryMessage.Content)
+	}
+}
+
+func TestServiceCompactWithSessionMemoryDoesNotExpandAcrossClaudeStyleBoundary(t *testing.T) {
+	service := compaction.NewService(compaction.Config{
+		MaxMessages:                2,
+		PreserveRecentTurns:        1,
+		SummaryPrefix:              "Summary:",
+		SessionMemoryMinTokens:     50,
+		SessionMemoryMinTextBlocks: 3,
+		SessionMemoryMaxTokens:     1000,
+	})
+
+	result := service.CompactWithSessionMemory([]model.Message{
+		{ID: "msg-1", SessionID: "sess-1", Role: "user", Content: strings.Repeat("before boundary ", 40)},
+		{ID: "boundary-old", SessionID: "sess-1", Role: "system", Subtype: "compact_boundary", Content: "Conversation compacted"},
+		{ID: "msg-2", SessionID: "sess-1", Role: "user", Content: "after boundary"},
+		{ID: "msg-3", SessionID: "sess-1", Role: "assistant", Content: "latest answer"},
+	}, "Summary: old summarized context", "msg-3")
+
+	if !result.Changed {
+		t.Fatalf("result = %#v, want compacted result", result)
+	}
+	for _, message := range result.Messages {
+		if message.ID == "msg-1" {
+			t.Fatalf("messages = %#v, did not want expansion across compact boundary", result.Messages)
+		}
+	}
+}
+
+func TestServiceAnalyzeEstimatesStructuredMessageContent(t *testing.T) {
+	service := compaction.NewService(compaction.Config{})
+	raw := map[string]any{"type": "server_tool_use", "name": "web_search", "input": map[string]any{"query": strings.Repeat("raw", 80)}}
+	rawJSON, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal raw: %v", err)
+	}
+
+	analysis := service.Analyze([]model.Message{
+		{
+			ID:        "msg-1",
+			SessionID: "sess-1",
+			Role:      "user",
+			Blocks: []model.MessageBlock{
+				{Type: model.MessageBlockText, Text: strings.Repeat("text", 80)},
+				{Type: model.MessageBlockToolResult, Content: strings.Repeat("result", 80)},
+				{Raw: raw},
+			},
+		},
+		{
+			ID:        "boundary-1",
+			SessionID: "sess-1",
+			Role:      "system",
+			Subtype:   "compact_boundary",
+			Content:   "Conversation compacted",
+			CompactMetadata: &model.CompactMetadata{
+				PreCompactDiscoveredTools: []string{strings.Repeat("tool", 80)},
+			},
+		},
+		{
+			ID:        "plan-1",
+			SessionID: "sess-1",
+			Role:      "attachment",
+			Content:   strings.Repeat("plan", 80),
+		},
+	})
+
+	minExpected := (320 + 480 + len(rawJSON) + 320 + 320) / 4
+	if analysis.EstimatedTokens < minExpected {
+		t.Fatalf("estimated tokens = %d, want at least %d from blocks/raw/metadata/attachments", analysis.EstimatedTokens, minExpected)
 	}
 }
 

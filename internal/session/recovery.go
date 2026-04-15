@@ -17,11 +17,11 @@ const (
 )
 
 type ContinuationState struct {
-	Status             ContinuationStatus
-	ReadyForPrompt     bool
+	Status              ContinuationStatus
+	ReadyForPrompt      bool
 	ResumeFromMessageID string
-	ResumeFromRole     string
-	HasCompaction      bool
+	ResumeFromRole      string
+	HasCompaction       bool
 }
 
 func BuildRecoverySnapshot(sess Session, messages []Message) RecoverySnapshot {
@@ -72,7 +72,7 @@ func (s RecoverySnapshot) CompactionSummary() (Message, bool) {
 		return msg, true
 	}
 	for i := len(s.Continuation) - 1; i >= 0; i-- {
-		if s.Continuation[i].Role == "summary" {
+		if isCompactionSummary(s.Continuation[i]) {
 			return s.Continuation[i], true
 		}
 	}
@@ -150,7 +150,7 @@ func ContinuationMessages(messages []Message) []Message {
 
 	start := lastBoundary
 	for i := lastBoundary - 1; i >= 0; i-- {
-		if messages[i].Role == "summary" {
+		if isCompactionSummary(messages[i]) {
 			start = i
 			break
 		}
@@ -167,7 +167,11 @@ func synthesizedContinuationMessages(sess Session, messages []Message) []Message
 }
 
 func isCompactBoundary(message Message) bool {
-	return message.Role == "system" && message.Content == "[compact_boundary]"
+	return message.Role == "system" && (message.Content == "[compact_boundary]" || message.Subtype == "compact_boundary")
+}
+
+func isCompactionSummary(message Message) bool {
+	return message.Role == "summary" || (message.Role == "user" && message.IsCompactSummary)
 }
 
 func cloneMessages(messages []Message) []Message {
@@ -214,7 +218,7 @@ func synthesizeCompactionAnchors(sess Session, continuation []Message) []Message
 	hasSummary := false
 	hasBoundary := false
 	for _, message := range continuation {
-		if message.Role == "summary" {
+		if isCompactionSummary(message) {
 			hasSummary = true
 		}
 		if isCompactBoundary(message) {

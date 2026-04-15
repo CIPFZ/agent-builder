@@ -10,7 +10,7 @@ type SessionStore interface {
 	GetMainSessionKey(agentID string) (string, bool)
 	SaveMainSessionKey(agentID, sessionKey string)
 
-	AppendMessage(model.Message)
+	AppendMessage(model.Message) error
 	Messages(sessionID string) ([]model.Message, bool)
-	ReplaceMessages(sessionID string, messages []model.Message)
+	ReplaceMessages(sessionID string, messages []model.Message) error
 }

@@ -29,6 +29,38 @@ func TestContinuationMessagesKeepsLatestSummaryBoundaryAndTail(t *testing.T) {
 	}
 }
 
+func TestContinuationMessagesKeepsClaudeCompactSummaryBoundaryAndTail(t *testing.T) {
+	now := time.Now().UTC()
+	messages := []Message{
+		{ID: "msg-1", SessionID: "sess-1", Role: "user", Content: "old user", CreatedAt: now},
+		{ID: "compact-1", SessionID: "sess-1", Role: "system", Subtype: "compact_boundary", Content: "Conversation compacted", CreatedAt: now.Add(time.Second)},
+		{ID: "summary-1", SessionID: "sess-1", Role: "user", Content: "This session is being continued from a previous conversation that ran out of context.", IsCompactSummary: true, CreatedAt: now.Add(2 * time.Second)},
+		{ID: "msg-2", SessionID: "sess-1", Role: "assistant", Content: "new tail", CreatedAt: now.Add(3 * time.Second)},
+	}
+
+	got := ContinuationMessages(messages)
+	if len(got) != 3 {
+		t.Fatalf("message count = %d, want 3", len(got))
+	}
+	if got[0].Subtype != "compact_boundary" || got[0].Content != "Conversation compacted" {
+		t.Fatalf("first message = %#v, want Claude compact boundary", got[0])
+	}
+	if !got[1].IsCompactSummary || got[1].Role != "user" {
+		t.Fatalf("second message = %#v, want Claude compact summary", got[1])
+	}
+	if got[2].Content != "new tail" {
+		t.Fatalf("third message = %#v, want post-boundary tail", got[2])
+	}
+
+	snapshot := BuildRecoverySnapshot(Session{ID: "sess-1"}, messages)
+	if boundary, ok := snapshot.CompactBoundary(); !ok || boundary.ID != "compact-1" {
+		t.Fatalf("boundary = %#v, %v, want Claude compact boundary", boundary, ok)
+	}
+	if summary, ok := snapshot.CompactionSummary(); !ok || summary.ID != "summary-1" {
+		t.Fatalf("summary = %#v, %v, want Claude compact summary", summary, ok)
+	}
+}
+
 func TestContinuationMessagesUsesLatestBoundaryWhenTranscriptContainsMultipleCompactions(t *testing.T) {
 	now := time.Now().UTC()
 	messages := []Message{
