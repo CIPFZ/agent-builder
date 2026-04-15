@@ -2,6 +2,11 @@ package tui
 
 import tea "github.com/charmbracelet/bubbletea"
 
+type dialogResult struct {
+	Selected bool
+	Item     dialogItem
+}
+
 func newDialogState() dialogState {
 	return dialogState{SelectedIndex: -1}
 }
@@ -20,13 +25,14 @@ func (d *dialogState) open(spec dialogSpec) {
 	}
 	d.FooterHint = spec.FooterHint
 	if d.FooterHint == "" {
-		d.FooterHint = "Enter select | Esc close"
+		d.FooterHint = "↑/↓ navigate | Enter select | Esc close"
 	}
-	if len(d.Items) > 0 {
-		d.SelectedIndex = 0
-	} else {
-		d.SelectedIndex = -1
-	}
+	d.Picker = newListPickerState(listPickerSpec{
+		Items:        d.Items,
+		QueryEnabled: spec.QueryEnabled,
+		VisibleCount: spec.VisibleCount,
+	})
+	d.syncPickerSelection()
 }
 
 func (d *dialogState) close() {
@@ -34,47 +40,57 @@ func (d *dialogState) close() {
 }
 
 func (d *dialogState) moveUp() {
-	if len(d.Items) == 0 {
-		d.SelectedIndex = -1
-		return
-	}
-	if d.SelectedIndex > 0 {
-		d.SelectedIndex--
-	}
+	d.Picker.moveUp()
+	d.syncPickerSelection()
 }
 
 func (d *dialogState) moveDown() {
-	if len(d.Items) == 0 {
-		d.SelectedIndex = -1
-		return
-	}
-	if d.SelectedIndex < len(d.Items)-1 {
-		d.SelectedIndex++
-	}
+	d.Picker.moveDown()
+	d.syncPickerSelection()
 }
 
 func (d dialogState) Current() dialogItem {
-	if d.SelectedIndex < 0 || d.SelectedIndex >= len(d.Items) {
-		return dialogItem{}
-	}
-	return d.Items[d.SelectedIndex]
+	return d.Picker.Current()
 }
 
-func (d *dialogState) handleKey(msg tea.KeyMsg) bool {
+func (d *dialogState) handleKey(msg tea.KeyMsg) dialogResult {
 	if !d.active() {
-		return false
+		return dialogResult{}
 	}
 	switch msg.Type {
-	case tea.KeyEscape, tea.KeyEnter:
+	case tea.KeyEscape:
 		d.close()
-	case tea.KeyUp:
+	case tea.KeyEnter, tea.KeyTab, tea.KeyShiftTab:
+		item, ok := d.Picker.accept()
+		if !ok {
+			return dialogResult{}
+		}
+		d.close()
+		return dialogResult{Selected: true, Item: item}
+	case tea.KeyUp, tea.KeyCtrlP:
 		d.moveUp()
-	case tea.KeyDown:
+	case tea.KeyDown, tea.KeyCtrlN:
 		d.moveDown()
+	case tea.KeyPgUp:
+		d.Picker.pageUp()
+		d.syncPickerSelection()
+	case tea.KeyPgDown:
+		d.Picker.pageDown()
+		d.syncPickerSelection()
+	case tea.KeyBackspace:
+		d.Picker.backspaceQuery()
+		d.syncPickerSelection()
+	case tea.KeyRunes:
+		d.Picker.insertQuery(string(msg.Runes))
+		d.syncPickerSelection()
 	default:
-		return true
+		return dialogResult{}
 	}
-	return true
+	return dialogResult{}
+}
+
+func (d *dialogState) syncPickerSelection() {
+	d.SelectedIndex = d.Picker.SelectedIndex
 }
 
 func (m *Model) openHelpDialog() {
@@ -94,11 +110,12 @@ func (m *Model) openHelpDialog() {
 
 func (m *Model) openModelDialog() {
 	m.dialog.open(dialogSpec{
-		Title:    "Model",
-		Subtitle: "Current model configuration",
+		Title:        "Model",
+		Subtitle:     "Current model configuration",
+		QueryEnabled: true,
 		Items: []dialogItem{
-			{Label: "MiniMax-M2.7", Description: "Current configured display model"},
-			{Label: "Model switching", Description: "Full picker will be implemented in a later module"},
+			{Label: "MiniMax-M2.7", Value: "minimax-m2.7", Description: "Current configured display model", Disabled: true},
+			{Label: "Model switching", Value: "model-switching", Description: "Full picker will be implemented in a later module"},
 		},
 	})
 }
