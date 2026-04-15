@@ -33,9 +33,12 @@ type inputRenderState struct {
 }
 
 type approvalRenderState struct {
-	ToolName  string
-	ToolInput string
-	Reason    string
+	ToolName      string
+	ToolInput     string
+	Reason        string
+	Category      string
+	RuleSource    string
+	SelectedIndex int
 }
 
 type dialogRenderState struct {
@@ -76,14 +79,17 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 		Activity:    m.activity.Label,
 		Diagnostics: m.diagnostics,
 	}
-	if m.pendingApproval != nil {
+	if m.approvalDialog.active() && m.approvalDialog.Request != nil {
 		snapshot.Approval = &approvalRenderState{
-			ToolName:  m.pendingApproval.ToolName,
-			ToolInput: m.pendingApproval.ToolInput,
-			Reason:    m.pendingApproval.Reason,
+			ToolName:      m.approvalDialog.Request.ToolName,
+			ToolInput:     m.approvalDialog.Request.ToolInput,
+			Reason:        m.approvalDialog.Request.Reason,
+			Category:      m.approvalDialog.Request.Category,
+			RuleSource:    m.approvalDialog.Request.RuleSource,
+			SelectedIndex: m.approvalDialog.SelectedIndex,
 		}
 	}
-	if m.dialog.active() {
+	if snapshot.Approval == nil && m.dialog.active() {
 		items := m.dialog.Picker.VisibleItems()
 		snapshot.Dialog = &dialogRenderState{
 			Title:         m.dialog.Title,
@@ -110,10 +116,10 @@ func (r renderer) renderScreen(snapshot renderSnapshot) string {
 	var b strings.Builder
 	b.WriteString(r.renderHeader(snapshot))
 	b.WriteString(r.renderTranscript(snapshot))
-	if snapshot.Approval != nil {
-		b.WriteString(r.renderApproval(snapshot))
-	}
 	b.WriteString(r.renderPrompt(snapshot))
+	if snapshot.Approval != nil {
+		b.WriteString(r.renderApprovalDialog(snapshot))
+	}
 	if snapshot.Dialog != nil {
 		b.WriteString(r.renderDialog(snapshot))
 	}
@@ -172,28 +178,75 @@ func (r renderer) renderTranscript(snapshot renderSnapshot) string {
 	return b.String()
 }
 
-func (r renderer) renderApproval(snapshot renderSnapshot) string {
+func (r renderer) renderApprovalDialog(snapshot renderSnapshot) string {
 	approval := snapshot.Approval
 	if approval == nil {
 		return ""
 	}
 	width := snapshot.Width
+	innerWidth := width - 4
+	if innerWidth < 20 {
+		innerWidth = 20
+	}
 	var b strings.Builder
-	b.WriteString(borderLine(width, '!'))
+	b.WriteString(borderLine(width, '#'))
 	b.WriteString("\n")
-	b.WriteString("Permission Required")
+	b.WriteString("  Permission Required")
 	if approval.ToolName != "" || approval.ToolInput != "" {
 		b.WriteString(": ")
 		b.WriteString(strings.TrimSpace(approval.ToolName + " " + approval.ToolInput))
 	}
 	b.WriteString("\n")
 	if approval.Reason != "" {
-		for _, line := range wrapCells("Reason: "+approval.Reason, width-2) {
+		for _, line := range wrapCells("Reason: "+approval.Reason, innerWidth) {
+			b.WriteString("  ")
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
 	}
-	b.WriteString("Ctrl+Y approve | Ctrl+N reject\n")
+	if approval.Category != "" {
+		for _, line := range wrapCells("Category: "+approval.Category, innerWidth) {
+			b.WriteString("  ")
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+	if approval.RuleSource != "" {
+		for _, line := range wrapCells("Rule: "+approval.RuleSource, innerWidth) {
+			b.WriteString("  ")
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString(borderLine(width, '#'))
+	b.WriteString("\n")
+	options := []dialogItem{
+		{Label: "Approve once", Description: "Run this tool call"},
+		{Label: "Reject", Description: "Cancel this tool call"},
+	}
+	for i, option := range options {
+		prefix := "  "
+		if i == approval.SelectedIndex {
+			prefix = "> "
+		}
+		line := option.Label
+		if option.Description != "" {
+			line += " - " + option.Description
+		}
+		for j, wrapped := range wrapCells(line, innerWidth) {
+			if j == 0 {
+				b.WriteString(prefix)
+			} else {
+				b.WriteString("  ")
+			}
+			b.WriteString(wrapped)
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString(borderLine(width, '#'))
+	b.WriteString("\n")
+	b.WriteString(rightAlign("Enter select  |  Esc reject  |  Ctrl+Y approve  |  Ctrl+N reject", width))
+	b.WriteString("\n")
 	return b.String()
 }
 
@@ -213,7 +266,7 @@ func (r renderer) renderPrompt(snapshot renderSnapshot) string {
 	b.WriteString("\n")
 	help := "Enter to send  |  Up/Down history  |  / for commands"
 	if snapshot.Approval != nil {
-		help = "Ctrl+Y approve  |  Ctrl+N reject"
+		help = "Enter select  |  Esc reject"
 	}
 	if snapshot.Dialog != nil {
 		help = "Enter select  |  Esc close"

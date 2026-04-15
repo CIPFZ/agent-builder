@@ -80,10 +80,13 @@ func TestRendererFooterSwitchesHelpForApproval(t *testing.T) {
 		t.Fatalf("plain prompt missing Enter help: %q", plain)
 	}
 
-	model.pendingApproval = &approval.Request{ID: "approval-1"}
+	model.applyRuntimeEvent(runtime.RuntimeEvent{
+		Type:     "permission.required",
+		Approval: &approval.Request{ID: "approval-1"},
+	})
 	approvalPrompt := newRenderer().renderPrompt(newRenderSnapshot(model, 80))
-	if !contains(approvalPrompt, "Ctrl+Y approve") || contains(approvalPrompt, "Enter to send") {
-		t.Fatalf("approval prompt help = %q, want approval shortcuts only", approvalPrompt)
+	if !contains(approvalPrompt, "Esc reject") || contains(approvalPrompt, "Enter to send") {
+		t.Fatalf("approval prompt help = %q, want approval dialog shortcuts only", approvalPrompt)
 	}
 }
 
