@@ -85,6 +85,7 @@ type Options struct {
 	MCPTools                  map[string]tools.MCPToolsListResult
 	MCPToolCaller             tools.MCPToolCaller
 	MCPContextualToolCaller   tools.MCPContextualToolCaller
+	MCPOAuthStore             tools.MCPOAuthStore
 	MCPPrompts                map[string]tools.MCPPromptsListResult
 	MCPPromptCaller           tools.MCPPromptCaller
 	MCPAuthenticator          tools.MCPAuthenticator
@@ -286,6 +287,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		MCPTools:                  runner.options.MCPTools,
 		MCPToolCaller:             runner.options.MCPToolCaller,
 		MCPContextualToolCaller:   runner.options.MCPContextualToolCaller,
+		MCPOAuthStore:             runner.options.MCPOAuthStore,
 		MCPPrompts:                runner.options.MCPPrompts,
 		MCPPromptCaller:           runner.options.MCPPromptCaller,
 		MCPAuthenticator:          runner.options.MCPAuthenticator,

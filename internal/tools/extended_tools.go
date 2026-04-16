@@ -812,6 +812,9 @@ func (t mcpAuthTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseConte
 			break
 		}
 	}
+	if toolCtx.MCPOAuthStore != nil {
+		connection = EnrichMCPConnectionWithOAuthStore(toolCtx.MCPOAuthStore, t.serverName, connection)
+	}
 	connection = t.enrichConnection(connection)
 	status := "unsupported"
 	authURL := t.authURL
@@ -977,6 +980,9 @@ func refreshMCPAuthAppState(toolCtx ToolUseContext, server string, reconnected M
 		if mcpState == nil {
 			mcpState = make(map[string]any)
 		}
+		if strings.TrimSpace(reconnected.Client.Name) != "" {
+			mcpState["clients"] = replaceMCPAppStateClients(mcpState["clients"], server, reconnected.Client)
+		}
 		mcpState["tools"] = replaceMCPAppStateTools(mcpState["tools"], server, reconnected.Tools)
 		mcpState["commands"] = replaceMCPAppStateCommands(mcpState["commands"], server, reconnected.Prompts)
 		if len(reconnected.Resources) > 0 {
@@ -995,6 +1001,37 @@ func refreshMCPAuthAppState(toolCtx ToolUseContext, server string, reconnected M
 		}
 		return next
 	})
+}
+
+func replaceMCPAppStateClients(value any, server string, client MCPConnection) []MCPConnection {
+	out := make([]MCPConnection, 0)
+	appendIfOtherServer := func(candidate MCPConnection) {
+		if candidate.Name != server {
+			out = append(out, candidate)
+		}
+	}
+	switch typed := value.(type) {
+	case []MCPConnection:
+		for _, candidate := range typed {
+			appendIfOtherServer(candidate)
+		}
+	case []any:
+		for _, item := range typed {
+			switch candidate := item.(type) {
+			case MCPConnection:
+				appendIfOtherServer(candidate)
+			case map[string]any:
+				appendIfOtherServer(MCPConnection{
+					Name:    stringField(candidate, "name"),
+					Type:    stringField(candidate, "type"),
+					BaseURL: stringField(candidate, "baseURL"),
+					URL:     stringField(candidate, "url"),
+				})
+			}
+		}
+	}
+	out = append(out, client)
+	return out
 }
 
 func replaceMCPAppStateTools(value any, server string, result MCPToolsListResult) []Definition {

@@ -542,6 +542,7 @@ func (r *mcpRuntime) reconnect(ctx context.Context, server string) (MCPReconnect
 		transport:  transport,
 	})
 	return MCPReconnectResult{
+		Client:    connection,
 		Tools:     result.Tools,
 		Prompts:   result.Prompts,
 		Resources: result.Resources,

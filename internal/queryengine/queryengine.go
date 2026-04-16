@@ -220,6 +220,7 @@ type Config struct {
 	MCPContextualToolCaller    tools.MCPContextualToolCaller
 	MCPPrompts                 map[string]tools.MCPPromptsListResult
 	MCPPromptCaller            tools.MCPPromptCaller
+	MCPOAuthStore              tools.MCPOAuthStore
 	MCPAuthenticator           tools.MCPAuthenticator
 	MCPReconnect               tools.MCPReconnectFunc
 	SkillRoots                 []string
@@ -389,6 +390,7 @@ type QueryEngine struct {
 	mcpResourceLister          tools.MCPResourceLister
 	mcpToolCaller              tools.MCPToolCaller
 	mcpContextualToolCaller    tools.MCPContextualToolCaller
+	mcpOAuthStore              tools.MCPOAuthStore
 	mcpAuthenticator           tools.MCPAuthenticator
 	mcpReconnect               tools.MCPReconnectFunc
 	mcpPrompts                 map[string]tools.MCPPromptsListResult
@@ -600,6 +602,7 @@ func New(cfg Config) *QueryEngine {
 		mcpResourceLister:         cfg.MCPResourceLister,
 		mcpToolCaller:             cfg.MCPToolCaller,
 		mcpContextualToolCaller:   cfg.MCPContextualToolCaller,
+		mcpOAuthStore:             cfg.MCPOAuthStore,
 		mcpAuthenticator:          cfg.MCPAuthenticator,
 		mcpReconnect:              cfg.MCPReconnect,
 		mcpPrompts:                cloneMCPPrompts(cfg.MCPPrompts),
@@ -1100,6 +1103,7 @@ func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, 
 		MCPResourceReader:       q.mcpResourceReader,
 		MCPResourceLister:       q.mcpResourceLister,
 		MCPContextualToolCaller: q.mcpContextualToolCaller,
+		MCPOAuthStore:           q.mcpOAuthStore,
 		MCPAuthenticator:        q.mcpAuthenticator,
 		MCPReconnect:            q.mcpReconnectFunc(),
 		RequestPrompt:           requestPrompt,

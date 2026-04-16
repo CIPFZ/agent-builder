@@ -563,6 +563,45 @@ func TestMCPAuthToolPassesChallengeContextToAuthenticator(t *testing.T) {
 	}
 }
 
+func TestMCPAuthToolUsesCachedOAuthContextFromStore(t *testing.T) {
+	store := tools.NewMCPOAuthMemoryStore()
+	provider := tools.NewMCPOAuthProvider(store, "filesystem", tools.MCPConnection{
+		Name:    "filesystem",
+		BaseURL: "https://mcp.example",
+	})
+	if err := provider.SaveStepUpScope("files:cached"); err != nil {
+		t.Fatalf("save step-up scope: %v", err)
+	}
+	if err := provider.SaveDiscoveryState(tools.MCPOAuthDiscoveryState{
+		AuthorizationServerURL: "https://auth.example",
+		ResourceMetadataURL:    "https://auth.example/.well-known/oauth-protected-resource",
+	}); err != nil {
+		t.Fatalf("save discovery: %v", err)
+	}
+	tool := tools.NewMCPAuthTool("filesystem", "https://auth.example/start", "Authenticate filesystem")
+
+	var seen tools.MCPConnection
+	_, err := tool.(tools.ContextualTool).InvokeWithContext(context.Background(), tools.ToolUseContext{
+		MCPClients: []tools.MCPConnection{{
+			Name:    "filesystem",
+			Type:    "needs-auth",
+			BaseURL: "https://mcp.example",
+		}},
+		MCPOAuthStore: store,
+		MCPAuthenticator: func(_ context.Context, _ string, connection tools.MCPConnection) (tools.MCPAuthStartResult, error) {
+			seen = connection
+			return tools.MCPAuthStartResult{Status: "auth_url", AuthURL: "https://auth.example/authorize"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke auth tool: %v", err)
+	}
+	if seen.AuthScope != "files:cached" ||
+		seen.AuthResourceMetadataURL != "https://auth.example/.well-known/oauth-protected-resource" {
+		t.Fatalf("authenticator connection = %#v, want cached OAuth context from store", seen)
+	}
+}
+
 func TestMCPAuthToolReconnectsAfterOAuthCompletionAndRefreshesAppState(t *testing.T) {
 	completion := make(chan tools.MCPAuthCompletionResult)
 	reconnected := make(chan struct{})
@@ -609,6 +648,7 @@ func TestMCPAuthToolReconnectsAfterOAuthCompletionAndRefreshesAppState(t *testin
 				t.Fatalf("reconnect server=%q, want filesystem", server)
 			}
 			return tools.MCPReconnectResult{
+				Client: tools.MCPConnection{Name: "filesystem", Type: "connected", BaseURL: "https://mcp.example"},
 				Tools: tools.MCPToolsListResult{Tools: []tools.MCPToolListItem{{
 					Name:        "read_file",
 					Description: "Read file.",
@@ -660,6 +700,10 @@ func TestMCPAuthToolReconnectsAfterOAuthCompletionAndRefreshesAppState(t *testin
 	resources := mcpState["resources"].(map[string][]tools.MCPResource)
 	if got := resources["filesystem"]; len(got) != 1 || got[0].URI != "file:///README.md" {
 		t.Fatalf("resources = %#v, want refreshed filesystem resources", resources)
+	}
+	clients := mcpState["clients"].([]tools.MCPConnection)
+	if len(clients) != 1 || clients[0].Name != "filesystem" || clients[0].Type != "connected" {
+		t.Fatalf("clients = %#v, want reconnected client swapped into app state", clients)
 	}
 }
 

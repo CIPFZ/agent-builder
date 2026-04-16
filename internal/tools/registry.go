@@ -131,6 +131,7 @@ type MCPAuthCompletionResult struct {
 type MCPAuthenticator func(context.Context, string, MCPConnection) (MCPAuthStartResult, error)
 
 type MCPReconnectResult struct {
+	Client    MCPConnection
 	Tools     MCPToolsListResult
 	Prompts   MCPPromptsListResult
 	Resources []MCPResource
@@ -256,6 +257,7 @@ type ToolUseContext struct {
 	MCPResourceReader       MCPResourceReader
 	MCPResourceLister       MCPResourceLister
 	MCPContextualToolCaller MCPContextualToolCaller
+	MCPOAuthStore           MCPOAuthStore
 	MCPAuthenticator        MCPAuthenticator
 	MCPReconnect            MCPReconnectFunc
 	RequestPrompt           RequestPromptFunc
