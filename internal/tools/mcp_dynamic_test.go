@@ -322,6 +322,74 @@ func TestDiscoverMCPClientToolsSendsClaudeToolUseIDMeta(t *testing.T) {
 	}
 }
 
+func TestDiscoverMCPClientToolsMergesClaudeToolUseIDWithCustomMeta(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		method, _ := request["method"].(string)
+		switch method {
+		case "initialize":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"capabilities":    map[string]any{"tools": map[string]any{}},
+				},
+			})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusNoContent)
+		case "tools/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{"tools": []map[string]any{{
+					"name":        "read_file",
+					"description": "Read a file",
+					"inputSchema": map[string]any{"type": "object"},
+				}}},
+			})
+		case "tools/call":
+			params, _ := request["params"].(map[string]any)
+			meta, _ := params["_meta"].(map[string]any)
+			if meta["existing"] != "keep" || meta["claudecode/toolUseId"] != "toolu-mcp-43" {
+				t.Fatalf("tools/call params = %#v, want custom meta plus Claude toolUseId", params)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{
+					"content": []map[string]any{{"type": "text", "text": "ok"}},
+				},
+			})
+		default:
+			t.Fatalf("unexpected method %q", method)
+		}
+	}))
+	defer server.Close()
+
+	result, err := tools.DiscoverMCPClientTools(context.Background(), []tools.MCPConnection{{
+		Name:    "filesystem",
+		Type:    "streamable_http",
+		BaseURL: server.URL,
+	}})
+	if err != nil {
+		t.Fatalf("discover mcp client: %v", err)
+	}
+	_, err = result.ContextualCaller(context.Background(), tools.MCPToolCallRequest{
+		Server:    "filesystem",
+		Name:      "read_file",
+		Input:     map[string]any{"path": "README.md"},
+		ToolUseID: "toolu-mcp-43",
+		Meta:      map[string]any{"existing": "keep"},
+	})
+	if err != nil {
+		t.Fatalf("call mcp tool: %v", err)
+	}
+}
+
 func TestDiscoverMCPClientToolsRetriesUrlElicitationToolCall(t *testing.T) {
 	var callCount int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -362,7 +430,12 @@ func TestDiscoverMCPClientToolsRetriesUrlElicitationToolCall(t *testing.T) {
 						"code":    -32042,
 						"message": "URL elicitation required",
 						"data": map[string]any{
-							"elicitations": []map[string]any{{"url": "https://example.com/auth", "message": "Open auth URL"}},
+							"elicitations": []map[string]any{{
+								"mode":          "url",
+								"url":           "https://example.com/auth",
+								"elicitationId": "elicit-1",
+								"message":       "Open auth URL",
+							}},
 						},
 					},
 				})
@@ -395,9 +468,11 @@ func TestDiscoverMCPClientToolsRetriesUrlElicitationToolCall(t *testing.T) {
 		Name:   "open_url",
 		Input:  map[string]any{},
 		HandleElicitation: func(_ context.Context, request tools.ElicitationRequest) (tools.ElicitationResult, error) {
-			elicitations, _ := request.Params["elicitations"].([]any)
-			if request.ServerName != "browser" || len(elicitations) != 1 {
-				t.Fatalf("elicitation request = %#v, want server and one elicitation", request)
+			if request.ServerName != "browser" ||
+				request.Params["mode"] != "url" ||
+				request.Params["url"] != "https://example.com/auth" ||
+				request.Params["elicitationId"] != "elicit-1" {
+				t.Fatalf("elicitation request = %#v, want Claude URL elicitation params", request)
 			}
 			elicited = true
 			return tools.ElicitationResult{Value: "accepted"}, nil
@@ -411,6 +486,162 @@ func TestDiscoverMCPClientToolsRetriesUrlElicitationToolCall(t *testing.T) {
 	}
 	if toolResult.Content[0]["text"] != "after elicitation" {
 		t.Fatalf("tool result = %#v, want retry result", toolResult)
+	}
+}
+
+func TestDiscoverMCPClientToolsDoesNotRetryInvalidUrlElicitationData(t *testing.T) {
+	var callCount int
+	var elicited bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		method, _ := request["method"].(string)
+		switch method {
+		case "initialize":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"capabilities":    map[string]any{"tools": map[string]any{}},
+				},
+			})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusNoContent)
+		case "tools/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{"tools": []map[string]any{{
+					"name":        "open_url",
+					"description": "Open URL",
+					"inputSchema": map[string]any{"type": "object"},
+				}}},
+			})
+		case "tools/call":
+			callCount++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"error": map[string]any{
+					"code":    -32042,
+					"message": "URL elicitation required",
+					"data": map[string]any{
+						"elicitations": []map[string]any{{"url": "https://example.com/auth"}},
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected method %q", method)
+		}
+	}))
+	defer server.Close()
+
+	result, err := tools.DiscoverMCPClientTools(context.Background(), []tools.MCPConnection{{
+		Name:    "browser",
+		Type:    "streamable_http",
+		BaseURL: server.URL,
+	}})
+	if err != nil {
+		t.Fatalf("discover mcp client: %v", err)
+	}
+	_, err = result.ContextualCaller(context.Background(), tools.MCPToolCallRequest{
+		Server: "browser",
+		Name:   "open_url",
+		Input:  map[string]any{},
+		HandleElicitation: func(context.Context, tools.ElicitationRequest) (tools.ElicitationResult, error) {
+			elicited = true
+			return tools.ElicitationResult{Value: "accepted"}, nil
+		},
+	})
+	if err == nil {
+		t.Fatal("call mcp tool: expected invalid elicitation error")
+	}
+	if elicited || callCount != 1 {
+		t.Fatalf("elicited=%v callCount=%d, want no elicitation retry for invalid payload", elicited, callCount)
+	}
+}
+
+func TestDiscoverMCPClientToolsReturnsContentWhenUrlElicitationDeclined(t *testing.T) {
+	var callCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		method, _ := request["method"].(string)
+		switch method {
+		case "initialize":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"capabilities":    map[string]any{"tools": map[string]any{}},
+				},
+			})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusNoContent)
+		case "tools/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{"tools": []map[string]any{{
+					"name":        "open_url",
+					"description": "Open URL",
+					"inputSchema": map[string]any{"type": "object"},
+				}}},
+			})
+		case "tools/call":
+			callCount++
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"error": map[string]any{
+					"code":    -32042,
+					"message": "URL elicitation required",
+					"data": map[string]any{
+						"elicitations": []map[string]any{{
+							"mode":          "url",
+							"url":           "https://example.com/auth",
+							"elicitationId": "elicit-1",
+							"message":       "Open auth URL",
+						}},
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected method %q", method)
+		}
+	}))
+	defer server.Close()
+
+	result, err := tools.DiscoverMCPClientTools(context.Background(), []tools.MCPConnection{{
+		Name:    "browser",
+		Type:    "streamable_http",
+		BaseURL: server.URL,
+	}})
+	if err != nil {
+		t.Fatalf("discover mcp client: %v", err)
+	}
+	toolResult, err := result.ContextualCaller(context.Background(), tools.MCPToolCallRequest{
+		Server: "browser",
+		Name:   "open_url",
+		Input:  map[string]any{},
+		HandleElicitation: func(context.Context, tools.ElicitationRequest) (tools.ElicitationResult, error) {
+			return tools.ElicitationResult{Value: "decline"}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("call mcp tool after declined elicitation: %v", err)
+	}
+	if callCount != 1 {
+		t.Fatalf("callCount=%d, want no retry after declined elicitation", callCount)
+	}
+	if got := firstTextContent(t, toolResult.Content); !strings.Contains(got, "declined by the user") {
+		t.Fatalf("tool result = %#v, want declined content", toolResult)
 	}
 }
 
@@ -687,6 +918,50 @@ func TestDiscoverMCPClientToolsPassesEnvToStdioServer(t *testing.T) {
 	}
 	if got := firstTextContent(t, toolResult.Content); !strings.Contains(got, "env-from-config") {
 		t.Fatalf("tool result content = %q, want env from MCPConnection", got)
+	}
+}
+
+func TestDiscoverMCPClientToolsReportsStdioProgressNotifications(t *testing.T) {
+	connection := tools.MCPConnection{
+		Name:    "stdio-server",
+		Type:    "stdio",
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestMCPStdioHelperProcess"},
+		Env: map[string]string{
+			"GO_WANT_HELPER_PROCESS": "1",
+			"MCP_SEND_PROGRESS":      "1",
+		},
+	}
+
+	result, err := tools.DiscoverMCPClientTools(context.Background(), []tools.MCPConnection{connection})
+	if err != nil {
+		t.Fatalf("discover stdio MCP: %v", err)
+	}
+	var progress []tools.ToolProgress
+	toolResult, err := result.ContextualCaller(context.Background(), tools.MCPToolCallRequest{
+		Server:    "stdio-server",
+		Name:      "echo_env",
+		Input:     map[string]any{"path": "notes.txt"},
+		ToolUseID: "toolu-progress",
+		ReportProgress: func(event tools.ToolProgress) {
+			progress = append(progress, event)
+		},
+	})
+	if err != nil {
+		t.Fatalf("tool call: %v", err)
+	}
+	if got := firstTextContent(t, toolResult.Content); !strings.Contains(got, "notes.txt") {
+		t.Fatalf("tool result content = %q, want normal response after progress notification", got)
+	}
+	if len(progress) != 1 {
+		t.Fatalf("progress = %#v, want one server progress event", progress)
+	}
+	event := progress[0]
+	if event.ToolUseID != "toolu-progress" || event.Type != "progress" || event.Message != "halfway" {
+		t.Fatalf("progress = %#v, want toolUseID-bound progress notification", progress)
+	}
+	if event.Data["type"] != "mcp_progress" || event.Data["status"] != "progress" || event.Data["serverName"] != "stdio-server" || event.Data["toolName"] != "echo_env" {
+		t.Fatalf("progress data = %#v, want Claude MCP progress data", event.Data)
 	}
 }
 
@@ -1078,6 +1353,28 @@ func TestMCPStdioHelperProcess(t *testing.T) {
 			params, _ := request["params"].(map[string]any)
 			args, _ := params["arguments"].(map[string]any)
 			path, _ := args["path"].(string)
+			if os.Getenv("MCP_SEND_PROGRESS") == "1" {
+				meta, _ := params["_meta"].(map[string]any)
+				progress := map[string]any{
+					"jsonrpc": "2.0",
+					"method":  "notifications/progress",
+					"params": map[string]any{
+						"progressToken": meta["progressToken"],
+						"progress":      1,
+						"total":         2,
+						"message":       "halfway",
+					},
+				}
+				encoded, _ := json.Marshal(progress)
+				if _, err := writer.Write(append(encoded, '\n')); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					return
+				}
+				if err := writer.Flush(); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					return
+				}
+			}
 			response = map[string]any{
 				"jsonrpc": "2.0",
 				"id":      request["id"],

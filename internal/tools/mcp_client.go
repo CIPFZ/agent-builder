@@ -15,10 +15,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+const defaultMCPToolTimeout = 100000000 * time.Millisecond
 
 type MCPDiscoveryResult struct {
 	Tools            map[string]MCPToolsListResult
@@ -48,7 +51,7 @@ type mcpTransportSession struct {
 }
 
 type mcpTransport interface {
-	rpc(context.Context, string, map[string]any, bool) (map[string]any, error)
+	rpc(context.Context, string, map[string]any, bool, ProgressFunc) (map[string]any, error)
 	close() error
 }
 
@@ -184,14 +187,14 @@ func (r *mcpRuntime) discover(ctx context.Context, connection MCPConnection, tra
 			"name":    "myclaw",
 			"version": "dev",
 		},
-	}, true)
+	}, true, nil)
 	if err != nil {
 		return mcpDiscoveryLists{}, fmt.Errorf("initialize MCP server %q: %w", connection.Name, err)
 	}
-	_, _ = transport.rpc(ctx, "notifications/initialized", map[string]any{}, false)
+	_, _ = transport.rpc(ctx, "notifications/initialized", map[string]any{}, false, nil)
 	lists := mcpDiscoveryLists{}
 	capabilities, _ := initResult["capabilities"].(map[string]any)
-	result, err := transport.rpc(ctx, "tools/list", map[string]any{}, true)
+	result, err := transport.rpc(ctx, "tools/list", map[string]any{}, true, nil)
 	if err != nil {
 		if capabilities == nil || capabilities["tools"] != nil {
 			return mcpDiscoveryLists{}, fmt.Errorf("list MCP tools for %q: %w", connection.Name, err)
@@ -206,7 +209,7 @@ func (r *mcpRuntime) discover(ctx context.Context, connection MCPConnection, tra
 		}
 	}
 	if capabilities != nil && capabilities["prompts"] != nil {
-		result, err := transport.rpc(ctx, "prompts/list", map[string]any{}, true)
+		result, err := transport.rpc(ctx, "prompts/list", map[string]any{}, true, nil)
 		if err != nil {
 			return mcpDiscoveryLists{}, fmt.Errorf("list MCP prompts for %q: %w", connection.Name, err)
 		}
@@ -219,7 +222,7 @@ func (r *mcpRuntime) discover(ctx context.Context, connection MCPConnection, tra
 		}
 	}
 	if capabilities != nil && capabilities["resources"] != nil {
-		result, err := transport.rpc(ctx, "resources/list", map[string]any{}, true)
+		result, err := transport.rpc(ctx, "resources/list", map[string]any{}, true, nil)
 		if err != nil {
 			return mcpDiscoveryLists{}, fmt.Errorf("list MCP resources for %q: %w", connection.Name, err)
 		}
@@ -319,42 +322,119 @@ func (r *mcpRuntime) callTool(ctx context.Context, server, name string, input ma
 }
 
 func (r *mcpRuntime) callToolWithRequest(ctx context.Context, req MCPToolCallRequest) (MCPToolResult, error) {
-	if req.Timeout > 0 {
+	timeout := req.Timeout
+	if timeout <= 0 {
+		timeout = mcpToolTimeout()
+	}
+	if timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, req.Timeout)
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	meta := req.Meta
-	if len(meta) == 0 {
-		meta = mcpToolUseMeta(req.ToolUseID)
-	}
+	meta := mergeMCPToolCallMeta(req.Meta, req.ToolUseID)
 	var lastErr error
 	for attempt := 0; attempt < 4; attempt++ {
-		toolResult, err := r.callToolWithSessionRetry(ctx, req.Server, req.Name, req.Input, meta)
+		toolResult, err := r.callToolWithSessionRetry(ctx, req.Server, req.Name, req.Input, meta, req.ToolUseID, req.ReportProgress)
 		if err == nil {
 			return toolResult, nil
 		}
 		lastErr = err
-		urlErr := mcpURLElicitationErrorData(err)
-		if urlErr == nil || req.HandleElicitation == nil || attempt == 3 {
+		elicitations := mcpURLElicitations(err)
+		if len(elicitations) == 0 || req.HandleElicitation == nil || attempt == 3 {
 			break
 		}
-		result, elicitErr := req.HandleElicitation(ctx, ElicitationRequest{
-			ServerName: req.Server,
-			Params:     urlErr,
-		})
-		if elicitErr != nil {
-			return MCPToolResult{}, elicitErr
-		}
-		if result.Cancelled {
-			return MCPToolResult{}, fmt.Errorf("MCP server %q URL elicitation was cancelled", req.Server)
+		for _, elicitation := range elicitations {
+			result, elicitErr := req.HandleElicitation(ctx, ElicitationRequest{
+				ServerName: req.Server,
+				Params:     elicitation,
+			})
+			if elicitErr != nil {
+				return MCPToolResult{}, elicitErr
+			}
+			action := mcpElicitationAction(result)
+			if action != "accept" {
+				return mcpURLDeclinedToolResult(req.Name, action), nil
+			}
 		}
 	}
 	return MCPToolResult{}, lastErr
 }
 
-func (r *mcpRuntime) callToolWithSessionRetry(ctx context.Context, server, name string, input map[string]any, meta map[string]any) (MCPToolResult, error) {
-	toolResult, err := r.callToolOnce(ctx, server, name, input, meta)
+func mcpToolTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("MCP_TOOL_TIMEOUT"))
+	if raw == "" {
+		return defaultMCPToolTimeout
+	}
+	millis, err := strconv.Atoi(raw)
+	if err != nil || millis <= 0 {
+		return defaultMCPToolTimeout
+	}
+	return time.Duration(millis) * time.Millisecond
+}
+
+func mergeMCPToolCallMeta(meta map[string]any, toolUseID string) map[string]any {
+	merged := cloneAnyMap(meta)
+	if merged == nil {
+		merged = make(map[string]any)
+	}
+	if toolMeta := mcpToolUseMeta(toolUseID); len(toolMeta) > 0 {
+		for key, value := range toolMeta {
+			merged[key] = value
+		}
+		if _, ok := merged["progressToken"]; !ok {
+			merged["progressToken"] = toolUseID
+		}
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
+}
+
+func mcpProgressReporter(server, tool, toolUseID string, reportProgress ProgressFunc) ProgressFunc {
+	if reportProgress == nil {
+		return nil
+	}
+	return func(progress ToolProgress) {
+		data := cloneAnyMap(progress.Data)
+		if data == nil {
+			data = make(map[string]any)
+		}
+		data["type"] = "mcp_progress"
+		data["status"] = "progress"
+		data["serverName"] = server
+		data["toolName"] = tool
+		message := strings.TrimSpace(progress.Message)
+		if message == "" {
+			message = stringField(data, "message")
+		}
+		if message != "" {
+			data["progressMessage"] = message
+		}
+		reportProgress(ToolProgress{
+			ToolUseID: toolUseID,
+			Type:      "progress",
+			Message:   message,
+			Data:      data,
+		})
+	}
+}
+
+func toolProgressFromMCPNotification(params map[string]any) ToolProgress {
+	data := cloneAnyMap(params)
+	message := strings.TrimSpace(stringField(params, "message"))
+	if message == "" {
+		message = strings.TrimSpace(stringField(params, "progressMessage"))
+	}
+	return ToolProgress{
+		Type:    "progress",
+		Message: message,
+		Data:    data,
+	}
+}
+
+func (r *mcpRuntime) callToolWithSessionRetry(ctx context.Context, server, name string, input map[string]any, meta map[string]any, toolUseID string, reportProgress ProgressFunc) (MCPToolResult, error) {
+	toolResult, err := r.callToolOnce(ctx, server, name, input, meta, toolUseID, reportProgress)
 	if err == nil {
 		return normalizeMCPToolResult(toolResult, server), nil
 	}
@@ -364,14 +444,14 @@ func (r *mcpRuntime) callToolWithSessionRetry(ctx context.Context, server, name 
 	if _, reconnectErr := r.reconnect(ctx, server); reconnectErr != nil {
 		return MCPToolResult{}, reconnectErr
 	}
-	toolResult, err = r.callToolOnce(ctx, server, name, input, meta)
+	toolResult, err = r.callToolOnce(ctx, server, name, input, meta, toolUseID, reportProgress)
 	if err != nil {
 		return MCPToolResult{}, err
 	}
 	return normalizeMCPToolResult(toolResult, server), nil
 }
 
-func (r *mcpRuntime) callToolOnce(ctx context.Context, server, name string, input map[string]any, meta map[string]any) (MCPToolResult, error) {
+func (r *mcpRuntime) callToolOnce(ctx context.Context, server, name string, input map[string]any, meta map[string]any, toolUseID string, reportProgress ProgressFunc) (MCPToolResult, error) {
 	session, ok := r.session(server)
 	if !ok {
 		return MCPToolResult{}, fmt.Errorf("MCP server %q is not connected", server)
@@ -383,7 +463,7 @@ func (r *mcpRuntime) callToolOnce(ctx context.Context, server, name string, inpu
 	if len(meta) > 0 {
 		params["_meta"] = meta
 	}
-	result, err := session.transport.rpc(ctx, "tools/call", params, true)
+	result, err := session.transport.rpc(ctx, "tools/call", params, true, mcpProgressReporter(server, name, toolUseID, reportProgress))
 	if err != nil {
 		return MCPToolResult{}, err
 	}
@@ -420,7 +500,7 @@ func (r *mcpRuntime) getPromptOnce(ctx context.Context, server, name string, arg
 	result, err := session.transport.rpc(ctx, "prompts/get", map[string]any{
 		"name":      name,
 		"arguments": arguments,
-	}, true)
+	}, true, nil)
 	if err != nil {
 		return MCPPromptResult{}, err
 	}
@@ -489,7 +569,7 @@ func (r *mcpRuntime) readResourceOnce(ctx context.Context, server, uri string) (
 	}
 	result, err := session.transport.rpc(ctx, "resources/read", map[string]any{
 		"uri": uri,
-	}, true)
+	}, true, nil)
 	if err != nil {
 		return MCPResourceReadResult{}, err
 	}
@@ -559,7 +639,7 @@ func (r *mcpRuntime) listResourcesForServerOnce(ctx context.Context, server stri
 	if !ok {
 		return nil, fmt.Errorf("MCP server %q is not connected", server)
 	}
-	result, err := session.transport.rpc(ctx, "resources/list", nil, true)
+	result, err := session.transport.rpc(ctx, "resources/list", nil, true, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -654,7 +734,7 @@ type mcpHTTPTransport struct {
 
 func (t *mcpHTTPTransport) close() error { return nil }
 
-func (t *mcpHTTPTransport) rpc(ctx context.Context, method string, params map[string]any, expectResponse bool) (map[string]any, error) {
+func (t *mcpHTTPTransport) rpc(ctx context.Context, method string, params map[string]any, expectResponse bool, _ ProgressFunc) (map[string]any, error) {
 	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  method,
@@ -782,7 +862,7 @@ func (t *mcpStdioTransport) close() error {
 	return <-done
 }
 
-func (t *mcpStdioTransport) rpc(ctx context.Context, method string, params map[string]any, expectResponse bool) (map[string]any, error) {
+func (t *mcpStdioTransport) rpc(ctx context.Context, method string, params map[string]any, expectResponse bool, reportProgress ProgressFunc) (map[string]any, error) {
 	request := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  method,
@@ -821,6 +901,8 @@ func (t *mcpStdioTransport) rpc(ctx context.Context, method string, params map[s
 			continue
 		}
 		var envelope struct {
+			Method string          `json:"method"`
+			Params map[string]any  `json:"params"`
 			Result json.RawMessage `json:"result"`
 			Error  *struct {
 				Code    int            `json:"code"`
@@ -830,6 +912,12 @@ func (t *mcpStdioTransport) rpc(ctx context.Context, method string, params map[s
 		}
 		if err := json.Unmarshal(line, &envelope); err != nil {
 			return nil, err
+		}
+		if envelope.Method != "" {
+			if envelope.Method == "notifications/progress" && reportProgress != nil {
+				reportProgress(toolProgressFromMCPNotification(envelope.Params))
+			}
+			continue
 		}
 		if envelope.Error != nil {
 			return nil, &mcpRPCError{
@@ -841,7 +929,7 @@ func (t *mcpStdioTransport) rpc(ctx context.Context, method string, params map[s
 			}
 		}
 		if len(envelope.Result) == 0 {
-			return map[string]any{}, nil
+			continue
 		}
 		var result map[string]any
 		if err := json.Unmarshal(envelope.Result, &result); err != nil {
@@ -904,6 +992,79 @@ func mcpURLElicitationErrorData(err error) map[string]any {
 		return map[string]any{"message": rpcErr.message}
 	}
 	return cloneAnyMap(rpcErr.data)
+}
+
+func mcpURLElicitations(err error) []map[string]any {
+	data := mcpURLElicitationErrorData(err)
+	if data == nil {
+		return nil
+	}
+	raw, ok := data["elicitations"]
+	if !ok {
+		return nil
+	}
+	items := make([]any, 0)
+	switch typed := raw.(type) {
+	case []any:
+		items = append(items, typed...)
+	case []map[string]any:
+		for _, item := range typed {
+			items = append(items, item)
+		}
+	default:
+		return nil
+	}
+	elicitations := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		object, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if stringField(object, "mode") != "url" ||
+			stringField(object, "url") == "" ||
+			stringField(object, "elicitationId") == "" ||
+			stringField(object, "message") == "" {
+			continue
+		}
+		elicitations = append(elicitations, cloneAnyMap(object))
+	}
+	return elicitations
+}
+
+func mcpElicitationAction(result ElicitationResult) string {
+	if result.Cancelled {
+		return "cancel"
+	}
+	if result.Data != nil {
+		if action := strings.ToLower(strings.TrimSpace(stringField(result.Data, "action"))); action != "" {
+			return normalizeMCPURLAction(action)
+		}
+	}
+	return normalizeMCPURLAction(result.Value)
+}
+
+func normalizeMCPURLAction(action string) string {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "", "accept", "accepted", "retry", "retry now":
+		return "accept"
+	case "decline", "declined":
+		return "decline"
+	case "cancel", "cancelled", "canceled":
+		return "cancel"
+	default:
+		return strings.ToLower(strings.TrimSpace(action))
+	}
+}
+
+func mcpURLDeclinedToolResult(tool, action string) MCPToolResult {
+	word := "cancelled"
+	if action == "decline" {
+		word = "declined"
+	} else if action != "cancel" && strings.TrimSpace(action) != "" {
+		word = action + "ed"
+	}
+	text := fmt.Sprintf("URL elicitation was %s by the user. The tool %q could not complete because it requires the user to open a URL.", word, tool)
+	return MCPToolResult{Content: []map[string]any{{"type": "text", "text": text}}}
 }
 
 type mcpHTTPStatusError struct {

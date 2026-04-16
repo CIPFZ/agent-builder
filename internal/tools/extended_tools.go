@@ -537,7 +537,7 @@ func (t *mcpTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseContext)
 		output, err := t.Invoke(ctx, toolCtx.Session, toolCtx.Input)
 		return ToolResult{Output: output}, err
 	}
-	timeout := 60 * time.Second
+	timeout := mcpToolTimeout()
 	if deadline, ok := ctx.Deadline(); ok {
 		if remaining := time.Until(deadline); remaining > 0 && remaining < timeout {
 			timeout = remaining

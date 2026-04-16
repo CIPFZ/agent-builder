@@ -242,6 +242,26 @@ func TestDynamicMCPToolContextualLifecyclePreservesMetaAndReportsProgress(t *tes
 	}
 }
 
+func TestDynamicMCPToolUsesClaudeMCPToolTimeoutEnv(t *testing.T) {
+	t.Setenv("MCP_TOOL_TIMEOUT", "1234")
+	tool := tools.NewMCPContextualTool(tools.MCPToolDefinition{
+		Server: "filesystem",
+		Name:   "read_file",
+	}, func(_ context.Context, req tools.MCPToolCallRequest) (tools.MCPToolResult, error) {
+		if req.Timeout != 1234*time.Millisecond {
+			t.Fatalf("timeout = %s, want MCP_TOOL_TIMEOUT milliseconds", req.Timeout)
+		}
+		return tools.MCPToolResult{Content: []map[string]any{{"type": "text", "text": "ok"}}}, nil
+	})
+
+	if _, err := tool.(tools.ContextualTool).InvokeWithContext(context.Background(), tools.ToolUseContext{
+		ToolName: "mcp__filesystem__read_file",
+		Input:    `{}`,
+	}); err != nil {
+		t.Fatalf("invoke contextual mcp tool: %v", err)
+	}
+}
+
 func TestDynamicMCPToolContextualLifecycleReturnsIsErrorWithMeta(t *testing.T) {
 	tool := tools.NewMCPContextualTool(tools.MCPToolDefinition{
 		Server: "filesystem",
