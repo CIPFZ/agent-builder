@@ -105,23 +105,29 @@ type dialogItem struct {
 }
 
 type dialogSpec struct {
-	Title        string
-	Subtitle     string
-	Items        []dialogItem
-	EmptyText    string
-	FooterHint   string
-	QueryEnabled bool
-	VisibleCount int
+	Title          string
+	Subtitle       string
+	Items          []dialogItem
+	EmptyText      string
+	FooterHint     string
+	QueryEnabled   bool
+	VisibleCount   int
+	Kind           string
+	OriginalInput  string
+	OriginalCursor int
 }
 
 type dialogState struct {
-	Title         string
-	Subtitle      string
-	Items         []dialogItem
-	SelectedIndex int
-	EmptyText     string
-	FooterHint    string
-	Picker        listPickerState
+	Title          string
+	Subtitle       string
+	Items          []dialogItem
+	SelectedIndex  int
+	EmptyText      string
+	FooterHint     string
+	Picker         listPickerState
+	Kind           string
+	OriginalInput  string
+	OriginalCursor int
 }
 
 type listPickerSpec struct {

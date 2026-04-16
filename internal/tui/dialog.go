@@ -37,6 +37,9 @@ func (d *dialogState) open(spec dialogSpec) {
 		QueryEnabled: spec.QueryEnabled,
 		VisibleCount: spec.VisibleCount,
 	})
+	d.Kind = spec.Kind
+	d.OriginalInput = spec.OriginalInput
+	d.OriginalCursor = spec.OriginalCursor
 	d.syncPickerSelection()
 }
 

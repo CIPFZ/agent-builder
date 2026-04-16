@@ -68,6 +68,7 @@ type dialogRenderState struct {
 	SelectedIndex int
 	EmptyText     string
 	FooterHint    string
+	Kind          string
 	Query         string
 	QueryEnabled  bool
 	MatchCount    int
@@ -131,6 +132,7 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 			SelectedIndex: m.dialog.Picker.SelectedIndex - m.dialog.Picker.VisibleFromIndex,
 			EmptyText:     m.dialog.EmptyText,
 			FooterHint:    m.dialog.FooterHint,
+			Kind:          m.dialog.Kind,
 			Query:         m.dialog.Picker.Query,
 			QueryEnabled:  m.dialog.Picker.QueryEnabled,
 			MatchCount:    m.dialog.Picker.MatchCount(),
@@ -523,6 +525,9 @@ func (r renderer) renderDialog(snapshot renderSnapshot) string {
 		empty := dialog.EmptyText
 		if empty == "" {
 			empty = "(empty)"
+		}
+		if dialog.Kind == dialogKindHistorySearch && dialog.QueryEnabled && strings.TrimSpace(dialog.Query) != "" {
+			empty = "No matching prompts"
 		}
 		b.WriteString("  ")
 		b.WriteString(empty)

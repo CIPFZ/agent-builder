@@ -26,12 +26,27 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.dialog.active() {
-		if msg.Type == tea.KeyCtrlC {
+		dialogKind := m.dialog.Kind
+		if m.dialog.Kind == dialogKindHistorySearch {
+			switch msg.Type {
+			case tea.KeyCtrlC, tea.KeyEsc:
+				m.cancelHistorySearchDialog()
+				return m, nil
+			case tea.KeyBackspace:
+				if m.dialog.Picker.Query == "" {
+					m.cancelHistorySearchDialog()
+					return m, nil
+				}
+			}
+		} else if msg.Type == tea.KeyCtrlC {
 			return m, tea.Quit
 		}
 		if result := m.dialog.handleKey(msg); result.Selected {
 			item := result.Item
 			m.lastDialogSelection = &item
+			if dialogKind == dialogKindHistorySearch {
+				m.acceptHistorySearchItem(item)
+			}
 		}
 		return m, nil
 	}
@@ -74,6 +89,12 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if id, ok := m.rejectPending(); ok {
 			m.bridge.Reject(id)
 		}
+		return m, nil
+	case tea.KeyCtrlR:
+		if m.viewport.Search.Active {
+			return m, nil
+		}
+		m.openHistorySearchDialog()
 		return m, nil
 	default:
 		if m.inputState.handleEditingKey(msg, m.width, slashCommands) {

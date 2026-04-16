@@ -54,14 +54,34 @@ func (p listPickerState) filteredItems() []dialogItem {
 		return append([]dialogItem(nil), p.Items...)
 	}
 	query := strings.ToLower(strings.TrimSpace(p.Query))
-	matches := make([]dialogItem, 0, len(p.Items))
+	exact := make([]dialogItem, 0, len(p.Items))
+	fuzzy := make([]dialogItem, 0, len(p.Items))
 	for _, item := range p.Items {
 		haystack := strings.ToLower(item.Label + " " + item.Description + " " + item.Value)
 		if strings.Contains(haystack, query) {
-			matches = append(matches, item)
+			exact = append(exact, item)
+		} else if isSubsequence(haystack, query) {
+			fuzzy = append(fuzzy, item)
 		}
 	}
-	return matches
+	return append(exact, fuzzy...)
+}
+
+func isSubsequence(text, query string) bool {
+	if query == "" {
+		return true
+	}
+	queryRunes := []rune(query)
+	j := 0
+	for _, r := range text {
+		if queryRunes[j] == r {
+			j++
+			if j == len(queryRunes) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (p listPickerState) MatchCount() int {
