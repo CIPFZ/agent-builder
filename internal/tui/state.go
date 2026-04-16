@@ -4,7 +4,9 @@ import (
 	"strings"
 
 	"myclaw/internal/approval"
+	"myclaw/internal/model"
 	"myclaw/internal/runtime"
+	"myclaw/internal/session"
 )
 
 type tuiState struct {
@@ -124,17 +126,25 @@ func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
 		}
 	case "message.created":
 		if event.Message != nil {
+			if entry, ok := specialTranscriptEntryFromMessage(*event.Message); ok {
+				s.transcript = append(s.transcript, entry)
+				return
+			}
 			if event.Message.Role == "assistant" {
 				if len(s.transcript) > 0 && s.transcript[len(s.transcript)-1].Role == "assistant" && s.transcript[len(s.transcript)-1].Streaming {
 					s.transcript[len(s.transcript)-1].Content = event.Message.Content
 					s.transcript[len(s.transcript)-1].Streaming = false
+					s.transcript[len(s.transcript)-1].Blocks = cloneMessageBlocks(event.Message.Blocks)
 				} else {
-					s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: event.Message.Content})
+					s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: event.Message.Content, Blocks: cloneMessageBlocks(event.Message.Blocks)})
 				}
 				s.busy = false
 			}
 			if event.Message.Role == "tool" {
 				s.transcript = append(s.transcript, transcriptEntry{Role: "tool", Content: event.Message.Content})
+			}
+			if event.Message.Role == "system" {
+				s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindSystem, Role: "system", Content: event.Message.Content})
 			}
 		}
 	case "tool.called":
@@ -159,7 +169,14 @@ func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
 		if event.Error != "" {
 			s.diagnostics.LastError = event.Error
 			s.activity.Label = "Run error"
+			s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindError, Role: "system", Content: event.Error})
 		}
+	case "compact.boundary":
+		s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindCompact, Role: "system", Content: "Conversation compacted"})
+	case "compact.cleaned":
+		s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindCompact, Role: "system", Content: "Compaction cleanup completed"})
+	case "compact.memory_saved":
+		s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindCompact, Role: "system", Content: "Session memory saved"})
 	case "agent.lifecycle.start":
 		s.busy = true
 		if s.activity.Label == "" {
@@ -177,4 +194,69 @@ func appendBoundedEvent(events []string, event string, limit int) []string {
 		return append([]string(nil), events[len(events)-limit:]...)
 	}
 	return events
+}
+
+func specialTranscriptEntryFromMessage(message session.Message) (transcriptEntry, bool) {
+	if message.IsCompactSummary {
+		content := strings.TrimSpace(message.Content)
+		if content == "" {
+			content = "Conversation compacted into summary"
+		}
+		return transcriptEntry{Kind: messageKindCompact, Role: message.Role, Content: content}, true
+	}
+	if message.Role == "system" && (message.Subtype == "compact_boundary" || message.Content == "[compact_boundary]") {
+		content := strings.TrimSpace(message.Content)
+		if content == "" || content == "[compact_boundary]" {
+			content = "Conversation compacted"
+		}
+		return transcriptEntry{Kind: messageKindCompact, Role: "system", Content: content}, true
+	}
+	stdout := extractTaggedContent(message.Content, "local-command-stdout")
+	stderr := extractTaggedContent(message.Content, "local-command-stderr")
+	if stdout == "" {
+		stdout = extractTaggedContent(message.Content, "bash-stdout")
+	}
+	if stderr == "" {
+		stderr = extractTaggedContent(message.Content, "bash-stderr")
+	}
+	if stdout != "" || stderr != "" {
+		return transcriptEntry{
+			Kind:        messageKindLocalCommand,
+			Role:        message.Role,
+			Content:     message.Content,
+			LocalStdout: stdout,
+			LocalStderr: stderr,
+		}, true
+	}
+	return transcriptEntry{}, false
+}
+
+func extractTaggedContent(content, tag string) string {
+	startTag := "<" + tag + ">"
+	endTag := "</" + tag + ">"
+	start := strings.Index(content, startTag)
+	if start < 0 {
+		return ""
+	}
+	start += len(startTag)
+	end := strings.Index(content[start:], endTag)
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(content[start : start+end])
+}
+
+func cloneMessageBlocks(blocks []model.MessageBlock) []model.MessageBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	cloned := make([]model.MessageBlock, len(blocks))
+	copy(cloned, blocks)
+	for i := range cloned {
+		cloned[i].InputObject = cloneAnyMap(blocks[i].InputObject)
+		if blocks[i].Raw != nil {
+			cloned[i].Raw = cloneAnyMap(blocks[i].Raw)
+		}
+	}
+	return cloned
 }

@@ -1,6 +1,9 @@
 package tui
 
-import "myclaw/internal/runtime"
+import (
+	"myclaw/internal/model"
+	"myclaw/internal/runtime"
+)
 
 type Bridge interface {
 	SendUserMessage(string) error
@@ -17,9 +20,11 @@ type BridgeErrMsg struct {
 }
 
 type transcriptEntry struct {
+	Kind                string
 	Role                string
 	Content             string
 	Streaming           bool
+	Blocks              []model.MessageBlock
 	ToolUseID           string
 	ToolName            string
 	ToolInput           string
@@ -29,12 +34,21 @@ type transcriptEntry struct {
 	ToolProgressType    string
 	ToolProgressMessage string
 	ToolProgressOutput  string
+	LocalStdout         string
+	LocalStderr         string
 }
 
 const (
 	toolStatusRunning   = "running"
 	toolStatusSucceeded = "succeeded"
 	toolStatusFailed    = "failed"
+)
+
+const (
+	messageKindCompact      = "compact"
+	messageKindError        = "error"
+	messageKindLocalCommand = "local-command"
+	messageKindSystem       = "system"
 )
 
 type ModelConfig struct {
