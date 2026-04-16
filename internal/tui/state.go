@@ -23,6 +23,7 @@ type tuiState struct {
 	viewport            viewportState
 	messageActions      messageActionsState
 	toolExpansion       toolExpansionState
+	pastes              pasteState
 	width               int
 	height              int
 }
@@ -35,6 +36,7 @@ func newTUIState(cfg ...ModelConfig) tuiState {
 		dialog:         newDialogState(),
 		approvalDialog: newApprovalDialogState(),
 		toolExpansion:  newToolExpansionState(),
+		pastes:         newPasteState(),
 		viewport: viewportState{
 			StickyBottom: true,
 		},
@@ -54,20 +56,22 @@ func (s *tuiState) setSize(width, height int) {
 
 func (s *tuiState) submitUserInput() (string, bool) {
 	s.clearSuggestions()
-	text := strings.TrimSpace(s.input)
-	if text == "" {
+	displayText := strings.TrimSpace(s.input)
+	if displayText == "" {
 		return "", false
 	}
-	if len(s.history) == 0 || s.history[len(s.history)-1] != text {
-		s.history = append(s.history, text)
+	sendText := s.pastes.expandReferences(displayText)
+	if len(s.history) == 0 || s.history[len(s.history)-1] != displayText {
+		s.history = append(s.history, displayText)
 	}
 	s.historyIndex = -1
 	s.cursorPos = 0
-	s.transcript = append(s.transcript, transcriptEntry{Role: "user", Content: text})
+	s.transcript = append(s.transcript, transcriptEntry{Role: "user", Content: displayText})
 	s.scrollTranscriptBottom()
 	s.input = ""
+	s.pastes = newPasteState()
 	s.busy = true
-	return text, true
+	return sendText, true
 }
 
 func (s *tuiState) clearSuggestions() {
@@ -84,6 +88,7 @@ func (s *tuiState) clearVisibleConversation() {
 	s.dialog.close()
 	s.messageActions.close()
 	s.toolExpansion.clear()
+	s.pastes = newPasteState()
 	s.viewport.Search = transcriptSearchState{}
 	s.scrollTranscriptBottom()
 	s.events = []string{"conversation cleared"}
