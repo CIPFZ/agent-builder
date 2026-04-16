@@ -16,19 +16,20 @@ const (
 )
 
 type renderSnapshot struct {
-	Width       int
-	Height      int
-	Title       string
-	Subtitle    string
-	Transcript  []transcriptEntry
-	Input       inputRenderState
-	Viewport    viewportRenderState
-	Actions     messageActionsRenderState
-	Approval    *approvalRenderState
-	Dialog      *dialogRenderState
-	Busy        bool
-	Activity    string
-	Diagnostics diagnosticsState
+	Width         int
+	Height        int
+	Title         string
+	Subtitle      string
+	Transcript    []transcriptEntry
+	Input         inputRenderState
+	Viewport      viewportRenderState
+	Actions       messageActionsRenderState
+	ExpandedTools map[string]bool
+	Approval      *approvalRenderState
+	Dialog        *dialogRenderState
+	Busy          bool
+	Activity      string
+	Diagnostics   diagnosticsState
 }
 
 type inputRenderState struct {
@@ -97,6 +98,10 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 	}
 	transcript := append([]transcriptEntry(nil), m.transcript...)
 	suggestions := append([]string(nil), m.suggestions...)
+	expandedTools := make(map[string]bool, len(m.toolExpansion.expanded))
+	for key, value := range m.toolExpansion.expanded {
+		expandedTools[key] = value
+	}
 	snapshot := renderSnapshot{
 		Width:      width,
 		Height:     m.height,
@@ -121,10 +126,11 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 				SelectedIndex: m.viewport.Search.SelectedIndex,
 			},
 		},
-		Actions:     newMessageActionsRenderState(m),
-		Busy:        m.busy,
-		Activity:    m.activity.Label,
-		Diagnostics: m.diagnostics,
+		Actions:       newMessageActionsRenderState(m),
+		ExpandedTools: expandedTools,
+		Busy:          m.busy,
+		Activity:      m.activity.Label,
+		Diagnostics:   m.diagnostics,
 	}
 	if m.approvalDialog.active() && m.approvalDialog.Request != nil {
 		snapshot.Approval = &approvalRenderState{
@@ -267,7 +273,7 @@ func (r renderer) renderTranscriptLines(snapshot renderSnapshot) []string {
 		case entry.Role == "assistant":
 			r.renderRoleBlock(&b, "assistant", entry.Content, entry.Streaming, width)
 		case entry.Role == "tool":
-			r.renderToolBlock(&b, entry, width)
+			r.renderToolBlock(&b, entry, width, snapshot.ExpandedTools[toolExpansionKeyForRender(i, entry)])
 		default:
 			r.renderRoleBlock(&b, entry.Role, entry.Content, entry.Streaming, width)
 		}
@@ -293,6 +299,12 @@ func newMessageActionsRenderState(m Model) messageActionsRenderState {
 	}
 	if entry.Role == "user" && entry.Kind == "" {
 		state.Actions = append(state.Actions, messageActionRenderItem{Key: "enter", Label: "edit"})
+	} else if isExpandableToolEntry(entry) {
+		label := "expand"
+		if m.selectedToolExpanded() {
+			label = "collapse"
+		}
+		state.Actions = append(state.Actions, messageActionRenderItem{Key: "enter", Label: label})
 	}
 	state.Actions = append(state.Actions, messageActionRenderItem{Key: "c", Label: "copy"})
 	if label, _, ok := primaryToolInputOf(entry); ok {
@@ -662,7 +674,7 @@ func (r renderer) renderRoleBlock(b *strings.Builder, role, content string, stre
 	}
 }
 
-func (r renderer) renderToolBlock(b *strings.Builder, entry transcriptEntry, width int) {
+func (r renderer) renderToolBlock(b *strings.Builder, entry transcriptEntry, width int, expanded bool) {
 	status := toolStatusRunning
 	if entry.ToolStatus != "" {
 		status = entry.ToolStatus
@@ -684,11 +696,14 @@ func (r renderer) renderToolBlock(b *strings.Builder, entry transcriptEntry, wid
 		}
 	}
 	if entry.ToolProgressOutput != "" && status == toolStatusRunning {
-		for _, line := range tailNonEmptyLines(entry.ToolProgressOutput, 5) {
-			for _, wrapped := range wrapCells(line, width-2) {
-				b.WriteString("  ")
-				b.WriteString(wrapped)
-				b.WriteString("\n")
+		lines := tailNonEmptyLines(entry.ToolProgressOutput, collapsedToolOutputLines)
+		if expanded {
+			lines = nonEmptyLines(entry.ToolProgressOutput)
+		}
+		renderWrappedIndentedLines(b, lines, width)
+		if !expanded {
+			if hidden := hiddenLineCount(entry.ToolProgressOutput, collapsedToolOutputLines); hidden > 0 {
+				b.WriteString(fmt.Sprintf("  ... %d more lines (enter expand)\n", hidden))
 			}
 		}
 	}
@@ -697,12 +712,27 @@ func (r renderer) renderToolBlock(b *strings.Builder, entry transcriptEntry, wid
 		if entry.ToolError {
 			label = "Error: " + label
 		}
-		for _, line := range wrapCells(label, width-2) {
-			b.WriteString("  ")
-			b.WriteString(line)
-			b.WriteString("\n")
+		lines := nonEmptyLines(label)
+		if !expanded && len(lines) > collapsedToolOutputLines {
+			lines = lines[:collapsedToolOutputLines]
+		}
+		renderWrappedIndentedLines(b, lines, width)
+		if !expanded {
+			if hidden := hiddenLineCount(label, collapsedToolOutputLines); hidden > 0 {
+				b.WriteString(fmt.Sprintf("  ... %d more lines (enter expand)\n", hidden))
+			}
 		}
 	}
+}
+
+func toolExpansionKeyForRender(index int, entry transcriptEntry) string {
+	if entry.ToolUseID != "" {
+		return entry.ToolUseID
+	}
+	if entry.ToolName != "" || entry.Role == "tool" {
+		return fmt.Sprintf("tool:%d", index)
+	}
+	return ""
 }
 
 func toolInputSummary(entry transcriptEntry) string {
@@ -725,6 +755,22 @@ func isRunningPlaceholder(entry transcriptEntry) bool {
 }
 
 func tailNonEmptyLines(text string, maxLines int) []string {
+	filtered := nonEmptyLines(text)
+	if maxLines > 0 && len(filtered) > maxLines {
+		return filtered[len(filtered)-maxLines:]
+	}
+	return filtered
+}
+
+func hiddenLineCount(text string, visibleLines int) int {
+	lines := nonEmptyLines(text)
+	if len(lines) <= visibleLines {
+		return 0
+	}
+	return len(lines) - visibleLines
+}
+
+func nonEmptyLines(text string) []string {
 	lines := strings.Split(strings.TrimSpace(text), "\n")
 	filtered := make([]string, 0, len(lines))
 	for _, line := range lines {
@@ -733,10 +779,17 @@ func tailNonEmptyLines(text string, maxLines int) []string {
 			filtered = append(filtered, line)
 		}
 	}
-	if maxLines > 0 && len(filtered) > maxLines {
-		return filtered[len(filtered)-maxLines:]
-	}
 	return filtered
+}
+
+func renderWrappedIndentedLines(b *strings.Builder, lines []string, width int) {
+	for _, line := range lines {
+		for _, wrapped := range wrapCells(line, width-2) {
+			b.WriteString("  ")
+			b.WriteString(wrapped)
+			b.WriteString("\n")
+		}
+	}
 }
 
 func (snapshot renderSnapshot) activityLabel() string {
