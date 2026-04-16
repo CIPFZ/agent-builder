@@ -109,9 +109,16 @@ type MCPToolCallRequest struct {
 type MCPContextualToolCaller func(context.Context, MCPToolCallRequest) (MCPToolResult, error)
 
 type MCPAuthStartResult struct {
+	Status     string
+	AuthURL    string
+	Message    string
+	Completion <-chan MCPAuthCompletionResult
+}
+
+type MCPAuthCompletionResult struct {
 	Status  string
-	AuthURL string
 	Message string
+	Error   error
 }
 
 type MCPAuthenticator func(context.Context, string, MCPConnection) (MCPAuthStartResult, error)

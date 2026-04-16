@@ -683,12 +683,14 @@ func (t mcpAuthTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseConte
 	authURL := t.authURL
 	message := t.message
 	authStarted := false
+	var completion <-chan MCPAuthCompletionResult
 	if toolCtx.MCPAuthenticator != nil {
 		started, err := toolCtx.MCPAuthenticator(ctx, t.serverName, connection)
 		if err != nil {
 			return ToolResult{}, err
 		}
 		authStarted = true
+		completion = started.Completion
 		status = strings.TrimSpace(started.Status)
 		if status == "" {
 			status = "auth_url"
@@ -709,7 +711,9 @@ func (t mcpAuthTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseConte
 	if authURL != "" {
 		payload["authUrl"] = authURL
 	}
-	if toolCtx.MCPReconnect != nil && authStarted && isMCPAuthCompleteStatus(status) {
+	if authStarted && completion != nil && !isMCPAuthCompleteStatus(status) {
+		startMCPAuthCompletionContinuation(toolCtx, t.serverName, completion)
+	} else if toolCtx.MCPReconnect != nil && authStarted && isMCPAuthCompleteStatus(status) {
 		reconnected, err := toolCtx.MCPReconnect(ctx, t.serverName)
 		if err != nil {
 			payload["reconnected"] = false
@@ -718,6 +722,7 @@ func (t mcpAuthTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseConte
 			payload["reconnected"] = true
 			payload["tools"] = reconnected.Tools.Tools
 			payload["resources"] = reconnected.Resources
+			refreshMCPAuthAppState(toolCtx, t.serverName, reconnected)
 		}
 	}
 	encoded, err := json.Marshal(payload)
@@ -725,6 +730,196 @@ func (t mcpAuthTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseConte
 		return ToolResult{}, err
 	}
 	return ToolResult{Output: string(encoded)}, nil
+}
+
+func startMCPAuthCompletionContinuation(toolCtx ToolUseContext, server string, completion <-chan MCPAuthCompletionResult) {
+	if toolCtx.MCPReconnect == nil || completion == nil {
+		return
+	}
+	go func() {
+		completed, ok := <-completion
+		if !ok {
+			return
+		}
+		if completed.Error != nil {
+			recordMCPAuthCompletionState(toolCtx, server, "error", completed.Error.Error(), nil)
+			return
+		}
+		status := strings.TrimSpace(completed.Status)
+		if status != "" && !isMCPAuthCompleteStatus(status) {
+			recordMCPAuthCompletionState(toolCtx, server, status, completed.Message, nil)
+			return
+		}
+		reconnected, err := toolCtx.MCPReconnect(context.Background(), server)
+		if err != nil {
+			recordMCPAuthCompletionState(toolCtx, server, "reconnect_error", err.Error(), nil)
+			return
+		}
+		refreshMCPAuthAppState(toolCtx, server, reconnected)
+		recordMCPAuthCompletionState(toolCtx, server, "reconnected", completed.Message, &reconnected)
+	}()
+}
+
+func recordMCPAuthCompletionState(toolCtx ToolUseContext, server, status, message string, reconnected *MCPReconnectResult) {
+	if toolCtx.SetAppState == nil {
+		return
+	}
+	toolCtx.SetAppState(func(previous map[string]any) map[string]any {
+		next := cloneAnyMap(previous)
+		if next == nil {
+			next = cloneAnyMap(toolCtx.AppState)
+		}
+		if next == nil {
+			next = make(map[string]any)
+		}
+		mcpAuth := cloneAnyMap(mapField(next, "mcpAuth"))
+		if mcpAuth == nil {
+			mcpAuth = make(map[string]any)
+		}
+		state := map[string]any{"status": status}
+		if message != "" {
+			state["message"] = message
+		}
+		if reconnected != nil {
+			state["toolCount"] = len(reconnected.Tools.Tools)
+			state["resourceCount"] = len(reconnected.Resources)
+		}
+		mcpAuth[server] = state
+		next["mcpAuth"] = mcpAuth
+		return next
+	})
+}
+
+func refreshMCPAuthAppState(toolCtx ToolUseContext, server string, reconnected MCPReconnectResult) {
+	if toolCtx.SetAppState == nil {
+		return
+	}
+	toolCtx.SetAppState(func(previous map[string]any) map[string]any {
+		next := cloneAnyMap(previous)
+		if next == nil {
+			next = cloneAnyMap(toolCtx.AppState)
+		}
+		if next == nil {
+			next = make(map[string]any)
+		}
+		mcpState := cloneAnyMap(mapField(next, "mcp"))
+		if mcpState == nil {
+			mcpState = make(map[string]any)
+		}
+		mcpState["tools"] = replaceMCPAppStateTools(mcpState["tools"], server, reconnected.Tools)
+		mcpState["commands"] = replaceMCPAppStateCommands(mcpState["commands"], server, reconnected.Prompts)
+		if len(reconnected.Resources) > 0 {
+			mcpState["resources"] = replaceMCPAppStateResources(mcpState["resources"], server, reconnected.Resources)
+		}
+		next["mcp"] = mcpState
+		if len(reconnected.Prompts.Prompts) > 0 {
+			prompts := make(map[string]MCPPromptsListResult)
+			if existing, ok := next["mcpPrompts"].(map[string]MCPPromptsListResult); ok {
+				for key, value := range existing {
+					prompts[key] = value
+				}
+			}
+			prompts[server] = reconnected.Prompts
+			next["mcpPrompts"] = prompts
+		}
+		return next
+	})
+}
+
+func replaceMCPAppStateTools(value any, server string, result MCPToolsListResult) []Definition {
+	prefix := mcpAppStatePrefix(server)
+	out := make([]Definition, 0)
+	appendIfOtherServer := func(def Definition) {
+		if !strings.HasPrefix(def.Name, prefix) {
+			out = append(out, def)
+		}
+	}
+	switch typed := value.(type) {
+	case []Definition:
+		for _, def := range typed {
+			appendIfOtherServer(def)
+		}
+	case []any:
+		for _, item := range typed {
+			switch def := item.(type) {
+			case Definition:
+				appendIfOtherServer(def)
+			case map[string]any:
+				appendIfOtherServer(definitionFromMap(def))
+			}
+		}
+	}
+	for _, item := range result.Tools {
+		out = append(out, Definition{
+			Name:        BuildMCPToolName(server, item.Name),
+			Description: strings.TrimSpace(item.Description),
+			InputSchema: deepCloneAnyMap(item.InputSchema),
+			Source:      "mcp",
+			Enabled:     true,
+			ReadOnly:    mcpBoolAnnotation(item.Annotations, "readOnlyHint"),
+			Destructive: mcpBoolAnnotation(item.Annotations, "destructiveHint"),
+		})
+	}
+	return out
+}
+
+func replaceMCPAppStateCommands(value any, server string, result MCPPromptsListResult) []Command {
+	prefix := mcpAppStatePrefix(server)
+	out := make([]Command, 0)
+	appendIfOtherServer := func(command Command) {
+		if !strings.HasPrefix(command.Name, prefix) {
+			out = append(out, command)
+		}
+	}
+	switch typed := value.(type) {
+	case []Command:
+		for _, command := range typed {
+			appendIfOtherServer(command)
+		}
+	case []any:
+		for _, item := range typed {
+			switch command := item.(type) {
+			case Command:
+				appendIfOtherServer(command)
+			case map[string]any:
+				appendIfOtherServer(Command{
+					Name:        stringField(command, "name"),
+					Description: stringField(command, "description"),
+				})
+			}
+		}
+	}
+	for _, prompt := range result.Prompts {
+		out = append(out, Command{
+			Name:        BuildMCPToolName(server, prompt.Name),
+			Description: strings.TrimSpace(prompt.Description),
+		})
+	}
+	return out
+}
+
+func replaceMCPAppStateResources(value any, server string, resources []MCPResource) map[string][]MCPResource {
+	out := make(map[string][]MCPResource)
+	if existing, ok := value.(map[string][]MCPResource); ok {
+		for key, list := range existing {
+			out[key] = append([]MCPResource(nil), list...)
+		}
+	}
+	out[server] = append([]MCPResource(nil), resources...)
+	return out
+}
+
+func definitionFromMap(object map[string]any) Definition {
+	return Definition{
+		Name:        stringField(object, "name"),
+		Description: stringField(object, "description"),
+		Source:      stringField(object, "source"),
+		Enabled:     true,
+	}
+}
+
+func mcpAppStatePrefix(server string) string {
+	return "mcp__" + normalizeMCPName(server) + "__"
 }
 
 func mcpToolUseMeta(toolUseID string) map[string]any {

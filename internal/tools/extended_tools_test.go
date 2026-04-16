@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"myclaw/internal/permissions"
 	"myclaw/internal/session"
@@ -312,6 +313,159 @@ func TestMCPAuthToolReturnsAuthURLBeforeReconnectCompletes(t *testing.T) {
 	}
 	if _, ok := parsed["reconnected"]; ok {
 		t.Fatalf("auth output = %#v, did not want synchronous reconnect state", parsed)
+	}
+}
+
+func TestMCPAuthToolReconnectsAfterOAuthCompletionAndRefreshesAppState(t *testing.T) {
+	completion := make(chan tools.MCPAuthCompletionResult)
+	reconnected := make(chan struct{})
+	var appState map[string]any
+	tool := tools.NewMCPAuthTool("filesystem", "https://auth.example/start", "Authenticate filesystem")
+	result, err := tool.(tools.ContextualTool).InvokeWithContext(context.Background(), tools.ToolUseContext{
+		ToolName: "mcp__filesystem__authenticate",
+		MCPClients: []tools.MCPConnection{{
+			Name:    "filesystem",
+			Type:    "http",
+			BaseURL: "https://mcp.example",
+		}},
+		AppState: map[string]any{
+			"mcp": map[string]any{
+				"clients": []tools.MCPConnection{{Name: "filesystem", Type: "http", BaseURL: "https://mcp.example"}},
+				"tools": []tools.Definition{
+					{Name: "mcp__filesystem__authenticate"},
+					{Name: "mcp__other__read_file"},
+				},
+				"commands": []tools.Command{{Name: "filesystem:old"}, {Name: "other:cmd"}},
+				"resources": map[string][]tools.MCPResource{
+					"filesystem": {{URI: "file:///old.txt", Name: "old"}},
+				},
+			},
+		},
+		SetAppState: func(update func(map[string]any) map[string]any) {
+			appState = update(appState)
+			select {
+			case <-reconnected:
+			default:
+				close(reconnected)
+			}
+		},
+		MCPAuthenticator: func(_ context.Context, _ string, _ tools.MCPConnection) (tools.MCPAuthStartResult, error) {
+			return tools.MCPAuthStartResult{
+				Status:     "auth_url",
+				AuthURL:    "https://auth.example/authorize",
+				Message:    "Open browser",
+				Completion: completion,
+			}, nil
+		},
+		MCPReconnect: func(_ context.Context, server string) (tools.MCPReconnectResult, error) {
+			if server != "filesystem" {
+				t.Fatalf("reconnect server=%q, want filesystem", server)
+			}
+			return tools.MCPReconnectResult{
+				Tools: tools.MCPToolsListResult{Tools: []tools.MCPToolListItem{{
+					Name:        "read_file",
+					Description: "Read file.",
+				}}},
+				Prompts:   tools.MCPPromptsListResult{Prompts: []tools.MCPPromptListItem{{Name: "review"}}},
+				Resources: []tools.MCPResource{{URI: "file:///README.md", Name: "README"}},
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke auth tool: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &parsed); err != nil {
+		t.Fatalf("auth output JSON: %v", err)
+	}
+	if parsed["status"] != "auth_url" || parsed["authUrl"] != "https://auth.example/authorize" {
+		t.Fatalf("auth output = %#v, want auth_url before completion", parsed)
+	}
+
+	completion <- tools.MCPAuthCompletionResult{Status: "complete"}
+	select {
+	case <-reconnected:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for OAuth completion reconnect")
+	}
+	mcpState, ok := appState["mcp"].(map[string]any)
+	if !ok {
+		t.Fatalf("appState = %#v, want mcp state", appState)
+	}
+	stateTools, ok := mcpState["tools"].([]tools.Definition)
+	if !ok {
+		t.Fatalf("mcp state = %#v, want tools definitions", mcpState)
+	}
+	var sawReal, sawAuth, sawOther bool
+	for _, def := range stateTools {
+		switch def.Name {
+		case "mcp__filesystem__read_file":
+			sawReal = true
+		case "mcp__filesystem__authenticate":
+			sawAuth = true
+		case "mcp__other__read_file":
+			sawOther = true
+		}
+	}
+	if !sawReal || sawAuth || !sawOther {
+		t.Fatalf("tools = %#v, want filesystem auth replaced with real tool and other tools preserved", stateTools)
+	}
+	resources := mcpState["resources"].(map[string][]tools.MCPResource)
+	if got := resources["filesystem"]; len(got) != 1 || got[0].URI != "file:///README.md" {
+		t.Fatalf("resources = %#v, want refreshed filesystem resources", resources)
+	}
+}
+
+func TestMCPAuthToolImmediateCompletionRefreshesAppState(t *testing.T) {
+	var appState map[string]any
+	tool := tools.NewMCPAuthTool("filesystem", "https://auth.example/start", "Authenticate filesystem")
+	result, err := tool.(tools.ContextualTool).InvokeWithContext(context.Background(), tools.ToolUseContext{
+		ToolName: "mcp__filesystem__authenticate",
+		AppState: map[string]any{
+			"mcp": map[string]any{
+				"tools": []tools.Definition{
+					{Name: "mcp__filesystem__authenticate"},
+				},
+			},
+		},
+		SetAppState: func(update func(map[string]any) map[string]any) {
+			appState = update(appState)
+		},
+		MCPAuthenticator: func(_ context.Context, _ string, _ tools.MCPConnection) (tools.MCPAuthStartResult, error) {
+			return tools.MCPAuthStartResult{Status: "complete", Message: "Authenticated"}, nil
+		},
+		MCPReconnect: func(_ context.Context, server string) (tools.MCPReconnectResult, error) {
+			if server != "filesystem" {
+				t.Fatalf("reconnect server=%q, want filesystem", server)
+			}
+			return tools.MCPReconnectResult{
+				Tools: tools.MCPToolsListResult{Tools: []tools.MCPToolListItem{{
+					Name:        "read_file",
+					Description: "Read file.",
+				}}},
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke auth tool: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &parsed); err != nil {
+		t.Fatalf("auth output JSON: %v", err)
+	}
+	if parsed["reconnected"] != true {
+		t.Fatalf("auth output = %#v, want synchronous reconnect status", parsed)
+	}
+	mcpState, ok := appState["mcp"].(map[string]any)
+	if !ok {
+		t.Fatalf("appState = %#v, want mcp state", appState)
+	}
+	stateTools, ok := mcpState["tools"].([]tools.Definition)
+	if !ok {
+		t.Fatalf("mcp state = %#v, want tools definitions", mcpState)
+	}
+	if len(stateTools) != 1 || stateTools[0].Name != "mcp__filesystem__read_file" {
+		t.Fatalf("tools = %#v, want authenticate replaced with real tool", stateTools)
 	}
 }
 
