@@ -66,6 +66,11 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.handleViewportKey(msg) {
 		return m, nil
 	}
+	if msg.Paste || isLargeInput(msg) || containsBracketedPaste(msg) {
+		if m.handlePasteKey(msg) {
+			return m, nil
+		}
+	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
@@ -111,6 +116,46 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+}
+
+func (m *Model) handlePasteKey(msg tea.KeyMsg) bool {
+	if msg.Type != tea.KeyRunes {
+		return false
+	}
+	text := sanitizePastedText(string(msg.Runes))
+	if text == "" {
+		m.clearSuggestions()
+		return true
+	}
+	numLines := pastedTextRefNumLines(text)
+	inserted := text
+	if len([]rune(text)) > pasteThreshold || numLines > m.maxVisiblePasteLines() {
+		inserted = m.pastes.addText(text, numLines)
+	}
+	m.inputState.insertRunes([]rune(inserted), slashCommands)
+	return true
+}
+
+func (m Model) maxVisiblePasteLines() int {
+	if m.height == 0 {
+		return 2
+	}
+	maxLines := m.height - 10
+	if maxLines > 2 {
+		return 2
+	}
+	if maxLines < 0 {
+		return 0
+	}
+	return maxLines
+}
+
+func isLargeInput(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyRunes && len(msg.Runes) > pasteThreshold
+}
+
+func containsBracketedPaste(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyRunes && strings.Contains(string(msg.Runes), "\x1b[200~") && strings.Contains(string(msg.Runes), "\x1b[201~")
 }
 
 func (m *Model) handleViewportKey(msg tea.KeyMsg) bool {
