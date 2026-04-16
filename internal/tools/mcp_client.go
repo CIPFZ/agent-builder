@@ -770,11 +770,14 @@ func (t *mcpHTTPTransport) rpc(ctx context.Context, method string, params map[st
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			challenge := extractMCPAuthChallenge(resp, body)
 			return nil, &mcpAuthRequiredError{
 				serverName: t.connection.Name,
 				method:     method,
 				statusCode: resp.StatusCode,
-				authURL:    extractMCPAuthURL(resp, body),
+				authURL:    challengeAuthURL(challenge),
+				scope:      challenge["scope"],
+				challenge:  challenge,
 				message:    strings.TrimSpace(string(body)),
 			}
 		}
@@ -1086,6 +1089,8 @@ type mcpAuthRequiredError struct {
 	method     string
 	statusCode int
 	authURL    string
+	scope      string
+	challenge  map[string]string
 	message    string
 }
 
@@ -1145,14 +1150,20 @@ func buildMCPAuthToolResult(serverName string, connection MCPConnection, err *mc
 	if details := strings.TrimSpace(err.message); details != "" {
 		message = message + " " + details
 	}
+	if scope := strings.TrimSpace(err.scope); scope != "" {
+		message = message + " Required scope: " + scope + "."
+	}
 	if authURL != "" {
 		message = fmt.Sprintf("%s Open this authorization URL to continue: %s", message, authURL)
 	}
 	return MCPAuthToolResult{
-		Name:    toolName,
-		Status:  "needs-auth",
-		AuthURL: authURL,
-		Message: message,
+		Name:                toolName,
+		Status:              "needs-auth",
+		AuthURL:             authURL,
+		Message:             message,
+		Scope:               strings.TrimSpace(err.scope),
+		ResourceMetadataURL: strings.TrimSpace(err.challenge["resource_metadata"]),
+		Challenge:           cloneStringMap(err.challenge),
 	}
 }
 
@@ -1172,48 +1183,93 @@ func MCPAuthToolResultFromError(serverName string, err error) (MCPAuthToolResult
 }
 
 func extractMCPAuthURL(resp *http.Response, body []byte) string {
+	return challengeAuthURL(extractMCPAuthChallenge(resp, body))
+}
+
+func extractMCPAuthChallenge(resp *http.Response, body []byte) map[string]string {
+	challenge := make(map[string]string)
 	if resp == nil {
-		return ""
+		return challenge
 	}
 	for _, value := range resp.Header.Values("WWW-Authenticate") {
-		if url := parseAuthorizationURL(value); url != "" {
-			return url
-		}
+		mergeStringMap(challenge, parseWWWAuthenticate(value))
 	}
 	if len(body) > 0 {
-		if url := parseAuthorizationURL(string(body)); url != "" {
-			return url
+		mergeStringMap(challenge, parseWWWAuthenticate(string(body)))
+	}
+	return challenge
+}
+
+func challengeAuthURL(challenge map[string]string) string {
+	for _, key := range []string{"authorization_uri", "authorization_url", "auth_url"} {
+		value := strings.TrimSpace(challenge[key])
+		if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+			return value
 		}
 	}
 	return ""
 }
 
 func parseAuthorizationURL(value string) string {
+	return challengeAuthURL(parseWWWAuthenticate(value))
+}
+
+func parseWWWAuthenticate(value string) map[string]string {
 	value = strings.TrimSpace(value)
+	out := make(map[string]string)
 	if value == "" {
-		return ""
+		return out
 	}
-	for _, token := range strings.Split(value, ",") {
+	if strings.HasPrefix(strings.ToLower(value), "bearer ") {
+		value = strings.TrimSpace(value[len("bearer "):])
+	}
+	for _, token := range splitAuthChallengeTokens(value) {
 		token = strings.TrimSpace(token)
-		if fields := strings.Fields(token); len(fields) > 1 {
-			token = fields[len(fields)-1]
-		}
-		switch {
-		case strings.HasPrefix(token, "authorization_uri="):
-			token = strings.TrimPrefix(token, "authorization_uri=")
-		case strings.HasPrefix(token, "authorization_url="):
-			token = strings.TrimPrefix(token, "authorization_url=")
-		case strings.HasPrefix(token, "auth_url="):
-			token = strings.TrimPrefix(token, "auth_url=")
-		default:
+		key, raw, ok := strings.Cut(token, "=")
+		if !ok {
 			continue
 		}
-		token = strings.Trim(token, `"' `)
-		if strings.HasPrefix(token, "http://") || strings.HasPrefix(token, "https://") {
-			return token
+		key = strings.ToLower(strings.TrimSpace(key))
+		raw = strings.Trim(strings.TrimSpace(raw), `"' `)
+		if key != "" && raw != "" {
+			out[key] = raw
 		}
 	}
-	return ""
+	return out
+}
+
+func splitAuthChallengeTokens(value string) []string {
+	var tokens []string
+	var builder strings.Builder
+	inQuote := false
+	for _, r := range value {
+		switch r {
+		case '"':
+			inQuote = !inQuote
+			builder.WriteRune(r)
+		case ',':
+			if inQuote {
+				builder.WriteRune(r)
+				continue
+			}
+			tokens = append(tokens, builder.String())
+			builder.Reset()
+		default:
+			builder.WriteRune(r)
+		}
+	}
+	if builder.Len() > 0 {
+		tokens = append(tokens, builder.String())
+	}
+	return tokens
+}
+
+func mergeStringMap(target, source map[string]string) {
+	for key, value := range source {
+		if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
+			target[key] = value
+		}
+	}
 }
 
 func resolveMCPRequestHeaders(ctx context.Context, connection MCPConnection) (map[string]string, error) {

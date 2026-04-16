@@ -75,15 +75,19 @@ type ResourceLimits struct {
 }
 
 type MCPConnection struct {
-	Name          string
-	Type          string
-	BaseURL       string
-	URL           string
-	Command       string
-	Args          []string
-	Env           map[string]string
-	Headers       map[string]string
-	HeadersHelper string
+	Name                    string
+	Type                    string
+	BaseURL                 string
+	URL                     string
+	Command                 string
+	Args                    []string
+	Env                     map[string]string
+	Headers                 map[string]string
+	HeadersHelper           string
+	AuthURL                 string
+	AuthScope               string
+	AuthResourceMetadataURL string
+	AuthChallenge           map[string]string
 }
 
 type MCPResource struct {
@@ -109,10 +113,13 @@ type MCPToolCallRequest struct {
 type MCPContextualToolCaller func(context.Context, MCPToolCallRequest) (MCPToolResult, error)
 
 type MCPAuthStartResult struct {
-	Status     string
-	AuthURL    string
-	Message    string
-	Completion <-chan MCPAuthCompletionResult
+	Status              string
+	AuthURL             string
+	Message             string
+	Scope               string
+	ResourceMetadataURL string
+	Challenge           map[string]string
+	Completion          <-chan MCPAuthCompletionResult
 }
 
 type MCPAuthCompletionResult struct {

@@ -152,6 +152,41 @@ func TestDiscoverMCPClientToolsReturnsNeedsAuthPseudoTool(t *testing.T) {
 	}
 }
 
+func TestDiscoverMCPClientToolsPreservesInsufficientScopeChallenge(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="files:read files:write", resource_metadata="https://auth.example/.well-known/oauth-protected-resource", authorization_uri="https://auth.example/authorize"`)
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"insufficient_scope"}`))
+	}))
+	defer server.Close()
+
+	result, err := tools.DiscoverMCPClientTools(context.Background(), []tools.MCPConnection{{
+		Name:    "filesystem",
+		Type:    "streamable_http",
+		BaseURL: server.URL,
+	}})
+	if err != nil {
+		t.Fatalf("discover auth-required mcp: %v", err)
+	}
+	auth := result.NeedsAuth["filesystem"]
+	if auth.AuthURL != "https://auth.example/authorize" {
+		t.Fatalf("auth url = %q, want authorization_uri", auth.AuthURL)
+	}
+	if auth.Scope != "files:read files:write" {
+		t.Fatalf("scope = %q, want insufficient_scope scope", auth.Scope)
+	}
+	if auth.ResourceMetadataURL != "https://auth.example/.well-known/oauth-protected-resource" {
+		t.Fatalf("resource metadata url = %q, want WWW-Authenticate resource_metadata", auth.ResourceMetadataURL)
+	}
+	if auth.Challenge["error"] != "insufficient_scope" ||
+		auth.Challenge["resource_metadata"] != "https://auth.example/.well-known/oauth-protected-resource" {
+		t.Fatalf("challenge = %#v, want parsed WWW-Authenticate challenge", auth.Challenge)
+	}
+	if !strings.Contains(auth.Message, "files:read files:write") {
+		t.Fatalf("auth message = %q, want required scope surfaced", auth.Message)
+	}
+}
+
 func TestMCPAuthToolReturnsAuthUrlAndNeedsAuthStatus(t *testing.T) {
 	tool := tools.NewMCPAuthTool("filesystem", "https://auth.example/authorize", "Authenticate filesystem")
 	result, err := tool.Invoke(context.Background(), session.Session{}, `{"server":"filesystem"}`)

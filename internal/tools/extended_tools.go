@@ -644,9 +644,12 @@ func markMCPServerNeedsAuth(toolCtx ToolUseContext, server string, err error) bo
 			mcpAuth = make(map[string]any)
 		}
 		mcpAuth[server] = map[string]any{
-			"status":  auth.Status,
-			"authUrl": auth.AuthURL,
-			"message": auth.Message,
+			"status":              auth.Status,
+			"authUrl":             auth.AuthURL,
+			"message":             auth.Message,
+			"scope":               auth.Scope,
+			"resourceMetadataUrl": auth.ResourceMetadataURL,
+			"challenge":           auth.Challenge,
 		}
 		next["mcpAuth"] = mcpAuth
 		return next
@@ -711,7 +714,7 @@ func replaceMCPAppStateToolsWithAuth(value any, server string, auth MCPAuthToolR
 			}
 		}
 	}
-	out = append(out, NewMCPAuthTool(server, auth.AuthURL, auth.Message).Definition())
+	out = append(out, NewMCPAuthToolFromResult(server, auth).Definition())
 	return out
 }
 
@@ -733,9 +736,12 @@ type mcpResultEnvelope struct {
 }
 
 type mcpAuthTool struct {
-	serverName string
-	authURL    string
-	message    string
+	serverName          string
+	authURL             string
+	message             string
+	scope               string
+	resourceMetadataURL string
+	challenge           map[string]string
 }
 
 func NewMCPAuthTool(serverName, authURL, message string) Tool {
@@ -743,6 +749,21 @@ func NewMCPAuthTool(serverName, authURL, message string) Tool {
 		serverName: serverName,
 		authURL:    authURL,
 		message:    message,
+	}
+}
+
+func NewMCPAuthToolFromResult(serverName string, auth MCPAuthToolResult) Tool {
+	resourceMetadataURL := strings.TrimSpace(auth.ResourceMetadataURL)
+	if resourceMetadataURL == "" {
+		resourceMetadataURL = strings.TrimSpace(auth.Challenge["resource_metadata"])
+	}
+	return mcpAuthTool{
+		serverName:          serverName,
+		authURL:             auth.AuthURL,
+		message:             auth.Message,
+		scope:               auth.Scope,
+		resourceMetadataURL: resourceMetadataURL,
+		challenge:           cloneStringMap(auth.Challenge),
 	}
 }
 
@@ -766,6 +787,15 @@ func (t mcpAuthTool) Invoke(_ context.Context, _ session.Session, _ string) (str
 	if t.authURL != "" {
 		payload["authUrl"] = t.authURL
 	}
+	if t.scope != "" {
+		payload["scope"] = t.scope
+	}
+	if t.resourceMetadataURL != "" {
+		payload["resourceMetadataUrl"] = t.resourceMetadataURL
+	}
+	if len(t.challenge) > 0 {
+		payload["challenge"] = t.challenge
+	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -782,9 +812,13 @@ func (t mcpAuthTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseConte
 			break
 		}
 	}
+	connection = t.enrichConnection(connection)
 	status := "unsupported"
 	authURL := t.authURL
 	message := t.message
+	scope := t.scope
+	resourceMetadataURL := t.resourceMetadataURL
+	challenge := cloneStringMap(t.challenge)
 	authStarted := false
 	var completion <-chan MCPAuthCompletionResult
 	if toolCtx.MCPAuthenticator != nil {
@@ -804,6 +838,15 @@ func (t mcpAuthTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseConte
 		if started.Message != "" {
 			message = started.Message
 		}
+		if started.Scope != "" {
+			scope = started.Scope
+		}
+		if started.ResourceMetadataURL != "" {
+			resourceMetadataURL = started.ResourceMetadataURL
+		}
+		if len(started.Challenge) > 0 {
+			challenge = cloneStringMap(started.Challenge)
+		}
 	} else if authURL != "" {
 		status = "auth_url"
 	}
@@ -813,6 +856,15 @@ func (t mcpAuthTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseConte
 	}
 	if authURL != "" {
 		payload["authUrl"] = authURL
+	}
+	if scope != "" {
+		payload["scope"] = scope
+	}
+	if resourceMetadataURL != "" {
+		payload["resourceMetadataUrl"] = resourceMetadataURL
+	}
+	if len(challenge) > 0 {
+		payload["challenge"] = challenge
 	}
 	if authStarted && completion != nil && !isMCPAuthCompleteStatus(status) {
 		startMCPAuthCompletionContinuation(toolCtx, t.serverName, completion)
@@ -833,6 +885,22 @@ func (t mcpAuthTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseConte
 		return ToolResult{}, err
 	}
 	return ToolResult{Output: string(encoded)}, nil
+}
+
+func (t mcpAuthTool) enrichConnection(connection MCPConnection) MCPConnection {
+	if connection.AuthURL == "" {
+		connection.AuthURL = t.authURL
+	}
+	if connection.AuthScope == "" {
+		connection.AuthScope = t.scope
+	}
+	if connection.AuthResourceMetadataURL == "" {
+		connection.AuthResourceMetadataURL = t.resourceMetadataURL
+	}
+	if len(connection.AuthChallenge) == 0 {
+		connection.AuthChallenge = cloneStringMap(t.challenge)
+	}
+	return connection
 }
 
 func startMCPAuthCompletionContinuation(toolCtx ToolUseContext, server string, completion <-chan MCPAuthCompletionResult) {

@@ -686,7 +686,7 @@ func registerMCPAuthTools(registry *tools.Registry, auth map[string]tools.MCPAut
 	sort.Strings(servers)
 	for _, server := range servers {
 		result := auth[server]
-		registry.Register(tools.NewMCPAuthTool(server, result.AuthURL, result.Message))
+		registry.Register(tools.NewMCPAuthToolFromResult(server, result))
 	}
 }
 
@@ -1340,7 +1340,7 @@ func (q *QueryEngine) markMCPServerNeedsAuth(toolName string, err error) {
 			q.tools.Unregister(def.Name)
 		}
 	}
-	q.tools.Register(tools.NewMCPAuthTool(server, auth.AuthURL, auth.Message))
+	q.tools.Register(tools.NewMCPAuthToolFromResult(server, auth))
 }
 
 func mcpServerFromToolName(toolName string) (string, bool) {

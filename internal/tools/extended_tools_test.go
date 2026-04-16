@@ -381,6 +381,91 @@ func TestDynamicMCPToolMarksServerNeedsAuthWhenToolCallReturnsUnauthorized(t *te
 	}
 }
 
+func TestDynamicMCPToolPreservesInsufficientScopeWhenToolCallReturnsForbidden(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		method, _ := request["method"].(string)
+		switch method {
+		case "initialize":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"capabilities":    map[string]any{"tools": map[string]any{}},
+				},
+			})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusNoContent)
+		case "tools/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{"tools": []map[string]any{{
+					"name":        "read_file",
+					"description": "Read file",
+					"inputSchema": map[string]any{"type": "object"},
+				}}},
+			})
+		case "tools/call":
+			w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="files:admin", authorization_uri="https://auth.example/authorize"`)
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":"insufficient_scope"}`))
+		default:
+			t.Fatalf("unexpected method %q", method)
+		}
+	}))
+	defer server.Close()
+
+	discovered, err := tools.DiscoverMCPClientTools(context.Background(), []tools.MCPConnection{{
+		Name:    "filesystem",
+		Type:    "streamable_http",
+		BaseURL: server.URL,
+	}})
+	if err != nil {
+		t.Fatalf("discover mcp client: %v", err)
+	}
+	var appState map[string]any
+	tool := tools.NewMCPContextualTool(tools.MCPToolDefinition{
+		Server: "filesystem",
+		Name:   "read_file",
+	}, discovered.ContextualCaller)
+	_, err = tool.(tools.ContextualTool).InvokeWithContext(context.Background(), tools.ToolUseContext{
+		ToolName: "mcp__filesystem__read_file",
+		Input:    `{"path":"README.md"}`,
+		AppState: map[string]any{
+			"mcp": map[string]any{
+				"clients": []tools.MCPConnection{{Name: "filesystem", Type: "connected", BaseURL: server.URL}},
+				"tools":   []tools.Definition{{Name: "mcp__filesystem__read_file"}},
+			},
+		},
+		SetAppState: func(update func(map[string]any) map[string]any) {
+			appState = update(appState)
+		},
+	})
+	if err == nil {
+		t.Fatal("invoke contextual mcp tool: expected insufficient-scope auth error")
+	}
+	mcpAuth, ok := appState["mcpAuth"].(map[string]any)
+	if !ok {
+		t.Fatalf("appState = %#v, want mcpAuth state", appState)
+	}
+	authState, ok := mcpAuth["filesystem"].(map[string]any)
+	if !ok {
+		t.Fatalf("mcpAuth = %#v, want filesystem auth state", mcpAuth)
+	}
+	if authState["scope"] != "files:admin" {
+		t.Fatalf("authState = %#v, want scope preserved", authState)
+	}
+	challenge, ok := authState["challenge"].(map[string]string)
+	if !ok || challenge["error"] != "insufficient_scope" || challenge["authorization_uri"] != "https://auth.example/authorize" {
+		t.Fatalf("authState = %#v, want parsed challenge preserved", authState)
+	}
+}
+
 func TestMCPAuthToolReturnsAuthURLBeforeReconnectCompletes(t *testing.T) {
 	var authenticated bool
 	var reconnected bool
@@ -428,6 +513,53 @@ func TestMCPAuthToolReturnsAuthURLBeforeReconnectCompletes(t *testing.T) {
 	}
 	if _, ok := parsed["reconnected"]; ok {
 		t.Fatalf("auth output = %#v, did not want synchronous reconnect state", parsed)
+	}
+}
+
+func TestMCPAuthToolPassesChallengeContextToAuthenticator(t *testing.T) {
+	tool := tools.NewMCPAuthToolFromResult("filesystem", tools.MCPAuthToolResult{
+		AuthURL: "https://auth.example/start",
+		Message: "Authenticate filesystem",
+		Scope:   "files:admin",
+		Challenge: map[string]string{
+			"error":             "insufficient_scope",
+			"resource_metadata": "https://auth.example/.well-known/oauth-protected-resource",
+		},
+	})
+	var seen tools.MCPConnection
+	result, err := tool.(tools.ContextualTool).InvokeWithContext(context.Background(), tools.ToolUseContext{
+		MCPClients: []tools.MCPConnection{{
+			Name:    "filesystem",
+			Type:    "needs-auth",
+			BaseURL: "https://mcp.example",
+		}},
+		MCPAuthenticator: func(_ context.Context, _ string, connection tools.MCPConnection) (tools.MCPAuthStartResult, error) {
+			seen = connection
+			return tools.MCPAuthStartResult{
+				Status:              "auth_url",
+				AuthURL:             "https://auth.example/authorize",
+				Message:             "Open browser",
+				Scope:               connection.AuthScope,
+				ResourceMetadataURL: connection.AuthResourceMetadataURL,
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke auth tool: %v", err)
+	}
+	if seen.AuthURL != "https://auth.example/start" ||
+		seen.AuthScope != "files:admin" ||
+		seen.AuthResourceMetadataURL != "https://auth.example/.well-known/oauth-protected-resource" ||
+		seen.AuthChallenge["error"] != "insufficient_scope" {
+		t.Fatalf("authenticator connection = %#v, want typed auth challenge context", seen)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &payload); err != nil {
+		t.Fatalf("decode auth output: %v", err)
+	}
+	if payload["scope"] != "files:admin" ||
+		payload["resourceMetadataUrl"] != "https://auth.example/.well-known/oauth-protected-resource" {
+		t.Fatalf("payload = %#v, want scope and resource metadata preserved", payload)
 	}
 }
 

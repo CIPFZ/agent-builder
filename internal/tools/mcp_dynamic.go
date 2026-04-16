@@ -68,10 +68,13 @@ type MCPResourceReadResult struct {
 }
 
 type MCPAuthToolResult struct {
-	Name    string `json:"name"`
-	Status  string `json:"status"`
-	AuthURL string `json:"authUrl,omitempty"`
-	Message string `json:"message"`
+	Name                string            `json:"name"`
+	Status              string            `json:"status"`
+	AuthURL             string            `json:"authUrl,omitempty"`
+	Message             string            `json:"message"`
+	Scope               string            `json:"scope,omitempty"`
+	ResourceMetadataURL string            `json:"resourceMetadataUrl,omitempty"`
+	Challenge           map[string]string `json:"challenge,omitempty"`
 }
 
 type MCPResourceReader func(ctx context.Context, server, uri string) (MCPResourceReadResult, error)
