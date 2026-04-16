@@ -65,6 +65,16 @@ func (s *tuiState) clearSuggestions() {
 	s.selectedIndex = -1
 }
 
+func (s *tuiState) clearVisibleConversation() {
+	s.transcript = s.transcript[:0]
+	s.busy = false
+	s.activity.Label = "Idle"
+	s.pendingApproval = nil
+	s.approvalDialog.close()
+	s.dialog.close()
+	s.events = []string{"conversation cleared"}
+}
+
 func (s *tuiState) approvePending() (string, bool) {
 	if s.pendingApproval == nil {
 		return "", false
@@ -99,6 +109,9 @@ func (s *tuiState) applyBridgeError(err error) {
 func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
 	s.diagnostics.LastEvent = event.Type
 	s.diagnostics.EventCount++
+	if event.Type != "" && event.Type != "assistant.delta" {
+		s.events = appendBoundedEvent(s.events, event.Type, 200)
+	}
 	if event.Session.ID != "" && s.diagnostics.SessionID == "" {
 		s.diagnostics.SessionID = event.Session.ID
 	}
@@ -156,4 +169,12 @@ func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
 		s.busy = false
 		s.activity.Label = "Idle"
 	}
+}
+
+func appendBoundedEvent(events []string, event string, limit int) []string {
+	events = append(events, event)
+	if limit > 0 && len(events) > limit {
+		return append([]string(nil), events[len(events)-limit:]...)
+	}
+	return events
 }
