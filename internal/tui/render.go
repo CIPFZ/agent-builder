@@ -42,6 +42,14 @@ type viewportRenderState struct {
 	TranscriptMode bool
 	ShowAllHistory bool
 	NewMessages    int
+	Search         transcriptSearchRenderState
+}
+
+type transcriptSearchRenderState struct {
+	Active        bool
+	Query         string
+	MatchCount    int
+	SelectedIndex int
 }
 
 type approvalRenderState struct {
@@ -93,6 +101,12 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 			TranscriptMode: m.viewport.TranscriptMode,
 			ShowAllHistory: m.viewport.ShowAllHistory,
 			NewMessages:    m.viewport.NewMessages,
+			Search: transcriptSearchRenderState{
+				Active:        m.viewport.Search.Active,
+				Query:         m.viewport.Search.Query,
+				MatchCount:    m.viewport.Search.MatchCount,
+				SelectedIndex: m.viewport.Search.SelectedIndex,
+			},
 		},
 		Busy:        m.busy,
 		Activity:    m.activity.Label,
@@ -686,6 +700,9 @@ func (snapshot renderSnapshot) transcriptVisibleLines() int {
 
 func (snapshot renderSnapshot) viewportStatusLine(width int, effectiveOffset int) string {
 	var parts []string
+	if snapshot.Viewport.Search.Active {
+		parts = append(parts, snapshot.transcriptSearchStatus())
+	}
 	if snapshot.Viewport.TranscriptMode {
 		parts = append(parts, "Transcript")
 	}
@@ -703,6 +720,19 @@ func (snapshot renderSnapshot) viewportStatusLine(width int, effectiveOffset int
 		return ""
 	}
 	return rightAlign(strings.Join(parts, "  |  "), width)
+}
+
+func (snapshot renderSnapshot) transcriptSearchStatus() string {
+	query := snapshot.Viewport.Search.Query
+	if snapshot.Viewport.Search.MatchCount == 0 {
+		return fmt.Sprintf("Search: %s 0/0", query)
+	}
+	return fmt.Sprintf(
+		"Search: %s %d/%d",
+		query,
+		snapshot.Viewport.Search.SelectedIndex+1,
+		snapshot.Viewport.Search.MatchCount,
+	)
 }
 
 func sliceTranscriptViewport(lines []string, visibleLines, scrollOffset int) []string {
