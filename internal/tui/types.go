@@ -3,12 +3,25 @@ package tui
 import (
 	"myclaw/internal/model"
 	"myclaw/internal/runtime"
+	"myclaw/internal/session"
 )
 
 type Bridge interface {
 	SendUserMessage(string) error
 	Approve(string) error
 	Reject(string) error
+}
+
+type sessionResumeBridge interface {
+	SessionSnapshots() []sessionSnapshot
+	ResumeSession(string) ([]session.Message, bool)
+}
+
+type sessionSnapshot struct {
+	Session          session.Session
+	MessageCount     int
+	FirstUserMessage string
+	LastMessage      string
 }
 
 type RuntimeEventMsg struct {

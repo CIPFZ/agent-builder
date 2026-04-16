@@ -16,6 +16,7 @@ var localSlashCommandSpecs = []slashCommandSpec{
 	{Name: "clear", Description: "Clear visible conversation", Aliases: []string{"reset", "new"}},
 	{Name: "model", Description: "Show model options"},
 	{Name: "session", Description: "Show session details"},
+	{Name: "resume", Description: "Resume a previous session", Aliases: []string{"continue"}},
 	{Name: "compact", Description: "Show compaction status", ArgumentHint: "<optional custom summarization instructions>"},
 	{Name: "debug", Description: "Show diagnostics"},
 }

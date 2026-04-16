@@ -204,6 +204,8 @@ func (m *Model) handleLocalCommand(text string) bool {
 		m.openModelDialog()
 	case "session":
 		m.openSessionDialog()
+	case "resume":
+		m.openSessionResumeDialog()
 	case "compact":
 		m.openCompactionDialog(command.Args)
 	case "debug":

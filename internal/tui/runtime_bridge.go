@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -73,6 +74,9 @@ func (b *RuntimeBridge) SendUserMessage(input string) error {
 	if err != nil {
 		return err
 	}
+	if b.runner == nil {
+		return nil
+	}
 	go func() {
 		err := b.runner.HandleUserMessage(b.ctx, b.session, msg, sinkFunc(func(event runtime.RuntimeEvent) error {
 			b.logRuntimeEvent(event)
@@ -93,6 +97,42 @@ func (b *RuntimeBridge) SendUserMessage(input string) error {
 		}
 	}()
 	return nil
+}
+
+func (b *RuntimeBridge) SessionSnapshots() []sessionSnapshot {
+	sessions := b.sessions.ListSessions()
+	snapshots := make([]sessionSnapshot, 0, len(sessions))
+	for _, sess := range sessions {
+		messages, _ := b.sessions.Messages(sess.ID)
+		snapshot := sessionSnapshot{
+			Session:      sess,
+			MessageCount: len(messages),
+		}
+		if len(messages) > 0 && snapshot.Session.Metadata.LastActivityAt.IsZero() {
+			snapshot.Session.Metadata.LastActivityAt = messages[len(messages)-1].CreatedAt
+		}
+		for _, message := range messages {
+			if snapshot.FirstUserMessage == "" && message.Role == "user" {
+				snapshot.FirstUserMessage = message.Content
+			}
+			if strings.TrimSpace(message.Content) != "" {
+				snapshot.LastMessage = message.Content
+			}
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots
+}
+
+func (b *RuntimeBridge) ResumeSession(id string) ([]session.Message, bool) {
+	sess, ok := b.sessions.GetByID(id)
+	if !ok {
+		return nil, false
+	}
+	messages, _ := b.sessions.Messages(id)
+	b.session = sess
+	b.log("info", "tui.bridge", "session.resume", "resumed session", "", map[string]any{"session_id": id})
+	return messages, true
 }
 
 func (b *RuntimeBridge) Approve(id string) error {
