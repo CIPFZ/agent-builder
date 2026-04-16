@@ -24,6 +24,7 @@ type tuiState struct {
 	messageActions      messageActionsState
 	toolExpansion       toolExpansionState
 	pastes              pasteState
+	promptStash         promptStashState
 	externalEditor      externalEditorState
 	width               int
 	height              int
@@ -91,6 +92,7 @@ func (s *tuiState) clearVisibleConversation() {
 	s.messageActions.close()
 	s.toolExpansion.clear()
 	s.pastes = newPasteState()
+	s.promptStash = promptStashState{}
 	s.externalEditor.Active = false
 	s.externalEditor.PendingCtrlX = false
 	s.viewport.Search = transcriptSearchState{}

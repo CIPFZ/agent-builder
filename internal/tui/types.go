@@ -141,6 +141,13 @@ type inputState struct {
 	selectedIndex int
 }
 
+type promptStashState struct {
+	HasStash bool
+	Input    string
+	Cursor   int
+	Pastes   pasteState
+}
+
 type dialogItem struct {
 	Label       string
 	Description string
