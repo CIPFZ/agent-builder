@@ -1,6 +1,8 @@
 package tui
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
+
 	"myclaw/internal/model"
 	"myclaw/internal/runtime"
 	"myclaw/internal/session"
@@ -65,9 +67,10 @@ const (
 )
 
 type ModelConfig struct {
-	SessionID string
-	LLMLabel  string
-	LogPath   string
+	SessionID    string
+	LLMLabel     string
+	LogPath      string
+	PromptEditor promptEditorFunc
 }
 
 type diagnosticsState struct {
@@ -82,6 +85,23 @@ type diagnosticsState struct {
 
 type activityState struct {
 	Label string
+}
+
+type externalEditorRequest struct {
+	Prompt string
+}
+
+type promptEditorFunc func(externalEditorRequest) tea.Cmd
+
+type externalEditorFinishedMsg struct {
+	Content string
+	Err     error
+}
+
+type externalEditorState struct {
+	Active       bool
+	PendingCtrlX bool
+	PromptEditor promptEditorFunc
 }
 
 type viewportState struct {

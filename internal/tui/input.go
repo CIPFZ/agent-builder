@@ -59,6 +59,9 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.handleTranscriptSearchKey(msg) {
 		return m, nil
 	}
+	if cmd, handled := m.handleExternalEditorKey(msg); handled {
+		return m, cmd
+	}
 	if m.viewport.TranscriptMode {
 		switch msg.Type {
 		case tea.KeyEsc, tea.KeyCtrlC:

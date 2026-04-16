@@ -29,6 +29,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateRuntimeEvent(typed.Event)
 	case BridgeErrMsg:
 		m.applyBridgeError(typed.Err)
+	case externalEditorFinishedMsg:
+		m.applyExternalEditorFinished(typed)
 	}
 	return m, nil
 }

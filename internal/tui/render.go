@@ -16,20 +16,21 @@ const (
 )
 
 type renderSnapshot struct {
-	Width         int
-	Height        int
-	Title         string
-	Subtitle      string
-	Transcript    []transcriptEntry
-	Input         inputRenderState
-	Viewport      viewportRenderState
-	Actions       messageActionsRenderState
-	ExpandedTools map[string]bool
-	Approval      *approvalRenderState
-	Dialog        *dialogRenderState
-	Busy          bool
-	Activity      string
-	Diagnostics   diagnosticsState
+	Width          int
+	Height         int
+	Title          string
+	Subtitle       string
+	Transcript     []transcriptEntry
+	Input          inputRenderState
+	Viewport       viewportRenderState
+	Actions        messageActionsRenderState
+	ExpandedTools  map[string]bool
+	ExternalEditor bool
+	Approval       *approvalRenderState
+	Dialog         *dialogRenderState
+	Busy           bool
+	Activity       string
+	Diagnostics    diagnosticsState
 }
 
 type inputRenderState struct {
@@ -126,11 +127,12 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 				SelectedIndex: m.viewport.Search.SelectedIndex,
 			},
 		},
-		Actions:       newMessageActionsRenderState(m),
-		ExpandedTools: expandedTools,
-		Busy:          m.busy,
-		Activity:      m.activity.Label,
-		Diagnostics:   m.diagnostics,
+		Actions:        newMessageActionsRenderState(m),
+		ExpandedTools:  expandedTools,
+		ExternalEditor: m.externalEditor.Active,
+		Busy:           m.busy,
+		Activity:       m.activity.Label,
+		Diagnostics:    m.diagnostics,
 	}
 	if m.approvalDialog.active() && m.approvalDialog.Request != nil {
 		snapshot.Approval = &approvalRenderState{
@@ -505,6 +507,15 @@ func (r renderer) renderPrompt(snapshot renderSnapshot) string {
 	var b strings.Builder
 	b.WriteString(borderLine(width, '-'))
 	b.WriteString("\n")
+	if snapshot.ExternalEditor {
+		b.WriteString(centerLine("Save and close editor to continue...", width))
+		b.WriteString("\n")
+		b.WriteString(borderLine(width, '-'))
+		b.WriteString("\n")
+		b.WriteString(rightAlign("External editor active", width))
+		b.WriteString("\n")
+		return b.String()
+	}
 	input := renderInputWithCursor(snapshot.Input.Text, snapshot.Input.Cursor, width-3)
 	b.WriteString("> ")
 	b.WriteString(input)
@@ -514,7 +525,7 @@ func (r renderer) renderPrompt(snapshot renderSnapshot) string {
 	}
 	b.WriteString(borderLine(width, '-'))
 	b.WriteString("\n")
-	help := "Enter to send  |  Up/Down history  |  / for commands"
+	help := "Enter to send  |  Ctrl+G edit  |  Up/Down history  |  / commands"
 	if snapshot.Approval != nil {
 		help = "Enter select  |  Esc reject"
 	}
