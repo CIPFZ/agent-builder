@@ -87,6 +87,10 @@ type messageActionsState struct {
 	LastCopiedLabel string
 }
 
+type toolExpansionState struct {
+	expanded map[string]bool
+}
+
 type transcriptSearchState struct {
 	Active        bool
 	Query         string

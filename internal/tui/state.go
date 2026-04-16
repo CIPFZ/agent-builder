@@ -22,6 +22,7 @@ type tuiState struct {
 	activity            activityState
 	viewport            viewportState
 	messageActions      messageActionsState
+	toolExpansion       toolExpansionState
 	width               int
 	height              int
 }
@@ -33,6 +34,7 @@ func newTUIState(cfg ...ModelConfig) tuiState {
 		inputState:     newInputState(),
 		dialog:         newDialogState(),
 		approvalDialog: newApprovalDialogState(),
+		toolExpansion:  newToolExpansionState(),
 		viewport: viewportState{
 			StickyBottom: true,
 		},
@@ -81,6 +83,7 @@ func (s *tuiState) clearVisibleConversation() {
 	s.approvalDialog.close()
 	s.dialog.close()
 	s.messageActions.close()
+	s.toolExpansion.clear()
 	s.viewport.Search = transcriptSearchState{}
 	s.scrollTranscriptBottom()
 	s.events = []string{"conversation cleared"}

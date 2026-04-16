@@ -129,6 +129,10 @@ func (m *Model) acceptMessageAction() {
 		m.messageActions.close()
 		return
 	}
+	if isExpandableToolEntry(entry) {
+		m.toggleSelectedToolExpansion()
+		return
+	}
 	if entry.Role == "user" && strings.TrimSpace(entry.Content) != "" && entry.Kind == "" {
 		m.input = stripSystemReminders(entry.Content)
 		m.cursorPos = len([]rune(m.input))
