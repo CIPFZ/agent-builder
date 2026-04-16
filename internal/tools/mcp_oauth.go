@@ -11,6 +11,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +61,25 @@ type MCPOAuthMemoryStore struct {
 
 func NewMCPOAuthMemoryStore() *MCPOAuthMemoryStore {
 	return &MCPOAuthMemoryStore{entries: make(map[string]MCPOAuthEntry)}
+}
+
+type MCPOAuthFileStore struct {
+	mu      sync.Mutex
+	path    string
+	entries map[string]MCPOAuthEntry
+	loaded  bool
+}
+
+func NewMCPOAuthFileStore(path string) *MCPOAuthFileStore {
+	return &MCPOAuthFileStore{path: strings.TrimSpace(path)}
+}
+
+func NewDefaultMCPOAuthStore() MCPOAuthStore {
+	configDir, err := os.UserConfigDir()
+	if err != nil || strings.TrimSpace(configDir) == "" {
+		return NewMCPOAuthMemoryStore()
+	}
+	return NewMCPOAuthFileStore(filepath.Join(configDir, "myclaw", "mcp-oauth.json"))
 }
 
 func NewDefaultMCPOAuthAuthenticator(store MCPOAuthStore) MCPAuthenticator {
@@ -119,6 +140,90 @@ func (s *MCPOAuthMemoryStore) DeleteEntry(serverName string, connection MCPConne
 	defer s.mu.Unlock()
 	delete(s.entries, mcpOAuthServerKey(serverName, connection))
 	return nil
+}
+
+func (s *MCPOAuthFileStore) Entry(serverName string, connection MCPConnection) (MCPOAuthEntry, bool) {
+	if s == nil {
+		return MCPOAuthEntry{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.loadLocked(); err != nil {
+		return MCPOAuthEntry{}, false
+	}
+	entry, ok := s.entries[mcpOAuthServerKey(serverName, connection)]
+	return entry, ok
+}
+
+func (s *MCPOAuthFileStore) SaveEntry(serverName string, connection MCPConnection, entry MCPOAuthEntry) error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.loadLocked(); err != nil {
+		return err
+	}
+	if s.entries == nil {
+		s.entries = make(map[string]MCPOAuthEntry)
+	}
+	if entry.ServerName == "" {
+		entry.ServerName = serverName
+	}
+	if entry.ServerURL == "" {
+		entry.ServerURL = mcpOAuthConnectionURL(connection)
+	}
+	s.entries[mcpOAuthServerKey(serverName, connection)] = entry
+	return s.saveLocked()
+}
+
+func (s *MCPOAuthFileStore) DeleteEntry(serverName string, connection MCPConnection) error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.loadLocked(); err != nil {
+		return err
+	}
+	delete(s.entries, mcpOAuthServerKey(serverName, connection))
+	return s.saveLocked()
+}
+
+func (s *MCPOAuthFileStore) loadLocked() error {
+	if s.loaded {
+		return nil
+	}
+	s.loaded = true
+	s.entries = make(map[string]MCPOAuthEntry)
+	if s.path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(s.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	return json.Unmarshal(data, &s.entries)
+}
+
+func (s *MCPOAuthFileStore) saveLocked() error {
+	if s.path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(s.entries, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.path, data, 0o600)
 }
 
 type MCPOAuthProvider struct {

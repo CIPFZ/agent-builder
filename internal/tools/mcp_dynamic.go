@@ -35,6 +35,7 @@ type MCPPromptsListResult struct {
 
 type MCPResourceListItem struct {
 	URI         string `json:"uri"`
+	URITemplate string `json:"uriTemplate,omitempty"`
 	Name        string `json:"name,omitempty"`
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
@@ -43,6 +44,10 @@ type MCPResourceListItem struct {
 
 type MCPResourcesListResult struct {
 	Resources []MCPResourceListItem `json:"resources"`
+}
+
+type MCPResourceTemplatesListResult struct {
+	ResourceTemplates []MCPResourceListItem `json:"resourceTemplates"`
 }
 
 type MCPPromptMessage struct {

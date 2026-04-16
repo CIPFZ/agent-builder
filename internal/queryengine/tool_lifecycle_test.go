@@ -675,6 +675,40 @@ func TestQueryEngineSkillListingIncludesMCPPromptSkills(t *testing.T) {
 	assertSkillListingPayloads(t, engine.Messages(sess.ID), []string{"mcp__docs__summarize"})
 }
 
+func TestQueryEngineSkillListingOmitsMCPPromptSkillsWhenDisabled(t *testing.T) {
+	tools.ClearDynamicSkills()
+	t.Cleanup(tools.ClearDynamicSkills)
+
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	client := &lifecycleScriptedClient{scripts: [][]llm.StreamEvent{{
+		{Type: "text.delta", Delta: "listed"},
+		{Type: "message.end"},
+	}}}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:               sessions,
+		Client:                 client,
+		WorkspaceLoader:        workspace.NewLoader(""),
+		PermissionPolicy:       permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		ToolRegistry:           tools.NewRegistry(tools.NewSkillTool()),
+		DisableMCPPromptSkills: true,
+		MCPPrompts: map[string]tools.MCPPromptsListResult{
+			"docs": {Prompts: []tools.MCPPromptListItem{{
+				Name:        "summarize",
+				Description: "Summarize a document through MCP",
+			}}},
+		},
+	})
+	msg, err := sessions.AppendMessage(sess.ID, "user", "what skills are available")
+	if err != nil {
+		t.Fatalf("append user: %v", err)
+	}
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	assertNoSkillListing(t, engine.Messages(sess.ID))
+}
+
 func TestQueryEngineInjectsDynamicSkillAttachmentForMentionedFileSkillDir(t *testing.T) {
 	tools.ClearDynamicSkills()
 	t.Cleanup(tools.ClearDynamicSkills)
@@ -714,6 +748,15 @@ func TestQueryEngineInjectsDynamicSkillAttachmentForMentionedFileSkillDir(t *tes
 	}
 	assertDynamicSkillAttachment(t, engine.Messages(sess.ID), filepath.Join(nested, ".claude", "skills"), []string{"reviewer"})
 	assertSkillListingPayloads(t, engine.Messages(sess.ID), []string{"reviewer"})
+}
+
+func assertNoSkillListing(t *testing.T, messages []session.Message) {
+	t.Helper()
+	for _, message := range messages {
+		if message.Role == "attachment" && message.Subtype == "skill_listing" {
+			t.Fatalf("messages = %#v, want no skill_listing attachment", messages)
+		}
+	}
 }
 
 func TestQueryEngineSuppressesSkillListingWhenTranscriptAlreadyHasListing(t *testing.T) {

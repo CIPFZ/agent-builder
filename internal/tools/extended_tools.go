@@ -305,11 +305,7 @@ func (listMcpResourcesTool) InvokeWithContext(ctx context.Context, toolCtx ToolU
 		}
 		resources := make([]map[string]any, 0, len(listed))
 		for _, resource := range listed {
-			resources = append(resources, map[string]any{
-				"uri":         resource.URI,
-				"name":        resource.Name,
-				"description": resource.Description,
-			})
+			resources = append(resources, mcpResourceListingItem("", resource))
 		}
 		encoded, err := json.Marshal(resources)
 		if err != nil {
@@ -330,13 +326,7 @@ func (listMcpResourcesTool) InvokeWithContext(ctx context.Context, toolCtx ToolU
 	resources := make([]map[string]any, 0)
 	for _, server := range servers {
 		for _, resource := range toolCtx.MCPResources[server] {
-			item := map[string]any{
-				"server":      server,
-				"uri":         resource.URI,
-				"name":        resource.Name,
-				"description": resource.Description,
-			}
-			resources = append(resources, item)
+			resources = append(resources, mcpResourceListingItem(server, resource))
 		}
 	}
 	encoded, err := json.Marshal(resources)
@@ -402,6 +392,26 @@ func (readMcpResourceTool) InvokeWithContext(ctx context.Context, toolCtx ToolUs
 		}
 	}
 	return ToolResult{}, fmt.Errorf("MCP resource %q not found on server %q", uri, server)
+}
+
+func mcpResourceListingItem(server string, resource MCPResource) map[string]any {
+	item := map[string]any{
+		"name":        resource.Name,
+		"description": resource.Description,
+	}
+	if server != "" {
+		item["server"] = server
+	}
+	if resource.URI != "" {
+		item["uri"] = resource.URI
+	}
+	if resource.URITemplate != "" {
+		item["uriTemplate"] = resource.URITemplate
+	}
+	if resource.MimeType != "" {
+		item["mimeType"] = resource.MimeType
+	}
+	return item
 }
 
 func (listMcpResourcesTool) IsEnabled() bool           { return true }

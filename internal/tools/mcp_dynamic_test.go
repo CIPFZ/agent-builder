@@ -1095,6 +1095,85 @@ func TestDiscoverMCPClientToolsDiscoversHTTPResourcesAndListToolUsesThem(t *test
 	}
 }
 
+func TestDiscoverMCPClientToolsDiscoversHTTPResourceTemplatesAndListToolUsesThem(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		method, _ := request["method"].(string)
+		switch method {
+		case "initialize":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"capabilities": map[string]any{
+						"tools":     map[string]any{},
+						"resources": map[string]any{"templates": true},
+					},
+				},
+			})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusNoContent)
+		case "tools/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result":  map[string]any{"tools": []map[string]any{}},
+			})
+		case "resources/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result":  map[string]any{"resources": []map[string]any{}},
+			})
+		case "resources/templates/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{
+					"resourceTemplates": []map[string]any{{
+						"uriTemplate": "file:///workspace/{path}",
+						"name":        "Workspace file",
+						"description": "workspace files by path",
+						"mimeType":    "text/plain",
+					}},
+				},
+			})
+		default:
+			t.Fatalf("unexpected method %q", method)
+		}
+	}))
+	defer server.Close()
+
+	result, err := tools.DiscoverMCPClientTools(context.Background(), []tools.MCPConnection{
+		{Name: "filesystem", Type: "streamable_http", BaseURL: server.URL},
+	})
+	if err != nil {
+		t.Fatalf("discover http MCP: %v", err)
+	}
+	if len(result.Resources["filesystem"]) != 1 {
+		t.Fatalf("resources = %#v, want resource template exposed as resource entry", result.Resources)
+	}
+	if result.Resources["filesystem"][0].URITemplate != "file:///workspace/{path}" {
+		t.Fatalf("resource template = %#v, want uriTemplate preserved", result.Resources["filesystem"][0])
+	}
+
+	listed, err := tools.NewListMcpResourcesTool().InvokeWithContext(context.Background(), tools.ToolUseContext{
+		MCPResources: result.Resources,
+	})
+	if err != nil {
+		t.Fatalf("list resources: %v", err)
+	}
+	if !strings.Contains(listed.Output, "file:///workspace/{path}") ||
+		!strings.Contains(listed.Output, `"uriTemplate"`) ||
+		!strings.Contains(listed.Output, "workspace files by path") {
+		t.Fatalf("output = %q, want MCP resource template listing", listed.Output)
+	}
+}
+
 func TestReadMcpResourceUsesLiveReaderAndReturnsText(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any

@@ -92,8 +92,10 @@ type MCPConnection struct {
 
 type MCPResource struct {
 	URI         string
+	URITemplate string
 	Name        string
 	Description string
+	MimeType    string
 }
 
 type MCPPromptCaller func(ctx context.Context, server, name string, arguments map[string]any) (MCPPromptResult, error)

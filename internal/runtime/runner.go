@@ -90,6 +90,7 @@ type Options struct {
 	MCPPromptCaller           tools.MCPPromptCaller
 	MCPAuthenticator          tools.MCPAuthenticator
 	MCPReconnect              tools.MCPReconnectFunc
+	DisableMCPPromptSkills    bool
 	SkillRoots                []string
 	SkillDiscovery            tools.SkillDiscoveryOptions
 	SkillForkExecutor         tools.SkillForkExecutor
@@ -156,7 +157,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		options.MemoryService = memory.NewService()
 	}
 	if options.MCPOAuthStore == nil {
-		options.MCPOAuthStore = tools.NewMCPOAuthMemoryStore()
+		options.MCPOAuthStore = tools.NewDefaultMCPOAuthStore()
 	}
 	if options.ApprovalManager == nil {
 		options.ApprovalManager = approval.NewManager()
@@ -295,6 +296,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		MCPPromptCaller:           runner.options.MCPPromptCaller,
 		MCPAuthenticator:          runner.options.MCPAuthenticator,
 		MCPReconnect:              runner.options.MCPReconnect,
+		DisableMCPPromptSkills:    runner.options.DisableMCPPromptSkills,
 		SkillRoots:                runner.options.SkillRoots,
 		SkillForkExecutor:         runner.options.SkillForkExecutor,
 		RequestPrompt:             options.RequestPrompt,

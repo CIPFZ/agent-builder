@@ -244,9 +244,33 @@ func (r *mcpRuntime) discover(ctx context.Context, connection MCPConnection, tra
 		for _, item := range resources.Resources {
 			lists.Resources = append(lists.Resources, MCPResource{
 				URI:         item.URI,
+				URITemplate: item.URITemplate,
 				Name:        firstNonEmpty(strings.TrimSpace(item.Name), strings.TrimSpace(item.Title), strings.TrimSpace(item.URI)),
 				Description: item.Description,
+				MimeType:    item.MimeType,
 			})
+		}
+		if mcpResourcesCapabilityHasTemplates(capabilities["resources"]) {
+			result, err = transport.rpc(ctx, "resources/templates/list", map[string]any{}, true, nil)
+		}
+		if err == nil && result != nil {
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				return mcpDiscoveryLists{}, err
+			}
+			var templates MCPResourceTemplatesListResult
+			if err := json.Unmarshal(encoded, &templates); err != nil {
+				return mcpDiscoveryLists{}, err
+			}
+			for _, item := range templates.ResourceTemplates {
+				lists.Resources = append(lists.Resources, MCPResource{
+					URI:         item.URI,
+					URITemplate: item.URITemplate,
+					Name:        firstNonEmpty(strings.TrimSpace(item.Name), strings.TrimSpace(item.Title), strings.TrimSpace(item.URITemplate), strings.TrimSpace(item.URI)),
+					Description: item.Description,
+					MimeType:    item.MimeType,
+				})
+			}
 		}
 	}
 	return lists, nil
@@ -662,11 +686,26 @@ func (r *mcpRuntime) listResourcesForServerOnce(ctx context.Context, server stri
 	for _, resource := range resources.Resources {
 		out = append(out, MCPResource{
 			URI:         resource.URI,
+			URITemplate: resource.URITemplate,
 			Name:        firstNonEmpty(resource.Title, resource.Name),
 			Description: resource.Description,
+			MimeType:    resource.MimeType,
 		})
 	}
 	return out, nil
+}
+
+func mcpResourcesCapabilityHasTemplates(value any) bool {
+	capability, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, key := range []string{"templates", "resourceTemplates", "resource_templates"} {
+		if typed, ok := capability[key].(bool); ok && typed {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *mcpRuntime) oauthAuthorizationHeader(ctx context.Context, connection MCPConnection) string {

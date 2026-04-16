@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -175,6 +176,47 @@ func TestMCPOAuthProviderSaveTokensClearsStepUpScope(t *testing.T) {
 	}
 	if entry.StepUpScope != "" {
 		t.Fatalf("step-up scope = %q, want cleared after saving new tokens", entry.StepUpScope)
+	}
+}
+
+func TestMCPOAuthFileStorePersistsEntriesAcrossInstances(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp-oauth.json")
+	connection := tools.MCPConnection{Name: "filesystem", BaseURL: "https://mcp.example"}
+	store := tools.NewMCPOAuthFileStore(path)
+	if err := store.SaveEntry("filesystem", connection, tools.MCPOAuthEntry{
+		ServerName:   "filesystem",
+		ServerURL:    "https://mcp.example",
+		ClientID:     "client-id",
+		ClientSecret: "client-secret",
+		Tokens: tools.MCPOAuthTokens{
+			AccessToken:  "access-token",
+			RefreshToken: "refresh-token",
+			ExpiresAt:    time.Unix(12345, 0).UTC(),
+			Scope:        "files:read",
+			TokenType:    "Bearer",
+		},
+		DiscoveryState: tools.MCPOAuthDiscoveryState{
+			AuthorizationServerURL: "https://auth.example",
+			ResourceMetadataURL:    "https://auth.example/resource",
+		},
+		StepUpScope: "files:write",
+	}); err != nil {
+		t.Fatalf("save file entry: %v", err)
+	}
+
+	reopened := tools.NewMCPOAuthFileStore(path)
+	entry, ok := reopened.Entry("filesystem", connection)
+	if !ok {
+		t.Fatal("reopened store missing OAuth entry")
+	}
+	if entry.ClientID != "client-id" ||
+		entry.ClientSecret != "client-secret" ||
+		entry.Tokens.AccessToken != "access-token" ||
+		entry.Tokens.RefreshToken != "refresh-token" ||
+		entry.Tokens.ExpiresAt.Unix() != 12345 ||
+		entry.DiscoveryState.AuthorizationServerURL != "https://auth.example" ||
+		entry.StepUpScope != "files:write" {
+		t.Fatalf("reopened entry = %#v, want persisted OAuth entry", entry)
 	}
 }
 

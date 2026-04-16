@@ -223,6 +223,7 @@ type Config struct {
 	MCPOAuthStore              tools.MCPOAuthStore
 	MCPAuthenticator           tools.MCPAuthenticator
 	MCPReconnect               tools.MCPReconnectFunc
+	DisableMCPPromptSkills     bool
 	SkillRoots                 []string
 	SkillForkExecutor          tools.SkillForkExecutor
 	RequestPrompt              tools.RequestPromptFunc
@@ -395,6 +396,7 @@ type QueryEngine struct {
 	mcpReconnect               tools.MCPReconnectFunc
 	mcpPrompts                 map[string]tools.MCPPromptsListResult
 	mcpPromptCaller            tools.MCPPromptCaller
+	disableMCPPromptSkills     bool
 	skillRoots                 []string
 	skillForkExecutor          tools.SkillForkExecutor
 	requestPrompt              tools.RequestPromptFunc
@@ -521,7 +523,7 @@ func New(cfg Config) *QueryEngine {
 	}
 	if len(cfg.MCPClients) > 0 {
 		if cfg.MCPOAuthStore == nil {
-			cfg.MCPOAuthStore = tools.NewMCPOAuthMemoryStore()
+			cfg.MCPOAuthStore = tools.NewDefaultMCPOAuthStore()
 		}
 		discovered, err := tools.DiscoverMCPClientToolsWithOAuth(context.Background(), cfg.MCPClients, cfg.MCPOAuthStore)
 		if err == nil {
@@ -578,7 +580,7 @@ func New(cfg Config) *QueryEngine {
 	}
 	registerConfiguredMCPTools(toolRegistry, cfg.MCPTools, cfg.MCPToolCaller, cfg.MCPContextualToolCaller)
 	if cfg.MCPOAuthStore == nil {
-		cfg.MCPOAuthStore = tools.NewMCPOAuthMemoryStore()
+		cfg.MCPOAuthStore = tools.NewDefaultMCPOAuthStore()
 	}
 
 	engine := &QueryEngine{
@@ -613,6 +615,7 @@ func New(cfg Config) *QueryEngine {
 		mcpReconnect:              cfg.MCPReconnect,
 		mcpPrompts:                cloneMCPPrompts(cfg.MCPPrompts),
 		mcpPromptCaller:           cfg.MCPPromptCaller,
+		disableMCPPromptSkills:    cfg.DisableMCPPromptSkills,
 		skillRoots:                append([]string(nil), cfg.SkillRoots...),
 		skillForkExecutor:         cfg.SkillForkExecutor,
 		requestPrompt:             cfg.RequestPrompt,
@@ -2315,6 +2318,9 @@ func (q *QueryEngine) maybeInjectSkillListingAttachment(sess session.Session) er
 
 func (q *QueryEngine) skillListingCommands() []tools.SkillCommand {
 	local := tools.GetDynamicSkills()
+	if q.disableMCPPromptSkills {
+		return local
+	}
 	mcp := tools.MCPPromptSkillCommands(q.mcpPrompts)
 	if len(local) == 0 {
 		return mcp
