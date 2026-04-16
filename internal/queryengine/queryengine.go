@@ -1325,6 +1325,37 @@ func (q *QueryEngine) setToolAppStateFunc(sessionID string) func(func(map[string
 	}
 }
 
+func (q *QueryEngine) markMCPServerNeedsAuth(toolName string, err error) {
+	server, ok := mcpServerFromToolName(toolName)
+	if !ok {
+		return
+	}
+	auth, ok := tools.MCPAuthToolResultFromError(server, err)
+	if !ok {
+		return
+	}
+	prefix := strings.TrimSuffix(auth.Name, "authenticate")
+	for _, def := range q.tools.Definitions() {
+		if strings.HasPrefix(def.Name, prefix) {
+			q.tools.Unregister(def.Name)
+		}
+	}
+	q.tools.Register(tools.NewMCPAuthTool(server, auth.AuthURL, auth.Message))
+}
+
+func mcpServerFromToolName(toolName string) (string, bool) {
+	toolName = strings.TrimSpace(toolName)
+	if !strings.HasPrefix(toolName, "mcp__") {
+		return "", false
+	}
+	rest := strings.TrimPrefix(toolName, "mcp__")
+	index := strings.Index(rest, "__")
+	if index <= 0 {
+		return "", false
+	}
+	return rest[:index], true
+}
+
 func (q *QueryEngine) applyToolContextModifier(sessionID string, current tools.ToolUseContext, modifier func(tools.ToolUseContext) tools.ToolUseContext) {
 	if modifier == nil {
 		return
@@ -3244,6 +3275,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 			executionContext := q.toolUseContext(ctx, sess, pending)
 			toolResult, err := q.tools.InvokeWithContext(ctx, executionContext)
 			if err != nil {
+				q.markMCPServerNeedsAuth(pending.name, err)
 				errorText := strings.TrimSpace(err.Error())
 				if errorText == "" {
 					errorText = "tool execution failed"

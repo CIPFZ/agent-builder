@@ -1156,6 +1156,21 @@ func buildMCPAuthToolResult(serverName string, connection MCPConnection, err *mc
 	}
 }
 
+func MCPAuthToolResultFromError(serverName string, err error) (MCPAuthToolResult, bool) {
+	var authErr *mcpAuthRequiredError
+	if !errors.As(err, &authErr) {
+		return MCPAuthToolResult{}, false
+	}
+	serverName = strings.TrimSpace(serverName)
+	if serverName == "" {
+		serverName = authErr.serverName
+	}
+	if serverName == "" {
+		return MCPAuthToolResult{}, false
+	}
+	return buildMCPAuthToolResult(serverName, MCPConnection{Name: serverName}, authErr), true
+}
+
 func extractMCPAuthURL(resp *http.Response, body []byte) string {
 	if resp == nil {
 		return ""

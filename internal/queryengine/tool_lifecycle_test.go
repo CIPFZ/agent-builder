@@ -179,6 +179,92 @@ func TestQueryEngineDiscoversMCPClientToolsAndInvokesServer(t *testing.T) {
 	assertToolMessageContains(t, sessions, sess.ID, "queryengine remote contents")
 }
 
+func TestQueryEngineMarksMCPServerNeedsAuthAfterToolCallUnauthorized(t *testing.T) {
+	var callCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		method, _ := request["method"].(string)
+		switch method {
+		case "initialize":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"capabilities":    map[string]any{"tools": map[string]any{}},
+				},
+			})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusNoContent)
+		case "tools/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{"tools": []map[string]any{{
+					"name":        "read_file",
+					"description": "Read file",
+					"inputSchema": map[string]any{"type": "object"},
+				}}},
+			})
+		case "tools/call":
+			callCount++
+			w.Header().Set("WWW-Authenticate", `Bearer authorization_uri="https://auth.example/authorize"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","error":{"code":401,"message":"Unauthorized"}}`))
+		default:
+			t.Fatalf("unexpected method %q", method)
+		}
+	}))
+	defer server.Close()
+
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "read via expired mcp")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	client := &lifecycleScriptedClient{scripts: [][]llm.StreamEvent{{
+		{Type: "tool.call", ToolName: "mcp__filesystem__read_file", ToolInput: `{"path":"README.md"}`, ToolUseID: "toolu-mcp"},
+		{Type: "message.end"},
+	}, {
+		{Type: "text.delta", Delta: "needs auth"},
+		{Type: "message.end"},
+	}}}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           client,
+		WorkspaceLoader:  workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MCPClients: []tools.MCPConnection{{
+			Name:    "filesystem",
+			Type:    "streamable_http",
+			BaseURL: server.URL,
+		}},
+	})
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+	if callCount != 1 {
+		t.Fatalf("callCount = %d, want one failed MCP tool call", callCount)
+	}
+	requests := client.Requests()
+	if len(requests) < 2 {
+		t.Fatalf("requests = %d, want second model request after auth failure", len(requests))
+	}
+	if !hasToolDefinition(requests[0].Tools, "mcp__filesystem__read_file") {
+		t.Fatalf("first request tools = %#v, want real MCP tool before auth failure", requests[0].Tools)
+	}
+	if !hasToolDefinition(requests[1].Tools, "mcp__filesystem__authenticate") {
+		t.Fatalf("second request tools = %#v, want authenticate pseudo tool after 401", requests[1].Tools)
+	}
+	if hasToolDefinition(requests[1].Tools, "mcp__filesystem__read_file") {
+		t.Fatalf("second request tools = %#v, real MCP tools should be hidden until auth reconnect", requests[1].Tools)
+	}
+}
+
 func TestQueryEngineMCPAuthToolReturnsAuthURLBeforeRefreshingToolSurface(t *testing.T) {
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")

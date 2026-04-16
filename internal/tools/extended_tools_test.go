@@ -286,6 +286,101 @@ func TestDynamicMCPToolContextualLifecycleReturnsIsErrorWithMeta(t *testing.T) {
 	}
 }
 
+func TestDynamicMCPToolMarksServerNeedsAuthWhenToolCallReturnsUnauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		method, _ := request["method"].(string)
+		switch method {
+		case "initialize":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"capabilities":    map[string]any{"tools": map[string]any{}},
+				},
+			})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusNoContent)
+		case "tools/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{"tools": []map[string]any{{
+					"name":        "read_file",
+					"description": "Read file",
+					"inputSchema": map[string]any{"type": "object"},
+				}}},
+			})
+		case "tools/call":
+			w.Header().Set("WWW-Authenticate", `Bearer authorization_uri="https://auth.example/authorize"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","error":{"code":401,"message":"Unauthorized"}}`))
+		default:
+			t.Fatalf("unexpected method %q", method)
+		}
+	}))
+	defer server.Close()
+
+	discovered, err := tools.DiscoverMCPClientTools(context.Background(), []tools.MCPConnection{{
+		Name:    "filesystem",
+		Type:    "streamable_http",
+		BaseURL: server.URL,
+	}})
+	if err != nil {
+		t.Fatalf("discover mcp client: %v", err)
+	}
+	var appState map[string]any
+	tool := tools.NewMCPContextualTool(tools.MCPToolDefinition{
+		Server: "filesystem",
+		Name:   "read_file",
+	}, discovered.ContextualCaller)
+	result, err := tool.(tools.ContextualTool).InvokeWithContext(context.Background(), tools.ToolUseContext{
+		ToolName: "mcp__filesystem__read_file",
+		Input:    `{"path":"README.md"}`,
+		AppState: map[string]any{
+			"mcp": map[string]any{
+				"clients": []tools.MCPConnection{{
+					Name:    "filesystem",
+					Type:    "connected",
+					BaseURL: server.URL,
+				}},
+				"tools": []tools.Definition{{Name: "mcp__filesystem__read_file"}},
+			},
+		},
+		SetAppState: func(update func(map[string]any) map[string]any) {
+			appState = update(appState)
+		},
+	})
+	if err == nil {
+		t.Fatal("invoke contextual mcp tool: expected auth-required error")
+	}
+	if result.Output != "" {
+		t.Fatalf("result = %#v, want no successful tool result", result)
+	}
+	mcpState, ok := appState["mcp"].(map[string]any)
+	if !ok {
+		t.Fatalf("appState = %#v, want mcp state", appState)
+	}
+	clients, ok := mcpState["clients"].([]tools.MCPConnection)
+	if !ok || len(clients) != 1 {
+		t.Fatalf("clients = %#v, want one MCP client", mcpState["clients"])
+	}
+	if clients[0].Type != "needs-auth" || clients[0].Name != "filesystem" || clients[0].BaseURL != server.URL {
+		t.Fatalf("clients = %#v, want filesystem marked needs-auth with config preserved", clients)
+	}
+	stateTools, ok := mcpState["tools"].([]tools.Definition)
+	if !ok {
+		t.Fatalf("tools = %#v, want tool definitions", mcpState["tools"])
+	}
+	if len(stateTools) != 1 || stateTools[0].Name != "mcp__filesystem__authenticate" {
+		t.Fatalf("tools = %#v, want real MCP tools replaced by authenticate pseudo tool", stateTools)
+	}
+}
+
 func TestMCPAuthToolReturnsAuthURLBeforeReconnectCompletes(t *testing.T) {
 	var authenticated bool
 	var reconnected bool

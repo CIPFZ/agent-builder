@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -564,6 +565,7 @@ func (t *mcpTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseContext)
 		HandleElicitation: toolCtx.HandleElicitation,
 	})
 	if err != nil {
+		markMCPServerNeedsAuth(toolCtx, t.def.Server, err)
 		if toolCtx.ReportProgress != nil {
 			toolCtx.ReportProgress(ToolProgress{
 				ToolUseID: toolCtx.ToolUseID,
@@ -610,6 +612,107 @@ func (t *mcpTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseContext)
 		})
 	}
 	return toolResult, nil
+}
+
+func markMCPServerNeedsAuth(toolCtx ToolUseContext, server string, err error) bool {
+	var authErr *mcpAuthRequiredError
+	if !errors.As(err, &authErr) {
+		return false
+	}
+	if toolCtx.SetAppState == nil {
+		return true
+	}
+	auth := buildMCPAuthToolResult(server, MCPConnection{Name: server}, authErr)
+	toolCtx.SetAppState(func(previous map[string]any) map[string]any {
+		next := cloneAnyMap(previous)
+		if next == nil {
+			next = cloneAnyMap(toolCtx.AppState)
+		}
+		if next == nil {
+			next = make(map[string]any)
+		}
+		mcpState := cloneAnyMap(mapField(next, "mcp"))
+		if mcpState == nil {
+			mcpState = make(map[string]any)
+		}
+		mcpState["clients"] = markMCPClientsNeedsAuth(mcpState["clients"], server)
+		mcpState["tools"] = replaceMCPAppStateToolsWithAuth(mcpState["tools"], server, auth)
+		next["mcp"] = mcpState
+
+		mcpAuth := cloneAnyMap(mapField(next, "mcpAuth"))
+		if mcpAuth == nil {
+			mcpAuth = make(map[string]any)
+		}
+		mcpAuth[server] = map[string]any{
+			"status":  auth.Status,
+			"authUrl": auth.AuthURL,
+			"message": auth.Message,
+		}
+		next["mcpAuth"] = mcpAuth
+		return next
+	})
+	return true
+}
+
+func markMCPClientsNeedsAuth(value any, server string) []MCPConnection {
+	out := make([]MCPConnection, 0)
+	appendMarked := func(connection MCPConnection) {
+		if connection.Name == server {
+			connection.Type = "needs-auth"
+		}
+		out = append(out, connection)
+	}
+	switch typed := value.(type) {
+	case []MCPConnection:
+		for _, connection := range typed {
+			appendMarked(connection)
+		}
+	case []any:
+		for _, item := range typed {
+			switch connection := item.(type) {
+			case MCPConnection:
+				appendMarked(connection)
+			case map[string]any:
+				appendMarked(MCPConnection{
+					Name:    stringField(connection, "name"),
+					Type:    stringField(connection, "type"),
+					BaseURL: stringField(connection, "baseURL"),
+					URL:     stringField(connection, "url"),
+				})
+			}
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, MCPConnection{Name: server, Type: "needs-auth"})
+	}
+	return out
+}
+
+func replaceMCPAppStateToolsWithAuth(value any, server string, auth MCPAuthToolResult) []Definition {
+	prefix := mcpAppStatePrefix(server)
+	out := make([]Definition, 0)
+	appendIfOtherServer := func(def Definition) {
+		if !strings.HasPrefix(def.Name, prefix) {
+			out = append(out, def)
+		}
+	}
+	switch typed := value.(type) {
+	case []Definition:
+		for _, def := range typed {
+			appendIfOtherServer(def)
+		}
+	case []any:
+		for _, item := range typed {
+			switch def := item.(type) {
+			case Definition:
+				appendIfOtherServer(def)
+			case map[string]any:
+				appendIfOtherServer(definitionFromMap(def))
+			}
+		}
+	}
+	out = append(out, NewMCPAuthTool(server, auth.AuthURL, auth.Message).Definition())
+	return out
 }
 
 func (t *mcpTool) IsEnabled() bool           { return true }
