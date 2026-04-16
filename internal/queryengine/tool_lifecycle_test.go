@@ -520,6 +520,62 @@ func TestQueryEngineAppendsSkillNewMessagesAfterToolResultAndContinuesWithContex
 	}
 }
 
+func TestQueryEngineAppliesInlineSkillContextModifierToPolicyAndModel(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	dir := t.TempDir()
+	root := filepath.Join(dir, "skills")
+	skillDir := filepath.Join(root, "review")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nallowed-tools: system.run\nmodel: haiku\neffort: high\n---\nReview skill body."), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	msg, err := sessions.AppendMessage(sess.ID, "user", "invoke skill")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	client := &lifecycleScriptedClient{scripts: [][]llm.StreamEvent{{
+		{Type: "tool.call", ToolName: "Skill", ToolInput: `{"skill":"review","args":"README.md"}`, ToolUseID: "toolu-skill"},
+		{Type: "message.end"},
+	}, {
+		{Type: "text.delta", Delta: "done"},
+		{Type: "message.end"},
+	}}}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           client,
+		WorkspaceLoader:  workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+		ToolRegistry:     tools.NewRegistry(tools.NewSkillTool()),
+		SkillRoots:       []string{root},
+		MainLoopModel:    "sonnet",
+	})
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+	requests := client.Requests()
+	if len(requests) < 2 {
+		t.Fatalf("request count = %d, want continuation request after skill", len(requests))
+	}
+	if requests[1].Model != "claude-haiku-4-5" {
+		t.Fatalf("continuation model = %q, want skill model override", requests[1].Model)
+	}
+	policy := engine.PermissionPolicyForSession(sess.ID)
+	decision := policy.Evaluate(permissions.Request{ToolName: "system.run", Command: "echo ok", Destructive: true})
+	if !decision.Allowed || decision.RuleSource != string(permissions.RuleSourceCommand) {
+		t.Fatalf("decision = %#v, want skill allowed-tools command rule", decision)
+	}
+	refreshed, ok := sessions.GetByID(sess.ID)
+	if !ok {
+		t.Fatal("session missing")
+	}
+	if refreshed.Metadata.MainLoopModelOverride != "haiku" || refreshed.Metadata.MainLoopEffortOverride != "high" {
+		t.Fatalf("metadata = %#v, want skill model and effort overrides", refreshed.Metadata)
+	}
+}
+
 func TestQueryEngineInjectsSkillListingOnceAndThenOnlyNewSkills(t *testing.T) {
 	tools.ClearDynamicSkills()
 	t.Cleanup(tools.ClearDynamicSkills)

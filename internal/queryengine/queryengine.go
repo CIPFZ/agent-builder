@@ -1373,6 +1373,60 @@ func (q *QueryEngine) applyToolContextModifier(sessionID string, current tools.T
 	if next.ToolDecisions != nil {
 		q.toolDecisions[sessionID] = cloneToolDecisions(next.ToolDecisions)
 	}
+	q.applySkillContextOverrides(sessionID, current, next)
+}
+
+func (q *QueryEngine) applySkillContextOverrides(sessionID string, current, next tools.ToolUseContext) {
+	appState := next.AppState
+	if appState == nil {
+		return
+	}
+	if allowed := stringListFromAny(appState["skillAllowedTools"]); len(allowed) > 0 {
+		policy := q.PermissionPolicyForSession(sessionID)
+		policy.Rules = append(skillAllowedToolRules(allowed), policy.Rules...)
+		q.SetSessionPermissionPolicy(sessionID, policy)
+	}
+	model := strings.TrimSpace(next.MainLoopModel)
+	if model == "" {
+		model = stringMapField(appState, "skillModel")
+	}
+	effort := stringMapField(appState, "skillEffort")
+	if model == "" && effort == "" {
+		return
+	}
+	_ = q.sessions.UpdateMetadata(sessionID, func(metadata *session.SessionMetadata) {
+		if model != "" {
+			if strings.TrimSpace(metadata.InitialMainLoopModel) == "" {
+				metadata.InitialMainLoopModel = parseUserSpecifiedMainLoopModel(current.MainLoopModel, q.llmProvider)
+			}
+			metadata.MainLoopModelOverride = model
+		}
+		if effort != "" {
+			metadata.MainLoopEffortOverride = effort
+		}
+	})
+}
+
+func skillAllowedToolRules(toolNames []string) []permissions.Rule {
+	rules := make([]permissions.Rule, 0, len(toolNames))
+	seen := make(map[string]struct{}, len(toolNames))
+	for _, toolName := range toolNames {
+		toolName = strings.TrimSpace(toolName)
+		if toolName == "" {
+			continue
+		}
+		key := strings.ToLower(toolName)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		rules = append(rules, permissions.Rule{
+			ToolName: toolName,
+			Source:   string(permissions.RuleSourceCommand),
+			Action:   permissions.ActionAllow,
+		})
+	}
+	return rules
 }
 
 func defaultFileReadingLimits(limits tools.ResourceLimits) tools.ResourceLimits {
@@ -2578,6 +2632,52 @@ func stringSetKeys(set map[string]struct{}) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func stringListFromAny(value any) []string {
+	switch typed := value.(type) {
+	case []string:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if item = strings.TrimSpace(item); item != "" {
+				out = append(out, item)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text, ok := item.(string); ok {
+				if text = strings.TrimSpace(text); text != "" {
+					out = append(out, text)
+				}
+			}
+		}
+		return out
+	case string:
+		typed = strings.TrimSpace(typed)
+		if typed == "" {
+			return nil
+		}
+		parts := strings.Split(typed, ",")
+		out := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func stringMapField(value map[string]any, key string) string {
+	if value == nil {
+		return ""
+	}
+	text, _ := value[key].(string)
+	return strings.TrimSpace(text)
 }
 
 func messageBlocksFromContentMaps(input []map[string]any) []model.MessageBlock {
