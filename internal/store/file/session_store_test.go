@@ -265,6 +265,339 @@ func TestSessionStoreReplaceMessagesAppendsClaudeCompactBoundaryChain(t *testing
 	}
 }
 
+func TestSessionStoreLoadsLatestNonSidechainLeafFromClaudeTranscript(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "messages"), 0o755); err != nil {
+		t.Fatalf("mkdir messages: %v", err)
+	}
+	sess := model.Session{ID: "main-000001", Key: "agent:main:main", AgentID: "main", IsMain: true}
+	if err := writeJSON(filepath.Join(dir, "sessions.json"), []model.Session{sess}); err != nil {
+		t.Fatalf("write sessions: %v", err)
+	}
+	transcriptPath := filepath.Join(dir, "messages", sess.ID+".jsonl")
+	entries := []model.ClaudeTranscriptMessage{
+		{
+			ParentUUID:  nil,
+			IsSidechain: false,
+			Type:        "user",
+			UUID:        "root-user",
+			Timestamp:   time.Unix(1, 0).UTC().Format(time.RFC3339Nano),
+			Message:     &model.ClaudeAPIMessage{Role: "user", Content: "root"},
+		},
+		{
+			ParentUUID:  stringPtr("root-user"),
+			IsSidechain: false,
+			Type:        "assistant",
+			UUID:        "main-leaf",
+			Timestamp:   time.Unix(2, 0).UTC().Format(time.RFC3339Nano),
+			Message:     &model.ClaudeAPIMessage{ID: "provider-main", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockText, Text: "main answer"}}},
+		},
+		{
+			ParentUUID:  stringPtr("root-user"),
+			IsSidechain: true,
+			Type:        "assistant",
+			UUID:        "sidechain-leaf",
+			Timestamp:   time.Unix(3, 0).UTC().Format(time.RFC3339Nano),
+			Message:     &model.ClaudeAPIMessage{ID: "provider-side", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockText, Text: "sidechain answer"}}},
+		},
+	}
+	writeTranscriptEntries(t, transcriptPath, entries)
+
+	store, err := NewSessionStore(dir)
+	if err != nil {
+		t.Fatalf("reload session store: %v", err)
+	}
+	messages, ok := store.Messages(sess.ID)
+	if !ok || len(messages) != 2 {
+		t.Fatalf("messages = %#v, want main chain only", messages)
+	}
+	if messages[1].ID != "main-leaf" || messages[1].Content != "main answer" {
+		t.Fatalf("messages = %#v, want latest non-sidechain leaf chain", messages)
+	}
+	transcript, ok := store.TranscriptMessages(sess.ID)
+	if !ok || len(transcript) != 3 {
+		t.Fatalf("transcript = %#v, want all Claude transcript entries preserved", transcript)
+	}
+	if !transcript[2].IsSidechain || transcript[2].UUID != "sidechain-leaf" {
+		t.Fatalf("transcript = %#v, want sidechain substrate preserved", transcript)
+	}
+}
+
+func TestSessionStorePreservesMetadataEntriesAcrossReload(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "messages"), 0o755); err != nil {
+		t.Fatalf("mkdir messages: %v", err)
+	}
+	sess := model.Session{ID: "main-000001", Key: "agent:main:main", AgentID: "main", IsMain: true}
+	if err := writeJSON(filepath.Join(dir, "sessions.json"), []model.Session{sess}); err != nil {
+		t.Fatalf("write sessions: %v", err)
+	}
+	transcriptPath := filepath.Join(dir, "messages", sess.ID+".jsonl")
+	writeRawJSONLLines(t, transcriptPath, []map[string]any{
+		{"type": "custom-title", "sessionId": sess.ID, "customTitle": "Claude parity"},
+		{"type": "tag", "sessionId": sess.ID, "tag": "review"},
+		{"type": "mode", "sessionId": sess.ID, "mode": "normal"},
+		{"type": "content-replacement", "sessionId": sess.ID, "replacements": []map[string]any{{"messageId": "msg-1", "blockIndex": 0}}},
+		{"parentUuid": nil, "isSidechain": false, "type": "user", "uuid": "msg-1", "timestamp": time.Unix(1, 0).UTC().Format(time.RFC3339Nano), "message": map[string]any{"role": "user", "content": "hello"}},
+	})
+
+	store, err := NewSessionStore(dir)
+	if err != nil {
+		t.Fatalf("reload session store: %v", err)
+	}
+	entries, ok := store.TranscriptEntries(sess.ID)
+	if !ok || len(entries) != 5 {
+		t.Fatalf("entries = %#v, want all transcript and metadata entries", entries)
+	}
+	if entries[0].Type != "custom-title" || entries[0].Raw["customTitle"] != "Claude parity" {
+		t.Fatalf("entries = %#v, want custom-title metadata preserved", entries)
+	}
+	if entries[3].Type != "content-replacement" {
+		t.Fatalf("entries = %#v, want content-replacement metadata preserved", entries)
+	}
+}
+
+func TestSessionStoreAppendMetadataEntryPersistsJSONL(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewSessionStore(dir)
+	if err != nil {
+		t.Fatalf("new session store: %v", err)
+	}
+	sess := model.Session{ID: "main-000001", Key: "agent:main:main", AgentID: "main", IsMain: true}
+	store.SaveSession(sess)
+
+	if err := store.AppendTranscriptEntry(sess.ID, model.NewClaudeMetadataEntry(map[string]any{
+		"type":        "custom-title",
+		"sessionId":   sess.ID,
+		"customTitle": "Claude parity",
+	})); err != nil {
+		t.Fatalf("append metadata entry: %v", err)
+	}
+
+	reloaded, err := NewSessionStore(dir)
+	if err != nil {
+		t.Fatalf("reload session store: %v", err)
+	}
+	entries, ok := reloaded.TranscriptEntries(sess.ID)
+	if !ok || len(entries) != 1 || entries[0].Raw["customTitle"] != "Claude parity" {
+		t.Fatalf("entries = %#v, want metadata entry persisted", entries)
+	}
+}
+
+func TestSessionStoreAppendMessageContinuesFromMainChainAfterSidechain(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewSessionStore(dir)
+	if err != nil {
+		t.Fatalf("new session store: %v", err)
+	}
+	sess := model.Session{ID: "main-000001", Key: "agent:main:main", AgentID: "main", IsMain: true}
+	store.SaveSession(sess)
+	if err := store.AppendTranscriptMessage(sess.ID, model.ClaudeTranscriptMessage{
+		Type:      "user",
+		UUID:      "root-user",
+		Timestamp: time.Unix(1, 0).UTC().Format(time.RFC3339Nano),
+		Message:   &model.ClaudeAPIMessage{Role: "user", Content: "root"},
+	}); err != nil {
+		t.Fatalf("append root transcript: %v", err)
+	}
+	if err := store.AppendTranscriptMessage(sess.ID, model.ClaudeTranscriptMessage{
+		ParentUUID:  stringPtr("root-user"),
+		IsSidechain: true,
+		Type:        "assistant",
+		UUID:        "sidechain-leaf",
+		Timestamp:   time.Unix(2, 0).UTC().Format(time.RFC3339Nano),
+		Message:     &model.ClaudeAPIMessage{ID: "provider-side", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockText, Text: "sidechain"}}},
+	}); err != nil {
+		t.Fatalf("append sidechain transcript: %v", err)
+	}
+	if err := store.AppendMessage(model.Message{
+		ID:        "main-followup",
+		SessionID: sess.ID,
+		Role:      "user",
+		Content:   "continue main",
+		CreatedAt: time.Unix(3, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("append main message: %v", err)
+	}
+
+	transcript, ok := store.TranscriptMessages(sess.ID)
+	if !ok || len(transcript) != 3 {
+		t.Fatalf("transcript = %#v, want three entries", transcript)
+	}
+	if transcript[2].ParentUUID == nil || *transcript[2].ParentUUID != "root-user" {
+		t.Fatalf("transcript = %#v, want main follow-up parented to non-sidechain leaf", transcript)
+	}
+}
+
+func TestSessionStorePersistsAttachmentAsClaudeTranscriptEntry(t *testing.T) {
+	dir := t.TempDir()
+
+	store, err := NewSessionStore(dir)
+	if err != nil {
+		t.Fatalf("new session store: %v", err)
+	}
+	sess := model.Session{ID: "main-000001", Key: "agent:main:main", AgentID: "main", IsMain: true}
+	store.SaveSession(sess)
+	if err := store.AppendMessage(model.Message{
+		ID:                        "dynamic-skill-attachment",
+		SessionID:                 sess.ID,
+		Role:                      "attachment",
+		Subtype:                   "dynamic_skill",
+		Content:                   `{"type":"dynamic_skill","skillNames":["review"]}`,
+		IsMeta:                    true,
+		IsVisibleInTranscriptOnly: true,
+		CreatedAt:                 time.Unix(1, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("append attachment: %v", err)
+	}
+
+	entries := readJSONLLines(t, filepath.Join(dir, "messages", sess.ID+".jsonl"))
+	if len(entries) != 1 {
+		t.Fatalf("entries = %#v, want one attachment transcript entry", entries)
+	}
+	if entries[0]["type"] != "attachment" || entries[0]["subtype"] != "dynamic_skill" || entries[0]["isMeta"] != true {
+		t.Fatalf("entry = %#v, want Claude attachment transcript shape", entries[0])
+	}
+	reloaded, err := NewSessionStore(dir)
+	if err != nil {
+		t.Fatalf("reload session store: %v", err)
+	}
+	messages, ok := reloaded.Messages(sess.ID)
+	if !ok || len(messages) != 1 || messages[0].Role != "attachment" {
+		t.Fatalf("messages = %#v, want attachment runtime view restored", messages)
+	}
+}
+
+func TestSessionStoreAppendTranscriptMessageRollsBackInvalidEntry(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewSessionStore(dir)
+	if err != nil {
+		t.Fatalf("new session store: %v", err)
+	}
+	sess := model.Session{ID: "main-000001", Key: "agent:main:main", AgentID: "main", IsMain: true}
+	store.SaveSession(sess)
+
+	err = store.AppendTranscriptMessage(sess.ID, model.ClaudeTranscriptMessage{
+		Type:      "user",
+		UUID:      "bad-timestamp",
+		Timestamp: "not-a-timestamp",
+		Message:   &model.ClaudeAPIMessage{Role: "user", Content: "bad"},
+	})
+	if err == nil {
+		t.Fatal("append transcript message succeeded, want timestamp parse error")
+	}
+	if transcript, ok := store.TranscriptMessages(sess.ID); ok && len(transcript) != 0 {
+		t.Fatalf("transcript = %#v, want invalid entry not retained", transcript)
+	}
+	transcriptPath := filepath.Join(dir, "messages", sess.ID+".jsonl")
+	if _, statErr := os.Stat(transcriptPath); statErr == nil {
+		if entries := readJSONLLines(t, transcriptPath); len(entries) != 0 {
+			t.Fatalf("entries = %#v, want invalid entry not written", entries)
+		}
+	} else if !os.IsNotExist(statErr) {
+		t.Fatalf("stat transcript: %v", statErr)
+	}
+}
+
+func TestSessionStoreLoadsNearestUserAssistantLeafWhenTranscriptEndsWithAttachment(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "messages"), 0o755); err != nil {
+		t.Fatalf("mkdir messages: %v", err)
+	}
+	sess := model.Session{ID: "main-000001", Key: "agent:main:main", AgentID: "main", IsMain: true}
+	if err := writeJSON(filepath.Join(dir, "sessions.json"), []model.Session{sess}); err != nil {
+		t.Fatalf("write sessions: %v", err)
+	}
+	transcriptPath := filepath.Join(dir, "messages", sess.ID+".jsonl")
+	writeTranscriptEntries(t, transcriptPath, []model.ClaudeTranscriptMessage{
+		{
+			Type:      "user",
+			UUID:      "root-user",
+			Timestamp: time.Unix(1, 0).UTC().Format(time.RFC3339Nano),
+			Message:   &model.ClaudeAPIMessage{Role: "user", Content: "root"},
+		},
+		{
+			ParentUUID: stringPtr("root-user"),
+			Type:       "assistant",
+			UUID:       "assistant-leaf",
+			Timestamp:  time.Unix(2, 0).UTC().Format(time.RFC3339Nano),
+			Message:    &model.ClaudeAPIMessage{ID: "provider-main", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockText, Text: "main answer"}}},
+		},
+		{
+			ParentUUID:                stringPtr("assistant-leaf"),
+			Type:                      "attachment",
+			UUID:                      "trailing-attachment",
+			Subtype:                   "dynamic_skill",
+			Content:                   `{"type":"dynamic_skill"}`,
+			IsMeta:                    true,
+			IsVisibleInTranscriptOnly: true,
+			Timestamp:                 time.Unix(3, 0).UTC().Format(time.RFC3339Nano),
+		},
+	})
+
+	store, err := NewSessionStore(dir)
+	if err != nil {
+		t.Fatalf("reload session store: %v", err)
+	}
+	messages, ok := store.Messages(sess.ID)
+	if !ok || len(messages) != 2 {
+		t.Fatalf("messages = %#v, want user -> assistant leaf chain without trailing attachment", messages)
+	}
+	if messages[1].ID != "assistant-leaf" {
+		t.Fatalf("messages = %#v, want assistant leaf selected for resume", messages)
+	}
+}
+
+func TestSessionStoreBridgesLegacyProgressParentChain(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "messages"), 0o755); err != nil {
+		t.Fatalf("mkdir messages: %v", err)
+	}
+	sess := model.Session{ID: "main-000001", Key: "agent:main:main", AgentID: "main", IsMain: true}
+	if err := writeJSON(filepath.Join(dir, "sessions.json"), []model.Session{sess}); err != nil {
+		t.Fatalf("write sessions: %v", err)
+	}
+	transcriptPath := filepath.Join(dir, "messages", sess.ID+".jsonl")
+	lines := []map[string]any{
+		{
+			"parentUuid":  nil,
+			"isSidechain": false,
+			"type":        "user",
+			"uuid":        "root-user",
+			"timestamp":   time.Unix(1, 0).UTC().Format(time.RFC3339Nano),
+			"message":     map[string]any{"role": "user", "content": "root"},
+		},
+		{
+			"parentUuid":  "root-user",
+			"isSidechain": false,
+			"type":        "progress",
+			"uuid":        "legacy-progress",
+			"timestamp":   time.Unix(2, 0).UTC().Format(time.RFC3339Nano),
+		},
+		{
+			"parentUuid":  "legacy-progress",
+			"isSidechain": false,
+			"type":        "assistant",
+			"uuid":        "assistant-leaf",
+			"timestamp":   time.Unix(3, 0).UTC().Format(time.RFC3339Nano),
+			"message":     map[string]any{"id": "provider-main", "role": "assistant", "type": "message", "content": []map[string]any{{"type": "text", "text": "main answer"}}},
+		},
+	}
+	writeRawJSONLLines(t, transcriptPath, lines)
+
+	store, err := NewSessionStore(dir)
+	if err != nil {
+		t.Fatalf("reload session store: %v", err)
+	}
+	messages, ok := store.Messages(sess.ID)
+	if !ok || len(messages) != 2 {
+		t.Fatalf("messages = %#v, want progress bridged out of chain", messages)
+	}
+	if messages[0].ID != "root-user" || messages[1].ID != "assistant-leaf" {
+		t.Fatalf("messages = %#v, want root -> assistant chain", messages)
+	}
+}
+
 func TestSessionStoreAppendMessageReturnsTranscriptWriteErrorAndDoesNotMutateMemory(t *testing.T) {
 	dir := t.TempDir()
 
@@ -391,4 +724,38 @@ func readJSONLLines(t *testing.T, path string) []map[string]any {
 		t.Fatalf("scan jsonl: %v", err)
 	}
 	return entries
+}
+
+func writeTranscriptEntries(t *testing.T, path string, entries []model.ClaudeTranscriptMessage) {
+	t.Helper()
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create transcript: %v", err)
+	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+	for _, entry := range entries {
+		if err := encoder.Encode(entry); err != nil {
+			t.Fatalf("encode transcript entry: %v", err)
+		}
+	}
+}
+
+func writeRawJSONLLines(t *testing.T, path string, entries []map[string]any) {
+	t.Helper()
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create transcript: %v", err)
+	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+	for _, entry := range entries {
+		if err := encoder.Encode(entry); err != nil {
+			t.Fatalf("encode transcript entry: %v", err)
+		}
+	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

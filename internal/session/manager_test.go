@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"myclaw/internal/model"
 	fileStore "myclaw/internal/store/file"
 )
 
@@ -119,5 +120,57 @@ func TestManagerUpdateMetadataPersistsSessionMetadata(t *testing.T) {
 	}
 	if got.Metadata.MainLoopModelOverride != "claude-opus-4-6" {
 		t.Fatalf("metadata = %#v, want persisted main loop override", got.Metadata)
+	}
+}
+
+func TestManagerExposesTranscriptMessagesFromStore(t *testing.T) {
+	manager := NewManager(nil)
+	main := manager.GetOrCreateMain("main")
+	message, err := manager.AppendMessage(main.ID, "user", "hello")
+	if err != nil {
+		t.Fatalf("append message: %v", err)
+	}
+
+	transcript, ok := manager.TranscriptMessages(main.ID)
+	if !ok || len(transcript) != 1 {
+		t.Fatalf("transcript = %#v, want one transcript entry", transcript)
+	}
+	if transcript[0].UUID != message.ID || transcript[0].Type != "user" {
+		t.Fatalf("transcript = %#v, want Claude transcript entry", transcript)
+	}
+}
+
+func TestManagerAppendTranscriptMessageUpdatesRuntimeMetadata(t *testing.T) {
+	manager := NewManager(nil)
+	main := manager.GetOrCreateMain("main")
+
+	appended, err := manager.AppendTranscriptMessage(main.ID, model.ClaudeTranscriptMessage{
+		Type:      "assistant",
+		UUID:      "assistant-uuid",
+		Timestamp: time.Unix(1, 0).UTC().Format(time.RFC3339Nano),
+		Message: &model.ClaudeAPIMessage{
+			ID:      "provider-msg",
+			Model:   "claude-opus-4-6",
+			Role:    "assistant",
+			Type:    "message",
+			Content: []model.MessageBlock{{Type: model.MessageBlockText, Text: "hello"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("append transcript message: %v", err)
+	}
+	if appended.ID != "assistant-uuid" || appended.Role != "assistant" {
+		t.Fatalf("appended = %#v, want runtime assistant view", appended)
+	}
+	updated, ok := manager.GetByID(main.ID)
+	if !ok {
+		t.Fatalf("session %q not found", main.ID)
+	}
+	if updated.Metadata.LastAssistantMessageID != "assistant-uuid" {
+		t.Fatalf("metadata = %#v, want transcript append to update assistant id", updated.Metadata)
+	}
+	messages, ok := manager.Messages(main.ID)
+	if !ok || len(messages) != 1 || messages[0].ProviderModel != "claude-opus-4-6" {
+		t.Fatalf("messages = %#v, want transcript-backed runtime view", messages)
 	}
 }

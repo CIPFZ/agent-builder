@@ -2,6 +2,7 @@ package memory
 
 import (
 	"testing"
+	"time"
 
 	"myclaw/internal/model"
 )
@@ -31,4 +32,68 @@ func TestSessionStoreSavesSessionAndMessages(t *testing.T) {
 	if !ok || len(messages) != 1 {
 		t.Fatalf("messages = %#v, want 1 message", messages)
 	}
+}
+
+func TestSessionStoreAppendMessageContinuesFromMainChainAfterSidechain(t *testing.T) {
+	store := NewSessionStore()
+	sess := model.Session{ID: "main-000001", Key: "agent:main:main", AgentID: "main", IsMain: true}
+	store.SaveSession(sess)
+	if err := store.AppendTranscriptMessage(sess.ID, model.ClaudeTranscriptMessage{
+		Type:      "user",
+		UUID:      "root-user",
+		Timestamp: time.Unix(1, 0).UTC().Format(time.RFC3339Nano),
+		Message:   &model.ClaudeAPIMessage{Role: "user", Content: "root"},
+	}); err != nil {
+		t.Fatalf("append root transcript: %v", err)
+	}
+	if err := store.AppendTranscriptMessage(sess.ID, model.ClaudeTranscriptMessage{
+		ParentUUID:  stringPtr("root-user"),
+		IsSidechain: true,
+		Type:        "assistant",
+		UUID:        "sidechain-leaf",
+		Timestamp:   time.Unix(2, 0).UTC().Format(time.RFC3339Nano),
+		Message:     &model.ClaudeAPIMessage{ID: "provider-side", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockText, Text: "sidechain"}}},
+	}); err != nil {
+		t.Fatalf("append sidechain transcript: %v", err)
+	}
+	if err := store.AppendMessage(model.Message{
+		ID:        "main-followup",
+		SessionID: sess.ID,
+		Role:      "user",
+		Content:   "continue main",
+		CreatedAt: time.Unix(3, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("append main message: %v", err)
+	}
+
+	transcript, ok := store.TranscriptMessages(sess.ID)
+	if !ok || len(transcript) != 3 {
+		t.Fatalf("transcript = %#v, want three entries", transcript)
+	}
+	if transcript[2].ParentUUID == nil || *transcript[2].ParentUUID != "root-user" {
+		t.Fatalf("transcript = %#v, want main follow-up parented to non-sidechain leaf", transcript)
+	}
+}
+
+func TestSessionStoreAppendTranscriptMessageRollsBackInvalidEntry(t *testing.T) {
+	store := NewSessionStore()
+	sess := model.Session{ID: "main-000001", Key: "agent:main:main", AgentID: "main", IsMain: true}
+	store.SaveSession(sess)
+
+	err := store.AppendTranscriptMessage(sess.ID, model.ClaudeTranscriptMessage{
+		Type:      "user",
+		UUID:      "bad-timestamp",
+		Timestamp: "not-a-timestamp",
+		Message:   &model.ClaudeAPIMessage{Role: "user", Content: "bad"},
+	})
+	if err == nil {
+		t.Fatal("append transcript message succeeded, want timestamp parse error")
+	}
+	if transcript, ok := store.TranscriptMessages(sess.ID); ok && len(transcript) != 0 {
+		t.Fatalf("transcript = %#v, want invalid entry not retained", transcript)
+	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

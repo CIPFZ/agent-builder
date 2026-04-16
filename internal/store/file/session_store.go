@@ -15,12 +15,14 @@ import (
 var _ store.SessionStore = (*SessionStore)(nil)
 
 type SessionStore struct {
-	mu            sync.RWMutex
-	root          string
-	sessionsByID  map[string]model.Session
-	sessionsByKey map[string]model.Session
-	mainByAgentID map[string]string
-	messagesByID  map[string][]model.Message
+	mu             sync.RWMutex
+	root           string
+	sessionsByID   map[string]model.Session
+	sessionsByKey  map[string]model.Session
+	mainByAgentID  map[string]string
+	messagesByID   map[string][]model.Message
+	transcriptByID map[string][]model.ClaudeTranscriptMessage
+	entriesByID    map[string][]model.ClaudeTranscriptEntry
 }
 
 func NewSessionStore(root string) (*SessionStore, error) {
@@ -31,11 +33,13 @@ func NewSessionStore(root string) (*SessionStore, error) {
 		return nil, err
 	}
 	s := &SessionStore{
-		root:          root,
-		sessionsByID:  make(map[string]model.Session),
-		sessionsByKey: make(map[string]model.Session),
-		mainByAgentID: make(map[string]string),
-		messagesByID:  make(map[string][]model.Message),
+		root:           root,
+		sessionsByID:   make(map[string]model.Session),
+		sessionsByKey:  make(map[string]model.Session),
+		mainByAgentID:  make(map[string]string),
+		messagesByID:   make(map[string][]model.Message),
+		transcriptByID: make(map[string][]model.ClaudeTranscriptMessage),
+		entriesByID:    make(map[string][]model.ClaudeTranscriptEntry),
 	}
 	if err := s.load(); err != nil {
 		return nil, err
@@ -93,20 +97,32 @@ func (s *SessionStore) AppendMessage(msg model.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var parentUUID *string
-	if messages := s.messagesByID[msg.SessionID]; len(messages) > 0 {
-		parent := messages[len(messages)-1].ID
-		parentUUID = &parent
+	if transcript := s.transcriptByID[msg.SessionID]; len(transcript) > 0 {
+		for i := len(transcript) - 1; i >= 0; i-- {
+			if model.IsClaudeTranscriptChainParticipant(transcript[i]) && !transcript[i].IsSidechain {
+				parent := transcript[i].UUID
+				parentUUID = &parent
+				break
+			}
+		}
 	}
-	if err := s.appendTranscriptMessagesLocked(msg.SessionID, []model.Message{msg}, parentUUID); err != nil {
+	entries := model.NewClaudeTranscriptMessages([]model.Message{msg}, parentUUID)
+	entryEnvelopes := transcriptEntries(entries)
+	if err := s.appendTranscriptEntriesLocked(msg.SessionID, entryEnvelopes); err != nil {
 		return err
 	}
 	s.messagesByID[msg.SessionID] = append(s.messagesByID[msg.SessionID], msg)
+	s.transcriptByID[msg.SessionID] = append(s.transcriptByID[msg.SessionID], entries...)
+	s.entriesByID[msg.SessionID] = append(s.entriesByID[msg.SessionID], entryEnvelopes...)
 	return nil
 }
 
 func (s *SessionStore) Messages(sessionID string) ([]model.Message, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if messages, ok := model.RuntimeMessagesFromClaudeTranscriptEntries(s.transcriptByID[sessionID], sessionID); ok {
+		return messages, true
+	}
 	messages, ok := s.messagesByID[sessionID]
 	if !ok {
 		return nil, false
@@ -114,14 +130,94 @@ func (s *SessionStore) Messages(sessionID string) ([]model.Message, bool) {
 	return append([]model.Message(nil), messages...), true
 }
 
+func (s *SessionStore) TranscriptMessages(sessionID string) ([]model.ClaudeTranscriptMessage, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	transcript, ok := s.transcriptByID[sessionID]
+	if !ok {
+		return nil, false
+	}
+	return append([]model.ClaudeTranscriptMessage(nil), transcript...), true
+}
+
+func (s *SessionStore) TranscriptEntries(sessionID string) ([]model.ClaudeTranscriptEntry, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	entries, ok := s.entriesByID[sessionID]
+	if !ok {
+		return nil, false
+	}
+	return append([]model.ClaudeTranscriptEntry(nil), entries...), true
+}
+
+func (s *SessionStore) AppendTranscriptMessage(sessionID string, entry model.ClaudeTranscriptMessage) error {
+	return s.AppendTranscriptEntry(sessionID, model.NewClaudeTranscriptEntry(entry))
+}
+
+func (s *SessionStore) AppendTranscriptEntry(sessionID string, entry model.ClaudeTranscriptEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry.Message == nil {
+		if err := s.appendTranscriptEntriesLocked(sessionID, []model.ClaudeTranscriptEntry{entry}); err != nil {
+			return err
+		}
+		s.entriesByID[sessionID] = append(s.entriesByID[sessionID], entry)
+		return nil
+	}
+	messageEntry := *entry.Message
+	if !model.IsClaudeTranscriptMessage(messageEntry) {
+		return nil
+	}
+	if _, err := model.MessageFromClaudeTranscript(messageEntry, sessionID); err != nil {
+		return err
+	}
+	transcript := append(append([]model.ClaudeTranscriptMessage(nil), s.transcriptByID[sessionID]...), messageEntry)
+	messages, ok := model.RuntimeMessagesFromClaudeTranscriptEntries(transcript, sessionID)
+	if !ok {
+		return nil
+	}
+	if err := s.appendTranscriptEntriesLocked(sessionID, []model.ClaudeTranscriptEntry{entry}); err != nil {
+		return err
+	}
+	s.transcriptByID[sessionID] = transcript
+	s.entriesByID[sessionID] = append(s.entriesByID[sessionID], entry)
+	s.messagesByID[sessionID] = messages
+	return nil
+}
+
 func (s *SessionStore) ReplaceMessages(sessionID string, messages []model.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cloned := append([]model.Message(nil), messages...)
-	if err := s.appendTranscriptMessagesLocked(sessionID, cloned, nil); err != nil {
+	entries := model.NewClaudeTranscriptMessages(cloned, nil)
+	entryEnvelopes := transcriptEntries(entries)
+	if err := s.appendTranscriptEntriesLocked(sessionID, entryEnvelopes); err != nil {
 		return err
 	}
 	s.messagesByID[sessionID] = cloned
+	s.transcriptByID[sessionID] = append(s.transcriptByID[sessionID], entries...)
+	s.entriesByID[sessionID] = append(s.entriesByID[sessionID], entryEnvelopes...)
+	return nil
+}
+
+func (s *SessionStore) ReplaceTranscriptMessages(sessionID string, entries []model.ClaudeTranscriptMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cloned := append([]model.ClaudeTranscriptMessage(nil), entries...)
+	entryEnvelopes := make([]model.ClaudeTranscriptEntry, 0, len(cloned))
+	for _, entry := range cloned {
+		entryEnvelopes = append(entryEnvelopes, model.NewClaudeTranscriptEntry(entry))
+	}
+	if err := s.appendTranscriptEntriesLocked(sessionID, entryEnvelopes); err != nil {
+		return err
+	}
+	s.transcriptByID[sessionID] = append(s.transcriptByID[sessionID], cloned...)
+	s.entriesByID[sessionID] = append(s.entriesByID[sessionID], entryEnvelopes...)
+	if messages, ok := model.RuntimeMessagesFromClaudeTranscriptEntries(s.transcriptByID[sessionID], sessionID); ok {
+		s.messagesByID[sessionID] = messages
+	} else {
+		delete(s.messagesByID, sessionID)
+	}
 	return nil
 }
 
@@ -170,10 +266,12 @@ func (s *SessionStore) loadMessages() error {
 		switch filepath.Ext(entry.Name()) {
 		case ".jsonl":
 			sessionID := entry.Name()[:len(entry.Name())-len(".jsonl")]
-			messages, err := s.loadTranscriptMessages(filepath.Join(s.root, "messages", entry.Name()), sessionID)
+			entries, transcript, messages, err := s.loadTranscriptMessages(filepath.Join(s.root, "messages", entry.Name()), sessionID)
 			if err != nil {
 				return err
 			}
+			s.entriesByID[sessionID] = entries
+			s.transcriptByID[sessionID] = transcript
 			s.messagesByID[sessionID] = messages
 		case ".json":
 			sessionID := entry.Name()[:len(entry.Name())-len(".json")]
@@ -206,8 +304,8 @@ func (s *SessionStore) persistMainSessionsLocked() error {
 	return writeJSON(filepath.Join(s.root, "main_sessions.json"), data)
 }
 
-func (s *SessionStore) appendTranscriptMessagesLocked(sessionID string, messages []model.Message, parentUUID *string) error {
-	if len(messages) == 0 {
+func (s *SessionStore) appendTranscriptEntriesLocked(sessionID string, entries []model.ClaudeTranscriptEntry) error {
+	if len(entries) == 0 {
 		return nil
 	}
 	path := filepath.Join(s.root, "messages", sessionID+".jsonl")
@@ -217,75 +315,112 @@ func (s *SessionStore) appendTranscriptMessagesLocked(sessionID string, messages
 	}
 	defer file.Close()
 
-	currentParent := parentUUID
 	encoder := json.NewEncoder(file)
-	for _, message := range messages {
-		entry := model.NewClaudeTranscriptMessage(message, model.ClaudeTranscriptOptions{ParentUUID: currentParent})
+	for _, entry := range entries {
 		if err := encoder.Encode(entry); err != nil {
 			return err
 		}
-		nextParent := message.ID
-		currentParent = &nextParent
 	}
 	return nil
 }
 
-func (s *SessionStore) loadTranscriptMessages(path, sessionID string) ([]model.Message, error) {
+func (s *SessionStore) loadTranscriptMessages(path, sessionID string) ([]model.ClaudeTranscriptEntry, []model.ClaudeTranscriptMessage, []model.Message, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	defer file.Close()
 
-	entriesByID := make(map[string]model.ClaudeTranscriptMessage)
+	var allEntries []model.ClaudeTranscriptEntry
 	var ordered []model.ClaudeTranscriptMessage
+	progressParents := make(map[string]*string)
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
-		var entry model.ClaudeTranscriptMessage
+		var entry model.ClaudeTranscriptEntry
 		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
-		if entry.UUID == "" {
+		allEntries = append(allEntries, entry)
+		if entry.Type == "progress" && entry.Raw != nil {
+			uuid, _ := entry.Raw["uuid"].(string)
+			parent := rawStringPtr(entry.Raw["parentUuid"])
+			if uuid != "" {
+				progressParents[uuid] = parent
+			}
 			continue
 		}
-		entriesByID[entry.UUID] = entry
-		ordered = append(ordered, entry)
+		if entry.Message == nil || !model.IsClaudeTranscriptMessage(*entry.Message) {
+			continue
+		}
+		messageEntry := *entry.Message
+		messageEntry.ParentUUID = bridgeProgressParent(messageEntry.ParentUUID, progressParents)
+		ordered = append(ordered, messageEntry)
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	if len(ordered) == 0 {
-		return nil, nil
+		return allEntries, nil, nil, nil
 	}
 
-	var chain []model.ClaudeTranscriptMessage
-	seen := make(map[string]bool)
-	for entry := ordered[len(ordered)-1]; ; {
-		if seen[entry.UUID] {
-			return nil, fmt.Errorf("cycle in transcript parent chain for %s", sessionID)
-		}
-		seen[entry.UUID] = true
-		chain = append(chain, entry)
-		if entry.ParentUUID == nil || *entry.ParentUUID == "" {
-			break
-		}
-		parent, ok := entriesByID[*entry.ParentUUID]
-		if !ok {
-			break
-		}
-		entry = parent
+	chain, err := model.LatestClaudeTranscriptChain(ordered)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("%w for %s", err, sessionID)
 	}
-
 	messages := make([]model.Message, 0, len(chain))
-	for i := len(chain) - 1; i >= 0; i-- {
-		message, err := model.MessageFromClaudeTranscript(chain[i], sessionID)
+	for _, entry := range chain {
+		message, err := model.MessageFromClaudeTranscript(entry, sessionID)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		messages = append(messages, message)
 	}
-	return messages, nil
+	return allEntries, ordered, messages, nil
+}
+
+func rawStringPtr(value any) *string {
+	if value == nil {
+		return nil
+	}
+	if text, ok := value.(string); ok {
+		return &text
+	}
+	return nil
+}
+
+func transcriptEntries(messages []model.ClaudeTranscriptMessage) []model.ClaudeTranscriptEntry {
+	entries := make([]model.ClaudeTranscriptEntry, 0, len(messages))
+	for _, message := range messages {
+		entries = append(entries, model.NewClaudeTranscriptEntry(message))
+	}
+	return entries
+}
+
+func bridgeProgressParent(parent *string, progressParents map[string]*string) *string {
+	if parent == nil || len(progressParents) == 0 {
+		return parent
+	}
+	current := *parent
+	seen := make(map[string]struct{}, len(progressParents))
+	for current != "" {
+		next, ok := progressParents[current]
+		if !ok {
+			break
+		}
+		if _, exists := seen[current]; exists {
+			return parent
+		}
+		seen[current] = struct{}{}
+		if next == nil {
+			return nil
+		}
+		current = *next
+	}
+	if current == *parent {
+		return parent
+	}
+	return &current
 }
 
 func readJSON(path string, target any) error {

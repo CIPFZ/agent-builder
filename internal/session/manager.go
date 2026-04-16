@@ -172,6 +172,69 @@ func (m *Manager) Messages(sessionID string) ([]Message, bool) {
 	return m.store.Messages(sessionID)
 }
 
+func (m *Manager) TranscriptMessages(sessionID string) ([]model.ClaudeTranscriptMessage, bool) {
+	transcriptStore, ok := m.store.(store.TranscriptSessionStore)
+	if !ok {
+		return nil, false
+	}
+	return transcriptStore.TranscriptMessages(sessionID)
+}
+
+func (m *Manager) TranscriptEntries(sessionID string) ([]model.ClaudeTranscriptEntry, bool) {
+	transcriptStore, ok := m.store.(store.TranscriptSessionStore)
+	if !ok {
+		return nil, false
+	}
+	return transcriptStore.TranscriptEntries(sessionID)
+}
+
+func (m *Manager) AppendTranscriptMessage(sessionID string, entry model.ClaudeTranscriptMessage) (Message, error) {
+	return m.AppendTranscriptEntry(sessionID, model.NewClaudeTranscriptEntry(entry))
+}
+
+func (m *Manager) AppendTranscriptEntry(sessionID string, entry model.ClaudeTranscriptEntry) (Message, error) {
+	session, ok := m.store.GetSessionByID(sessionID)
+	if !ok {
+		return Message{}, fmt.Errorf("session %q not found", sessionID)
+	}
+	transcriptStore, ok := m.store.(store.TranscriptSessionStore)
+	if !ok {
+		if entry.Message == nil {
+			return Message{}, nil
+		}
+		message, err := model.MessageFromClaudeTranscript(*entry.Message, sessionID)
+		if err != nil {
+			return Message{}, err
+		}
+		return m.AppendModelMessage(sessionID, message)
+	}
+	if entry.Message != nil && entry.Message.UUID == "" {
+		entry.Message.UUID = fmt.Sprintf("msg-%06d", m.nextMsgID.Add(1))
+	}
+	if entry.Message != nil && entry.Message.Timestamp == "" {
+		entry.Message.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	if err := transcriptStore.AppendTranscriptEntry(sessionID, entry); err != nil {
+		return Message{}, err
+	}
+	if entry.Message == nil {
+		return Message{}, nil
+	}
+	message, err := model.MessageFromClaudeTranscript(*entry.Message, sessionID)
+	if err != nil {
+		return Message{}, err
+	}
+	session.Metadata.LastActivityAt = message.CreatedAt
+	switch message.Role {
+	case "user":
+		session.Metadata.LastUserMessageID = message.ID
+	case "assistant":
+		session.Metadata.LastAssistantMessageID = message.ID
+	}
+	m.store.SaveSession(session)
+	return message, nil
+}
+
 func (m *Manager) ContinuationMessages(sessionID string) ([]Message, bool) {
 	snapshot, ok := m.RecoverySnapshot(sessionID)
 	if !ok {
@@ -206,6 +269,21 @@ func (m *Manager) ReplaceMessages(sessionID string, messages []Message) error {
 		return fmt.Errorf("session %q not found", sessionID)
 	}
 	return m.store.ReplaceMessages(sessionID, messages)
+}
+
+func (m *Manager) ReplaceTranscriptMessages(sessionID string, entries []model.ClaudeTranscriptMessage) error {
+	if _, ok := m.store.GetSessionByID(sessionID); !ok {
+		return fmt.Errorf("session %q not found", sessionID)
+	}
+	transcriptStore, ok := m.store.(store.TranscriptSessionStore)
+	if !ok {
+		messages, ok := model.RuntimeMessagesFromClaudeTranscriptEntries(entries, sessionID)
+		if !ok {
+			messages = nil
+		}
+		return m.store.ReplaceMessages(sessionID, messages)
+	}
+	return transcriptStore.ReplaceTranscriptMessages(sessionID, entries)
 }
 
 func (m *Manager) UpdateMetadata(sessionID string, update func(*SessionMetadata)) error {
