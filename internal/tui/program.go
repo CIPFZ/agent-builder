@@ -23,8 +23,9 @@ func Run(ctx context.Context, sessions *session.Manager, runner *runtime.Runner,
 	}
 	bridge := NewRuntimeBridgeWithContext(ctx, sessions, runner, "main", options.Logger)
 	model := NewModel(bridge, ModelConfig{
-		SessionID: bridge.session.ID,
-		LLMLabel:  options.LLMLabel,
+		SessionID:    bridge.session.ID,
+		LLMLabel:     options.LLMLabel,
+		PromptEditor: defaultPromptEditor,
 		LogPath: func() string {
 			if options.Logger == nil {
 				return ""

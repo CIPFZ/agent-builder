@@ -24,6 +24,7 @@ type tuiState struct {
 	messageActions      messageActionsState
 	toolExpansion       toolExpansionState
 	pastes              pasteState
+	externalEditor      externalEditorState
 	width               int
 	height              int
 }
@@ -45,6 +46,7 @@ func newTUIState(cfg ...ModelConfig) tuiState {
 		state.diagnostics.SessionID = cfg[0].SessionID
 		state.diagnostics.LLMLabel = cfg[0].LLMLabel
 		state.diagnostics.LogPath = cfg[0].LogPath
+		state.externalEditor.PromptEditor = cfg[0].PromptEditor
 	}
 	return state
 }
@@ -89,6 +91,8 @@ func (s *tuiState) clearVisibleConversation() {
 	s.messageActions.close()
 	s.toolExpansion.clear()
 	s.pastes = newPasteState()
+	s.externalEditor.Active = false
+	s.externalEditor.PendingCtrlX = false
 	s.viewport.Search = transcriptSearchState{}
 	s.scrollTranscriptBottom()
 	s.events = []string{"conversation cleared"}

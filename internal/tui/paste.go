@@ -60,6 +60,22 @@ func (s *pasteState) expandReferences(input string) string {
 	})
 }
 
+func (s *pasteState) recollapseReferences(input string) string {
+	collapsed := input
+	for id, content := range s.contents {
+		if content.Type != "text" || content.Content == "" {
+			continue
+		}
+		index := strings.Index(collapsed, content.Content)
+		if index == -1 {
+			continue
+		}
+		ref := formatPastedTextRef(id, pastedTextRefNumLines(content.Content))
+		collapsed = collapsed[:index] + ref + collapsed[index+len(content.Content):]
+	}
+	return collapsed
+}
+
 func formatPastedTextRef(id int, numLines int) string {
 	if numLines == 0 {
 		return fmt.Sprintf("[Pasted text #%d]", id)
