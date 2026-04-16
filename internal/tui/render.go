@@ -17,10 +17,12 @@ const (
 
 type renderSnapshot struct {
 	Width       int
+	Height      int
 	Title       string
 	Subtitle    string
 	Transcript  []transcriptEntry
 	Input       inputRenderState
+	Viewport    viewportRenderState
 	Approval    *approvalRenderState
 	Dialog      *dialogRenderState
 	Busy        bool
@@ -33,6 +35,13 @@ type inputRenderState struct {
 	Cursor        int
 	Suggestions   []string
 	SelectedIndex int
+}
+
+type viewportRenderState struct {
+	ScrollOffset   int
+	TranscriptMode bool
+	ShowAllHistory bool
+	NewMessages    int
 }
 
 type approvalRenderState struct {
@@ -69,6 +78,7 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 	suggestions := append([]string(nil), m.suggestions...)
 	snapshot := renderSnapshot{
 		Width:      width,
+		Height:     m.height,
 		Title:      "myclaw",
 		Subtitle:   "MiniMax-M2.7 Agent Builder",
 		Transcript: transcript,
@@ -77,6 +87,12 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 			Cursor:        m.cursorPos,
 			Suggestions:   suggestions,
 			SelectedIndex: m.selectedIndex,
+		},
+		Viewport: viewportRenderState{
+			ScrollOffset:   m.viewport.ScrollOffset,
+			TranscriptMode: m.viewport.TranscriptMode,
+			ShowAllHistory: m.viewport.ShowAllHistory,
+			NewMessages:    m.viewport.NewMessages,
 		},
 		Busy:        m.busy,
 		Activity:    m.activity.Label,
@@ -164,8 +180,47 @@ func (r renderer) renderTranscript(snapshot renderSnapshot) string {
 	if len(snapshot.Transcript) == 0 {
 		b.WriteString(centerLine("(no messages yet - start a conversation!)", width))
 		b.WriteString("\n")
+		if statusLine := snapshot.viewportStatusLine(width, 0); statusLine != "" {
+			b.WriteString(statusLine)
+			b.WriteString("\n")
+		}
 		return b.String()
 	}
+	lines := r.renderTranscriptLines(snapshot)
+	visibleLines := snapshot.transcriptVisibleLines()
+	if visibleLines > 0 && len(lines) > visibleLines {
+		effectiveOffset := clampViewportOffset(len(lines), visibleLines, snapshot.Viewport.ScrollOffset)
+		statusLine := snapshot.viewportStatusLine(width, effectiveOffset)
+		if statusLine != "" && visibleLines > 1 {
+			visibleLines--
+			effectiveOffset = clampViewportOffset(len(lines), visibleLines, snapshot.Viewport.ScrollOffset)
+			statusLine = snapshot.viewportStatusLine(width, effectiveOffset)
+		}
+		lines = sliceTranscriptViewport(lines, visibleLines, effectiveOffset)
+		for _, line := range lines {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		if statusLine != "" {
+			b.WriteString(statusLine)
+			b.WriteString("\n")
+		}
+		return b.String()
+	}
+	for _, line := range lines {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	if statusLine := snapshot.viewportStatusLine(width, 0); statusLine != "" {
+		b.WriteString(statusLine)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func (r renderer) renderTranscriptLines(snapshot renderSnapshot) []string {
+	width := snapshot.Width
+	var b strings.Builder
 	for _, entry := range snapshot.Transcript {
 		switch {
 		case entry.Kind != "":
@@ -182,7 +237,11 @@ func (r renderer) renderTranscript(snapshot renderSnapshot) string {
 			r.renderRoleBlock(&b, entry.Role, entry.Content, entry.Streaming, width)
 		}
 	}
-	return b.String()
+	output := strings.TrimSuffix(b.String(), "\n")
+	if output == "" {
+		return nil
+	}
+	return strings.Split(output, "\n")
 }
 
 func (r renderer) renderSpecialBlock(b *strings.Builder, entry transcriptEntry, width int) {
@@ -607,6 +666,70 @@ func (snapshot renderSnapshot) activityLabel() string {
 		return snapshot.Diagnostics.LLMLabel
 	}
 	return ""
+}
+
+func (snapshot renderSnapshot) transcriptVisibleLines() int {
+	if snapshot.Height <= 0 || snapshot.Viewport.ShowAllHistory {
+		return 0
+	}
+	promptLines := 4
+	if snapshot.Dialog == nil && len(snapshot.Input.Suggestions) > 0 {
+		promptLines += len(snapshot.Input.Suggestions)
+	}
+	const headerLines = 8
+	visible := snapshot.Height - headerLines - promptLines
+	if visible < 3 {
+		return 3
+	}
+	return visible
+}
+
+func (snapshot renderSnapshot) viewportStatusLine(width int, effectiveOffset int) string {
+	var parts []string
+	if snapshot.Viewport.TranscriptMode {
+		parts = append(parts, "Transcript")
+	}
+	if effectiveOffset > 0 {
+		parts = append(parts, fmt.Sprintf("scrolled %d lines up", effectiveOffset))
+	}
+	if snapshot.Viewport.NewMessages > 0 {
+		label := "message"
+		if snapshot.Viewport.NewMessages > 1 {
+			label = "messages"
+		}
+		parts = append(parts, fmt.Sprintf("%d new %s", snapshot.Viewport.NewMessages, label))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return rightAlign(strings.Join(parts, "  |  "), width)
+}
+
+func sliceTranscriptViewport(lines []string, visibleLines, scrollOffset int) []string {
+	if visibleLines <= 0 || len(lines) <= visibleLines {
+		return lines
+	}
+	scrollOffset = clampViewportOffset(len(lines), visibleLines, scrollOffset)
+	end := len(lines) - scrollOffset
+	start := end - visibleLines
+	if start < 0 {
+		start = 0
+	}
+	return lines[start:end]
+}
+
+func clampViewportOffset(totalLines, visibleLines, scrollOffset int) int {
+	if visibleLines <= 0 || totalLines <= visibleLines {
+		return 0
+	}
+	maxOffset := totalLines - visibleLines
+	if scrollOffset > maxOffset {
+		return maxOffset
+	}
+	if scrollOffset < 0 {
+		return 0
+	}
+	return scrollOffset
 }
 
 func borderLine(width int, ch rune) string {

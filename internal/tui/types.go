@@ -71,6 +71,14 @@ type activityState struct {
 	Label string
 }
 
+type viewportState struct {
+	ScrollOffset   int
+	StickyBottom   bool
+	TranscriptMode bool
+	ShowAllHistory bool
+	NewMessages    int
+}
+
 type inputState struct {
 	input         string
 	cursorPos     int

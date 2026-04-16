@@ -35,6 +35,16 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.viewport.TranscriptMode {
+		switch msg.Type {
+		case tea.KeyEsc, tea.KeyCtrlC:
+			m.exitTranscriptMode()
+			return m, nil
+		}
+	}
+	if m.handleViewportKey(msg) {
+		return m, nil
+	}
 	switch msg.Type {
 	case tea.KeyCtrlC:
 		return m, tea.Quit
@@ -68,6 +78,42 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+}
+
+func (m *Model) handleViewportKey(msg tea.KeyMsg) bool {
+	pageLines := m.transcriptPageLines()
+	switch msg.Type {
+	case tea.KeyCtrlO:
+		m.toggleTranscriptMode()
+	case tea.KeyCtrlE:
+		m.toggleTranscriptHistory()
+	case tea.KeyPgUp:
+		m.scrollTranscriptUp(pageLines)
+	case tea.KeyPgDown:
+		m.scrollTranscriptDown(pageLines)
+	case tea.KeyHome:
+		if !m.viewport.TranscriptMode && m.input != "" {
+			return false
+		}
+		m.scrollTranscriptTop()
+	case tea.KeyEnd:
+		if !m.viewport.TranscriptMode && m.input != "" {
+			return false
+		}
+		m.scrollTranscriptBottom()
+	default:
+		return false
+	}
+	return true
+}
+
+func (m Model) transcriptPageLines() int {
+	snapshot := newRenderSnapshot(m, m.width)
+	visible := snapshot.transcriptVisibleLines()
+	if visible <= 0 {
+		return viewportDefaultPageLines
+	}
+	return visible
 }
 
 func (s *inputState) handleEditingKey(msg tea.KeyMsg, width int, commands []string) bool {
