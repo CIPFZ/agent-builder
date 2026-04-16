@@ -20,6 +20,7 @@ type tuiState struct {
 	pendingApproval     *approval.Request
 	diagnostics         diagnosticsState
 	activity            activityState
+	viewport            viewportState
 	width               int
 	height              int
 }
@@ -31,6 +32,9 @@ func newTUIState(cfg ...ModelConfig) tuiState {
 		inputState:     newInputState(),
 		dialog:         newDialogState(),
 		approvalDialog: newApprovalDialogState(),
+		viewport: viewportState{
+			StickyBottom: true,
+		},
 	}
 	if len(cfg) > 0 {
 		state.diagnostics.SessionID = cfg[0].SessionID
@@ -57,6 +61,7 @@ func (s *tuiState) submitUserInput() (string, bool) {
 	s.historyIndex = -1
 	s.cursorPos = 0
 	s.transcript = append(s.transcript, transcriptEntry{Role: "user", Content: text})
+	s.scrollTranscriptBottom()
 	s.input = ""
 	s.busy = true
 	return text, true
@@ -74,6 +79,7 @@ func (s *tuiState) clearVisibleConversation() {
 	s.pendingApproval = nil
 	s.approvalDialog.close()
 	s.dialog.close()
+	s.scrollTranscriptBottom()
 	s.events = []string{"conversation cleared"}
 }
 
@@ -109,6 +115,7 @@ func (s *tuiState) applyBridgeError(err error) {
 }
 
 func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
+	transcriptLen := len(s.transcript)
 	s.diagnostics.LastEvent = event.Type
 	s.diagnostics.EventCount++
 	if event.Type != "" && event.Type != "assistant.delta" {
@@ -186,6 +193,20 @@ func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
 		s.busy = false
 		s.activity.Label = "Idle"
 	}
+	if len(s.transcript) > transcriptLen {
+		s.noteTranscriptAppended()
+	}
+}
+
+func (s *tuiState) noteTranscriptAppended() {
+	if s.viewport.StickyBottom || s.viewport.ScrollOffset == 0 {
+		s.viewport.ScrollOffset = 0
+		s.viewport.StickyBottom = true
+		s.viewport.NewMessages = 0
+		return
+	}
+	s.viewport.ScrollOffset++
+	s.viewport.NewMessages++
 }
 
 func appendBoundedEvent(events []string, event string, limit int) []string {
