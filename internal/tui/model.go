@@ -7,8 +7,6 @@ type Model struct {
 	tuiState
 }
 
-var slashCommands = []string{"/help", "/clear", "/model", "/session", "/compact", "/debug"}
-
 func NewModel(bridge Bridge, cfg ...ModelConfig) Model {
 	model := Model{
 		bridge:   bridge,

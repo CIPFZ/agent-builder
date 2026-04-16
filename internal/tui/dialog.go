@@ -1,6 +1,11 @@
 package tui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	"fmt"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 type dialogResult struct {
 	Selected bool
@@ -94,17 +99,22 @@ func (d *dialogState) syncPickerSelection() {
 }
 
 func (m *Model) openHelpDialog() {
+	items := make([]dialogItem, 0, len(localSlashCommandSpecs))
+	for _, command := range localSlashCommandSpecs {
+		description := command.Description
+		if command.ArgumentHint != "" {
+			description += " " + command.ArgumentHint
+		}
+		if len(command.Aliases) > 0 {
+			description += " (aliases: /" + strings.Join(command.Aliases, ", /") + ")"
+		}
+		items = append(items, dialogItem{Label: "/" + command.Name, Description: description})
+	}
 	m.dialog.open(dialogSpec{
-		Title:    "Commands",
-		Subtitle: "Available local TUI commands",
-		Items: []dialogItem{
-			{Label: "/help", Description: "Show this command reference"},
-			{Label: "/clear", Description: "Clear the visible conversation (pending)"},
-			{Label: "/model", Description: "Show model options"},
-			{Label: "/session", Description: "Show session details (pending)"},
-			{Label: "/compact", Description: "Request compaction (pending)"},
-			{Label: "/debug", Description: "Show diagnostics (pending)"},
-		},
+		Title:        "Commands",
+		Subtitle:     "Available local TUI commands",
+		VisibleCount: len(slashCommands),
+		Items:        items,
 	})
 }
 
@@ -120,12 +130,81 @@ func (m *Model) openModelDialog() {
 	})
 }
 
+func (m *Model) openSessionDialog() {
+	items := []dialogItem{
+		{Label: "Session ID", Description: valueOrUnset(m.diagnostics.SessionID), Disabled: true},
+		{Label: "Model", Description: valueOrUnset(m.diagnostics.LLMLabel), Disabled: true},
+		{Label: "Log path", Description: valueOrUnset(m.diagnostics.LogPath), Disabled: true},
+		{Label: "Events", Description: fmt.Sprintf("%d recorded", m.diagnostics.EventCount), Disabled: true},
+	}
+	if m.diagnostics.LastEvent != "" {
+		items = append(items, dialogItem{Label: "Last event", Description: m.diagnostics.LastEvent, Disabled: true})
+	}
+	m.dialog.open(dialogSpec{
+		Title:      "Session",
+		Subtitle:   "Current TUI session details",
+		Items:      items,
+		FooterHint: "Esc close",
+	})
+}
+
+func (m *Model) openDiagnosticsDialog() {
+	items := []dialogItem{
+		{Label: "Busy", Description: fmt.Sprintf("%t", m.busy), Disabled: true},
+		{Label: "Activity", Description: valueOrUnset(m.activity.Label), Disabled: true},
+		{Label: "Last event", Description: valueOrUnset(m.diagnostics.LastEvent), Disabled: true},
+		{Label: "Last error", Description: valueOrUnset(m.diagnostics.LastError), Disabled: true},
+		{Label: "Event count", Description: fmt.Sprintf("%d", m.diagnostics.EventCount), Disabled: true},
+		{Label: "Transcript entries", Description: fmt.Sprintf("%d", len(m.transcript)), Disabled: true},
+	}
+	m.dialog.open(dialogSpec{
+		Title:      "Diagnostics",
+		Subtitle:   "Runtime and TUI state snapshot",
+		Items:      items,
+		FooterHint: "Esc close",
+	})
+}
+
+func (m *Model) openCompactionDialog(customInstructions string) {
+	items := []dialogItem{
+		{Label: "Manual compaction", Description: "Runtime request path is not wired yet; showing status only", Disabled: true},
+	}
+	for _, event := range recentMatchingEvents(m.events, "compact.", 5) {
+		items = append(items, dialogItem{Label: event, Disabled: true})
+	}
+	if len(items) == 1 {
+		items = append(items, dialogItem{Label: "Recent compact events", Description: "none", Disabled: true})
+	}
+	subtitle := "Compaction status and recent compact events"
+	if customInstructions != "" {
+		subtitle += " - instructions: " + customInstructions
+	}
+	m.dialog.open(dialogSpec{
+		Title:      "Compaction",
+		Subtitle:   subtitle,
+		Items:      items,
+		FooterHint: "Esc close",
+	})
+}
+
 func (m *Model) handleLocalCommand(text string) bool {
-	switch text {
-	case "/help":
+	command, ok := parseLocalSlashCommand(text)
+	if !ok {
+		return false
+	}
+	switch command.Spec.Name {
+	case "help":
 		m.openHelpDialog()
-	case "/model":
+	case "clear":
+		m.clearVisibleConversation()
+	case "model":
 		m.openModelDialog()
+	case "session":
+		m.openSessionDialog()
+	case "compact":
+		m.openCompactionDialog(command.Args)
+	case "debug":
+		m.openDiagnosticsDialog()
 	default:
 		return false
 	}
@@ -134,4 +213,27 @@ func (m *Model) handleLocalCommand(text string) bool {
 	m.historyIndex = -1
 	m.clearSuggestions()
 	return true
+}
+
+func valueOrUnset(value string) string {
+	if value == "" {
+		return "(unset)"
+	}
+	return value
+}
+
+func recentMatchingEvents(events []string, prefix string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	matches := make([]string, 0, limit)
+	for i := len(events) - 1; i >= 0 && len(matches) < limit; i-- {
+		if len(events[i]) >= len(prefix) && events[i][:len(prefix)] == prefix {
+			matches = append(matches, events[i])
+		}
+	}
+	for i, j := 0, len(matches)-1; i < j; i, j = i+1, j-1 {
+		matches[i], matches[j] = matches[j], matches[i]
+	}
+	return matches
 }
