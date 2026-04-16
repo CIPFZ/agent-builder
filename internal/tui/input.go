@@ -62,6 +62,9 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if cmd, handled := m.handleExternalEditorKey(msg); handled {
 		return m, cmd
 	}
+	if m.handlePromptStashKey(msg) {
+		return m, nil
+	}
 	if m.viewport.TranscriptMode {
 		switch msg.Type {
 		case tea.KeyEsc, tea.KeyCtrlC:
@@ -85,12 +88,17 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.clearSuggestions()
 			return m, nil
 		}
+		displayText := strings.TrimSpace(m.input)
 		if m.handleLocalCommand(strings.TrimSpace(m.input)) {
 			return m, nil
 		}
+		shouldRestoreStash := m.promptStash.HasStash && !strings.HasPrefix(displayText, "/")
 		text, ok := m.submitUserInput()
 		if !ok {
 			return m, nil
+		}
+		if shouldRestoreStash {
+			m.restorePromptStash()
 		}
 		m.bridge.SendUserMessage(text)
 		return m, nil

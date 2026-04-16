@@ -26,6 +26,7 @@ type renderSnapshot struct {
 	Actions        messageActionsRenderState
 	ExpandedTools  map[string]bool
 	ExternalEditor bool
+	HasPromptStash bool
 	Approval       *approvalRenderState
 	Dialog         *dialogRenderState
 	Busy           bool
@@ -130,6 +131,7 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 		Actions:        newMessageActionsRenderState(m),
 		ExpandedTools:  expandedTools,
 		ExternalEditor: m.externalEditor.Active,
+		HasPromptStash: m.promptStash.HasStash,
 		Busy:           m.busy,
 		Activity:       m.activity.Label,
 		Diagnostics:    m.diagnostics,
@@ -520,12 +522,16 @@ func (r renderer) renderPrompt(snapshot renderSnapshot) string {
 	b.WriteString("> ")
 	b.WriteString(input)
 	b.WriteString("\n")
+	if snapshot.HasPromptStash {
+		b.WriteString("  > Stashed (auto-restores after submit; Ctrl+S restores now)")
+		b.WriteString("\n")
+	}
 	if snapshot.Dialog == nil && len(snapshot.Input.Suggestions) > 0 {
 		b.WriteString(r.renderSuggestions(snapshot))
 	}
 	b.WriteString(borderLine(width, '-'))
 	b.WriteString("\n")
-	help := "Enter to send  |  Ctrl+G edit  |  Up/Down history  |  / commands"
+	help := "Enter to send  |  Ctrl+S stash  |  Ctrl+G edit  |  Up/Down history  |  / commands"
 	if snapshot.Approval != nil {
 		help = "Enter select  |  Esc reject"
 	}
