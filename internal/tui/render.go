@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"myclaw/internal/model"
 )
 
 const (
@@ -165,18 +167,137 @@ func (r renderer) renderTranscript(snapshot renderSnapshot) string {
 		return b.String()
 	}
 	for _, entry := range snapshot.Transcript {
-		switch entry.Role {
-		case "user":
+		switch {
+		case entry.Kind != "":
+			r.renderSpecialBlock(&b, entry, width)
+		case entry.Role == "assistant" && len(entry.Blocks) > 0:
+			r.renderAssistantBlocks(&b, entry, width)
+		case entry.Role == "user":
 			r.renderRoleBlock(&b, "user", entry.Content, entry.Streaming, width)
-		case "assistant":
+		case entry.Role == "assistant":
 			r.renderRoleBlock(&b, "assistant", entry.Content, entry.Streaming, width)
-		case "tool":
+		case entry.Role == "tool":
 			r.renderToolBlock(&b, entry, width)
 		default:
 			r.renderRoleBlock(&b, entry.Role, entry.Content, entry.Streaming, width)
 		}
 	}
 	return b.String()
+}
+
+func (r renderer) renderSpecialBlock(b *strings.Builder, entry transcriptEntry, width int) {
+	switch entry.Kind {
+	case messageKindError:
+		r.renderLabeledBlock(b, "error", entry.Content, width)
+	case messageKindCompact:
+		content := entry.Content
+		if strings.TrimSpace(content) == "" {
+			content = "Conversation compacted"
+		}
+		r.renderLabeledBlock(b, "compact", content, width)
+	case messageKindLocalCommand:
+		b.WriteString("local command\n")
+		if entry.LocalStdout != "" {
+			r.renderIndentedBlock(b, "stdout", entry.LocalStdout, width)
+		}
+		if entry.LocalStderr != "" {
+			r.renderIndentedBlock(b, "stderr", entry.LocalStderr, width)
+		}
+	case messageKindSystem:
+		r.renderLabeledBlock(b, "system", entry.Content, width)
+	default:
+		r.renderRoleBlock(b, entry.Role, entry.Content, entry.Streaming, width)
+	}
+}
+
+func (r renderer) renderAssistantBlocks(b *strings.Builder, entry transcriptEntry, width int) {
+	b.WriteString("assistant\n")
+	for _, block := range entry.Blocks {
+		switch block.Type {
+		case model.MessageBlockThinking:
+			r.renderIndentedBlock(b, "thinking", block.Text, width)
+		case model.MessageBlockText:
+			r.renderIndentedBlock(b, "text", block.Text, width)
+		case model.MessageBlockToolUse:
+			name := block.Name
+			if name == "" {
+				name = "(unnamed tool)"
+			}
+			summary := messageBlockInputSummary(block)
+			if summary != "" {
+				name += ": " + summary
+			}
+			r.renderIndentedBlock(b, "tool use", name, width)
+		case model.MessageBlockToolResult:
+			label := "tool result"
+			if block.IsError {
+				label = "tool error"
+			}
+			r.renderIndentedBlock(b, label, block.Content, width)
+		default:
+			r.renderIndentedBlock(b, string(block.Type), messageBlockFallbackContent(block), width)
+		}
+	}
+}
+
+func (r renderer) renderLabeledBlock(b *strings.Builder, label, content string, width int) {
+	b.WriteString(label)
+	b.WriteString("\n")
+	r.renderIndentedBlock(b, "", content, width)
+}
+
+func (r renderer) renderIndentedBlock(b *strings.Builder, label, content string, width int) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		content = "(empty)"
+	}
+	prefix := "  "
+	if label != "" {
+		prefix += label + ": "
+	}
+	available := width - lipgloss.Width(prefix)
+	if available < 20 {
+		available = 20
+	}
+	lines := wrapCells(content, available)
+	for i, line := range lines {
+		if i == 0 {
+			b.WriteString(prefix)
+		} else {
+			b.WriteString(strings.Repeat(" ", lipgloss.Width(prefix)))
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+}
+
+func messageBlockInputSummary(block model.MessageBlock) string {
+	if len(block.InputObject) > 0 {
+		parts := make([]string, 0, len(block.InputObject))
+		for key, value := range block.InputObject {
+			parts = append(parts, fmt.Sprintf("%s=%v", key, value))
+		}
+		sort.Strings(parts)
+		return strings.Join(parts, ", ")
+	}
+	return block.Input
+}
+
+func messageBlockFallbackContent(block model.MessageBlock) string {
+	for _, value := range []string{block.Text, block.Content, block.Name, block.Input} {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	if len(block.Raw) == 0 {
+		return "(empty)"
+	}
+	parts := make([]string, 0, len(block.Raw))
+	for key, value := range block.Raw {
+		parts = append(parts, fmt.Sprintf("%s=%v", key, value))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ", ")
 }
 
 func (r renderer) renderApprovalDialog(snapshot renderSnapshot) string {
