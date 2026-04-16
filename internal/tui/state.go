@@ -125,21 +125,12 @@ func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
 			}
 		}
 	case "tool.called":
-		s.activity.Label = "Running tool: " + event.ToolName + " " + event.ToolInput
-		s.transcript = append(s.transcript, transcriptEntry{Role: "tool", ToolName: event.ToolName, ToolInput: event.ToolInput, ToolStatus: "called", Content: "Calling " + event.ToolName + "..."})
+		s.applyToolCalled(event)
+	case "tool.progress":
+		s.applyToolProgress(event.Progress)
 	case "tool.result":
 		s.activity.Label = "Tool finished: " + event.ToolName
-		for i := len(s.transcript) - 1; i >= 0; i-- {
-			if s.transcript[i].Role == "tool" && s.transcript[i].ToolStatus == "called" {
-				s.transcript[i].ToolStatus = "result"
-				if event.Message != nil {
-					s.transcript[i].Content = event.Message.Content
-				} else {
-					s.transcript[i].Content = "(no output)"
-				}
-				break
-			}
-		}
+		s.applyToolResult(event)
 	case "permission.required":
 		s.pendingApproval = event.Approval
 		s.dialog.close()

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -401,23 +402,80 @@ func (r renderer) renderRoleBlock(b *strings.Builder, role, content string, stre
 }
 
 func (r renderer) renderToolBlock(b *strings.Builder, entry transcriptEntry, width int) {
-	status := "called"
+	status := toolStatusRunning
 	if entry.ToolStatus != "" {
 		status = entry.ToolStatus
 	}
-	head := fmt.Sprintf("tool[%s] %s", status, entry.ToolName)
-	if entry.ToolInput != "" {
-		head += ": " + entry.ToolInput
+	head := fmt.Sprintf("tool[%s]", status)
+	if entry.ToolName != "" {
+		head += " " + entry.ToolName
+	}
+	if input := toolInputSummary(entry); input != "" {
+		head += ": " + input
 	}
 	b.WriteString(head)
 	b.WriteString("\n")
-	if entry.Content != "" && entry.Content != fmt.Sprintf("Calling %s...", entry.ToolName) {
-		for _, line := range wrapCells(entry.Content, width-2) {
+	if entry.ToolProgressMessage != "" && status == toolStatusRunning {
+		for _, line := range wrapCells(entry.ToolProgressMessage, width-2) {
 			b.WriteString("  ")
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
 	}
+	if entry.ToolProgressOutput != "" && status == toolStatusRunning {
+		for _, line := range tailNonEmptyLines(entry.ToolProgressOutput, 5) {
+			for _, wrapped := range wrapCells(line, width-2) {
+				b.WriteString("  ")
+				b.WriteString(wrapped)
+				b.WriteString("\n")
+			}
+		}
+	}
+	if entry.Content != "" && !isRunningPlaceholder(entry) {
+		label := entry.Content
+		if entry.ToolError {
+			label = "Error: " + label
+		}
+		for _, line := range wrapCells(label, width-2) {
+			b.WriteString("  ")
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+}
+
+func toolInputSummary(entry transcriptEntry) string {
+	if entry.ToolInput != "" {
+		return entry.ToolInput
+	}
+	if entry.ToolInputObject == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(entry.ToolInputObject))
+	for key, value := range entry.ToolInputObject {
+		parts = append(parts, fmt.Sprintf("%s=%v", key, value))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ", ")
+}
+
+func isRunningPlaceholder(entry transcriptEntry) bool {
+	return entry.Content == "Running "+entry.ToolName+"..." || entry.Content == "Calling "+entry.ToolName+"..."
+}
+
+func tailNonEmptyLines(text string, maxLines int) []string {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			filtered = append(filtered, line)
+		}
+	}
+	if maxLines > 0 && len(filtered) > maxLines {
+		return filtered[len(filtered)-maxLines:]
+	}
+	return filtered
 }
 
 func (snapshot renderSnapshot) activityLabel() string {

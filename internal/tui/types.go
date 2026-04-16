@@ -17,13 +17,25 @@ type BridgeErrMsg struct {
 }
 
 type transcriptEntry struct {
-	Role       string
-	Content    string
-	Streaming  bool
-	ToolName   string
-	ToolInput  string
-	ToolStatus string
+	Role                string
+	Content             string
+	Streaming           bool
+	ToolUseID           string
+	ToolName            string
+	ToolInput           string
+	ToolInputObject     map[string]any
+	ToolStatus          string
+	ToolError           bool
+	ToolProgressType    string
+	ToolProgressMessage string
+	ToolProgressOutput  string
 }
+
+const (
+	toolStatusRunning   = "running"
+	toolStatusSucceeded = "succeeded"
+	toolStatusFailed    = "failed"
+)
 
 type ModelConfig struct {
 	SessionID string

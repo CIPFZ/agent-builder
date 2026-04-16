@@ -161,7 +161,7 @@ func TestTUIStateRuntimeReducerHandlesAssistantAndToolLifecycle(t *testing.T) {
 	if state.transcript[0].Role != "assistant" || state.transcript[0].Content != "Hello world" || state.transcript[0].Streaming {
 		t.Fatalf("assistant entry = %#v, want finalized Hello world", state.transcript[0])
 	}
-	if state.transcript[1].Role != "tool" || state.transcript[1].ToolStatus != "result" || state.transcript[1].Content != "/repo" {
+	if state.transcript[1].Role != "tool" || state.transcript[1].ToolStatus != toolStatusSucceeded || state.transcript[1].Content != "/repo" {
 		t.Fatalf("tool entry = %#v, want result /repo", state.transcript[1])
 	}
 }
