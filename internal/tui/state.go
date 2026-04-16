@@ -21,6 +21,7 @@ type tuiState struct {
 	diagnostics         diagnosticsState
 	activity            activityState
 	viewport            viewportState
+	messageActions      messageActionsState
 	width               int
 	height              int
 }
@@ -79,6 +80,7 @@ func (s *tuiState) clearVisibleConversation() {
 	s.pendingApproval = nil
 	s.approvalDialog.close()
 	s.dialog.close()
+	s.messageActions.close()
 	s.viewport.Search = transcriptSearchState{}
 	s.scrollTranscriptBottom()
 	s.events = []string{"conversation cleared"}

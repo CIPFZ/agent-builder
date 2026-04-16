@@ -50,6 +50,9 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.handleMessageActionsKey(msg) {
+		return m, nil
+	}
 	if m.handleTranscriptSearchKey(msg) {
 		return m, nil
 	}
@@ -95,6 +98,12 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.openHistorySearchDialog()
+		return m, nil
+	case tea.KeyShiftUp:
+		if m.viewport.Search.Active {
+			return m, nil
+		}
+		m.enterMessageActions()
 		return m, nil
 	default:
 		if m.inputState.handleEditingKey(msg, m.width, slashCommands) {
