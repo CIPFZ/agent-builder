@@ -44,8 +44,11 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if result := m.dialog.handleKey(msg); result.Selected {
 			item := result.Item
 			m.lastDialogSelection = &item
-			if dialogKind == dialogKindHistorySearch {
+			switch dialogKind {
+			case dialogKindHistorySearch:
 				m.acceptHistorySearchItem(item)
+			case dialogKindSessionResume:
+				m.acceptSessionResumeItem(item)
 			}
 		}
 		return m, nil

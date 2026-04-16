@@ -17,6 +17,10 @@ type fakeBridge struct {
 	sendErr    error
 	approveErr error
 	rejectErr  error
+
+	sessionSnapshots []sessionSnapshot
+	resumeMessages   map[string][]session.Message
+	resumedSessionID string
 }
 
 func (f *fakeBridge) SendUserMessage(input string) error {
@@ -32,6 +36,19 @@ func (f *fakeBridge) Approve(id string) error {
 func (f *fakeBridge) Reject(id string) error {
 	f.rejected = append(f.rejected, id)
 	return f.rejectErr
+}
+
+func (f *fakeBridge) SessionSnapshots() []sessionSnapshot {
+	return append([]sessionSnapshot(nil), f.sessionSnapshots...)
+}
+
+func (f *fakeBridge) ResumeSession(id string) ([]session.Message, bool) {
+	f.resumedSessionID = id
+	if f.resumeMessages == nil {
+		return nil, false
+	}
+	messages, ok := f.resumeMessages[id]
+	return append([]session.Message(nil), messages...), ok
 }
 
 func TestModelViewShowsCoreSections(t *testing.T) {
