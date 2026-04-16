@@ -77,6 +77,15 @@ type viewportState struct {
 	TranscriptMode bool
 	ShowAllHistory bool
 	NewMessages    int
+	Search         transcriptSearchState
+}
+
+type transcriptSearchState struct {
+	Active        bool
+	Query         string
+	MatchCount    int
+	SelectedIndex int
+	MatchLines    []int
 }
 
 type inputState struct {

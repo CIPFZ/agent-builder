@@ -35,6 +35,9 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.handleTranscriptSearchKey(msg) {
+		return m, nil
+	}
 	if m.viewport.TranscriptMode {
 		switch msg.Type {
 		case tea.KeyEsc, tea.KeyCtrlC:
@@ -85,6 +88,8 @@ func (m *Model) handleViewportKey(msg tea.KeyMsg) bool {
 	switch msg.Type {
 	case tea.KeyCtrlO:
 		m.toggleTranscriptMode()
+	case tea.KeyCtrlF:
+		m.startTranscriptSearch()
 	case tea.KeyCtrlE:
 		m.toggleTranscriptHistory()
 	case tea.KeyPgUp:

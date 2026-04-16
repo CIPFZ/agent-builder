@@ -79,6 +79,7 @@ func (s *tuiState) clearVisibleConversation() {
 	s.pendingApproval = nil
 	s.approvalDialog.close()
 	s.dialog.close()
+	s.viewport.Search = transcriptSearchState{}
 	s.scrollTranscriptBottom()
 	s.events = []string{"conversation cleared"}
 }
