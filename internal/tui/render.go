@@ -23,6 +23,7 @@ type renderSnapshot struct {
 	Transcript  []transcriptEntry
 	Input       inputRenderState
 	Viewport    viewportRenderState
+	Actions     messageActionsRenderState
 	Approval    *approvalRenderState
 	Dialog      *dialogRenderState
 	Busy        bool
@@ -50,6 +51,17 @@ type transcriptSearchRenderState struct {
 	Query         string
 	MatchCount    int
 	SelectedIndex int
+}
+
+type messageActionsRenderState struct {
+	Active        bool
+	SelectedIndex int
+	Actions       []messageActionRenderItem
+}
+
+type messageActionRenderItem struct {
+	Key   string
+	Label string
 }
 
 type approvalRenderState struct {
@@ -109,6 +121,7 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 				SelectedIndex: m.viewport.Search.SelectedIndex,
 			},
 		},
+		Actions:     newMessageActionsRenderState(m),
 		Busy:        m.busy,
 		Activity:    m.activity.Label,
 		Diagnostics: m.diagnostics,
@@ -157,6 +170,9 @@ func (r renderer) renderScreen(snapshot renderSnapshot) string {
 	}
 	if snapshot.Dialog != nil {
 		b.WriteString(r.renderDialog(snapshot))
+	}
+	if snapshot.Actions.Active {
+		b.WriteString(r.renderMessageActionsBar(snapshot))
 	}
 	return b.String()
 }
@@ -237,7 +253,10 @@ func (r renderer) renderTranscript(snapshot renderSnapshot) string {
 func (r renderer) renderTranscriptLines(snapshot renderSnapshot) []string {
 	width := snapshot.Width
 	var b strings.Builder
-	for _, entry := range snapshot.Transcript {
+	for i, entry := range snapshot.Transcript {
+		if snapshot.Actions.Active && i == snapshot.Actions.SelectedIndex {
+			b.WriteString("> ")
+		}
 		switch {
 		case entry.Kind != "":
 			r.renderSpecialBlock(&b, entry, width)
@@ -258,6 +277,28 @@ func (r renderer) renderTranscriptLines(snapshot renderSnapshot) []string {
 		return nil
 	}
 	return strings.Split(output, "\n")
+}
+
+func newMessageActionsRenderState(m Model) messageActionsRenderState {
+	state := messageActionsRenderState{
+		Active:        m.messageActions.Active,
+		SelectedIndex: m.messageActions.SelectedIndex,
+	}
+	if !state.Active {
+		return state
+	}
+	entry, ok := m.selectedMessageActionEntry()
+	if !ok {
+		return state
+	}
+	if entry.Role == "user" && entry.Kind == "" {
+		state.Actions = append(state.Actions, messageActionRenderItem{Key: "enter", Label: "edit"})
+	}
+	state.Actions = append(state.Actions, messageActionRenderItem{Key: "c", Label: "copy"})
+	if label, _, ok := primaryToolInputOf(entry); ok {
+		state.Actions = append(state.Actions, messageActionRenderItem{Key: "p", Label: "copy " + label})
+	}
+	return state
 }
 
 func (r renderer) renderSpecialBlock(b *strings.Builder, entry transcriptEntry, width int) {
@@ -468,8 +509,29 @@ func (r renderer) renderPrompt(snapshot renderSnapshot) string {
 	if snapshot.Dialog != nil {
 		help = "Enter select  |  Esc close"
 	}
+	if snapshot.Actions.Active {
+		help = "Message actions active"
+	}
 	b.WriteString(rightAlign(help, width))
 	b.WriteString("\n")
+	return b.String()
+}
+
+func (r renderer) renderMessageActionsBar(snapshot renderSnapshot) string {
+	width := snapshot.Width
+	var b strings.Builder
+	b.WriteString(borderLine(width, '='))
+	b.WriteString("\n")
+	parts := make([]string, 0, len(snapshot.Actions.Actions)+2)
+	for _, action := range snapshot.Actions.Actions {
+		parts = append(parts, action.Key+" "+action.Label)
+	}
+	parts = append(parts, "Up/Down navigate", "esc back")
+	line := "Message actions: " + strings.Join(parts, "  |  ")
+	for _, wrapped := range wrapCells(line, width) {
+		b.WriteString(wrapped)
+		b.WriteString("\n")
+	}
 	return b.String()
 }
 

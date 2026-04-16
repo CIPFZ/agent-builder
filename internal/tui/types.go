@@ -80,6 +80,13 @@ type viewportState struct {
 	Search         transcriptSearchState
 }
 
+type messageActionsState struct {
+	Active          bool
+	SelectedIndex   int
+	LastCopiedText  string
+	LastCopiedLabel string
+}
+
 type transcriptSearchState struct {
 	Active        bool
 	Query         string
