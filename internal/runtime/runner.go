@@ -155,6 +155,9 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 	if options.MemoryService == nil {
 		options.MemoryService = memory.NewService()
 	}
+	if options.MCPOAuthStore == nil {
+		options.MCPOAuthStore = tools.NewMCPOAuthMemoryStore()
+	}
 	if options.ApprovalManager == nil {
 		options.ApprovalManager = approval.NewManager()
 	}
@@ -172,7 +175,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		})
 	}
 	if len(options.MCPClients) > 0 {
-		discovered, err := tools.DiscoverMCPClientTools(context.Background(), options.MCPClients)
+		discovered, err := tools.DiscoverMCPClientToolsWithOAuth(context.Background(), options.MCPClients, options.MCPOAuthStore)
 		if err == nil {
 			if len(discovered.Tools) > 0 {
 				if options.MCPTools == nil {

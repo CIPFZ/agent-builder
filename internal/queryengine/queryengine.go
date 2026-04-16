@@ -520,7 +520,10 @@ func New(cfg Config) *QueryEngine {
 		systemContextProvider = defaultSystemContextProvider(cfg.SystemPromptInjection, cfg.DisableGitStatus)
 	}
 	if len(cfg.MCPClients) > 0 {
-		discovered, err := tools.DiscoverMCPClientTools(context.Background(), cfg.MCPClients)
+		if cfg.MCPOAuthStore == nil {
+			cfg.MCPOAuthStore = tools.NewMCPOAuthMemoryStore()
+		}
+		discovered, err := tools.DiscoverMCPClientToolsWithOAuth(context.Background(), cfg.MCPClients, cfg.MCPOAuthStore)
 		if err == nil {
 			if len(discovered.Tools) > 0 {
 				if cfg.MCPTools == nil {
@@ -574,6 +577,9 @@ func New(cfg Config) *QueryEngine {
 		}
 	}
 	registerConfiguredMCPTools(toolRegistry, cfg.MCPTools, cfg.MCPToolCaller, cfg.MCPContextualToolCaller)
+	if cfg.MCPOAuthStore == nil {
+		cfg.MCPOAuthStore = tools.NewMCPOAuthMemoryStore()
+	}
 
 	engine := &QueryEngine{
 		sessions:                  sessionsMgr,

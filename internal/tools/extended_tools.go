@@ -824,8 +824,12 @@ func (t mcpAuthTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseConte
 	challenge := cloneStringMap(t.challenge)
 	authStarted := false
 	var completion <-chan MCPAuthCompletionResult
-	if toolCtx.MCPAuthenticator != nil {
-		started, err := toolCtx.MCPAuthenticator(ctx, t.serverName, connection)
+	authenticator := toolCtx.MCPAuthenticator
+	if authenticator == nil && toolCtx.MCPOAuthStore != nil {
+		authenticator = NewDefaultMCPOAuthAuthenticator(toolCtx.MCPOAuthStore)
+	}
+	if authenticator != nil {
+		started, err := authenticator(ctx, t.serverName, connection)
 		if err != nil {
 			return ToolResult{}, err
 		}

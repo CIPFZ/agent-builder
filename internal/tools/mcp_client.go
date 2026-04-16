@@ -43,6 +43,7 @@ type mcpRuntime struct {
 	client      *http.Client
 	sessions    map[string]mcpTransportSession
 	connections map[string]MCPConnection
+	oauthStore  MCPOAuthStore
 }
 
 type mcpTransportSession struct {
@@ -62,9 +63,14 @@ type mcpDiscoveryLists struct {
 }
 
 func DiscoverMCPClientTools(ctx context.Context, connections []MCPConnection) (MCPDiscoveryResult, error) {
+	return DiscoverMCPClientToolsWithOAuth(ctx, connections, nil)
+}
+
+func DiscoverMCPClientToolsWithOAuth(ctx context.Context, connections []MCPConnection, oauthStore MCPOAuthStore) (MCPDiscoveryResult, error) {
 	runtime := &mcpRuntime{
-		client:   &http.Client{Timeout: 30 * time.Second},
-		sessions: make(map[string]mcpTransportSession),
+		client:     &http.Client{Timeout: 30 * time.Second},
+		sessions:   make(map[string]mcpTransportSession),
+		oauthStore: oauthStore,
 	}
 	runtime.connections = make(map[string]MCPConnection)
 	discoveredTools := make(map[string]MCPToolsListResult)
@@ -663,6 +669,38 @@ func (r *mcpRuntime) listResourcesForServerOnce(ctx context.Context, server stri
 	return out, nil
 }
 
+func (r *mcpRuntime) oauthAuthorizationHeader(ctx context.Context, connection MCPConnection) string {
+	if r == nil || r.oauthStore == nil {
+		return ""
+	}
+	serverName := strings.TrimSpace(connection.Name)
+	entry, ok := r.oauthStore.Entry(serverName, connection)
+	if !ok {
+		return ""
+	}
+	tokens := entry.Tokens
+	if !tokens.ExpiresAt.IsZero() && !tokens.ExpiresAt.After(time.Now()) && strings.TrimSpace(tokens.RefreshToken) != "" {
+		refreshed, err := (mcpOAuthFlow{
+			store: r.oauthStore,
+			opts: MCPOAuthFlowOptions{
+				HTTPClient: r.client,
+				Now:        time.Now,
+			},
+		}).refreshTokens(ctx, serverName, connection, entry)
+		if err == nil {
+			tokens = refreshed
+		}
+	}
+	if strings.TrimSpace(tokens.AccessToken) == "" {
+		return ""
+	}
+	tokenType := strings.TrimSpace(tokens.TokenType)
+	if tokenType == "" {
+		tokenType = "Bearer"
+	}
+	return tokenType + " " + strings.TrimSpace(tokens.AccessToken)
+}
+
 func normalizeMCPResourceContent(item map[string]any) (MCPResourceReadContent, error) {
 	content := MCPResourceReadContent{
 		URI:      strings.TrimSpace(stringField(item, "uri")),
@@ -763,6 +801,11 @@ func (t *mcpHTTPTransport) rpc(ctx context.Context, method string, params map[st
 			req.Header.Set(key, value)
 		}
 	}
+	if t.runtime.oauthStore != nil && req.Header.Get("Authorization") == "" {
+		if authorization := t.runtime.oauthAuthorizationHeader(ctx, t.connection); authorization != "" {
+			req.Header.Set("Authorization", authorization)
+		}
+	}
 	resp, err := t.runtime.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -772,6 +815,15 @@ func (t *mcpHTTPTransport) rpc(ctx context.Context, method string, params map[st
 		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			challenge := extractMCPAuthChallenge(resp, body)
+			if t.runtime.oauthStore != nil {
+				provider := NewMCPOAuthProvider(t.runtime.oauthStore, t.connection.Name, t.connection)
+				if scope := strings.TrimSpace(challenge["scope"]); scope != "" {
+					_ = provider.SaveStepUpScope(scope)
+				}
+				if resourceMetadataURL := strings.TrimSpace(challenge["resource_metadata"]); resourceMetadataURL != "" {
+					_ = provider.SaveDiscoveryState(MCPOAuthDiscoveryState{ResourceMetadataURL: resourceMetadataURL})
+				}
+			}
 			return nil, &mcpAuthRequiredError{
 				serverName: t.connection.Name,
 				method:     method,

@@ -193,6 +193,13 @@ func TestNewRunnerWithOptionsEnablesDefaultCompaction(t *testing.T) {
 	}
 }
 
+func TestNewRunnerWithOptionsCreatesDefaultMCPOAuthStore(t *testing.T) {
+	runner := NewRunnerWithOptions(session.NewManager(nil), llm.NewMockClient(), workspace.NewLoader(""), nil, Options{})
+	if runner.options.MCPOAuthStore == nil {
+		t.Fatal("MCPOAuthStore is nil, want default store for MCP OAuth lifecycle")
+	}
+}
+
 func TestRunnerHandleUserMessageDenyRuleOverridesGlobalAllow(t *testing.T) {
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")
