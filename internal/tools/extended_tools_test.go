@@ -705,6 +705,27 @@ func TestMCPAuthToolReconnectsAfterOAuthCompletionAndRefreshesAppState(t *testin
 	if len(clients) != 1 || clients[0].Name != "filesystem" || clients[0].Type != "connected" {
 		t.Fatalf("clients = %#v, want reconnected client swapped into app state", clients)
 	}
+	commands, ok := mcpState["commands"].([]tools.Command)
+	if !ok {
+		t.Fatalf("mcp state = %#v, want commands catalog", mcpState)
+	}
+	if len(commands) != 2 {
+		t.Fatalf("commands = %#v, want refreshed filesystem prompt plus preserved other command", commands)
+	}
+	byName := map[string]tools.Command{}
+	for _, command := range commands {
+		byName[command.Name] = command
+	}
+	if _, ok := byName["other:cmd"]; !ok {
+		t.Fatalf("commands = %#v, want preserved other command", commands)
+	}
+	prompt, ok := byName["mcp__filesystem__review"]
+	if !ok {
+		t.Fatalf("commands = %#v, want refreshed filesystem prompt", commands)
+	}
+	if prompt.Type != "prompt" || prompt.Source != "mcp" || prompt.LoadedFrom != "" {
+		t.Fatalf("command = %#v, want MCP prompt metadata without skill loadedFrom", prompt)
+	}
 }
 
 func TestMCPAuthToolImmediateCompletionRefreshesAppState(t *testing.T) {
@@ -786,13 +807,12 @@ func TestListMcpResourcesUsesLiveListerAndReturnsClaudeArray(t *testing.T) {
 	}
 }
 
-func TestSkillToolLoadsSkillPathAndRecordsInvocation(t *testing.T) {
+func TestSkillToolRejectsHiddenPathInput(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/SKILL.md"
 	if err := os.WriteFile(path, []byte("---\nname: demo\n---\nUse demo skill."), 0o644); err != nil {
 		t.Fatalf("write skill: %v", err)
 	}
-	appState := map[string]any{}
 	tool := tools.NewSkillTool()
 	properties := tool.Definition().InputSchema["properties"].(map[string]any)
 	if properties["skill"] == nil || properties["args"] == nil {
@@ -802,32 +822,17 @@ func TestSkillToolLoadsSkillPathAndRecordsInvocation(t *testing.T) {
 		t.Fatalf("schema = %#v, should not expose Go-only name/path fields", tool.Definition().InputSchema)
 	}
 
-	result, err := tool.InvokeWithContext(context.Background(), tools.ToolUseContext{
+	_, err := tool.InvokeWithContext(context.Background(), tools.ToolUseContext{
 		Session:  session.Session{},
 		AgentID:  "agent-1",
 		ToolName: "Skill",
 		Input:    `{"skill":"demo","path":"` + strings.ReplaceAll(path, `\`, `\\`) + `"}`,
-		AppState: appState,
-		SetAppState: func(update func(map[string]any) map[string]any) {
-			appState = update(appState)
-		},
 	})
-	if err != nil {
-		t.Fatalf("invoke skill: %v", err)
+	if err == nil {
+		t.Fatal("expected hidden path input to be rejected")
 	}
-	if strings.Contains(result.Output, "Use demo skill.") {
-		t.Fatalf("output = %q, should not include expanded skill content", result.Output)
-	}
-	if len(result.NewMessages) != 1 || !strings.Contains(result.NewMessages[0].Content, "Use demo skill.") {
-		t.Fatalf("new messages = %#v, want skill file contents injected as meta message", result.NewMessages)
-	}
-	invoked, _ := appState["invokedSkills"].([]any)
-	if len(invoked) != 1 {
-		t.Fatalf("appState = %#v, want one invoked skill recorded", appState)
-	}
-	record := invoked[0].(map[string]any)
-	if record["skillName"] != "demo" || record["skillPath"] != path || record["content"] == "" || record["agentId"] != "agent-1" || record["invokedAt"] == "" {
-		t.Fatalf("invoked skill = %#v, want Claude-style state metadata", record)
+	if !strings.Contains(err.Error(), "does not accept path") {
+		t.Fatalf("error = %v, want path rejection", err)
 	}
 }
 
@@ -1260,6 +1265,59 @@ func TestBuildSkillListingAttachmentFormatsNewSkillsWithinBudget(t *testing.T) {
 	}
 }
 
+func TestFilterSkillListingCommandsMatchesClaudeSkillToolRules(t *testing.T) {
+	filtered := tools.FilterSkillListingCommands([]tools.SkillCommand{
+		{
+			Name:        "bundled-review",
+			Description: "Bundled review skill",
+			LoadedFrom:  "bundled",
+			Source:      "bundled",
+		},
+		{
+			Name:                   "bundled-secret",
+			Description:            "Hidden from model",
+			LoadedFrom:             "bundled",
+			Source:                 "bundled",
+			DisableModelInvocation: true,
+		},
+		{
+			Name:        "plugin-with-when",
+			Description: "",
+			WhenToUse:   "Use when plugin workflow is needed.",
+			LoadedFrom:  "plugin",
+			Source:      "plugin",
+		},
+		{
+			Name:        "mcp-no-metadata",
+			LoadedFrom:  "mcp",
+			Source:      "mcp",
+		},
+		{
+			Name:                        "mcp-with-description",
+			Description:                 "Review docs through MCP",
+			HasUserSpecifiedDescription: true,
+			LoadedFrom:                  "mcp",
+			Source:                      "mcp",
+		},
+		{
+			Name:        "mcp__docs__summarize",
+			Description: "Prompt exposed by MCP",
+			LoadedFrom:  "mcp",
+			Source:      "mcp",
+			MCPPrompt:   true,
+		},
+	})
+
+	var names []string
+	for _, command := range filtered {
+		names = append(names, command.Name)
+	}
+	want := []string{"bundled-review", "plugin-with-when", "mcp-with-description"}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("filtered names = %#v, want %#v", names, want)
+	}
+}
+
 func TestFormatSkillListingFallsBackToNamesOnlyWhenBudgetIsTiny(t *testing.T) {
 	skills := []tools.SkillCommand{
 		{Name: "alpha", Description: strings.Repeat("a", 200)},
@@ -1446,6 +1504,30 @@ func TestSkillToolResolvesResourceBackedMCPSkillFromAppState(t *testing.T) {
 	}
 	if parsed["commandName"] != "filesystem:review" || parsed["status"] != "inline" {
 		t.Fatalf("output = %#v, want inline MCP skill metadata", parsed)
+	}
+}
+
+func TestSkillToolRejectsPlainMCPPromptNamesFromAppState(t *testing.T) {
+	tool := tools.NewSkillTool()
+	appState := map[string]any{
+		"mcpPrompts": map[string]tools.MCPPromptsListResult{
+			"filesystem": {Prompts: []tools.MCPPromptListItem{{
+				Name:        "review",
+				Description: "Review a target",
+				Arguments:   []tools.MCPPromptArgument{{Name: "target"}},
+			}}},
+		},
+	}
+
+	_, err := tool.InvokeWithContext(context.Background(), tools.ToolUseContext{
+		Input:    `{"skill":"mcp__filesystem__review","args":"README.md"}`,
+		AppState: appState,
+	})
+	if err == nil {
+		t.Fatal("expected plain MCP prompt names to be rejected by Skill tool")
+	}
+	if !strings.Contains(err.Error(), "not available") {
+		t.Fatalf("error = %v, want skill not available rejection", err)
 	}
 }
 

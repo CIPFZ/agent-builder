@@ -2425,14 +2425,8 @@ func (q *QueryEngine) skillListingCommands() []tools.SkillCommand {
 	base = append(base, bundled...)
 	base = append(base, builtinPlugin...)
 	base = append(base, local...)
-	if q.disableMCPPromptSkills {
-		mcpSkills := tools.MCPSkillCommands(q.mcpSkills)
-		if len(mcpSkills) == 0 {
-			return dedupeSkillCommands(base)
-		}
-		return dedupeSkillCommands(append(base, mcpSkills...))
-	}
-	mcp := append(tools.MCPPromptSkillCommands(q.mcpPrompts), tools.MCPSkillCommands(q.mcpSkills)...)
+	base = tools.FilterSkillListingCommands(base)
+	mcp := tools.FilterSkillListingCommands(tools.MCPSkillCommands(q.mcpSkills))
 	if len(base) == 0 {
 		return dedupeSkillCommands(mcp)
 	}

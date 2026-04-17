@@ -1109,6 +1109,12 @@ func TestMCPToolReconnectsAndRefreshesAppStateAfterListChangedNotification(t *te
 	if len(commandsValue) != 2 || commandsValue[0].Name != "mcp__stdio_server__new_prompt" || commandsValue[1].Name != "stdio_server:after-skill" {
 		t.Fatalf("refreshed commands = %#v, want new_prompt plus refreshed MCP skill after list_changed", commandsValue)
 	}
+	if commandsValue[0].LoadedFrom != "" || commandsValue[0].Source != "mcp" {
+		t.Fatalf("prompt command = %#v, want MCP prompt metadata without skill loadedFrom", commandsValue[0])
+	}
+	if commandsValue[1].LoadedFrom != "mcp" || commandsValue[1].Source != "mcp" || !commandsValue[1].HasUserSpecifiedDescription {
+		t.Fatalf("skill command = %#v, want refreshed MCP skill metadata preserved in command catalog", commandsValue[1])
+	}
 	resourcesValue, _ := mcpState["resources"].(map[string][]tools.MCPResource)
 	if len(resourcesValue["stdio-server"]) != 2 || resourcesValue["stdio-server"][0].URI != "file:///after.txt" {
 		t.Fatalf("refreshed resources = %#v, want after.txt after list_changed", resourcesValue)

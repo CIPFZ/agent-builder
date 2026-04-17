@@ -531,89 +531,6 @@ func TestQueryEngineMCPStdioHelperProcess(t *testing.T) {
 	}
 }
 
-func TestQueryEngineDiscoversMCPClientPromptsAsSkillsAndInvokesServer(t *testing.T) {
-	var gotPromptArgs map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-		method, _ := request["method"].(string)
-		response := map[string]any{"jsonrpc": "2.0", "id": request["id"]}
-		switch method {
-		case "initialize":
-			response["result"] = map[string]any{
-				"protocolVersion": "2024-11-05",
-				"capabilities": map[string]any{
-					"prompts": map[string]any{},
-					"tools":   map[string]any{},
-				},
-			}
-		case "notifications/initialized":
-			w.WriteHeader(http.StatusAccepted)
-			return
-		case "tools/list":
-			response["result"] = map[string]any{"tools": []any{}}
-		case "prompts/list":
-			response["result"] = map[string]any{"prompts": []any{map[string]any{
-				"name":        "review",
-				"description": "Review a target",
-				"arguments": []any{map[string]any{
-					"name":        "target",
-					"description": "Target to review",
-					"required":    true,
-				}},
-			}}}
-		case "prompts/get":
-			params, _ := request["params"].(map[string]any)
-			gotPromptArgs, _ = params["arguments"].(map[string]any)
-			response["result"] = map[string]any{"messages": []any{map[string]any{
-				"role": "user",
-				"content": map[string]any{
-					"type": "text",
-					"text": "MCP prompt body for " + gotPromptArgs["target"].(string),
-				},
-			}}}
-		default:
-			t.Fatalf("unexpected MCP method %q", method)
-		}
-		_ = json.NewEncoder(w).Encode(response)
-	}))
-	defer server.Close()
-
-	sessions := session.NewManager(nil)
-	sess := sessions.GetOrCreateMain("main")
-	msg, err := sessions.AppendMessage(sess.ID, "user", "invoke mcp skill")
-	if err != nil {
-		t.Fatalf("append user message: %v", err)
-	}
-	client := &lifecycleScriptedClient{scripts: [][]llm.StreamEvent{{
-		{Type: "tool.call", ToolName: "Skill", ToolInput: `{"skill":"mcp__filesystem__review","args":"README.md"}`, ToolUseID: "toolu-skill"},
-		{Type: "message.end"},
-	}, {
-		{Type: "text.delta", Delta: "done"},
-		{Type: "message.end"},
-	}}}
-	engine := queryengine.New(queryengine.Config{
-		Sessions:         sessions,
-		Client:           client,
-		WorkspaceLoader:  workspace.NewLoader(""),
-		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
-		MCPClients: []tools.MCPConnection{{
-			Name:    "filesystem",
-			Type:    "http",
-			BaseURL: server.URL,
-		}},
-	})
-	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
-		t.Fatalf("submit message: %v", err)
-	}
-	if gotPromptArgs["target"] != "README.md" {
-		t.Fatalf("prompt args = %#v, want target from skill args", gotPromptArgs)
-	}
-	assertSkillMessageContains(t, sessions, sess.ID, "MCP prompt body for README.md")
-}
-
 func TestQueryEngineDiscoversResourceBackedMCPSkillsAndInvokesSkillTool(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any
@@ -894,7 +811,7 @@ func TestQueryEngineInjectsSkillListingOnceAndThenOnlyNewSkills(t *testing.T) {
 	assertSkillListingPayloads(t, engine.Messages(sess.ID), []string{"alpha", "beta"})
 }
 
-func TestQueryEngineSkillListingIncludesMCPPromptSkills(t *testing.T) {
+func TestQueryEngineSkillListingOmitsMCPPromptSkillsByDefault(t *testing.T) {
 	tools.ClearDynamicSkills()
 	t.Cleanup(tools.ClearDynamicSkills)
 
@@ -925,7 +842,7 @@ func TestQueryEngineSkillListingIncludesMCPPromptSkills(t *testing.T) {
 	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	assertSkillListingPayloads(t, engine.Messages(sess.ID), []string{"mcp__docs__summarize"})
+	assertNoSkillListing(t, engine.Messages(sess.ID))
 }
 
 func TestQueryEngineSkillListingOmitsMCPPromptSkillsWhenDisabled(t *testing.T) {
@@ -959,6 +876,72 @@ func TestQueryEngineSkillListingOmitsMCPPromptSkillsWhenDisabled(t *testing.T) {
 	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
+	assertNoSkillListing(t, engine.Messages(sess.ID))
+}
+
+func TestQueryEngineSkillListingOmitsMcpSkillsWithoutDescriptionOrWhenToUse(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	client := &lifecycleScriptedClient{scripts: [][]llm.StreamEvent{{
+		{Type: "text.delta", Delta: "listed"},
+		{Type: "message.end"},
+	}}}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           client,
+		WorkspaceLoader:  workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		ToolRegistry:     tools.NewRegistry(tools.NewSkillTool()),
+		MCPSkills: map[string][]tools.SkillCommand{
+			"docs": {{
+				Name:       "docs:review",
+				LoadedFrom: "mcp",
+				Source:     "mcp",
+			}},
+		},
+	})
+	msg, err := sessions.AppendMessage(sess.ID, "user", "what skills are available")
+	if err != nil {
+		t.Fatalf("append user: %v", err)
+	}
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
+	assertNoSkillListing(t, engine.Messages(sess.ID))
+}
+
+func TestQueryEngineSkillListingOmitsDisableModelInvocationSkills(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	client := &lifecycleScriptedClient{scripts: [][]llm.StreamEvent{{
+		{Type: "text.delta", Delta: "listed"},
+		{Type: "message.end"},
+	}}}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           client,
+		WorkspaceLoader:  workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		ToolRegistry:     tools.NewRegistry(tools.NewSkillTool()),
+		MCPSkills: map[string][]tools.SkillCommand{
+			"docs": {{
+				Name:                   "docs:secret-review",
+				Description:            "Secret review skill",
+				LoadedFrom:             "mcp",
+				Source:                 "mcp",
+				DisableModelInvocation: true,
+			}},
+		},
+	})
+	msg, err := sessions.AppendMessage(sess.ID, "user", "what skills are available")
+	if err != nil {
+		t.Fatalf("append user: %v", err)
+	}
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+
 	assertNoSkillListing(t, engine.Messages(sess.ID))
 }
 

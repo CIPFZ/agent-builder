@@ -191,6 +191,38 @@ func BuildDynamicSkillAttachmentMessage(messageID, sessionID string, dir Dynamic
 	}
 }
 
+func FilterSkillListingCommands(skills []SkillCommand) []SkillCommand {
+	if len(skills) == 0 {
+		return nil
+	}
+	out := make([]SkillCommand, 0, len(skills))
+	for _, skill := range skills {
+		if !isClaudeSkillListingCommand(skill) {
+			continue
+		}
+		out = append(out, skill)
+	}
+	return out
+}
+
+func isClaudeSkillListingCommand(skill SkillCommand) bool {
+	if strings.TrimSpace(skill.Name) == "" {
+		return false
+	}
+	if skill.DisableModelInvocation {
+		return false
+	}
+	if skill.LoadedFrom == "mcp" && skill.MCPPrompt {
+		return false
+	}
+	switch skill.LoadedFrom {
+	case "bundled", "skills", "commands_DEPRECATED":
+		return true
+	default:
+		return skill.HasUserSpecifiedDescription || strings.TrimSpace(skill.WhenToUse) != ""
+	}
+}
+
 func FormatSkillListingWithinBudget(skills []SkillCommand, contextWindowTokens int) string {
 	if len(skills) == 0 {
 		return ""

@@ -170,8 +170,16 @@ type ToolProgress struct {
 type ProgressFunc func(ToolProgress)
 
 type Command struct {
-	Name        string
-	Description string
+	Type                        string
+	Name                        string
+	Description                 string
+	Source                      string
+	LoadedFrom                  string
+	HasUserSpecifiedDescription bool
+	WhenToUse                   string
+	DisableModelInvocation      bool
+	UserInvocable               bool
+	IsHidden                    bool
 }
 
 type AgentDefinitions struct {

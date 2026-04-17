@@ -1152,22 +1152,40 @@ func replaceMCPAppStateCommands(value any, server string, result MCPPromptsListR
 				appendIfOtherServer(command)
 			case map[string]any:
 				appendIfOtherServer(Command{
-					Name:        stringField(command, "name"),
-					Description: stringField(command, "description"),
+					Type:                        stringField(command, "type"),
+					Name:                        stringField(command, "name"),
+					Description:                 stringField(command, "description"),
+					Source:                      stringField(command, "source"),
+					LoadedFrom:                  stringField(command, "loadedFrom"),
+					HasUserSpecifiedDescription: parseBooleanFrontmatterAny(command["hasUserSpecifiedDescription"]),
+					WhenToUse:                   stringField(command, "whenToUse"),
+					DisableModelInvocation:      parseBooleanFrontmatterAny(command["disableModelInvocation"]),
+					UserInvocable:               parseBooleanFrontmatterAny(command["userInvocable"]),
+					IsHidden:                    parseBooleanFrontmatterAny(command["isHidden"]),
 				})
 			}
 		}
 	}
 	for _, prompt := range result.Prompts {
 		out = append(out, Command{
+			Type:        "prompt",
 			Name:        BuildMCPToolName(server, prompt.Name),
 			Description: strings.TrimSpace(prompt.Description),
+			Source:      "mcp",
 		})
 	}
 	for _, skill := range skills {
 		out = append(out, Command{
-			Name:        skill.Name,
-			Description: strings.TrimSpace(skill.Description),
+			Type:                        "prompt",
+			Name:                        skill.Name,
+			Description:                 strings.TrimSpace(skill.Description),
+			Source:                      skill.Source,
+			LoadedFrom:                  skill.LoadedFrom,
+			HasUserSpecifiedDescription: skill.HasUserSpecifiedDescription,
+			WhenToUse:                   skill.WhenToUse,
+			DisableModelInvocation:      skill.DisableModelInvocation,
+			UserInvocable:               skill.UserInvocable,
+			IsHidden:                    !skill.UserInvocable,
 		})
 	}
 	return out
@@ -1624,6 +1642,9 @@ func ensureBundledSkillFiles(command skillCommand) error {
 
 func resolveSkillCommand(object map[string]any, appState map[string]any) (skillCommand, error) {
 	path := stringField(object, "path")
+	if path != "" {
+		return skillCommand{}, fmt.Errorf("Skill does not accept path")
+	}
 	name := stringField(object, "skill")
 	if name == "" {
 		name = stringField(object, "name")
@@ -1649,9 +1670,6 @@ func resolveSkillCommand(object map[string]any, appState map[string]any) (skillC
 		return command, nil
 	}
 	if command, ok := resolveMCPSkill(name, appState); ok {
-		return command, nil
-	}
-	if command, ok := resolveMCPPromptSkill(name, appState); ok {
 		return command, nil
 	}
 	if path == "" {
