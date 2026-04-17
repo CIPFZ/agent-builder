@@ -166,7 +166,11 @@ func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
 				s.busy = false
 			}
 			if event.Message.Role == "tool" {
-				s.transcript = append(s.transcript, transcriptEntry{Role: "tool", Content: event.Message.Content})
+				if entry, ok := transcriptEntryFromSessionMessage(*event.Message); ok {
+					s.transcript = append(s.transcript, entry)
+				} else {
+					s.transcript = append(s.transcript, transcriptEntry{Role: "tool", Content: event.Message.Content})
+				}
 			}
 			if event.Message.Role == "system" {
 				s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindSystem, Role: "system", Content: event.Message.Content})

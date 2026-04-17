@@ -41,6 +41,72 @@ func TestRendererRendersStructuredAssistantMessageBlocks(t *testing.T) {
 	}
 }
 
+func TestRendererRendersRichUserMessageBlocksIncludingImages(t *testing.T) {
+	tuiModel := NewModel(&fakeBridge{})
+	tuiModel.transcript = []transcriptEntry{
+		{
+			Role: "user",
+			Blocks: []model.MessageBlock{
+				{Type: model.MessageBlockText, Text: "Please inspect this screenshot"},
+				{
+					Type: "image",
+					Raw: map[string]any{
+						"type": "image",
+						"source": map[string]any{
+							"type":       "base64",
+							"media_type": "image/png",
+							"data":       "abc123",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	view := tuiModel.View()
+
+	for _, want := range []string{
+		"user",
+		"Please inspect this screenshot",
+		"image",
+		"image/png",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestRendererRendersTranscriptToolResultBlocksSeparateFromLiveToolProgress(t *testing.T) {
+	tuiModel := NewModel(&fakeBridge{})
+	tuiModel.transcript = []transcriptEntry{
+		{
+			Role: "tool",
+			Blocks: []model.MessageBlock{
+				{
+					Type:      model.MessageBlockToolResult,
+					ToolUseID: "toolu-1",
+					Content:   "README contents",
+				},
+			},
+		},
+	}
+
+	view := tuiModel.View()
+
+	for _, want := range []string{
+		"tool result",
+		"README contents",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q: %q", want, view)
+		}
+	}
+	if strings.Contains(view, "tool[running]") {
+		t.Fatalf("view = %q, did not want runtime tool-progress chrome for transcript tool_result", view)
+	}
+}
+
 func TestTUIStateCreatesSpecialMessageBlocksForRuntimeEvents(t *testing.T) {
 	state := newTUIState()
 
@@ -102,6 +168,31 @@ func TestTUIStateCreatesSpecialMessageBlocksForRuntimeEvents(t *testing.T) {
 	}
 }
 
+func TestTUIStatePreservesToolResultBlocksFromMessageCreated(t *testing.T) {
+	state := newTUIState()
+
+	state.applyRuntimeEvent(runtime.RuntimeEvent{
+		Type: "message.created",
+		Message: &session.Message{
+			Role: "tool",
+			Blocks: []model.MessageBlock{
+				{
+					Type:      model.MessageBlockToolResult,
+					ToolUseID: "toolu-1",
+					Content:   "README contents",
+				},
+			},
+		},
+	})
+
+	if len(state.transcript) != 1 {
+		t.Fatalf("transcript len = %d, want 1", len(state.transcript))
+	}
+	if len(state.transcript[0].Blocks) != 1 || state.transcript[0].Blocks[0].Type != model.MessageBlockToolResult {
+		t.Fatalf("tool transcript = %#v, want preserved tool_result block", state.transcript[0])
+	}
+}
+
 func TestRendererRendersSpecialMessageBlocks(t *testing.T) {
 	tuiModel := NewModel(&fakeBridge{})
 	tuiModel.transcript = []transcriptEntry{
@@ -134,5 +225,34 @@ func TestRendererRendersSpecialMessageBlocks(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
+	}
+}
+
+func TestTranscriptSearchIndexesRichBlockRendering(t *testing.T) {
+	tuiModel := NewModel(&fakeBridge{})
+	tuiModel.transcript = []transcriptEntry{
+		{
+			Role: "user",
+			Blocks: []model.MessageBlock{
+				{Type: model.MessageBlockText, Text: "Please inspect this screenshot"},
+				{
+					Type: "image",
+					Raw: map[string]any{
+						"type": "image",
+						"source": map[string]any{
+							"type":       "base64",
+							"media_type": "image/png",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	tuiModel.startTranscriptSearch()
+	tuiModel.appendTranscriptSearchQuery("image/png")
+
+	if tuiModel.viewport.Search.MatchCount != 1 {
+		t.Fatalf("match count = %d, want 1", tuiModel.viewport.Search.MatchCount)
 	}
 }

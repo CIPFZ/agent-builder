@@ -205,6 +205,9 @@ func isNavigableTranscriptEntry(entry transcriptEntry) bool {
 	}
 	switch entry.Role {
 	case "user":
+		if len(entry.Blocks) > 0 {
+			return strings.TrimSpace(copyTextOfTranscriptEntry(entry)) != ""
+		}
 		text := strings.TrimSpace(stripSystemReminders(entry.Content))
 		return text != "" && !strings.HasPrefix(text, "<")
 	case "assistant":
@@ -226,6 +229,9 @@ func copyTextOfTranscriptEntry(entry transcriptEntry) string {
 	case entry.Kind != "":
 		return strings.TrimSpace(entry.Content)
 	case entry.Role == "user":
+		if len(entry.Blocks) > 0 {
+			return textFromBlocks(entry.Blocks)
+		}
 		return stripSystemReminders(entry.Content)
 	case entry.Role == "assistant":
 		if len(entry.Blocks) == 0 {
@@ -248,6 +254,8 @@ func textFromBlocks(blocks []model.MessageBlock) string {
 		switch block.Type {
 		case model.MessageBlockText:
 			parts = appendNonEmpty(parts, block.Text)
+		case "image":
+			parts = appendNonEmpty(parts, imageBlockSummary(block))
 		case model.MessageBlockToolResult:
 			parts = appendNonEmpty(parts, block.Content)
 		case model.MessageBlockToolUse:
@@ -255,6 +263,10 @@ func textFromBlocks(blocks []model.MessageBlock) string {
 				parts = appendNonEmpty(parts, text)
 			}
 		default:
+			if isImageMessageBlock(block) {
+				parts = appendNonEmpty(parts, imageBlockSummary(block))
+				continue
+			}
 			parts = appendNonEmpty(parts, messageBlockFallbackContent(block))
 		}
 	}
