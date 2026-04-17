@@ -16,7 +16,7 @@ type Bridge interface {
 
 type sessionResumeBridge interface {
 	SessionSnapshots() []sessionSnapshot
-	ResumeSession(string) ([]session.Message, bool)
+	ResumeSession(string) (session.RecoverySnapshot, bool)
 }
 
 type taskBridge interface {

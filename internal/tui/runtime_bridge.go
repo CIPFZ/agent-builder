@@ -125,15 +125,14 @@ func (b *RuntimeBridge) SessionSnapshots() []sessionSnapshot {
 	return snapshots
 }
 
-func (b *RuntimeBridge) ResumeSession(id string) ([]session.Message, bool) {
-	sess, ok := b.sessions.GetByID(id)
+func (b *RuntimeBridge) ResumeSession(id string) (session.RecoverySnapshot, bool) {
+	snapshot, ok := b.sessions.RecoverySnapshot(id)
 	if !ok {
-		return nil, false
+		return session.RecoverySnapshot{}, false
 	}
-	messages, _ := b.sessions.Messages(id)
-	b.session = sess
+	b.session = snapshot.Session
 	b.log("info", "tui.bridge", "session.resume", "resumed session", "", map[string]any{"session_id": id})
-	return messages, true
+	return snapshot, true
 }
 
 func (b *RuntimeBridge) TaskPanelSnapshot() taskPanelSnapshot {

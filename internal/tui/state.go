@@ -236,7 +236,7 @@ func appendBoundedEvent(events []string, event string, limit int) []string {
 }
 
 func specialTranscriptEntryFromMessage(message session.Message) (transcriptEntry, bool) {
-	if message.IsCompactSummary {
+	if message.IsCompactSummary || message.Role == "summary" {
 		content := strings.TrimSpace(message.Content)
 		if content == "" {
 			content = "Conversation compacted into summary"

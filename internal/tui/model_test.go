@@ -19,7 +19,7 @@ type fakeBridge struct {
 	rejectErr  error
 
 	sessionSnapshots []sessionSnapshot
-	resumeMessages   map[string][]session.Message
+	resumeSnapshots  map[string]session.RecoverySnapshot
 	resumedSessionID string
 	taskPanel        taskPanelSnapshot
 }
@@ -43,13 +43,13 @@ func (f *fakeBridge) SessionSnapshots() []sessionSnapshot {
 	return append([]sessionSnapshot(nil), f.sessionSnapshots...)
 }
 
-func (f *fakeBridge) ResumeSession(id string) ([]session.Message, bool) {
+func (f *fakeBridge) ResumeSession(id string) (session.RecoverySnapshot, bool) {
 	f.resumedSessionID = id
-	if f.resumeMessages == nil {
-		return nil, false
+	if f.resumeSnapshots == nil {
+		return session.RecoverySnapshot{}, false
 	}
-	messages, ok := f.resumeMessages[id]
-	return append([]session.Message(nil), messages...), ok
+	snapshot, ok := f.resumeSnapshots[id]
+	return snapshot, ok
 }
 
 func (f *fakeBridge) TaskPanelSnapshot() taskPanelSnapshot {
