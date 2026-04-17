@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"myclaw/internal/approval"
 	"myclaw/internal/session"
 )
 
@@ -96,15 +97,16 @@ func (m *Model) acceptSessionResumeItem(item dialogItem) {
 	if !ok {
 		return
 	}
-	messages, ok := bridge.ResumeSession(item.Value)
+	snapshot, ok := bridge.ResumeSession(item.Value)
 	if !ok {
 		m.events = appendBoundedEvent(m.events, "resume failed: "+item.Value, 200)
 		return
 	}
-	m.restoreSessionTranscript(item.Value, messages)
+	m.restoreSessionSnapshot(snapshot)
 }
 
-func (m *Model) restoreSessionTranscript(sessionID string, messages []session.Message) {
+func (m *Model) restoreSessionSnapshot(snapshot session.RecoverySnapshot) {
+	messages := snapshot.Continuation
 	m.transcript = make([]transcriptEntry, 0, len(messages))
 	m.history = m.history[:0]
 	for _, message := range messages {
@@ -115,22 +117,73 @@ func (m *Model) restoreSessionTranscript(sessionID string, messages []session.Me
 			m.history = append(m.history, strings.TrimSpace(message.Content))
 		}
 	}
-	m.diagnostics.SessionID = sessionID
+	m.diagnostics.SessionID = snapshot.Session.ID
 	m.diagnostics.LastEvent = "session.resumed"
 	m.diagnostics.EventCount++
-	m.events = appendBoundedEvent(m.events, "session.resumed: "+sessionID, 200)
+	m.events = appendBoundedEvent(m.events, "session.resumed: "+snapshot.Session.ID, 200)
 	m.input = ""
 	m.cursorPos = 0
 	m.historyIndex = -1
-	m.busy = false
-	m.pendingApproval = nil
-	m.approvalDialog.close()
 	m.dialog.close()
 	m.messageActions.close()
 	m.toolExpansion.clear()
 	m.pastes = newPasteState()
 	m.viewport.Search = transcriptSearchState{}
+	m.applyResumedContinuationState(snapshot)
 	m.scrollTranscriptBottom()
+}
+
+func (m *Model) applyResumedContinuationState(snapshot session.RecoverySnapshot) {
+	state := snapshot.ContinuationState()
+	m.pendingApproval = nil
+	m.approvalDialog.close()
+	m.busy = !state.ReadyForPrompt
+	m.activity.Label = "Idle"
+
+	if state.Status == session.ContinuationStatusAwaitingAssistant {
+		m.activity.Label = "Resuming assistant turn"
+	}
+
+	if approvalRequest, ok := pendingApprovalRequest(snapshot); ok {
+		m.pendingApproval = approvalRequest
+		m.approvalDialog.open(approvalRequest)
+		m.busy = false
+		m.activity.Label = "Awaiting approval: " + strings.TrimSpace(approvalRequest.ToolName+" "+approvalRequest.ToolInput)
+	}
+}
+
+func pendingApprovalRequest(snapshot session.RecoverySnapshot) (*approval.Request, bool) {
+	metadata := snapshot.Metadata
+	if metadata.PendingApprovalID == "" && snapshot.Session.Metadata.PendingApprovalID != "" {
+		metadata = snapshot.Session.Metadata
+	}
+	if metadata.PendingApprovalID == "" || metadata.PendingApprovalStatus != "pending" {
+		return nil, false
+	}
+	request := &approval.Request{
+		ID:                metadata.PendingApprovalID,
+		SessionID:         snapshot.Session.ID,
+		RunID:             metadata.PendingApprovalRunID,
+		UserMessageID:     metadata.PendingApprovalUserMessageID,
+		ToolName:          metadata.PendingApprovalToolName,
+		ToolInput:         metadata.PendingApprovalToolInput,
+		ToolInputObject:   cloneAnyMap(metadata.PendingApprovalToolInputObject),
+		ToolUseID:         metadata.PendingApprovalToolUseID,
+		ProviderMessageID: metadata.PendingApprovalProviderMsgID,
+		Category:          metadata.PendingApprovalCategory,
+		RuleSource:        metadata.PendingApprovalRuleSource,
+		Reason:            metadata.PendingApprovalReason,
+		DecisionReason:    metadata.PendingApprovalDecisionReason,
+		AcceptFeedback:    metadata.PendingApprovalAcceptFeedback,
+		Status:            approval.StatusPending,
+	}
+	if len(metadata.PendingApprovalContentBlocks) > 0 {
+		request.ContentBlocks = make([]map[string]any, 0, len(metadata.PendingApprovalContentBlocks))
+		for _, block := range metadata.PendingApprovalContentBlocks {
+			request.ContentBlocks = append(request.ContentBlocks, cloneAnyMap(block))
+		}
+	}
+	return request, true
 }
 
 func transcriptEntryFromSessionMessage(message session.Message) (transcriptEntry, bool) {
