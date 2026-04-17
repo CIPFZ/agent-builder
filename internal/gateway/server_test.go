@@ -282,14 +282,21 @@ func TestHandleWebSocketConnectAndSendMessage(t *testing.T) {
 	if !ok {
 		t.Fatalf("messages for session %q not found", sessionID)
 	}
-	if len(messages) != 2 {
-		t.Fatalf("message count = %d, want 2", len(messages))
+	var conversation []session.Message
+	for _, message := range messages {
+		if message.Role == "attachment" && message.Subtype == "skill_listing" {
+			continue
+		}
+		conversation = append(conversation, message)
 	}
-	if messages[0].Content != "hello" {
-		t.Fatalf("stored message content = %q, want %q", messages[0].Content, "hello")
+	if len(conversation) != 2 {
+		t.Fatalf("conversation message count = %d in %#v, want user and assistant", len(conversation), messages)
 	}
-	if messages[1].Role != "assistant" || messages[1].Content != "Received: hello [workspace:3]" {
-		t.Fatalf("stored assistant message = %#v, want assistant reply", messages[1])
+	if conversation[0].Content != "hello" {
+		t.Fatalf("stored message content = %q, want %q", conversation[0].Content, "hello")
+	}
+	if conversation[1].Role != "assistant" || conversation[1].Content != "Received: hello [workspace:3]" {
+		t.Fatalf("stored assistant message = %#v, want assistant reply", conversation[1])
 	}
 }
 

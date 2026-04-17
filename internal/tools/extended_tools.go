@@ -1266,6 +1266,12 @@ func (skillTool) Invoke(ctx context.Context, _ session.Session, input string) (s
 		return "", fmt.Errorf("Skill %q has disable-model-invocation enabled", command.Name)
 	}
 	content := command.renderedContent(stringField(object, "args"), "")
+	if command.PromptBuilder != nil {
+		content, err = command.PromptBuilder(stringField(object, "args"), ToolUseContext{AbortContext: ctx})
+		if err != nil {
+			return "", err
+		}
+	}
 	content, err = executeSkillShellCommandsInPrompt(
 		ctx,
 		content,
@@ -1336,6 +1342,12 @@ func (skillTool) InvokeWithContext(_ context.Context, toolCtx ToolUseContext) (T
 		return skillInlineToolResult(command, content, toolCtx, string(encoded)), nil
 	}
 	content := command.renderedContent(args, toolCtx.Session.ID)
+	if command.PromptBuilder != nil {
+		content, err = command.PromptBuilder(args, toolCtx)
+		if err != nil {
+			return ToolResult{}, err
+		}
+	}
 	content, err = executeSkillShellCommandsInPrompt(
 		toolCtx.AbortContext,
 		content,
@@ -1483,6 +1495,9 @@ type skillCommand struct {
 	Agent                       string
 	Effort                      string
 	Paths                       []string
+	Files                       map[string]string
+	PromptBuilder               SkillPromptBuilder
+	IsEnabled                   func() bool
 	Shell                       FrontmatterShell
 	Hooks                       any
 	DisableModelInvocation      bool
@@ -1528,6 +1543,12 @@ func resolveSkillCommand(object map[string]any, appState map[string]any) (skillC
 		return command, nil
 	}
 	if command, ok := lookupDynamicSkill(name); ok {
+		return command, nil
+	}
+	if command, ok := lookupBundledSkill(name); ok {
+		return command, nil
+	}
+	if command, ok := lookupBuiltinPluginSkill(name); ok {
 		return command, nil
 	}
 	if command, ok := resolveMCPPromptSkill(name, appState); ok {

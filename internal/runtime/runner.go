@@ -237,6 +237,9 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 	if runner.options.SkillForkExecutor == nil {
 		runner.options.SkillForkExecutor = runner.defaultSkillForkExecutor
 	}
+	if len(tools.GetBundledSkills()) == 0 {
+		tools.InitClaudeBundledSkills(tools.BundledSkillOptions{})
+	}
 	if len(runner.options.SkillRoots) > 0 {
 		tools.AddSkillDirectories(runner.options.SkillRoots)
 	}

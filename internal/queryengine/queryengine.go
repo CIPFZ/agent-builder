@@ -2317,20 +2317,26 @@ func (q *QueryEngine) maybeInjectSkillListingAttachment(sess session.Session) er
 }
 
 func (q *QueryEngine) skillListingCommands() []tools.SkillCommand {
+	bundled := tools.GetBundledSkills()
+	builtinPlugin := tools.GetBuiltinPluginSkillCommands()
 	local := tools.GetDynamicSkills()
+	base := make([]tools.SkillCommand, 0, len(bundled)+len(builtinPlugin)+len(local))
+	base = append(base, bundled...)
+	base = append(base, builtinPlugin...)
+	base = append(base, local...)
 	if q.disableMCPPromptSkills {
-		return local
+		return dedupeSkillCommands(base)
 	}
 	mcp := tools.MCPPromptSkillCommands(q.mcpPrompts)
-	if len(local) == 0 {
-		return mcp
+	if len(base) == 0 {
+		return dedupeSkillCommands(mcp)
 	}
 	if len(mcp) == 0 {
-		return local
+		return dedupeSkillCommands(base)
 	}
-	out := make([]tools.SkillCommand, 0, len(local)+len(mcp))
-	seen := make(map[string]struct{}, len(local)+len(mcp))
-	for _, skill := range local {
+	out := make([]tools.SkillCommand, 0, len(base)+len(mcp))
+	seen := make(map[string]struct{}, len(base)+len(mcp))
+	for _, skill := range base {
 		if skill.Name == "" {
 			continue
 		}
@@ -2341,6 +2347,25 @@ func (q *QueryEngine) skillListingCommands() []tools.SkillCommand {
 		out = append(out, skill)
 	}
 	for _, skill := range mcp {
+		if skill.Name == "" {
+			continue
+		}
+		if _, ok := seen[skill.Name]; ok {
+			continue
+		}
+		seen[skill.Name] = struct{}{}
+		out = append(out, skill)
+	}
+	return out
+}
+
+func dedupeSkillCommands(skills []tools.SkillCommand) []tools.SkillCommand {
+	if len(skills) == 0 {
+		return nil
+	}
+	out := make([]tools.SkillCommand, 0, len(skills))
+	seen := make(map[string]struct{}, len(skills))
+	for _, skill := range skills {
 		if skill.Name == "" {
 			continue
 		}
