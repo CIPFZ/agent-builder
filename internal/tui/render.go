@@ -276,8 +276,12 @@ func (r renderer) renderTranscriptLines(snapshot renderSnapshot) []string {
 		switch {
 		case entry.Kind != "":
 			r.renderSpecialBlock(&b, entry, width)
+		case entry.Role == "user" && len(entry.Blocks) > 0:
+			r.renderUserBlocks(&b, entry, width)
 		case entry.Role == "assistant" && len(entry.Blocks) > 0:
 			r.renderAssistantBlocks(&b, entry, width)
+		case entry.Role == "tool" && len(entry.Blocks) > 0:
+			r.renderTranscriptToolBlocks(&b, entry, width)
 		case entry.Role == "user":
 			r.renderRoleBlock(&b, "user", entry.Content, entry.Streaming, width)
 		case entry.Role == "assistant":
@@ -348,6 +352,26 @@ func (r renderer) renderSpecialBlock(b *strings.Builder, entry transcriptEntry, 
 	}
 }
 
+func (r renderer) renderUserBlocks(b *strings.Builder, entry transcriptEntry, width int) {
+	b.WriteString("user\n")
+	for _, block := range entry.Blocks {
+		switch {
+		case isImageMessageBlock(block):
+			r.renderIndentedBlock(b, "image", imageBlockSummary(block), width)
+		case block.Type == model.MessageBlockText:
+			r.renderIndentedBlock(b, "text", block.Text, width)
+		case block.Type == model.MessageBlockToolResult:
+			label := "tool result"
+			if block.IsError {
+				label = "tool error"
+			}
+			r.renderIndentedBlock(b, label, block.Content, width)
+		default:
+			r.renderIndentedBlock(b, blockLabel(block), messageBlockFallbackContent(block), width)
+		}
+	}
+}
+
 func (r renderer) renderAssistantBlocks(b *strings.Builder, entry transcriptEntry, width int) {
 	b.WriteString("assistant\n")
 	for _, block := range entry.Blocks {
@@ -375,6 +399,20 @@ func (r renderer) renderAssistantBlocks(b *strings.Builder, entry transcriptEntr
 		default:
 			r.renderIndentedBlock(b, string(block.Type), messageBlockFallbackContent(block), width)
 		}
+	}
+}
+
+func (r renderer) renderTranscriptToolBlocks(b *strings.Builder, entry transcriptEntry, width int) {
+	for _, block := range entry.Blocks {
+		if block.Type != model.MessageBlockToolResult {
+			r.renderIndentedBlock(b, blockLabel(block), messageBlockFallbackContent(block), width)
+			continue
+		}
+		label := "tool result"
+		if block.IsError {
+			label = "tool error"
+		}
+		r.renderLabeledBlock(b, label, block.Content, width)
 	}
 }
 
@@ -422,6 +460,9 @@ func messageBlockInputSummary(block model.MessageBlock) string {
 }
 
 func messageBlockFallbackContent(block model.MessageBlock) string {
+	if isImageMessageBlock(block) {
+		return imageBlockSummary(block)
+	}
 	for _, value := range []string{block.Text, block.Content, block.Name, block.Input} {
 		if strings.TrimSpace(value) != "" {
 			return value
@@ -436,6 +477,41 @@ func messageBlockFallbackContent(block model.MessageBlock) string {
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, ", ")
+}
+
+func blockLabel(block model.MessageBlock) string {
+	if isImageMessageBlock(block) {
+		return "image"
+	}
+	if strings.TrimSpace(string(block.Type)) != "" {
+		return strings.ReplaceAll(string(block.Type), "_", " ")
+	}
+	return "block"
+}
+
+func isImageMessageBlock(block model.MessageBlock) bool {
+	return block.Type == "image" || rawBlockType(block) == "image"
+}
+
+func rawBlockType(block model.MessageBlock) string {
+	if block.Raw == nil {
+		return ""
+	}
+	if value, ok := block.Raw["type"].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
+func imageBlockSummary(block model.MessageBlock) string {
+	source, ok := block.Raw["source"].(map[string]any)
+	if !ok {
+		return "[Image]"
+	}
+	if mediaType, ok := source["media_type"].(string); ok && strings.TrimSpace(mediaType) != "" {
+		return "[Image: " + strings.TrimSpace(mediaType) + "]"
+	}
+	return "[Image]"
 }
 
 func (r renderer) renderApprovalDialog(snapshot renderSnapshot) string {

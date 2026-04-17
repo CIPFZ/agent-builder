@@ -198,7 +198,11 @@ func transcriptEntryFromSessionMessage(message session.Message) (transcriptEntry
 			Blocks:  cloneMessageBlocks(message.Blocks),
 		}, true
 	case "tool":
-		return transcriptEntry{Role: "tool", Content: message.Content}, true
+		return transcriptEntry{
+			Role:    "tool",
+			Content: message.Content,
+			Blocks:  cloneMessageBlocks(message.Blocks),
+		}, true
 	case "system":
 		return transcriptEntry{Kind: messageKindSystem, Role: "system", Content: message.Content}, true
 	default:

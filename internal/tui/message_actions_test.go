@@ -83,6 +83,35 @@ func TestMessageActionsEnterEditsUserMessage(t *testing.T) {
 	}
 }
 
+func TestMessageActionsCopyRichUserBlockMessage(t *testing.T) {
+	tuiModel := NewModel(&fakeBridge{})
+	tuiModel.transcript = []transcriptEntry{
+		{
+			Role: "user",
+			Blocks: []model.MessageBlock{
+				{Type: model.MessageBlockText, Text: "Please inspect this screenshot"},
+				{
+					Type: "image",
+					Raw: map[string]any{
+						"type": "image",
+						"source": map[string]any{
+							"type":       "base64",
+							"media_type": "image/png",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
+	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+
+	if tuiModel.messageActions.LastCopiedText != "Please inspect this screenshot\n\n[Image: image/png]" {
+		t.Fatalf("last copied text = %q, want rich user block text", tuiModel.messageActions.LastCopiedText)
+	}
+}
+
 func TestMessageActionsEscapeAndCtrlCExitWithoutQuitting(t *testing.T) {
 	tuiModel := messageActionsModel()
 	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
