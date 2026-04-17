@@ -47,6 +47,8 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch dialogKind {
 			case dialogKindHistorySearch:
 				m.acceptHistorySearchItem(item)
+			case dialogKindQuickOpen:
+				m.acceptQuickOpenItem(item)
 			case dialogKindMCPList:
 				m.acceptMCPItem(item)
 			case dialogKindSessionResume:
@@ -121,6 +123,9 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.openHistorySearchDialog()
+		return m, nil
+	case tea.KeyCtrlK:
+		m.openQuickOpenDialog()
 		return m, nil
 	case tea.KeyShiftUp:
 		if m.viewport.Search.Active {

@@ -259,6 +259,8 @@ func (m *Model) handleLocalCommand(text string) bool {
 		m.openHelpDialog()
 	case "keybindings":
 		m.openKeybindingsDialog()
+	case "open":
+		m.openQuickOpenDialog()
 	case "mcp":
 		m.openMCPDialog()
 	case "clear":

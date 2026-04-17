@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"myclaw/internal/runtime"
+	"myclaw/internal/session"
 )
 
 func TestSlashClearClearsVisibleConversationWithoutSendingRuntimeMessage(t *testing.T) {
@@ -402,5 +403,74 @@ func TestMCPDialogSelectionOpensServerDetailDialog(t *testing.T) {
 		if !contains(view, want) {
 			t.Fatalf("mcp detail view missing %q: %q", want, view)
 		}
+	}
+}
+
+func TestSlashOpenOpensQuickOpenDialog(t *testing.T) {
+	bridge := &fakeBridge{
+		sessionSnapshots: []sessionSnapshot{
+			{
+				Session:          session.Session{ID: "main-000002", Key: "agent:main:main", AgentID: "main", IsMain: true},
+				FirstUserMessage: "resume target",
+				MessageCount:     3,
+				LastMessage:      "latest answer",
+			},
+		},
+		taskPanel: taskPanelSnapshot{
+			SessionID: "main-000001",
+			Tasks: []taskSnapshot{{
+				RunID:   "agent-000001",
+				Label:   "research",
+				Status:  "running",
+				Prompt:  "inspect quick open",
+				MessageCount: 2,
+			}},
+		},
+		mcpStatus: mcpSnapshot{
+			Servers: []mcpServerSnapshot{{Name: "filesystem", Enabled: true, Tools: []string{"read_file"}}},
+		},
+	}
+	model := NewModel(bridge)
+	model.input = "/open"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.dialog.active() || model.dialog.Title != "Quick Open" {
+		t.Fatalf("dialog = %#v, want quick open dialog", model.dialog)
+	}
+	view := model.View()
+	for _, want := range []string{"Quick Open", "/model", "resume target", "research", "filesystem", "Type to filter"} {
+		if !contains(view, want) {
+			t.Fatalf("quick open view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestQuickOpenSelectionRoutesToExistingDialogs(t *testing.T) {
+	bridge := &fakeBridge{
+		taskPanel: taskPanelSnapshot{
+			Tasks: []taskSnapshot{{
+				RunID:             "agent-000001",
+				Label:             "research",
+				Status:            "running",
+				Prompt:            "inspect quick open",
+				RecommendedAction: "monitor",
+			}},
+		},
+	}
+	model := NewModel(bridge)
+	model.openQuickOpenDialog()
+	model.dialog.Picker.setQuery("research")
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.dialog.active() || model.dialog.Title != "Task details" {
+		t.Fatalf("dialog = %#v, want task details after quick open selection", model.dialog)
+	}
+	if !contains(model.View(), "research") {
+		t.Fatalf("task details missing research: %q", model.View())
 	}
 }
