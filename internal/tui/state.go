@@ -14,6 +14,7 @@ type tuiState struct {
 	events     []string
 	inputState
 	dialog              dialogState
+	taskPanel           taskPanelSnapshot
 	approvalDialog      approvalDialogState
 	lastDialogSelection *dialogItem
 	busy                bool

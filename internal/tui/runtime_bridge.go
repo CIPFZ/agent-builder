@@ -11,6 +11,7 @@ import (
 
 	"myclaw/internal/approval"
 	"myclaw/internal/diagnostics"
+	"myclaw/internal/orchestration"
 	"myclaw/internal/queryengine"
 	"myclaw/internal/runtime"
 	"myclaw/internal/session"
@@ -135,6 +136,71 @@ func (b *RuntimeBridge) ResumeSession(id string) ([]session.Message, bool) {
 	return messages, true
 }
 
+func (b *RuntimeBridge) TaskPanelSnapshot() taskPanelSnapshot {
+	snapshot := taskPanelSnapshot{SessionID: b.session.ID}
+	if b.runner == nil {
+		return snapshot
+	}
+
+	var coordinator *orchestration.Coordinator
+	if hook := b.runner.Orchestrator(); hook != nil {
+		coordinator = coordinatorFromHook(hook)
+	}
+
+	for _, run := range b.runner.AgentManager().List() {
+		if run.ParentSessionID != b.session.ID {
+			continue
+		}
+		task := taskSnapshot{
+			RunID:               run.ID,
+			Label:               run.Label,
+			Prompt:              run.Prompt,
+			Status:              string(run.Status),
+			ParentSessionID:     run.ParentSessionID,
+			ChildSessionID:      run.ChildSessionID,
+			ChildSessionKey:     run.ChildSessionKey,
+			Output:              run.Output,
+			ControlMessageCount: len(b.runner.AgentManager().ControlMessages(run.ID)),
+		}
+		if run.Err != nil {
+			task.Error = run.Err.Error()
+		}
+		if messages, ok := b.sessions.Messages(run.ChildSessionID); ok {
+			task.MessageCount = len(messages)
+			for i := len(messages) - 1; i >= 0; i-- {
+				if messages[i].Role == "assistant" && strings.TrimSpace(messages[i].Content) != "" {
+					task.LastAssistant = messages[i].Content
+					break
+				}
+			}
+		}
+		if coordinator != nil {
+			if state, ok := coordinator.GetRun(run.ID); ok {
+				task.LastEvent = state.LastEvent
+				task.Message = state.Message
+				task.NextAction = state.NextAction
+				task.RecommendedRole = state.RecommendedRole
+				task.RecommendedAction = state.RecommendedAction
+				task.DecisionPriority = state.DecisionPriority
+				task.DecisionReason = state.DecisionReason
+				task.AutoExecutable = state.AutoExecutable
+			}
+		}
+		switch run.Status {
+		case "running":
+			snapshot.RunningCount++
+		case "completed":
+			snapshot.CompletedCount++
+		case "failed":
+			snapshot.FailedCount++
+		case "stopped":
+			snapshot.StoppedCount++
+		}
+		snapshot.Tasks = append(snapshot.Tasks, task)
+	}
+	return snapshot
+}
+
 func (b *RuntimeBridge) Approve(id string) error {
 	if err := b.ctx.Err(); err != nil {
 		return err
@@ -230,6 +296,20 @@ func (b *RuntimeBridge) log(level, component, event, message, runID string, fiel
 		RunID:     runID,
 		Fields:    fields,
 	})
+}
+
+func coordinatorFromHook(hook orchestration.Hook) *orchestration.Coordinator {
+	switch typed := hook.(type) {
+	case *orchestration.Coordinator:
+		return typed
+	case orchestration.Chain:
+		for _, child := range typed {
+			if coordinator := coordinatorFromHook(child); coordinator != nil {
+				return coordinator
+			}
+		}
+	}
+	return nil
 }
 
 type sinkFunc func(runtime.RuntimeEvent) error

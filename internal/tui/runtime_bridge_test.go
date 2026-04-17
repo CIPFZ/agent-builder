@@ -7,8 +7,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"myclaw/internal/agent"
 	"myclaw/internal/approval"
 	"myclaw/internal/llm"
+	"myclaw/internal/orchestration"
 	"myclaw/internal/permissions"
 	"myclaw/internal/runtime"
 	"myclaw/internal/session"
@@ -266,5 +268,43 @@ func TestRuntimeBridgeContextCancellationStopsSend(t *testing.T) {
 	bridge := NewRuntimeBridgeWithContext(ctx, sessions, runner, "main", nil)
 	if err := bridge.SendUserMessage("hello"); err == nil {
 		t.Fatal("expected canceled bridge to reject send")
+	}
+}
+
+func TestRuntimeBridgeTaskPanelSnapshotIncludesDelegatedRuns(t *testing.T) {
+	sessions := session.NewManager(nil)
+	coordinator := orchestration.NewCoordinator()
+	runner := runtime.NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, runtime.Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentManager:     agent.NewManager(),
+		Orchestrator:     coordinator,
+	})
+	bridge := NewRuntimeBridge(sessions, runner, "main")
+	parent := sessions.GetOrCreateMain("main")
+
+	run, err := runner.SpawnSubagent(context.Background(), parent, "research", "hello subagent")
+	if err != nil {
+		t.Fatalf("SpawnSubagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 2*time.Second); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	snapshot := bridge.TaskPanelSnapshot()
+	if snapshot.SessionID != parent.ID {
+		t.Fatalf("session id = %q, want %q", snapshot.SessionID, parent.ID)
+	}
+	if snapshot.CompletedCount != 1 || len(snapshot.Tasks) != 1 {
+		t.Fatalf("snapshot = %#v, want one completed task", snapshot)
+	}
+	task := snapshot.Tasks[0]
+	if task.RunID != run.ID || task.Label != "research" || task.ChildSessionID == "" {
+		t.Fatalf("task = %#v, want populated delegated run", task)
+	}
+	if task.MessageCount == 0 || task.LastAssistant == "" {
+		t.Fatalf("task = %#v, want child session transcript details", task)
+	}
+	if task.Status != "completed" {
+		t.Fatalf("task = %#v, want completed task status", task)
 	}
 }

@@ -167,3 +167,89 @@ func TestSlashCompactAcceptsOptionalInstructionsAsLocalCommand(t *testing.T) {
 		t.Fatalf("compact subtitle = %q, want custom instructions", model.dialog.Subtitle)
 	}
 }
+
+func TestSlashTasksOpensTaskWorkbenchDialog(t *testing.T) {
+	bridge := &fakeBridge{
+		taskPanel: taskPanelSnapshot{
+			SessionID:      "main-000001",
+			RunningCount:   1,
+			CompletedCount: 1,
+			Tasks: []taskSnapshot{
+				{
+					RunID:             "agent-000001",
+					Label:             "research",
+					Prompt:            "inspect tui gaps",
+					Status:            "running",
+					RecommendedAction: "monitor",
+					DecisionPriority:  "high",
+					LastAssistant:     "Inspecting TUI code",
+				},
+				{
+					RunID:             "agent-000002",
+					Label:             "verify",
+					Prompt:            "run tests",
+					Status:            "completed",
+					RecommendedAction: "close",
+					DecisionPriority:  "low",
+					LastAssistant:     "All tests passed",
+				},
+			},
+		},
+	}
+	model := NewModel(bridge)
+	model.input = "/tasks"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.dialog.active() || model.dialog.Title != "Tasks" {
+		t.Fatalf("dialog = %#v, want tasks dialog", model.dialog)
+	}
+	view := model.View()
+	for _, want := range []string{"Tasks", "running 1", "completed 1", "research", "verify", "monitor", "close"} {
+		if !contains(view, want) {
+			t.Fatalf("tasks view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestTasksDialogSelectionOpensTaskDetailDialog(t *testing.T) {
+	bridge := &fakeBridge{
+		taskPanel: taskPanelSnapshot{
+			SessionID: "main-000001",
+			Tasks: []taskSnapshot{
+				{
+					RunID:               "agent-000001",
+					Label:               "research",
+					Prompt:              "inspect tui gaps",
+					Status:              "running",
+					ChildSessionID:      "session-agent-1",
+					LastEvent:           "tool.called",
+					RecommendedRole:     "reviewer",
+					RecommendedAction:   "monitor",
+					DecisionPriority:    "high",
+					DecisionReason:      "waiting for output",
+					LastAssistant:       "Inspecting TUI code",
+					MessageCount:        4,
+					ControlMessageCount: 1,
+				},
+			},
+		},
+	}
+	model := NewModel(bridge)
+	model.openTasksDialog()
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.dialog.active() || model.dialog.Title != "Task details" {
+		t.Fatalf("dialog = %#v, want task detail dialog", model.dialog)
+	}
+	view := model.View()
+	for _, want := range []string{"Task details", "agent-000001", "reviewer", "monitor", "waiting for output", "Inspecting TUI code"} {
+		if !contains(view, want) {
+			t.Fatalf("task detail view missing %q: %q", want, view)
+		}
+	}
+}

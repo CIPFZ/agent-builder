@@ -21,6 +21,7 @@ type fakeBridge struct {
 	sessionSnapshots []sessionSnapshot
 	resumeMessages   map[string][]session.Message
 	resumedSessionID string
+	taskPanel        taskPanelSnapshot
 }
 
 func (f *fakeBridge) SendUserMessage(input string) error {
@@ -49,6 +50,10 @@ func (f *fakeBridge) ResumeSession(id string) ([]session.Message, bool) {
 	}
 	messages, ok := f.resumeMessages[id]
 	return append([]session.Message(nil), messages...), ok
+}
+
+func (f *fakeBridge) TaskPanelSnapshot() taskPanelSnapshot {
+	return f.taskPanel
 }
 
 func TestModelViewShowsCoreSections(t *testing.T) {
