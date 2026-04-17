@@ -15,6 +15,7 @@ type primaryToolInputSpec struct {
 }
 
 var primaryToolInputs = map[string]primaryToolInputSpec{
+	"system.run":   {Label: "command", Key: "command"},
 	"Read":         {Label: "path", Key: "file_path"},
 	"Edit":         {Label: "path", Key: "file_path"},
 	"Write":        {Label: "path", Key: "file_path"},
@@ -27,6 +28,8 @@ var primaryToolInputs = map[string]primaryToolInputSpec{
 	"WebSearch":    {Label: "query", Key: "query"},
 	"Task":         {Label: "prompt", Key: "prompt"},
 	"Agent":        {Label: "prompt", Key: "prompt"},
+	"agent.task":   {Label: "prompt", Key: "prompt"},
+	"Skill":        {Label: "skill", Key: "skill"},
 }
 
 func (s *messageActionsState) close() {

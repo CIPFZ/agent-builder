@@ -67,12 +67,15 @@ type messageActionRenderItem struct {
 }
 
 type approvalRenderState struct {
-	ToolName      string
-	ToolInput     string
-	Reason        string
-	Category      string
-	RuleSource    string
-	SelectedIndex int
+	ToolName        string
+	ToolInput       string
+	ToolInputObject map[string]any
+	Reason          string
+	Category        string
+	RuleSource      string
+	DecisionReason  string
+	AcceptFeedback  string
+	SelectedIndex   int
 }
 
 type dialogRenderState struct {
@@ -136,12 +139,15 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 	}
 	if m.approvalDialog.active() && m.approvalDialog.Request != nil {
 		snapshot.Approval = &approvalRenderState{
-			ToolName:      m.approvalDialog.Request.ToolName,
-			ToolInput:     m.approvalDialog.Request.ToolInput,
-			Reason:        m.approvalDialog.Request.Reason,
-			Category:      m.approvalDialog.Request.Category,
-			RuleSource:    m.approvalDialog.Request.RuleSource,
-			SelectedIndex: m.approvalDialog.SelectedIndex,
+			ToolName:        m.approvalDialog.Request.ToolName,
+			ToolInput:       m.approvalDialog.Request.ToolInput,
+			ToolInputObject: cloneAnyMap(m.approvalDialog.Request.ToolInputObject),
+			Reason:          m.approvalDialog.Request.Reason,
+			Category:        m.approvalDialog.Request.Category,
+			RuleSource:      m.approvalDialog.Request.RuleSource,
+			DecisionReason:  m.approvalDialog.Request.DecisionReason,
+			AcceptFeedback:  m.approvalDialog.Request.AcceptFeedback,
+			SelectedIndex:   m.approvalDialog.SelectedIndex,
 		}
 	}
 	if snapshot.Approval == nil && m.dialog.active() {
@@ -443,12 +449,17 @@ func (r renderer) renderApprovalDialog(snapshot renderSnapshot) string {
 	var b strings.Builder
 	b.WriteString(borderLine(width, '#'))
 	b.WriteString("\n")
-	b.WriteString("  Permission Required")
-	if approval.ToolName != "" || approval.ToolInput != "" {
-		b.WriteString(": ")
-		b.WriteString(strings.TrimSpace(approval.ToolName + " " + approval.ToolInput))
-	}
+	semantic := describeApprovalSemantics(*approval)
+	b.WriteString("  ")
+	b.WriteString(semantic.Title)
 	b.WriteString("\n")
+	for _, detail := range semantic.Details {
+		for _, line := range wrapCells(detail, innerWidth) {
+			b.WriteString("  ")
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
 	if approval.Reason != "" {
 		for _, line := range wrapCells("Reason: "+approval.Reason, innerWidth) {
 			b.WriteString("  ")
@@ -465,6 +476,20 @@ func (r renderer) renderApprovalDialog(snapshot renderSnapshot) string {
 	}
 	if approval.RuleSource != "" {
 		for _, line := range wrapCells("Rule: "+approval.RuleSource, innerWidth) {
+			b.WriteString("  ")
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+	if approval.DecisionReason != "" {
+		for _, line := range wrapCells("Decision: "+approval.DecisionReason, innerWidth) {
+			b.WriteString("  ")
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+	if approval.AcceptFeedback != "" {
+		for _, line := range wrapCells("Feedback: "+approval.AcceptFeedback, innerWidth) {
 			b.WriteString("  ")
 			b.WriteString(line)
 			b.WriteString("\n")
