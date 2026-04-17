@@ -986,6 +986,47 @@ func TestLoadClaudeSkillDirectoriesBareModeLoadsOnlyAdditionalDirs(t *testing.T)
 	}
 }
 
+func TestLoadClaudeSkillDirectoriesSkillsLockedSuppressesAllSources(t *testing.T) {
+	tools.ClearDynamicSkills()
+	t.Cleanup(tools.ClearDynamicSkills)
+
+	dir := t.TempDir()
+	configHome := filepath.Join(dir, "home", ".claude")
+	project := filepath.Join(dir, "workspace")
+	additional := filepath.Join(dir, "extra")
+	for path, body := range map[string]string{
+		filepath.Join(configHome, "skills", "user", "SKILL.md"):             "---\ndescription: user skill\n---\nUser body.",
+		filepath.Join(project, ".claude", "skills", "project", "SKILL.md"):  "---\ndescription: project skill\n---\nProject body.",
+		filepath.Join(additional, ".claude", "skills", "extra", "SKILL.md"): "---\ndescription: extra skill\n---\nExtra body.",
+		filepath.Join(project, ".claude", "commands", "legacy.md"):          "---\ndescription: legacy command\n---\nLegacy body.",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir %q: %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatalf("write %q: %v", path, err)
+		}
+	}
+
+	loaded := tools.LoadClaudeSkillDirectories(tools.SkillDiscoveryOptions{
+		CWD:             project,
+		ConfigHome:      configHome,
+		AdditionalDirs:  []string{additional},
+		IncludeUser:     true,
+		IncludeProject:  true,
+		IncludeLegacy:   true,
+		IncludeExplicit: true,
+		SkillsLocked:    true,
+	})
+
+	if len(loaded) != 0 {
+		t.Fatalf("locked loaded = %#v, want no skills", loaded)
+	}
+	if got := tools.GetDynamicSkills(); len(got) != 0 {
+		t.Fatalf("dynamic skills = %#v, want locked discovery to avoid registration", got)
+	}
+}
+
 func TestSkillToolInjectsInlineSkillAsMetaMessageAndCompactToolResult(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "skills")
@@ -1041,6 +1082,159 @@ func TestSkillToolInjectsInlineSkillAsMetaMessageAndCompactToolResult(t *testing
 	}
 }
 
+func TestSkillToolPermissionAllowsSafeSkillProperties(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "skills")
+	skillDir := filepath.Join(root, "safe")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\ndescription: Safe skill\nwhen_to_use: when safe\n---\nSafe body."), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	registry := tools.NewRegistry(tools.NewSkillTool())
+	decision, checked, err := registry.CheckPermissionsWithContext(context.Background(), tools.ToolUseContext{
+		ToolName:    "Skill",
+		Input:       `{"skill":"/safe","args":"now"}`,
+		InputObject: map[string]any{"skill": "/safe", "args": "now"},
+		AppState:    map[string]any{"skillRoots": []any{root}},
+		Policy:      permissions.Policy{Mode: permissions.ModeAsk},
+	})
+	if err != nil {
+		t.Fatalf("check permission: %v", err)
+	}
+	if !checked {
+		t.Fatal("checked = false, want skill-specific permission checker")
+	}
+	if !decision.Allowed || decision.RequiresApproval {
+		t.Fatalf("decision = %#v, want safe skill auto-allowed", decision)
+	}
+	if decision.UpdatedInputObject["skill"] != "safe" || decision.UpdatedInputObject["args"] != "now" {
+		t.Fatalf("updated input = %#v, want normalized skill and original args", decision.UpdatedInputObject)
+	}
+}
+
+func TestSkillToolPermissionRequiresApprovalForUnsafeProperties(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "skills")
+	skillDir := filepath.Join(root, "unsafe")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nallowed-tools: Bash\n---\nUnsafe body."), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	registry := tools.NewRegistry(tools.NewSkillTool())
+	decision, checked, err := registry.CheckPermissionsWithContext(context.Background(), tools.ToolUseContext{
+		ToolName:    "Skill",
+		Input:       `{"skill":"unsafe","args":"--all"}`,
+		InputObject: map[string]any{"skill": "unsafe", "args": "--all"},
+		AppState:    map[string]any{"skillRoots": []any{root}},
+		Policy:      permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	if err != nil {
+		t.Fatalf("check permission: %v", err)
+	}
+	if !checked {
+		t.Fatal("checked = false, want skill-specific permission checker")
+	}
+	if decision.Allowed || !decision.RequiresApproval || decision.Category != permissions.CategoryApproval {
+		t.Fatalf("decision = %#v, want unsafe skill approval", decision)
+	}
+	if !strings.Contains(decision.Reason, "Execute skill: unsafe") {
+		t.Fatalf("reason = %q, want Claude-style execute skill prompt", decision.Reason)
+	}
+	if len(decision.UpdatedPermissions) != 2 {
+		t.Fatalf("updated permissions = %#v, want exact and prefix suggestions", decision.UpdatedPermissions)
+	}
+}
+
+func TestSkillToolPermissionRulesOverrideSafeProperties(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "skills")
+	skillDir := filepath.Join(root, "review")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\ndescription: Review\n---\nReview body."), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	registry := tools.NewRegistry(tools.NewSkillTool())
+	deny, checked, err := registry.CheckPermissionsWithContext(context.Background(), tools.ToolUseContext{
+		ToolName:    "Skill",
+		InputObject: map[string]any{"skill": "review"},
+		AppState:    map[string]any{"skillRoots": []any{root}},
+		Policy: permissions.Policy{Rules: []permissions.Rule{{
+			ToolName: "Skill",
+			Action:   permissions.ActionDeny,
+			Match:    permissions.Match{CommandContains: []string{"review"}},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("deny permission: %v", err)
+	}
+	if !checked || deny.Allowed || deny.Category != permissions.CategoryRuleDenied {
+		t.Fatalf("deny decision = %#v checked=%v, want deny rule to win", deny, checked)
+	}
+
+	allow, checked, err := registry.CheckPermissionsWithContext(context.Background(), tools.ToolUseContext{
+		ToolName:    "Skill",
+		InputObject: map[string]any{"skill": "review"},
+		AppState:    map[string]any{"skillRoots": []any{root}},
+		Policy: permissions.Policy{Rules: []permissions.Rule{{
+			ToolName: "Skill",
+			Action:   permissions.ActionAllow,
+			Match:    permissions.Match{CommandContains: []string{"review"}},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("allow permission: %v", err)
+	}
+	if !checked || !allow.Allowed || allow.RequiresApproval {
+		t.Fatalf("allow decision = %#v checked=%v, want allow rule", allow, checked)
+	}
+}
+
+func TestSkillToolInvokesRemoteCanonicalSkillFromResolver(t *testing.T) {
+	appState := map[string]any{
+		"remoteCanonicalSkillResolver": tools.RemoteCanonicalSkillResolverFunc(func(slug string) (tools.SkillCommand, bool, error) {
+			if slug != "review" {
+				return tools.SkillCommand{}, false, nil
+			}
+			return tools.SkillCommand{
+				Name:        "_canonical_review",
+				Description: "Remote canonical review",
+				Content:     "Remote canonical body for $ARGUMENTS.",
+				Source:      "remote",
+				LoadedFrom:  "remote",
+			}, true, nil
+		}),
+	}
+
+	result, err := tools.NewSkillTool().InvokeWithContext(context.Background(), tools.ToolUseContext{
+		Session:  session.Session{ID: "sess-remote", AgentID: "agent-remote"},
+		ToolName: "Skill",
+		Input:    `{"skill":"_canonical_review","args":"diff"}`,
+		AppState: appState,
+	})
+	if err != nil {
+		t.Fatalf("invoke remote canonical skill: %v", err)
+	}
+	if len(result.NewMessages) != 1 {
+		t.Fatalf("new messages = %#v, want injected canonical skill message", result.NewMessages)
+	}
+	if !strings.Contains(result.NewMessages[0].Content, "Remote canonical body for diff.") {
+		t.Fatalf("content = %q, want remote canonical body with args", result.NewMessages[0].Content)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &parsed); err != nil {
+		t.Fatalf("skill output JSON: %v\n%s", err, result.Output)
+	}
+	if parsed["commandName"] != "_canonical_review" || parsed["status"] != "inline" {
+		t.Fatalf("output = %#v, want inline remote canonical metadata", parsed)
+	}
+}
+
 func TestBuildSkillListingAttachmentFormatsNewSkillsWithinBudget(t *testing.T) {
 	skills := []tools.SkillCommand{
 		{Name: "commit", Description: "Create a git commit", WhenToUse: "when changes should be committed"},
@@ -1063,6 +1257,17 @@ func TestBuildSkillListingAttachmentFormatsNewSkillsWithinBudget(t *testing.T) {
 	}
 	if strings.Contains(content, strings.Repeat("x", 260)) {
 		t.Fatalf("content = %q, want long descriptions capped like Claude", content)
+	}
+}
+
+func TestFormatSkillListingFallsBackToNamesOnlyWhenBudgetIsTiny(t *testing.T) {
+	skills := []tools.SkillCommand{
+		{Name: "alpha", Description: strings.Repeat("a", 200)},
+		{Name: "beta", Description: strings.Repeat("b", 200)},
+	}
+	got := tools.FormatSkillListingWithinBudget(skills, 1)
+	if got != "- alpha\n- beta" {
+		t.Fatalf("listing = %q, want names-only fallback", got)
 	}
 }
 
@@ -1108,6 +1313,26 @@ func TestDiscoverSkillDirsForPathsFindsNestedDirsAndSkipsNodeModules(t *testing.
 	want := []string{nestedSkillDir}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("discover skill dirs = %#v, want %#v", got, want)
+	}
+}
+
+func TestDiscoverSkillDirsForPathsStopsAtGitignoredSkillDir(t *testing.T) {
+	cwd := filepath.Join(t.TempDir(), "workspace")
+	nested := filepath.Join(cwd, "pkg", "feature")
+	nestedSkillDir := filepath.Join(nested, ".claude", "skills")
+	if err := os.MkdirAll(filepath.Join(nestedSkillDir, "demo"), 0o755); err != nil {
+		t.Fatalf("mkdir nested skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedSkillDir, "demo", "SKILL.md"), []byte("---\n---\nbody"), 0o644); err != nil {
+		t.Fatalf("write nested skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, ".gitignore"), []byte(".claude/skills\n"), 0o644); err != nil {
+		t.Fatalf("write gitignore: %v", err)
+	}
+
+	got := tools.DiscoverSkillDirsForPaths([]string{filepath.Join(nested, "file.go")}, cwd)
+	if len(got) != 0 {
+		t.Fatalf("discover skill dirs = %#v, want gitignored nested skill dir pruned", got)
 	}
 }
 

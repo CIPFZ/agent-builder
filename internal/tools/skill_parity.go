@@ -239,7 +239,7 @@ func skillListingCharBudget(contextWindowTokens int) int {
 	}
 	budget := contextWindowTokens * 4 / 100
 	if budget <= 0 {
-		return defaultSkillListingCharBudget
+		return 1
 	}
 	return budget
 }

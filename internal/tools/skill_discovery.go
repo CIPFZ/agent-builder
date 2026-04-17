@@ -29,11 +29,15 @@ type SkillDiscoveryOptions struct {
 	ConfigHome      string
 	ManagedRoot     string
 	AdditionalDirs  []string
+	BundledDirs     []string
+	PluginDirs      []string
 	IncludeManaged  bool
 	IncludeUser     bool
 	IncludeProject  bool
 	IncludeExplicit bool
 	IncludeLegacy   bool
+	IncludeBundled  bool
+	IncludePlugins  bool
 	BareMode        bool
 	SkillsLocked    bool
 }
@@ -148,6 +152,8 @@ func AddSkillDirectories(dirs []string) []DynamicSkillDirectory {
 				continue
 			}
 			command := ParseSkillFile(entry.Name(), skillPath, string(data))
+			command.Source = "skills"
+			command.LoadedFrom = "skills"
 			if registerDynamicSkillLocked(command) {
 				names = append(names, command.Name)
 			}
@@ -168,7 +174,7 @@ func LoadClaudeSkillDirectories(opts SkillDiscoveryOptions) []SkillCommand {
 	seenFileIDs := make(map[string]struct{})
 	loaded := make([]SkillCommand, 0)
 	for _, dir := range dirs {
-		for _, command := range loadSkillsFromDirectory(dir.path, dir.legacy) {
+		for _, command := range loadSkillsFromDirectory(dir) {
 			fileID := skillFileIdentity(command.Path)
 			if fileID != "" {
 				if _, seen := seenFileIDs[fileID]; seen {
@@ -184,8 +190,10 @@ func LoadClaudeSkillDirectories(opts SkillDiscoveryOptions) []SkillCommand {
 }
 
 type claudeSkillSourceDir struct {
-	path   string
-	legacy bool
+	path       string
+	legacy     bool
+	source     string
+	loadedFrom string
 }
 
 func claudeSkillSourceDirs(opts SkillDiscoveryOptions) []claudeSkillSourceDir {
@@ -196,30 +204,40 @@ func claudeSkillSourceDirs(opts SkillDiscoveryOptions) []claudeSkillSourceDir {
 	if opts.BareMode {
 		if opts.IncludeExplicit {
 			for _, dir := range opts.AdditionalDirs {
-				out = append(out, claudeSkillSourceDir{path: filepath.Join(dir, ".claude", "skills")})
+				out = append(out, claudeSkillSourceDir{path: filepath.Join(dir, ".claude", "skills"), source: "skills", loadedFrom: "skills"})
 			}
 		}
 		return out
 	}
 	if opts.IncludeManaged && opts.ManagedRoot != "" {
-		out = append(out, claudeSkillSourceDir{path: filepath.Join(opts.ManagedRoot, ".claude", "skills")})
+		out = append(out, claudeSkillSourceDir{path: filepath.Join(opts.ManagedRoot, ".claude", "skills"), source: "skills", loadedFrom: "skills"})
 	}
 	if opts.IncludeUser && opts.ConfigHome != "" {
-		out = append(out, claudeSkillSourceDir{path: filepath.Join(opts.ConfigHome, "skills")})
+		out = append(out, claudeSkillSourceDir{path: filepath.Join(opts.ConfigHome, "skills"), source: "skills", loadedFrom: "skills"})
 	}
 	if opts.IncludeProject {
 		for _, dir := range projectSkillDirsUpToHome(opts.CWD) {
-			out = append(out, claudeSkillSourceDir{path: dir})
+			out = append(out, claudeSkillSourceDir{path: dir, source: "skills", loadedFrom: "skills"})
 		}
 	}
 	if opts.IncludeExplicit {
 		for _, dir := range opts.AdditionalDirs {
-			out = append(out, claudeSkillSourceDir{path: filepath.Join(dir, ".claude", "skills")})
+			out = append(out, claudeSkillSourceDir{path: filepath.Join(dir, ".claude", "skills"), source: "skills", loadedFrom: "skills"})
+		}
+	}
+	if opts.IncludeBundled {
+		for _, dir := range opts.BundledDirs {
+			out = append(out, claudeSkillSourceDir{path: dir, source: "bundled", loadedFrom: "bundled"})
+		}
+	}
+	if opts.IncludePlugins {
+		for _, dir := range opts.PluginDirs {
+			out = append(out, claudeSkillSourceDir{path: dir, source: "plugin", loadedFrom: "plugin"})
 		}
 	}
 	if opts.IncludeLegacy {
 		for _, dir := range legacyCommandDirsUpToHome(opts.CWD) {
-			out = append(out, claudeSkillSourceDir{path: dir, legacy: true})
+			out = append(out, claudeSkillSourceDir{path: dir, legacy: true, source: "commands", loadedFrom: "commands_DEPRECATED"})
 		}
 	}
 	return out
@@ -259,7 +277,8 @@ func legacyCommandDirsUpToHome(cwd string) []string {
 	return dirs
 }
 
-func loadSkillsFromDirectory(dir string, legacy bool) []skillCommand {
+func loadSkillsFromDirectory(source claudeSkillSourceDir) []skillCommand {
+	dir := source.path
 	dir = normalizeSkillDiscoveryPath(dir, "")
 	if dir == "" {
 		return nil
@@ -277,16 +296,22 @@ func loadSkillsFromDirectory(dir string, legacy bool) []skillCommand {
 			if err != nil {
 				continue
 			}
-			out = append(out, ParseSkillFile(entry.Name(), skillPath, string(data)))
+			command := ParseSkillFile(entry.Name(), skillPath, string(data))
+			command.Source = source.source
+			command.LoadedFrom = source.loadedFrom
+			out = append(out, command)
 			continue
 		}
-		if legacy && strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
+		if source.legacy && strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
 			data, err := os.ReadFile(entryPath)
 			if err != nil {
 				continue
 			}
 			name := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
-			out = append(out, ParseSkillFile(name, entryPath, string(data)))
+			command := ParseSkillFile(name, entryPath, string(data))
+			command.Source = source.source
+			command.LoadedFrom = source.loadedFrom
+			out = append(out, command)
 		}
 	}
 	return out
@@ -787,6 +812,9 @@ func skillCommandFromDynamicRecord(name string, value any) (skillCommand, bool) 
 			Description:            stringFieldAny(typed, "description"),
 			WhenToUse:              stringFieldAny(typed, "whenToUse"),
 			Version:                stringFieldAny(typed, "version"),
+			Source:                 stringFieldAny(typed, "source"),
+			LoadedFrom:             stringFieldAny(typed, "loadedFrom"),
+			PluginInfo:             typed["pluginInfo"],
 			UserInvocable:          true,
 			ArgumentHint:           stringFieldAny(typed, "argumentHint"),
 			Path:                   stringFieldAny(typed, "path"),

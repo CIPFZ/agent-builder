@@ -478,7 +478,11 @@ func TestQueryEngineAppendsSkillNewMessagesAfterToolResultAndContinuesWithContex
 		Sessions:         sessions,
 		Client:           client,
 		WorkspaceLoader:  workspace.NewLoader(""),
-		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess, Rules: []permissions.Rule{{
+			ToolName: "Skill",
+			Action:   permissions.ActionAllow,
+			Match:    permissions.Match{CommandContains: []string{"review"}},
+		}}},
 		ToolRegistry:     tools.NewRegistry(tools.NewSkillTool()),
 		SkillRoots:       []string{root},
 	})
@@ -547,7 +551,11 @@ func TestQueryEngineAppliesInlineSkillContextModifierToPolicyAndModel(t *testing
 		Sessions:         sessions,
 		Client:           client,
 		WorkspaceLoader:  workspace.NewLoader(""),
-		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk, Rules: []permissions.Rule{{
+			ToolName: "Skill",
+			Action:   permissions.ActionAllow,
+			Match:    permissions.Match{CommandContains: []string{"review"}},
+		}}},
 		ToolRegistry:     tools.NewRegistry(tools.NewSkillTool()),
 		SkillRoots:       []string{root},
 		MainLoopModel:    "sonnet",
@@ -890,7 +898,11 @@ func TestQueryEngineInjectsSkillForkExecutorIntoToolContext(t *testing.T) {
 		Sessions:         sessions,
 		Client:           client,
 		WorkspaceLoader:  workspace.NewLoader(""),
-		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess, Rules: []permissions.Rule{{
+			ToolName: "Skill",
+			Action:   permissions.ActionAllow,
+			Match:    permissions.Match{CommandContains: []string{"verify"}},
+		}}},
 		SkillRoots:       []string{root},
 		SkillForkExecutor: func(_ context.Context, request tools.SkillForkRequest) (tools.ToolResult, error) {
 			called = true

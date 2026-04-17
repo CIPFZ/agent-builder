@@ -1187,11 +1187,77 @@ func (skillTool) Definition() Definition {
 	}
 }
 
+func (skillTool) CheckPermissionsWithContext(_ context.Context, toolCtx ToolUseContext) (permissions.Decision, error) {
+	toolCtx = toolCtx.Normalized()
+	object := toolCtx.InputObject
+	if object == nil {
+		object, _ = parseObjectInput(toolCtx.Input)
+	}
+	object = normalizeSkillInputObject(object)
+	command, err := resolveSkillCommand(object, toolCtx.AppState)
+	if err != nil {
+		return permissions.Decision{}, err
+	}
+	if command.DisableModelInvocation {
+		return permissions.Decision{}, fmt.Errorf("Skill %q has disable-model-invocation enabled", command.Name)
+	}
+	args := stringField(object, "args")
+	if decision, ok := skillPermissionRuleDecision(toolCtx.Policy, command.Name, args); ok {
+		if decision.UpdatedInputObject == nil && decision.Allowed {
+			decision.UpdatedInputObject = map[string]any{"skill": command.Name, "args": args}
+		}
+		return decision, nil
+	}
+	if command.RemoteCanonical {
+		return permissions.Decision{
+			Allowed:            true,
+			UpdatedInputObject: map[string]any{"skill": command.Name, "args": args},
+		}, nil
+	}
+	if skillHasOnlySafeProperties(command) {
+		return permissions.Decision{
+			Allowed:            true,
+			UpdatedInputObject: map[string]any{"skill": command.Name, "args": args},
+		}, nil
+	}
+	return permissions.Decision{
+		RequiresApproval: true,
+		Category:         permissions.CategoryApproval,
+		Reason:           "Execute skill: " + command.Name,
+		DecisionReason: permissions.DecisionReason{
+			Type:   permissions.DecisionReasonOther,
+			Reason: "skill has properties that require approval",
+		},
+		UpdatedInputObject: map[string]any{"skill": command.Name, "args": args},
+		UpdatedPermissions: []permissions.PermissionUpdate{
+			{
+				Type:        permissions.PermissionUpdateAddRules,
+				Destination: permissions.PermissionUpdateDestinationLocalSettings,
+				Behavior:    permissions.ActionAllow,
+				Rules: []permissions.PermissionRuleValue{{
+					ToolName:    "Skill",
+					RuleContent: command.Name,
+				}},
+			},
+			{
+				Type:        permissions.PermissionUpdateAddRules,
+				Destination: permissions.PermissionUpdateDestinationLocalSettings,
+				Behavior:    permissions.ActionAllow,
+				Rules: []permissions.PermissionRuleValue{{
+					ToolName:    "Skill",
+					RuleContent: command.Name + ":*",
+				}},
+			},
+		},
+	}, nil
+}
+
 func (skillTool) Invoke(ctx context.Context, _ session.Session, input string) (string, error) {
 	object, err := objectInput(input)
 	if err != nil {
 		return "", err
 	}
+	object = normalizeSkillInputObject(object)
 	command, err := resolveSkillCommand(object, nil)
 	if err != nil {
 		return "", err
@@ -1220,6 +1286,7 @@ func (skillTool) InvokeWithContext(_ context.Context, toolCtx ToolUseContext) (T
 	if object == nil {
 		object, _ = parseObjectInput(toolCtx.Input)
 	}
+	object = normalizeSkillInputObject(object)
 	command, err := resolveSkillCommand(object, toolCtx.AppState)
 	if err != nil {
 		return ToolResult{}, err
@@ -1402,6 +1469,9 @@ type skillCommand struct {
 	HasUserSpecifiedDescription bool
 	WhenToUse                   string
 	Version                     string
+	Source                      string
+	LoadedFrom                  string
+	PluginInfo                  any
 	UserInvocable               bool
 	ArgumentHint                string
 	Path                        string
@@ -1419,6 +1489,7 @@ type skillCommand struct {
 	MCPPrompt                   bool
 	MCPServer                   string
 	MCPPromptName               string
+	RemoteCanonical             bool
 }
 
 func (c skillCommand) renderedContent(args, sessionID string) string {
@@ -1447,6 +1518,11 @@ func resolveSkillCommand(object map[string]any, appState map[string]any) (skillC
 	}
 	if name == "" {
 		return skillCommand{}, fmt.Errorf("Skill requires skill")
+	}
+	name = normalizeSkillName(name)
+	object["skill"] = name
+	if command, ok, err := resolveRemoteCanonicalSkill(name, appState); ok || err != nil {
+		return command, err
 	}
 	if command, ok := skillCommandFromAppState(appState, name); ok {
 		return command, nil
@@ -1502,6 +1578,8 @@ func resolveMCPPromptSkill(name string, appState map[string]any) (skillCommand, 
 			return skillCommand{
 				Name:          name,
 				Content:       prompt.Description,
+				Source:        "mcp",
+				LoadedFrom:    "mcp",
 				ArgumentNames: args,
 				MCPPrompt:     true,
 				MCPServer:     server,
@@ -1534,6 +1612,8 @@ func MCPPromptSkillCommands(prompts map[string]MCPPromptsListResult) []SkillComm
 				Name:          name,
 				Description:   prompt.Description,
 				Content:       prompt.Description,
+				Source:        "mcp",
+				LoadedFrom:    "mcp",
 				ArgumentNames: args,
 				MCPPrompt:     true,
 				MCPServer:     server,
@@ -1544,12 +1624,178 @@ func MCPPromptSkillCommands(prompts map[string]MCPPromptsListResult) []SkillComm
 	return out
 }
 
+type RemoteCanonicalSkillResolver interface {
+	ResolveRemoteCanonicalSkill(slug string) (SkillCommand, bool, error)
+}
+
+type RemoteCanonicalSkillResolverFunc func(slug string) (SkillCommand, bool, error)
+
+func (f RemoteCanonicalSkillResolverFunc) ResolveRemoteCanonicalSkill(slug string) (SkillCommand, bool, error) {
+	return f(slug)
+}
+
+func resolveRemoteCanonicalSkill(name string, appState map[string]any) (skillCommand, bool, error) {
+	slug, ok := remoteCanonicalSlug(name)
+	if !ok {
+		return skillCommand{}, false, nil
+	}
+	resolver := remoteCanonicalSkillResolverFromAppState(appState)
+	if resolver == nil {
+		return skillCommand{}, true, fmt.Errorf("Remote skill %s was not discovered in this session. Use DiscoverSkills to find remote skills first.", slug)
+	}
+	command, found, err := resolver.ResolveRemoteCanonicalSkill(slug)
+	if err != nil {
+		return skillCommand{}, true, err
+	}
+	if !found {
+		return skillCommand{}, true, fmt.Errorf("Remote skill %s was not discovered in this session. Use DiscoverSkills to find remote skills first.", slug)
+	}
+	if command.Name == "" {
+		command.Name = name
+	}
+	command.RemoteCanonical = true
+	if command.Source == "" {
+		command.Source = "remote"
+	}
+	if command.LoadedFrom == "" {
+		command.LoadedFrom = "remote"
+	}
+	return command, true, nil
+}
+
+func remoteCanonicalSkillResolverFromAppState(appState map[string]any) RemoteCanonicalSkillResolver {
+	if appState == nil {
+		return nil
+	}
+	switch resolver := appState["remoteCanonicalSkillResolver"].(type) {
+	case nil:
+		return nil
+	case RemoteCanonicalSkillResolver:
+		return resolver
+	case RemoteCanonicalSkillResolverFunc:
+		return resolver
+	default:
+		return nil
+	}
+}
+
+func remoteCanonicalSlug(name string) (string, bool) {
+	name = normalizeSkillName(name)
+	if !strings.HasPrefix(name, "_canonical_") {
+		return "", false
+	}
+	slug := strings.TrimSpace(strings.TrimPrefix(name, "_canonical_"))
+	return slug, slug != ""
+}
+
 func mcpPromptCallerFromAppState(appState map[string]any) MCPPromptCaller {
 	if appState == nil {
 		return nil
 	}
 	caller, _ := appState["mcpPromptCaller"].(MCPPromptCaller)
 	return caller
+}
+
+func normalizeSkillInputObject(object map[string]any) map[string]any {
+	if object == nil {
+		return map[string]any{}
+	}
+	normalized := cloneAnyMap(object)
+	name := stringField(normalized, "skill")
+	if name == "" {
+		name = stringField(normalized, "name")
+	}
+	name = normalizeSkillName(name)
+	if name != "" {
+		normalized["skill"] = name
+	}
+	return normalized
+}
+
+func normalizeSkillName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	return strings.TrimPrefix(trimmed, "/")
+}
+
+func skillPermissionRuleDecision(policy permissions.Policy, commandName string, args string) (permissions.Decision, bool) {
+	requestCommand := strings.TrimSpace(commandName)
+	if args = strings.TrimSpace(args); args != "" {
+		requestCommand += " " + args
+	}
+	for _, rule := range policy.Rules {
+		if rule.Action != permissions.ActionDeny || !skillPermissionRuleMatches(rule, commandName, requestCommand) {
+			continue
+		}
+		return permissions.Decision{
+			Category:       permissions.CategoryRuleDenied,
+			RuleSource:     rule.Source,
+			Reason:         "Skill execution blocked by permission rules",
+			DecisionReason: permissions.DecisionReason{Type: permissions.DecisionReasonRule, Rule: &rule},
+		}, true
+	}
+	for _, rule := range policy.Rules {
+		if rule.Action != permissions.ActionAllow || !skillPermissionRuleMatches(rule, commandName, requestCommand) {
+			continue
+		}
+		return permissions.Decision{
+			Allowed:        true,
+			RuleSource:     rule.Source,
+			Reason:         "allowed by rule",
+			DecisionReason: permissions.DecisionReason{Type: permissions.DecisionReasonRule, Rule: &rule},
+		}, true
+	}
+	for _, rule := range policy.Rules {
+		if rule.Action != permissions.ActionAsk || !skillPermissionRuleMatches(rule, commandName, requestCommand) {
+			continue
+		}
+		return permissions.Decision{
+			RequiresApproval: true,
+			Category:         permissions.CategoryApproval,
+			RuleSource:       rule.Source,
+			Reason:           "Execute skill: " + commandName,
+			DecisionReason:   permissions.DecisionReason{Type: permissions.DecisionReasonRule, Rule: &rule},
+		}, true
+	}
+	return permissions.Decision{}, false
+}
+
+func skillPermissionRuleMatches(rule permissions.Rule, commandName, requestCommand string) bool {
+	if rule.ToolName != "" && !permissions.ToolNameMatchesRule(rule.ToolName, "Skill") {
+		return false
+	}
+	if len(rule.Match.CommandContains) == 0 {
+		return true
+	}
+	for _, content := range rule.Match.CommandContains {
+		if skillRuleContentMatches(content, commandName, requestCommand) {
+			return true
+		}
+	}
+	return false
+}
+
+func skillRuleContentMatches(ruleContent, commandName, requestCommand string) bool {
+	ruleContent = normalizeSkillName(ruleContent)
+	commandName = normalizeSkillName(commandName)
+	if ruleContent == "" {
+		return true
+	}
+	if ruleContent == commandName {
+		return true
+	}
+	if strings.HasSuffix(ruleContent, ":*") {
+		prefix := strings.TrimSuffix(ruleContent, ":*")
+		return strings.HasPrefix(commandName, prefix)
+	}
+	return strings.Contains(strings.ToLower(requestCommand), strings.ToLower(ruleContent))
+}
+
+func skillHasOnlySafeProperties(command skillCommand) bool {
+	return len(command.AllowedTools) == 0 &&
+		command.Hooks == nil &&
+		command.Shell == "" &&
+		command.Context == "" &&
+		command.Agent == ""
 }
 
 func mapSkillArgsToPromptArguments(args string, names []string) map[string]any {

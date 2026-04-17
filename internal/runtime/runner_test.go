@@ -1565,7 +1565,11 @@ func TestNewRunnerWithOptionsInjectsSkillForkExecutor(t *testing.T) {
 		}, "\n"),
 		"done",
 	}}, workspace.NewLoader(""), nil, Options{
-		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess, Rules: []permissions.Rule{{
+			ToolName: "Skill",
+			Action:   permissions.ActionAllow,
+			Match:    permissions.Match{CommandContains: []string{"verify"}},
+		}}},
 		SkillRoots:       []string{root},
 		SkillForkExecutor: func(_ context.Context, request tools.SkillForkRequest) (tools.ToolResult, error) {
 			called = true
@@ -1697,7 +1701,11 @@ func TestNewRunnerWithOptionsDefaultsSkillForkToSubagentRuntime(t *testing.T) {
 		"subagent verified",
 		"done",
 	}}, workspace.NewLoader(""), nil, Options{
-		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess, Rules: []permissions.Rule{{
+			ToolName: "Skill",
+			Action:   permissions.ActionAllow,
+			Match:    permissions.Match{CommandContains: []string{"verify"}},
+		}}},
 		SkillRoots:       []string{root},
 	})
 	if err := runner.HandleUserMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
