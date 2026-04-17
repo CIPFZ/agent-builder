@@ -42,6 +42,16 @@ func TestDefaultLoadsPermissionSettingsFromEnv(t *testing.T) {
 	}
 }
 
+func TestDefaultLoadsMCPSkillsFeatureGateFromEnv(t *testing.T) {
+	t.Setenv("MYCLAW_MCP_SKILLS", "false")
+
+	cfg := Default()
+
+	if cfg.MCP.Skills {
+		t.Fatal("MCP skills feature = true, want disabled from MYCLAW_MCP_SKILLS=false")
+	}
+}
+
 func TestDefaultLoadsPermissionRulesFromEnvJSON(t *testing.T) {
 	t.Setenv("MYCLAW_PERMISSION_RULES_JSON", `[{"tool_name":"system.run","action":"deny","match":{"command_contains":["rm -rf"]}},{"tool_name":"system.run","action":"allow","match":{"workdir_prefixes":["/workspace/safe"]}}]`)
 

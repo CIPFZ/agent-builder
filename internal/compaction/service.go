@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"myclaw/internal/model"
+	"myclaw/internal/tools"
 )
 
 type Config struct {
@@ -80,6 +81,7 @@ type SessionMemoryOptions struct {
 	TranscriptPath       string
 	AutoCompactThreshold int
 	PlanAttachment       *model.Message
+	InvokedSkills        []tools.InvokedSkillInfo
 	SessionMemoryPath    string
 }
 
@@ -187,9 +189,12 @@ func (s *Service) CompactWithSessionMemoryOptions(messages []model.Message, summ
 	boundary.CompactMetadata.PreCompactDiscoveredTools = extractDiscoveredToolNames(messages)
 	annotateBoundaryWithPreservedSegment(&boundary, summary.ID, recent)
 
-	attachments := make([]model.Message, 0, 1)
+	attachments := make([]model.Message, 0, 1+len(opts.InvokedSkills))
 	if opts.PlanAttachment != nil {
 		attachments = append(attachments, cloneMessage(*opts.PlanAttachment))
+	}
+	if len(opts.InvokedSkills) > 0 {
+		attachments = append(attachments, tools.BuildInvokedSkillsAttachmentMessage(newUUID(), sessionID, opts.InvokedSkills))
 	}
 
 	compacted := make([]model.Message, 0, 2+len(recent)+len(attachments)+len(opts.HookMessages))
@@ -321,9 +326,19 @@ func (s *Service) overTokenBudget(messages []model.Message) bool {
 func estimateTokens(messages []model.Message) int {
 	total := 0
 	for _, msg := range messages {
-		total += roughTokenCount(msg.Content)
+		contentTokens := roughTokenCount(msg.Content)
+		blockTokens := 0
 		for _, block := range msg.Blocks {
-			total += estimateBlockTokens(block)
+			blockTokens += estimateBlockTokens(block)
+		}
+		if blockTokens > 0 && strings.TrimSpace(msg.Content) == strings.TrimSpace(messageBlocksText(msg.Blocks)) {
+			if blockTokens > contentTokens {
+				total += blockTokens
+			} else {
+				total += contentTokens
+			}
+		} else {
+			total += contentTokens + blockTokens
 		}
 		if msg.CompactMetadata != nil {
 			if encoded, err := json.Marshal(msg.CompactMetadata); err == nil {
@@ -332,6 +347,31 @@ func estimateTokens(messages []model.Message) int {
 		}
 	}
 	return total
+}
+
+func messageBlocksText(blocks []model.MessageBlock) string {
+	var parts []string
+	for _, block := range blocks {
+		switch block.Type {
+		case model.MessageBlockText, model.MessageBlockThinking:
+			if block.Text != "" {
+				parts = append(parts, block.Text)
+			}
+		case model.MessageBlockToolResult:
+			if block.Content != "" {
+				parts = append(parts, block.Content)
+			}
+		case model.MessageBlockToolUse:
+			if block.Name != "" {
+				parts = append(parts, block.Name)
+			}
+		default:
+			if block.Text != "" {
+				parts = append(parts, block.Text)
+			}
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func estimateBlockTokens(block model.MessageBlock) int {

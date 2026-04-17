@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
+	"myclaw/internal/model"
 	"myclaw/internal/permissions"
 	"myclaw/internal/session"
 )
@@ -50,8 +52,12 @@ type StructuredPolicyAwareTool interface {
 }
 
 type ToolResult struct {
-	Output          string
-	ContextModifier func(ToolUseContext) ToolUseContext
+	Output            string
+	StructuredContent any
+	Meta              map[string]any
+	IsError           bool
+	NewMessages       []model.Message
+	ContextModifier   func(ToolUseContext) ToolUseContext
 }
 
 type ContextualTool interface {
@@ -69,23 +75,72 @@ type ResourceLimits struct {
 }
 
 type MCPConnection struct {
-	Name    string
-	Type    string
-	BaseURL string
-	URL     string
-	Command string
-	Args    []string
-	Env     map[string]string
-	Headers map[string]string
+	Name                    string
+	Type                    string
+	BaseURL                 string
+	URL                     string
+	Command                 string
+	Args                    []string
+	Env                     map[string]string
+	Headers                 map[string]string
+	HeadersHelper           string
+	AuthURL                 string
+	AuthScope               string
+	AuthResourceMetadataURL string
+	AuthChallenge           map[string]string
 }
 
 type MCPResource struct {
 	URI         string
+	URITemplate string
 	Name        string
 	Description string
+	MimeType    string
 }
 
 type MCPPromptCaller func(ctx context.Context, server, name string, arguments map[string]any) (MCPPromptResult, error)
+type MCPResourceLister func(ctx context.Context, server string) ([]MCPResource, error)
+
+type MCPToolCallRequest struct {
+	Server            string
+	Name              string
+	Input             map[string]any
+	ToolUseID         string
+	Meta              map[string]any
+	Timeout           time.Duration
+	ReportProgress    ProgressFunc
+	HandleElicitation ElicitationFunc
+}
+
+type MCPContextualToolCaller func(context.Context, MCPToolCallRequest) (MCPToolResult, error)
+
+type MCPAuthStartResult struct {
+	Status              string
+	AuthURL             string
+	Message             string
+	Scope               string
+	ResourceMetadataURL string
+	Challenge           map[string]string
+	Completion          <-chan MCPAuthCompletionResult
+}
+
+type MCPAuthCompletionResult struct {
+	Status  string
+	Message string
+	Error   error
+}
+
+type MCPAuthenticator func(context.Context, string, MCPConnection) (MCPAuthStartResult, error)
+
+type MCPReconnectResult struct {
+	Client    MCPConnection
+	Tools     MCPToolsListResult
+	Prompts   MCPPromptsListResult
+	Skills    []SkillCommand
+	Resources []MCPResource
+}
+
+type MCPReconnectFunc func(context.Context, string) (MCPReconnectResult, error)
 
 type ToolDecision struct {
 	Source             string
@@ -115,8 +170,16 @@ type ToolProgress struct {
 type ProgressFunc func(ToolProgress)
 
 type Command struct {
-	Name        string
-	Description string
+	Type                        string
+	Name                        string
+	Description                 string
+	Source                      string
+	LoadedFrom                  string
+	HasUserSpecifiedDescription bool
+	WhenToUse                   string
+	DisableModelInvocation      bool
+	UserInvocable               bool
+	IsHidden                    bool
 }
 
 type AgentDefinitions struct {
@@ -202,6 +265,12 @@ type ToolUseContext struct {
 	GlobLimits              ResourceLimits
 	MCPClients              []MCPConnection
 	MCPResources            map[string][]MCPResource
+	MCPResourceReader       MCPResourceReader
+	MCPResourceLister       MCPResourceLister
+	MCPContextualToolCaller MCPContextualToolCaller
+	MCPOAuthStore           MCPOAuthStore
+	MCPAuthenticator        MCPAuthenticator
+	MCPReconnect            MCPReconnectFunc
 	RequestPrompt           RequestPromptFunc
 	ReportProgress          ProgressFunc
 	AddNotification         AddNotificationFunc
@@ -336,6 +405,29 @@ func (r *Registry) Register(tool Tool) {
 	for _, alias := range def.Aliases {
 		r.aliases[alias] = def.Name
 	}
+}
+
+func (r *Registry) Unregister(name string) {
+	name = strings.TrimSpace(name)
+	if canonical, ok := r.aliases[name]; ok {
+		name = canonical
+	}
+	if _, exists := r.tools[name]; !exists {
+		return
+	}
+	delete(r.tools, name)
+	for alias, canonical := range r.aliases {
+		if alias == name || canonical == name {
+			delete(r.aliases, alias)
+		}
+	}
+	filtered := r.order[:0]
+	for _, existing := range r.order {
+		if existing != name {
+			filtered = append(filtered, existing)
+		}
+	}
+	r.order = filtered
 }
 
 func (r *Registry) Definitions() []Definition {

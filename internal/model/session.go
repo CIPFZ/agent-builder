@@ -13,6 +13,7 @@ type SessionMetadata struct {
 	LastActivityAt                 time.Time        `json:"last_activity_at,omitempty"`
 	InitialMainLoopModel           string           `json:"initial_main_loop_model,omitempty"`
 	MainLoopModelOverride          string           `json:"main_loop_model_override,omitempty"`
+	MainLoopEffortOverride         string           `json:"main_loop_effort_override,omitempty"`
 	PendingApprovalID              string           `json:"pending_approval_id,omitempty"`
 	PendingApprovalStatus          string           `json:"pending_approval_status,omitempty"`
 	PendingApprovalToolName        string           `json:"pending_approval_tool_name,omitempty"`

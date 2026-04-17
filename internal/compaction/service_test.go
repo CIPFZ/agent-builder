@@ -8,6 +8,7 @@ import (
 
 	"myclaw/internal/compaction"
 	"myclaw/internal/model"
+	"myclaw/internal/tools"
 )
 
 func TestServiceCompactIfNeededSummarizesOldMessages(t *testing.T) {
@@ -650,6 +651,91 @@ func TestServiceCompactWithSessionMemoryBuildsClaudePostCompactShape(t *testing.
 	}
 	if result.TruePostCompactTokenCount != result.PostCompactTokenCount || result.TruePostCompactTokenCount == 0 {
 		t.Fatalf("result = %#v, want true post compact token count", result)
+	}
+}
+
+func TestServiceCompactWithSessionMemoryPreservesInvokedSkillAttachmentBeforeHooks(t *testing.T) {
+	service := compaction.NewService(compaction.Config{
+		MaxMessages:                2,
+		PreserveRecentTurns:        1,
+		SummaryPrefix:              "Summary:",
+		SessionMemoryMinTokens:     1,
+		SessionMemoryMinTextBlocks: 1,
+		SessionMemoryMaxTokens:     100,
+	})
+
+	invokedSkills := []tools.InvokedSkillInfo{
+		{
+			SkillName: "research",
+			SkillPath: "/skills/research/SKILL.md",
+			Content:   "Use the skill to gather sources.",
+			AgentID:   "agent-1",
+			InvokedAt: time.Unix(123, 0).UTC(),
+		},
+	}
+
+	result := service.CompactWithSessionMemoryOptions([]model.Message{
+		{ID: "msg-1", SessionID: "sess-1", Role: "user", Content: "old prompt"},
+		{ID: "msg-2", SessionID: "sess-1", Role: "assistant", Content: "old answer"},
+		{ID: "msg-3", SessionID: "sess-1", Role: "user", Content: "latest prompt"},
+	}, "Summary: old summarized context", "msg-2", compaction.SessionMemoryOptions{
+		HookMessages: []model.Message{
+			{ID: "hook-1", SessionID: "sess-1", Role: "system", Content: "CLAUDE.md compact hook context"},
+		},
+		InvokedSkills: invokedSkills,
+	})
+
+	if !result.Changed {
+		t.Fatalf("result = %#v, want changed result", result)
+	}
+	if len(result.Messages) != 5 {
+		t.Fatalf("messages = %#v, want boundary, summary, tail, attachment, hook", result.Messages)
+	}
+	if result.Messages[2].ID != "msg-3" {
+		t.Fatalf("tail message = %#v, want latest preserved tail", result.Messages[2])
+	}
+	if result.Messages[3].Role != "attachment" || result.Messages[3].Subtype != "invoked_skills" {
+		t.Fatalf("attachment = %#v, want invoked_skills attachment after preserved tail", result.Messages[3])
+	}
+	if result.Messages[4].ID != "hook-1" {
+		t.Fatalf("hook message = %#v, want hook after attachment", result.Messages[4])
+	}
+}
+
+func TestBuildInvokedSkillsAttachmentMessageUsesStableCamelCasePayload(t *testing.T) {
+	attachment := tools.BuildInvokedSkillsAttachmentMessage("attachment-1", "sess-1", []tools.InvokedSkillInfo{
+		{
+			SkillName: "research",
+			SkillPath: "/skills/research/SKILL.md",
+			Content:   "Use the skill to gather sources.",
+			AgentID:   "agent-1",
+			InvokedAt: time.Unix(123, 0).UTC(),
+		},
+	})
+
+	if attachment.Role != "attachment" || attachment.Subtype != "invoked_skills" {
+		t.Fatalf("attachment = %#v, want invoked_skills attachment message", attachment)
+	}
+	var payload struct {
+		Type   string `json:"type"`
+		Skills []struct {
+			SkillName string `json:"skillName"`
+			SkillPath string `json:"skillPath"`
+			Content   string `json:"content"`
+			AgentID   string `json:"agentId"`
+		} `json:"skills"`
+	}
+	if err := json.Unmarshal([]byte(attachment.Content), &payload); err != nil {
+		t.Fatalf("unmarshal attachment payload: %v", err)
+	}
+	if payload.Type != "invoked_skills" {
+		t.Fatalf("payload type = %q, want invoked_skills", payload.Type)
+	}
+	if len(payload.Skills) != 1 {
+		t.Fatalf("payload = %#v, want one invoked skill", payload)
+	}
+	if payload.Skills[0].SkillName != "research" || payload.Skills[0].SkillPath != "/skills/research/SKILL.md" || payload.Skills[0].AgentID != "agent-1" {
+		t.Fatalf("payload skill = %#v, want stable camelCase fields", payload.Skills[0])
 	}
 }
 

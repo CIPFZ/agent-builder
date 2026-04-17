@@ -15,6 +15,7 @@ type Config struct {
 	LLM         LLMConfig
 	Permissions PermissionConfig
 	Compact     CompactConfig
+	MCP         MCPConfig
 }
 
 type LLMConfig struct {
@@ -36,6 +37,10 @@ type PermissionConfig struct {
 
 type CompactConfig struct {
 	VerificationMode bool
+}
+
+type MCPConfig struct {
+	Skills bool
 }
 
 func Default() Config {
@@ -75,6 +80,9 @@ func defaultConfig() Config {
 		Compact: CompactConfig{
 			VerificationMode: envBool("MYCLAW_COMPACT_VERIFICATION_MODE", false),
 		},
+		MCP: MCPConfig{
+			Skills: envBool("MYCLAW_MCP_SKILLS", true),
+		},
 	}
 }
 
@@ -84,6 +92,7 @@ type fileConfig struct {
 	LLM         fileLLMConfig        `json:"llm"`
 	Permissions filePermissionConfig `json:"permissions"`
 	Compact     fileCompactConfig    `json:"compact"`
+	MCP         fileMCPConfig        `json:"mcp"`
 }
 
 type fileLLMConfig struct {
@@ -105,6 +114,10 @@ type filePermissionConfig struct {
 
 type fileCompactConfig struct {
 	VerificationMode *bool `json:"verification_mode"`
+}
+
+type fileMCPConfig struct {
+	Skills *bool `json:"skills"`
 }
 
 func mergeFileConfig(cfg *Config, path string) {
@@ -160,6 +173,9 @@ func mergeFileConfig(cfg *Config, path string) {
 	if fileCfg.Compact.VerificationMode != nil {
 		cfg.Compact.VerificationMode = *fileCfg.Compact.VerificationMode
 	}
+	if fileCfg.MCP.Skills != nil {
+		cfg.MCP.Skills = *fileCfg.MCP.Skills
+	}
 }
 
 func applyEnvOverrides(cfg *Config) {
@@ -187,6 +203,7 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.Permissions.DangerousCommandPatterns = value
 	}
 	cfg.Compact.VerificationMode = envBool("MYCLAW_COMPACT_VERIFICATION_MODE", cfg.Compact.VerificationMode)
+	cfg.MCP.Skills = envBool("MYCLAW_MCP_SKILLS", cfg.MCP.Skills)
 }
 
 func configPath(dir string) string {

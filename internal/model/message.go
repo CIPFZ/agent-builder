@@ -150,6 +150,23 @@ type Message struct {
 	Subtype                   string           `json:"subtype,omitempty"`
 	Content                   string           `json:"content"`
 	ProviderMessageID         string           `json:"provider_message_id,omitempty"`
+	ProviderModel             string           `json:"provider_model,omitempty"`
+	StopReason                string           `json:"stop_reason,omitempty"`
+	StopSequence              string           `json:"stop_sequence,omitempty"`
+	ProviderUsage             any              `json:"provider_usage,omitempty"`
+	SourceToolAssistantUUID   string           `json:"source_tool_assistant_uuid,omitempty"`
+	ToolUseResult             any              `json:"tool_use_result,omitempty"`
+	CWD                       string           `json:"cwd,omitempty"`
+	UserType                  string           `json:"user_type,omitempty"`
+	Entrypoint                string           `json:"entrypoint,omitempty"`
+	Version                   string           `json:"version,omitempty"`
+	GitBranch                 string           `json:"git_branch,omitempty"`
+	Slug                      string           `json:"slug,omitempty"`
+	AgentID                   string           `json:"agent_id,omitempty"`
+	TeamName                  string           `json:"team_name,omitempty"`
+	AgentName                 string           `json:"agent_name,omitempty"`
+	AgentColor                string           `json:"agent_color,omitempty"`
+	PromptID                  string           `json:"prompt_id,omitempty"`
 	Blocks                    []MessageBlock   `json:"blocks,omitempty"`
 	IsMeta                    bool             `json:"is_meta,omitempty"`
 	Level                     string           `json:"level,omitempty"`

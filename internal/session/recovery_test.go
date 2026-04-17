@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -306,6 +307,59 @@ func TestRecoverySnapshotFallsBackToLatestContinuationMessagesWhenMetadataIDsAre
 	assistant, ok := snapshot.LastAssistantMessage()
 	if !ok || assistant.ID != "msg-4" {
 		t.Fatalf("last assistant message = %#v, %v, want msg-4", assistant, ok)
+	}
+}
+
+func TestRecoverySnapshotRestoresInvokedSkillsFromAttachmentMessages(t *testing.T) {
+	now := time.Now().UTC()
+	attachmentPayload := struct {
+		Type   string `json:"type"`
+		Skills []struct {
+			SkillName string `json:"skillName"`
+			SkillPath string `json:"skillPath"`
+			Content   string `json:"content"`
+			AgentID   string `json:"agentId"`
+			InvokedAt string `json:"invokedAt"`
+		} `json:"skills"`
+	}{
+		Type: "invoked_skills",
+		Skills: []struct {
+			SkillName string `json:"skillName"`
+			SkillPath string `json:"skillPath"`
+			Content   string `json:"content"`
+			AgentID   string `json:"agentId"`
+			InvokedAt string `json:"invokedAt"`
+		}{
+			{
+				SkillName: "research",
+				SkillPath: "/skills/research/SKILL.md",
+				Content:   "Use the skill to gather sources.",
+				AgentID:   "agent-1",
+				InvokedAt: now.Format(time.RFC3339Nano),
+			},
+		},
+	}
+	payload, err := json.Marshal(attachmentPayload)
+	if err != nil {
+		t.Fatalf("marshal attachment payload: %v", err)
+	}
+
+	snapshot := BuildRecoverySnapshot(Session{ID: "sess-1"}, []Message{
+		{ID: "summary-1", SessionID: "sess-1", Role: "summary", Content: "Summary: compacted", CreatedAt: now},
+		{ID: "compact-1", SessionID: "sess-1", Role: "system", Subtype: "compact_boundary", Content: "Conversation compacted", CreatedAt: now.Add(time.Second)},
+		{ID: "attachment-1", SessionID: "sess-1", Role: "attachment", Subtype: "invoked_skills", IsMeta: true, IsVisibleInTranscriptOnly: true, Content: string(payload), CreatedAt: now.Add(2 * time.Second)},
+		{ID: "msg-2", SessionID: "sess-1", Role: "assistant", Content: "latest assistant", CreatedAt: now.Add(3 * time.Second)},
+	})
+
+	skills := snapshot.RecoveredInvokedSkills()
+	if len(skills) != 1 {
+		t.Fatalf("skills = %#v, want one recovered invoked skill", skills)
+	}
+	if skills[0].SkillName != "research" || skills[0].SkillPath != "/skills/research/SKILL.md" || skills[0].AgentID != "agent-1" {
+		t.Fatalf("skills[0] = %#v, want recovered invoked skill info", skills[0])
+	}
+	if skills[0].Content != "Use the skill to gather sources." {
+		t.Fatalf("skills[0].Content = %q, want recovered content", skills[0].Content)
 	}
 }
 

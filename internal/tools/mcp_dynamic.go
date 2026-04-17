@@ -1,6 +1,9 @@
 package tools
 
-import "strings"
+import (
+	"context"
+	"strings"
+)
 
 type MCPToolListItem struct {
 	Name        string         `json:"name"`
@@ -30,6 +33,23 @@ type MCPPromptsListResult struct {
 	Prompts []MCPPromptListItem `json:"prompts"`
 }
 
+type MCPResourceListItem struct {
+	URI         string `json:"uri"`
+	URITemplate string `json:"uriTemplate,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
+type MCPResourcesListResult struct {
+	Resources []MCPResourceListItem `json:"resources"`
+}
+
+type MCPResourceTemplatesListResult struct {
+	ResourceTemplates []MCPResourceListItem `json:"resourceTemplates"`
+}
+
 type MCPPromptMessage struct {
 	Role    string `json:"role,omitempty"`
 	Content any    `json:"content,omitempty"`
@@ -41,19 +61,58 @@ type MCPPromptResult struct {
 	Meta        map[string]any     `json:"_meta,omitempty"`
 }
 
+type MCPResourceReadContent struct {
+	URI         string `json:"uri,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+	Text        string `json:"text,omitempty"`
+	BlobSavedTo string `json:"blobSavedTo,omitempty"`
+}
+
+type MCPResourceReadResult struct {
+	Contents []MCPResourceReadContent `json:"contents,omitempty"`
+}
+
+type MCPAuthToolResult struct {
+	Name                string            `json:"name"`
+	Status              string            `json:"status"`
+	AuthURL             string            `json:"authUrl,omitempty"`
+	Message             string            `json:"message"`
+	Scope               string            `json:"scope,omitempty"`
+	ResourceMetadataURL string            `json:"resourceMetadataUrl,omitempty"`
+	Challenge           map[string]string `json:"challenge,omitempty"`
+}
+
+type MCPResourceReader func(ctx context.Context, server, uri string) (MCPResourceReadResult, error)
+
 func DiscoverMCPTools(server string, result MCPToolsListResult, caller MCPToolCaller) []Tool {
 	discovered := make([]Tool, 0, len(result.Tools))
 	for _, item := range result.Tools {
-		discovered = append(discovered, NewMCPTool(MCPToolDefinition{
-			Server:      server,
-			Name:        item.Name,
-			Description: item.Description,
-			InputSchema: deepCloneAnyMap(item.InputSchema),
-			ReadOnly:    mcpBoolAnnotation(item.Annotations, "readOnlyHint"),
-			Destructive: mcpBoolAnnotation(item.Annotations, "destructiveHint"),
-		}, caller))
+		discovered = append(discovered, newMCPToolFromListItem(server, item, caller, nil))
 	}
 	return discovered
+}
+
+func DiscoverMCPToolsWithContextualCaller(server string, result MCPToolsListResult, caller MCPContextualToolCaller) []Tool {
+	discovered := make([]Tool, 0, len(result.Tools))
+	for _, item := range result.Tools {
+		discovered = append(discovered, newMCPToolFromListItem(server, item, nil, caller))
+	}
+	return discovered
+}
+
+func newMCPToolFromListItem(server string, item MCPToolListItem, caller MCPToolCaller, contextualCaller MCPContextualToolCaller) Tool {
+	def := MCPToolDefinition{
+		Server:      server,
+		Name:        item.Name,
+		Description: item.Description,
+		InputSchema: deepCloneAnyMap(item.InputSchema),
+		ReadOnly:    mcpBoolAnnotation(item.Annotations, "readOnlyHint"),
+		Destructive: mcpBoolAnnotation(item.Annotations, "destructiveHint"),
+	}
+	if contextualCaller != nil {
+		return NewMCPContextualTool(def, contextualCaller)
+	}
+	return NewMCPTool(def, caller)
 }
 
 func RegisterDiscoveredMCPTools(registry *Registry, server string, result MCPToolsListResult, caller MCPToolCaller) {
@@ -61,6 +120,15 @@ func RegisterDiscoveredMCPTools(registry *Registry, server string, result MCPToo
 		return
 	}
 	for _, tool := range DiscoverMCPTools(server, result, caller) {
+		registry.Register(tool)
+	}
+}
+
+func RegisterDiscoveredMCPToolsWithContextualCaller(registry *Registry, server string, result MCPToolsListResult, caller MCPContextualToolCaller) {
+	if registry == nil {
+		return
+	}
+	for _, tool := range DiscoverMCPToolsWithContextualCaller(server, result, caller) {
 		registry.Register(tool)
 	}
 }

@@ -1,5 +1,11 @@
 package session
 
+import (
+	"encoding/json"
+	"strings"
+	"time"
+)
+
 type RecoverySnapshot struct {
 	Session      Session
 	Metadata     SessionMetadata
@@ -22,6 +28,14 @@ type ContinuationState struct {
 	ResumeFromMessageID string
 	ResumeFromRole      string
 	HasCompaction       bool
+}
+
+type RecoveredInvokedSkillInfo struct {
+	SkillName string
+	SkillPath string
+	Content   string
+	InvokedAt time.Time
+	AgentID   string
 }
 
 func BuildRecoverySnapshot(sess Session, messages []Message) RecoverySnapshot {
@@ -89,6 +103,41 @@ func (s RecoverySnapshot) CompactionSummary() (Message, bool) {
 func (s RecoverySnapshot) HasCompaction() bool {
 	_, ok := s.CompactBoundary()
 	return ok
+}
+
+func (s RecoverySnapshot) RecoveredInvokedSkills() []RecoveredInvokedSkillInfo {
+	return RecoveredInvokedSkillsFromMessages(s.Continuation)
+}
+
+func RecoveredInvokedSkillsFromMessages(messages []Message) []RecoveredInvokedSkillInfo {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	order := make([]string, 0)
+	byKey := make(map[string]RecoveredInvokedSkillInfo)
+	for _, message := range messages {
+		if !isInvokedSkillsAttachment(message) {
+			continue
+		}
+		payload, ok := parseInvokedSkillsAttachment(message.Content)
+		if !ok {
+			continue
+		}
+		for _, skill := range payload.Skills {
+			key := skill.AgentID + "\x00" + skill.SkillName
+			if _, seen := byKey[key]; !seen {
+				order = append(order, key)
+			}
+			byKey[key] = skill.toRecoveredInvokedSkillInfo()
+		}
+	}
+
+	out := make([]RecoveredInvokedSkillInfo, 0, len(order))
+	for _, key := range order {
+		out = append(out, byKey[key])
+	}
+	return out
 }
 
 func (s RecoverySnapshot) ContinuationState() ContinuationState {
@@ -252,4 +301,56 @@ func synthesizeCompactionAnchors(sess Session, continuation []Message) []Message
 	out = append(out, prefix...)
 	out = append(out, continuation...)
 	return out
+}
+
+type invokedSkillsAttachmentPayload struct {
+	Type   string                        `json:"type"`
+	Skills []invokedSkillsAttachmentInfo `json:"skills"`
+}
+
+type invokedSkillsAttachmentInfo struct {
+	SkillName string `json:"skillName"`
+	SkillPath string `json:"skillPath"`
+	Content   string `json:"content"`
+	AgentID   string `json:"agentId"`
+	InvokedAt string `json:"invokedAt"`
+}
+
+func parseInvokedSkillsAttachment(content string) (invokedSkillsAttachmentPayload, bool) {
+	if strings.TrimSpace(content) == "" {
+		return invokedSkillsAttachmentPayload{}, false
+	}
+	var payload invokedSkillsAttachmentPayload
+	if err := json.Unmarshal([]byte(content), &payload); err != nil {
+		return invokedSkillsAttachmentPayload{}, false
+	}
+	if payload.Type != "invoked_skills" {
+		return invokedSkillsAttachmentPayload{}, false
+	}
+	return payload, true
+}
+
+func isInvokedSkillsAttachment(message Message) bool {
+	return message.Role == "attachment" && message.Subtype == "invoked_skills"
+}
+
+func (skill invokedSkillsAttachmentInfo) toRecoveredInvokedSkillInfo() RecoveredInvokedSkillInfo {
+	invokedAt, _ := parseAttachmentTimestamp(skill.InvokedAt)
+	return RecoveredInvokedSkillInfo{
+		SkillName: skill.SkillName,
+		SkillPath: skill.SkillPath,
+		Content:   skill.Content,
+		InvokedAt: invokedAt,
+		AgentID:   skill.AgentID,
+	}
+}
+
+func parseAttachmentTimestamp(value string) (time.Time, error) {
+	if strings.TrimSpace(value) == "" {
+		return time.Time{}, nil
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return parsed, nil
+	}
+	return time.Parse(time.RFC3339, value)
 }

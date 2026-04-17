@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"myclaw/internal/model"
 )
@@ -211,6 +212,89 @@ func TestClaudeTranscriptMessageFromUserUsesNestedClaudeWireShape(t *testing.T) 
 	}
 }
 
+func TestClaudeTranscriptMessageIncludesSerializedSessionFields(t *testing.T) {
+	parent := "parent-uuid"
+	message := model.Message{
+		ID:         "user-uuid",
+		SessionID:  "sess-1",
+		Role:       "user",
+		Content:    "hello",
+		CWD:        "C:/repo",
+		UserType:   "external",
+		Entrypoint: "cli",
+		Version:    "1.2.3",
+		GitBranch:  "main",
+		Slug:       "plan-slug",
+		AgentID:    "agent-1",
+		TeamName:   "team",
+		AgentName:  "worker",
+		AgentColor: "blue",
+		PromptID:   "prompt-1",
+	}
+
+	data, err := json.Marshal(model.NewClaudeTranscriptMessage(message, model.ClaudeTranscriptOptions{
+		ParentUUID: &parent,
+		Timestamp:  "2026-04-15T00:00:00Z",
+	}))
+	if err != nil {
+		t.Fatalf("marshal transcript: %v", err)
+	}
+	wire := string(data)
+	for _, want := range []string{
+		`"cwd":"C:/repo"`,
+		`"userType":"external"`,
+		`"entrypoint":"cli"`,
+		`"sessionId":"sess-1"`,
+		`"version":"1.2.3"`,
+		`"gitBranch":"main"`,
+		`"slug":"plan-slug"`,
+		`"agentId":"agent-1"`,
+		`"teamName":"team"`,
+		`"agentName":"worker"`,
+		`"agentColor":"blue"`,
+		`"promptId":"prompt-1"`,
+	} {
+		if !strings.Contains(wire, want) {
+			t.Fatalf("wire JSON = %s, want %s", wire, want)
+		}
+	}
+}
+
+func TestClaudeTranscriptRoundTripPreservesSerializedSessionFields(t *testing.T) {
+	transcript := model.ClaudeTranscriptMessage{
+		ParentUUID:  nil,
+		IsSidechain: false,
+		CWD:         "C:/repo",
+		UserType:    "external",
+		Entrypoint:  "sdk-ts",
+		SessionID:   "sess-1",
+		Version:     "1.2.3",
+		GitBranch:   "main",
+		Slug:        "plan-slug",
+		AgentID:     "agent-1",
+		TeamName:    "team",
+		AgentName:   "worker",
+		AgentColor:  "blue",
+		PromptID:    "prompt-1",
+		Type:        "user",
+		UUID:        "user-uuid",
+		Timestamp:   "2026-04-15T00:00:00Z",
+		Message:     &model.ClaudeAPIMessage{Role: "user", Content: "hello"},
+	}
+
+	message, err := model.MessageFromClaudeTranscript(transcript, "sess-1")
+	if err != nil {
+		t.Fatalf("convert transcript: %v", err)
+	}
+	if message.CWD != "C:/repo" || message.Entrypoint != "sdk-ts" || message.PromptID != "prompt-1" {
+		t.Fatalf("message = %#v, want serialized session fields", message)
+	}
+	encoded := model.NewClaudeTranscriptMessage(message, model.ClaudeTranscriptOptions{Timestamp: "2026-04-15T00:00:00Z"})
+	if encoded.CWD != "C:/repo" || encoded.Entrypoint != "sdk-ts" || encoded.PromptID != "prompt-1" {
+		t.Fatalf("encoded = %#v, want serialized session fields preserved", encoded)
+	}
+}
+
 func TestClaudeTranscriptMessageFromAssistantToolUsePreservesContentBlocks(t *testing.T) {
 	message := model.Message{
 		ID:                "assistant-uuid",
@@ -326,6 +410,243 @@ func TestClaudeTranscriptMessageFromCompactBoundaryUsesSystemShape(t *testing.T)
 	}
 }
 
+func TestClaudeTranscriptRoundTripPreservesToolRuntimeRoleAndSourceAssistantUUID(t *testing.T) {
+	sourceAssistant := "assistant-uuid"
+	original := model.Message{
+		ID:        "tool-result-uuid",
+		SessionID: "sess-1",
+		Role:      "tool",
+		Content:   "mcp__filesystem__read_resource: updated mcp output",
+		Blocks: []model.MessageBlock{{
+			Type:      model.MessageBlockToolResult,
+			ToolUseID: "toolu-1",
+			Content:   "tool output",
+		}},
+		CreatedAt: time.Unix(1, 0).UTC(),
+	}
+	transcript := model.NewClaudeTranscriptMessage(original, model.ClaudeTranscriptOptions{
+		SourceToolAssistantUUID: sourceAssistant,
+		Timestamp:               "2026-04-15T00:00:00Z",
+	})
+	if transcript.SourceToolAssistantUUID != sourceAssistant {
+		t.Fatalf("transcript = %#v, want source assistant UUID", transcript)
+	}
+
+	roundTripped, err := model.MessageFromClaudeTranscript(transcript, "sess-1")
+	if err != nil {
+		t.Fatalf("round trip transcript: %v", err)
+	}
+	if roundTripped.Role != "tool" || len(roundTripped.Blocks) != 1 || roundTripped.Blocks[0].ToolUseID != "toolu-1" {
+		t.Fatalf("round tripped message = %#v, want tool result runtime view", roundTripped)
+	}
+	if roundTripped.SourceToolAssistantUUID != sourceAssistant {
+		t.Fatalf("round tripped message = %#v, want source assistant UUID preserved", roundTripped)
+	}
+	if roundTripped.Content != original.Content {
+		t.Fatalf("round tripped content = %q, want runtime content %q", roundTripped.Content, original.Content)
+	}
+}
+
+func TestClaudeTranscriptRoundTripPreservesAssistantAPIMessageMetadata(t *testing.T) {
+	transcript := model.ClaudeTranscriptMessage{
+		Type:      "assistant",
+		UUID:      "assistant-uuid",
+		Timestamp: "2026-04-15T00:00:00Z",
+		Message: &model.ClaudeAPIMessage{
+			ID:           "provider-msg",
+			Model:        "claude-opus-4-6",
+			Role:         "assistant",
+			Type:         "message",
+			StopReason:   "tool_use",
+			StopSequence: "stop",
+			Usage:        map[string]any{"input_tokens": float64(10)},
+			Content:      []model.MessageBlock{{Type: model.MessageBlockText, Text: "hello"}},
+		},
+	}
+
+	message, err := model.MessageFromClaudeTranscript(transcript, "sess-1")
+	if err != nil {
+		t.Fatalf("convert transcript: %v", err)
+	}
+	if message.ProviderMessageID != "provider-msg" || message.ProviderModel != "claude-opus-4-6" || message.StopReason != "tool_use" {
+		t.Fatalf("message = %#v, want assistant provider metadata", message)
+	}
+
+	encoded := model.NewClaudeTranscriptMessage(message, model.ClaudeTranscriptOptions{Timestamp: "2026-04-15T00:00:00Z"})
+	if encoded.Message == nil || encoded.Message.Model != "claude-opus-4-6" || encoded.Message.StopReason != "tool_use" {
+		t.Fatalf("encoded transcript = %#v, want provider metadata preserved", encoded)
+	}
+}
+
+func TestClaudeTranscriptToolResultParentsToSourceAssistantUUID(t *testing.T) {
+	entries := model.NewClaudeTranscriptMessages([]model.Message{
+		{
+			ID:        "source-assistant-uuid",
+			SessionID: "sess-1",
+			Role:      "assistant",
+			Content:   "calling tool",
+			Blocks: []model.MessageBlock{{
+				Type: model.MessageBlockToolUse,
+				ID:   "toolu-1",
+				Name: "Read",
+			}},
+			CreatedAt: time.Unix(1, 0).UTC(),
+		},
+		{
+			ID:        "other-assistant-uuid",
+			SessionID: "sess-1",
+			Role:      "assistant",
+			Content:   "parallel assistant",
+			CreatedAt: time.Unix(2, 0).UTC(),
+		},
+		{
+			ID:                      "tool-result-uuid",
+			SessionID:               "sess-1",
+			Role:                    "tool",
+			Content:                 "Read: file contents",
+			SourceToolAssistantUUID: "source-assistant-uuid",
+			Blocks: []model.MessageBlock{{
+				Type:      model.MessageBlockToolResult,
+				ToolUseID: "toolu-1",
+				Content:   "file contents",
+			}},
+			CreatedAt: time.Unix(3, 0).UTC(),
+		},
+	}, nil)
+
+	if len(entries) != 3 || entries[2].ParentUUID == nil || *entries[2].ParentUUID != "source-assistant-uuid" {
+		t.Fatalf("entries = %#v, want tool_result parentUuid to source assistant", entries)
+	}
+}
+
+func TestClaudeTranscriptCompactBoundaryMovesParentToLogicalParent(t *testing.T) {
+	parent := "summary-uuid"
+	entry := model.NewClaudeTranscriptMessage(model.Message{
+		ID:        "boundary-uuid",
+		SessionID: "sess-1",
+		Role:      "system",
+		Subtype:   "compact_boundary",
+		Content:   "Conversation compacted",
+		CreatedAt: time.Unix(1, 0).UTC(),
+	}, model.ClaudeTranscriptOptions{ParentUUID: &parent, Timestamp: "2026-04-15T00:00:00Z"})
+
+	if entry.ParentUUID != nil {
+		t.Fatalf("entry = %#v, want compact boundary parentUuid nil", entry)
+	}
+	if entry.LogicalParentUUID == nil || *entry.LogicalParentUUID != parent {
+		t.Fatalf("entry = %#v, want original parentUuid preserved as logicalParentUuid", entry)
+	}
+}
+
+func TestClaudeTranscriptLoadAppliesPreservedSegmentRelinks(t *testing.T) {
+	entries := []model.ClaudeTranscriptMessage{
+		{Type: "user", UUID: "old-root", Timestamp: "2026-04-15T00:00:01Z", Message: &model.ClaudeAPIMessage{Role: "user", Content: "old root"}},
+		{ParentUUID: stringPtr("old-root"), Type: "assistant", UUID: "old-answer", Timestamp: "2026-04-15T00:00:02Z", Message: &model.ClaudeAPIMessage{ID: "provider-old", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockText, Text: "old answer"}}}},
+		{Type: "system", UUID: "boundary", Timestamp: "2026-04-15T00:00:03Z", Subtype: "compact_boundary", Content: "Conversation compacted", CompactMetadata: &model.CompactMetadata{PreservedSegment: &model.CompactPreservedSegment{HeadID: "kept-head", AnchorID: "summary", TailID: "kept-tail"}}},
+		{ParentUUID: stringPtr("boundary"), Type: "user", UUID: "summary", Timestamp: "2026-04-15T00:00:04Z", Message: &model.ClaudeAPIMessage{Role: "user", Content: "Summary: compacted"}, IsCompactSummary: true},
+		{ParentUUID: stringPtr("old-answer"), Type: "user", UUID: "kept-head", Timestamp: "2026-04-15T00:00:05Z", Message: &model.ClaudeAPIMessage{Role: "user", Content: "kept prompt"}},
+		{ParentUUID: stringPtr("kept-head"), Type: "assistant", UUID: "kept-tail", Timestamp: "2026-04-15T00:00:06Z", Message: &model.ClaudeAPIMessage{ID: "provider-kept", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockText, Text: "kept answer"}}}},
+	}
+
+	chain, err := model.LatestClaudeTranscriptChain(entries)
+	if err != nil {
+		t.Fatalf("latest chain: %v", err)
+	}
+	var ids []string
+	for _, entry := range chain {
+		ids = append(ids, entry.UUID)
+	}
+	want := []string{"boundary", "summary", "kept-head", "kept-tail"}
+	if strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Fatalf("chain ids = %#v, want %#v", ids, want)
+	}
+}
+
+func TestClaudeTranscriptPreservedSegmentZeroesAssistantUsage(t *testing.T) {
+	entries := []model.ClaudeTranscriptMessage{
+		{Type: "system", UUID: "boundary", Timestamp: "2026-04-15T00:00:03Z", Subtype: "compact_boundary", Content: "Conversation compacted", CompactMetadata: &model.CompactMetadata{PreservedSegment: &model.CompactPreservedSegment{HeadID: "kept-head", AnchorID: "summary", TailID: "kept-tail"}}},
+		{ParentUUID: stringPtr("boundary"), Type: "user", UUID: "summary", Timestamp: "2026-04-15T00:00:04Z", Message: &model.ClaudeAPIMessage{Role: "user", Content: "Summary: compacted"}, IsCompactSummary: true},
+		{Type: "user", UUID: "kept-head", Timestamp: "2026-04-15T00:00:05Z", Message: &model.ClaudeAPIMessage{Role: "user", Content: "kept prompt"}},
+		{ParentUUID: stringPtr("kept-head"), Type: "assistant", UUID: "kept-tail", Timestamp: "2026-04-15T00:00:06Z", Message: &model.ClaudeAPIMessage{ID: "provider-kept", Role: "assistant", Type: "message", Usage: map[string]any{"input_tokens": float64(1234)}, Content: []model.MessageBlock{{Type: model.MessageBlockText, Text: "kept answer"}}}},
+	}
+
+	chain, err := model.LatestClaudeTranscriptChain(entries)
+	if err != nil {
+		t.Fatalf("latest chain: %v", err)
+	}
+	tail := chain[len(chain)-1]
+	usage, ok := tail.Message.Usage.(map[string]any)
+	if !ok || usage["input_tokens"] != 0 {
+		t.Fatalf("usage = %#v, want stale usage zeroed", tail.Message.Usage)
+	}
+}
+
+func TestClaudeTranscriptLoadSelectsTerminalUserAssistantLeaf(t *testing.T) {
+	entries := []model.ClaudeTranscriptMessage{
+		{Type: "user", UUID: "root", Timestamp: "2026-04-15T00:00:01Z", Message: &model.ClaudeAPIMessage{Role: "user", Content: "root"}},
+		{ParentUUID: stringPtr("late-user"), Type: "assistant", UUID: "terminal-assistant", Timestamp: "2026-04-15T00:00:04Z", Message: &model.ClaudeAPIMessage{ID: "provider-terminal", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockText, Text: "terminal"}}}},
+		{ParentUUID: stringPtr("root"), Type: "user", UUID: "late-user", Timestamp: "2026-04-15T00:00:02Z", Message: &model.ClaudeAPIMessage{Role: "user", Content: "late parent"}},
+	}
+
+	chain, err := model.LatestClaudeTranscriptChain(entries)
+	if err != nil {
+		t.Fatalf("latest chain: %v", err)
+	}
+	if chain[len(chain)-1].UUID != "terminal-assistant" {
+		t.Fatalf("chain = %#v, want terminal user/assistant leaf", chain)
+	}
+}
+
+func TestClaudeTranscriptLoadRecoversParallelToolResults(t *testing.T) {
+	entries := []model.ClaudeTranscriptMessage{
+		{Type: "user", UUID: "prompt", Timestamp: "2026-04-15T00:00:01Z", Message: &model.ClaudeAPIMessage{Role: "user", Content: "run tools"}},
+		{ParentUUID: stringPtr("prompt"), Type: "assistant", UUID: "asst-a", Timestamp: "2026-04-15T00:00:02Z", Message: &model.ClaudeAPIMessage{ID: "provider-1", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockToolUse, ID: "toolu-a", Name: "Read"}}}},
+		{ParentUUID: stringPtr("asst-a"), Type: "assistant", UUID: "asst-b", Timestamp: "2026-04-15T00:00:03Z", Message: &model.ClaudeAPIMessage{ID: "provider-1", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockToolUse, ID: "toolu-b", Name: "Grep"}}}},
+		{ParentUUID: stringPtr("asst-a"), Type: "user", UUID: "tr-a", Timestamp: "2026-04-15T00:00:04Z", SourceToolAssistantUUID: "asst-a", Message: &model.ClaudeAPIMessage{Role: "user", Content: []model.MessageBlock{{Type: model.MessageBlockToolResult, ToolUseID: "toolu-a", Content: "a"}}}},
+		{ParentUUID: stringPtr("asst-b"), Type: "user", UUID: "tr-b", Timestamp: "2026-04-15T00:00:05Z", SourceToolAssistantUUID: "asst-b", Message: &model.ClaudeAPIMessage{Role: "user", Content: []model.MessageBlock{{Type: model.MessageBlockToolResult, ToolUseID: "toolu-b", Content: "b"}}}},
+		{ParentUUID: stringPtr("tr-a"), Type: "assistant", UUID: "final", Timestamp: "2026-04-15T00:00:06Z", Message: &model.ClaudeAPIMessage{ID: "provider-final", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockText, Text: "done"}}}},
+	}
+
+	chain, err := model.LatestClaudeTranscriptChain(entries)
+	if err != nil {
+		t.Fatalf("latest chain: %v", err)
+	}
+	var ids []string
+	for _, entry := range chain {
+		ids = append(ids, entry.UUID)
+	}
+	for _, want := range []string{"asst-b", "tr-b"} {
+		if !containsString(ids, want) {
+			t.Fatalf("chain ids = %#v, want recovered %s", ids, want)
+		}
+	}
+}
+
+func TestClaudeTranscriptParallelRecoveryKeepsToolUseBeforeToolResult(t *testing.T) {
+	entries := []model.ClaudeTranscriptMessage{
+		{Type: "user", UUID: "prompt", Timestamp: "2026-04-15T00:00:01Z", Message: &model.ClaudeAPIMessage{Role: "user", Content: "run tools"}},
+		{ParentUUID: stringPtr("prompt"), Type: "assistant", UUID: "asst-a", Timestamp: "2026-04-15T00:00:02Z", Message: &model.ClaudeAPIMessage{ID: "provider-1", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockToolUse, ID: "toolu-a", Name: "Read"}}}},
+		{ParentUUID: stringPtr("asst-a"), Type: "assistant", UUID: "asst-b", Timestamp: "2026-04-15T00:00:05Z", Message: &model.ClaudeAPIMessage{ID: "provider-1", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockToolUse, ID: "toolu-b", Name: "Grep"}}}},
+		{ParentUUID: stringPtr("asst-a"), Type: "user", UUID: "tr-a", Timestamp: "2026-04-15T00:00:06Z", SourceToolAssistantUUID: "asst-a", Message: &model.ClaudeAPIMessage{Role: "user", Content: []model.MessageBlock{{Type: model.MessageBlockToolResult, ToolUseID: "toolu-a", Content: "a"}}}},
+		{ParentUUID: stringPtr("asst-b"), Type: "user", UUID: "tr-b", Timestamp: "2026-04-15T00:00:03Z", SourceToolAssistantUUID: "asst-b", Message: &model.ClaudeAPIMessage{Role: "user", Content: []model.MessageBlock{{Type: model.MessageBlockToolResult, ToolUseID: "toolu-b", Content: "b"}}}},
+		{ParentUUID: stringPtr("tr-a"), Type: "assistant", UUID: "final", Timestamp: "2026-04-15T00:00:07Z", Message: &model.ClaudeAPIMessage{ID: "provider-final", Role: "assistant", Type: "message", Content: []model.MessageBlock{{Type: model.MessageBlockText, Text: "done"}}}},
+	}
+
+	chain, err := model.LatestClaudeTranscriptChain(entries)
+	if err != nil {
+		t.Fatalf("latest chain: %v", err)
+	}
+	var ids []string
+	for _, entry := range chain {
+		ids = append(ids, entry.UUID)
+	}
+	asstIndex := indexOfString(ids, "asst-b")
+	resultIndex := indexOfString(ids, "tr-b")
+	if asstIndex < 0 || resultIndex < 0 || resultIndex < asstIndex {
+		t.Fatalf("chain ids = %#v, want recovered assistant before its tool_result", ids)
+	}
+}
+
 func assertJSONInput(t *testing.T, got string, want map[string]any) {
 	t.Helper()
 
@@ -338,4 +659,26 @@ func assertJSONInput(t *testing.T, got string, want map[string]any) {
 			t.Fatalf("input[%q] = %#v, want %#v in %#v", key, parsed[key], wantValue, parsed)
 		}
 	}
+}
+
+func stringPtr(value string) *string {
+	return &value
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func indexOfString(values []string, want string) int {
+	for i, value := range values {
+		if value == want {
+			return i
+		}
+	}
+	return -1
 }
