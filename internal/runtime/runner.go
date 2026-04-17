@@ -87,10 +87,12 @@ type Options struct {
 	MCPContextualToolCaller   tools.MCPContextualToolCaller
 	MCPOAuthStore             tools.MCPOAuthStore
 	MCPPrompts                map[string]tools.MCPPromptsListResult
+	MCPSkills                 map[string][]tools.SkillCommand
 	MCPPromptCaller           tools.MCPPromptCaller
 	MCPAuthenticator          tools.MCPAuthenticator
 	MCPReconnect              tools.MCPReconnectFunc
 	DisableMCPPromptSkills    bool
+	BundledSkills             tools.BundledSkillOptions
 	SkillRoots                []string
 	SkillDiscovery            tools.SkillDiscoveryOptions
 	SkillForkExecutor         tools.SkillForkExecutor
@@ -198,6 +200,16 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 					}
 				}
 			}
+			if len(discovered.Skills) > 0 {
+				if options.MCPSkills == nil {
+					options.MCPSkills = make(map[string][]tools.SkillCommand)
+				}
+				for server, skills := range discovered.Skills {
+					if _, exists := options.MCPSkills[server]; !exists {
+						options.MCPSkills[server] = append([]tools.SkillCommand(nil), skills...)
+					}
+				}
+			}
 			if options.MCPToolCaller == nil {
 				options.MCPToolCaller = discovered.Caller
 			}
@@ -238,7 +250,11 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		runner.options.SkillForkExecutor = runner.defaultSkillForkExecutor
 	}
 	if len(tools.GetBundledSkills()) == 0 {
-		tools.InitClaudeBundledSkills(tools.BundledSkillOptions{})
+		bundled := runner.options.BundledSkills
+		if bundled.CWD == "" {
+			bundled.CWD = runner.options.SkillDiscovery.CWD
+		}
+		tools.InitClaudeBundledSkills(bundled)
 	}
 	if len(runner.options.SkillRoots) > 0 {
 		tools.AddSkillDirectories(runner.options.SkillRoots)
@@ -296,6 +312,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		MCPContextualToolCaller:   runner.options.MCPContextualToolCaller,
 		MCPOAuthStore:             runner.options.MCPOAuthStore,
 		MCPPrompts:                runner.options.MCPPrompts,
+		MCPSkills:                 runner.options.MCPSkills,
 		MCPPromptCaller:           runner.options.MCPPromptCaller,
 		MCPAuthenticator:          runner.options.MCPAuthenticator,
 		MCPReconnect:              runner.options.MCPReconnect,

@@ -200,6 +200,64 @@ func TestNewRunnerWithOptionsCreatesDefaultMCPOAuthStore(t *testing.T) {
 	}
 }
 
+func TestNewRunnerWithOptionsInitializesBundledSkillsWithProvidedOptions(t *testing.T) {
+	tools.ClearBundledSkills()
+	t.Cleanup(tools.ClearBundledSkills)
+
+	runner := NewRunnerWithOptions(session.NewManager(nil), llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
+		BundledSkills: tools.BundledSkillOptions{
+			UserType:           "ant",
+			KeybindingsEnabled: true,
+		},
+	})
+	if runner == nil {
+		t.Fatal("runner is nil")
+	}
+
+	names := make([]string, 0)
+	for _, skill := range tools.GetBundledSkills() {
+		names = append(names, skill.Name)
+	}
+	if !strings.Contains(strings.Join(names, ","), "keybindings-help") {
+		t.Fatalf("bundled skills = %#v, want runner to initialize bundled skills with provided options", names)
+	}
+}
+
+func TestNewRunnerWithOptionsPreservesBundledSkillResolvers(t *testing.T) {
+	tools.ClearBundledSkills()
+	t.Cleanup(tools.ClearBundledSkills)
+
+	runner := NewRunnerWithOptions(session.NewManager(nil), llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
+		BundledSkills: tools.BundledSkillOptions{
+			UserType: "ant",
+			ResolveSettingsSchemaJSON: func(toolCtx tools.ToolUseContext) string {
+				return `{"type":"object","properties":{"dynamic":{}}}`
+			},
+		},
+	})
+	if runner == nil {
+		t.Fatal("runner is nil")
+	}
+
+	var update tools.SkillCommand
+	for _, skill := range tools.GetBundledSkills() {
+		if skill.Name == "update-config" {
+			update = skill
+			break
+		}
+	}
+	if update.Name == "" || update.PromptBuilder == nil {
+		t.Fatalf("bundled skills = %#v, want update-config prompt builder", tools.GetBundledSkills())
+	}
+	content, err := update.PromptBuilder("dynamic", tools.ToolUseContext{})
+	if err != nil {
+		t.Fatalf("build update-config prompt: %v", err)
+	}
+	if !strings.Contains(content, `"dynamic"`) {
+		t.Fatalf("prompt = %q, want runner-preserved bundled resolver output", content)
+	}
+}
+
 func TestRunnerHandleUserMessageDenyRuleOverridesGlobalAllow(t *testing.T) {
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")
@@ -1570,7 +1628,7 @@ func TestNewRunnerWithOptionsInjectsSkillForkExecutor(t *testing.T) {
 			Action:   permissions.ActionAllow,
 			Match:    permissions.Match{CommandContains: []string{"verify"}},
 		}}},
-		SkillRoots:       []string{root},
+		SkillRoots: []string{root},
 		SkillForkExecutor: func(_ context.Context, request tools.SkillForkRequest) (tools.ToolResult, error) {
 			called = true
 			if request.Command.Name != "verify" || request.Command.Agent != "verifier" {
@@ -1706,7 +1764,7 @@ func TestNewRunnerWithOptionsDefaultsSkillForkToSubagentRuntime(t *testing.T) {
 			Action:   permissions.ActionAllow,
 			Match:    permissions.Match{CommandContains: []string{"verify"}},
 		}}},
-		SkillRoots:       []string{root},
+		SkillRoots: []string{root},
 	})
 	if err := runner.HandleUserMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
 		t.Fatalf("handle user message: %v", err)

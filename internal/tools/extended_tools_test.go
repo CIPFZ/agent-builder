@@ -1412,6 +1412,43 @@ func TestSkillToolResolvesSkillFromAppStateDynamicSkills(t *testing.T) {
 	}
 }
 
+func TestSkillToolResolvesResourceBackedMCPSkillFromAppState(t *testing.T) {
+	tool := tools.NewSkillTool()
+	appState := map[string]any{
+		"mcpSkills": map[string][]tools.SkillCommand{
+			"filesystem": {{
+				Name:          "filesystem:review",
+				Description:   "Review filesystem edits.",
+				Content:       "Review MCP skill for $target.",
+				Source:        "mcp",
+				LoadedFrom:    "mcp",
+				ArgumentNames: []string{"target"},
+				AllowedTools:  []string{"Read"},
+			}},
+		},
+	}
+
+	result, err := tool.InvokeWithContext(context.Background(), tools.ToolUseContext{
+		Session:  session.Session{ID: "sess-mcp-skill", AgentID: "agent-mcp-skill"},
+		ToolName: "Skill",
+		Input:    `{"skill":"filesystem:review","args":"README.md"}`,
+		AppState: appState,
+	})
+	if err != nil {
+		t.Fatalf("invoke mcp skill: %v", err)
+	}
+	if len(result.NewMessages) != 1 || !strings.Contains(result.NewMessages[0].Content, "Review MCP skill for README.md.") {
+		t.Fatalf("new messages = %#v, want inline MCP skill message with rendered args", result.NewMessages)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &parsed); err != nil {
+		t.Fatalf("skill output JSON: %v\n%s", err, result.Output)
+	}
+	if parsed["commandName"] != "filesystem:review" || parsed["status"] != "inline" {
+		t.Fatalf("output = %#v, want inline MCP skill metadata", parsed)
+	}
+}
+
 func TestSkillToolExecutesInlineAndFencedShellBlocksAndExposesHooks(t *testing.T) {
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "skills", "shelly")

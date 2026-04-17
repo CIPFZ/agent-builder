@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1025,6 +1027,217 @@ func TestDiscoverMCPClientToolsSupportsStdioPromptsGet(t *testing.T) {
 	}
 }
 
+func TestMCPToolReconnectsAndRefreshesAppStateAfterListChangedNotification(t *testing.T) {
+	stateFile := filepath.Join(t.TempDir(), "mcp-list-changed-state.txt")
+	connection := tools.MCPConnection{
+		Name:    "stdio-server",
+		Type:    "stdio",
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestMCPStdioHelperProcess"},
+		Env: map[string]string{
+			"GO_WANT_HELPER_PROCESS":   "1",
+			"MCP_LIST_CHANGED_ON_CALL": "1",
+			"MCP_LIST_CHANGED_STATE":   stateFile,
+		},
+	}
+
+	result, err := tools.DiscoverMCPClientTools(context.Background(), []tools.MCPConnection{connection})
+	if err != nil {
+		t.Fatalf("discover stdio MCP: %v", err)
+	}
+	defer result.Close()
+
+	initialTools := result.Tools["stdio-server"]
+	if len(initialTools.Tools) != 1 || initialTools.Tools[0].Name != "old_tool" {
+		t.Fatalf("initial tools = %#v, want old_tool before refresh", initialTools.Tools)
+	}
+	initialPrompts := result.Prompts["stdio-server"]
+	if len(initialPrompts.Prompts) != 1 || initialPrompts.Prompts[0].Name != "old_prompt" {
+		t.Fatalf("initial prompts = %#v, want old_prompt before refresh", initialPrompts.Prompts)
+	}
+	if len(result.Resources["stdio-server"]) != 2 || result.Resources["stdio-server"][0].URI != "file:///before.txt" {
+		t.Fatalf("initial resources = %#v, want before.txt before refresh", result.Resources["stdio-server"])
+	}
+	initialSkills := result.Skills["stdio-server"]
+	if len(initialSkills) != 1 || initialSkills[0].Name != "stdio_server:before-skill" {
+		t.Fatalf("initial skills = %#v, want before-skill before refresh", initialSkills)
+	}
+
+	discovered := tools.DiscoverMCPToolsWithContextualCaller("stdio-server", initialTools, result.ContextualCaller)
+	if len(discovered) != 1 {
+		t.Fatalf("discovered tools = %d, want one initial tool", len(discovered))
+	}
+
+	var appState map[string]any
+	_, err = discovered[0].(tools.ContextualTool).InvokeWithContext(context.Background(), tools.ToolUseContext{
+		Session:   session.Session{ID: "sess-refresh"},
+		ToolName:  discovered[0].Definition().Name,
+		ToolUseID: "toolu-refresh",
+		Input:     `{}`,
+		AppState: map[string]any{
+			"mcp": map[string]any{
+				"clients":   []tools.MCPConnection{connection},
+				"tools":     []tools.Definition{discovered[0].Definition()},
+				"commands":  []tools.Command{{Name: "mcp__stdio_server__old_prompt", Description: "old prompt"}, {Name: "stdio_server:before-skill", Description: "before skill"}},
+				"resources": result.Resources,
+			},
+			"mcpSkills": map[string][]tools.SkillCommand{
+				"stdio-server": initialSkills,
+			},
+		},
+		SetAppState: func(update func(map[string]any) map[string]any) {
+			appState = update(appState)
+		},
+		MCPReconnect: result.Reconnect,
+	})
+	if err != nil {
+		t.Fatalf("invoke tool with refresh: %v", err)
+	}
+
+	if appState == nil {
+		t.Fatal("appState = nil, want refreshed MCP state")
+	}
+	mcpState, _ := appState["mcp"].(map[string]any)
+	if mcpState == nil {
+		t.Fatalf("appState = %#v, want mcp state", appState)
+	}
+	toolsValue, _ := mcpState["tools"].([]tools.Definition)
+	if len(toolsValue) != 1 || toolsValue[0].Name != "mcp__stdio_server__new_tool" {
+		t.Fatalf("refreshed tools = %#v, want new_tool after list_changed", toolsValue)
+	}
+	commandsValue, _ := mcpState["commands"].([]tools.Command)
+	if len(commandsValue) != 2 || commandsValue[0].Name != "mcp__stdio_server__new_prompt" || commandsValue[1].Name != "stdio_server:after-skill" {
+		t.Fatalf("refreshed commands = %#v, want new_prompt plus refreshed MCP skill after list_changed", commandsValue)
+	}
+	resourcesValue, _ := mcpState["resources"].(map[string][]tools.MCPResource)
+	if len(resourcesValue["stdio-server"]) != 2 || resourcesValue["stdio-server"][0].URI != "file:///after.txt" {
+		t.Fatalf("refreshed resources = %#v, want after.txt after list_changed", resourcesValue)
+	}
+	skillsValue, _ := appState["mcpSkills"].(map[string][]tools.SkillCommand)
+	if len(skillsValue["stdio-server"]) != 1 || skillsValue["stdio-server"][0].Name != "stdio_server:after-skill" {
+		t.Fatalf("refreshed mcpSkills = %#v, want after-skill after list_changed", skillsValue)
+	}
+}
+
+func TestDiscoverMCPClientToolsRespondsToRootsListRequestsFromStdioServer(t *testing.T) {
+	connection := tools.MCPConnection{
+		Name:    "stdio-server",
+		Type:    "stdio",
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestMCPStdioHelperProcess"},
+		Env: map[string]string{
+			"GO_WANT_HELPER_PROCESS": "1",
+			"MCP_REQUEST_ROOTS":      "1",
+		},
+	}
+
+	result, err := tools.DiscoverMCPClientTools(context.Background(), []tools.MCPConnection{connection})
+	if err != nil {
+		t.Fatalf("discover stdio MCP: %v", err)
+	}
+	defer result.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	toolResult, err := result.Caller(ctx, "stdio-server", "echo_env", map[string]any{"path": "README.md"})
+	if err != nil {
+		t.Fatalf("tool call with roots/list request: %v", err)
+	}
+	got := firstTextContent(t, toolResult.Content)
+	if !strings.Contains(got, "root=file:///") {
+		t.Fatalf("tool result content = %q, want file:// root from roots/list response", got)
+	}
+}
+
+func TestDiscoverMCPClientToolsBuildsMCPSkillsFromSkillResources(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		method, _ := request["method"].(string)
+		response := map[string]any{"jsonrpc": "2.0", "id": request["id"]}
+		switch method {
+		case "initialize":
+			response["result"] = map[string]any{
+				"protocolVersion": "2024-11-05",
+				"capabilities": map[string]any{
+					"tools":     map[string]any{},
+					"resources": map[string]any{},
+				},
+			}
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+			return
+		case "tools/list":
+			response["result"] = map[string]any{"tools": []map[string]any{}}
+		case "resources/list":
+			response["result"] = map[string]any{
+				"resources": []map[string]any{{
+					"uri":         "skill://filesystem/review",
+					"name":        "review",
+					"description": "Review changed files",
+					"mimeType":    "text/markdown",
+				}},
+			}
+		case "resources/read":
+			params, _ := request["params"].(map[string]any)
+			if params["uri"] != "skill://filesystem/review" {
+				t.Fatalf("resources/read params = %#v, want skill uri", params)
+			}
+			response["result"] = map[string]any{
+				"contents": []map[string]any{{
+					"uri":      "skill://filesystem/review",
+					"mimeType": "text/markdown",
+					"text": `---
+description: Review changed files.
+when_to_use: Use when reviewing filesystem edits.
+allowed-tools:
+  - Read
+arguments:
+  - target
+---
+Review skill for $target.`,
+				}},
+			}
+		default:
+			t.Fatalf("unexpected method %q", method)
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	result, err := tools.DiscoverMCPClientTools(context.Background(), []tools.MCPConnection{{
+		Name:    "filesystem",
+		Type:    "streamable_http",
+		BaseURL: server.URL,
+	}})
+	if err != nil {
+		t.Fatalf("discover mcp client: %v", err)
+	}
+
+	skills := result.Skills["filesystem"]
+	if len(skills) != 1 {
+		t.Fatalf("skills = %#v, want one MCP skill", skills)
+	}
+	skill := skills[0]
+	if skill.Name != "filesystem:review" {
+		t.Fatalf("skill = %#v, want normalized MCP skill name", skill)
+	}
+	if skill.LoadedFrom != "mcp" || skill.Source != "mcp" {
+		t.Fatalf("skill = %#v, want mcp source metadata", skill)
+	}
+	if skill.Description != "Review changed files." || skill.WhenToUse != "Use when reviewing filesystem edits." {
+		t.Fatalf("skill = %#v, want frontmatter metadata", skill)
+	}
+	if !reflect.DeepEqual(skill.AllowedTools, []string{"Read"}) || !reflect.DeepEqual(skill.ArgumentNames, []string{"target"}) {
+		t.Fatalf("skill = %#v, want parsed skill frontmatter", skill)
+	}
+	if !strings.Contains(skill.Content, "Review skill for $target.") {
+		t.Fatalf("skill content = %q, want markdown body", skill.Content)
+	}
+}
+
 func TestDiscoverMCPClientToolsDiscoversHTTPResourcesAndListToolUsesThem(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any
@@ -1386,6 +1599,14 @@ func TestMCPStdioHelperProcess(t *testing.T) {
 	reader := bufio.NewReader(os.Stdin)
 	writer := bufio.NewWriter(os.Stdout)
 	envToken := os.Getenv("MCP_ENV_TOKEN")
+	listChangedScenario := os.Getenv("MCP_LIST_CHANGED_ON_CALL") == "1"
+	version := 0
+	stateFile := os.Getenv("MCP_LIST_CHANGED_STATE")
+	if listChangedScenario && stateFile != "" {
+		if data, err := os.ReadFile(stateFile); err == nil && strings.TrimSpace(string(data)) == "1" {
+			version = 1
+		}
+	}
 
 	for {
 		line, err := reader.ReadBytes('\n')
@@ -1415,15 +1636,21 @@ func TestMCPStdioHelperProcess(t *testing.T) {
 		var response map[string]any
 		switch method {
 		case "initialize":
+			capabilities := map[string]any{
+				"tools":   map[string]any{},
+				"prompts": map[string]any{},
+			}
+			if listChangedScenario {
+				capabilities["tools"] = map[string]any{"listChanged": true}
+				capabilities["prompts"] = map[string]any{"listChanged": true}
+				capabilities["resources"] = map[string]any{"listChanged": true}
+			}
 			response = map[string]any{
 				"jsonrpc": "2.0",
 				"id":      request["id"],
 				"result": map[string]any{
 					"protocolVersion": "2024-11-05",
-					"capabilities": map[string]any{
-						"tools":   map[string]any{},
-						"prompts": map[string]any{},
-					},
+					"capabilities":    capabilities,
 					"serverInfo": map[string]any{
 						"name":    "stdio-helper",
 						"version": "1.0.0",
@@ -1431,13 +1658,24 @@ func TestMCPStdioHelperProcess(t *testing.T) {
 				},
 			}
 		case "tools/list":
+			toolName := "echo_env"
+			toolDescription := "Echo environment and input"
+			if listChangedScenario {
+				if version == 0 {
+					toolName = "old_tool"
+					toolDescription = "Old tool"
+				} else {
+					toolName = "new_tool"
+					toolDescription = "New tool"
+				}
+			}
 			response = map[string]any{
 				"jsonrpc": "2.0",
 				"id":      request["id"],
 				"result": map[string]any{
 					"tools": []map[string]any{{
-						"name":        "echo_env",
-						"description": "Echo environment and input",
+						"name":        toolName,
+						"description": toolDescription,
 						"inputSchema": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
@@ -1448,13 +1686,24 @@ func TestMCPStdioHelperProcess(t *testing.T) {
 				},
 			}
 		case "prompts/list":
+			promptName := "build_prompt"
+			promptDescription := "stdio prompt"
+			if listChangedScenario {
+				if version == 0 {
+					promptName = "old_prompt"
+					promptDescription = "old prompt"
+				} else {
+					promptName = "new_prompt"
+					promptDescription = "new prompt"
+				}
+			}
 			response = map[string]any{
 				"jsonrpc": "2.0",
 				"id":      request["id"],
 				"result": map[string]any{
 					"prompts": []map[string]any{{
-						"name":        "build_prompt",
-						"description": "stdio prompt",
+						"name":        promptName,
+						"description": promptDescription,
 						"arguments": []map[string]any{{
 							"name":        "topic",
 							"description": "Prompt topic",
@@ -1463,10 +1712,126 @@ func TestMCPStdioHelperProcess(t *testing.T) {
 					}},
 				},
 			}
+		case "resources/list":
+			resourceURI := "file:///before.txt"
+			resourceName := "before"
+			resourceDescription := "before resource"
+			skillURI := "skill://stdio-server/before-skill"
+			skillName := "before-skill"
+			if version > 0 {
+				resourceURI = "file:///after.txt"
+				resourceName = "after"
+				resourceDescription = "after resource"
+				skillURI = "skill://stdio-server/after-skill"
+				skillName = "after-skill"
+			}
+			response = map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{
+					"resources": []map[string]any{
+						{
+							"uri":         resourceURI,
+							"name":        resourceName,
+							"description": resourceDescription,
+						},
+						{
+							"uri":         skillURI,
+							"name":        skillName,
+							"description": skillName,
+							"mimeType":    "text/markdown",
+						},
+					},
+				},
+			}
+		case "resources/read":
+			params, _ := request["params"].(map[string]any)
+			uri, _ := params["uri"].(string)
+			body := "before"
+			if strings.Contains(uri, "after-skill") {
+				body = "after"
+			}
+			response = map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{
+					"contents": []map[string]any{{
+						"uri":      uri,
+						"mimeType": "text/markdown",
+						"text": fmt.Sprintf(`---
+description: %s skill
+---
+%s skill body.`, body, body),
+					}},
+				},
+			}
 		case "tools/call":
 			params, _ := request["params"].(map[string]any)
 			args, _ := params["arguments"].(map[string]any)
 			path, _ := args["path"].(string)
+			rootText := ""
+			if listChangedScenario && version == 0 {
+				version = 1
+				if stateFile != "" {
+					if err := os.WriteFile(stateFile, []byte("1"), 0o644); err != nil {
+						fmt.Fprintln(os.Stderr, err)
+						return
+					}
+				}
+				for _, notificationMethod := range []string{
+					"notifications/tools/list_changed",
+					"notifications/prompts/list_changed",
+					"notifications/resources/list_changed",
+				} {
+					notification := map[string]any{
+						"jsonrpc": "2.0",
+						"method":  notificationMethod,
+					}
+					encoded, _ := json.Marshal(notification)
+					if _, err := writer.Write(append(encoded, '\n')); err != nil {
+						fmt.Fprintln(os.Stderr, err)
+						return
+					}
+				}
+				if err := writer.Flush(); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					return
+				}
+			}
+			if os.Getenv("MCP_REQUEST_ROOTS") == "1" {
+				rootRequest := map[string]any{
+					"jsonrpc": "2.0",
+					"id":      "roots-1",
+					"method":  "roots/list",
+				}
+				encoded, _ := json.Marshal(rootRequest)
+				if _, err := writer.Write(append(encoded, '\n')); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					return
+				}
+				if err := writer.Flush(); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					return
+				}
+				replyLine, err := reader.ReadBytes('\n')
+				if err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					return
+				}
+				var reply map[string]any
+				if err := json.Unmarshal(bytes.TrimSpace(replyLine), &reply); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					return
+				}
+				resultObject, _ := reply["result"].(map[string]any)
+				roots, _ := resultObject["roots"].([]any)
+				if len(roots) > 0 {
+					root, _ := roots[0].(map[string]any)
+					if uri, _ := root["uri"].(string); uri != "" {
+						rootText = " root=" + uri
+					}
+				}
+			}
 			if os.Getenv("MCP_SEND_PROGRESS") == "1" {
 				meta, _ := params["_meta"].(map[string]any)
 				progress := map[string]any{
@@ -1495,7 +1860,7 @@ func TestMCPStdioHelperProcess(t *testing.T) {
 				"result": map[string]any{
 					"content": []map[string]any{{
 						"type": "text",
-						"text": "tool env=" + envToken + " path=" + path,
+						"text": "tool env=" + envToken + " path=" + path + rootText,
 					}},
 					"structuredContent": map[string]any{
 						"path": path,

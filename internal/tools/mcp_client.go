@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	neturl "net/url"
 )
 
 const defaultMCPToolTimeout = 100000000 * time.Millisecond
@@ -26,6 +27,7 @@ const defaultMCPToolTimeout = 100000000 * time.Millisecond
 type MCPDiscoveryResult struct {
 	Tools            map[string]MCPToolsListResult
 	Prompts          map[string]MCPPromptsListResult
+	Skills           map[string][]SkillCommand
 	Resources        map[string][]MCPResource
 	NeedsAuth        map[string]MCPAuthToolResult
 	Caller           MCPToolCaller
@@ -53,12 +55,24 @@ type mcpTransportSession struct {
 
 type mcpTransport interface {
 	rpc(context.Context, string, map[string]any, bool, ProgressFunc) (map[string]any, error)
+	takeInvalidation() mcpDiscoveryInvalidation
 	close() error
+}
+
+type mcpDiscoveryInvalidation struct {
+	Tools     bool
+	Prompts   bool
+	Resources bool
+}
+
+func (i mcpDiscoveryInvalidation) any() bool {
+	return i.Tools || i.Prompts || i.Resources
 }
 
 type mcpDiscoveryLists struct {
 	Tools     MCPToolsListResult
 	Prompts   MCPPromptsListResult
+	Skills    []SkillCommand
 	Resources []MCPResource
 }
 
@@ -75,6 +89,7 @@ func DiscoverMCPClientToolsWithOAuth(ctx context.Context, connections []MCPConne
 	runtime.connections = make(map[string]MCPConnection)
 	discoveredTools := make(map[string]MCPToolsListResult)
 	discoveredPrompts := make(map[string]MCPPromptsListResult)
+	discoveredSkills := make(map[string][]SkillCommand)
 	discoveredResources := make(map[string][]MCPResource)
 	discoveredNeedsAuth := make(map[string]MCPAuthToolResult)
 	for _, connection := range connections {
@@ -107,11 +122,13 @@ func DiscoverMCPClientToolsWithOAuth(ctx context.Context, connections []MCPConne
 		})
 		discoveredTools[name] = result.Tools
 		discoveredPrompts[name] = result.Prompts
+		discoveredSkills[name] = append([]SkillCommand(nil), result.Skills...)
 		discoveredResources[name] = result.Resources
 	}
 	return MCPDiscoveryResult{
 		Tools:            discoveredTools,
 		Prompts:          discoveredPrompts,
+		Skills:           discoveredSkills,
 		Resources:        discoveredResources,
 		NeedsAuth:        discoveredNeedsAuth,
 		Caller:           runtime.callTool,
@@ -272,8 +289,95 @@ func (r *mcpRuntime) discover(ctx context.Context, connection MCPConnection, tra
 				})
 			}
 		}
+		lists.Skills, err = discoverMCPSkills(connection.Name, lists.Resources, func(uri string) (MCPResourceReadResult, error) {
+			return readMCPSkillResource(ctx, transport, uri)
+		})
+		if err != nil {
+			return mcpDiscoveryLists{}, fmt.Errorf("discover MCP skills for %q: %w", connection.Name, err)
+		}
 	}
 	return lists, nil
+}
+
+func readMCPSkillResource(ctx context.Context, transport mcpTransport, uri string) (MCPResourceReadResult, error) {
+	result, err := transport.rpc(ctx, "resources/read", map[string]any{"uri": uri}, true, nil)
+	if err != nil {
+		return MCPResourceReadResult{}, err
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return MCPResourceReadResult{}, err
+	}
+	var raw struct {
+		Contents []map[string]any `json:"contents"`
+	}
+	if err := json.Unmarshal(encoded, &raw); err != nil {
+		return MCPResourceReadResult{}, err
+	}
+	out := MCPResourceReadResult{Contents: make([]MCPResourceReadContent, 0, len(raw.Contents))}
+	for _, item := range raw.Contents {
+		out.Contents = append(out.Contents, MCPResourceReadContent{
+			URI:      stringFieldAny(item, "uri"),
+			MimeType: stringFieldAny(item, "mimeType"),
+			Text:     stringFieldAny(item, "text"),
+		})
+	}
+	return out, nil
+}
+
+func discoverMCPSkills(server string, resources []MCPResource, readResource func(string) (MCPResourceReadResult, error)) ([]SkillCommand, error) {
+	if len(resources) == 0 || readResource == nil {
+		return nil, nil
+	}
+	out := make([]SkillCommand, 0)
+	for _, resource := range resources {
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(resource.URI)), "skill://") {
+			continue
+		}
+		skillName := buildMCPSkillName(server, resource)
+		if skillName == "" {
+			continue
+		}
+		read, err := readResource(resource.URI)
+		if err != nil {
+			return nil, err
+		}
+		content := firstMCPTextContent(read.Contents)
+		if strings.TrimSpace(content) == "" {
+			continue
+		}
+		command := ParseSkillFile(skillName, resource.URI, content)
+		command.Source = "mcp"
+		command.LoadedFrom = "mcp"
+		command.Path = resource.URI
+		out = append(out, command)
+	}
+	return out, nil
+}
+
+func buildMCPSkillName(server string, resource MCPResource) string {
+	normalizedServer := normalizeMCPName(server)
+	if normalizedServer == "" {
+		return ""
+	}
+	if parsed, err := neturl.Parse(resource.URI); err == nil {
+		if slug := strings.Trim(parsed.Path, "/"); slug != "" {
+			return normalizedServer + ":" + strings.ReplaceAll(slug, "\\", "/")
+		}
+	}
+	if slug := strings.Trim(strings.TrimSpace(resource.Name), "/"); slug != "" {
+		return normalizedServer + ":" + strings.ReplaceAll(slug, "\\", "/")
+	}
+	return ""
+}
+
+func firstMCPTextContent(contents []MCPResourceReadContent) string {
+	for _, item := range contents {
+		if strings.TrimSpace(item.Text) != "" {
+			return item.Text
+		}
+	}
+	return ""
 }
 
 func firstNonEmpty(values ...string) string {
@@ -366,6 +470,9 @@ func (r *mcpRuntime) callToolWithRequest(ctx context.Context, req MCPToolCallReq
 	for attempt := 0; attempt < 4; attempt++ {
 		toolResult, err := r.callToolWithSessionRetry(ctx, req.Server, req.Name, req.Input, meta, req.ToolUseID, req.ReportProgress)
 		if err == nil {
+			if invalidation := r.takeInvalidation(req.Server); invalidation.any() {
+				toolResult.Meta = mergeMCPResultMeta(toolResult.Meta, invalidation.mcpMeta())
+			}
 			return toolResult, nil
 		}
 		lastErr = err
@@ -388,6 +495,45 @@ func (r *mcpRuntime) callToolWithRequest(ctx context.Context, req MCPToolCallReq
 		}
 	}
 	return MCPToolResult{}, lastErr
+}
+
+func (r *mcpRuntime) takeInvalidation(server string) mcpDiscoveryInvalidation {
+	session, ok := r.session(server)
+	if !ok || session.transport == nil {
+		return mcpDiscoveryInvalidation{}
+	}
+	return session.transport.takeInvalidation()
+}
+
+func (i mcpDiscoveryInvalidation) mcpMeta() map[string]any {
+	meta := make(map[string]any)
+	if i.Tools {
+		meta["mcp/tools_changed"] = true
+	}
+	if i.Prompts {
+		meta["mcp/prompts_changed"] = true
+	}
+	if i.Resources {
+		meta["mcp/resources_changed"] = true
+	}
+	if len(meta) == 0 {
+		return nil
+	}
+	return meta
+}
+
+func mergeMCPResultMeta(existing, extra map[string]any) map[string]any {
+	if len(extra) == 0 {
+		return cloneAnyMap(existing)
+	}
+	merged := cloneAnyMap(existing)
+	if merged == nil {
+		merged = make(map[string]any, len(extra))
+	}
+	for key, value := range extra {
+		merged[key] = value
+	}
+	return merged
 }
 
 func mcpToolTimeout() time.Duration {
@@ -575,6 +721,7 @@ func (r *mcpRuntime) reconnect(ctx context.Context, server string) (MCPReconnect
 		Client:    connection,
 		Tools:     result.Tools,
 		Prompts:   result.Prompts,
+		Skills:    append([]SkillCommand(nil), result.Skills...),
 		Resources: result.Resources,
 	}, nil
 }
@@ -811,6 +958,9 @@ type mcpHTTPTransport struct {
 }
 
 func (t *mcpHTTPTransport) close() error { return nil }
+func (t *mcpHTTPTransport) takeInvalidation() mcpDiscoveryInvalidation {
+	return mcpDiscoveryInvalidation{}
+}
 
 func (t *mcpHTTPTransport) rpc(ctx context.Context, method string, params map[string]any, expectResponse bool, _ ProgressFunc) (map[string]any, error) {
 	request := map[string]any{
@@ -933,6 +1083,7 @@ type mcpStdioTransport struct {
 	stdout     *bufio.Reader
 	stderr     *bytes.Buffer
 	mu         sync.Mutex
+	invalidation mcpDiscoveryInvalidation
 }
 
 func (t *mcpStdioTransport) close() error {
@@ -955,6 +1106,14 @@ func (t *mcpStdioTransport) close() error {
 		_ = t.cmd.Process.Kill()
 	}
 	return <-done
+}
+
+func (t *mcpStdioTransport) takeInvalidation() mcpDiscoveryInvalidation {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := t.invalidation
+	t.invalidation = mcpDiscoveryInvalidation{}
+	return out
 }
 
 func (t *mcpStdioTransport) rpc(ctx context.Context, method string, params map[string]any, expectResponse bool, reportProgress ProgressFunc) (map[string]any, error) {
@@ -997,6 +1156,7 @@ func (t *mcpStdioTransport) rpc(ctx context.Context, method string, params map[s
 		}
 		var envelope struct {
 			Method string          `json:"method"`
+			ID     any             `json:"id"`
 			Params map[string]any  `json:"params"`
 			Result json.RawMessage `json:"result"`
 			Error  *struct {
@@ -1009,8 +1169,23 @@ func (t *mcpStdioTransport) rpc(ctx context.Context, method string, params map[s
 			return nil, err
 		}
 		if envelope.Method != "" {
-			if envelope.Method == "notifications/progress" && reportProgress != nil {
-				reportProgress(toolProgressFromMCPNotification(envelope.Params))
+			switch envelope.Method {
+			case "notifications/progress":
+				if reportProgress != nil {
+					reportProgress(toolProgressFromMCPNotification(envelope.Params))
+				}
+			case "notifications/tools/list_changed":
+				t.invalidation.Tools = true
+			case "notifications/prompts/list_changed":
+				t.invalidation.Prompts = true
+			case "notifications/resources/list_changed":
+				t.invalidation.Resources = true
+			default:
+				if envelope.ID != nil {
+					if err := t.respondToServerRequest(envelope.ID, envelope.Method, envelope.Params); err != nil {
+						return nil, err
+					}
+				}
 			}
 			continue
 		}
@@ -1035,6 +1210,49 @@ func (t *mcpStdioTransport) rpc(ctx context.Context, method string, params map[s
 		}
 		return result, nil
 	}
+}
+
+func (t *mcpStdioTransport) respondToServerRequest(id any, method string, _ map[string]any) error {
+	response := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+	}
+	switch method {
+	case "roots/list":
+		response["result"] = map[string]any{
+			"roots": []map[string]any{mcpCurrentRoot()},
+		}
+	default:
+		response["error"] = map[string]any{
+			"code":    -32601,
+			"message": "method not found",
+		}
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	_, err = t.stdin.Write(append(encoded, '\n'))
+	return err
+}
+
+func mcpCurrentRoot() map[string]any {
+	cwd, err := os.Getwd()
+	if err != nil || strings.TrimSpace(cwd) == "" {
+		cwd = string(filepath.Separator)
+	}
+	return map[string]any{
+		"uri":  mcpFileURI(cwd),
+		"name": filepath.Base(cwd),
+	}
+}
+
+func mcpFileURI(path string) string {
+	slashed := filepath.ToSlash(path)
+	if !strings.HasPrefix(slashed, "/") {
+		slashed = "/" + slashed
+	}
+	return (&neturl.URL{Scheme: "file", Path: slashed}).String()
 }
 
 func mergedMCPEnvironment(overrides map[string]string) []string {

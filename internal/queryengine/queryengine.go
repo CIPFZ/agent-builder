@@ -219,6 +219,7 @@ type Config struct {
 	MCPToolCaller              tools.MCPToolCaller
 	MCPContextualToolCaller    tools.MCPContextualToolCaller
 	MCPPrompts                 map[string]tools.MCPPromptsListResult
+	MCPSkills                  map[string][]tools.SkillCommand
 	MCPPromptCaller            tools.MCPPromptCaller
 	MCPOAuthStore              tools.MCPOAuthStore
 	MCPAuthenticator           tools.MCPAuthenticator
@@ -389,12 +390,14 @@ type QueryEngine struct {
 	mcpResources               map[string][]tools.MCPResource
 	mcpResourceReader          tools.MCPResourceReader
 	mcpResourceLister          tools.MCPResourceLister
+	mcpTools                   map[string]tools.MCPToolsListResult
 	mcpToolCaller              tools.MCPToolCaller
 	mcpContextualToolCaller    tools.MCPContextualToolCaller
 	mcpOAuthStore              tools.MCPOAuthStore
 	mcpAuthenticator           tools.MCPAuthenticator
 	mcpReconnect               tools.MCPReconnectFunc
 	mcpPrompts                 map[string]tools.MCPPromptsListResult
+	mcpSkills                  map[string][]tools.SkillCommand
 	mcpPromptCaller            tools.MCPPromptCaller
 	disableMCPPromptSkills     bool
 	skillRoots                 []string
@@ -547,6 +550,16 @@ func New(cfg Config) *QueryEngine {
 					}
 				}
 			}
+			if len(discovered.Skills) > 0 {
+				if cfg.MCPSkills == nil {
+					cfg.MCPSkills = make(map[string][]tools.SkillCommand)
+				}
+				for server, skills := range discovered.Skills {
+					if _, exists := cfg.MCPSkills[server]; !exists {
+						cfg.MCPSkills[server] = append([]tools.SkillCommand(nil), skills...)
+					}
+				}
+			}
 			if cfg.MCPToolCaller == nil {
 				cfg.MCPToolCaller = discovered.Caller
 			}
@@ -608,12 +621,14 @@ func New(cfg Config) *QueryEngine {
 		mcpResources:              cloneMCPResources(cfg.MCPResources),
 		mcpResourceReader:         cfg.MCPResourceReader,
 		mcpResourceLister:         cfg.MCPResourceLister,
+		mcpTools:                  cloneMCPTools(cfg.MCPTools),
 		mcpToolCaller:             cfg.MCPToolCaller,
 		mcpContextualToolCaller:   cfg.MCPContextualToolCaller,
 		mcpOAuthStore:             cfg.MCPOAuthStore,
 		mcpAuthenticator:          cfg.MCPAuthenticator,
 		mcpReconnect:              cfg.MCPReconnect,
 		mcpPrompts:                cloneMCPPrompts(cfg.MCPPrompts),
+		mcpSkills:                 cloneMCPSkills(cfg.MCPSkills),
 		mcpPromptCaller:           cfg.MCPPromptCaller,
 		disableMCPPromptSkills:    cfg.DisableMCPPromptSkills,
 		skillRoots:                append([]string(nil), cfg.SkillRoots...),
@@ -1031,6 +1046,9 @@ func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, 
 	if len(q.mcpPrompts) > 0 {
 		appState["mcpPrompts"] = cloneMCPPrompts(q.mcpPrompts)
 	}
+	if len(q.mcpSkills) > 0 {
+		appState["mcpSkills"] = cloneMCPSkills(q.mcpSkills)
+	}
 	if q.mcpPromptCaller != nil {
 		appState["mcpPromptCaller"] = q.mcpPromptCaller
 	}
@@ -1066,7 +1084,7 @@ func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, 
 		setConversationID = func(string) {}
 	}
 	refreshTools := func() []tools.Definition {
-		return q.tools.Expose(tools.ExposeOptions{IncludeDeferred: true, Policy: q.PermissionPolicyForSession(sess.ID)})
+		return q.exposedTools(sess.ID, true)
 	}
 
 	return tools.ToolUseContext{
@@ -1077,7 +1095,7 @@ func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, 
 		Input:              pending.input,
 		InputObject:        cloneAnyMap(pending.inputObject),
 		Policy:             policy,
-		AvailableTools:     q.tools.Expose(tools.ExposeOptions{IncludeDeferred: true, Policy: policy}),
+		AvailableTools:     q.exposedTools(sess.ID, true),
 		AgentID:            sess.AgentID,
 		MainLoopModel:      q.mainLoopModelForSession(sess.ID),
 		LLMProvider:        q.llmProvider,
@@ -1147,8 +1165,26 @@ func (q *QueryEngine) mcpReconnectFunc() tools.MCPReconnectFunc {
 			}
 			q.mcpPrompts[server] = result.Prompts
 		}
+		if q.mcpSkills == nil {
+			q.mcpSkills = make(map[string][]tools.SkillCommand)
+		}
+		if len(result.Skills) == 0 {
+			delete(q.mcpSkills, server)
+		} else {
+			q.mcpSkills[server] = append([]tools.SkillCommand(nil), result.Skills...)
+		}
+		if q.mcpTools == nil {
+			q.mcpTools = make(map[string]tools.MCPToolsListResult)
+		}
+		q.mcpTools[server] = result.Tools
 		q.toolContextMu.Unlock()
 		q.tools.Unregister(tools.BuildMCPToolName(server, "authenticate"))
+		prefix := tools.BuildMCPToolName(server, "")
+		for _, def := range q.tools.Definitions() {
+			if strings.HasPrefix(def.Name, prefix) {
+				q.tools.Unregister(def.Name)
+			}
+		}
 		if len(result.Tools.Tools) > 0 {
 			if q.mcpContextualToolCaller != nil {
 				tools.RegisterDiscoveredMCPToolsWithContextualCaller(q.tools, server, result.Tools, q.mcpContextualToolCaller)
@@ -1192,7 +1228,7 @@ func (q *QueryEngine) canUseToolFunc(parentCtx context.Context, sess session.Ses
 			Input:              input,
 			InputObject:        inputObject,
 			Policy:             policy,
-			AvailableTools:     q.tools.Expose(tools.ExposeOptions{IncludeDeferred: true, Policy: policy}),
+			AvailableTools:     q.exposedTools(sess.ID, true),
 			AgentID:            sess.AgentID,
 			MainLoopModel:      q.mainLoopModelForSession(sess.ID),
 			LLMProvider:        q.llmProvider,
@@ -1466,6 +1502,19 @@ func cloneMCPResources(resources map[string][]tools.MCPResource) map[string][]to
 	return out
 }
 
+func cloneMCPTools(configured map[string]tools.MCPToolsListResult) map[string]tools.MCPToolsListResult {
+	if configured == nil {
+		return nil
+	}
+	out := make(map[string]tools.MCPToolsListResult, len(configured))
+	for server, result := range configured {
+		out[server] = tools.MCPToolsListResult{
+			Tools: append([]tools.MCPToolListItem(nil), result.Tools...),
+		}
+	}
+	return out
+}
+
 func cloneMCPPrompts(prompts map[string]tools.MCPPromptsListResult) map[string]tools.MCPPromptsListResult {
 	if prompts == nil {
 		return nil
@@ -1481,6 +1530,62 @@ func cloneMCPPrompts(prompts map[string]tools.MCPPromptsListResult) map[string]t
 		out[server] = cloned
 	}
 	return out
+}
+
+func cloneMCPSkills(skills map[string][]tools.SkillCommand) map[string][]tools.SkillCommand {
+	if skills == nil {
+		return nil
+	}
+	out := make(map[string][]tools.SkillCommand, len(skills))
+	for server, items := range skills {
+		out[server] = append([]tools.SkillCommand(nil), items...)
+	}
+	return out
+}
+
+func (q *QueryEngine) exposedTools(sessionID string, includeDeferred bool) []tools.Definition {
+	exposed := q.tools.Expose(tools.ExposeOptions{
+		IncludeDeferred: includeDeferred,
+		Policy:          q.PermissionPolicyForSession(sessionID),
+	})
+	if len(q.mcpTools) == 0 {
+		return exposed
+	}
+	out := make([]tools.Definition, 0, len(exposed))
+	for _, def := range exposed {
+		if !q.isCurrentMCPToolDefinition(def.Name) {
+			continue
+		}
+		out = append(out, def)
+	}
+	return out
+}
+
+func (q *QueryEngine) isCurrentMCPToolDefinition(name string) bool {
+	name = strings.TrimSpace(name)
+	if !strings.HasPrefix(name, "mcp__") {
+		return true
+	}
+	if strings.HasSuffix(name, "__authenticate") {
+		return true
+	}
+	rest := strings.TrimPrefix(name, "mcp__")
+	_, toolName, ok := strings.Cut(rest, "__")
+	if !ok || strings.TrimSpace(toolName) == "" {
+		return true
+	}
+	for configuredServer, result := range q.mcpTools {
+		if tools.BuildMCPToolName(configuredServer, toolName) != name {
+			continue
+		}
+		for _, item := range result.Tools {
+			if item.Name == toolName {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 func cloneToolDecisions(decisions map[string]tools.ToolDecision) map[string]tools.ToolDecision {
@@ -1752,15 +1857,11 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 		UserContextLines:        q.userContextLines(sess, workspaceContext),
 		SystemContextLines:      q.systemContextLines(sess, workspaceContext),
 		WorkspaceContext:        workspaceContext,
-		Tools: q.tools.Expose(tools.ExposeOptions{
-			Policy: q.PermissionPolicyForSession(sess.ID),
-		}),
+		Tools: q.exposedTools(sess.ID, false),
 		SessionMemories:    q.memoryLines(sess.ID),
 		SessionMemoryItems: q.memoryItems(sess.ID),
 	})
-	exposedTools := q.tools.Expose(tools.ExposeOptions{
-		Policy: q.PermissionPolicyForSession(sess.ID),
-	})
+	exposedTools := q.exposedTools(sess.ID, false)
 	stream := &textStreamCollector{
 		sink:           sink,
 		session:        sess,
@@ -2325,9 +2426,13 @@ func (q *QueryEngine) skillListingCommands() []tools.SkillCommand {
 	base = append(base, builtinPlugin...)
 	base = append(base, local...)
 	if q.disableMCPPromptSkills {
-		return dedupeSkillCommands(base)
+		mcpSkills := tools.MCPSkillCommands(q.mcpSkills)
+		if len(mcpSkills) == 0 {
+			return dedupeSkillCommands(base)
+		}
+		return dedupeSkillCommands(append(base, mcpSkills...))
 	}
-	mcp := tools.MCPPromptSkillCommands(q.mcpPrompts)
+	mcp := append(tools.MCPPromptSkillCommands(q.mcpPrompts), tools.MCPSkillCommands(q.mcpSkills)...)
 	if len(base) == 0 {
 		return dedupeSkillCommands(mcp)
 	}

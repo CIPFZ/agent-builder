@@ -1,8 +1,10 @@
 package queryengine_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -359,6 +361,57 @@ func TestQueryEngineMCPAuthToolReturnsAuthURLBeforeRefreshingToolSurface(t *test
 	}
 }
 
+func TestQueryEngineRefreshesMCPToolsAfterListChangedNotification(t *testing.T) {
+	stateFile := filepath.Join(t.TempDir(), "mcp-list-changed-state.txt")
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "refresh via list_changed")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	client := &lifecycleScriptedClient{scripts: [][]llm.StreamEvent{{
+		{Type: "tool.call", ToolName: "mcp__stdio_server__old_tool", ToolInput: `{}`, ToolUseID: "toolu-refresh"},
+		{Type: "message.end"},
+	}, {
+		{Type: "text.delta", Delta: "done"},
+		{Type: "message.end"},
+	}}}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           client,
+		WorkspaceLoader:  workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MCPClients: []tools.MCPConnection{{
+			Name:    "stdio-server",
+			Type:    "stdio",
+			Command: os.Args[0],
+			Args:    []string{"-test.run=TestQueryEngineMCPStdioHelperProcess"},
+			Env: map[string]string{
+				"GO_WANT_HELPER_PROCESS":   "1",
+				"MCP_LIST_CHANGED_ON_CALL": "1",
+				"MCP_LIST_CHANGED_STATE":   stateFile,
+			},
+		}},
+	})
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+
+	requests := client.Requests()
+	if len(requests) < 2 {
+		t.Fatalf("requests = %d, want follow-up request after tool call", len(requests))
+	}
+	if !hasToolDefinition(requests[0].Tools, "mcp__stdio_server__old_tool") {
+		t.Fatalf("first request tools = %#v, want old_tool before list_changed", requests[0].Tools)
+	}
+	if !hasToolDefinition(requests[1].Tools, "mcp__stdio_server__new_tool") {
+		t.Fatalf("second request tools = %#v, want new_tool after list_changed refresh", requests[1].Tools)
+	}
+	if hasToolDefinition(requests[1].Tools, "mcp__stdio_server__old_tool") {
+		t.Fatalf("second request tools = %#v, old_tool should be removed after list_changed refresh", requests[1].Tools)
+	}
+}
+
 func hasToolDefinition(defs []llm.ToolDefinition, name string) bool {
 	for _, def := range defs {
 		if def.Name == name {
@@ -366,6 +419,116 @@ func hasToolDefinition(defs []llm.ToolDefinition, name string) bool {
 		}
 	}
 	return false
+}
+
+func TestQueryEngineMCPStdioHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+		return
+	}
+	reader := bufio.NewReader(os.Stdin)
+	writer := bufio.NewWriter(os.Stdout)
+	version := 0
+	if stateFile := os.Getenv("MCP_LIST_CHANGED_STATE"); stateFile != "" {
+		if data, err := os.ReadFile(stateFile); err == nil && strings.TrimSpace(string(data)) == "1" {
+			version = 1
+		}
+	}
+
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+		line = []byte(strings.TrimSpace(string(line)))
+		if len(line) == 0 {
+			continue
+		}
+		var request map[string]any
+		if err := json.Unmarshal(line, &request); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return
+		}
+		method, _ := request["method"].(string)
+		if method == "notifications/initialized" {
+			continue
+		}
+		if _, ok := request["id"]; !ok {
+			continue
+		}
+
+		var response map[string]any
+		switch method {
+		case "initialize":
+			response = map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{
+					"protocolVersion": "2024-11-05",
+					"capabilities": map[string]any{
+						"tools": map[string]any{"listChanged": true},
+					},
+				},
+			}
+		case "tools/list":
+			toolName := "old_tool"
+			description := "Old tool"
+			if version > 0 {
+				toolName = "new_tool"
+				description = "New tool"
+			}
+			response = map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{"tools": []map[string]any{{
+					"name":        toolName,
+					"description": description,
+					"inputSchema": map[string]any{"type": "object"},
+				}}},
+			}
+		case "tools/call":
+			version = 1
+			if stateFile := os.Getenv("MCP_LIST_CHANGED_STATE"); stateFile != "" {
+				if err := os.WriteFile(stateFile, []byte("1"), 0o644); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					return
+				}
+			}
+			notification := map[string]any{"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
+			encoded, _ := json.Marshal(notification)
+			if _, err := writer.Write(append(encoded, '\n')); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return
+			}
+			if err := writer.Flush(); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				return
+			}
+			response = map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"result": map[string]any{"content": []map[string]any{{
+					"type": "text",
+					"text": "refreshed",
+				}}},
+			}
+		default:
+			response = map[string]any{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"error":   map[string]any{"code": -32601, "message": "unknown method"},
+			}
+		}
+
+		encoded, _ := json.Marshal(response)
+		if _, err := writer.Write(append(encoded, '\n')); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return
+		}
+		if err := writer.Flush(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return
+		}
+	}
 }
 
 func TestQueryEngineDiscoversMCPClientPromptsAsSkillsAndInvokesServer(t *testing.T) {
@@ -449,6 +612,88 @@ func TestQueryEngineDiscoversMCPClientPromptsAsSkillsAndInvokesServer(t *testing
 		t.Fatalf("prompt args = %#v, want target from skill args", gotPromptArgs)
 	}
 	assertSkillMessageContains(t, sessions, sess.ID, "MCP prompt body for README.md")
+}
+
+func TestQueryEngineDiscoversResourceBackedMCPSkillsAndInvokesSkillTool(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		method, _ := request["method"].(string)
+		response := map[string]any{"jsonrpc": "2.0", "id": request["id"]}
+		switch method {
+		case "initialize":
+			response["result"] = map[string]any{
+				"protocolVersion": "2024-11-05",
+				"capabilities": map[string]any{
+					"tools":     map[string]any{},
+					"resources": map[string]any{},
+				},
+			}
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+			return
+		case "tools/list":
+			response["result"] = map[string]any{"tools": []map[string]any{}}
+		case "resources/list":
+			response["result"] = map[string]any{
+				"resources": []map[string]any{{
+					"uri":         "skill://filesystem/review",
+					"name":        "review",
+					"description": "Review filesystem edits",
+					"mimeType":    "text/markdown",
+				}},
+			}
+		case "resources/read":
+			response["result"] = map[string]any{
+				"contents": []map[string]any{{
+					"uri":      "skill://filesystem/review",
+					"mimeType": "text/markdown",
+					"text": `---
+description: Review filesystem edits.
+arguments:
+  - target
+---
+Resource-backed MCP skill for $target.`,
+				}},
+			}
+		default:
+			t.Fatalf("unexpected method %q", method)
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "invoke resource-backed mcp skill")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	client := &lifecycleScriptedClient{scripts: [][]llm.StreamEvent{{
+		{Type: "tool.call", ToolName: "Skill", ToolInput: `{"skill":"filesystem:review","args":"README.md"}`, ToolUseID: "toolu-mcp-resource-skill"},
+		{Type: "message.end"},
+	}, {
+		{Type: "text.delta", Delta: "done"},
+		{Type: "message.end"},
+	}}}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           client,
+		WorkspaceLoader:  workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MCPClients: []tools.MCPConnection{{
+			Name:    "filesystem",
+			Type:    "http",
+			BaseURL: server.URL,
+		}},
+	})
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+	assertSkillMessageContains(t, sessions, sess.ID, "Resource-backed MCP skill for README.md.")
+	assertSkillListingPayloads(t, engine.Messages(sess.ID), []string{"filesystem:review"})
 }
 
 func TestQueryEngineAppendsSkillNewMessagesAfterToolResultAndContinuesWithContext(t *testing.T) {

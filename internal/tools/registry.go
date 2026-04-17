@@ -136,6 +136,7 @@ type MCPReconnectResult struct {
 	Client    MCPConnection
 	Tools     MCPToolsListResult
 	Prompts   MCPPromptsListResult
+	Skills    []SkillCommand
 	Resources []MCPResource
 }
 

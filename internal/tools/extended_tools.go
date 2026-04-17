@@ -587,6 +587,11 @@ func (t *mcpTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseContext)
 		return ToolResult{}, fmt.Errorf("MCP tool %s/%s failed: %w", t.def.Server, t.def.Name, err)
 	}
 	result = normalizeMCPToolResult(result, t.def.Server)
+	if needsMCPRefresh(result.Meta) {
+		if reconnected, ok := refreshMCPToolState(toolCtx, t.def.Server); ok {
+			refreshMCPAuthAppState(toolCtx, t.def.Server, reconnected)
+		}
+	}
 	encoded, err := json.Marshal(mcpResultEnvelope{
 		Content:           result.Content,
 		StructuredContent: result.StructuredContent,
@@ -622,6 +627,31 @@ func (t *mcpTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseContext)
 		})
 	}
 	return toolResult, nil
+}
+
+func needsMCPRefresh(meta map[string]any) bool {
+	return metaFlag(meta, "mcp/tools_changed") ||
+		metaFlag(meta, "mcp/prompts_changed") ||
+		metaFlag(meta, "mcp/resources_changed")
+}
+
+func metaFlag(meta map[string]any, key string) bool {
+	if meta == nil {
+		return false
+	}
+	value, _ := meta[key].(bool)
+	return value
+}
+
+func refreshMCPToolState(toolCtx ToolUseContext, server string) (MCPReconnectResult, bool) {
+	if toolCtx.MCPReconnect == nil {
+		return MCPReconnectResult{}, false
+	}
+	reconnected, err := toolCtx.MCPReconnect(toolCtx.AbortContext, server)
+	if err != nil {
+		return MCPReconnectResult{}, false
+	}
+	return reconnected, true
 }
 
 func markMCPServerNeedsAuth(toolCtx ToolUseContext, server string, err error) bool {
@@ -998,7 +1028,7 @@ func refreshMCPAuthAppState(toolCtx ToolUseContext, server string, reconnected M
 			mcpState["clients"] = replaceMCPAppStateClients(mcpState["clients"], server, reconnected.Client)
 		}
 		mcpState["tools"] = replaceMCPAppStateTools(mcpState["tools"], server, reconnected.Tools)
-		mcpState["commands"] = replaceMCPAppStateCommands(mcpState["commands"], server, reconnected.Prompts)
+		mcpState["commands"] = replaceMCPAppStateCommands(mcpState["commands"], server, reconnected.Prompts, reconnected.Skills)
 		if len(reconnected.Resources) > 0 {
 			mcpState["resources"] = replaceMCPAppStateResources(mcpState["resources"], server, reconnected.Resources)
 		}
@@ -1012,6 +1042,22 @@ func refreshMCPAuthAppState(toolCtx ToolUseContext, server string, reconnected M
 			}
 			prompts[server] = reconnected.Prompts
 			next["mcpPrompts"] = prompts
+		}
+		skills := make(map[string][]SkillCommand)
+		if existing, ok := next["mcpSkills"].(map[string][]SkillCommand); ok {
+			for key, value := range existing {
+				skills[key] = append([]SkillCommand(nil), value...)
+			}
+		}
+		if len(reconnected.Skills) == 0 {
+			delete(skills, server)
+		} else {
+			skills[server] = append([]SkillCommand(nil), reconnected.Skills...)
+		}
+		if len(skills) == 0 {
+			delete(next, "mcpSkills")
+		} else {
+			next["mcpSkills"] = skills
 		}
 		return next
 	})
@@ -1085,11 +1131,12 @@ func replaceMCPAppStateTools(value any, server string, result MCPToolsListResult
 	return out
 }
 
-func replaceMCPAppStateCommands(value any, server string, result MCPPromptsListResult) []Command {
+func replaceMCPAppStateCommands(value any, server string, result MCPPromptsListResult, skills []SkillCommand) []Command {
 	prefix := mcpAppStatePrefix(server)
+	skillPrefix := normalizeMCPName(server) + ":"
 	out := make([]Command, 0)
 	appendIfOtherServer := func(command Command) {
-		if !strings.HasPrefix(command.Name, prefix) {
+		if !strings.HasPrefix(command.Name, prefix) && !strings.HasPrefix(command.Name, skillPrefix) {
 			out = append(out, command)
 		}
 	}
@@ -1115,6 +1162,12 @@ func replaceMCPAppStateCommands(value any, server string, result MCPPromptsListR
 		out = append(out, Command{
 			Name:        BuildMCPToolName(server, prompt.Name),
 			Description: strings.TrimSpace(prompt.Description),
+		})
+	}
+	for _, skill := range skills {
+		out = append(out, Command{
+			Name:        skill.Name,
+			Description: strings.TrimSpace(skill.Description),
 		})
 	}
 	return out
@@ -1271,13 +1324,21 @@ func (skillTool) Invoke(ctx context.Context, _ session.Session, input string) (s
 		if err != nil {
 			return "", err
 		}
+		if err := ensureBundledSkillFiles(command); err != nil {
+			return "", err
+		}
+		if baseDir := skillBaseDirForCommand(command); baseDir != "" {
+			content = "Base directory for this skill: " + baseDir + "\n\n" + content
+		}
+	} else if err := ensureBundledSkillFiles(command); err != nil {
+		return "", err
 	}
 	content, err = executeSkillShellCommandsInPrompt(
 		ctx,
 		content,
 		ToolUseContext{AbortContext: ctx},
 		command.Name,
-		skillBaseDir(command.Path),
+		skillBaseDirForCommand(command),
 		command.Shell,
 	)
 	if err != nil {
@@ -1347,13 +1408,21 @@ func (skillTool) InvokeWithContext(_ context.Context, toolCtx ToolUseContext) (T
 		if err != nil {
 			return ToolResult{}, err
 		}
+		if err := ensureBundledSkillFiles(command); err != nil {
+			return ToolResult{}, err
+		}
+		if baseDir := skillBaseDirForCommand(command); baseDir != "" {
+			content = "Base directory for this skill: " + baseDir + "\n\n" + content
+		}
+	} else if err := ensureBundledSkillFiles(command); err != nil {
+		return ToolResult{}, err
 	}
 	content, err = executeSkillShellCommandsInPrompt(
 		toolCtx.AbortContext,
 		content,
 		toolCtx,
 		command.Name,
-		skillBaseDir(command.Path),
+		skillBaseDirForCommand(command),
 		command.Shell,
 	)
 	if err != nil {
@@ -1496,6 +1565,7 @@ type skillCommand struct {
 	Effort                      string
 	Paths                       []string
 	Files                       map[string]string
+	SkillRoot                   string
 	PromptBuilder               SkillPromptBuilder
 	IsEnabled                   func() bool
 	Shell                       FrontmatterShell
@@ -1509,7 +1579,7 @@ type skillCommand struct {
 
 func (c skillCommand) renderedContent(args, sessionID string) string {
 	content := c.Content
-	baseDir := skillBaseDir(c.Path)
+	baseDir := skillBaseDirForCommand(c)
 	if baseDir != "" {
 		content = "Base directory for this skill: " + baseDir + "\n\n" + content
 	}
@@ -1523,6 +1593,33 @@ func (c skillCommand) renderedContent(args, sessionID string) string {
 	}
 	content = strings.ReplaceAll(content, "${CLAUDE_SESSION_ID}", sessionID)
 	return content
+}
+
+func skillBaseDirForCommand(command skillCommand) string {
+	if trimmed := strings.TrimSpace(command.SkillRoot); trimmed != "" {
+		return trimmed
+	}
+	return skillBaseDir(command.Path)
+}
+
+func ensureBundledSkillFiles(command skillCommand) error {
+	if command.Source != "bundled" || len(command.Files) == 0 {
+		return nil
+	}
+	root := skillBaseDirForCommand(command)
+	if strings.TrimSpace(root) == "" {
+		return nil
+	}
+	for rel, content := range command.Files {
+		target := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func resolveSkillCommand(object map[string]any, appState map[string]any) (skillCommand, error) {
@@ -1549,6 +1646,9 @@ func resolveSkillCommand(object map[string]any, appState map[string]any) (skillC
 		return command, nil
 	}
 	if command, ok := lookupBuiltinPluginSkill(name); ok {
+		return command, nil
+	}
+	if command, ok := resolveMCPSkill(name, appState); ok {
 		return command, nil
 	}
 	if command, ok := resolveMCPPromptSkill(name, appState); ok {
@@ -1611,6 +1711,24 @@ func resolveMCPPromptSkill(name string, appState map[string]any) (skillCommand, 
 	return skillCommand{}, false
 }
 
+func resolveMCPSkill(name string, appState map[string]any) (skillCommand, bool) {
+	if appState == nil {
+		return skillCommand{}, false
+	}
+	servers, _ := appState["mcpSkills"].(map[string][]SkillCommand)
+	if len(servers) == 0 {
+		return skillCommand{}, false
+	}
+	for _, skills := range servers {
+		for _, skill := range skills {
+			if skill.Name == name {
+				return skill, true
+			}
+		}
+	}
+	return skillCommand{}, false
+}
+
 func MCPPromptSkillCommands(prompts map[string]MCPPromptsListResult) []SkillCommand {
 	if len(prompts) == 0 {
 		return nil
@@ -1641,6 +1759,22 @@ func MCPPromptSkillCommands(prompts map[string]MCPPromptsListResult) []SkillComm
 				MCPPromptName: prompt.Name,
 			})
 		}
+	}
+	return out
+}
+
+func MCPSkillCommands(skills map[string][]SkillCommand) []SkillCommand {
+	if len(skills) == 0 {
+		return nil
+	}
+	servers := make([]string, 0, len(skills))
+	for server := range skills {
+		servers = append(servers, server)
+	}
+	sort.Strings(servers)
+	out := make([]SkillCommand, 0)
+	for _, server := range servers {
+		out = append(out, skills[server]...)
 	}
 	return out
 }
