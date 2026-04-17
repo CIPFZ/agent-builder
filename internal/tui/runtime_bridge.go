@@ -200,6 +200,29 @@ func (b *RuntimeBridge) TaskPanelSnapshot() taskPanelSnapshot {
 	return snapshot
 }
 
+func (b *RuntimeBridge) PlatformStatusSnapshot() platformStatusSnapshot {
+	snapshot := platformStatusSnapshot{
+		SessionID:  b.session.ID,
+		SessionKey: b.session.Key,
+		AgentID:    b.session.AgentID,
+		IsMain:     b.session.IsMain,
+	}
+	if b.runner == nil {
+		return snapshot
+	}
+
+	policy := b.runner.PermissionPolicyForSession(b.session.ID)
+	snapshot.WorkspaceRoots = append([]string(nil), policy.WorkspaceRoots...)
+	snapshot.ModelOverride = b.runner.SessionMainLoopModelOverride(b.session.ID)
+
+	inventory := b.runner.MCPInventory()
+	snapshot.MCPServerCount = inventory.ServerCount
+	snapshot.MCPToolCount = inventory.ToolCount
+	snapshot.MCPPromptCount = inventory.PromptCount
+	snapshot.MCPResourceCount = inventory.ResourceCount
+	return snapshot
+}
+
 func (b *RuntimeBridge) Approve(id string) error {
 	if err := b.ctx.Err(); err != nil {
 		return err

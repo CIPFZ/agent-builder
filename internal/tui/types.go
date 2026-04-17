@@ -23,11 +23,28 @@ type taskBridge interface {
 	TaskPanelSnapshot() taskPanelSnapshot
 }
 
+type platformStatusBridge interface {
+	PlatformStatusSnapshot() platformStatusSnapshot
+}
+
 type sessionSnapshot struct {
 	Session          session.Session
 	MessageCount     int
 	FirstUserMessage string
 	LastMessage      string
+}
+
+type platformStatusSnapshot struct {
+	SessionID        string
+	SessionKey       string
+	AgentID          string
+	IsMain           bool
+	WorkspaceRoots   []string
+	ModelOverride    string
+	MCPServerCount   int
+	MCPToolCount     int
+	MCPPromptCount   int
+	MCPResourceCount int
 }
 
 type taskPanelSnapshot struct {

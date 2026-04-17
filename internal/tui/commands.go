@@ -13,6 +13,7 @@ type slashCommandSpec struct {
 
 var localSlashCommandSpecs = []slashCommandSpec{
 	{Name: "help", Description: "Show this command reference"},
+	{Name: "keys", Description: "Show keybinding reference", Aliases: []string{"shortcuts"}},
 	{Name: "clear", Description: "Clear visible conversation", Aliases: []string{"reset", "new"}},
 	{Name: "model", Description: "Show model options"},
 	{Name: "session", Description: "Show session details"},

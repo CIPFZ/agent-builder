@@ -104,6 +104,13 @@ type Runner struct {
 	policyMu sync.RWMutex
 }
 
+type MCPInventory struct {
+	ServerCount   int
+	ToolCount     int
+	PromptCount   int
+	ResourceCount int
+}
+
 func NewRunner(sessions *session.Manager, client llm.Client, workspaceLoader *workspace.Loader, toolRegistry *tools.Registry) *Runner {
 	return NewRunnerWithOptions(sessions, client, workspaceLoader, toolRegistry, Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
@@ -474,6 +481,38 @@ func (r *Runner) SessionMainLoopModelOverride(sessionID string) string {
 
 func (r *Runner) ResolvedMainLoopModelForSession(sessionID string) string {
 	return r.engine.ResolvedMainLoopModelForSession(sessionID)
+}
+
+func (r *Runner) MCPInventory() MCPInventory {
+	servers := map[string]struct{}{}
+	for _, client := range r.options.MCPClients {
+		name := strings.TrimSpace(client.Name)
+		if name != "" {
+			servers[name] = struct{}{}
+		}
+	}
+
+	inventory := MCPInventory{}
+	for server, resources := range r.options.MCPResources {
+		if strings.TrimSpace(server) != "" {
+			servers[server] = struct{}{}
+		}
+		inventory.ResourceCount += len(resources)
+	}
+	for server, result := range r.options.MCPTools {
+		if strings.TrimSpace(server) != "" {
+			servers[server] = struct{}{}
+		}
+		inventory.ToolCount += len(result.Tools)
+	}
+	for server, result := range r.options.MCPPrompts {
+		if strings.TrimSpace(server) != "" {
+			servers[server] = struct{}{}
+		}
+		inventory.PromptCount += len(result.Prompts)
+	}
+	inventory.ServerCount = len(servers)
+	return inventory
 }
 
 func (r *Runner) MemoryService() *memory.Service {

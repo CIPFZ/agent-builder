@@ -14,6 +14,7 @@ import (
 	"myclaw/internal/permissions"
 	"myclaw/internal/runtime"
 	"myclaw/internal/session"
+	"myclaw/internal/tools"
 	"myclaw/internal/workspace"
 )
 
@@ -306,5 +307,58 @@ func TestRuntimeBridgeTaskPanelSnapshotIncludesDelegatedRuns(t *testing.T) {
 	}
 	if task.Status != "completed" {
 		t.Fatalf("task = %#v, want completed task status", task)
+	}
+}
+
+func TestRuntimeBridgePlatformStatusSnapshotIncludesSessionWorkspaceAndMCPDetails(t *testing.T) {
+	sessions := session.NewManager(nil)
+	runner := runtime.NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, runtime.Options{
+		PermissionPolicy: permissions.Policy{
+			Mode:           permissions.ModeWorkspaceWrite,
+			WorkspaceRoots: []string{"C:/repo", "C:/repo/subdir"},
+		},
+		MCPClients: []tools.MCPConnection{
+			{Name: "filesystem"},
+			{Name: "figma"},
+		},
+		MCPResources: map[string][]tools.MCPResource{
+			"filesystem": {
+				{URI: "file://README.md", Name: "README"},
+				{URI: "file://docs/plan.md", Name: "Plan"},
+			},
+			"figma": {
+				{URI: "figma://node/1", Name: "Node"},
+			},
+		},
+		MCPTools: map[string]tools.MCPToolsListResult{
+			"filesystem": {Tools: []tools.MCPToolListItem{{Name: "read_file"}, {Name: "write_file"}}},
+			"figma":      {Tools: []tools.MCPToolListItem{{Name: "get_design"}}},
+		},
+		MCPPrompts: map[string]tools.MCPPromptsListResult{
+			"filesystem": {Prompts: []tools.MCPPromptListItem{{Name: "summarize"}}},
+		},
+	})
+	parent := sessions.GetOrCreateMain("main")
+	if err := runner.SetSessionMainLoopModelOverride(parent.ID, "claude-opus-4-6"); err != nil {
+		t.Fatalf("SetSessionMainLoopModelOverride: %v", err)
+	}
+
+	bridge := NewRuntimeBridge(sessions, runner, "main")
+	snapshot := bridge.PlatformStatusSnapshot()
+
+	if snapshot.SessionID != parent.ID {
+		t.Fatalf("session id = %q, want %q", snapshot.SessionID, parent.ID)
+	}
+	if snapshot.SessionKey != parent.Key || snapshot.AgentID != parent.AgentID || !snapshot.IsMain {
+		t.Fatalf("snapshot = %#v, want main session identity details", snapshot)
+	}
+	if len(snapshot.WorkspaceRoots) != 2 || snapshot.WorkspaceRoots[0] != "C:/repo" || snapshot.WorkspaceRoots[1] != "C:/repo/subdir" {
+		t.Fatalf("workspace roots = %#v, want configured policy roots", snapshot.WorkspaceRoots)
+	}
+	if snapshot.ModelOverride != "claude-opus-4-6" {
+		t.Fatalf("model override = %q, want claude-opus-4-6", snapshot.ModelOverride)
+	}
+	if snapshot.MCPServerCount != 2 || snapshot.MCPToolCount != 3 || snapshot.MCPPromptCount != 1 || snapshot.MCPResourceCount != 3 {
+		t.Fatalf("snapshot = %#v, want aggregated MCP counts", snapshot)
 	}
 }
