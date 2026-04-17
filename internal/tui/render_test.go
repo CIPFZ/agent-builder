@@ -90,6 +90,88 @@ func TestRendererFooterSwitchesHelpForApproval(t *testing.T) {
 	}
 }
 
+func TestRenderApprovalDialogUsesTypedSemanticCopy(t *testing.T) {
+	tests := []struct {
+		name    string
+		request approval.Request
+		wants   []string
+	}{
+		{
+			name: "shell command",
+			request: approval.Request{
+				ID:        "approval-1",
+				ToolName:  "system.run",
+				ToolInput: "git status",
+				Reason:    "dangerous command requires explicit approval",
+			},
+			wants: []string{"Command Approval", "Command: git status", "Tool: system.run"},
+		},
+		{
+			name: "file edit",
+			request: approval.Request{
+				ID:              "approval-1",
+				ToolName:        "Edit",
+				Reason:          "destructive tool action requires explicit approval",
+				ToolInputObject: map[string]any{"file_path": "internal/tui/render.go"},
+			},
+			wants: []string{"File Edit Approval", "Path: internal/tui/render.go", "Tool: Edit"},
+		},
+		{
+			name: "filesystem read",
+			request: approval.Request{
+				ID:              "approval-1",
+				ToolName:        "Read",
+				ToolInputObject: map[string]any{"file_path": "README.md"},
+			},
+			wants: []string{"Read Approval", "Path: README.md", "Tool: Read"},
+		},
+		{
+			name: "web fetch",
+			request: approval.Request{
+				ID:              "approval-1",
+				ToolName:        "WebFetch",
+				ToolInputObject: map[string]any{"url": "https://example.com"},
+			},
+			wants: []string{"Web Fetch Approval", "URL: https://example.com", "Tool: WebFetch"},
+		},
+		{
+			name: "skill",
+			request: approval.Request{
+				ID:              "approval-1",
+				ToolName:        "Skill",
+				ToolInputObject: map[string]any{"skill": "brainstorming"},
+			},
+			wants: []string{"Skill Approval", "Skill: brainstorming", "Tool: Skill"},
+		},
+		{
+			name: "generic fallback",
+			request: approval.Request{
+				ID:              "approval-1",
+				ToolName:        "UnknownTool",
+				ToolInputObject: map[string]any{"foo": "bar"},
+			},
+			wants: []string{"Permission Required", "Tool: UnknownTool"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModel(&fakeBridge{})
+			model.applyRuntimeEvent(runtime.RuntimeEvent{
+				Type:     "permission.required",
+				Approval: &tt.request,
+			})
+
+			view := newRenderer().renderApprovalDialog(newRenderSnapshot(model, 88))
+			for _, want := range tt.wants {
+				if !contains(view, want) {
+					t.Fatalf("view missing %q: %q", want, view)
+				}
+			}
+		})
+	}
+}
+
 func TestRenderInputWithCursorPreservesUnicodeRunes(t *testing.T) {
 	rendered := renderInputWithCursor("你好", 1, 40)
 
