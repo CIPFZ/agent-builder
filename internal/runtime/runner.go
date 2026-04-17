@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -109,6 +110,16 @@ type MCPInventory struct {
 	ToolCount     int
 	PromptCount   int
 	ResourceCount int
+}
+
+type MCPServerSnapshot struct {
+	Name          string
+	TransportType string
+	Endpoint      string
+	Enabled       bool
+	Tools         []string
+	Prompts       []string
+	Resources     []string
 }
 
 func NewRunner(sessions *session.Manager, client llm.Client, workspaceLoader *workspace.Loader, toolRegistry *tools.Registry) *Runner {
@@ -513,6 +524,102 @@ func (r *Runner) MCPInventory() MCPInventory {
 	}
 	inventory.ServerCount = len(servers)
 	return inventory
+}
+
+func (r *Runner) MCPServers() []MCPServerSnapshot {
+	serverIndex := make(map[string]*MCPServerSnapshot)
+	for _, client := range r.options.MCPClients {
+		name := strings.TrimSpace(client.Name)
+		if name == "" {
+			continue
+		}
+		server := ensureMCPServerSnapshot(serverIndex, name)
+		server.TransportType = strings.TrimSpace(client.Type)
+		server.Endpoint = describeMCPEndpoint(client)
+		server.Enabled = true
+	}
+	for serverName, resources := range r.options.MCPResources {
+		server := ensureMCPServerSnapshot(serverIndex, serverName)
+		for _, resource := range resources {
+			label := strings.TrimSpace(resource.URI)
+			if label == "" {
+				label = strings.TrimSpace(resource.Name)
+			}
+			server.Resources = append(server.Resources, label)
+		}
+	}
+	for serverName, result := range r.options.MCPTools {
+		server := ensureMCPServerSnapshot(serverIndex, serverName)
+		for _, tool := range result.Tools {
+			server.Tools = append(server.Tools, strings.TrimSpace(tool.Name))
+		}
+	}
+	for serverName, result := range r.options.MCPPrompts {
+		server := ensureMCPServerSnapshot(serverIndex, serverName)
+		for _, prompt := range result.Prompts {
+			server.Prompts = append(server.Prompts, strings.TrimSpace(prompt.Name))
+		}
+	}
+
+	servers := make([]MCPServerSnapshot, 0, len(serverIndex))
+	for _, server := range serverIndex {
+		server.Tools = compactAndSortStrings(server.Tools)
+		server.Prompts = compactAndSortStrings(server.Prompts)
+		server.Resources = compactAndSortStrings(server.Resources)
+		servers = append(servers, *server)
+	}
+	sort.Slice(servers, func(i, j int) bool {
+		return servers[i].Name < servers[j].Name
+	})
+	return servers
+}
+
+func ensureMCPServerSnapshot(index map[string]*MCPServerSnapshot, name string) *MCPServerSnapshot {
+	name = strings.TrimSpace(name)
+	server, ok := index[name]
+	if ok {
+		return server
+	}
+	server = &MCPServerSnapshot{Name: name}
+	index[name] = server
+	return server
+}
+
+func describeMCPEndpoint(client tools.MCPConnection) string {
+	for _, value := range []string{
+		strings.TrimSpace(client.URL),
+		strings.TrimSpace(client.BaseURL),
+		strings.TrimSpace(client.Command),
+	} {
+		if value != "" {
+			if value == client.Command && len(client.Args) > 0 {
+				return strings.TrimSpace(value + " " + strings.Join(client.Args, " "))
+			}
+			return value
+		}
+	}
+	return ""
+}
+
+func compactAndSortStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (r *Runner) MemoryService() *memory.Service {

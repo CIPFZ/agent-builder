@@ -23,6 +23,7 @@ type fakeBridge struct {
 	resumedSessionID string
 	taskPanel        taskPanelSnapshot
 	platformStatus   platformStatusSnapshot
+	mcpStatus        mcpSnapshot
 }
 
 func (f *fakeBridge) SendUserMessage(input string) error {
@@ -59,6 +60,10 @@ func (f *fakeBridge) TaskPanelSnapshot() taskPanelSnapshot {
 
 func (f *fakeBridge) PlatformStatusSnapshot() platformStatusSnapshot {
 	return f.platformStatus
+}
+
+func (f *fakeBridge) MCPSnapshot() mcpSnapshot {
+	return f.mcpStatus
 }
 
 func TestModelViewShowsCoreSections(t *testing.T) {

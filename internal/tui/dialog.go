@@ -257,8 +257,10 @@ func (m *Model) handleLocalCommand(text string) bool {
 	switch command.Spec.Name {
 	case "help":
 		m.openHelpDialog()
-	case "keys":
+	case "keybindings":
 		m.openKeybindingsDialog()
+	case "mcp":
+		m.openMCPDialog()
 	case "clear":
 		m.clearVisibleConversation()
 	case "model":

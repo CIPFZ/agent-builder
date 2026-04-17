@@ -319,3 +319,88 @@ func TestTasksDialogSelectionOpensTaskDetailDialog(t *testing.T) {
 		}
 	}
 }
+
+func TestSlashMCPOpensFilterableServerDialog(t *testing.T) {
+	bridge := &fakeBridge{
+		mcpStatus: mcpSnapshot{
+			Servers: []mcpServerSnapshot{
+				{
+					Name:          "filesystem",
+					TransportType: "stdio",
+					Endpoint:      "local command",
+					Enabled:       true,
+					Tools:         []string{"read_file", "write_file"},
+					Prompts:       []string{"summarize"},
+					Resources:     []string{"file://README.md"},
+				},
+				{
+					Name:          "figma",
+					TransportType: "sse",
+					Endpoint:      "https://figma.example/mcp",
+					Enabled:       true,
+					Tools:         []string{"get_design"},
+					Resources:     []string{"figma://file/123"},
+				},
+			},
+		},
+	}
+	model := NewModel(bridge)
+	model.input = "/mcp"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.dialog.active() || model.dialog.Title != "MCP" {
+		t.Fatalf("dialog = %#v, want MCP dialog", model.dialog)
+	}
+	view := model.View()
+	for _, want := range []string{"MCP", "filesystem", "figma", "2 tools", "1 prompts", "1 resources", "Type to filter"} {
+		if !contains(view, want) {
+			t.Fatalf("mcp view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestMCPDialogSelectionOpensServerDetailDialog(t *testing.T) {
+	bridge := &fakeBridge{
+		mcpStatus: mcpSnapshot{
+			Servers: []mcpServerSnapshot{
+				{
+					Name:          "filesystem",
+					TransportType: "stdio",
+					Endpoint:      "npx @modelcontextprotocol/server-filesystem C:/repo",
+					Enabled:       true,
+					Tools:         []string{"read_file", "write_file"},
+					Prompts:       []string{"summarize"},
+					Resources:     []string{"file://README.md", "file://docs/plan.md"},
+				},
+			},
+		},
+	}
+	model := NewModel(bridge)
+	model.openMCPDialog()
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.dialog.active() || model.dialog.Title != "MCP server" {
+		t.Fatalf("dialog = %#v, want MCP server detail dialog", model.dialog)
+	}
+	view := model.View()
+	for _, want := range []string{
+		"MCP server",
+		"filesystem",
+		"stdio",
+		"enabled",
+		"read_file",
+		"write_file",
+		"summarize",
+		"file://README.md",
+		"file://docs/plan.md",
+	} {
+		if !contains(view, want) {
+			t.Fatalf("mcp detail view missing %q: %q", want, view)
+		}
+	}
+}

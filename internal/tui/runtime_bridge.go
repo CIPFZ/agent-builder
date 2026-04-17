@@ -223,6 +223,26 @@ func (b *RuntimeBridge) PlatformStatusSnapshot() platformStatusSnapshot {
 	return snapshot
 }
 
+func (b *RuntimeBridge) MCPSnapshot() mcpSnapshot {
+	if b.runner == nil {
+		return mcpSnapshot{}
+	}
+	runtimeServers := b.runner.MCPServers()
+	servers := make([]mcpServerSnapshot, 0, len(runtimeServers))
+	for _, server := range runtimeServers {
+		servers = append(servers, mcpServerSnapshot{
+			Name:          server.Name,
+			TransportType: server.TransportType,
+			Endpoint:      server.Endpoint,
+			Enabled:       server.Enabled,
+			Tools:         append([]string(nil), server.Tools...),
+			Prompts:       append([]string(nil), server.Prompts...),
+			Resources:     append([]string(nil), server.Resources...),
+		})
+	}
+	return mcpSnapshot{Servers: servers}
+}
+
 func (b *RuntimeBridge) Approve(id string) error {
 	if err := b.ctx.Err(); err != nil {
 		return err

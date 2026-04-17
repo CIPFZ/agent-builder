@@ -362,3 +362,40 @@ func TestRuntimeBridgePlatformStatusSnapshotIncludesSessionWorkspaceAndMCPDetail
 		t.Fatalf("snapshot = %#v, want aggregated MCP counts", snapshot)
 	}
 }
+
+func TestRuntimeBridgeMCPSnapshotIncludesServerDetails(t *testing.T) {
+	sessions := session.NewManager(nil)
+	runner := runtime.NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, runtime.Options{
+		MCPClients: []tools.MCPConnection{
+			{Name: "filesystem", Type: "stdio", Command: "npx", Args: []string{"@modelcontextprotocol/server-filesystem", "C:/repo"}},
+			{Name: "figma", Type: "sse", URL: "https://figma.example/mcp"},
+		},
+		MCPResources: map[string][]tools.MCPResource{
+			"filesystem": {{URI: "file://README.md"}, {URI: "file://docs/plan.md"}},
+		},
+		MCPTools: map[string]tools.MCPToolsListResult{
+			"filesystem": {Tools: []tools.MCPToolListItem{{Name: "read_file"}, {Name: "write_file"}}},
+			"figma":      {Tools: []tools.MCPToolListItem{{Name: "get_design"}}},
+		},
+		MCPPrompts: map[string]tools.MCPPromptsListResult{
+			"filesystem": {Prompts: []tools.MCPPromptListItem{{Name: "summarize"}}},
+		},
+	})
+
+	bridge := NewRuntimeBridge(sessions, runner, "main")
+	snapshot := bridge.MCPSnapshot()
+
+	if len(snapshot.Servers) != 2 {
+		t.Fatalf("servers = %#v, want 2", snapshot.Servers)
+	}
+	if snapshot.Servers[0].Name != "figma" || snapshot.Servers[1].Name != "filesystem" {
+		t.Fatalf("servers = %#v, want sorted by name", snapshot.Servers)
+	}
+	filesystem := snapshot.Servers[1]
+	if filesystem.TransportType != "stdio" || filesystem.Endpoint == "" {
+		t.Fatalf("filesystem = %#v, want transport metadata", filesystem)
+	}
+	if len(filesystem.Tools) != 2 || filesystem.Tools[0] != "read_file" || filesystem.Prompts[0] != "summarize" || len(filesystem.Resources) != 2 {
+		t.Fatalf("filesystem = %#v, want MCP tool/prompt/resource details", filesystem)
+	}
+}

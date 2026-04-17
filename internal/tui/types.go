@@ -27,6 +27,10 @@ type platformStatusBridge interface {
 	PlatformStatusSnapshot() platformStatusSnapshot
 }
 
+type mcpStatusBridge interface {
+	MCPSnapshot() mcpSnapshot
+}
+
 type sessionSnapshot struct {
 	Session          session.Session
 	MessageCount     int
@@ -45,6 +49,20 @@ type platformStatusSnapshot struct {
 	MCPToolCount     int
 	MCPPromptCount   int
 	MCPResourceCount int
+}
+
+type mcpSnapshot struct {
+	Servers []mcpServerSnapshot
+}
+
+type mcpServerSnapshot struct {
+	Name          string
+	TransportType string
+	Endpoint      string
+	Enabled       bool
+	Tools         []string
+	Prompts       []string
+	Resources     []string
 }
 
 type taskPanelSnapshot struct {
