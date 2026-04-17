@@ -49,6 +49,8 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.acceptHistorySearchItem(item)
 			case dialogKindSessionResume:
 				m.acceptSessionResumeItem(item)
+			case dialogKindTasks:
+				m.acceptTaskItem(item)
 			}
 		}
 		return m, nil

@@ -19,11 +19,47 @@ type sessionResumeBridge interface {
 	ResumeSession(string) ([]session.Message, bool)
 }
 
+type taskBridge interface {
+	TaskPanelSnapshot() taskPanelSnapshot
+}
+
 type sessionSnapshot struct {
 	Session          session.Session
 	MessageCount     int
 	FirstUserMessage string
 	LastMessage      string
+}
+
+type taskPanelSnapshot struct {
+	SessionID      string
+	Tasks          []taskSnapshot
+	RunningCount   int
+	CompletedCount int
+	FailedCount    int
+	StoppedCount   int
+}
+
+type taskSnapshot struct {
+	RunID               string
+	Label               string
+	Prompt              string
+	Status              string
+	ParentSessionID     string
+	ChildSessionID      string
+	ChildSessionKey     string
+	Output              string
+	Error               string
+	MessageCount        int
+	LastAssistant       string
+	LastEvent           string
+	Message             string
+	NextAction          string
+	RecommendedRole     string
+	RecommendedAction   string
+	DecisionPriority    string
+	DecisionReason      string
+	AutoExecutable      bool
+	ControlMessageCount int
 }
 
 type RuntimeEventMsg struct {
