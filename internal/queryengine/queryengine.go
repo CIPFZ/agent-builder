@@ -243,6 +243,7 @@ type Config struct {
 	DisableMCPPromptSkills     bool
 	SkillRoots                 []string
 	SkillForkExecutor          tools.SkillForkExecutor
+	AgentTaskExecutor          tools.AgentTaskExecutor
 	RequestPrompt              tools.RequestPromptFunc
 	ReportToolProgress         tools.ProgressFunc
 	AddNotification            tools.AddNotificationFunc
@@ -418,6 +419,7 @@ type QueryEngine struct {
 	disableMCPPromptSkills     bool
 	skillRoots                 []string
 	skillForkExecutor          tools.SkillForkExecutor
+	agentTaskExecutor          tools.AgentTaskExecutor
 	requestPrompt              tools.RequestPromptFunc
 	reportToolProgress         tools.ProgressFunc
 	addNotification            tools.AddNotificationFunc
@@ -649,6 +651,7 @@ func New(cfg Config) *QueryEngine {
 		disableMCPPromptSkills:    cfg.DisableMCPPromptSkills,
 		skillRoots:                append([]string(nil), cfg.SkillRoots...),
 		skillForkExecutor:         cfg.SkillForkExecutor,
+		agentTaskExecutor:         cfg.AgentTaskExecutor,
 		requestPrompt:             cfg.RequestPrompt,
 		reportToolProgress:        cfg.ReportToolProgress,
 		addNotification:           cfg.AddNotification,
@@ -677,6 +680,7 @@ func New(cfg Config) *QueryEngine {
 		agentDefinitions: tools.AgentDefinitions{
 			ActiveAgents:      append([]string(nil), cfg.AgentDefinitions.ActiveAgents...),
 			AllowedAgentTypes: append([]string(nil), cfg.AgentDefinitions.AllowedAgentTypes...),
+			Definitions:       cloneAgentDefinitions(cfg.AgentDefinitions.Definitions),
 		},
 		maxBudgetUSD:               cfg.MaxBudgetUSD,
 		isNonInteractiveSession:    cfg.IsNonInteractiveSession,
@@ -1069,6 +1073,9 @@ func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, 
 	if q.skillForkExecutor != nil {
 		appState["skillForkExecutor"] = q.skillForkExecutor
 	}
+	if q.agentTaskExecutor != nil {
+		appState["agentTaskExecutor"] = q.agentTaskExecutor
+	}
 	if len(q.mcpPrompts) > 0 {
 		appState["mcpPrompts"] = cloneMCPPrompts(q.mcpPrompts)
 	}
@@ -1135,6 +1142,7 @@ func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, 
 		AgentDefinitions: tools.AgentDefinitions{
 			ActiveAgents:      append([]string(nil), q.agentDefinitions.ActiveAgents...),
 			AllowedAgentTypes: append([]string(nil), q.agentDefinitions.AllowedAgentTypes...),
+			Definitions:       cloneAgentDefinitions(q.agentDefinitions.Definitions),
 		},
 		MaxBudgetUSD:            q.maxBudgetUSD,
 		IsNonInteractive:        q.isNonInteractiveSession,
@@ -1268,6 +1276,7 @@ func (q *QueryEngine) canUseToolFunc(parentCtx context.Context, sess session.Ses
 			AgentDefinitions: tools.AgentDefinitions{
 				ActiveAgents:      append([]string(nil), q.agentDefinitions.ActiveAgents...),
 				AllowedAgentTypes: append([]string(nil), q.agentDefinitions.AllowedAgentTypes...),
+				Definitions:       cloneAgentDefinitions(q.agentDefinitions.Definitions),
 			},
 			MaxBudgetUSD:            q.maxBudgetUSD,
 			IsNonInteractive:        q.isNonInteractiveSession,
@@ -1524,6 +1533,17 @@ func cloneMCPResources(resources map[string][]tools.MCPResource) map[string][]to
 	out := make(map[string][]tools.MCPResource, len(resources))
 	for name, items := range resources {
 		out[name] = append([]tools.MCPResource(nil), items...)
+	}
+	return out
+}
+
+func cloneAgentDefinitions(definitions map[string]tools.AgentDefinition) map[string]tools.AgentDefinition {
+	if definitions == nil {
+		return nil
+	}
+	out := make(map[string]tools.AgentDefinition, len(definitions))
+	for name, definition := range definitions {
+		out[name] = definition
 	}
 	return out
 }
@@ -1875,7 +1895,7 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 		UserMessage:             userMessage,
 		DefaultSystemPrompt:     q.defaultSystemPrompt,
 		CustomSystemPrompt:      q.customSystemPrompt,
-		AgentSystemPrompt:       q.agentSystemPrompt,
+		AgentSystemPrompt:       q.agentSystemPromptForSession(sess, workspaceContext),
 		CoordinatorSystemPrompt: q.coordinatorSystemPrompt,
 		ProactiveAgentPrompt:    q.proactiveAgentPrompt,
 		AppendSystemPrompt:      q.appendSystemPrompt,
@@ -1945,6 +1965,57 @@ func (q *QueryEngine) memoryItems(sessionID string) []memory.Item {
 		return nil
 	}
 	return q.memory.List(sessionID)
+}
+
+func (q *QueryEngine) agentSystemPromptForSession(sess session.Session, workspaceContext workspace.Context) string {
+	agentPrompt := strings.TrimSpace(q.agentSystemPrompt)
+	if override := strings.TrimSpace(sess.Metadata.AgentSystemPrompt); override != "" {
+		agentPrompt = override
+	}
+	if agentMemoryPrompt := q.agentMemoryPromptForSession(sess, workspaceContext); agentMemoryPrompt != "" {
+		if agentPrompt == "" {
+			return agentMemoryPrompt
+		}
+		return agentPrompt + "\n\n" + agentMemoryPrompt
+	}
+	return agentPrompt
+}
+
+func (q *QueryEngine) agentMemoryPromptForSession(sess session.Session, workspaceContext workspace.Context) string {
+	if q.memory == nil {
+		return ""
+	}
+	agentType := strings.TrimSpace(sess.Metadata.AgentType)
+	scopeValue := strings.TrimSpace(sess.Metadata.AgentMemoryScope)
+	if agentType == "" || scopeValue == "" {
+		return ""
+	}
+	scope := memory.AgentMemoryScope(scopeValue)
+	items := q.memory.ListAgent(memory.AgentMemoryRef{
+		AgentType: agentType,
+		Scope:     scope,
+		Namespace: agentMemoryNamespace(scope, workspaceContext.Root, sess.Key),
+	})
+	return memory.BuildAgentMemoryPrompt(scope, items)
+}
+
+func agentMemoryNamespace(scope memory.AgentMemoryScope, workspaceRoot, sessionKey string) string {
+	switch scope {
+	case memory.AgentMemoryScopeUser:
+		return "user"
+	case memory.AgentMemoryScopeProject:
+		if strings.TrimSpace(workspaceRoot) != "" {
+			return workspaceRoot
+		}
+		return sessionKey
+	case memory.AgentMemoryScopeLocal:
+		if strings.TrimSpace(workspaceRoot) != "" {
+			return workspaceRoot
+		}
+		return sessionKey
+	default:
+		return ""
+	}
 }
 
 func (q *QueryEngine) sessionMemoryCompactOptions(ctx context.Context, sess session.Session, analysis compaction.Analysis) (compaction.SessionMemoryOptions, error) {
@@ -2098,6 +2169,7 @@ func (q *QueryEngine) beginRun(parent context.Context, runID, sessionID string) 
 	q.msgMu.RLock()
 	messageCount := len(q.messages[sessionID])
 	q.msgMu.RUnlock()
+	sess, _ := q.sessions.GetByID(sessionID)
 
 	q.stateMu.Lock()
 	q.state.ActiveRunID = runID
@@ -2113,7 +2185,7 @@ func (q *QueryEngine) beginRun(parent context.Context, runID, sessionID string) 
 	q.state.LastStreamEvent = ""
 	q.state.RecentStreamEvents = nil
 	q.state.TokenBudget = q.tokenBudget
-	q.state.MaxTurns = q.effectiveMaxTurns()
+	q.state.MaxTurns = q.effectiveMaxTurns(sess)
 	q.state.MaxTurnsExceeded = false
 	q.state.LastModelPassCount = 0
 	q.stateMu.Unlock()
@@ -3708,7 +3780,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 		}
 
 		if current == nil {
-			if limit := q.effectiveMaxTurns(); limit > 0 && q.State().LastModelPassCount >= limit {
+			if limit := q.effectiveMaxTurns(sess); limit > 0 && q.State().LastModelPassCount >= limit {
 				q.recordMaxTurnsExceeded()
 				return session.Message{}, fmt.Errorf("reached maximum number of turns (%d)", limit)
 			}
@@ -3753,6 +3825,10 @@ func (q *QueryEngine) completeWithToolResult(ctx context.Context, sess session.S
 	if userMessage.ID == "" {
 		userMessage = toolMsg
 	}
+	if limit := q.effectiveMaxTurns(sess); limit > 0 && q.State().LastModelPassCount >= limit {
+		q.recordMaxTurnsExceeded()
+		return session.Message{}, fmt.Errorf("reached maximum number of turns (%d)", limit)
+	}
 	stream, err := q.runModelPass(ctx, sess, userMessage, runID, sink)
 	if err != nil {
 		return session.Message{}, err
@@ -3761,7 +3837,10 @@ func (q *QueryEngine) completeWithToolResult(ctx context.Context, sess session.S
 	return q.executeTurnLoop(ctx, sess, userMessage, runID, sink, nil, stream)
 }
 
-func (q *QueryEngine) effectiveMaxTurns() int {
+func (q *QueryEngine) effectiveMaxTurns(sess session.Session) int {
+	if sess.Metadata.AgentMaxTurns > 0 {
+		return sess.Metadata.AgentMaxTurns
+	}
 	if q.maxTurns <= 0 {
 		return 8
 	}

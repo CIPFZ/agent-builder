@@ -6029,8 +6029,17 @@ func TestQueryEngineIncludesSessionPermissionAndWorkspaceContextLines(t *testing
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")
 	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "services", "api", ".claude"), 0o755); err != nil {
+		t.Fatalf("mkdir nested .claude: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("always ask before deploy"), 0o644); err != nil {
 		t.Fatalf("write CLAUDE.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "services", "api", ".claude", "CLAUDE.md"), []byte("api-specific rule"), 0o644); err != nil {
+		t.Fatalf("write nested CLAUDE.md: %v", err)
 	}
 	client := &scriptedClient{
 		scripts: [][]llm.StreamEvent{
@@ -6044,7 +6053,7 @@ func TestQueryEngineIncludesSessionPermissionAndWorkspaceContextLines(t *testing
 	engine := queryengine.New(queryengine.Config{
 		Sessions:        sessions,
 		Client:          client,
-		WorkspaceLoader: workspace.NewLoader(root),
+		WorkspaceLoader: workspace.NewLoader(filepath.Join(root, "services", "api")),
 		PermissionPolicy: permissions.Policy{
 			Mode:           permissions.ModeWorkspaceWrite,
 			PlanMode:       true,
@@ -6071,8 +6080,14 @@ func TestQueryEngineIncludesSessionPermissionAndWorkspaceContextLines(t *testing
 	if !containsPrefix(requests[0].Context.UserContextLines, "current_date=") {
 		t.Fatalf("user context lines = %#v, want current date", requests[0].Context.UserContextLines)
 	}
-	if !containsString(requests[0].Context.UserContextLines, "claude_md=always ask before deploy") {
-		t.Fatalf("user context lines = %#v, want CLAUDE.md content", requests[0].Context.UserContextLines)
+	if !containsPrefix(requests[0].Context.UserContextLines, "claude_md=") {
+		t.Fatalf("user context lines = %#v, want claude_md aggregate", requests[0].Context.UserContextLines)
+	}
+	if !containsSubstring(requests[0].Context.UserContextLines, "always ask before deploy") {
+		t.Fatalf("user context lines = %#v, want root CLAUDE.md content", requests[0].Context.UserContextLines)
+	}
+	if !containsSubstring(requests[0].Context.UserContextLines, "api-specific rule") {
+		t.Fatalf("user context lines = %#v, want nested CLAUDE.md content", requests[0].Context.UserContextLines)
 	}
 	if !containsString(requests[0].Context.SystemContextLines, "permission_mode=workspace-write") {
 		t.Fatalf("system context lines = %#v, want permission mode", requests[0].Context.SystemContextLines)
@@ -6083,7 +6098,7 @@ func TestQueryEngineIncludesSessionPermissionAndWorkspaceContextLines(t *testing
 	if !containsString(requests[0].Context.SystemContextLines, "auto_mode=true") {
 		t.Fatalf("system context lines = %#v, want auto mode", requests[0].Context.SystemContextLines)
 	}
-	if !containsString(requests[0].Context.SystemContextLines, "workspace_root="+root) {
+	if !containsString(requests[0].Context.SystemContextLines, "workspace_root="+filepath.Join(root, "services", "api")) {
 		t.Fatalf("system context lines = %#v, want workspace root", requests[0].Context.SystemContextLines)
 	}
 	if !containsString(requests[0].Context.SystemContextLines, "workspace_roots="+root+","+filepath.Join(root, "sub")) {

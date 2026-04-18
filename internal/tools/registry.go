@@ -182,9 +182,21 @@ type Command struct {
 	IsHidden                    bool
 }
 
+type AgentDefinition struct {
+	AgentType       string
+	SystemPrompt    string
+	MemoryScope     string
+	MaxTurns        int
+	Background      bool
+	InitialPrompt   string
+	PermissionMode  string
+	DisallowedTools []string
+}
+
 type AgentDefinitions struct {
 	ActiveAgents      []string
 	AllowedAgentTypes []string
+	Definitions       map[string]AgentDefinition
 }
 
 type QueryTracking struct {
@@ -301,6 +313,7 @@ func (c ToolUseContext) Normalized() ToolUseContext {
 	out.ThinkingConfig = cloneAnyMap(out.ThinkingConfig)
 	out.AgentDefinitions.ActiveAgents = append([]string(nil), out.AgentDefinitions.ActiveAgents...)
 	out.AgentDefinitions.AllowedAgentTypes = append([]string(nil), out.AgentDefinitions.AllowedAgentTypes...)
+	out.AgentDefinitions.Definitions = cloneAgentDefinitions(out.AgentDefinitions.Definitions)
 	out.ReadFileState = cloneAnyMap(out.ReadFileState)
 	out.ContentReplacementState = cloneAnyMap(out.ContentReplacementState)
 	out.Messages = append([]session.Message(nil), out.Messages...)
@@ -933,6 +946,17 @@ func cloneMCPResources(input map[string][]MCPResource) map[string][]MCPResource 
 	cloned := make(map[string][]MCPResource, len(input))
 	for key, value := range input {
 		cloned[key] = append([]MCPResource(nil), value...)
+	}
+	return cloned
+}
+
+func cloneAgentDefinitions(input map[string]AgentDefinition) map[string]AgentDefinition {
+	if input == nil {
+		return nil
+	}
+	cloned := make(map[string]AgentDefinition, len(input))
+	for key, value := range input {
+		cloned[key] = value
 	}
 	return cloned
 }

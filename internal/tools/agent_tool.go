@@ -13,8 +13,18 @@ import (
 )
 
 var _ AutoClassifyingTool = (*AgentTaskTool)(nil)
+var _ ContextualTool = (*AgentTaskTool)(nil)
 
 type AgentTaskRunner func(context.Context, session.Session, agent.RunContext, string) (string, error)
+type AgentTaskExecutor func(context.Context, AgentTaskRequest) (ToolResult, error)
+
+type AgentTaskRequest struct {
+	ToolContext      ToolUseContext
+	Label            string
+	Prompt           string
+	AgentType        string
+	RunInBackground  bool
+}
 
 type AgentTaskTool struct {
 	manager *agent.Manager
@@ -85,20 +95,33 @@ func (t *AgentTaskTool) Invoke(ctx context.Context, sess session.Session, input 
 	}
 }
 
+func (t *AgentTaskTool) InvokeWithContext(ctx context.Context, toolCtx ToolUseContext) (ToolResult, error) {
+	toolCtx = toolCtx.Normalized()
+	if executor := agentTaskExecutorFromAppState(toolCtx.AppState); executor != nil {
+		request, ok := structuredAgentTaskRequest(toolCtx.Input)
+		if !ok {
+			label, prompt := parseAgentTaskInput(toolCtx.Input)
+			request = AgentTaskRequest{
+				Label:  label,
+				Prompt: prompt,
+			}
+		}
+		request.ToolContext = toolCtx
+		return executor(ctx, request)
+	}
+	output, err := t.Invoke(ctx, toolCtx.Session, toolCtx.Input)
+	return ToolResult{Output: output}, err
+}
+
 func structuredAgentPrompt(input string) (string, bool) {
-	var object map[string]any
-	if err := json.Unmarshal([]byte(input), &object); err != nil {
+	request, ok := structuredAgentTaskRequest(input)
+	if !ok {
 		return "", false
 	}
-	prompt, _ := object["prompt"].(string)
-	if strings.TrimSpace(prompt) == "" {
-		return "", false
+	if strings.TrimSpace(request.Label) == "" {
+		return strings.TrimSpace(request.Prompt), true
 	}
-	description, _ := object["description"].(string)
-	if strings.TrimSpace(description) == "" {
-		return strings.TrimSpace(prompt), true
-	}
-	return strings.TrimSpace(description) + ": " + strings.TrimSpace(prompt), true
+	return strings.TrimSpace(request.Label) + ": " + strings.TrimSpace(request.Prompt), true
 }
 
 func (t *AgentTaskTool) IsEnabled() bool {
@@ -300,22 +323,53 @@ func parseAgentTaskInput(input string) (label, prompt string) {
 }
 
 func projectStructuredAgentTaskClassifierInput(input string) (string, bool) {
-	var object map[string]any
-	if err := json.Unmarshal([]byte(input), &object); err != nil {
-		return "", false
-	}
-	prompt, _ := object["prompt"].(string)
-	if strings.TrimSpace(prompt) == "" {
+	request, ok := structuredAgentTaskRequest(input)
+	if !ok {
 		return "", false
 	}
 	tags := []string{}
-	if subagentType, ok := object["subagent_type"].(string); ok && strings.TrimSpace(subagentType) != "" {
-		tags = append(tags, strings.TrimSpace(subagentType))
+	if strings.TrimSpace(request.AgentType) != "" {
+		tags = append(tags, strings.TrimSpace(request.AgentType))
 	}
-	if mode, ok := object["mode"].(string); ok && strings.TrimSpace(mode) != "" {
-		tags = append(tags, "mode="+strings.TrimSpace(mode))
+	var object map[string]any
+	if err := json.Unmarshal([]byte(input), &object); err == nil {
+		if mode, ok := object["mode"].(string); ok && strings.TrimSpace(mode) != "" {
+			tags = append(tags, "mode="+strings.TrimSpace(mode))
+		}
 	}
-	return formatAgentTaskClassifierInput(tags, prompt), true
+	return formatAgentTaskClassifierInput(tags, request.Prompt), true
+}
+
+func ProjectStructuredAgentTaskInputForTest(input string) (AgentTaskRequest, bool) {
+	return structuredAgentTaskRequest(input)
+}
+
+func structuredAgentTaskRequest(input string) (AgentTaskRequest, bool) {
+	var object map[string]any
+	if err := json.Unmarshal([]byte(input), &object); err != nil {
+		return AgentTaskRequest{}, false
+	}
+	prompt, _ := object["prompt"].(string)
+	if strings.TrimSpace(prompt) == "" {
+		return AgentTaskRequest{}, false
+	}
+	description, _ := object["description"].(string)
+	subagentType, _ := object["subagent_type"].(string)
+	runInBackground, _ := object["run_in_background"].(bool)
+	return AgentTaskRequest{
+		Label:           strings.TrimSpace(description),
+		Prompt:          strings.TrimSpace(prompt),
+		AgentType:       strings.TrimSpace(subagentType),
+		RunInBackground: runInBackground,
+	}, true
+}
+
+func agentTaskExecutorFromAppState(appState map[string]any) AgentTaskExecutor {
+	if appState == nil {
+		return nil
+	}
+	executor, _ := appState["agentTaskExecutor"].(AgentTaskExecutor)
+	return executor
 }
 
 func formatAgentTaskClassifierInput(tags []string, prompt string) string {

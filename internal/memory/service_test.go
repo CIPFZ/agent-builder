@@ -172,3 +172,148 @@ func TestServiceSaveCompactionSummaryReplacesOlderSummaryMemory(t *testing.T) {
 		t.Fatalf("memory content = %q, want latest summary", memories[0].Content)
 	}
 }
+
+func TestServiceAgentMemoryIsStoredSeparatelyFromSessionMemory(t *testing.T) {
+	service := memory.NewService()
+	session := model.Session{
+		ID:      "main-000001",
+		Key:     "agent:main:main",
+		AgentID: "main",
+	}
+
+	service.Save(session, memory.Entry{
+		Type:    memory.TypeTask,
+		Content: "Task: session scoped task",
+	})
+	service.SaveAgent(memory.AgentEntry{
+		AgentType: "researcher",
+		Scope:     memory.AgentMemoryScopeProject,
+		Namespace: "repo-a",
+		Content:   "Persistent agent memory",
+	})
+
+	sessionItems := service.List(session.ID)
+	if len(sessionItems) != 1 {
+		t.Fatalf("session memory count = %d, want 1", len(sessionItems))
+	}
+	if sessionItems[0].Content != "Task: session scoped task" {
+		t.Fatalf("session memory content = %q, want session content", sessionItems[0].Content)
+	}
+
+	agentItems := service.ListAgent(memory.AgentMemoryRef{
+		AgentType: "researcher",
+		Scope:     memory.AgentMemoryScopeProject,
+		Namespace: "repo-a",
+	})
+	if len(agentItems) != 1 {
+		t.Fatalf("agent memory count = %d, want 1", len(agentItems))
+	}
+	if agentItems[0].Content != "Persistent agent memory" {
+		t.Fatalf("agent memory content = %q, want persistent content", agentItems[0].Content)
+	}
+	if agentItems[0].SessionID != "" {
+		t.Fatalf("agent memory session id = %q, want empty", agentItems[0].SessionID)
+	}
+}
+
+func TestServiceAgentMemorySupportsScopesWithoutLeakage(t *testing.T) {
+	service := memory.NewService()
+
+	service.SaveAgent(memory.AgentEntry{
+		AgentType: "researcher",
+		Scope:     memory.AgentMemoryScopeUser,
+		Namespace: "global-user",
+		Content:   "User scoped memory",
+	})
+	service.SaveAgent(memory.AgentEntry{
+		AgentType: "researcher",
+		Scope:     memory.AgentMemoryScopeProject,
+		Namespace: "repo-a",
+		Content:   "Project scoped memory",
+	})
+	service.SaveAgent(memory.AgentEntry{
+		AgentType: "researcher",
+		Scope:     memory.AgentMemoryScopeLocal,
+		Namespace: "repo-a:machine-1",
+		Content:   "Local scoped memory",
+	})
+
+	testCases := []struct {
+		name      string
+		ref       memory.AgentMemoryRef
+		wantCount int
+		wantText  string
+	}{
+		{
+			name: "user scope",
+			ref: memory.AgentMemoryRef{
+				AgentType: "researcher",
+				Scope:     memory.AgentMemoryScopeUser,
+				Namespace: "global-user",
+			},
+			wantCount: 1,
+			wantText:  "User scoped memory",
+		},
+		{
+			name: "project scope",
+			ref: memory.AgentMemoryRef{
+				AgentType: "researcher",
+				Scope:     memory.AgentMemoryScopeProject,
+				Namespace: "repo-a",
+			},
+			wantCount: 1,
+			wantText:  "Project scoped memory",
+		},
+		{
+			name: "local scope",
+			ref: memory.AgentMemoryRef{
+				AgentType: "researcher",
+				Scope:     memory.AgentMemoryScopeLocal,
+				Namespace: "repo-a:machine-1",
+			},
+			wantCount: 1,
+			wantText:  "Local scoped memory",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			items := service.ListAgent(tc.ref)
+			if len(items) != tc.wantCount {
+				t.Fatalf("agent memory count = %d, want %d", len(items), tc.wantCount)
+			}
+			if items[0].Content != tc.wantText {
+				t.Fatalf("agent memory content = %q, want %q", items[0].Content, tc.wantText)
+			}
+		})
+	}
+}
+
+func TestServiceAgentMemoryNamespaceDoesNotLeakAcrossProjects(t *testing.T) {
+	service := memory.NewService()
+
+	service.SaveAgent(memory.AgentEntry{
+		AgentType: "researcher",
+		Scope:     memory.AgentMemoryScopeProject,
+		Namespace: "repo-a",
+		Content:   "Repo A memory",
+	})
+	service.SaveAgent(memory.AgentEntry{
+		AgentType: "researcher",
+		Scope:     memory.AgentMemoryScopeProject,
+		Namespace: "repo-b",
+		Content:   "Repo B memory",
+	})
+
+	items := service.ListAgent(memory.AgentMemoryRef{
+		AgentType: "researcher",
+		Scope:     memory.AgentMemoryScopeProject,
+		Namespace: "repo-a",
+	})
+	if len(items) != 1 {
+		t.Fatalf("agent memory count = %d, want 1", len(items))
+	}
+	if items[0].Content != "Repo A memory" {
+		t.Fatalf("agent memory content = %q, want repo-a content", items[0].Content)
+	}
+}

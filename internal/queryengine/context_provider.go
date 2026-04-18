@@ -41,7 +41,7 @@ func defaultUserContextProvider(disableClaudeMd bool) UserContextProvider {
 			"current_date=" + time.Now().Format("2006-01-02"),
 		}
 		if !disableClaudeMd {
-			if claudeMD, ok := workspaceFileContent(workspaceContext, "CLAUDE.md"); ok {
+			if claudeMD, ok := workspaceInstructionContent(workspaceContext); ok {
 				lines = append(lines, "claude_md="+claudeMD)
 			}
 		}
@@ -182,4 +182,22 @@ func workspaceFileContent(workspaceContext workspace.Context, name string) (stri
 		return content, true
 	}
 	return "", false
+}
+
+func workspaceInstructionContent(workspaceContext workspace.Context) (string, bool) {
+	items := make([]string, 0, len(workspaceContext.Files))
+	for _, file := range workspaceContext.Files {
+		if file.Type != "instruction" {
+			continue
+		}
+		content := strings.TrimSpace(file.Content)
+		if content == "" {
+			continue
+		}
+		items = append(items, content)
+	}
+	if len(items) == 0 {
+		return "", false
+	}
+	return strings.Join(items, "\n\n"), true
 }

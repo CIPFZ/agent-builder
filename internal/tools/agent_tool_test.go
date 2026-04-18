@@ -259,6 +259,66 @@ func TestAgentTaskToolResumeReusesChildSession(t *testing.T) {
 	}
 }
 
+func TestAgentTaskToolInvokeWithContextUsesAgentTaskExecutor(t *testing.T) {
+	var got tools.AgentTaskRequest
+	tool := tools.NewAgentTaskTool(agent.NewManager(), nil)
+	sess := session.NewManager(nil).GetOrCreateMain("main")
+
+	result, err := tool.InvokeWithContext(context.Background(), tools.ToolUseContext{
+		Session: sess,
+		ToolName: "agent.task",
+		Input: `{"description":"research","prompt":"inspect auth flow","subagent_type":"researcher"}`,
+		AppState: map[string]any{
+			"agentTaskExecutor": tools.AgentTaskExecutor(func(_ context.Context, request tools.AgentTaskRequest) (tools.ToolResult, error) {
+				got = request
+				return tools.ToolResult{Output: `{"status":"spawned","runId":"agent-1"}`}, nil
+			}),
+		},
+	})
+	if err != nil {
+		t.Fatalf("invoke with context: %v", err)
+	}
+	if got.Label != "research" || got.Prompt != "inspect auth flow" || got.AgentType != "researcher" {
+		t.Fatalf("request = %#v, want parsed structured agent task", got)
+	}
+	if result.Output != `{"status":"spawned","runId":"agent-1"}` {
+		t.Fatalf("result = %#v, want executor output", result)
+	}
+}
+
+func TestAgentTaskToolInvokeWithContextFallsBackWhenExecutorMissing(t *testing.T) {
+	manager := agent.NewManager()
+	tool := tools.NewAgentTaskTool(manager, func(_ context.Context, _ session.Session, _ agent.RunContext, prompt string) (string, error) {
+		return "handled: " + prompt, nil
+	})
+	sess := session.NewManager(nil).GetOrCreateMain("main")
+
+	result, err := tool.InvokeWithContext(context.Background(), tools.ToolUseContext{
+		Session:  sess,
+		ToolName: "agent.task",
+		Input:    "research: investigate failing test",
+	})
+	if err != nil {
+		t.Fatalf("invoke with context fallback: %v", err)
+	}
+	if !containsAll(result.Output, []string{"action=spawned", "status=completed", "output=handled: investigate failing test"}) {
+		t.Fatalf("result = %#v, want fallback spawn summary", result)
+	}
+}
+
+func TestAgentTaskToolStructuredPromptProjectsBackgroundFlag(t *testing.T) {
+	projected, ok := tools.ProjectStructuredAgentTaskInputForTest(`{"description":"research","prompt":"inspect auth flow","subagent_type":"researcher","run_in_background":true}`)
+	if !ok {
+		t.Fatal("expected structured input to parse")
+	}
+	if !projected.RunInBackground {
+		t.Fatalf("projection = %#v, want background flag", projected)
+	}
+	if projected.AgentType != "researcher" || projected.Label != "research" || projected.Prompt != "inspect auth flow" {
+		t.Fatalf("projection = %#v, want parsed fields", projected)
+	}
+}
+
 func TestAgentTaskToolResumeRejectsRunningRun(t *testing.T) {
 	manager := agent.NewManager()
 	blocked := make(chan struct{})
