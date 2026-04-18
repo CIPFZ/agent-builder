@@ -27,6 +27,7 @@ type tuiState struct {
 	pastes              pasteState
 	promptStash         promptStashState
 	externalEditor      externalEditorState
+	quickOpen           quickOpenState
 	width               int
 	height              int
 }
@@ -49,6 +50,8 @@ func newTUIState(cfg ...ModelConfig) tuiState {
 		state.diagnostics.LLMLabel = cfg[0].LLMLabel
 		state.diagnostics.LogPath = cfg[0].LogPath
 		state.externalEditor.PromptEditor = cfg[0].PromptEditor
+		state.quickOpen.OpenFile = cfg[0].OpenFile
+		state.quickOpen.WorkspaceRoots = append([]string(nil), cfg[0].WorkspaceRoots...)
 	}
 	return state
 }

@@ -41,14 +41,19 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if msg.Type == tea.KeyCtrlC {
 			return m, tea.Quit
 		}
-		if result := m.dialog.handleKey(msg); result.Selected {
+		result := m.dialog.handleKey(msg)
+		if dialogKind == dialogKindQuickOpen && m.dialog.active() {
+			preserveSelection := msg.Type != tea.KeyRunes && msg.Type != tea.KeyBackspace
+			m.updateQuickOpenDialog(preserveSelection)
+		}
+		if result.Selected {
 			item := result.Item
 			m.lastDialogSelection = &item
 			switch dialogKind {
 			case dialogKindHistorySearch:
 				m.acceptHistorySearchItem(item)
 			case dialogKindQuickOpen:
-				m.acceptQuickOpenItem(item)
+				m.acceptQuickOpenItem(item, result.Action)
 			case dialogKindMCPList:
 				m.acceptMCPItem(item)
 			case dialogKindSessionResume:

@@ -138,10 +138,12 @@ const (
 )
 
 type ModelConfig struct {
-	SessionID    string
-	LLMLabel     string
-	LogPath      string
-	PromptEditor promptEditorFunc
+	SessionID      string
+	LLMLabel       string
+	LogPath        string
+	PromptEditor   promptEditorFunc
+	OpenFile       fileOpenFunc
+	WorkspaceRoots []string
 }
 
 type diagnosticsState struct {
@@ -175,6 +177,8 @@ type externalEditorState struct {
 	PromptEditor promptEditorFunc
 }
 
+type fileOpenFunc func(path string) error
+
 type viewportState struct {
 	ScrollOffset   int
 	StickyBottom   bool
@@ -182,6 +186,23 @@ type viewportState struct {
 	ShowAllHistory bool
 	NewMessages    int
 	Search         transcriptSearchState
+}
+
+type quickOpenState struct {
+	OpenFile       fileOpenFunc
+	WorkspaceRoots []string
+	BaseItems      []dialogItem
+	FileIndex      []quickOpenFile
+	PreviewTitle   string
+	PreviewContent string
+	OriginalInput  string
+	OriginalCursor int
+}
+
+type quickOpenFile struct {
+	DisplayPath string
+	AbsolutePath string
+	RootLabel   string
 }
 
 type messageActionsState struct {

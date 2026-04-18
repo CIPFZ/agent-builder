@@ -100,6 +100,15 @@ func defaultPromptEditor(req externalEditorRequest) tea.Cmd {
 	})
 }
 
+func defaultFileOpener(path string) error {
+	editor := externalEditorCommand()
+	if editor == "" {
+		return fmt.Errorf("external editor is not configured")
+	}
+	cmd := commandForEditor(editor, path)
+	return cmd.Start()
+}
+
 func externalEditorCommand() string {
 	if value := strings.TrimSpace(os.Getenv("VISUAL")); value != "" {
 		return value

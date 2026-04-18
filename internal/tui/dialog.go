@@ -10,6 +10,7 @@ import (
 type dialogResult struct {
 	Selected bool
 	Item     dialogItem
+	Action   string
 }
 
 func newDialogState() dialogState {
@@ -74,7 +75,13 @@ func (d *dialogState) handleKey(msg tea.KeyMsg) dialogResult {
 			return dialogResult{}
 		}
 		d.close()
-		return dialogResult{Selected: true, Item: item}
+		action := "enter"
+		if msg.Type == tea.KeyTab {
+			action = "tab"
+		} else if msg.Type == tea.KeyShiftTab {
+			action = "shift+tab"
+		}
+		return dialogResult{Selected: true, Item: item, Action: action}
 	case tea.KeyUp, tea.KeyCtrlP:
 		d.moveUp()
 	case tea.KeyDown, tea.KeyCtrlN:
