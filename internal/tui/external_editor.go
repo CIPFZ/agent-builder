@@ -109,6 +109,23 @@ func defaultFileOpener(path string) error {
 	return cmd.Start()
 }
 
+func defaultFileLocationOpener(path string, line int) error {
+	editor := externalEditorCommand()
+	if editor == "" {
+		return fmt.Errorf("external editor is not configured")
+	}
+	candidate := strings.ToLower(strings.TrimSpace(editor))
+	if strings.Contains(candidate, "code") {
+		cmd := exec.Command("code", "--goto", fmt.Sprintf("%s:%d", path, line))
+		return cmd.Start()
+	}
+	if strings.Contains(candidate, "cursor") {
+		cmd := exec.Command("cursor", "--goto", fmt.Sprintf("%s:%d", path, line))
+		return cmd.Start()
+	}
+	return defaultFileOpener(path)
+}
+
 func externalEditorCommand() string {
 	if value := strings.TrimSpace(os.Getenv("VISUAL")); value != "" {
 		return value

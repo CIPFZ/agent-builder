@@ -28,6 +28,7 @@ type tuiState struct {
 	promptStash         promptStashState
 	externalEditor      externalEditorState
 	quickOpen           quickOpenState
+	globalSearch        globalSearchState
 	width               int
 	height              int
 }
@@ -52,6 +53,9 @@ func newTUIState(cfg ...ModelConfig) tuiState {
 		state.externalEditor.PromptEditor = cfg[0].PromptEditor
 		state.quickOpen.OpenFile = cfg[0].OpenFile
 		state.quickOpen.WorkspaceRoots = append([]string(nil), cfg[0].WorkspaceRoots...)
+		state.globalSearch.OpenFileAtLine = cfg[0].OpenFileAtLine
+		state.globalSearch.Search = cfg[0].WorkspaceSearch
+		state.globalSearch.WorkspaceRoots = append([]string(nil), cfg[0].WorkspaceRoots...)
 	}
 	return state
 }

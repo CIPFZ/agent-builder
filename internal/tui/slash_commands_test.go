@@ -582,3 +582,182 @@ func TestQuickOpenTabAndShiftTabInsertWorkspaceFileReference(t *testing.T) {
 		t.Fatalf("input after shift-tab = %q, want path insert", model.input)
 	}
 }
+
+func TestSlashSearchOpensGlobalSearchDialog(t *testing.T) {
+	root := t.TempDir()
+	bridge := &fakeBridge{
+		platformStatus: platformStatusSnapshot{
+			WorkspaceRoots: []string{root},
+		},
+	}
+	model := NewModel(bridge, ModelConfig{
+		WorkspaceSearch: func(workspaceSearchRequest) (workspaceSearchResult, error) {
+			return workspaceSearchResult{}, nil
+		},
+	})
+	model.input = "/search"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.dialog.active() || model.dialog.Title != "Global Search" {
+		t.Fatalf("dialog = %#v, want global search dialog", model.dialog)
+	}
+	view := model.View()
+	for _, want := range []string{"Global Search", "Type workspace text to search", "Type to filter"} {
+		if !contains(view, want) {
+			t.Fatalf("global search view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestGlobalSearchShowsWorkspaceMatchesAndPreview(t *testing.T) {
+	root := t.TempDir()
+	matchPath := filepath.Join(root, "pkg", "search.go")
+	if err := os.MkdirAll(filepath.Dir(matchPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(matchPath, []byte("line one\nneedle match line\nline three\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	bridge := &fakeBridge{
+		platformStatus: platformStatusSnapshot{
+			WorkspaceRoots: []string{root},
+		},
+	}
+	model := NewModel(bridge, ModelConfig{
+		WorkspaceSearch: func(req workspaceSearchRequest) (workspaceSearchResult, error) {
+			return workspaceSearchResult{
+				Matches: []workspaceSearchMatch{{
+					DisplayPath:  "pkg/search.go",
+					AbsolutePath: matchPath,
+					Line:         2,
+					Text:         "needle match line",
+				}},
+			}, nil
+		},
+	})
+	model.openGlobalSearchDialog()
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("needle")})
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("search cmd = nil, want search command")
+	}
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+
+	view := model.View()
+	for _, want := range []string{"pkg/search.go:2", "needle match line", "line one", "line three"} {
+		if !contains(view, want) {
+			t.Fatalf("global search results missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestGlobalSearchEnterOpensFocusedMatchAtLine(t *testing.T) {
+	root := t.TempDir()
+	matchPath := filepath.Join(root, "docs", "guide.md")
+	if err := os.MkdirAll(filepath.Dir(matchPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(matchPath, []byte("guide"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var openedPath string
+	var openedLine int
+	bridge := &fakeBridge{
+		platformStatus: platformStatusSnapshot{
+			WorkspaceRoots: []string{root},
+		},
+	}
+	model := NewModel(bridge, ModelConfig{
+		OpenFileAtLine: func(path string, line int) error {
+			openedPath = path
+			openedLine = line
+			return nil
+		},
+		WorkspaceSearch: func(req workspaceSearchRequest) (workspaceSearchResult, error) {
+			return workspaceSearchResult{
+				Matches: []workspaceSearchMatch{{
+					DisplayPath:  "docs/guide.md",
+					AbsolutePath: matchPath,
+					Line:         7,
+					Text:         "needle",
+				}},
+			}, nil
+		},
+	})
+	model.openGlobalSearchDialog()
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("needle")})
+	model = updated.(Model)
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if openedPath != matchPath || openedLine != 7 {
+		t.Fatalf("opened = %q:%d, want %q:%d", openedPath, openedLine, matchPath, 7)
+	}
+}
+
+func TestGlobalSearchTabAndShiftTabInsertMatchReference(t *testing.T) {
+	root := t.TempDir()
+	matchPath := filepath.Join(root, "docs", "guide.md")
+	if err := os.MkdirAll(filepath.Dir(matchPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(matchPath, []byte("guide"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	searcher := func(req workspaceSearchRequest) (workspaceSearchResult, error) {
+		return workspaceSearchResult{
+			Matches: []workspaceSearchMatch{{
+				DisplayPath:  "docs/guide.md",
+				AbsolutePath: matchPath,
+				Line:         4,
+				Text:         "guide needle",
+			}},
+		}, nil
+	}
+
+	bridge := &fakeBridge{
+		platformStatus: platformStatusSnapshot{
+			WorkspaceRoots: []string{root},
+		},
+	}
+	model := NewModel(bridge, ModelConfig{WorkspaceSearch: searcher})
+	model.input = "inspect "
+	model.cursorPos = len([]rune(model.input))
+	model.openGlobalSearchDialog()
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("needle")})
+	model = updated.(Model)
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model = updated.(Model)
+
+	if model.input != "inspect @docs/guide.md#L4 " {
+		t.Fatalf("input after tab = %q, want mention insert", model.input)
+	}
+
+	model = NewModel(bridge, ModelConfig{WorkspaceSearch: searcher})
+	model.input = "inspect "
+	model.cursorPos = len([]rune(model.input))
+	model.openGlobalSearchDialog()
+	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("needle")})
+	model = updated.(Model)
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	model = updated.(Model)
+
+	if model.input != "inspect docs/guide.md:4 " {
+		t.Fatalf("input after shift-tab = %q, want path insert", model.input)
+	}
+}
