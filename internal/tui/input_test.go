@@ -114,3 +114,17 @@ func TestModelDelegatesEditingKeysButKeepsSubmitBoundary(t *testing.T) {
 		t.Fatalf("input/busy = %q/%v, want empty/true", model.input, model.busy)
 	}
 }
+
+func TestCtrlKOpensQuickOpenDialog(t *testing.T) {
+	model := NewModel(&fakeBridge{})
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	model = updated.(Model)
+
+	if cmd != nil {
+		t.Fatalf("ctrl+k cmd = %v, want nil", cmd)
+	}
+	if !model.dialog.active() || model.dialog.Title != "Quick Open" {
+		t.Fatalf("dialog = %#v, want quick open dialog", model.dialog)
+	}
+}

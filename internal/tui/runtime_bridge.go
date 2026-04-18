@@ -200,6 +200,49 @@ func (b *RuntimeBridge) TaskPanelSnapshot() taskPanelSnapshot {
 	return snapshot
 }
 
+func (b *RuntimeBridge) PlatformStatusSnapshot() platformStatusSnapshot {
+	snapshot := platformStatusSnapshot{
+		SessionID:  b.session.ID,
+		SessionKey: b.session.Key,
+		AgentID:    b.session.AgentID,
+		IsMain:     b.session.IsMain,
+	}
+	if b.runner == nil {
+		return snapshot
+	}
+
+	policy := b.runner.PermissionPolicyForSession(b.session.ID)
+	snapshot.WorkspaceRoots = append([]string(nil), policy.WorkspaceRoots...)
+	snapshot.ModelOverride = b.runner.SessionMainLoopModelOverride(b.session.ID)
+
+	inventory := b.runner.MCPInventory()
+	snapshot.MCPServerCount = inventory.ServerCount
+	snapshot.MCPToolCount = inventory.ToolCount
+	snapshot.MCPPromptCount = inventory.PromptCount
+	snapshot.MCPResourceCount = inventory.ResourceCount
+	return snapshot
+}
+
+func (b *RuntimeBridge) MCPSnapshot() mcpSnapshot {
+	if b.runner == nil {
+		return mcpSnapshot{}
+	}
+	runtimeServers := b.runner.MCPServers()
+	servers := make([]mcpServerSnapshot, 0, len(runtimeServers))
+	for _, server := range runtimeServers {
+		servers = append(servers, mcpServerSnapshot{
+			Name:          server.Name,
+			TransportType: server.TransportType,
+			Endpoint:      server.Endpoint,
+			Enabled:       server.Enabled,
+			Tools:         append([]string(nil), server.Tools...),
+			Prompts:       append([]string(nil), server.Prompts...),
+			Resources:     append([]string(nil), server.Resources...),
+		})
+	}
+	return mcpSnapshot{Servers: servers}
+}
+
 func (b *RuntimeBridge) Approve(id string) error {
 	if err := b.ctx.Err(); err != nil {
 		return err

@@ -22,6 +22,8 @@ type fakeBridge struct {
 	resumeSnapshots  map[string]session.RecoverySnapshot
 	resumedSessionID string
 	taskPanel        taskPanelSnapshot
+	platformStatus   platformStatusSnapshot
+	mcpStatus        mcpSnapshot
 }
 
 func (f *fakeBridge) SendUserMessage(input string) error {
@@ -54,6 +56,14 @@ func (f *fakeBridge) ResumeSession(id string) (session.RecoverySnapshot, bool) {
 
 func (f *fakeBridge) TaskPanelSnapshot() taskPanelSnapshot {
 	return f.taskPanel
+}
+
+func (f *fakeBridge) PlatformStatusSnapshot() platformStatusSnapshot {
+	return f.platformStatus
+}
+
+func (f *fakeBridge) MCPSnapshot() mcpSnapshot {
+	return f.mcpStatus
 }
 
 func TestModelViewShowsCoreSections(t *testing.T) {
