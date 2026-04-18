@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"path/filepath"
 	"testing"
+	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -472,5 +474,111 @@ func TestQuickOpenSelectionRoutesToExistingDialogs(t *testing.T) {
 	}
 	if !contains(model.View(), "research") {
 		t.Fatalf("task details missing research: %q", model.View())
+	}
+}
+
+func TestQuickOpenIncludesMatchedWorkspaceFilesWithPreview(t *testing.T) {
+	root := t.TempDir()
+	readme := filepath.Join(root, "README.md")
+	if err := os.WriteFile(readme, []byte("# Title\nquick open preview line\nthird line\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	bridge := &fakeBridge{
+		platformStatus: platformStatusSnapshot{
+			WorkspaceRoots: []string{root},
+		},
+	}
+	model := NewModel(bridge)
+	model.openQuickOpenDialog()
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("read")})
+	model = updated.(Model)
+
+	view := model.View()
+	for _, want := range []string{"README.md", "file | workspace", "# Title", "quick open preview line"} {
+		if !contains(view, want) {
+			t.Fatalf("quick open file view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestQuickOpenEnterOpensFocusedWorkspaceFile(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "docs", "plan.md")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(target, []byte("plan"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var opened string
+	bridge := &fakeBridge{
+		platformStatus: platformStatusSnapshot{
+			WorkspaceRoots: []string{root},
+		},
+	}
+	model := NewModel(bridge, ModelConfig{
+		OpenFile: func(path string) error {
+			opened = path
+			return nil
+		},
+	})
+	model.openQuickOpenDialog()
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("plan")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if opened != target {
+		t.Fatalf("opened = %q, want %q", opened, target)
+	}
+	if model.dialog.active() {
+		t.Fatalf("dialog still active after open: %#v", model.dialog)
+	}
+}
+
+func TestQuickOpenTabAndShiftTabInsertWorkspaceFileReference(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "docs", "guide.md")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(target, []byte("guide"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	bridge := &fakeBridge{
+		platformStatus: platformStatusSnapshot{
+			WorkspaceRoots: []string{root},
+		},
+	}
+
+	model := NewModel(bridge)
+	model.input = "inspect "
+	model.cursorPos = len([]rune(model.input))
+	model.openQuickOpenDialog()
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("guide")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	model = updated.(Model)
+
+	if model.input != "inspect @docs/guide.md " {
+		t.Fatalf("input after tab = %q, want mention insert", model.input)
+	}
+
+	model = NewModel(bridge)
+	model.input = "inspect "
+	model.cursorPos = len([]rune(model.input))
+	model.openQuickOpenDialog()
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("guide")})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	model = updated.(Model)
+
+	if model.input != "inspect docs/guide.md " {
+		t.Fatalf("input after shift-tab = %q, want path insert", model.input)
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -26,6 +28,14 @@ func Run(ctx context.Context, sessions *session.Manager, runner *runtime.Runner,
 		SessionID:    bridge.session.ID,
 		LLMLabel:     options.LLMLabel,
 		PromptEditor: defaultPromptEditor,
+		OpenFile:     defaultFileOpener,
+		WorkspaceRoots: func() []string {
+			cwd, err := os.Getwd()
+			if err != nil || strings.TrimSpace(cwd) == "" {
+				return nil
+			}
+			return []string{cwd}
+		}(),
 		LogPath: func() string {
 			if options.Logger == nil {
 				return ""
