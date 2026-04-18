@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"myclaw/internal/runtime"
+	"myclaw/internal/session"
 )
 
 func TestSlashClearClearsVisibleConversationWithoutSendingRuntimeMessage(t *testing.T) {
@@ -41,7 +42,20 @@ func TestSlashClearClearsVisibleConversationWithoutSendingRuntimeMessage(t *test
 }
 
 func TestSlashSessionOpensSessionDialogWithRuntimeMetadata(t *testing.T) {
-	bridge := &fakeBridge{}
+	bridge := &fakeBridge{
+		platformStatus: platformStatusSnapshot{
+			SessionID:        "main-000001",
+			SessionKey:       "agent:main:main",
+			AgentID:          "main",
+			IsMain:           true,
+			WorkspaceRoots:   []string{"C:/repo", "C:/repo/subdir"},
+			ModelOverride:    "claude-opus-4-6",
+			MCPServerCount:   2,
+			MCPToolCount:     5,
+			MCPPromptCount:   1,
+			MCPResourceCount: 3,
+		},
+	}
 	model := NewModel(bridge, ModelConfig{
 		SessionID: "main-000001",
 		LLMLabel:  "openai-compatible / LongCat-Flash-Chat",
@@ -60,7 +74,22 @@ func TestSlashSessionOpensSessionDialogWithRuntimeMetadata(t *testing.T) {
 		t.Fatalf("dialog = %#v, want session dialog", model.dialog)
 	}
 	view := model.View()
-	for _, want := range []string{"Session", "main-000001", "LongCat-Flash-Chat", "logs/myclaw.jsonl"} {
+	for _, want := range []string{
+		"Session",
+		"main-000001",
+		"LongCat-Flash-Chat",
+		"logs/myclaw.jsonl",
+		"agent:main:main",
+		"main",
+		"main session",
+		"C:/repo",
+		"C:/repo/subdir",
+		"claude-opus-4-6",
+		"2 servers",
+		"5 tools",
+		"1 prompts",
+		"3 resources",
+	} {
 		if !contains(view, want) {
 			t.Fatalf("session view missing %q: %q", want, view)
 		}
@@ -214,6 +243,44 @@ func TestSlashTasksOpensTaskWorkbenchDialog(t *testing.T) {
 	}
 }
 
+func TestSlashKeysOpensKeybindingsDialog(t *testing.T) {
+	model := NewModel(&fakeBridge{})
+	model.input = "/keys"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.dialog.active() || model.dialog.Title != "Keybindings" {
+		t.Fatalf("dialog = %#v, want keybindings dialog", model.dialog)
+	}
+	view := model.View()
+	for _, want := range []string{
+		"Keybindings",
+		"Ctrl+S",
+		"stash",
+		"Ctrl+G",
+		"external editor",
+		"Ctrl+X Ctrl+E",
+		"Ctrl+R",
+		"history search",
+		"Ctrl+F",
+		"transcript search",
+		"Ctrl+O",
+		"transcript mode",
+		"Shift+Up",
+		"message actions",
+		"Ctrl+Y",
+		"approve",
+		"Ctrl+N",
+		"reject",
+	} {
+		if !contains(view, want) {
+			t.Fatalf("keybindings view missing %q: %q", want, view)
+		}
+	}
+}
+
 func TestTasksDialogSelectionOpensTaskDetailDialog(t *testing.T) {
 	bridge := &fakeBridge{
 		taskPanel: taskPanelSnapshot{
@@ -251,5 +318,159 @@ func TestTasksDialogSelectionOpensTaskDetailDialog(t *testing.T) {
 		if !contains(view, want) {
 			t.Fatalf("task detail view missing %q: %q", want, view)
 		}
+	}
+}
+
+func TestSlashMCPOpensFilterableServerDialog(t *testing.T) {
+	bridge := &fakeBridge{
+		mcpStatus: mcpSnapshot{
+			Servers: []mcpServerSnapshot{
+				{
+					Name:          "filesystem",
+					TransportType: "stdio",
+					Endpoint:      "local command",
+					Enabled:       true,
+					Tools:         []string{"read_file", "write_file"},
+					Prompts:       []string{"summarize"},
+					Resources:     []string{"file://README.md"},
+				},
+				{
+					Name:          "figma",
+					TransportType: "sse",
+					Endpoint:      "https://figma.example/mcp",
+					Enabled:       true,
+					Tools:         []string{"get_design"},
+					Resources:     []string{"figma://file/123"},
+				},
+			},
+		},
+	}
+	model := NewModel(bridge)
+	model.input = "/mcp"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.dialog.active() || model.dialog.Title != "MCP" {
+		t.Fatalf("dialog = %#v, want MCP dialog", model.dialog)
+	}
+	view := model.View()
+	for _, want := range []string{"MCP", "filesystem", "figma", "2 tools", "1 prompts", "1 resources", "Type to filter"} {
+		if !contains(view, want) {
+			t.Fatalf("mcp view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestMCPDialogSelectionOpensServerDetailDialog(t *testing.T) {
+	bridge := &fakeBridge{
+		mcpStatus: mcpSnapshot{
+			Servers: []mcpServerSnapshot{
+				{
+					Name:          "filesystem",
+					TransportType: "stdio",
+					Endpoint:      "npx @modelcontextprotocol/server-filesystem C:/repo",
+					Enabled:       true,
+					Tools:         []string{"read_file", "write_file"},
+					Prompts:       []string{"summarize"},
+					Resources:     []string{"file://README.md", "file://docs/plan.md"},
+				},
+			},
+		},
+	}
+	model := NewModel(bridge)
+	model.openMCPDialog()
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.dialog.active() || model.dialog.Title != "MCP server" {
+		t.Fatalf("dialog = %#v, want MCP server detail dialog", model.dialog)
+	}
+	view := model.View()
+	for _, want := range []string{
+		"MCP server",
+		"filesystem",
+		"stdio",
+		"enabled",
+		"read_file",
+		"write_file",
+		"summarize",
+		"file://README.md",
+		"file://docs/plan.md",
+	} {
+		if !contains(view, want) {
+			t.Fatalf("mcp detail view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestSlashOpenOpensQuickOpenDialog(t *testing.T) {
+	bridge := &fakeBridge{
+		sessionSnapshots: []sessionSnapshot{
+			{
+				Session:          session.Session{ID: "main-000002", Key: "agent:main:main", AgentID: "main", IsMain: true},
+				FirstUserMessage: "resume target",
+				MessageCount:     3,
+				LastMessage:      "latest answer",
+			},
+		},
+		taskPanel: taskPanelSnapshot{
+			SessionID: "main-000001",
+			Tasks: []taskSnapshot{{
+				RunID:   "agent-000001",
+				Label:   "research",
+				Status:  "running",
+				Prompt:  "inspect quick open",
+				MessageCount: 2,
+			}},
+		},
+		mcpStatus: mcpSnapshot{
+			Servers: []mcpServerSnapshot{{Name: "filesystem", Enabled: true, Tools: []string{"read_file"}}},
+		},
+	}
+	model := NewModel(bridge)
+	model.input = "/open"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.dialog.active() || model.dialog.Title != "Quick Open" {
+		t.Fatalf("dialog = %#v, want quick open dialog", model.dialog)
+	}
+	view := model.View()
+	for _, want := range []string{"Quick Open", "/model", "resume target", "research", "filesystem", "Type to filter"} {
+		if !contains(view, want) {
+			t.Fatalf("quick open view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestQuickOpenSelectionRoutesToExistingDialogs(t *testing.T) {
+	bridge := &fakeBridge{
+		taskPanel: taskPanelSnapshot{
+			Tasks: []taskSnapshot{{
+				RunID:             "agent-000001",
+				Label:             "research",
+				Status:            "running",
+				Prompt:            "inspect quick open",
+				RecommendedAction: "monitor",
+			}},
+		},
+	}
+	model := NewModel(bridge)
+	model.openQuickOpenDialog()
+	model.dialog.Picker.setQuery("research")
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if !model.dialog.active() || model.dialog.Title != "Task details" {
+		t.Fatalf("dialog = %#v, want task details after quick open selection", model.dialog)
+	}
+	if !contains(model.View(), "research") {
+		t.Fatalf("task details missing research: %q", model.View())
 	}
 }
