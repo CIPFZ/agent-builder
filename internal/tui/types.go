@@ -143,6 +143,8 @@ type ModelConfig struct {
 	LogPath        string
 	PromptEditor   promptEditorFunc
 	OpenFile       fileOpenFunc
+	OpenFileAtLine fileLocationOpenFunc
+	WorkspaceSearch workspaceSearchFunc
 	WorkspaceRoots []string
 }
 
@@ -178,6 +180,8 @@ type externalEditorState struct {
 }
 
 type fileOpenFunc func(path string) error
+type fileLocationOpenFunc func(path string, line int) error
+type workspaceSearchFunc func(workspaceSearchRequest) (workspaceSearchResult, error)
 
 type viewportState struct {
 	ScrollOffset   int
@@ -199,10 +203,47 @@ type quickOpenState struct {
 	OriginalCursor int
 }
 
+type globalSearchState struct {
+	OpenFileAtLine fileLocationOpenFunc
+	Search         workspaceSearchFunc
+	WorkspaceRoots []string
+	Matches        []workspaceSearchMatch
+	Searching      bool
+	Truncated      bool
+	PreviewTitle   string
+	PreviewContent string
+	OriginalInput  string
+	OriginalCursor int
+	Generation     int
+}
+
 type quickOpenFile struct {
 	DisplayPath string
 	AbsolutePath string
 	RootLabel   string
+}
+
+type workspaceSearchRequest struct {
+	Query string
+	Roots []string
+}
+
+type workspaceSearchResult struct {
+	Matches   []workspaceSearchMatch
+	Truncated bool
+}
+
+type workspaceSearchMatch struct {
+	DisplayPath  string
+	AbsolutePath string
+	Line         int
+	Text         string
+}
+
+type globalSearchResultsMsg struct {
+	Generation int
+	Result     workspaceSearchResult
+	Err        error
 }
 
 type messageActionsState struct {

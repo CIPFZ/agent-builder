@@ -31,6 +31,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyBridgeError(typed.Err)
 	case externalEditorFinishedMsg:
 		m.applyExternalEditorFinished(typed)
+	case globalSearchResultsMsg:
+		m.applyGlobalSearchResults(typed)
 	}
 	return m, nil
 }

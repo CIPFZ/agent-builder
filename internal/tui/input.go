@@ -46,6 +46,12 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			preserveSelection := msg.Type != tea.KeyRunes && msg.Type != tea.KeyBackspace
 			m.updateQuickOpenDialog(preserveSelection)
 		}
+		if dialogKind == dialogKindGlobalSearch && m.dialog.active() {
+			preserveSelection := msg.Type != tea.KeyRunes && msg.Type != tea.KeyBackspace
+			cmd := m.triggerGlobalSearch()
+			m.updateGlobalSearchDialog(preserveSelection)
+			return m, cmd
+		}
 		if result.Selected {
 			item := result.Item
 			m.lastDialogSelection = &item
@@ -54,6 +60,8 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.acceptHistorySearchItem(item)
 			case dialogKindQuickOpen:
 				m.acceptQuickOpenItem(item, result.Action)
+			case dialogKindGlobalSearch:
+				m.acceptGlobalSearchItem(item, result.Action)
 			case dialogKindMCPList:
 				m.acceptMCPItem(item)
 			case dialogKindSessionResume:

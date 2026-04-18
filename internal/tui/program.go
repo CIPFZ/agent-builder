@@ -25,10 +25,12 @@ func Run(ctx context.Context, sessions *session.Manager, runner *runtime.Runner,
 	}
 	bridge := NewRuntimeBridgeWithContext(ctx, sessions, runner, "main", options.Logger)
 	model := NewModel(bridge, ModelConfig{
-		SessionID:    bridge.session.ID,
-		LLMLabel:     options.LLMLabel,
-		PromptEditor: defaultPromptEditor,
-		OpenFile:     defaultFileOpener,
+		SessionID:       bridge.session.ID,
+		LLMLabel:        options.LLMLabel,
+		PromptEditor:    defaultPromptEditor,
+		OpenFile:        defaultFileOpener,
+		OpenFileAtLine:  defaultFileLocationOpener,
+		WorkspaceSearch: defaultWorkspaceSearcher,
 		WorkspaceRoots: func() []string {
 			cwd, err := os.Getwd()
 			if err != nil || strings.TrimSpace(cwd) == "" {

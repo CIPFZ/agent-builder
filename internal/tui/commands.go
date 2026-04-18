@@ -14,7 +14,8 @@ type slashCommandSpec struct {
 var localSlashCommandSpecs = []slashCommandSpec{
 	{Name: "help", Description: "Show this command reference"},
 	{Name: "keybindings", Description: "Show keybinding reference", Aliases: []string{"keys", "shortcuts"}},
-	{Name: "open", Description: "Quick open commands, sessions, tasks, and MCP", Aliases: []string{"search"}},
+	{Name: "open", Description: "Quick open commands, sessions, tasks, and MCP"},
+	{Name: "search", Description: "Search workspace file contents", Aliases: []string{"grep", "find"}},
 	{Name: "clear", Description: "Clear visible conversation", Aliases: []string{"reset", "new"}},
 	{Name: "model", Description: "Show model options"},
 	{Name: "mcp", Description: "Show MCP server status"},
