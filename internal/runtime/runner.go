@@ -7,7 +7,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"myclaw/internal/agents"
 	"myclaw/internal/agent"
 	"myclaw/internal/approval"
 	"myclaw/internal/compaction"
@@ -101,12 +103,16 @@ type Options struct {
 	SkillRoots                []string
 	SkillDiscovery            tools.SkillDiscoveryOptions
 	SkillForkExecutor         tools.SkillForkExecutor
+	AgentTaskExecutor         tools.AgentTaskExecutor
+	AgentDiscovery            AgentDiscoveryOptions
 	RequestPrompt             tools.RequestPromptFunc
 	ReportToolProgress        tools.ProgressFunc
 	AddNotification           tools.AddNotificationFunc
 	HandleElicitation         tools.ElicitationFunc
 	SetConversationID         tools.SetConversationIDFunc
 }
+
+type AgentDiscoveryOptions = agents.DiscoveryOptions
 
 type Runner struct {
 	sessions *session.Manager
@@ -199,6 +205,30 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 			SummaryPrefix:           "Summary:",
 		})
 	}
+	if needsAgentDiscovery(options.AgentDiscovery) {
+		loaded := agents.LoadClaudeAgentDefinitions(agents.DiscoveryOptions(options.AgentDiscovery))
+		if options.AgentDefinitions.Definitions == nil {
+			options.AgentDefinitions.Definitions = make(map[string]tools.AgentDefinition)
+		}
+		activeNames := make([]string, 0, len(loaded.Active))
+		for _, definition := range loaded.Active {
+			options.AgentDefinitions.Definitions[definition.AgentType] = tools.AgentDefinition{
+				AgentType:       definition.AgentType,
+				SystemPrompt:    definition.SystemPrompt,
+				MemoryScope:     definition.MemoryScope,
+				MaxTurns:        definition.MaxTurns,
+				Background:      definition.Background,
+				InitialPrompt:   definition.InitialPrompt,
+				PermissionMode:  definition.PermissionMode,
+				DisallowedTools: append([]string(nil), definition.DisallowedTools...),
+			}
+			activeNames = append(activeNames, definition.AgentType)
+		}
+		if len(activeNames) > 0 {
+			options.AgentDefinitions.ActiveAgents = append([]string(nil), activeNames...)
+			options.AgentDefinitions.AllowedAgentTypes = append([]string(nil), activeNames...)
+		}
+	}
 	if len(options.MCPClients) > 0 {
 		discovered, err := tools.DiscoverMCPClientToolsWithOAuth(context.Background(), options.MCPClients, options.MCPOAuthStore)
 		if err == nil {
@@ -271,6 +301,9 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 	if runner.options.SkillForkExecutor == nil {
 		runner.options.SkillForkExecutor = runner.defaultSkillForkExecutor
 	}
+	if runner.options.AgentTaskExecutor == nil {
+		runner.options.AgentTaskExecutor = runner.defaultAgentTaskExecutor
+	}
 	if len(tools.GetBundledSkills()) == 0 {
 		bundled := runner.options.BundledSkills
 		if bundled.CWD == "" {
@@ -341,6 +374,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		DisableMCPPromptSkills:    runner.options.DisableMCPPromptSkills,
 		SkillRoots:                runner.options.SkillRoots,
 		SkillForkExecutor:         runner.options.SkillForkExecutor,
+		AgentTaskExecutor:         runner.options.AgentTaskExecutor,
 		RequestPrompt:             options.RequestPrompt,
 		ReportToolProgress:        options.ReportToolProgress,
 		AddNotification:           options.AddNotification,
@@ -402,7 +436,71 @@ func (r *Runner) defaultSkillForkExecutor(ctx context.Context, request tools.Ski
 	return tools.ToolResult{Output: string(encoded)}, nil
 }
 
+func (r *Runner) defaultAgentTaskExecutor(ctx context.Context, request tools.AgentTaskRequest) (tools.ToolResult, error) {
+	label := strings.TrimSpace(request.Label)
+	if label == "" {
+		label = "task"
+	}
+	promptText := strings.TrimSpace(request.Prompt)
+	if promptText == "" {
+		promptText = label
+	}
+	options := SubagentOptions{
+		AgentType: request.AgentType,
+	}
+	run, err := r.SpawnSubagentWithOptions(ctx, request.ToolContext.Session, label, promptText, options)
+	if err != nil {
+		return tools.ToolResult{}, err
+	}
+	if r.shouldRunSubagentInBackground(request) {
+		return encodeSpawnedSubagentResult(*run, label, "")
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	completed, err := r.options.AgentManager.Wait(waitCtx, run.ID, 0)
+	if err != nil {
+		if ctx.Err() != nil {
+			return tools.ToolResult{}, ctx.Err()
+		}
+		return encodeSpawnedSubagentResult(*run, label, "")
+	}
+	return encodeSpawnedSubagentResult(completed, label, completed.Output)
+}
+
+func (r *Runner) shouldRunSubagentInBackground(request tools.AgentTaskRequest) bool {
+	if request.RunInBackground {
+		return true
+	}
+	agentType := strings.TrimSpace(request.AgentType)
+	if agentType == "" {
+		return false
+	}
+	def, ok := r.options.AgentDefinitions.Definitions[agentType]
+	return ok && def.Background
+}
+
+func encodeSpawnedSubagentResult(run agent.Run, label, result string) (tools.ToolResult, error) {
+	output := map[string]any{
+		"success":   true,
+		"status":    "spawned",
+		"agent":     label,
+		"runId":     run.ID,
+		"sessionId": run.ChildSessionID,
+	}
+	if result != "" {
+		output["result"] = result
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		return tools.ToolResult{}, err
+	}
+	return tools.ToolResult{Output: string(encoded)}, nil
+}
+
 func (r *Runner) HandleUserMessage(ctx context.Context, sess session.Session, userMessage session.Message, sink EventSink) error {
+	if latest, ok := r.sessions.GetByID(sess.ID); ok {
+		sess = latest
+	}
 	return r.engine.SubmitMessage(ctx, sess, userMessage, querySinkFunc(func(event queryengine.Event) error {
 		runtimeEvent := fromQueryEvent(event)
 		if runtimeEvent.Type == "run.error" {
@@ -421,12 +519,38 @@ type SubagentOptions struct {
 	AllowedTools []string
 	Model        string
 	Effort       string
+	AgentType    string
+}
+
+func needsAgentDiscovery(opts AgentDiscoveryOptions) bool {
+	return strings.TrimSpace(opts.CWD) != "" ||
+		strings.TrimSpace(opts.ConfigHome) != "" ||
+		strings.TrimSpace(opts.ManagedRoot) != "" ||
+		len(opts.AdditionalDirs) > 0
 }
 
 func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Session, label, promptText string, options SubagentOptions) (*agent.Run, error) {
 	key := fmt.Sprintf("agent:%s:child:%d", parent.AgentID, len(r.options.AgentManager.List())+1)
-	child := r.sessions.CreateChild(parent.AgentID, key)
-	childPolicy := r.PermissionPolicyForSession(parent.ID).DeriveForSubagent()
+	childAgentID := parent.AgentID
+	if strings.TrimSpace(options.AgentType) != "" {
+		childAgentID = strings.TrimSpace(options.AgentType)
+	}
+	child := r.sessions.CreateChild(childAgentID, key)
+	parentPolicy := r.PermissionPolicyForSession(parent.ID)
+	resolvedAgentType := strings.TrimSpace(options.AgentType)
+	if resolvedAgentType == "" {
+		resolvedAgentType = strings.TrimSpace(label)
+	}
+	var resolvedDefinition tools.AgentDefinition
+	hasResolvedDefinition := false
+	if resolvedAgentType != "" {
+		resolvedDefinition, hasResolvedDefinition = r.options.AgentDefinitions.Definitions[resolvedAgentType]
+	}
+	childPolicy := parentPolicy.DeriveForSubagent()
+	if hasResolvedDefinition {
+		childPolicy = applyAgentPermissionModeOverride(parentPolicy, childPolicy, resolvedDefinition.PermissionMode)
+		childPolicy.Rules = append(agentDisallowedToolRules(resolvedDefinition.DisallowedTools), childPolicy.Rules...)
+	}
 	childPolicy.Rules = append(skillAllowedToolRules(options.AllowedTools), childPolicy.Rules...)
 	r.engine.SetSessionPermissionPolicy(child.ID, childPolicy)
 	if options.Model != "" || options.Effort != "" {
@@ -440,6 +564,26 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 			metadata.MainLoopEffortOverride = strings.TrimSpace(options.Effort)
 		})
 	}
+	if resolvedAgentType != "" {
+		_ = r.sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+			metadata.AgentType = resolvedAgentType
+			if hasResolvedDefinition {
+				metadata.AgentSystemPrompt = strings.TrimSpace(resolvedDefinition.SystemPrompt)
+				metadata.AgentMemoryScope = strings.TrimSpace(resolvedDefinition.MemoryScope)
+				metadata.AgentMaxTurns = resolvedDefinition.MaxTurns
+			}
+		})
+	}
+	effectivePrompt := promptText
+	if hasResolvedDefinition {
+		if initial := strings.TrimSpace(resolvedDefinition.InitialPrompt); initial != "" {
+			if strings.TrimSpace(effectivePrompt) != "" {
+				effectivePrompt = initial + "\n\n" + effectivePrompt
+			} else {
+				effectivePrompt = initial
+			}
+		}
+	}
 
 	run, err := r.options.AgentManager.Spawn(ctx, agent.SpawnRequest{
 		ParentSessionID: parent.ID,
@@ -447,16 +591,20 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 		ChildSessionID:  child.ID,
 		ChildSessionKey: child.Key,
 		Label:           label,
-		Prompt:          promptText,
+		Prompt:          effectivePrompt,
 		AllowedTools:    append([]string(nil), options.AllowedTools...),
 		Model:           strings.TrimSpace(options.Model),
 		Effort:          strings.TrimSpace(options.Effort),
 		Run: func(ctx context.Context, runCtx agent.RunContext) (string, error) {
-			msg, err := r.sessions.AppendMessage(runCtx.ChildSessionID, "user", promptText)
+			msg, err := r.sessions.AppendMessage(runCtx.ChildSessionID, "user", effectivePrompt)
 			if err != nil {
 				return "", err
 			}
-			if err := r.HandleUserMessage(ctx, child, msg, nil); err != nil {
+			currentChild, ok := r.sessions.GetByID(runCtx.ChildSessionID)
+			if !ok {
+				return "", fmt.Errorf("child session %q not found", runCtx.ChildSessionID)
+			}
+			if err := r.HandleUserMessage(ctx, currentChild, msg, nil); err != nil {
 				return "", err
 			}
 			messages, ok := r.sessions.Messages(runCtx.ChildSessionID)
@@ -475,6 +623,51 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 		return nil, err
 	}
 	return run, nil
+}
+
+func applyAgentPermissionModeOverride(parent, child permissions.Policy, mode string) permissions.Policy {
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		return child
+	}
+	switch parent.Mode {
+	case permissions.ModeBypassPermissions, permissions.ModeAcceptEdits, permissions.ModeAuto:
+		return child
+	}
+	override := child
+	override.Mode = permissions.Mode(mode)
+	normalized, err := permissions.SetupPolicy(override)
+	if err != nil {
+		return child
+	}
+	return normalized
+}
+
+func agentDisallowedToolRules(specs []string) []permissions.Rule {
+	rules := make([]permissions.Rule, 0, len(specs))
+	for _, spec := range specs {
+		toolName := disallowedToolName(spec)
+		if toolName == "" {
+			continue
+		}
+		rules = append(rules, permissions.Rule{
+			ToolName: toolName,
+			Action:   permissions.ActionDeny,
+			Source:   string(permissions.RuleSourceCommand),
+		})
+	}
+	return rules
+}
+
+func disallowedToolName(spec string) string {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return ""
+	}
+	if idx := strings.Index(spec, "("); idx >= 0 {
+		spec = strings.TrimSpace(spec[:idx])
+	}
+	return spec
 }
 
 func skillAllowedToolRules(toolNames []string) []permissions.Rule {

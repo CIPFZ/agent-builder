@@ -84,6 +84,18 @@ func (c *scriptedClient) Stream(_ context.Context, _ llm.GenerateRequest, handle
 	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
 }
 
+type loopingToolClient struct {
+	call int
+}
+
+func (c *loopingToolClient) Stream(_ context.Context, _ llm.GenerateRequest, handler llm.StreamHandler) error {
+	c.call++
+	if err := handler.OnEvent(llm.StreamEvent{Type: "tool.call", ToolName: "text.upper", ToolInput: "loop"}); err != nil {
+		return err
+	}
+	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+}
+
 func TestRunnerHandleUserMessageDoesNotEmitRunErrorWhenApprovalIsRequired(t *testing.T) {
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")
@@ -736,6 +748,297 @@ func TestRunnerSpawnSubagentUsesDerivedPermissionPolicy(t *testing.T) {
 	if result.Status != agent.StatusFailed {
 		t.Fatalf("subagent status = %q, want %q", result.Status, agent.StatusFailed)
 	}
+}
+
+func TestRunnerSpawnSubagentPersistsResolvedAgentDefinitionMetadata(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+
+	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:     "researcher",
+					SystemPrompt:  "Research thoroughly before answering.",
+					MemoryScope:   "project",
+					MaxTurns:      2,
+					InitialPrompt: "/bootstrap",
+				},
+			},
+		},
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "researcher", "inspect auth flow", SubagentOptions{
+		AgentType: "researcher",
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+
+	child, ok := sessions.GetByID(run.ChildSessionID)
+	if !ok {
+		t.Fatalf("child session %q not found", run.ChildSessionID)
+	}
+	if child.Metadata.AgentType != "researcher" {
+		t.Fatalf("child metadata = %#v, want agent type", child.Metadata)
+	}
+	if child.Metadata.AgentSystemPrompt != "Research thoroughly before answering." {
+		t.Fatalf("child metadata = %#v, want agent system prompt", child.Metadata)
+	}
+	if child.Metadata.AgentMemoryScope != "project" {
+		t.Fatalf("child metadata = %#v, want project memory scope", child.Metadata)
+	}
+	if child.Metadata.AgentMaxTurns != 2 {
+		t.Fatalf("child metadata = %#v, want max turns", child.Metadata)
+	}
+}
+
+func TestRunnerSpawnSubagentPrependsAgentInitialPrompt(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	client := &captureMemoryClient{}
+
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:     "researcher",
+					SystemPrompt:  "Research thoroughly before answering.",
+					MemoryScope:   "project",
+					InitialPrompt: "/bootstrap",
+				},
+			},
+		},
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "researcher", "inspect auth flow", SubagentOptions{
+		AgentType: "researcher",
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+
+	if got, want := client.lastRequest.UserMessage.Content, "/bootstrap\n\ninspect auth flow"; got != want {
+		t.Fatalf("user message = %q, want %q", got, want)
+	}
+}
+
+func TestRunnerSpawnSubagentUsesAgentDefinitionMaxTurns(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	client := &loopingToolClient{}
+
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:    "researcher",
+					SystemPrompt: "Research thoroughly before answering.",
+					MemoryScope:  "project",
+					MaxTurns:     2,
+				},
+			},
+		},
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "researcher", "loop forever", SubagentOptions{
+		AgentType: "researcher",
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+
+	result, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+	if result.Status != agent.StatusFailed {
+		t.Fatalf("subagent status = %q, want failed", result.Status)
+	}
+	if result.Err == nil || !strings.Contains(result.Err.Error(), "maximum number of turns") {
+		t.Fatalf("subagent err = %v, want maximum number of turns", result.Err)
+	}
+	if got := client.call; got != 2 {
+		t.Fatalf("model calls = %d, want 2", got)
+	}
+}
+
+func TestRunnerSpawnSubagentAppliesAgentPermissionModeOverride(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+
+	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"planner": {
+					AgentType:      "planner",
+					SystemPrompt:   "Plan before execution.",
+					PermissionMode: string(permissions.ModePlan),
+				},
+			},
+		},
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "planner", "plan the change", SubagentOptions{
+		AgentType: "planner",
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+
+	childPolicy := runner.PermissionPolicyForSession(run.ChildSessionID)
+	if childPolicy.Mode != permissions.ModePlan {
+		t.Fatalf("child policy mode = %q, want %q", childPolicy.Mode, permissions.ModePlan)
+	}
+	if !childPolicy.PlanMode {
+		t.Fatalf("child policy = %#v, want plan mode enabled", childPolicy)
+	}
+	decision := childPolicy.Evaluate(permissions.Request{ToolName: "system.run", Command: "rm -rf /tmp/demo", Destructive: true})
+	if !decision.RequiresApproval || decision.Category != permissions.CategoryPlanMode {
+		t.Fatalf("decision = %#v, want plan-mode approval", decision)
+	}
+}
+
+func TestRunnerSpawnSubagentAppliesDisallowedTools(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	client := &captureMemoryClient{}
+
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"reader": {
+					AgentType:       "reader",
+					SystemPrompt:    "Read only what is allowed.",
+					DisallowedTools: []string{"Read"},
+				},
+			},
+		},
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "reader", "inspect files", SubagentOptions{
+		AgentType: "reader",
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+
+	childPolicy := runner.PermissionPolicyForSession(run.ChildSessionID)
+	decision := childPolicy.Evaluate(permissions.Request{ToolName: "Read"})
+	if decision.Allowed || decision.RequiresApproval {
+		t.Fatalf("read decision = %#v, want immediate deny", decision)
+	}
+	for _, tool := range client.lastRequest.Tools {
+		if tool.Name == "Read" {
+			t.Fatalf("tools = %#v, did not want Read exposed", client.lastRequest.Tools)
+		}
+	}
+}
+
+func TestRunnerDefaultAgentTaskExecutorRunsBackgroundAgentWithoutWaiting(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	block := make(chan struct{})
+	client := &scriptedClient{responses: []string{"working"}}
+
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:  "researcher",
+					Background: true,
+				},
+			},
+		},
+	})
+	runner.options.AgentManager = agent.NewManager()
+	runner.options.AgentTaskExecutor = func(ctx context.Context, request tools.AgentTaskRequest) (tools.ToolResult, error) {
+		return runner.defaultAgentTaskExecutor(ctx, request)
+	}
+	_ = block
+
+	result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
+		ToolContext: tools.ToolUseContext{Session: parent},
+		Label:       "research",
+		Prompt:      "inspect auth flow",
+		AgentType:   "researcher",
+	})
+	if err != nil {
+		t.Fatalf("default agent task executor: %v", err)
+	}
+	if !strings.Contains(result.Output, `"status":"spawned"`) || strings.Contains(result.Output, `"result":`) {
+		t.Fatalf("output = %q, want immediate spawned payload without result", result.Output)
+	}
+	if len(runner.AgentManager().List()) != 1 {
+		t.Fatalf("runs = %#v, want one background run", runner.AgentManager().List())
+	}
+}
+
+func TestRunnerHandleUserMessageInjectsPersistentAgentMemoryPromptForSubagentSession(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	child := sessions.CreateChild("researcher", "agent:researcher:child:1")
+	if err := sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+		metadata.AgentType = "researcher"
+		metadata.AgentSystemPrompt = "Research thoroughly before answering."
+		metadata.AgentMemoryScope = "project"
+	}); err != nil {
+		t.Fatalf("update child metadata: %v", err)
+	}
+	msg, err := sessions.AppendMessage(child.ID, "user", "continue with prior learnings")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+
+	memSvc := memory.NewService()
+	projectRoot := filepath.Clean("C:/workspace/project")
+	memSvc.SaveAgent(memory.AgentEntry{
+		AgentType: "researcher",
+		Scope:     memory.AgentMemoryScopeProject,
+		Namespace: projectRoot,
+		Content:   "Remember the auth service still uses legacy tokens.",
+	})
+
+	client := &captureMemoryClient{}
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader(projectRoot), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MemoryService:    memSvc,
+	})
+
+	if err := runner.HandleUserMessage(context.Background(), child, msg, &captureSink{}); err != nil {
+		t.Fatalf("handle user message: %v", err)
+	}
+
+	systemPrompt := client.lastRequest.Context.SystemPrompt
+	for _, want := range []string{
+		"Research thoroughly before answering.",
+		"Persistent Agent Memory",
+		"Since this memory is project-scope and shared with your team via version control",
+		"Remember the auth service still uses legacy tokens.",
+	} {
+		if !strings.Contains(systemPrompt, want) {
+			t.Fatalf("system prompt = %q, want %q", systemPrompt, want)
+		}
+	}
+	_ = parent
 }
 
 func TestRunnerHandleUserMessageUsesSessionOverridePolicy(t *testing.T) {
@@ -1730,6 +2033,49 @@ func TestNewRunnerWithOptionsLoadsClaudeSkillDiscoveryLifecycle(t *testing.T) {
 	}
 }
 
+func TestNewRunnerWithOptionsLoadsClaudeAgentDiscoveryLifecycle(t *testing.T) {
+	sessions := session.NewManager(nil)
+	dir := t.TempDir()
+	configHome := filepath.Join(dir, "home", ".claude")
+	project := filepath.Join(dir, "workspace")
+	managed := filepath.Join(dir, "managed")
+	for path, body := range map[string]string{
+		filepath.Join(configHome, "agents", "reviewer.md"):              "---\nname: reviewer\ndescription: User reviewer\nmemory: user\n---\nUser prompt.",
+		filepath.Join(project, ".claude", "agents", "reviewer.md"):      "---\nname: reviewer\ndescription: Project reviewer\nmemory: project\nmodel: claude-sonnet-4-5\n---\nProject prompt.",
+		filepath.Join(managed, ".claude", "agents", "archivist.md"):     "---\nname: archivist\ndescription: Managed archivist\nmemory: local\n---\nArchive carefully.",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir %q: %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatalf("write %q: %v", path, err)
+		}
+	}
+
+	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(project), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDiscovery: AgentDiscoveryOptions{
+			CWD:            project,
+			ConfigHome:     configHome,
+			ManagedRoot:    managed,
+			IncludeProject: true,
+			IncludeUser:    true,
+			IncludeManaged: true,
+		},
+	})
+
+	defs := runner.options.AgentDefinitions.Definitions
+	if len(defs) != 2 {
+		t.Fatalf("definitions = %#v, want reviewer + archivist", defs)
+	}
+	if defs["reviewer"].SystemPrompt != "Project prompt." || defs["reviewer"].MemoryScope != "project" {
+		t.Fatalf("reviewer definition = %#v, want project definition precedence", defs["reviewer"])
+	}
+	if defs["archivist"].SystemPrompt != "Archive carefully." || defs["archivist"].MemoryScope != "local" {
+		t.Fatalf("archivist definition = %#v, want managed definition parsed", defs["archivist"])
+	}
+}
+
 func TestNewRunnerWithOptionsDefaultsSkillForkToSubagentRuntime(t *testing.T) {
 	tools.ClearDynamicSkills()
 	defer tools.ClearDynamicSkills()
@@ -1764,6 +2110,15 @@ func TestNewRunnerWithOptionsDefaultsSkillForkToSubagentRuntime(t *testing.T) {
 			Action:   permissions.ActionAllow,
 			Match:    permissions.Match{CommandContains: []string{"verify"}},
 		}}},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"verifier": {
+					AgentType:    "verifier",
+					SystemPrompt: "Verify changes against the requested contract.",
+					MemoryScope:  "project",
+				},
+			},
+		},
 		SkillRoots: []string{root},
 	})
 	if err := runner.HandleUserMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
@@ -1791,6 +2146,15 @@ func TestNewRunnerWithOptionsDefaultsSkillForkToSubagentRuntime(t *testing.T) {
 	}
 	if child.Metadata.MainLoopEffortOverride != "high" {
 		t.Fatalf("child metadata = %#v, want skill effort override", child.Metadata)
+	}
+	if child.Metadata.AgentType != "verifier" {
+		t.Fatalf("child metadata = %#v, want verifier agent type", child.Metadata)
+	}
+	if child.Metadata.AgentSystemPrompt != "Verify changes against the requested contract." {
+		t.Fatalf("child metadata = %#v, want verifier system prompt", child.Metadata)
+	}
+	if child.Metadata.AgentMemoryScope != "project" {
+		t.Fatalf("child metadata = %#v, want verifier project memory scope", child.Metadata)
 	}
 	childPolicy := runner.PermissionPolicyForSession(run.ChildSessionID)
 	readDecision := childPolicy.Evaluate(permissions.Request{ToolName: "Read"})

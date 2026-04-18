@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -162,7 +163,18 @@ func buildHistoryLines(history []session.Message, currentUserMessageID string) [
 func buildWorkspaceLines(ctx workspace.Context) []string {
 	lines := make([]string, 0, len(ctx.Files))
 	for _, file := range ctx.Files {
-		lines = append(lines, fmt.Sprintf("%s:\n%s", file.Name, file.Content))
+		label := strings.TrimSpace(file.Name)
+		if path := strings.TrimSpace(file.Path); path != "" {
+			if root := strings.TrimSpace(ctx.Root); root != "" {
+				if relative, err := filepath.Rel(root, path); err == nil && relative != "." && !strings.HasPrefix(relative, "..") {
+					label = filepath.ToSlash(relative)
+				}
+			}
+			if label == "" {
+				label = filepath.ToSlash(path)
+			}
+		}
+		lines = append(lines, fmt.Sprintf("%s:\n%s", label, file.Content))
 	}
 	return lines
 }

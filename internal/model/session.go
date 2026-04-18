@@ -14,6 +14,10 @@ type SessionMetadata struct {
 	InitialMainLoopModel           string           `json:"initial_main_loop_model,omitempty"`
 	MainLoopModelOverride          string           `json:"main_loop_model_override,omitempty"`
 	MainLoopEffortOverride         string           `json:"main_loop_effort_override,omitempty"`
+	AgentType                      string           `json:"agent_type,omitempty"`
+	AgentSystemPrompt              string           `json:"agent_system_prompt,omitempty"`
+	AgentMemoryScope               string           `json:"agent_memory_scope,omitempty"`
+	AgentMaxTurns                  int              `json:"agent_max_turns,omitempty"`
 	PendingApprovalID              string           `json:"pending_approval_id,omitempty"`
 	PendingApprovalStatus          string           `json:"pending_approval_status,omitempty"`
 	PendingApprovalToolName        string           `json:"pending_approval_tool_name,omitempty"`
