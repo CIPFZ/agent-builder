@@ -1017,7 +1017,12 @@ func TestRunnerDefaultAgentTaskExecutorRunsBackgroundAgentWithoutWaiting(t *test
 	_ = block
 
 	result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
-		ToolContext: tools.ToolUseContext{Session: parent},
+		ToolContext: tools.ToolUseContext{
+			Session: parent,
+			AvailableTools: []tools.Definition{
+				{Name: "Read"},
+			},
+		},
 		Label:       "research",
 		Prompt:      "inspect auth flow",
 		AgentType:   "researcher",
@@ -1025,11 +1030,94 @@ func TestRunnerDefaultAgentTaskExecutorRunsBackgroundAgentWithoutWaiting(t *test
 	if err != nil {
 		t.Fatalf("default agent task executor: %v", err)
 	}
-	if !strings.Contains(result.Output, `"status":"spawned"`) || strings.Contains(result.Output, `"result":`) {
-		t.Fatalf("output = %q, want immediate spawned payload without result", result.Output)
+	for _, want := range []string{`"status":"async_launched"`, `"agentId":"agent-000001"`, `"outputFile":`, `"canReadOutputFile":true`} {
+		if !strings.Contains(result.Output, want) {
+			t.Fatalf("output = %q, missing %q", result.Output, want)
+		}
 	}
 	if len(runner.AgentManager().List()) != 1 {
 		t.Fatalf("runs = %#v, want one background run", runner.AgentManager().List())
+	}
+}
+
+func TestRunnerDefaultAgentTaskExecutorBackgroundWithoutReadableToolsMarksOutputUnreadable(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{"working"}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	runner.options.AgentManager = agent.NewManager()
+	runner.options.AgentTaskExecutor = func(ctx context.Context, request tools.AgentTaskRequest) (tools.ToolResult, error) {
+		return runner.defaultAgentTaskExecutor(ctx, request)
+	}
+
+	result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
+		ToolContext: tools.ToolUseContext{
+			Session:        parent,
+			AvailableTools: []tools.Definition{{Name: "Write"}},
+		},
+		Label:           "research",
+		Prompt:          "inspect auth flow",
+		RunInBackground: true,
+	})
+	if err != nil {
+		t.Fatalf("default agent task executor: %v", err)
+	}
+	if !strings.Contains(result.Output, `"status":"async_launched"`) || !strings.Contains(result.Output, `"canReadOutputFile":false`) {
+		t.Fatalf("output = %q, want async_launched with unreadable output flag", result.Output)
+	}
+}
+
+func TestRunnerBackgroundSubagentWritesOutputFileOnCompletion(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	runIDPath := subagentOutputPath("agent-000001")
+	_ = os.Remove(runIDPath)
+	t.Cleanup(func() { _ = os.Remove(runIDPath) })
+
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{"working"}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:  "researcher",
+					Background: true,
+				},
+			},
+		},
+	})
+	runner.options.AgentManager = agent.NewManager()
+
+	result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
+		ToolContext: tools.ToolUseContext{
+			Session:        parent,
+			AvailableTools: []tools.Definition{{Name: "Read"}},
+		},
+		Label:     "research",
+		Prompt:    "inspect auth flow",
+		AgentType: "researcher",
+	})
+	if err != nil {
+		t.Fatalf("default agent task executor: %v", err)
+	}
+	if !strings.Contains(result.Output, `"outputFile":"`) {
+		t.Fatalf("output = %q, want outputFile", result.Output)
+	}
+	runs := runner.AgentManager().List()
+	if len(runs) != 1 {
+		t.Fatalf("runs = %#v, want one delegated run", runs)
+	}
+	completed, err := runner.AgentManager().Wait(context.Background(), runs[0].ID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("wait delegated run: %v", err)
+	}
+	content, err := os.ReadFile(subagentOutputPath(completed.ID))
+	if err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	if got := strings.TrimSpace(string(content)); got == "" {
+		t.Fatalf("output file content = %q, want non-empty result", got)
 	}
 }
 

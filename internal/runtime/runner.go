@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -462,7 +463,7 @@ func (r *Runner) defaultAgentTaskExecutor(ctx context.Context, request tools.Age
 		return tools.ToolResult{}, err
 	}
 	if r.shouldRunSubagentInBackground(request) {
-		return encodeSpawnedSubagentResult(*run, label, "")
+		return encodeAsyncLaunchedSubagentResult(*run, label, promptText, request.ToolContext)
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
@@ -504,6 +505,51 @@ func encodeSpawnedSubagentResult(run agent.Run, label, result string) (tools.Too
 		return tools.ToolResult{}, err
 	}
 	return tools.ToolResult{Output: string(encoded)}, nil
+}
+
+func encodeAsyncLaunchedSubagentResult(run agent.Run, label, prompt string, toolCtx tools.ToolUseContext) (tools.ToolResult, error) {
+	output := map[string]any{
+		"success":           true,
+		"status":            "async_launched",
+		"agent":             label,
+		"agentId":           run.ID,
+		"runId":             run.ID,
+		"sessionId":         run.ChildSessionID,
+		"prompt":            prompt,
+		"outputFile":        subagentOutputPath(run.ID),
+		"canReadOutputFile": canReadSubagentOutput(toolCtx),
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		return tools.ToolResult{}, err
+	}
+	return tools.ToolResult{Output: string(encoded)}, nil
+}
+
+func canReadSubagentOutput(toolCtx tools.ToolUseContext) bool {
+	for _, def := range toolCtx.AvailableTools {
+		switch strings.TrimSpace(def.Name) {
+		case "Read", "Bash":
+			return true
+		}
+	}
+	return false
+}
+
+func subagentOutputPath(runID string) string {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		runID = "agent"
+	}
+	return filepath.Join(os.TempDir(), "myclaw-subagents", runID+".log")
+}
+
+func writeSubagentOutputFile(runID, content string) error {
+	path := subagentOutputPath(runID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(content), 0o644)
 }
 
 func (r *Runner) HandleUserMessage(ctx context.Context, sess session.Session, userMessage session.Message, sink EventSink) error {
@@ -672,11 +718,17 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 			}
 			for i := len(messages) - 1; i >= 0; i-- {
 				if messages[i].Role == "assistant" {
+					if err := writeSubagentOutputFile(runCtx.RunID, messages[i].Content); err != nil {
+						return "", err
+					}
 					if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
 						return "", cleanupErr
 					}
 					return messages[i].Content, nil
 				}
+			}
+			if err := writeSubagentOutputFile(runCtx.RunID, ""); err != nil {
+				return "", err
 			}
 			if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
 				return "", cleanupErr
