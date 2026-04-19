@@ -9,7 +9,9 @@ import (
 
 	"myclaw/internal/agent"
 	"myclaw/internal/approval"
+	"myclaw/internal/compaction"
 	"myclaw/internal/llm"
+	"myclaw/internal/memory"
 	"myclaw/internal/orchestration"
 	"myclaw/internal/permissions"
 	"myclaw/internal/runtime"
@@ -397,5 +399,76 @@ func TestRuntimeBridgeMCPSnapshotIncludesServerDetails(t *testing.T) {
 	}
 	if len(filesystem.Tools) != 2 || filesystem.Tools[0] != "read_file" || filesystem.Prompts[0] != "summarize" || len(filesystem.Resources) != 2 {
 		t.Fatalf("filesystem = %#v, want MCP tool/prompt/resource details", filesystem)
+	}
+}
+
+func TestRuntimeBridgeCompactionSnapshotAndActions(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	for _, entry := range []struct {
+		role    string
+		content string
+	}{
+		{"user", "first request"},
+		{"assistant", "first answer"},
+		{"user", "second request"},
+		{"assistant", "second answer"},
+		{"user", "third request"},
+		{"assistant", "third answer"},
+	} {
+		if _, err := sessions.AppendMessage(sess.ID, entry.role, entry.content); err != nil {
+			t.Fatalf("AppendMessage(%s): %v", entry.role, err)
+		}
+	}
+	if err := sessions.UpdateMetadata(sess.ID, func(metadata *session.SessionMetadata) {
+		metadata.LastCompactionReason = "message-limit"
+		metadata.LastCompactedAt = time.Date(2026, time.April, 19, 10, 30, 0, 0, time.UTC)
+	}); err != nil {
+		t.Fatalf("UpdateMetadata: %v", err)
+	}
+
+	memSvc := memory.NewService()
+	memSvc.SaveCompactionSummary(sess, session.Message{
+		ID:               "summary-old",
+		SessionID:        sess.ID,
+		Role:             "summary",
+		Content:          "Summary: old context",
+		IsCompactSummary: true,
+		CreatedAt:        time.Now().UTC(),
+	})
+
+	runner := runtime.NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, runtime.Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MemoryService:    memSvc,
+		Compactor: compaction.NewService(compaction.Config{
+			MaxMessages:         3,
+			PreserveRecentTurns: 1,
+			SummaryPrefix:       "Summary:",
+		}),
+	})
+	bridge := NewRuntimeBridge(sessions, runner, "main")
+
+	snapshot := bridge.CompactionSnapshot()
+	if snapshot.LastCompactionReason != "message-limit" {
+		t.Fatalf("snapshot = %#v, want recovered reason", snapshot)
+	}
+	if snapshot.LastCompactedAtLabel == "" {
+		t.Fatalf("snapshot = %#v, want formatted compaction time", snapshot)
+	}
+
+	result, err := bridge.CompactSession("")
+	if err != nil {
+		t.Fatalf("CompactSession: %v", err)
+	}
+	if !result.Changed || result.Reason == "" {
+		t.Fatalf("result = %#v, want changed compaction result", result)
+	}
+
+	micro, err := bridge.MicrocompactSession()
+	if err != nil {
+		t.Fatalf("MicrocompactSession: %v", err)
+	}
+	if micro.Reason != "microcompact" && micro.Changed {
+		t.Fatalf("micro = %#v, want microcompact reason when changed", micro)
 	}
 }

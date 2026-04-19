@@ -11,22 +11,28 @@ import (
 )
 
 type fakeBridge struct {
-	sent       []string
-	approved   []string
-	rejected   []string
-	modelSets   []string
-	modelClears int
-	sendErr    error
-	approveErr error
-	rejectErr  error
-	modelErr   error
+	sent              []string
+	approved          []string
+	rejected          []string
+	modelSets         []string
+	modelClears       int
+	compacts          []string
+	microcompactCount int
+	sendErr           error
+	approveErr        error
+	rejectErr         error
+	modelErr          error
+	compactErr        error
 
-	sessionSnapshots []sessionSnapshot
-	resumeSnapshots  map[string]session.RecoverySnapshot
-	resumedSessionID string
-	taskPanel        taskPanelSnapshot
-	platformStatus   platformStatusSnapshot
-	mcpStatus        mcpSnapshot
+	sessionSnapshots   []sessionSnapshot
+	resumeSnapshots    map[string]session.RecoverySnapshot
+	resumedSessionID   string
+	taskPanel          taskPanelSnapshot
+	platformStatus     platformStatusSnapshot
+	mcpStatus          mcpSnapshot
+	compactionStatus   compactionSnapshot
+	compactResult      compactionActionResult
+	microcompactResult compactionActionResult
 }
 
 func (f *fakeBridge) SendUserMessage(input string) error {
@@ -52,6 +58,20 @@ func (f *fakeBridge) SetSessionModel(model string) error {
 func (f *fakeBridge) ClearSessionModel() error {
 	f.modelClears++
 	return f.modelErr
+}
+
+func (f *fakeBridge) CompactionSnapshot() compactionSnapshot {
+	return f.compactionStatus
+}
+
+func (f *fakeBridge) CompactSession(customInstructions string) (compactionActionResult, error) {
+	f.compacts = append(f.compacts, customInstructions)
+	return f.compactResult, f.compactErr
+}
+
+func (f *fakeBridge) MicrocompactSession() (compactionActionResult, error) {
+	f.microcompactCount++
+	return f.microcompactResult, f.compactErr
 }
 
 func (f *fakeBridge) SessionSnapshots() []sessionSnapshot {
