@@ -18,6 +18,11 @@ type SessionMetadata struct {
 	AgentSystemPrompt              string           `json:"agent_system_prompt,omitempty"`
 	AgentMemoryScope               string           `json:"agent_memory_scope,omitempty"`
 	AgentMaxTurns                  int              `json:"agent_max_turns,omitempty"`
+	AgentIsolation                 string           `json:"agent_isolation,omitempty"`
+	AgentWorktreePath              string           `json:"agent_worktree_path,omitempty"`
+	AgentWorktreeBranch            string           `json:"agent_worktree_branch,omitempty"`
+	AgentWorktreeHeadCommit        string           `json:"agent_worktree_head_commit,omitempty"`
+	AgentWorktreeGitRoot           string           `json:"agent_worktree_git_root,omitempty"`
 	PendingApprovalID              string           `json:"pending_approval_id,omitempty"`
 	PendingApprovalStatus          string           `json:"pending_approval_status,omitempty"`
 	PendingApprovalToolName        string           `json:"pending_approval_tool_name,omitempty"`

@@ -1537,6 +1537,10 @@ func cloneMCPResources(resources map[string][]tools.MCPResource) map[string][]to
 	return out
 }
 
+func (q *QueryEngine) WorkspaceLoader() *workspace.Loader {
+	return q.workspace
+}
+
 func cloneAgentDefinitions(definitions map[string]tools.AgentDefinition) map[string]tools.AgentDefinition {
 	if definitions == nil {
 		return nil
@@ -1885,7 +1889,7 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 		}
 	}
 
-	workspaceContext, err := q.workspace.Load()
+	workspaceContext, err := q.workspaceContextForSession(sess)
 	if err != nil {
 		return nil, err
 	}
@@ -1965,6 +1969,16 @@ func (q *QueryEngine) memoryItems(sessionID string) []memory.Item {
 		return nil
 	}
 	return q.memory.List(sessionID)
+}
+
+func (q *QueryEngine) workspaceContextForSession(sess session.Session) (workspace.Context, error) {
+	if q.workspace == nil {
+		return workspace.Context{}, nil
+	}
+	if root := strings.TrimSpace(sess.Metadata.AgentWorktreePath); root != "" {
+		return q.workspace.WithRoot(root).Load()
+	}
+	return q.workspace.Load()
 }
 
 func (q *QueryEngine) agentSystemPromptForSession(sess session.Session, workspaceContext workspace.Context) string {
@@ -2581,7 +2595,7 @@ func (q *QueryEngine) maybeInjectDynamicSkillAttachments(sess session.Session, u
 	}
 	cwd := ""
 	if q.workspace != nil {
-		if workspaceContext, err := q.workspace.Load(); err == nil {
+		if workspaceContext, err := q.workspaceContextForSession(sess); err == nil {
 			cwd = workspaceContext.Root
 		}
 	}
@@ -3209,6 +3223,9 @@ func estimateTextTokens(content string) int {
 func resolveWorkDir(sess session.Session, loader *workspace.Loader) string {
 	if loader == nil {
 		return sess.Key
+	}
+	if root := strings.TrimSpace(sess.Metadata.AgentWorktreePath); root != "" {
+		return root
 	}
 	ctx, err := loader.Load()
 	if err != nil || ctx.Root == "" {

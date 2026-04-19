@@ -8,6 +8,15 @@ import (
 	"myclaw/internal/session"
 )
 
+type captureExecutor struct {
+	command string
+}
+
+func (e *captureExecutor) Run(_ context.Context, command string) (string, error) {
+	e.command = command
+	return "ok", nil
+}
+
 func TestRouterRoutesBySessionMainFlag(t *testing.T) {
 	router := NewRouter(nil, nil)
 	command := "printf hi"
@@ -29,5 +38,28 @@ func TestRouterRoutesBySessionMainFlag(t *testing.T) {
 	}
 	if sandboxOut != "[sandbox] "+command {
 		t.Fatalf("sandbox output = %q, want sandbox marker", sandboxOut)
+	}
+}
+
+func TestRouterAppliesWorktreeWorkingDirectoryPrefix(t *testing.T) {
+	host := &captureExecutor{}
+	router := NewRouter(host, &captureExecutor{})
+	sess := session.Session{
+		IsMain: true,
+		Metadata: session.SessionMetadata{
+			AgentWorktreePath: `C:\repo\worktree`,
+		},
+	}
+
+	if _, err := router.Run(context.Background(), sess, "git status"); err != nil {
+		t.Fatalf("router run: %v", err)
+	}
+
+	want := `Set-Location -LiteralPath 'C:\repo\worktree'; git status`
+	if runtime.GOOS != "windows" {
+		want = "cd 'C:\\repo\\worktree' && git status"
+	}
+	if host.command != want {
+		t.Fatalf("command = %q, want %q", host.command, want)
 	}
 }

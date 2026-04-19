@@ -267,7 +267,7 @@ func TestAgentTaskToolInvokeWithContextUsesAgentTaskExecutor(t *testing.T) {
 	result, err := tool.InvokeWithContext(context.Background(), tools.ToolUseContext{
 		Session: sess,
 		ToolName: "agent.task",
-		Input: `{"description":"research","prompt":"inspect auth flow","subagent_type":"researcher"}`,
+		Input: `{"description":"research","prompt":"inspect auth flow","subagent_type":"researcher","isolation":"worktree"}`,
 		AppState: map[string]any{
 			"agentTaskExecutor": tools.AgentTaskExecutor(func(_ context.Context, request tools.AgentTaskRequest) (tools.ToolResult, error) {
 				got = request
@@ -278,7 +278,7 @@ func TestAgentTaskToolInvokeWithContextUsesAgentTaskExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invoke with context: %v", err)
 	}
-	if got.Label != "research" || got.Prompt != "inspect auth flow" || got.AgentType != "researcher" {
+	if got.Label != "research" || got.Prompt != "inspect auth flow" || got.AgentType != "researcher" || got.Isolation != "worktree" {
 		t.Fatalf("request = %#v, want parsed structured agent task", got)
 	}
 	if result.Output != `{"status":"spawned","runId":"agent-1"}` {
@@ -316,6 +316,16 @@ func TestAgentTaskToolStructuredPromptProjectsBackgroundFlag(t *testing.T) {
 	}
 	if projected.AgentType != "researcher" || projected.Label != "research" || projected.Prompt != "inspect auth flow" {
 		t.Fatalf("projection = %#v, want parsed fields", projected)
+	}
+}
+
+func TestAgentTaskToolStructuredPromptProjectsIsolationFlag(t *testing.T) {
+	projected, ok := tools.ProjectStructuredAgentTaskInputForTest(`{"description":"research","prompt":"inspect auth flow","subagent_type":"researcher","isolation":"worktree"}`)
+	if !ok {
+		t.Fatal("expected structured input to parse")
+	}
+	if projected.Isolation != "worktree" {
+		t.Fatalf("projection = %#v, want worktree isolation", projected)
 	}
 }
 

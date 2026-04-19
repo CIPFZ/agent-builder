@@ -33,10 +33,24 @@ func NewRouter(host, sandbox Executor) *Router {
 }
 
 func (r *Router) Run(ctx context.Context, sess session.Session, command string) (string, error) {
+	command = withSessionWorktreePrefix(sess, command)
 	if sess.IsMain {
 		return r.host.Run(ctx, command)
 	}
 	return r.sandbox.Run(ctx, command)
+}
+
+func withSessionWorktreePrefix(sess session.Session, command string) string {
+	command = strings.TrimSpace(command)
+	worktreePath := strings.TrimSpace(sess.Metadata.AgentWorktreePath)
+	if worktreePath == "" || command == "" {
+		return command
+	}
+	quoted := "'" + strings.ReplaceAll(worktreePath, "'", "''") + "'"
+	if runtime.GOOS == "windows" {
+		return "Set-Location -LiteralPath " + quoted + "; " + command
+	}
+	return "cd " + quoted + " && " + command
 }
 
 type HostExecutor struct{}

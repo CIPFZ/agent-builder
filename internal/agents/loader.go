@@ -19,6 +19,7 @@ type Definition struct {
 	PermissionMode  string
 	MaxTurns        int
 	Background      bool
+	Isolation       string
 	InitialPrompt   string
 	MemoryScope     string
 	Source          string
@@ -175,6 +176,7 @@ func parseAgentFile(path, data string) Definition {
 		PermissionMode:  strings.TrimSpace(stringField(fields, "permissionmode")),
 		MaxTurns:        parseIntField(fields["maxturns"]),
 		Background:      parseBoolField(fields["background"]),
+		Isolation:       strings.TrimSpace(stringField(fields, "isolation")),
 		InitialPrompt:   strings.TrimSpace(stringField(fields, "initialprompt")),
 		MemoryScope:     strings.TrimSpace(stringField(fields, "memory")),
 		Source:          path,

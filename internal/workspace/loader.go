@@ -49,6 +49,17 @@ func NewLoader(root string, options ...Option) *Loader {
 	return loader
 }
 
+func (l *Loader) WithRoot(root string) *Loader {
+	if l == nil {
+		return NewLoader(root)
+	}
+	return &Loader{
+		root:       filepath.Clean(root),
+		managedDir: l.managedDir,
+		userDir:    l.userDir,
+	}
+}
+
 func (l *Loader) Load() (Context, error) {
 	ctx := Context{
 		Root: filepath.Clean(strings.TrimSpace(l.root)),

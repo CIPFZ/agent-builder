@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,6 +28,15 @@ import (
 
 type captureSink struct {
 	events []RuntimeEvent
+}
+
+func containsString(lines []string, want string) bool {
+	for _, line := range lines {
+		if line == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *captureSink) Emit(event RuntimeEvent) error {
@@ -72,6 +82,37 @@ type scriptedClient struct {
 	call      int
 }
 
+type stubWorktreeManager struct {
+	info        AgentWorktree
+	createCalls int
+	hasChanges  bool
+	removeCalls int
+	lastBaseDir string
+	lastSlug    string
+}
+
+func (m *stubWorktreeManager) Create(_ context.Context, baseDir, slug string) (AgentWorktree, error) {
+	m.createCalls++
+	m.lastBaseDir = baseDir
+	m.lastSlug = slug
+	return m.info, nil
+}
+
+func (m *stubWorktreeManager) HasChanges(_ context.Context, worktreePath, headCommit string) (bool, error) {
+	if worktreePath != m.info.Path || headCommit != m.info.HeadCommit {
+		return false, fmt.Errorf("unexpected has-changes lookup path=%q head=%q", worktreePath, headCommit)
+	}
+	return m.hasChanges, nil
+}
+
+func (m *stubWorktreeManager) Remove(_ context.Context, worktree AgentWorktree) error {
+	if worktree.Path != m.info.Path || worktree.Branch != m.info.Branch {
+		return fmt.Errorf("unexpected remove worktree %#v", worktree)
+	}
+	m.removeCalls++
+	return nil
+}
+
 func (c *scriptedClient) Stream(_ context.Context, _ llm.GenerateRequest, handler llm.StreamHandler) error {
 	if c.call >= len(c.responses) {
 		return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
@@ -94,6 +135,12 @@ func (c *loopingToolClient) Stream(_ context.Context, _ llm.GenerateRequest, han
 		return err
 	}
 	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+}
+
+type failingClient struct{}
+
+func (f *failingClient) Stream(_ context.Context, _ llm.GenerateRequest, _ llm.StreamHandler) error {
+	return fmt.Errorf("model stream failed")
 }
 
 func TestRunnerHandleUserMessageDoesNotEmitRunErrorWhenApprovalIsRequired(t *testing.T) {
@@ -150,7 +197,7 @@ func TestRunnerHandleUserMessageCompactsStoredHistory(t *testing.T) {
 	}
 
 	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
-		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 		Compactor: compaction.NewService(compaction.Config{
 			MaxMessages:         3,
 			PreserveRecentTurns: 2,
@@ -976,7 +1023,12 @@ func TestRunnerDefaultAgentTaskExecutorRunsBackgroundAgentWithoutWaiting(t *test
 	_ = block
 
 	result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
-		ToolContext: tools.ToolUseContext{Session: parent},
+		ToolContext: tools.ToolUseContext{
+			Session: parent,
+			AvailableTools: []tools.Definition{
+				{Name: "Read"},
+			},
+		},
 		Label:       "research",
 		Prompt:      "inspect auth flow",
 		AgentType:   "researcher",
@@ -984,11 +1036,665 @@ func TestRunnerDefaultAgentTaskExecutorRunsBackgroundAgentWithoutWaiting(t *test
 	if err != nil {
 		t.Fatalf("default agent task executor: %v", err)
 	}
-	if !strings.Contains(result.Output, `"status":"spawned"`) || strings.Contains(result.Output, `"result":`) {
-		t.Fatalf("output = %q, want immediate spawned payload without result", result.Output)
+	for _, want := range []string{`"status":"async_launched"`, `"agentId":"agent-000001"`, `"outputFile":`, `"canReadOutputFile":true`} {
+		if !strings.Contains(result.Output, want) {
+			t.Fatalf("output = %q, missing %q", result.Output, want)
+		}
 	}
 	if len(runner.AgentManager().List()) != 1 {
 		t.Fatalf("runs = %#v, want one background run", runner.AgentManager().List())
+	}
+}
+
+func TestRunnerDefaultAgentTaskExecutorBackgroundWithoutReadableToolsMarksOutputUnreadable(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{"working"}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	runner.options.AgentManager = agent.NewManager()
+	runner.options.AgentTaskExecutor = func(ctx context.Context, request tools.AgentTaskRequest) (tools.ToolResult, error) {
+		return runner.defaultAgentTaskExecutor(ctx, request)
+	}
+
+	result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
+		ToolContext: tools.ToolUseContext{
+			Session:        parent,
+			AvailableTools: []tools.Definition{{Name: "Write"}},
+		},
+		Label:           "research",
+		Prompt:          "inspect auth flow",
+		RunInBackground: true,
+	})
+	if err != nil {
+		t.Fatalf("default agent task executor: %v", err)
+	}
+	if !strings.Contains(result.Output, `"status":"async_launched"`) || !strings.Contains(result.Output, `"canReadOutputFile":false`) {
+		t.Fatalf("output = %q, want async_launched with unreadable output flag", result.Output)
+	}
+}
+
+func TestRunnerBackgroundSubagentWritesOutputFileOnCompletion(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	runIDPath := subagentOutputPath("agent-000001")
+	_ = os.Remove(runIDPath)
+	t.Cleanup(func() { _ = os.Remove(runIDPath) })
+
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{"working"}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:  "researcher",
+					Background: true,
+				},
+			},
+		},
+	})
+	runner.options.AgentManager = agent.NewManager()
+
+	result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
+		ToolContext: tools.ToolUseContext{
+			Session:        parent,
+			AvailableTools: []tools.Definition{{Name: "Read"}},
+		},
+		Label:     "research",
+		Prompt:    "inspect auth flow",
+		AgentType: "researcher",
+	})
+	if err != nil {
+		t.Fatalf("default agent task executor: %v", err)
+	}
+	if !strings.Contains(result.Output, `"outputFile":"`) {
+		t.Fatalf("output = %q, want outputFile", result.Output)
+	}
+	runs := runner.AgentManager().List()
+	if len(runs) != 1 {
+		t.Fatalf("runs = %#v, want one delegated run", runs)
+	}
+	completed, err := runner.AgentManager().Wait(context.Background(), runs[0].ID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("wait delegated run: %v", err)
+	}
+	content, err := os.ReadFile(subagentOutputPath(completed.ID))
+	if err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	if got := strings.TrimSpace(string(content)); got == "" {
+		t.Fatalf("output file content = %q, want non-empty result", got)
+	}
+}
+
+func TestRunnerBackgroundSubagentEmitsCompletionNotification(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	notifications := make([]tools.Notification, 0, 1)
+
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{"working"}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:  "researcher",
+					Background: true,
+				},
+			},
+		},
+		AddNotification: func(n tools.Notification) {
+			notifications = append(notifications, n)
+		},
+	})
+
+	result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
+		ToolContext: tools.ToolUseContext{
+			Session:        parent,
+			AvailableTools: []tools.Definition{{Name: "Read"}},
+		},
+		Label:     "research",
+		Prompt:    "inspect auth flow",
+		AgentType: "researcher",
+	})
+	if err != nil {
+		t.Fatalf("default agent task executor: %v", err)
+	}
+	if !strings.Contains(result.Output, `"status":"async_launched"`) {
+		t.Fatalf("output = %q, want async launch", result.Output)
+	}
+	runs := runner.AgentManager().List()
+	if len(runs) != 1 {
+		t.Fatalf("runs = %#v, want one delegated run", runs)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), runs[0].ID, 5*time.Second); err != nil {
+		t.Fatalf("wait delegated run: %v", err)
+	}
+	if len(notifications) != 1 {
+		t.Fatalf("notifications = %#v, want one completion notification", notifications)
+	}
+	if notifications[0].Key != runs[0].ID || notifications[0].Priority != "info" {
+		t.Fatalf("notification = %#v, want keyed info notification", notifications[0])
+	}
+	if !strings.Contains(notifications[0].Message, "completed") {
+		t.Fatalf("notification = %#v, want completion message", notifications[0])
+	}
+}
+
+func TestRunnerBackgroundSubagentEmitsFailureNotification(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	notifications := make([]tools.Notification, 0, 1)
+
+	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:  "researcher",
+					Background: true,
+				},
+			},
+		},
+		AddNotification: func(n tools.Notification) {
+			notifications = append(notifications, n)
+		},
+	})
+
+	result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
+		ToolContext: tools.ToolUseContext{Session: parent},
+		Label:       "research",
+		Prompt:      "tool run pwd",
+		AgentType:   "researcher",
+	})
+	if err != nil {
+		t.Fatalf("default agent task executor: %v", err)
+	}
+	if !strings.Contains(result.Output, `"status":"async_launched"`) {
+		t.Fatalf("output = %q, want async launch", result.Output)
+	}
+	runs := runner.AgentManager().List()
+	if len(runs) != 1 {
+		t.Fatalf("runs = %#v, want one delegated run", runs)
+	}
+	completed, err := runner.AgentManager().Wait(context.Background(), runs[0].ID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("wait delegated run: %v", err)
+	}
+	if completed.Status != agent.StatusFailed {
+		t.Fatalf("run = %#v, want failed status", completed)
+	}
+	if len(notifications) != 1 {
+		t.Fatalf("notifications = %#v, want one failure notification", notifications)
+	}
+	if !strings.Contains(notifications[0].Message, "failed") {
+		t.Fatalf("notification = %#v, want failure message", notifications[0])
+	}
+}
+
+func TestRunnerDefaultAgentTaskExecutorUsesForkForStructuredInputWithoutSubagentType(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	client := &captureMemoryClient{}
+
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy:     permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		RenderedSystemPrompt: "parent rendered system prompt",
+	})
+
+	result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
+		ToolContext: tools.ToolUseContext{
+			Session: parent,
+			Input:   `{"description":"research","prompt":"check auth flow"}`,
+		},
+		Label:  "research",
+		Prompt: "check auth flow",
+	})
+	if err != nil {
+		t.Fatalf("default agent task executor: %v", err)
+	}
+	if !strings.Contains(result.Output, `"status":"spawned"`) {
+		t.Fatalf("output = %q, want spawned payload", result.Output)
+	}
+	runs := runner.AgentManager().List()
+	if len(runs) != 1 {
+		t.Fatalf("runs = %#v, want one delegated run", runs)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), runs[0].ID, 5*time.Second); err != nil {
+		t.Fatalf("wait delegated run: %v", err)
+	}
+	child, ok := sessions.GetByID(runs[0].ChildSessionID)
+	if !ok {
+		t.Fatalf("child session %q not found", runs[0].ChildSessionID)
+	}
+	if child.Metadata.AgentType != "fork" {
+		t.Fatalf("child metadata = %#v, want fork agent type", child.Metadata)
+	}
+	messages, ok := sessions.Messages(runs[0].ChildSessionID)
+	if !ok || len(messages) == 0 {
+		t.Fatalf("messages for child session %q not found", runs[0].ChildSessionID)
+	}
+	last := messages[len(messages)-1]
+	if !strings.Contains(last.Content, "You are a forked worker process.") {
+		t.Fatalf("last child message = %q, want fork directive", last.Content)
+	}
+}
+
+func TestRunnerSpawnSubagentUsesWorktreeIsolationFromAgentDefinition(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	client := &captureMemoryClient{}
+	worktreeManager := &stubWorktreeManager{
+		info: AgentWorktree{
+			Path:      filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002"),
+			Branch:    "worktree-agent-session-000002",
+			HeadCommit: "abc123",
+			GitRoot:   filepath.Clean("C:/repo"),
+		},
+		hasChanges: true,
+	}
+
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader("C:/repo"), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:  "researcher",
+					Isolation:  "worktree",
+					SystemPrompt: "Research thoroughly before answering.",
+				},
+			},
+		},
+		WorktreeManager: worktreeManager,
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "research", "inspect auth flow", SubagentOptions{
+		AgentType: "researcher",
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+	if worktreeManager.createCalls != 1 || worktreeManager.lastBaseDir != filepath.Clean("C:/repo") {
+		t.Fatalf("worktree manager = %#v, want one create rooted at repo", worktreeManager)
+	}
+	if !containsString(client.lastRequest.Context.SystemContextLines, "workspace_root="+worktreeManager.info.Path) {
+		t.Fatalf("system context lines = %#v, want worktree root", client.lastRequest.Context.SystemContextLines)
+	}
+
+	child, ok := sessions.GetByID(run.ChildSessionID)
+	if !ok {
+		t.Fatalf("child session %q not found", run.ChildSessionID)
+	}
+	if child.Metadata.AgentWorktreePath != worktreeManager.info.Path || child.Metadata.AgentWorktreeBranch != worktreeManager.info.Branch {
+		t.Fatalf("child metadata = %#v, want persisted worktree metadata", child.Metadata)
+	}
+	if worktreeManager.removeCalls != 0 {
+		t.Fatalf("remove calls = %d, want dirty worktree kept", worktreeManager.removeCalls)
+	}
+}
+
+func TestRunnerSpawnSubagentRemovesCleanWorktreeAndClearsMetadata(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	worktreeManager := &stubWorktreeManager{
+		info: AgentWorktree{
+			Path:      filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002"),
+			Branch:    "worktree-agent-session-000002",
+			HeadCommit: "abc123",
+			GitRoot:   filepath.Clean("C:/repo"),
+		},
+		hasChanges: false,
+	}
+
+	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader("C:/repo"), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType: "researcher",
+					Isolation: "worktree",
+				},
+			},
+		},
+		WorktreeManager: worktreeManager,
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "research", "inspect auth flow", SubagentOptions{
+		AgentType: "researcher",
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+	if worktreeManager.removeCalls != 1 {
+		t.Fatalf("remove calls = %d, want clean worktree removed", worktreeManager.removeCalls)
+	}
+	child, ok := sessions.GetByID(run.ChildSessionID)
+	if !ok {
+		t.Fatalf("child session %q not found", run.ChildSessionID)
+	}
+	if child.Metadata.AgentWorktreePath != "" || child.Metadata.AgentWorktreeBranch != "" {
+		t.Fatalf("child metadata = %#v, want cleared worktree metadata after cleanup", child.Metadata)
+	}
+}
+
+func TestRunnerResumeSubagentUsesPersistedWorktreePathForWorkspaceContext(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	child := sessions.CreateChild("researcher", "agent:researcher:child:1")
+	if err := sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+		metadata.AgentType = "researcher"
+		metadata.AgentWorktreePath = filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002")
+	}); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+	client := &captureMemoryClient{}
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader("C:/repo"), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {AgentType: "researcher"},
+			},
+		},
+	})
+	run, err := runner.AgentManager().Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID: parent.ID,
+		ParentAgentID:   parent.AgentID,
+		ChildSessionID:  child.ID,
+		ChildSessionKey: child.Key,
+		Label:           "research",
+		Prompt:          "first pass",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			return "done", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 2*time.Second); err != nil {
+		t.Fatalf("wait seeded run: %v", err)
+	}
+
+	resumed, err := runner.ResumeSubagent(context.Background(), run.ID, "research", "second pass")
+	if err != nil {
+		t.Fatalf("resume subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), resumed.ID, 2*time.Second); err != nil {
+		t.Fatalf("wait resumed run: %v", err)
+	}
+	if !containsString(client.lastRequest.Context.SystemContextLines, "workspace_root="+filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002")) {
+		t.Fatalf("system context lines = %#v, want resumed worktree root", client.lastRequest.Context.SystemContextLines)
+	}
+}
+
+func TestRunnerResumeSubagentWritesOutputFileOnCompletion(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	child := sessions.CreateChild("researcher", "agent:researcher:child:1")
+	if err := sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+		metadata.AgentType = "researcher"
+	}); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{"first result", "second result"}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	seed, err := runner.AgentManager().Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID: parent.ID,
+		ParentAgentID:   parent.AgentID,
+		ChildSessionID:  child.ID,
+		ChildSessionKey: child.Key,
+		Label:           "research",
+		Prompt:          "first pass",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			return "done", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), seed.ID, 2*time.Second); err != nil {
+		t.Fatalf("wait seeded run: %v", err)
+	}
+
+	resumed, err := runner.ResumeSubagent(context.Background(), seed.ID, "research", "second pass")
+	if err != nil {
+		t.Fatalf("resume subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), resumed.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait resumed run: %v", err)
+	}
+	content, err := os.ReadFile(subagentOutputPath(resumed.ID))
+	if err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	if got := strings.TrimSpace(string(content)); got == "" {
+		t.Fatalf("output file content = %q, want non-empty result", got)
+	}
+}
+
+func TestRunnerResumeSubagentEmitsCompletionNotification(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	child := sessions.CreateChild("researcher", "agent:researcher:child:1")
+	if err := sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+		metadata.AgentType = "researcher"
+	}); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+	notifications := make([]tools.Notification, 0, 1)
+
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{"first result", "second result"}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AddNotification: func(n tools.Notification) {
+			notifications = append(notifications, n)
+		},
+	})
+	seed, err := runner.AgentManager().Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID: parent.ID,
+		ParentAgentID:   parent.AgentID,
+		ChildSessionID:  child.ID,
+		ChildSessionKey: child.Key,
+		Label:           "research",
+		Prompt:          "first pass",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			return "done", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), seed.ID, 2*time.Second); err != nil {
+		t.Fatalf("wait seeded run: %v", err)
+	}
+
+	resumed, err := runner.ResumeSubagent(context.Background(), seed.ID, "research", "second pass")
+	if err != nil {
+		t.Fatalf("resume subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), resumed.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait resumed run: %v", err)
+	}
+	if len(notifications) != 1 {
+		t.Fatalf("notifications = %#v, want one completion notification", notifications)
+	}
+	if notifications[0].Key != resumed.ID || !strings.Contains(notifications[0].Message, "completed") {
+		t.Fatalf("notification = %#v, want resumed completion notification", notifications[0])
+	}
+}
+
+func TestRunnerResumeSubagentEmitsFailureNotification(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	child := sessions.CreateChild("researcher", "agent:researcher:child:1")
+	if err := sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+		metadata.AgentType = "researcher"
+	}); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+	notifications := make([]tools.Notification, 0, 1)
+
+	runner := NewRunnerWithOptions(sessions, &failingClient{}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AddNotification: func(n tools.Notification) {
+			notifications = append(notifications, n)
+		},
+	})
+	seed, err := runner.AgentManager().Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID: parent.ID,
+		ParentAgentID:   parent.AgentID,
+		ChildSessionID:  child.ID,
+		ChildSessionKey: child.Key,
+		Label:           "research",
+		Prompt:          "first pass",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			return "done", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), seed.ID, 2*time.Second); err != nil {
+		t.Fatalf("wait seeded run: %v", err)
+	}
+
+	resumed, err := runner.ResumeSubagent(context.Background(), seed.ID, "research", "tool run pwd")
+	if err != nil {
+		t.Fatalf("resume subagent: %v", err)
+	}
+	completed, err := runner.AgentManager().Wait(context.Background(), resumed.ID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("wait resumed run: %v", err)
+	}
+	if completed.Status != agent.StatusFailed {
+		t.Fatalf("run = %#v, want failed status", completed)
+	}
+	if len(notifications) != 1 {
+		t.Fatalf("notifications = %#v, want one failure notification", notifications)
+	}
+	if notifications[0].Key != resumed.ID || !strings.Contains(notifications[0].Message, "failed") {
+		t.Fatalf("notification = %#v, want resumed failure notification", notifications[0])
+	}
+}
+
+func TestRunnerSpawnSubagentWithoutAgentTypeUsesForkContract(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	if _, err := sessions.AppendMessage(parent.ID, "user", "inspect the auth code"); err != nil {
+		t.Fatalf("append parent user message: %v", err)
+	}
+	if _, err := sessions.AppendMessage(parent.ID, "assistant", "I will inspect the auth code."); err != nil {
+		t.Fatalf("append parent assistant message: %v", err)
+	}
+	client := &captureMemoryClient{}
+
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader("C:/repo"), nil, Options{
+		PermissionPolicy:     permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		RenderedSystemPrompt: "parent rendered system prompt",
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "research", "check the auth service", SubagentOptions{
+		UseFork: true,
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+
+	if got := client.lastRequest.Context.SystemPrompt; got != "parent rendered system prompt" {
+		t.Fatalf("system prompt = %q, want inherited parent prompt", got)
+	}
+	if !containsString(client.lastRequest.Context.HistoryLines, "ASSISTANT: I will inspect the auth code.") {
+		t.Fatalf("history lines = %#v, want parent assistant context", client.lastRequest.Context.HistoryLines)
+	}
+	if !strings.Contains(client.lastRequest.Context.UserInput, "You are a forked worker process.") {
+		t.Fatalf("user input = %q, want fork worker directive", client.lastRequest.Context.UserInput)
+	}
+	if !strings.Contains(client.lastRequest.Context.UserInput, "check the auth service") {
+		t.Fatalf("user input = %q, want delegated directive", client.lastRequest.Context.UserInput)
+	}
+
+	child, ok := sessions.GetByID(run.ChildSessionID)
+	if !ok {
+		t.Fatalf("child session %q not found", run.ChildSessionID)
+	}
+	if child.Metadata.AgentType != "fork" {
+		t.Fatalf("child metadata = %#v, want fork agent type", child.Metadata)
+	}
+	if child.Metadata.AgentSystemPrompt != "parent rendered system prompt" {
+		t.Fatalf("child metadata = %#v, want inherited parent system prompt", child.Metadata)
+	}
+}
+
+func TestRunnerSpawnSubagentWithoutAgentTypeRejectsNestedFork(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.CreateChild("fork", "agent:fork:child:1")
+	if err := sessions.UpdateMetadata(parent.ID, func(metadata *session.SessionMetadata) {
+		metadata.AgentType = "fork"
+	}); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+
+	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+
+	_, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "research", "check the auth service", SubagentOptions{
+		UseFork: true,
+	})
+	if err == nil {
+		t.Fatal("expected nested fork to be rejected")
+	}
+	if !strings.Contains(err.Error(), "Fork is not available inside a forked worker") {
+		t.Fatalf("error = %v, want nested fork rejection", err)
+	}
+}
+
+func TestRunnerSpawnSubagentForkWithWorktreeAppendsNotice(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	client := &captureMemoryClient{}
+	worktreeManager := &stubWorktreeManager{
+		info: AgentWorktree{
+			Path:       filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002"),
+			Branch:     "worktree-agent-session-000002",
+			HeadCommit: "abc123",
+			GitRoot:    filepath.Clean("C:/repo"),
+		},
+		hasChanges: true,
+	}
+
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader("C:/repo"), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		RenderedSystemPrompt: "parent rendered system prompt",
+		WorktreeManager:   worktreeManager,
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "research", "check the auth service", SubagentOptions{
+		Isolation: "worktree",
+		UseFork:   true,
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+
+	messages, ok := sessions.Messages(run.ChildSessionID)
+	if !ok || len(messages) == 0 {
+		t.Fatalf("messages for child session %q not found", run.ChildSessionID)
+	}
+	last := messages[len(messages)-1]
+	if !strings.Contains(last.Content, "You are operating in an isolated git worktree at "+worktreeManager.info.Path) {
+		t.Fatalf("last child message = %q, want worktree notice", last.Content)
 	}
 }
 

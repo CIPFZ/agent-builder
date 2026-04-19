@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -110,6 +112,7 @@ type Options struct {
 	AddNotification           tools.AddNotificationFunc
 	HandleElicitation         tools.ElicitationFunc
 	SetConversationID         tools.SetConversationIDFunc
+	WorktreeManager          WorktreeManager
 }
 
 type AgentDiscoveryOptions = agents.DiscoveryOptions
@@ -153,6 +156,9 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 	}
 	if options.AgentManager == nil {
 		options.AgentManager = agent.NewManager()
+	}
+	if options.WorktreeManager == nil {
+		options.WorktreeManager = newGitWorktreeManager()
 	}
 	if toolRegistry == nil {
 		router := sandbox.NewRouter(nil, nil)
@@ -218,6 +224,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 				MemoryScope:     definition.MemoryScope,
 				MaxTurns:        definition.MaxTurns,
 				Background:      definition.Background,
+				Isolation:       definition.Isolation,
 				InitialPrompt:   definition.InitialPrompt,
 				PermissionMode:  definition.PermissionMode,
 				DisallowedTools: append([]string(nil), definition.DisallowedTools...),
@@ -413,6 +420,7 @@ func (r *Runner) defaultSkillForkExecutor(ctx context.Context, request tools.Ski
 		AllowedTools: request.Command.AllowedTools,
 		Model:        request.Command.Model,
 		Effort:       request.Command.Effort,
+		AgentType:    strings.TrimSpace(request.Command.Agent),
 	})
 	if err != nil {
 		return tools.ToolResult{}, err
@@ -447,13 +455,15 @@ func (r *Runner) defaultAgentTaskExecutor(ctx context.Context, request tools.Age
 	}
 	options := SubagentOptions{
 		AgentType: request.AgentType,
+		Isolation: request.Isolation,
+		UseFork:   shouldUseForkSubagent(request.ToolContext.Input, request.AgentType),
 	}
 	run, err := r.SpawnSubagentWithOptions(ctx, request.ToolContext.Session, label, promptText, options)
 	if err != nil {
 		return tools.ToolResult{}, err
 	}
 	if r.shouldRunSubagentInBackground(request) {
-		return encodeSpawnedSubagentResult(*run, label, "")
+		return encodeAsyncLaunchedSubagentResult(*run, label, promptText, request.ToolContext)
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
@@ -497,6 +507,51 @@ func encodeSpawnedSubagentResult(run agent.Run, label, result string) (tools.Too
 	return tools.ToolResult{Output: string(encoded)}, nil
 }
 
+func encodeAsyncLaunchedSubagentResult(run agent.Run, label, prompt string, toolCtx tools.ToolUseContext) (tools.ToolResult, error) {
+	output := map[string]any{
+		"success":           true,
+		"status":            "async_launched",
+		"agent":             label,
+		"agentId":           run.ID,
+		"runId":             run.ID,
+		"sessionId":         run.ChildSessionID,
+		"prompt":            prompt,
+		"outputFile":        subagentOutputPath(run.ID),
+		"canReadOutputFile": canReadSubagentOutput(toolCtx),
+	}
+	encoded, err := json.Marshal(output)
+	if err != nil {
+		return tools.ToolResult{}, err
+	}
+	return tools.ToolResult{Output: string(encoded)}, nil
+}
+
+func canReadSubagentOutput(toolCtx tools.ToolUseContext) bool {
+	for _, def := range toolCtx.AvailableTools {
+		switch strings.TrimSpace(def.Name) {
+		case "Read", "Bash":
+			return true
+		}
+	}
+	return false
+}
+
+func subagentOutputPath(runID string) string {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		runID = "agent"
+	}
+	return filepath.Join(os.TempDir(), "myclaw-subagents", runID+".log")
+}
+
+func writeSubagentOutputFile(runID, content string) error {
+	path := subagentOutputPath(runID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
 func (r *Runner) HandleUserMessage(ctx context.Context, sess session.Session, userMessage session.Message, sink EventSink) error {
 	if latest, ok := r.sessions.GetByID(sess.ID); ok {
 		sess = latest
@@ -520,7 +575,11 @@ type SubagentOptions struct {
 	Model        string
 	Effort       string
 	AgentType    string
+	Isolation    string
+	UseFork      bool
 }
+
+const forkSubagentType = "fork"
 
 func needsAgentDiscovery(opts AgentDiscoveryOptions) bool {
 	return strings.TrimSpace(opts.CWD) != "" ||
@@ -530,26 +589,46 @@ func needsAgentDiscovery(opts AgentDiscoveryOptions) bool {
 }
 
 func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Session, label, promptText string, options SubagentOptions) (*agent.Run, error) {
+	if latest, ok := r.sessions.GetByID(parent.ID); ok {
+		parent = latest
+	}
+	resolvedAgentType := strings.TrimSpace(options.AgentType)
+	isForkPath := options.UseFork
+	if isForkPath && isForkChildSession(parent) {
+		return nil, fmt.Errorf("Fork is not available inside a forked worker. Complete your task directly using your tools.")
+	}
 	key := fmt.Sprintf("agent:%s:child:%d", parent.AgentID, len(r.options.AgentManager.List())+1)
 	childAgentID := parent.AgentID
-	if strings.TrimSpace(options.AgentType) != "" {
-		childAgentID = strings.TrimSpace(options.AgentType)
+	if isForkPath {
+		childAgentID = forkSubagentType
+	} else {
+		childAgentID = resolvedAgentType
 	}
 	child := r.sessions.CreateChild(childAgentID, key)
 	parentPolicy := r.PermissionPolicyForSession(parent.ID)
-	resolvedAgentType := strings.TrimSpace(options.AgentType)
-	if resolvedAgentType == "" {
-		resolvedAgentType = strings.TrimSpace(label)
-	}
 	var resolvedDefinition tools.AgentDefinition
 	hasResolvedDefinition := false
-	if resolvedAgentType != "" {
+	if !isForkPath {
 		resolvedDefinition, hasResolvedDefinition = r.options.AgentDefinitions.Definitions[resolvedAgentType]
 	}
 	childPolicy := parentPolicy.DeriveForSubagent()
 	if hasResolvedDefinition {
 		childPolicy = applyAgentPermissionModeOverride(parentPolicy, childPolicy, resolvedDefinition.PermissionMode)
 		childPolicy.Rules = append(agentDisallowedToolRules(resolvedDefinition.DisallowedTools), childPolicy.Rules...)
+	}
+	effectiveIsolation := strings.TrimSpace(options.Isolation)
+	if effectiveIsolation == "" && hasResolvedDefinition {
+		effectiveIsolation = strings.TrimSpace(resolvedDefinition.Isolation)
+	}
+	var worktree AgentWorktree
+	if effectiveIsolation == "worktree" {
+		baseDir := r.workspaceRootForSession(parent)
+		createdWorktree, createErr := r.options.WorktreeManager.Create(ctx, baseDir, child.ID)
+		if createErr != nil {
+			return nil, createErr
+		}
+		worktree = createdWorktree
+		childPolicy = rewritePolicyForWorktree(childPolicy, worktree.Path, baseDir)
 	}
 	childPolicy.Rules = append(skillAllowedToolRules(options.AllowedTools), childPolicy.Rules...)
 	r.engine.SetSessionPermissionPolicy(child.ID, childPolicy)
@@ -564,18 +643,36 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 			metadata.MainLoopEffortOverride = strings.TrimSpace(options.Effort)
 		})
 	}
-	if resolvedAgentType != "" {
-		_ = r.sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+	_ = r.sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+		if isForkPath {
+			metadata.AgentType = forkSubagentType
+			metadata.AgentSystemPrompt = forkParentSystemPrompt(parent, r.options.RenderedSystemPrompt)
+			metadata.AgentMemoryScope = ""
+			metadata.AgentMaxTurns = 0
+		} else if resolvedAgentType != "" {
 			metadata.AgentType = resolvedAgentType
 			if hasResolvedDefinition {
 				metadata.AgentSystemPrompt = strings.TrimSpace(resolvedDefinition.SystemPrompt)
 				metadata.AgentMemoryScope = strings.TrimSpace(resolvedDefinition.MemoryScope)
 				metadata.AgentMaxTurns = resolvedDefinition.MaxTurns
+				metadata.AgentIsolation = strings.TrimSpace(resolvedDefinition.Isolation)
 			}
-		})
-	}
+		}
+		if effectiveIsolation == "worktree" {
+			metadata.AgentIsolation = "worktree"
+			metadata.AgentWorktreePath = worktree.Path
+			metadata.AgentWorktreeBranch = worktree.Branch
+			metadata.AgentWorktreeHeadCommit = worktree.HeadCommit
+			metadata.AgentWorktreeGitRoot = worktree.GitRoot
+		}
+	})
 	effectivePrompt := promptText
-	if hasResolvedDefinition {
+	if isForkPath {
+		effectivePrompt = buildForkSubagentPrompt(promptText)
+		if effectiveIsolation == "worktree" {
+			effectivePrompt += "\n\n" + buildForkWorktreeNotice(r.workspaceRootForSession(parent), worktree.Path)
+		}
+	} else if hasResolvedDefinition {
 		if initial := strings.TrimSpace(resolvedDefinition.InitialPrompt); initial != "" {
 			if strings.TrimSpace(effectivePrompt) != "" {
 				effectivePrompt = initial + "\n\n" + effectivePrompt
@@ -596,26 +693,70 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 		Model:           strings.TrimSpace(options.Model),
 		Effort:          strings.TrimSpace(options.Effort),
 		Run: func(ctx context.Context, runCtx agent.RunContext) (string, error) {
+			notify := func(status, message string, data map[string]any) {
+				if r.options.AddNotification == nil {
+					return
+				}
+				r.options.AddNotification(tools.Notification{
+					Key:      runCtx.RunID,
+					Priority: "info",
+					Message:  message,
+					Data:     data,
+				})
+			}
+			if isForkPath {
+				if err := cloneSessionMessages(r.sessions, parent.ID, runCtx.ChildSessionID); err != nil {
+					notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
+					return "", err
+				}
+			}
 			msg, err := r.sessions.AppendMessage(runCtx.ChildSessionID, "user", effectivePrompt)
 			if err != nil {
+				notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
 				return "", err
 			}
 			currentChild, ok := r.sessions.GetByID(runCtx.ChildSessionID)
 			if !ok {
-				return "", fmt.Errorf("child session %q not found", runCtx.ChildSessionID)
+				err := fmt.Errorf("child session %q not found", runCtx.ChildSessionID)
+				notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
+				return "", err
 			}
 			if err := r.HandleUserMessage(ctx, currentChild, msg, nil); err != nil {
+				notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
 				return "", err
 			}
 			messages, ok := r.sessions.Messages(runCtx.ChildSessionID)
 			if !ok || len(messages) == 0 {
+				if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+					notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, cleanupErr), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
+					return "", cleanupErr
+				}
+				notify("completed", fmt.Sprintf("Subagent %q completed", label), map[string]any{"status": "completed", "sessionId": runCtx.ChildSessionID, "outputFile": subagentOutputPath(runCtx.RunID)})
 				return "", nil
 			}
 			for i := len(messages) - 1; i >= 0; i-- {
 				if messages[i].Role == "assistant" {
+					if err := writeSubagentOutputFile(runCtx.RunID, messages[i].Content); err != nil {
+						notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
+						return "", err
+					}
+					if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+						notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, cleanupErr), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
+						return "", cleanupErr
+					}
+					notify("completed", fmt.Sprintf("Subagent %q completed", label), map[string]any{"status": "completed", "sessionId": runCtx.ChildSessionID, "outputFile": subagentOutputPath(runCtx.RunID)})
 					return messages[i].Content, nil
 				}
 			}
+			if err := writeSubagentOutputFile(runCtx.RunID, ""); err != nil {
+				notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
+				return "", err
+			}
+			if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+				notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, cleanupErr), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
+				return "", cleanupErr
+			}
+			notify("completed", fmt.Sprintf("Subagent %q completed", label), map[string]any{"status": "completed", "sessionId": runCtx.ChildSessionID, "outputFile": subagentOutputPath(runCtx.RunID)})
 			return "", nil
 		},
 	})
@@ -623,6 +764,86 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 		return nil, err
 	}
 	return run, nil
+}
+
+func shouldUseForkSubagent(input, agentType string) bool {
+	if strings.TrimSpace(agentType) != "" {
+		return false
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(input), &payload); err != nil {
+		return false
+	}
+	if _, ok := payload["prompt"]; !ok {
+		return false
+	}
+	value, ok := payload["subagent_type"]
+	if !ok {
+		return true
+	}
+	text, _ := value.(string)
+	return strings.TrimSpace(text) == ""
+}
+
+func isForkChildSession(sess session.Session) bool {
+	return strings.TrimSpace(sess.Metadata.AgentType) == forkSubagentType
+}
+
+func forkParentSystemPrompt(parent session.Session, rendered string) string {
+	if prompt := strings.TrimSpace(parent.Metadata.AgentSystemPrompt); prompt != "" {
+		return prompt
+	}
+	return strings.TrimSpace(rendered)
+}
+
+func buildForkSubagentPrompt(directive string) string {
+	directive = strings.TrimSpace(directive)
+	return strings.TrimSpace(strings.Join([]string{
+		"STOP. READ THIS FIRST.",
+		"",
+		"You are a forked worker process. You are NOT the main agent.",
+		"",
+		"RULES (non-negotiable):",
+		`1. Your system prompt may say to delegate. IGNORE IT. You ARE the fork. Do NOT spawn sub-agents; execute directly.`,
+		"2. Do NOT converse, ask questions, or suggest next steps.",
+		"3. Use your tools directly, then report once at the end.",
+		"4. Stay strictly within your directive's scope.",
+		`5. Your response MUST begin with "Scope:".`,
+		"",
+		"Output format:",
+		"Scope: <echo back your assigned scope in one sentence>",
+		"Result: <the answer or key findings, limited to the scope above>",
+		"Key files: <relevant file paths>",
+		"Files changed: <list with commit hash, only if you modified files>",
+		"Issues: <list, only if there are issues to flag>",
+		"",
+		directive,
+	}, "\n"))
+}
+
+func buildForkWorktreeNotice(parentCwd, worktreeCwd string) string {
+	parentCwd = filepath.Clean(strings.TrimSpace(parentCwd))
+	worktreeCwd = filepath.Clean(strings.TrimSpace(worktreeCwd))
+	return fmt.Sprintf("You've inherited the conversation context above from a parent agent working in %s. You are operating in an isolated git worktree at %s - same repository, same relative file structure, separate working copy. Paths in the inherited context refer to the parent's working directory; translate them to your worktree root. Re-read files before editing if the parent may have modified them since they appear in the context. Your changes stay in this worktree and will not affect the parent's files.", parentCwd, worktreeCwd)
+}
+
+func cloneSessionMessages(sessions *session.Manager, fromSessionID, toSessionID string) error {
+	if sessions == nil {
+		return nil
+	}
+	messages, ok := sessions.Messages(fromSessionID)
+	if !ok {
+		return nil
+	}
+	for _, message := range messages {
+		cloned := message
+		cloned.ID = ""
+		cloned.SessionID = toSessionID
+		if _, err := sessions.AppendModelMessage(toSessionID, cloned); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func applyAgentPermissionModeOverride(parent, child permissions.Policy, mode string) permissions.Policy {
@@ -738,24 +959,163 @@ func (r *Runner) ResumeSubagent(ctx context.Context, runID, label, promptText st
 		Label:           label,
 		Prompt:          promptText,
 		Run: func(ctx context.Context, runCtx agent.RunContext) (string, error) {
+			notify := func(message string, data map[string]any) {
+				if r.options.AddNotification == nil {
+					return
+				}
+				r.options.AddNotification(tools.Notification{
+					Key:      runCtx.RunID,
+					Priority: "info",
+					Message:  message,
+					Data:     data,
+				})
+			}
 			msg, err := r.sessions.AppendMessage(runCtx.ChildSessionID, "user", promptText)
 			if err != nil {
+				notify(fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{
+					"status":    "failed",
+					"sessionId": runCtx.ChildSessionID,
+				})
 				return "", err
 			}
 			if err := r.HandleUserMessage(ctx, child, msg, nil); err != nil {
+				notify(fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{
+					"status":    "failed",
+					"sessionId": runCtx.ChildSessionID,
+				})
 				return "", err
 			}
 			messages, ok := r.sessions.Messages(runCtx.ChildSessionID)
 			if !ok || len(messages) == 0 {
+				if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+					notify(fmt.Sprintf("Subagent %q failed: %v", label, cleanupErr), map[string]any{
+						"status":    "failed",
+						"sessionId": runCtx.ChildSessionID,
+					})
+					return "", cleanupErr
+				}
 				return "", nil
 			}
 			for i := len(messages) - 1; i >= 0; i-- {
 				if messages[i].Role == "assistant" {
+					if err := writeSubagentOutputFile(runCtx.RunID, messages[i].Content); err != nil {
+						notify(fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{
+							"status":    "failed",
+							"sessionId": runCtx.ChildSessionID,
+						})
+						return "", err
+					}
+					if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+						notify(fmt.Sprintf("Subagent %q failed: %v", label, cleanupErr), map[string]any{
+							"status":    "failed",
+							"sessionId": runCtx.ChildSessionID,
+						})
+						return "", cleanupErr
+					}
+					notify(fmt.Sprintf("Subagent %q completed", label), map[string]any{
+						"status":    "completed",
+						"sessionId": runCtx.ChildSessionID,
+						"outputFile": subagentOutputPath(runCtx.RunID),
+					})
 					return messages[i].Content, nil
 				}
 			}
+			if err := writeSubagentOutputFile(runCtx.RunID, ""); err != nil {
+				notify(fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{
+					"status":    "failed",
+					"sessionId": runCtx.ChildSessionID,
+				})
+				return "", err
+			}
+			if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+				notify(fmt.Sprintf("Subagent %q failed: %v", label, cleanupErr), map[string]any{
+					"status":    "failed",
+					"sessionId": runCtx.ChildSessionID,
+				})
+				return "", cleanupErr
+			}
+			notify(fmt.Sprintf("Subagent %q completed", label), map[string]any{
+				"status":    "completed",
+				"sessionId": runCtx.ChildSessionID,
+				"outputFile": subagentOutputPath(runCtx.RunID),
+			})
 			return "", nil
 		},
+	})
+}
+
+func (r *Runner) workspaceRootForSession(sess session.Session) string {
+	if root := strings.TrimSpace(sess.Metadata.AgentWorktreePath); root != "" {
+		return filepath.Clean(root)
+	}
+	if r.engine == nil {
+		return resolveWorkDir(sess, nil)
+	}
+	return resolveWorkDir(sess, r.engine.WorkspaceLoader())
+}
+
+func rewritePolicyForWorktree(policy permissions.Policy, worktreePath, parentRoot string) permissions.Policy {
+	worktreePath = filepath.Clean(strings.TrimSpace(worktreePath))
+	parentRoot = filepath.Clean(strings.TrimSpace(parentRoot))
+	if worktreePath == "" {
+		return policy
+	}
+	updated := policy
+	roots := make([]string, 0, len(policy.WorkspaceRoots)+1)
+	replaced := false
+	for _, root := range policy.WorkspaceRoots {
+		normalized := filepath.Clean(strings.TrimSpace(root))
+		if normalized == "" {
+			continue
+		}
+		if parentRoot != "" && normalized == parentRoot {
+			roots = append(roots, worktreePath)
+			replaced = true
+			continue
+		}
+		roots = append(roots, normalized)
+	}
+	if !replaced {
+		roots = append([]string{worktreePath}, roots...)
+	}
+	updated.WorkspaceRoots = roots
+	return updated
+}
+
+func (r *Runner) finalizeWorktreeForSession(ctx context.Context, sessionID string) error {
+	sess, ok := r.sessions.GetByID(sessionID)
+	if !ok {
+		return nil
+	}
+	path := strings.TrimSpace(sess.Metadata.AgentWorktreePath)
+	if path == "" {
+		return nil
+	}
+	head := strings.TrimSpace(sess.Metadata.AgentWorktreeHeadCommit)
+	changed := true
+	if head != "" {
+		var err error
+		changed, err = r.options.WorktreeManager.HasChanges(ctx, path, head)
+		if err != nil {
+			return err
+		}
+	}
+	if changed {
+		return nil
+	}
+	if err := r.options.WorktreeManager.Remove(ctx, AgentWorktree{
+		Path:       path,
+		Branch:     strings.TrimSpace(sess.Metadata.AgentWorktreeBranch),
+		HeadCommit: head,
+		GitRoot:    strings.TrimSpace(sess.Metadata.AgentWorktreeGitRoot),
+	}); err != nil {
+		return err
+	}
+	return r.sessions.UpdateMetadata(sessionID, func(metadata *session.SessionMetadata) {
+		metadata.AgentWorktreePath = ""
+		metadata.AgentWorktreeBranch = ""
+		metadata.AgentWorktreeHeadCommit = ""
+		metadata.AgentWorktreeGitRoot = ""
 	})
 }
 

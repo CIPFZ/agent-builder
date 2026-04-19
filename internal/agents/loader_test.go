@@ -64,6 +64,7 @@ effort: high
 permissionMode: plan
 maxTurns: 5
 background: true
+isolation: worktree
 initialPrompt: Start with repo search
 memory: local
 ---
@@ -93,6 +94,9 @@ Research carefully before answering.
 	}
 	if !agent.Background {
 		t.Fatalf("agent = %#v, want parsed background flag", agent)
+	}
+	if agent.Isolation != "worktree" {
+		t.Fatalf("isolation = %q, want worktree", agent.Isolation)
 	}
 	if agent.MemoryScope != "local" {
 		t.Fatalf("memory scope = %q, want local", agent.MemoryScope)

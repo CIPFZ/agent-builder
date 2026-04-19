@@ -188,6 +188,7 @@ type AgentDefinition struct {
 	MemoryScope     string
 	MaxTurns        int
 	Background      bool
+	Isolation       string
 	InitialPrompt   string
 	PermissionMode  string
 	DisallowedTools []string
