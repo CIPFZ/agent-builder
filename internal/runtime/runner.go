@@ -419,6 +419,7 @@ func (r *Runner) defaultSkillForkExecutor(ctx context.Context, request tools.Ski
 		AllowedTools: request.Command.AllowedTools,
 		Model:        request.Command.Model,
 		Effort:       request.Command.Effort,
+		AgentType:    strings.TrimSpace(request.Command.Agent),
 	})
 	if err != nil {
 		return tools.ToolResult{}, err
@@ -454,6 +455,7 @@ func (r *Runner) defaultAgentTaskExecutor(ctx context.Context, request tools.Age
 	options := SubagentOptions{
 		AgentType: request.AgentType,
 		Isolation: request.Isolation,
+		UseFork:   shouldUseForkSubagent(request.ToolContext.Input, request.AgentType),
 	}
 	run, err := r.SpawnSubagentWithOptions(ctx, request.ToolContext.Session, label, promptText, options)
 	if err != nil {
@@ -528,7 +530,10 @@ type SubagentOptions struct {
 	Effort       string
 	AgentType    string
 	Isolation    string
+	UseFork      bool
 }
+
+const forkSubagentType = "fork"
 
 func needsAgentDiscovery(opts AgentDiscoveryOptions) bool {
 	return strings.TrimSpace(opts.CWD) != "" ||
@@ -538,20 +543,26 @@ func needsAgentDiscovery(opts AgentDiscoveryOptions) bool {
 }
 
 func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Session, label, promptText string, options SubagentOptions) (*agent.Run, error) {
+	if latest, ok := r.sessions.GetByID(parent.ID); ok {
+		parent = latest
+	}
+	resolvedAgentType := strings.TrimSpace(options.AgentType)
+	isForkPath := options.UseFork
+	if isForkPath && isForkChildSession(parent) {
+		return nil, fmt.Errorf("Fork is not available inside a forked worker. Complete your task directly using your tools.")
+	}
 	key := fmt.Sprintf("agent:%s:child:%d", parent.AgentID, len(r.options.AgentManager.List())+1)
 	childAgentID := parent.AgentID
-	if strings.TrimSpace(options.AgentType) != "" {
-		childAgentID = strings.TrimSpace(options.AgentType)
+	if isForkPath {
+		childAgentID = forkSubagentType
+	} else {
+		childAgentID = resolvedAgentType
 	}
 	child := r.sessions.CreateChild(childAgentID, key)
 	parentPolicy := r.PermissionPolicyForSession(parent.ID)
-	resolvedAgentType := strings.TrimSpace(options.AgentType)
-	if resolvedAgentType == "" {
-		resolvedAgentType = strings.TrimSpace(label)
-	}
 	var resolvedDefinition tools.AgentDefinition
 	hasResolvedDefinition := false
-	if resolvedAgentType != "" {
+	if !isForkPath {
 		resolvedDefinition, hasResolvedDefinition = r.options.AgentDefinitions.Definitions[resolvedAgentType]
 	}
 	childPolicy := parentPolicy.DeriveForSubagent()
@@ -586,8 +597,13 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 			metadata.MainLoopEffortOverride = strings.TrimSpace(options.Effort)
 		})
 	}
-	if resolvedAgentType != "" {
-		_ = r.sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+	_ = r.sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+		if isForkPath {
+			metadata.AgentType = forkSubagentType
+			metadata.AgentSystemPrompt = forkParentSystemPrompt(parent, r.options.RenderedSystemPrompt)
+			metadata.AgentMemoryScope = ""
+			metadata.AgentMaxTurns = 0
+		} else if resolvedAgentType != "" {
 			metadata.AgentType = resolvedAgentType
 			if hasResolvedDefinition {
 				metadata.AgentSystemPrompt = strings.TrimSpace(resolvedDefinition.SystemPrompt)
@@ -595,17 +611,22 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 				metadata.AgentMaxTurns = resolvedDefinition.MaxTurns
 				metadata.AgentIsolation = strings.TrimSpace(resolvedDefinition.Isolation)
 			}
-			if effectiveIsolation == "worktree" {
-				metadata.AgentIsolation = "worktree"
-				metadata.AgentWorktreePath = worktree.Path
-				metadata.AgentWorktreeBranch = worktree.Branch
-				metadata.AgentWorktreeHeadCommit = worktree.HeadCommit
-				metadata.AgentWorktreeGitRoot = worktree.GitRoot
-			}
-		})
-	}
+		}
+		if effectiveIsolation == "worktree" {
+			metadata.AgentIsolation = "worktree"
+			metadata.AgentWorktreePath = worktree.Path
+			metadata.AgentWorktreeBranch = worktree.Branch
+			metadata.AgentWorktreeHeadCommit = worktree.HeadCommit
+			metadata.AgentWorktreeGitRoot = worktree.GitRoot
+		}
+	})
 	effectivePrompt := promptText
-	if hasResolvedDefinition {
+	if isForkPath {
+		effectivePrompt = buildForkSubagentPrompt(promptText)
+		if effectiveIsolation == "worktree" {
+			effectivePrompt += "\n\n" + buildForkWorktreeNotice(r.workspaceRootForSession(parent), worktree.Path)
+		}
+	} else if hasResolvedDefinition {
 		if initial := strings.TrimSpace(resolvedDefinition.InitialPrompt); initial != "" {
 			if strings.TrimSpace(effectivePrompt) != "" {
 				effectivePrompt = initial + "\n\n" + effectivePrompt
@@ -626,6 +647,11 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 		Model:           strings.TrimSpace(options.Model),
 		Effort:          strings.TrimSpace(options.Effort),
 		Run: func(ctx context.Context, runCtx agent.RunContext) (string, error) {
+			if isForkPath {
+				if err := cloneSessionMessages(r.sessions, parent.ID, runCtx.ChildSessionID); err != nil {
+					return "", err
+				}
+			}
 			msg, err := r.sessions.AppendMessage(runCtx.ChildSessionID, "user", effectivePrompt)
 			if err != nil {
 				return "", err
@@ -662,6 +688,86 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 		return nil, err
 	}
 	return run, nil
+}
+
+func shouldUseForkSubagent(input, agentType string) bool {
+	if strings.TrimSpace(agentType) != "" {
+		return false
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(input), &payload); err != nil {
+		return false
+	}
+	if _, ok := payload["prompt"]; !ok {
+		return false
+	}
+	value, ok := payload["subagent_type"]
+	if !ok {
+		return true
+	}
+	text, _ := value.(string)
+	return strings.TrimSpace(text) == ""
+}
+
+func isForkChildSession(sess session.Session) bool {
+	return strings.TrimSpace(sess.Metadata.AgentType) == forkSubagentType
+}
+
+func forkParentSystemPrompt(parent session.Session, rendered string) string {
+	if prompt := strings.TrimSpace(parent.Metadata.AgentSystemPrompt); prompt != "" {
+		return prompt
+	}
+	return strings.TrimSpace(rendered)
+}
+
+func buildForkSubagentPrompt(directive string) string {
+	directive = strings.TrimSpace(directive)
+	return strings.TrimSpace(strings.Join([]string{
+		"STOP. READ THIS FIRST.",
+		"",
+		"You are a forked worker process. You are NOT the main agent.",
+		"",
+		"RULES (non-negotiable):",
+		`1. Your system prompt may say to delegate. IGNORE IT. You ARE the fork. Do NOT spawn sub-agents; execute directly.`,
+		"2. Do NOT converse, ask questions, or suggest next steps.",
+		"3. Use your tools directly, then report once at the end.",
+		"4. Stay strictly within your directive's scope.",
+		`5. Your response MUST begin with "Scope:".`,
+		"",
+		"Output format:",
+		"Scope: <echo back your assigned scope in one sentence>",
+		"Result: <the answer or key findings, limited to the scope above>",
+		"Key files: <relevant file paths>",
+		"Files changed: <list with commit hash, only if you modified files>",
+		"Issues: <list, only if there are issues to flag>",
+		"",
+		directive,
+	}, "\n"))
+}
+
+func buildForkWorktreeNotice(parentCwd, worktreeCwd string) string {
+	parentCwd = filepath.Clean(strings.TrimSpace(parentCwd))
+	worktreeCwd = filepath.Clean(strings.TrimSpace(worktreeCwd))
+	return fmt.Sprintf("You've inherited the conversation context above from a parent agent working in %s. You are operating in an isolated git worktree at %s - same repository, same relative file structure, separate working copy. Paths in the inherited context refer to the parent's working directory; translate them to your worktree root. Re-read files before editing if the parent may have modified them since they appear in the context. Your changes stay in this worktree and will not affect the parent's files.", parentCwd, worktreeCwd)
+}
+
+func cloneSessionMessages(sessions *session.Manager, fromSessionID, toSessionID string) error {
+	if sessions == nil {
+		return nil
+	}
+	messages, ok := sessions.Messages(fromSessionID)
+	if !ok {
+		return nil
+	}
+	for _, message := range messages {
+		cloned := message
+		cloned.ID = ""
+		cloned.SessionID = toSessionID
+		if _, err := sessions.AppendModelMessage(toSessionID, cloned); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func applyAgentPermissionModeOverride(parent, child permissions.Policy, mode string) permissions.Policy {
