@@ -693,46 +693,70 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 		Model:           strings.TrimSpace(options.Model),
 		Effort:          strings.TrimSpace(options.Effort),
 		Run: func(ctx context.Context, runCtx agent.RunContext) (string, error) {
+			notify := func(status, message string, data map[string]any) {
+				if r.options.AddNotification == nil {
+					return
+				}
+				r.options.AddNotification(tools.Notification{
+					Key:      runCtx.RunID,
+					Priority: "info",
+					Message:  message,
+					Data:     data,
+				})
+			}
 			if isForkPath {
 				if err := cloneSessionMessages(r.sessions, parent.ID, runCtx.ChildSessionID); err != nil {
+					notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
 					return "", err
 				}
 			}
 			msg, err := r.sessions.AppendMessage(runCtx.ChildSessionID, "user", effectivePrompt)
 			if err != nil {
+				notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
 				return "", err
 			}
 			currentChild, ok := r.sessions.GetByID(runCtx.ChildSessionID)
 			if !ok {
-				return "", fmt.Errorf("child session %q not found", runCtx.ChildSessionID)
+				err := fmt.Errorf("child session %q not found", runCtx.ChildSessionID)
+				notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
+				return "", err
 			}
 			if err := r.HandleUserMessage(ctx, currentChild, msg, nil); err != nil {
+				notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
 				return "", err
 			}
 			messages, ok := r.sessions.Messages(runCtx.ChildSessionID)
 			if !ok || len(messages) == 0 {
 				if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+					notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, cleanupErr), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
 					return "", cleanupErr
 				}
+				notify("completed", fmt.Sprintf("Subagent %q completed", label), map[string]any{"status": "completed", "sessionId": runCtx.ChildSessionID, "outputFile": subagentOutputPath(runCtx.RunID)})
 				return "", nil
 			}
 			for i := len(messages) - 1; i >= 0; i-- {
 				if messages[i].Role == "assistant" {
 					if err := writeSubagentOutputFile(runCtx.RunID, messages[i].Content); err != nil {
+						notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
 						return "", err
 					}
 					if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+						notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, cleanupErr), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
 						return "", cleanupErr
 					}
+					notify("completed", fmt.Sprintf("Subagent %q completed", label), map[string]any{"status": "completed", "sessionId": runCtx.ChildSessionID, "outputFile": subagentOutputPath(runCtx.RunID)})
 					return messages[i].Content, nil
 				}
 			}
 			if err := writeSubagentOutputFile(runCtx.RunID, ""); err != nil {
+				notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, err), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
 				return "", err
 			}
 			if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+				notify("failed", fmt.Sprintf("Subagent %q failed: %v", label, cleanupErr), map[string]any{"status": "failed", "sessionId": runCtx.ChildSessionID})
 				return "", cleanupErr
 			}
+			notify("completed", fmt.Sprintf("Subagent %q completed", label), map[string]any{"status": "completed", "sessionId": runCtx.ChildSessionID, "outputFile": subagentOutputPath(runCtx.RunID)})
 			return "", nil
 		},
 	})

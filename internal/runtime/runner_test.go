@@ -1121,6 +1121,110 @@ func TestRunnerBackgroundSubagentWritesOutputFileOnCompletion(t *testing.T) {
 	}
 }
 
+func TestRunnerBackgroundSubagentEmitsCompletionNotification(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	notifications := make([]tools.Notification, 0, 1)
+
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{"working"}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:  "researcher",
+					Background: true,
+				},
+			},
+		},
+		AddNotification: func(n tools.Notification) {
+			notifications = append(notifications, n)
+		},
+	})
+
+	result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
+		ToolContext: tools.ToolUseContext{
+			Session:        parent,
+			AvailableTools: []tools.Definition{{Name: "Read"}},
+		},
+		Label:     "research",
+		Prompt:    "inspect auth flow",
+		AgentType: "researcher",
+	})
+	if err != nil {
+		t.Fatalf("default agent task executor: %v", err)
+	}
+	if !strings.Contains(result.Output, `"status":"async_launched"`) {
+		t.Fatalf("output = %q, want async launch", result.Output)
+	}
+	runs := runner.AgentManager().List()
+	if len(runs) != 1 {
+		t.Fatalf("runs = %#v, want one delegated run", runs)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), runs[0].ID, 5*time.Second); err != nil {
+		t.Fatalf("wait delegated run: %v", err)
+	}
+	if len(notifications) != 1 {
+		t.Fatalf("notifications = %#v, want one completion notification", notifications)
+	}
+	if notifications[0].Key != runs[0].ID || notifications[0].Priority != "info" {
+		t.Fatalf("notification = %#v, want keyed info notification", notifications[0])
+	}
+	if !strings.Contains(notifications[0].Message, "completed") {
+		t.Fatalf("notification = %#v, want completion message", notifications[0])
+	}
+}
+
+func TestRunnerBackgroundSubagentEmitsFailureNotification(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	notifications := make([]tools.Notification, 0, 1)
+
+	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:  "researcher",
+					Background: true,
+				},
+			},
+		},
+		AddNotification: func(n tools.Notification) {
+			notifications = append(notifications, n)
+		},
+	})
+
+	result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
+		ToolContext: tools.ToolUseContext{Session: parent},
+		Label:       "research",
+		Prompt:      "tool run pwd",
+		AgentType:   "researcher",
+	})
+	if err != nil {
+		t.Fatalf("default agent task executor: %v", err)
+	}
+	if !strings.Contains(result.Output, `"status":"async_launched"`) {
+		t.Fatalf("output = %q, want async launch", result.Output)
+	}
+	runs := runner.AgentManager().List()
+	if len(runs) != 1 {
+		t.Fatalf("runs = %#v, want one delegated run", runs)
+	}
+	completed, err := runner.AgentManager().Wait(context.Background(), runs[0].ID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("wait delegated run: %v", err)
+	}
+	if completed.Status != agent.StatusFailed {
+		t.Fatalf("run = %#v, want failed status", completed)
+	}
+	if len(notifications) != 1 {
+		t.Fatalf("notifications = %#v, want one failure notification", notifications)
+	}
+	if !strings.Contains(notifications[0].Message, "failed") {
+		t.Fatalf("notification = %#v, want failure message", notifications[0])
+	}
+}
+
 func TestRunnerDefaultAgentTaskExecutorUsesForkForStructuredInputWithoutSubagentType(t *testing.T) {
 	sessions := session.NewManager(nil)
 	parent := sessions.GetOrCreateMain("main")
