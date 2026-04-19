@@ -213,7 +213,9 @@ func (b *RuntimeBridge) PlatformStatusSnapshot() platformStatusSnapshot {
 
 	policy := b.runner.PermissionPolicyForSession(b.session.ID)
 	snapshot.WorkspaceRoots = append([]string(nil), policy.WorkspaceRoots...)
+	snapshot.BaseModel = b.runner.BaseMainLoopModelForSession(b.session.ID)
 	snapshot.ModelOverride = b.runner.SessionMainLoopModelOverride(b.session.ID)
+	snapshot.ResolvedModel = b.runner.ResolvedMainLoopModelForSession(b.session.ID)
 
 	inventory := b.runner.MCPInventory()
 	snapshot.MCPServerCount = inventory.ServerCount
@@ -221,6 +223,26 @@ func (b *RuntimeBridge) PlatformStatusSnapshot() platformStatusSnapshot {
 	snapshot.MCPPromptCount = inventory.PromptCount
 	snapshot.MCPResourceCount = inventory.ResourceCount
 	return snapshot
+}
+
+func (b *RuntimeBridge) SetSessionModel(model string) error {
+	if err := b.ctx.Err(); err != nil {
+		return err
+	}
+	if b.runner == nil {
+		return nil
+	}
+	return b.runner.SetSessionMainLoopModelOverride(b.session.ID, model)
+}
+
+func (b *RuntimeBridge) ClearSessionModel() error {
+	if err := b.ctx.Err(); err != nil {
+		return err
+	}
+	if b.runner == nil {
+		return nil
+	}
+	return b.runner.ClearSessionMainLoopModelOverride(b.session.ID)
 }
 
 func (b *RuntimeBridge) MCPSnapshot() mcpSnapshot {

@@ -154,14 +154,20 @@ func (m *Model) openKeybindingsDialog() {
 }
 
 func (m *Model) openModelDialog() {
+	snapshot := platformStatusSnapshot{}
+	if provider, ok := m.bridge.(platformStatusBridge); ok {
+		snapshot = provider.PlatformStatusSnapshot()
+	}
+	subtitle := "Select the model for this session"
+	if snapshot.ResolvedModel != "" {
+		subtitle = "Current runtime model: " + snapshot.ResolvedModel
+	}
 	m.dialog.open(dialogSpec{
 		Title:        "Model",
-		Subtitle:     "Current model configuration",
+		Subtitle:     subtitle,
 		QueryEnabled: true,
-		Items: []dialogItem{
-			{Label: "MiniMax-M2.7", Value: "minimax-m2.7", Description: "Current configured display model", Disabled: true},
-			{Label: "Model switching", Value: "model-switching", Description: "Full picker will be implemented in a later module"},
-		},
+		Kind:         dialogKindModel,
+		Items:        modelDialogItems(snapshot),
 	})
 }
 
@@ -188,8 +194,14 @@ func (m *Model) openSessionDialog() {
 		for _, root := range snapshot.WorkspaceRoots {
 			items = append(items, dialogItem{Label: "Workspace root", Description: root, Disabled: true})
 		}
+		if snapshot.BaseModel != "" {
+			items = append(items, dialogItem{Label: "Base model", Description: snapshot.BaseModel, Disabled: true})
+		}
 		if snapshot.ModelOverride != "" {
 			items = append(items, dialogItem{Label: "Model override", Description: snapshot.ModelOverride, Disabled: true})
+		}
+		if snapshot.ResolvedModel != "" {
+			items = append(items, dialogItem{Label: "Resolved model", Description: snapshot.ResolvedModel, Disabled: true})
 		}
 		if snapshot.MCPServerCount > 0 || snapshot.MCPToolCount > 0 || snapshot.MCPPromptCount > 0 || snapshot.MCPResourceCount > 0 {
 			items = append(items, dialogItem{
@@ -275,7 +287,11 @@ func (m *Model) handleLocalCommand(text string) bool {
 	case "clear":
 		m.clearVisibleConversation()
 	case "model":
-		m.openModelDialog()
+		if command.Args != "" {
+			m.applyModelSelection(command.Args)
+		} else {
+			m.openModelDialog()
+		}
 	case "session":
 		m.openSessionDialog()
 	case "tasks":

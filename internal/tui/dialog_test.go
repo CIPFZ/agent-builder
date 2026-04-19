@@ -97,3 +97,40 @@ func TestRendererIncludesDialogOverlay(t *testing.T) {
 		}
 	}
 }
+
+func TestSlashModelArgumentSetsSessionOverrideWithoutOpeningDialog(t *testing.T) {
+	bridge := &fakeBridge{}
+	model := NewModel(bridge)
+	model.input = "/model opus"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if model.dialog.active() {
+		t.Fatal("dialog active after /model opus, want closed")
+	}
+	if len(bridge.modelSets) != 1 || bridge.modelSets[0] != "opus" {
+		t.Fatalf("modelSets = %#v, want [opus]", bridge.modelSets)
+	}
+	if model.input != "" {
+		t.Fatalf("input = %q, want cleared", model.input)
+	}
+}
+
+func TestSlashModelDefaultClearsSessionOverride(t *testing.T) {
+	bridge := &fakeBridge{}
+	model := NewModel(bridge)
+	model.input = "/model default"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if bridge.modelClears != 1 {
+		t.Fatalf("modelClears = %d, want 1", bridge.modelClears)
+	}
+	if len(bridge.modelSets) != 0 {
+		t.Fatalf("modelSets = %#v, want none", bridge.modelSets)
+	}
+}

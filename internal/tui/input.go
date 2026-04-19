@@ -64,6 +64,8 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.acceptGlobalSearchItem(item, result.Action)
 			case dialogKindMCPList:
 				m.acceptMCPItem(item)
+			case dialogKindModel:
+				m.applyModelSelection(item.Value)
 			case dialogKindSessionResume:
 				m.acceptSessionResumeItem(item)
 			case dialogKindTasks:
