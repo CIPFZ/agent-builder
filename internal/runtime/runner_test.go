@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,6 +28,15 @@ import (
 
 type captureSink struct {
 	events []RuntimeEvent
+}
+
+func containsString(lines []string, want string) bool {
+	for _, line := range lines {
+		if line == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *captureSink) Emit(event RuntimeEvent) error {
@@ -70,6 +80,37 @@ func (c *captureMemoryClient) Stream(_ context.Context, req llm.GenerateRequest,
 type scriptedClient struct {
 	responses []string
 	call      int
+}
+
+type stubWorktreeManager struct {
+	info        AgentWorktree
+	createCalls int
+	hasChanges  bool
+	removeCalls int
+	lastBaseDir string
+	lastSlug    string
+}
+
+func (m *stubWorktreeManager) Create(_ context.Context, baseDir, slug string) (AgentWorktree, error) {
+	m.createCalls++
+	m.lastBaseDir = baseDir
+	m.lastSlug = slug
+	return m.info, nil
+}
+
+func (m *stubWorktreeManager) HasChanges(_ context.Context, worktreePath, headCommit string) (bool, error) {
+	if worktreePath != m.info.Path || headCommit != m.info.HeadCommit {
+		return false, fmt.Errorf("unexpected has-changes lookup path=%q head=%q", worktreePath, headCommit)
+	}
+	return m.hasChanges, nil
+}
+
+func (m *stubWorktreeManager) Remove(_ context.Context, worktree AgentWorktree) error {
+	if worktree.Path != m.info.Path || worktree.Branch != m.info.Branch {
+		return fmt.Errorf("unexpected remove worktree %#v", worktree)
+	}
+	m.removeCalls++
+	return nil
 }
 
 func (c *scriptedClient) Stream(_ context.Context, _ llm.GenerateRequest, handler llm.StreamHandler) error {
@@ -989,6 +1030,158 @@ func TestRunnerDefaultAgentTaskExecutorRunsBackgroundAgentWithoutWaiting(t *test
 	}
 	if len(runner.AgentManager().List()) != 1 {
 		t.Fatalf("runs = %#v, want one background run", runner.AgentManager().List())
+	}
+}
+
+func TestRunnerSpawnSubagentUsesWorktreeIsolationFromAgentDefinition(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	client := &captureMemoryClient{}
+	worktreeManager := &stubWorktreeManager{
+		info: AgentWorktree{
+			Path:      filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002"),
+			Branch:    "worktree-agent-session-000002",
+			HeadCommit: "abc123",
+			GitRoot:   filepath.Clean("C:/repo"),
+		},
+		hasChanges: true,
+	}
+
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader("C:/repo"), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:  "researcher",
+					Isolation:  "worktree",
+					SystemPrompt: "Research thoroughly before answering.",
+				},
+			},
+		},
+		WorktreeManager: worktreeManager,
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "research", "inspect auth flow", SubagentOptions{
+		AgentType: "researcher",
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+	if worktreeManager.createCalls != 1 || worktreeManager.lastBaseDir != filepath.Clean("C:/repo") {
+		t.Fatalf("worktree manager = %#v, want one create rooted at repo", worktreeManager)
+	}
+	if !containsString(client.lastRequest.Context.SystemContextLines, "workspace_root="+worktreeManager.info.Path) {
+		t.Fatalf("system context lines = %#v, want worktree root", client.lastRequest.Context.SystemContextLines)
+	}
+
+	child, ok := sessions.GetByID(run.ChildSessionID)
+	if !ok {
+		t.Fatalf("child session %q not found", run.ChildSessionID)
+	}
+	if child.Metadata.AgentWorktreePath != worktreeManager.info.Path || child.Metadata.AgentWorktreeBranch != worktreeManager.info.Branch {
+		t.Fatalf("child metadata = %#v, want persisted worktree metadata", child.Metadata)
+	}
+	if worktreeManager.removeCalls != 0 {
+		t.Fatalf("remove calls = %d, want dirty worktree kept", worktreeManager.removeCalls)
+	}
+}
+
+func TestRunnerSpawnSubagentRemovesCleanWorktreeAndClearsMetadata(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	worktreeManager := &stubWorktreeManager{
+		info: AgentWorktree{
+			Path:      filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002"),
+			Branch:    "worktree-agent-session-000002",
+			HeadCommit: "abc123",
+			GitRoot:   filepath.Clean("C:/repo"),
+		},
+		hasChanges: false,
+	}
+
+	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader("C:/repo"), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType: "researcher",
+					Isolation: "worktree",
+				},
+			},
+		},
+		WorktreeManager: worktreeManager,
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "research", "inspect auth flow", SubagentOptions{
+		AgentType: "researcher",
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+	if worktreeManager.removeCalls != 1 {
+		t.Fatalf("remove calls = %d, want clean worktree removed", worktreeManager.removeCalls)
+	}
+	child, ok := sessions.GetByID(run.ChildSessionID)
+	if !ok {
+		t.Fatalf("child session %q not found", run.ChildSessionID)
+	}
+	if child.Metadata.AgentWorktreePath != "" || child.Metadata.AgentWorktreeBranch != "" {
+		t.Fatalf("child metadata = %#v, want cleared worktree metadata after cleanup", child.Metadata)
+	}
+}
+
+func TestRunnerResumeSubagentUsesPersistedWorktreePathForWorkspaceContext(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	child := sessions.CreateChild("researcher", "agent:researcher:child:1")
+	if err := sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+		metadata.AgentType = "researcher"
+		metadata.AgentWorktreePath = filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002")
+	}); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+	client := &captureMemoryClient{}
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader("C:/repo"), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {AgentType: "researcher"},
+			},
+		},
+	})
+	run, err := runner.AgentManager().Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID: parent.ID,
+		ParentAgentID:   parent.AgentID,
+		ChildSessionID:  child.ID,
+		ChildSessionKey: child.Key,
+		Label:           "research",
+		Prompt:          "first pass",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			return "done", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 2*time.Second); err != nil {
+		t.Fatalf("wait seeded run: %v", err)
+	}
+
+	resumed, err := runner.ResumeSubagent(context.Background(), run.ID, "research", "second pass")
+	if err != nil {
+		t.Fatalf("resume subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), resumed.ID, 2*time.Second); err != nil {
+		t.Fatalf("wait resumed run: %v", err)
+	}
+	if !containsString(client.lastRequest.Context.SystemContextLines, "workspace_root="+filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002")) {
+		t.Fatalf("system context lines = %#v, want resumed worktree root", client.lastRequest.Context.SystemContextLines)
 	}
 }
 

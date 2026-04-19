@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -110,6 +111,7 @@ type Options struct {
 	AddNotification           tools.AddNotificationFunc
 	HandleElicitation         tools.ElicitationFunc
 	SetConversationID         tools.SetConversationIDFunc
+	WorktreeManager          WorktreeManager
 }
 
 type AgentDiscoveryOptions = agents.DiscoveryOptions
@@ -153,6 +155,9 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 	}
 	if options.AgentManager == nil {
 		options.AgentManager = agent.NewManager()
+	}
+	if options.WorktreeManager == nil {
+		options.WorktreeManager = newGitWorktreeManager()
 	}
 	if toolRegistry == nil {
 		router := sandbox.NewRouter(nil, nil)
@@ -218,6 +223,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 				MemoryScope:     definition.MemoryScope,
 				MaxTurns:        definition.MaxTurns,
 				Background:      definition.Background,
+				Isolation:       definition.Isolation,
 				InitialPrompt:   definition.InitialPrompt,
 				PermissionMode:  definition.PermissionMode,
 				DisallowedTools: append([]string(nil), definition.DisallowedTools...),
@@ -447,6 +453,7 @@ func (r *Runner) defaultAgentTaskExecutor(ctx context.Context, request tools.Age
 	}
 	options := SubagentOptions{
 		AgentType: request.AgentType,
+		Isolation: request.Isolation,
 	}
 	run, err := r.SpawnSubagentWithOptions(ctx, request.ToolContext.Session, label, promptText, options)
 	if err != nil {
@@ -520,6 +527,7 @@ type SubagentOptions struct {
 	Model        string
 	Effort       string
 	AgentType    string
+	Isolation    string
 }
 
 func needsAgentDiscovery(opts AgentDiscoveryOptions) bool {
@@ -551,6 +559,20 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 		childPolicy = applyAgentPermissionModeOverride(parentPolicy, childPolicy, resolvedDefinition.PermissionMode)
 		childPolicy.Rules = append(agentDisallowedToolRules(resolvedDefinition.DisallowedTools), childPolicy.Rules...)
 	}
+	effectiveIsolation := strings.TrimSpace(options.Isolation)
+	if effectiveIsolation == "" && hasResolvedDefinition {
+		effectiveIsolation = strings.TrimSpace(resolvedDefinition.Isolation)
+	}
+	var worktree AgentWorktree
+	if effectiveIsolation == "worktree" {
+		baseDir := r.workspaceRootForSession(parent)
+		createdWorktree, createErr := r.options.WorktreeManager.Create(ctx, baseDir, child.ID)
+		if createErr != nil {
+			return nil, createErr
+		}
+		worktree = createdWorktree
+		childPolicy = rewritePolicyForWorktree(childPolicy, worktree.Path, baseDir)
+	}
 	childPolicy.Rules = append(skillAllowedToolRules(options.AllowedTools), childPolicy.Rules...)
 	r.engine.SetSessionPermissionPolicy(child.ID, childPolicy)
 	if options.Model != "" || options.Effort != "" {
@@ -571,6 +593,14 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 				metadata.AgentSystemPrompt = strings.TrimSpace(resolvedDefinition.SystemPrompt)
 				metadata.AgentMemoryScope = strings.TrimSpace(resolvedDefinition.MemoryScope)
 				metadata.AgentMaxTurns = resolvedDefinition.MaxTurns
+				metadata.AgentIsolation = strings.TrimSpace(resolvedDefinition.Isolation)
+			}
+			if effectiveIsolation == "worktree" {
+				metadata.AgentIsolation = "worktree"
+				metadata.AgentWorktreePath = worktree.Path
+				metadata.AgentWorktreeBranch = worktree.Branch
+				metadata.AgentWorktreeHeadCommit = worktree.HeadCommit
+				metadata.AgentWorktreeGitRoot = worktree.GitRoot
 			}
 		})
 	}
@@ -609,12 +639,21 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 			}
 			messages, ok := r.sessions.Messages(runCtx.ChildSessionID)
 			if !ok || len(messages) == 0 {
+				if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+					return "", cleanupErr
+				}
 				return "", nil
 			}
 			for i := len(messages) - 1; i >= 0; i-- {
 				if messages[i].Role == "assistant" {
+					if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+						return "", cleanupErr
+					}
 					return messages[i].Content, nil
 				}
+			}
+			if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+				return "", cleanupErr
 			}
 			return "", nil
 		},
@@ -747,15 +786,99 @@ func (r *Runner) ResumeSubagent(ctx context.Context, runID, label, promptText st
 			}
 			messages, ok := r.sessions.Messages(runCtx.ChildSessionID)
 			if !ok || len(messages) == 0 {
+				if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+					return "", cleanupErr
+				}
 				return "", nil
 			}
 			for i := len(messages) - 1; i >= 0; i-- {
 				if messages[i].Role == "assistant" {
+					if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+						return "", cleanupErr
+					}
 					return messages[i].Content, nil
 				}
 			}
+			if cleanupErr := r.finalizeWorktreeForSession(ctx, runCtx.ChildSessionID); cleanupErr != nil {
+				return "", cleanupErr
+			}
 			return "", nil
 		},
+	})
+}
+
+func (r *Runner) workspaceRootForSession(sess session.Session) string {
+	if root := strings.TrimSpace(sess.Metadata.AgentWorktreePath); root != "" {
+		return filepath.Clean(root)
+	}
+	if r.engine == nil {
+		return resolveWorkDir(sess, nil)
+	}
+	return resolveWorkDir(sess, r.engine.WorkspaceLoader())
+}
+
+func rewritePolicyForWorktree(policy permissions.Policy, worktreePath, parentRoot string) permissions.Policy {
+	worktreePath = filepath.Clean(strings.TrimSpace(worktreePath))
+	parentRoot = filepath.Clean(strings.TrimSpace(parentRoot))
+	if worktreePath == "" {
+		return policy
+	}
+	updated := policy
+	roots := make([]string, 0, len(policy.WorkspaceRoots)+1)
+	replaced := false
+	for _, root := range policy.WorkspaceRoots {
+		normalized := filepath.Clean(strings.TrimSpace(root))
+		if normalized == "" {
+			continue
+		}
+		if parentRoot != "" && normalized == parentRoot {
+			roots = append(roots, worktreePath)
+			replaced = true
+			continue
+		}
+		roots = append(roots, normalized)
+	}
+	if !replaced {
+		roots = append([]string{worktreePath}, roots...)
+	}
+	updated.WorkspaceRoots = roots
+	return updated
+}
+
+func (r *Runner) finalizeWorktreeForSession(ctx context.Context, sessionID string) error {
+	sess, ok := r.sessions.GetByID(sessionID)
+	if !ok {
+		return nil
+	}
+	path := strings.TrimSpace(sess.Metadata.AgentWorktreePath)
+	if path == "" {
+		return nil
+	}
+	head := strings.TrimSpace(sess.Metadata.AgentWorktreeHeadCommit)
+	changed := true
+	if head != "" {
+		var err error
+		changed, err = r.options.WorktreeManager.HasChanges(ctx, path, head)
+		if err != nil {
+			return err
+		}
+	}
+	if changed {
+		return nil
+	}
+	if err := r.options.WorktreeManager.Remove(ctx, AgentWorktree{
+		Path:       path,
+		Branch:     strings.TrimSpace(sess.Metadata.AgentWorktreeBranch),
+		HeadCommit: head,
+		GitRoot:    strings.TrimSpace(sess.Metadata.AgentWorktreeGitRoot),
+	}); err != nil {
+		return err
+	}
+	return r.sessions.UpdateMetadata(sessionID, func(metadata *session.SessionMetadata) {
+		metadata.AgentWorktreePath = ""
+		metadata.AgentWorktreeBranch = ""
+		metadata.AgentWorktreeHeadCommit = ""
+		metadata.AgentWorktreeGitRoot = ""
 	})
 }
 

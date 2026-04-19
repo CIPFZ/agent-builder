@@ -24,6 +24,7 @@ type AgentTaskRequest struct {
 	Prompt           string
 	AgentType        string
 	RunInBackground  bool
+	Isolation        string
 }
 
 type AgentTaskTool struct {
@@ -62,6 +63,7 @@ func (t *AgentTaskTool) Definition() Definition {
 				"description":   map[string]any{"type": "string"},
 				"prompt":        map[string]any{"type": "string"},
 				"subagent_type": map[string]any{"type": "string"},
+				"isolation":     map[string]any{"type": "string"},
 			},
 			"required": []string{"description", "prompt"},
 		},
@@ -356,11 +358,13 @@ func structuredAgentTaskRequest(input string) (AgentTaskRequest, bool) {
 	description, _ := object["description"].(string)
 	subagentType, _ := object["subagent_type"].(string)
 	runInBackground, _ := object["run_in_background"].(bool)
+	isolation, _ := object["isolation"].(string)
 	return AgentTaskRequest{
 		Label:           strings.TrimSpace(description),
 		Prompt:          strings.TrimSpace(prompt),
 		AgentType:       strings.TrimSpace(subagentType),
 		RunInBackground: runInBackground,
+		Isolation:       strings.TrimSpace(isolation),
 	}, true
 }
 

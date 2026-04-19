@@ -172,6 +172,18 @@ func stringField(input map[string]any, key string) string {
 	return strings.TrimSpace(value)
 }
 
+func resolveSessionRelativePath(sess session.Session, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	base := strings.TrimSpace(sess.Metadata.AgentWorktreePath)
+	if base == "" {
+		return path
+	}
+	return filepath.Join(base, path)
+}
+
 func intField(input map[string]any, key string, fallback int) int {
 	switch value := input[key].(type) {
 	case float64:
@@ -186,8 +198,8 @@ func intField(input map[string]any, key string, fallback int) int {
 	return fallback
 }
 
-func readFileTool(_ context.Context, _ session.Session, input map[string]any) (string, error) {
-	path := stringField(input, "file_path")
+func readFileTool(_ context.Context, sess session.Session, input map[string]any) (string, error) {
+	path := resolveSessionRelativePath(sess, stringField(input, "file_path"))
 	if path == "" {
 		return "", fmt.Errorf("Read requires file_path")
 	}
@@ -268,8 +280,8 @@ func notebookCellSource(value any) string {
 	}
 }
 
-func writeFileTool(_ context.Context, _ session.Session, input map[string]any) (string, error) {
-	path := stringField(input, "file_path")
+func writeFileTool(_ context.Context, sess session.Session, input map[string]any) (string, error) {
+	path := resolveSessionRelativePath(sess, stringField(input, "file_path"))
 	content, _ := input["content"].(string)
 	if path == "" {
 		return "", fmt.Errorf("Write requires file_path")
@@ -283,12 +295,12 @@ func writeFileTool(_ context.Context, _ session.Session, input map[string]any) (
 	return "File written: " + path, nil
 }
 
-func editFileTool(_ context.Context, _ session.Session, input map[string]any) (string, error) {
-	return applyEdits(input)
+func editFileTool(_ context.Context, sess session.Session, input map[string]any) (string, error) {
+	return applyEdits(sess, input)
 }
 
-func multiEditFileTool(_ context.Context, _ session.Session, input map[string]any) (string, error) {
-	path := stringField(input, "file_path")
+func multiEditFileTool(_ context.Context, sess session.Session, input map[string]any) (string, error) {
+	path := resolveSessionRelativePath(sess, stringField(input, "file_path"))
 	edits, _ := input["edits"].([]any)
 	if path == "" || len(edits) == 0 {
 		return "", fmt.Errorf("MultiEdit requires file_path and edits")
@@ -300,7 +312,7 @@ func multiEditFileTool(_ context.Context, _ session.Session, input map[string]an
 			continue
 		}
 		edit["file_path"] = path
-		if _, err := applyEdits(edit); err != nil {
+		if _, err := applyEdits(sess, edit); err != nil {
 			return "", err
 		}
 		count++
@@ -308,8 +320,8 @@ func multiEditFileTool(_ context.Context, _ session.Session, input map[string]an
 	return fmt.Sprintf("Applied %d edits to %s", count, path), nil
 }
 
-func applyEdits(input map[string]any) (string, error) {
-	path := stringField(input, "file_path")
+func applyEdits(sess session.Session, input map[string]any) (string, error) {
+	path := resolveSessionRelativePath(sess, stringField(input, "file_path"))
 	oldText, _ := input["old_string"].(string)
 	newText, _ := input["new_string"].(string)
 	replaceAll, _ := input["replace_all"].(bool)
@@ -339,9 +351,9 @@ func applyEdits(input map[string]any) (string, error) {
 	return fmt.Sprintf("Applied edit to %s", path), nil
 }
 
-func globTool(_ context.Context, _ session.Session, input map[string]any) (string, error) {
+func globTool(_ context.Context, sess session.Session, input map[string]any) (string, error) {
 	pattern := stringField(input, "pattern")
-	root := stringField(input, "path")
+	root := resolveSessionRelativePath(sess, stringField(input, "path"))
 	if pattern == "" {
 		return "", fmt.Errorf("Glob requires pattern")
 	}
@@ -356,9 +368,9 @@ func globTool(_ context.Context, _ session.Session, input map[string]any) (strin
 	return strings.Join(matches, "\n"), nil
 }
 
-func grepTool(ctx context.Context, _ session.Session, input map[string]any) (string, error) {
+func grepTool(ctx context.Context, sess session.Session, input map[string]any) (string, error) {
 	pattern := stringField(input, "pattern")
-	root := stringField(input, "path")
+	root := resolveSessionRelativePath(sess, stringField(input, "path"))
 	if root == "" {
 		root = "."
 	}
@@ -391,8 +403,8 @@ func grepTool(ctx context.Context, _ session.Session, input map[string]any) (str
 	return strings.Join(matches, "\n"), nil
 }
 
-func lsTool(_ context.Context, _ session.Session, input map[string]any) (string, error) {
-	path := stringField(input, "path")
+func lsTool(_ context.Context, sess session.Session, input map[string]any) (string, error) {
+	path := resolveSessionRelativePath(sess, stringField(input, "path"))
 	if path == "" {
 		path = "."
 	}
