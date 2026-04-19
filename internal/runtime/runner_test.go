@@ -137,6 +137,12 @@ func (c *loopingToolClient) Stream(_ context.Context, _ llm.GenerateRequest, han
 	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
 }
 
+type failingClient struct{}
+
+func (f *failingClient) Stream(_ context.Context, _ llm.GenerateRequest, _ llm.StreamHandler) error {
+	return fmt.Errorf("model stream failed")
+}
+
 func TestRunnerHandleUserMessageDoesNotEmitRunErrorWhenApprovalIsRequired(t *testing.T) {
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")
@@ -191,7 +197,7 @@ func TestRunnerHandleUserMessageCompactsStoredHistory(t *testing.T) {
 	}
 
 	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
-		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 		Compactor: compaction.NewService(compaction.Config{
 			MaxMessages:         3,
 			PreserveRecentTurns: 2,
@@ -1422,6 +1428,157 @@ func TestRunnerResumeSubagentUsesPersistedWorktreePathForWorkspaceContext(t *tes
 	}
 	if !containsString(client.lastRequest.Context.SystemContextLines, "workspace_root="+filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002")) {
 		t.Fatalf("system context lines = %#v, want resumed worktree root", client.lastRequest.Context.SystemContextLines)
+	}
+}
+
+func TestRunnerResumeSubagentWritesOutputFileOnCompletion(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	child := sessions.CreateChild("researcher", "agent:researcher:child:1")
+	if err := sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+		metadata.AgentType = "researcher"
+	}); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{"first result", "second result"}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	seed, err := runner.AgentManager().Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID: parent.ID,
+		ParentAgentID:   parent.AgentID,
+		ChildSessionID:  child.ID,
+		ChildSessionKey: child.Key,
+		Label:           "research",
+		Prompt:          "first pass",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			return "done", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), seed.ID, 2*time.Second); err != nil {
+		t.Fatalf("wait seeded run: %v", err)
+	}
+
+	resumed, err := runner.ResumeSubagent(context.Background(), seed.ID, "research", "second pass")
+	if err != nil {
+		t.Fatalf("resume subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), resumed.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait resumed run: %v", err)
+	}
+	content, err := os.ReadFile(subagentOutputPath(resumed.ID))
+	if err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	if got := strings.TrimSpace(string(content)); got == "" {
+		t.Fatalf("output file content = %q, want non-empty result", got)
+	}
+}
+
+func TestRunnerResumeSubagentEmitsCompletionNotification(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	child := sessions.CreateChild("researcher", "agent:researcher:child:1")
+	if err := sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+		metadata.AgentType = "researcher"
+	}); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+	notifications := make([]tools.Notification, 0, 1)
+
+	runner := NewRunnerWithOptions(sessions, &scriptedClient{responses: []string{"first result", "second result"}}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AddNotification: func(n tools.Notification) {
+			notifications = append(notifications, n)
+		},
+	})
+	seed, err := runner.AgentManager().Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID: parent.ID,
+		ParentAgentID:   parent.AgentID,
+		ChildSessionID:  child.ID,
+		ChildSessionKey: child.Key,
+		Label:           "research",
+		Prompt:          "first pass",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			return "done", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), seed.ID, 2*time.Second); err != nil {
+		t.Fatalf("wait seeded run: %v", err)
+	}
+
+	resumed, err := runner.ResumeSubagent(context.Background(), seed.ID, "research", "second pass")
+	if err != nil {
+		t.Fatalf("resume subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), resumed.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait resumed run: %v", err)
+	}
+	if len(notifications) != 1 {
+		t.Fatalf("notifications = %#v, want one completion notification", notifications)
+	}
+	if notifications[0].Key != resumed.ID || !strings.Contains(notifications[0].Message, "completed") {
+		t.Fatalf("notification = %#v, want resumed completion notification", notifications[0])
+	}
+}
+
+func TestRunnerResumeSubagentEmitsFailureNotification(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	child := sessions.CreateChild("researcher", "agent:researcher:child:1")
+	if err := sessions.UpdateMetadata(child.ID, func(metadata *session.SessionMetadata) {
+		metadata.AgentType = "researcher"
+	}); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+	notifications := make([]tools.Notification, 0, 1)
+
+	runner := NewRunnerWithOptions(sessions, &failingClient{}, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AddNotification: func(n tools.Notification) {
+			notifications = append(notifications, n)
+		},
+	})
+	seed, err := runner.AgentManager().Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID: parent.ID,
+		ParentAgentID:   parent.AgentID,
+		ChildSessionID:  child.ID,
+		ChildSessionKey: child.Key,
+		Label:           "research",
+		Prompt:          "first pass",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			return "done", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), seed.ID, 2*time.Second); err != nil {
+		t.Fatalf("wait seeded run: %v", err)
+	}
+
+	resumed, err := runner.ResumeSubagent(context.Background(), seed.ID, "research", "tool run pwd")
+	if err != nil {
+		t.Fatalf("resume subagent: %v", err)
+	}
+	completed, err := runner.AgentManager().Wait(context.Background(), resumed.ID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("wait resumed run: %v", err)
+	}
+	if completed.Status != agent.StatusFailed {
+		t.Fatalf("run = %#v, want failed status", completed)
+	}
+	if len(notifications) != 1 {
+		t.Fatalf("notifications = %#v, want one failure notification", notifications)
+	}
+	if notifications[0].Key != resumed.ID || !strings.Contains(notifications[0].Message, "failed") {
+		t.Fatalf("notification = %#v, want resumed failure notification", notifications[0])
 	}
 }
 
