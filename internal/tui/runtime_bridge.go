@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -245,6 +246,68 @@ func (b *RuntimeBridge) ClearSessionModel() error {
 	return b.runner.ClearSessionMainLoopModelOverride(b.session.ID)
 }
 
+func (b *RuntimeBridge) CompactionSnapshot() compactionSnapshot {
+	if b.runner == nil {
+		return compactionSnapshot{}
+	}
+	snapshot, err := b.runner.CompactionSnapshot(b.session.ID)
+	if err != nil {
+		return compactionSnapshot{}
+	}
+	return compactionSnapshot{
+		EstimatedTokens:      snapshot.Analysis.EstimatedTokens,
+		ContextWindowTokens:  snapshot.Analysis.ContextWindowTokens,
+		WarningThreshold:     snapshot.Analysis.WarningThreshold,
+		ErrorThreshold:       snapshot.Analysis.ErrorThreshold,
+		AutoCompactThreshold: snapshot.Analysis.AutoCompactThreshold,
+		BlockingThreshold:    snapshot.Analysis.BlockingThreshold,
+		AboveWarning:         snapshot.Analysis.IsAboveWarningThreshold,
+		AboveError:           snapshot.Analysis.IsAboveErrorThreshold,
+		AboveAutoCompact:     snapshot.Analysis.IsAboveAutoCompactThreshold,
+		AtBlockingLimit:      snapshot.Analysis.IsAtBlockingLimit,
+		LastCompactionReason: snapshot.LastCompactionReason,
+		LastCompactedAtLabel: formatTimestamp(snapshot.LastCompactedAt),
+	}
+}
+
+func (b *RuntimeBridge) CompactSession(customInstructions string) (compactionActionResult, error) {
+	if err := b.ctx.Err(); err != nil {
+		return compactionActionResult{}, err
+	}
+	if b.runner == nil {
+		return compactionActionResult{}, nil
+	}
+	result, err := b.runner.CompactSession(b.session.ID, customInstructions)
+	if err != nil {
+		return compactionActionResult{}, err
+	}
+	return compactionActionResult{
+		Changed:        result.Changed,
+		Reason:         result.Reason,
+		OriginalCount:  result.OriginalCount,
+		CompactedCount: result.CompactedCount,
+	}, nil
+}
+
+func (b *RuntimeBridge) MicrocompactSession() (compactionActionResult, error) {
+	if err := b.ctx.Err(); err != nil {
+		return compactionActionResult{}, err
+	}
+	if b.runner == nil {
+		return compactionActionResult{}, nil
+	}
+	result, err := b.runner.MicrocompactSession(b.session.ID)
+	if err != nil {
+		return compactionActionResult{}, err
+	}
+	return compactionActionResult{
+		Changed:        result.Changed,
+		Reason:         result.Reason,
+		OriginalCount:  result.OriginalCount,
+		CompactedCount: result.CompactedCount,
+	}, nil
+}
+
 func (b *RuntimeBridge) MCPSnapshot() mcpSnapshot {
 	if b.runner == nil {
 		return mcpSnapshot{}
@@ -374,6 +437,13 @@ func coordinatorFromHook(hook orchestration.Hook) *orchestration.Coordinator {
 		}
 	}
 	return nil
+}
+
+func formatTimestamp(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format("2006-01-02 15:04 MST")
 }
 
 type sinkFunc func(runtime.RuntimeEvent) error

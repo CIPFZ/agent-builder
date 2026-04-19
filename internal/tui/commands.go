@@ -22,7 +22,7 @@ var localSlashCommandSpecs = []slashCommandSpec{
 	{Name: "session", Description: "Show session details"},
 	{Name: "tasks", Description: "Show delegated task workbench", Aliases: []string{"agents"}},
 	{Name: "resume", Description: "Resume a previous session", Aliases: []string{"continue"}},
-	{Name: "compact", Description: "Show compaction status", ArgumentHint: "<optional custom summarization instructions>"},
+	{Name: "compact", Description: "Run manual compaction or microcompact tool output", ArgumentHint: "<optional custom summarization instructions>"},
 	{Name: "debug", Description: "Show diagnostics"},
 }
 

@@ -14,6 +14,9 @@ type Bridge interface {
 	Reject(string) error
 	SetSessionModel(string) error
 	ClearSessionModel() error
+	CompactionSnapshot() compactionSnapshot
+	CompactSession(string) (compactionActionResult, error)
+	MicrocompactSession() (compactionActionResult, error)
 }
 
 type sessionResumeBridge interface {
@@ -53,6 +56,28 @@ type platformStatusSnapshot struct {
 	MCPToolCount     int
 	MCPPromptCount   int
 	MCPResourceCount int
+}
+
+type compactionSnapshot struct {
+	EstimatedTokens      int
+	ContextWindowTokens  int
+	WarningThreshold     int
+	ErrorThreshold       int
+	AutoCompactThreshold int
+	BlockingThreshold    int
+	AboveWarning         bool
+	AboveError           bool
+	AboveAutoCompact     bool
+	AtBlockingLimit      bool
+	LastCompactionReason string
+	LastCompactedAtLabel string
+}
+
+type compactionActionResult struct {
+	Changed        bool
+	Reason         string
+	OriginalCount  int
+	CompactedCount int
 }
 
 type mcpSnapshot struct {
@@ -142,14 +167,14 @@ const (
 )
 
 type ModelConfig struct {
-	SessionID      string
-	LLMLabel       string
-	LogPath        string
-	PromptEditor   promptEditorFunc
-	OpenFile       fileOpenFunc
-	OpenFileAtLine fileLocationOpenFunc
+	SessionID       string
+	LLMLabel        string
+	LogPath         string
+	PromptEditor    promptEditorFunc
+	OpenFile        fileOpenFunc
+	OpenFileAtLine  fileLocationOpenFunc
 	WorkspaceSearch workspaceSearchFunc
-	WorkspaceRoots []string
+	WorkspaceRoots  []string
 }
 
 type diagnosticsState struct {
@@ -222,9 +247,9 @@ type globalSearchState struct {
 }
 
 type quickOpenFile struct {
-	DisplayPath string
+	DisplayPath  string
 	AbsolutePath string
-	RootLabel   string
+	RootLabel    string
 }
 
 type workspaceSearchRequest struct {

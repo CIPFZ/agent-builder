@@ -247,24 +247,56 @@ func (m *Model) openDiagnosticsDialog() {
 }
 
 func (m *Model) openCompactionDialog(customInstructions string) {
+	snapshot := m.bridge.CompactionSnapshot()
+	manualDescription := "Rewrite the transcript into a compact summary and keep the current tail"
+	manualValue := "compact:"
+	if customInstructions != "" {
+		manualDescription = "Run manual compaction with custom instructions"
+		manualValue = "compact:" + strings.TrimSpace(customInstructions)
+	}
 	items := []dialogItem{
-		{Label: "Manual compaction", Description: "Runtime request path is not wired yet; showing status only", Disabled: true},
+		{Label: "Manual compaction", Value: manualValue, Description: manualDescription},
+		{Label: "Microcompact tool output", Value: "microcompact", Description: "Trim older expandable tool output without rewriting the conversation"},
+	}
+	if snapshot.EstimatedTokens > 0 {
+		items = append(items, dialogItem{Label: "Estimated tokens", Description: fmt.Sprintf("%d tokens", snapshot.EstimatedTokens), Disabled: true})
+	}
+	if snapshot.WarningThreshold > 0 || snapshot.ErrorThreshold > 0 || snapshot.AutoCompactThreshold > 0 || snapshot.BlockingThreshold > 0 {
+		items = append(items, dialogItem{
+			Label: "Thresholds",
+			Description: fmt.Sprintf(
+				"warn %d | error %d | auto %d | block %d",
+				snapshot.WarningThreshold,
+				snapshot.ErrorThreshold,
+				snapshot.AutoCompactThreshold,
+				snapshot.BlockingThreshold,
+			),
+			Disabled: true,
+		})
+	}
+	if snapshot.LastCompactionReason != "" {
+		items = append(items, dialogItem{Label: "Last reason", Description: snapshot.LastCompactionReason, Disabled: true})
+	}
+	if snapshot.LastCompactedAtLabel != "" {
+		items = append(items, dialogItem{Label: "Last compacted", Description: snapshot.LastCompactedAtLabel, Disabled: true})
 	}
 	for _, event := range recentMatchingEvents(m.events, "compact.", 5) {
 		items = append(items, dialogItem{Label: event, Disabled: true})
 	}
-	if len(items) == 1 {
+	if len(items) == 2 {
 		items = append(items, dialogItem{Label: "Recent compact events", Description: "none", Disabled: true})
 	}
-	subtitle := "Compaction status and recent compact events"
+	subtitle := "Compact the current conversation while keeping the session usable"
 	if customInstructions != "" {
 		subtitle += " - instructions: " + customInstructions
 	}
 	m.dialog.open(dialogSpec{
-		Title:      "Compaction",
-		Subtitle:   subtitle,
-		Items:      items,
-		FooterHint: "Esc close",
+		Kind:         dialogKindCompaction,
+		Title:        "Compaction",
+		Subtitle:     subtitle,
+		Items:        items,
+		VisibleCount: len(items),
+		FooterHint:   "Enter run | Esc close",
 	})
 }
 

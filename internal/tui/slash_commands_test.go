@@ -1,9 +1,9 @@
 package tui
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
-	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -122,7 +122,17 @@ func TestSlashDebugOpensDiagnosticsDialogWithLatestState(t *testing.T) {
 }
 
 func TestSlashCompactOpensCompactionDialogWithRecentEvents(t *testing.T) {
-	model := NewModel(&fakeBridge{})
+	model := NewModel(&fakeBridge{
+		compactionStatus: compactionSnapshot{
+			EstimatedTokens:      140,
+			WarningThreshold:     160,
+			ErrorThreshold:       192,
+			AutoCompactThreshold: 200,
+			BlockingThreshold:    248,
+			LastCompactionReason: "message-limit",
+			LastCompactedAtLabel: "2026-04-19 10:30 UTC",
+		},
+	})
 	updated, _ := model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{Type: "compact.warning"}})
 	model = updated.(Model)
 	updated, _ = model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{Type: "compact.cleaned"}})
@@ -137,7 +147,16 @@ func TestSlashCompactOpensCompactionDialogWithRecentEvents(t *testing.T) {
 		t.Fatalf("dialog = %#v, want compaction dialog", model.dialog)
 	}
 	view := model.View()
-	for _, want := range []string{"Compaction", "compact.warning", "compact.cleaned", "Manual compaction"} {
+	for _, want := range []string{
+		"Compaction",
+		"Manual compaction",
+		"Microcompact tool output",
+		"140 tokens",
+		"message-limit",
+		"2026-04-19 10:30 UTC",
+		"compact.warning",
+		"compact.cleaned",
+	} {
 		if !contains(view, want) {
 			t.Fatalf("compact view missing %q: %q", want, view)
 		}
@@ -149,7 +168,7 @@ func TestHelpDialogListsOnlyImplementedLocalCommandDescriptions(t *testing.T) {
 	model.openHelpDialog()
 	view := model.View()
 
-	for _, want := range []string{"/clear", "Clear visible conversation", "/session", "Show session details", "/compact", "Show compaction status", "/debug", "Show diagnostics"} {
+	for _, want := range []string{"/clear", "Clear visible conversation", "/session", "Show session details", "/compact", "Run manual compaction", "/debug", "Show diagnostics"} {
 		if !contains(view, want) {
 			t.Fatalf("help view missing %q: %q", want, view)
 		}
@@ -196,6 +215,75 @@ func TestSlashCompactAcceptsOptionalInstructionsAsLocalCommand(t *testing.T) {
 	}
 	if !contains(model.dialog.Subtitle, "summarize tool output only") {
 		t.Fatalf("compact subtitle = %q, want custom instructions", model.dialog.Subtitle)
+	}
+	found := false
+	for _, item := range model.dialog.Items {
+		if item.Value == "compact:summarize tool output only" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("dialog items = %#v, want custom compact action", model.dialog.Items)
+	}
+}
+
+func TestCompactionDialogEnterRunsManualCompactionAndAppendsTranscriptNotice(t *testing.T) {
+	bridge := &fakeBridge{
+		compactResult: compactionActionResult{
+			Changed:        true,
+			Reason:         "message-limit",
+			OriginalCount:  9,
+			CompactedCount: 3,
+		},
+	}
+	model := NewModel(bridge)
+	model.input = "/compact keep decisions only"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if len(bridge.compacts) != 1 || bridge.compacts[0] != "keep decisions only" {
+		t.Fatalf("compacts = %#v, want keep decisions only", bridge.compacts)
+	}
+	if model.dialog.active() {
+		t.Fatalf("dialog still active = %#v, want closed after compaction", model.dialog)
+	}
+	if len(model.transcript) == 0 || model.transcript[len(model.transcript)-1].Kind != messageKindCompact {
+		t.Fatalf("transcript = %#v, want compact transcript entry", model.transcript)
+	}
+	if !contains(model.transcript[len(model.transcript)-1].Content, "Conversation compacted") {
+		t.Fatalf("last transcript = %#v, want compaction notice", model.transcript[len(model.transcript)-1])
+	}
+	if !contains(model.activity.Label, "Compaction completed") {
+		t.Fatalf("activity = %#v, want completed label", model.activity)
+	}
+}
+
+func TestCompactionDialogCanRunMicrocompact(t *testing.T) {
+	bridge := &fakeBridge{
+		microcompactResult: compactionActionResult{
+			Changed:        true,
+			Reason:         "microcompact",
+			OriginalCount:  6,
+			CompactedCount: 6,
+		},
+	}
+	model := NewModel(bridge)
+	model.openCompactionDialog("")
+	model.dialog.Picker.setQuery("microcompact")
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if bridge.microcompactCount != 1 {
+		t.Fatalf("microcompactCount = %d, want 1", bridge.microcompactCount)
+	}
+	if len(model.transcript) == 0 || model.transcript[len(model.transcript)-1].Kind != messageKindCompact {
+		t.Fatalf("transcript = %#v, want compact transcript entry", model.transcript)
 	}
 }
 
@@ -421,10 +509,10 @@ func TestSlashOpenOpensQuickOpenDialog(t *testing.T) {
 		taskPanel: taskPanelSnapshot{
 			SessionID: "main-000001",
 			Tasks: []taskSnapshot{{
-				RunID:   "agent-000001",
-				Label:   "research",
-				Status:  "running",
-				Prompt:  "inspect quick open",
+				RunID:        "agent-000001",
+				Label:        "research",
+				Status:       "running",
+				Prompt:       "inspect quick open",
 				MessageCount: 2,
 			}},
 		},
