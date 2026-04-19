@@ -94,8 +94,8 @@ func TestModelPickerSelectionIsCapturedBeforeClose(t *testing.T) {
 	if model.dialog.active() {
 		t.Fatal("dialog active after selection, want closed")
 	}
-	if model.lastDialogSelection == nil || model.lastDialogSelection.Value != "model-switching" {
-		t.Fatalf("last selection = %#v, want model-switching", model.lastDialogSelection)
+	if model.lastDialogSelection == nil || model.lastDialogSelection.Value != "sonnet" {
+		t.Fatalf("last selection = %#v, want sonnet", model.lastDialogSelection)
 	}
 }
 
@@ -103,17 +103,38 @@ func TestModelPickerQueryConsumesRunesAndFilters(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	model.openModelDialog()
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("switch")})
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("opus")})
 	model = updated.(Model)
 
 	if model.input != "" {
 		t.Fatalf("input = %q, want unchanged empty input", model.input)
 	}
-	if model.dialog.Picker.Query != "switch" {
-		t.Fatalf("picker query = %q, want switch", model.dialog.Picker.Query)
+	if model.dialog.Picker.Query != "opus" {
+		t.Fatalf("picker query = %q, want opus", model.dialog.Picker.Query)
 	}
-	if model.dialog.Current().Value != "model-switching" {
-		t.Fatalf("current = %#v, want model-switching", model.dialog.Current())
+	if model.dialog.Current().Value != "opus" {
+		t.Fatalf("current = %#v, want opus", model.dialog.Current())
+	}
+}
+
+func TestModelPickerSelectionSetsSessionOverride(t *testing.T) {
+	bridge := &fakeBridge{}
+	model := NewModel(bridge)
+
+	model.openModelDialog()
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+
+	if len(bridge.modelSets) != 1 || bridge.modelSets[0] != "sonnet" {
+		t.Fatalf("modelSets = %#v, want [sonnet]", bridge.modelSets)
+	}
+	if model.busy {
+		t.Fatal("busy = true, want false after local model switch")
+	}
+	if len(model.transcript) == 0 || !contains(model.transcript[len(model.transcript)-1].Content, "sonnet") {
+		t.Fatalf("transcript = %#v, want model switch message", model.transcript)
 	}
 }
 

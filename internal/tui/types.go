@@ -12,6 +12,8 @@ type Bridge interface {
 	SendUserMessage(string) error
 	Approve(string) error
 	Reject(string) error
+	SetSessionModel(string) error
+	ClearSessionModel() error
 }
 
 type sessionResumeBridge interface {
@@ -44,7 +46,9 @@ type platformStatusSnapshot struct {
 	AgentID          string
 	IsMain           bool
 	WorkspaceRoots   []string
+	BaseModel        string
 	ModelOverride    string
+	ResolvedModel    string
 	MCPServerCount   int
 	MCPToolCount     int
 	MCPPromptCount   int

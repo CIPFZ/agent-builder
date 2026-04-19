@@ -14,9 +14,12 @@ type fakeBridge struct {
 	sent       []string
 	approved   []string
 	rejected   []string
+	modelSets   []string
+	modelClears int
 	sendErr    error
 	approveErr error
 	rejectErr  error
+	modelErr   error
 
 	sessionSnapshots []sessionSnapshot
 	resumeSnapshots  map[string]session.RecoverySnapshot
@@ -39,6 +42,16 @@ func (f *fakeBridge) Approve(id string) error {
 func (f *fakeBridge) Reject(id string) error {
 	f.rejected = append(f.rejected, id)
 	return f.rejectErr
+}
+
+func (f *fakeBridge) SetSessionModel(model string) error {
+	f.modelSets = append(f.modelSets, model)
+	return f.modelErr
+}
+
+func (f *fakeBridge) ClearSessionModel() error {
+	f.modelClears++
+	return f.modelErr
 }
 
 func (f *fakeBridge) SessionSnapshots() []sessionSnapshot {
