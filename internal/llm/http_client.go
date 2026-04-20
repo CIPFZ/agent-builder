@@ -5,16 +5,131 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
 
-func newHTTPClient(timeout time.Duration) *http.Client {
+func newHTTPClient(timeout time.Duration, globalProxy, providerProxy ProxySettings) (*http.Client, error) {
 	if timeout <= 0 {
 		timeout = 60 * time.Second
 	}
-	return &http.Client{Timeout: timeout}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	proxyFunc, err := resolveProxyFunc(globalProxy, providerProxy)
+	if err != nil {
+		return nil, err
+	}
+	transport.Proxy = proxyFunc
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}, nil
+}
+
+func mustNewHTTPClient(timeout time.Duration, globalProxy, providerProxy ProxySettings) *http.Client {
+	client, err := newHTTPClient(timeout, globalProxy, providerProxy)
+	if err != nil {
+		panic(err)
+	}
+	return client
+}
+
+func resolveProxyFunc(globalProxy, providerProxy ProxySettings) (func(*http.Request) (*url.URL, error), error) {
+	if envProxyConfigured() {
+		return envProxyFunc, nil
+	}
+	selected, ok := selectConfiguredProxy(globalProxy, providerProxy)
+	if !ok {
+		return nil, nil
+	}
+	proxyURL, err := url.Parse(selected.URL)
+	if err != nil {
+		return nil, fmt.Errorf("parse proxy url %q: %w", selected.URL, err)
+	}
+	if proxyURL.Scheme == "" {
+		return nil, fmt.Errorf("parse proxy url %q: missing scheme", selected.URL)
+	}
+	switch strings.ToLower(proxyURL.Scheme) {
+	case "http", "https", "socks5", "socks5h":
+	default:
+		return nil, fmt.Errorf("unsupported proxy scheme %q", proxyURL.Scheme)
+	}
+	return func(req *http.Request) (*url.URL, error) {
+		if req == nil || req.URL == nil {
+			return proxyURL, nil
+		}
+		if shouldBypassProxy(req.URL, selected.NoProxy) {
+			return nil, nil
+		}
+		return proxyURL, nil
+	}, nil
+}
+
+var (
+	envProxyFunc       = http.ProxyFromEnvironment
+	envProxyConfigured = hasEnvironmentProxy
+)
+
+func selectConfiguredProxy(globalProxy, providerProxy ProxySettings) (ProxySettings, bool) {
+	if proxyConfigured(providerProxy) {
+		if !providerProxy.Enabled || strings.TrimSpace(providerProxy.URL) == "" {
+			return ProxySettings{}, false
+		}
+		return providerProxy, true
+	}
+	if proxyConfigured(globalProxy) {
+		if !globalProxy.Enabled || strings.TrimSpace(globalProxy.URL) == "" {
+			return ProxySettings{}, false
+		}
+		return globalProxy, true
+	}
+	return ProxySettings{}, false
+}
+
+func proxyConfigured(cfg ProxySettings) bool {
+	return cfg.Explicit || strings.TrimSpace(cfg.URL) != "" || len(cfg.NoProxy) > 0
+}
+
+func hasEnvironmentProxy() bool {
+	for _, rawURL := range []string{
+		"https://proxy-check.invalid",
+		"http://proxy-check.invalid",
+	} {
+		target, err := url.Parse(rawURL)
+		if err != nil {
+			continue
+		}
+		proxyURL, err := http.ProxyFromEnvironment(&http.Request{URL: target})
+		if err == nil && proxyURL != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldBypassProxy(target *url.URL, noProxy []string) bool {
+	host := strings.TrimSpace(target.Hostname())
+	if host == "" {
+		return false
+	}
+	for _, pattern := range noProxy {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		if strings.EqualFold(host, pattern) {
+			return true
+		}
+		if strings.HasPrefix(pattern, ".") && strings.HasSuffix(strings.ToLower(host), strings.ToLower(pattern)) {
+			return true
+		}
+		if ip := net.ParseIP(host); ip != nil && strings.EqualFold(host, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 func doStreamingRequest(ctx context.Context, client *http.Client, method, url string, body []byte, headers map[string]string, maxRetries int) (*http.Response, error) {

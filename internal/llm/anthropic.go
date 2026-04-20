@@ -19,6 +19,8 @@ type AnthropicConfig struct {
 	BaseURL      string
 	APIKey       string
 	Model        string
+	GlobalProxy  ProxySettings
+	Proxy        ProxySettings
 	APIVersion   string
 	Headers      map[string]string
 	Timeout      time.Duration
@@ -85,7 +87,7 @@ func NewAnthropicClient(cfg AnthropicConfig) *AnthropicClient {
 		apiVersion:   apiVersion,
 		headers:      headers,
 		maxRetries:   cfg.MaxRetries,
-		httpClient:   newHTTPClient(cfg.Timeout),
+		httpClient:   mustNewHTTPClient(cfg.Timeout, cfg.GlobalProxy, cfg.Proxy),
 		apiKeyHeader: apiKeyHeader,
 	}
 }

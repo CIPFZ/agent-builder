@@ -34,9 +34,17 @@ type LLMConfig struct {
 	BaseURL        string
 	APIKey         string
 	Model          string
+	Proxy          LLMProxyConfig
 	Providers      map[string]LLMProviderConfig
 	Profiles       map[string]LLMProfileConfig
 	Routing        LLMRoutingConfig
+}
+
+type LLMProxyConfig struct {
+	Enabled  bool
+	URL      string
+	NoProxy  []string
+	Explicit bool
 }
 
 type LLMProviderConfig struct {
@@ -44,6 +52,7 @@ type LLMProviderConfig struct {
 	BaseURL      string
 	APIKey       string
 	Model        string
+	Proxy        LLMProxyConfig
 	Headers      map[string]string
 	Enabled      bool
 	TimeoutMs    int
@@ -196,23 +205,31 @@ type fileServerConfig struct {
 type fileLLMConfig struct {
 	DefaultProfile string                           `json:"default_profile"`
 	ActiveProfile  string                           `json:"active_profile"`
+	Proxy          fileLLMProxyConfig               `json:"proxy"`
 	Providers      map[string]fileLLMProviderConfig `json:"providers"`
 	Profiles       map[string]fileLLMProfileConfig  `json:"profiles"`
 	Routing        fileLLMRoutingConfig             `json:"routing"`
 }
 
+type fileLLMProxyConfig struct {
+	Enabled *bool    `json:"enabled"`
+	URL     string   `json:"url"`
+	NoProxy []string `json:"no_proxy"`
+}
+
 type fileLLMProviderConfig struct {
-	Protocol     string            `json:"protocol"`
-	BaseURL      string            `json:"base_url"`
-	APIKey       string            `json:"api_key"`
-	Model        string            `json:"model"`
-	Headers      map[string]string `json:"headers"`
-	Enabled      *bool             `json:"enabled"`
-	TimeoutMs    *int              `json:"timeout_ms"`
-	MaxRetries   *int              `json:"max_retries"`
-	AuthScheme   string            `json:"auth_scheme"`
-	Organization string            `json:"organization"`
-	APIVersion   string            `json:"api_version"`
+	Protocol     string             `json:"protocol"`
+	BaseURL      string             `json:"base_url"`
+	APIKey       string             `json:"api_key"`
+	Model        string             `json:"model"`
+	Proxy        fileLLMProxyConfig `json:"proxy"`
+	Headers      map[string]string  `json:"headers"`
+	Enabled      *bool              `json:"enabled"`
+	TimeoutMs    *int               `json:"timeout_ms"`
+	MaxRetries   *int               `json:"max_retries"`
+	AuthScheme   string             `json:"auth_scheme"`
+	Organization string             `json:"organization"`
+	APIVersion   string             `json:"api_version"`
 }
 
 type fileLLMProfileConfig struct {
@@ -287,12 +304,14 @@ func mergeFileConfig(cfg *Config, path string) error {
 	if fileCfg.LLM.ActiveProfile != "" {
 		cfg.LLM.ActiveProfile = normalizeMapKey(expandEnv(fileCfg.LLM.ActiveProfile))
 	}
+	mergeFileProxyConfig(&cfg.LLM.Proxy, fileCfg.LLM.Proxy)
 	for name, provider := range fileCfg.LLM.Providers {
 		key := normalizeMapKey(name)
 		merged := cfg.LLM.Providers[key]
 		if merged.Headers == nil {
 			merged.Headers = map[string]string{}
 		}
+		mergeFileProxyConfig(&merged.Proxy, provider.Proxy)
 		if provider.Protocol != "" {
 			merged.Protocol = expandEnv(provider.Protocol)
 		}
@@ -414,6 +433,8 @@ func applyEnvOverrides(cfg *Config) {
 			continue
 		}
 		switch {
+		case strings.HasPrefix(key, "MYCLAW_LLM_PROXY__"):
+			applyProxyEnvOverride(&cfg.LLM.Proxy, strings.TrimPrefix(key, "MYCLAW_LLM_PROXY__"), value)
 		case strings.HasPrefix(key, "MYCLAW_LLM_PROVIDERS__"):
 			applyProviderEnvOverride(cfg, strings.TrimPrefix(key, "MYCLAW_LLM_PROVIDERS__"), value)
 		case strings.HasPrefix(key, "MYCLAW_LLM_PROFILES__"):
@@ -458,6 +479,11 @@ func applyProviderEnvOverride(cfg *Config, path, value string) {
 		provider.Headers = map[string]string{}
 	}
 	switch strings.ToUpper(parts[1]) {
+	case "PROXY":
+		if len(parts) < 3 {
+			return
+		}
+		applyProxyEnvOverride(&provider.Proxy, strings.Join(parts[2:], "__"), value)
 	case "PROTOCOL":
 		provider.Protocol = value
 	case "BASE_URL":
@@ -486,6 +512,18 @@ func applyProviderEnvOverride(cfg *Config, path, value string) {
 		return
 	}
 	cfg.LLM.Providers[name] = provider
+}
+
+func applyProxyEnvOverride(proxyCfg *LLMProxyConfig, path, value string) {
+	proxyCfg.Explicit = true
+	switch strings.ToUpper(strings.TrimSpace(path)) {
+	case "ENABLED":
+		proxyCfg.Enabled = parseBool(value, proxyCfg.Enabled)
+	case "URL":
+		proxyCfg.URL = strings.TrimSpace(value)
+	case "NO_PROXY":
+		proxyCfg.NoProxy = splitList(value)
+	}
 }
 
 func applyProfileEnvOverride(cfg *Config, path, value string) {
@@ -571,6 +609,14 @@ func validateAndResolve(cfg *Config) error {
 	for agentType, profileName := range cfg.LLM.Routing.AgentProfiles {
 		if _, ok := cfg.LLM.Profiles[normalizeMapKey(profileName)]; !ok {
 			return fmt.Errorf("llm.routing.agent_profiles.%s references unknown profile %q", agentType, profileName)
+		}
+	}
+	if err := validateProxyConfig("llm.proxy", cfg.LLM.Proxy); err != nil {
+		return err
+	}
+	for providerName, providerCfg := range cfg.LLM.Providers {
+		if err := validateProxyConfig("llm.providers."+providerName+".proxy", providerCfg.Proxy); err != nil {
+			return err
 		}
 	}
 
@@ -781,4 +827,41 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func mergeFileProxyConfig(dst *LLMProxyConfig, src fileLLMProxyConfig) {
+	if src.Enabled != nil {
+		dst.Enabled = *src.Enabled
+		dst.Explicit = true
+	}
+	if src.URL != "" {
+		dst.URL = expandEnv(src.URL)
+		dst.Explicit = true
+	}
+	if len(src.NoProxy) > 0 {
+		dst.NoProxy = expandEnvList(src.NoProxy)
+		dst.Explicit = true
+	}
+}
+
+func validateProxyConfig(path string, cfg LLMProxyConfig) error {
+	if !cfg.Explicit {
+		return nil
+	}
+	if !cfg.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(cfg.URL) == "" {
+		return fmt.Errorf("%s.url must not be empty when proxy is enabled", path)
+	}
+	lower := strings.ToLower(strings.TrimSpace(cfg.URL))
+	switch {
+	case strings.HasPrefix(lower, "http://"),
+		strings.HasPrefix(lower, "https://"),
+		strings.HasPrefix(lower, "socks5://"),
+		strings.HasPrefix(lower, "socks5h://"):
+		return nil
+	default:
+		return fmt.Errorf("%s.url must use http, https, socks5, or socks5h", path)
+	}
 }

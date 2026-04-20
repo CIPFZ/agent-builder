@@ -25,6 +25,7 @@ type ProviderSettings struct {
 	BaseURL      string
 	APIKey       string
 	Model        string
+	Proxy        ProxySettings
 	Headers      map[string]string
 	Enabled      bool
 	Timeout      time.Duration
@@ -51,9 +52,17 @@ type ResolvedProfile struct {
 
 type providerRoutingSettings struct {
 	DefaultProfile string
+	GlobalProxy    ProxySettings
 	Providers      map[string]ProviderSettings
 	Profiles       map[string]ProfileSettings
 	AgentProfiles  map[string]string
+}
+
+type ProxySettings struct {
+	Enabled  bool
+	URL      string
+	NoProxy  []string
+	Explicit bool
 }
 
 func (s providerRoutingSettings) HasUsableProfiles() bool {
@@ -115,6 +124,7 @@ type fileMyclawConfig struct {
 
 type fileLLMSettings struct {
 	DefaultProfile string                        `json:"default_profile"`
+	Proxy          fileProxyConfig               `json:"proxy"`
 	Providers      map[string]fileProviderConfig `json:"providers"`
 	Profiles       map[string]fileProfileConfig  `json:"profiles"`
 	Routing        fileRoutingConfig             `json:"routing"`
@@ -125,11 +135,18 @@ type fileLLMSettings struct {
 	Model    string `json:"model"`
 }
 
+type fileProxyConfig struct {
+	Enabled *bool    `json:"enabled"`
+	URL     string   `json:"url"`
+	NoProxy []string `json:"no_proxy"`
+}
+
 type fileProviderConfig struct {
 	Protocol     string            `json:"protocol"`
 	BaseURL      string            `json:"base_url"`
 	APIKey       string            `json:"api_key"`
 	Model        string            `json:"model"`
+	Proxy        fileProxyConfig   `json:"proxy"`
 	Headers      map[string]string `json:"headers"`
 	Enabled      *bool             `json:"enabled"`
 	TimeoutMS    int               `json:"timeout_ms"`
@@ -215,6 +232,8 @@ func mergeMyclawConfigFile(settings *providerRoutingSettings, path string) error
 		return nil
 	}
 
+	mergeFileProxySettings(&settings.GlobalProxy, fileCfg.LLM.Proxy)
+
 	for name, provider := range fileCfg.LLM.Providers {
 		normalizedName := strings.TrimSpace(name)
 		if normalizedName == "" {
@@ -226,6 +245,7 @@ func mergeMyclawConfigFile(settings *providerRoutingSettings, path string) error
 			BaseURL:      expandEnv(provider.BaseURL),
 			APIKey:       expandEnv(provider.APIKey),
 			Model:        expandEnv(provider.Model),
+			Proxy:        proxySettingsFromFile(provider.Proxy),
 			Headers:      expandStringMap(provider.Headers),
 			Enabled:      provider.Enabled == nil || *provider.Enabled,
 			Timeout:      durationFromMillis(provider.TimeoutMS, 60*time.Second),
@@ -298,6 +318,18 @@ func applyProviderEnvOverrides(settings *providerRoutingSettings) {
 	if value := strings.TrimSpace(os.Getenv("MYCLAW_LLM_DEFAULT_PROFILE")); value != "" {
 		settings.DefaultProfile = value
 	}
+	for _, env := range os.Environ() {
+		key, value, ok := strings.Cut(env, "=")
+		if !ok {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(key, "MYCLAW_LLM_PROXY__"):
+			applyProxyEnvOverride(&settings.GlobalProxy, strings.TrimPrefix(key, "MYCLAW_LLM_PROXY__"), value)
+		case strings.HasPrefix(key, "MYCLAW_LLM_PROVIDER_"):
+			applyLegacyProviderEnvOverride(settings, strings.TrimPrefix(key, "MYCLAW_LLM_PROVIDER_"), value)
+		}
+	}
 	for name, provider := range settings.Providers {
 		key := envKeyPart(name)
 		if value := strings.TrimSpace(os.Getenv("MYCLAW_LLM_PROVIDER_" + key + "_PROTOCOL")); value != "" {
@@ -329,6 +361,15 @@ func applyProviderEnvOverrides(settings *providerRoutingSettings) {
 		}
 		if value, ok := lookupEnvInt("MYCLAW_LLM_PROVIDER_" + key + "_MAX_RETRIES"); ok {
 			provider.MaxRetries = value
+		}
+		if value, ok := os.LookupEnv("MYCLAW_LLM_PROVIDER_" + key + "_PROXY__URL"); ok {
+			applyProxyEnvOverride(&provider.Proxy, "URL", value)
+		}
+		if value, ok := os.LookupEnv("MYCLAW_LLM_PROVIDER_" + key + "_PROXY__ENABLED"); ok {
+			applyProxyEnvOverride(&provider.Proxy, "ENABLED", value)
+		}
+		if value, ok := os.LookupEnv("MYCLAW_LLM_PROVIDER_" + key + "_PROXY__NO_PROXY"); ok {
+			applyProxyEnvOverride(&provider.Proxy, "NO_PROXY", value)
 		}
 		settings.Providers[name] = provider
 	}
@@ -383,6 +424,92 @@ func expandStringMap(values map[string]string) map[string]string {
 		out[key] = expandEnv(value)
 	}
 	return out
+}
+
+func proxySettingsFromFile(src fileProxyConfig) ProxySettings {
+	var out ProxySettings
+	mergeFileProxySettings(&out, src)
+	return out
+}
+
+func mergeFileProxySettings(dst *ProxySettings, src fileProxyConfig) {
+	if src.Enabled != nil {
+		dst.Enabled = *src.Enabled
+		dst.Explicit = true
+	}
+	if src.URL != "" {
+		dst.URL = expandEnv(src.URL)
+		dst.Explicit = true
+	}
+	if len(src.NoProxy) > 0 {
+		dst.NoProxy = splitList(strings.Join(expandEnvList(src.NoProxy), ","))
+		dst.Explicit = true
+	}
+}
+
+func applyProxyEnvOverride(dst *ProxySettings, key, value string) {
+	dst.Explicit = true
+	switch strings.ToUpper(strings.TrimSpace(key)) {
+	case "ENABLED":
+		dst.Enabled = parseEnvBool(value, dst.Enabled)
+	case "URL":
+		dst.URL = strings.TrimSpace(value)
+	case "NO_PROXY":
+		dst.NoProxy = splitList(value)
+	}
+}
+
+func applyLegacyProviderEnvOverride(settings *providerRoutingSettings, suffix, value string) {
+	parts := strings.SplitN(suffix, "_PROXY__", 2)
+	if len(parts) != 2 {
+		return
+	}
+	name := strings.TrimSpace(strings.ToLower(strings.NewReplacer("_", "-", ".", "-").Replace(parts[0])))
+	provider, ok := settings.Providers[name]
+	if !ok {
+		return
+	}
+	applyProxyEnvOverride(&provider.Proxy, parts[1], value)
+	settings.Providers[name] = provider
+}
+
+func splitList(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ';' || r == ','
+	})
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field != "" {
+			out = append(out, field)
+		}
+	}
+	return out
+}
+
+func expandEnvList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, expandEnv(value))
+	}
+	return out
+}
+
+func parseEnvBool(raw string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func envKeyPart(raw string) string {

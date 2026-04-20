@@ -116,6 +116,11 @@ func TestLoadFromDirExpandsEnvAndAppliesProviderAndProfileOverrides(t *testing.T
 	writeTestConfig(t, dir, `{
   "config": {"version": 1},
   "llm": {
+    "proxy": {
+      "enabled": true,
+      "url": "http://global-proxy.example:8080",
+      "no_proxy": ["localhost", "127.0.0.1"]
+    },
     "active_profile": "claude-main",
     "providers": {
       "anthropic": {
@@ -128,7 +133,11 @@ func TestLoadFromDirExpandsEnvAndAppliesProviderAndProfileOverrides(t *testing.T
         "protocol": "openai-compatible",
         "base_url": "https://openai.example/v1/chat/completions",
         "api_key": "file-openai-key",
-        "enabled": true
+        "enabled": true,
+        "proxy": {
+          "enabled": true,
+          "url": "socks5://provider-proxy.example:1080"
+        }
       }
     },
     "profiles": {
@@ -154,6 +163,9 @@ func TestLoadFromDirExpandsEnvAndAppliesProviderAndProfileOverrides(t *testing.T
 	t.Setenv("MYCLAW_LLM_ACTIVE_PROFILE", "review-gpt")
 	t.Setenv("MYCLAW_LLM_PROVIDERS__OPENAI__API_KEY", "env-openai-key")
 	t.Setenv("MYCLAW_LLM_PROVIDERS__OPENAI__BASE_URL", "https://override.example/v1/chat/completions")
+	t.Setenv("MYCLAW_LLM_PROXY__URL", "http://env-global-proxy.example:8888")
+	t.Setenv("MYCLAW_LLM_PROVIDERS__OPENAI__PROXY__URL", "socks5://env-provider-proxy.example:1081")
+	t.Setenv("MYCLAW_LLM_PROVIDERS__OPENAI__PROXY__NO_PROXY", "example.com,internal.example")
 	t.Setenv("MYCLAW_LLM_PROFILES__REVIEW-GPT__MODEL", "gpt-5.2")
 	t.Setenv("MYCLAW_LLM_ROUTING__AGENT_PROFILES__FRONTEND", "review-gpt")
 
@@ -173,6 +185,15 @@ func TestLoadFromDirExpandsEnvAndAppliesProviderAndProfileOverrides(t *testing.T
 	}
 	if cfg.LLM.Model != "gpt-5.2" {
 		t.Fatalf("resolved model = %q, want profile env override", cfg.LLM.Model)
+	}
+	if !cfg.LLM.Proxy.Enabled || cfg.LLM.Proxy.URL != "http://env-global-proxy.example:8888" {
+		t.Fatalf("global proxy = %#v, want env override", cfg.LLM.Proxy)
+	}
+	if got := cfg.LLM.Providers["openai"].Proxy.URL; got != "socks5://env-provider-proxy.example:1081" {
+		t.Fatalf("provider proxy url = %q, want env override", got)
+	}
+	if got := cfg.LLM.Providers["openai"].Proxy.NoProxy; len(got) != 2 || got[0] != "example.com" || got[1] != "internal.example" {
+		t.Fatalf("provider no_proxy = %#v, want env override list", got)
 	}
 	if cfg.LLM.Routing.AgentProfiles["frontend"] != "review-gpt" {
 		t.Fatalf("frontend route = %q, want env override", cfg.LLM.Routing.AgentProfiles["frontend"])

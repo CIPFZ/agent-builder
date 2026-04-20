@@ -9,12 +9,24 @@
   "llm": {
     "default_profile": "claude-main",
     "active_profile": "claude-main",
+    "proxy": {
+      "enabled": false,
+      "url": "http://127.0.0.1:7890",
+      "no_proxy": [
+        "localhost",
+        "127.0.0.1"
+      ]
+    },
     "providers": {
       "anthropic": {
         "protocol": "anthropic",
         "base_url": "https://api.anthropic.com/v1/messages",
         "api_key": "${ANTHROPIC_API_KEY}",
         "api_version": "2023-06-01",
+        "proxy": {
+          "enabled": false,
+          "url": "socks5://127.0.0.1:7891"
+        },
         "enabled": true,
         "timeout_ms": 60000,
         "max_retries": 2,

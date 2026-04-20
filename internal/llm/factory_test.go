@@ -85,6 +85,10 @@ func TestLoadProviderRoutingConfigEnvironmentOverridesProviderSecrets(t *testing
 	cfgPath := filepath.Join(t.TempDir(), "myclaw.json")
 	if err := os.WriteFile(cfgPath, []byte(`{
   "llm": {
+    "proxy": {
+      "enabled": true,
+      "url": "http://global-proxy.example:8080"
+    },
     "default_profile": "claude-main",
     "providers": {
       "anthropic": {
@@ -92,7 +96,11 @@ func TestLoadProviderRoutingConfigEnvironmentOverridesProviderSecrets(t *testing
         "base_url": "https://anthropic.example/v1/messages",
         "api_key": "file-key",
         "api_version": "2023-06-01",
-        "enabled": true
+        "enabled": true,
+        "proxy": {
+          "enabled": true,
+          "url": "socks5://provider-proxy.example:1080"
+        }
       }
     },
     "profiles": {
@@ -109,6 +117,8 @@ func TestLoadProviderRoutingConfigEnvironmentOverridesProviderSecrets(t *testing
 	t.Setenv("MYCLAW_CONFIG_FILE", cfgPath)
 	t.Setenv("MYCLAW_LLM_PROVIDER_ANTHROPIC_API_KEY", "env-key")
 	t.Setenv("MYCLAW_LLM_PROVIDER_ANTHROPIC_BASE_URL", "https://override.example/v1/messages")
+	t.Setenv("MYCLAW_LLM_PROXY__URL", "http://env-global-proxy.example:8888")
+	t.Setenv("MYCLAW_LLM_PROVIDER_ANTHROPIC_PROXY__URL", "socks5://env-provider-proxy.example:1081")
 
 	settings, err := loadProviderRoutingConfig(config.LLMConfig{})
 	if err != nil {
@@ -123,6 +133,12 @@ func TestLoadProviderRoutingConfigEnvironmentOverridesProviderSecrets(t *testing
 	}
 	if resolved.Provider.BaseURL != "https://override.example/v1/messages" {
 		t.Fatalf("base url = %q, want env override", resolved.Provider.BaseURL)
+	}
+	if resolved.Provider.Proxy.URL != "socks5://env-provider-proxy.example:1081" {
+		t.Fatalf("proxy = %#v, want provider env override", resolved.Provider.Proxy)
+	}
+	if settings.GlobalProxy.URL != "http://env-global-proxy.example:8888" {
+		t.Fatalf("global proxy = %#v, want env override", settings.GlobalProxy)
 	}
 }
 

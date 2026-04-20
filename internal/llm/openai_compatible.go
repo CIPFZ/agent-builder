@@ -18,6 +18,8 @@ type OpenAICompatibleConfig struct {
 	BaseURL      string
 	APIKey       string
 	Model        string
+	GlobalProxy  ProxySettings
+	Proxy        ProxySettings
 	Headers      map[string]string
 	Timeout      time.Duration
 	MaxRetries   int
@@ -56,7 +58,7 @@ func NewOpenAICompatibleClient(cfg OpenAICompatibleConfig) *OpenAICompatibleClie
 		authScheme:   authScheme,
 		apiKeyHeader: apiKeyHeader,
 		organization: strings.TrimSpace(cfg.Organization),
-		httpClient:   newHTTPClient(cfg.Timeout),
+		httpClient:   mustNewHTTPClient(cfg.Timeout, cfg.GlobalProxy, cfg.Proxy),
 	}
 }
 
