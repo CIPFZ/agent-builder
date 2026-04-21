@@ -2,6 +2,8 @@ package tui
 
 import tea "github.com/charmbracelet/bubbletea"
 
+const mouseWheelScrollLines = 3
+
 type Model struct {
 	bridge Bridge
 	tuiState
@@ -40,9 +42,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.MouseWheelUp:
-		m.scrollTranscriptUp(m.transcriptPageLines())
+		m.scrollTranscriptUp(mouseWheelScrollLines)
 	case tea.MouseWheelDown:
-		m.scrollTranscriptDown(m.transcriptPageLines())
+		m.scrollTranscriptDown(mouseWheelScrollLines)
 	}
 	return m, nil
 }

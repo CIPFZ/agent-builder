@@ -94,6 +94,11 @@ type dialogRenderState struct {
 	VisibleTotal  int
 }
 
+const (
+	headerLineCount         = 5
+	externalEditorLineCount = 4
+)
+
 func newRenderSnapshot(m Model, width int) renderSnapshot {
 	if width <= 0 {
 		width = defaultRenderWidth
@@ -110,8 +115,8 @@ func newRenderSnapshot(m Model, width int) renderSnapshot {
 	snapshot := renderSnapshot{
 		Width:      width,
 		Height:     m.height,
-		Title:      "myclaw",
-		Subtitle:   "MiniMax-M2.7 Agent Builder",
+		Title:      "MYCLAW",
+		Subtitle:   "Agent Builder",
 		Transcript: transcript,
 		Input: inputRenderState{
 			Text:          m.input,
@@ -203,17 +208,19 @@ func (r renderer) renderHeader(snapshot renderSnapshot) string {
 	if snapshot.Busy {
 		status = "running"
 	}
-	b.WriteString(padLine(title+snapshot.Subtitle, fmt.Sprintf("status: %s", status), width))
+	b.WriteString(padLine(title, fmt.Sprintf("status: %s", status), width))
 	b.WriteString("\n")
-	b.WriteString(padLine("Welcome back!", "Tips for getting started", width))
+	modelLine := snapshot.Diagnostics.LLMLabel
+	if modelLine == "" {
+		modelLine = snapshot.Subtitle
+	}
+	activity := snapshot.Activity
+	if activity == "" {
+		activity = "ready"
+	}
+	b.WriteString(padLine("Model: "+modelLine, "Activity: "+activity, width))
 	b.WriteString("\n")
-	b.WriteString(padLine("  __  __  __   __  ___      __      __", "/help - see available commands", width))
-	b.WriteString("\n")
-	b.WriteString(padLine(" /  \\/  \\/ /  / / / _ | ___/ /___  / /", "/clear - clear conversation", width))
-	b.WriteString("\n")
-	b.WriteString(padLine("/ /\\_/ / / /__/ / / __ |/ _  / _ \\/ _ \\", "/model - switch models", width))
-	b.WriteString("\n")
-	b.WriteString(padLine("\\/  \\/_/ /____/_/ /_/ |_/\\_,_/\\___/_//_/", snapshot.activityLabel(), width))
+	b.WriteString(padLine("Commands: /help  /clear  /model", "Scroll: wheel / PgUp / PgDn", width))
 	b.WriteString("\n")
 	b.WriteString(borderLine(width, '='))
 	b.WriteString("\n")
@@ -619,10 +626,16 @@ func (r renderer) renderPrompt(snapshot renderSnapshot) string {
 		b.WriteString("\n")
 		return b.String()
 	}
-	input := renderInputWithCursor(snapshot.Input.Text, snapshot.Input.Cursor, width-3)
-	b.WriteString("> ")
-	b.WriteString(input)
-	b.WriteString("\n")
+	inputLines := renderInputLinesWithCursor(snapshot.Input.Text, snapshot.Input.Cursor, width-2)
+	for i, line := range inputLines {
+		prefix := "> "
+		if i > 0 {
+			prefix = "  "
+		}
+		b.WriteString(prefix)
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
 	if snapshot.HasPromptStash {
 		b.WriteString("  > Stashed (auto-restores after submit; Ctrl+S restores now)")
 		b.WriteString("\n")
@@ -924,16 +937,25 @@ func (snapshot renderSnapshot) transcriptVisibleLines() int {
 	if snapshot.Height <= 0 || snapshot.Viewport.ShowAllHistory {
 		return 0
 	}
-	promptLines := 4
-	if snapshot.Dialog == nil && len(snapshot.Input.Suggestions) > 0 {
-		promptLines += len(snapshot.Input.Suggestions)
-	}
-	const headerLines = 8
-	visible := snapshot.Height - headerLines - promptLines
+	visible := snapshot.Height - headerLineCount - snapshot.promptVisibleLines()
 	if visible < 3 {
 		return 3
 	}
 	return visible
+}
+
+func (snapshot renderSnapshot) promptVisibleLines() int {
+	if snapshot.ExternalEditor {
+		return externalEditorLineCount
+	}
+	lines := 3 + len(renderInputLinesWithCursor(snapshot.Input.Text, snapshot.Input.Cursor, snapshot.Width-2))
+	if snapshot.HasPromptStash {
+		lines++
+	}
+	if snapshot.Dialog == nil && len(snapshot.Input.Suggestions) > 0 {
+		lines += len(snapshot.Input.Suggestions)
+	}
+	return lines
 }
 
 func (snapshot renderSnapshot) viewportStatusLine(width int, effectiveOffset int) string {
@@ -1083,7 +1105,7 @@ func truncateCells(text string, width int) string {
 	return b.String()
 }
 
-func renderInputWithCursor(input string, cursor int, width int) string {
+func renderInputLinesWithCursor(input string, cursor int, width int) []string {
 	runes := []rune(input)
 	if cursor < 0 {
 		cursor = 0
@@ -1091,21 +1113,42 @@ func renderInputWithCursor(input string, cursor int, width int) string {
 	if cursor > len(runes) {
 		cursor = len(runes)
 	}
-	if len(runes) == 0 {
-		return CursorStyle.Render(" ")
+	lines := buildInputVisualLines(input, width)
+	rendered := make([]string, 0, len(lines))
+	cursorLine := inputCursorLineIndex(lines, cursor)
+	for index, line := range lines {
+		lineRunes := []rune(line.Text)
+		if index != cursorLine {
+			rendered = append(rendered, line.Text)
+			continue
+		}
+		cursorOffset := cursor - line.Start
+		if cursorOffset < 0 {
+			cursorOffset = 0
+		}
+		if cursorOffset > len(lineRunes) {
+			cursorOffset = len(lineRunes)
+		}
+		var b strings.Builder
+		b.WriteString(string(lineRunes[:cursorOffset]))
+		if cursorOffset == len(lineRunes) {
+			b.WriteString(CursorStyle.Render(" "))
+		} else {
+			b.WriteString(CursorStyle.Render(string(lineRunes[cursorOffset])))
+			if cursorOffset+1 < len(lineRunes) {
+				b.WriteString(string(lineRunes[cursorOffset+1:]))
+			}
+		}
+		rendered = append(rendered, b.String())
 	}
-	before := string(runes[:cursor])
-	after := string(runes[cursor:])
-	if cursor == len(runes) {
-		return strings.Join(wrapCells(before, width), "\n") + CursorStyle.Render(" ")
+	if len(rendered) == 0 {
+		return []string{CursorStyle.Render(" ")}
 	}
-	afterRunes := []rune(after)
-	cursorChar := string(afterRunes[0])
-	rest := ""
-	if len(afterRunes) > 1 {
-		rest = string(afterRunes[1:])
-	}
-	return strings.Join(wrapCells(before+CursorStyle.Render(cursorChar)+rest, width), "\n")
+	return rendered
+}
+
+func renderInputWithCursor(input string, cursor int, width int) string {
+	return strings.Join(renderInputLinesWithCursor(input, cursor, width), "\n")
 }
 
 func (m Model) renderLayout(width int) string {

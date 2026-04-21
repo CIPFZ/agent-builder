@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -81,7 +83,7 @@ func NewAnthropicClient(cfg AnthropicConfig) *AnthropicClient {
 		apiVersion = "2023-06-01"
 	}
 	return &AnthropicClient{
-		baseURL:      cfg.BaseURL,
+		baseURL:      resolveAnthropicMessagesURL(cfg.BaseURL),
 		apiKey:       cfg.APIKey,
 		model:        cfg.Model,
 		apiVersion:   apiVersion,
@@ -204,7 +206,7 @@ func buildAnthropicTools(defs []ToolDefinition) []anthropicTool {
 	}
 	tools := make([]anthropicTool, 0, len(defs))
 	for _, def := range defs {
-		if strings.TrimSpace(def.Name) == "" {
+		if strings.TrimSpace(def.Name) == "" || !hasAnthropicToolSchema(def.InputSchema) {
 			continue
 		}
 		tools = append(tools, anthropicTool{
@@ -214,6 +216,34 @@ func buildAnthropicTools(defs []ToolDefinition) []anthropicTool {
 		})
 	}
 	return tools
+}
+
+func hasAnthropicToolSchema(schema map[string]any) bool {
+	if len(schema) == 0 {
+		return false
+	}
+	schemaType, _ := schema["type"].(string)
+	return strings.EqualFold(strings.TrimSpace(schemaType), "object")
+}
+
+func resolveAnthropicMessagesURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	cleanPath := strings.TrimSpace(parsed.Path)
+	if strings.HasSuffix(cleanPath, "/v1/messages") {
+		return parsed.String()
+	}
+	parsed.Path = path.Join(cleanPath, "/v1/messages")
+	if strings.HasSuffix(raw, "/") && !strings.HasSuffix(parsed.Path, "/messages") {
+		parsed.Path += "/"
+	}
+	return parsed.String()
 }
 
 type anthropicStreamMessageStart struct {
