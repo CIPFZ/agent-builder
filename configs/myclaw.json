@@ -1,13 +1,75 @@
 {
+  "config": {
+    "version": 1
+  },
+  "server": {
+    "http_addr": "127.0.0.1:18080",
+    "ws_path": "/ws"
+  },
   "llm": {
-    "provider": "openai-compatible",
-    "base_url": "https://api.longcat.chat/openai/v1/chat/completions",
-    "api_key": "ak_1Wa63Y8MS3Ux3a08ge5oY9GL7242x",
-    "model": "LongCat-Flash-Chat"
+    "default_profile": "claude-main",
+    "active_profile": "claude-main",
+    "providers": {
+      "anthropic": {
+        "protocol": "anthropic",
+        "base_url": "https://api.anthropic.com/v1/messages",
+        "api_key": "${ANTHROPIC_API_KEY}",
+        "api_version": "2023-06-01",
+        "enabled": true,
+        "timeout_ms": 60000,
+        "max_retries": 2,
+        "headers": {}
+      },
+      "openai": {
+        "protocol": "openai-compatible",
+        "base_url": "https://api.openai.com/v1/chat/completions",
+        "api_key": "${OPENAI_API_KEY}",
+        "enabled": false,
+        "timeout_ms": 60000,
+        "max_retries": 2,
+        "headers": {}
+      },
+      "gemini": {
+        "protocol": "openai-compatible",
+        "base_url": "${GEMINI_BASE_URL}",
+        "api_key": "${GEMINI_API_KEY}",
+        "enabled": false,
+        "timeout_ms": 60000,
+        "max_retries": 2,
+        "headers": {}
+      }
+    },
+    "profiles": {
+      "claude-main": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5",
+        "streaming": true
+      },
+      "review-gpt": {
+        "provider": "openai",
+        "model": "gpt-5.1",
+        "streaming": true
+      },
+      "frontend-gemini": {
+        "provider": "gemini",
+        "model": "gemini-2.5-pro",
+        "streaming": true
+      }
+    },
+    "routing": {
+      "default_profile": "claude-main",
+      "agent_profiles": {
+        "review": "review-gpt",
+        "frontend": "frontend-gemini",
+        "worker": "claude-main"
+      }
+    }
   },
   "permissions": {
     "mode": "workspace-write",
     "subagent_mode": "ask",
+    "plan_mode": false,
+    "auto_mode": false,
     "workspace_roots": [
       "."
     ],
@@ -19,5 +81,12 @@
       "reboot",
       "powershell -enc"
     ]
+  },
+  "mcp": {
+    "enabled": true,
+    "skills_enabled": true
+  },
+  "compact": {
+    "verification_mode": false
   }
 }

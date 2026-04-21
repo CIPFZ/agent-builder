@@ -2,27 +2,77 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"myclaw/internal/permissions"
 )
 
 type Config struct {
+	Version     int
 	HTTPAddr    string
 	WSPath      string
+	Server      ServerConfig
 	LLM         LLMConfig
 	Permissions PermissionConfig
 	Compact     CompactConfig
 	MCP         MCPConfig
 }
 
+type ServerConfig struct {
+	HTTPAddr string
+	WSPath   string
+}
+
 type LLMConfig struct {
-	Provider string
-	BaseURL  string
-	APIKey   string
-	Model    string
+	DefaultProfile string
+	ActiveProfile  string
+	Provider       string
+	BaseURL        string
+	APIKey         string
+	Model          string
+	Proxy          LLMProxyConfig
+	Providers      map[string]LLMProviderConfig
+	Profiles       map[string]LLMProfileConfig
+	Routing        LLMRoutingConfig
+}
+
+type LLMProxyConfig struct {
+	Enabled  bool
+	URL      string
+	NoProxy  []string
+	Explicit bool
+}
+
+type LLMProviderConfig struct {
+	Protocol     string
+	BaseURL      string
+	APIKey       string
+	Model        string
+	Proxy        LLMProxyConfig
+	Headers      map[string]string
+	Enabled      bool
+	TimeoutMs    int
+	MaxRetries   int
+	AuthScheme   string
+	Organization string
+	APIVersion   string
+}
+
+type LLMProfileConfig struct {
+	Provider  string
+	Model     string
+	BaseURL   string
+	APIKey    string
+	Streaming bool
+}
+
+type LLMRoutingConfig struct {
+	DefaultProfile string
+	AgentProfiles  map[string]string
 }
 
 type PermissionConfig struct {
@@ -40,7 +90,8 @@ type CompactConfig struct {
 }
 
 type MCPConfig struct {
-	Skills bool
+	Enabled bool
+	Skills  bool
 }
 
 func Default() Config {
@@ -48,25 +99,64 @@ func Default() Config {
 }
 
 func LoadFromDir(dir string) Config {
-	cfg := defaultConfig()
-	mergeFileConfig(&cfg, userSettingsPath())
-	mergeFileConfig(&cfg, configPath(dir))
-	mergeFileConfig(&cfg, projectSettingsPath(dir))
-	mergeFileConfig(&cfg, localSettingsPath(dir))
-	applyEnvOverrides(&cfg)
-	resolvePermissionPaths(&cfg, dir)
+	cfg, err := loadFromDir(dir)
+	if err != nil {
+		panic(err)
+	}
 	return cfg
 }
 
+func loadFromDir(dir string) (Config, error) {
+	cfg := defaultConfig()
+	if err := mergeFileConfig(&cfg, configPath(dir)); err != nil {
+		return Config{}, err
+	}
+	applyEnvOverrides(&cfg)
+	resolvePermissionPaths(&cfg, dir)
+	if err := validateAndResolve(&cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
 func defaultConfig() Config {
-	return Config{
+	defaultProviderName := "default"
+	defaultProfileName := "default"
+	defaultProvider := LLMProviderConfig{
+		Protocol:   "openai-compatible",
+		BaseURL:    "https://api.longcat.chat/openai/v1/chat/completions",
+		APIKey:     os.Getenv("MYCLAW_LLM_API_KEY"),
+		Enabled:    true,
+		TimeoutMs:  60000,
+		MaxRetries: 2,
+		Headers:    map[string]string{},
+	}
+	defaultProfile := LLMProfileConfig{
+		Provider:  defaultProviderName,
+		Model:     firstNonEmptyEnv([]string{"MYCLAW_LLM_MODEL", "ANTHROPIC_MODEL"}, "LongCat-Flash-Chat"),
+		Streaming: true,
+	}
+	cfg := Config{
+		Version:  1,
 		HTTPAddr: "127.0.0.1:18080",
 		WSPath:   "/ws",
+		Server: ServerConfig{
+			HTTPAddr: "127.0.0.1:18080",
+			WSPath:   "/ws",
+		},
 		LLM: LLMConfig{
-			Provider: "openai-compatible",
-			BaseURL:  envOrDefault("MYCLAW_LLM_BASE_URL", "https://api.longcat.chat/openai/v1/chat/completions"),
-			APIKey:   os.Getenv("MYCLAW_LLM_API_KEY"),
-			Model:    firstNonEmptyEnv([]string{"MYCLAW_LLM_MODEL", "ANTHROPIC_MODEL"}, "LongCat-Flash-Chat"),
+			DefaultProfile: defaultProfileName,
+			ActiveProfile:  defaultProfileName,
+			Providers: map[string]LLMProviderConfig{
+				defaultProviderName: defaultProvider,
+			},
+			Profiles: map[string]LLMProfileConfig{
+				defaultProfileName: defaultProfile,
+			},
+			Routing: LLMRoutingConfig{
+				DefaultProfile: defaultProfileName,
+				AgentProfiles:  map[string]string{},
+			},
 		},
 		Permissions: PermissionConfig{
 			Mode:                     envOrDefault("MYCLAW_PERMISSION_MODE", "workspace-write"),
@@ -81,12 +171,20 @@ func defaultConfig() Config {
 			VerificationMode: envBool("MYCLAW_COMPACT_VERIFICATION_MODE", false),
 		},
 		MCP: MCPConfig{
-			Skills: envBool("MYCLAW_MCP_SKILLS", true),
+			Enabled: true,
+			Skills:  envBool("MYCLAW_MCP_SKILLS", true),
 		},
 	}
+	cfg.LLM.Provider = defaultProviderName
+	cfg.LLM.BaseURL = defaultProvider.BaseURL
+	cfg.LLM.APIKey = defaultProvider.APIKey
+	cfg.LLM.Model = defaultProfile.Model
+	return cfg
 }
 
 type fileConfig struct {
+	Config      fileRuntimeConfig    `json:"config"`
+	Server      fileServerConfig     `json:"server"`
 	HTTPAddr    string               `json:"http_addr"`
 	WSPath      string               `json:"ws_path"`
 	LLM         fileLLMConfig        `json:"llm"`
@@ -95,11 +193,56 @@ type fileConfig struct {
 	MCP         fileMCPConfig        `json:"mcp"`
 }
 
+type fileRuntimeConfig struct {
+	Version int `json:"version"`
+}
+
+type fileServerConfig struct {
+	HTTPAddr string `json:"http_addr"`
+	WSPath   string `json:"ws_path"`
+}
+
 type fileLLMConfig struct {
-	Provider string `json:"provider"`
-	BaseURL  string `json:"base_url"`
-	APIKey   string `json:"api_key"`
-	Model    string `json:"model"`
+	DefaultProfile string                           `json:"default_profile"`
+	ActiveProfile  string                           `json:"active_profile"`
+	Proxy          fileLLMProxyConfig               `json:"proxy"`
+	Providers      map[string]fileLLMProviderConfig `json:"providers"`
+	Profiles       map[string]fileLLMProfileConfig  `json:"profiles"`
+	Routing        fileLLMRoutingConfig             `json:"routing"`
+}
+
+type fileLLMProxyConfig struct {
+	Enabled *bool    `json:"enabled"`
+	URL     string   `json:"url"`
+	NoProxy []string `json:"no_proxy"`
+}
+
+type fileLLMProviderConfig struct {
+	Protocol     string             `json:"protocol"`
+	BaseURL      string             `json:"base_url"`
+	APIKey       string             `json:"api_key"`
+	Model        string             `json:"model"`
+	Proxy        fileLLMProxyConfig `json:"proxy"`
+	Headers      map[string]string  `json:"headers"`
+	Enabled      *bool              `json:"enabled"`
+	TimeoutMs    *int               `json:"timeout_ms"`
+	MaxRetries   *int               `json:"max_retries"`
+	AuthScheme   string             `json:"auth_scheme"`
+	Organization string             `json:"organization"`
+	APIVersion   string             `json:"api_version"`
+}
+
+type fileLLMProfileConfig struct {
+	Provider  string `json:"provider"`
+	Model     string `json:"model"`
+	BaseURL   string `json:"base_url"`
+	APIKey    string `json:"api_key"`
+	Streaming *bool  `json:"streaming"`
+}
+
+type fileLLMRoutingConfig struct {
+	DefaultProfile string            `json:"default_profile"`
+	AgentProfiles  map[string]string `json:"agent_profiles"`
 }
 
 type filePermissionConfig struct {
@@ -117,37 +260,123 @@ type fileCompactConfig struct {
 }
 
 type fileMCPConfig struct {
-	Skills *bool `json:"skills"`
+	Enabled       *bool `json:"enabled"`
+	Skills        *bool `json:"skills"`
+	SkillsEnabled *bool `json:"skills_enabled"`
 }
 
-func mergeFileConfig(cfg *Config, path string) {
+func mergeFileConfig(cfg *Config, path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
 	}
 
 	var fileCfg fileConfig
 	if err := json.Unmarshal(data, &fileCfg); err != nil {
-		return
+		return fmt.Errorf("decode %s: %w", path, err)
 	}
 
+	if fileCfg.Config.Version != 0 {
+		cfg.Version = fileCfg.Config.Version
+	}
+	if fileCfg.Server.HTTPAddr != "" {
+		cfg.HTTPAddr = expandEnv(fileCfg.Server.HTTPAddr)
+		cfg.Server.HTTPAddr = cfg.HTTPAddr
+	}
+	if fileCfg.Server.WSPath != "" {
+		cfg.WSPath = expandEnv(fileCfg.Server.WSPath)
+		cfg.Server.WSPath = cfg.WSPath
+	}
 	if fileCfg.HTTPAddr != "" {
 		cfg.HTTPAddr = expandEnv(fileCfg.HTTPAddr)
+		cfg.Server.HTTPAddr = cfg.HTTPAddr
 	}
 	if fileCfg.WSPath != "" {
 		cfg.WSPath = expandEnv(fileCfg.WSPath)
+		cfg.Server.WSPath = cfg.WSPath
 	}
-	if fileCfg.LLM.Provider != "" {
-		cfg.LLM.Provider = expandEnv(fileCfg.LLM.Provider)
+	if fileCfg.LLM.DefaultProfile != "" {
+		cfg.LLM.DefaultProfile = normalizeMapKey(expandEnv(fileCfg.LLM.DefaultProfile))
 	}
-	if fileCfg.LLM.BaseURL != "" {
-		cfg.LLM.BaseURL = expandEnv(fileCfg.LLM.BaseURL)
+	if fileCfg.LLM.ActiveProfile != "" {
+		cfg.LLM.ActiveProfile = normalizeMapKey(expandEnv(fileCfg.LLM.ActiveProfile))
 	}
-	if fileCfg.LLM.APIKey != "" {
-		cfg.LLM.APIKey = expandEnv(fileCfg.LLM.APIKey)
+	mergeFileProxyConfig(&cfg.LLM.Proxy, fileCfg.LLM.Proxy)
+	for name, provider := range fileCfg.LLM.Providers {
+		key := normalizeMapKey(name)
+		merged := cfg.LLM.Providers[key]
+		if merged.Headers == nil {
+			merged.Headers = map[string]string{}
+		}
+		mergeFileProxyConfig(&merged.Proxy, provider.Proxy)
+		if provider.Protocol != "" {
+			merged.Protocol = expandEnv(provider.Protocol)
+		}
+		if provider.BaseURL != "" {
+			merged.BaseURL = expandEnv(provider.BaseURL)
+		}
+		if provider.APIKey != "" {
+			merged.APIKey = expandEnv(provider.APIKey)
+		}
+		if provider.Model != "" {
+			merged.Model = expandEnv(provider.Model)
+		}
+		for headerKey, headerValue := range provider.Headers {
+			merged.Headers[headerKey] = expandEnv(headerValue)
+		}
+		if provider.Enabled != nil {
+			merged.Enabled = *provider.Enabled
+		}
+		if provider.TimeoutMs != nil {
+			merged.TimeoutMs = *provider.TimeoutMs
+		}
+		if provider.MaxRetries != nil {
+			merged.MaxRetries = *provider.MaxRetries
+		}
+		if provider.AuthScheme != "" {
+			merged.AuthScheme = expandEnv(provider.AuthScheme)
+		}
+		if provider.Organization != "" {
+			merged.Organization = expandEnv(provider.Organization)
+		}
+		if provider.APIVersion != "" {
+			merged.APIVersion = expandEnv(provider.APIVersion)
+		}
+		cfg.LLM.Providers[key] = merged
 	}
-	if fileCfg.LLM.Model != "" {
-		cfg.LLM.Model = expandEnv(fileCfg.LLM.Model)
+	for name, profile := range fileCfg.LLM.Profiles {
+		key := normalizeMapKey(name)
+		merged := cfg.LLM.Profiles[key]
+		if profile.Provider != "" {
+			merged.Provider = normalizeMapKey(expandEnv(profile.Provider))
+		}
+		if profile.Model != "" {
+			merged.Model = expandEnv(profile.Model)
+		}
+		if profile.BaseURL != "" {
+			merged.BaseURL = expandEnv(profile.BaseURL)
+		}
+		if profile.APIKey != "" {
+			merged.APIKey = expandEnv(profile.APIKey)
+		}
+		if profile.Streaming != nil {
+			merged.Streaming = *profile.Streaming
+		}
+		cfg.LLM.Profiles[key] = merged
+	}
+	if fileCfg.LLM.Routing.DefaultProfile != "" {
+		cfg.LLM.Routing.DefaultProfile = normalizeMapKey(expandEnv(fileCfg.LLM.Routing.DefaultProfile))
+	}
+	if len(fileCfg.LLM.Routing.AgentProfiles) > 0 {
+		if cfg.LLM.Routing.AgentProfiles == nil {
+			cfg.LLM.Routing.AgentProfiles = map[string]string{}
+		}
+		for agentType, profileName := range fileCfg.LLM.Routing.AgentProfiles {
+			cfg.LLM.Routing.AgentProfiles[normalizeMapKey(agentType)] = normalizeMapKey(expandEnv(profileName))
+		}
 	}
 	if fileCfg.Permissions.Mode != "" {
 		cfg.Permissions.Mode = expandEnv(fileCfg.Permissions.Mode)
@@ -165,7 +394,7 @@ func mergeFileConfig(cfg *Config, path string) {
 		cfg.Permissions.WorkspaceRoots = expandEnvList(fileCfg.Permissions.WorkspaceRoots)
 	}
 	if len(fileCfg.Permissions.Rules) > 0 {
-		cfg.Permissions.Rules = append(cfg.Permissions.Rules, fileCfg.Permissions.Rules...)
+		cfg.Permissions.Rules = append([]permissions.Rule(nil), fileCfg.Permissions.Rules...)
 	}
 	if len(fileCfg.Permissions.DangerousCommandPatterns) > 0 {
 		cfg.Permissions.DangerousCommandPatterns = expandEnvList(fileCfg.Permissions.DangerousCommandPatterns)
@@ -173,20 +402,48 @@ func mergeFileConfig(cfg *Config, path string) {
 	if fileCfg.Compact.VerificationMode != nil {
 		cfg.Compact.VerificationMode = *fileCfg.Compact.VerificationMode
 	}
+	if fileCfg.MCP.Enabled != nil {
+		cfg.MCP.Enabled = *fileCfg.MCP.Enabled
+	}
 	if fileCfg.MCP.Skills != nil {
 		cfg.MCP.Skills = *fileCfg.MCP.Skills
 	}
+	if fileCfg.MCP.SkillsEnabled != nil {
+		cfg.MCP.Skills = *fileCfg.MCP.SkillsEnabled
+	}
+	return nil
 }
 
 func applyEnvOverrides(cfg *Config) {
 	cfg.HTTPAddr = envOrDefault("MYCLAW_HTTP_ADDR", cfg.HTTPAddr)
 	cfg.WSPath = envOrDefault("MYCLAW_WS_PATH", cfg.WSPath)
-	cfg.LLM.Provider = envOrDefault("MYCLAW_LLM_PROVIDER", cfg.LLM.Provider)
-	cfg.LLM.BaseURL = envOrDefault("MYCLAW_LLM_BASE_URL", cfg.LLM.BaseURL)
-	if value := os.Getenv("MYCLAW_LLM_API_KEY"); value != "" {
-		cfg.LLM.APIKey = value
+	cfg.Server.HTTPAddr = cfg.HTTPAddr
+	cfg.Server.WSPath = cfg.WSPath
+
+	if value := os.Getenv("MYCLAW_LLM_DEFAULT_PROFILE"); value != "" {
+		cfg.LLM.DefaultProfile = normalizeMapKey(value)
 	}
-	cfg.LLM.Model = firstNonEmptyEnv([]string{"MYCLAW_LLM_MODEL", "ANTHROPIC_MODEL"}, cfg.LLM.Model)
+	if value := os.Getenv("MYCLAW_LLM_ACTIVE_PROFILE"); value != "" {
+		cfg.LLM.ActiveProfile = normalizeMapKey(value)
+	}
+
+	for _, entry := range os.Environ() {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(key, "MYCLAW_LLM_PROXY__"):
+			applyProxyEnvOverride(&cfg.LLM.Proxy, strings.TrimPrefix(key, "MYCLAW_LLM_PROXY__"), value)
+		case strings.HasPrefix(key, "MYCLAW_LLM_PROVIDERS__"):
+			applyProviderEnvOverride(cfg, strings.TrimPrefix(key, "MYCLAW_LLM_PROVIDERS__"), value)
+		case strings.HasPrefix(key, "MYCLAW_LLM_PROFILES__"):
+			applyProfileEnvOverride(cfg, strings.TrimPrefix(key, "MYCLAW_LLM_PROFILES__"), value)
+		case strings.HasPrefix(key, "MYCLAW_LLM_ROUTING__"):
+			applyRoutingEnvOverride(cfg, strings.TrimPrefix(key, "MYCLAW_LLM_ROUTING__"), value)
+		}
+	}
+
 	cfg.Permissions.Mode = envOrDefault("MYCLAW_PERMISSION_MODE", cfg.Permissions.Mode)
 	if value := os.Getenv("MYCLAW_PERMISSION_SUBAGENT_MODE"); value != "" {
 		cfg.Permissions.SubagentMode = value
@@ -203,7 +460,210 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.Permissions.DangerousCommandPatterns = value
 	}
 	cfg.Compact.VerificationMode = envBool("MYCLAW_COMPACT_VERIFICATION_MODE", cfg.Compact.VerificationMode)
-	cfg.MCP.Skills = envBool("MYCLAW_MCP_SKILLS", cfg.MCP.Skills)
+	cfg.MCP.Enabled = envBool("MYCLAW_MCP_ENABLED", cfg.MCP.Enabled)
+	if value, ok := os.LookupEnv("MYCLAW_MCP_SKILLS_ENABLED"); ok && strings.TrimSpace(value) != "" {
+		cfg.MCP.Skills = envBool("MYCLAW_MCP_SKILLS_ENABLED", cfg.MCP.Skills)
+	} else {
+		cfg.MCP.Skills = envBool("MYCLAW_MCP_SKILLS", cfg.MCP.Skills)
+	}
+}
+
+func applyProviderEnvOverride(cfg *Config, path, value string) {
+	parts := strings.Split(path, "__")
+	if len(parts) < 2 {
+		return
+	}
+	name := normalizeMapKey(parts[0])
+	provider := cfg.LLM.Providers[name]
+	if provider.Headers == nil {
+		provider.Headers = map[string]string{}
+	}
+	switch strings.ToUpper(parts[1]) {
+	case "PROXY":
+		if len(parts) < 3 {
+			return
+		}
+		applyProxyEnvOverride(&provider.Proxy, strings.Join(parts[2:], "__"), value)
+	case "PROTOCOL":
+		provider.Protocol = value
+	case "BASE_URL":
+		provider.BaseURL = value
+	case "API_KEY":
+		provider.APIKey = value
+	case "MODEL":
+		provider.Model = value
+	case "ENABLED":
+		provider.Enabled = parseBool(value, provider.Enabled)
+	case "TIMEOUT_MS":
+		provider.TimeoutMs = parseInt(value, provider.TimeoutMs)
+	case "MAX_RETRIES":
+		provider.MaxRetries = parseInt(value, provider.MaxRetries)
+	case "AUTH_SCHEME":
+		provider.AuthScheme = value
+	case "ORGANIZATION":
+		provider.Organization = value
+	case "API_VERSION":
+		provider.APIVersion = value
+	case "HEADERS":
+		if len(parts) == 3 {
+			provider.Headers[parts[2]] = value
+		}
+	default:
+		return
+	}
+	cfg.LLM.Providers[name] = provider
+}
+
+func applyProxyEnvOverride(proxyCfg *LLMProxyConfig, path, value string) {
+	proxyCfg.Explicit = true
+	switch strings.ToUpper(strings.TrimSpace(path)) {
+	case "ENABLED":
+		proxyCfg.Enabled = parseBool(value, proxyCfg.Enabled)
+	case "URL":
+		proxyCfg.URL = strings.TrimSpace(value)
+	case "NO_PROXY":
+		proxyCfg.NoProxy = splitList(value)
+	}
+}
+
+func applyProfileEnvOverride(cfg *Config, path, value string) {
+	parts := strings.Split(path, "__")
+	if len(parts) < 2 {
+		return
+	}
+	name := normalizeMapKey(parts[0])
+	profile := cfg.LLM.Profiles[name]
+	switch strings.ToUpper(parts[1]) {
+	case "PROVIDER":
+		profile.Provider = normalizeMapKey(value)
+	case "MODEL":
+		profile.Model = value
+	case "BASE_URL":
+		profile.BaseURL = value
+	case "API_KEY":
+		profile.APIKey = value
+	case "STREAMING":
+		profile.Streaming = parseBool(value, profile.Streaming)
+	default:
+		return
+	}
+	cfg.LLM.Profiles[name] = profile
+}
+
+func applyRoutingEnvOverride(cfg *Config, path, value string) {
+	parts := strings.Split(path, "__")
+	if len(parts) == 0 {
+		return
+	}
+	switch strings.ToUpper(parts[0]) {
+	case "DEFAULT_PROFILE":
+		cfg.LLM.Routing.DefaultProfile = normalizeMapKey(value)
+	case "AGENT_PROFILES":
+		if len(parts) != 2 {
+			return
+		}
+		if cfg.LLM.Routing.AgentProfiles == nil {
+			cfg.LLM.Routing.AgentProfiles = map[string]string{}
+		}
+		cfg.LLM.Routing.AgentProfiles[normalizeMapKey(parts[1])] = normalizeMapKey(value)
+	}
+}
+
+func validateAndResolve(cfg *Config) error {
+	if cfg.Version <= 0 {
+		return fmt.Errorf("config.version must be greater than 0")
+	}
+	if strings.TrimSpace(cfg.HTTPAddr) == "" {
+		return fmt.Errorf("server.http_addr must not be empty")
+	}
+	if strings.TrimSpace(cfg.WSPath) == "" {
+		return fmt.Errorf("server.ws_path must not be empty")
+	}
+	if len(cfg.LLM.Providers) == 0 {
+		return fmt.Errorf("llm.providers must define at least one provider")
+	}
+	if len(cfg.LLM.Profiles) == 0 {
+		return fmt.Errorf("llm.profiles must define at least one profile")
+	}
+
+	if cfg.LLM.DefaultProfile == "" {
+		cfg.LLM.DefaultProfile = cfg.LLM.Routing.DefaultProfile
+	}
+	if cfg.LLM.Routing.DefaultProfile == "" {
+		cfg.LLM.Routing.DefaultProfile = cfg.LLM.DefaultProfile
+	}
+	if cfg.LLM.ActiveProfile == "" {
+		cfg.LLM.ActiveProfile = cfg.LLM.DefaultProfile
+	}
+	if cfg.LLM.ActiveProfile == "" {
+		cfg.LLM.ActiveProfile = cfg.LLM.Routing.DefaultProfile
+	}
+	activeProfileName := normalizeMapKey(cfg.LLM.ActiveProfile)
+	cfg.LLM.ActiveProfile = activeProfileName
+	cfg.LLM.DefaultProfile = normalizeMapKey(cfg.LLM.DefaultProfile)
+	cfg.LLM.Routing.DefaultProfile = normalizeMapKey(cfg.LLM.Routing.DefaultProfile)
+
+	if _, ok := cfg.LLM.Profiles[cfg.LLM.Routing.DefaultProfile]; !ok {
+		return fmt.Errorf("llm.routing.default_profile %q does not exist", cfg.LLM.Routing.DefaultProfile)
+	}
+	for agentType, profileName := range cfg.LLM.Routing.AgentProfiles {
+		if _, ok := cfg.LLM.Profiles[normalizeMapKey(profileName)]; !ok {
+			return fmt.Errorf("llm.routing.agent_profiles.%s references unknown profile %q", agentType, profileName)
+		}
+	}
+	if err := validateProxyConfig("llm.proxy", cfg.LLM.Proxy); err != nil {
+		return err
+	}
+	for providerName, providerCfg := range cfg.LLM.Providers {
+		if err := validateProxyConfig("llm.providers."+providerName+".proxy", providerCfg.Proxy); err != nil {
+			return err
+		}
+	}
+
+	profile, ok := cfg.LLM.Profiles[activeProfileName]
+	if !ok {
+		return fmt.Errorf("llm.active_profile %q does not exist", activeProfileName)
+	}
+	providerName := normalizeMapKey(profile.Provider)
+	if providerName == "" {
+		return fmt.Errorf("llm.profiles.%s.provider must not be empty", activeProfileName)
+	}
+	provider, ok := cfg.LLM.Providers[providerName]
+	if !ok {
+		return fmt.Errorf("llm.profiles.%s references unknown provider %q", activeProfileName, providerName)
+	}
+	if !provider.Enabled {
+		return fmt.Errorf("llm.providers.%s is disabled", providerName)
+	}
+	if strings.TrimSpace(provider.Protocol) == "" {
+		return fmt.Errorf("llm.providers.%s.protocol must not be empty", providerName)
+	}
+
+	cfg.LLM.Provider = providerName
+	cfg.LLM.BaseURL = firstNonEmpty(profile.BaseURL, provider.BaseURL)
+	cfg.LLM.APIKey = firstNonEmpty(profile.APIKey, provider.APIKey)
+	cfg.LLM.Model = firstNonEmpty(os.Getenv("MYCLAW_LLM_MODEL"), profile.Model, provider.Model)
+
+	if value := os.Getenv("MYCLAW_LLM_BASE_URL"); value != "" {
+		cfg.LLM.BaseURL = value
+	}
+	if value := os.Getenv("MYCLAW_LLM_API_KEY"); value != "" {
+		cfg.LLM.APIKey = value
+	}
+
+	if strings.TrimSpace(cfg.LLM.BaseURL) == "" {
+		return fmt.Errorf("resolved llm base_url for profile %q is empty", activeProfileName)
+	}
+	if strings.TrimSpace(cfg.LLM.APIKey) == "" {
+		return fmt.Errorf("resolved llm api_key for profile %q is empty", activeProfileName)
+	}
+	if strings.TrimSpace(cfg.LLM.Model) == "" {
+		return fmt.Errorf("resolved llm model for profile %q is empty", activeProfileName)
+	}
+
+	cfg.Server.HTTPAddr = cfg.HTTPAddr
+	cfg.Server.WSPath = cfg.WSPath
+	return nil
 }
 
 func configPath(dir string) string {
@@ -237,22 +697,18 @@ func envOrDefault(key, fallback string) string {
 }
 
 func userSettingsPath() string {
-	if override := os.Getenv("MYCLAW_USER_SETTINGS_FILE"); override != "" {
+	if override := os.Getenv("MYCLAW_CONFIG_FILE"); override != "" {
 		return override
 	}
-	base, err := os.UserConfigDir()
-	if err != nil || strings.TrimSpace(base) == "" {
-		base = "."
-	}
-	return filepath.Join(base, "myclaw", "settings.json")
+	return filepath.Join(".", "configs", "myclaw.json")
 }
 
 func projectSettingsPath(dir string) string {
-	return filepath.Join(settingsBaseDir(dir), ".claude", "settings.json")
+	return configPath(dir)
 }
 
 func localSettingsPath(dir string) string {
-	return filepath.Join(settingsBaseDir(dir), ".claude", "settings.local.json")
+	return configPath(dir)
 }
 
 func settingsBaseDir(dir string) string {
@@ -277,6 +733,10 @@ func envBool(key string, fallback bool) bool {
 	if !ok || strings.TrimSpace(value) == "" {
 		return fallback
 	}
+	return parseBool(value, fallback)
+}
+
+func parseBool(value string, fallback bool) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "1", "true", "yes", "on":
 		return true
@@ -285,6 +745,14 @@ func envBool(key string, fallback bool) bool {
 	default:
 		return fallback
 	}
+}
+
+func parseInt(value string, fallback int) int {
+	parsed, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func splitList(raw string) []string {
@@ -346,4 +814,54 @@ func resolveRelativePaths(base string, values []string) []string {
 		items = append(items, filepath.Clean(value))
 	}
 	return items
+}
+
+func normalizeMapKey(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func mergeFileProxyConfig(dst *LLMProxyConfig, src fileLLMProxyConfig) {
+	if src.Enabled != nil {
+		dst.Enabled = *src.Enabled
+		dst.Explicit = true
+	}
+	if src.URL != "" {
+		dst.URL = expandEnv(src.URL)
+		dst.Explicit = true
+	}
+	if len(src.NoProxy) > 0 {
+		dst.NoProxy = expandEnvList(src.NoProxy)
+		dst.Explicit = true
+	}
+}
+
+func validateProxyConfig(path string, cfg LLMProxyConfig) error {
+	if !cfg.Explicit {
+		return nil
+	}
+	if !cfg.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(cfg.URL) == "" {
+		return fmt.Errorf("%s.url must not be empty when proxy is enabled", path)
+	}
+	lower := strings.ToLower(strings.TrimSpace(cfg.URL))
+	switch {
+	case strings.HasPrefix(lower, "http://"),
+		strings.HasPrefix(lower, "https://"),
+		strings.HasPrefix(lower, "socks5://"),
+		strings.HasPrefix(lower, "socks5h://"):
+		return nil
+	default:
+		return fmt.Errorf("%s.url must use http, https, socks5, or socks5h", path)
+	}
 }

@@ -2,10 +2,8 @@ package llm
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -17,26 +15,50 @@ import (
 )
 
 type OpenAICompatibleConfig struct {
-	BaseURL string
-	APIKey  string
-	Model   string
+	BaseURL      string
+	APIKey       string
+	Model        string
+	GlobalProxy  ProxySettings
+	Proxy        ProxySettings
+	Headers      map[string]string
+	Timeout      time.Duration
+	MaxRetries   int
+	AuthScheme   string
+	APIKeyHeader string
+	Organization string
 }
 
 type OpenAICompatibleClient struct {
-	baseURL    string
-	apiKey     string
-	model      string
-	httpClient *http.Client
+	baseURL      string
+	apiKey       string
+	model        string
+	headers      map[string]string
+	maxRetries   int
+	authScheme   string
+	apiKeyHeader string
+	organization string
+	httpClient   *http.Client
 }
 
 func NewOpenAICompatibleClient(cfg OpenAICompatibleConfig) *OpenAICompatibleClient {
+	authScheme := strings.TrimSpace(cfg.AuthScheme)
+	if authScheme == "" {
+		authScheme = "Bearer"
+	}
+	apiKeyHeader := strings.TrimSpace(cfg.APIKeyHeader)
+	if apiKeyHeader == "" {
+		apiKeyHeader = "Authorization"
+	}
 	return &OpenAICompatibleClient{
-		baseURL: cfg.BaseURL,
-		apiKey:  cfg.APIKey,
-		model:   cfg.Model,
-		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
-		},
+		baseURL:      cfg.BaseURL,
+		apiKey:       cfg.APIKey,
+		model:        cfg.Model,
+		headers:      copyHeaders(cfg.Headers),
+		maxRetries:   cfg.MaxRetries,
+		authScheme:   authScheme,
+		apiKeyHeader: apiKeyHeader,
+		organization: strings.TrimSpace(cfg.Organization),
+		httpClient:   mustNewHTTPClient(cfg.Timeout, cfg.GlobalProxy, cfg.Proxy),
 	}
 }
 
@@ -54,23 +76,24 @@ func (c *OpenAICompatibleClient) Stream(ctx context.Context, req GenerateRequest
 		return err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(body))
-	if err != nil {
-		return err
+	headers := copyHeaders(c.headers)
+	headers["Content-Type"] = "application/json"
+	headers["Accept"] = "text/event-stream"
+	if c.apiKey != "" {
+		if strings.EqualFold(c.apiKeyHeader, "Authorization") {
+			headers[c.apiKeyHeader] = c.authScheme + " " + c.apiKey
+		} else {
+			headers[c.apiKeyHeader] = c.apiKey
+		}
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(httpReq)
+	if c.organization != "" {
+		headers["OpenAI-Organization"] = c.organization
+	}
+	resp, err := doStreamingRequest(ctx, c.httpClient, http.MethodPost, c.baseURL, body, headers, c.maxRetries)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		data, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("llm request failed: %s: %s", resp.Status, strings.TrimSpace(string(data)))
-	}
 
 	return consumeSSE(resp.Body, handler)
 }
