@@ -138,7 +138,10 @@ func TestViewportMouseWheelScrollsTranscript(t *testing.T) {
 	view := model.View()
 
 	if contains(view, "message-18") {
-		t.Fatalf("mouse wheel up did not move away from newest message: %q", view)
+		t.Fatalf("single wheel step should move away from newest message: %q", view)
+	}
+	if !contains(view, "message-15") {
+		t.Fatalf("single wheel step should reveal recent history: %q", view)
 	}
 }
 

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -92,6 +93,38 @@ func TestInputStateHistoryNavigationRestoresEntries(t *testing.T) {
 	state.handleEditingKey(tea.KeyMsg{Type: tea.KeyDown}, 80, slashCommands)
 	if state.input != "" || state.historyIndex != -1 {
 		t.Fatalf("after final down input/historyIndex = %q/%d, want empty/-1", state.input, state.historyIndex)
+	}
+}
+
+func TestInputStateVisualNavigationRespectsExplicitMultilineInput(t *testing.T) {
+	state := newInputState()
+	state.input = "abcd\nefghij"
+	state.cursorPos = len([]rune("abcd\nef"))
+
+	state.handleEditingKey(tea.KeyMsg{Type: tea.KeyUp}, 30, slashCommands)
+	if state.cursorPos != 2 {
+		t.Fatalf("cursor after up = %d, want 2", state.cursorPos)
+	}
+
+	state.handleEditingKey(tea.KeyMsg{Type: tea.KeyDown}, 30, slashCommands)
+	if state.cursorPos != len([]rune("abcd\nef")) {
+		t.Fatalf("cursor after down = %d, want %d", state.cursorPos, len([]rune("abcd\nef")))
+	}
+}
+
+func TestInputStateHomeAndEndStayWithinVisualLine(t *testing.T) {
+	state := newInputState()
+	state.input = strings.Repeat("x", 30)
+	state.cursorPos = 24
+
+	state.handleEditingKey(tea.KeyMsg{Type: tea.KeyHome}, 24, slashCommands)
+	if state.cursorPos != 22 {
+		t.Fatalf("cursor after home = %d, want 22", state.cursorPos)
+	}
+
+	state.handleEditingKey(tea.KeyMsg{Type: tea.KeyEnd}, 24, slashCommands)
+	if state.cursorPos != 30 {
+		t.Fatalf("cursor after end = %d, want 30", state.cursorPos)
 	}
 }
 

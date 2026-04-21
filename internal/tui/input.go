@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -417,106 +416,45 @@ func (s inputState) visualWidth(width int) int {
 }
 
 func (s inputState) lineStartPosition(width int) int {
-	runes := []rune(s.input)
-	pos := s.cursorPos
-	if len(runes) == 0 {
+	lines := buildInputVisualLines(s.input, s.visualWidth(width))
+	if len(lines) == 0 {
 		return 0
 	}
-	visualWidth := s.visualWidth(width)
-	visLineStart := 0
-	visLineWidth := 0
-	for i := 0; i < len(runes); i++ {
-		charWidth := lipgloss.Width(string(runes[i]))
-		if visLineWidth+charWidth > visualWidth && visLineWidth > 0 {
-			if i <= pos {
-				visLineStart = i
-				visLineWidth = charWidth
-			} else {
-				return visLineStart
-			}
-		} else {
-			visLineWidth += charWidth
-		}
-	}
-	return visLineStart
+	return lines[inputCursorLineIndex(lines, s.cursorPos)].Start
 }
 
 func (s inputState) lineEndPosition(width int) int {
-	runes := []rune(s.input)
-	if len(runes) == 0 {
+	lines := buildInputVisualLines(s.input, s.visualWidth(width))
+	if len(lines) == 0 {
 		return 0
 	}
-	visualWidth := s.visualWidth(width)
-	visLineWidth := 0
-	for i := 0; i < len(runes); i++ {
-		charWidth := lipgloss.Width(string(runes[i]))
-		if visLineWidth+charWidth > visualWidth && visLineWidth > 0 {
-			if i <= s.cursorPos {
-				visLineWidth = charWidth
-			} else {
-				return i
-			}
-		} else {
-			visLineWidth += charWidth
-		}
-	}
-	return len(runes)
+	return lines[inputCursorLineIndex(lines, s.cursorPos)].End
 }
 
 func (s inputState) moveCursorUp(width int) int {
-	runes := []rune(s.input)
-	if len(runes) == 0 || s.cursorPos == 0 {
+	lines := buildInputVisualLines(s.input, s.visualWidth(width))
+	if len(lines) == 0 || s.cursorPos == 0 {
 		return 0
 	}
-	visualWidth := s.visualWidth(width)
-	currentLineStart := s.lineStartPosition(width)
-	currentCol := s.cursorPos - currentLineStart
-	if currentLineStart == 0 {
+	currentLineIndex := inputCursorLineIndex(lines, s.cursorPos)
+	if currentLineIndex == 0 {
 		return 0
 	}
-	prevLineStart := 0
-	visLineWidth := 0
-	for i := 0; i < currentLineStart; i++ {
-		charWidth := lipgloss.Width(string(runes[i]))
-		if visLineWidth+charWidth > visualWidth && visLineWidth > 0 {
-			prevLineStart = i
-			visLineWidth = 0
-		}
-		visLineWidth += charWidth
-	}
-	targetPos := prevLineStart + currentCol
-	if targetPos > currentLineStart-1 {
-		targetPos = currentLineStart - 1
-	}
-	return targetPos
+	currentColumn := inputCursorColumn(lines[currentLineIndex], s.input, s.cursorPos)
+	return inputCursorPositionForColumn(lines[currentLineIndex-1], s.input, currentColumn)
 }
 
 func (s inputState) moveCursorDown(width int) int {
-	runes := []rune(s.input)
-	if len(runes) == 0 {
+	lines := buildInputVisualLines(s.input, s.visualWidth(width))
+	if len(lines) == 0 {
 		return 0
 	}
-	visualWidth := s.visualWidth(width)
-	currentLineStart := s.lineStartPosition(width)
-	currentLineEnd := s.lineEndPosition(width)
-	currentCol := s.cursorPos - currentLineStart
-	visLineWidth := 0
-	for i := currentLineStart; i < len(runes); i++ {
-		charWidth := lipgloss.Width(string(runes[i]))
-		if visLineWidth+charWidth > visualWidth && visLineWidth > 0 {
-			currentLineEnd = i
-			break
-		}
-		visLineWidth += charWidth
+	currentLineIndex := inputCursorLineIndex(lines, s.cursorPos)
+	if currentLineIndex >= len(lines)-1 {
+		return len([]rune(s.input))
 	}
-	if currentLineEnd >= len(runes) {
-		return len(runes)
-	}
-	targetPos := currentLineEnd + currentCol
-	if targetPos >= len(runes) {
-		targetPos = len(runes)
-	}
-	return targetPos
+	currentColumn := inputCursorColumn(lines[currentLineIndex], s.input, s.cursorPos)
+	return inputCursorPositionForColumn(lines[currentLineIndex+1], s.input, currentColumn)
 }
 
 func (m Model) lineStartPosition(runes []rune, pos int) int {

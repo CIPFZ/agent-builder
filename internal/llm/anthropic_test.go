@@ -90,6 +90,75 @@ func TestAnthropicClientUsesMessagesAPIHeadersAndStreamsToolUse(t *testing.T) {
 	}
 }
 
+func TestAnthropicClientAppendsMessagesPathForBaseRoot(t *testing.T) {
+	var requestPath string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestPath = r.URL.Path
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: message_stop\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer server.Close()
+
+	client := NewAnthropicClient(AnthropicConfig{
+		BaseURL: server.URL + "/anthropic",
+		APIKey:  "anthropic-key",
+		Model:   "claude-sonnet-4-5",
+	})
+
+	err := client.Stream(t.Context(), GenerateRequest{
+		Session:     session.Session{ID: "sess-1", Key: "main", AgentID: "main"},
+		UserMessage: session.Message{ID: "user-1", Role: "user", Content: "hello", CreatedAt: time.Now().UTC()},
+		Context:     prompt.Context{SystemPrompt: "system prompt", UserInput: "hello"},
+	}, discardStreamHandler{})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+
+	if requestPath != "/anthropic/v1/messages" {
+		t.Fatalf("request path = %q, want /anthropic/v1/messages", requestPath)
+	}
+}
+
+func TestAnthropicClientOmitsSchemaLessToolsFromPayload(t *testing.T) {
+	var payload anthropicMessagesRequest
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: message_stop\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer server.Close()
+
+	client := NewAnthropicClient(AnthropicConfig{
+		BaseURL: server.URL + "/v1/messages",
+		APIKey:  "anthropic-key",
+		Model:   "claude-sonnet-4-5",
+	})
+
+	err := client.Stream(t.Context(), GenerateRequest{
+		Session:     session.Session{ID: "sess-1", Key: "main", AgentID: "main"},
+		UserMessage: session.Message{ID: "user-1", Role: "user", Content: "hello", CreatedAt: time.Now().UTC()},
+		Context:     prompt.Context{SystemPrompt: "system prompt", UserInput: "hello"},
+		Tools: []ToolDefinition{
+			{Name: "text.upper", Description: "Uppercase text"},
+			{Name: "system.run", Description: "Run command", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"command": map[string]any{"type": "string"}}}},
+		},
+	}, discardStreamHandler{})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+
+	if len(payload.Tools) != 1 || payload.Tools[0].Name != "system.run" {
+		t.Fatalf("payload tools = %#v, want only schema-backed tools", payload.Tools)
+	}
+}
+
 func TestBuildAnthropicMessagesConvertsAssistantToolUseAndToolResultHistory(t *testing.T) {
 	req := GenerateRequest{
 		Session:     session.Session{ID: "sess-1", Key: "main", AgentID: "main"},

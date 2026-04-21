@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	"myclaw/internal/approval"
@@ -57,8 +59,8 @@ func TestRendererSectionsExposeTranscriptApprovalAndPrompt(t *testing.T) {
 	view := newRenderer().renderScreen(newRenderSnapshot(model, 88))
 
 	for _, want := range []string{
-		"myclaw",
-		"Welcome back",
+		"MYCLAW",
+		"Commands: /help  /clear  /model",
 		"assistant",
 		"working",
 		"tool",
@@ -178,4 +180,53 @@ func TestRenderInputWithCursorPreservesUnicodeRunes(t *testing.T) {
 	if !contains(rendered, "你") || !contains(rendered, "好") {
 		t.Fatalf("rendered input = %q, want both CJK runes preserved", rendered)
 	}
+}
+
+func TestRenderInputWithCursorWrapsToVisualWidth(t *testing.T) {
+	rendered := renderInputWithCursor("abcdefghij", 2, 5)
+	lines := strings.Split(rendered, "\n")
+
+	if len(lines) != 2 {
+		t.Fatalf("line count = %d, want 2: %q", len(lines), rendered)
+	}
+	for _, line := range lines {
+		if plain := stripANSITest(line); len([]rune(plain)) > 5 {
+			t.Fatalf("wrapped line %q exceeds width 5", plain)
+		}
+	}
+}
+
+func TestRenderSnapshotTranscriptVisibleLinesShrinksForMultilinePrompt(t *testing.T) {
+	model := NewModel(&fakeBridge{})
+	model.setSize(80, 18)
+	base := newRenderSnapshot(model, 80).transcriptVisibleLines()
+
+	model.input = strings.Repeat("1", 80)
+	model.cursorPos = len([]rune(model.input))
+	model.setSize(24, 18)
+	multiline := newRenderSnapshot(model, 24).transcriptVisibleLines()
+
+	if multiline >= base {
+		t.Fatalf("multiline visible lines = %d, want less than base %d", multiline, base)
+	}
+}
+
+func TestRendererHeaderUsesReadableBranding(t *testing.T) {
+	model := NewModel(&fakeBridge{}, ModelConfig{LLMLabel: "minimax / MiniMax-M2.7"})
+
+	header := newRenderer().renderHeader(newRenderSnapshot(model, 88))
+	if !contains(header, "MYCLAW") {
+		t.Fatalf("header missing MYCLAW branding: %q", header)
+	}
+	if contains(header, "__  __") {
+		t.Fatalf("header still contains large banner art: %q", header)
+	}
+	if !contains(header, "minimax / MiniMax-M2.7") {
+		t.Fatalf("header missing model line: %q", header)
+	}
+}
+
+func stripANSITest(s string) string {
+	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	return re.ReplaceAllString(s, "")
 }

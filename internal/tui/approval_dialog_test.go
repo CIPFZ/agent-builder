@@ -117,7 +117,7 @@ func TestApprovalOverlayRendersAfterPromptAndHidesCommandDialog(t *testing.T) {
 	if approvalIndex, promptIndex := strings.LastIndex(view, "Permission Required"), strings.Index(view, "> "); approvalIndex <= promptIndex {
 		t.Fatalf("approval dialog should render after prompt: approval index %d prompt index %d view %q", approvalIndex, promptIndex, view)
 	}
-	if strings.Contains(view, "Commands") {
+	if strings.Contains(view, "Available local TUI commands") {
 		t.Fatalf("view includes command dialog while approval is active: %q", view)
 	}
 }

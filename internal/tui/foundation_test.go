@@ -39,7 +39,7 @@ func TestFoundationRendererPreservesCoreAnchors(t *testing.T) {
 
 	view := renderer.renderLayout(model, 100)
 
-	for _, want := range []string{"myclaw", "Welcome back", "Enter to send"} {
+	for _, want := range []string{"MYCLAW", "Commands: /help  /clear  /model", "Enter to send"} {
 		if !contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}

@@ -103,7 +103,7 @@ func TestModelViewShowsCoreSections(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	view := model.View()
 
-	for _, want := range []string{"myclaw", "Welcome back", "Tips for getting started", "Enter to send"} {
+	for _, want := range []string{"MYCLAW", "Commands: /help  /clear  /model", "Enter to send"} {
 		if !contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
@@ -185,7 +185,7 @@ func TestModelDiagnosticsViewShowsLatestState(t *testing.T) {
 
 	view := model.View()
 	// New UI doesn't show all diagnostics directly, but should contain basic elements
-	for _, want := range []string{"myclaw", "Welcome back", "MiniMax-M2.7"} {
+	for _, want := range []string{"MYCLAW", "openai-compatible / LongCat-Flash-Chat", "Commands: /help  /clear  /model"} {
 		if !contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
@@ -256,7 +256,7 @@ func TestModelViewShowsCompactionEventsInEventLog(t *testing.T) {
 	view := model.View()
 	// New UI doesn't show compact events directly, but should render without error
 	// Verify basic UI elements are present
-	for _, want := range []string{"myclaw", "Welcome back"} {
+	for _, want := range []string{"MYCLAW", "Commands: /help  /clear  /model"} {
 		if !contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
