@@ -7,61 +7,33 @@
     "ws_path": "/ws"
   },
   "llm": {
-    "default_profile": "claude-main",
-    "active_profile": "claude-main",
+    "default_profile": "minimax_main",
+    "active_profile": "minimax_main",
     "providers": {
-      "anthropic": {
+      "minimax": {
         "protocol": "anthropic",
-        "base_url": "https://api.anthropic.com/v1/messages",
-        "api_key": "${ANTHROPIC_API_KEY}",
+        "base_url": "https://api.minimaxi.com/anthropic/v1/messages",
+        "api_key": "${MINIMAX_API_KEY}",
         "api_version": "2023-06-01",
         "enabled": true,
-        "timeout_ms": 60000,
-        "max_retries": 2,
-        "headers": {}
-      },
-      "openai": {
-        "protocol": "openai-compatible",
-        "base_url": "https://api.openai.com/v1/chat/completions",
-        "api_key": "${OPENAI_API_KEY}",
-        "enabled": false,
-        "timeout_ms": 60000,
-        "max_retries": 2,
-        "headers": {}
-      },
-      "gemini": {
-        "protocol": "openai-compatible",
-        "base_url": "${GEMINI_BASE_URL}",
-        "api_key": "${GEMINI_API_KEY}",
-        "enabled": false,
         "timeout_ms": 60000,
         "max_retries": 2,
         "headers": {}
       }
     },
     "profiles": {
-      "claude-main": {
-        "provider": "anthropic",
-        "model": "claude-sonnet-4-5",
-        "streaming": true
-      },
-      "review-gpt": {
-        "provider": "openai",
-        "model": "gpt-5.1",
-        "streaming": true
-      },
-      "frontend-gemini": {
-        "provider": "gemini",
-        "model": "gemini-2.5-pro",
+      "minimax_main": {
+        "provider": "minimax",
+        "model": "MiniMax-M2.7",
         "streaming": true
       }
     },
     "routing": {
-      "default_profile": "claude-main",
+      "default_profile": "minimax_main",
       "agent_profiles": {
-        "review": "review-gpt",
-        "frontend": "frontend-gemini",
-        "worker": "claude-main"
+        "worker": "minimax_main",
+        "review": "minimax_main",
+        "frontend": "minimax_main"
       }
     }
   },
