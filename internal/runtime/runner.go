@@ -168,6 +168,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 			systemtools.NewBashTool(router),
 			systemtools.NewPowerShellTool(router),
 			systemtools.NewRunTool(router),
+			systemtools.NewSSHTool(router),
 			tools.NewReadTool(),
 			tools.NewWriteTool(),
 			tools.NewEditTool(),
