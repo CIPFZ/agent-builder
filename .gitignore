@@ -4,5 +4,5 @@ claude-code/
 .gocache/
 .gocache-fresh/
 query
-runtime
+/runtime
 tools
