@@ -22,12 +22,13 @@ This folder does not cover:
 
 ## Read Order
 
-1. `design.md`
-2. `source-alignment.md`
-3. `implementation-plan.md`
-4. `test-validation-plan.md`
-5. `review-checklist.md`
-6. `claude-code-handoff.md`
+1. `task.md`
+2. `design.md`
+3. `source-alignment.md`
+4. `implementation-plan.md`
+5. `test-validation-plan.md`
+6. `review-checklist.md`
+7. `review-fix-task.md`
 
 ## Delivery Standard
 
