@@ -241,6 +241,15 @@ func (p Policy) Evaluate(req Request) Decision {
 			Reason:           "plan mode requires approval for system actions",
 		})
 	case ModeAuto:
+		// SSH is always treated as remote execution requiring approval
+		// regardless of local workspace boundaries
+		if req.ToolName == "SSH" {
+			return p.finalizeDecision(Decision{
+				RequiresApproval: true,
+				Category:         CategoryApproval,
+				Reason:           "SSH remote execution requires explicit approval",
+			})
+		}
 		if p.AutoClassifier != nil {
 			if decision, ok := p.AutoClassifier(req); ok {
 				return p.finalizeDecision(decision)
@@ -255,6 +264,15 @@ func (p Policy) Evaluate(req Request) Decision {
 			Reason:           "requested operation is outside configured workspace roots",
 		})
 	case ModeWorkspaceWrite:
+		// SSH is always treated as remote execution requiring approval
+		// regardless of local workspace boundaries
+		if req.ToolName == "SSH" {
+			return p.finalizeDecision(Decision{
+				RequiresApproval: true,
+				Category:         CategoryApproval,
+				Reason:           "SSH remote execution requires explicit approval",
+			})
+		}
 		if insideAnyRoot(req.WorkDir, p.WorkspaceRoots) {
 			return Decision{Allowed: true, DecisionReason: DecisionReason{Type: DecisionReasonMode, Mode: p.Mode}}
 		}

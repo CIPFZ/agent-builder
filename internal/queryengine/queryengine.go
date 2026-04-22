@@ -43,6 +43,8 @@ type Event struct {
 	ToolInputObject       map[string]any
 	ToolError             bool
 	Progress              *tools.ToolProgress
+	StructuredContent     any
+	Meta                  map[string]any
 	DecisionReason        string
 	DecisionReasonDetails map[string]any
 	AcceptFeedback        string
@@ -3778,6 +3780,8 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 				ToolName:          pending.name,
 				ToolInput:         observableInput,
 				ToolInputObject:   observableInputObject,
+				StructuredContent: toolResult.StructuredContent,
+				Meta:              cloneAnyMap(toolResult.Meta),
 			}); err != nil {
 				return session.Message{}, err
 			}
