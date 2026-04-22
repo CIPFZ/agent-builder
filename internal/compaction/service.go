@@ -76,6 +76,13 @@ type Service struct {
 	cfg Config
 }
 
+func (s *Service) Config() Config {
+	if s == nil {
+		return Config{}
+	}
+	return s.cfg
+}
+
 type SessionMemoryOptions struct {
 	HookMessages         []model.Message
 	TranscriptPath       string

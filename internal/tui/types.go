@@ -14,6 +14,7 @@ type Bridge interface {
 	Reject(string) error
 	SetSessionModel(string) error
 	ClearSessionModel() error
+	ContextSnapshot() contextSnapshot
 	CompactionSnapshot() compactionSnapshot
 	CompactSession(string) (compactionActionResult, error)
 	MicrocompactSession() (compactionActionResult, error)
@@ -52,10 +53,27 @@ type platformStatusSnapshot struct {
 	BaseModel        string
 	ModelOverride    string
 	ResolvedModel    string
+	AvailableModels  []platformModelOption
 	MCPServerCount   int
 	MCPToolCount     int
 	MCPPromptCount   int
 	MCPResourceCount int
+}
+
+type platformModelOption struct {
+	Value              string
+	Label              string
+	Description        string
+	ContextWindowTokens int
+	MaxOutputTokens    int
+}
+
+type contextSnapshot struct {
+	Model               string
+	UsedTokens          int
+	ContextWindowTokens int
+	UsagePercent        int
+	CategoryLines       []string
 }
 
 type compactionSnapshot struct {
@@ -161,6 +179,7 @@ const (
 
 const (
 	messageKindCompact      = "compact"
+	messageKindContext      = "context"
 	messageKindError        = "error"
 	messageKindLocalCommand = "local-command"
 	messageKindSystem       = "system"

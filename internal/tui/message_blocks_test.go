@@ -27,7 +27,6 @@ func TestRendererRendersStructuredAssistantMessageBlocks(t *testing.T) {
 	view := tuiModel.View()
 
 	for _, want := range []string{
-		"assistant",
 		"thinking",
 		"Need to inspect files",
 		"I will inspect the repo.",
@@ -38,6 +37,9 @@ func TestRendererRendersStructuredAssistantMessageBlocks(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
+	}
+	if strings.Contains(view, "assistant:") {
+		t.Fatalf("view still contains assistant label: %q", view)
 	}
 }
 
@@ -66,7 +68,7 @@ func TestRendererRendersRichUserMessageBlocksIncludingImages(t *testing.T) {
 	view := tuiModel.View()
 
 	for _, want := range []string{
-		"user",
+		"> Please inspect this screenshot",
 		"Please inspect this screenshot",
 		"image",
 		"image/png",
@@ -74,6 +76,9 @@ func TestRendererRendersRichUserMessageBlocksIncludingImages(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
+	}
+	if strings.Contains(view, "user:") {
+		t.Fatalf("view still contains user label: %q", view)
 	}
 }
 

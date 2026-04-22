@@ -30,6 +30,7 @@ type fakeBridge struct {
 	taskPanel          taskPanelSnapshot
 	platformStatus     platformStatusSnapshot
 	mcpStatus          mcpSnapshot
+	contextStatus      contextSnapshot
 	compactionStatus   compactionSnapshot
 	compactResult      compactionActionResult
 	microcompactResult compactionActionResult
@@ -58,6 +59,10 @@ func (f *fakeBridge) SetSessionModel(model string) error {
 func (f *fakeBridge) ClearSessionModel() error {
 	f.modelClears++
 	return f.modelErr
+}
+
+func (f *fakeBridge) ContextSnapshot() contextSnapshot {
+	return f.contextStatus
 }
 
 func (f *fakeBridge) CompactionSnapshot() compactionSnapshot {
@@ -103,7 +108,7 @@ func TestModelViewShowsCoreSections(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	view := model.View()
 
-	for _, want := range []string{"MYCLAW", "Commands: /help  /clear  /model", "Enter to send"} {
+	for _, want := range []string{"MYCLAW", "Commands: /help  /clear  /model  /context", "Enter to send"} {
 		if !contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
@@ -185,7 +190,7 @@ func TestModelDiagnosticsViewShowsLatestState(t *testing.T) {
 
 	view := model.View()
 	// New UI doesn't show all diagnostics directly, but should contain basic elements
-	for _, want := range []string{"MYCLAW", "openai-compatible / LongCat-Flash-Chat", "Commands: /help  /clear  /model"} {
+	for _, want := range []string{"MYCLAW", "openai-compatible / LongCat-Flash-Chat", "Commands: /help  /clear  /model  /context"} {
 		if !contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
@@ -256,7 +261,7 @@ func TestModelViewShowsCompactionEventsInEventLog(t *testing.T) {
 	view := model.View()
 	// New UI doesn't show compact events directly, but should render without error
 	// Verify basic UI elements are present
-	for _, want := range []string{"MYCLAW", "Commands: /help  /clear  /model"} {
+	for _, want := range []string{"MYCLAW", "Commands: /help  /clear  /model  /context"} {
 		if !contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}

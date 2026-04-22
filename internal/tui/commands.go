@@ -18,6 +18,7 @@ var localSlashCommandSpecs = []slashCommandSpec{
 	{Name: "search", Description: "Search workspace file contents", Aliases: []string{"grep", "find"}},
 	{Name: "clear", Description: "Clear visible conversation", Aliases: []string{"reset", "new"}},
 	{Name: "model", Description: "Show model options"},
+	{Name: "context", Description: "Show current context usage"},
 	{Name: "mcp", Description: "Show MCP server status"},
 	{Name: "session", Description: "Show session details"},
 	{Name: "tasks", Description: "Show delegated task workbench", Aliases: []string{"agents"}},
