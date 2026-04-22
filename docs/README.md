@@ -21,6 +21,8 @@ The active target is:
 6. `roadmap/priority-backlog.md`
 7. `roadmap/next-phase-plan.md`
 8. `execution/implementation-rules.md`
+9. `tasks/execution-surface-program/design.md`
+10. `tasks/ssh-runtime-capability/design.md`
 
 ## Current Program Status
 
@@ -43,4 +45,3 @@ The active target is:
 ## Documentation Rule
 
 Only keep documents that still have direct execution value for the current architecture and plan.
-
