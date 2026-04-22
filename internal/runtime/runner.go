@@ -85,6 +85,7 @@ type Options struct {
 	CriticalSystemReminder    string
 	PreserveToolUseResults    bool
 	RenderedSystemPrompt      string
+	ModelCatalog              llm.ModelCatalog
 	FileReadingLimits         tools.ResourceLimits
 	GlobLimits                tools.ResourceLimits
 	MCPClients                []tools.MCPConnection
@@ -363,6 +364,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		CriticalSystemReminder:    options.CriticalSystemReminder,
 		PreserveToolUseResults:    options.PreserveToolUseResults,
 		RenderedSystemPrompt:      options.RenderedSystemPrompt,
+		ModelCatalog:              options.ModelCatalog,
 		FileReadingLimits:         options.FileReadingLimits,
 		GlobLimits:                options.GlobLimits,
 		MCPClients:                options.MCPClients,
@@ -1162,6 +1164,12 @@ func (r *Runner) SetSessionPermissionPolicy(sessionID string, policy permissions
 }
 
 func (r *Runner) SetSessionMainLoopModelOverride(sessionID, model string) error {
+	model = strings.TrimSpace(model)
+	if model != "" && r.options.ModelCatalog != nil {
+		if err := r.options.ModelCatalog.ValidateModel(context.Background(), model); err != nil {
+			return err
+		}
+	}
 	return r.engine.SetSessionMainLoopModelOverride(sessionID, model)
 }
 

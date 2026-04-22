@@ -64,6 +64,39 @@ func TestTUIStateSubmitUserInputUpdatesLocalTurnState(t *testing.T) {
 	}
 }
 
+func TestTUIStateAppendContextOutputAddsTranscriptEntry(t *testing.T) {
+	state := newTUIState()
+
+	state.appendContextOutput(contextSnapshot{
+		Model:               "MiniMax-M2.7",
+		UsedTokens:          120000,
+		ContextWindowTokens: 968000,
+		UsagePercent:        12,
+		CategoryLines: []string{
+			"Messages: 82000 tokens (8.5%)",
+			"Autocompact buffer: 13000 tokens (1.3%)",
+			"Free space: 843000 tokens (87.1%)",
+		},
+	})
+
+	if len(state.transcript) != 1 {
+		t.Fatalf("transcript len = %d, want 1", len(state.transcript))
+	}
+	entry := state.transcript[0]
+	if entry.Kind != messageKindContext {
+		t.Fatalf("entry = %#v, want context kind", entry)
+	}
+	for _, want := range []string{
+		"Context Usage",
+		"MiniMax-M2.7",
+		"120000 / 968000 tokens (12%)",
+	} {
+		if !contains(entry.Content, want) {
+			t.Fatalf("entry content missing %q: %q", want, entry.Content)
+		}
+	}
+}
+
 func TestTUIStateSubmitUserInputIgnoresEmptyText(t *testing.T) {
 	state := newTUIState()
 	state.input = "   "

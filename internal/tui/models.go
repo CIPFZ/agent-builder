@@ -22,9 +22,9 @@ var tuiModelOptions = []modelOption{
 	{Value: "haiku", Label: "Haiku", Description: "Fastest for quick answers"},
 }
 
-func findModelOption(value string) (modelOption, bool) {
+func findModelOption(value string, snapshot platformStatusSnapshot) (modelOption, bool) {
 	normalized := normalizeModelOption(value)
-	for _, option := range tuiModelOptions {
+	for _, option := range modelOptionsForSnapshot(snapshot) {
 		if normalizeModelOption(option.Value) == normalized {
 			return option, true
 		}
@@ -41,6 +41,10 @@ func (m *Model) applyModelSelection(value string) {
 	if value == "" {
 		return
 	}
+	snapshot := platformStatusSnapshot{}
+	if provider, ok := m.bridge.(platformStatusBridge); ok {
+		snapshot = provider.PlatformStatusSnapshot()
+	}
 	if value == "default" {
 		if err := m.bridge.ClearSessionModel(); err != nil {
 			m.applyBridgeError(err)
@@ -56,31 +60,37 @@ func (m *Model) applyModelSelection(value string) {
 		m.noteTranscriptAppended()
 		return
 	}
-	if _, ok := findModelOption(value); !ok {
-		m.applyBridgeError(fmt.Errorf("unknown model option %q", value))
-		return
-	}
 	if err := m.bridge.SetSessionModel(value); err != nil {
 		m.applyBridgeError(err)
 		return
 	}
+	selected, _ := findModelOption(value, snapshot)
+	label := value
+	if strings.TrimSpace(selected.Label) != "" {
+		label = selected.Label
+	}
+	transcriptLabel := value
+	if strings.TrimSpace(selected.Value) != "" {
+		transcriptLabel = selected.Value
+	}
 	m.busy = false
-	m.activity.Label = "Model switched to " + value
+	m.activity.Label = "Model switched to " + label
 	m.transcript = append(m.transcript, transcriptEntry{
 		Kind:    messageKindSystem,
 		Role:    "system",
-		Content: "Model switched to " + value,
+		Content: "Model switched to " + transcriptLabel,
 	})
 	m.noteTranscriptAppended()
 }
 
 func modelDialogItems(snapshot platformStatusSnapshot) []dialogItem {
-	items := make([]dialogItem, 0, len(tuiModelOptions))
+	options := modelOptionsForSnapshot(snapshot)
+	items := make([]dialogItem, 0, len(options))
 	current := normalizeModelOption(snapshot.ModelOverride)
 	if current == "" {
-		current = "default"
+		current = normalizeModelOption(snapshot.ResolvedModel)
 	}
-	for _, option := range tuiModelOptions {
+	for _, option := range options {
 		description := option.Description
 		if normalizeModelOption(option.Value) == current {
 			description += " (current)"
@@ -92,4 +102,39 @@ func modelDialogItems(snapshot platformStatusSnapshot) []dialogItem {
 		})
 	}
 	return items
+}
+
+func modelOptionsForSnapshot(snapshot platformStatusSnapshot) []modelOption {
+	if len(snapshot.AvailableModels) == 0 {
+		return append([]modelOption(nil), tuiModelOptions...)
+	}
+	options := make([]modelOption, 0, len(snapshot.AvailableModels)+1)
+	options = append(options, modelOption{
+		Value:       "default",
+		Label:       "Default",
+		Description: "Use the configured default session model",
+	})
+	for _, available := range snapshot.AvailableModels {
+		value := strings.TrimSpace(available.Value)
+		if value == "" {
+			continue
+		}
+		label := strings.TrimSpace(available.Label)
+		if label == "" {
+			label = value
+		}
+		description := strings.TrimSpace(available.Description)
+		if description == "" {
+			description = value
+		}
+		if available.ContextWindowTokens > 0 {
+			description = fmt.Sprintf("%s | ctx %d", description, available.ContextWindowTokens)
+		}
+		options = append(options, modelOption{
+			Value:       value,
+			Label:       label,
+			Description: description,
+		})
+	}
+	return options
 }

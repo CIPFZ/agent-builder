@@ -208,6 +208,7 @@ type Config struct {
 	SystemPromptInjection      string
 	DisableClaudeMd            bool
 	DisableGitStatus           bool
+	ModelCatalog               llm.ModelCatalog
 	InputProcessor             InputProcessor
 	IncludePartialStreamEvents bool
 	EstimatedTokenBudget       int
@@ -464,6 +465,7 @@ type QueryEngine struct {
 	systemPromptInjection      string
 	disableClaudeMd            bool
 	disableGitStatus           bool
+	modelCatalog               llm.ModelCatalog
 	includePartialStreamEvents bool
 	snipReplay                 func(session.Message, []session.Message) *SnipReplayResult
 	postCompactCleanup         func(session.Message, []session.Message) *PostCompactCleanupResult
@@ -694,6 +696,7 @@ func New(cfg Config) *QueryEngine {
 		systemPromptInjection:      cfg.SystemPromptInjection,
 		disableClaudeMd:            cfg.DisableClaudeMd,
 		disableGitStatus:           cfg.DisableGitStatus,
+		modelCatalog:               cfg.ModelCatalog,
 		includePartialStreamEvents: cfg.IncludePartialStreamEvents,
 		snipReplay:                 cfg.SnipReplay,
 		postCompactCleanup:         cfg.PostCompactCleanup,
@@ -1744,8 +1747,8 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 	q.ensureMutableMessages(sess.ID)
 	q.ensureSessionModelMetadata(sess.ID)
 	history := q.Messages(sess.ID)
-	if q.compactor != nil {
-		analysis := q.compactor.Analyze(history)
+	if compactor := q.compactorForSession(sess.ID); compactor != nil {
+		analysis := compactor.Analyze(history)
 		q.recordCompactionAnalysis(analysis)
 		if analysis.IsAboveWarningThreshold {
 			q.recordCompactionPhase("warning")
@@ -1756,7 +1759,7 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 			}); err != nil {
 				return nil, err
 			}
-			micro := q.compactor.Microcompact(history)
+			micro := compactor.Microcompact(history)
 			if micro.Changed {
 				if err := q.sessions.ReplaceMessages(sess.ID, micro.Messages); err != nil {
 					return nil, err
@@ -1787,7 +1790,7 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 		if err != nil {
 			return nil, err
 		}
-		result := q.compactor.CompactWithSessionMemoryOptions(history, q.latestSummaryMemory(sess.ID), q.lastSummarizedMessageID(sess.ID), compactOptions)
+		result := compactor.CompactWithSessionMemoryOptions(history, q.latestSummaryMemory(sess.ID), q.lastSummarizedMessageID(sess.ID), compactOptions)
 		q.recordCompactionResult(result)
 		if analysis.IsAboveAutoCompactThreshold && result.Changed {
 			q.recordCompactionPhase("auto")

@@ -171,6 +171,14 @@ func (m *Model) openModelDialog() {
 	})
 }
 
+func (m *Model) appendContextOutput() {
+	m.appendContextOutputSnapshot(m.bridge.ContextSnapshot())
+}
+
+func (m *Model) appendContextOutputSnapshot(snapshot contextSnapshot) {
+	m.tuiState.appendContextOutput(snapshot)
+}
+
 func (m *Model) openSessionDialog() {
 	items := []dialogItem{
 		{Label: "Session ID", Description: valueOrUnset(m.diagnostics.SessionID), Disabled: true},
@@ -324,6 +332,8 @@ func (m *Model) handleLocalCommand(text string) bool {
 		} else {
 			m.openModelDialog()
 		}
+	case "context":
+		m.appendContextOutput()
 	case "session":
 		m.openSessionDialog()
 	case "tasks":

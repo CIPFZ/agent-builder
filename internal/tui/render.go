@@ -220,7 +220,7 @@ func (r renderer) renderHeader(snapshot renderSnapshot) string {
 	}
 	b.WriteString(padLine("Model: "+modelLine, "Activity: "+activity, width))
 	b.WriteString("\n")
-	b.WriteString(padLine("Commands: /help  /clear  /model", "Scroll: wheel / PgUp / PgDn", width))
+	b.WriteString(padLine("Commands: /help  /clear  /model  /context", "Scroll: wheel / PgUp / PgDn", width))
 	b.WriteString("\n")
 	b.WriteString(borderLine(width, '='))
 	b.WriteString("\n")
@@ -352,6 +352,8 @@ func (r renderer) renderSpecialBlock(b *strings.Builder, entry transcriptEntry, 
 		if entry.LocalStderr != "" {
 			r.renderIndentedBlock(b, "stderr", entry.LocalStderr, width)
 		}
+	case messageKindContext:
+		r.renderContextBlock(b, entry.Content, width)
 	case messageKindSystem:
 		r.renderLabeledBlock(b, "system", entry.Content, width)
 	default:
@@ -360,33 +362,31 @@ func (r renderer) renderSpecialBlock(b *strings.Builder, entry transcriptEntry, 
 }
 
 func (r renderer) renderUserBlocks(b *strings.Builder, entry transcriptEntry, width int) {
-	b.WriteString("user\n")
 	for _, block := range entry.Blocks {
 		switch {
 		case isImageMessageBlock(block):
-			r.renderIndentedBlock(b, "image", imageBlockSummary(block), width)
+			r.renderPromptBlock(b, "image "+imageBlockSummary(block), width)
 		case block.Type == model.MessageBlockText:
-			r.renderIndentedBlock(b, "text", block.Text, width)
+			r.renderPromptBlock(b, block.Text, width)
 		case block.Type == model.MessageBlockToolResult:
 			label := "tool result"
 			if block.IsError {
 				label = "tool error"
 			}
-			r.renderIndentedBlock(b, label, block.Content, width)
+			r.renderPromptBlock(b, label+": "+block.Content, width)
 		default:
-			r.renderIndentedBlock(b, blockLabel(block), messageBlockFallbackContent(block), width)
+			r.renderPromptBlock(b, blockLabel(block)+": "+messageBlockFallbackContent(block), width)
 		}
 	}
 }
 
 func (r renderer) renderAssistantBlocks(b *strings.Builder, entry transcriptEntry, width int) {
-	b.WriteString("assistant\n")
 	for _, block := range entry.Blocks {
 		switch block.Type {
 		case model.MessageBlockThinking:
 			r.renderIndentedBlock(b, "thinking", block.Text, width)
 		case model.MessageBlockText:
-			r.renderIndentedBlock(b, "text", block.Text, width)
+			r.renderPlainBlock(b, block.Text, width)
 		case model.MessageBlockToolUse:
 			name := block.Name
 			if name == "" {
@@ -788,6 +788,14 @@ func (r renderer) renderRoleBlock(b *strings.Builder, role, content string, stre
 	if streaming {
 		content += " ..."
 	}
+	if role == "user" {
+		r.renderPromptBlock(b, content, width)
+		return
+	}
+	if role == "assistant" {
+		r.renderPlainBlock(b, content, width)
+		return
+	}
 	prefix := role + ": "
 	available := width - lipgloss.Width(prefix)
 	if available < 20 {
@@ -802,6 +810,49 @@ func (r renderer) renderRoleBlock(b *strings.Builder, role, content string, stre
 		}
 		b.WriteString(line)
 		b.WriteString("\n")
+	}
+}
+
+func (r renderer) renderPlainBlock(b *strings.Builder, content string, width int) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		content = "(empty)"
+	}
+	for _, line := range wrapCells(content, width) {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+}
+
+func (r renderer) renderPromptBlock(b *strings.Builder, content string, width int) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		content = "(empty)"
+	}
+	available := width - 2
+	if available < 20 {
+		available = 20
+	}
+	lines := wrapCells(content, available)
+	for i, line := range lines {
+		if i == 0 {
+			b.WriteString("> ")
+		} else {
+			b.WriteString("  ")
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+}
+
+func (r renderer) renderContextBlock(b *strings.Builder, content string, width int) {
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		r.renderPlainBlock(b, line, width)
 	}
 }
 

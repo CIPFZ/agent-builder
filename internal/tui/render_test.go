@@ -60,8 +60,7 @@ func TestRendererSectionsExposeTranscriptApprovalAndPrompt(t *testing.T) {
 
 	for _, want := range []string{
 		"MYCLAW",
-		"Commands: /help  /clear  /model",
-		"assistant",
+		"Commands: /help  /clear  /model  /context",
 		"working",
 		"tool",
 		"system.run",
@@ -71,6 +70,33 @@ func TestRendererSectionsExposeTranscriptApprovalAndPrompt(t *testing.T) {
 	} {
 		if !contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
+		}
+	}
+	if contains(view, "assistant:") {
+		t.Fatalf("view still shows assistant label: %q", view)
+	}
+	if contains(view, "user:") {
+		t.Fatalf("view still shows user label: %q", view)
+	}
+}
+
+func TestRendererShowsUserMessagesWithPromptStyle(t *testing.T) {
+	model := NewModel(&fakeBridge{})
+	model.transcript = append(model.transcript,
+		transcriptEntry{Role: "user", Content: "hello world"},
+		transcriptEntry{Role: "assistant", Content: "answer text"},
+	)
+
+	view := newRenderer().renderScreen(newRenderSnapshot(model, 88))
+
+	for _, want := range []string{"> hello world", "answer text"} {
+		if !contains(view, want) {
+			t.Fatalf("view missing %q: %q", want, view)
+		}
+	}
+	for _, unwanted := range []string{"user:", "assistant:"} {
+		if contains(view, unwanted) {
+			t.Fatalf("view still contains %q: %q", unwanted, view)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"myclaw/internal/approval"
@@ -236,6 +237,25 @@ func (s *tuiState) noteTranscriptAppended() {
 	}
 	s.viewport.ScrollOffset++
 	s.viewport.NewMessages++
+}
+
+func (s *tuiState) appendContextOutput(snapshot contextSnapshot) {
+	lines := []string{"Context Usage"}
+	if snapshot.Model != "" {
+		lines = append(lines, snapshot.Model)
+	}
+	if snapshot.ContextWindowTokens > 0 {
+		lines = append(lines, fmt.Sprintf("%d / %d tokens (%d%%)", snapshot.UsedTokens, snapshot.ContextWindowTokens, snapshot.UsagePercent))
+	} else {
+		lines = append(lines, fmt.Sprintf("%d tokens used", snapshot.UsedTokens))
+	}
+	lines = append(lines, snapshot.CategoryLines...)
+	s.transcript = append(s.transcript, transcriptEntry{
+		Kind:    messageKindContext,
+		Role:    "system",
+		Content: strings.Join(lines, "\n"),
+	})
+	s.noteTranscriptAppended()
 }
 
 func appendBoundedEvent(events []string, event string, limit int) []string {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"myclaw/internal/compaction"
+	"myclaw/internal/llm"
 	"myclaw/internal/memory"
 	"myclaw/internal/model"
 	"myclaw/internal/session"
@@ -30,8 +31,12 @@ func (r *Runner) CompactionSnapshot(sessionID string) (SessionCompactionSnapshot
 		return SessionCompactionSnapshot{}, fmt.Errorf("session %q not found", sessionID)
 	}
 	messages, _ := r.sessions.Messages(sessionID)
+	compactor := r.compactorForSession(sessionID)
+	if compactor == nil {
+		return SessionCompactionSnapshot{}, nil
+	}
 	return SessionCompactionSnapshot{
-		Analysis:             r.options.Compactor.Analyze(messages),
+		Analysis:             compactor.Analyze(messages),
 		LastCompactionReason: strings.TrimSpace(sess.Metadata.LastCompactionReason),
 		LastCompactedAt:      sess.Metadata.LastCompactedAt,
 	}, nil
@@ -44,14 +49,18 @@ func (r *Runner) CompactSession(sessionID, customInstructions string) (SessionCo
 	}
 
 	var result compaction.Result
+	compactor := r.compactorForSession(sessionID)
+	if compactor == nil {
+		return SessionCompactionResult{}, fmt.Errorf("compactor is not configured")
+	}
 	if strings.TrimSpace(customInstructions) == "" {
-		result = r.options.Compactor.CompactWithSessionMemory(
+		result = compactor.CompactWithSessionMemory(
 			history,
 			r.latestSummaryMemory(sessionID),
 			strings.TrimSpace(sess.Metadata.LastSummarizedMessageID),
 		)
 	} else {
-		result = r.options.Compactor.Compact(history)
+		result = compactor.Compact(history)
 	}
 	if err := r.applyManualCompaction(sess, result); err != nil {
 		return SessionCompactionResult{}, err
@@ -65,7 +74,11 @@ func (r *Runner) MicrocompactSession(sessionID string) (SessionCompactionResult,
 		return SessionCompactionResult{}, err
 	}
 
-	result := r.options.Compactor.Microcompact(history)
+	compactor := r.compactorForSession(sessionID)
+	if compactor == nil {
+		return SessionCompactionResult{}, fmt.Errorf("compactor is not configured")
+	}
+	result := compactor.Microcompact(history)
 	if err := r.applyManualCompaction(sess, result); err != nil {
 		return SessionCompactionResult{}, err
 	}
@@ -176,4 +189,12 @@ func newCompactBoundaryMessage(sessionID string) session.Message {
 		Content:   "Conversation compacted",
 		CreatedAt: now,
 	}
+}
+
+func (r *Runner) compactorForSession(sessionID string) *compaction.Service {
+	if r.options.Compactor == nil {
+		return nil
+	}
+	cfg := llm.ClaudeCompactionConfig(r.options.Compactor.Config(), r.ResolvedMainLoopModelForSession(sessionID), r.options.ModelCatalog)
+	return compaction.NewService(cfg)
 }

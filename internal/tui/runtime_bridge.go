@@ -217,6 +217,18 @@ func (b *RuntimeBridge) PlatformStatusSnapshot() platformStatusSnapshot {
 	snapshot.BaseModel = b.runner.BaseMainLoopModelForSession(b.session.ID)
 	snapshot.ModelOverride = b.runner.SessionMainLoopModelOverride(b.session.ID)
 	snapshot.ResolvedModel = b.runner.ResolvedMainLoopModelForSession(b.session.ID)
+	if models, err := b.runner.AvailableModels(b.ctx); err == nil {
+		snapshot.AvailableModels = make([]platformModelOption, 0, len(models))
+		for _, model := range models {
+			snapshot.AvailableModels = append(snapshot.AvailableModels, platformModelOption{
+				Value:               model.ID,
+				Label:               valueOrUnset(model.DisplayName),
+				Description:         strings.TrimSpace(model.Description),
+				ContextWindowTokens: model.ContextWindowTokens,
+				MaxOutputTokens:     model.MaxOutputTokens,
+			})
+		}
+	}
 
 	inventory := b.runner.MCPInventory()
 	snapshot.MCPServerCount = inventory.ServerCount
@@ -244,6 +256,23 @@ func (b *RuntimeBridge) ClearSessionModel() error {
 		return nil
 	}
 	return b.runner.ClearSessionMainLoopModelOverride(b.session.ID)
+}
+
+func (b *RuntimeBridge) ContextSnapshot() contextSnapshot {
+	if b.runner == nil {
+		return contextSnapshot{}
+	}
+	snapshot, err := b.runner.ContextSnapshot(b.session.ID)
+	if err != nil {
+		return contextSnapshot{}
+	}
+	return contextSnapshot{
+		Model:               snapshot.Model,
+		UsedTokens:          snapshot.UsedTokens,
+		ContextWindowTokens: snapshot.ContextWindowTokens,
+		UsagePercent:        snapshot.UsagePercent,
+		CategoryLines:       append([]string(nil), snapshot.CategoryLines...),
+	}
 }
 
 func (b *RuntimeBridge) CompactionSnapshot() compactionSnapshot {
