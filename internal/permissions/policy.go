@@ -276,7 +276,7 @@ func (p Policy) Evaluate(req Request) Decision {
 
 func isShellTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "system.run", "Bash", "PowerShell":
+	case "system.run", "Bash", "PowerShell", "SSH":
 		return true
 	default:
 		return false

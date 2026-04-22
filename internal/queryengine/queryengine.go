@@ -498,6 +498,7 @@ func New(cfg Config) *QueryEngine {
 			systemtools.NewBashTool(router),
 			systemtools.NewPowerShellTool(router),
 			systemtools.NewRunTool(router),
+			systemtools.NewSSHTool(router),
 			tools.NewReadTool(),
 			tools.NewWriteTool(),
 			tools.NewEditTool(),

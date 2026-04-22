@@ -29,7 +29,7 @@ func TestPolicyEvaluateAskModeRequiresApproval(t *testing.T) {
 }
 
 func TestPolicyEvaluateAskModeRequiresApprovalForClaudeShellTools(t *testing.T) {
-	for _, toolName := range []string{"Bash", "PowerShell"} {
+	for _, toolName := range []string{"Bash", "PowerShell", "SSH"} {
 		t.Run(toolName, func(t *testing.T) {
 			policy := permissions.Policy{Mode: permissions.ModeAsk}
 			decision := policy.Evaluate(permissions.Request{

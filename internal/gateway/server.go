@@ -1497,6 +1497,20 @@ func (s runtimeSink) Emit(event runtime.RuntimeEvent) error {
 			"tool_input":        event.ToolInput,
 			"tool_input_object": event.ToolInputObject,
 		}))
+	case "tool.progress":
+		if event.Progress == nil {
+			return nil
+		}
+		return s.client.WriteJSON(protocolws.EventMessage("tool.progress", map[string]any{
+			"run_id":      event.RunID,
+			"session_id":  event.Session.ID,
+			"session_key": event.Session.Key,
+			"tool_name":   event.ToolName,
+			"tool_use_id": event.Progress.ToolUseID,
+			"type":        event.Progress.Type,
+			"message":     event.Progress.Message,
+			"data":        event.Progress.Data,
+		}))
 	case "tool.result":
 		if event.Message == nil {
 			return nil

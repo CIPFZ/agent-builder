@@ -106,7 +106,7 @@ func (e *SystemSSHExecutor) Execute(ctx context.Context, input SSHInput, progres
 func buildSSHArgs(input SSHInput) []string {
 	args := []string{
 		"-o", "BatchMode=yes",
-		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "StrictHostKeyChecking=yes",
 	}
 
 	if input.Port != 0 && input.Port != 22 {
