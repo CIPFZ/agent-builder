@@ -1065,7 +1065,7 @@ func (q *QueryEngine) Messages(sessionID string) []session.Message {
 	return append([]session.Message(nil), items...)
 }
 
-func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, pending *toolCall) tools.ToolUseContext {
+func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, pending *toolCall, runID string, sink EventSink) tools.ToolUseContext {
 	policy := q.PermissionPolicyForSession(sess.ID)
 	q.toolContextMu.Lock()
 	appState := q.toolAppStates[sess.ID]
@@ -1098,9 +1098,20 @@ func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, 
 	}
 	q.toolContextMu.Unlock()
 
-	reportProgress := q.reportToolProgress
-	if reportProgress == nil {
-		reportProgress = func(tools.ToolProgress) {}
+	reportProgress := func(progress tools.ToolProgress) {
+		// Emit progress as shared runtime event first
+		_ = q.emit(sink, Event{
+			Type:      "tool.progress",
+			Session:   sess,
+			RunID:     runID,
+			ToolName:  pending.name,
+			ToolUseID: pending.toolUseID,
+			Progress:  &progress,
+		})
+		// Then call legacy callback for compatibility
+		if q.reportToolProgress != nil {
+			q.reportToolProgress(progress)
+		}
 	}
 	requestPrompt := q.requestPrompt
 	if requestPrompt == nil {
@@ -3393,7 +3404,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 			}
 			if !pending.skipPermission {
 				if !toolPermissionResolved {
-					toolDecision, checked, err := q.tools.CheckPermissionsWithContext(ctx, q.toolUseContext(ctx, sess, pending))
+					toolDecision, checked, err := q.tools.CheckPermissionsWithContext(ctx, q.toolUseContext(ctx, sess, pending, runID, sink))
 					if err != nil {
 						return session.Message{}, err
 					}
@@ -3643,7 +3654,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 			}); err != nil {
 				return session.Message{}, err
 			}
-			executionContext := q.toolUseContext(ctx, sess, pending)
+			executionContext := q.toolUseContext(ctx, sess, pending, runID, sink)
 			toolResult, err := q.tools.InvokeWithContext(ctx, executionContext)
 			if err != nil {
 				q.markMCPServerNeedsAuth(pending.name, err)
