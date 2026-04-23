@@ -1497,11 +1497,25 @@ func (s runtimeSink) Emit(event runtime.RuntimeEvent) error {
 			"tool_input":        event.ToolInput,
 			"tool_input_object": event.ToolInputObject,
 		}))
+	case "tool.progress":
+		if event.Progress == nil {
+			return nil
+		}
+		return s.client.WriteJSON(protocolws.EventMessage("tool.progress", map[string]any{
+			"run_id":      event.RunID,
+			"session_id":  event.Session.ID,
+			"session_key": event.Session.Key,
+			"tool_name":   event.ToolName,
+			"tool_use_id": event.Progress.ToolUseID,
+			"type":        event.Progress.Type,
+			"message":     event.Progress.Message,
+			"data":        event.Progress.Data,
+		}))
 	case "tool.result":
 		if event.Message == nil {
 			return nil
 		}
-		return s.client.WriteJSON(protocolws.EventMessage("tool.result", map[string]any{
+		payload := map[string]any{
 			"run_id":      event.RunID,
 			"session_id":  event.Session.ID,
 			"session_key": event.Session.Key,
@@ -1512,7 +1526,14 @@ func (s runtimeSink) Emit(event runtime.RuntimeEvent) error {
 				"content":    event.Message.Content,
 				"created_at": event.Message.CreatedAt.Format(time.RFC3339Nano),
 			},
-		}))
+		}
+		if event.StructuredContent != nil {
+			payload["structured_content"] = event.StructuredContent
+		}
+		if event.Meta != nil {
+			payload["meta"] = event.Meta
+		}
+		return s.client.WriteJSON(protocolws.EventMessage("tool.result", payload))
 	case "run.error":
 		return s.client.WriteJSON(protocolws.EventMessage("run.error", map[string]any{
 			"run_id":      event.RunID,

@@ -44,6 +44,8 @@ type RuntimeEvent struct {
 	ToolInputObject       map[string]any
 	ToolError             bool
 	Progress              *tools.ToolProgress
+	StructuredContent     any
+	Meta                  map[string]any
 	DecisionReason        string
 	DecisionReasonDetails map[string]any
 	AcceptFeedback        string
@@ -168,6 +170,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 			systemtools.NewBashTool(router),
 			systemtools.NewPowerShellTool(router),
 			systemtools.NewRunTool(router),
+			systemtools.NewSSHTool(router),
 			tools.NewReadTool(),
 			tools.NewWriteTool(),
 			tools.NewEditTool(),
@@ -1478,6 +1481,8 @@ func fromQueryEvent(event queryengine.Event) RuntimeEvent {
 		ToolInputObject:       cloneAnyMap(event.ToolInputObject),
 		ToolError:             event.ToolError,
 		Progress:              cloneToolProgress(event.Progress),
+		StructuredContent:     event.StructuredContent,
+		Meta:                  cloneAnyMap(event.Meta),
 		DecisionReason:        event.DecisionReason,
 		DecisionReasonDetails: cloneAnyMap(event.DecisionReasonDetails),
 		AcceptFeedback:        event.AcceptFeedback,
