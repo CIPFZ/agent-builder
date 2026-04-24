@@ -24,6 +24,7 @@ The active target is:
 9. `tasks/execution-surface-program/design.md`
 10. `tasks/ssh-runtime-capability/design.md`
 11. `tasks/mcp-runtime-capability/design.md`
+12. `tasks/subagent-runtime-capability/design.md`
 
 ## Current Program Status
 
