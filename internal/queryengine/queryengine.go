@@ -1208,6 +1208,7 @@ func (q *QueryEngine) toolUseContext(ctx context.Context, sess session.Session, 
 	return tools.ToolUseContext{
 		AbortContext:       ctx,
 		Session:            sess,
+		WorkDir:            resolveWorkDir(sess, q.workspace),
 		ToolName:           pending.name,
 		ToolUseID:          pending.toolUseID,
 		Input:              pending.input,
@@ -4299,11 +4300,15 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 				if errorText == "" {
 					errorText = "tool execution failed"
 				}
+				toolOutput := strings.TrimSpace(toolResult.Output)
+				if toolOutput == "" {
+					toolOutput = errorText
+				}
 				failureBlocks := []model.MessageBlock{
 					{
 						Type:      model.MessageBlockToolResult,
 						ToolUseID: toolUseID,
-						Content:   errorText,
+						Content:   toolOutput,
 						IsError:   true,
 					},
 				}
@@ -4326,7 +4331,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 						failureBlocks = append(failureBlocks, postToolUseFailureHookBlocks(pending.name, toolUseID, failureResult)...)
 					}
 				}
-				toolMsg, err := q.sessions.AppendMessageWithBlocks(sess.ID, "tool", fmt.Sprintf("%s: %s", pending.name, errorText), "", failureBlocks)
+				toolMsg, err := q.sessions.AppendMessageWithBlocks(sess.ID, "tool", fmt.Sprintf("%s: %s", pending.name, toolOutput), "", failureBlocks)
 				if err != nil {
 					return session.Message{}, err
 				}
@@ -4342,6 +4347,8 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 					ToolInput:         observableInput,
 					ToolInputObject:   observableInputObject,
 					ToolError:         true,
+					StructuredContent: toolResult.StructuredContent,
+					Meta:              cloneAnyMap(toolResult.Meta),
 				}); err != nil {
 					return session.Message{}, err
 				}

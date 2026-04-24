@@ -1517,36 +1517,43 @@ func (s runtimeSink) Emit(event runtime.RuntimeEvent) error {
 		}))
 	case "tool.called":
 		return s.client.WriteJSON(protocolws.EventMessage("tool.called", map[string]any{
-			"run_id":            event.RunID,
-			"session_id":        event.Session.ID,
-			"session_key":       event.Session.Key,
-			"tool_name":         event.ToolName,
-			"tool_input":        event.ToolInput,
-			"tool_input_object": event.ToolInputObject,
+			"run_id":              event.RunID,
+			"session_id":          event.Session.ID,
+			"session_key":         event.Session.Key,
+			"tool_use_id":         event.ToolUseID,
+			"provider_message_id": event.ProviderMessageID,
+			"tool_name":           event.ToolName,
+			"tool_input":          event.ToolInput,
+			"tool_input_object":   event.ToolInputObject,
 		}))
 	case "tool.progress":
 		if event.Progress == nil {
 			return nil
 		}
 		return s.client.WriteJSON(protocolws.EventMessage("tool.progress", map[string]any{
-			"run_id":      event.RunID,
-			"session_id":  event.Session.ID,
-			"session_key": event.Session.Key,
-			"tool_name":   event.ToolName,
-			"tool_use_id": event.Progress.ToolUseID,
-			"type":        event.Progress.Type,
-			"message":     event.Progress.Message,
-			"data":        event.Progress.Data,
+			"run_id":              event.RunID,
+			"session_id":          event.Session.ID,
+			"session_key":         event.Session.Key,
+			"tool_name":           event.ToolName,
+			"tool_use_id":         event.Progress.ToolUseID,
+			"provider_message_id": event.ProviderMessageID,
+			"type":                event.Progress.Type,
+			"message":             event.Progress.Message,
+			"data":                event.Progress.Data,
 		}))
 	case "tool.result":
 		if event.Message == nil {
 			return nil
 		}
 		payload := map[string]any{
-			"run_id":      event.RunID,
-			"session_id":  event.Session.ID,
-			"session_key": event.Session.Key,
-			"tool_name":   event.ToolName,
+			"run_id":              event.RunID,
+			"session_id":          event.Session.ID,
+			"session_key":         event.Session.Key,
+			"tool_name":           event.ToolName,
+			"tool_use_id":         event.ToolUseID,
+			"provider_message_id": event.ProviderMessageID,
+			"tool_input":          event.ToolInput,
+			"tool_input_object":   event.ToolInputObject,
 			"message": map[string]any{
 				"id":         event.Message.ID,
 				"role":       event.Message.Role,
