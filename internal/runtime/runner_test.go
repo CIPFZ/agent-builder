@@ -1149,6 +1149,83 @@ func TestRunnerDefaultAgentTaskExecutorBackgroundWithoutReadableToolsMarksOutput
 	}
 }
 
+func TestRunnerDefaultAgentTaskExecutorReturnsLaunchedTaskPayloadWhenForegroundRunMissesFastFinishWindow(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	client := &gatedScriptedClient{
+		responses:     []string{"working"},
+		gateFirstCall: make(chan struct{}),
+		firstStarted:  make(chan struct{}),
+	}
+
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	runner.options.AgentManager = agent.NewManager()
+	runner.options.AgentTaskExecutor = func(ctx context.Context, request tools.AgentTaskRequest) (tools.ToolResult, error) {
+		return runner.defaultAgentTaskExecutor(ctx, request)
+	}
+
+	resultCh := make(chan tools.ToolResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, err := runner.defaultAgentTaskExecutor(context.Background(), tools.AgentTaskRequest{
+			ToolContext: tools.ToolUseContext{
+				Session:        parent,
+				AvailableTools: []tools.Definition{{Name: "Read"}},
+			},
+			Label:  "research",
+			Prompt: "inspect auth flow",
+		})
+		if err != nil {
+			errCh <- err
+			return
+		}
+		resultCh <- result
+	}()
+
+	select {
+	case <-client.firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for delegated run to start")
+	}
+
+	var result tools.ToolResult
+	select {
+	case err := <-errCh:
+		t.Fatalf("default agent task executor: %v", err)
+	case result = <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for launched-task payload")
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &payload); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	if got := payload["status"]; got != "running" || payload["lastAction"] != "spawned" {
+		t.Fatalf("payload = %#v, want running spawned launched-task payload", payload)
+	}
+	if got := payload["background"]; got != true {
+		t.Fatalf("background = %#v, want true for launched delegated task", got)
+	}
+	if _, ok := payload["outputFile"].(string); !ok {
+		t.Fatalf("outputFile = %#v, want launched-task output path", payload["outputFile"])
+	}
+	if got := payload["canReadOutputFile"]; got != true {
+		t.Fatalf("canReadOutputFile = %#v, want true", got)
+	}
+
+	close(client.gateFirstCall)
+	runs := runner.AgentManager().List()
+	if len(runs) != 1 {
+		t.Fatalf("runs = %#v, want one delegated run", runs)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), runs[0].ID, 5*time.Second); err != nil {
+		t.Fatalf("wait delegated run: %v", err)
+	}
+}
+
 func TestRunnerBackgroundSubagentWritesOutputFileOnCompletion(t *testing.T) {
 	sessions := session.NewManager(nil)
 	parent := sessions.GetOrCreateMain("main")

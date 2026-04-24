@@ -250,3 +250,67 @@ func TestManagerResumeReusesStableRunID(t *testing.T) {
 		t.Fatalf("output = %q, want resumed output", result.Output)
 	}
 }
+
+func TestManagerResumeClearsPreviousTerminalArtifactsForNewAttempt(t *testing.T) {
+	manager := agent.NewManager()
+
+	run, err := manager.Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID: "main-000001",
+		ParentAgentID:   "main",
+		ChildSessionID:  "child-1",
+		ChildSessionKey: "agent:main:child:1",
+		Label:           "research",
+		Prompt:          "first pass",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			return "", context.DeadlineExceeded
+		},
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	first, err := manager.Wait(context.Background(), run.ID, 2*time.Second)
+	if err != nil {
+		t.Fatalf("wait first: %v", err)
+	}
+	if first.Status != agent.StatusFailed {
+		t.Fatalf("first result = %#v, want failed status", first)
+	}
+	if err := manager.SetOutputFile(run.ID, "C:/tmp/old-output.log"); err != nil {
+		t.Fatalf("set output file: %v", err)
+	}
+
+	block := make(chan struct{})
+	resumed, err := manager.Resume(context.Background(), run.ID, agent.SpawnRequest{
+		ParentSessionID: "main-000001",
+		ParentAgentID:   "main",
+		ChildSessionID:  "child-1",
+		ChildSessionKey: "agent:main:child:1",
+		Label:           "research",
+		Prompt:          "second pass",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			<-block
+			return "second result", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if resumed.Status != agent.StatusRunning {
+		t.Fatalf("resumed = %#v, want running status", resumed)
+	}
+	if resumed.Output != "" || resumed.OutputFile != "" || resumed.ErrorSummary != "" {
+		t.Fatalf("resumed = %#v, want previous terminal artifacts cleared", resumed)
+	}
+
+	close(block)
+	result, err := manager.Wait(context.Background(), run.ID, 2*time.Second)
+	if err != nil {
+		t.Fatalf("wait resumed: %v", err)
+	}
+	if result.Output != "second result" {
+		t.Fatalf("output = %q, want resumed output", result.Output)
+	}
+	if result.ErrorSummary != "" {
+		t.Fatalf("error summary = %q, want cleared failure artifact", result.ErrorSummary)
+	}
+}

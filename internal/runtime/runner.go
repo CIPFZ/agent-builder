@@ -402,7 +402,7 @@ func (r *Runner) defaultAgentTaskExecutor(ctx context.Context, request tools.Age
 		if ctx.Err() != nil {
 			return tools.ToolResult{}, ctx.Err()
 		}
-		return encodeDelegatedTaskToolResult(*run, label, "", false, request.ToolContext)
+		return encodeDelegatedTaskToolResult(*run, label, "", true, request.ToolContext)
 	}
 	return encodeDelegatedTaskToolResult(completed, label, completed.Output, false, request.ToolContext)
 }

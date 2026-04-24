@@ -326,6 +326,9 @@ func (m *Manager) configureRunLocked(run *Run, req SpawnRequest, action ControlA
 	run.Status = StatusRunning
 	run.LastAction = action
 	run.Attempt++
+	run.Output = ""
+	run.OutputFile = ""
+	run.ErrorSummary = ""
 	run.StartedAt = now
 	run.UpdatedAt = now
 	run.CompletedAt = time.Time{}
