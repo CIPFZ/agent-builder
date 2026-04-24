@@ -5,9 +5,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"myclaw/internal/config"
+	"myclaw/internal/llm"
+	"myclaw/internal/permissions"
+	"myclaw/internal/runtime"
+	"myclaw/internal/session"
+	"myclaw/internal/workspace"
 )
 
 func TestNewDaemonHandlerServesWebUI(t *testing.T) {
@@ -102,5 +108,42 @@ func TestNewDaemonHandlerKeepsRootTextEndpoint(t *testing.T) {
 	}
 	if body := rec.Body.String(); !strings.Contains(body, "myclawd is running") {
 		t.Fatalf("/ body = %q, want running text", body)
+	}
+}
+
+func TestNewDaemonHandlerBootstrapsDaemonRuntimeOnlyOnce(t *testing.T) {
+	original := daemonBootstrapRuntime
+	t.Cleanup(func() { daemonBootstrapRuntime = original })
+
+	var calls atomic.Int32
+	daemonBootstrapRuntime = func(_ string, _ config.Config, _ bootstrapOptions) (*runtimeBootstrap, error) {
+		calls.Add(1)
+		sessions := session.NewManager(nil)
+		runner := runtime.NewRunnerWithOptions(
+			sessions,
+			llm.NewMockClient(),
+			workspace.NewLoader(""),
+			nil,
+			runtime.Options{
+				PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+			},
+		)
+		return &runtimeBootstrap{
+			Sessions: sessions,
+			Policy:   permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+			Runner:   runner,
+		}, nil
+	}
+
+	cfg := config.Config{
+		HTTPAddr: "127.0.0.1:0",
+		WSPath:   "/ws",
+	}
+	_, gatewayServer := newDaemonHandler(cfg, io.Discard)
+	if gatewayServer == nil {
+		t.Fatal("expected daemon handler to return gateway server")
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("bootstrap runtime calls = %d, want exactly 1", got)
 	}
 }

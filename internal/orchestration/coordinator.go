@@ -22,6 +22,7 @@ type RunState struct {
 	SessionKey        string
 	AgentID           string
 	Status            string
+	LastAction        string
 	LastEvent         string
 	ToolName          string
 	Message           string
@@ -43,6 +44,7 @@ type DecisionRecord struct {
 	SessionID         string
 	EventType         string
 	Status            string
+	LastAction        string
 	ToolName          string
 	Message           string
 	RecommendedRole   string
@@ -160,6 +162,9 @@ func (c *Coordinator) Handle(_ context.Context, event Event) error {
 	if event.ToolName != "" {
 		state.ToolName = event.ToolName
 	}
+	if event.Action != "" {
+		state.LastAction = event.Action
+	}
 	if event.Message != "" {
 		state.Message = event.Message
 	}
@@ -173,6 +178,7 @@ func (c *Coordinator) Handle(_ context.Context, event Event) error {
 		SessionID:         state.SessionID,
 		EventType:         event.Type,
 		Status:            state.Status,
+		LastAction:        state.LastAction,
 		ToolName:          state.ToolName,
 		Message:           state.Message,
 		RecommendedRole:   state.RecommendedRole,
@@ -502,6 +508,14 @@ func deriveStatus(event Event, current string) string {
 }
 
 func deriveGuidance(state RunState) (string, string, string, string, string, string) {
+	if state.Status == "running" {
+		switch state.LastAction {
+		case "steered":
+			return "replanned", "review_optional", "running", "observe updated subagent behavior", "dispatcher", "monitor_replanned_run"
+		case "resumed":
+			return "replanned", "review_optional", "running", "observe resumed run", "dispatcher", "monitor_resumed_run"
+		}
+	}
 	switch state.Status {
 	case "waiting_approval":
 		return "needs_review", "approval_required", "blocked", "review pending approval request", "reviewer", "request_approval"
@@ -515,18 +529,24 @@ func deriveGuidance(state RunState) (string, string, string, string, string, str
 		return "complete", "review_optional", "complete", "archive or dispatch follow-up task", "dispatcher", "close_or_follow_up"
 	case "failed":
 		return "needs_retry", "review_required", "failed", "inspect error and decide retry strategy", "reviewer", "decide_retry"
-	case "steered":
-		return "replanned", "review_optional", "running", "observe updated subagent behavior", "dispatcher", "monitor_replanned_run"
 	case "stopped":
 		return "halted", "review_optional", "stopped", "decide whether to resume or replace run", "dispatcher", "decide_resume_or_replace"
-	case "resumed":
-		return "replanned", "review_optional", "running", "observe resumed run", "dispatcher", "monitor_resumed_run"
+	case "closed":
+		return "complete", "review_optional", "closed", "task is closed and no further action is required", "dispatcher", "archive_closed_run"
 	default:
 		return "unknown", "unknown", "unknown", "inspect run state", "dispatcher", "inspect"
 	}
 }
 
 func deriveDecision(state RunState) (string, string, string, bool) {
+	if state.Status == "running" {
+		switch state.LastAction {
+		case "steered":
+			return "monitor_replanned_run", "the subagent received new control input and should be monitored for updated behavior", "medium", false
+		case "resumed":
+			return "monitor_resumed_run", "the subagent resumed work and should be watched before issuing another action", "medium", false
+		}
+	}
 	switch state.Status {
 	case "waiting_approval":
 		return "human_approval", "run is blocked until an explicit approval decision is recorded", "high", false
@@ -540,12 +560,10 @@ func deriveDecision(state RunState) (string, string, string, bool) {
 		return "close_or_follow_up", "the run completed and can be closed or dispatched into a follow-up task", "low", false
 	case "failed":
 		return "inspect_failure", "the run failed and needs human review to decide whether to retry or redirect it", "high", false
-	case "steered":
-		return "monitor_replanned_run", "the subagent received new control input and should be monitored for updated behavior", "medium", false
 	case "stopped":
 		return "decide_resume_or_replace", "the subagent is stopped and needs a coordinator decision to resume or replace it", "medium", false
-	case "resumed":
-		return "monitor_resumed_run", "the subagent resumed work and should be watched before issuing another action", "medium", false
+	case "closed":
+		return "archive_closed_run", "the run is closed and can be archived without additional intervention", "low", true
 	default:
 		return "inspect", "the run state is not yet classified and should be inspected by the dispatcher", "low", false
 	}
