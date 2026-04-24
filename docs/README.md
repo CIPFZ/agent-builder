@@ -23,6 +23,7 @@ The active target is:
 8. `execution/implementation-rules.md`
 9. `tasks/execution-surface-program/design.md`
 10. `tasks/ssh-runtime-capability/design.md`
+11. `tasks/mcp-runtime-capability/design.md`
 
 ## Current Program Status
 

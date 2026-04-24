@@ -11,12 +11,14 @@ import (
 	"myclaw/internal/permissions"
 	"myclaw/internal/runtime"
 	"myclaw/internal/session"
+	"myclaw/internal/tools"
 	"myclaw/internal/workspace"
 )
 
 type bootstrapOptions struct {
 	FallbackWorkspaceRoots []string
 	Compactor              *compaction.Service
+	DisableMCP             bool
 }
 
 type runtimeBootstrap struct {
@@ -53,6 +55,7 @@ func bootstrapRuntime(baseDir string, cfg config.Config, options bootstrapOption
 		MainLoopModel:             cfg.LLM.Model,
 		LLMProvider:               cfg.LLM.Provider,
 		ModelCatalog:              llm.NewModelCatalogFromConfig(cfg.LLM),
+		MCPClients:                bootstrapMCPConnections(cfg.MCP, options.DisableMCP),
 		DisableMCPPromptSkills:    !cfg.MCP.Skills,
 	})
 	return &runtimeBootstrap{
@@ -92,4 +95,46 @@ func resolveBootstrapPath(baseDir, value string) string {
 		base = "."
 	}
 	return filepath.Clean(filepath.Join(base, value))
+}
+
+func bootstrapMCPConnections(cfg config.MCPConfig, disabled bool) []tools.MCPConnection {
+	if disabled {
+		return nil
+	}
+	if !cfg.Enabled || len(cfg.Servers) == 0 {
+		return nil
+	}
+	connections := make([]tools.MCPConnection, 0, len(cfg.Servers))
+	for _, server := range cfg.Servers {
+		if !server.Enabled {
+			continue
+		}
+		connections = append(connections, tools.MCPConnection{
+			Name:                    strings.TrimSpace(server.Name),
+			Type:                    strings.TrimSpace(server.Type),
+			BaseURL:                 strings.TrimSpace(server.BaseURL),
+			URL:                     strings.TrimSpace(server.URL),
+			Command:                 strings.TrimSpace(server.Command),
+			Args:                    append([]string(nil), server.Args...),
+			Env:                     cloneStringMap(server.Env),
+			Headers:                 cloneStringMap(server.Headers),
+			HeadersHelper:           strings.TrimSpace(server.HeadersHelper),
+			AuthURL:                 strings.TrimSpace(server.AuthURL),
+			AuthScope:               strings.TrimSpace(server.AuthScope),
+			AuthResourceMetadataURL: strings.TrimSpace(server.AuthResourceMetadataURL),
+			AuthChallenge:           cloneStringMap(server.AuthChallenge),
+		})
+	}
+	return connections
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }

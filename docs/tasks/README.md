@@ -13,6 +13,7 @@ Current order:
 
 1. `execution-surface-program`
 2. `ssh-runtime-capability`
+3. `mcp-runtime-capability`
 
 Standard:
 

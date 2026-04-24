@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +20,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	neturl "net/url"
 )
 
 const defaultMCPToolTimeout = 100000000 * time.Millisecond
@@ -30,6 +30,7 @@ type MCPDiscoveryResult struct {
 	Skills           map[string][]SkillCommand
 	Resources        map[string][]MCPResource
 	NeedsAuth        map[string]MCPAuthToolResult
+	Failures         map[string]string
 	Caller           MCPToolCaller
 	ContextualCaller MCPContextualToolCaller
 	PromptCaller     MCPPromptCaller
@@ -92,6 +93,7 @@ func DiscoverMCPClientToolsWithOAuth(ctx context.Context, connections []MCPConne
 	discoveredSkills := make(map[string][]SkillCommand)
 	discoveredResources := make(map[string][]MCPResource)
 	discoveredNeedsAuth := make(map[string]MCPAuthToolResult)
+	discoveredFailures := make(map[string]string)
 	for _, connection := range connections {
 		name := strings.TrimSpace(connection.Name)
 		if name == "" {
@@ -103,7 +105,8 @@ func DiscoverMCPClientToolsWithOAuth(ctx context.Context, connections []MCPConne
 		}
 		transport, err := runtime.open(ctx, connection)
 		if err != nil {
-			return MCPDiscoveryResult{}, err
+			discoveredFailures[name] = err.Error()
+			continue
 		}
 		result, err := runtime.discover(ctx, connection, transport)
 		if err != nil {
@@ -114,7 +117,8 @@ func DiscoverMCPClientToolsWithOAuth(ctx context.Context, connections []MCPConne
 				continue
 			}
 			_ = transport.close()
-			return MCPDiscoveryResult{}, err
+			discoveredFailures[name] = err.Error()
+			continue
 		}
 		runtime.setSession(name, mcpTransportSession{
 			connection: connection,
@@ -131,6 +135,7 @@ func DiscoverMCPClientToolsWithOAuth(ctx context.Context, connections []MCPConne
 		Skills:           discoveredSkills,
 		Resources:        discoveredResources,
 		NeedsAuth:        discoveredNeedsAuth,
+		Failures:         discoveredFailures,
 		Caller:           runtime.callTool,
 		ContextualCaller: runtime.callToolWithRequest,
 		PromptCaller:     runtime.getPrompt,
@@ -1076,13 +1081,13 @@ func (t *mcpHTTPTransport) rpc(ctx context.Context, method string, params map[st
 }
 
 type mcpStdioTransport struct {
-	runtime    *mcpRuntime
-	connection MCPConnection
-	cmd        *exec.Cmd
-	stdin      io.WriteCloser
-	stdout     *bufio.Reader
-	stderr     *bytes.Buffer
-	mu         sync.Mutex
+	runtime      *mcpRuntime
+	connection   MCPConnection
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	stdout       *bufio.Reader
+	stderr       *bytes.Buffer
+	mu           sync.Mutex
 	invalidation mcpDiscoveryInvalidation
 }
 

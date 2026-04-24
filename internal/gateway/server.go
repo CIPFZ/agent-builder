@@ -23,6 +23,7 @@ import (
 	"myclaw/internal/queryengine"
 	"myclaw/internal/runtime"
 	"myclaw/internal/session"
+	"myclaw/internal/tools"
 	"myclaw/internal/workspace"
 )
 
@@ -54,6 +55,8 @@ type Options struct {
 	PermissionControlTimeout  time.Duration
 	MainLoopModel             string
 	LLMProvider               string
+	MCPClients                []tools.MCPConnection
+	DisableMCPPromptSkills    bool
 }
 
 func NewServer(logger *log.Logger, sessionManager *session.Manager, llmClient llm.Client) *Server {
@@ -116,6 +119,8 @@ func NewServerWithOptions(logger *log.Logger, sessionManager *session.Manager, l
 		PermissionUpdatePersister: options.PermissionUpdatePersister,
 		MainLoopModel:             options.MainLoopModel,
 		LLMProvider:               options.LLMProvider,
+		MCPClients:                append([]tools.MCPConnection(nil), options.MCPClients...),
+		DisableMCPPromptSkills:    options.DisableMCPPromptSkills,
 	})
 	server.runner = runner
 	server.queue = runtime.NewQueue(runner)
@@ -358,6 +363,91 @@ func (s *Server) handleClient(client *Client) error {
 					"main_loop_model":                  s.runner.BaseMainLoopModelForSession(targetSession.ID),
 					"session_main_loop_model_override": s.runner.SessionMainLoopModelOverride(targetSession.ID),
 					"resolved_main_loop_model":         s.runner.ResolvedMainLoopModelForSession(targetSession.ID),
+				},
+			}); err != nil {
+				return err
+			}
+		case protocolws.MethodMCPStatus:
+			statusPayload, err := parseMCPStatusPayload(inbound.Payload)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			servers := s.runner.MCPServers()
+			if serverName := strings.TrimSpace(statusPayload.Server); serverName != "" {
+				filtered, ok := filterMCPServerSnapshots(servers, serverName)
+				if !ok {
+					if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, "MCP server not found")); err != nil {
+						return err
+					}
+					continue
+				}
+				servers = filtered
+			}
+			if err := client.WriteJSON(protocolws.Message{
+				Type: protocolws.TypeResponse,
+				ID:   inbound.ID,
+				OK:   true,
+				Payload: map[string]any{
+					"inventory": mcpInventoryPayload(s.runner.MCPInventory()),
+					"servers":   mcpServerPayloads(servers),
+				},
+			}); err != nil {
+				return err
+			}
+		case protocolws.MethodMCPReconnect:
+			actionPayload, err := parseMCPActionPayload(inbound.Payload, "mcp_reconnect")
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			serverSnapshot, err := s.runner.ReconnectMCP(context.Background(), actionPayload.Server)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := client.WriteJSON(protocolws.Message{
+				Type: protocolws.TypeResponse,
+				ID:   inbound.ID,
+				OK:   true,
+				Payload: map[string]any{
+					"status":    "reconnected",
+					"inventory": mcpInventoryPayload(s.runner.MCPInventory()),
+					"server":    mcpServerPayload(serverSnapshot),
+				},
+			}); err != nil {
+				return err
+			}
+		case protocolws.MethodMCPAuthenticate:
+			actionPayload, err := parseMCPActionPayload(inbound.Payload, "mcp_authenticate")
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			authResult, serverSnapshot, err := s.runner.AuthenticateMCP(context.Background(), actionPayload.Server)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := client.WriteJSON(protocolws.Message{
+				Type: protocolws.TypeResponse,
+				ID:   inbound.ID,
+				OK:   true,
+				Payload: map[string]any{
+					"status":    strings.TrimSpace(authResult.Status),
+					"inventory": mcpInventoryPayload(s.runner.MCPInventory()),
+					"server":    mcpServerPayload(serverSnapshot),
+					"auth":      mcpAuthStartPayload(authResult),
 				},
 			}); err != nil {
 				return err
@@ -1647,6 +1737,33 @@ func parseSessionStatusPayload(payload map[string]any) (protocolws.SessionStatus
 	return statusPayload, nil
 }
 
+func parseMCPStatusPayload(payload map[string]any) (protocolws.MCPStatusPayload, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return protocolws.MCPStatusPayload{}, err
+	}
+	var statusPayload protocolws.MCPStatusPayload
+	if err := json.Unmarshal(raw, &statusPayload); err != nil {
+		return protocolws.MCPStatusPayload{}, err
+	}
+	return statusPayload, nil
+}
+
+func parseMCPActionPayload(payload map[string]any, method string) (protocolws.MCPActionPayload, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return protocolws.MCPActionPayload{}, err
+	}
+	var actionPayload protocolws.MCPActionPayload
+	if err := json.Unmarshal(raw, &actionPayload); err != nil {
+		return protocolws.MCPActionPayload{}, err
+	}
+	if strings.TrimSpace(actionPayload.Server) == "" {
+		return protocolws.MCPActionPayload{}, &connectError{message: method + " payload requires server"}
+	}
+	return actionPayload, nil
+}
+
 func parseSessionSetPermissionPayload(payload map[string]any) (protocolws.SessionSetPermissionPayload, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -1675,6 +1792,92 @@ func parseSessionSetModelPayload(payload map[string]any) (protocolws.SessionSetM
 		return protocolws.SessionSetModelPayload{}, &connectError{message: "session_set_model payload requires model"}
 	}
 	return setPayload, nil
+}
+
+func mcpInventoryPayload(inventory runtime.MCPInventory) map[string]any {
+	return map[string]any{
+		"server_count":   inventory.ServerCount,
+		"tool_count":     inventory.ToolCount,
+		"prompt_count":   inventory.PromptCount,
+		"resource_count": inventory.ResourceCount,
+		"skill_count":    inventory.SkillCount,
+	}
+}
+
+func mcpServerPayloads(servers []runtime.MCPServerSnapshot) []map[string]any {
+	items := make([]map[string]any, 0, len(servers))
+	for _, server := range servers {
+		items = append(items, mcpServerPayload(server))
+	}
+	return items
+}
+
+func mcpServerPayload(server runtime.MCPServerSnapshot) map[string]any {
+	payload := map[string]any{
+		"name":           server.Name,
+		"transport_type": server.TransportType,
+		"endpoint":       server.Endpoint,
+		"enabled":        server.Enabled,
+		"status":         server.Status,
+		"tools":          toAnySlice(server.Tools),
+		"prompts":        toAnySlice(server.Prompts),
+		"resources":      toAnySlice(server.Resources),
+		"skills":         toAnySlice(server.Skills),
+	}
+	if strings.TrimSpace(server.AuthURL) != "" {
+		payload["auth_url"] = server.AuthURL
+	}
+	if strings.TrimSpace(server.AuthMessage) != "" {
+		payload["auth_message"] = server.AuthMessage
+	}
+	if strings.TrimSpace(server.AuthScope) != "" {
+		payload["auth_scope"] = server.AuthScope
+	}
+	if strings.TrimSpace(server.AuthResourceMetadataURL) != "" {
+		payload["auth_resource_metadata_url"] = server.AuthResourceMetadataURL
+	}
+	if len(server.AuthChallenge) > 0 {
+		payload["auth_challenge"] = server.AuthChallenge
+	}
+	if strings.TrimSpace(server.Error) != "" {
+		payload["error"] = server.Error
+	}
+	return payload
+}
+
+func mcpAuthStartPayload(result tools.MCPAuthStartResult) map[string]any {
+	payload := map[string]any{
+		"status": result.Status,
+	}
+	if strings.TrimSpace(result.AuthURL) != "" {
+		payload["auth_url"] = result.AuthURL
+	}
+	if strings.TrimSpace(result.Message) != "" {
+		payload["message"] = result.Message
+	}
+	if strings.TrimSpace(result.Scope) != "" {
+		payload["scope"] = result.Scope
+	}
+	if strings.TrimSpace(result.ResourceMetadataURL) != "" {
+		payload["resource_metadata_url"] = result.ResourceMetadataURL
+	}
+	if len(result.Challenge) > 0 {
+		payload["challenge"] = result.Challenge
+	}
+	return payload
+}
+
+func filterMCPServerSnapshots(servers []runtime.MCPServerSnapshot, name string) ([]runtime.MCPServerSnapshot, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return servers, true
+	}
+	for _, server := range servers {
+		if server.Name == name {
+			return []runtime.MCPServerSnapshot{server}, true
+		}
+	}
+	return nil, false
 }
 
 func (s *Server) resolveSessionForStatus(client *Client, payload protocolws.SessionStatusPayload) (session.Session, error) {

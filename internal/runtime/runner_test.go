@@ -44,6 +44,21 @@ func (s *captureSink) Emit(event RuntimeEvent) error {
 	return nil
 }
 
+func waitForRunnerMCPServerStatus(t *testing.T, runner *Runner, serverName, wantStatus string) MCPServerSnapshot {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, server := range runner.MCPServers() {
+			if server.Name == serverName && server.Status == wantStatus {
+				return server
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for MCP server %q to reach status %q", serverName, wantStatus)
+	return MCPServerSnapshot{}
+}
+
 type captureMemoryClient struct {
 	lastRequest llm.GenerateRequest
 }
@@ -1029,9 +1044,9 @@ func TestRunnerDefaultAgentTaskExecutorRunsBackgroundAgentWithoutWaiting(t *test
 				{Name: "Read"},
 			},
 		},
-		Label:       "research",
-		Prompt:      "inspect auth flow",
-		AgentType:   "researcher",
+		Label:     "research",
+		Prompt:    "inspect auth flow",
+		AgentType: "researcher",
 	})
 	if err != nil {
 		t.Fatalf("default agent task executor: %v", err)
@@ -1285,10 +1300,10 @@ func TestRunnerSpawnSubagentUsesWorktreeIsolationFromAgentDefinition(t *testing.
 	client := &captureMemoryClient{}
 	worktreeManager := &stubWorktreeManager{
 		info: AgentWorktree{
-			Path:      filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002"),
-			Branch:    "worktree-agent-session-000002",
+			Path:       filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002"),
+			Branch:     "worktree-agent-session-000002",
 			HeadCommit: "abc123",
-			GitRoot:   filepath.Clean("C:/repo"),
+			GitRoot:    filepath.Clean("C:/repo"),
 		},
 		hasChanges: true,
 	}
@@ -1298,8 +1313,8 @@ func TestRunnerSpawnSubagentUsesWorktreeIsolationFromAgentDefinition(t *testing.
 		AgentDefinitions: tools.AgentDefinitions{
 			Definitions: map[string]tools.AgentDefinition{
 				"researcher": {
-					AgentType:  "researcher",
-					Isolation:  "worktree",
+					AgentType:    "researcher",
+					Isolation:    "worktree",
 					SystemPrompt: "Research thoroughly before answering.",
 				},
 			},
@@ -1340,10 +1355,10 @@ func TestRunnerSpawnSubagentRemovesCleanWorktreeAndClearsMetadata(t *testing.T) 
 	parent := sessions.GetOrCreateMain("main")
 	worktreeManager := &stubWorktreeManager{
 		info: AgentWorktree{
-			Path:      filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002"),
-			Branch:    "worktree-agent-session-000002",
+			Path:       filepath.Clean("C:/repo/.claude/worktrees/agent-session-000002"),
+			Branch:     "worktree-agent-session-000002",
 			HeadCommit: "abc123",
-			GitRoot:   filepath.Clean("C:/repo"),
+			GitRoot:    filepath.Clean("C:/repo"),
 		},
 		hasChanges: false,
 	}
@@ -1672,9 +1687,9 @@ func TestRunnerSpawnSubagentForkWithWorktreeAppendsNotice(t *testing.T) {
 	}
 
 	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader("C:/repo"), nil, Options{
-		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		PermissionPolicy:     permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 		RenderedSystemPrompt: "parent rendered system prompt",
-		WorktreeManager:   worktreeManager,
+		WorktreeManager:      worktreeManager,
 	})
 
 	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "research", "check the auth service", SubagentOptions{
@@ -2606,6 +2621,162 @@ func TestNewRunnerWithOptionsDiscoversMCPClientToolsAndCallsServer(t *testing.T)
 	t.Fatalf("messages = %#v, want discovered MCP tool output", messages)
 }
 
+func TestRunnerMCPReconnectRefreshesDynamicInventory(t *testing.T) {
+	runner := NewRunnerWithOptions(session.NewManager(nil), llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MCPClients:       []tools.MCPConnection{{Name: "filesystem", Type: "configured"}},
+		MCPTools: map[string]tools.MCPToolsListResult{
+			"filesystem": {Tools: []tools.MCPToolListItem{{Name: "old_tool"}}},
+		},
+		MCPPrompts: map[string]tools.MCPPromptsListResult{
+			"filesystem": {Prompts: []tools.MCPPromptListItem{{Name: "old_prompt"}}},
+		},
+		MCPResources: map[string][]tools.MCPResource{
+			"filesystem": {{URI: "file:///old.txt", Name: "old"}},
+		},
+		MCPSkills: map[string][]tools.SkillCommand{
+			"filesystem": {{Name: "old-skill", DisplayName: "Old Skill"}},
+		},
+		MCPReconnect: func(_ context.Context, server string) (tools.MCPReconnectResult, error) {
+			if server != "filesystem" {
+				t.Fatalf("reconnect server = %q, want filesystem", server)
+			}
+			return tools.MCPReconnectResult{
+				Client:    tools.MCPConnection{Name: "filesystem", Type: "streamable_http", BaseURL: "https://mcp.example"},
+				Tools:     tools.MCPToolsListResult{Tools: []tools.MCPToolListItem{{Name: "new_tool"}}},
+				Prompts:   tools.MCPPromptsListResult{Prompts: []tools.MCPPromptListItem{{Name: "new_prompt"}}},
+				Resources: []tools.MCPResource{{URI: "file:///new.txt", Name: "new"}},
+				Skills:    []tools.SkillCommand{{Name: "new-skill", DisplayName: "New Skill"}},
+			}, nil
+		},
+	})
+
+	initial := runner.MCPServers()
+	if len(initial) != 1 || initial[0].Status != "connected" || !containsString(initial[0].Tools, "old_tool") {
+		t.Fatalf("initial MCP servers = %#v, want connected filesystem with old tool", initial)
+	}
+	if !containsString(initial[0].Skills, "Old Skill") {
+		t.Fatalf("initial MCP servers = %#v, want projected MCP skill inventory", initial)
+	}
+
+	refreshed, err := runner.ReconnectMCP(context.Background(), "filesystem")
+	if err != nil {
+		t.Fatalf("reconnect MCP: %v", err)
+	}
+	if refreshed.Status != "connected" || !containsString(refreshed.Tools, "new_tool") || containsString(refreshed.Tools, "old_tool") {
+		t.Fatalf("refreshed MCP server = %#v, want new tool inventory", refreshed)
+	}
+	if !containsString(refreshed.Prompts, "new_prompt") || !containsString(refreshed.Resources, "file:///new.txt") {
+		t.Fatalf("refreshed MCP server = %#v, want prompt/resource refresh", refreshed)
+	}
+	if !containsString(refreshed.Skills, "New Skill") || containsString(refreshed.Skills, "Old Skill") {
+		t.Fatalf("refreshed MCP server = %#v, want skill refresh", refreshed)
+	}
+
+	inventory := runner.MCPInventory()
+	if inventory.ServerCount != 1 || inventory.ToolCount != 1 || inventory.PromptCount != 1 || inventory.ResourceCount != 1 || inventory.SkillCount != 1 {
+		t.Fatalf("inventory = %#v, want refreshed single-server counts", inventory)
+	}
+}
+
+func TestRunnerMCPAuthenticateUsesStoredAuthContextAndReconnectsOnCompletion(t *testing.T) {
+	completion := make(chan tools.MCPAuthCompletionResult, 1)
+	challenge := map[string]string{
+		"authorization_uri": "https://auth.example/authorize",
+		"resource_metadata": "https://auth.example/.well-known/oauth-protected-resource",
+	}
+	runner := NewRunnerWithOptions(session.NewManager(nil), llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MCPClients:       []tools.MCPConnection{{Name: "filesystem", Type: "streamable_http", BaseURL: "https://mcp.example"}},
+		MCPNeedsAuth: map[string]tools.MCPAuthToolResult{
+			"filesystem": {
+				Status:              "needs-auth",
+				AuthURL:             "https://auth.example/original",
+				Message:             "Authenticate filesystem",
+				Scope:               "files:read",
+				ResourceMetadataURL: "https://auth.example/.well-known/oauth-protected-resource",
+				Challenge:           challenge,
+			},
+		},
+		MCPAuthenticator: func(_ context.Context, server string, connection tools.MCPConnection) (tools.MCPAuthStartResult, error) {
+			if server != "filesystem" || connection.BaseURL != "https://mcp.example" {
+				t.Fatalf("authenticate server=%q connection=%#v, want filesystem MCP connection", server, connection)
+			}
+			if connection.AuthURL != "https://auth.example/original" || connection.AuthScope != "files:read" {
+				t.Fatalf("authenticate connection = %#v, want stored auth URL and scope", connection)
+			}
+			if connection.AuthResourceMetadataURL != "https://auth.example/.well-known/oauth-protected-resource" {
+				t.Fatalf("authenticate connection = %#v, want stored auth resource metadata", connection)
+			}
+			if connection.AuthChallenge["authorization_uri"] != challenge["authorization_uri"] {
+				t.Fatalf("authenticate connection = %#v, want stored auth challenge", connection)
+			}
+			return tools.MCPAuthStartResult{
+				Status:              "auth_url",
+				AuthURL:             "https://auth.example/authorize",
+				Message:             "Open the browser to authenticate",
+				Scope:               "files:read",
+				ResourceMetadataURL: "https://auth.example/.well-known/oauth-protected-resource",
+				Challenge:           challenge,
+				Completion:          completion,
+			}, nil
+		},
+		MCPReconnect: func(_ context.Context, server string) (tools.MCPReconnectResult, error) {
+			if server != "filesystem" {
+				t.Fatalf("reconnect server = %q, want filesystem", server)
+			}
+			return tools.MCPReconnectResult{
+				Client:    tools.MCPConnection{Name: "filesystem", Type: "streamable_http", BaseURL: "https://mcp.example"},
+				Tools:     tools.MCPToolsListResult{Tools: []tools.MCPToolListItem{{Name: "new_tool"}}},
+				Prompts:   tools.MCPPromptsListResult{Prompts: []tools.MCPPromptListItem{{Name: "new_prompt"}}},
+				Resources: []tools.MCPResource{{URI: "file:///new.txt", Name: "new"}},
+				Skills:    []tools.SkillCommand{{Name: "new-skill", DisplayName: "New Skill"}},
+			}, nil
+		},
+	})
+
+	authResult, snapshot, err := runner.AuthenticateMCP(context.Background(), "filesystem")
+	if err != nil {
+		t.Fatalf("authenticate MCP: %v", err)
+	}
+	if authResult.Status != "auth_url" || authResult.AuthURL != "https://auth.example/authorize" {
+		t.Fatalf("auth result = %#v, want auth_url response", authResult)
+	}
+	if snapshot.Name != "filesystem" || snapshot.Status != "needs-auth" || snapshot.AuthURL != "https://auth.example/authorize" {
+		t.Fatalf("snapshot = %#v, want updated needs-auth surface", snapshot)
+	}
+	completion <- tools.MCPAuthCompletionResult{Status: "complete", Message: "Authenticated"}
+
+	refreshed := waitForRunnerMCPServerStatus(t, runner, "filesystem", "connected")
+	if !containsString(refreshed.Tools, "new_tool") || !containsString(refreshed.Prompts, "new_prompt") {
+		t.Fatalf("refreshed MCP server = %#v, want reconnected tool and prompt inventory", refreshed)
+	}
+	if !containsString(refreshed.Resources, "file:///new.txt") {
+		t.Fatalf("refreshed MCP server = %#v, want reconnected resource inventory", refreshed)
+	}
+	if !containsString(refreshed.Skills, "New Skill") {
+		t.Fatalf("refreshed MCP server = %#v, want reconnected skill inventory", refreshed)
+	}
+}
+
+func TestRunnerMCPServersExposeStartupDiscoveryFailures(t *testing.T) {
+	runner := NewRunnerWithOptions(session.NewManager(nil), llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MCPClients:       []tools.MCPConnection{{Name: "broken", Type: "stdio"}},
+	})
+
+	servers := runner.MCPServers()
+	if len(servers) != 1 {
+		t.Fatalf("MCP servers = %#v, want single broken server", servers)
+	}
+	if servers[0].Name != "broken" || servers[0].Status != "error" {
+		t.Fatalf("MCP servers = %#v, want explicit broken server status", servers)
+	}
+	if !strings.Contains(servers[0].Error, "missing command") {
+		t.Fatalf("MCP servers = %#v, want startup discovery failure detail", servers)
+	}
+}
+
 func TestNewRunnerWithOptionsInjectsSkillForkExecutor(t *testing.T) {
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")
@@ -2746,9 +2917,9 @@ func TestNewRunnerWithOptionsLoadsClaudeAgentDiscoveryLifecycle(t *testing.T) {
 	project := filepath.Join(dir, "workspace")
 	managed := filepath.Join(dir, "managed")
 	for path, body := range map[string]string{
-		filepath.Join(configHome, "agents", "reviewer.md"):              "---\nname: reviewer\ndescription: User reviewer\nmemory: user\n---\nUser prompt.",
-		filepath.Join(project, ".claude", "agents", "reviewer.md"):      "---\nname: reviewer\ndescription: Project reviewer\nmemory: project\nmodel: claude-sonnet-4-5\n---\nProject prompt.",
-		filepath.Join(managed, ".claude", "agents", "archivist.md"):     "---\nname: archivist\ndescription: Managed archivist\nmemory: local\n---\nArchive carefully.",
+		filepath.Join(configHome, "agents", "reviewer.md"):          "---\nname: reviewer\ndescription: User reviewer\nmemory: user\n---\nUser prompt.",
+		filepath.Join(project, ".claude", "agents", "reviewer.md"):  "---\nname: reviewer\ndescription: Project reviewer\nmemory: project\nmodel: claude-sonnet-4-5\n---\nProject prompt.",
+		filepath.Join(managed, ".claude", "agents", "archivist.md"): "---\nname: archivist\ndescription: Managed archivist\nmemory: local\n---\nArchive carefully.",
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("mkdir %q: %v", path, err)

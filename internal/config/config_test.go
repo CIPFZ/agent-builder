@@ -288,6 +288,215 @@ func TestLoadFromDirPanicsOnInvalidRoutingProfile(t *testing.T) {
 	_ = LoadFromDir(dir)
 }
 
+func TestLoadFromDirLoadsMCPServersAndResolvesPaths(t *testing.T) {
+	dir := t.TempDir()
+	writeTestConfig(t, dir, `{
+  "config": {"version": 1},
+  "llm": {
+    "active_profile": "claude-main",
+    "providers": {
+      "anthropic": {
+        "protocol": "anthropic",
+        "base_url": "https://anthropic.example/v1/messages",
+        "api_key": "file-key",
+        "enabled": true
+      }
+    },
+    "profiles": {
+      "claude-main": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5"
+      }
+    }
+  },
+  "mcp": {
+    "enabled": true,
+    "skills_enabled": true,
+    "servers": [
+      {
+        "name": "filesystem",
+        "command": "./scripts/mcp-server.cmd",
+        "args": ["--mode", "${MCP_MODE}"],
+        "env": {
+          "ACCESS_TOKEN": "${MCP_TOKEN}"
+        },
+        "headers_helper": "./scripts/headers-helper.cmd"
+      },
+      {
+        "name": "docs",
+        "base_url": "${MCP_BASE_URL}",
+        "headers": {
+          "Authorization": "Bearer ${DOCS_TOKEN}"
+        }
+      }
+    ]
+  }
+}`)
+	t.Setenv("MCP_MODE", "stdio")
+	t.Setenv("MCP_TOKEN", "secret-token")
+	t.Setenv("MCP_BASE_URL", "https://mcp.example/runtime")
+	t.Setenv("DOCS_TOKEN", "docs-secret")
+
+	cfg, err := loadFromDir(dir)
+	if err != nil {
+		t.Fatalf("loadFromDir returned unexpected error: %v", err)
+	}
+	if len(cfg.MCP.Servers) != 2 {
+		t.Fatalf("mcp servers = %#v, want two configured servers", cfg.MCP.Servers)
+	}
+	if got := cfg.MCP.Servers[0].Type; got != "stdio" {
+		t.Fatalf("stdio server type = %q, want stdio inference", got)
+	}
+	if got := cfg.MCP.Servers[0].Command; got != filepath.Join(dir, "scripts", "mcp-server.cmd") {
+		t.Fatalf("stdio command = %q, want resolved relative path", got)
+	}
+	if got := cfg.MCP.Servers[0].Args[1]; got != "stdio" {
+		t.Fatalf("stdio args = %#v, want expanded env values", cfg.MCP.Servers[0].Args)
+	}
+	if got := cfg.MCP.Servers[0].Env["ACCESS_TOKEN"]; got != "secret-token" {
+		t.Fatalf("stdio env = %#v, want expanded env map", cfg.MCP.Servers[0].Env)
+	}
+	if got := cfg.MCP.Servers[0].HeadersHelper; got != filepath.Join(dir, "scripts", "headers-helper.cmd") {
+		t.Fatalf("headers helper = %q, want resolved relative path", got)
+	}
+	if got := cfg.MCP.Servers[1].Type; got != "streamable_http" {
+		t.Fatalf("http server type = %q, want streamable_http inference", got)
+	}
+	if got := cfg.MCP.Servers[1].BaseURL; got != "https://mcp.example/runtime" {
+		t.Fatalf("http base_url = %q, want expanded env value", got)
+	}
+	if got := cfg.MCP.Servers[1].Headers["Authorization"]; got != "Bearer docs-secret" {
+		t.Fatalf("http headers = %#v, want expanded header map", cfg.MCP.Servers[1].Headers)
+	}
+}
+
+func TestLoadFromDirRejectsInvalidMCPServerConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeTestConfig(t, dir, `{
+  "config": {"version": 1},
+  "llm": {
+    "active_profile": "claude-main",
+    "providers": {
+      "anthropic": {
+        "protocol": "anthropic",
+        "base_url": "https://anthropic.example/v1/messages",
+        "api_key": "file-key",
+        "enabled": true
+      }
+    },
+    "profiles": {
+      "claude-main": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5"
+      }
+    }
+  },
+  "mcp": {
+    "enabled": true,
+    "servers": [
+      {
+        "name": "broken-http",
+        "type": "http"
+      }
+    ]
+  }
+}`)
+
+	_, err := loadFromDir(dir)
+	if err == nil {
+		t.Fatal("loadFromDir succeeded, want invalid MCP server config error")
+	}
+	if got := err.Error(); got != "mcp.servers[0].base_url or mcp.servers[0].url must not be empty for http servers" {
+		t.Fatalf("error = %q, want MCP validation failure", got)
+	}
+}
+
+func TestLoadFromDirAllowsDisabledPlaceholderMCPServerConfig(t *testing.T) {
+	dir := t.TempDir()
+	writeTestConfig(t, dir, `{
+  "config": {"version": 1},
+  "llm": {
+    "active_profile": "claude-main",
+    "providers": {
+      "anthropic": {
+        "protocol": "anthropic",
+        "base_url": "https://anthropic.example/v1/messages",
+        "api_key": "file-key",
+        "enabled": true
+      }
+    },
+    "profiles": {
+      "claude-main": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5"
+      }
+    }
+  },
+  "mcp": {
+    "enabled": true,
+    "servers": [
+      {
+        "name": "placeholder-http",
+        "type": "http",
+        "enabled": false
+      }
+    ]
+  }
+}`)
+
+	cfg, err := loadFromDir(dir)
+	if err != nil {
+		t.Fatalf("loadFromDir returned unexpected error: %v", err)
+	}
+	if len(cfg.MCP.Servers) != 1 {
+		t.Fatalf("mcp servers = %#v, want single disabled placeholder", cfg.MCP.Servers)
+	}
+	if cfg.MCP.Servers[0].Name != "placeholder-http" || cfg.MCP.Servers[0].Enabled {
+		t.Fatalf("mcp server = %#v, want disabled placeholder server preserved", cfg.MCP.Servers[0])
+	}
+}
+
+func TestLoadFromDirRejectsDisabledMCPServerWithoutName(t *testing.T) {
+	dir := t.TempDir()
+	writeTestConfig(t, dir, `{
+  "config": {"version": 1},
+  "llm": {
+    "active_profile": "claude-main",
+    "providers": {
+      "anthropic": {
+        "protocol": "anthropic",
+        "base_url": "https://anthropic.example/v1/messages",
+        "api_key": "file-key",
+        "enabled": true
+      }
+    },
+    "profiles": {
+      "claude-main": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5"
+      }
+    }
+  },
+  "mcp": {
+    "enabled": true,
+    "servers": [
+      {
+        "type": "http",
+        "enabled": false
+      }
+    ]
+  }
+}`)
+
+	_, err := loadFromDir(dir)
+	if err == nil {
+		t.Fatal("loadFromDir succeeded, want disabled MCP placeholder name validation error")
+	}
+	if got := err.Error(); got != "mcp.servers[0].name must not be empty" {
+		t.Fatalf("error = %q, want MCP disabled placeholder name validation failure", got)
+	}
+}
+
 func TestPermissionUpdatePersisterWritesToConfiguredMyclawJSON(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "configs", "myclaw.json")
