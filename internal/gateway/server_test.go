@@ -7776,6 +7776,113 @@ func TestHandleWebSocketSubagentResumeReusesChildSession(t *testing.T) {
 	}
 }
 
+func TestHandleWebSocketSubagentResumeEmitsCompletedEventForResumedAttempt(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	_ = conn.ReadJSON(&protocolws.Message{})
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSpawnSubagent,
+		Payload: map[string]any{
+			"label":  "research",
+			"prompt": "tool upper first run",
+		},
+	}); err != nil {
+		t.Fatalf("write spawn request: %v", err)
+	}
+	var spawn protocolws.Message
+	if err := conn.ReadJSON(&spawn); err != nil {
+		t.Fatalf("read spawn response: %v", err)
+	}
+	runID, _ := spawn.Payload["run_id"].(string)
+	firstCompleted := false
+	for i := 0; i < 6; i++ {
+		var msg protocolws.Message
+		if err := conn.ReadJSON(&msg); err != nil {
+			t.Fatalf("read first attempt follow-up %d: %v", i, err)
+		}
+		if msg.Type == protocolws.TypeEvent && msg.Event == protocolws.EventSubagentCompleted {
+			if gotRunID, _ := msg.Payload["run_id"].(string); gotRunID == runID {
+				firstCompleted = true
+				break
+			}
+		}
+	}
+	if !firstCompleted {
+		t.Fatalf("did not observe completion event for first run %q", runID)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "3",
+		Method: protocolws.MethodSubagentResume,
+		Payload: map[string]any{
+			"run_id": runID,
+			"prompt": "tool upper second run",
+			"label":  "research-resume",
+		},
+	}); err != nil {
+		t.Fatalf("write resume request: %v", err)
+	}
+
+	var resume protocolws.Message
+	for i := 0; i < 4; i++ {
+		if err := conn.ReadJSON(&resume); err != nil {
+			t.Fatalf("read resume response %d: %v", i, err)
+		}
+		if resume.Type == protocolws.TypeResponse && resume.ID == "3" {
+			break
+		}
+	}
+	if !resume.OK {
+		t.Fatalf("resume response = %#v, want ok", resume)
+	}
+
+	for i := 0; i < 6; i++ {
+		var msg protocolws.Message
+		if err := conn.ReadJSON(&msg); err != nil {
+			t.Fatalf("read resumed attempt follow-up %d: %v", i, err)
+		}
+		if msg.Type == protocolws.TypeEvent && msg.Event == protocolws.EventSubagentCompleted {
+			if gotRunID, _ := msg.Payload["run_id"].(string); gotRunID == runID {
+				if got := msg.Payload["status"]; got != "completed" {
+					t.Fatalf("resumed completion status = %#v, want completed", got)
+				}
+				if got := msg.Payload["last_action"]; got != "resumed" {
+					t.Fatalf("resumed completion last_action = %#v, want resumed", got)
+				}
+				return
+			}
+		}
+	}
+	t.Fatalf("did not observe completion event for resumed attempt %q", runID)
+}
+
 func TestHandleWebSocketSystemRunToolLoop(t *testing.T) {
 	sessionManager := session.NewManager(nil)
 	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)

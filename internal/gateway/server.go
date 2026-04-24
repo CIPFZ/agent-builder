@@ -294,38 +294,7 @@ func (s *Server) handleClient(client *Client) error {
 			}); err != nil {
 				return err
 			}
-
-			go func() {
-				result, waitErr := s.runner.AgentManager().Wait(context.Background(), run.ID, 0)
-				if waitErr != nil {
-					_ = client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentCompleted, map[string]any{
-						"run_id": run.ID,
-						"status": string(agent.StatusFailed),
-						"error":  waitErr.Error(),
-					}))
-					_ = s.emitOrchestratorEvent(context.Background(), orchestration.Event{
-						Type:       protocolws.EventSubagentCompleted,
-						SessionID:  sess.ID,
-						SessionKey: sess.Key,
-						AgentID:    sess.AgentID,
-						RunID:      run.ID,
-						Status:     string(agent.StatusFailed),
-						Message:    waitErr.Error(),
-					})
-					return
-				}
-				_ = client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentCompleted, subagentPayload(result)))
-				_ = s.emitOrchestratorEvent(context.Background(), orchestration.Event{
-					Type:       protocolws.EventSubagentCompleted,
-					SessionID:  sess.ID,
-					SessionKey: sess.Key,
-					AgentID:    sess.AgentID,
-					RunID:      result.ID,
-					Status:     string(result.Status),
-					Action:     string(result.LastAction),
-					Message:    result.Output,
-				})
-			}()
+			s.watchSubagentCompletion(client, sess, run.ID)
 		case protocolws.MethodSessionStatus:
 			statusPayload, err := parseSessionStatusPayload(inbound.Payload)
 			if err != nil {
@@ -1285,6 +1254,7 @@ func (s *Server) handleClient(client *Client) error {
 			if err := s.emitOrchestratorEvent(context.Background(), orchestration.Event{Type: protocolws.EventSubagentUpdated, SessionID: client.SessionID(), RunID: run.ID, Status: string(run.Status), Action: string(run.LastAction)}); err != nil {
 				return err
 			}
+			s.watchSubagentCompletion(client, sess, run.ID)
 			if err := s.emitOrchestrationUpdated(client, run.ID); err != nil {
 				return err
 			}
@@ -2109,6 +2079,43 @@ func (s *Server) emitOrchestratorEvent(ctx context.Context, event orchestration.
 		return nil
 	}
 	return s.orchestrator.Handle(ctx, event)
+}
+
+func (s *Server) watchSubagentCompletion(client *Client, sess session.Session, runID string) {
+	if client == nil || strings.TrimSpace(runID) == "" {
+		return
+	}
+	go func() {
+		result, waitErr := s.runner.AgentManager().Wait(context.Background(), runID, 0)
+		if waitErr != nil {
+			_ = client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentCompleted, map[string]any{
+				"run_id": runID,
+				"status": string(agent.StatusFailed),
+				"error":  waitErr.Error(),
+			}))
+			_ = s.emitOrchestratorEvent(context.Background(), orchestration.Event{
+				Type:       protocolws.EventSubagentCompleted,
+				SessionID:  sess.ID,
+				SessionKey: sess.Key,
+				AgentID:    sess.AgentID,
+				RunID:      runID,
+				Status:     string(agent.StatusFailed),
+				Message:    waitErr.Error(),
+			})
+			return
+		}
+		_ = client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentCompleted, subagentPayload(result)))
+		_ = s.emitOrchestratorEvent(context.Background(), orchestration.Event{
+			Type:       protocolws.EventSubagentCompleted,
+			SessionID:  sess.ID,
+			SessionKey: sess.Key,
+			AgentID:    sess.AgentID,
+			RunID:      result.ID,
+			Status:     string(result.Status),
+			Action:     string(result.LastAction),
+			Message:    result.Output,
+		})
+	}()
 }
 
 func defaultWorkspaceRoot() string {

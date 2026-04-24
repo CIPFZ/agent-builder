@@ -314,3 +314,81 @@ func TestManagerResumeClearsPreviousTerminalArtifactsForNewAttempt(t *testing.T)
 		t.Fatalf("error summary = %q, want cleared failure artifact", result.ErrorSummary)
 	}
 }
+
+func TestManagerResumeWaitsForStoppedAttemptToQuiesce(t *testing.T) {
+	manager := agent.NewManager()
+	stopping := make(chan struct{})
+	release := make(chan struct{})
+	secondStarted := make(chan struct{})
+
+	run, err := manager.Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID: "main-000001",
+		ParentAgentID:   "main",
+		ChildSessionID:  "child-1",
+		ChildSessionKey: "agent:main:child:1",
+		Label:           "research",
+		Prompt:          "first pass",
+		Run: func(ctx context.Context, _ agent.RunContext) (string, error) {
+			<-ctx.Done()
+			close(stopping)
+			<-release
+			return "", ctx.Err()
+		},
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if err := manager.Stop(run.ID); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	<-stopping
+
+	resumeDone := make(chan *agent.Run, 1)
+	resumeErr := make(chan error, 1)
+	go func() {
+		resumed, err := manager.Resume(context.Background(), run.ID, agent.SpawnRequest{
+			ParentSessionID: "main-000001",
+			ParentAgentID:   "main",
+			ChildSessionID:  "child-1",
+			ChildSessionKey: "agent:main:child:1",
+			Label:           "research",
+			Prompt:          "second pass",
+			Run: func(context.Context, agent.RunContext) (string, error) {
+				close(secondStarted)
+				return "second result", nil
+			},
+		})
+		if err != nil {
+			resumeErr <- err
+			return
+		}
+		resumeDone <- resumed
+	}()
+
+	select {
+	case err := <-resumeErr:
+		t.Fatalf("resume returned before prior attempt quiesced: %v", err)
+	case <-resumeDone:
+		t.Fatal("resume completed before prior attempt quiesced")
+	case <-secondStarted:
+		t.Fatal("second attempt started before prior attempt quiesced")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+
+	var resumed *agent.Run
+	select {
+	case err := <-resumeErr:
+		t.Fatalf("resume: %v", err)
+	case resumed = <-resumeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for resume to proceed after quiescence")
+	}
+	if resumed.ID != run.ID {
+		t.Fatalf("resume id = %q, want stable id %q", resumed.ID, run.ID)
+	}
+	if _, err := manager.Wait(context.Background(), run.ID, 2*time.Second); err != nil {
+		t.Fatalf("wait resumed: %v", err)
+	}
+}

@@ -117,29 +117,40 @@ func (m *Manager) Resume(ctx context.Context, id string, req SpawnRequest) (*Run
 		return nil, fmt.Errorf("resume run func is required")
 	}
 
-	now := time.Now().UTC()
-	runCtx, cancel := context.WithCancel(ctx)
+	for {
+		m.mu.Lock()
+		run, ok := m.runs[id]
+		if !ok {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("run %q not found", id)
+		}
+		if run.Status == StatusRunning {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("run %q is still running and cannot be resumed", id)
+		}
+		if run.Status == StatusClosed {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("run %q is closed and cannot be resumed", id)
+		}
+		done := run.done
+		if attemptQuiesced(done) {
+			now := time.Now().UTC()
+			runCtx, cancel := context.WithCancel(ctx)
+			m.configureRunLocked(run, req, ActionResumed, now, cancel)
+			snapshot := cloneRun(run)
+			m.mu.Unlock()
 
-	m.mu.Lock()
-	run, ok := m.runs[id]
-	if !ok {
+			m.launch(req.Run, run, runCtx)
+			return &snapshot, nil
+		}
 		m.mu.Unlock()
-		return nil, fmt.Errorf("run %q not found", id)
-	}
-	if run.Status == StatusRunning {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("run %q is still running and cannot be resumed", id)
-	}
-	if run.Status == StatusClosed {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("run %q is closed and cannot be resumed", id)
-	}
-	m.configureRunLocked(run, req, ActionResumed, now, cancel)
-	snapshot := cloneRun(run)
-	m.mu.Unlock()
 
-	m.launch(req.Run, run, runCtx)
-	return &snapshot, nil
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-done:
+		}
+	}
 }
 
 func (m *Manager) Wait(ctx context.Context, id string, timeout time.Duration) (Run, error) {
@@ -392,4 +403,16 @@ func cloneRun(run *Run) Run {
 	cloned.done = nil
 	cloned.controlQueue = nil
 	return cloned
+}
+
+func attemptQuiesced(done chan struct{}) bool {
+	if done == nil {
+		return true
+	}
+	select {
+	case <-done:
+		return true
+	default:
+		return false
+	}
 }
