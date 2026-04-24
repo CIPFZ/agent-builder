@@ -4094,8 +4094,11 @@ func TestHandleWebSocketSubagentSteerEmitsUpdatedEvent(t *testing.T) {
 			t.Fatalf("read subagent updated event %d: %v", i, err)
 		}
 		if event.Type == protocolws.TypeEvent && event.Event == "subagent.updated" {
-			if got := event.Payload["status"]; got != "steered" {
-				t.Fatalf("subagent.updated status = %#v, want steered", got)
+			if got := event.Payload["status"]; got != "running" {
+				t.Fatalf("subagent.updated status = %#v, want running lifecycle state", got)
+			}
+			if got := event.Payload["last_action"]; got != "steered" {
+				t.Fatalf("subagent.updated last_action = %#v, want steered", got)
 			}
 			return
 		}
@@ -4184,8 +4187,11 @@ func TestHandleWebSocketSubagentSteerEmitsOrchestrationUpdatedEvent(t *testing.T
 			if got := event.Payload["run_id"]; got != run.ID {
 				t.Fatalf("orchestration.updated run_id = %#v, want %q", got, run.ID)
 			}
-			if got := event.Payload["status"]; got != "steered" {
-				t.Fatalf("orchestration.updated status = %#v, want steered", got)
+			if got := event.Payload["status"]; got != "running" {
+				t.Fatalf("orchestration.updated status = %#v, want running lifecycle state", got)
+			}
+			if got := event.Payload["last_action"]; got != "steered" {
+				t.Fatalf("orchestration.updated last_action = %#v, want steered", got)
 			}
 			if got := event.Payload["recommended_action"]; got != "monitor_replanned_run" {
 				t.Fatalf("orchestration.updated recommended_action = %#v, want monitor_replanned_run", got)
@@ -4345,7 +4351,7 @@ func TestHandleWebSocketSubagentUpdatedIsSentToOrchestrationHook(t *testing.T) {
 
 	found := false
 	for _, event := range hook.Events() {
-		if event.Type == "subagent.updated" && event.RunID == run.ID && event.Status == "steered" {
+		if event.Type == "subagent.updated" && event.RunID == run.ID && event.Status == "running" && event.Action == "steered" {
 			found = true
 			break
 		}
@@ -4354,7 +4360,7 @@ func TestHandleWebSocketSubagentUpdatedIsSentToOrchestrationHook(t *testing.T) {
 		deadline := time.Now().Add(500 * time.Millisecond)
 		for time.Now().Before(deadline) {
 			for _, event := range hook.Events() {
-				if event.Type == "subagent.updated" && event.RunID == run.ID && event.Status == "steered" {
+				if event.Type == "subagent.updated" && event.RunID == run.ID && event.Status == "running" && event.Action == "steered" {
 					found = true
 					break
 				}

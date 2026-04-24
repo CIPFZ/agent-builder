@@ -39,6 +39,15 @@ func containsString(lines []string, want string) bool {
 	return false
 }
 
+func containsMessage(messages []model.Message, role, content string) bool {
+	for _, message := range messages {
+		if message.Role == role && strings.Contains(message.Content, content) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *captureSink) Emit(event RuntimeEvent) error {
 	s.events = append(s.events, event)
 	return nil
@@ -97,6 +106,13 @@ type scriptedClient struct {
 	call      int
 }
 
+type gatedScriptedClient struct {
+	responses     []string
+	gateFirstCall chan struct{}
+	firstStarted  chan struct{}
+	call          int
+}
+
 type stubWorktreeManager struct {
 	info        AgentWorktree
 	createCalls int
@@ -129,6 +145,28 @@ func (m *stubWorktreeManager) Remove(_ context.Context, worktree AgentWorktree) 
 }
 
 func (c *scriptedClient) Stream(_ context.Context, _ llm.GenerateRequest, handler llm.StreamHandler) error {
+	if c.call >= len(c.responses) {
+		return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+	}
+	content := c.responses[c.call]
+	c.call++
+	if err := handler.OnEvent(llm.StreamEvent{Type: "text.delta", Delta: content}); err != nil {
+		return err
+	}
+	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+}
+
+func (c *gatedScriptedClient) Stream(_ context.Context, _ llm.GenerateRequest, handler llm.StreamHandler) error {
+	if c.call == 0 && c.firstStarted != nil {
+		select {
+		case <-c.firstStarted:
+		default:
+			close(c.firstStarted)
+		}
+	}
+	if c.call == 0 && c.gateFirstCall != nil {
+		<-c.gateFirstCall
+	}
 	if c.call >= len(c.responses) {
 		return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
 	}
@@ -1051,10 +1089,24 @@ func TestRunnerDefaultAgentTaskExecutorRunsBackgroundAgentWithoutWaiting(t *test
 	if err != nil {
 		t.Fatalf("default agent task executor: %v", err)
 	}
-	for _, want := range []string{`"status":"async_launched"`, `"agentId":"agent-000001"`, `"outputFile":`, `"canReadOutputFile":true`} {
-		if !strings.Contains(result.Output, want) {
-			t.Fatalf("output = %q, missing %q", result.Output, want)
-		}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &payload); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	if got := payload["status"]; got != "running" {
+		t.Fatalf("status = %#v, want running payload", got)
+	}
+	if got := payload["lastAction"]; got != "spawned" {
+		t.Fatalf("lastAction = %#v, want spawned", got)
+	}
+	if got := payload["agentId"]; got != "agent-000001" {
+		t.Fatalf("agentId = %#v, want stable delegated task id", got)
+	}
+	if _, ok := payload["outputFile"].(string); !ok {
+		t.Fatalf("outputFile = %#v, want background output path", payload["outputFile"])
+	}
+	if got := payload["canReadOutputFile"]; got != true {
+		t.Fatalf("canReadOutputFile = %#v, want true", got)
 	}
 	if len(runner.AgentManager().List()) != 1 {
 		t.Fatalf("runs = %#v, want one background run", runner.AgentManager().List())
@@ -1085,8 +1137,15 @@ func TestRunnerDefaultAgentTaskExecutorBackgroundWithoutReadableToolsMarksOutput
 	if err != nil {
 		t.Fatalf("default agent task executor: %v", err)
 	}
-	if !strings.Contains(result.Output, `"status":"async_launched"`) || !strings.Contains(result.Output, `"canReadOutputFile":false`) {
-		t.Fatalf("output = %q, want async_launched with unreadable output flag", result.Output)
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &payload); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	if got := payload["status"]; got != "running" || payload["lastAction"] != "spawned" {
+		t.Fatalf("payload = %#v, want running spawned background payload", payload)
+	}
+	if got := payload["canReadOutputFile"]; got != false {
+		t.Fatalf("canReadOutputFile = %#v, want explicit false", got)
 	}
 }
 
@@ -1174,8 +1233,8 @@ func TestRunnerBackgroundSubagentEmitsCompletionNotification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default agent task executor: %v", err)
 	}
-	if !strings.Contains(result.Output, `"status":"async_launched"`) {
-		t.Fatalf("output = %q, want async launch", result.Output)
+	if !strings.Contains(result.Output, `"status":"running"`) || !strings.Contains(result.Output, `"lastAction":"spawned"`) {
+		t.Fatalf("output = %q, want running spawned lifecycle payload", result.Output)
 	}
 	runs := runner.AgentManager().List()
 	if len(runs) != 1 {
@@ -1224,8 +1283,8 @@ func TestRunnerBackgroundSubagentEmitsFailureNotification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default agent task executor: %v", err)
 	}
-	if !strings.Contains(result.Output, `"status":"async_launched"`) {
-		t.Fatalf("output = %q, want async launch", result.Output)
+	if !strings.Contains(result.Output, `"status":"running"`) || !strings.Contains(result.Output, `"lastAction":"spawned"`) {
+		t.Fatalf("output = %q, want running spawned lifecycle payload", result.Output)
 	}
 	runs := runner.AgentManager().List()
 	if len(runs) != 1 {
@@ -1243,6 +1302,72 @@ func TestRunnerBackgroundSubagentEmitsFailureNotification(t *testing.T) {
 	}
 	if !strings.Contains(notifications[0].Message, "failed") {
 		t.Fatalf("notification = %#v, want failure message", notifications[0])
+	}
+}
+
+func TestRunnerBackgroundSubagentConsumesSteerMessagesDuringRuntimeExecution(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	client := &gatedScriptedClient{
+		responses:     []string{"first result", "steered result"},
+		gateFirstCall: make(chan struct{}),
+		firstStarted:  make(chan struct{}),
+	}
+
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader(""), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		AgentDefinitions: tools.AgentDefinitions{
+			Definitions: map[string]tools.AgentDefinition{
+				"researcher": {
+					AgentType:  "researcher",
+					Background: true,
+				},
+			},
+		},
+	})
+	runner.options.AgentManager = agent.NewManager()
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "research", "inspect auth flow", SubagentOptions{
+		AgentType: "researcher",
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+
+	select {
+	case <-client.firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first delegated turn to start")
+	}
+
+	if err := runner.AgentManager().Steer(run.ID, "focus on session reuse"); err != nil {
+		t.Fatalf("steer delegated run: %v", err)
+	}
+	close(client.gateFirstCall)
+
+	completed, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("wait delegated run: %v", err)
+	}
+	if completed.Status != agent.StatusCompleted {
+		t.Fatalf("run = %#v, want completed status", completed)
+	}
+	if completed.Output != "steered result" {
+		t.Fatalf("output = %q, want steered result", completed.Output)
+	}
+	if completed.LastAction != agent.ActionSteered {
+		t.Fatalf("last action = %q, want steered", completed.LastAction)
+	}
+
+	messages, ok := sessions.Messages(run.ChildSessionID)
+	if !ok {
+		t.Fatalf("messages for child session %q not found", run.ChildSessionID)
+	}
+	if !containsMessage(messages, "user", "inspect auth flow") {
+		t.Fatalf("messages = %#v, want initial delegated prompt", messages)
+	}
+	if !containsMessage(messages, "user", "focus on session reuse") {
+		t.Fatalf("messages = %#v, want steered control prompt", messages)
 	}
 }
 
@@ -1267,8 +1392,12 @@ func TestRunnerDefaultAgentTaskExecutorUsesForkForStructuredInputWithoutSubagent
 	if err != nil {
 		t.Fatalf("default agent task executor: %v", err)
 	}
-	if !strings.Contains(result.Output, `"status":"spawned"`) {
-		t.Fatalf("output = %q, want spawned payload", result.Output)
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &payload); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	if got := payload["lastAction"]; got != "spawned" {
+		t.Fatalf("lastAction = %#v, want spawned", got)
 	}
 	runs := runner.AgentManager().List()
 	if len(runs) != 1 {

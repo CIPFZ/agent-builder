@@ -14,6 +14,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"myclaw/internal/agent"
 	"myclaw/internal/approval"
 	"myclaw/internal/compaction"
 	"myclaw/internal/llm"
@@ -271,7 +272,14 @@ func (s *Server) handleClient(client *Client) error {
 				continue
 			}
 
-			run, err := s.runner.SpawnSubagent(context.Background(), sess, spawnPayload.Label, spawnPayload.Prompt)
+			run, err := s.runner.SpawnSubagentWithOptions(context.Background(), sess, spawnPayload.Label, spawnPayload.Prompt, runtime.SubagentOptions{
+				AllowedTools: append([]string(nil), spawnPayload.AllowedTools...),
+				Model:        strings.TrimSpace(spawnPayload.Model),
+				Effort:       strings.TrimSpace(spawnPayload.Effort),
+				AgentType:    strings.TrimSpace(spawnPayload.AgentType),
+				Isolation:    strings.TrimSpace(spawnPayload.Isolation),
+				UseFork:      spawnPayload.UseFork,
+			})
 			if err != nil {
 				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
 					return err
@@ -279,27 +287,21 @@ func (s *Server) handleClient(client *Client) error {
 				continue
 			}
 			if err := client.WriteJSON(protocolws.Message{
-				Type: protocolws.TypeResponse,
-				ID:   inbound.ID,
-				OK:   true,
-				Payload: map[string]any{
-					"run_id":            run.ID,
-					"child_session_id":  run.ChildSessionID,
-					"child_session_key": run.ChildSessionKey,
-					"status":            "spawned",
-				},
+				Type:    protocolws.TypeResponse,
+				ID:      inbound.ID,
+				OK:      true,
+				Payload: subagentPayload(*run),
 			}); err != nil {
 				return err
 			}
 
 			go func() {
-				result, waitErr := s.runner.AgentManager().Wait(context.Background(), run.ID, 30*time.Second)
+				result, waitErr := s.runner.AgentManager().Wait(context.Background(), run.ID, 0)
 				if waitErr != nil {
 					_ = client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentCompleted, map[string]any{
-						"run_id":  run.ID,
-						"status":  "failed",
-						"message": waitErr.Error(),
-						"output":  "",
+						"run_id": run.ID,
+						"status": string(agent.StatusFailed),
+						"error":  waitErr.Error(),
 					}))
 					_ = s.emitOrchestratorEvent(context.Background(), orchestration.Event{
 						Type:       protocolws.EventSubagentCompleted,
@@ -307,18 +309,12 @@ func (s *Server) handleClient(client *Client) error {
 						SessionKey: sess.Key,
 						AgentID:    sess.AgentID,
 						RunID:      run.ID,
-						Status:     "failed",
+						Status:     string(agent.StatusFailed),
 						Message:    waitErr.Error(),
 					})
 					return
 				}
-				_ = client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentCompleted, map[string]any{
-					"run_id":            result.ID,
-					"status":            string(result.Status),
-					"child_session_id":  result.ChildSessionID,
-					"child_session_key": result.ChildSessionKey,
-					"output":            result.Output,
-				}))
+				_ = client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentCompleted, subagentPayload(result)))
 				_ = s.emitOrchestratorEvent(context.Background(), orchestration.Event{
 					Type:       protocolws.EventSubagentCompleted,
 					SessionID:  sess.ID,
@@ -326,6 +322,7 @@ func (s *Server) handleClient(client *Client) error {
 					AgentID:    sess.AgentID,
 					RunID:      result.ID,
 					Status:     string(result.Status),
+					Action:     string(result.LastAction),
 					Message:    result.Output,
 				})
 			}()
@@ -995,14 +992,7 @@ func (s *Server) handleClient(client *Client) error {
 			runs := s.runner.AgentManager().List()
 			items := make([]map[string]any, 0, len(runs))
 			for _, run := range runs {
-				items = append(items, map[string]any{
-					"run_id":            run.ID,
-					"parent_session_id": run.ParentSessionID,
-					"label":             run.Label,
-					"status":            string(run.Status),
-					"child_session_id":  run.ChildSessionID,
-					"child_session_key": run.ChildSessionKey,
-				})
+				items = append(items, subagentPayload(run))
 			}
 			key := "tasks"
 			if inbound.Method == protocolws.MethodSubagentList {
@@ -1034,18 +1024,10 @@ func (s *Server) handleClient(client *Client) error {
 				continue
 			}
 			if err := client.WriteJSON(protocolws.Message{
-				Type: protocolws.TypeResponse,
-				ID:   inbound.ID,
-				OK:   true,
-				Payload: map[string]any{
-					"run_id":            run.ID,
-					"parent_session_id": run.ParentSessionID,
-					"label":             run.Label,
-					"status":            string(run.Status),
-					"child_session_id":  run.ChildSessionID,
-					"child_session_key": run.ChildSessionKey,
-					"control_messages":  toAnySlice(s.runner.AgentManager().ControlMessages(run.ID)),
-				},
+				Type:    protocolws.TypeResponse,
+				ID:      inbound.ID,
+				OK:      true,
+				Payload: subagentPayload(run),
 			}); err != nil {
 				return err
 			}
@@ -1063,24 +1045,19 @@ func (s *Server) handleClient(client *Client) error {
 				}
 				continue
 			}
+			updated, _ := s.runner.AgentManager().Get(runID)
 			if err := client.WriteJSON(protocolws.Message{
-				Type: protocolws.TypeResponse,
-				ID:   inbound.ID,
-				OK:   true,
-				Payload: map[string]any{
-					"run_id": runID,
-					"status": "stopped",
-				},
+				Type:    protocolws.TypeResponse,
+				ID:      inbound.ID,
+				OK:      true,
+				Payload: subagentPayload(updated),
 			}); err != nil {
 				return err
 			}
-			if err := client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentUpdated, map[string]any{
-				"run_id": runID,
-				"status": "stopped",
-			})); err != nil {
+			if err := client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentUpdated, subagentPayload(updated))); err != nil {
 				return err
 			}
-			if err := s.emitOrchestratorEvent(context.Background(), orchestration.Event{Type: protocolws.EventSubagentUpdated, SessionID: client.SessionID(), RunID: runID, Status: "stopped"}); err != nil {
+			if err := s.emitOrchestratorEvent(context.Background(), orchestration.Event{Type: protocolws.EventSubagentUpdated, SessionID: client.SessionID(), RunID: runID, Status: string(updated.Status), Action: string(updated.LastAction)}); err != nil {
 				return err
 			}
 			if err := s.emitOrchestrationUpdated(client, runID); err != nil {
@@ -1259,26 +1236,19 @@ func (s *Server) handleClient(client *Client) error {
 				}
 				continue
 			}
+			updated, _ := s.runner.AgentManager().Get(runID)
 			if err := client.WriteJSON(protocolws.Message{
-				Type: protocolws.TypeResponse,
-				ID:   inbound.ID,
-				OK:   true,
-				Payload: map[string]any{
-					"run_id":  runID,
-					"message": message,
-					"status":  "steered",
-				},
+				Type:    protocolws.TypeResponse,
+				ID:      inbound.ID,
+				OK:      true,
+				Payload: withSubagentMessage(subagentPayload(updated), message),
 			}); err != nil {
 				return err
 			}
-			if err := client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentUpdated, map[string]any{
-				"run_id":  runID,
-				"status":  "steered",
-				"message": message,
-			})); err != nil {
+			if err := client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentUpdated, withSubagentMessage(subagentPayload(updated), message))); err != nil {
 				return err
 			}
-			if err := s.emitOrchestratorEvent(context.Background(), orchestration.Event{Type: protocolws.EventSubagentUpdated, SessionID: client.SessionID(), RunID: runID, Status: "steered", Message: message}); err != nil {
+			if err := s.emitOrchestratorEvent(context.Background(), orchestration.Event{Type: protocolws.EventSubagentUpdated, SessionID: client.SessionID(), RunID: runID, Status: string(updated.Status), Action: string(updated.LastAction), Message: message}); err != nil {
 				return err
 			}
 			if err := s.emitOrchestrationUpdated(client, runID); err != nil {
@@ -1302,27 +1272,17 @@ func (s *Server) handleClient(client *Client) error {
 				continue
 			}
 			if err := client.WriteJSON(protocolws.Message{
-				Type: protocolws.TypeResponse,
-				ID:   inbound.ID,
-				OK:   true,
-				Payload: map[string]any{
-					"run_id":            run.ID,
-					"child_session_id":  run.ChildSessionID,
-					"child_session_key": run.ChildSessionKey,
-					"status":            "resumed",
-				},
+				Type:    protocolws.TypeResponse,
+				ID:      inbound.ID,
+				OK:      true,
+				Payload: subagentPayload(*run),
 			}); err != nil {
 				return err
 			}
-			if err := client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentUpdated, map[string]any{
-				"run_id":            run.ID,
-				"status":            "resumed",
-				"child_session_id":  run.ChildSessionID,
-				"child_session_key": run.ChildSessionKey,
-			})); err != nil {
+			if err := client.WriteJSON(protocolws.EventMessage(protocolws.EventSubagentUpdated, subagentPayload(*run))); err != nil {
 				return err
 			}
-			if err := s.emitOrchestratorEvent(context.Background(), orchestration.Event{Type: protocolws.EventSubagentUpdated, SessionID: client.SessionID(), RunID: run.ID, Status: "resumed"}); err != nil {
+			if err := s.emitOrchestratorEvent(context.Background(), orchestration.Event{Type: protocolws.EventSubagentUpdated, SessionID: client.SessionID(), RunID: run.ID, Status: string(run.Status), Action: string(run.LastAction)}); err != nil {
 				return err
 			}
 			if err := s.emitOrchestrationUpdated(client, run.ID); err != nil {
@@ -1719,6 +1679,11 @@ func parseSpawnSubagentPayload(payload map[string]any) (protocolws.SpawnSubagent
 	if err := json.Unmarshal(raw, &spawnPayload); err != nil {
 		return protocolws.SpawnSubagentPayload{}, err
 	}
+	if strings.TrimSpace(spawnPayload.AgentType) == "" {
+		if legacy, _ := payload["subagent_type"].(string); strings.TrimSpace(legacy) != "" {
+			spawnPayload.AgentType = strings.TrimSpace(legacy)
+		}
+	}
 	if spawnPayload.Prompt == "" {
 		return protocolws.SpawnSubagentPayload{}, &connectError{message: "spawn_subagent payload requires prompt"}
 	}
@@ -1987,12 +1952,68 @@ func formatOptionalTime(value time.Time) string {
 	return value.Format(time.RFC3339Nano)
 }
 
+func subagentPayload(run agent.Run) map[string]any {
+	payload := map[string]any{
+		"run_id":            run.ID,
+		"parent_session_id": run.ParentSessionID,
+		"label":             run.Label,
+		"status":            string(run.Status),
+		"child_session_id":  run.ChildSessionID,
+		"child_session_key": run.ChildSessionKey,
+		"attempt":           run.Attempt,
+	}
+	if run.LastAction != "" {
+		payload["last_action"] = string(run.LastAction)
+	}
+	if run.Output != "" {
+		payload["output"] = run.Output
+	}
+	if run.OutputFile != "" {
+		payload["output_file"] = run.OutputFile
+	}
+	if run.ErrorSummary != "" {
+		payload["error"] = run.ErrorSummary
+	}
+	if len(run.ControlMessages) > 0 {
+		payload["control_messages"] = toAnySlice(run.ControlMessages)
+	}
+	if !run.CreatedAt.IsZero() {
+		payload["created_at"] = run.CreatedAt.Format(time.RFC3339Nano)
+	}
+	if !run.StartedAt.IsZero() {
+		payload["started_at"] = run.StartedAt.Format(time.RFC3339Nano)
+	}
+	if !run.UpdatedAt.IsZero() {
+		payload["updated_at"] = run.UpdatedAt.Format(time.RFC3339Nano)
+	}
+	if !run.CompletedAt.IsZero() {
+		payload["completed_at"] = run.CompletedAt.Format(time.RFC3339Nano)
+	}
+	if !run.LastActionAt.IsZero() {
+		payload["last_action_at"] = run.LastActionAt.Format(time.RFC3339Nano)
+	}
+	return payload
+}
+
+func withSubagentMessage(payload map[string]any, message string) map[string]any {
+	if strings.TrimSpace(message) == "" {
+		return payload
+	}
+	withMessage := make(map[string]any, len(payload)+1)
+	for key, value := range payload {
+		withMessage[key] = value
+	}
+	withMessage["message"] = message
+	return withMessage
+}
+
 func orchestrationPayload(run orchestration.RunState) map[string]any {
 	return map[string]any{
 		"run_id":             run.RunID,
 		"session_id":         run.SessionID,
 		"agent_id":           run.AgentID,
 		"status":             run.Status,
+		"last_action":        run.LastAction,
 		"last_event":         run.LastEvent,
 		"tool_name":          run.ToolName,
 		"message":            run.Message,
@@ -2015,6 +2036,7 @@ func orchestrationHistoryPayload(record orchestration.DecisionRecord) map[string
 		"session_id":         record.SessionID,
 		"event_type":         record.EventType,
 		"status":             record.Status,
+		"last_action":        record.LastAction,
 		"tool_name":          record.ToolName,
 		"message":            record.Message,
 		"recommended_role":   record.RecommendedRole,

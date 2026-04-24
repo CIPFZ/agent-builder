@@ -23,8 +23,14 @@ type SendMessagePayload struct {
 }
 
 type SpawnSubagentPayload struct {
-	Label  string `json:"label"`
-	Prompt string `json:"prompt"`
+	Label        string   `json:"label"`
+	Prompt       string   `json:"prompt"`
+	AgentType    string   `json:"agent_type,omitempty"`
+	Model        string   `json:"model,omitempty"`
+	Effort       string   `json:"effort,omitempty"`
+	Isolation    string   `json:"isolation,omitempty"`
+	AllowedTools []string `json:"allowed_tools,omitempty"`
+	UseFork      bool     `json:"use_fork,omitempty"`
 }
 
 type SessionStatusPayload struct {

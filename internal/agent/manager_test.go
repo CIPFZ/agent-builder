@@ -37,6 +37,12 @@ func TestManagerSpawnAndWait(t *testing.T) {
 	if result.Status != agent.StatusCompleted {
 		t.Fatalf("result status = %q, want %q", result.Status, agent.StatusCompleted)
 	}
+	if result.LastAction != agent.ActionSpawned {
+		t.Fatalf("last action = %q, want %q", result.LastAction, agent.ActionSpawned)
+	}
+	if result.CreatedAt.IsZero() || result.StartedAt.IsZero() || result.CompletedAt.IsZero() {
+		t.Fatalf("result timestamps = %#v, want populated lifecycle timestamps", result)
+	}
 	if result.Output != "investigation complete" {
 		t.Fatalf("result output = %q, want %q", result.Output, "investigation complete")
 	}
@@ -124,6 +130,9 @@ func TestManagerStopRunningAgent(t *testing.T) {
 	if result.Status != agent.StatusStopped {
 		t.Fatalf("status = %q, want %q", result.Status, agent.StatusStopped)
 	}
+	if result.LastAction != agent.ActionStopped {
+		t.Fatalf("last action = %q, want %q", result.LastAction, agent.ActionStopped)
+	}
 	close(block)
 }
 
@@ -161,6 +170,9 @@ func TestManagerSteerAppendsControlMessage(t *testing.T) {
 	if result.Output != "switch to safer plan" {
 		t.Fatalf("result output = %q, want steer message", result.Output)
 	}
+	if result.LastAction != agent.ActionSteered {
+		t.Fatalf("last action = %q, want %q", result.LastAction, agent.ActionSteered)
+	}
 }
 
 func TestManagerGetRunByID(t *testing.T) {
@@ -170,7 +182,7 @@ func TestManagerGetRunByID(t *testing.T) {
 		ParentAgentID:   "main",
 		Label:           "quick",
 		Prompt:          "finish",
-		Run: func(context.Context, agent.RunContext) (string, error) { return "ok", nil },
+		Run:             func(context.Context, agent.RunContext) (string, error) { return "ok", nil },
 	})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
@@ -182,5 +194,59 @@ func TestManagerGetRunByID(t *testing.T) {
 	}
 	if got.ChildSessionKey != run.ChildSessionKey {
 		t.Fatalf("child session key = %q, want %q", got.ChildSessionKey, run.ChildSessionKey)
+	}
+}
+
+func TestManagerResumeReusesStableRunID(t *testing.T) {
+	manager := agent.NewManager()
+
+	run, err := manager.Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID: "main-000001",
+		ParentAgentID:   "main",
+		ChildSessionID:  "child-1",
+		ChildSessionKey: "agent:main:child:1",
+		Label:           "research",
+		Prompt:          "first pass",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			return "first result", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if _, err := manager.Wait(context.Background(), run.ID, 2*time.Second); err != nil {
+		t.Fatalf("wait first: %v", err)
+	}
+
+	resumed, err := manager.Resume(context.Background(), run.ID, agent.SpawnRequest{
+		ParentSessionID: "main-000001",
+		ParentAgentID:   "main",
+		ChildSessionID:  "child-1",
+		ChildSessionKey: "agent:main:child:1",
+		Label:           "research",
+		Prompt:          "second pass",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			return "second result", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if resumed.ID != run.ID {
+		t.Fatalf("resume id = %q, want stable id %q", resumed.ID, run.ID)
+	}
+
+	result, err := manager.Wait(context.Background(), run.ID, 2*time.Second)
+	if err != nil {
+		t.Fatalf("wait resumed: %v", err)
+	}
+	if result.Attempt != 2 {
+		t.Fatalf("attempt = %d, want 2", result.Attempt)
+	}
+	if result.LastAction != agent.ActionResumed {
+		t.Fatalf("last action = %q, want %q", result.LastAction, agent.ActionResumed)
+	}
+	if result.Output != "second result" {
+		t.Fatalf("output = %q, want resumed output", result.Output)
 	}
 }

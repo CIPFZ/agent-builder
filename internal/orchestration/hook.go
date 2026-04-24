@@ -11,6 +11,7 @@ type Event struct {
 	ToolName   string
 	ToolInput  string
 	Status     string
+	Action     string
 	Message    string
 }
 
