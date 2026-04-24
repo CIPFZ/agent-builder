@@ -14,6 +14,8 @@ import (
 	"myclaw/internal/llm"
 )
 
+var daemonBootstrapRuntime = bootstrapRuntime
+
 func RunDaemon(ctx context.Context, cfg config.Config, stdout io.Writer) error {
 	mux, _ := newDaemonHandler(cfg, stdout)
 
@@ -49,15 +51,13 @@ func RunDaemon(ctx context.Context, cfg config.Config, stdout io.Writer) error {
 func newDaemonHandler(cfg config.Config, stdout io.Writer) (*http.ServeMux, *gateway.Server) {
 	mux := http.NewServeMux()
 	logger := log.New(stdout, "[gateway] ", log.LstdFlags)
-	bootstrap, err := bootstrapRuntime(".", cfg, bootstrapOptions{
+	bootstrap, err := daemonBootstrapRuntime(".", cfg, bootstrapOptions{
 		FallbackWorkspaceRoots: []string{"configs/workspace"},
-		DisableMCP:             true,
 	})
 	if err != nil {
 		logger.Printf("failed to bootstrap runtime: %v", err)
-		bootstrap, err = bootstrapRuntime(".", config.Default(), bootstrapOptions{
+		bootstrap, err = daemonBootstrapRuntime(".", config.Default(), bootstrapOptions{
 			FallbackWorkspaceRoots: []string{"configs/workspace"},
-			DisableMCP:             true,
 		})
 		if err != nil {
 			logger.Printf("failed to bootstrap fallback runtime: %v", err)
@@ -66,9 +66,9 @@ func newDaemonHandler(cfg config.Config, stdout io.Writer) (*http.ServeMux, *gat
 	}
 	gatewayServer := gateway.NewServerWithOptions(logger, bootstrap.Sessions, llm.NewClientFromConfig(cfg.LLM), gateway.Options{
 		PermissionPolicy:       bootstrap.Policy,
+		Runner:                 bootstrap.Runner,
 		MainLoopModel:          cfg.LLM.Model,
 		LLMProvider:            cfg.LLM.Provider,
-		MCPClients:             bootstrapMCPConnections(cfg.MCP, false),
 		DisableMCPPromptSkills: !cfg.MCP.Skills,
 	})
 

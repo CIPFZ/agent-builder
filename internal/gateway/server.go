@@ -48,6 +48,7 @@ type Options struct {
 	PermissionPolicy          permissions.Policy
 	Compactor                 *compaction.Service
 	Orchestrator              orchestration.Hook
+	Runner                    *runtime.Runner
 	PermissionHook            queryengine.PermissionHook
 	PreToolUseHook            queryengine.PreToolUseHook
 	PostToolUseHook           queryengine.PostToolUseHook
@@ -109,20 +110,26 @@ func NewServerWithOptions(logger *log.Logger, sessionManager *session.Manager, l
 		server.permissionControlTimeout = 30 * time.Second
 	}
 
-	runner := runtime.NewRunnerWithOptions(sessionManager, llmClient, workspace.NewLoader(defaultWorkspaceRoot()), nil, runtime.Options{
-		PermissionPolicy:          options.PermissionPolicy,
-		Compactor:                 options.Compactor,
-		Orchestrator:              hook,
-		PermissionHook:            server,
-		PreToolUseHook:            options.PreToolUseHook,
-		PostToolUseHook:           options.PostToolUseHook,
-		PostToolUseFailureHook:    options.PostToolUseFailureHook,
-		PermissionUpdatePersister: options.PermissionUpdatePersister,
-		MainLoopModel:             options.MainLoopModel,
-		LLMProvider:               options.LLMProvider,
-		MCPClients:                append([]tools.MCPConnection(nil), options.MCPClients...),
-		DisableMCPPromptSkills:    options.DisableMCPPromptSkills,
-	})
+	runner := options.Runner
+	if runner == nil {
+		runner = runtime.NewRunnerWithOptions(sessionManager, llmClient, workspace.NewLoader(defaultWorkspaceRoot()), nil, runtime.Options{
+			PermissionPolicy:          options.PermissionPolicy,
+			Compactor:                 options.Compactor,
+			Orchestrator:              hook,
+			PermissionHook:            server,
+			PreToolUseHook:            options.PreToolUseHook,
+			PostToolUseHook:           options.PostToolUseHook,
+			PostToolUseFailureHook:    options.PostToolUseFailureHook,
+			PermissionUpdatePersister: options.PermissionUpdatePersister,
+			MainLoopModel:             options.MainLoopModel,
+			LLMProvider:               options.LLMProvider,
+			MCPClients:                append([]tools.MCPConnection(nil), options.MCPClients...),
+			DisableMCPPromptSkills:    options.DisableMCPPromptSkills,
+			ReportToolProgress:        server.reportToolProgress,
+		})
+	} else {
+		runner.SetReportToolProgress(server.reportToolProgress)
+	}
 	server.runner = runner
 	server.queue = runtime.NewQueue(runner)
 	return server
@@ -2117,6 +2124,8 @@ func (s *Server) watchSubagentCompletion(client *Client, sess session.Session, r
 		})
 	}()
 }
+
+func (s *Server) reportToolProgress(progress tools.ToolProgress) {}
 
 func defaultWorkspaceRoot() string {
 	candidates := []string{

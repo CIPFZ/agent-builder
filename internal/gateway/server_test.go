@@ -37,6 +37,46 @@ func (f permissionHookFunc) CheckPermission(ctx context.Context, request queryen
 	return f(ctx, request)
 }
 
+type progressToolForGateway struct{}
+
+func (progressToolForGateway) Definition() tools.Definition {
+	return tools.Definition{
+		Name:        "progress.echo",
+		Description: "Emit one progress event and return a result.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"value": map[string]any{"type": "string"},
+			},
+			"required": []string{"value"},
+		},
+	}
+}
+
+func (progressToolForGateway) Invoke(_ context.Context, _ session.Session, input string) (string, error) {
+	return input, nil
+}
+
+func (progressToolForGateway) InvokeWithContext(_ context.Context, toolCtx tools.ToolUseContext) (tools.ToolResult, error) {
+	toolCtx.ReportProgress(tools.ToolProgress{
+		ToolUseID: toolCtx.ToolUseID,
+		Type:      "progress",
+		Message:   "halfway there",
+		Data: map[string]any{
+			"phase": "mid",
+		},
+	})
+	return tools.ToolResult{Output: "progress complete"}, nil
+}
+
+func (progressToolForGateway) IsEnabled() bool           { return true }
+func (progressToolForGateway) IsReadOnly(string) bool    { return true }
+func (progressToolForGateway) IsDestructive(string) bool { return false }
+func (progressToolForGateway) PromptDescription() string { return "emit one progress event" }
+func (progressToolForGateway) SearchHint() string        { return "progress echo" }
+func (progressToolForGateway) AlwaysLoad() bool          { return false }
+func (progressToolForGateway) ShouldDefer() bool         { return false }
+
 func (h *orchestrationHook) Handle(_ context.Context, event orchestration.Event) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -722,6 +762,92 @@ func TestHandleWebSocketToolLoop(t *testing.T) {
 	}
 	if !foundAssistantFinal {
 		t.Fatal("expected final assistant message from tool result")
+	}
+}
+
+func TestHandleWebSocketEmitsToolProgressEvents(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	registry := tools.NewRegistry(progressToolForGateway{})
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, &progressToolCallClient{}, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	server.runner = runtimepkg.NewRunnerWithOptions(sessionManager, &progressToolCallClient{}, workspace.NewLoader(""), registry, runtimepkg.Options{
+		PermissionPolicy:   permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		ReportToolProgress: server.reportToolProgress,
+	})
+	server.queue = runtimepkg.NewQueue(server.runner)
+
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	_ = conn.ReadJSON(&protocolws.Message{})
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "emit gateway progress",
+		},
+	}); err != nil {
+		t.Fatalf("write send_message: %v", err)
+	}
+
+	foundProgress := false
+	for i := 0; i < 24; i++ {
+		var msg protocolws.Message
+		if err := conn.ReadJSON(&msg); err != nil {
+			t.Fatalf("read websocket event %d: %v", i, err)
+		}
+		if msg.Type == protocolws.TypeEvent && msg.Event == "tool.progress" {
+			if got := msg.Payload["run_id"]; got == "" {
+				t.Fatalf("tool.progress run_id = %#v, want populated run id", got)
+			}
+			if got := msg.Payload["session_id"]; got == "" {
+				t.Fatalf("tool.progress session_id = %#v, want populated session id", got)
+			}
+			if got := msg.Payload["tool_name"]; got != "progress.echo" {
+				continue
+			}
+			if got := msg.Payload["tool_use_id"]; got != "toolu-progress-gateway" {
+				t.Fatalf("tool.progress tool_use_id = %#v, want toolu-progress-gateway", got)
+			}
+			if got := msg.Payload["type"]; got != "progress" {
+				t.Fatalf("tool.progress type = %#v, want progress", got)
+			}
+			if got := msg.Payload["message"]; got != "halfway there" {
+				t.Fatalf("tool.progress message = %#v, want halfway there", got)
+			}
+			data, _ := msg.Payload["data"].(map[string]any)
+			if data["phase"] != "mid" {
+				t.Fatalf("tool.progress data = %#v, want phase=mid", data)
+			}
+			foundProgress = true
+			break
+		}
+	}
+	if !foundProgress {
+		t.Fatal("expected tool.progress websocket event")
 	}
 }
 
@@ -8262,6 +8388,21 @@ func (c *objectToolCallClient) Stream(_ context.Context, _ llm.GenerateRequest, 
 		ToolName:        "system.run",
 		ToolInput:       `{"command":"pwd"}`,
 		ToolInputObject: map[string]any{"command": "pwd"},
+	}); err != nil {
+		return err
+	}
+	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+}
+
+type progressToolCallClient struct{}
+
+func (c *progressToolCallClient) Stream(_ context.Context, _ llm.GenerateRequest, handler llm.StreamHandler) error {
+	if err := handler.OnEvent(llm.StreamEvent{
+		Type:            "tool.call",
+		ToolName:        "progress.echo",
+		ToolInput:       `{"value":"hello"}`,
+		ToolInputObject: map[string]any{"value": "hello"},
+		ToolUseID:       "toolu-progress-gateway",
 	}); err != nil {
 		return err
 	}
