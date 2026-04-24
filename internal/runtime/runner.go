@@ -101,6 +101,7 @@ type Options struct {
 	MCPPrompts                map[string]tools.MCPPromptsListResult
 	MCPSkills                 map[string][]tools.SkillCommand
 	MCPPromptCaller           tools.MCPPromptCaller
+	MCPNeedsAuth              map[string]tools.MCPAuthToolResult
 	MCPAuthenticator          tools.MCPAuthenticator
 	MCPReconnect              tools.MCPReconnectFunc
 	DisableMCPPromptSkills    bool
@@ -127,22 +128,8 @@ type Runner struct {
 	policyMu sync.RWMutex
 }
 
-type MCPInventory struct {
-	ServerCount   int
-	ToolCount     int
-	PromptCount   int
-	ResourceCount int
-}
-
-type MCPServerSnapshot struct {
-	Name          string
-	TransportType string
-	Endpoint      string
-	Enabled       bool
-	Tools         []string
-	Prompts       []string
-	Resources     []string
-}
+type MCPInventory = queryengine.MCPInventory
+type MCPServerSnapshot = queryengine.MCPServerSnapshot
 
 func NewRunner(sessions *session.Manager, client llm.Client, workspaceLoader *workspace.Loader, toolRegistry *tools.Registry) *Runner {
 	return NewRunnerWithOptions(sessions, client, workspaceLoader, toolRegistry, Options{
@@ -240,69 +227,6 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 			options.AgentDefinitions.AllowedAgentTypes = append([]string(nil), activeNames...)
 		}
 	}
-	if len(options.MCPClients) > 0 {
-		discovered, err := tools.DiscoverMCPClientToolsWithOAuth(context.Background(), options.MCPClients, options.MCPOAuthStore)
-		if err == nil {
-			if len(discovered.Tools) > 0 {
-				if options.MCPTools == nil {
-					options.MCPTools = make(map[string]tools.MCPToolsListResult)
-				}
-				for server, result := range discovered.Tools {
-					if _, exists := options.MCPTools[server]; !exists {
-						options.MCPTools[server] = result
-					}
-				}
-			}
-			if len(discovered.Prompts) > 0 {
-				if options.MCPPrompts == nil {
-					options.MCPPrompts = make(map[string]tools.MCPPromptsListResult)
-				}
-				for server, result := range discovered.Prompts {
-					if _, exists := options.MCPPrompts[server]; !exists {
-						options.MCPPrompts[server] = result
-					}
-				}
-			}
-			if len(discovered.Skills) > 0 {
-				if options.MCPSkills == nil {
-					options.MCPSkills = make(map[string][]tools.SkillCommand)
-				}
-				for server, skills := range discovered.Skills {
-					if _, exists := options.MCPSkills[server]; !exists {
-						options.MCPSkills[server] = append([]tools.SkillCommand(nil), skills...)
-					}
-				}
-			}
-			if options.MCPToolCaller == nil {
-				options.MCPToolCaller = discovered.Caller
-			}
-			if options.MCPContextualToolCaller == nil {
-				options.MCPContextualToolCaller = discovered.ContextualCaller
-			}
-			if options.MCPPromptCaller == nil {
-				options.MCPPromptCaller = discovered.PromptCaller
-			}
-			if len(discovered.Resources) > 0 {
-				if options.MCPResources == nil {
-					options.MCPResources = make(map[string][]tools.MCPResource)
-				}
-				for server, resources := range discovered.Resources {
-					if _, exists := options.MCPResources[server]; !exists {
-						options.MCPResources[server] = append([]tools.MCPResource(nil), resources...)
-					}
-				}
-			}
-			if options.MCPResourceReader == nil {
-				options.MCPResourceReader = discovered.ResourceReader
-			}
-			if options.MCPResourceLister == nil {
-				options.MCPResourceLister = discovered.ResourceLister
-			}
-			if options.MCPReconnect == nil {
-				options.MCPReconnect = discovered.Reconnect
-			}
-		}
-	}
 	rehydratePendingApprovals(sessions, options.ApprovalManager)
 
 	runner := &Runner{
@@ -381,6 +305,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		MCPPrompts:                runner.options.MCPPrompts,
 		MCPSkills:                 runner.options.MCPSkills,
 		MCPPromptCaller:           runner.options.MCPPromptCaller,
+		MCPNeedsAuth:              runner.options.MCPNeedsAuth,
 		MCPAuthenticator:          runner.options.MCPAuthenticator,
 		MCPReconnect:              runner.options.MCPReconnect,
 		DisableMCPPromptSkills:    runner.options.DisableMCPPromptSkills,
@@ -1193,110 +1118,19 @@ func (r *Runner) ResolvedMainLoopModelForSession(sessionID string) string {
 }
 
 func (r *Runner) MCPInventory() MCPInventory {
-	servers := map[string]struct{}{}
-	for _, client := range r.options.MCPClients {
-		name := strings.TrimSpace(client.Name)
-		if name != "" {
-			servers[name] = struct{}{}
-		}
-	}
-
-	inventory := MCPInventory{}
-	for server, resources := range r.options.MCPResources {
-		if strings.TrimSpace(server) != "" {
-			servers[server] = struct{}{}
-		}
-		inventory.ResourceCount += len(resources)
-	}
-	for server, result := range r.options.MCPTools {
-		if strings.TrimSpace(server) != "" {
-			servers[server] = struct{}{}
-		}
-		inventory.ToolCount += len(result.Tools)
-	}
-	for server, result := range r.options.MCPPrompts {
-		if strings.TrimSpace(server) != "" {
-			servers[server] = struct{}{}
-		}
-		inventory.PromptCount += len(result.Prompts)
-	}
-	inventory.ServerCount = len(servers)
-	return inventory
+	return r.engine.MCPInventory()
 }
 
 func (r *Runner) MCPServers() []MCPServerSnapshot {
-	serverIndex := make(map[string]*MCPServerSnapshot)
-	for _, client := range r.options.MCPClients {
-		name := strings.TrimSpace(client.Name)
-		if name == "" {
-			continue
-		}
-		server := ensureMCPServerSnapshot(serverIndex, name)
-		server.TransportType = strings.TrimSpace(client.Type)
-		server.Endpoint = describeMCPEndpoint(client)
-		server.Enabled = true
-	}
-	for serverName, resources := range r.options.MCPResources {
-		server := ensureMCPServerSnapshot(serverIndex, serverName)
-		for _, resource := range resources {
-			label := strings.TrimSpace(resource.URI)
-			if label == "" {
-				label = strings.TrimSpace(resource.Name)
-			}
-			server.Resources = append(server.Resources, label)
-		}
-	}
-	for serverName, result := range r.options.MCPTools {
-		server := ensureMCPServerSnapshot(serverIndex, serverName)
-		for _, tool := range result.Tools {
-			server.Tools = append(server.Tools, strings.TrimSpace(tool.Name))
-		}
-	}
-	for serverName, result := range r.options.MCPPrompts {
-		server := ensureMCPServerSnapshot(serverIndex, serverName)
-		for _, prompt := range result.Prompts {
-			server.Prompts = append(server.Prompts, strings.TrimSpace(prompt.Name))
-		}
-	}
-
-	servers := make([]MCPServerSnapshot, 0, len(serverIndex))
-	for _, server := range serverIndex {
-		server.Tools = compactAndSortStrings(server.Tools)
-		server.Prompts = compactAndSortStrings(server.Prompts)
-		server.Resources = compactAndSortStrings(server.Resources)
-		servers = append(servers, *server)
-	}
-	sort.Slice(servers, func(i, j int) bool {
-		return servers[i].Name < servers[j].Name
-	})
-	return servers
+	return r.engine.MCPServers()
 }
 
-func ensureMCPServerSnapshot(index map[string]*MCPServerSnapshot, name string) *MCPServerSnapshot {
-	name = strings.TrimSpace(name)
-	server, ok := index[name]
-	if ok {
-		return server
-	}
-	server = &MCPServerSnapshot{Name: name}
-	index[name] = server
-	return server
+func (r *Runner) ReconnectMCP(ctx context.Context, server string) (MCPServerSnapshot, error) {
+	return r.engine.ReconnectMCP(ctx, server)
 }
 
-func describeMCPEndpoint(client tools.MCPConnection) string {
-	for _, value := range []string{
-		strings.TrimSpace(client.URL),
-		strings.TrimSpace(client.BaseURL),
-		strings.TrimSpace(client.Command),
-	} {
-		if value != "" {
-			if value == client.Command && len(client.Args) > 0 {
-				return strings.TrimSpace(value + " " + strings.Join(client.Args, " "))
-			}
-			return value
-		}
-	}
-	return ""
+func (r *Runner) AuthenticateMCP(ctx context.Context, server string) (tools.MCPAuthStartResult, MCPServerSnapshot, error) {
+	return r.engine.AuthenticateMCP(ctx, server)
 }
 
 func compactAndSortStrings(values []string) []string {

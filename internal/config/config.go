@@ -89,9 +89,27 @@ type CompactConfig struct {
 	VerificationMode bool
 }
 
+type MCPServerConfig struct {
+	Name                    string
+	Enabled                 bool
+	Type                    string
+	BaseURL                 string
+	URL                     string
+	Command                 string
+	Args                    []string
+	Env                     map[string]string
+	Headers                 map[string]string
+	HeadersHelper           string
+	AuthURL                 string
+	AuthScope               string
+	AuthResourceMetadataURL string
+	AuthChallenge           map[string]string
+}
+
 type MCPConfig struct {
 	Enabled bool
 	Skills  bool
+	Servers []MCPServerConfig
 }
 
 func Default() Config {
@@ -113,6 +131,7 @@ func loadFromDir(dir string) (Config, error) {
 	}
 	applyEnvOverrides(&cfg)
 	resolvePermissionPaths(&cfg, dir)
+	resolveMCPPaths(&cfg, dir)
 	if err := validateAndResolve(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -260,9 +279,27 @@ type fileCompactConfig struct {
 }
 
 type fileMCPConfig struct {
-	Enabled       *bool `json:"enabled"`
-	Skills        *bool `json:"skills"`
-	SkillsEnabled *bool `json:"skills_enabled"`
+	Enabled       *bool                 `json:"enabled"`
+	Skills        *bool                 `json:"skills"`
+	SkillsEnabled *bool                 `json:"skills_enabled"`
+	Servers       []fileMCPServerConfig `json:"servers"`
+}
+
+type fileMCPServerConfig struct {
+	Name                    string            `json:"name"`
+	Enabled                 *bool             `json:"enabled"`
+	Type                    string            `json:"type"`
+	BaseURL                 string            `json:"base_url"`
+	URL                     string            `json:"url"`
+	Command                 string            `json:"command"`
+	Args                    []string          `json:"args"`
+	Env                     map[string]string `json:"env"`
+	Headers                 map[string]string `json:"headers"`
+	HeadersHelper           string            `json:"headers_helper"`
+	AuthURL                 string            `json:"auth_url"`
+	AuthScope               string            `json:"auth_scope"`
+	AuthResourceMetadataURL string            `json:"auth_resource_metadata_url"`
+	AuthChallenge           map[string]string `json:"auth_challenge"`
 }
 
 func mergeFileConfig(cfg *Config, path string) error {
@@ -411,6 +448,9 @@ func mergeFileConfig(cfg *Config, path string) error {
 	if fileCfg.MCP.SkillsEnabled != nil {
 		cfg.MCP.Skills = *fileCfg.MCP.SkillsEnabled
 	}
+	if len(fileCfg.MCP.Servers) > 0 {
+		cfg.MCP.Servers = mergeFileMCPServers(fileCfg.MCP.Servers)
+	}
 	return nil
 }
 
@@ -465,6 +505,147 @@ func applyEnvOverrides(cfg *Config) {
 		cfg.MCP.Skills = envBool("MYCLAW_MCP_SKILLS_ENABLED", cfg.MCP.Skills)
 	} else {
 		cfg.MCP.Skills = envBool("MYCLAW_MCP_SKILLS", cfg.MCP.Skills)
+	}
+}
+
+func mergeFileMCPServers(servers []fileMCPServerConfig) []MCPServerConfig {
+	merged := make([]MCPServerConfig, 0, len(servers))
+	for _, server := range servers {
+		entry := MCPServerConfig{
+			Name:                    expandEnv(server.Name),
+			Enabled:                 true,
+			Type:                    expandEnv(server.Type),
+			BaseURL:                 expandEnv(server.BaseURL),
+			URL:                     expandEnv(server.URL),
+			Command:                 expandEnv(server.Command),
+			Args:                    expandEnvList(server.Args),
+			Env:                     expandEnvMap(server.Env),
+			Headers:                 expandEnvMap(server.Headers),
+			HeadersHelper:           expandEnv(server.HeadersHelper),
+			AuthURL:                 expandEnv(server.AuthURL),
+			AuthScope:               expandEnv(server.AuthScope),
+			AuthResourceMetadataURL: expandEnv(server.AuthResourceMetadataURL),
+			AuthChallenge:           expandEnvMap(server.AuthChallenge),
+		}
+		if server.Enabled != nil {
+			entry.Enabled = *server.Enabled
+		}
+		merged = append(merged, entry)
+	}
+	return merged
+}
+
+func expandEnvMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	expanded := make(map[string]string, len(values))
+	for key, value := range values {
+		expanded[key] = expandEnv(value)
+	}
+	return expanded
+}
+
+func resolveMCPPaths(cfg *Config, dir string) {
+	for index := range cfg.MCP.Servers {
+		cfg.MCP.Servers[index].Command = resolveMCPPath(dir, cfg.MCP.Servers[index].Command)
+		cfg.MCP.Servers[index].HeadersHelper = resolveMCPHelperPath(dir, cfg.MCP.Servers[index].HeadersHelper)
+	}
+}
+
+func resolveMCPPath(baseDir, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	if !strings.ContainsAny(value, `/\`) {
+		return value
+	}
+	if strings.TrimSpace(baseDir) == "" {
+		baseDir = "."
+	}
+	return filepath.Clean(filepath.Join(baseDir, value))
+}
+
+func resolveMCPHelperPath(baseDir, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	if strings.Contains(value, " ") || !strings.ContainsAny(value, `/\`) {
+		return value
+	}
+	if strings.TrimSpace(baseDir) == "" {
+		baseDir = "."
+	}
+	return filepath.Clean(filepath.Join(baseDir, value))
+}
+
+func validateMCPConfig(cfg *MCPConfig) error {
+	if cfg == nil || len(cfg.Servers) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(cfg.Servers))
+	for index := range cfg.Servers {
+		path := fmt.Sprintf("mcp.servers[%d]", index)
+		server := &cfg.Servers[index]
+		server.Name = strings.TrimSpace(server.Name)
+		server.Type = normalizeMCPServerTransport(server.Type, *server)
+		server.BaseURL = strings.TrimSpace(server.BaseURL)
+		server.URL = strings.TrimSpace(server.URL)
+		server.Command = strings.TrimSpace(server.Command)
+		server.HeadersHelper = strings.TrimSpace(server.HeadersHelper)
+		server.AuthURL = strings.TrimSpace(server.AuthURL)
+		server.AuthScope = strings.TrimSpace(server.AuthScope)
+		server.AuthResourceMetadataURL = strings.TrimSpace(server.AuthResourceMetadataURL)
+		if server.Name == "" {
+			return fmt.Errorf("%s.name must not be empty", path)
+		}
+		key := strings.ToLower(server.Name)
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("%s.name %q duplicates another MCP server", path, server.Name)
+		}
+		seen[key] = struct{}{}
+		if !server.Enabled {
+			continue
+		}
+		switch server.Type {
+		case "stdio":
+			if server.Command == "" {
+				return fmt.Errorf("%s.command must not be empty for stdio servers", path)
+			}
+		case "http", "streamable_http", "sse":
+			if strings.TrimSpace(firstNonEmpty(server.BaseURL, server.URL)) == "" {
+				return fmt.Errorf("%s.base_url or %s.url must not be empty for %s servers", path, path, server.Type)
+			}
+		default:
+			return fmt.Errorf("%s.type must be one of stdio, http, streamable_http, or sse", path)
+		}
+	}
+	return nil
+}
+
+func normalizeMCPServerTransport(value string, server MCPServerConfig) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		switch {
+		case strings.TrimSpace(server.Command) != "":
+			return "stdio"
+		case strings.TrimSpace(firstNonEmpty(server.BaseURL, server.URL)) != "":
+			return "streamable_http"
+		default:
+			return ""
+		}
+	case "stdio", "http", "streamable_http", "sse":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
 	}
 }
 
@@ -618,6 +799,9 @@ func validateAndResolve(cfg *Config) error {
 		if err := validateProxyConfig("llm.providers."+providerName+".proxy", providerCfg.Proxy); err != nil {
 			return err
 		}
+	}
+	if err := validateMCPConfig(&cfg.MCP); err != nil {
+		return err
 	}
 
 	profile, ok := cfg.LLM.Profiles[activeProfileName]

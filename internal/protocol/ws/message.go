@@ -49,6 +49,14 @@ type SessionSetModelPayload struct {
 	Model      string `json:"model"`
 }
 
+type MCPStatusPayload struct {
+	Server string `json:"server,omitempty"`
+}
+
+type MCPActionPayload struct {
+	Server string `json:"server"`
+}
+
 type ApprovalListPayload struct {
 	Status string `json:"status,omitempty"`
 }
@@ -110,6 +118,9 @@ const (
 	MethodSessionStatus                     = "session_status"
 	MethodSessionSetPermission              = "session_set_permission"
 	MethodSessionSetModel                   = "session_set_model"
+	MethodMCPStatus                         = "mcp_status"
+	MethodMCPReconnect                      = "mcp_reconnect"
+	MethodMCPAuthenticate                   = "mcp_authenticate"
 	MethodOrchestrationStatus               = "orchestration_status"
 	MethodOrchestrationHistory              = "orchestration_history"
 	MethodOrchestrationSummary              = "orchestration_summary"

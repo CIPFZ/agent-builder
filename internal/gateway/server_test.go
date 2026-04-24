@@ -20,7 +20,10 @@ import (
 	"myclaw/internal/permissions"
 	protocolws "myclaw/internal/protocol/ws"
 	"myclaw/internal/queryengine"
+	runtimepkg "myclaw/internal/runtime"
 	"myclaw/internal/session"
+	"myclaw/internal/tools"
+	"myclaw/internal/workspace"
 )
 
 type orchestrationHook struct {
@@ -132,6 +135,345 @@ func readCanUseToolControlRequest(t *testing.T, conn *websocket.Conn) protocolws
 
 	t.Fatal("expected can_use_tool control_request")
 	return protocolws.Message{}
+}
+
+func connectGatewayTestClient(t *testing.T, server *Server) *websocket.Conn {
+	t.Helper()
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "sdk",
+			"client_identity": "mcp-test",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+
+	var response protocolws.Message
+	if err := conn.ReadJSON(&response); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	if response.Type != protocolws.TypeResponse || !response.OK {
+		t.Fatalf("connect response = %#v, want ok response", response)
+	}
+	_ = waitForEvent(t, conn, protocolws.EventHello)
+	return conn
+}
+
+func readGatewayResponse(t *testing.T, conn *websocket.Conn) protocolws.Message {
+	t.Helper()
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set response read deadline: %v", err)
+	}
+	defer func() {
+		if err := conn.SetReadDeadline(time.Time{}); err != nil {
+			t.Fatalf("clear response read deadline: %v", err)
+		}
+	}()
+
+	var response protocolws.Message
+	if err := conn.ReadJSON(&response); err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	return response
+}
+
+func waitForGatewayMCPServerStatus(t *testing.T, conn *websocket.Conn, serverName, wantStatus string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := conn.WriteJSON(protocolws.Message{
+			Type:   protocolws.TypeRequest,
+			ID:     "mcp-status",
+			Method: protocolws.MethodMCPStatus,
+			Payload: map[string]any{
+				"server": serverName,
+			},
+		}); err != nil {
+			t.Fatalf("write mcp_status while waiting for %s: %v", wantStatus, err)
+		}
+		response := readGatewayResponse(t, conn)
+		if !response.OK {
+			t.Fatalf("mcp_status response = %#v, want ok", response)
+		}
+		servers, _ := response.Payload["servers"].([]any)
+		if len(servers) != 1 {
+			t.Fatalf("servers = %#v, want single filtered server", response.Payload["servers"])
+		}
+		serverPayload, _ := servers[0].(map[string]any)
+		if serverPayload["status"] == wantStatus {
+			return serverPayload
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for MCP server %q to reach status %q", serverName, wantStatus)
+	return nil
+}
+
+func TestHandleWebSocketMCPStatusReturnsNeedsAuthInventory(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server.runner = runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), nil, runtimepkg.Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MCPClients:       []tools.MCPConnection{{Name: "filesystem", Type: "streamable_http", BaseURL: "https://mcp.example"}},
+		MCPSkills: map[string][]tools.SkillCommand{
+			"filesystem": {{Name: "docs-skill", DisplayName: "Docs Skill"}},
+		},
+		MCPNeedsAuth: map[string]tools.MCPAuthToolResult{
+			"filesystem": {
+				Status:  "needs-auth",
+				AuthURL: "https://auth.example/authorize",
+				Message: "Authenticate filesystem",
+			},
+		},
+	})
+	server.queue = runtimepkg.NewQueue(server.runner)
+
+	conn := connectGatewayTestClient(t, server)
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodMCPStatus,
+		Payload: map[string]any{
+			"server": "filesystem",
+		},
+	}); err != nil {
+		t.Fatalf("write mcp_status: %v", err)
+	}
+
+	response := readGatewayResponse(t, conn)
+	if !response.OK {
+		t.Fatalf("response = %#v, want ok mcp_status response", response)
+	}
+	inventory, _ := response.Payload["inventory"].(map[string]any)
+	if inventory["server_count"] != float64(1) && inventory["server_count"] != 1 {
+		t.Fatalf("inventory = %#v, want one MCP server", inventory)
+	}
+	if inventory["skill_count"] != float64(1) && inventory["skill_count"] != 1 {
+		t.Fatalf("inventory = %#v, want one MCP-derived skill", inventory)
+	}
+	servers, _ := response.Payload["servers"].([]any)
+	if len(servers) != 1 {
+		t.Fatalf("servers = %#v, want single filtered MCP server", response.Payload["servers"])
+	}
+	serverPayload, _ := servers[0].(map[string]any)
+	if serverPayload["name"] != "filesystem" || serverPayload["status"] != "needs-auth" || serverPayload["auth_url"] != "https://auth.example/authorize" {
+		t.Fatalf("server payload = %#v, want explicit needs-auth MCP surface", serverPayload)
+	}
+	skillsPayload, _ := serverPayload["skills"].([]any)
+	if len(skillsPayload) != 1 || skillsPayload[0] != "Docs Skill" {
+		t.Fatalf("server payload = %#v, want MCP skill surface", serverPayload)
+	}
+}
+
+func TestHandleWebSocketMCPStatusReturnsStartupDiscoveryFailure(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server.runner = runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), nil, runtimepkg.Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MCPClients:       []tools.MCPConnection{{Name: "broken", Type: "stdio"}},
+	})
+	server.queue = runtimepkg.NewQueue(server.runner)
+
+	conn := connectGatewayTestClient(t, server)
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodMCPStatus,
+		Payload: map[string]any{
+			"server": "broken",
+		},
+	}); err != nil {
+		t.Fatalf("write mcp_status: %v", err)
+	}
+
+	response := readGatewayResponse(t, conn)
+	if !response.OK {
+		t.Fatalf("response = %#v, want ok mcp_status response", response)
+	}
+	servers, _ := response.Payload["servers"].([]any)
+	if len(servers) != 1 {
+		t.Fatalf("servers = %#v, want single filtered MCP server", response.Payload["servers"])
+	}
+	serverPayload, _ := servers[0].(map[string]any)
+	if serverPayload["status"] != "error" {
+		t.Fatalf("server payload = %#v, want explicit error status", serverPayload)
+	}
+	if !strings.Contains(serverPayload["error"].(string), "missing command") {
+		t.Fatalf("server payload = %#v, want startup discovery failure detail", serverPayload)
+	}
+}
+
+func TestHandleWebSocketMCPReconnectRefreshesInventory(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server.runner = runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), nil, runtimepkg.Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MCPClients:       []tools.MCPConnection{{Name: "filesystem", Type: "configured"}},
+		MCPTools: map[string]tools.MCPToolsListResult{
+			"filesystem": {Tools: []tools.MCPToolListItem{{Name: "old_tool"}}},
+		},
+		MCPSkills: map[string][]tools.SkillCommand{
+			"filesystem": {{Name: "old-skill", DisplayName: "Old Skill"}},
+		},
+		MCPReconnect: func(_ context.Context, server string) (tools.MCPReconnectResult, error) {
+			if server != "filesystem" {
+				t.Fatalf("reconnect server = %q, want filesystem", server)
+			}
+			return tools.MCPReconnectResult{
+				Client: tools.MCPConnection{Name: "filesystem", Type: "streamable_http", BaseURL: "https://mcp.example"},
+				Tools:  tools.MCPToolsListResult{Tools: []tools.MCPToolListItem{{Name: "new_tool"}}},
+				Skills: []tools.SkillCommand{{Name: "new-skill", DisplayName: "New Skill"}},
+			}, nil
+		},
+	})
+	server.queue = runtimepkg.NewQueue(server.runner)
+
+	conn := connectGatewayTestClient(t, server)
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodMCPReconnect,
+		Payload: map[string]any{
+			"server": "filesystem",
+		},
+	}); err != nil {
+		t.Fatalf("write mcp_reconnect: %v", err)
+	}
+
+	response := readGatewayResponse(t, conn)
+	if !response.OK || response.Payload["status"] != "reconnected" {
+		t.Fatalf("response = %#v, want successful reconnect response", response)
+	}
+	serverPayload, _ := response.Payload["server"].(map[string]any)
+	toolsPayload, _ := serverPayload["tools"].([]any)
+	if len(toolsPayload) != 1 || toolsPayload[0] != "new_tool" {
+		t.Fatalf("server payload = %#v, want refreshed MCP tool inventory", serverPayload)
+	}
+	skillsPayload, _ := serverPayload["skills"].([]any)
+	if len(skillsPayload) != 1 || skillsPayload[0] != "New Skill" {
+		t.Fatalf("server payload = %#v, want refreshed MCP skill inventory", serverPayload)
+	}
+}
+
+func TestHandleWebSocketMCPAuthenticateUsesStoredAuthContextAndReconnectsOnCompletion(t *testing.T) {
+	completion := make(chan tools.MCPAuthCompletionResult, 1)
+	challenge := map[string]string{
+		"authorization_uri": "https://auth.example/authorize",
+		"resource_metadata": "https://auth.example/.well-known/oauth-protected-resource",
+	}
+	sessionManager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server.runner = runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), nil, runtimepkg.Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		MCPClients:       []tools.MCPConnection{{Name: "filesystem", Type: "streamable_http", BaseURL: "https://mcp.example"}},
+		MCPNeedsAuth: map[string]tools.MCPAuthToolResult{
+			"filesystem": {
+				Status:              "needs-auth",
+				AuthURL:             "https://auth.example/original",
+				Message:             "Authenticate filesystem",
+				Scope:               "files:read",
+				ResourceMetadataURL: "https://auth.example/.well-known/oauth-protected-resource",
+				Challenge:           challenge,
+			},
+		},
+		MCPAuthenticator: func(_ context.Context, server string, connection tools.MCPConnection) (tools.MCPAuthStartResult, error) {
+			if server != "filesystem" || connection.BaseURL != "https://mcp.example" {
+				t.Fatalf("authenticate server=%q connection=%#v, want filesystem MCP connection", server, connection)
+			}
+			if connection.AuthURL != "https://auth.example/original" || connection.AuthScope != "files:read" {
+				t.Fatalf("authenticate connection = %#v, want stored auth URL and scope", connection)
+			}
+			if connection.AuthResourceMetadataURL != "https://auth.example/.well-known/oauth-protected-resource" {
+				t.Fatalf("authenticate connection = %#v, want stored auth resource metadata", connection)
+			}
+			if connection.AuthChallenge["authorization_uri"] != challenge["authorization_uri"] {
+				t.Fatalf("authenticate connection = %#v, want stored auth challenge", connection)
+			}
+			return tools.MCPAuthStartResult{
+				Status:              "auth_url",
+				AuthURL:             "https://auth.example/authorize",
+				Message:             "Open browser",
+				Scope:               "files:read",
+				ResourceMetadataURL: "https://auth.example/.well-known/oauth-protected-resource",
+				Challenge:           challenge,
+				Completion:          completion,
+			}, nil
+		},
+		MCPReconnect: func(_ context.Context, server string) (tools.MCPReconnectResult, error) {
+			if server != "filesystem" {
+				t.Fatalf("reconnect server = %q, want filesystem", server)
+			}
+			return tools.MCPReconnectResult{
+				Client:    tools.MCPConnection{Name: "filesystem", Type: "streamable_http", BaseURL: "https://mcp.example"},
+				Tools:     tools.MCPToolsListResult{Tools: []tools.MCPToolListItem{{Name: "new_tool"}}},
+				Prompts:   tools.MCPPromptsListResult{Prompts: []tools.MCPPromptListItem{{Name: "new_prompt"}}},
+				Resources: []tools.MCPResource{{URI: "file:///new.txt", Name: "new"}},
+				Skills:    []tools.SkillCommand{{Name: "new-skill", DisplayName: "New Skill"}},
+			}, nil
+		},
+	})
+	server.queue = runtimepkg.NewQueue(server.runner)
+
+	conn := connectGatewayTestClient(t, server)
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodMCPAuthenticate,
+		Payload: map[string]any{
+			"server": "filesystem",
+		},
+	}); err != nil {
+		t.Fatalf("write mcp_authenticate: %v", err)
+	}
+
+	response := readGatewayResponse(t, conn)
+	if !response.OK || response.Payload["status"] != "auth_url" {
+		t.Fatalf("response = %#v, want auth_url response", response)
+	}
+	authPayload, _ := response.Payload["auth"].(map[string]any)
+	if authPayload["auth_url"] != "https://auth.example/authorize" || authPayload["scope"] != "files:read" {
+		t.Fatalf("auth payload = %#v, want auth start details", authPayload)
+	}
+	if authPayload["resource_metadata_url"] != "https://auth.example/.well-known/oauth-protected-resource" {
+		t.Fatalf("auth payload = %#v, want auth resource metadata", authPayload)
+	}
+	authChallenge, _ := authPayload["challenge"].(map[string]any)
+	if authChallenge["authorization_uri"] != challenge["authorization_uri"] {
+		t.Fatalf("auth payload = %#v, want preserved auth challenge", authPayload)
+	}
+	serverPayload, _ := response.Payload["server"].(map[string]any)
+	if serverPayload["status"] != "needs-auth" {
+		t.Fatalf("server payload = %#v, want explicit needs-auth status after auth start", serverPayload)
+	}
+	completion <- tools.MCPAuthCompletionResult{Status: "complete", Message: "Authenticated"}
+
+	refreshed := waitForGatewayMCPServerStatus(t, conn, "filesystem", "connected")
+	toolsPayload, _ := refreshed["tools"].([]any)
+	if len(toolsPayload) != 1 || toolsPayload[0] != "new_tool" {
+		t.Fatalf("server payload = %#v, want reconnected MCP tool inventory", refreshed)
+	}
+	promptsPayload, _ := refreshed["prompts"].([]any)
+	if len(promptsPayload) != 1 || promptsPayload[0] != "new_prompt" {
+		t.Fatalf("server payload = %#v, want reconnected MCP prompt inventory", refreshed)
+	}
+	skillsPayload, _ := refreshed["skills"].([]any)
+	if len(skillsPayload) != 1 || skillsPayload[0] != "New Skill" {
+		t.Fatalf("server payload = %#v, want reconnected MCP skill inventory", refreshed)
+	}
 }
 
 func TestHandleWebSocketConnectAndSendMessage(t *testing.T) {

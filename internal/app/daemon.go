@@ -51,11 +51,13 @@ func newDaemonHandler(cfg config.Config, stdout io.Writer) (*http.ServeMux, *gat
 	logger := log.New(stdout, "[gateway] ", log.LstdFlags)
 	bootstrap, err := bootstrapRuntime(".", cfg, bootstrapOptions{
 		FallbackWorkspaceRoots: []string{"configs/workspace"},
+		DisableMCP:             true,
 	})
 	if err != nil {
 		logger.Printf("failed to bootstrap runtime: %v", err)
 		bootstrap, err = bootstrapRuntime(".", config.Default(), bootstrapOptions{
 			FallbackWorkspaceRoots: []string{"configs/workspace"},
+			DisableMCP:             true,
 		})
 		if err != nil {
 			logger.Printf("failed to bootstrap fallback runtime: %v", err)
@@ -63,9 +65,11 @@ func newDaemonHandler(cfg config.Config, stdout io.Writer) (*http.ServeMux, *gat
 		}
 	}
 	gatewayServer := gateway.NewServerWithOptions(logger, bootstrap.Sessions, llm.NewClientFromConfig(cfg.LLM), gateway.Options{
-		PermissionPolicy: bootstrap.Policy,
-		MainLoopModel:    cfg.LLM.Model,
-		LLMProvider:      cfg.LLM.Provider,
+		PermissionPolicy:       bootstrap.Policy,
+		MainLoopModel:          cfg.LLM.Model,
+		LLMProvider:            cfg.LLM.Provider,
+		MCPClients:             bootstrapMCPConnections(cfg.MCP, false),
+		DisableMCPPromptSkills: !cfg.MCP.Skills,
 	})
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
