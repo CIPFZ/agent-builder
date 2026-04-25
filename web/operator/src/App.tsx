@@ -10,12 +10,12 @@ import {
   MenuProps,
   Select,
   Space,
-  Tag,
   Timeline,
   Tooltip,
-  Typography,
 } from "antd";
 import {
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   ApiOutlined,
   AppstoreOutlined,
   CheckOutlined,
@@ -56,6 +56,7 @@ export function App() {
   const [client, setClient] = useState<MyclawdClient | null>(null);
   const [toolDrawer, setToolDrawer] = useState<string | null>(null);
   const [bootstrapWarnings, setBootstrapWarnings] = useState<string[]>([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { message } = AntApp.useApp();
 
   useEffect(() => {
@@ -63,6 +64,17 @@ export function App() {
       client?.disconnect();
     };
   }, [client]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1280px)");
+    const sync = (matches: boolean) => setSidebarCollapsed(matches);
+    sync(media.matches);
+    const listener = (event: MediaQueryListEvent) => {
+      sync(event.matches);
+    };
+    media.addEventListener("change", listener);
+    return () => media.removeEventListener("change", listener);
+  }, []);
 
   const transcript = useMemo(() => {
     if (!state.streaming.content) {
@@ -80,40 +92,43 @@ export function App() {
 
   const bubbleItems = useMemo(
     () =>
-      transcript.map((item) => ({
-        key: item.id,
-        role: item.role === "user" ? "user" : "assistant",
-        placement: item.role === "user" ? ("end" as const) : ("start" as const),
-        content: item.content,
-        variant: item.role === "user" ? ("filled" as const) : ("borderless" as const),
-        shape: item.role === "user" ? ("round" as const) : ("corner" as const),
-        streaming: item.id === "streaming",
-        footer:
-          item.role === "user" ? null : (
-            <div className="message-actions">
-              <Tooltip title="Copy">
-                <button type="button">
-                  <CopyOutlined />
-                </button>
-              </Tooltip>
-              <Tooltip title="Helpful">
-                <button type="button">
-                  <LikeOutlined />
-                </button>
-              </Tooltip>
-              <Tooltip title="Not helpful">
-                <button type="button">
-                  <DislikeOutlined />
-                </button>
-              </Tooltip>
-              <Tooltip title="Retry">
-                <button type="button">
-                  <ReloadOutlined />
-                </button>
-              </Tooltip>
-            </div>
-          ),
-      })),
+      transcript.map((item) => {
+        const isStreaming = item.id === "streaming";
+        return {
+          key: item.id,
+          role: item.role === "user" ? "user" : "assistant",
+          placement: item.role === "user" ? ("end" as const) : ("start" as const),
+          content: item.content,
+          variant: item.role === "user" ? ("filled" as const) : ("borderless" as const),
+          shape: item.role === "user" ? ("round" as const) : ("corner" as const),
+          ...(isStreaming ? { streaming: true } : {}),
+          footer:
+            item.role === "user" ? null : (
+              <div className="message-actions">
+                <Tooltip title="Copy">
+                  <button type="button">
+                    <CopyOutlined />
+                  </button>
+                </Tooltip>
+                <Tooltip title="Helpful">
+                  <button type="button">
+                    <LikeOutlined />
+                  </button>
+                </Tooltip>
+                <Tooltip title="Not helpful">
+                  <button type="button">
+                    <DislikeOutlined />
+                  </button>
+                </Tooltip>
+                <Tooltip title="Retry">
+                  <button type="button">
+                    <ReloadOutlined />
+                  </button>
+                </Tooltip>
+              </div>
+            ),
+        };
+      }),
     [transcript],
   );
 
@@ -366,42 +381,53 @@ export function App() {
       onClick: connect,
     },
   ];
+  const connectionLabel = connected ? "Connected" : state.connection.status === "connecting" ? "Connecting" : "Connect";
 
   return (
     <>
-      <Layout className="claude-shell">
+      <Layout className={`claude-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
         <aside className="sidebar">
+          <div className="sidebar-topbar">
+            <button
+              className="sidebar-toggle"
+              type="button"
+              onClick={() => setSidebarCollapsed((current) => !current)}
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            </button>
+          </div>
           <nav className="sidebar-nav">
             <button className="nav-item" type="button">
               <PlusOutlined />
-              <span>New chat</span>
+              {!sidebarCollapsed ? <span>New chat</span> : null}
             </button>
             <button className="nav-item" type="button">
               <FolderOutlined />
-              <span>Projects</span>
+              {!sidebarCollapsed ? <span>Projects</span> : null}
             </button>
             <button className="nav-item" type="button">
               <AppstoreOutlined />
-              <span>Artifacts</span>
+              {!sidebarCollapsed ? <span>Artifacts</span> : null}
             </button>
             <button className="nav-item" type="button">
               <SettingOutlined />
-              <span>Customize</span>
+              {!sidebarCollapsed ? <span>Customize</span> : null}
             </button>
           </nav>
 
           <section className="sidebar-section">
-            <div className="section-label">Pinned</div>
+            {!sidebarCollapsed ? <div className="section-label">Pinned</div> : null}
             <div className="muted-row">
               <PushpinOutlined />
-              <span>Drag to pin</span>
+              {!sidebarCollapsed ? <span>Drag to pin</span> : null}
             </div>
           </section>
 
           <section className="sidebar-section">
-            <div className="section-label">Recents</div>
+            {!sidebarCollapsed ? <div className="section-label">Recents</div> : null}
             <Conversations
-              className="session-list"
+              className={`session-list ${sidebarCollapsed ? "collapsed" : ""}`}
               items={sessionItems}
               activeKey={activeSession}
               onActiveChange={() => undefined}
@@ -412,9 +438,9 @@ export function App() {
             <Dropdown menu={{ items: runtimeMenuItems }} trigger={["click"]} placement="topLeft">
               <button className="profile-row" type="button">
                 <UserOutlined />
-                <span>myclaw</span>
+                {!sidebarCollapsed ? <span>myclaw</span> : null}
                 <span className={`status-dot ${connected ? "online" : ""}`} />
-                <DownloadOutlined className="footer-icon" />
+                {!sidebarCollapsed ? <DownloadOutlined className="footer-icon" /> : null}
               </button>
             </Dropdown>
           </div>
@@ -422,13 +448,31 @@ export function App() {
 
         <main className="workspace">
           <header className="chat-header">
-            <button className="chat-title" type="button">
-              <span>Your first chat with myclaw</span>
-              <DownOutlined />
-            </button>
-            <Tooltip title="Share">
-              <Button type="text" icon={<ShareAltOutlined />} />
-            </Tooltip>
+            <div className="chat-header-left">
+              <button
+                className="sidebar-toggle workspace-toggle"
+                type="button"
+                onClick={() => setSidebarCollapsed((current) => !current)}
+                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                {sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              </button>
+              <button className="chat-title" type="button">
+                <span>Your first chat with myclaw</span>
+                <DownOutlined />
+              </button>
+            </div>
+            <div className="chat-header-actions">
+              <Dropdown menu={{ items: runtimeMenuItems }} trigger={["click"]} placement="bottomRight">
+                <button className={`connect-chip ${connected ? "connected" : ""}`} type="button">
+                  <span className={`status-dot ${connected ? "online" : ""}`} />
+                  <span>{connectionLabel}</span>
+                </button>
+              </Dropdown>
+              <Tooltip title="Share">
+                <Button type="text" icon={<ShareAltOutlined />} />
+              </Tooltip>
+            </div>
           </header>
 
           {state.connection.error ? (
@@ -444,7 +488,7 @@ export function App() {
             />
           ) : null}
 
-          <section className={transcript.length > 0 ? "chat-scroll" : "empty-workspace"}>
+          <section className={`workspace-body ${transcript.length > 0 ? "chat-scroll" : "empty-workspace"}`}>
             {transcript.length === 0 ? (
               <div className="welcome-block">
                 <div className="plan-pill">Operator console</div>

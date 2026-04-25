@@ -20,20 +20,20 @@ input {
 }
 
 #root {
-  min-height: 100vh;
+  height: 100vh;
 }
 
 .claude-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: flex !important;
   flex-direction: row !important;
   align-items: stretch;
+  overflow: hidden;
   background: #faf9f7;
 }
 
 .sidebar {
-  position: sticky;
-  top: 4px;
+  position: relative;
   width: 292px;
   min-width: 292px;
   height: calc(100vh - 8px);
@@ -46,6 +46,33 @@ input {
   border-radius: 10px;
   background: #fbfaf8;
   box-shadow: 8px 0 28px rgba(40, 35, 28, 0.04);
+  overflow: hidden;
+  transition:
+    width 180ms ease,
+    min-width 180ms ease,
+    flex-basis 180ms ease,
+    padding 180ms ease,
+    margin 180ms ease;
+}
+
+.sidebar-topbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.sidebar-toggle {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #7a766f;
+  cursor: pointer;
+  font-size: 15px;
 }
 
 .sidebar-nav {
@@ -105,6 +132,14 @@ input {
   background: transparent;
 }
 
+.session-list.collapsed .ant-conversations-item {
+  justify-content: center;
+}
+
+.session-list.collapsed .ant-conversations-label {
+  display: none;
+}
+
 .sidebar-footer {
   margin-top: auto;
   display: grid;
@@ -123,6 +158,28 @@ input {
   color: #77736d;
   cursor: pointer;
   font-size: 13px;
+}
+
+.sidebar-collapsed .sidebar {
+  width: 76px;
+  min-width: 76px;
+  flex-basis: 76px;
+  padding: 18px 10px 12px;
+}
+
+.sidebar-collapsed .sidebar-topbar {
+  justify-content: center;
+}
+
+.sidebar-collapsed .nav-item,
+.sidebar-collapsed .muted-row,
+.sidebar-collapsed .profile-row {
+  justify-content: center;
+  gap: 0;
+}
+
+.sidebar-collapsed .sidebar-section {
+  margin-top: 26px;
 }
 
 .footer-icon {
@@ -154,19 +211,29 @@ input {
   flex: 1 1 auto;
   min-width: 0;
   height: 100vh;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr) auto;
   overflow: hidden;
   background: #faf9f7;
 }
 
 .chat-header {
-  height: 44px;
   padding: 0 24px 0 31px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   color: #3d3b37;
+}
+
+.chat-header-left,
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.workspace-toggle {
+  display: none;
 }
 
 .chat-title {
@@ -190,19 +257,26 @@ input {
   transform: translateX(-50%);
 }
 
+.workspace-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .empty-workspace {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 0;
-  padding: 32px 24px;
+  padding: 24px 24px 0;
 }
 
 .welcome-block {
   display: grid;
   justify-items: center;
-  gap: 31px;
+  gap: 26px;
+  align-content: center;
+  height: 100%;
+  transform: translateY(0);
 }
 
 .plan-pill {
@@ -235,8 +309,6 @@ input {
 }
 
 .chat-scroll {
-  flex: 1;
-  min-height: 0;
   overflow: auto;
   padding: 44px max(24px, calc((100vw - 292px - 940px) / 2)) 32px;
 }
@@ -290,10 +362,10 @@ input {
 }
 
 .composer-wrap {
-  position: sticky;
-  bottom: 0;
-  margin: auto auto 0;
-  width: min(860px, calc(100vw - 430px));
+  flex: 0 0 auto;
+  margin: 0 auto;
+  width: min(860px, calc(100% - 48px));
+  max-width: calc(100% - 48px);
   padding: 12px 0 18px;
   background: linear-gradient(to top, #faf9f7 72%, rgba(250, 249, 247, 0));
 }
@@ -404,6 +476,23 @@ input {
   font-size: 14px;
 }
 
+.connect-chip {
+  height: 32px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #dedad2;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #5d5953;
+  cursor: pointer;
+}
+
+.connect-chip.connected {
+  color: #295b3b;
+}
+
 .fine-print {
   margin: 15px 0 0;
   color: #8d8981;
@@ -428,6 +517,7 @@ pre {
 @media (max-width: 900px) {
   .claude-shell {
     display: block !important;
+    overflow: auto;
   }
 
   .sidebar {
@@ -436,6 +526,10 @@ pre {
 
   .chat-header {
     padding: 0 16px;
+  }
+
+  .workspace-toggle {
+    display: inline-flex;
   }
 
   .welcome-block h1 {
@@ -450,5 +544,9 @@ pre {
 
   .chat-scroll {
     padding: 32px 16px 24px;
+  }
+
+  .welcome-block {
+    transform: none;
   }
 }
