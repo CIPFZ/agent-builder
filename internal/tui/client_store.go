@@ -137,12 +137,20 @@ func (s *clientStore) applyEvent(event clientEvent) clientStoreSnapshot {
 				break
 			}
 			switch event.Message.Role {
+			case "user":
+				if !lastTranscriptMessageMatches(s.transcript, "user", event.Message.Content) {
+					s.transcript = append(s.transcript, transcriptEntry{
+						Role:    "user",
+						Content: event.Message.Content,
+						Blocks:  cloneClientMessageBlocks(event.Message.Blocks),
+					})
+				}
 			case "assistant":
 				if len(s.transcript) > 0 && s.transcript[len(s.transcript)-1].Role == "assistant" && s.transcript[len(s.transcript)-1].Streaming {
 					s.transcript[len(s.transcript)-1].Content = event.Message.Content
 					s.transcript[len(s.transcript)-1].Streaming = false
 					s.transcript[len(s.transcript)-1].Blocks = cloneClientMessageBlocks(event.Message.Blocks)
-				} else {
+				} else if !lastTranscriptMessageMatches(s.transcript, "assistant", event.Message.Content) {
 					s.transcript = append(s.transcript, transcriptEntry{
 						Role:    "assistant",
 						Content: event.Message.Content,
@@ -264,6 +272,14 @@ func (s *clientStore) appendUserMessage(text string) clientStoreSnapshot {
 		Busy:        s.busy,
 		Approval:    cloneClientApproval(s.approval),
 	}
+}
+
+func lastTranscriptMessageMatches(entries []transcriptEntry, role, content string) bool {
+	if len(entries) == 0 {
+		return false
+	}
+	last := entries[len(entries)-1]
+	return last.Kind == "" && last.Role == role && strings.TrimSpace(last.Content) == strings.TrimSpace(content)
 }
 
 func (s *clientStore) applyBridgeError(err error) clientStoreSnapshot {

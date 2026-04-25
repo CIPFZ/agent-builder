@@ -139,7 +139,7 @@ func NewRunner(sessions *session.Manager, client llm.Client, workspaceLoader *wo
 
 func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspaceLoader *workspace.Loader, toolRegistry *tools.Registry, options Options) *Runner {
 	if client == nil {
-		client = llm.NewMockClient()
+		client = llm.NewUnavailableClient("llm client is not configured")
 	}
 	if workspaceLoader == nil {
 		workspaceLoader = workspace.NewLoader("")

@@ -222,6 +222,33 @@ func TestRenderInputWithCursorWrapsToVisualWidth(t *testing.T) {
 	}
 }
 
+func TestRenderInputWithCursorDoesNotEmbedANSICursor(t *testing.T) {
+	rendered := renderInputWithCursor("abcdefghij", 2, 5)
+
+	if strings.Contains(rendered, "\x1b[") {
+		t.Fatalf("rendered input contains ANSI cursor styling: %q", rendered)
+	}
+}
+
+func TestModelViewPlacesRealCursorInMultilinePrompt(t *testing.T) {
+	model := NewModel(&fakeBridge{})
+	model.setSize(60, 20)
+	model.input = strings.Repeat("a", 63)
+	model.cursorPos = len([]rune(model.input))
+
+	view := model.View()
+
+	if view.Cursor == nil {
+		t.Fatal("view cursor = nil, want real Bubble Tea cursor")
+	}
+	if view.Cursor.X != 7 {
+		t.Fatalf("cursor X = %d, want 7", view.Cursor.X)
+	}
+	if view.Cursor.Y <= 0 {
+		t.Fatalf("cursor Y = %d, want positive screen row", view.Cursor.Y)
+	}
+}
+
 func TestRenderSnapshotTranscriptVisibleLinesShrinksForMultilinePrompt(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	model.setSize(80, 18)

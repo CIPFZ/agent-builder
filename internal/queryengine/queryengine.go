@@ -512,7 +512,7 @@ func New(cfg Config) *QueryEngine {
 	}
 	client := cfg.Client
 	if client == nil {
-		client = llm.NewMockClient()
+		client = llm.NewUnavailableClient("llm client is not configured")
 	}
 	workspaceLoader := cfg.WorkspaceLoader
 	if workspaceLoader == nil {

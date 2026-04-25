@@ -136,8 +136,12 @@ func TestModelDelegatesEditingKeysButKeepsSubmitBoundary(t *testing.T) {
 		t.Fatalf("input = %q, want hello", model.input)
 	}
 
-	updated, _ = model.Update(testKey(keyEnter))
+	updated, cmd := model.Update(testKey(keyEnter))
 	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("cmd = nil, want async send command")
+	}
+	_ = cmd()
 	if len(bridge.sent) != 1 || bridge.sent[0] != "hello" {
 		t.Fatalf("sent = %#v, want [hello]", bridge.sent)
 	}

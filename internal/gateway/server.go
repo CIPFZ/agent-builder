@@ -83,7 +83,7 @@ func NewServerWithOptions(logger *log.Logger, sessionManager *session.Manager, l
 		sessionManager = session.NewManager(nil)
 	}
 	if llmClient == nil {
-		llmClient = llm.NewMockClient()
+		llmClient = llm.NewUnavailableClient("llm client is not configured")
 	}
 
 	coordinator := orchestration.NewCoordinator()

@@ -535,7 +535,7 @@ func TestHandleWebSocketMCPAuthenticateUsesStoredAuthContextAndReconnectsOnCompl
 
 func TestHandleWebSocketConnectAndSendMessage(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 

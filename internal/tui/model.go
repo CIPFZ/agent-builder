@@ -1,6 +1,10 @@
 package tui
 
-import tea "charm.land/bubbletea/v2"
+import (
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+)
 
 const mouseWheelScrollLines = 3
 
@@ -77,6 +81,7 @@ func (m Model) View() tea.View {
 	view := tea.NewView(m.viewContent())
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
+	view.Cursor = m.inputCursor()
 	return view
 }
 
@@ -86,4 +91,27 @@ func (m Model) viewContent() string {
 		width = 120
 	}
 	return newRenderer().renderLayout(m, width)
+}
+
+func (m Model) inputCursor() *tea.Cursor {
+	if m.externalEditor.Active || m.dialog.active() || m.approvalDialog.active() || m.messageActions.Active {
+		return nil
+	}
+	width := m.width
+	if width == 0 {
+		width = defaultRenderWidth
+	}
+	if width < minRenderWidth {
+		width = minRenderWidth
+	}
+	snapshot := newRenderSnapshot(m, width)
+	lines := buildInputVisualLines(snapshot.Input.Text, width-2)
+	lineIndex := inputCursorLineIndex(lines, snapshot.Input.Cursor)
+	column := 0
+	if lineIndex >= 0 && lineIndex < len(lines) {
+		column = inputCursorColumn(lines[lineIndex], snapshot.Input.Text, snapshot.Input.Cursor)
+	}
+	r := newRenderer()
+	y := strings.Count(r.renderHeader(snapshot)+r.renderTranscript(snapshot), "\n") + 1 + lineIndex
+	return tea.NewCursor(2+column, y)
 }

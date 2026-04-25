@@ -2,6 +2,8 @@ package tui
 
 import (
 	"strings"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 type slashCommandSpec struct {
@@ -69,4 +71,13 @@ func stringInSlice(value string, items []string) bool {
 		}
 	}
 	return false
+}
+
+func sendUserMessageCmd(bridge Bridge, text string) tea.Cmd {
+	return func() tea.Msg {
+		if err := bridge.SendUserMessage(text); err != nil {
+			return BridgeErrMsg{Err: err}
+		}
+		return nil
+	}
 }

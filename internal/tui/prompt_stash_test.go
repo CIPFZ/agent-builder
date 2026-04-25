@@ -70,8 +70,12 @@ func TestPromptStashAutoRestoresAfterSubmittingNonSlashPrompt(t *testing.T) {
 	model = updated.(Model)
 	model.input = "send now"
 	model.cursorPos = len([]rune(model.input))
-	updated, _ = model.Update(testKey(keyEnter))
+	updated, cmd := model.Update(testKey(keyEnter))
 	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("cmd = nil, want async send command")
+	}
+	_ = cmd()
 
 	if len(bridge.sent) != 1 || bridge.sent[0] != "send now" {
 		t.Fatalf("sent = %#v, want submitted prompt only", bridge.sent)
@@ -103,8 +107,12 @@ func TestPromptStashPreservesPasteReferencesForSubmit(t *testing.T) {
 
 	updated, _ = model.Update(testKey(keyCtrlS))
 	model = updated.(Model)
-	updated, _ = model.Update(testKey(keyEnter))
+	updated, cmd := model.Update(testKey(keyEnter))
 	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("cmd = nil, want async send command")
+	}
+	_ = cmd()
 
 	if len(bridge.sent) != 1 || bridge.sent[0] != "before "+longPaste {
 		t.Fatalf("sent = %#v, want restored paste reference expanded", bridge.sent)

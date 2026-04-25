@@ -121,9 +121,16 @@ func TestModelEnterSendsInputAndClearsBuffer(t *testing.T) {
 		updated, _ := model.Update(testKeyRunes(string(r)))
 		model = updated.(Model)
 	}
-	updated, _ := model.Update(testKey(keyEnter))
+	updated, cmd := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
+	if len(bridge.sent) != 0 {
+		t.Fatalf("sent before command runs = %#v, want none", bridge.sent)
+	}
+	if cmd == nil {
+		t.Fatal("cmd = nil, want async send command")
+	}
+	_ = cmd()
 	if len(bridge.sent) != 1 || bridge.sent[0] != "hello" {
 		t.Fatalf("sent = %#v, want [hello]", bridge.sent)
 	}
@@ -132,6 +139,59 @@ func TestModelEnterSendsInputAndClearsBuffer(t *testing.T) {
 	}
 	if len(model.transcript) == 0 || model.transcript[0].Role != "user" {
 		t.Fatalf("transcript = %#v, want user entry", model.transcript)
+	}
+}
+
+func TestModelEnterSendsInputWithCommand(t *testing.T) {
+	bridge := &fakeBridge{}
+	model := NewModel(bridge)
+
+	updated, _ := model.Update(testKeyRunes("hello"))
+	model = updated.(Model)
+	updated, cmd := model.Update(testKey(keyEnter))
+	model = updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("cmd = nil, want async send command")
+	}
+	if len(bridge.sent) != 0 {
+		t.Fatalf("sent before command runs = %#v, want none", bridge.sent)
+	}
+	if model.input != "" {
+		t.Fatalf("input = %q, want cleared before send completes", model.input)
+	}
+	if len(model.transcript) == 0 || model.transcript[0].Content != "hello" {
+		t.Fatalf("transcript = %#v, want immediate local echo", model.transcript)
+	}
+
+	msg := cmd()
+	if msg != nil {
+		t.Fatalf("cmd returned %#v on success, want nil", msg)
+	}
+	if len(bridge.sent) != 1 || bridge.sent[0] != "hello" {
+		t.Fatalf("sent = %#v, want [hello]", bridge.sent)
+	}
+}
+
+func TestModelEnterCommandReportsBridgeError(t *testing.T) {
+	bridge := &fakeBridge{sendErr: assertErr("send failed")}
+	model := NewModel(bridge)
+
+	updated, _ := model.Update(testKeyRunes("hello"))
+	model = updated.(Model)
+	updated, cmd := model.Update(testKey(keyEnter))
+	model = updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("cmd = nil, want async send command")
+	}
+	msg := cmd()
+	errMsg, ok := msg.(BridgeErrMsg)
+	if !ok {
+		t.Fatalf("msg = %#v, want BridgeErrMsg", msg)
+	}
+	if errMsg.Err == nil || errMsg.Err.Error() != "send failed" {
+		t.Fatalf("err = %v, want send failed", errMsg.Err)
 	}
 }
 

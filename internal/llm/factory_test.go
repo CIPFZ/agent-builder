@@ -245,3 +245,15 @@ func TestNewClientFromConfigRoutesRequestsByAgentType(t *testing.T) {
 		t.Fatalf("openai model = %q, want default worker profile model", openAIPayload.Model)
 	}
 }
+
+func TestNewClientFromConfigWithoutAPIKeyReturnsUnavailableClient(t *testing.T) {
+	client := NewClientFromConfig(config.LLMConfig{
+		Provider: "openai-compatible",
+		BaseURL:  "https://example.invalid/v1/chat/completions",
+		Model:    "test-model",
+	})
+
+	if _, ok := client.(*UnavailableClient); !ok {
+		t.Fatalf("client = %T, want *UnavailableClient", client)
+	}
+}

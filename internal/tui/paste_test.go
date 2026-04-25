@@ -51,8 +51,12 @@ func TestModelPasteLongTextStoresReferenceAndSubmitExpandsForBridge(t *testing.T
 		t.Fatalf("stored paste len = %d, want %d", len(got), len(longPaste))
 	}
 
-	updated, _ = model.Update(testKey(keyEnter))
+	updated, cmd := model.Update(testKey(keyEnter))
 	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("cmd = nil, want async send command")
+	}
+	_ = cmd()
 
 	if len(bridge.sent) != 1 || bridge.sent[0] != "before "+longPaste+" after" {
 		t.Fatalf("sent = %#v, want expanded paste content", bridge.sent)

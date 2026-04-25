@@ -1157,43 +1157,13 @@ func truncateCells(text string, width int) string {
 }
 
 func renderInputLinesWithCursor(input string, cursor int, width int) []string {
-	runes := []rune(input)
-	if cursor < 0 {
-		cursor = 0
-	}
-	if cursor > len(runes) {
-		cursor = len(runes)
-	}
 	lines := buildInputVisualLines(input, width)
 	rendered := make([]string, 0, len(lines))
-	cursorLine := inputCursorLineIndex(lines, cursor)
-	for index, line := range lines {
-		lineRunes := []rune(line.Text)
-		if index != cursorLine {
-			rendered = append(rendered, line.Text)
-			continue
-		}
-		cursorOffset := cursor - line.Start
-		if cursorOffset < 0 {
-			cursorOffset = 0
-		}
-		if cursorOffset > len(lineRunes) {
-			cursorOffset = len(lineRunes)
-		}
-		var b strings.Builder
-		b.WriteString(string(lineRunes[:cursorOffset]))
-		if cursorOffset == len(lineRunes) {
-			b.WriteString(CursorStyle.Render(" "))
-		} else {
-			b.WriteString(CursorStyle.Render(string(lineRunes[cursorOffset])))
-			if cursorOffset+1 < len(lineRunes) {
-				b.WriteString(string(lineRunes[cursorOffset+1:]))
-			}
-		}
-		rendered = append(rendered, b.String())
+	for _, line := range lines {
+		rendered = append(rendered, line.Text)
 	}
 	if len(rendered) == 0 {
-		return []string{CursorStyle.Render(" ")}
+		return []string{""}
 	}
 	return rendered
 }

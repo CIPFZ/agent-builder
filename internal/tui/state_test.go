@@ -198,3 +198,28 @@ func TestTUIStateRuntimeReducerHandlesAssistantAndToolLifecycle(t *testing.T) {
 		t.Fatalf("tool entry = %#v, want result /repo", state.transcript[1])
 	}
 }
+
+func TestTUIStateIgnoresDuplicateFinalMessages(t *testing.T) {
+	state := newTUIState()
+	state.transcript = append(state.transcript, transcriptEntry{Role: "user", Content: "hello"})
+
+	state.applyRuntimeEvent(clientEvent{
+		Type:    "message.created",
+		Message: &clientMessage{Role: "user", Content: "hello"},
+	})
+	state.applyRuntimeEvent(clientEvent{
+		Type:    "message.created",
+		Message: &clientMessage{Role: "assistant", Content: "answer"},
+	})
+	state.applyRuntimeEvent(clientEvent{
+		Type:    "message.created",
+		Message: &clientMessage{Role: "assistant", Content: "answer"},
+	})
+
+	if len(state.transcript) != 2 {
+		t.Fatalf("transcript = %#v, want one user and one assistant entry", state.transcript)
+	}
+	if state.transcript[0].Role != "user" || state.transcript[1].Role != "assistant" {
+		t.Fatalf("transcript = %#v, want user then assistant", state.transcript)
+	}
+}

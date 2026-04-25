@@ -34,7 +34,7 @@ var runTUI = func(ctx context.Context, _ []string, stdout, stderr io.Writer) err
 		llmLabel = llmLabel + " / " + cfg.LLM.Model
 	}
 	if cfg.LLM.APIKey == "" {
-		llmLabel = "mock / builtin"
+		llmLabel = "unconfigured / missing API key"
 	}
 	daemon, err := prepareTUIDaemon(ctx, cfg, stdout, stderr)
 	if err != nil {

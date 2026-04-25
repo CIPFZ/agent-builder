@@ -124,8 +124,7 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if shouldRestoreStash {
 			m.restorePromptStash()
 		}
-		m.bridge.SendUserMessage(text)
-		return m, nil
+		return m, sendUserMessageCmd(m.bridge, text)
 	case keyCtrlY:
 		if id, ok := m.approvePending(); ok {
 			m.bridge.Approve(id)
