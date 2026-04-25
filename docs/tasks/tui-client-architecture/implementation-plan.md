@@ -25,7 +25,8 @@ Required outcome:
 
 Required outcome:
 
-- Bubble Tea / Lip Gloss / Bubbles direction is explicitly chosen
+- `charm.land/bubbletea/v2` and `charm.land/lipgloss/v2` are explicitly chosen
+- legacy `github.com/charmbracelet/*` imports are treated as migration targets
 - raw-TTY-heavy direction is explicitly rejected as the long-term architecture
 
 ## 4. Work Package C: Transport And Store Design
