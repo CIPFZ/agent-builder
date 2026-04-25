@@ -25,14 +25,19 @@ input {
 
 .claude-shell {
   min-height: 100vh;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: stretch;
   background: #faf9f7;
 }
 
 .sidebar {
-  position: relative;
+  position: sticky;
+  top: 4px;
   width: 292px;
   min-width: 292px;
   height: calc(100vh - 8px);
+  flex: 0 0 292px;
   margin: 4px 0 4px 8px;
   padding: 18px 18px 12px;
   display: flex;
@@ -147,7 +152,7 @@ input {
 
 .workspace {
   position: relative;
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 100vh;
   display: flex;
@@ -238,25 +243,14 @@ input {
 .message-thread {
   width: min(920px, 100%);
   margin: 0 auto;
-  display: grid;
-  gap: 54px;
 }
 
-.message-row {
-  display: grid;
-  gap: 16px;
+.message-thread .ant-bubble {
+  margin-bottom: 54px;
 }
 
-.message-user {
-  justify-items: end;
-}
-
-.message-assistant {
-  justify-items: start;
-}
-
-.message-bubble {
-  max-width: min(680px, 82%);
+.message-thread .ant-bubble-content {
+  max-width: min(680px, 82vw);
   white-space: pre-wrap;
   word-break: break-word;
   color: #2f2e2b;
@@ -264,15 +258,18 @@ input {
   line-height: 1.55;
 }
 
-.message-user .message-bubble {
+.message-thread .ant-bubble-end .ant-bubble-content {
   padding: 19px 22px;
   border-radius: 16px;
-  background: #efede8;
+  background: #efede8 !important;
   font-size: 20px;
   line-height: 24px;
 }
 
-.message-assistant .message-bubble {
+.message-thread .ant-bubble-start .ant-bubble-content {
+  padding: 0;
+  background: transparent !important;
+  box-shadow: none !important;
   font-family: Georgia, "Times New Roman", serif;
 }
 
@@ -311,18 +308,26 @@ input {
   box-shadow: 0 18px 40px rgba(52, 45, 35, 0.08);
 }
 
-.composer-input {
-  padding: 0 !important;
+.composer-sender {
   border: 0 !important;
+  background: transparent !important;
   box-shadow: none !important;
-  resize: none !important;
+}
+
+.composer-sender .ant-sender-content {
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.composer-sender textarea {
+  padding: 0 !important;
   color: #2f2e2b;
   background: transparent !important;
   font-size: 18px;
   line-height: 25px;
 }
 
-.composer-input::placeholder {
+.composer-sender textarea::placeholder {
   color: #7e7b75;
 }
 
@@ -419,6 +424,10 @@ pre {
 }
 
 @media (max-width: 900px) {
+  .claude-shell {
+    display: block !important;
+  }
+
   .sidebar {
     display: none;
   }

@@ -39,7 +39,7 @@ import {
   ToolOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { Conversations } from "@ant-design/x";
+import { Bubble, Conversations, Sender } from "@ant-design/x";
 import { useEffect, useMemo, useReducer, useState } from "react";
 
 import { MyclawdClient } from "./lib/client";
@@ -77,6 +77,45 @@ export function App() {
       },
     ];
   }, [state.streaming.content, state.transcript]);
+
+  const bubbleItems = useMemo(
+    () =>
+      transcript.map((item) => ({
+        key: item.id,
+        role: item.role === "user" ? "user" : "assistant",
+        placement: item.role === "user" ? ("end" as const) : ("start" as const),
+        content: item.content,
+        variant: item.role === "user" ? ("filled" as const) : ("borderless" as const),
+        shape: item.role === "user" ? ("round" as const) : ("corner" as const),
+        streaming: item.id === "streaming",
+        footer:
+          item.role === "user" ? null : (
+            <div className="message-actions">
+              <Tooltip title="Copy">
+                <button type="button">
+                  <CopyOutlined />
+                </button>
+              </Tooltip>
+              <Tooltip title="Helpful">
+                <button type="button">
+                  <LikeOutlined />
+                </button>
+              </Tooltip>
+              <Tooltip title="Not helpful">
+                <button type="button">
+                  <DislikeOutlined />
+                </button>
+              </Tooltip>
+              <Tooltip title="Retry">
+                <button type="button">
+                  <ReloadOutlined />
+                </button>
+              </Tooltip>
+            </div>
+          ),
+      })),
+    [transcript],
+  );
 
   const toolRows = useMemo(() => Object.values(state.tools), [state.tools]);
   const approvalRows = useMemo(() => Object.values(state.approvals), [state.approvals]);
@@ -415,54 +454,21 @@ export function App() {
                 </h1>
               </div>
             ) : (
-              <div className="message-thread">
-                {transcript.map((item) => (
-                  <article key={item.id} className={`message-row ${item.role === "user" ? "message-user" : "message-assistant"}`}>
-                    <div className="message-bubble">{item.content}</div>
-                    {item.role !== "user" ? (
-                      <div className="message-actions">
-                        <Tooltip title="Copy">
-                          <button type="button">
-                            <CopyOutlined />
-                          </button>
-                        </Tooltip>
-                        <Tooltip title="Helpful">
-                          <button type="button">
-                            <LikeOutlined />
-                          </button>
-                        </Tooltip>
-                        <Tooltip title="Not helpful">
-                          <button type="button">
-                            <DislikeOutlined />
-                          </button>
-                        </Tooltip>
-                        <Tooltip title="Retry">
-                          <button type="button">
-                            <ReloadOutlined />
-                          </button>
-                        </Tooltip>
-                      </div>
-                    ) : null}
-                  </article>
-                ))}
-              </div>
+              <Bubble.List className="message-thread" items={bubbleItems} autoScroll />
             )}
           </section>
 
           <section className="composer-wrap">
             <div className="composer">
-              <Input.TextArea
-                className="composer-input"
+              <Sender
+                className="composer-sender"
                 value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                onPressEnter={(event) => {
-                  if (!event.shiftKey) {
-                    event.preventDefault();
-                    sendPrompt();
-                  }
-                }}
+                onChange={setPrompt}
+                onSubmit={sendPrompt}
                 placeholder="How can I help you today?"
                 autoSize={{ minRows: 2, maxRows: 8 }}
+                loading={state.connection.status === "connecting"}
+                actions={false}
               />
               <div className="composer-toolbar">
                 <Dropdown menu={{ items: composerMenuItems }} trigger={["click"]} placement="topLeft">
