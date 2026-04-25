@@ -38,6 +38,15 @@ type SessionStatusPayload struct {
 	SessionKey string `json:"session_key,omitempty"`
 }
 
+type SessionNewPayload struct {
+	AgentID string `json:"agent_id,omitempty"`
+}
+
+type SessionMessagesPayload struct {
+	SessionID  string `json:"session_id,omitempty"`
+	SessionKey string `json:"session_key,omitempty"`
+}
+
 type SessionSetPermissionPayload struct {
 	SessionID        string   `json:"session_id,omitempty"`
 	SessionKey       string   `json:"session_key,omitempty"`
@@ -122,6 +131,9 @@ const (
 	MethodSendMessage                       = "send_message"
 	MethodSpawnSubagent                     = "spawn_subagent"
 	MethodSessionStatus                     = "session_status"
+	MethodSessionList                       = "session_list"
+	MethodSessionNew                        = "session_new"
+	MethodSessionMessages                   = "session_messages"
 	MethodSessionSetPermission              = "session_set_permission"
 	MethodSessionSetModel                   = "session_set_model"
 	MethodMCPStatus                         = "mcp_status"

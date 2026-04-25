@@ -4,6 +4,7 @@ import {
   McpServer,
   OperatorState,
   OrchestrationRun,
+  SessionSummary,
   SessionStatus,
   SubagentRun,
   ToolRun,
@@ -19,6 +20,10 @@ export type OperatorAction =
   | { type: "connection/error"; error: string }
   | { type: "connection/disconnected" }
   | { type: "ws/event"; message: WsEnvelope }
+  | { type: "sessions/list"; payload: SessionSummary[] }
+  | { type: "session/created"; payload: SessionSummary }
+  | { type: "session/activate"; sessionKey: string }
+  | { type: "session/messages"; sessionKey: string; payload: TranscriptMessage[] }
   | { type: "session/status"; payload: SessionStatus }
   | { type: "mcp/status"; payload: { inventory?: Record<string, unknown>; servers?: McpServer[] } }
   | { type: "approvals/list"; payload: ApprovalItem[] }
@@ -54,6 +59,21 @@ function asArrayOfStrings(input: unknown): string[] {
   return input.filter((item): item is string => typeof item === "string");
 }
 
+function eventBelongsToActiveSession(state: OperatorState, payload: Record<string, unknown>): boolean {
+  const sessionKey = typeof payload.session_key === "string" ? payload.session_key : undefined;
+  const sessionId = typeof payload.session_id === "string" ? payload.session_id : undefined;
+  if (!state.activeSessionKey && !state.session.session_id) {
+    return true;
+  }
+  if (sessionKey) {
+    return sessionKey === state.activeSessionKey || sessionKey === state.session.session_key;
+  }
+  if (sessionId) {
+    return sessionId === state.session.session_id;
+  }
+  return true;
+}
+
 export function operatorReducer(state: OperatorState = initialOperatorState, action: OperatorAction): OperatorState {
   switch (action.type) {
     case "connection/connecting":
@@ -76,10 +96,55 @@ export function operatorReducer(state: OperatorState = initialOperatorState, act
         ...state,
         connection: { ...state.connection, status: "disconnected" },
       };
+    case "sessions/list":
+      return {
+        ...state,
+        sessions: action.payload,
+      };
+    case "session/created":
+      return {
+        ...state,
+        sessions: [action.payload, ...state.sessions.filter((item) => item.session_key !== action.payload.session_key)],
+        activeSessionKey: action.payload.session_key,
+        session: {
+          ...state.session,
+          session_id: action.payload.session_id,
+          session_key: action.payload.session_key,
+          agent_id: action.payload.agent_id,
+          is_main: action.payload.is_main,
+          message_count: action.payload.message_count,
+        },
+        transcript: [],
+        streaming: { content: "" },
+        tools: {},
+        approvals: {},
+        subagents: {},
+        orchestration: [],
+      };
+    case "session/activate":
+      return {
+        ...state,
+        activeSessionKey: action.sessionKey,
+        streaming: { content: "" },
+        tools: {},
+        approvals: {},
+        subagents: {},
+        orchestration: [],
+      };
+    case "session/messages":
+      if (state.activeSessionKey && action.sessionKey !== state.activeSessionKey) {
+        return state;
+      }
+      return {
+        ...state,
+        transcript: action.payload,
+        streaming: { content: "" },
+      };
     case "session/status":
       return {
         ...state,
         session: action.payload,
+        activeSessionKey: action.payload.session_key ?? state.activeSessionKey,
       };
     case "mcp/status": {
       const derived = new Set<string>();
@@ -132,8 +197,12 @@ export function operatorReducer(state: OperatorState = initialOperatorState, act
               session_key: typeof payload.session_key === "string" ? payload.session_key : state.session.session_key,
               agent_id: typeof payload.agent_id === "string" ? payload.agent_id : state.session.agent_id,
             },
+            activeSessionKey: typeof payload.session_key === "string" ? payload.session_key : state.activeSessionKey,
           };
         case "message.created": {
+          if (!eventBelongsToActiveSession(state, payload)) {
+            return state;
+          }
           const message = payload.message as TranscriptMessage | undefined;
           if (!message?.id) {
             return state;
@@ -145,6 +214,9 @@ export function operatorReducer(state: OperatorState = initialOperatorState, act
           };
         }
         case "assistant.delta":
+          if (!eventBelongsToActiveSession(state, payload)) {
+            return state;
+          }
           return {
             ...state,
             streaming: {
@@ -153,6 +225,9 @@ export function operatorReducer(state: OperatorState = initialOperatorState, act
             },
           };
         case "tool.called": {
+          if (!eventBelongsToActiveSession(state, payload)) {
+            return state;
+          }
           const key = toToolKey(payload);
           if (!key) {
             return state;
@@ -173,6 +248,9 @@ export function operatorReducer(state: OperatorState = initialOperatorState, act
           };
         }
         case "tool.progress": {
+          if (!eventBelongsToActiveSession(state, payload)) {
+            return state;
+          }
           const key = toToolKey(payload);
           if (!key) {
             return state;
@@ -202,6 +280,9 @@ export function operatorReducer(state: OperatorState = initialOperatorState, act
           };
         }
         case "tool.result": {
+          if (!eventBelongsToActiveSession(state, payload)) {
+            return state;
+          }
           const key = toToolKey(payload);
           if (!key) {
             return state;
@@ -234,6 +315,9 @@ export function operatorReducer(state: OperatorState = initialOperatorState, act
           };
         }
         case "run.error": {
+          if (!eventBelongsToActiveSession(state, payload)) {
+            return state;
+          }
           const runId = typeof payload.run_id === "string" ? payload.run_id : undefined;
           const error = typeof payload.message === "string" ? payload.message : "runtime error";
           const nextTools = { ...state.tools };
@@ -245,6 +329,9 @@ export function operatorReducer(state: OperatorState = initialOperatorState, act
           return { ...state, tools: nextTools };
         }
         case "permission.required": {
+          if (!eventBelongsToActiveSession(state, payload)) {
+            return state;
+          }
           const approvalId = typeof payload.approval_id === "string" ? payload.approval_id : undefined;
           if (!approvalId) {
             return state;

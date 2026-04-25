@@ -43,7 +43,7 @@ import { Bubble, Conversations, Sender } from "@ant-design/x";
 import { useEffect, useMemo, useReducer, useState } from "react";
 
 import { MyclawdClient } from "./lib/client";
-import { initialOperatorState } from "./lib/protocol";
+import { initialOperatorState, SessionSummary, TranscriptMessage } from "./lib/protocol";
 import { operatorReducer } from "./lib/store";
 
 const DEFAULT_ENDPOINT = "ws://127.0.0.1:18080/ws";
@@ -52,7 +52,6 @@ export function App() {
   const [state, dispatch] = useReducer(operatorReducer, initialOperatorState);
   const [endpoint, setEndpoint] = useState(DEFAULT_ENDPOINT);
   const [prompt, setPrompt] = useState("");
-  const [activeSession] = useState("current");
   const [client, setClient] = useState<MyclawdClient | null>(null);
   const [toolDrawer, setToolDrawer] = useState<string | null>(null);
   const [bootstrapWarnings, setBootstrapWarnings] = useState<string[]>([]);
@@ -138,17 +137,77 @@ export function App() {
   const mcpServers = state.mcp.servers;
   const connected = state.connection.status === "connected";
 
+  const activeSession = state.activeSessionKey ?? state.session.session_key ?? "current";
+  const activeSessionSummary = state.sessions.find((item) => item.session_key === activeSession);
+  const activeTitle = activeSessionSummary?.title ?? (state.session.session_id ? "Your first chat with myclaw" : "New operator session");
+
   const sessionItems = useMemo(
-    () => [
-      {
-        key: activeSession,
-        label: state.session.session_id ? "Your first chat with myclaw" : "New operator session",
-      },
-    ],
-    [activeSession, state.session.session_id],
+    () =>
+      state.sessions.length > 0
+        ? state.sessions.map((session) => ({
+            key: session.session_key,
+            label: session.title ?? session.last_user_message ?? (session.is_main ? "Main session" : "New chat"),
+          }))
+        : [
+            {
+              key: activeSession,
+              label: activeTitle,
+            },
+          ],
+    [activeSession, activeTitle, state.sessions],
   );
 
-  async function connect() {
+  async function bootstrapRuntime(nextClient: MyclawdClient, sessionKey?: string) {
+    const sessionPayload = sessionKey ? { session_key: sessionKey } : {};
+    const bootstrapResults = await Promise.allSettled([
+      nextClient.request("session_status", sessionPayload).then((result) => {
+        dispatch({ type: "session/status", payload: (result.payload ?? {}) as never });
+      }),
+      nextClient.request("session_list").then((result) => {
+        const payload = (result.payload ?? {}) as { sessions?: SessionSummary[] };
+        dispatch({ type: "sessions/list", payload: payload.sessions ?? [] });
+      }),
+      nextClient.request("session_messages", sessionPayload).then((result) => {
+        const payload = (result.payload ?? {}) as { session_key?: string; messages?: TranscriptMessage[] };
+        dispatch({
+          type: "session/messages",
+          sessionKey: payload.session_key ?? sessionKey ?? "",
+          payload: payload.messages ?? [],
+        });
+      }),
+      nextClient.request("mcp_status").then((result) => {
+        dispatch({ type: "mcp/status", payload: (result.payload ?? {}) as never });
+      }),
+      nextClient.request("approval_list").then((result) => {
+        dispatch({
+          type: "approvals/list",
+          payload: (((result.payload ?? {}) as { approvals?: unknown[] }).approvals ?? []) as never,
+        });
+      }),
+      nextClient.request("subagent_list").then((result) => {
+        const payload = (result.payload ?? {}) as { tasks?: unknown[]; subagents?: unknown[] };
+        dispatch({
+          type: "subagents/list",
+          payload: (payload.subagents ?? payload.tasks ?? []) as never,
+        });
+      }),
+      nextClient.request("orchestration_status").then((result) => {
+        dispatch({
+          type: "orchestration/status",
+          payload: (((result.payload ?? {}) as { runs?: unknown[] }).runs ?? []) as never,
+        });
+      }),
+    ]);
+    const warnings = bootstrapResults
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => (result.reason instanceof Error ? result.reason.message : String(result.reason)));
+    if (warnings.length > 0) {
+      setBootstrapWarnings(warnings);
+      message.warning("Connected, but some runtime panels could not be initialized");
+    }
+  }
+
+  async function connect(sessionKey?: string): Promise<MyclawdClient | null> {
     dispatch({ type: "connection/connecting", endpoint });
     setBootstrapWarnings([]);
     client?.disconnect();
@@ -161,50 +220,57 @@ export function App() {
         role: "sdk",
         client_identity: "react-operator-ui",
         agent_id: "main",
+        ...(sessionKey ? { session_key: sessionKey } : {}),
         supports_permission_control: true,
       });
       setClient(nextClient);
       dispatch({ type: "connection/connected", endpoint });
       message.success("Connected to myclawd");
-
-      const bootstrapResults = await Promise.allSettled([
-        nextClient.request("session_status").then((result) => {
-          dispatch({ type: "session/status", payload: (result.payload ?? {}) as never });
-        }),
-        nextClient.request("mcp_status").then((result) => {
-          dispatch({ type: "mcp/status", payload: (result.payload ?? {}) as never });
-        }),
-        nextClient.request("approval_list").then((result) => {
-          dispatch({
-            type: "approvals/list",
-            payload: (((result.payload ?? {}) as { approvals?: unknown[] }).approvals ?? []) as never,
-          });
-        }),
-        nextClient.request("subagent_list").then((result) => {
-          const payload = (result.payload ?? {}) as { tasks?: unknown[]; subagents?: unknown[] };
-          dispatch({
-            type: "subagents/list",
-            payload: (payload.subagents ?? payload.tasks ?? []) as never,
-          });
-        }),
-        nextClient.request("orchestration_status").then((result) => {
-          dispatch({
-            type: "orchestration/status",
-            payload: (((result.payload ?? {}) as { runs?: unknown[] }).runs ?? []) as never,
-          });
-        }),
-      ]);
-      const warnings = bootstrapResults
-        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-        .map((result) => (result.reason instanceof Error ? result.reason.message : String(result.reason)));
-      if (warnings.length > 0) {
-        setBootstrapWarnings(warnings);
-        message.warning("Connected, but some runtime panels could not be initialized");
-      }
+      await bootstrapRuntime(nextClient, sessionKey);
+      return nextClient;
     } catch (error) {
       dispatch({ type: "connection/error", error: error instanceof Error ? error.message : "connect failed" });
       message.error(error instanceof Error ? error.message : "connect failed");
+      return null;
     }
+  }
+
+  async function createSession() {
+    const activeClient = client ?? (await connect());
+    if (!activeClient) {
+      return;
+    }
+    const result = await activeClient.request("session_new", { agent_id: state.session.agent_id ?? "main" });
+    const payload = (result.payload ?? {}) as unknown as SessionSummary;
+    if (!payload.session_id || !payload.session_key) {
+      throw new Error("session_new response missing session identity");
+    }
+    dispatch({
+      type: "session/created",
+      payload: {
+        session_id: payload.session_id,
+        session_key: payload.session_key,
+        agent_id: payload.agent_id,
+        is_main: payload.is_main,
+        title: "New chat",
+        message_count: 0,
+      },
+    });
+    const list = await activeClient.request("session_list");
+    dispatch({
+      type: "sessions/list",
+      payload: (((list.payload ?? {}) as { sessions?: SessionSummary[] }).sessions ?? []),
+    });
+    const status = await activeClient.request("session_status", { session_key: payload.session_key });
+    dispatch({ type: "session/status", payload: (status.payload ?? {}) as never });
+  }
+
+  async function activateSession(sessionKey: string) {
+    if (sessionKey === activeSession) {
+      return;
+    }
+    dispatch({ type: "session/activate", sessionKey });
+    await connect(sessionKey);
   }
 
   async function sendPrompt(value = prompt) {
@@ -219,7 +285,7 @@ export function App() {
     if (!client) {
       return;
     }
-    const result = await client.request("session_set_permission", { mode });
+    const result = await client.request("session_set_permission", { mode, session_key: state.activeSessionKey ?? state.session.session_key });
     dispatch({ type: "session/status", payload: { ...state.session, ...result.payload } as never });
   }
 
@@ -227,7 +293,7 @@ export function App() {
     if (!client) {
       return;
     }
-    const result = await client.request("session_set_model", { model });
+    const result = await client.request("session_set_model", { model, session_key: state.activeSessionKey ?? state.session.session_key });
     dispatch({ type: "session/status", payload: { ...state.session, ...result.payload } as never });
   }
 
@@ -378,7 +444,7 @@ export function App() {
     {
       key: "connect",
       label: connected ? "Reconnect" : "Connect",
-      onClick: connect,
+      onClick: () => connect(),
     },
   ];
   const connectionLabel = connected ? "Connected" : state.connection.status === "connecting" ? "Connecting" : "Connect";
@@ -398,7 +464,7 @@ export function App() {
             </button>
           </div>
           <nav className="sidebar-nav">
-            <button className="nav-item" type="button">
+            <button className="nav-item" type="button" onClick={createSession}>
               <PlusOutlined />
               {!sidebarCollapsed ? <span>New chat</span> : null}
             </button>
@@ -430,7 +496,7 @@ export function App() {
               className={`session-list ${sidebarCollapsed ? "collapsed" : ""}`}
               items={sessionItems}
               activeKey={activeSession}
-              onActiveChange={() => undefined}
+              onActiveChange={activateSession}
             />
           </section>
 
@@ -458,7 +524,7 @@ export function App() {
                 {sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               </button>
               <button className="chat-title" type="button">
-                <span>Your first chat with myclaw</span>
+                <span>{activeTitle}</span>
                 <DownOutlined />
               </button>
             </div>

@@ -21,6 +21,17 @@ export interface TranscriptMessage {
   created_at?: string;
 }
 
+export interface SessionSummary {
+  session_id: string;
+  session_key: string;
+  agent_id?: string;
+  is_main?: boolean;
+  message_count?: number;
+  last_activity_at?: string;
+  last_user_message?: string;
+  title?: string;
+}
+
 export interface ToolRun {
   tool_use_id: string;
   tool_name: string;
@@ -122,6 +133,8 @@ export interface OperatorState {
     clientId?: string;
     error?: string;
   };
+  sessions: SessionSummary[];
+  activeSessionKey?: string;
   session: SessionStatus;
   transcript: TranscriptMessage[];
   streaming: {
@@ -148,6 +161,8 @@ export const initialOperatorState: OperatorState = {
     status: "idle",
     endpoint: "",
   },
+  sessions: [],
+  activeSessionKey: undefined,
   session: {},
   transcript: [],
   streaming: {

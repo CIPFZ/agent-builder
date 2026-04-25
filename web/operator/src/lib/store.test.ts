@@ -87,4 +87,62 @@ describe("operatorReducer", () => {
     });
     expect(next.skills.derived).toEqual(["gh-address-comments", "gh-fix-ci"]);
   });
+
+  it("tracks session list, active session, and restored messages", () => {
+    const listed = operatorReducer(initialOperatorState, {
+      type: "sessions/list",
+      payload: [
+        {
+          session_id: "main-000001",
+          session_key: "agent:main:main",
+          title: "Main session",
+          message_count: 0,
+        },
+      ],
+    });
+    expect(listed.sessions).toHaveLength(1);
+
+    const created = operatorReducer(listed, {
+      type: "session/created",
+      payload: {
+        session_id: "session-000002",
+        session_key: "agent:main:session:000002",
+        title: "New chat",
+        message_count: 0,
+      },
+    });
+    expect(created.activeSessionKey).toBe("agent:main:session:000002");
+    expect(created.transcript).toEqual([]);
+
+    const restored = operatorReducer(created, {
+      type: "session/messages",
+      sessionKey: "agent:main:session:000002",
+      payload: [{ id: "msg-1", role: "user", content: "hello" }],
+    });
+    expect(restored.transcript).toEqual([{ id: "msg-1", role: "user", content: "hello" }]);
+  });
+
+  it("ignores session-scoped events for inactive sessions", () => {
+    const active = operatorReducer(initialOperatorState, {
+      type: "session/status",
+      payload: {
+        session_id: "session-1",
+        session_key: "active-key",
+      },
+    });
+
+    const ignored = operatorReducer(active, {
+      type: "ws/event",
+      message: {
+        type: "event",
+        event: "message.created",
+        payload: {
+          session_id: "session-2",
+          session_key: "other-key",
+          message: { id: "msg-2", role: "user", content: "other session" },
+        },
+      },
+    });
+    expect(ignored.transcript).toEqual([]);
+  });
 });

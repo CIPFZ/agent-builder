@@ -106,6 +106,21 @@ func (m *Manager) CreateChild(agentID, key string) Session {
 	return session
 }
 
+func (m *Manager) CreateSession(agentID string) Session {
+	if agentID == "" {
+		agentID = "main"
+	}
+	id := m.nextID.Add(1)
+	session := Session{
+		ID:      fmt.Sprintf("session-%06d", id),
+		Key:     fmt.Sprintf("agent:%s:session:%06d", agentID, id),
+		AgentID: agentID,
+		IsMain:  false,
+	}
+	m.store.SaveSession(session)
+	return session
+}
+
 func (m *Manager) AppendMessage(sessionID, role, content string) (Message, error) {
 	return m.AppendMessageWithBlocks(sessionID, role, content, "", nil)
 }
