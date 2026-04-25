@@ -16,6 +16,7 @@ Current order:
 3. `mcp-runtime-capability`
 4. `subagent-runtime-capability`
 5. `shell-runtime-capability`
+6. `tui-client-architecture`
 
 Standard:
 
