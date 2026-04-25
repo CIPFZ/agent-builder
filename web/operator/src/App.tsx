@@ -230,7 +230,7 @@ export function App() {
   }
 
   return (
-    <AntApp>
+    <>
       <Layout className="app-shell">
         <Layout.Sider width={320} theme="light" className="left-rail">
           <div className="rail-header">
@@ -539,6 +539,6 @@ export function App() {
           </Space>
         ) : null}
       </Drawer>
-    </AntApp>
+    </>
   );
 }
