@@ -61,9 +61,12 @@ func configForCLI(dir string) (config.Config, error) {
 	return cfg, nil
 }
 
-func configLoadWithFallback(dir string) (config.Config, error) {
+func configLoadWithFallback(dir string) (cfg config.Config, err error) {
 	defer func() {
-		_ = recover()
+		if recover() != nil {
+			cfg = config.Default()
+			err = nil
+		}
 	}()
 	return config.LoadFromDir(dir), nil
 }

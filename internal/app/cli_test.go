@@ -53,6 +53,35 @@ func TestRunCLIDispatchesTUICommand(t *testing.T) {
 	}
 }
 
+func TestConfigLoadWithFallbackReturnsUsableDefaultAfterLoadPanic(t *testing.T) {
+	t.Setenv("MYCLAW_CONFIG_FILE", filepath.Join(t.TempDir(), "myclaw.json"))
+	if err := os.WriteFile(os.Getenv("MYCLAW_CONFIG_FILE"), []byte(`{
+		"config": {"version": 1},
+		"server": {"http_addr": "127.0.0.1:18080", "ws_path": "/ws"},
+		"llm": {
+			"default_profile": "strict",
+			"active_profile": "strict",
+			"providers": {
+				"strict": {"protocol": "anthropic", "base_url": "https://example.invalid/messages", "api_key": ""}
+			},
+			"profiles": {
+				"strict": {"provider": "strict", "model": "test-model"}
+			},
+			"routing": {"default_profile": "strict"}
+		}
+	}`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := configLoadWithFallback(".")
+	if err != nil {
+		t.Fatalf("configLoadWithFallback returned error: %v", err)
+	}
+	if cfg.HTTPAddr == "" || cfg.WSPath == "" {
+		t.Fatalf("config = %#v, want fallback with HTTPAddr and WSPath", cfg)
+	}
+}
+
 func TestPrepareTUIDaemonReusesHealthyDaemon(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/healthz" {
