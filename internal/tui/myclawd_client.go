@@ -105,17 +105,36 @@ func (c *MyclawdClient) Reject(id string) error {
 	return err
 }
 
-func (c *MyclawdClient) SetSessionModel(model string) error { return nil }
-func (c *MyclawdClient) ClearSessionModel() error          { return nil }
-func (c *MyclawdClient) ContextSnapshot() contextSnapshot  { return contextSnapshot{} }
+func (c *MyclawdClient) SetSessionModel(model string) error {
+	_, err := c.request(protocolws.MethodSessionSetModel, map[string]any{"model": model})
+	if err == nil {
+		_ = c.refreshSessionStatus()
+	}
+	return err
+}
+
+func (c *MyclawdClient) ClearSessionModel() error {
+	_, err := c.request(protocolws.MethodSessionSetModel, map[string]any{"model": "default"})
+	if err == nil {
+		_ = c.refreshSessionStatus()
+	}
+	return err
+}
+
+func (c *MyclawdClient) ContextSnapshot() contextSnapshot {
+	return contextSnapshot{Model: "Unavailable in myclawd control plane"}
+}
+
 func (c *MyclawdClient) CompactionSnapshot() compactionSnapshot {
-	return compactionSnapshot{}
+	return compactionSnapshot{
+		LastCompactionReason: "Unavailable in myclawd control plane",
+	}
 }
 func (c *MyclawdClient) CompactSession(string) (compactionActionResult, error) {
-	return compactionActionResult{}, nil
+	return compactionActionResult{}, errors.New("compaction is not exposed by myclawd yet")
 }
 func (c *MyclawdClient) MicrocompactSession() (compactionActionResult, error) {
-	return compactionActionResult{}, nil
+	return compactionActionResult{}, errors.New("microcompact is not exposed by myclawd yet")
 }
 
 func (c *MyclawdClient) PlatformStatusSnapshot() platformStatusSnapshot {
@@ -226,7 +245,19 @@ func (c *MyclawdClient) refreshMCP() error {
 func (c *MyclawdClient) refreshTasks() error {
 	msg, err := c.request(protocolws.MethodSubagentList, map[string]any{})
 	if err != nil {
-		return nil
+		if strings.Contains(strings.ToLower(err.Error()), "not supported") {
+			c.store.setTasks(taskPanelSnapshot{
+				SessionID: c.sessionID,
+				Tasks: []taskSnapshot{{
+					RunID:   "unsupported",
+					Label:   "Subagent inventory unavailable",
+					Status:  "unsupported",
+					Message: err.Error(),
+				}},
+			})
+			return nil
+		}
+		return err
 	}
 	snapshot := taskPanelSnapshot{SessionID: c.sessionID}
 	items, _ := msg.Payload["runs"].([]any)
@@ -264,7 +295,7 @@ func (c *MyclawdClient) refreshTasks() error {
 func (c *MyclawdClient) refreshApprovals() error {
 	msg, err := c.request(protocolws.MethodApprovalList, map[string]any{})
 	if err != nil {
-		return nil
+		return err
 	}
 	items, _ := msg.Payload["approvals"].([]any)
 	for _, item := range items {
@@ -301,16 +332,19 @@ func (c *MyclawdClient) readLoop() {
 		if msg.Type == protocolws.TypeResponse && c.resolvePending(msg) {
 			continue
 		}
-		if event, ok := runtimeEventFromWSMessage(msg); ok {
-			if event.Type == "permission.required" && event.Approval != nil {
+		if event, ok := parseClientEventMessage(wsMessageLike{Type: msg.Type, Event: msg.Event, Payload: msg.Payload}); ok {
+			c.store.applyEvent(event)
+			if event.Type == "permission.required" && event.Tool != nil && event.Tool.Approval != nil {
 				c.store.applyApproval(approvalView{
-					ID:        event.Approval.ID,
-					ToolName:  event.Approval.ToolName,
-					ToolInput: event.Approval.ToolInput,
-					Status:    string(event.Approval.Status),
-					Reason:    event.Approval.Reason,
-					SessionID: event.Approval.SessionID,
-					RunID:     event.Approval.RunID,
+					ID:        event.Tool.Approval.ID,
+					ToolName:  event.Tool.Approval.ToolName,
+					ToolInput: event.Tool.Approval.ToolInput,
+					Status:    event.Tool.Approval.Status,
+					Reason:    event.Tool.Approval.Reason,
+					SessionID: event.Tool.Approval.SessionID,
+					RunID:     event.Tool.Approval.RunID,
+					Category:  event.Tool.Approval.Category,
+					RuleSource: event.Tool.Approval.RuleSource,
 				})
 			}
 			c.dispatch(RuntimeEventMsg{Event: event})

@@ -1,12 +1,10 @@
 package tui
 
-import "myclaw/internal/runtime"
-
-func (m *Model) applyRuntimeEvent(event runtime.RuntimeEvent) {
+func (m *Model) applyRuntimeEvent(event clientEvent) {
 	m.tuiState.applyRuntimeEvent(event)
 	m.refreshTranscriptSearch()
 }
 
-func (m *Model) updateRuntimeEvent(event runtime.RuntimeEvent) {
+func (m *Model) updateRuntimeEvent(event clientEvent) {
 	m.applyRuntimeEvent(event)
 }

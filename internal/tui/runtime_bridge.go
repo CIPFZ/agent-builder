@@ -47,12 +47,13 @@ func NewRuntimeBridgeWithContext(ctx context.Context, sessions *session.Manager,
 	}
 	if runner != nil {
 		runner.SetReportToolProgress(func(progress tools.ToolProgress) {
-			bridge.dispatch(RuntimeEventMsg{Event: runtime.RuntimeEvent{
+			progressCopy := cloneToolProgress(progress)
+			bridge.dispatch(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 				Type:      "tool.progress",
 				Session:   bridge.session,
 				ToolUseID: progress.ToolUseID,
-				Progress:  cloneToolProgress(progress),
-			}})
+				Progress:  &progressCopy,
+			})})
 		})
 	}
 	return bridge
@@ -82,7 +83,7 @@ func (b *RuntimeBridge) SendUserMessage(input string) error {
 	go func() {
 		err := b.runner.HandleUserMessage(b.ctx, b.session, msg, sinkFunc(func(event runtime.RuntimeEvent) error {
 			b.logRuntimeEvent(event)
-			b.dispatch(RuntimeEventMsg{Event: event})
+			b.dispatch(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(event)})
 			return nil
 		}))
 		if err != nil {
@@ -365,7 +366,7 @@ func (b *RuntimeBridge) Approve(id string) error {
 	go func() {
 		err := b.runner.ApproveAndContinue(b.ctx, id, sinkFunc(func(event runtime.RuntimeEvent) error {
 			b.logRuntimeEvent(event)
-			b.dispatch(RuntimeEventMsg{Event: event})
+			b.dispatch(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(event)})
 			return nil
 		}))
 		if err != nil {
@@ -394,11 +395,11 @@ func (b *RuntimeBridge) Reject(id string) error {
 		return err
 	}
 	b.log("warn", "tui.bridge", "approval.reject", "approval rejected", updated.RunID, map[string]any{"approval_id": id})
-	b.dispatch(RuntimeEventMsg{Event: runtime.RuntimeEvent{
+	b.dispatch(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:     "approval.updated",
 		Session:  b.session,
 		Approval: &updated,
-	}})
+	})})
 	return nil
 }
 

@@ -122,7 +122,7 @@ func TestTUIStateSubmitUserInputIgnoresEmptyText(t *testing.T) {
 func TestTUIStateApprovalDecisionsReturnPendingID(t *testing.T) {
 	state := newTUIState()
 	request := &approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd"}
-	state.applyRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: request})
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: request}))
 
 	approveID, ok := state.approvePending()
 	if !ok || approveID != "approval-1" {
@@ -135,7 +135,7 @@ func TestTUIStateApprovalDecisionsReturnPendingID(t *testing.T) {
 		t.Fatal("busy = false after approve, want true")
 	}
 
-	state.applyRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: request})
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: request}))
 	rejectID, ok := state.rejectPending()
 	if !ok || rejectID != "approval-1" {
 		t.Fatalf("reject = (%q, %v), want approval-1 true", rejectID, ok)
@@ -168,19 +168,19 @@ func TestTUIStateBridgeErrorTracksDiagnosticsAndClearsBusy(t *testing.T) {
 func TestTUIStateRuntimeReducerHandlesAssistantAndToolLifecycle(t *testing.T) {
 	state := newTUIState()
 
-	state.applyRuntimeEvent(runtime.RuntimeEvent{Type: "agent.lifecycle.start"})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{Type: "assistant.delta", Delta: "Hello"})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{Type: "assistant.delta", Delta: " world"})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "agent.lifecycle.start"}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "assistant.delta", Delta: "Hello"}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "assistant.delta", Delta: " world"}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:    "message.created",
 		Message: &session.Message{Role: "assistant", Content: "Hello world"},
-	})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{Type: "tool.called", ToolName: "system.run", ToolInput: "pwd"})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "tool.called", ToolName: "system.run", ToolInput: "pwd"}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:     "tool.result",
 		ToolName: "system.run",
 		Message:  &session.Message{Role: "tool", Content: "/repo"},
-	})
+	}))
 
 	if state.busy {
 		t.Fatal("busy = true after assistant message, want false")

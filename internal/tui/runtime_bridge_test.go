@@ -179,7 +179,7 @@ func waitForRuntimeEvents(t *testing.T, ch <-chan tea.Msg, min int, timeout time
 		select {
 		case raw := <-ch:
 			if msg, ok := raw.(RuntimeEventMsg); ok {
-				events = append(events, msg.Event)
+				events = append(events, runtimeEventFromClientEvent(msg.Event))
 			}
 		case <-deadline:
 			t.Fatalf("timed out waiting for %d runtime events, got %#v", min, events)
@@ -208,8 +208,9 @@ func waitForEventTypes(t *testing.T, ch <-chan tea.Msg, timeout time.Duration, w
 		select {
 		case raw := <-ch:
 			if msg, ok := raw.(RuntimeEventMsg); ok {
-				events = append(events, msg.Event)
-				seen[msg.Event.Type] = true
+				event := runtimeEventFromClientEvent(msg.Event)
+				events = append(events, event)
+				seen[event.Type] = true
 			}
 		case <-deadline:
 			t.Fatalf("timed out waiting for event types %v, got %#v", wants, events)

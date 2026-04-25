@@ -141,9 +141,9 @@ func TestModelRuntimeEventAccumulatesAssistantDelta(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	sess := session.Session{ID: "main-1", Key: "agent:main:main", AgentID: "main", IsMain: true}
 
-	updated, _ := model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{Type: "assistant.delta", Session: sess, Delta: "Hello"}})
+	updated, _ := model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "assistant.delta", Session: sess, Delta: "Hello"})})
 	model = updated.(Model)
-	updated, _ = model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{Type: "assistant.delta", Session: sess, Delta: " world"}})
+	updated, _ = model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "assistant.delta", Session: sess, Delta: " world"})})
 	model = updated.(Model)
 
 	if len(model.transcript) != 1 {
@@ -159,10 +159,10 @@ func TestModelPermissionRequiredShowsApprovalPrompt(t *testing.T) {
 	model := NewModel(bridge)
 	request := approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd", Reason: "needs approval"}
 
-	updated, _ := model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{
+	updated, _ := model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:     "permission.required",
 		Approval: &request,
-	}})
+	})})
 	model = updated.(Model)
 
 	if model.pendingApproval == nil || model.pendingApproval.ID != "approval-1" {
@@ -183,7 +183,7 @@ func TestModelDiagnosticsViewShowsLatestState(t *testing.T) {
 		LogPath:   "logs/myclaw.jsonl",
 	})
 
-	updated, _ := model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{Type: "agent.lifecycle.start"}})
+	updated, _ := model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "agent.lifecycle.start"})})
 	model = updated.(Model)
 	updated, _ = model.Update(BridgeErrMsg{Err: assertErr("boom")})
 	model = updated.(Model)
@@ -201,12 +201,12 @@ func TestModelViewShowsCurrentActivityForToolApprovalAndCompaction(t *testing.T)
 	model := NewModel(&fakeBridge{})
 	sess := session.Session{ID: "main-1", Key: "agent:main:main", AgentID: "main", IsMain: true}
 
-	updated, _ := model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{
+	updated, _ := model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:      "tool.called",
 		Session:   sess,
 		ToolName:  "system.run",
 		ToolInput: "pwd",
-	}})
+	})})
 	model = updated.(Model)
 	view := model.View()
 	// New UI shows tool calls differently
@@ -217,11 +217,11 @@ func TestModelViewShowsCurrentActivityForToolApprovalAndCompaction(t *testing.T)
 	}
 
 	request := approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd", Reason: "needs approval"}
-	updated, _ = model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{
+	updated, _ = model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:     "permission.required",
 		Session:  sess,
 		Approval: &request,
-	}})
+	})})
 	model = updated.(Model)
 	view = model.View()
 	// New UI shows approval
@@ -229,10 +229,10 @@ func TestModelViewShowsCurrentActivityForToolApprovalAndCompaction(t *testing.T)
 		t.Fatalf("view missing approval UI: %q", view)
 	}
 
-	updated, _ = model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{
+	updated, _ = model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:    "compact.auto",
 		Session: sess,
-	}})
+	})})
 	model = updated.(Model)
 	view = model.View()
 	// Compaction events are logged internally but may not show in new UI
@@ -251,10 +251,10 @@ func TestModelViewShowsCompactionEventsInEventLog(t *testing.T) {
 		"compact.memory_saved",
 		"compact.cleaned",
 	} {
-		updated, _ := model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{
+		updated, _ := model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 			Type:    eventType,
 			Session: sess,
-		}})
+		})})
 		model = updated.(Model)
 	}
 

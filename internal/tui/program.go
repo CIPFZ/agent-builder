@@ -44,6 +44,7 @@ func Run(ctx context.Context, myclawdURL string, options Options) error {
 			return options.Logger.Path()
 		}(),
 	})
+	model.bindStore(store)
 	if err := bridge.Start(); err != nil {
 		return err
 	}

@@ -55,10 +55,10 @@ func TestViewportKeepsScrollPositionWhenNewMessageArrivesWhileScrolledUp(t *test
 	model = updated.(Model)
 	before := model.View()
 
-	model.applyRuntimeEvent(runtime.RuntimeEvent{
+	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:    "message.created",
 		Message: &session.Message{Role: "assistant", Content: "new-message"},
-	})
+	}))
 
 	view := model.View()
 	if contains(view, "new-message") {
@@ -76,10 +76,10 @@ func TestViewportFollowsNewMessagesAtBottom(t *testing.T) {
 	model := viewportModelWithMessages(18)
 	model.setSize(80, 16)
 
-	model.applyRuntimeEvent(runtime.RuntimeEvent{
+	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:    "message.created",
 		Message: &session.Message{Role: "assistant", Content: "new-message"},
-	})
+	}))
 
 	view := model.View()
 	if !contains(view, "new-message") {
@@ -116,10 +116,10 @@ func TestViewportClearConversationResetsScrollState(t *testing.T) {
 		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 		model = updated.(Model)
 	}
-	model.applyRuntimeEvent(runtime.RuntimeEvent{
+	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:    "message.created",
 		Message: &session.Message{Role: "assistant", Content: "new-message"},
-	})
+	}))
 
 	model.clearVisibleConversation()
 

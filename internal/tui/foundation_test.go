@@ -23,7 +23,7 @@ func TestFoundationInputStateDefaults(t *testing.T) {
 func TestFoundationRuntimeReducerTracksLastEvent(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 
-	model.applyRuntimeEvent(runtime.RuntimeEvent{Type: "agent.lifecycle.start"})
+	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "agent.lifecycle.start"}))
 
 	if model.diagnostics.LastEvent != "agent.lifecycle.start" {
 		t.Fatalf("LastEvent = %q, want agent.lifecycle.start", model.diagnostics.LastEvent)

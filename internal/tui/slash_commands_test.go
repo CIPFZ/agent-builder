@@ -100,7 +100,7 @@ func TestSlashSessionOpensSessionDialogWithRuntimeMetadata(t *testing.T) {
 
 func TestSlashDebugOpensDiagnosticsDialogWithLatestState(t *testing.T) {
 	model := NewModel(&fakeBridge{})
-	updated, _ := model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{Type: "agent.lifecycle.start"}})
+	updated, _ := model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "agent.lifecycle.start"})})
 	model = updated.(Model)
 	updated, _ = model.Update(BridgeErrMsg{Err: assertErr("boom")})
 	model = updated.(Model)
@@ -133,9 +133,9 @@ func TestSlashCompactOpensCompactionDialogWithRecentEvents(t *testing.T) {
 			LastCompactedAtLabel: "2026-04-19 10:30 UTC",
 		},
 	})
-	updated, _ := model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{Type: "compact.warning"}})
+	updated, _ := model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "compact.warning"})})
 	model = updated.(Model)
-	updated, _ = model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{Type: "compact.cleaned"}})
+	updated, _ = model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "compact.cleaned"})})
 	model = updated.(Model)
 	model.input = "/compact"
 	model.cursorPos = len([]rune(model.input))

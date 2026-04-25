@@ -4,8 +4,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"myclaw/internal/approval"
 )
 
 type approvalDialogAction int
@@ -21,7 +19,7 @@ type approvalDialogResult struct {
 }
 
 type approvalDialogState struct {
-	Request       *approval.Request
+	Request       *clientApproval
 	SelectedIndex int
 }
 
@@ -33,7 +31,7 @@ func (d approvalDialogState) active() bool {
 	return d.Request != nil
 }
 
-func (d *approvalDialogState) open(request *approval.Request) {
+func (d *approvalDialogState) open(request *clientApproval) {
 	if request == nil {
 		d.close()
 		return

@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"myclaw/internal/approval"
 	"myclaw/internal/model"
-	"myclaw/internal/runtime"
-	"myclaw/internal/session"
 )
 
 type tuiState struct {
+	store *clientStore
+
 	transcript []transcriptEntry
 	events     []string
 	inputState
@@ -19,7 +18,7 @@ type tuiState struct {
 	approvalDialog      approvalDialogState
 	lastDialogSelection *dialogItem
 	busy                bool
-	pendingApproval     *approval.Request
+	pendingApproval     *clientApproval
 	diagnostics         diagnosticsState
 	activity            activityState
 	viewport            viewportState
@@ -61,6 +60,14 @@ func newTUIState(cfg ...ModelConfig) tuiState {
 	return state
 }
 
+func (s *tuiState) bindStore(store *clientStore) {
+	if store == nil {
+		return
+	}
+	s.store = store
+	s.applyStoreSnapshot(store.snapshot())
+}
+
 func (s *tuiState) setSize(width, height int) {
 	s.width = width
 	s.height = height
@@ -78,11 +85,15 @@ func (s *tuiState) submitUserInput() (string, bool) {
 	}
 	s.historyIndex = -1
 	s.cursorPos = 0
-	s.transcript = append(s.transcript, transcriptEntry{Role: "user", Content: displayText})
-	s.scrollTranscriptBottom()
 	s.input = ""
 	s.pastes = newPasteState()
-	s.busy = true
+	if s.store != nil {
+		s.applyStoreSnapshot(s.store.appendUserMessage(displayText))
+	} else {
+		s.transcript = append(s.transcript, transcriptEntry{Role: "user", Content: displayText})
+		s.busy = true
+	}
+	s.scrollTranscriptBottom()
 	return sendText, true
 }
 
@@ -132,6 +143,10 @@ func (s *tuiState) rejectPending() (string, bool) {
 }
 
 func (s *tuiState) applyBridgeError(err error) {
+	if s.store != nil {
+		s.applyStoreSnapshot(s.store.applyBridgeError(err))
+		return
+	}
 	if err == nil {
 		return
 	}
@@ -140,7 +155,7 @@ func (s *tuiState) applyBridgeError(err error) {
 	s.diagnostics.LastError = err.Error()
 }
 
-func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
+func (s *tuiState) applyRuntimeEvent(event clientEvent) {
 	transcriptLen := len(s.transcript)
 	s.diagnostics.LastEvent = event.Type
 	s.diagnostics.EventCount++
@@ -153,13 +168,13 @@ func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
 	switch event.Type {
 	case "assistant.delta":
 		if len(s.transcript) == 0 || s.transcript[len(s.transcript)-1].Role != "assistant" || !s.transcript[len(s.transcript)-1].Streaming {
-			s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: event.Delta, Streaming: true})
+			s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: event.Tool.ProgressMessage, Streaming: true})
 		} else {
-			s.transcript[len(s.transcript)-1].Content += event.Delta
+			s.transcript[len(s.transcript)-1].Content += event.Tool.ProgressMessage
 		}
 	case "message.created":
 		if event.Message != nil {
-			if entry, ok := specialTranscriptEntryFromMessage(*event.Message); ok {
+			if entry, ok := specialTranscriptEntryFromClientMessage(*event.Message); ok {
 				s.transcript = append(s.transcript, entry)
 				return
 			}
@@ -167,14 +182,14 @@ func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
 				if len(s.transcript) > 0 && s.transcript[len(s.transcript)-1].Role == "assistant" && s.transcript[len(s.transcript)-1].Streaming {
 					s.transcript[len(s.transcript)-1].Content = event.Message.Content
 					s.transcript[len(s.transcript)-1].Streaming = false
-					s.transcript[len(s.transcript)-1].Blocks = cloneMessageBlocks(event.Message.Blocks)
+					s.transcript[len(s.transcript)-1].Blocks = cloneClientMessageBlocks(event.Message.Blocks)
 				} else {
-					s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: event.Message.Content, Blocks: cloneMessageBlocks(event.Message.Blocks)})
+					s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: event.Message.Content, Blocks: cloneClientMessageBlocks(event.Message.Blocks)})
 				}
 				s.busy = false
 			}
 			if event.Message.Role == "tool" {
-				if entry, ok := transcriptEntryFromSessionMessage(*event.Message); ok {
+				if entry, ok := transcriptEntryFromClientMessage(*event.Message); ok {
 					s.transcript = append(s.transcript, entry)
 				} else {
 					s.transcript = append(s.transcript, transcriptEntry{Role: "tool", Content: event.Message.Content})
@@ -187,16 +202,18 @@ func (s *tuiState) applyRuntimeEvent(event runtime.RuntimeEvent) {
 	case "tool.called":
 		s.applyToolCalled(event)
 	case "tool.progress":
-		s.applyToolProgress(event.Progress)
+		s.applyToolProgress(event.Tool)
 	case "tool.result":
-		s.activity.Label = "Tool finished: " + event.ToolName
+		s.activity.Label = "Tool finished: " + event.Tool.ToolName
 		s.applyToolResult(event)
 	case "permission.required":
-		s.pendingApproval = event.Approval
+		if event.Tool != nil {
+			s.pendingApproval = event.Tool.Approval
+		}
 		s.dialog.close()
-		s.approvalDialog.open(event.Approval)
-		if event.Approval != nil {
-			s.activity.Label = "Awaiting approval: " + event.Approval.ToolName + " " + event.Approval.ToolInput
+		s.approvalDialog.open(s.pendingApproval)
+		if s.pendingApproval != nil {
+			s.activity.Label = "Awaiting approval: " + s.pendingApproval.ToolName + " " + s.pendingApproval.ToolInput
 		}
 		s.busy = false
 	case "approval.updated":
@@ -266,15 +283,15 @@ func appendBoundedEvent(events []string, event string, limit int) []string {
 	return events
 }
 
-func specialTranscriptEntryFromMessage(message session.Message) (transcriptEntry, bool) {
-	if message.IsCompactSummary || message.Role == "summary" {
+func specialTranscriptEntryFromClientMessage(message clientMessage) (transcriptEntry, bool) {
+	if message.Role == "summary" {
 		content := strings.TrimSpace(message.Content)
 		if content == "" {
 			content = "Conversation compacted into summary"
 		}
 		return transcriptEntry{Kind: messageKindCompact, Role: message.Role, Content: content}, true
 	}
-	if message.Role == "system" && (message.Subtype == "compact_boundary" || message.Content == "[compact_boundary]") {
+	if message.Role == "system" && message.Content == "[compact_boundary]" {
 		content := strings.TrimSpace(message.Content)
 		if content == "" || content == "[compact_boundary]" {
 			content = "Conversation compacted"
@@ -316,17 +333,35 @@ func extractTaggedContent(content, tag string) string {
 	return strings.TrimSpace(content[start : start+end])
 }
 
-func cloneMessageBlocks(blocks []model.MessageBlock) []model.MessageBlock {
+func cloneClientMessageBlocks(blocks []clientMessageBlock) []model.MessageBlock {
 	if len(blocks) == 0 {
 		return nil
 	}
-	cloned := make([]model.MessageBlock, len(blocks))
-	copy(cloned, blocks)
+	cloned := make([]model.MessageBlock, 0, len(blocks))
 	for i := range cloned {
-		cloned[i].InputObject = cloneAnyMap(blocks[i].InputObject)
-		if blocks[i].Raw != nil {
-			cloned[i].Raw = cloneAnyMap(blocks[i].Raw)
-		}
+		_ = i
+	}
+	for _, block := range blocks {
+		cloned = append(cloned, model.MessageBlock{
+			Type:        model.MessageBlockType(block.Type),
+			ID:          block.ID,
+			ToolUseID:   block.ToolUseID,
+			Text:        block.Text,
+			Name:        block.Name,
+			Input:       block.Input,
+			InputObject: cloneAnyMap(block.InputObject),
+			Content:     block.Content,
+			IsError:     block.IsError,
+		})
 	}
 	return cloned
+}
+
+func (s *tuiState) applyStoreSnapshot(snapshot clientStoreSnapshot) {
+	s.transcript = snapshot.Transcript
+	s.events = snapshot.Events
+	s.diagnostics = snapshot.Diagnostics
+	s.activity = snapshot.Activity
+	s.busy = snapshot.Busy
+	s.pendingApproval = snapshot.Approval
 }

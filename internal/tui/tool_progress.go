@@ -6,22 +6,22 @@ import (
 	"strings"
 
 	"myclaw/internal/model"
-	"myclaw/internal/runtime"
-	"myclaw/internal/session"
-	"myclaw/internal/tools"
 )
 
-func (s *tuiState) applyToolCalled(event runtime.RuntimeEvent) {
+func (s *tuiState) applyToolCalled(event clientEvent) {
+	if event.Tool == nil {
+		return
+	}
 	entry := transcriptEntry{
 		Role:            "tool",
 		ToolUseID:       toolEventID(event),
-		ToolName:        event.ToolName,
-		ToolInput:       event.ToolInput,
-		ToolInputObject: cloneAnyMap(event.ToolInputObject),
+		ToolName:        event.Tool.ToolName,
+		ToolInput:       event.Tool.ToolInput,
+		ToolInputObject: cloneAnyMap(event.Tool.ToolInputObject),
 		ToolStatus:      toolStatusRunning,
-		Content:         "Running " + event.ToolName + "...",
+		Content:         "Running " + event.Tool.ToolName + "...",
 	}
-	s.activity.Label = "Running tool: " + strings.TrimSpace(event.ToolName+" "+event.ToolInput)
+	s.activity.Label = "Running tool: " + strings.TrimSpace(event.Tool.ToolName+" "+event.Tool.ToolInput)
 	if index := s.findToolEntryIndex(entry.ToolUseID, entry.ToolName, entry.ToolInput, true); index >= 0 {
 		s.transcript[index] = entry
 		return
@@ -29,7 +29,7 @@ func (s *tuiState) applyToolCalled(event runtime.RuntimeEvent) {
 	s.transcript = append(s.transcript, entry)
 }
 
-func (s *tuiState) applyToolProgress(progress *tools.ToolProgress) {
+func (s *tuiState) applyToolProgress(progress *clientToolEvent) {
 	if progress == nil {
 		return
 	}
@@ -39,15 +39,15 @@ func (s *tuiState) applyToolProgress(progress *tools.ToolProgress) {
 			Role:                "tool",
 			ToolUseID:           strings.TrimSpace(progress.ToolUseID),
 			ToolStatus:          toolStatusRunning,
-			ToolProgressType:    progress.Type,
-			ToolProgressMessage: progress.Message,
+			ToolProgressType:    progress.ProgressType,
+			ToolProgressMessage: progress.ProgressMessage,
 			ToolProgressOutput:  progressOutput(progress),
 		})
 		return
 	}
 	entry := &s.transcript[index]
-	entry.ToolProgressType = progress.Type
-	entry.ToolProgressMessage = progress.Message
+	entry.ToolProgressType = progress.ProgressType
+	entry.ToolProgressMessage = progress.ProgressMessage
 	if output := progressOutput(progress); output != "" {
 		entry.ToolProgressOutput = output
 	}
@@ -56,7 +56,7 @@ func (s *tuiState) applyToolProgress(progress *tools.ToolProgress) {
 	}
 }
 
-func (s *tuiState) applyToolResult(event runtime.RuntimeEvent) {
+func (s *tuiState) applyToolResult(event clientEvent) {
 	toolUseID, resultContent, isError := toolResultFromEvent(event)
 	if toolUseID == "" {
 		toolUseID = toolEventID(event)
@@ -65,14 +65,14 @@ func (s *tuiState) applyToolResult(event runtime.RuntimeEvent) {
 	if isError {
 		status = toolStatusFailed
 	}
-	index := s.findToolEntryIndex(toolUseID, event.ToolName, event.ToolInput, true)
+	index := s.findToolEntryIndex(toolUseID, event.Tool.ToolName, event.Tool.ToolInput, true)
 	if index < 0 {
 		s.transcript = append(s.transcript, transcriptEntry{
 			Role:            "tool",
 			ToolUseID:       toolUseID,
-			ToolName:        event.ToolName,
-			ToolInput:       event.ToolInput,
-			ToolInputObject: cloneAnyMap(event.ToolInputObject),
+			ToolName:        event.Tool.ToolName,
+			ToolInput:       event.Tool.ToolInput,
+			ToolInputObject: cloneAnyMap(event.Tool.ToolInputObject),
 			ToolStatus:      status,
 			ToolError:       isError,
 			Content:         resultContent,
@@ -80,14 +80,14 @@ func (s *tuiState) applyToolResult(event runtime.RuntimeEvent) {
 		return
 	}
 	entry := &s.transcript[index]
-	if event.ToolName != "" {
-		entry.ToolName = event.ToolName
+	if event.Tool != nil && event.Tool.ToolName != "" {
+		entry.ToolName = event.Tool.ToolName
 	}
-	if event.ToolInput != "" {
-		entry.ToolInput = event.ToolInput
+	if event.Tool != nil && event.Tool.ToolInput != "" {
+		entry.ToolInput = event.Tool.ToolInput
 	}
-	if event.ToolInputObject != nil {
-		entry.ToolInputObject = cloneAnyMap(event.ToolInputObject)
+	if event.Tool != nil && event.Tool.ToolInputObject != nil {
+		entry.ToolInputObject = cloneAnyMap(event.Tool.ToolInputObject)
 	}
 	if toolUseID != "" {
 		entry.ToolUseID = toolUseID
@@ -98,49 +98,24 @@ func (s *tuiState) applyToolResult(event runtime.RuntimeEvent) {
 }
 
 func (s *tuiState) findToolEntryIndex(toolUseID, toolName, toolInput string, runningOnly bool) int {
-	toolUseID = strings.TrimSpace(toolUseID)
-	if toolUseID != "" {
-		for i := len(s.transcript) - 1; i >= 0; i-- {
-			entry := s.transcript[i]
-			if entry.Role == "tool" && entry.ToolUseID == toolUseID && (!runningOnly || isRunningToolStatus(entry.ToolStatus)) {
-				return i
-			}
-		}
-	}
-	for i := len(s.transcript) - 1; i >= 0; i-- {
-		entry := s.transcript[i]
-		if entry.Role != "tool" || (runningOnly && !isRunningToolStatus(entry.ToolStatus)) {
-			continue
-		}
-		if toolName != "" && entry.ToolName != toolName {
-			continue
-		}
-		if toolInput != "" && entry.ToolInput != toolInput {
-			continue
-		}
-		return i
-	}
-	return -1
+	return findToolEntryIndexIn(s.transcript, toolUseID, toolName, toolInput, runningOnly)
 }
 
 func isRunningToolStatus(status string) bool {
 	return status == "" || status == "called" || status == toolStatusRunning
 }
 
-func toolEventID(event runtime.RuntimeEvent) string {
-	if event.ToolUseID != "" {
-		return event.ToolUseID
-	}
-	if event.Progress != nil && event.Progress.ToolUseID != "" {
-		return event.Progress.ToolUseID
+func toolEventID(event clientEvent) string {
+	if event.Tool != nil && event.Tool.ToolUseID != "" {
+		return event.Tool.ToolUseID
 	}
 	return ""
 }
 
-func toolResultFromEvent(event runtime.RuntimeEvent) (string, string, bool) {
-	toolUseID := strings.TrimSpace(event.ToolUseID)
+func toolResultFromEvent(event clientEvent) (string, string, bool) {
+	toolUseID := strings.TrimSpace(toolEventID(event))
 	content := ""
-	isError := event.ToolError
+	isError := false
 	if event.Message != nil {
 		blockID, blockContent, blockError := toolResultFromMessage(event.Message, toolUseID)
 		if toolUseID == "" {
@@ -157,15 +132,19 @@ func toolResultFromEvent(event runtime.RuntimeEvent) (string, string, bool) {
 	if content == "" {
 		content = "(no output)"
 	}
-	return toolUseID, trimToolResultPrefix(content, event.ToolName), isError
+	toolName := ""
+	if event.Tool != nil {
+		toolName = event.Tool.ToolName
+	}
+	return toolUseID, trimToolResultPrefix(content, toolName), isError
 }
 
-func toolResultFromMessage(message *session.Message, preferredToolUseID string) (string, string, bool) {
+func toolResultFromMessage(message *clientMessage, preferredToolUseID string) (string, string, bool) {
 	if message == nil {
 		return "", "", false
 	}
 	for _, block := range message.Blocks {
-		if block.Type != model.MessageBlockToolResult {
+		if model.MessageBlockType(block.Type) != model.MessageBlockToolResult {
 			continue
 		}
 		if preferredToolUseID != "" && block.ToolUseID != "" && block.ToolUseID != preferredToolUseID {
@@ -189,19 +168,19 @@ func trimToolResultPrefix(content, toolName string) string {
 	return content
 }
 
-func progressOutput(progress *tools.ToolProgress) string {
-	if progress == nil || progress.Data == nil {
+func progressOutput(progress *clientToolEvent) string {
+	if progress == nil || progress.ProgressData == nil {
 		return ""
 	}
 	for _, key := range []string{"output", "fullOutput", "stdout", "stderr"} {
-		if value, ok := progress.Data[key]; ok {
+		if value, ok := progress.ProgressData[key]; ok {
 			if text := strings.TrimSpace(fmt.Sprint(value)); text != "" {
 				return text
 			}
 		}
 	}
-	if len(progress.Data) > 0 {
-		encoded, err := json.Marshal(progress.Data)
+	if len(progress.ProgressData) > 0 {
+		encoded, err := json.Marshal(progress.ProgressData)
 		if err == nil {
 			return string(encoded)
 		}
@@ -220,8 +199,3 @@ func cloneAnyMap(input map[string]any) map[string]any {
 	return output
 }
 
-func cloneToolProgress(input tools.ToolProgress) *tools.ToolProgress {
-	cloned := input
-	cloned.Data = cloneAnyMap(input.Data)
-	return &cloned
-}

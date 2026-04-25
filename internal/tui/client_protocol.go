@@ -4,130 +4,164 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
-
-	"myclaw/internal/approval"
-	"myclaw/internal/model"
-	protocolws "myclaw/internal/protocol/ws"
-	"myclaw/internal/runtime"
-	"myclaw/internal/session"
-	"myclaw/internal/tools"
 )
 
-func runtimeEventFromWSMessage(msg protocolws.Message) (runtime.RuntimeEvent, bool) {
-	if msg.Type != protocolws.TypeEvent {
-		return runtime.RuntimeEvent{}, false
-	}
+type clientEvent struct {
+	Type    string
+	Session clientSessionRef
+	Message *clientMessage
+	Tool    *clientToolEvent
+	Error   string
+}
 
+type clientSessionRef struct {
+	ID      string
+	Key     string
+	AgentID string
+	IsMain  bool
+}
+
+type clientMessage struct {
+	ID        string
+	Role      string
+	Content   string
+	Blocks    []clientMessageBlock
+	CreatedAt string
+}
+
+type clientMessageBlock struct {
+	Type        string
+	ID          string
+	ToolUseID   string
+	Text        string
+	Name        string
+	Input       string
+	InputObject map[string]any
+	Content     string
+	IsError     bool
+}
+
+type clientToolEvent struct {
+	RunID            string
+	ToolName         string
+	ToolUseID        string
+	ToolInput        string
+	ToolInputObject  map[string]any
+	ProgressType     string
+	ProgressMessage  string
+	ProgressData     map[string]any
+	Approval         *clientApproval
+	SubagentUpdate   *clientTaskUpdate
+	OrchestrationRun *clientTaskUpdate
+}
+
+type clientApproval struct {
+	ID               string
+	SessionID        string
+	RunID            string
+	ToolName         string
+	ToolInput        string
+	ToolInputObject  map[string]any
+	Category         string
+	RuleSource       string
+	Reason           string
+	DecisionReason   string
+	AcceptFeedback   string
+	Status           string
+}
+
+type clientTaskUpdate struct {
+	RunID             string
+	Label             string
+	Status            string
+	ParentSessionID   string
+	ChildSessionID    string
+	ChildSessionKey   string
+	Output            string
+	Error             string
+	LastAction        string
+	LastEvent         string
+	Message           string
+	NextAction        string
+	RecommendedRole   string
+	RecommendedAction string
+	DecisionPriority  string
+	DecisionReason    string
+	AutoExecutable    bool
+}
+
+func parseClientEventMessage(msg wsMessageLike) (clientEvent, bool) {
+	if msg.Type != "event" {
+		return clientEvent{}, false
+	}
 	payload := msg.Payload
+	event := clientEvent{
+		Type:    msg.Event,
+		Session: parseClientSession(payload),
+	}
 	switch msg.Event {
-	case protocolws.EventMessageCreated:
-		message, ok := parseSessionMessage(payload["message"])
+	case "message.created":
+		message, ok := parseClientMessage(payload["message"])
 		if !ok {
-			return runtime.RuntimeEvent{}, false
+			return clientEvent{}, false
 		}
-		return runtime.RuntimeEvent{
-			Type:    "message.created",
-			Session: parseRuntimeSession(payload),
-			Message: &message,
-		}, true
-	case "tool.progress":
-		progress := parseToolProgress(payload)
-		return runtime.RuntimeEvent{
-			Type:      "tool.progress",
-			Session:   parseRuntimeSession(payload),
-			RunID:     stringValue(payload, "run_id"),
-			ToolName:  stringValue(payload, "tool_name"),
-			ToolUseID: stringValue(payload, "tool_use_id"),
-			Progress:  progress,
-		}, true
-	case "tool.result":
-		message, _ := parseSessionMessage(payload["message"])
-		return runtime.RuntimeEvent{
-			Type:            "tool.result",
-			Session:         parseRuntimeSession(payload),
+		event.Message = &message
+	case "tool.called":
+		event.Tool = &clientToolEvent{
 			RunID:           stringValue(payload, "run_id"),
 			ToolName:        stringValue(payload, "tool_name"),
 			ToolUseID:       stringValue(payload, "tool_use_id"),
 			ToolInput:       stringValue(payload, "tool_input"),
 			ToolInputObject: mapValue(payload, "tool_input_object"),
-			Message:         &message,
-		}, true
-	case "permission.required":
-		return runtime.RuntimeEvent{
-			Type:            "permission.required",
-			Session:         parseRuntimeSession(payload),
+		}
+	case "tool.progress":
+		event.Tool = &clientToolEvent{
 			RunID:           stringValue(payload, "run_id"),
 			ToolName:        stringValue(payload, "tool_name"),
+			ToolUseID:       stringValue(payload, "tool_use_id"),
+			ProgressType:    stringValue(payload, "type"),
+			ProgressMessage: stringValue(payload, "message"),
+			ProgressData:    mapValue(payload, "data"),
+		}
+	case "tool.result":
+		message, _ := parseClientMessage(payload["message"])
+		event.Message = &message
+		event.Tool = &clientToolEvent{
+			RunID:           stringValue(payload, "run_id"),
+			ToolName:        stringValue(payload, "tool_name"),
+			ToolUseID:       stringValue(payload, "tool_use_id"),
 			ToolInput:       stringValue(payload, "tool_input"),
 			ToolInputObject: mapValue(payload, "tool_input_object"),
-			Approval:        parseApprovalRequest(payload),
-		}, true
-	case "approval.updated":
-		return runtime.RuntimeEvent{
-			Type:     "approval.updated",
-			Session:  parseRuntimeSession(payload),
+		}
+	case "permission.required", "approval.updated":
+		event.Tool = &clientToolEvent{
 			RunID:    stringValue(payload, "run_id"),
-			Approval: parseApprovalRequest(payload),
-		}, true
-	case protocolws.EventSubagentUpdated:
-		content := summarizeSubagentEvent(payload)
-		return runtime.RuntimeEvent{
-			Type:    "message.created",
-			Session: parseRuntimeSession(payload),
-			Message: &session.Message{
-				ID:        "subagent-" + stringValue(payload, "run_id"),
-				Role:      "system",
-				Content:   content,
-				CreatedAt: time.Now().UTC(),
-			},
-		}, true
-	case protocolws.EventSubagentCompleted:
-		content := summarizeSubagentEvent(payload)
-		return runtime.RuntimeEvent{
-			Type:    "message.created",
-			Session: parseRuntimeSession(payload),
-			Message: &session.Message{
-				ID:        "subagent-complete-" + stringValue(payload, "run_id"),
-				Role:      "system",
-				Content:   content,
-				CreatedAt: time.Now().UTC(),
-			},
-		}, true
-	case protocolws.EventOrchestrationUpdated, protocolws.EventOrchestrationPlanStepUpdated:
-		return runtime.RuntimeEvent{
-			Type:    "message.created",
-			Session: parseRuntimeSession(payload),
-			Message: &session.Message{
-				ID:        "orchestration-" + msg.Event + "-" + stringValue(payload, "run_id"),
-				Role:      "system",
-				Content:   summarizeOrchestrationEvent(msg.Event, payload),
-				CreatedAt: time.Now().UTC(),
-			},
-		}, true
+			ToolName: stringValue(payload, "tool_name"),
+			Approval: parseClientApproval(payload),
+		}
+	case "subagent.updated", "subagent.completed":
+		event.Tool = &clientToolEvent{
+			SubagentUpdate: parseClientTaskUpdate(payload),
+		}
+	case "orchestration.updated", "orchestration.plan_step.updated":
+		event.Tool = &clientToolEvent{
+			OrchestrationRun: parseClientTaskUpdate(payload),
+		}
 	case "run.error":
-		return runtime.RuntimeEvent{
-			Type:    "run.error",
-			Session: parseRuntimeSession(payload),
-			RunID:   stringValue(payload, "run_id"),
-			Error:   stringValue(payload, "message"),
-		}, true
-	case "agent.lifecycle.start", "agent.lifecycle.end", "tool.called", "assistant.delta":
-		return runtime.RuntimeEvent{
-			Type:      msg.Event,
-			Session:   parseRuntimeSession(payload),
-			RunID:     stringValue(payload, "run_id"),
-			ToolName:  stringValue(payload, "tool_name"),
-			ToolUseID: stringValue(payload, "tool_use_id"),
-			Delta:     stringValue(payload, "delta"),
-		}, true
+		event.Error = stringValue(payload, "message")
 	default:
-		return runtime.RuntimeEvent{}, false
 	}
+	return event, true
 }
 
-func parseRuntimeSession(payload map[string]any) session.Session {
-	return session.Session{
+type wsMessageLike struct {
+	Type    string
+	Event   string
+	Payload map[string]any
+}
+
+func parseClientSession(payload map[string]any) clientSessionRef {
+	return clientSessionRef{
 		ID:      stringValue(payload, "session_id"),
 		Key:     stringValue(payload, "session_key"),
 		AgentID: stringValue(payload, "agent_id"),
@@ -135,120 +169,109 @@ func parseRuntimeSession(payload map[string]any) session.Session {
 	}
 }
 
-func parseSessionMessage(raw any) (session.Message, bool) {
+func parseClientMessage(raw any) (clientMessage, bool) {
 	item, ok := raw.(map[string]any)
 	if !ok {
-		return session.Message{}, false
+		return clientMessage{}, false
 	}
-	message := session.Message{
-		ID:      stringValue(item, "id"),
-		Role:    stringValue(item, "role"),
-		Content: stringValue(item, "content"),
-		Blocks:  parseMessageBlocks(item["blocks"]),
-	}
-	if createdAt := stringValue(item, "created_at"); strings.TrimSpace(createdAt) != "" {
-		if parsed, err := time.Parse(time.RFC3339Nano, createdAt); err == nil {
-			message.CreatedAt = parsed
-		}
-	}
-	if message.CreatedAt.IsZero() {
-		message.CreatedAt = time.Now().UTC()
-	}
-	return message, true
+	return clientMessage{
+		ID:        stringValue(item, "id"),
+		Role:      stringValue(item, "role"),
+		Content:   stringValue(item, "content"),
+		Blocks:    parseClientMessageBlocks(item["blocks"]),
+		CreatedAt: stringValue(item, "created_at"),
+	}, true
 }
 
-func parseMessageBlocks(raw any) []model.MessageBlock {
+func parseClientMessageBlocks(raw any) []clientMessageBlock {
 	items, ok := raw.([]any)
-	if !ok || len(items) == 0 {
+	if !ok {
 		return nil
 	}
-	blocks := make([]model.MessageBlock, 0, len(items))
+	blocks := make([]clientMessageBlock, 0, len(items))
 	for _, item := range items {
 		entry, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		block := model.MessageBlock{
-			Type:        model.MessageBlockType(stringValue(entry, "type")),
+		blocks = append(blocks, clientMessageBlock{
+			Type:        stringValue(entry, "type"),
 			ID:          stringValue(entry, "id"),
-			Text:        stringValue(entry, "text"),
 			ToolUseID:   stringValue(entry, "tool_use_id"),
+			Text:        stringValue(entry, "text"),
 			Name:        stringValue(entry, "name"),
 			Input:       stringValue(entry, "input"),
 			InputObject: mapValue(entry, "input_object"),
 			Content:     stringValue(entry, "content"),
 			IsError:     boolValue(entry, "is_error"),
-			Raw:         mapValue(entry, "raw"),
-		}
-		blocks = append(blocks, block)
+		})
 	}
 	return blocks
 }
 
-func parseToolProgress(payload map[string]any) *tools.ToolProgress {
-	progress := &tools.ToolProgress{
-		ToolUseID: stringValue(payload, "tool_use_id"),
-		Type:      stringValue(payload, "type"),
-		Message:   stringValue(payload, "message"),
-		Data:      mapValue(payload, "data"),
-	}
-	if progress.ToolUseID == "" && progress.Type == "" && progress.Message == "" && len(progress.Data) == 0 {
-		return nil
-	}
-	return progress
-}
-
-func parseApprovalRequest(payload map[string]any) *approval.Request {
+func parseClientApproval(payload map[string]any) *clientApproval {
 	id := stringValue(payload, "approval_id")
 	if strings.TrimSpace(id) == "" {
 		return nil
 	}
-	return &approval.Request{
+	return &clientApproval{
 		ID:              id,
 		SessionID:       stringValue(payload, "session_id"),
 		RunID:           stringValue(payload, "run_id"),
 		ToolName:        stringValue(payload, "tool_name"),
 		ToolInput:       stringValue(payload, "tool_input"),
 		ToolInputObject: mapValue(payload, "tool_input_object"),
+		Category:        stringValue(payload, "category"),
+		RuleSource:      stringValue(payload, "rule_source"),
 		Reason:          stringValue(payload, "reason"),
 		DecisionReason:  stringValue(payload, "decision_reason"),
 		AcceptFeedback:  stringValue(payload, "accept_feedback"),
-		Status:          approval.Status(stringValue(payload, "status")),
+		Status:          stringValue(payload, "status"),
 	}
 }
 
-func summarizeSubagentEvent(payload map[string]any) string {
-	label := stringValue(payload, "label")
-	if label == "" {
-		label = stringValue(payload, "run_id")
+func parseClientTaskUpdate(payload map[string]any) *clientTaskUpdate {
+	runID := stringValue(payload, "run_id")
+	if strings.TrimSpace(runID) == "" {
+		return nil
 	}
-	status := stringValue(payload, "status")
-	message := stringValue(payload, "message")
-	if message == "" {
-		message = stringValue(payload, "output")
+	return &clientTaskUpdate{
+		RunID:             runID,
+		Label:             stringValue(payload, "label"),
+		Status:            stringValue(payload, "status"),
+		ParentSessionID:   stringValue(payload, "parent_session_id"),
+		ChildSessionID:    stringValue(payload, "child_session_id"),
+		ChildSessionKey:   stringValue(payload, "child_session_key"),
+		Output:            stringValue(payload, "output"),
+		Error:             stringValue(payload, "error"),
+		LastAction:        stringValue(payload, "last_action"),
+		LastEvent:         stringValue(payload, "last_event"),
+		Message:           stringValue(payload, "message"),
+		NextAction:        stringValue(payload, "next_action"),
+		RecommendedRole:   stringValue(payload, "recommended_role"),
+		RecommendedAction: stringValue(payload, "recommended_action"),
+		DecisionPriority:  stringValue(payload, "decision_priority"),
+		DecisionReason:    stringValue(payload, "decision_reason"),
+		AutoExecutable:    boolValue(payload, "auto_executable"),
 	}
-	parts := []string{"Subagent", label}
-	if status != "" {
-		parts = append(parts, "["+status+"]")
-	}
-	if message != "" {
-		parts = append(parts, "-", message)
-	}
-	return strings.Join(parts, " ")
 }
 
-func summarizeOrchestrationEvent(event string, payload map[string]any) string {
-	parts := []string{"Orchestration", event}
-	if runID := stringValue(payload, "run_id"); runID != "" {
-		parts = append(parts, runID)
+func decodePayloadMap(raw any) (map[string]any, error) {
+	if raw == nil {
+		return map[string]any{}, nil
 	}
-	if status := stringValue(payload, "status"); status != "" {
-		parts = append(parts, "["+status+"]")
+	if typed, ok := raw.(map[string]any); ok {
+		return typed, nil
 	}
-	if msg := stringValue(payload, "message"); msg != "" {
-		parts = append(parts, "-", msg)
+	blob, err := json.Marshal(raw)
+	if err != nil {
+		return nil, err
 	}
-	return strings.Join(parts, " ")
+	out := map[string]any{}
+	if err := json.Unmarshal(blob, &out); err != nil {
+		return nil, fmt.Errorf("decode payload: %w", err)
+	}
+	return out, nil
 }
 
 func stringValue(payload map[string]any, key string) string {
@@ -271,22 +294,4 @@ func mapValue(payload map[string]any, key string) map[string]any {
 		cloned[k] = v
 	}
 	return cloned
-}
-
-func decodePayloadMap(raw any) (map[string]any, error) {
-	if raw == nil {
-		return map[string]any{}, nil
-	}
-	if typed, ok := raw.(map[string]any); ok {
-		return typed, nil
-	}
-	blob, err := json.Marshal(raw)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]any{}
-	if err := json.Unmarshal(blob, &out); err != nil {
-		return nil, fmt.Errorf("decode payload: %w", err)
-	}
-	return out, nil
 }
