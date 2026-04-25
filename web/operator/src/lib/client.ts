@@ -4,7 +4,10 @@ export type EventHandler = (message: WsEnvelope) => void;
 
 export class MyclawdClient {
   private socket?: WebSocket;
-  private readonly pending = new Map<string, { resolve: (message: WsEnvelope) => void; reject: (error: Error) => void }>();
+  private readonly pending = new Map<
+    string,
+    { method: string; resolve: (message: WsEnvelope) => void; reject: (error: Error) => void }
+  >();
   private readonly subscribers = new Set<EventHandler>();
   private sequence = 0;
 
@@ -31,7 +34,7 @@ export class MyclawdClient {
             if (message.ok) {
               pending.resolve(message);
             } else {
-              pending.reject(new Error(message.error?.message ?? "request failed"));
+              pending.reject(new Error(`${pending.method}: ${message.error?.message ?? "request failed"}`));
             }
             return;
           }
@@ -43,7 +46,7 @@ export class MyclawdClient {
         }
       };
       socket.onerror = () => {
-        reject(new Error("websocket error"));
+        reject(new Error(`websocket error connecting to ${this.endpoint}`));
       };
       socket.onclose = () => {
         for (const entry of this.pending.values()) {
@@ -78,7 +81,7 @@ export class MyclawdClient {
       payload,
     };
     const response = new Promise<WsEnvelope>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, { method, resolve, reject });
     });
     this.socket.send(JSON.stringify(message));
     return response;

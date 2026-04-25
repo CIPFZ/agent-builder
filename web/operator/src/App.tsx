@@ -35,7 +35,7 @@ import { MyclawdClient } from "./lib/client";
 import { initialOperatorState, TranscriptMessage } from "./lib/protocol";
 import { operatorReducer } from "./lib/store";
 
-const DEFAULT_ENDPOINT = "ws://127.0.0.1:8080/ws";
+const DEFAULT_ENDPOINT = "ws://127.0.0.1:18080/ws";
 
 function roleLabel(role: string): string {
   switch (role) {
@@ -76,6 +76,7 @@ export function App() {
   const [client, setClient] = useState<MyclawdClient | null>(null);
   const [toolDrawer, setToolDrawer] = useState<string | null>(null);
   const [approvalFeedback, setApprovalFeedback] = useState<Record<string, string>>({});
+  const [bootstrapWarnings, setBootstrapWarnings] = useState<string[]>([]);
   const { message } = AntApp.useApp();
 
   useEffect(() => {
@@ -124,6 +125,8 @@ export function App() {
 
   async function connect() {
     dispatch({ type: "connection/connecting", endpoint });
+    setBootstrapWarnings([]);
+    client?.disconnect();
     const nextClient = new MyclawdClient(endpoint);
     nextClient.subscribe((event) => {
       dispatch({ type: "ws/event", message: event });
@@ -137,32 +140,42 @@ export function App() {
       });
       setClient(nextClient);
       dispatch({ type: "connection/connected", endpoint });
-
-      const [sessionStatus, mcpStatus, approvals, subagents, orchestration] = await Promise.all([
-        nextClient.request("session_status"),
-        nextClient.request("mcp_status"),
-        nextClient.request("approval_list"),
-        nextClient.request("subagent_list"),
-        nextClient.request("orchestration_status"),
-      ]);
-
-      dispatch({ type: "session/status", payload: (sessionStatus.payload ?? {}) as never });
-      dispatch({ type: "mcp/status", payload: (mcpStatus.payload ?? {}) as never });
-      dispatch({
-        type: "approvals/list",
-        payload: (((approvals.payload ?? {}) as { approvals?: unknown[] }).approvals ?? []) as never,
-      });
-      dispatch({
-        type: "subagents/list",
-        payload: (((subagents.payload ?? {}) as { tasks?: unknown[]; subagents?: unknown[] }).subagents ??
-          ((subagents.payload ?? {}) as { tasks?: unknown[]; subagents?: unknown[] }).tasks ??
-          []) as never,
-      });
-      dispatch({
-        type: "orchestration/status",
-        payload: (((orchestration.payload ?? {}) as { runs?: unknown[] }).runs ?? []) as never,
-      });
       message.success("Connected to myclawd");
+
+      const bootstrapResults = await Promise.allSettled([
+        nextClient.request("session_status").then((result) => {
+          dispatch({ type: "session/status", payload: (result.payload ?? {}) as never });
+        }),
+        nextClient.request("mcp_status").then((result) => {
+          dispatch({ type: "mcp/status", payload: (result.payload ?? {}) as never });
+        }),
+        nextClient.request("approval_list").then((result) => {
+          dispatch({
+            type: "approvals/list",
+            payload: (((result.payload ?? {}) as { approvals?: unknown[] }).approvals ?? []) as never,
+          });
+        }),
+        nextClient.request("subagent_list").then((result) => {
+          const payload = (result.payload ?? {}) as { tasks?: unknown[]; subagents?: unknown[] };
+          dispatch({
+            type: "subagents/list",
+            payload: (payload.subagents ?? payload.tasks ?? []) as never,
+          });
+        }),
+        nextClient.request("orchestration_status").then((result) => {
+          dispatch({
+            type: "orchestration/status",
+            payload: (((result.payload ?? {}) as { runs?: unknown[] }).runs ?? []) as never,
+          });
+        }),
+      ]);
+      const warnings = bootstrapResults
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => (result.reason instanceof Error ? result.reason.message : String(result.reason)));
+      if (warnings.length > 0) {
+        setBootstrapWarnings(warnings);
+        message.warning("Connected, but some runtime panels could not be initialized");
+      }
     } catch (error) {
       dispatch({ type: "connection/error", error: error instanceof Error ? error.message : "connect failed" });
       message.error(error instanceof Error ? error.message : "connect failed");
@@ -225,12 +238,20 @@ export function App() {
             <Tag color={state.connection.status === "connected" ? "green" : "gold"}>{state.connection.status}</Tag>
           </div>
           <Space.Compact style={{ width: "100%" }}>
-            <Input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="ws://127.0.0.1:8080/ws" />
+            <Input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="ws://127.0.0.1:18080/ws" />
             <Button type="primary" onClick={connect}>
               Connect
             </Button>
           </Space.Compact>
           {state.connection.error ? <Alert type="error" showIcon message={state.connection.error} /> : null}
+          {bootstrapWarnings.length > 0 ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="Some myclawd methods are unavailable"
+              description={bootstrapWarnings.join("; ")}
+            />
+          ) : null}
           <Card title="Sessions" size="small">
             <Conversations
               items={sessionItems}

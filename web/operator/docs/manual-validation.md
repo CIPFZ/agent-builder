@@ -13,7 +13,7 @@ npm install
 npm run dev
 ```
 
-3. Open the Vite URL and connect to `ws://127.0.0.1:8080/ws` unless your gateway is bound elsewhere.
+3. Open the Vite URL and connect to `ws://127.0.0.1:18080/ws` unless your gateway is bound elsewhere.
 
 ## Validate Core Flows
 
