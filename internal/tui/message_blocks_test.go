@@ -11,7 +11,7 @@ import (
 
 func TestRendererRendersStructuredAssistantMessageBlocks(t *testing.T) {
 	tuiModel := NewModel(&fakeBridge{})
-	tuiModel.applyRuntimeEvent(runtime.RuntimeEvent{
+	tuiModel.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type: "message.created",
 		Message: &session.Message{
 			Role:    "assistant",
@@ -22,7 +22,7 @@ func TestRendererRendersStructuredAssistantMessageBlocks(t *testing.T) {
 				{Type: model.MessageBlockToolUse, ID: "toolu-1", Name: "Read", InputObject: map[string]any{"file_path": "README.md"}},
 			},
 		},
-	})
+	}))
 
 	view := tuiModel.View()
 
@@ -115,46 +115,46 @@ func TestRendererRendersTranscriptToolResultBlocksSeparateFromLiveToolProgress(t
 func TestTUIStateCreatesSpecialMessageBlocksForRuntimeEvents(t *testing.T) {
 	state := newTUIState()
 
-	state.applyRuntimeEvent(runtime.RuntimeEvent{Type: "run.error", Error: "model failed"})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{Type: "compact.boundary"})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{Type: "compact.cleaned"})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "run.error", Error: "model failed"}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "compact.boundary"}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "compact.cleaned"}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type: "message.created",
 		Message: &session.Message{
 			Role:    "system",
 			Subtype: "compact_boundary",
 			Content: "Conversation compacted",
 		},
-	})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type: "message.created",
 		Message: &session.Message{
 			Role:    "user",
 			Content: "<local-command-stdout>\nok\n</local-command-stdout>\n<local-command-stderr>\nwarn\n</local-command-stderr>",
 		},
-	})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type: "message.created",
 		Message: &session.Message{
 			Role:             "user",
 			Content:          "Compacted earlier context into a summary",
 			IsCompactSummary: true,
 		},
-	})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type: "message.created",
 		Message: &session.Message{
 			Role:    "system",
 			Content: "Session restored",
 		},
-	})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type: "message.created",
 		Message: &session.Message{
 			Role:    "user",
 			Content: "<bash-stdout>\npkg ok\n</bash-stdout><bash-stderr>\nwarn\n</bash-stderr>",
 		},
-	})
+	}))
 
 	if len(state.transcript) != 8 {
 		t.Fatalf("transcript len = %d, want 8: %#v", len(state.transcript), state.transcript)
@@ -176,7 +176,7 @@ func TestTUIStateCreatesSpecialMessageBlocksForRuntimeEvents(t *testing.T) {
 func TestTUIStatePreservesToolResultBlocksFromMessageCreated(t *testing.T) {
 	state := newTUIState()
 
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type: "message.created",
 		Message: &session.Message{
 			Role: "tool",
@@ -188,7 +188,7 @@ func TestTUIStatePreservesToolResultBlocksFromMessageCreated(t *testing.T) {
 				},
 			},
 		},
-	})
+	}))
 
 	if len(state.transcript) != 1 {
 		t.Fatalf("transcript len = %d, want 1", len(state.transcript))

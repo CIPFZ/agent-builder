@@ -14,7 +14,7 @@ func TestApprovalRequiredOpensOverlayAndApprovalUpdatedClosesIt(t *testing.T) {
 	state := newTUIState()
 	request := approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd"}
 
-	state.applyRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: &request})
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: &request}))
 
 	if state.pendingApproval == nil || state.pendingApproval.ID != "approval-1" {
 		t.Fatalf("pending approval = %#v, want approval-1", state.pendingApproval)
@@ -23,7 +23,7 @@ func TestApprovalRequiredOpensOverlayAndApprovalUpdatedClosesIt(t *testing.T) {
 		t.Fatal("approval dialog inactive after permission.required")
 	}
 
-	state.applyRuntimeEvent(runtime.RuntimeEvent{Type: "approval.updated"})
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "approval.updated"}))
 
 	if state.pendingApproval != nil {
 		t.Fatalf("pending approval = %#v, want nil", state.pendingApproval)
@@ -102,7 +102,7 @@ func TestApprovalOverlayRendersAfterPromptAndHidesCommandDialog(t *testing.T) {
 	}
 
 	request := approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd", Reason: "needs approval"}
-	model.applyRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: &request})
+	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: &request}))
 
 	if model.dialog.active() {
 		t.Fatal("command dialog still active after approval dialog opened")
@@ -125,6 +125,6 @@ func TestApprovalOverlayRendersAfterPromptAndHidesCommandDialog(t *testing.T) {
 func modelWithApproval(bridge *fakeBridge) Model {
 	model := NewModel(bridge)
 	request := approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd", Reason: "needs approval"}
-	updated, _ := model.Update(RuntimeEventMsg{Event: runtime.RuntimeEvent{Type: "permission.required", Approval: &request}})
+	updated, _ := model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: &request})})
 	return updated.(Model)
 }

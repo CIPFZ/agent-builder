@@ -16,18 +16,9 @@ import (
 )
 
 var runTUI = func(ctx context.Context, _ []string, stdout, stderr io.Writer) error {
-	cfg := config.LoadFromDir(".")
-	bootstrap, err := bootstrapRuntime(".", cfg, bootstrapOptions{
-		Compactor: newTUICompactor(cfg),
-	})
+	cfg, err := configForCLI(".")
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "warning: failed to bootstrap runtime: %v\n", err)
-		bootstrap, err = bootstrapRuntime(".", config.Default(), bootstrapOptions{
-			Compactor: newTUICompactor(cfg),
-		})
-		if err != nil {
-			return err
-		}
+		return err
 	}
 	logPath := filepath.Join("logs", "myclaw.jsonl")
 	logger, err := diagnostics.NewLogger(logPath)
@@ -44,10 +35,26 @@ var runTUI = func(ctx context.Context, _ []string, stdout, stderr io.Writer) err
 	if cfg.LLM.APIKey == "" {
 		llmLabel = "mock / builtin"
 	}
-	return tui.Run(ctx, bootstrap.Sessions, bootstrap.Runner, stdout, stderr, tui.Options{
+	baseURL := "http://" + cfg.HTTPAddr + cfg.WSPath
+	return tui.Run(ctx, baseURL, tui.Options{
 		LLMLabel: llmLabel,
 		Logger:   logger,
 	})
+}
+
+func configForCLI(dir string) (config.Config, error) {
+	cfg, err := configLoadWithFallback(dir)
+	if err != nil {
+		return config.Config{}, err
+	}
+	return cfg, nil
+}
+
+func configLoadWithFallback(dir string) (config.Config, error) {
+	defer func() {
+		_ = recover()
+	}()
+	return config.LoadFromDir(dir), nil
 }
 
 func resolveTUIWorkspaceRoots(baseDir string, roots []string) ([]string, error) {

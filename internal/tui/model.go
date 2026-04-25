@@ -28,9 +28,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.updateKey(typed)
 	case RuntimeEventMsg:
+		if m.store != nil {
+			before := len(m.transcript)
+			m.applyStoreSnapshot(m.store.applyEvent(typed.Event))
+			if len(m.transcript) > before {
+				m.noteTranscriptAppended()
+			}
+			if typed.Event.Type == "permission.required" {
+				m.dialog.close()
+				m.approvalDialog.open(m.pendingApproval)
+			}
+			if typed.Event.Type == "approval.updated" {
+				m.approvalDialog.close()
+			}
+			m.refreshTranscriptSearch()
+			break
+		}
 		m.updateRuntimeEvent(typed.Event)
 	case BridgeErrMsg:
-		m.applyBridgeError(typed.Err)
+		if m.store != nil {
+			m.applyStoreSnapshot(m.store.applyBridgeError(typed.Err))
+		} else {
+			m.applyBridgeError(typed.Err)
+		}
 	case externalEditorFinishedMsg:
 		m.applyExternalEditorFinished(typed)
 	case globalSearchResultsMsg:

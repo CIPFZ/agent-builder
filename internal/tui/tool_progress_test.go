@@ -13,29 +13,29 @@ import (
 func TestTUIStateTracksToolProgressLifecycleByToolUseID(t *testing.T) {
 	state := newTUIState()
 
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:      "tool.called",
 		RunID:     "run-1",
 		ToolUseID: "toolu-read",
 		ToolName:  "Read",
 		ToolInput: `{"file_path":"README.md"}`,
-	})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:      "tool.called",
 		RunID:     "run-1",
 		ToolUseID: "toolu-bash",
 		ToolName:  "Bash",
 		ToolInput: `{"command":"go test ./..."}`,
-	})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type: "tool.progress",
 		Progress: &tools.ToolProgress{
 			ToolUseID: "toolu-read",
 			Type:      "read.progress",
 			Message:   "Reading README.md",
 		},
-	})
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	}))
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:      "tool.result",
 		RunID:     "run-1",
 		ToolUseID: "toolu-read",
@@ -49,7 +49,7 @@ func TestTUIStateTracksToolProgressLifecycleByToolUseID(t *testing.T) {
 				Content:   "hello",
 			}},
 		},
-	})
+	}))
 
 	if len(state.transcript) != 2 {
 		t.Fatalf("transcript len = %d, want 2: %#v", len(state.transcript), state.transcript)
@@ -72,14 +72,14 @@ func TestTUIStateTracksToolProgressLifecycleByToolUseID(t *testing.T) {
 
 func TestTUIStateMarksToolResultErrors(t *testing.T) {
 	state := newTUIState()
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:      "tool.called",
 		ToolUseID: "toolu-bash",
 		ToolName:  "Bash",
 		ToolInput: "bad",
-	})
+	}))
 
-	state.applyRuntimeEvent(runtime.RuntimeEvent{
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:      "tool.result",
 		ToolUseID: "toolu-bash",
 		ToolName:  "Bash",
@@ -94,7 +94,7 @@ func TestTUIStateMarksToolResultErrors(t *testing.T) {
 				IsError:   true,
 			}},
 		},
-	})
+	}))
 
 	if len(state.transcript) != 1 {
 		t.Fatalf("transcript len = %d, want 1", len(state.transcript))
@@ -107,13 +107,13 @@ func TestTUIStateMarksToolResultErrors(t *testing.T) {
 
 func TestRendererShowsToolProgressStates(t *testing.T) {
 	tuiModel := NewModel(&fakeBridge{})
-	tuiModel.applyRuntimeEvent(runtime.RuntimeEvent{
+	tuiModel.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:      "tool.called",
 		ToolUseID: "toolu-bash",
 		ToolName:  "Bash",
 		ToolInput: `{"command":"go test ./..."}`,
-	})
-	tuiModel.applyRuntimeEvent(runtime.RuntimeEvent{
+	}))
+	tuiModel.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type: "tool.progress",
 		Progress: &tools.ToolProgress{
 			ToolUseID: "toolu-bash",
@@ -123,7 +123,7 @@ func TestRendererShowsToolProgressStates(t *testing.T) {
 				"output": "pkg/a ok\npkg/b ok\npkg/c ok\npkg/d ok\npkg/e ok\npkg/f ok",
 			},
 		},
-	})
+	}))
 	view := tuiModel.View()
 	for _, want := range []string{"tool[running]", "Bash", "running tests", "pkg/b ok", "pkg/f ok"} {
 		if !strings.Contains(view, want) {
@@ -131,7 +131,7 @@ func TestRendererShowsToolProgressStates(t *testing.T) {
 		}
 	}
 
-	tuiModel.applyRuntimeEvent(runtime.RuntimeEvent{
+	tuiModel.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:      "tool.result",
 		ToolUseID: "toolu-bash",
 		ToolName:  "Bash",
@@ -144,7 +144,7 @@ func TestRendererShowsToolProgressStates(t *testing.T) {
 				Content:   "ok",
 			}},
 		},
-	})
+	}))
 
 	view = tuiModel.View()
 	for _, want := range []string{"tool[succeeded]", "Bash", "ok"} {

@@ -6,34 +6,25 @@ import (
 	"strings"
 	"time"
 
-	"myclaw/internal/approval"
 	"myclaw/internal/session"
 )
 
 const dialogKindSessionResume = "session-resume"
 
 func (m *Model) openSessionResumeDialog() {
-	bridge, ok := m.bridge.(sessionResumeBridge)
-	if !ok {
-		m.dialog.open(dialogSpec{
-			Kind:       dialogKindSessionResume,
-			Title:      "Resume session",
-			Subtitle:   "Session resume is not available for this bridge",
-			EmptyText:  "No resumable sessions",
-			FooterHint: "Esc close",
-		})
-		return
+	items := sessionResumeItems(nil)
+	if provider, ok := m.bridge.(sessionResumeBridge); ok {
+		items = sessionResumeItems(provider.SessionSnapshots())
 	}
-	items := sessionResumeItems(bridge.SessionSnapshots())
 	m.dialog.open(dialogSpec{
 		Kind:         dialogKindSessionResume,
 		Title:        "Resume session",
-		Subtitle:     "Search and select a previous session",
-		QueryEnabled: true,
+		Subtitle:     "Restore a previous session transcript and prompt context",
 		Items:        items,
-		EmptyText:    "No conversations found to resume",
-		FooterHint:   "Type to filter | Enter resume | Esc cancel",
-		VisibleCount: 7,
+		EmptyText:    "No resumable sessions",
+		FooterHint:   "Enter resume  |  Esc close",
+		QueryEnabled: true,
+		VisibleCount: 8,
 	})
 	m.clearSuggestions()
 }
@@ -90,16 +81,12 @@ func truncateResumeText(text string, limit int) string {
 }
 
 func (m *Model) acceptSessionResumeItem(item dialogItem) {
-	if item.Value == "" {
-		return
-	}
-	bridge, ok := m.bridge.(sessionResumeBridge)
+	provider, ok := m.bridge.(sessionResumeBridge)
 	if !ok {
 		return
 	}
-	snapshot, ok := bridge.ResumeSession(item.Value)
+	snapshot, ok := provider.ResumeSession(item.Value)
 	if !ok {
-		m.events = appendBoundedEvent(m.events, "resume failed: "+item.Value, 200)
 		return
 	}
 	m.restoreSessionSnapshot(snapshot)
@@ -152,7 +139,7 @@ func (m *Model) applyResumedContinuationState(snapshot session.RecoverySnapshot)
 	}
 }
 
-func pendingApprovalRequest(snapshot session.RecoverySnapshot) (*approval.Request, bool) {
+func pendingApprovalRequest(snapshot session.RecoverySnapshot) (*clientApproval, bool) {
 	metadata := snapshot.Metadata
 	if metadata.PendingApprovalID == "" && snapshot.Session.Metadata.PendingApprovalID != "" {
 		metadata = snapshot.Session.Metadata
@@ -160,34 +147,29 @@ func pendingApprovalRequest(snapshot session.RecoverySnapshot) (*approval.Reques
 	if metadata.PendingApprovalID == "" || metadata.PendingApprovalStatus != "pending" {
 		return nil, false
 	}
-	request := &approval.Request{
-		ID:                metadata.PendingApprovalID,
-		SessionID:         snapshot.Session.ID,
-		RunID:             metadata.PendingApprovalRunID,
-		UserMessageID:     metadata.PendingApprovalUserMessageID,
-		ToolName:          metadata.PendingApprovalToolName,
-		ToolInput:         metadata.PendingApprovalToolInput,
-		ToolInputObject:   cloneAnyMap(metadata.PendingApprovalToolInputObject),
-		ToolUseID:         metadata.PendingApprovalToolUseID,
-		ProviderMessageID: metadata.PendingApprovalProviderMsgID,
-		Category:          metadata.PendingApprovalCategory,
-		RuleSource:        metadata.PendingApprovalRuleSource,
-		Reason:            metadata.PendingApprovalReason,
-		DecisionReason:    metadata.PendingApprovalDecisionReason,
-		AcceptFeedback:    metadata.PendingApprovalAcceptFeedback,
-		Status:            approval.StatusPending,
-	}
-	if len(metadata.PendingApprovalContentBlocks) > 0 {
-		request.ContentBlocks = make([]map[string]any, 0, len(metadata.PendingApprovalContentBlocks))
-		for _, block := range metadata.PendingApprovalContentBlocks {
-			request.ContentBlocks = append(request.ContentBlocks, cloneAnyMap(block))
-		}
-	}
-	return request, true
+	return &clientApproval{
+		ID:              metadata.PendingApprovalID,
+		SessionID:       snapshot.Session.ID,
+		RunID:           metadata.PendingApprovalRunID,
+		ToolName:        metadata.PendingApprovalToolName,
+		ToolInput:       metadata.PendingApprovalToolInput,
+		ToolInputObject: cloneAnyMap(metadata.PendingApprovalToolInputObject),
+		Category:        metadata.PendingApprovalCategory,
+		RuleSource:      metadata.PendingApprovalRuleSource,
+		Reason:          metadata.PendingApprovalReason,
+		DecisionReason:  metadata.PendingApprovalDecisionReason,
+		AcceptFeedback:  metadata.PendingApprovalAcceptFeedback,
+		Status:          metadata.PendingApprovalStatus,
+	}, true
 }
 
 func transcriptEntryFromSessionMessage(message session.Message) (transcriptEntry, bool) {
-	if entry, ok := specialTranscriptEntryFromMessage(message); ok {
+	if entry, ok := specialTranscriptEntryFromClientMessage(clientMessage{
+		ID:      message.ID,
+		Role:    message.Role,
+		Content: message.Content,
+		Blocks:  clientBlocksFromModel(message.Blocks),
+	}); ok {
 		return entry, true
 	}
 	switch message.Role {
@@ -195,13 +177,13 @@ func transcriptEntryFromSessionMessage(message session.Message) (transcriptEntry
 		return transcriptEntry{
 			Role:    message.Role,
 			Content: message.Content,
-			Blocks:  cloneMessageBlocks(message.Blocks),
+			Blocks:  message.Blocks,
 		}, true
 	case "tool":
 		return transcriptEntry{
 			Role:    "tool",
 			Content: message.Content,
-			Blocks:  cloneMessageBlocks(message.Blocks),
+			Blocks:  message.Blocks,
 		}, true
 	case "system":
 		return transcriptEntry{Kind: messageKindSystem, Role: "system", Content: message.Content}, true

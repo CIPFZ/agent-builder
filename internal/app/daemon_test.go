@@ -147,3 +147,19 @@ func TestNewDaemonHandlerBootstrapsDaemonRuntimeOnlyOnce(t *testing.T) {
 		t.Fatalf("bootstrap runtime calls = %d, want exactly 1", got)
 	}
 }
+
+func TestLLMClientFromRuntimeConfigFallsBackToMockWithoutAPIKey(t *testing.T) {
+	cfg := config.Config{
+		LLM: config.LLMConfig{
+			Provider: "default",
+			BaseURL:  "https://example.invalid/v1/chat/completions",
+			APIKey:   "",
+			Model:    "LongCat-Flash-Chat",
+		},
+	}
+
+	client := LLMClientFromRuntimeConfig(cfg)
+	if _, ok := client.(*llm.MockClient); !ok {
+		t.Fatalf("client = %T, want *llm.MockClient", client)
+	}
+}

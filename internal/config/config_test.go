@@ -411,6 +411,41 @@ func TestLoadFromDirRejectsInvalidMCPServerConfig(t *testing.T) {
 	}
 }
 
+func TestLoadFromDirAllowsEmptyAPIKeyForOpenAICompatibleProfile(t *testing.T) {
+	dir := t.TempDir()
+	writeTestConfig(t, dir, `{
+  "config": {"version": 1},
+  "llm": {
+    "active_profile": "default",
+    "providers": {
+      "default": {
+        "protocol": "openai-compatible",
+        "base_url": "https://example.invalid/v1/chat/completions",
+        "api_key": "",
+        "enabled": true
+      }
+    },
+    "profiles": {
+      "default": {
+        "provider": "default",
+        "model": "LongCat-Flash-Chat"
+      }
+    }
+  }
+}`)
+
+	cfg, err := loadFromDir(dir)
+	if err != nil {
+		t.Fatalf("loadFromDir returned unexpected error: %v", err)
+	}
+	if cfg.LLM.Provider != "default" {
+		t.Fatalf("provider = %q, want default", cfg.LLM.Provider)
+	}
+	if cfg.LLM.APIKey != "" {
+		t.Fatalf("api key = %q, want empty string", cfg.LLM.APIKey)
+	}
+}
+
 func TestLoadFromDirAllowsDisabledPlaceholderMCPServerConfig(t *testing.T) {
 	dir := t.TempDir()
 	writeTestConfig(t, dir, `{

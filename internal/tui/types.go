@@ -4,7 +4,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"myclaw/internal/model"
-	"myclaw/internal/runtime"
 	"myclaw/internal/session"
 )
 
@@ -145,7 +144,7 @@ type taskSnapshot struct {
 }
 
 type RuntimeEventMsg struct {
-	Event runtime.RuntimeEvent
+	Event clientEvent
 }
 
 type BridgeErrMsg struct {

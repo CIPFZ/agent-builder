@@ -44,17 +44,17 @@ func TestRenderSnapshotCopiesDisplayState(t *testing.T) {
 
 func TestRendererSectionsExposeTranscriptApprovalAndPrompt(t *testing.T) {
 	model := NewModel(&fakeBridge{})
-	model.applyRuntimeEvent(runtime.RuntimeEvent{Type: "assistant.delta", Delta: "working"})
-	model.applyRuntimeEvent(runtime.RuntimeEvent{Type: "tool.called", ToolName: "system.run", ToolInput: "pwd"})
-	model.applyRuntimeEvent(runtime.RuntimeEvent{
+	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "assistant.delta", Delta: "working"}))
+	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "tool.called", ToolName: "system.run", ToolInput: "pwd"}))
+	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:     "tool.result",
 		ToolName: "system.run",
 		Message:  &session.Message{Role: "tool", Content: "/repo"},
-	})
-	model.applyRuntimeEvent(runtime.RuntimeEvent{
+	}))
+	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:     "permission.required",
 		Approval: &approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd"},
-	})
+	}))
 
 	view := newRenderer().renderScreen(newRenderSnapshot(model, 88))
 
@@ -108,10 +108,10 @@ func TestRendererFooterSwitchesHelpForApproval(t *testing.T) {
 		t.Fatalf("plain prompt missing Enter help: %q", plain)
 	}
 
-	model.applyRuntimeEvent(runtime.RuntimeEvent{
+	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:     "permission.required",
 		Approval: &approval.Request{ID: "approval-1"},
-	})
+	}))
 	approvalPrompt := newRenderer().renderPrompt(newRenderSnapshot(model, 80))
 	if !contains(approvalPrompt, "Esc reject") || contains(approvalPrompt, "Enter to send") {
 		t.Fatalf("approval prompt help = %q, want approval dialog shortcuts only", approvalPrompt)
@@ -185,10 +185,10 @@ func TestRenderApprovalDialogUsesTypedSemanticCopy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			model := NewModel(&fakeBridge{})
-			model.applyRuntimeEvent(runtime.RuntimeEvent{
+			model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 				Type:     "permission.required",
 				Approval: &tt.request,
-			})
+			}))
 
 			view := newRenderer().renderApprovalDialog(newRenderSnapshot(model, 88))
 			for _, want := range tt.wants {
@@ -201,9 +201,9 @@ func TestRenderApprovalDialogUsesTypedSemanticCopy(t *testing.T) {
 }
 
 func TestRenderInputWithCursorPreservesUnicodeRunes(t *testing.T) {
-	rendered := renderInputWithCursor("你好", 1, 40)
+	rendered := renderInputWithCursor("浣犲ソ", 1, 40)
 
-	if !contains(rendered, "你") || !contains(rendered, "好") {
+	if !contains(rendered, "浣") || !contains(rendered, "ソ") {
 		t.Fatalf("rendered input = %q, want both CJK runes preserved", rendered)
 	}
 }

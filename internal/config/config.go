@@ -113,7 +113,22 @@ type MCPConfig struct {
 }
 
 func Default() Config {
-	return LoadFromDir(".")
+	cfg, err := loadFromDir(".")
+	if err == nil {
+		return cfg
+	}
+	cfg = defaultConfig()
+	if strings.Contains(err.Error(), "resolved llm api_key") {
+		cfg.LLM.Provider = "default"
+		if provider, ok := cfg.LLM.Providers["default"]; ok {
+			cfg.LLM.BaseURL = provider.BaseURL
+			cfg.LLM.APIKey = provider.APIKey
+		}
+		if profile, ok := cfg.LLM.Profiles["default"]; ok {
+			cfg.LLM.Model = profile.Model
+		}
+	}
+	return cfg
 }
 
 func LoadFromDir(dir string) Config {
@@ -839,7 +854,11 @@ func validateAndResolve(cfg *Config) error {
 		return fmt.Errorf("resolved llm base_url for profile %q is empty", activeProfileName)
 	}
 	if strings.TrimSpace(cfg.LLM.APIKey) == "" {
-		return fmt.Errorf("resolved llm api_key for profile %q is empty", activeProfileName)
+		if strings.EqualFold(provider.Protocol, "openai-compatible") || strings.EqualFold(provider.Protocol, "mock") {
+			cfg.LLM.APIKey = ""
+		} else {
+			return fmt.Errorf("resolved llm api_key for profile %q is empty", activeProfileName)
+		}
 	}
 	if strings.TrimSpace(cfg.LLM.Model) == "" {
 		return fmt.Errorf("resolved llm model for profile %q is empty", activeProfileName)
