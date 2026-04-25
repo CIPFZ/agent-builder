@@ -11,7 +11,6 @@ import (
 
 	"myclaw/internal/config"
 	"myclaw/internal/gateway"
-	"myclaw/internal/llm"
 )
 
 var daemonBootstrapRuntime = bootstrapRuntime
@@ -64,7 +63,7 @@ func newDaemonHandler(cfg config.Config, stdout io.Writer) (*http.ServeMux, *gat
 			return mux, gateway.NewServerWithOptions(logger, nil, nil, gateway.Options{})
 		}
 	}
-	gatewayServer := gateway.NewServerWithOptions(logger, bootstrap.Sessions, llm.NewClientFromConfig(cfg.LLM), gateway.Options{
+	gatewayServer := gateway.NewServerWithOptions(logger, bootstrap.Sessions, LLMClientFromRuntimeConfig(cfg), gateway.Options{
 		PermissionPolicy:       bootstrap.Policy,
 		Runner:                 bootstrap.Runner,
 		MainLoopModel:          cfg.LLM.Model,

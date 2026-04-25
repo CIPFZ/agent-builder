@@ -10,8 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"myclaw/internal/diagnostics"
-	"myclaw/internal/runtime"
-	"myclaw/internal/session"
 )
 
 type Options struct {
@@ -19,13 +17,14 @@ type Options struct {
 	Logger   *diagnostics.Logger
 }
 
-func Run(ctx context.Context, sessions *session.Manager, runner *runtime.Runner, _ any, _ any, options Options) error {
-	if runner == nil {
-		return errors.New("nil runner")
+func Run(ctx context.Context, myclawdURL string, options Options) error {
+	if strings.TrimSpace(myclawdURL) == "" {
+		return errors.New("empty myclawd url")
 	}
-	bridge := NewRuntimeBridgeWithContext(ctx, sessions, runner, "main", options.Logger)
+	store := newClientStore()
+	bridge := NewMyclawdClient(ctx, myclawdURL, "main", store, protocolLoggerAdapter{logger: options.Logger})
 	model := NewModel(bridge, ModelConfig{
-		SessionID:       bridge.session.ID,
+		SessionID:       bridge.PlatformStatusSnapshot().SessionID,
 		LLMLabel:        options.LLMLabel,
 		PromptEditor:    defaultPromptEditor,
 		OpenFile:        defaultFileOpener,
@@ -45,7 +44,11 @@ func Run(ctx context.Context, sessions *session.Manager, runner *runtime.Runner,
 			return options.Logger.Path()
 		}(),
 	})
-	bridge.log("info", "tui", "startup", fmt.Sprintf("starting session %s", bridge.session.ID), "", map[string]any{
+	if err := bridge.Start(); err != nil {
+		return err
+	}
+	defer bridge.Close()
+	bridge.log("info", "startup", fmt.Sprintf("connected to %s", myclawdURL), map[string]any{
 		"llm": options.LLMLabel,
 		"log_path": func() string {
 			if options.Logger == nil {
@@ -58,9 +61,26 @@ func Run(ctx context.Context, sessions *session.Manager, runner *runtime.Runner,
 	bridge.Attach(program.Send)
 	_, err := program.Run()
 	if err != nil {
-		bridge.log("error", "tui", "shutdown.error", err.Error(), "", nil)
+		bridge.log("error", "shutdown.error", err.Error(), nil)
 	} else {
-		bridge.log("info", "tui", "shutdown", "program exited cleanly", "", nil)
+		bridge.log("info", "shutdown", "program exited cleanly", nil)
 	}
 	return err
+}
+
+type protocolLoggerAdapter struct {
+	logger *diagnostics.Logger
+}
+
+func (a protocolLoggerAdapter) Log(level, component, event, message string, fields map[string]any) {
+	if a.logger == nil {
+		return
+	}
+	_ = a.logger.Log(diagnostics.Entry{
+		Level:     level,
+		Component: component,
+		Event:     event,
+		Message:   message,
+		Fields:    fields,
+	})
 }
