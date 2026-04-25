@@ -3,8 +3,6 @@ package tui
 import (
 	"strings"
 	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestPromptStashCtrlSStashesNonEmptyPromptAndRendersNotice(t *testing.T) {
@@ -15,7 +13,7 @@ func TestPromptStashCtrlSStashesNonEmptyPromptAndRendersNotice(t *testing.T) {
 	model.suggestions = []string{"/clear"}
 	model.selectedIndex = 0
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, _ := model.Update(testKey(keyCtrlS))
 	model = updated.(Model)
 
 	if model.input != "" {
@@ -33,7 +31,7 @@ func TestPromptStashCtrlSStashesNonEmptyPromptAndRendersNotice(t *testing.T) {
 	if model.historyIndex != -1 || len(model.suggestions) != 0 || model.selectedIndex != -1 {
 		t.Fatalf("input navigation state = history %d suggestions %#v selected %d, want reset", model.historyIndex, model.suggestions, model.selectedIndex)
 	}
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{"Stashed", "Ctrl+S"} {
 		if !contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
@@ -46,9 +44,9 @@ func TestPromptStashCtrlSRestoresWhenInputEmpty(t *testing.T) {
 	model.input = "restore me"
 	model.cursorPos = len([]rune("restore"))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, _ := model.Update(testKey(keyCtrlS))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, _ = model.Update(testKey(keyCtrlS))
 	model = updated.(Model)
 
 	if model.promptStash.HasStash {
@@ -68,11 +66,11 @@ func TestPromptStashAutoRestoresAfterSubmittingNonSlashPrompt(t *testing.T) {
 	model.input = "stashed prompt"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, _ := model.Update(testKey(keyCtrlS))
 	model = updated.(Model)
 	model.input = "send now"
 	model.cursorPos = len([]rune(model.input))
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.sent) != 1 || bridge.sent[0] != "send now" {
@@ -97,15 +95,15 @@ func TestPromptStashPreservesPasteReferencesForSubmit(t *testing.T) {
 	model.input = "before " + ref
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, _ := model.Update(testKey(keyCtrlS))
 	model = updated.(Model)
 	if len(model.pastes.contents) != 0 {
 		t.Fatalf("active paste state = %#v, want cleared while prompt is stashed", model.pastes)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, _ = model.Update(testKey(keyCtrlS))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.sent) != 1 || bridge.sent[0] != "before "+longPaste {
@@ -119,7 +117,7 @@ func TestPromptStashPreservesPasteReferencesForSubmit(t *testing.T) {
 func TestPromptStashCtrlSNoOpWhenEmptyAndNoStash(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, _ := model.Update(testKey(keyCtrlS))
 	model = updated.(Model)
 
 	if model.promptStash.HasStash {
@@ -135,11 +133,11 @@ func TestClearCommandClearsPromptStash(t *testing.T) {
 	model.input = "keep for later"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	updated, _ := model.Update(testKey(keyCtrlS))
 	model = updated.(Model)
 	model.input = "/clear"
 	model.cursorPos = len([]rune(model.input))
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if model.promptStash.HasStash {

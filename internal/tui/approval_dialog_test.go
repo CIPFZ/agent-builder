@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"myclaw/internal/approval"
 	"myclaw/internal/runtime"
 )
@@ -39,13 +37,13 @@ func TestApprovalOverlayConsumesInputAndEnterApprovesSelection(t *testing.T) {
 	model.input = "draft"
 	model.cursorPos = len(model.input)
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	updated, _ := model.Update(testKeyRunes("x"))
 	model = updated.(Model)
 	if model.input != "draft" {
 		t.Fatalf("input = %q, want unchanged while approval dialog is active", model.input)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.approved) != 1 || bridge.approved[0] != "approval-1" {
@@ -63,7 +61,7 @@ func TestApprovalOverlayEscapeRejectsAndCloses(t *testing.T) {
 	bridge := &fakeBridge{}
 	model := modelWithApproval(bridge)
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	updated, _ := model.Update(testKey(keyEscape))
 	model = updated.(Model)
 
 	if len(bridge.rejected) != 1 || bridge.rejected[0] != "approval-1" {
@@ -81,9 +79,9 @@ func TestApprovalOverlayCanSelectRejectWithDownEnter(t *testing.T) {
 	bridge := &fakeBridge{}
 	model := modelWithApproval(bridge)
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := model.Update(testKey(keyDown))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.rejected) != 1 || bridge.rejected[0] != "approval-1" {
@@ -108,7 +106,7 @@ func TestApprovalOverlayRendersAfterPromptAndHidesCommandDialog(t *testing.T) {
 		t.Fatal("command dialog still active after approval dialog opened")
 	}
 
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{"Permission Required", "Approve once", "Reject", "Esc reject"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)

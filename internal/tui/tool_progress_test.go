@@ -124,7 +124,7 @@ func TestRendererShowsToolProgressStates(t *testing.T) {
 			},
 		},
 	}))
-	view := tuiModel.View()
+	view := tuiModel.viewContent()
 	for _, want := range []string{"tool[running]", "Bash", "running tests", "pkg/b ok", "pkg/f ok"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("running view missing %q: %q", want, view)
@@ -146,7 +146,7 @@ func TestRendererShowsToolProgressStates(t *testing.T) {
 		},
 	}))
 
-	view = tuiModel.View()
+	view = tuiModel.viewContent()
 	for _, want := range []string{"tool[succeeded]", "Bash", "ok"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("succeeded view missing %q: %q", want, view)

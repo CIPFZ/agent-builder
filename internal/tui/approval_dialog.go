@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type approvalDialogAction int
@@ -61,22 +61,22 @@ func (d *approvalDialogState) handleKey(msg tea.KeyMsg) approvalDialogResult {
 	if !d.active() {
 		return approvalDialogResult{}
 	}
-	switch msg.Type {
-	case tea.KeyEnter:
+	switch keyEventType(msg) {
+	case keyEnter:
 		if d.SelectedIndex == 0 {
 			return approvalDialogResult{Action: approvalDialogApprove}
 		}
 		return approvalDialogResult{Action: approvalDialogReject}
-	case tea.KeyCtrlY:
+	case keyCtrlY:
 		return approvalDialogResult{Action: approvalDialogApprove}
-	case tea.KeyEscape, tea.KeyCtrlN:
+	case keyEscape, keyCtrlN:
 		return approvalDialogResult{Action: approvalDialogReject}
-	case tea.KeyUp, tea.KeyCtrlP:
+	case keyUp, keyCtrlP:
 		d.moveUp()
-	case tea.KeyDown:
+	case keyDown:
 		d.moveDown()
-	case tea.KeyRunes:
-		switch strings.TrimSpace(strings.ToLower(string(msg.Runes))) {
+	case keyRunes:
+		switch strings.TrimSpace(strings.ToLower(string(keyEventRunes(msg)))) {
 		case "y":
 			return approvalDialogResult{Action: approvalDialogApprove}
 		case "n":

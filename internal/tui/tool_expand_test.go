@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestToolExpandCollapsesLongToolResultByDefault(t *testing.T) {
 	tuiModel := toolExpandModelWithResult("toolu-1", longToolOutput(12))
 
-	view := tuiModel.View()
+	view := tuiModel.viewContent()
 
 	if !strings.Contains(view, "line-01") {
 		t.Fatalf("collapsed view missing first line: %q", view)
@@ -26,10 +26,10 @@ func TestToolExpandCollapsesLongToolResultByDefault(t *testing.T) {
 
 func TestToolExpandEnterTogglesSelectedToolResult(t *testing.T) {
 	tuiModel := toolExpandModelWithResult("toolu-1", longToolOutput(12))
-	tuiModel = updateToolExpandKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
-	tuiModel = updateToolExpandKey(tuiModel, tea.KeyMsg{Type: tea.KeyEnter})
+	tuiModel = updateToolExpandKey(tuiModel, testKey(keyShiftUp))
+	tuiModel = updateToolExpandKey(tuiModel, testKey(keyEnter))
 
-	expanded := tuiModel.View()
+	expanded := tuiModel.viewContent()
 	if !strings.Contains(expanded, "line-12") {
 		t.Fatalf("expanded view missing final line: %q", expanded)
 	}
@@ -43,8 +43,8 @@ func TestToolExpandEnterTogglesSelectedToolResult(t *testing.T) {
 		t.Fatalf("expanded action bar missing collapse label: %q", expanded)
 	}
 
-	tuiModel = updateToolExpandKey(tuiModel, tea.KeyMsg{Type: tea.KeyEnter})
-	collapsed := tuiModel.View()
+	tuiModel = updateToolExpandKey(tuiModel, testKey(keyEnter))
+	collapsed := tuiModel.viewContent()
 	if strings.Contains(collapsed, "line-12") {
 		t.Fatalf("collapsed view still contains final line: %q", collapsed)
 	}
@@ -66,7 +66,7 @@ func TestToolExpandShowsFullRunningProgressOutput(t *testing.T) {
 		},
 	}
 
-	collapsed := tuiModel.View()
+	collapsed := tuiModel.viewContent()
 	if strings.Contains(collapsed, "line-01") {
 		t.Fatalf("collapsed running progress should show tail only: %q", collapsed)
 	}
@@ -74,9 +74,9 @@ func TestToolExpandShowsFullRunningProgressOutput(t *testing.T) {
 		t.Fatalf("collapsed running progress missing tail: %q", collapsed)
 	}
 
-	tuiModel = updateToolExpandKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
-	tuiModel = updateToolExpandKey(tuiModel, tea.KeyMsg{Type: tea.KeyEnter})
-	expanded := tuiModel.View()
+	tuiModel = updateToolExpandKey(tuiModel, testKey(keyShiftUp))
+	tuiModel = updateToolExpandKey(tuiModel, testKey(keyEnter))
+	expanded := tuiModel.viewContent()
 	if !strings.Contains(expanded, "line-01") || !strings.Contains(expanded, "line-08") {
 		t.Fatalf("expanded running progress missing full output: %q", expanded)
 	}
@@ -88,8 +88,8 @@ func TestToolExpandDoesNotReplaceUserEditAction(t *testing.T) {
 		{Role: "user", Content: "revise this prompt"},
 	}
 
-	tuiModel = updateToolExpandKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
-	tuiModel = updateToolExpandKey(tuiModel, tea.KeyMsg{Type: tea.KeyEnter})
+	tuiModel = updateToolExpandKey(tuiModel, testKey(keyShiftUp))
+	tuiModel = updateToolExpandKey(tuiModel, testKey(keyEnter))
 
 	if tuiModel.input != "revise this prompt" {
 		t.Fatalf("input = %q, want user message edit", tuiModel.input)

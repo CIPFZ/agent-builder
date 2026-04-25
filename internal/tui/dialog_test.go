@@ -2,8 +2,6 @@ package tui
 
 import (
 	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestDialogStateOpenNavigateAndClose(t *testing.T) {
@@ -45,7 +43,7 @@ func TestSlashHelpOpensDialogWithoutSendingRuntimeMessage(t *testing.T) {
 	model.input = "/help"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.sent) != 0 {
@@ -65,20 +63,20 @@ func TestDialogConsumesKeysBeforeInputEditing(t *testing.T) {
 	model.input = "draft"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	updated, _ := model.Update(testKeyRunes("x"))
 	model = updated.(Model)
 
 	if model.input != "draft" {
 		t.Fatalf("input = %q, want unchanged draft", model.input)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = model.Update(testKey(keyDown))
 	model = updated.(Model)
 	if model.dialog.SelectedIndex != 1 {
 		t.Fatalf("selectedIndex = %d, want 1", model.dialog.SelectedIndex)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	updated, _ = model.Update(testKey(keyEscape))
 	model = updated.(Model)
 	if model.dialog.active() {
 		t.Fatal("dialog active after escape, want closed")
@@ -104,7 +102,7 @@ func TestSlashModelArgumentSetsSessionOverrideWithoutOpeningDialog(t *testing.T)
 	model.input = "/model opus"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if model.dialog.active() {
@@ -124,7 +122,7 @@ func TestSlashModelDefaultClearsSessionOverride(t *testing.T) {
 	model.input = "/model default"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if bridge.modelClears != 1 {

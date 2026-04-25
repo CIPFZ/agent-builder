@@ -10,20 +10,20 @@ import (
 	"sync/atomic"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/gorilla/websocket"
 
 	protocolws "myclaw/internal/protocol/ws"
 )
 
 type MyclawdClient struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	baseURL      string
-	agentID      string
-	clientID     string
-	store        *clientStore
-	logger       protocolLogger
+	ctx      context.Context
+	cancel   context.CancelFunc
+	baseURL  string
+	agentID  string
+	clientID string
+	store    *clientStore
+	logger   protocolLogger
 
 	mu         sync.RWMutex
 	conn       *websocket.Conn
@@ -44,14 +44,14 @@ func NewMyclawdClient(ctx context.Context, baseURL, agentID string, store *clien
 	}
 	derived, cancel := context.WithCancel(ctx)
 	return &MyclawdClient{
-		ctx:        derived,
-		cancel:     cancel,
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		agentID:    strings.TrimSpace(agentID),
-		clientID:   "myclaw-tui",
-		store:      store,
-		logger:     logger,
-		pending:    make(map[string]chan protocolws.Message),
+		ctx:      derived,
+		cancel:   cancel,
+		baseURL:  strings.TrimRight(baseURL, "/"),
+		agentID:  strings.TrimSpace(agentID),
+		clientID: "myclaw-tui",
+		store:    store,
+		logger:   logger,
+		pending:  make(map[string]chan protocolws.Message),
 	}
 }
 
@@ -190,10 +190,10 @@ func (c *MyclawdClient) connect() error {
 	c.sessionID = stringValue(response.Payload, "session_id")
 	c.sessionKey = stringValue(response.Payload, "session_key")
 	c.store.setSession(platformStatusSnapshot{
-		SessionID: c.sessionID,
+		SessionID:  c.sessionID,
 		SessionKey: c.sessionKey,
-		AgentID: valueOrDefault(c.agentID, "main"),
-		IsMain: true,
+		AgentID:    valueOrDefault(c.agentID, "main"),
+		IsMain:     true,
 	})
 	return nil
 }
@@ -220,14 +220,14 @@ func (c *MyclawdClient) refreshSessionStatus() error {
 		return err
 	}
 	c.store.setSession(platformStatusSnapshot{
-		SessionID:        stringValue(msg.Payload, "session_id"),
-		SessionKey:       stringValue(msg.Payload, "session_key"),
-		AgentID:          stringValue(msg.Payload, "agent_id"),
-		IsMain:           boolValue(msg.Payload, "is_main"),
-		WorkspaceRoots:   stringSliceValue(msg.Payload["workspace_roots"]),
-		BaseModel:        stringValue(msg.Payload, "main_loop_model"),
-		ModelOverride:    stringValue(msg.Payload, "session_main_loop_model_override"),
-		ResolvedModel:    stringValue(msg.Payload, "resolved_main_loop_model"),
+		SessionID:      stringValue(msg.Payload, "session_id"),
+		SessionKey:     stringValue(msg.Payload, "session_key"),
+		AgentID:        stringValue(msg.Payload, "agent_id"),
+		IsMain:         boolValue(msg.Payload, "is_main"),
+		WorkspaceRoots: stringSliceValue(msg.Payload["workspace_roots"]),
+		BaseModel:      stringValue(msg.Payload, "main_loop_model"),
+		ModelOverride:  stringValue(msg.Payload, "session_main_loop_model_override"),
+		ResolvedModel:  stringValue(msg.Payload, "resolved_main_loop_model"),
 	})
 	return nil
 }
@@ -336,14 +336,14 @@ func (c *MyclawdClient) readLoop() {
 			c.store.applyEvent(event)
 			if event.Type == "permission.required" && event.Tool != nil && event.Tool.Approval != nil {
 				c.store.applyApproval(approvalView{
-					ID:        event.Tool.Approval.ID,
-					ToolName:  event.Tool.Approval.ToolName,
-					ToolInput: event.Tool.Approval.ToolInput,
-					Status:    event.Tool.Approval.Status,
-					Reason:    event.Tool.Approval.Reason,
-					SessionID: event.Tool.Approval.SessionID,
-					RunID:     event.Tool.Approval.RunID,
-					Category:  event.Tool.Approval.Category,
+					ID:         event.Tool.Approval.ID,
+					ToolName:   event.Tool.Approval.ToolName,
+					ToolInput:  event.Tool.Approval.ToolInput,
+					Status:     event.Tool.Approval.Status,
+					Reason:     event.Tool.Approval.Reason,
+					SessionID:  event.Tool.Approval.SessionID,
+					RunID:      event.Tool.Approval.RunID,
+					Category:   event.Tool.Approval.Category,
 					RuleSource: event.Tool.Approval.RuleSource,
 				})
 			}

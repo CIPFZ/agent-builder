@@ -1,6 +1,6 @@
 package tui
 
-import tea "github.com/charmbracelet/bubbletea"
+import tea "charm.land/bubbletea/v2"
 
 const mouseWheelScrollLines = 3
 
@@ -25,6 +25,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setSize(typed.Width, typed.Height)
 	case tea.MouseMsg:
 		return m.handleMouse(typed)
+	case tea.PasteMsg:
+		if m.handlePasteText(typed.Content) {
+			return m, nil
+		}
 	case tea.KeyMsg:
 		return m.updateKey(typed)
 	case RuntimeEventMsg:
@@ -60,7 +64,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+	switch msg.Mouse().Button {
 	case tea.MouseWheelUp:
 		m.scrollTranscriptUp(mouseWheelScrollLines)
 	case tea.MouseWheelDown:
@@ -69,7 +73,14 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
+	view := tea.NewView(m.viewContent())
+	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
+	return view
+}
+
+func (m Model) viewContent() string {
 	width := m.width
 	if width == 0 {
 		width = 120

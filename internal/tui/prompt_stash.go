@@ -3,11 +3,11 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func (m *Model) handlePromptStashKey(msg tea.KeyMsg) bool {
-	if msg.Type != tea.KeyCtrlS {
+	if keyEventType(msg) != keyCtrlS {
 		return false
 	}
 	if strings.TrimSpace(m.input) == "" {

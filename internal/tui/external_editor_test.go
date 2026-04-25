@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type fakePromptEditor struct {
@@ -29,7 +29,7 @@ func TestExternalEditorCtrlGEditsPromptAndMovesCursorToEnd(t *testing.T) {
 	model.selectedIndex = 0
 	model.historyIndex = 1
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, cmd := model.Update(testKey(keyCtrlG))
 	model = updated.(Model)
 
 	if cmd == nil {
@@ -38,8 +38,8 @@ func TestExternalEditorCtrlGEditsPromptAndMovesCursorToEnd(t *testing.T) {
 	if !model.externalEditor.Active {
 		t.Fatalf("external editor state = %#v, want active", model.externalEditor)
 	}
-	if !contains(model.View(), "Save and close editor to continue") {
-		t.Fatalf("view missing external editor wait message: %q", model.View())
+	if !contains(model.viewContent(), "Save and close editor to continue") {
+		t.Fatalf("view missing external editor wait message: %q", model.viewContent())
 	}
 	if len(editor.requests) != 1 || editor.requests[0].Prompt != "draft" {
 		t.Fatalf("requests = %#v, want prompt draft", editor.requests)
@@ -68,7 +68,7 @@ func TestExternalEditorCtrlXCtrlEChordOpensEditor(t *testing.T) {
 	model.input = "draft"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
+	updated, cmd := model.Update(testKey(keyCtrlX))
 	model = updated.(Model)
 	if cmd != nil {
 		t.Fatalf("first chord key cmd = %#v, want nil", cmd)
@@ -77,7 +77,7 @@ func TestExternalEditorCtrlXCtrlEChordOpensEditor(t *testing.T) {
 		t.Fatalf("external editor state = %#v, want pending Ctrl+X", model.externalEditor)
 	}
 
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	updated, cmd = model.Update(testKey(keyCtrlE))
 	model = updated.(Model)
 	if cmd == nil {
 		t.Fatal("cmd = nil after Ctrl+X Ctrl+E, want editor command")
@@ -97,7 +97,7 @@ func TestExternalEditorExpandsAndRecollapsesPasteReferences(t *testing.T) {
 	model.input = "before " + ref
 	model.cursorPos = len([]rune(model.input))
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, cmd := model.Update(testKey(keyCtrlG))
 	model = updated.(Model)
 	if len(editor.requests) != 1 || editor.requests[0].Prompt != "before pasted body" {
 		t.Fatalf("requests = %#v, want expanded pasted body", editor.requests)
@@ -116,7 +116,7 @@ func TestExternalEditorErrorLeavesInputUnchanged(t *testing.T) {
 	model.input = "draft"
 	model.cursorPos = 3
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	updated, cmd := model.Update(testKey(keyCtrlG))
 	model = updated.(Model)
 	updated, _ = model.Update(cmd())
 	model = updated.(Model)

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/gorilla/websocket"
 
 	"myclaw/internal/gateway"
@@ -71,14 +71,14 @@ func TestMyclawdClientUpdatesStoreForProgressApprovalAndTasks(t *testing.T) {
 
 	respondToOutstandingRequests(t, conn)
 	writeHarnessEvent(t, conn, protocolws.EventMessage("tool.called", map[string]any{
-		"run_id":       "run-1",
-		"tool_name":    "Read",
-		"tool_use_id":  "toolu-1",
-		"tool_input":   `{"file_path":"README.md"}`,
-		"session_id":   "sess-1",
-		"session_key":  "agent:main:main",
-		"agent_id":     "main",
-		"is_main":      true,
+		"run_id":      "run-1",
+		"tool_name":   "Read",
+		"tool_use_id": "toolu-1",
+		"tool_input":  `{"file_path":"README.md"}`,
+		"session_id":  "sess-1",
+		"session_key": "agent:main:main",
+		"agent_id":    "main",
+		"is_main":     true,
 	}))
 	writeHarnessEvent(t, conn, protocolws.EventMessage("tool.progress", map[string]any{
 		"run_id":      "run-1",
@@ -112,16 +112,16 @@ func TestMyclawdClientUpdatesStoreForProgressApprovalAndTasks(t *testing.T) {
 		"session_key": "agent:main:main",
 	}))
 	writeHarnessEvent(t, conn, protocolws.EventMessage("permission.required", map[string]any{
-		"approval_id":  "approval-1",
-		"run_id":       "run-2",
-		"tool_name":    "system.run",
-		"tool_input":   "pwd",
-		"reason":       "needs approval",
-		"status":       "pending",
-		"category":     "shell",
-		"rule_source":  "policy",
-		"session_id":   "sess-1",
-		"session_key":  "agent:main:main",
+		"approval_id": "approval-1",
+		"run_id":      "run-2",
+		"tool_name":   "system.run",
+		"tool_input":  "pwd",
+		"reason":      "needs approval",
+		"status":      "pending",
+		"category":    "shell",
+		"rule_source": "policy",
+		"session_id":  "sess-1",
+		"session_key": "agent:main:main",
 	}))
 	writeHarnessEvent(t, conn, protocolws.EventMessage(protocolws.EventSubagentUpdated, map[string]any{
 		"run_id":            "agent-1",
@@ -309,7 +309,6 @@ func respondToOutstandingRequests(t *testing.T, conn *websocket.Conn) {
 		writeHarnessResponse(t, conn, msg.ID, defaultHarnessPayloadFor(msg.Method))
 	}
 }
-
 
 func defaultHarnessPayloadFor(method string) map[string]any {
 	switch method {

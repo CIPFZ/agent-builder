@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestModelPasteShortTextSanitizesAndInsertsAtCursor(t *testing.T) {
@@ -15,11 +15,7 @@ func TestModelPasteShortTextSanitizesAndInsertsAtCursor(t *testing.T) {
 	model.selectedIndex = 0
 	model.historyIndex = 1
 
-	updated, _ := model.Update(tea.KeyMsg{
-		Type:  tea.KeyRunes,
-		Runes: []rune("a\rb\t\x1b[31mred\x1b[0m"),
-		Paste: true,
-	})
+	updated, _ := model.Update(tea.PasteMsg{Content: "a\rb\t\x1b[31mred\x1b[0m"})
 	model = updated.(Model)
 
 	if model.input != "hello a\nb    redworld" {
@@ -44,7 +40,7 @@ func TestModelPasteLongTextStoresReferenceAndSubmitExpandsForBridge(t *testing.T
 	model.cursorPos = len([]rune("before "))
 	longPaste := strings.Repeat("x", pasteThreshold+1)
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(longPaste), Paste: true})
+	updated, _ := model.Update(tea.PasteMsg{Content: longPaste})
 	model = updated.(Model)
 
 	const placeholder = "[Pasted text #1]"
@@ -55,7 +51,7 @@ func TestModelPasteLongTextStoresReferenceAndSubmitExpandsForBridge(t *testing.T
 		t.Fatalf("stored paste len = %d, want %d", len(got), len(longPaste))
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.sent) != 1 || bridge.sent[0] != "before "+longPaste+" after" {
@@ -77,7 +73,7 @@ func TestModelPasteTooManyLinesStoresReferenceWithLineCount(t *testing.T) {
 	model.setSize(80, 30)
 	pasted := "a\nb\nc\nd"
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(pasted), Paste: true})
+	updated, _ := model.Update(tea.PasteMsg{Content: pasted})
 	model = updated.(Model)
 
 	if model.input != "[Pasted text #1 +3 lines]" {
@@ -95,7 +91,7 @@ func TestClearCommandClearsPasteState(t *testing.T) {
 	model.input = "/clear"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(model.pastes.contents) != 0 || model.pastes.nextID != 1 {

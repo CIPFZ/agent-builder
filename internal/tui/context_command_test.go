@@ -2,8 +2,6 @@ package tui
 
 import (
 	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestSlashContextOpensContextDialogWithUsageSummary(t *testing.T) {
@@ -25,13 +23,13 @@ func TestSlashContextOpensContextDialogWithUsageSummary(t *testing.T) {
 	model.input = "/context"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if model.dialog.active() {
 		t.Fatalf("dialog = %#v, want no dialog for /context output", model.dialog)
 	}
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{
 		"Context Usage",
 		"MiniMax-M2.7",

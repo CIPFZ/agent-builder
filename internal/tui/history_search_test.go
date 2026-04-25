@@ -3,13 +3,13 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestHistorySearchCtrlROpensPromptHistoryDialog(t *testing.T) {
 	model := historySearchModel("first prompt", "second prompt")
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	updated, cmd := model.Update(testKey(keyCtrlR))
 	model = updated.(Model)
 
 	if cmd != nil {
@@ -18,7 +18,7 @@ func TestHistorySearchCtrlROpensPromptHistoryDialog(t *testing.T) {
 	if !model.dialog.active() || model.dialog.Title != "Search prompts" {
 		t.Fatalf("dialog = %#v, want Search prompts dialog", model.dialog)
 	}
-	view := model.View()
+	view := model.viewContent()
 	if !contains(view, "Search prompts") || !contains(view, "second prompt") {
 		t.Fatalf("view missing history search dialog/items: %q", view)
 	}
@@ -26,7 +26,7 @@ func TestHistorySearchCtrlROpensPromptHistoryDialog(t *testing.T) {
 
 func TestHistorySearchUsesRecentUniqueHistoryFirst(t *testing.T) {
 	model := historySearchModel("alpha", "beta", "alpha", "gamma")
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyCtrlR})
+	model = updateHistorySearchKey(model, testKey(keyCtrlR))
 
 	items := model.dialog.Picker.filteredItems()
 	if len(items) != 3 {
@@ -43,15 +43,15 @@ func TestHistorySearchFiltersAndAcceptsPrompt(t *testing.T) {
 	model := historySearchModel("list files", "run tests", "commit changes")
 	model.input = "draft"
 	model.cursorPos = len(model.input)
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyCtrlR})
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("run")})
+	model = updateHistorySearchKey(model, testKey(keyCtrlR))
+	model = updateHistorySearchKey(model, testKeyRunes("run"))
 
-	view := model.View()
+	view := model.viewContent()
 	if !contains(view, "Search: run") || !contains(view, "run tests") || contains(view, "list files") {
 		t.Fatalf("filtered view = %q, want only run tests", view)
 	}
 
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = updateHistorySearchKey(model, testKey(keyEnter))
 	if model.dialog.active() {
 		t.Fatalf("dialog still active after selecting history")
 	}
@@ -62,8 +62,8 @@ func TestHistorySearchFiltersAndAcceptsPrompt(t *testing.T) {
 
 func TestHistorySearchFuzzyMatchesAfterExactMatches(t *testing.T) {
 	model := historySearchModel("run tests", "restore session", "refactor search")
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyCtrlR})
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("rs")})
+	model = updateHistorySearchKey(model, testKey(keyCtrlR))
+	model = updateHistorySearchKey(model, testKeyRunes("rs"))
 
 	items := model.dialog.Picker.filteredItems()
 	if len(items) != 3 {
@@ -78,10 +78,10 @@ func TestHistorySearchFuzzyMatchesAfterExactMatches(t *testing.T) {
 
 func TestHistorySearchNoMatchingPrompts(t *testing.T) {
 	model := historySearchModel("run tests")
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyCtrlR})
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("missing")})
+	model = updateHistorySearchKey(model, testKey(keyCtrlR))
+	model = updateHistorySearchKey(model, testKeyRunes("missing"))
 
-	view := model.View()
+	view := model.viewContent()
 	if !contains(view, "No matching prompts") {
 		t.Fatalf("no-match view = %q, want no matching prompts", view)
 	}
@@ -91,9 +91,9 @@ func TestHistorySearchBackspaceEmptyQueryCancels(t *testing.T) {
 	model := historySearchModel("run tests")
 	model.input = "draft"
 	model.cursorPos = 3
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyCtrlR})
+	model = updateHistorySearchKey(model, testKey(keyCtrlR))
 
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyBackspace})
+	model = updateHistorySearchKey(model, testKey(keyBackspace))
 
 	if model.dialog.active() {
 		t.Fatalf("dialog still active after empty-query backspace")
@@ -107,10 +107,10 @@ func TestHistorySearchEscapeRestoresOriginalInput(t *testing.T) {
 	model := historySearchModel("run tests")
 	model.input = "draft"
 	model.cursorPos = 2
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyCtrlR})
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("run")})
+	model = updateHistorySearchKey(model, testKey(keyCtrlR))
+	model = updateHistorySearchKey(model, testKeyRunes("run"))
 
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyEsc})
+	model = updateHistorySearchKey(model, testKey(keyEscape))
 
 	if model.dialog.active() {
 		t.Fatalf("dialog still active after escape")
@@ -122,9 +122,9 @@ func TestHistorySearchEscapeRestoresOriginalInput(t *testing.T) {
 
 func TestHistorySearchCtrlCClosesDialogWithoutQuitting(t *testing.T) {
 	model := historySearchModel("run tests")
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyCtrlR})
+	model = updateHistorySearchKey(model, testKey(keyCtrlR))
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated, cmd := model.Update(testKey(keyCtrlC))
 	model = updated.(Model)
 
 	if cmd != nil {
@@ -137,9 +137,9 @@ func TestHistorySearchCtrlCClosesDialogWithoutQuitting(t *testing.T) {
 
 func TestHistorySearchEmptyHistoryShowsEmptyState(t *testing.T) {
 	model := NewModel(&fakeBridge{})
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyCtrlR})
+	model = updateHistorySearchKey(model, testKey(keyCtrlR))
 
-	view := model.View()
+	view := model.viewContent()
 	if !contains(view, "Search prompts") || !contains(view, "No history yet") {
 		t.Fatalf("empty history view = %q, want empty state", view)
 	}
@@ -147,9 +147,9 @@ func TestHistorySearchEmptyHistoryShowsEmptyState(t *testing.T) {
 
 func TestHistorySearchDoesNotOpenDuringTranscriptSearch(t *testing.T) {
 	model := NewModel(&fakeBridge{})
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyCtrlF})
+	model = updateHistorySearchKey(model, testKey(keyCtrlF))
 
-	model = updateHistorySearchKey(model, tea.KeyMsg{Type: tea.KeyCtrlR})
+	model = updateHistorySearchKey(model, testKey(keyCtrlR))
 
 	if model.dialog.active() {
 		t.Fatalf("history dialog opened while transcript search is active")

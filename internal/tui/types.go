@@ -1,7 +1,7 @@
 package tui
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"myclaw/internal/model"
 	"myclaw/internal/session"
@@ -60,11 +60,11 @@ type platformStatusSnapshot struct {
 }
 
 type platformModelOption struct {
-	Value              string
-	Label              string
-	Description        string
+	Value               string
+	Label               string
+	Description         string
 	ContextWindowTokens int
-	MaxOutputTokens    int
+	MaxOutputTokens     int
 }
 
 type contextSnapshot struct {

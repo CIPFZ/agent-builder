@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type dialogResult struct {
@@ -66,37 +66,38 @@ func (d *dialogState) handleKey(msg tea.KeyMsg) dialogResult {
 	if !d.active() {
 		return dialogResult{}
 	}
-	switch msg.Type {
-	case tea.KeyEscape:
+	event := keyEventType(msg)
+	switch event {
+	case keyEscape:
 		d.close()
-	case tea.KeyEnter, tea.KeyTab, tea.KeyShiftTab:
+	case keyEnter, keyTab, keyShiftTab:
 		item, ok := d.Picker.accept()
 		if !ok {
 			return dialogResult{}
 		}
 		d.close()
 		action := "enter"
-		if msg.Type == tea.KeyTab {
+		if event == keyTab {
 			action = "tab"
-		} else if msg.Type == tea.KeyShiftTab {
+		} else if event == keyShiftTab {
 			action = "shift+tab"
 		}
 		return dialogResult{Selected: true, Item: item, Action: action}
-	case tea.KeyUp, tea.KeyCtrlP:
+	case keyUp, keyCtrlP:
 		d.moveUp()
-	case tea.KeyDown, tea.KeyCtrlN:
+	case keyDown, keyCtrlN:
 		d.moveDown()
-	case tea.KeyPgUp:
+	case keyPgUp:
 		d.Picker.pageUp()
 		d.syncPickerSelection()
-	case tea.KeyPgDown:
+	case keyPgDown:
 		d.Picker.pageDown()
 		d.syncPickerSelection()
-	case tea.KeyBackspace:
+	case keyBackspace:
 		d.Picker.backspaceQuery()
 		d.syncPickerSelection()
-	case tea.KeyRunes:
-		d.Picker.insertQuery(string(msg.Runes))
+	case keyRunes:
+		d.Picker.insertQuery(string(keyEventRunes(msg)))
 		d.syncPickerSelection()
 	default:
 		return dialogResult{}

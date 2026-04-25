@@ -2,8 +2,6 @@ package tui
 
 import (
 	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestListPickerFiltersAndResetsFocus(t *testing.T) {
@@ -86,9 +84,9 @@ func TestModelPickerSelectionIsCapturedBeforeClose(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	model.openModelDialog()
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := model.Update(testKey(keyDown))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if model.dialog.active() {
@@ -103,7 +101,7 @@ func TestModelPickerQueryConsumesRunesAndFilters(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	model.openModelDialog()
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("opus")})
+	updated, _ := model.Update(testKeyRunes("opus"))
 	model = updated.(Model)
 
 	if model.input != "" {
@@ -122,9 +120,9 @@ func TestModelPickerSelectionSetsSessionOverride(t *testing.T) {
 	model := NewModel(bridge)
 
 	model.openModelDialog()
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := model.Update(testKey(keyDown))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.modelSets) != 1 || bridge.modelSets[0] != "sonnet" {

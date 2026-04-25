@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"myclaw/internal/model"
 )
@@ -53,25 +53,25 @@ func (m *Model) handleMessageActionsKey(msg tea.KeyMsg) bool {
 	if !m.messageActions.Active {
 		return false
 	}
-	switch msg.Type {
-	case tea.KeyEsc, tea.KeyCtrlC:
+	switch keyEventType(msg) {
+	case keyEscape, keyCtrlC:
 		m.messageActions.close()
-	case tea.KeyUp, tea.KeyCtrlP:
+	case keyUp, keyCtrlP:
 		m.navigateMessageAction(-1, false)
-	case tea.KeyDown, tea.KeyCtrlN:
+	case keyDown, keyCtrlN:
 		m.navigateMessageAction(1, false)
-	case tea.KeyShiftUp:
+	case keyShiftUp:
 		m.navigateMessageAction(-1, true)
-	case tea.KeyShiftDown:
+	case keyShiftDown:
 		m.navigateMessageAction(1, true)
-	case tea.KeyHome:
+	case keyHome:
 		m.navigateMessageActionToEdge(-1)
-	case tea.KeyEnd:
+	case keyEnd:
 		m.navigateMessageActionToEdge(1)
-	case tea.KeyEnter:
+	case keyEnter:
 		m.acceptMessageAction()
-	case tea.KeyRunes:
-		key := strings.ToLower(string(msg.Runes))
+	case keyRunes:
+		key := strings.ToLower(string(keyEventRunes(msg)))
 		switch key {
 		case "c":
 			m.copySelectedMessage()
