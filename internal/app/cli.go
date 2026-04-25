@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"myclaw/internal/compaction"
 	"myclaw/internal/config"
@@ -35,8 +36,18 @@ var runTUI = func(ctx context.Context, _ []string, stdout, stderr io.Writer) err
 	if cfg.LLM.APIKey == "" {
 		llmLabel = "mock / builtin"
 	}
-	baseURL := "http://" + cfg.HTTPAddr + cfg.WSPath
-	return tui.Run(ctx, baseURL, tui.Options{
+	daemon, err := prepareTUIDaemon(ctx, cfg, stdout, stderr)
+	if err != nil {
+		return err
+	}
+	if daemon.Cleanup != nil {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = daemon.Cleanup(shutdownCtx)
+		}()
+	}
+	return tui.Run(ctx, daemon.BaseURL, tui.Options{
 		LLMLabel: llmLabel,
 		Logger:   logger,
 	})

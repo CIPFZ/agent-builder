@@ -4,13 +4,22 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"myclaw/internal/config"
+	"myclaw/internal/llm"
 	"myclaw/internal/model"
+	"myclaw/internal/permissions"
+	"myclaw/internal/runtime"
+	"myclaw/internal/session"
+	"myclaw/internal/workspace"
 )
 
 func TestRunCLIHelpIncludesTUI(t *testing.T) {
@@ -41,6 +50,132 @@ func TestRunCLIDispatchesTUICommand(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("expected tui command to dispatch to runTUI")
+	}
+}
+
+func TestPrepareTUIDaemonReusesHealthyDaemon(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	t.Cleanup(server.Close)
+
+	addr := strings.TrimPrefix(server.URL, "http://")
+	daemon, err := prepareTUIDaemon(context.Background(), config.Config{
+		HTTPAddr: addr,
+		WSPath:   "/ws",
+	}, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("prepareTUIDaemon: %v", err)
+	}
+	if daemon.Embedded {
+		t.Fatal("Embedded = true, want false when daemon is already healthy")
+	}
+	if daemon.BaseURL != "http://"+addr+"/ws" {
+		t.Fatalf("BaseURL = %q, want existing daemon websocket URL", daemon.BaseURL)
+	}
+}
+
+func TestPrepareTUIDaemonStartsEmbeddedDaemonWhenUnavailable(t *testing.T) {
+	withStubDaemonRuntime(t)
+	addr := unusedTCPAddr(t)
+
+	daemon, err := prepareTUIDaemon(context.Background(), config.Config{
+		HTTPAddr: addr,
+		WSPath:   "/ws",
+	}, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("prepareTUIDaemon: %v", err)
+	}
+	t.Cleanup(func() {
+		if daemon.Cleanup != nil {
+			_ = daemon.Cleanup(context.Background())
+		}
+	})
+	if !daemon.Embedded {
+		t.Fatal("Embedded = false, want auto-started daemon")
+	}
+	resp, err := http.Get(strings.TrimSuffix(daemon.BaseURL, "/ws") + "/healthz")
+	if err != nil {
+		t.Fatalf("GET embedded /healthz: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/healthz status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestPrepareTUIDaemonFallsBackWhenConfiguredPortIsUnhealthy(t *testing.T) {
+	withStubDaemonRuntime(t)
+	foreign := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(foreign.Close)
+	addr := strings.TrimPrefix(foreign.URL, "http://")
+
+	daemon, err := prepareTUIDaemon(context.Background(), config.Config{
+		HTTPAddr: addr,
+		WSPath:   "/ws",
+	}, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("prepareTUIDaemon: %v", err)
+	}
+	t.Cleanup(func() {
+		if daemon.Cleanup != nil {
+			_ = daemon.Cleanup(context.Background())
+		}
+	})
+	if !daemon.Embedded {
+		t.Fatal("Embedded = false, want fallback embedded daemon")
+	}
+	if daemon.BaseURL == "http://"+addr+"/ws" {
+		t.Fatalf("BaseURL = %q, want fallback port when configured endpoint is unhealthy", daemon.BaseURL)
+	}
+	resp, err := http.Get(strings.TrimSuffix(daemon.BaseURL, "/ws") + "/healthz")
+	if err != nil {
+		t.Fatalf("GET fallback /healthz: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/healthz status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func unusedTCPAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen unused addr: %v", err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close unused addr listener: %v", err)
+	}
+	return addr
+}
+
+func withStubDaemonRuntime(t *testing.T) {
+	t.Helper()
+	original := daemonBootstrapRuntime
+	t.Cleanup(func() { daemonBootstrapRuntime = original })
+	daemonBootstrapRuntime = func(_ string, _ config.Config, _ bootstrapOptions) (*runtimeBootstrap, error) {
+		sessions := session.NewManager(nil)
+		runner := runtime.NewRunnerWithOptions(
+			sessions,
+			llm.NewMockClient(),
+			workspace.NewLoader(""),
+			nil,
+			runtime.Options{
+				PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+			},
+		)
+		return &runtimeBootstrap{
+			Sessions: sessions,
+			Policy:   permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+			Runner:   runner,
+		}, nil
 	}
 }
 
