@@ -37,32 +37,19 @@ import { operatorReducer } from "./lib/store";
 
 const DEFAULT_ENDPOINT = "ws://127.0.0.1:18080/ws";
 
-function roleLabel(role: string): string {
-  switch (role) {
-    case "user":
-      return "Operator";
-    case "assistant":
-      return "Assistant";
-    case "system":
-      return "System";
-    default:
-      return role;
-  }
-}
-
 function transcriptItems(messages: TranscriptMessage[], streamingContent: string) {
   const items = messages.map((message) => ({
     key: message.id,
     role: message.role === "user" ? "end" : "start",
     placement: message.role === "user" ? ("end" as const) : ("start" as const),
-    content: `${roleLabel(message.role)}\n${message.content}`,
+    content: message.content,
   }));
   if (streamingContent) {
     items.push({
       key: "streaming",
       role: "start",
       placement: "start" as const,
-      content: `Assistant\n${streamingContent}`,
+      content: streamingContent,
     });
   }
   return items;
