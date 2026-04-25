@@ -206,7 +206,7 @@ func TestRuntimeBridgeResumeSessionChangesSendTarget(t *testing.T) {
 	first := sessions.GetOrCreateMain("main")
 	second := sessions.CreateChild("main", "agent:main:resume")
 	_, _ = sessions.AppendMessage(second.ID, "user", "previous")
-	bridge := NewRuntimeBridge(sessions, nil, "main")
+	bridge := newTestRuntimeBridge(sessions, nil, "main")
 
 	snapshot, ok := bridge.ResumeSession(second.ID)
 	if !ok {
@@ -247,7 +247,7 @@ func TestRuntimeBridgeResumeSessionReturnsSemanticRecoverySnapshot(t *testing.T)
 		t.Fatalf("update metadata: %v", err)
 	}
 
-	bridge := NewRuntimeBridge(sessions, nil, "main")
+	bridge := newTestRuntimeBridge(sessions, nil, "main")
 	snapshot, ok := bridge.ResumeSession(sess.ID)
 	if !ok {
 		t.Fatal("ResumeSession ok = false, want true")
@@ -270,7 +270,7 @@ func TestRuntimeBridgeSessionSnapshotsIncludeTitlesAndActivity(t *testing.T) {
 	_, _ = sessions.AppendMessage(first.ID, "user", "first prompt")
 	_, _ = sessions.AppendMessage(first.ID, "assistant", "first answer")
 	_, _ = sessions.AppendMessage(second.ID, "user", "second prompt")
-	bridge := NewRuntimeBridge(sessions, nil, "main")
+	bridge := newTestRuntimeBridge(sessions, nil, "main")
 
 	items := sessionResumeItems(bridge.SessionSnapshots())
 
