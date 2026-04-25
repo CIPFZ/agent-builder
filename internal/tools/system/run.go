@@ -18,6 +18,18 @@ var _ tools.ContextualTool = (*RunTool)(nil)
 
 const maxShellOutputBytes = 32 * 1024
 
+type shellExecutionResult struct {
+	Tool             string `json:"tool"`
+	Command          string `json:"command"`
+	WorkingDirectory string `json:"working_directory,omitempty"`
+	ExecutionMode    string `json:"execution_mode,omitempty"`
+	Stdout           string `json:"stdout,omitempty"`
+	Stderr           string `json:"stderr,omitempty"`
+	ExitCode         int    `json:"exit_code"`
+	RunInBackground  bool   `json:"run_in_background,omitempty"`
+	TimedOut         bool   `json:"timed_out,omitempty"`
+}
+
 type RunTool struct {
 	router      *sandbox.Router
 	name        string
@@ -80,7 +92,7 @@ func (t *RunTool) InvokeWithContext(ctx context.Context, toolCtx tools.ToolUseCo
 			ToolUseID: toolCtx.ToolUseID,
 			Type:      "shell.background_started",
 			Message:   spec.Command,
-			Data:      map[string]any{"command": spec.Command, "tool": t.name},
+			Data:      shellProgressData(t.name, spec.Command, toolCtx, false, true),
 		})
 		go func() {
 			bgCtx := context.Background()
@@ -89,9 +101,19 @@ func (t *RunTool) InvokeWithContext(ctx context.Context, toolCtx tools.ToolUseCo
 				bgCtx, cancel = context.WithTimeout(bgCtx, spec.Timeout)
 				defer cancel()
 			}
-			_, _ = t.router.Run(bgCtx, toolCtx.Session, spec.Command)
+			_, _ = t.router.RunDetailedWithOptions(bgCtx, toolCtx.Session, spec.Command, t.runOptions(toolCtx))
 		}()
-		return tools.ToolResult{Output: fmt.Sprintf("%s command is running in the background: %s", t.name, spec.Command)}, nil
+		result := shellExecutionResult{
+			Tool:             t.name,
+			Command:          spec.Command,
+			WorkingDirectory: shellWorkingDirectory(toolCtx),
+			RunInBackground:  true,
+		}
+		return tools.ToolResult{
+			Output:            fmt.Sprintf("%s command is running in the background: %s", t.name, spec.Command),
+			StructuredContent: result,
+			Meta:              shellMeta(result),
+		}, nil
 	}
 
 	runCtx := ctx
@@ -104,21 +126,36 @@ func (t *RunTool) InvokeWithContext(ctx context.Context, toolCtx tools.ToolUseCo
 		ToolUseID: toolCtx.ToolUseID,
 		Type:      "shell.started",
 		Message:   spec.Command,
-		Data:      map[string]any{"command": spec.Command, "tool": t.name},
+		Data:      shellProgressData(t.name, spec.Command, toolCtx, false, false),
 	})
-	output, err := t.router.Run(runCtx, toolCtx.Session, spec.Command)
+	execResult, err := t.router.RunDetailedWithOptions(runCtx, toolCtx.Session, spec.Command, t.runOptions(toolCtx))
 	timedOut := runCtx.Err() == context.DeadlineExceeded
 	toolCtx.ReportProgress(tools.ToolProgress{
 		ToolUseID: toolCtx.ToolUseID,
 		Type:      "shell.finished",
 		Message:   spec.Command,
-		Data:      map[string]any{"command": spec.Command, "tool": t.name, "timed_out": timedOut},
+		Data:      shellProgressData(t.name, spec.Command, toolCtx, timedOut, false),
 	})
-	output = truncateShellOutput(output)
-	if err != nil {
-		return tools.ToolResult{Output: output}, err
+	output := truncateShellOutput(execResult.Output())
+	result := shellExecutionResult{
+		Tool:             t.name,
+		Command:          spec.Command,
+		WorkingDirectory: shellWorkingDirectory(toolCtx),
+		ExecutionMode:    execResult.ExecutionMode,
+		Stdout:           truncateShellOutput(execResult.Stdout),
+		Stderr:           truncateShellOutput(execResult.Stderr),
+		ExitCode:         execResult.ExitCode,
+		TimedOut:         timedOut || execResult.TimedOut,
 	}
-	return tools.ToolResult{Output: output}, nil
+	toolResult := tools.ToolResult{
+		Output:            output,
+		StructuredContent: result,
+		Meta:              shellMeta(result),
+	}
+	if err != nil {
+		return toolResult, err
+	}
+	return toolResult, nil
 }
 
 func (t *RunTool) IsEnabled() bool {
@@ -222,10 +259,6 @@ func shellInputSchema() map[string]any {
 			"timeout":           map[string]any{"type": "number", "description": "Optional timeout in milliseconds"},
 			"description":       map[string]any{"type": "string", "description": "Clear, concise description of what this command does"},
 			"run_in_background": map[string]any{"type": "boolean", "description": "Set true to run long-lived commands in the background"},
-			"dangerouslyDisableSandbox": map[string]any{
-				"type":        "boolean",
-				"description": "Disable sandboxing only when the permission policy explicitly allows it.",
-			},
 		},
 		"required": []string{"command"},
 	}
@@ -250,6 +283,60 @@ func parseShellInput(input string) shellInput {
 		}
 	}
 	return spec
+}
+
+func (t *RunTool) runOptions(toolCtx tools.ToolUseContext) sandbox.RunOptions {
+	options := sandbox.RunOptions{
+		WorkDir: shellWorkingDirectory(toolCtx),
+		Shell:   sandbox.ShellFlavorDefault,
+	}
+	switch {
+	case t.powershell:
+		options.Shell = sandbox.ShellFlavorPowerShell
+	case t.name == "Bash":
+		options.Shell = sandbox.ShellFlavorBash
+	}
+	return options
+}
+
+func shellWorkingDirectory(toolCtx tools.ToolUseContext) string {
+	if root := strings.TrimSpace(toolCtx.WorkDir); root != "" {
+		return root
+	}
+	sess := toolCtx.Session
+	if root := strings.TrimSpace(sess.Metadata.AgentWorktreePath); root != "" {
+		return root
+	}
+	return strings.TrimSpace(sess.Key)
+}
+
+func shellProgressData(toolName, command string, toolCtx tools.ToolUseContext, timedOut, background bool) map[string]any {
+	data := map[string]any{
+		"tool":              toolName,
+		"command":           command,
+		"working_directory": shellWorkingDirectory(toolCtx),
+	}
+	if timedOut {
+		data["timed_out"] = true
+	}
+	if background {
+		data["run_in_background"] = true
+	}
+	return data
+}
+
+func shellMeta(result shellExecutionResult) map[string]any {
+	return map[string]any{
+		"tool":              result.Tool,
+		"command":           result.Command,
+		"working_directory": result.WorkingDirectory,
+		"execution_mode":    result.ExecutionMode,
+		"stdout":            result.Stdout,
+		"stderr":            result.Stderr,
+		"exit_code":         result.ExitCode,
+		"run_in_background": result.RunInBackground,
+		"timed_out":         result.TimedOut,
+	}
 }
 
 func durationMillis(value any) time.Duration {

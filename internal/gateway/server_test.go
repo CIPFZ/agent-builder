@@ -21,8 +21,10 @@ import (
 	protocolws "myclaw/internal/protocol/ws"
 	"myclaw/internal/queryengine"
 	runtimepkg "myclaw/internal/runtime"
+	"myclaw/internal/sandbox"
 	"myclaw/internal/session"
 	"myclaw/internal/tools"
+	systemtools "myclaw/internal/tools/system"
 	"myclaw/internal/workspace"
 )
 
@@ -38,6 +40,21 @@ func (f permissionHookFunc) CheckPermission(ctx context.Context, request queryen
 }
 
 type progressToolForGateway struct{}
+
+type shellFailureExecutorForGateway struct{}
+
+func (shellFailureExecutorForGateway) Run(_ context.Context, _ string) (string, error) {
+	return "", context.DeadlineExceeded
+}
+
+func (shellFailureExecutorForGateway) RunDetailed(_ context.Context, _ string) (sandbox.ExecutionResult, error) {
+	return sandbox.ExecutionResult{
+		Stdout:        "permission denied",
+		Stderr:        "exit status 1",
+		ExitCode:      1,
+		ExecutionMode: "host",
+	}, context.DeadlineExceeded
+}
 
 func (progressToolForGateway) Definition() tools.Definition {
 	return tools.Definition{
@@ -1884,6 +1901,164 @@ func TestHandleWebSocketCanUseToolControlRequestCarriesObjectNativeInput(t *test
 	}); err != nil {
 		t.Fatalf("write control response: %v", err)
 	}
+}
+
+func TestHandleWebSocketToolLifecycleCarriesStructuredShellPayload(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, &objectToolCallClient{}, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var discard protocolws.Message
+	_ = conn.ReadJSON(&discard)
+	_ = conn.ReadJSON(&discard)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "emit object tool input",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	var called, result protocolws.Message
+	for i := 0; i < 20; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.called" {
+			called = event
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.result" {
+			result = event
+			break
+		}
+	}
+	if called.Event != "tool.called" || result.Event != "tool.result" {
+		t.Fatalf("called=%#v result=%#v, want tool.called and tool.result", called, result)
+	}
+	if called.Payload["tool_name"] != "system.run" {
+		t.Fatalf("tool.called payload = %#v, want system.run", called.Payload)
+	}
+	if called.Payload["tool_use_id"] == "" || called.Payload["provider_message_id"] == "" {
+		t.Fatalf("tool.called payload = %#v, want tool and provider ids", called.Payload)
+	}
+	inputObject, _ := called.Payload["tool_input_object"].(map[string]any)
+	if inputObject["command"] != "pwd" {
+		t.Fatalf("tool.called payload = %#v, want structured input object", called.Payload)
+	}
+	if result.Payload["tool_use_id"] == "" || result.Payload["provider_message_id"] == "" {
+		t.Fatalf("tool.result payload = %#v, want lifecycle ids", result.Payload)
+	}
+	meta, _ := result.Payload["meta"].(map[string]any)
+	if meta["command"] != "pwd" {
+		t.Fatalf("tool.result meta = %#v, want shell command", meta)
+	}
+	if meta["working_directory"] == "" {
+		t.Fatalf("tool.result meta = %#v, want working directory", meta)
+	}
+	structured, _ := result.Payload["structured_content"].(map[string]any)
+	if structured["command"] != "pwd" || structured["exit_code"] != float64(0) {
+		t.Fatalf("tool.result structured = %#v, want shell structured payload", structured)
+	}
+}
+
+func TestHandleWebSocketShellFailurePreservesStructuredResult(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	registry := tools.NewRegistry(systemtools.NewBashTool(sandbox.NewRouter(shellFailureExecutorForGateway{}, nil)))
+	client := &failingShellToolCallClient{}
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, client, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	server.runner = runtimepkg.NewRunnerWithOptions(sessionManager, client, workspace.NewLoader(""), registry, runtimepkg.Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	server.queue = runtimepkg.NewQueue(server.runner)
+
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "web-ui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	_ = conn.ReadJSON(&protocolws.Message{})
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "emit failing shell input",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	for i := 0; i < 20; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type != protocolws.TypeEvent || event.Event != "tool.result" {
+			continue
+		}
+		meta, _ := event.Payload["meta"].(map[string]any)
+		structured, _ := event.Payload["structured_content"].(map[string]any)
+		if meta["exit_code"] != float64(1) || meta["stderr"] != "exit status 1" {
+			t.Fatalf("tool.result meta = %#v, want preserved failure shell meta", meta)
+		}
+		if structured["exit_code"] != float64(1) || structured["stdout"] != "permission denied" {
+			t.Fatalf("tool.result structured = %#v, want preserved failure structured payload", structured)
+		}
+		message, _ := event.Payload["message"].(map[string]any)
+		if !strings.Contains(message["content"].(string), "permission denied") {
+			t.Fatalf("tool.result message = %#v, want shell output content", message)
+		}
+		return
+	}
+	t.Fatal("expected tool.result for failing shell")
 }
 
 func TestHandleWebSocketCanUseToolControlRequestRacesFallbackPermissionHook(t *testing.T) {
@@ -8148,10 +8323,16 @@ func TestHandleWebSocketSystemRunUsesSandboxForNonMainSession(t *testing.T) {
 			t.Fatalf("read event %d: %v", i, err)
 		}
 		if msg.Type == protocolws.TypeEvent && msg.Event == "tool.result" {
-			if message, ok := msg.Payload["message"].(map[string]any); ok {
-				if strings.Contains(message["content"].(string), "system.run: [sandbox] "+helloCommand()) {
-					foundSandboxToolResult = true
-				}
+			meta, _ := msg.Payload["meta"].(map[string]any)
+			structured, _ := msg.Payload["structured_content"].(map[string]any)
+			message, _ := msg.Payload["message"].(map[string]any)
+			if msg.Payload["tool_name"] == "system.run" &&
+				meta["execution_mode"] == "sandbox" &&
+				structured["execution_mode"] == "sandbox" &&
+				structured["command"] == helloCommand() &&
+				meta["working_directory"] != "" &&
+				strings.Contains(message["content"].(string), "[sandbox]") {
+				foundSandboxToolResult = true
 			}
 		}
 		if msg.Type == protocolws.TypeEvent && msg.Event == "agent.lifecycle.end" {
@@ -8404,6 +8585,30 @@ func (c *progressToolCallClient) Stream(_ context.Context, _ llm.GenerateRequest
 		ToolInputObject: map[string]any{"value": "hello"},
 		ToolUseID:       "toolu-progress-gateway",
 	}); err != nil {
+		return err
+	}
+	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+}
+
+type failingShellToolCallClient struct {
+	call int
+}
+
+func (c *failingShellToolCallClient) Stream(_ context.Context, _ llm.GenerateRequest, handler llm.StreamHandler) error {
+	if c.call == 0 {
+		c.call++
+		if err := handler.OnEvent(llm.StreamEvent{
+			Type:            "tool.call",
+			ToolName:        "Bash",
+			ToolInput:       `{"command":"cat missing.txt"}`,
+			ToolInputObject: map[string]any{"command": "cat missing.txt"},
+			ToolUseID:       "toolu-shell-gateway-fail",
+		}); err != nil {
+			return err
+		}
+		return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+	}
+	if err := handler.OnEvent(llm.StreamEvent{Type: "text.delta", Delta: "done"}); err != nil {
 		return err
 	}
 	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})

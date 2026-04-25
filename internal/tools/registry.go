@@ -243,6 +243,7 @@ type CanUseToolFunc func(context.Context, CanUseToolRequest) (permissions.Decisi
 type ToolUseContext struct {
 	AbortContext            context.Context
 	Session                 session.Session
+	WorkDir                 string
 	ToolName                string
 	ToolUseID               string
 	Input                   string

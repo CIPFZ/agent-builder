@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -12,6 +14,35 @@ import (
 
 type Executor interface {
 	Run(context.Context, string) (string, error)
+}
+
+type ShellFlavor string
+
+const (
+	ShellFlavorDefault    ShellFlavor = "default"
+	ShellFlavorBash       ShellFlavor = "bash"
+	ShellFlavorPowerShell ShellFlavor = "powershell"
+)
+
+type RunOptions struct {
+	WorkDir string
+	Shell   ShellFlavor
+}
+
+type DetailedExecutor interface {
+	RunDetailed(context.Context, string) (ExecutionResult, error)
+}
+
+type DetailedExecutorWithOptions interface {
+	RunDetailedWithOptions(context.Context, string, RunOptions) (ExecutionResult, error)
+}
+
+type ExecutionResult struct {
+	Stdout        string
+	Stderr        string
+	ExitCode      int
+	TimedOut      bool
+	ExecutionMode string
 }
 
 type Router struct {
@@ -33,20 +64,70 @@ func NewRouter(host, sandbox Executor) *Router {
 }
 
 func (r *Router) Run(ctx context.Context, sess session.Session, command string) (string, error) {
-	command = withSessionWorktreePrefix(sess, command)
-	if sess.IsMain {
-		return r.host.Run(ctx, command)
-	}
-	return r.sandbox.Run(ctx, command)
+	result, err := r.RunDetailed(ctx, sess, command)
+	return result.Output(), err
 }
 
-func withSessionWorktreePrefix(sess session.Session, command string) string {
+func (r *Router) RunDetailed(ctx context.Context, sess session.Session, command string) (ExecutionResult, error) {
+	return r.RunDetailedWithOptions(ctx, sess, command, RunOptions{})
+}
+
+func (r *Router) RunWithOptions(ctx context.Context, sess session.Session, command string, options RunOptions) (string, error) {
+	result, err := r.RunDetailedWithOptions(ctx, sess, command, options)
+	return result.Output(), err
+}
+
+func (r *Router) RunDetailedWithOptions(ctx context.Context, sess session.Session, command string, options RunOptions) (ExecutionResult, error) {
+	options = normalizedRunOptions(sess, options)
+	mode := "sandbox"
+	executor := r.sandbox
+	if sess.IsMain {
+		mode = "host"
+		executor = r.host
+	}
+	if detailed, ok := executor.(DetailedExecutorWithOptions); ok {
+		result, err := detailed.RunDetailedWithOptions(ctx, command, options)
+		if strings.TrimSpace(result.ExecutionMode) == "" {
+			result.ExecutionMode = mode
+		}
+		return result, err
+	}
+	command = withWorkingDirectoryPrefix(options.WorkDir, command)
+	if detailed, ok := executor.(DetailedExecutor); ok {
+		result, err := detailed.RunDetailed(ctx, command)
+		if strings.TrimSpace(result.ExecutionMode) == "" {
+			result.ExecutionMode = mode
+		}
+		return result, err
+	}
+	output, err := executor.Run(ctx, command)
+	result := ExecutionResult{
+		Stdout:        strings.TrimSpace(output),
+		ExitCode:      exitCodeFromError(err),
+		TimedOut:      ctx.Err() == context.DeadlineExceeded,
+		ExecutionMode: mode,
+	}
+	return result, err
+}
+
+func normalizedRunOptions(sess session.Session, options RunOptions) RunOptions {
+	options.WorkDir = strings.TrimSpace(options.WorkDir)
+	if options.WorkDir == "" {
+		options.WorkDir = strings.TrimSpace(sess.Metadata.AgentWorktreePath)
+	}
+	if options.Shell == "" {
+		options.Shell = ShellFlavorDefault
+	}
+	return options
+}
+
+func withWorkingDirectoryPrefix(workDir, command string) string {
 	command = strings.TrimSpace(command)
-	worktreePath := strings.TrimSpace(sess.Metadata.AgentWorktreePath)
-	if worktreePath == "" || command == "" {
+	workDir = strings.TrimSpace(workDir)
+	if workDir == "" || command == "" {
 		return command
 	}
-	quoted := "'" + strings.ReplaceAll(worktreePath, "'", "''") + "'"
+	quoted := "'" + strings.ReplaceAll(workDir, "'", "''") + "'"
 	if runtime.GOOS == "windows" {
 		return "Set-Location -LiteralPath " + quoted + "; " + command
 	}
@@ -56,27 +137,90 @@ func withSessionWorktreePrefix(sess session.Session, command string) string {
 type HostExecutor struct{}
 
 func (HostExecutor) Run(ctx context.Context, command string) (string, error) {
-	cmd := buildHostCommand(ctx, command)
-	out, err := cmd.CombinedOutput()
-	output := strings.TrimSpace(string(out))
-	if err != nil {
-		if output == "" {
-			return "", err
-		}
-		return output, err
-	}
-	return output, nil
+	result, err := HostExecutor{}.RunDetailed(ctx, command)
+	return result.Output(), err
 }
 
-func buildHostCommand(ctx context.Context, command string) *exec.Cmd {
-	if runtime.GOOS == "windows" {
-		return exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", command)
+func (HostExecutor) RunDetailed(ctx context.Context, command string) (ExecutionResult, error) {
+	return HostExecutor{}.RunDetailedWithOptions(ctx, command, RunOptions{})
+}
+
+func (HostExecutor) RunDetailedWithOptions(ctx context.Context, command string, options RunOptions) (ExecutionResult, error) {
+	cmd := buildHostCommand(ctx, command, options)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	result := ExecutionResult{
+		Stdout:        strings.TrimSpace(stdout.String()),
+		Stderr:        strings.TrimSpace(stderr.String()),
+		ExitCode:      exitCodeFromError(err),
+		TimedOut:      ctx.Err() == context.DeadlineExceeded,
+		ExecutionMode: "host",
 	}
-	return exec.CommandContext(ctx, "bash", "-lc", command)
+	return result, err
+}
+
+func buildHostCommand(ctx context.Context, command string, options RunOptions) *exec.Cmd {
+	executable := "bash"
+	args := []string{"-lc", command}
+	switch options.Shell {
+	case ShellFlavorPowerShell:
+		executable = "pwsh"
+		if runtime.GOOS == "windows" {
+			executable = "powershell"
+		}
+		args = []string{"-NoProfile", "-Command", command}
+	case ShellFlavorBash:
+		executable = "bash"
+		args = []string{"-lc", command}
+	default:
+		if runtime.GOOS == "windows" {
+			executable = "powershell"
+			args = []string{"-NoProfile", "-Command", command}
+		}
+	}
+	cmd := exec.CommandContext(ctx, executable, args...)
+	if strings.TrimSpace(options.WorkDir) != "" {
+		cmd.Dir = options.WorkDir
+	}
+	return cmd
 }
 
 type MockSandboxExecutor struct{}
 
 func (MockSandboxExecutor) Run(_ context.Context, command string) (string, error) {
 	return fmt.Sprintf("[sandbox] %s", command), nil
+}
+
+func (MockSandboxExecutor) RunDetailed(_ context.Context, command string) (ExecutionResult, error) {
+	return ExecutionResult{
+		Stdout:        fmt.Sprintf("[sandbox] %s", command),
+		ExecutionMode: "sandbox",
+	}, nil
+}
+
+func (r ExecutionResult) Output() string {
+	stdout := strings.TrimSpace(r.Stdout)
+	stderr := strings.TrimSpace(r.Stderr)
+	switch {
+	case stdout == "":
+		return stderr
+	case stderr == "":
+		return stdout
+	default:
+		return stdout + "\n" + stderr
+	}
+}
+
+func exitCodeFromError(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return 1
 }

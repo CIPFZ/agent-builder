@@ -1075,6 +1075,9 @@ func emitRunError(sink EventSink, event RuntimeEvent) {
 }
 
 func resolveWorkDir(sess session.Session, loader *workspace.Loader) string {
+	if root := strings.TrimSpace(sess.Metadata.AgentWorktreePath); root != "" {
+		return root
+	}
 	if loader == nil {
 		return sess.Key
 	}
