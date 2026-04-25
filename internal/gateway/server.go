@@ -432,6 +432,48 @@ func (s *Server) handleClient(client *Client) error {
 			}); err != nil {
 				return err
 			}
+		case protocolws.MethodSessionDelete:
+			deletePayload, err := parseSessionDeletePayload(inbound.Payload)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			targetSession, resolveErr := s.resolveSessionForStatus(client, protocolws.SessionStatusPayload{
+				SessionID:  deletePayload.SessionID,
+				SessionKey: deletePayload.SessionKey,
+			})
+			if resolveErr != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, resolveErr.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if targetSession.ID == client.SessionID() {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, "active session cannot be deleted")); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := s.sessionManager.DeleteSession(targetSession.ID); err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := client.WriteJSON(protocolws.Message{
+				Type: protocolws.TypeResponse,
+				ID:   inbound.ID,
+				OK:   true,
+				Payload: map[string]any{
+					"session_id":  targetSession.ID,
+					"session_key": targetSession.Key,
+					"status":      "deleted",
+				},
+			}); err != nil {
+				return err
+			}
 		case protocolws.MethodMCPStatus:
 			statusPayload, err := parseMCPStatusPayload(inbound.Payload)
 			if err != nil {
@@ -1800,6 +1842,21 @@ func parseSessionMessagesPayload(payload map[string]any) (protocolws.SessionMess
 		return protocolws.SessionMessagesPayload{}, err
 	}
 	return messagesPayload, nil
+}
+
+func parseSessionDeletePayload(payload map[string]any) (protocolws.SessionDeletePayload, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return protocolws.SessionDeletePayload{}, err
+	}
+	var deletePayload protocolws.SessionDeletePayload
+	if err := json.Unmarshal(raw, &deletePayload); err != nil {
+		return protocolws.SessionDeletePayload{}, err
+	}
+	if strings.TrimSpace(deletePayload.SessionID) == "" && strings.TrimSpace(deletePayload.SessionKey) == "" {
+		return protocolws.SessionDeletePayload{}, &connectError{message: "session_delete payload requires session_id or session_key"}
+	}
+	return deletePayload, nil
 }
 
 func parseMCPStatusPayload(payload map[string]any) (protocolws.MCPStatusPayload, error) {

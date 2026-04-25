@@ -47,6 +47,11 @@ type SessionMessagesPayload struct {
 	SessionKey string `json:"session_key,omitempty"`
 }
 
+type SessionDeletePayload struct {
+	SessionID  string `json:"session_id,omitempty"`
+	SessionKey string `json:"session_key,omitempty"`
+}
+
 type SessionSetPermissionPayload struct {
 	SessionID        string   `json:"session_id,omitempty"`
 	SessionKey       string   `json:"session_key,omitempty"`
@@ -134,6 +139,7 @@ const (
 	MethodSessionList                       = "session_list"
 	MethodSessionNew                        = "session_new"
 	MethodSessionMessages                   = "session_messages"
+	MethodSessionDelete                     = "session_delete"
 	MethodSessionSetPermission              = "session_set_permission"
 	MethodSessionSetModel                   = "session_set_model"
 	MethodMCPStatus                         = "mcp_status"

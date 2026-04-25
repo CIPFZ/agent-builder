@@ -360,6 +360,61 @@ func TestGatewaySessionLifecycleMethods(t *testing.T) {
 	}
 }
 
+func TestGatewayDeletesNonActiveSession(t *testing.T) {
+	manager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), manager, llm.NewMockClient())
+	conn := connectGatewayTestClient(t, server)
+
+	toDelete := manager.CreateSession("main")
+	keep := manager.CreateSession("main")
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "delete-session-1",
+		Method: protocolws.MethodSessionDelete,
+		Payload: map[string]any{
+			"session_key": toDelete.Key,
+		},
+	}); err != nil {
+		t.Fatalf("write session_delete: %v", err)
+	}
+	deleteResponse := readGatewayResponse(t, conn)
+	if !deleteResponse.OK {
+		t.Fatalf("session_delete response = %#v, want ok", deleteResponse)
+	}
+	if _, ok := manager.GetByID(toDelete.ID); ok {
+		t.Fatalf("deleted session %s still exists", toDelete.ID)
+	}
+	if _, ok := manager.GetByID(keep.ID); !ok {
+		t.Fatalf("non-deleted session %s missing", keep.ID)
+	}
+}
+
+func TestGatewayRejectsDeletingActiveSession(t *testing.T) {
+	manager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), manager, llm.NewMockClient())
+	conn := connectGatewayTestClient(t, server)
+
+	main := manager.GetOrCreateMain("main")
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "delete-active-session",
+		Method: protocolws.MethodSessionDelete,
+		Payload: map[string]any{
+			"session_key": main.Key,
+		},
+	}); err != nil {
+		t.Fatalf("write active session_delete: %v", err)
+	}
+	deleteResponse := readGatewayResponse(t, conn)
+	if deleteResponse.OK {
+		t.Fatalf("active session_delete response = %#v, want error", deleteResponse)
+	}
+	if deleteResponse.Error == nil || deleteResponse.Error.Message != "active session cannot be deleted" {
+		t.Fatalf("active session_delete error = %#v", deleteResponse.Error)
+	}
+}
+
 func waitForGatewayMCPServerStatus(t *testing.T, conn *websocket.Conn, serverName, wantStatus string) map[string]any {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

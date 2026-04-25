@@ -69,6 +69,30 @@ func (s *SessionStore) SaveSession(sess model.Session) {
 	_ = s.persistSessionsLocked()
 }
 
+func (s *SessionStore) DeleteSession(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessionsByID[sessionID]
+	if !ok {
+		return false
+	}
+	delete(s.sessionsByID, sessionID)
+	delete(s.sessionsByKey, sess.Key)
+	delete(s.messagesByID, sessionID)
+	delete(s.transcriptByID, sessionID)
+	delete(s.entriesByID, sessionID)
+	for agentID, key := range s.mainByAgentID {
+		if key == sess.Key {
+			delete(s.mainByAgentID, agentID)
+		}
+	}
+	_ = s.persistSessionsLocked()
+	_ = s.persistMainSessionsLocked()
+	_ = os.Remove(filepath.Join(s.root, "messages", sessionID+".jsonl"))
+	_ = os.Remove(filepath.Join(s.root, "messages", sessionID+".json"))
+	return true
+}
+
 func (s *SessionStore) ListSessions() []model.Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

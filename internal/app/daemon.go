@@ -27,6 +27,7 @@ func RunDaemon(ctx context.Context, cfg config.Config, stdout io.Writer) error {
 	errCh := make(chan error, 1)
 	go func() {
 		_, _ = fmt.Fprintf(stdout, "myclawd listening on http://%s\n", cfg.HTTPAddr)
+		_, _ = fmt.Fprintf(stdout, "operator UI available at http://%s/operator/\n", cfg.HTTPAddr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 			return
@@ -83,6 +84,9 @@ func newDaemonHandler(cfg config.Config, stdout io.Writer) (*http.ServeMux, *gat
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = io.WriteString(w, webUIHTML(cfg.WSPath))
 	})
+	operatorHandler := handleOperatorUI()
+	mux.Handle("/operator", operatorHandler)
+	mux.Handle("/operator/", operatorHandler)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)

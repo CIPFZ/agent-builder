@@ -8,6 +8,7 @@ import {
   Input,
   Layout,
   MenuProps,
+  Modal,
   Select,
   Space,
   Timeline,
@@ -21,10 +22,10 @@ import {
   CheckOutlined,
   CodeOutlined,
   CopyOutlined,
+  DeleteOutlined,
   DislikeOutlined,
   DownOutlined,
   DownloadOutlined,
-  FolderOutlined,
   LikeOutlined,
   PaperClipOutlined,
   PlusOutlined,
@@ -34,23 +35,29 @@ import {
   RobotOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
-  SettingOutlined,
   ShareAltOutlined,
   ToolOutlined,
+  ThunderboltOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { Bubble, Conversations, Sender } from "@ant-design/x";
+import { Actions, Bubble, Conversations, Sender, Welcome } from "@ant-design/x";
 import { useEffect, useMemo, useReducer, useState } from "react";
 
 import { MyclawdClient } from "./lib/client";
 import { initialOperatorState, SessionSummary, TranscriptMessage } from "./lib/protocol";
 import { operatorReducer } from "./lib/store";
 
-const DEFAULT_ENDPOINT = "ws://127.0.0.1:18080/ws";
+function defaultEndpoint() {
+  if (window.location.pathname.startsWith("/operator")) {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}/ws`;
+  }
+  return "ws://127.0.0.1:18080/ws";
+}
 
 export function App() {
   const [state, dispatch] = useReducer(operatorReducer, initialOperatorState);
-  const [endpoint, setEndpoint] = useState(DEFAULT_ENDPOINT);
+  const [endpoint, setEndpoint] = useState(defaultEndpoint);
   const [prompt, setPrompt] = useState("");
   const [client, setClient] = useState<MyclawdClient | null>(null);
   const [toolDrawer, setToolDrawer] = useState<string | null>(null);
@@ -103,28 +110,15 @@ export function App() {
           ...(isStreaming ? { streaming: true } : {}),
           footer:
             item.role === "user" ? null : (
-              <div className="message-actions">
-                <Tooltip title="Copy">
-                  <button type="button">
-                    <CopyOutlined />
-                  </button>
-                </Tooltip>
-                <Tooltip title="Helpful">
-                  <button type="button">
-                    <LikeOutlined />
-                  </button>
-                </Tooltip>
-                <Tooltip title="Not helpful">
-                  <button type="button">
-                    <DislikeOutlined />
-                  </button>
-                </Tooltip>
-                <Tooltip title="Retry">
-                  <button type="button">
-                    <ReloadOutlined />
-                  </button>
-                </Tooltip>
-              </div>
+              <Actions
+                className="message-actions"
+                items={[
+                  { key: "copy", icon: <CopyOutlined />, label: "Copy" },
+                  { key: "like", icon: <LikeOutlined />, label: "Helpful" },
+                  { key: "dislike", icon: <DislikeOutlined />, label: "Not helpful" },
+                  { key: "retry", icon: <ReloadOutlined />, label: "Retry" },
+                ]}
+              />
             ),
         };
       }),
@@ -147,11 +141,13 @@ export function App() {
         ? state.sessions.map((session) => ({
             key: session.session_key,
             label: session.title ?? session.last_user_message ?? (session.is_main ? "Main session" : "New chat"),
+            group: "今天",
           }))
         : [
             {
               key: activeSession,
               label: activeTitle,
+              group: "今天",
             },
           ],
     [activeSession, activeTitle, state.sessions],
@@ -271,6 +267,34 @@ export function App() {
     }
     dispatch({ type: "session/activate", sessionKey });
     await connect(sessionKey);
+  }
+
+  async function deleteSession(sessionKey: string) {
+    if (!client) {
+      return;
+    }
+    if (sessionKey === activeSession) {
+      message.warning("Switch to another session before deleting this one");
+      return;
+    }
+    await client.request("session_delete", { session_key: sessionKey });
+    const list = await client.request("session_list");
+    dispatch({
+      type: "sessions/list",
+      payload: (((list.payload ?? {}) as { sessions?: SessionSummary[] }).sessions ?? []),
+    });
+    message.success("Session deleted");
+  }
+
+  function confirmDeleteSession(sessionKey: string) {
+    const target = state.sessions.find((item) => item.session_key === sessionKey);
+    Modal.confirm({
+      title: "Delete conversation?",
+      content: target?.title ?? target?.last_user_message ?? "This conversation will be removed.",
+      okText: "Delete",
+      okButtonProps: { danger: true },
+      onOk: () => deleteSession(sessionKey),
+    });
   }
 
   async function sendPrompt(value = prompt) {
@@ -454,6 +478,10 @@ export function App() {
       <Layout className={`claude-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
         <aside className="sidebar">
           <div className="sidebar-topbar">
+            <div className="brand-lockup">
+              <span className="brand-mark">◥</span>
+              {!sidebarCollapsed ? <span className="brand-word">myclaw</span> : null}
+            </div>
             <button
               className="sidebar-toggle"
               type="button"
@@ -466,36 +494,33 @@ export function App() {
           <nav className="sidebar-nav">
             <button className="nav-item" type="button" onClick={createSession}>
               <PlusOutlined />
-              {!sidebarCollapsed ? <span>New chat</span> : null}
-            </button>
-            <button className="nav-item" type="button">
-              <FolderOutlined />
-              {!sidebarCollapsed ? <span>Projects</span> : null}
-            </button>
-            <button className="nav-item" type="button">
-              <AppstoreOutlined />
-              {!sidebarCollapsed ? <span>Artifacts</span> : null}
-            </button>
-            <button className="nav-item" type="button">
-              <SettingOutlined />
-              {!sidebarCollapsed ? <span>Customize</span> : null}
+              {!sidebarCollapsed ? <span>开启新对话</span> : null}
             </button>
           </nav>
 
           <section className="sidebar-section">
-            {!sidebarCollapsed ? <div className="section-label">Pinned</div> : null}
-            <div className="muted-row">
-              <PushpinOutlined />
-              {!sidebarCollapsed ? <span>Drag to pin</span> : null}
-            </div>
-          </section>
-
-          <section className="sidebar-section">
-            {!sidebarCollapsed ? <div className="section-label">Recents</div> : null}
             <Conversations
               className={`session-list ${sidebarCollapsed ? "collapsed" : ""}`}
               items={sessionItems}
               activeKey={activeSession}
+              groupable
+              menu={(conversation) => ({
+                items: [
+                  {
+                    key: "delete",
+                    label: "Delete",
+                    danger: true,
+                    icon: <DeleteOutlined />,
+                    disabled: conversation.key === activeSession,
+                  },
+                ],
+                onClick: ({ key, domEvent }) => {
+                  domEvent.stopPropagation();
+                  if (key === "delete") {
+                    confirmDeleteSession(conversation.key);
+                  }
+                },
+              })}
               onActiveChange={activateSession}
             />
           </section>
@@ -503,8 +528,8 @@ export function App() {
           <div className="sidebar-footer">
             <Dropdown menu={{ items: runtimeMenuItems }} trigger={["click"]} placement="topLeft">
               <button className="profile-row" type="button">
-                <UserOutlined />
-                {!sidebarCollapsed ? <span>myclaw</span> : null}
+                <span className="avatar-dot">斗</span>
+                {!sidebarCollapsed ? <span>operator</span> : null}
                 <span className={`status-dot ${connected ? "online" : ""}`} />
                 {!sidebarCollapsed ? <DownloadOutlined className="footer-icon" /> : null}
               </button>
@@ -525,7 +550,10 @@ export function App() {
               </button>
               <button className="chat-title" type="button">
                 <span>{activeTitle}</span>
-                <DownOutlined />
+                <span className="quick-mode">
+                  <ThunderboltOutlined />
+                  快捷模式
+                </span>
               </button>
             </div>
             <div className="chat-header-actions">
@@ -556,13 +584,12 @@ export function App() {
 
           <section className={`workspace-body ${transcript.length > 0 ? "chat-scroll" : "empty-workspace"}`}>
             {transcript.length === 0 ? (
-              <div className="welcome-block">
-                <div className="plan-pill">Operator console</div>
-                <h1>
-                  <span className="claude-mark">✺</span>
-                  Evening, JasperLouisa
-                </h1>
-              </div>
+              <Welcome
+                className="welcome-block"
+                variant="borderless"
+                title="你好！很高兴见到你！"
+                description="有什么我可以帮你的吗？无论是闲聊、解答问题、处理文件、查找资料，还是进行创作或分析，我都会尽力协助你。"
+              />
             ) : (
               <Bubble.List className="message-thread" items={bubbleItems} autoScroll />
             )}
@@ -575,19 +602,18 @@ export function App() {
                 value={prompt}
                 onChange={setPrompt}
                 onSubmit={sendPrompt}
-                placeholder="How can I help you today?"
+                placeholder="给 myclaw 发送消息"
                 autoSize={{ minRows: 2, maxRows: 8 }}
                 loading={state.connection.status === "connecting"}
                 actions={false}
               />
               <div className="composer-toolbar">
-                <Dropdown menu={{ items: composerMenuItems }} trigger={["click"]} placement="topLeft">
-                  <button className="composer-icon-button" type="button" aria-label="Open tools">
-                    <PlusOutlined />
-                  </button>
-                </Dropdown>
-
-                <div className="composer-right">
+                <div className="composer-left">
+                  <Dropdown menu={{ items: composerMenuItems }} trigger={["click"]} placement="topLeft">
+                    <button className="composer-icon-button" type="button" aria-label="Open tools">
+                      <PlusOutlined />
+                    </button>
+                  </Dropdown>
                   <Select
                     className="model-select"
                     value={state.session.resolved_main_loop_model ?? "default"}
@@ -600,37 +626,26 @@ export function App() {
                       { value: "gpt-5.4-mini", label: "Mini" },
                     ]}
                   />
+                  <button className="composer-mode-chip" type="button">
+                    <SafetyCertificateOutlined />
+                    {state.session.permission_mode ?? "Permissions"}
+                  </button>
+                </div>
+
+                <div className="composer-right">
                   <Tooltip title="Search runtime status">
                     <button className="composer-icon-button subtle" type="button">
                       <SearchOutlined />
                     </button>
                   </Tooltip>
                   <Button className="send-button" type="primary" onClick={() => sendPrompt()} disabled={!connected || !prompt.trim()}>
-                    Send
+                    ↑
                   </Button>
                 </div>
               </div>
             </div>
 
-            <div className="mode-row">
-              <button type="button">
-                <ToolOutlined />
-                Write
-              </button>
-              <button type="button">
-                <RobotOutlined />
-                Learn
-              </button>
-              <button type="button">
-                <CodeOutlined />
-                Code
-              </button>
-              <button type="button">
-                <SafetyCertificateOutlined />
-                {state.session.permission_mode ?? "Permissions"}
-              </button>
-            </div>
-            <p className="fine-print">myclaw can make mistakes. Please double-check generated changes.</p>
+            <p className="fine-print">内容由 AI 生成，请仔细甄别</p>
           </section>
         </main>
       </Layout>

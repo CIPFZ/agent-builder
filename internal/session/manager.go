@@ -121,6 +121,20 @@ func (m *Manager) CreateSession(agentID string) Session {
 	return session
 }
 
+func (m *Manager) DeleteSession(sessionID string) error {
+	sess, ok := m.store.GetSessionByID(sessionID)
+	if !ok {
+		return fmt.Errorf("session %q not found", sessionID)
+	}
+	if sess.IsMain {
+		return fmt.Errorf("main session cannot be deleted")
+	}
+	if !m.store.DeleteSession(sessionID) {
+		return fmt.Errorf("session %q not found", sessionID)
+	}
+	return nil
+}
+
 func (m *Manager) AppendMessage(sessionID, role, content string) (Message, error) {
 	return m.AppendMessageWithBlocks(sessionID, role, content, "", nil)
 }
