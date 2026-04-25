@@ -46,6 +46,7 @@ import { useEffect, useMemo, useReducer, useState } from "react";
 import { MyclawdClient } from "./lib/client";
 import { initialOperatorState, SessionSummary, TranscriptMessage } from "./lib/protocol";
 import { operatorReducer } from "./lib/store";
+import myclawLogo from "./assets/myclaw-logo.png";
 
 function defaultEndpoint() {
   if (window.location.pathname.startsWith("/operator")) {
@@ -479,7 +480,7 @@ export function App() {
         <aside className="sidebar">
           <div className="sidebar-topbar">
             <div className="brand-lockup">
-              <span className="brand-mark">◥</span>
+              <img className="brand-mark" src={myclawLogo} alt="myclaw" />
               {!sidebarCollapsed ? <span className="brand-word">myclaw</span> : null}
             </div>
             <button
@@ -528,7 +529,7 @@ export function App() {
           <div className="sidebar-footer">
             <Dropdown menu={{ items: runtimeMenuItems }} trigger={["click"]} placement="topLeft">
               <button className="profile-row" type="button">
-                <span className="avatar-dot">斗</span>
+                <img className="avatar-dot" src={myclawLogo} alt="" aria-hidden="true" />
                 {!sidebarCollapsed ? <span>operator</span> : null}
                 <span className={`status-dot ${connected ? "online" : ""}`} />
                 {!sidebarCollapsed ? <DownloadOutlined className="footer-icon" /> : null}

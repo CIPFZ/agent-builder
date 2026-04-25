@@ -67,15 +67,19 @@ input {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #2f6bff;
+  color: #182033;
   font-weight: 700;
   font-size: 30px;
   line-height: 1;
 }
 
 .brand-mark {
-  font-size: 24px;
-  transform: rotate(-18deg);
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 12px;
+  object-fit: cover;
+  box-shadow: 0 8px 18px rgba(218, 35, 46, 0.2);
 }
 
 .brand-word {
@@ -227,13 +231,11 @@ input {
 .avatar-dot {
   width: 34px;
   height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  flex: 0 0 34px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #0f172a, #64748b);
-  color: #ffffff;
-  font-size: 15px;
+  object-fit: cover;
+  border: 1px solid rgba(218, 35, 46, 0.24);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
 }
 
 .sidebar-collapsed .sidebar {
