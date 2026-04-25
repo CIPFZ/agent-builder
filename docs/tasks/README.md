@@ -15,6 +15,7 @@ Current order:
 2. `ssh-runtime-capability`
 3. `mcp-runtime-capability`
 4. `subagent-runtime-capability`
+5. `shell-runtime-capability`
 
 Standard:
 
