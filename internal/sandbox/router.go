@@ -8,7 +8,9 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 
+	"golang.org/x/text/encoding/simplifiedchinese"
 	"myclaw/internal/session"
 )
 
@@ -153,8 +155,8 @@ func (HostExecutor) RunDetailedWithOptions(ctx context.Context, command string, 
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	result := ExecutionResult{
-		Stdout:        strings.TrimSpace(stdout.String()),
-		Stderr:        strings.TrimSpace(stderr.String()),
+		Stdout:        strings.TrimSpace(decodeCommandOutputBytes(stdout.Bytes())),
+		Stderr:        strings.TrimSpace(decodeCommandOutputBytes(stderr.Bytes())),
 		ExitCode:      exitCodeFromError(err),
 		TimedOut:      ctx.Err() == context.DeadlineExceeded,
 		ExecutionMode: "host",
@@ -186,6 +188,17 @@ func buildHostCommand(ctx context.Context, command string, options RunOptions) *
 		cmd.Dir = options.WorkDir
 	}
 	return cmd
+}
+
+func decodeCommandOutputBytes(data []byte) string {
+	if utf8.Valid(data) {
+		return string(data)
+	}
+	decoded, err := simplifiedchinese.GB18030.NewDecoder().Bytes(data)
+	if err != nil {
+		return string(data)
+	}
+	return string(decoded)
 }
 
 type MockSandboxExecutor struct{}

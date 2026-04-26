@@ -331,6 +331,22 @@ func (s *inputState) moveUp(width int) {
 		s.selectedIndex--
 		return
 	}
+	if s.historyIndex == -1 {
+		lineIndex, lineCount := s.cursorVisualLine(width)
+		if lineCount > 1 {
+			if lineIndex > 0 {
+				s.cursorPos = s.moveCursorUp(width)
+			}
+			return
+		}
+	}
+	if s.historyIndex != -1 || len(s.history) > 0 {
+		s.moveHistoryUp()
+		return
+	}
+}
+
+func (s *inputState) moveHistoryUp() {
 	if len(s.history) > 0 {
 		if s.historyIndex == -1 {
 			s.historyIndex = len(s.history) - 1
@@ -342,13 +358,21 @@ func (s *inputState) moveUp(width int) {
 		s.clearSuggestions()
 		return
 	}
-	s.cursorPos = s.moveCursorUp(width)
 }
 
 func (s *inputState) moveDown(width int) {
 	if len(s.suggestions) > 0 && s.selectedIndex < len(s.suggestions)-1 {
 		s.selectedIndex++
 		return
+	}
+	if s.historyIndex == -1 {
+		lineIndex, lineCount := s.cursorVisualLine(width)
+		if lineCount > 1 {
+			if lineIndex < lineCount-1 {
+				s.cursorPos = s.moveCursorDown(width)
+			}
+			return
+		}
 	}
 	if s.historyIndex != -1 {
 		if s.historyIndex < len(s.history)-1 {
@@ -362,7 +386,14 @@ func (s *inputState) moveDown(width int) {
 		s.clearSuggestions()
 		return
 	}
-	s.cursorPos = s.moveCursorDown(width)
+}
+
+func (s inputState) cursorVisualLine(width int) (int, int) {
+	lines := buildInputVisualLines(s.input, s.visualWidth(width))
+	if len(lines) == 0 {
+		return 0, 0
+	}
+	return inputCursorLineIndex(lines, s.cursorPos), len(lines)
 }
 
 func (s *inputState) updateSuggestions(commands []string) {

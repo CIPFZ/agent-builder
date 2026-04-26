@@ -122,3 +122,11 @@ func TestBuildHostCommandUsesRequestedShellFlavor(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeCommandOutputBytesFallsBackToWindowsCodePage(t *testing.T) {
+	decoded := decodeCommandOutputBytes([]byte{0xb2, 0xe2, 0xca, 0xd4})
+
+	if decoded != "测试" {
+		t.Fatalf("decoded output = %q, want 测试", decoded)
+	}
+}

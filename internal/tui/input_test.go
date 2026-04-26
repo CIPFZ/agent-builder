@@ -94,6 +94,25 @@ func TestInputStateHistoryNavigationRestoresEntries(t *testing.T) {
 	}
 }
 
+func TestInputStateUpMovesWithinMultilineBeforeHistory(t *testing.T) {
+	state := newInputState()
+	state.history = []string{"previous"}
+	state.input = "abcd\nefghij"
+	state.cursorPos = len([]rune("abcd\nef"))
+
+	state.handleEditingKey(testKey(keyUp), 30, slashCommands)
+
+	if state.input != "abcd\nefghij" {
+		t.Fatalf("input = %q, want current multiline input unchanged", state.input)
+	}
+	if state.historyIndex != -1 {
+		t.Fatalf("historyIndex = %d, want -1", state.historyIndex)
+	}
+	if state.cursorPos != 2 {
+		t.Fatalf("cursor after up = %d, want 2", state.cursorPos)
+	}
+}
+
 func TestInputStateVisualNavigationRespectsExplicitMultilineInput(t *testing.T) {
 	state := newInputState()
 	state.input = "abcd\nefghij"

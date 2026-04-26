@@ -6,6 +6,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.6
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/gorilla/websocket v1.5.3
+	golang.org/x/text v0.36.0
 )
 
 require (
