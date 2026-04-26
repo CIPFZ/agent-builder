@@ -280,63 +280,15 @@ input {
 }
 
 .sidebar-collapsed .sidebar {
-  width: 214px;
-  min-width: 214px;
-  flex-basis: 214px;
-  padding: 22px 18px 18px;
+  width: 0;
+  min-width: 0;
+  flex-basis: 0;
+  padding: 0;
+  border-right: 0;
+  overflow: visible;
 }
 
-.sidebar-collapsed .sidebar-topbar {
-  justify-content: space-between;
-  margin-bottom: 30px;
-}
-
-.sidebar-collapsed .brand-lockup {
-  gap: 0;
-}
-
-.sidebar-collapsed .brand-mark {
-  width: 38px;
-  height: 38px;
-  flex-basis: 38px;
-  border-radius: 14px;
-}
-
-.sidebar-collapsed .sidebar-collapsed-actions {
-  height: 50px;
-  padding: 0 12px;
-  gap: 10px;
-  border: 1px solid #e6eaf0;
-  border-radius: 999px;
-  background: #ffffff;
-  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.08);
-}
-
-.sidebar-collapsed .sidebar-toggle,
-.sidebar-collapsed .sidebar-quick-new {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: #111827;
-  cursor: pointer;
-  font-size: 18px;
-}
-
-.sidebar-collapsed .nav-item {
-  display: none;
-}
-
-.sidebar-collapsed .muted-row,
-.sidebar-collapsed .profile-row {
-  display: none;
-}
-
-.sidebar-collapsed .sidebar-section {
+.sidebar-collapsed .sidebar > * {
   display: none;
 }
 
@@ -403,6 +355,7 @@ input {
 }
 
 .workspace {
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
   height: 100vh;
@@ -410,6 +363,54 @@ input {
   grid-template-rows: 70px minmax(0, 1fr) auto;
   overflow: hidden;
   background: #ffffff;
+}
+
+.floating-sidebar-controls {
+  position: absolute;
+  z-index: 20;
+  top: 28px;
+  left: 22px;
+  display: flex;
+  align-items: center;
+  gap: 60px;
+}
+
+.floating-brand-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  object-fit: cover;
+  box-shadow: 0 10px 22px rgba(218, 35, 46, 0.18);
+}
+
+.floating-action-pill {
+  height: 56px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #e6eaf0;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(17, 24, 39, 0.1);
+}
+
+.floating-action-button {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #111827;
+  cursor: pointer;
+  font-size: 20px;
+}
+
+.floating-action-button:hover {
+  background: #f2f5fa;
 }
 
 .chat-header {

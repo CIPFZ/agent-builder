@@ -541,6 +541,24 @@ export function App() {
         </aside>
 
         <main className="workspace">
+          {sidebarCollapsed ? (
+            <div className="floating-sidebar-controls">
+              <img className="floating-brand-mark" src={myclawLogo} alt="myclaw" />
+              <div className="floating-action-pill">
+                <button
+                  className="floating-action-button"
+                  type="button"
+                  onClick={() => setSidebarCollapsed(false)}
+                  aria-label="Expand sidebar"
+                >
+                  <MenuUnfoldOutlined />
+                </button>
+                <button className="floating-action-button" type="button" onClick={createSession} aria-label="New chat">
+                  <PlusOutlined />
+                </button>
+              </div>
+            </div>
+          ) : null}
           <header className="chat-header">
             <div className="chat-header-left">
               <button
