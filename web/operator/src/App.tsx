@@ -480,14 +480,19 @@ export function App() {
               <img className="brand-mark" src={myclawLogo} alt="myclaw" />
               {!sidebarCollapsed ? <span className="brand-word">myclaw</span> : null}
             </div>
-            <button
-              className="sidebar-toggle"
-              type="button"
-              onClick={() => setSidebarCollapsed((current) => !current)}
-              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            </button>
+            <div className="sidebar-collapsed-actions">
+              <button
+                className="sidebar-toggle"
+                type="button"
+                onClick={() => setSidebarCollapsed((current) => !current)}
+                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                {sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              </button>
+              <button className="sidebar-quick-new" type="button" onClick={createSession} aria-label="New chat">
+                <PlusOutlined />
+              </button>
+            </div>
           </div>
           <nav className="sidebar-nav">
             <button className="nav-item" type="button" onClick={createSession}>
@@ -606,6 +611,7 @@ export function App() {
                     className="model-select"
                     value={state.session.resolved_main_loop_model ?? "default"}
                     onChange={handleModelChange}
+                    popupMatchSelectWidth={false}
                     suffixIcon={<DownOutlined />}
                     options={[
                       { value: "default", label: "Default" },
