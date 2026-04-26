@@ -648,6 +648,9 @@ func TestHandleWebSocketConnectAndSendMessage(t *testing.T) {
 			deltaCount++
 			continue
 		}
+		if event.Type == protocolws.TypeEvent && (event.Event == "model.request.start" || event.Event == "model.request.end") {
+			continue
+		}
 
 		assistantCreated = event
 		break

@@ -32,6 +32,10 @@ type MyclawdClient struct {
 	send       func(tea.Msg)
 	pending    map[string]chan protocolws.Message
 	nextID     atomic.Uint64
+
+	turnMu           sync.Mutex
+	turnStartedAt    time.Time
+	firstDeltaLogged bool
 }
 
 type protocolLogger interface {
@@ -82,11 +86,16 @@ func (c *MyclawdClient) Close() error {
 }
 
 func (c *MyclawdClient) SendUserMessage(input string) error {
+	startedAt := time.Now()
+	c.startTurnTiming(startedAt)
+	c.log("info", "turn.send.start", "sending user message", nil)
 	_, err := c.request(protocolws.MethodSendMessage, map[string]any{"content": input})
 	if err != nil {
+		c.log("error", "turn.send.error", err.Error(), map[string]any{"duration_ms": elapsedMillis(startedAt)})
 		return err
 	}
-	return c.refreshSnapshots()
+	c.log("info", "turn.send.accepted", "myclawd accepted user message", map[string]any{"duration_ms": elapsedMillis(startedAt)})
+	return nil
 }
 
 func (c *MyclawdClient) Approve(id string) error {
@@ -334,6 +343,7 @@ func (c *MyclawdClient) readLoop() {
 		}
 		if event, ok := parseClientEventMessage(wsMessageLike{Type: msg.Type, Event: msg.Event, Payload: msg.Payload}); ok {
 			c.store.applyEvent(event)
+			c.logTurnEvent(event)
 			if event.Type == "permission.required" && event.Tool != nil && event.Tool.Approval != nil {
 				c.store.applyApproval(approvalView{
 					ID:         event.Tool.Approval.ID,
@@ -480,6 +490,53 @@ func (c *MyclawdClient) log(level, event, message string, fields map[string]any)
 	if c.logger != nil {
 		c.logger.Log(level, "tui.client", event, message, fields)
 	}
+}
+
+func (c *MyclawdClient) startTurnTiming(startedAt time.Time) {
+	c.turnMu.Lock()
+	defer c.turnMu.Unlock()
+	c.turnStartedAt = startedAt
+	c.firstDeltaLogged = false
+}
+
+func (c *MyclawdClient) logTurnEvent(event clientEvent) {
+	c.turnMu.Lock()
+	startedAt := c.turnStartedAt
+	firstDeltaLogged := c.firstDeltaLogged
+	if event.Type == "assistant.delta" && !firstDeltaLogged {
+		c.firstDeltaLogged = true
+	}
+	c.turnMu.Unlock()
+
+	if startedAt.IsZero() {
+		return
+	}
+	fields := map[string]any{"since_send_ms": elapsedMillis(startedAt)}
+	switch event.Type {
+	case "agent.lifecycle.start":
+		c.log("info", "turn.lifecycle.start", "myclawd started processing turn", fields)
+	case "model.request.start":
+		c.log("info", "turn.model_request.start", "model request started", fields)
+	case "assistant.delta":
+		if !firstDeltaLogged {
+			c.log("info", "turn.first_delta", "first assistant delta received", fields)
+		}
+	case "message.created":
+		if event.Message != nil && event.Message.Role == "assistant" {
+			c.log("info", "turn.assistant.final", "assistant final message received", fields)
+		}
+	case "model.request.end":
+		c.log("info", "turn.model_request.end", "model request completed", fields)
+	case "run.error":
+		c.log("error", "turn.error", event.Error, fields)
+	}
+}
+
+func elapsedMillis(startedAt time.Time) int64 {
+	if startedAt.IsZero() {
+		return 0
+	}
+	return time.Since(startedAt).Milliseconds()
 }
 
 func websocketURL(base string) (string, error) {

@@ -1487,6 +1487,13 @@ type runtimeSink struct {
 
 func (s runtimeSink) Emit(event runtime.RuntimeEvent) error {
 	switch event.Type {
+	case "model.request.start", "model.request.end":
+		return s.client.WriteJSON(protocolws.EventMessage(event.Type, map[string]any{
+			"run_id":      event.RunID,
+			"session_id":  event.Session.ID,
+			"session_key": event.Session.Key,
+			"agent_id":    event.Session.AgentID,
+		}))
 	case "agent.lifecycle.start", "agent.lifecycle.end":
 		return s.client.WriteJSON(protocolws.EventMessage(event.Type, map[string]any{
 			"run_id":      event.RunID,

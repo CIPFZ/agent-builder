@@ -64,6 +64,57 @@ func TestMyclawdClientSendUserMessageCreatesUserEvent(t *testing.T) {
 	}
 }
 
+func TestMyclawdClientSendUserMessageDoesNotRefreshSnapshots(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	methods := make(chan string, 16)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close()
+		for {
+			var req protocolws.Message
+			if err := conn.ReadJSON(&req); err != nil {
+				return
+			}
+			methods <- req.Method
+			writeHarnessResponse(t, conn, req.ID, defaultHarnessPayloadFor(req.Method))
+		}
+	}))
+	defer server.Close()
+
+	client := NewMyclawdClient(context.Background(), server.URL+"/ws", "main", newClientStore(), nil)
+	if err := client.Start(); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	defer client.Close()
+	drainMethods(methods)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- client.SendUserMessage("hello")
+	}()
+
+	if method := waitForMethod(t, methods); method != protocolws.MethodSendMessage {
+		t.Fatalf("method = %q, want send message", method)
+	}
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("SendUserMessage error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("SendUserMessage did not return after send ack")
+	}
+
+	select {
+	case method := <-methods:
+		t.Fatalf("unexpected follow-up request after send: %s", method)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
 func TestMyclawdClientUpdatesStoreForProgressApprovalAndTasks(t *testing.T) {
 	store := newClientStore()
 	client, cleanup, msgCh, conn := startClientWithHarness(t, store)
@@ -372,6 +423,27 @@ func writeHarnessEvent(t *testing.T, conn *websocket.Conn, msg protocolws.Messag
 	}
 	if err := conn.WriteJSON(normalized); err != nil {
 		t.Fatalf("WriteJSON event: %v", err)
+	}
+}
+
+func drainMethods(methods <-chan string) {
+	for {
+		select {
+		case <-methods:
+		default:
+			return
+		}
+	}
+}
+
+func waitForMethod(t *testing.T, methods <-chan string) string {
+	t.Helper()
+	select {
+	case method := <-methods:
+		return method
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for websocket request")
+		return ""
 	}
 }
 
