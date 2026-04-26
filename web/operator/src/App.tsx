@@ -25,20 +25,15 @@ import {
   DeleteOutlined,
   DislikeOutlined,
   DownOutlined,
-  DownloadOutlined,
   LikeOutlined,
   PaperClipOutlined,
   PlusOutlined,
   ProjectOutlined,
-  PushpinOutlined,
   ReloadOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
-  SearchOutlined,
   ShareAltOutlined,
   ToolOutlined,
-  ThunderboltOutlined,
-  UserOutlined,
 } from "@ant-design/icons";
 import { Actions, Bubble, Conversations, Sender, Welcome } from "@ant-design/x";
 import { useEffect, useMemo, useReducer, useState } from "react";
@@ -451,29 +446,31 @@ export function App() {
     },
   ];
 
+  const connectionLabel = connected ? "Connected" : state.connection.status === "connecting" ? "Connecting" : "Connect";
   const runtimeMenuItems: MenuProps["items"] = [
     {
       key: "endpoint",
       label: (
         <div className="runtime-menu">
-          <div className="runtime-menu-label">myclawd websocket</div>
+          <div className="runtime-menu-title">myclawd connection</div>
+          <div className="runtime-menu-status">
+            <span className={`status-dot ${connected ? "online" : ""}`} />
+            <span>{connectionLabel}</span>
+          </div>
+          <div className="runtime-menu-label">WebSocket endpoint</div>
           <Input
             value={endpoint}
             onChange={(event) => setEndpoint(event.target.value)}
-            size="small"
+            size="middle"
             onClick={(event) => event.stopPropagation()}
           />
+          <Button className="runtime-connect-button" type="primary" block onClick={() => connect()}>
+            {connected ? "Reconnect" : "Connect"}
+          </Button>
         </div>
       ),
     },
-    {
-      key: "connect",
-      label: connected ? "Reconnect" : "Connect",
-      onClick: () => connect(),
-    },
   ];
-  const connectionLabel = connected ? "Connected" : state.connection.status === "connecting" ? "Connecting" : "Connect";
-
   return (
     <>
       <Layout className={`claude-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -532,7 +529,7 @@ export function App() {
                 <img className="avatar-dot" src={myclawLogo} alt="" aria-hidden="true" />
                 {!sidebarCollapsed ? <span>operator</span> : null}
                 <span className={`status-dot ${connected ? "online" : ""}`} />
-                {!sidebarCollapsed ? <DownloadOutlined className="footer-icon" /> : null}
+                {!sidebarCollapsed ? <span className="connection-text">{connectionLabel}</span> : null}
               </button>
             </Dropdown>
           </div>
@@ -551,19 +548,9 @@ export function App() {
               </button>
               <button className="chat-title" type="button">
                 <span>{activeTitle}</span>
-                <span className="quick-mode">
-                  <ThunderboltOutlined />
-                  快捷模式
-                </span>
               </button>
             </div>
             <div className="chat-header-actions">
-              <Dropdown menu={{ items: runtimeMenuItems }} trigger={["click"]} placement="bottomRight">
-                <button className={`connect-chip ${connected ? "connected" : ""}`} type="button">
-                  <span className={`status-dot ${connected ? "online" : ""}`} />
-                  <span>{connectionLabel}</span>
-                </button>
-              </Dropdown>
               <Tooltip title="Share">
                 <Button type="text" icon={<ShareAltOutlined />} />
               </Tooltip>
@@ -627,18 +614,9 @@ export function App() {
                       { value: "gpt-5.4-mini", label: "Mini" },
                     ]}
                   />
-                  <button className="composer-mode-chip" type="button">
-                    <SafetyCertificateOutlined />
-                    {state.session.permission_mode ?? "Permissions"}
-                  </button>
                 </div>
 
                 <div className="composer-right">
-                  <Tooltip title="Search runtime status">
-                    <button className="composer-icon-button subtle" type="button">
-                      <SearchOutlined />
-                    </button>
-                  </Tooltip>
                   <Button className="send-button" type="primary" onClick={() => sendPrompt()} disabled={!connected || !prompt.trim()}>
                     ↑
                   </Button>
