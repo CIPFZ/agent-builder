@@ -563,20 +563,20 @@ input {
 .composer-wrap {
   flex: 0 0 auto;
   margin: 0 auto;
-  width: min(930px, calc(100% - 56px));
+  width: min(880px, calc(100% - 56px));
   max-width: calc(100% - 48px);
-  padding: 12px 0 18px;
+  padding: 10px 0 16px;
   background: linear-gradient(to top, #ffffff 72%, rgba(255, 255, 255, 0));
 }
 
 .composer {
-  min-height: 146px;
-  padding: 22px 22px 14px;
+  min-height: 118px;
+  padding: 16px 18px 12px;
   display: grid;
   align-content: space-between;
-  gap: 18px;
+  gap: 12px;
   border: 1px solid #e6eaf0;
-  border-radius: 24px;
+  border-radius: 22px;
   background: #ffffff;
   box-shadow: 0 10px 28px rgba(17, 24, 39, 0.08);
 }
@@ -596,8 +596,8 @@ input {
   padding: 0 !important;
   color: #111827;
   background: transparent !important;
-  font-size: 18px;
-  line-height: 26px;
+  font-size: 16px;
+  line-height: 23px;
 }
 
 .composer-sender textarea::placeholder {
@@ -608,25 +608,25 @@ input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .composer-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .composer-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 
 .composer-icon-button {
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -635,7 +635,7 @@ input {
   background: #ffffff;
   color: #111827;
   cursor: pointer;
-  font-size: 19px;
+  font-size: 18px;
 }
 
 .composer-icon-button.subtle {
@@ -644,12 +644,12 @@ input {
 }
 
 .model-select {
-  min-width: 176px;
+  min-width: 164px;
 }
 
 .model-select .ant-select-selector {
-  height: 42px !important;
-  padding: 0 38px 0 16px !important;
+  height: 36px !important;
+  padding: 0 34px 0 14px !important;
   display: flex !important;
   align-items: center !important;
   border-radius: 999px !important;
@@ -659,25 +659,36 @@ input {
   box-shadow: none !important;
 }
 
-.model-select .ant-select-selection-item {
+.model-select .ant-select-selection-search {
   display: flex;
   align-items: center;
-  line-height: 40px !important;
+}
+
+.model-select .ant-select-selection-item {
+  display: flex !important;
+  align-items: center !important;
+  height: 34px;
+  line-height: 34px !important;
+  padding-inline-end: 0 !important;
+  font-size: 14px;
 }
 
 .model-select .ant-select-arrow {
   color: rgb(57, 100, 254);
-  inset-inline-end: 14px;
+  inset-inline-end: 13px;
+  margin-top: 0;
+  transform: translateY(-50%);
 }
 
 .send-button {
-  width: 46px;
-  height: 46px;
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
   border: 0;
   border-radius: 50%;
   background: rgb(57, 100, 254);
   color: #ffffff;
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1;
   box-shadow: none;
 }
