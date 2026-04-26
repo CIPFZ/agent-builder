@@ -167,10 +167,20 @@ func (s *tuiState) applyRuntimeEvent(event clientEvent) {
 	}
 	switch event.Type {
 	case "assistant.delta":
+		message := ""
+		if event.Message != nil {
+			message = event.Message.Content
+		}
+		if message == "" && event.Tool != nil {
+			message = event.Tool.ProgressMessage
+		}
+		if lastFinalAssistantAlreadyContains(s.transcript, message) {
+			break
+		}
 		if len(s.transcript) == 0 || s.transcript[len(s.transcript)-1].Role != "assistant" || !s.transcript[len(s.transcript)-1].Streaming {
-			s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: event.Tool.ProgressMessage, Streaming: true})
+			s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: message, Streaming: true})
 		} else {
-			s.transcript[len(s.transcript)-1].Content += event.Tool.ProgressMessage
+			s.transcript[len(s.transcript)-1].Content += message
 		}
 	case "message.created":
 		if event.Message != nil {
@@ -179,17 +189,18 @@ func (s *tuiState) applyRuntimeEvent(event clientEvent) {
 				return
 			}
 			if event.Message.Role == "user" {
-				if !lastTranscriptMessageMatches(s.transcript, "user", event.Message.Content) {
-					s.transcript = append(s.transcript, transcriptEntry{Role: "user", Content: event.Message.Content, Blocks: cloneClientMessageBlocks(event.Message.Blocks)})
+				if !transcriptHasMessageID(s.transcript, event.Message.ID) && !lastTranscriptMessageMatches(s.transcript, "user", event.Message.Content) {
+					s.transcript = append(s.transcript, transcriptEntry{MessageID: event.Message.ID, Role: "user", Content: event.Message.Content, Blocks: cloneClientMessageBlocks(event.Message.Blocks)})
 				}
 			}
 			if event.Message.Role == "assistant" {
 				if len(s.transcript) > 0 && s.transcript[len(s.transcript)-1].Role == "assistant" && s.transcript[len(s.transcript)-1].Streaming {
+					s.transcript[len(s.transcript)-1].MessageID = event.Message.ID
 					s.transcript[len(s.transcript)-1].Content = event.Message.Content
 					s.transcript[len(s.transcript)-1].Streaming = false
 					s.transcript[len(s.transcript)-1].Blocks = cloneClientMessageBlocks(event.Message.Blocks)
-				} else if !lastTranscriptMessageMatches(s.transcript, "assistant", event.Message.Content) {
-					s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: event.Message.Content, Blocks: cloneClientMessageBlocks(event.Message.Blocks)})
+				} else if !transcriptHasMessageID(s.transcript, event.Message.ID) && !transcriptMessageExistsSinceLastUser(s.transcript, "assistant", event.Message.Content) {
+					s.transcript = append(s.transcript, transcriptEntry{MessageID: event.Message.ID, Role: "assistant", Content: event.Message.Content, Blocks: cloneClientMessageBlocks(event.Message.Blocks)})
 				}
 				s.busy = false
 			}

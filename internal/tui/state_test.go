@@ -224,6 +224,45 @@ func TestTUIStateIgnoresDuplicateFinalMessages(t *testing.T) {
 	}
 }
 
+func TestTUIStateIgnoresAssistantDeltaAfterFinalMessage(t *testing.T) {
+	state := newTUIState()
+
+	state.applyRuntimeEvent(clientEvent{
+		Type:    "message.created",
+		Message: &clientMessage{ID: "assistant-1", Role: "assistant", Content: "Hi! I'm ready to help."},
+	})
+	state.applyRuntimeEvent(clientEvent{
+		Type:    "assistant.delta",
+		Message: &clientMessage{Role: "assistant", Content: "Hi! I'm ready to help."},
+		Tool:    &clientToolEvent{ProgressMessage: "Hi! I'm ready to help."},
+	})
+
+	if len(state.transcript) != 1 {
+		t.Fatalf("transcript = %#v, want one assistant entry", state.transcript)
+	}
+	if state.transcript[0].Content != "Hi! I'm ready to help." || state.transcript[0].Streaming {
+		t.Fatalf("assistant entry = %#v, want finalized response", state.transcript[0])
+	}
+}
+
+func TestClientStoreIgnoresAssistantDeltaAfterFinalMessage(t *testing.T) {
+	store := newClientStore()
+
+	snapshot := store.applyEvent(clientEvent{
+		Type:    "message.created",
+		Message: &clientMessage{ID: "assistant-1", Role: "assistant", Content: "Hi! I'm ready to help."},
+	})
+	snapshot = store.applyEvent(clientEvent{
+		Type:    "assistant.delta",
+		Message: &clientMessage{Role: "assistant", Content: "Hi! I'm ready to help."},
+		Tool:    &clientToolEvent{ProgressMessage: "Hi! I'm ready to help."},
+	})
+
+	if len(snapshot.Transcript) != 1 {
+		t.Fatalf("transcript = %#v, want one assistant entry", snapshot.Transcript)
+	}
+}
+
 func TestTUIStateIgnoresDuplicateRunError(t *testing.T) {
 	state := newTUIState()
 

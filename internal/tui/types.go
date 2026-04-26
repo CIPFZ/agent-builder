@@ -152,6 +152,7 @@ type BridgeErrMsg struct {
 }
 
 type transcriptEntry struct {
+	MessageID           string
 	Kind                string
 	Role                string
 	Content             string
