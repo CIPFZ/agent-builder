@@ -39,7 +39,7 @@ func TestDialogStateOpenNavigateAndClose(t *testing.T) {
 	}
 }
 
-func TestSlashHelpOpensDialogWithoutSendingRuntimeMessage(t *testing.T) {
+func TestSlashHelpAppendsTranscriptOutputWithoutSendingRuntimeMessage(t *testing.T) {
 	bridge := &fakeBridge{}
 	model := NewModel(bridge)
 	model.input = "/help"
@@ -51,8 +51,11 @@ func TestSlashHelpOpensDialogWithoutSendingRuntimeMessage(t *testing.T) {
 	if len(bridge.sent) != 0 {
 		t.Fatalf("sent = %#v, want no runtime message", bridge.sent)
 	}
-	if !model.dialog.active() {
-		t.Fatal("dialog inactive, want help dialog open")
+	if model.dialog.active() {
+		t.Fatalf("dialog active, want help output in transcript: %#v", model.dialog)
+	}
+	if len(model.transcript) == 0 || !contains(model.transcript[len(model.transcript)-1].Content, "Commands") {
+		t.Fatalf("transcript = %#v, want help output", model.transcript)
 	}
 	if model.input != "" || model.busy {
 		t.Fatalf("input/busy = %q/%v, want empty/false", model.input, model.busy)
@@ -61,7 +64,7 @@ func TestSlashHelpOpensDialogWithoutSendingRuntimeMessage(t *testing.T) {
 
 func TestDialogConsumesKeysBeforeInputEditing(t *testing.T) {
 	model := NewModel(&fakeBridge{})
-	model.openHelpDialog()
+	model.openModelDialog()
 	model.input = "draft"
 	model.cursorPos = len([]rune(model.input))
 
@@ -87,11 +90,11 @@ func TestDialogConsumesKeysBeforeInputEditing(t *testing.T) {
 
 func TestRendererIncludesDialogOverlay(t *testing.T) {
 	model := NewModel(&fakeBridge{})
-	model.openHelpDialog()
+	model.openModelDialog()
 
 	view := newRenderer().renderScreen(newRenderSnapshot(model, 80))
 
-	for _, want := range []string{"Commands", "/help", "/model", "Enter select", "Esc close"} {
+	for _, want := range []string{"Model", "Default", "Sonnet", "Opus", "Enter select", "Esc close"} {
 		if !contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}

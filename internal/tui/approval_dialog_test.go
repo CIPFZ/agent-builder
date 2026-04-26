@@ -94,9 +94,9 @@ func TestApprovalOverlayCanSelectRejectWithDownEnter(t *testing.T) {
 
 func TestApprovalOverlayRendersAfterPromptAndHidesCommandDialog(t *testing.T) {
 	model := NewModel(&fakeBridge{})
-	model.openHelpDialog()
+	model.openModelDialog()
 	if !model.dialog.active() {
-		t.Fatal("help dialog inactive before approval")
+		t.Fatal("model dialog inactive before approval")
 	}
 
 	request := approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd", Reason: "needs approval"}
@@ -115,7 +115,7 @@ func TestApprovalOverlayRendersAfterPromptAndHidesCommandDialog(t *testing.T) {
 	if approvalIndex, promptIndex := strings.LastIndex(view, "Permission Required"), strings.Index(view, "> "); approvalIndex <= promptIndex {
 		t.Fatalf("approval dialog should render after prompt: approval index %d prompt index %d view %q", approvalIndex, promptIndex, view)
 	}
-	if strings.Contains(view, "Available local TUI commands") {
+	if strings.Contains(view, "Select the model for this session") {
 		t.Fatalf("view includes command dialog while approval is active: %q", view)
 	}
 }

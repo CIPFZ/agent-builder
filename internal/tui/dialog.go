@@ -112,21 +112,20 @@ func (d *dialogState) syncPickerSelection() {
 func (m *Model) openHelpDialog() {
 	items := make([]dialogItem, 0, len(localSlashCommandSpecs))
 	for _, command := range localSlashCommandSpecs {
-		description := command.Description
-		if command.ArgumentHint != "" {
-			description += " " + command.ArgumentHint
-		}
-		if len(command.Aliases) > 0 {
-			description += " (aliases: /" + strings.Join(command.Aliases, ", /") + ")"
-		}
-		items = append(items, dialogItem{Label: "/" + command.Name, Description: description})
+		items = append(items, dialogItem{Label: "/" + command.Name, Description: slashCommandDescription(command)})
 	}
-	m.dialog.open(dialogSpec{
-		Title:        "Commands",
-		Subtitle:     "Available local TUI commands",
-		VisibleCount: len(slashCommands),
-		Items:        items,
-	})
+	m.appendDisplayItems("Commands", "Available local TUI commands", items, "")
+}
+
+func slashCommandDescription(command slashCommandSpec) string {
+	description := command.Description
+	if command.ArgumentHint != "" {
+		description += " " + command.ArgumentHint
+	}
+	if len(command.Aliases) > 0 {
+		description += " (aliases: /" + strings.Join(command.Aliases, ", /") + ")"
+	}
+	return description
 }
 
 func (m *Model) openKeybindingsDialog() {
@@ -145,13 +144,7 @@ func (m *Model) openKeybindingsDialog() {
 		{Label: "Ctrl+N", Description: "reject pending permission request", Disabled: true},
 		{Label: "Esc", Description: "close dialog / exit focused transient mode", Disabled: true},
 	}
-	m.dialog.open(dialogSpec{
-		Title:        "Keybindings",
-		Subtitle:     "Active TUI shortcuts and modal controls",
-		Items:        items,
-		VisibleCount: len(items),
-		FooterHint:   "Esc close",
-	})
+	m.appendDisplayItems("Keybindings", "Active TUI shortcuts and modal controls", items, "")
 }
 
 func (m *Model) openModelDialog() {
@@ -229,13 +222,7 @@ func (m *Model) openSessionDialog() {
 	if m.diagnostics.LastEvent != "" {
 		items = append(items, dialogItem{Label: "Last event", Description: m.diagnostics.LastEvent, Disabled: true})
 	}
-	m.dialog.open(dialogSpec{
-		Title:        "Session",
-		Subtitle:     "Current TUI session details",
-		Items:        items,
-		VisibleCount: len(items),
-		FooterHint:   "Esc close",
-	})
+	m.appendDisplayItems("Session", "Current TUI session details", items, "")
 }
 
 func (m *Model) openDiagnosticsDialog() {
@@ -247,12 +234,7 @@ func (m *Model) openDiagnosticsDialog() {
 		{Label: "Event count", Description: fmt.Sprintf("%d", m.diagnostics.EventCount), Disabled: true},
 		{Label: "Transcript entries", Description: fmt.Sprintf("%d", len(m.transcript)), Disabled: true},
 	}
-	m.dialog.open(dialogSpec{
-		Title:      "Diagnostics",
-		Subtitle:   "Runtime and TUI state snapshot",
-		Items:      items,
-		FooterHint: "Esc close",
-	})
+	m.appendDisplayItems("Diagnostics", "Runtime and TUI state snapshot", items, "")
 }
 
 func (m *Model) openCompactionDialog(customInstructions string) {
@@ -353,6 +335,40 @@ func (m *Model) handleLocalCommand(text string) bool {
 	m.historyIndex = -1
 	m.clearSuggestions()
 	return true
+}
+
+func (m *Model) appendDisplayItems(title, subtitle string, items []dialogItem, empty string) {
+	lines := displayItemLines(subtitle, items, empty)
+	m.appendCommandOutput(title, lines)
+}
+
+func displayItemLines(subtitle string, items []dialogItem, empty string) []string {
+	lines := make([]string, 0, len(items)+1)
+	if strings.TrimSpace(subtitle) != "" {
+		lines = append(lines, subtitle)
+	}
+	if len(items) == 0 {
+		if strings.TrimSpace(empty) == "" {
+			empty = "No items"
+		}
+		lines = append(lines, empty)
+		return lines
+	}
+	for _, item := range items {
+		line := strings.TrimSpace(item.Label)
+		description := strings.TrimSpace(item.Description)
+		if description != "" {
+			if line == "" {
+				line = description
+			} else {
+				line += ": " + description
+			}
+		}
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }
 
 func valueOrUnset(value string) string {

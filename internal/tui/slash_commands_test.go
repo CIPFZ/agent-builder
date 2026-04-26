@@ -41,7 +41,7 @@ func TestSlashClearClearsVisibleConversationWithoutSendingRuntimeMessage(t *test
 	}
 }
 
-func TestSlashSessionOpensSessionDialogWithRuntimeMetadata(t *testing.T) {
+func TestSlashSessionAppendsSessionOutputWithRuntimeMetadata(t *testing.T) {
 	bridge := &fakeBridge{
 		platformStatus: platformStatusSnapshot{
 			SessionID:        "main-000001",
@@ -70,10 +70,10 @@ func TestSlashSessionOpensSessionDialogWithRuntimeMetadata(t *testing.T) {
 	if len(bridge.sent) != 0 {
 		t.Fatalf("sent = %#v, want no runtime message", bridge.sent)
 	}
-	if !model.dialog.active() || model.dialog.Title != "Session" {
-		t.Fatalf("dialog = %#v, want session dialog", model.dialog)
+	if model.dialog.active() {
+		t.Fatalf("dialog = %#v, want session transcript output", model.dialog)
 	}
-	view := model.viewContent()
+	view := model.transcript[len(model.transcript)-1].Content
 	for _, want := range []string{
 		"Session",
 		"main-000001",
@@ -96,7 +96,7 @@ func TestSlashSessionOpensSessionDialogWithRuntimeMetadata(t *testing.T) {
 	}
 }
 
-func TestSlashDebugOpensDiagnosticsDialogWithLatestState(t *testing.T) {
+func TestSlashDebugAppendsDiagnosticsOutputWithLatestState(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	updated, _ := model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "agent.lifecycle.start"})})
 	model = updated.(Model)
@@ -108,10 +108,10 @@ func TestSlashDebugOpensDiagnosticsDialogWithLatestState(t *testing.T) {
 	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
-	if !model.dialog.active() || model.dialog.Title != "Diagnostics" {
-		t.Fatalf("dialog = %#v, want diagnostics dialog", model.dialog)
+	if model.dialog.active() {
+		t.Fatalf("dialog = %#v, want diagnostics transcript output", model.dialog)
 	}
-	view := model.viewContent()
+	view := model.transcript[len(model.transcript)-1].Content
 	for _, want := range []string{"Diagnostics", "Last event", "agent.lifecycle.start", "Last error", "boom", "Event count", "1"} {
 		if !contains(view, want) {
 			t.Fatalf("debug view missing %q: %q", want, view)
@@ -173,6 +173,94 @@ func TestHelpDialogListsOnlyImplementedLocalCommandDescriptions(t *testing.T) {
 	}
 	if contains(view, "pending") {
 		t.Fatalf("help view still contains pending marker: %q", view)
+	}
+}
+
+func TestDisplayOnlySlashCommandsAppendTranscriptOutputWithoutDialog(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []string
+	}{
+		{input: "/help", want: []string{"Commands", "/help", "/model", "/debug"}},
+		{input: "/keybindings", want: []string{"Keybindings", "Ctrl+S", "Ctrl+G", "Ctrl+R"}},
+		{input: "/session", want: []string{"Session", "Session ID", "main-000001", "Log path", "logs/myclaw.jsonl"}},
+		{input: "/debug", want: []string{"Diagnostics", "Busy", "Event count", "Transcript entries"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			bridge := &fakeBridge{
+				platformStatus: platformStatusSnapshot{
+					SessionID:      "main-000001",
+					SessionKey:     "agent:main:main",
+					AgentID:        "main",
+					IsMain:         true,
+					WorkspaceRoots: []string{"C:/repo"},
+				},
+			}
+			model := NewModel(bridge, ModelConfig{
+				SessionID: "main-000001",
+				LLMLabel:  "test-model",
+				LogPath:   "logs/myclaw.jsonl",
+			})
+			model.input = tt.input
+			model.cursorPos = len([]rune(model.input))
+
+			updated, _ := model.Update(testKey(keyEnter))
+			model = updated.(Model)
+
+			if model.dialog.active() {
+				t.Fatalf("dialog active for display-only command %s: %#v", tt.input, model.dialog)
+			}
+			if len(model.transcript) == 0 {
+				t.Fatalf("transcript empty for %s", tt.input)
+			}
+			content := model.transcript[len(model.transcript)-1].Content
+			for _, want := range tt.want {
+				if !contains(content, want) {
+					t.Fatalf("%s transcript missing %q: %q", tt.input, want, content)
+				}
+			}
+			view := model.viewContent()
+			if contains(view, "Enter select") || contains(view, "Type to filter") {
+				t.Fatalf("%s view still has picker controls: %q", tt.input, view)
+			}
+		})
+	}
+}
+
+func TestEmptyDataSlashCommandsAppendTranscriptOutputWithoutDialog(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []string
+	}{
+		{input: "/mcp", want: []string{"MCP", "No MCP servers"}},
+		{input: "/tasks", want: []string{"Tasks", "No delegated tasks"}},
+		{input: "/resume", want: []string{"Resume session", "No resumable sessions"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			model := NewModel(&fakeBridge{})
+			model.input = tt.input
+			model.cursorPos = len([]rune(model.input))
+
+			updated, _ := model.Update(testKey(keyEnter))
+			model = updated.(Model)
+
+			if model.dialog.active() {
+				t.Fatalf("dialog active for empty-data command %s: %#v", tt.input, model.dialog)
+			}
+			if len(model.transcript) == 0 {
+				t.Fatalf("transcript empty for %s", tt.input)
+			}
+			content := model.transcript[len(model.transcript)-1].Content
+			for _, want := range tt.want {
+				if !contains(content, want) {
+					t.Fatalf("%s transcript missing %q: %q", tt.input, want, content)
+				}
+			}
+		})
 	}
 }
 
@@ -239,7 +327,12 @@ func TestAllRegisteredSlashCommandsRunLocallyAndRenderExpectedState(t *testing.T
 				}
 				return
 			}
-			view := firstLines(model.viewContent(), model.height)
+			view := model.viewContent()
+			if model.dialog.active() {
+				view = firstLines(view, model.height)
+			} else if len(model.transcript) > 0 {
+				view = model.transcript[len(model.transcript)-1].Content
+			}
 			if !contains(view, tt.want) {
 				t.Fatalf("visible view missing %q for %s: %q", tt.want, tt.input, view)
 			}
@@ -402,7 +495,7 @@ func TestSlashTasksOpensTaskWorkbenchDialog(t *testing.T) {
 	}
 }
 
-func TestSlashKeysOpensKeybindingsDialog(t *testing.T) {
+func TestSlashKeysAppendsKeybindingsOutput(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	model.input = "/keys"
 	model.cursorPos = len([]rune(model.input))
@@ -410,10 +503,10 @@ func TestSlashKeysOpensKeybindingsDialog(t *testing.T) {
 	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
-	if !model.dialog.active() || model.dialog.Title != "Keybindings" {
-		t.Fatalf("dialog = %#v, want keybindings dialog", model.dialog)
+	if model.dialog.active() {
+		t.Fatalf("dialog = %#v, want keybindings transcript output", model.dialog)
 	}
-	view := model.viewContent()
+	view := model.transcript[len(model.transcript)-1].Content
 	for _, want := range []string{
 		"Keybindings",
 		"Ctrl+S",

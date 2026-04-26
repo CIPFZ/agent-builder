@@ -293,6 +293,35 @@ func (s *tuiState) appendContextOutput(snapshot contextSnapshot) {
 	s.noteTranscriptAppended()
 }
 
+func (s *tuiState) appendCommandOutput(title string, lines []string) {
+	content := commandOutputContent(title, lines)
+	if content == "" {
+		return
+	}
+	s.dialog.close()
+	s.messageActions.close()
+	s.transcript = append(s.transcript, transcriptEntry{
+		Kind:    messageKindContext,
+		Role:    "system",
+		Content: content,
+	})
+	s.noteTranscriptAppended()
+}
+
+func commandOutputContent(title string, lines []string) string {
+	output := make([]string, 0, len(lines)+1)
+	if strings.TrimSpace(title) != "" {
+		output = append(output, strings.TrimSpace(title))
+	}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			output = append(output, line)
+		}
+	}
+	return strings.Join(output, "\n")
+}
+
 func appendBoundedEvent(events []string, event string, limit int) []string {
 	events = append(events, event)
 	if limit > 0 && len(events) > limit {
