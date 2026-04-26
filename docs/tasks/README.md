@@ -11,14 +11,15 @@ Planning rule:
 
 Current order:
 
-1. `execution-surface-program`
-2. `ssh-runtime-capability`
-3. `mcp-runtime-capability`
-4. `subagent-runtime-capability`
-5. `shell-runtime-capability`
-6. `tui-client-architecture`
-7. `tui-charmbracelet-v2-migration`
-8. `react-operator-ui-console`
+1. `p0-runtime-parity-roadmap`
+2. `execution-surface-program`
+3. `ssh-runtime-capability`
+4. `mcp-runtime-capability`
+5. `subagent-runtime-capability`
+6. `shell-runtime-capability`
+7. `tui-client-architecture`
+8. `tui-charmbracelet-v2-migration`
+9. `react-operator-ui-console`
 
 Standard:
 
