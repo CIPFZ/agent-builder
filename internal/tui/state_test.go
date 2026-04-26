@@ -223,3 +223,31 @@ func TestTUIStateIgnoresDuplicateFinalMessages(t *testing.T) {
 		t.Fatalf("transcript = %#v, want user then assistant", state.transcript)
 	}
 }
+
+func TestTUIStateIgnoresDuplicateRunError(t *testing.T) {
+	state := newTUIState()
+
+	state.applyRuntimeEvent(clientEvent{Type: "run.error", Error: "model connection failed"})
+	state.applyRuntimeEvent(clientEvent{Type: "run.error", Error: "model connection failed"})
+
+	if len(state.transcript) != 1 {
+		t.Fatalf("transcript = %#v, want one error entry", state.transcript)
+	}
+	if state.transcript[0].Kind != messageKindError || state.transcript[0].Content != "model connection failed" {
+		t.Fatalf("error entry = %#v, want model connection failed", state.transcript[0])
+	}
+}
+
+func TestClientStoreIgnoresDuplicateRunError(t *testing.T) {
+	store := newClientStore()
+
+	snapshot := store.applyEvent(clientEvent{Type: "run.error", Error: "model connection failed"})
+	snapshot = store.applyEvent(clientEvent{Type: "run.error", Error: "model connection failed"})
+
+	if len(snapshot.Transcript) != 1 {
+		t.Fatalf("transcript = %#v, want one error entry", snapshot.Transcript)
+	}
+	if snapshot.Transcript[0].Kind != messageKindError || snapshot.Transcript[0].Content != "model connection failed" {
+		t.Fatalf("error entry = %#v, want model connection failed", snapshot.Transcript[0])
+	}
+}

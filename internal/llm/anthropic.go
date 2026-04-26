@@ -116,11 +116,14 @@ func (c *AnthropicClient) Stream(ctx context.Context, req GenerateRequest, handl
 
 	resp, err := doStreamingRequest(ctx, c.httpClient, http.MethodPost, c.baseURL, body, headers, c.maxRetries)
 	if err != nil {
-		return err
+		return wrapAnthropicError(c.baseURL, err)
 	}
 	defer resp.Body.Close()
 
-	return consumeAnthropicSSE(resp.Body, handler)
+	if err := consumeAnthropicSSE(resp.Body, handler); err != nil {
+		return wrapAnthropicError(c.baseURL, err)
+	}
+	return nil
 }
 
 func buildAnthropicMessages(req GenerateRequest) []anthropicMessage {
@@ -244,6 +247,20 @@ func resolveAnthropicMessagesURL(raw string) string {
 		parsed.Path += "/"
 	}
 	return parsed.String()
+}
+
+func wrapAnthropicError(endpoint string, err error) error {
+	if err == nil {
+		return nil
+	}
+	message := "llm provider connection failed"
+	if strings.Contains(strings.ToLower(err.Error()), "unexpected eof") {
+		message += ": upstream closed the stream unexpectedly"
+	}
+	if strings.TrimSpace(endpoint) != "" {
+		message += " (" + endpoint + ")"
+	}
+	return fmt.Errorf("%s: %w", message, err)
 }
 
 type anthropicStreamMessageStart struct {

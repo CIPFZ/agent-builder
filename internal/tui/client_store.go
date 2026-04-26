@@ -198,7 +198,9 @@ func (s *clientStore) applyEvent(event clientEvent) clientStoreSnapshot {
 		if event.Error != "" {
 			s.diagnostics.LastError = event.Error
 			s.activity.Label = "Run error"
-			s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindError, Role: "system", Content: event.Error})
+			if !lastTranscriptSpecialMessageMatches(s.transcript, messageKindError, event.Error) {
+				s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindError, Role: "system", Content: event.Error})
+			}
 			s.busy = false
 		}
 	case "compact.boundary":
@@ -280,6 +282,14 @@ func lastTranscriptMessageMatches(entries []transcriptEntry, role, content strin
 	}
 	last := entries[len(entries)-1]
 	return last.Kind == "" && last.Role == role && strings.TrimSpace(last.Content) == strings.TrimSpace(content)
+}
+
+func lastTranscriptSpecialMessageMatches(entries []transcriptEntry, kind, content string) bool {
+	if len(entries) == 0 {
+		return false
+	}
+	last := entries[len(entries)-1]
+	return last.Kind == kind && strings.TrimSpace(last.Content) == strings.TrimSpace(content)
 }
 
 func (s *clientStore) applyBridgeError(err error) clientStoreSnapshot {

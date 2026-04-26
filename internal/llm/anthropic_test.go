@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -87,6 +88,19 @@ func TestAnthropicClientUsesMessagesAPIHeadersAndStreamsToolUse(t *testing.T) {
 	}
 	if handler.events[1].ProviderMessageID != "msg_123" {
 		t.Fatalf("provider message id = %q, want msg_123", handler.events[1].ProviderMessageID)
+	}
+}
+
+func TestAnthropicClientWrapsUnexpectedEOF(t *testing.T) {
+	err := wrapAnthropicError("https://api.minimaxi.com/anthropic/v1/messages", io.ErrUnexpectedEOF)
+
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("error = %v, want wrapped unexpected EOF", err)
+	}
+	for _, want := range []string{"llm provider connection failed", "upstream closed the stream", "api.minimaxi.com"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want %q", err.Error(), want)
+		}
 	}
 }
 

@@ -228,7 +228,9 @@ func (s *tuiState) applyRuntimeEvent(event clientEvent) {
 		if event.Error != "" {
 			s.diagnostics.LastError = event.Error
 			s.activity.Label = "Run error"
-			s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindError, Role: "system", Content: event.Error})
+			if !lastTranscriptSpecialMessageMatches(s.transcript, messageKindError, event.Error) {
+				s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindError, Role: "system", Content: event.Error})
+			}
 		}
 	case "compact.boundary":
 		s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindCompact, Role: "system", Content: "Conversation compacted"})
