@@ -109,10 +109,10 @@ export function App() {
               <Actions
                 className="message-actions"
                 items={[
-                  { key: "copy", icon: <CopyOutlined />, label: "Copy" },
-                  { key: "like", icon: <LikeOutlined />, label: "Helpful" },
-                  { key: "dislike", icon: <DislikeOutlined />, label: "Not helpful" },
-                  { key: "retry", icon: <ReloadOutlined />, label: "Retry" },
+                  { key: "copy", icon: <CopyOutlined /> },
+                  { key: "retry", icon: <ReloadOutlined /> },
+                  { key: "like", icon: <LikeOutlined /> },
+                  { key: "dislike", icon: <DislikeOutlined /> },
                 ]}
               />
             ),

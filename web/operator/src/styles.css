@@ -134,6 +134,7 @@ input {
   margin-top: 28px;
   min-height: 0;
   overflow: hidden;
+  margin-inline: -2px;
 }
 
 .section-label {
@@ -154,20 +155,21 @@ input {
 .session-list {
   display: grid;
   gap: 2px;
+  padding: 0 4px;
 }
 
 .session-list .ant-conversations-group-title {
-  margin: 16px 10px 7px;
+  margin: 16px 8px 7px;
   color: #8b94a3;
   font-size: 14px;
   line-height: 18px;
 }
 
 .session-list .ant-conversations-item {
-  min-height: 42px;
-  padding: 0 10px 0 14px;
+  min-height: 38px;
+  padding: 0 8px 0 12px !important;
   color: #111827;
-  border-radius: 12px;
+  border-radius: 10px;
   background: transparent;
   font-size: 15px;
   line-height: 20px;
@@ -176,16 +178,36 @@ input {
     color 140ms ease;
 }
 
+.session-list .ant-conversations-item,
+.session-list .ant-conversations-item > * {
+  --ant-padding: 12px;
+  --ant-padding-sm: 8px;
+}
+
+.session-list .ant-conversations-item .ant-conversations-label {
+  margin-inline-start: 0 !important;
+}
+
+.session-list .ant-conversations-item[class] {
+  padding-inline-start: 12px !important;
+  padding-inline-end: 8px !important;
+}
+
 .session-list .ant-conversations-item:hover {
-  background: #eef4ff;
+  background: #edf4ff;
 }
 
 .session-list .ant-conversations-item-active {
-  background: #e8f0ff;
+  background: #e5efff;
   color: rgb(57, 100, 254);
 }
 
+.session-list .ant-conversations-item-active::before {
+  display: none;
+}
+
 .session-list .ant-conversations-label {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -195,6 +217,7 @@ input {
   color: #8f8b84;
   opacity: 0;
   transition: opacity 140ms ease;
+  margin-inline-start: 6px;
 }
 
 .session-list .ant-conversations-item:hover .ant-conversations-menu-icon,
@@ -456,29 +479,29 @@ input {
 }
 
 .message-thread {
-  width: min(980px, 100%);
+  width: min(920px, 100%);
   margin: 0 auto;
 }
 
 .message-thread .ant-bubble {
-  margin-bottom: 42px;
+  margin-bottom: 34px;
 }
 
 .message-thread .ant-bubble-content {
-  max-width: min(680px, 82vw);
+  max-width: min(760px, 82vw);
   white-space: pre-wrap;
   word-break: break-word;
   color: #111827;
-  font-size: 19px;
-  line-height: 1.65;
+  font-size: 18px;
+  line-height: 1.72;
 }
 
 .message-thread .ant-bubble-end .ant-bubble-content {
-  padding: 16px 20px;
-  border-radius: 28px;
+  padding: 12px 18px;
+  border-radius: 22px;
   background: #eef4ff !important;
   color: #111827;
-  font-size: 17px;
+  font-size: 16px;
   line-height: 24px;
 }
 
@@ -490,14 +513,51 @@ input {
 }
 
 .message-actions {
-  display: inline-flex;
+  margin-top: 12px;
+  display: flex !important;
   align-items: center;
+  gap: 8px;
+  min-height: 28px;
 }
 
-.message-actions .ant-btn {
-  color: #928f87;
-  font-size: 18px;
+.message-thread .ant-bubble-footer {
+  margin-top: 10px;
+}
+
+.message-thread .ant-actions,
+.message-thread .ant-actions-list {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-actions .ant-btn,
+.message-actions button {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #8b94a3;
+  font-size: 16px;
   box-shadow: none;
+}
+
+.message-actions .ant-btn:hover,
+.message-actions button:hover {
+  background: #f2f5fa;
+  color: #111827;
+}
+
+.message-actions .anticon {
+  display: inline-flex;
+  line-height: 1;
 }
 
 .composer-wrap {
