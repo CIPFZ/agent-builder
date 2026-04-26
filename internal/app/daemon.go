@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -15,7 +16,15 @@ import (
 
 var daemonBootstrapRuntime = bootstrapRuntime
 
+type DaemonOptions struct {
+	OnStarted func()
+}
+
 func RunDaemon(ctx context.Context, cfg config.Config, stdout io.Writer) error {
+	return RunDaemonWithOptions(ctx, cfg, stdout, DaemonOptions{})
+}
+
+func RunDaemonWithOptions(ctx context.Context, cfg config.Config, stdout io.Writer, options DaemonOptions) error {
 	mux, _ := newDaemonHandler(cfg, stdout)
 
 	server := &http.Server{
@@ -24,11 +33,19 @@ func RunDaemon(ctx context.Context, cfg config.Config, stdout io.Writer) error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	listener, err := net.Listen("tcp", cfg.HTTPAddr)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(stdout, "myclawd listening on http://%s\n", cfg.HTTPAddr)
+	_, _ = fmt.Fprintf(stdout, "operator UI available at http://%s/operator/\n", cfg.HTTPAddr)
+	if options.OnStarted != nil {
+		options.OnStarted()
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
-		_, _ = fmt.Fprintf(stdout, "myclawd listening on http://%s\n", cfg.HTTPAddr)
-		_, _ = fmt.Fprintf(stdout, "operator UI available at http://%s/operator/\n", cfg.HTTPAddr)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 			return
 		}

@@ -44,6 +44,86 @@ func TestRunCLIDispatchesTUICommand(t *testing.T) {
 	}
 }
 
+func TestRunCLIDispatchesBrowserCommand(t *testing.T) {
+	original := runBrowserCommand
+	defer func() { runBrowserCommand = original }()
+
+	called := false
+	runBrowserCommand = func(_ context.Context, _ []string, _ io.Writer, _ io.Writer) error {
+		called = true
+		return nil
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := RunCLI(context.Background(), []string{"browser"}, &stdout, &stderr); err != nil {
+		t.Fatalf("RunCLI browser: %v", err)
+	}
+	if !called {
+		t.Fatal("expected browser command to dispatch to runBrowser")
+	}
+}
+
+func TestRunBrowserNoOpenStartsDaemonInProcess(t *testing.T) {
+	original := runBrowserDaemon
+	defer func() { runBrowserDaemon = original }()
+
+	called := false
+	runBrowserDaemon = func(_ context.Context, cfg config.Config, _ io.Writer) error {
+		called = true
+		if cfg.HTTPAddr == "" {
+			t.Fatal("expected browser command to load daemon config")
+		}
+		return nil
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := runBrowser(context.Background(), []string{"--open=false", "--addr", "127.0.0.1:19090"}, &stdout, &stderr); err != nil {
+		t.Fatalf("runBrowser: %v", err)
+	}
+	if !called {
+		t.Fatal("expected browser command to start daemon in process")
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte("open manually: http://")) {
+		t.Fatalf("stdout missing manual URL: %q", stdout.String())
+	}
+}
+
+func TestRunBrowserOpenAfterDaemonStarted(t *testing.T) {
+	originalDaemon := runBrowserDaemonWithOptions
+	originalOpen := openBrowserURL
+	defer func() {
+		runBrowserDaemonWithOptions = originalDaemon
+		openBrowserURL = originalOpen
+	}()
+
+	opened := false
+	runBrowserDaemonWithOptions = func(_ context.Context, _ config.Config, _ io.Writer, options DaemonOptions) error {
+		if opened {
+			t.Fatal("browser opened before daemon start callback")
+		}
+		options.OnStarted()
+		return nil
+	}
+	openBrowserURL = func(url string) error {
+		opened = true
+		if !bytes.HasPrefix([]byte(url), []byte("http://")) {
+			t.Fatalf("opened url = %q, want http URL", url)
+		}
+		return nil
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := runBrowser(context.Background(), nil, &stdout, &stderr); err != nil {
+		t.Fatalf("runBrowser: %v", err)
+	}
+	if !opened {
+		t.Fatal("expected browser command to open URL after daemon start")
+	}
+}
+
 func TestResolveTUIWorkspaceRootsFallsBackToCurrentDir(t *testing.T) {
 	cwd := t.TempDir()
 	roots, err := resolveTUIWorkspaceRoots(cwd, nil)
