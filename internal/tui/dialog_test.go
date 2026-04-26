@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -116,6 +118,60 @@ func TestSlashModelArgumentSetsSessionOverrideWithoutOpeningDialog(t *testing.T)
 	}
 }
 
+func TestTypedSlashModelOpensDialogWithoutSendingRuntimeMessage(t *testing.T) {
+	bridge := &fakeBridge{}
+	model := NewModel(bridge)
+
+	updated, _ := model.Update(testKeyRunes("/model"))
+	model = updated.(Model)
+	if len(model.suggestions) == 0 {
+		t.Fatal("suggestions should be visible before enter")
+	}
+
+	updated, cmd := model.Update(testKey(keyEnter))
+	model = updated.(Model)
+
+	if cmd != nil {
+		t.Fatalf("cmd = %v, want nil for local /model command", cmd)
+	}
+	if len(bridge.sent) != 0 {
+		t.Fatalf("sent = %#v, want no runtime message", bridge.sent)
+	}
+	if !model.dialog.active() || model.dialog.Title != "Model" {
+		t.Fatalf("dialog = %#v, want model dialog", model.dialog)
+	}
+	view := model.viewContent()
+	for _, want := range []string{"Model", "Search: (type to filter)", "Default", "Sonnet", "Opus"} {
+		if !contains(view, want) {
+			t.Fatalf("model view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestModelDialogIsVisibleWithinTerminalHeight(t *testing.T) {
+	bridge := &fakeBridge{}
+	model := NewModel(bridge)
+	model.setSize(80, 20)
+	for i := 1; i <= 20; i++ {
+		model.transcript = append(model.transcript, transcriptEntry{
+			Role:    "assistant",
+			Content: fmt.Sprintf("message-%02d", i),
+		})
+	}
+	model.input = "/model"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(testKey(keyEnter))
+	model = updated.(Model)
+
+	visible := firstLines(model.viewContent(), model.height)
+	for _, want := range []string{"Model", "Search: (type to filter)", "Default", "Sonnet", "Opus"} {
+		if !contains(visible, want) {
+			t.Fatalf("visible view missing %q: %q", want, visible)
+		}
+	}
+}
+
 func TestSlashModelDefaultClearsSessionOverride(t *testing.T) {
 	bridge := &fakeBridge{}
 	model := NewModel(bridge)
@@ -131,4 +187,12 @@ func TestSlashModelDefaultClearsSessionOverride(t *testing.T) {
 	if len(bridge.modelSets) != 0 {
 		t.Fatalf("modelSets = %#v, want none", bridge.modelSets)
 	}
+}
+
+func firstLines(text string, count int) string {
+	lines := strings.Split(text, "\n")
+	if count > len(lines) {
+		count = len(lines)
+	}
+	return strings.Join(lines[:count], "\n")
 }

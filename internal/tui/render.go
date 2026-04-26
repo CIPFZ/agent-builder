@@ -184,13 +184,18 @@ func (r renderer) renderLayout(m Model, width int) string {
 func (r renderer) renderScreen(snapshot renderSnapshot) string {
 	var b strings.Builder
 	b.WriteString(r.renderHeader(snapshot))
+	if snapshot.Dialog != nil {
+		b.WriteString(r.renderTranscript(snapshot))
+		b.WriteString(r.renderDialog(snapshot))
+		if snapshot.Actions.Active {
+			b.WriteString(r.renderMessageActionsBar(snapshot))
+		}
+		return b.String()
+	}
 	b.WriteString(r.renderTranscript(snapshot))
 	b.WriteString(r.renderPrompt(snapshot))
 	if snapshot.Approval != nil {
 		b.WriteString(r.renderApprovalDialog(snapshot))
-	}
-	if snapshot.Dialog != nil {
-		b.WriteString(r.renderDialog(snapshot))
 	}
 	if snapshot.Actions.Active {
 		b.WriteString(r.renderMessageActionsBar(snapshot))
@@ -988,7 +993,14 @@ func (snapshot renderSnapshot) transcriptVisibleLines() int {
 	if snapshot.Height <= 0 || snapshot.Viewport.ShowAllHistory {
 		return 0
 	}
-	visible := snapshot.Height - headerLineCount - snapshot.promptVisibleLines()
+	reserved := headerLineCount + snapshot.promptVisibleLines()
+	if snapshot.Dialog != nil {
+		reserved = headerLineCount + snapshot.dialogVisibleLines()
+	}
+	visible := snapshot.Height - reserved - 1
+	if snapshot.Dialog != nil && visible < 1 {
+		return 1
+	}
 	if visible < 3 {
 		return 3
 	}
@@ -1007,6 +1019,20 @@ func (snapshot renderSnapshot) promptVisibleLines() int {
 		lines += len(snapshot.Input.Suggestions)
 	}
 	return lines
+}
+
+func (snapshot renderSnapshot) dialogVisibleLines() int {
+	if snapshot.Dialog == nil {
+		return 0
+	}
+	return renderedLineCount(newRenderer().renderDialog(snapshot))
+}
+
+func renderedLineCount(rendered string) int {
+	if rendered == "" {
+		return 0
+	}
+	return strings.Count(rendered, "\n")
 }
 
 func (snapshot renderSnapshot) viewportStatusLine(width int, effectiveOffset int) string {
