@@ -176,6 +176,77 @@ func TestHelpDialogListsOnlyImplementedLocalCommandDescriptions(t *testing.T) {
 	}
 }
 
+func TestAllRegisteredSlashCommandsRunLocallyAndRenderExpectedState(t *testing.T) {
+	tests := []struct {
+		input     string
+		want      string
+		wantClear bool
+	}{
+		{input: "/help", want: "Commands"},
+		{input: "/keybindings", want: "Keybindings"},
+		{input: "/keys", want: "Keybindings"},
+		{input: "/shortcuts", want: "Keybindings"},
+		{input: "/open", want: "Quick Open"},
+		{input: "/search", want: "Global Search"},
+		{input: "/grep", want: "Global Search"},
+		{input: "/find", want: "Global Search"},
+		{input: "/clear", wantClear: true},
+		{input: "/reset", wantClear: true},
+		{input: "/new", wantClear: true},
+		{input: "/model", want: "Model"},
+		{input: "/context", want: "Context Usage"},
+		{input: "/mcp", want: "MCP"},
+		{input: "/session", want: "Session"},
+		{input: "/tasks", want: "Tasks"},
+		{input: "/agents", want: "Tasks"},
+		{input: "/resume", want: "Resume session"},
+		{input: "/continue", want: "Resume session"},
+		{input: "/compact", want: "Compaction"},
+		{input: "/debug", want: "Diagnostics"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			bridge := &fakeBridge{
+				contextStatus: contextSnapshot{
+					Model:               "test-model",
+					UsedTokens:          1,
+					ContextWindowTokens: 10,
+					UsagePercent:        10,
+				},
+			}
+			model := NewModel(bridge)
+			model.setSize(80, 20)
+			model.transcript = []transcriptEntry{{Role: "assistant", Content: "existing message"}}
+			model.input = tt.input
+			model.cursorPos = len([]rune(model.input))
+
+			updated, cmd := model.Update(testKey(keyEnter))
+			model = updated.(Model)
+
+			if cmd != nil {
+				t.Fatalf("cmd = %v, want nil for local command", cmd)
+			}
+			if len(bridge.sent) != 0 {
+				t.Fatalf("sent = %#v, want no runtime message", bridge.sent)
+			}
+			if tt.wantClear {
+				if len(model.transcript) != 0 {
+					t.Fatalf("transcript = %#v, want cleared", model.transcript)
+				}
+				if len(model.events) == 0 || model.events[len(model.events)-1] != "conversation cleared" {
+					t.Fatalf("events = %#v, want trailing conversation cleared", model.events)
+				}
+				return
+			}
+			view := firstLines(model.viewContent(), model.height)
+			if !contains(view, tt.want) {
+				t.Fatalf("visible view missing %q for %s: %q", tt.want, tt.input, view)
+			}
+		})
+	}
+}
+
 func TestSlashClearAliasesUseLocalClearCommand(t *testing.T) {
 	for _, input := range []string{"/reset", "/new"} {
 		bridge := &fakeBridge{}
