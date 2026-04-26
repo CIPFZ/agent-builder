@@ -38,7 +38,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case RuntimeEventMsg:
 		if m.store != nil {
 			before := len(m.transcript)
-			m.applyStoreSnapshot(m.store.applyEvent(typed.Event))
+			m.applyStoreSnapshot(m.store.snapshot())
 			if len(m.transcript) > before {
 				m.noteTranscriptAppended()
 			}

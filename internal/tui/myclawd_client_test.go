@@ -227,7 +227,7 @@ func TestModelUpdateWithStoreBackedClientEventShowsApproval(t *testing.T) {
 	model := NewModel(&fakeBridge{}, ModelConfig{LLMLabel: "test-model"})
 	model.bindStore(store)
 
-	updated, _ := model.Update(RuntimeEventMsg{Event: clientEvent{
+	event := clientEvent{
 		Type: "permission.required",
 		Tool: &clientToolEvent{
 			Approval: &clientApproval{
@@ -238,7 +238,9 @@ func TestModelUpdateWithStoreBackedClientEventShowsApproval(t *testing.T) {
 				Status:    "pending",
 			},
 		},
-	}})
+	}
+	store.applyEvent(event)
+	updated, _ := model.Update(RuntimeEventMsg{Event: event})
 	model = updated.(Model)
 
 	if model.pendingApproval == nil || model.pendingApproval.ID != "approval-1" {
@@ -246,6 +248,28 @@ func TestModelUpdateWithStoreBackedClientEventShowsApproval(t *testing.T) {
 	}
 	if !model.approvalDialog.active() {
 		t.Fatal("approval dialog should be active")
+	}
+}
+
+func TestModelUpdateWithStoreBackedClientEventDoesNotApplyEventTwice(t *testing.T) {
+	store := newClientStore()
+	model := NewModel(&fakeBridge{}, ModelConfig{LLMLabel: "test-model"})
+	model.bindStore(store)
+
+	event := clientEvent{
+		Type:    "assistant.delta",
+		Message: &clientMessage{Role: "assistant", Content: "Hello"},
+	}
+	store.applyEvent(event)
+
+	updated, _ := model.Update(RuntimeEventMsg{Event: event})
+	model = updated.(Model)
+
+	if len(model.transcript) != 1 {
+		t.Fatalf("transcript = %#v, want one assistant entry", model.transcript)
+	}
+	if model.transcript[0].Content != "Hello" {
+		t.Fatalf("assistant content = %q, want Hello", model.transcript[0].Content)
 	}
 }
 
