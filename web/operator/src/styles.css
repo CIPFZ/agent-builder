@@ -372,7 +372,7 @@ input {
   left: 22px;
   display: flex;
   align-items: center;
-  gap: 60px;
+  gap: 28px;
 }
 
 .floating-brand-mark {
@@ -384,15 +384,15 @@ input {
 }
 
 .floating-action-pill {
-  height: 56px;
-  padding: 0 14px;
+  height: 52px;
+  padding: 0 12px;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   border: 1px solid #e6eaf0;
   border-radius: 999px;
   background: #ffffff;
-  box-shadow: 0 12px 30px rgba(17, 24, 39, 0.1);
+  box-shadow: 0 10px 24px rgba(17, 24, 39, 0.09);
 }
 
 .floating-action-button {
