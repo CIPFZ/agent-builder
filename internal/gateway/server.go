@@ -450,30 +450,55 @@ func (s *Server) handleClient(client *Client) error {
 				}
 				continue
 			}
-			if targetSession.ID == client.SessionID() {
-				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, "active session cannot be deleted")); err != nil {
-					return err
+				activeSession := session.Session{}
+				deletedActiveSession := false
+				if targetSession.ID == client.SessionID() {
+					if targetSession.IsMain {
+						if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, "main session cannot be deleted")); err != nil {
+							return err
+						}
+						continue
+					}
+					deletedActiveSession = true
+					activeSession = s.sessionManager.GetOrCreateMain(targetSession.AgentID)
+					sess = activeSession
+					client.BindSession(activeSession.ID, activeSession.Key)
+				} else if current, ok := s.sessionManager.GetByID(client.SessionID()); ok {
+					activeSession = current
 				}
-				continue
-			}
-			if err := s.sessionManager.DeleteSession(targetSession.ID); err != nil {
-				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
-					return err
+				if err := s.sessionManager.DeleteSession(targetSession.ID); err != nil {
+					if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+						return err
+					}
+					continue
 				}
-				continue
-			}
-			if err := client.WriteJSON(protocolws.Message{
-				Type: protocolws.TypeResponse,
-				ID:   inbound.ID,
-				OK:   true,
-				Payload: map[string]any{
+				payload := map[string]any{
 					"session_id":  targetSession.ID,
 					"session_key": targetSession.Key,
 					"status":      "deleted",
-				},
-			}); err != nil {
-				return err
-			}
+				}
+				if activeSession.ID != "" {
+					payload["active_session_id"] = activeSession.ID
+					payload["active_session_key"] = activeSession.Key
+				}
+				if err := client.WriteJSON(protocolws.Message{
+					Type: protocolws.TypeResponse,
+					ID:   inbound.ID,
+					OK:   true,
+					Payload: payload,
+				}); err != nil {
+					return err
+				}
+				if deletedActiveSession && activeSession.ID != "" {
+					if err := client.WriteJSON(protocolws.EventMessage(protocolws.EventHello, map[string]any{
+						"client_id":   client.ID(),
+						"session_id":  activeSession.ID,
+						"session_key": activeSession.Key,
+						"agent_id":    activeSession.AgentID,
+					})); err != nil {
+						return err
+					}
+				}
 		case protocolws.MethodMCPStatus:
 			statusPayload, err := parseMCPStatusPayload(inbound.Payload)
 			if err != nil {

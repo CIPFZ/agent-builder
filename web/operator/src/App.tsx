@@ -200,6 +200,7 @@ export function App() {
   }
 
   async function connect(sessionKey?: string): Promise<MyclawdClient | null> {
+    const requestedSessionKey = sessionKey ?? state.activeSessionKey ?? state.session.session_key;
     dispatch({ type: "connection/connecting", endpoint });
     setBootstrapWarnings([]);
     client?.disconnect();
@@ -212,13 +213,13 @@ export function App() {
         role: "sdk",
         client_identity: "react-operator-ui",
         agent_id: "main",
-        ...(sessionKey ? { session_key: sessionKey } : {}),
+        ...(requestedSessionKey ? { session_key: requestedSessionKey } : {}),
         supports_permission_control: true,
       });
       setClient(nextClient);
       dispatch({ type: "connection/connected", endpoint });
       message.success("Connected to myclawd");
-      await bootstrapRuntime(nextClient, sessionKey);
+      await bootstrapRuntime(nextClient, requestedSessionKey);
       return nextClient;
     } catch (error) {
       dispatch({ type: "connection/error", error: error instanceof Error ? error.message : "connect failed" });
@@ -269,17 +270,39 @@ export function App() {
     if (!client) {
       return;
     }
-    if (sessionKey === activeSession) {
-      message.warning("Switch to another session before deleting this one");
+    const target = state.sessions.find((item) => item.session_key === sessionKey);
+    if (target?.is_main) {
+      message.warning("Main session cannot be deleted");
       return;
     }
-    await client.request("session_delete", { session_key: sessionKey });
-    const list = await client.request("session_list");
-    dispatch({
-      type: "sessions/list",
-      payload: (((list.payload ?? {}) as { sessions?: SessionSummary[] }).sessions ?? []),
-    });
-    message.success("Session deleted");
+    try {
+      const deleted = await client.request("session_delete", { session_key: sessionKey });
+      const deletePayload = (deleted.payload ?? {}) as { active_session_key?: string };
+      const list = await client.request("session_list");
+      const sessions = (((list.payload ?? {}) as { sessions?: SessionSummary[] }).sessions ?? []);
+      dispatch({
+        type: "sessions/list",
+        payload: sessions,
+      });
+      const fallbackSessionKey =
+        deletePayload.active_session_key ??
+        sessions.find((item) => item.session_key !== sessionKey)?.session_key;
+      if (sessionKey === activeSession && fallbackSessionKey) {
+        dispatch({ type: "session/activate", sessionKey: fallbackSessionKey });
+        const status = await client.request("session_status", { session_key: fallbackSessionKey });
+        dispatch({ type: "session/status", payload: (status.payload ?? {}) as never });
+        const messages = await client.request("session_messages", { session_key: fallbackSessionKey });
+        const messagesPayload = (messages.payload ?? {}) as { session_key?: string; messages?: TranscriptMessage[] };
+        dispatch({
+          type: "session/messages",
+          sessionKey: messagesPayload.session_key ?? fallbackSessionKey,
+          payload: messagesPayload.messages ?? [],
+        });
+      }
+      message.success("Session deleted");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "delete session failed");
+    }
   }
 
   function confirmDeleteSession(sessionKey: string) {
@@ -514,7 +537,7 @@ export function App() {
                     label: "Delete",
                     danger: true,
                     icon: <DeleteOutlined />,
-                    disabled: conversation.key === activeSession,
+                    disabled: state.sessions.find((item) => item.session_key === conversation.key)?.is_main,
                   },
                 ],
                 onClick: ({ key, domEvent }) => {

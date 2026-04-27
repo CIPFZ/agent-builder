@@ -390,7 +390,54 @@ func TestGatewayDeletesNonActiveSession(t *testing.T) {
 	}
 }
 
-func TestGatewayRejectsDeletingActiveSession(t *testing.T) {
+func TestGatewayAllowsDeletingActiveNonMainSession(t *testing.T) {
+	manager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), manager, llm.NewMockClient())
+	conn := connectGatewayTestClient(t, server)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:    protocolws.TypeRequest,
+		ID:      "create-active-session",
+		Method:  protocolws.MethodSessionNew,
+		Payload: map[string]any{},
+	}); err != nil {
+		t.Fatalf("write session_new: %v", err)
+	}
+	createResponse := readGatewayResponse(t, conn)
+	if !createResponse.OK {
+		t.Fatalf("session_new response = %#v, want ok", createResponse)
+	}
+	newSessionKey, _ := createResponse.Payload["session_key"].(string)
+	_ = waitForEvent(t, conn, protocolws.EventHello)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "delete-active-session",
+		Method: protocolws.MethodSessionDelete,
+		Payload: map[string]any{
+			"session_key": newSessionKey,
+		},
+	}); err != nil {
+		t.Fatalf("write active non-main session_delete: %v", err)
+	}
+	deleteResponse := readGatewayResponse(t, conn)
+	if !deleteResponse.OK {
+		t.Fatalf("active non-main session_delete response = %#v, want ok", deleteResponse)
+	}
+	if _, ok := manager.GetByKey(newSessionKey); ok {
+		t.Fatalf("deleted active session %s still exists", newSessionKey)
+	}
+	activeSessionKey, _ := deleteResponse.Payload["active_session_key"].(string)
+	if activeSessionKey == "" || activeSessionKey == newSessionKey {
+		t.Fatalf("active_session_key = %q, want fallback session", activeSessionKey)
+	}
+	hello := waitForEvent(t, conn, protocolws.EventHello)
+	if hello.Payload["session_key"] != activeSessionKey {
+		t.Fatalf("delete active hello session_key = %v, want %s", hello.Payload["session_key"], activeSessionKey)
+	}
+}
+
+func TestGatewayRejectsDeletingMainSession(t *testing.T) {
 	manager := session.NewManager(nil)
 	server := NewServer(log.New(io.Discard, "", 0), manager, llm.NewMockClient())
 	conn := connectGatewayTestClient(t, server)
@@ -398,20 +445,20 @@ func TestGatewayRejectsDeletingActiveSession(t *testing.T) {
 	main := manager.GetOrCreateMain("main")
 	if err := conn.WriteJSON(protocolws.Message{
 		Type:   protocolws.TypeRequest,
-		ID:     "delete-active-session",
+		ID:     "delete-main-session",
 		Method: protocolws.MethodSessionDelete,
 		Payload: map[string]any{
 			"session_key": main.Key,
 		},
 	}); err != nil {
-		t.Fatalf("write active session_delete: %v", err)
+		t.Fatalf("write main session_delete: %v", err)
 	}
 	deleteResponse := readGatewayResponse(t, conn)
 	if deleteResponse.OK {
-		t.Fatalf("active session_delete response = %#v, want error", deleteResponse)
+		t.Fatalf("main session_delete response = %#v, want error", deleteResponse)
 	}
-	if deleteResponse.Error == nil || deleteResponse.Error.Message != "active session cannot be deleted" {
-		t.Fatalf("active session_delete error = %#v", deleteResponse.Error)
+	if deleteResponse.Error == nil || deleteResponse.Error.Message != "main session cannot be deleted" {
+		t.Fatalf("main session_delete error = %#v", deleteResponse.Error)
 	}
 }
 
