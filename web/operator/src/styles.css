@@ -218,9 +218,46 @@ input {
 
 .session-list .ant-conversations-label {
   min-width: 0;
+  width: 100%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.session-item-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.session-item-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.session-item-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 8px;
+  color: #8f8b84;
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.session-item-delete:hover {
+  color: #ef4444;
+  background: #fee2e2;
 }
 
 .session-list .ant-conversations-menu-icon {
@@ -230,6 +267,8 @@ input {
   margin-inline-start: 6px;
 }
 
+.session-list .ant-conversations-item:hover .session-item-delete,
+.session-list .ant-conversations-item-active .session-item-delete,
 .session-list .ant-conversations-item:hover .ant-conversations-menu-icon,
 .session-list .ant-conversations-item-active .ant-conversations-menu-icon {
   opacity: 1;

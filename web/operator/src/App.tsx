@@ -59,6 +59,7 @@ export function App() {
   const [toolDrawer, setToolDrawer] = useState<string | null>(null);
   const [bootstrapWarnings, setBootstrapWarnings] = useState<string[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [deleteTargetKey, setDeleteTargetKey] = useState<string | null>(null);
   const { message } = AntApp.useApp();
 
   useEffect(() => {
@@ -130,15 +131,36 @@ export function App() {
   const activeSession = state.activeSessionKey ?? state.session.session_key ?? "current";
   const activeSessionSummary = state.sessions.find((item) => item.session_key === activeSession);
   const activeTitle = activeSessionSummary?.title ?? (state.session.session_id ? "Your first chat with myclaw" : "New operator session");
+  const deleteTarget = deleteTargetKey ? state.sessions.find((item) => item.session_key === deleteTargetKey) : undefined;
 
   const sessionItems = useMemo(
     () =>
       state.sessions.length > 0
-        ? state.sessions.map((session) => ({
+        ? state.sessions.map((session) => {
+            const title = session.title ?? session.last_user_message ?? (session.is_main ? "Main session" : "New chat");
+            return {
             key: session.session_key,
-            label: session.title ?? session.last_user_message ?? (session.is_main ? "Main session" : "New chat"),
+            label: (
+              <span className="session-item-content">
+                <span className="session-item-title">{title}</span>
+                {!session.is_main ? (
+                  <button
+                    className="session-item-delete"
+                    type="button"
+                    aria-label={`Delete ${title}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      confirmDeleteSession(session.session_key);
+                    }}
+                  >
+                    <DeleteOutlined />
+                  </button>
+                ) : null}
+              </span>
+            ),
             group: "今天",
-          }))
+            };
+          })
         : [
             {
               key: activeSession,
@@ -307,13 +329,11 @@ export function App() {
 
   function confirmDeleteSession(sessionKey: string) {
     const target = state.sessions.find((item) => item.session_key === sessionKey);
-    Modal.confirm({
-      title: "Delete conversation?",
-      content: target?.title ?? target?.last_user_message ?? "This conversation will be removed.",
-      okText: "Delete",
-      okButtonProps: { danger: true },
-      onOk: () => deleteSession(sessionKey),
-    });
+    if (target?.is_main) {
+      message.warning("Main session cannot be deleted");
+      return;
+    }
+    setDeleteTargetKey(sessionKey);
   }
 
   async function sendPrompt(value = prompt) {
@@ -530,23 +550,6 @@ export function App() {
               items={sessionItems}
               activeKey={activeSession}
               groupable
-              menu={(conversation) => ({
-                items: [
-                  {
-                    key: "delete",
-                    label: "Delete",
-                    danger: true,
-                    icon: <DeleteOutlined />,
-                    disabled: state.sessions.find((item) => item.session_key === conversation.key)?.is_main,
-                  },
-                ],
-                onClick: ({ key, domEvent }) => {
-                  domEvent.stopPropagation();
-                  if (key === "delete") {
-                    confirmDeleteSession(conversation.key);
-                  }
-                },
-              })}
               onActiveChange={activateSession}
             />
           </section>
@@ -698,6 +701,23 @@ export function App() {
           </Space>
         ) : null}
       </Drawer>
+
+      <Modal
+        open={Boolean(deleteTargetKey)}
+        title="Delete conversation?"
+        okText="Delete"
+        okButtonProps={{ danger: true }}
+        onCancel={() => setDeleteTargetKey(null)}
+        onOk={async () => {
+          if (!deleteTargetKey) {
+            return;
+          }
+          await deleteSession(deleteTargetKey);
+          setDeleteTargetKey(null);
+        }}
+      >
+        {deleteTarget?.title ?? deleteTarget?.last_user_message ?? "This conversation will be removed."}
+      </Modal>
 
       <div className="sr-state">
         tools {toolRows.length}, approvals {approvalRows.length}, subagents {subagentRows.length}
