@@ -1011,3 +1011,15 @@ func TestGlobalSearchTabAndShiftTabInsertMatchReference(t *testing.T) {
 		t.Fatalf("input after shift-tab = %q, want path insert", model.input)
 	}
 }
+
+func TestSlashCommandMetadataIncludesRuntimeRegistryCommands(t *testing.T) {
+	for _, want := range []string{"/permissions", "/memory", "/status"} {
+		if !stringInSlice(want, slashCommands) {
+			t.Fatalf("slashCommands missing shared runtime command %s: %#v", want, slashCommands)
+		}
+	}
+	parsed, ok := parseLocalSlashCommand("/status summarize runtime")
+	if !ok || parsed.Spec.Name != "status" || parsed.Args != "summarize runtime" {
+		t.Fatalf("parsed status = %#v/%v, want shared runtime command with args", parsed, ok)
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	runtimecommands "myclaw/internal/commands"
 )
 
 type slashCommandSpec struct {
@@ -13,20 +15,50 @@ type slashCommandSpec struct {
 	ArgumentHint string
 }
 
-var localSlashCommandSpecs = []slashCommandSpec{
-	{Name: "help", Description: "Show this command reference"},
+var localSlashCommandSpecs = buildLocalSlashCommandSpecs()
+
+var tuiOnlySlashCommandSpecs = []slashCommandSpec{
 	{Name: "keybindings", Description: "Show keybinding reference", Aliases: []string{"keys", "shortcuts"}},
 	{Name: "open", Description: "Quick open commands, sessions, tasks, and MCP"},
 	{Name: "search", Description: "Search workspace file contents", Aliases: []string{"grep", "find"}},
 	{Name: "clear", Description: "Clear visible conversation", Aliases: []string{"reset", "new"}},
-	{Name: "model", Description: "Show model options"},
 	{Name: "context", Description: "Show current context usage"},
-	{Name: "mcp", Description: "Show MCP server status"},
 	{Name: "session", Description: "Show session details"},
-	{Name: "tasks", Description: "Show delegated task workbench", Aliases: []string{"agents"}},
-	{Name: "resume", Description: "Resume a previous session", Aliases: []string{"continue"}},
-	{Name: "compact", Description: "Run manual compaction or microcompact tool output", ArgumentHint: "<optional custom summarization instructions>"},
 	{Name: "debug", Description: "Show diagnostics"},
+}
+
+func buildLocalSlashCommandSpecs() []slashCommandSpec {
+	registry := runtimecommands.NewDefaultRegistry()
+	metadata := registry.List(runtimecommands.Context{
+		PermissionMode:       "default",
+		HasMemory:            true,
+		HasResumableSessions: true,
+		HasTasks:             true,
+		HasMCP:               true,
+	})
+	specs := make([]slashCommandSpec, 0, len(metadata)+len(tuiOnlySlashCommandSpecs))
+	seen := make(map[string]struct{}, len(metadata)+len(tuiOnlySlashCommandSpecs))
+	for _, command := range metadata {
+		spec := slashCommandSpec{
+			Name:         command.Name,
+			Description:  command.Description,
+			Aliases:      append([]string(nil), command.Aliases...),
+			ArgumentHint: command.ArgumentHint,
+		}
+		if command.Name == "compact" {
+			spec.Description = "Run manual compaction or microcompact tool output"
+			spec.ArgumentHint = "<optional custom summarization instructions>"
+		}
+		specs = append(specs, spec)
+		seen[spec.Name] = struct{}{}
+	}
+	for _, command := range tuiOnlySlashCommandSpecs {
+		if _, ok := seen[command.Name]; ok {
+			continue
+		}
+		specs = append(specs, command)
+	}
+	return specs
 }
 
 var slashCommands = slashCommandNames(localSlashCommandSpecs)
