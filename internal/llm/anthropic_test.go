@@ -216,3 +216,130 @@ func TestBuildAnthropicMessagesConvertsAssistantToolUseAndToolResultHistory(t *t
 		t.Fatalf("tool result content = %#v, want linked tool result", messages[1].Content[0])
 	}
 }
+
+func TestBuildAnthropicMessagesRemovesOrphanToolResultHistory(t *testing.T) {
+	req := GenerateRequest{
+		Session:     session.Session{ID: "sess-1", Key: "main", AgentID: "main"},
+		UserMessage: session.Message{ID: "user-2", SessionID: "sess-1", Role: "user", Content: "continue", CreatedAt: time.Now().UTC()},
+		History: []session.Message{
+			{
+				ID:        "tool-1",
+				SessionID: "sess-1",
+				Role:      "tool",
+				Content:   "orphan",
+				Blocks:    []model.MessageBlock{{Type: model.MessageBlockToolResult, ToolUseID: "toolu-orphan", Content: "orphan"}},
+			},
+		},
+		Context: prompt.Context{SystemPrompt: "system", UserInput: "continue"},
+	}
+
+	messages := buildAnthropicMessages(req)
+
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			if block.Type == "tool_result" {
+				t.Fatalf("messages = %#v, want orphan tool_result removed", messages)
+			}
+		}
+	}
+}
+
+func TestBuildAnthropicMessagesRemovesToolResultAfterAssistantWithoutToolUse(t *testing.T) {
+	req := GenerateRequest{
+		Session:     session.Session{ID: "sess-1", Key: "main", AgentID: "main"},
+		UserMessage: session.Message{ID: "user-2", SessionID: "sess-1", Role: "user", Content: "continue", CreatedAt: time.Now().UTC()},
+		History: []session.Message{
+			{
+				ID:        "assistant-1",
+				SessionID: "sess-1",
+				Role:      "assistant",
+				Content:   "plain response",
+			},
+			{
+				ID:        "tool-1",
+				SessionID: "sess-1",
+				Role:      "tool",
+				Blocks:    []model.MessageBlock{{Type: model.MessageBlockToolResult, ToolUseID: "toolu-orphan", Content: "orphan"}},
+			},
+		},
+		Context: prompt.Context{SystemPrompt: "system", UserInput: "continue"},
+	}
+
+	messages := buildAnthropicMessages(req)
+
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			if block.Type == "tool_result" {
+				t.Fatalf("messages = %#v, want tool_result after assistant without tool_use removed", messages)
+			}
+		}
+	}
+}
+
+func TestBuildAnthropicMessagesAddsSyntheticResultForMissingToolResult(t *testing.T) {
+	req := GenerateRequest{
+		Session:     session.Session{ID: "sess-1", Key: "main", AgentID: "main"},
+		UserMessage: session.Message{ID: "user-2", SessionID: "sess-1", Role: "user", Content: "continue", CreatedAt: time.Now().UTC()},
+		History: []session.Message{
+			{
+				ID:        "assistant-1",
+				SessionID: "sess-1",
+				Role:      "assistant",
+				Blocks: []model.MessageBlock{
+					{Type: model.MessageBlockToolUse, ID: "toolu-1", Name: "system.run", InputObject: map[string]any{"command": "pwd"}},
+				},
+			},
+		},
+		Context: prompt.Context{SystemPrompt: "system", UserInput: "continue"},
+	}
+
+	messages := buildAnthropicMessages(req)
+
+	if len(messages) < 2 || messages[1].Role != "user" || len(messages[1].Content) != 1 {
+		t.Fatalf("messages = %#v, want synthetic user tool_result after assistant", messages)
+	}
+	result := messages[1].Content[0]
+	if result.Type != "tool_result" || result.ToolUseID != "toolu-1" || result.Content != syntheticToolResultPlaceholder {
+		t.Fatalf("synthetic result = %#v, want missing-result placeholder for toolu-1", result)
+	}
+}
+
+func TestBuildAnthropicMessagesDeduplicatesToolUseAndToolResultIDs(t *testing.T) {
+	req := GenerateRequest{
+		Session:     session.Session{ID: "sess-1", Key: "main", AgentID: "main"},
+		UserMessage: session.Message{ID: "user-2", SessionID: "sess-1", Role: "user", Content: "continue", CreatedAt: time.Now().UTC()},
+		History: []session.Message{
+			{
+				ID:        "assistant-1",
+				SessionID: "sess-1",
+				Role:      "assistant",
+				Blocks: []model.MessageBlock{
+					{Type: model.MessageBlockToolUse, ID: "toolu-1", Name: "system.run", InputObject: map[string]any{"command": "pwd"}},
+					{Type: model.MessageBlockToolUse, ID: "toolu-1", Name: "system.run", InputObject: map[string]any{"command": "pwd"}},
+				},
+			},
+			{
+				ID:        "tool-1",
+				SessionID: "sess-1",
+				Role:      "tool",
+				Blocks:    []model.MessageBlock{{Type: model.MessageBlockToolResult, ToolUseID: "toolu-1", Content: "first"}},
+			},
+			{
+				ID:        "tool-2",
+				SessionID: "sess-1",
+				Role:      "tool",
+				Blocks:    []model.MessageBlock{{Type: model.MessageBlockToolResult, ToolUseID: "toolu-1", Content: "second"}},
+			},
+		},
+		Context: prompt.Context{SystemPrompt: "system", UserInput: "continue"},
+	}
+
+	messages := buildAnthropicMessages(req)
+
+	if len(messages[0].Content) != 1 || messages[0].Content[0].Type != "tool_use" {
+		t.Fatalf("assistant content = %#v, want one tool_use", messages[0].Content)
+	}
+	if len(messages) < 2 || len(messages[1].Content) != 1 || messages[1].Content[0].Content != "first" {
+		t.Fatalf("tool result messages = %#v, want first result only", messages)
+	}
+}

@@ -201,6 +201,7 @@ func (s *clientStore) applyEvent(event clientEvent) clientStoreSnapshot {
 		s.approval = nil
 		s.activity.Label = "Idle"
 	case "run.error":
+		s.approval = nil
 		if event.Error != "" {
 			s.diagnostics.LastError = event.Error
 			s.activity.Label = "Run error"
@@ -340,6 +341,7 @@ func (s *clientStore) applyBridgeError(err error) clientStoreSnapshot {
 	if err != nil {
 		s.events = append(s.events, "error: "+err.Error())
 		s.busy = false
+		s.approval = nil
 		s.diagnostics.LastError = err.Error()
 	}
 	return clientStoreSnapshot{

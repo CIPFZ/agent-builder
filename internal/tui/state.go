@@ -142,6 +142,11 @@ func (s *tuiState) rejectPending() (string, bool) {
 	return id, true
 }
 
+func (s *tuiState) clearPendingApproval() {
+	s.pendingApproval = nil
+	s.approvalDialog.close()
+}
+
 func (s *tuiState) applyBridgeError(err error) {
 	if s.store != nil {
 		s.applyStoreSnapshot(s.store.applyBridgeError(err))
@@ -150,6 +155,7 @@ func (s *tuiState) applyBridgeError(err error) {
 	if err == nil {
 		return
 	}
+	s.clearPendingApproval()
 	s.events = append(s.events, "error: "+err.Error())
 	s.busy = false
 	s.diagnostics.LastError = err.Error()
@@ -233,9 +239,9 @@ func (s *tuiState) applyRuntimeEvent(event clientEvent) {
 		}
 		s.busy = false
 	case "approval.updated":
-		s.pendingApproval = nil
-		s.approvalDialog.close()
+		s.clearPendingApproval()
 	case "run.error":
+		s.clearPendingApproval()
 		if event.Error != "" {
 			s.diagnostics.LastError = event.Error
 			s.activity.Label = "Run error"

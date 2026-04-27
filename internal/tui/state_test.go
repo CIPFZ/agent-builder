@@ -165,6 +165,18 @@ func TestTUIStateBridgeErrorTracksDiagnosticsAndClearsBusy(t *testing.T) {
 	}
 }
 
+func TestTUIStateBridgeErrorClearsPendingApproval(t *testing.T) {
+	state := newTUIState()
+	request := &approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd"}
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: request}))
+
+	state.applyBridgeError(assertErr("boom"))
+
+	if state.pendingApproval != nil || state.approvalDialog.active() {
+		t.Fatalf("approval state = pending %#v active %v, want cleared", state.pendingApproval, state.approvalDialog.active())
+	}
+}
+
 func TestTUIStateRuntimeReducerHandlesAssistantAndToolLifecycle(t *testing.T) {
 	state := newTUIState()
 
@@ -277,6 +289,18 @@ func TestTUIStateIgnoresDuplicateRunError(t *testing.T) {
 	}
 }
 
+func TestTUIStateRunErrorClearsPendingApproval(t *testing.T) {
+	state := newTUIState()
+	request := &approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd"}
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: request}))
+
+	state.applyRuntimeEvent(clientEvent{Type: "run.error", Error: "model connection failed"})
+
+	if state.pendingApproval != nil || state.approvalDialog.active() {
+		t.Fatalf("approval state = pending %#v active %v, want cleared", state.pendingApproval, state.approvalDialog.active())
+	}
+}
+
 func TestClientStoreIgnoresDuplicateRunError(t *testing.T) {
 	store := newClientStore()
 
@@ -288,5 +312,26 @@ func TestClientStoreIgnoresDuplicateRunError(t *testing.T) {
 	}
 	if snapshot.Transcript[0].Kind != messageKindError || snapshot.Transcript[0].Content != "model connection failed" {
 		t.Fatalf("error entry = %#v, want model connection failed", snapshot.Transcript[0])
+	}
+}
+
+func TestClientStoreRunErrorClearsPendingApproval(t *testing.T) {
+	store := newClientStore()
+	snapshot := store.applyEvent(clientEvent{
+		Type: "permission.required",
+		Tool: &clientToolEvent{Approval: &clientApproval{
+			ID:        "approval-1",
+			ToolName:  "system.run",
+			ToolInput: "pwd",
+		}},
+	})
+	if snapshot.Approval == nil {
+		t.Fatal("approval = nil, want pending approval before error")
+	}
+
+	snapshot = store.applyEvent(clientEvent{Type: "run.error", Error: "model connection failed"})
+
+	if snapshot.Approval != nil {
+		t.Fatalf("approval = %#v, want nil after run.error", snapshot.Approval)
 	}
 }

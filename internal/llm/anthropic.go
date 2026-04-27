@@ -143,7 +143,7 @@ func buildAnthropicMessages(req GenerateRequest) []anthropicMessage {
 			Text: req.Context.UserInput,
 		}},
 	})
-	return messages
+	return ensureAnthropicToolResultPairing(messages)
 }
 
 func buildAnthropicHistoryMessage(msg session.Message) (anthropicMessage, bool) {
@@ -201,6 +201,123 @@ func anthropicBlocksFromMessage(msg session.Message) []anthropicContentBlock {
 		}
 	}
 	return blocks
+}
+
+func ensureAnthropicToolResultPairing(messages []anthropicMessage) []anthropicMessage {
+	if len(messages) == 0 {
+		return nil
+	}
+	result := make([]anthropicMessage, 0, len(messages))
+	seenToolUseIDs := make(map[string]struct{})
+	for i := 0; i < len(messages); i++ {
+		msg := messages[i]
+		if msg.Role != "assistant" {
+			if anthropicMessageHasOnlyToolResults(msg) {
+				continue
+			}
+			result = append(result, msg)
+			continue
+		}
+
+		toolUses := dedupeAnthropicToolUseBlocks(msg.Content, seenToolUseIDs)
+		msg.Content = replaceAnthropicToolUseBlocks(msg.Content, toolUses)
+		result = append(result, msg)
+		if len(toolUses) == 0 {
+			continue
+		}
+
+		expectedIDs := make(map[string]struct{}, len(toolUses))
+		for _, block := range toolUses {
+			if block.ID != "" {
+				expectedIDs[block.ID] = struct{}{}
+			}
+		}
+		seenResults := make(map[string]struct{}, len(expectedIDs))
+		pairedResults := make([]anthropicContentBlock, 0, len(expectedIDs))
+		for i+1 < len(messages) && anthropicMessageHasOnlyToolResults(messages[i+1]) {
+			next := messages[i+1]
+			i++
+			for _, block := range next.Content {
+				if block.Type != "tool_result" {
+					continue
+				}
+				if _, ok := expectedIDs[block.ToolUseID]; !ok {
+					continue
+				}
+				if _, ok := seenResults[block.ToolUseID]; ok {
+					continue
+				}
+				seenResults[block.ToolUseID] = struct{}{}
+				pairedResults = append(pairedResults, block)
+			}
+		}
+		for _, block := range toolUses {
+			if _, ok := seenResults[block.ID]; ok {
+				continue
+			}
+			pairedResults = append(pairedResults, anthropicContentBlock{
+				Type:      "tool_result",
+				ToolUseID: block.ID,
+				Content:   syntheticToolResultPlaceholder,
+			})
+		}
+		if len(pairedResults) > 0 {
+			result = append(result, anthropicMessage{Role: "user", Content: pairedResults})
+		}
+	}
+	return result
+}
+
+func anthropicMessageHasOnlyToolResults(msg anthropicMessage) bool {
+	if msg.Role != "user" || len(msg.Content) == 0 {
+		return false
+	}
+	for _, block := range msg.Content {
+		if block.Type != "tool_result" {
+			return false
+		}
+	}
+	return true
+}
+
+func dedupeAnthropicToolUseBlocks(blocks []anthropicContentBlock, seen map[string]struct{}) []anthropicContentBlock {
+	toolUses := make([]anthropicContentBlock, 0, len(blocks))
+	local := make(map[string]struct{}, len(blocks))
+	for _, block := range blocks {
+		if block.Type != "tool_use" {
+			continue
+		}
+		if block.ID == "" {
+			toolUses = append(toolUses, block)
+			continue
+		}
+		if _, ok := seen[block.ID]; ok {
+			continue
+		}
+		if _, ok := local[block.ID]; ok {
+			continue
+		}
+		local[block.ID] = struct{}{}
+		seen[block.ID] = struct{}{}
+		toolUses = append(toolUses, block)
+	}
+	return toolUses
+}
+
+func replaceAnthropicToolUseBlocks(blocks, toolUses []anthropicContentBlock) []anthropicContentBlock {
+	out := make([]anthropicContentBlock, 0, len(blocks))
+	toolIndex := 0
+	for _, block := range blocks {
+		if block.Type != "tool_use" {
+			out = append(out, block)
+			continue
+		}
+		if toolIndex < len(toolUses) {
+			out = append(out, toolUses[toolIndex])
+			toolIndex++
+		}
+	}
+	return out
 }
 
 func buildAnthropicTools(defs []ToolDefinition) []anthropicTool {
