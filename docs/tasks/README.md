@@ -18,6 +18,7 @@ Current order:
 5. `shell-runtime-capability`
 6. `tui-client-architecture`
 7. `tui-charmbracelet-v2-migration`
+8. `react-operator-ui-console`
 
 Standard:
 

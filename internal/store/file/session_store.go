@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"myclaw/internal/model"
@@ -69,6 +70,30 @@ func (s *SessionStore) SaveSession(sess model.Session) {
 	_ = s.persistSessionsLocked()
 }
 
+func (s *SessionStore) DeleteSession(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessionsByID[sessionID]
+	if !ok {
+		return false
+	}
+	delete(s.sessionsByID, sessionID)
+	delete(s.sessionsByKey, sess.Key)
+	delete(s.messagesByID, sessionID)
+	delete(s.transcriptByID, sessionID)
+	delete(s.entriesByID, sessionID)
+	for agentID, key := range s.mainByAgentID {
+		if key == sess.Key {
+			delete(s.mainByAgentID, agentID)
+		}
+	}
+	_ = s.persistSessionsLocked()
+	_ = s.persistMainSessionsLocked()
+	_ = os.Remove(filepath.Join(s.root, "messages", sessionID+".jsonl"))
+	_ = os.Remove(filepath.Join(s.root, "messages", sessionID+".json"))
+	return true
+}
+
 func (s *SessionStore) ListSessions() []model.Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -76,6 +101,7 @@ func (s *SessionStore) ListSessions() []model.Session {
 	for _, sess := range s.sessionsByID {
 		out = append(out, sess)
 	}
+	sortSessions(out)
 	return out
 }
 
@@ -293,7 +319,30 @@ func (s *SessionStore) persistSessionsLocked() error {
 	for _, sess := range s.sessionsByID {
 		sessions = append(sessions, sess)
 	}
+	sortSessions(sessions)
 	return writeJSON(filepath.Join(s.root, "sessions.json"), sessions)
+}
+
+func sortSessions(sessions []model.Session) {
+	sort.SliceStable(sessions, func(i, j int) bool {
+		left := sessions[i]
+		right := sessions[j]
+		leftActivity := left.Metadata.LastActivityAt
+		rightActivity := right.Metadata.LastActivityAt
+		if !leftActivity.Equal(rightActivity) {
+			if leftActivity.IsZero() {
+				return false
+			}
+			if rightActivity.IsZero() {
+				return true
+			}
+			return leftActivity.After(rightActivity)
+		}
+		if left.ID != right.ID {
+			return left.ID > right.ID
+		}
+		return left.Key > right.Key
+	})
 }
 
 func (s *SessionStore) persistMainSessionsLocked() error {

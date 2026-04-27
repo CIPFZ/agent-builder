@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"sort"
 	"sync"
 
 	"myclaw/internal/model"
@@ -54,6 +55,27 @@ func (s *SessionStore) SaveSession(sess model.Session) {
 	s.sessionsByKey[sess.Key] = sess
 }
 
+func (s *SessionStore) DeleteSession(sessionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sess, ok := s.sessionsByID[sessionID]
+	if !ok {
+		return false
+	}
+	delete(s.sessionsByID, sessionID)
+	delete(s.sessionsByKey, sess.Key)
+	delete(s.messagesBySessionID, sessionID)
+	delete(s.transcriptBySessionID, sessionID)
+	delete(s.entriesBySessionID, sessionID)
+	for agentID, key := range s.mainByAgentID {
+		if key == sess.Key {
+			delete(s.mainByAgentID, agentID)
+		}
+	}
+	return true
+}
+
 func (s *SessionStore) ListSessions() []model.Session {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -62,7 +84,30 @@ func (s *SessionStore) ListSessions() []model.Session {
 	for _, sess := range s.sessionsByID {
 		sessions = append(sessions, sess)
 	}
+	sortSessions(sessions)
 	return sessions
+}
+
+func sortSessions(sessions []model.Session) {
+	sort.SliceStable(sessions, func(i, j int) bool {
+		left := sessions[i]
+		right := sessions[j]
+		leftActivity := left.Metadata.LastActivityAt
+		rightActivity := right.Metadata.LastActivityAt
+		if !leftActivity.Equal(rightActivity) {
+			if leftActivity.IsZero() {
+				return false
+			}
+			if rightActivity.IsZero() {
+				return true
+			}
+			return leftActivity.After(rightActivity)
+		}
+		if left.ID != right.ID {
+			return left.ID > right.ID
+		}
+		return left.Key > right.Key
+	})
 }
 
 func (s *SessionStore) GetMainSessionKey(agentID string) (string, bool) {

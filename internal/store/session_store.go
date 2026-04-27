@@ -6,6 +6,7 @@ type SessionStore interface {
 	GetSessionByID(id string) (model.Session, bool)
 	GetSessionByKey(key string) (model.Session, bool)
 	SaveSession(sess model.Session)
+	DeleteSession(sessionID string) bool
 	ListSessions() []model.Session
 	GetMainSessionKey(agentID string) (string, bool)
 	SaveMainSessionKey(agentID, sessionKey string)
