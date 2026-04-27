@@ -1025,7 +1025,9 @@ func (q *QueryEngine) RejectAndContinue(ctx context.Context, approvalID, feedbac
 	}
 	reply, err := q.completeWithToolResult(ctx, sess, request.RunID, sink, toolMsg)
 	if err != nil {
-		q.emitRunError(sink, Event{Type: "run.error", Session: sess, RunID: request.RunID, Error: err.Error()})
+		if !isApprovalRequiredError(err) {
+			q.emitRunError(sink, Event{Type: "run.error", Session: sess, RunID: request.RunID, Error: err.Error()})
+		}
 		return err
 	}
 	return q.emit(sink, Event{

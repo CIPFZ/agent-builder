@@ -33,6 +33,14 @@ type orchestrationHook struct {
 	events []orchestration.Event
 }
 
+func TestShouldSuppressContinuationRunErrorForApprovalRequired(t *testing.T) {
+	err := &queryengine.ApprovalRequiredError{ToolName: "Bash", Reason: "needs approval"}
+
+	if !shouldSuppressContinuationRunError(err) {
+		t.Fatalf("shouldSuppressContinuationRunError(%v) = false, want true", err)
+	}
+}
+
 type permissionHookFunc func(context.Context, queryengine.PermissionHookRequest) (permissions.Decision, bool, error)
 
 func (f permissionHookFunc) CheckPermission(ctx context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {

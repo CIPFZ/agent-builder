@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -59,6 +60,11 @@ type Options struct {
 	LLMProvider               string
 	MCPClients                []tools.MCPConnection
 	DisableMCPPromptSkills    bool
+}
+
+func shouldSuppressContinuationRunError(err error) bool {
+	var approvalErr *queryengine.ApprovalRequiredError
+	return errors.As(err, &approvalErr)
 }
 
 func NewServer(logger *log.Logger, sessionManager *session.Manager, llmClient llm.Client) *Server {
@@ -1156,6 +1162,9 @@ func (s *Server) handleClient(client *Client) error {
 			if inbound.Method == protocolws.MethodApprovalApprove {
 				go func() {
 					if err := s.runner.ApproveAndContinue(context.Background(), approvalID, runtimeSink{client: client}); err != nil {
+						if shouldSuppressContinuationRunError(err) {
+							return
+						}
 						_ = client.WriteJSON(protocolws.EventMessage("run.error", map[string]any{
 							"run_id":     updated.RunID,
 							"session_id": updated.SessionID,
@@ -1166,6 +1175,9 @@ func (s *Server) handleClient(client *Client) error {
 			} else if strings.TrimSpace(rejectFeedback) != "" || contentBlocks != nil {
 				go func() {
 					if err := s.runner.RejectAndContinue(context.Background(), approvalID, rejectFeedback, contentBlocks, runtimeSink{client: client}); err != nil {
+						if shouldSuppressContinuationRunError(err) {
+							return
+						}
 						_ = client.WriteJSON(protocolws.EventMessage("run.error", map[string]any{
 							"run_id":     updated.RunID,
 							"session_id": updated.SessionID,
