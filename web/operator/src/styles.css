@@ -421,6 +421,10 @@ input {
   color: #111827;
 }
 
+.sidebar-collapsed .chat-header {
+  padding-left: 286px;
+}
+
 .chat-header-left,
 .chat-header-actions {
   display: flex;
