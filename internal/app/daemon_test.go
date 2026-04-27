@@ -4,6 +4,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -108,6 +110,56 @@ func TestNewDaemonHandlerKeepsRootTextEndpoint(t *testing.T) {
 	}
 	if body := rec.Body.String(); !strings.Contains(body, "myclawd is running") {
 		t.Fatalf("/ body = %q, want running text", body)
+	}
+}
+
+func TestNewDaemonHandlerServesOperatorUI(t *testing.T) {
+	distDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte("<!doctype html><title>Operator</title>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	t.Setenv("MYCLAW_OPERATOR_DIST", distDir)
+
+	cfg := config.Config{
+		HTTPAddr: "127.0.0.1:0",
+		WSPath:   "/ws",
+	}
+	handler, _ := newDaemonHandler(cfg, io.Discard)
+
+	req := httptest.NewRequest(http.MethodGet, "/operator/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/operator/ status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "Operator") {
+		t.Fatalf("/operator/ body = %q, want operator index", body)
+	}
+}
+
+func TestNewDaemonHandlerRedirectsOperatorWithoutSlash(t *testing.T) {
+	distDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte("<!doctype html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	t.Setenv("MYCLAW_OPERATOR_DIST", distDir)
+
+	cfg := config.Config{
+		HTTPAddr: "127.0.0.1:0",
+		WSPath:   "/ws",
+	}
+	handler, _ := newDaemonHandler(cfg, io.Discard)
+
+	req := httptest.NewRequest(http.MethodGet, "/operator", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMovedPermanently {
+		t.Fatalf("/operator status = %d, want 301", rec.Code)
+	}
+	if location := rec.Header().Get("Location"); location != "/operator/" {
+		t.Fatalf("/operator location = %q, want /operator/", location)
 	}
 }
 

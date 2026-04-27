@@ -340,6 +340,165 @@ func (s *Server) handleClient(client *Client) error {
 			}); err != nil {
 				return err
 			}
+		case protocolws.MethodSessionList:
+			sessions := s.sessionManager.ListSessions()
+			items := make([]map[string]any, 0, len(sessions))
+			for _, sessionItem := range sessions {
+				messages, _ := s.sessionManager.Messages(sessionItem.ID)
+				items = append(items, sessionSummaryPayload(sessionItem, messages))
+			}
+			if err := client.WriteJSON(protocolws.Message{
+				Type: protocolws.TypeResponse,
+				ID:   inbound.ID,
+				OK:   true,
+				Payload: map[string]any{
+					"sessions": items,
+				},
+			}); err != nil {
+				return err
+			}
+		case protocolws.MethodSessionNew:
+			newPayload, err := parseSessionNewPayload(inbound.Payload)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			agentID := strings.TrimSpace(newPayload.AgentID)
+			if agentID == "" {
+				agentID = sess.AgentID
+			}
+			if agentID == "" {
+				agentID = "main"
+			}
+			newSession := s.sessionManager.CreateSession(agentID)
+			sess = newSession
+			client.BindSession(newSession.ID, newSession.Key)
+			if err := client.WriteJSON(protocolws.Message{
+				Type: protocolws.TypeResponse,
+				ID:   inbound.ID,
+				OK:   true,
+				Payload: map[string]any{
+					"session_id":  newSession.ID,
+					"session_key": newSession.Key,
+					"agent_id":    newSession.AgentID,
+					"is_main":     newSession.IsMain,
+					"status":      "created",
+				},
+			}); err != nil {
+				return err
+			}
+			if err := client.WriteJSON(protocolws.EventMessage(protocolws.EventHello, map[string]any{
+				"client_id":   client.ID(),
+				"session_id":  newSession.ID,
+				"session_key": newSession.Key,
+				"agent_id":    newSession.AgentID,
+			})); err != nil {
+				return err
+			}
+		case protocolws.MethodSessionMessages:
+			messagesPayload, err := parseSessionMessagesPayload(inbound.Payload)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			targetSession, resolveErr := s.resolveSessionForStatus(client, protocolws.SessionStatusPayload{
+				SessionID:  messagesPayload.SessionID,
+				SessionKey: messagesPayload.SessionKey,
+			})
+			if resolveErr != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, resolveErr.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			messages, _ := s.sessionManager.Messages(targetSession.ID)
+			items := make([]map[string]any, 0, len(messages))
+			for _, message := range messages {
+				items = append(items, sessionMessagePayload(message))
+			}
+			if err := client.WriteJSON(protocolws.Message{
+				Type: protocolws.TypeResponse,
+				ID:   inbound.ID,
+				OK:   true,
+				Payload: map[string]any{
+					"session_id":  targetSession.ID,
+					"session_key": targetSession.Key,
+					"messages":    items,
+				},
+			}); err != nil {
+				return err
+			}
+		case protocolws.MethodSessionDelete:
+			deletePayload, err := parseSessionDeletePayload(inbound.Payload)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			targetSession, resolveErr := s.resolveSessionForStatus(client, protocolws.SessionStatusPayload{
+				SessionID:  deletePayload.SessionID,
+				SessionKey: deletePayload.SessionKey,
+			})
+			if resolveErr != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, resolveErr.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+				activeSession := session.Session{}
+				deletedActiveSession := false
+				if targetSession.ID == client.SessionID() {
+					if targetSession.IsMain {
+						if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, "main session cannot be deleted")); err != nil {
+							return err
+						}
+						continue
+					}
+					deletedActiveSession = true
+					activeSession = s.sessionManager.GetOrCreateMain(targetSession.AgentID)
+					sess = activeSession
+					client.BindSession(activeSession.ID, activeSession.Key)
+				} else if current, ok := s.sessionManager.GetByID(client.SessionID()); ok {
+					activeSession = current
+				}
+				if err := s.sessionManager.DeleteSession(targetSession.ID); err != nil {
+					if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+						return err
+					}
+					continue
+				}
+				payload := map[string]any{
+					"session_id":  targetSession.ID,
+					"session_key": targetSession.Key,
+					"status":      "deleted",
+				}
+				if activeSession.ID != "" {
+					payload["active_session_id"] = activeSession.ID
+					payload["active_session_key"] = activeSession.Key
+				}
+				if err := client.WriteJSON(protocolws.Message{
+					Type: protocolws.TypeResponse,
+					ID:   inbound.ID,
+					OK:   true,
+					Payload: payload,
+				}); err != nil {
+					return err
+				}
+				if deletedActiveSession && activeSession.ID != "" {
+					if err := client.WriteJSON(protocolws.EventMessage(protocolws.EventHello, map[string]any{
+						"client_id":   client.ID(),
+						"session_id":  activeSession.ID,
+						"session_key": activeSession.Key,
+						"agent_id":    activeSession.AgentID,
+					})); err != nil {
+						return err
+					}
+				}
 		case protocolws.MethodMCPStatus:
 			statusPayload, err := parseMCPStatusPayload(inbound.Payload)
 			if err != nil {
@@ -1686,6 +1845,45 @@ func parseSessionStatusPayload(payload map[string]any) (protocolws.SessionStatus
 	return statusPayload, nil
 }
 
+func parseSessionNewPayload(payload map[string]any) (protocolws.SessionNewPayload, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return protocolws.SessionNewPayload{}, err
+	}
+	var newPayload protocolws.SessionNewPayload
+	if err := json.Unmarshal(raw, &newPayload); err != nil {
+		return protocolws.SessionNewPayload{}, err
+	}
+	return newPayload, nil
+}
+
+func parseSessionMessagesPayload(payload map[string]any) (protocolws.SessionMessagesPayload, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return protocolws.SessionMessagesPayload{}, err
+	}
+	var messagesPayload protocolws.SessionMessagesPayload
+	if err := json.Unmarshal(raw, &messagesPayload); err != nil {
+		return protocolws.SessionMessagesPayload{}, err
+	}
+	return messagesPayload, nil
+}
+
+func parseSessionDeletePayload(payload map[string]any) (protocolws.SessionDeletePayload, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return protocolws.SessionDeletePayload{}, err
+	}
+	var deletePayload protocolws.SessionDeletePayload
+	if err := json.Unmarshal(raw, &deletePayload); err != nil {
+		return protocolws.SessionDeletePayload{}, err
+	}
+	if strings.TrimSpace(deletePayload.SessionID) == "" && strings.TrimSpace(deletePayload.SessionKey) == "" {
+		return protocolws.SessionDeletePayload{}, &connectError{message: "session_delete payload requires session_id or session_key"}
+	}
+	return deletePayload, nil
+}
+
 func parseMCPStatusPayload(payload map[string]any) (protocolws.MCPStatusPayload, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -1750,6 +1948,52 @@ func mcpInventoryPayload(inventory runtime.MCPInventory) map[string]any {
 		"prompt_count":   inventory.PromptCount,
 		"resource_count": inventory.ResourceCount,
 		"skill_count":    inventory.SkillCount,
+	}
+}
+
+func sessionSummaryPayload(sess session.Session, messages []session.Message) map[string]any {
+	lastActivity := sess.Metadata.LastActivityAt
+	lastUserMessage := ""
+	for i := len(messages) - 1; i >= 0; i-- {
+		if lastActivity.IsZero() || messages[i].CreatedAt.After(lastActivity) {
+			lastActivity = messages[i].CreatedAt
+		}
+		if lastUserMessage == "" && messages[i].Role == "user" {
+			lastUserMessage = messages[i].Content
+		}
+	}
+	title := strings.TrimSpace(lastUserMessage)
+	if title == "" {
+		if sess.IsMain {
+			title = "Main session"
+		} else {
+			title = "New chat"
+		}
+	}
+	if titleRunes := []rune(title); len(titleRunes) > 64 {
+		title = strings.TrimSpace(string(titleRunes[:64])) + "..."
+	}
+	payload := map[string]any{
+		"session_id":        sess.ID,
+		"session_key":       sess.Key,
+		"agent_id":          sess.AgentID,
+		"is_main":           sess.IsMain,
+		"message_count":     len(messages),
+		"last_user_message": lastUserMessage,
+		"title":             title,
+	}
+	if !lastActivity.IsZero() {
+		payload["last_activity_at"] = lastActivity.Format(time.RFC3339Nano)
+	}
+	return payload
+}
+
+func sessionMessagePayload(message session.Message) map[string]any {
+	return map[string]any{
+		"id":         message.ID,
+		"role":       message.Role,
+		"content":    message.Content,
+		"created_at": message.CreatedAt.Format(time.RFC3339Nano),
 	}
 }
 

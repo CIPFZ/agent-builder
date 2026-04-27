@@ -756,6 +756,48 @@ func writeRawJSONLLines(t *testing.T, path string, entries []map[string]any) {
 	}
 }
 
+func TestSessionStoreListSessionsHasDeterministicRecentOrder(t *testing.T) {
+	store, err := NewSessionStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new session store: %v", err)
+	}
+	store.SaveSession(model.Session{
+		ID:      "session-000001",
+		Key:     "agent:main:session:000001",
+		AgentID: "main",
+		Metadata: model.SessionMetadata{
+			LastActivityAt: time.Unix(10, 0).UTC(),
+		},
+	})
+	store.SaveSession(model.Session{
+		ID:      "session-000003",
+		Key:     "agent:main:session:000003",
+		AgentID: "main",
+		Metadata: model.SessionMetadata{
+			LastActivityAt: time.Unix(10, 0).UTC(),
+		},
+	})
+	store.SaveSession(model.Session{
+		ID:      "session-000002",
+		Key:     "agent:main:session:000002",
+		AgentID: "main",
+		Metadata: model.SessionMetadata{
+			LastActivityAt: time.Unix(20, 0).UTC(),
+		},
+	})
+
+	got := store.ListSessions()
+	want := []string{"session-000002", "session-000003", "session-000001"}
+	if len(got) != len(want) {
+		t.Fatalf("session count = %d, want %d", len(got), len(want))
+	}
+	for i, session := range got {
+		if session.ID != want[i] {
+			t.Fatalf("session[%d] = %q, want %q; all = %#v", i, session.ID, want[i], got)
+		}
+	}
+}
+
 func stringPtr(value string) *string {
 	return &value
 }

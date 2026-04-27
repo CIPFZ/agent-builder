@@ -248,6 +248,220 @@ func readGatewayResponse(t *testing.T, conn *websocket.Conn) protocolws.Message 
 	return response
 }
 
+func TestGatewaySessionLifecycleMethods(t *testing.T) {
+	manager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), manager, llm.NewMockClient())
+	conn := connectGatewayTestClient(t, server)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:    protocolws.TypeRequest,
+		ID:      "session-list-1",
+		Method:  protocolws.MethodSessionList,
+		Payload: map[string]any{},
+	}); err != nil {
+		t.Fatalf("write session_list: %v", err)
+	}
+	listResponse := readGatewayResponse(t, conn)
+	if !listResponse.OK {
+		t.Fatalf("session_list response = %#v, want ok", listResponse)
+	}
+	sessions, _ := listResponse.Payload["sessions"].([]any)
+	if len(sessions) != 1 {
+		t.Fatalf("session_list returned %d sessions, want 1", len(sessions))
+	}
+	mainSession, _ := sessions[0].(map[string]any)
+	if mainSession["title"] != "Main session" {
+		t.Fatalf("main session title = %v, want Main session", mainSession["title"])
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:    protocolws.TypeRequest,
+		ID:      "session-new-1",
+		Method:  protocolws.MethodSessionNew,
+		Payload: map[string]any{},
+	}); err != nil {
+		t.Fatalf("write session_new: %v", err)
+	}
+	newResponse := readGatewayResponse(t, conn)
+	if !newResponse.OK {
+		t.Fatalf("session_new response = %#v, want ok", newResponse)
+	}
+	newSessionID, _ := newResponse.Payload["session_id"].(string)
+	newSessionKey, _ := newResponse.Payload["session_key"].(string)
+	if newSessionID == "" || newSessionKey == "" {
+		t.Fatalf("session_new payload missing session identity: %#v", newResponse.Payload)
+	}
+	hello := waitForEvent(t, conn, protocolws.EventHello)
+	if hello.Payload["session_key"] != newSessionKey {
+		t.Fatalf("session_new hello session_key = %v, want %s", hello.Payload["session_key"], newSessionKey)
+	}
+
+	if _, err := manager.AppendMessage(newSessionID, "user", "Investigate websocket sessions"); err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	if _, err := manager.AppendMessage(newSessionID, "assistant", "Session restored"); err != nil {
+		t.Fatalf("append assistant message: %v", err)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "session-messages-1",
+		Method: protocolws.MethodSessionMessages,
+		Payload: map[string]any{
+			"session_key": newSessionKey,
+		},
+	}); err != nil {
+		t.Fatalf("write session_messages: %v", err)
+	}
+	messagesResponse := readGatewayResponse(t, conn)
+	if !messagesResponse.OK {
+		t.Fatalf("session_messages response = %#v, want ok", messagesResponse)
+	}
+	messages, _ := messagesResponse.Payload["messages"].([]any)
+	if len(messages) != 2 {
+		t.Fatalf("session_messages returned %d messages, want 2", len(messages))
+	}
+	firstMessage, _ := messages[0].(map[string]any)
+	if firstMessage["role"] != "user" || firstMessage["content"] != "Investigate websocket sessions" {
+		t.Fatalf("first restored message = %#v", firstMessage)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:    protocolws.TypeRequest,
+		ID:      "session-list-2",
+		Method:  protocolws.MethodSessionList,
+		Payload: map[string]any{},
+	}); err != nil {
+		t.Fatalf("write second session_list: %v", err)
+	}
+	secondListResponse := readGatewayResponse(t, conn)
+	if !secondListResponse.OK {
+		t.Fatalf("second session_list response = %#v, want ok", secondListResponse)
+	}
+	secondSessions, _ := secondListResponse.Payload["sessions"].([]any)
+	if len(secondSessions) != 2 {
+		t.Fatalf("second session_list returned %d sessions, want 2", len(secondSessions))
+	}
+	var foundNew bool
+	for _, raw := range secondSessions {
+		item, _ := raw.(map[string]any)
+		if item["session_key"] == newSessionKey {
+			foundNew = true
+			if item["title"] != "Investigate websocket sessions" {
+				t.Fatalf("new session title = %v, want last user message", item["title"])
+			}
+			if item["message_count"] != float64(2) {
+				t.Fatalf("new session message_count = %v, want 2", item["message_count"])
+			}
+		}
+	}
+	if !foundNew {
+		t.Fatalf("new session %s not found in session_list: %#v", newSessionKey, secondSessions)
+	}
+}
+
+func TestGatewayDeletesNonActiveSession(t *testing.T) {
+	manager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), manager, llm.NewMockClient())
+	conn := connectGatewayTestClient(t, server)
+
+	toDelete := manager.CreateSession("main")
+	keep := manager.CreateSession("main")
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "delete-session-1",
+		Method: protocolws.MethodSessionDelete,
+		Payload: map[string]any{
+			"session_key": toDelete.Key,
+		},
+	}); err != nil {
+		t.Fatalf("write session_delete: %v", err)
+	}
+	deleteResponse := readGatewayResponse(t, conn)
+	if !deleteResponse.OK {
+		t.Fatalf("session_delete response = %#v, want ok", deleteResponse)
+	}
+	if _, ok := manager.GetByID(toDelete.ID); ok {
+		t.Fatalf("deleted session %s still exists", toDelete.ID)
+	}
+	if _, ok := manager.GetByID(keep.ID); !ok {
+		t.Fatalf("non-deleted session %s missing", keep.ID)
+	}
+}
+
+func TestGatewayAllowsDeletingActiveNonMainSession(t *testing.T) {
+	manager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), manager, llm.NewMockClient())
+	conn := connectGatewayTestClient(t, server)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:    protocolws.TypeRequest,
+		ID:      "create-active-session",
+		Method:  protocolws.MethodSessionNew,
+		Payload: map[string]any{},
+	}); err != nil {
+		t.Fatalf("write session_new: %v", err)
+	}
+	createResponse := readGatewayResponse(t, conn)
+	if !createResponse.OK {
+		t.Fatalf("session_new response = %#v, want ok", createResponse)
+	}
+	newSessionKey, _ := createResponse.Payload["session_key"].(string)
+	_ = waitForEvent(t, conn, protocolws.EventHello)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "delete-active-session",
+		Method: protocolws.MethodSessionDelete,
+		Payload: map[string]any{
+			"session_key": newSessionKey,
+		},
+	}); err != nil {
+		t.Fatalf("write active non-main session_delete: %v", err)
+	}
+	deleteResponse := readGatewayResponse(t, conn)
+	if !deleteResponse.OK {
+		t.Fatalf("active non-main session_delete response = %#v, want ok", deleteResponse)
+	}
+	if _, ok := manager.GetByKey(newSessionKey); ok {
+		t.Fatalf("deleted active session %s still exists", newSessionKey)
+	}
+	activeSessionKey, _ := deleteResponse.Payload["active_session_key"].(string)
+	if activeSessionKey == "" || activeSessionKey == newSessionKey {
+		t.Fatalf("active_session_key = %q, want fallback session", activeSessionKey)
+	}
+	hello := waitForEvent(t, conn, protocolws.EventHello)
+	if hello.Payload["session_key"] != activeSessionKey {
+		t.Fatalf("delete active hello session_key = %v, want %s", hello.Payload["session_key"], activeSessionKey)
+	}
+}
+
+func TestGatewayRejectsDeletingMainSession(t *testing.T) {
+	manager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), manager, llm.NewMockClient())
+	conn := connectGatewayTestClient(t, server)
+
+	main := manager.GetOrCreateMain("main")
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "delete-main-session",
+		Method: protocolws.MethodSessionDelete,
+		Payload: map[string]any{
+			"session_key": main.Key,
+		},
+	}); err != nil {
+		t.Fatalf("write main session_delete: %v", err)
+	}
+	deleteResponse := readGatewayResponse(t, conn)
+	if deleteResponse.OK {
+		t.Fatalf("main session_delete response = %#v, want error", deleteResponse)
+	}
+	if deleteResponse.Error == nil || deleteResponse.Error.Message != "main session cannot be deleted" {
+		t.Fatalf("main session_delete error = %#v", deleteResponse.Error)
+	}
+}
+
 func waitForGatewayMCPServerStatus(t *testing.T, conn *websocket.Conn, serverName, wantStatus string) map[string]any {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

@@ -17,6 +17,7 @@ Current order:
 4. `subagent-runtime-capability`
 5. `shell-runtime-capability`
 6. `tui-client-architecture`
+7. `react-operator-ui-console`
 
 Standard:
 

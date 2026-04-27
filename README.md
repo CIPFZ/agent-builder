@@ -121,10 +121,14 @@ myclaw/
 ```powershell
 go run ./cmd/myclaw version
 go run ./cmd/myclaw tui
+go run ./cmd/myclaw browser
 go run ./cmd/myclawd
 ```
 
 `myclaw tui` 当前是最小验证入口，用来确认 runtime 主链是否正常工作。
+
+`myclaw browser` 会在同一个 `myclaw` 进程内启动 `myclawd` control plane，并打开 React Operator UI。
+如果默认端口被占用，可以使用 `myclaw browser --addr 127.0.0.1:18081`。
 
 `myclawd` 当前提供最小 daemon / gateway 能力，包括：
 

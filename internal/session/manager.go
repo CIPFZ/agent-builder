@@ -55,10 +55,11 @@ func (m *Manager) GetOrCreateMain(agentID string) Session {
 
 	id := m.nextID.Add(1)
 	session := Session{
-		ID:      fmt.Sprintf("main-%06d", id),
-		Key:     fmt.Sprintf("agent:%s:main", agentID),
-		AgentID: agentID,
-		IsMain:  true,
+		ID:       fmt.Sprintf("main-%06d", id),
+		Key:      fmt.Sprintf("agent:%s:main", agentID),
+		AgentID:  agentID,
+		IsMain:   true,
+		Metadata: SessionMetadata{LastActivityAt: time.Now().UTC()},
 	}
 
 	if mainKey, ok := m.store.GetMainSessionKey(agentID); ok {
@@ -97,13 +98,44 @@ func (m *Manager) CreateChild(agentID, key string) Session {
 	}
 	id := m.nextID.Add(1)
 	session := Session{
-		ID:      fmt.Sprintf("session-%06d", id),
-		Key:     key,
-		AgentID: agentID,
-		IsMain:  false,
+		ID:       fmt.Sprintf("session-%06d", id),
+		Key:      key,
+		AgentID:  agentID,
+		IsMain:   false,
+		Metadata: SessionMetadata{LastActivityAt: time.Now().UTC()},
 	}
 	m.store.SaveSession(session)
 	return session
+}
+
+func (m *Manager) CreateSession(agentID string) Session {
+	if agentID == "" {
+		agentID = "main"
+	}
+	id := m.nextID.Add(1)
+	session := Session{
+		ID:       fmt.Sprintf("session-%06d", id),
+		Key:      fmt.Sprintf("agent:%s:session:%06d", agentID, id),
+		AgentID:  agentID,
+		IsMain:   false,
+		Metadata: SessionMetadata{LastActivityAt: time.Now().UTC()},
+	}
+	m.store.SaveSession(session)
+	return session
+}
+
+func (m *Manager) DeleteSession(sessionID string) error {
+	sess, ok := m.store.GetSessionByID(sessionID)
+	if !ok {
+		return fmt.Errorf("session %q not found", sessionID)
+	}
+	if sess.IsMain {
+		return fmt.Errorf("main session cannot be deleted")
+	}
+	if !m.store.DeleteSession(sessionID) {
+		return fmt.Errorf("session %q not found", sessionID)
+	}
+	return nil
 }
 
 func (m *Manager) AppendMessage(sessionID, role, content string) (Message, error) {

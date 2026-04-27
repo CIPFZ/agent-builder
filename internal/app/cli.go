@@ -42,6 +42,8 @@ var runTUI = func(ctx context.Context, _ []string, stdout, stderr io.Writer) err
 	})
 }
 
+var runBrowserCommand = runBrowser
+
 func configForCLI(dir string) (config.Config, error) {
 	cfg, err := configLoadWithFallback(dir)
 	if err != nil {
@@ -113,6 +115,8 @@ func RunCLI(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		return err
 	case "tui":
 		return runTUI(ctx, args[1:], stdout, stderr)
+	case "browser":
+		return runBrowserCommand(ctx, args[1:], stdout, stderr)
 	default:
 		_, err := fmt.Fprintf(stderr, "unknown command %q\n\n", args[0])
 		if err != nil {
@@ -131,6 +135,7 @@ func printCLIHelp(w io.Writer) {
 		"  myclaw [command]",
 		"",
 		"Available commands:",
+		"  browser   Launch the React Operator UI and embedded myclawd server",
 		"  help      Show this help message",
 		"  tui       Launch the interactive terminal UI",
 		"  version   Print build version",
