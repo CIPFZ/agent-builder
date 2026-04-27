@@ -1,9 +1,9 @@
 # P0 Context Memory Recovery Review Checklist
 
-- [ ] Workspace instructions load deterministically.
-- [ ] Memory injection is explicit and ordered.
-- [ ] Transcript-compatible tool identities recover.
-- [ ] Pending approvals rehydrate conservatively.
-- [ ] Invoked skills recover into runtime state.
-- [ ] Compaction boundaries are recoverable.
-- [ ] Focused workstream tests pass.
+- [x] Workspace instructions load deterministically.
+- [x] Memory injection is explicit and ordered.
+- [x] Transcript-compatible tool identities recover.
+- [x] Pending approvals rehydrate conservatively.
+- [x] Invoked skills recover into runtime state.
+- [x] Compaction boundaries are recoverable.
+- [x] Focused workstream tests pass.

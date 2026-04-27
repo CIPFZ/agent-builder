@@ -1,8 +1,8 @@
 # P0 Runtime Structured Events Review Checklist
 
-- [ ] Event names are stable constants.
-- [ ] Payload fields are documented and tested.
-- [ ] Gateway serializes runtime events without duplicating semantics.
-- [ ] TUI consumes shared event concepts.
-- [ ] Approval, tool, command, compaction, and agent/task events are covered.
-- [ ] Focused workstream tests pass.
+- [x] Event names are stable constants.
+- [x] Payload fields are documented and tested.
+- [x] Gateway serializes runtime events without duplicating semantics.
+- [x] TUI consumes shared event concepts.
+- [x] Approval, tool, command, compaction, and agent/task events are covered.
+- [x] Focused workstream tests pass.
