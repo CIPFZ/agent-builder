@@ -1,0 +1,5 @@
+# P0 Context Memory Recovery Source Alignment
+
+Claude Code sources: `claude-code/src/context.ts`, `claude-code/src/history.ts`, `claude-code/src/assistant/sessionHistory.ts`, `claude-code/src/memdir/`, `claude-code/src/state/AppStateStore.ts`, `claude-code/src/QueryEngine.ts`, `claude-code/docs/33-session-memory-scheduling-and-concurrency.md`, `claude-code/docs/34-history-snip-and-replay-projection.md`, `claude-code/docs/35-claude-md-loading-and-instruction-assembly.md`, and `claude-code/docs/38-read-file-state-and-context-cache-mechanics.md`.
+
+Go sources: `internal/workspace/loader.go`, `internal/prompt/builder.go`, `internal/memory/service.go`, `internal/session/manager.go`, `internal/session/recovery.go`, `internal/store/file/session_store.go`, `internal/model/claude_transcript.go`, `internal/runtime/session_compaction.go`, and `internal/queryengine/context_provider.go`.
