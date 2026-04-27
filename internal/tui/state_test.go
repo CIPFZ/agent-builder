@@ -335,3 +335,15 @@ func TestClientStoreRunErrorClearsPendingApproval(t *testing.T) {
 		t.Fatalf("approval = %#v, want nil after run.error", snapshot.Approval)
 	}
 }
+
+func TestTUIStateApplyStoreSnapshotClosesStaleApprovalDialog(t *testing.T) {
+	state := newTUIState()
+	state.pendingApproval = &clientApproval{ID: "approval-1", ToolName: "Bash"}
+	state.approvalDialog.open(state.pendingApproval)
+
+	state.applyStoreSnapshot(clientStoreSnapshot{Approval: nil})
+
+	if state.pendingApproval != nil || state.approvalDialog.active() {
+		t.Fatalf("approval state = pending %#v active %v, want cleared", state.pendingApproval, state.approvalDialog.active())
+	}
+}

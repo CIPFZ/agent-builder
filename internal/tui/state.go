@@ -417,4 +417,9 @@ func (s *tuiState) applyStoreSnapshot(snapshot clientStoreSnapshot) {
 	s.activity = snapshot.Activity
 	s.busy = snapshot.Busy
 	s.pendingApproval = snapshot.Approval
+	if s.pendingApproval == nil {
+		s.approvalDialog.close()
+	} else if !s.approvalDialog.active() || s.approvalDialog.Request.ID != s.pendingApproval.ID {
+		s.approvalDialog.open(s.pendingApproval)
+	}
 }
