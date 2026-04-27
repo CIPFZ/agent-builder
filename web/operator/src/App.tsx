@@ -129,21 +129,21 @@ export function App() {
   const connected = state.connection.status === "connected";
 
   const activeSession = state.activeSessionKey ?? state.session.session_key ?? "current";
-  const activeSessionSummary = state.sessions.find((item) => item.session_key === activeSession);
-  const activeTitle = activeSessionSummary?.title ?? (state.session.session_id ? "Your first chat with myclaw" : "New operator session");
+  const activeSessionSummary = state.sessions.find((item) => item.session_key === activeSession && !item.is_main);
+  const activeTitle = activeSessionSummary?.title ?? "New operator session";
   const deleteTarget = deleteTargetKey ? state.sessions.find((item) => item.session_key === deleteTargetKey) : undefined;
+  const conversationSessions = useMemo(() => state.sessions.filter((session) => !session.is_main), [state.sessions]);
 
   const sessionItems = useMemo(
     () =>
-      state.sessions.length > 0
-        ? state.sessions.map((session) => {
+      conversationSessions.length > 0
+        ? conversationSessions.map((session) => {
             const title = session.title ?? session.last_user_message ?? (session.is_main ? "Main session" : "New chat");
             return {
-            key: session.session_key,
-            label: (
-              <span className="session-item-content">
-                <span className="session-item-title">{title}</span>
-                {!session.is_main ? (
+              key: session.session_key,
+              label: (
+                <span className="session-item-content">
+                  <span className="session-item-title">{title}</span>
                   <button
                     className="session-item-delete"
                     type="button"
@@ -155,20 +155,13 @@ export function App() {
                   >
                     <DeleteOutlined />
                   </button>
-                ) : null}
-              </span>
-            ),
-            group: "今天",
+                </span>
+              ),
+              group: "今天",
             };
           })
-        : [
-            {
-              key: activeSession,
-              label: activeTitle,
-              group: "今天",
-            },
-          ],
-    [activeSession, activeTitle, state.sessions],
+        : [],
+    [conversationSessions],
   );
 
   async function bootstrapRuntime(nextClient: MyclawdClient, sessionKey?: string) {
@@ -306,20 +299,23 @@ export function App() {
         type: "sessions/list",
         payload: sessions,
       });
-      const fallbackSessionKey =
-        deletePayload.active_session_key ??
-        sessions.find((item) => item.session_key !== sessionKey)?.session_key;
+      const fallbackSession = sessions.find((item) => !item.is_main && item.session_key !== sessionKey);
+      const fallbackSessionKey = fallbackSession?.session_key ?? deletePayload.active_session_key;
       if (sessionKey === activeSession && fallbackSessionKey) {
         dispatch({ type: "session/activate", sessionKey: fallbackSessionKey });
         const status = await client.request("session_status", { session_key: fallbackSessionKey });
         dispatch({ type: "session/status", payload: (status.payload ?? {}) as never });
-        const messages = await client.request("session_messages", { session_key: fallbackSessionKey });
-        const messagesPayload = (messages.payload ?? {}) as { session_key?: string; messages?: TranscriptMessage[] };
-        dispatch({
-          type: "session/messages",
-          sessionKey: messagesPayload.session_key ?? fallbackSessionKey,
-          payload: messagesPayload.messages ?? [],
-        });
+        if (fallbackSession) {
+          const messages = await client.request("session_messages", { session_key: fallbackSessionKey });
+          const messagesPayload = (messages.payload ?? {}) as { session_key?: string; messages?: TranscriptMessage[] };
+          dispatch({
+            type: "session/messages",
+            sessionKey: messagesPayload.session_key ?? fallbackSessionKey,
+            payload: messagesPayload.messages ?? [],
+          });
+        } else {
+          dispatch({ type: "session/messages", sessionKey: fallbackSessionKey, payload: [] });
+        }
       }
       message.success("Session deleted");
     } catch (error) {

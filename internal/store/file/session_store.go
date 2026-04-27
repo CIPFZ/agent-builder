@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"myclaw/internal/model"
@@ -100,6 +101,7 @@ func (s *SessionStore) ListSessions() []model.Session {
 	for _, sess := range s.sessionsByID {
 		out = append(out, sess)
 	}
+	sortSessions(out)
 	return out
 }
 
@@ -317,7 +319,30 @@ func (s *SessionStore) persistSessionsLocked() error {
 	for _, sess := range s.sessionsByID {
 		sessions = append(sessions, sess)
 	}
+	sortSessions(sessions)
 	return writeJSON(filepath.Join(s.root, "sessions.json"), sessions)
+}
+
+func sortSessions(sessions []model.Session) {
+	sort.SliceStable(sessions, func(i, j int) bool {
+		left := sessions[i]
+		right := sessions[j]
+		leftActivity := left.Metadata.LastActivityAt
+		rightActivity := right.Metadata.LastActivityAt
+		if !leftActivity.Equal(rightActivity) {
+			if leftActivity.IsZero() {
+				return false
+			}
+			if rightActivity.IsZero() {
+				return true
+			}
+			return leftActivity.After(rightActivity)
+		}
+		if left.ID != right.ID {
+			return left.ID > right.ID
+		}
+		return left.Key > right.Key
+	})
 }
 
 func (s *SessionStore) persistMainSessionsLocked() error {
