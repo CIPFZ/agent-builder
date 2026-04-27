@@ -193,9 +193,10 @@ func (r renderer) renderScreen(snapshot renderSnapshot) string {
 		return b.String()
 	}
 	b.WriteString(r.renderTranscript(snapshot))
-	b.WriteString(r.renderPrompt(snapshot))
 	if snapshot.Approval != nil {
 		b.WriteString(r.renderApprovalDialog(snapshot))
+	} else {
+		b.WriteString(r.renderPrompt(snapshot))
 	}
 	if snapshot.Actions.Active {
 		b.WriteString(r.renderMessageActionsBar(snapshot))
@@ -994,6 +995,9 @@ func (snapshot renderSnapshot) transcriptVisibleLines() int {
 		return 0
 	}
 	reserved := headerLineCount + snapshot.promptVisibleLines()
+	if snapshot.Approval != nil {
+		reserved = headerLineCount + snapshot.approvalVisibleLines()
+	}
 	if snapshot.Dialog != nil {
 		reserved = headerLineCount + snapshot.dialogVisibleLines()
 	}
@@ -1026,6 +1030,13 @@ func (snapshot renderSnapshot) dialogVisibleLines() int {
 		return 0
 	}
 	return renderedLineCount(newRenderer().renderDialog(snapshot))
+}
+
+func (snapshot renderSnapshot) approvalVisibleLines() int {
+	if snapshot.Approval == nil {
+		return 0
+	}
+	return renderedLineCount(newRenderer().renderApprovalDialog(snapshot))
 }
 
 func renderedLineCount(rendered string) int {

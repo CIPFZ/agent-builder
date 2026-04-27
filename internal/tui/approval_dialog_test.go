@@ -92,7 +92,7 @@ func TestApprovalOverlayCanSelectRejectWithDownEnter(t *testing.T) {
 	}
 }
 
-func TestApprovalOverlayRendersAfterPromptAndHidesCommandDialog(t *testing.T) {
+func TestApprovalOverlayReplacesPromptAndHidesCommandDialog(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	model.openModelDialog()
 	if !model.dialog.active() {
@@ -112,11 +112,30 @@ func TestApprovalOverlayRendersAfterPromptAndHidesCommandDialog(t *testing.T) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
 	}
-	if approvalIndex, promptIndex := strings.LastIndex(view, "Permission Required"), strings.Index(view, "> "); approvalIndex <= promptIndex {
-		t.Fatalf("approval dialog should render after prompt: approval index %d prompt index %d view %q", approvalIndex, promptIndex, view)
+	if strings.Contains(view, "Enter to send") {
+		t.Fatalf("view includes prompt footer while approval is active: %q", view)
 	}
 	if strings.Contains(view, "Select the model for this session") {
 		t.Fatalf("view includes command dialog while approval is active: %q", view)
+	}
+}
+
+func TestApprovalOverlayOptionsAreVisibleWithinTerminalHeight(t *testing.T) {
+	model := NewModel(&fakeBridge{})
+	model.setSize(80, 20)
+	request := approval.Request{
+		ID:        "approval-1",
+		ToolName:  "Bash",
+		ToolInput: `{"command": "ping -n 4 baidu.com", "description": "Ping baidu.com 4 times"}`,
+	}
+
+	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: &request}))
+
+	visible := firstLines(model.viewContent(), model.height)
+	for _, want := range []string{"Command Approval", "Approve once", "Reject", "Ctrl+Y approve"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("visible view missing %q: %q", want, visible)
+		}
 	}
 }
 
