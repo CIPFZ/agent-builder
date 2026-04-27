@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"myclaw/internal/compaction"
 	"myclaw/internal/config"
@@ -33,10 +34,20 @@ var runTUI = func(ctx context.Context, _ []string, stdout, stderr io.Writer) err
 		llmLabel = llmLabel + " / " + cfg.LLM.Model
 	}
 	if cfg.LLM.APIKey == "" {
-		llmLabel = "mock / builtin"
+		llmLabel = "unconfigured / missing API key"
 	}
-	baseURL := "http://" + cfg.HTTPAddr + cfg.WSPath
-	return tui.Run(ctx, baseURL, tui.Options{
+	daemon, err := prepareTUIDaemon(ctx, cfg, stdout, stderr)
+	if err != nil {
+		return err
+	}
+	if daemon.Cleanup != nil {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = daemon.Cleanup(shutdownCtx)
+		}()
+	}
+	return tui.Run(ctx, daemon.BaseURL, tui.Options{
 		LLMLabel: llmLabel,
 		Logger:   logger,
 	})
@@ -52,9 +63,12 @@ func configForCLI(dir string) (config.Config, error) {
 	return cfg, nil
 }
 
-func configLoadWithFallback(dir string) (config.Config, error) {
+func configLoadWithFallback(dir string) (cfg config.Config, err error) {
 	defer func() {
-		_ = recover()
+		if recover() != nil {
+			cfg = config.Default()
+			err = nil
+		}
 	}()
 	return config.LoadFromDir(dir), nil
 }

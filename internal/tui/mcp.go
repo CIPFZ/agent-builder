@@ -10,13 +10,7 @@ const (
 func (m *Model) openMCPDialog() {
 	bridge, ok := m.bridge.(mcpStatusBridge)
 	if !ok {
-		m.dialog.open(dialogSpec{
-			Kind:       dialogKindMCPList,
-			Title:      "MCP",
-			Subtitle:   "MCP status is not available for this bridge",
-			EmptyText:  "No MCP servers",
-			FooterHint: "Esc close",
-		})
+		m.appendCommandOutput("MCP", []string{"MCP status is not available for this bridge", "No MCP servers"})
 		return
 	}
 	snapshot := bridge.MCPSnapshot()
@@ -27,6 +21,10 @@ func (m *Model) openMCPDialog() {
 			Value:       server.Name,
 			Description: mcpServerSummary(server),
 		})
+	}
+	if len(items) == 0 {
+		m.appendCommandOutput("MCP", []string{"Connected MCP servers, tools, prompts, and resources", "No MCP servers"})
+		return
 	}
 	m.dialog.open(dialogSpec{
 		Kind:         dialogKindMCPList,

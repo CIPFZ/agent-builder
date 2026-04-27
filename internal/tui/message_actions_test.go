@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"myclaw/internal/model"
 )
@@ -12,7 +12,7 @@ import (
 func TestMessageActionsShiftUpEntersSelectionOnLastNavigableMessage(t *testing.T) {
 	tuiModel := messageActionsModel()
 
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
+	tuiModel = updateMessageActionKey(tuiModel, testKey(keyShiftUp))
 
 	if !tuiModel.messageActions.Active {
 		t.Fatalf("message actions inactive after shift+up")
@@ -20,7 +20,7 @@ func TestMessageActionsShiftUpEntersSelectionOnLastNavigableMessage(t *testing.T
 	if tuiModel.messageActions.SelectedIndex != 2 {
 		t.Fatalf("selected index = %d, want last navigable message index 2", tuiModel.messageActions.SelectedIndex)
 	}
-	view := tuiModel.View()
+	view := tuiModel.viewContent()
 	for _, want := range []string{"Message actions", "c copy", "p copy command", "Bash"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
@@ -30,14 +30,14 @@ func TestMessageActionsShiftUpEntersSelectionOnLastNavigableMessage(t *testing.T
 
 func TestMessageActionsNavigateAndCopySelectedMessage(t *testing.T) {
 	tuiModel := messageActionsModel()
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyUp})
+	tuiModel = updateMessageActionKey(tuiModel, testKey(keyShiftUp))
+	tuiModel = updateMessageActionKey(tuiModel, testKey(keyUp))
 
 	if tuiModel.messageActions.SelectedIndex != 1 {
 		t.Fatalf("selected index = %d, want assistant text entry", tuiModel.messageActions.SelectedIndex)
 	}
 
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	tuiModel = updateMessageActionKey(tuiModel, testKeyRunes("c"))
 
 	if tuiModel.messageActions.Active {
 		t.Fatalf("message actions still active after copy")
@@ -45,35 +45,35 @@ func TestMessageActionsNavigateAndCopySelectedMessage(t *testing.T) {
 	if tuiModel.messageActions.LastCopiedText != "assistant answer" {
 		t.Fatalf("last copied text = %q, want assistant answer", tuiModel.messageActions.LastCopiedText)
 	}
-	if !strings.Contains(tuiModel.View(), "Copied message") {
-		t.Fatalf("view missing copy status: %q", tuiModel.View())
+	if !strings.Contains(tuiModel.viewContent(), "Copied message") {
+		t.Fatalf("view missing copy status: %q", tuiModel.viewContent())
 	}
 }
 
 func TestMessageActionsCopyPrimaryToolInput(t *testing.T) {
 	tuiModel := messageActionsModel()
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
+	tuiModel = updateMessageActionKey(tuiModel, testKey(keyShiftUp))
 
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	tuiModel = updateMessageActionKey(tuiModel, testKeyRunes("p"))
 
 	if tuiModel.messageActions.LastCopiedText != "go test ./..." {
 		t.Fatalf("last copied text = %q, want tool primary input", tuiModel.messageActions.LastCopiedText)
 	}
-	if !strings.Contains(tuiModel.View(), "Copied command") {
-		t.Fatalf("view missing copy primary status: %q", tuiModel.View())
+	if !strings.Contains(tuiModel.viewContent(), "Copied command") {
+		t.Fatalf("view missing copy primary status: %q", tuiModel.viewContent())
 	}
 }
 
 func TestMessageActionsEnterEditsUserMessage(t *testing.T) {
 	tuiModel := messageActionsModel()
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
+	tuiModel = updateMessageActionKey(tuiModel, testKey(keyShiftUp))
+	tuiModel = updateMessageActionKey(tuiModel, testKey(keyShiftUp))
 
 	if tuiModel.messageActions.SelectedIndex != 0 {
 		t.Fatalf("selected index = %d, want user entry", tuiModel.messageActions.SelectedIndex)
 	}
 
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyEnter})
+	tuiModel = updateMessageActionKey(tuiModel, testKey(keyEnter))
 
 	if tuiModel.messageActions.Active {
 		t.Fatalf("message actions still active after edit")
@@ -104,8 +104,8 @@ func TestMessageActionsCopyRichUserBlockMessage(t *testing.T) {
 		},
 	}
 
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	tuiModel = updateMessageActionKey(tuiModel, testKey(keyShiftUp))
+	tuiModel = updateMessageActionKey(tuiModel, testKeyRunes("c"))
 
 	if tuiModel.messageActions.LastCopiedText != "Please inspect this screenshot\n\n[Image: image/png]" {
 		t.Fatalf("last copied text = %q, want rich user block text", tuiModel.messageActions.LastCopiedText)
@@ -114,9 +114,9 @@ func TestMessageActionsCopyRichUserBlockMessage(t *testing.T) {
 
 func TestMessageActionsEscapeAndCtrlCExitWithoutQuitting(t *testing.T) {
 	tuiModel := messageActionsModel()
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
+	tuiModel = updateMessageActionKey(tuiModel, testKey(keyShiftUp))
 
-	updated, cmd := tuiModel.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, cmd := tuiModel.Update(testKey(keyEscape))
 	tuiModel = updated.(Model)
 	if cmd != nil {
 		t.Fatalf("esc cmd = %v, want nil", cmd)
@@ -125,8 +125,8 @@ func TestMessageActionsEscapeAndCtrlCExitWithoutQuitting(t *testing.T) {
 		t.Fatalf("message actions still active after esc")
 	}
 
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
-	updated, cmd = tuiModel.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	tuiModel = updateMessageActionKey(tuiModel, testKey(keyShiftUp))
+	updated, cmd = tuiModel.Update(testKey(keyCtrlC))
 	tuiModel = updated.(Model)
 	if cmd != nil {
 		t.Fatalf("ctrl+c cmd = %v, want nil", cmd)
@@ -138,9 +138,9 @@ func TestMessageActionsEscapeAndCtrlCExitWithoutQuitting(t *testing.T) {
 
 func TestMessageActionsDoesNotOpenDuringTranscriptSearch(t *testing.T) {
 	tuiModel := messageActionsModel()
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyCtrlF})
+	tuiModel = updateMessageActionKey(tuiModel, testKey(keyCtrlF))
 
-	tuiModel = updateMessageActionKey(tuiModel, tea.KeyMsg{Type: tea.KeyShiftUp})
+	tuiModel = updateMessageActionKey(tuiModel, testKey(keyShiftUp))
 
 	if tuiModel.messageActions.Active {
 		t.Fatalf("message actions opened while transcript search is active")

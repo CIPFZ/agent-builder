@@ -142,6 +142,11 @@ func (s *tuiState) rejectPending() (string, bool) {
 	return id, true
 }
 
+func (s *tuiState) clearPendingApproval() {
+	s.pendingApproval = nil
+	s.approvalDialog.close()
+}
+
 func (s *tuiState) applyBridgeError(err error) {
 	if s.store != nil {
 		s.applyStoreSnapshot(s.store.applyBridgeError(err))
@@ -150,6 +155,7 @@ func (s *tuiState) applyBridgeError(err error) {
 	if err == nil {
 		return
 	}
+	s.clearPendingApproval()
 	s.events = append(s.events, "error: "+err.Error())
 	s.busy = false
 	s.diagnostics.LastError = err.Error()
@@ -167,10 +173,20 @@ func (s *tuiState) applyRuntimeEvent(event clientEvent) {
 	}
 	switch event.Type {
 	case "assistant.delta":
+		message := ""
+		if event.Message != nil {
+			message = event.Message.Content
+		}
+		if message == "" && event.Tool != nil {
+			message = event.Tool.ProgressMessage
+		}
+		if lastFinalAssistantAlreadyContains(s.transcript, message) {
+			break
+		}
 		if len(s.transcript) == 0 || s.transcript[len(s.transcript)-1].Role != "assistant" || !s.transcript[len(s.transcript)-1].Streaming {
-			s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: event.Tool.ProgressMessage, Streaming: true})
+			s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: message, Streaming: true})
 		} else {
-			s.transcript[len(s.transcript)-1].Content += event.Tool.ProgressMessage
+			s.transcript[len(s.transcript)-1].Content += message
 		}
 	case "message.created":
 		if event.Message != nil {
@@ -178,13 +194,19 @@ func (s *tuiState) applyRuntimeEvent(event clientEvent) {
 				s.transcript = append(s.transcript, entry)
 				return
 			}
+			if event.Message.Role == "user" {
+				if !transcriptHasMessageID(s.transcript, event.Message.ID) && !lastTranscriptMessageMatches(s.transcript, "user", event.Message.Content) {
+					s.transcript = append(s.transcript, transcriptEntry{MessageID: event.Message.ID, Role: "user", Content: event.Message.Content, Blocks: cloneClientMessageBlocks(event.Message.Blocks)})
+				}
+			}
 			if event.Message.Role == "assistant" {
 				if len(s.transcript) > 0 && s.transcript[len(s.transcript)-1].Role == "assistant" && s.transcript[len(s.transcript)-1].Streaming {
+					s.transcript[len(s.transcript)-1].MessageID = event.Message.ID
 					s.transcript[len(s.transcript)-1].Content = event.Message.Content
 					s.transcript[len(s.transcript)-1].Streaming = false
 					s.transcript[len(s.transcript)-1].Blocks = cloneClientMessageBlocks(event.Message.Blocks)
-				} else {
-					s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: event.Message.Content, Blocks: cloneClientMessageBlocks(event.Message.Blocks)})
+				} else if !transcriptHasMessageID(s.transcript, event.Message.ID) && !transcriptMessageExistsSinceLastUser(s.transcript, "assistant", event.Message.Content) {
+					s.transcript = append(s.transcript, transcriptEntry{MessageID: event.Message.ID, Role: "assistant", Content: event.Message.Content, Blocks: cloneClientMessageBlocks(event.Message.Blocks)})
 				}
 				s.busy = false
 			}
@@ -217,13 +239,15 @@ func (s *tuiState) applyRuntimeEvent(event clientEvent) {
 		}
 		s.busy = false
 	case "approval.updated":
-		s.pendingApproval = nil
-		s.approvalDialog.close()
+		s.clearPendingApproval()
 	case "run.error":
+		s.clearPendingApproval()
 		if event.Error != "" {
 			s.diagnostics.LastError = event.Error
 			s.activity.Label = "Run error"
-			s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindError, Role: "system", Content: event.Error})
+			if !lastTranscriptSpecialMessageMatches(s.transcript, messageKindError, event.Error) {
+				s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindError, Role: "system", Content: event.Error})
+			}
 		}
 	case "compact.boundary":
 		s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindCompact, Role: "system", Content: "Conversation compacted"})
@@ -273,6 +297,35 @@ func (s *tuiState) appendContextOutput(snapshot contextSnapshot) {
 		Content: strings.Join(lines, "\n"),
 	})
 	s.noteTranscriptAppended()
+}
+
+func (s *tuiState) appendCommandOutput(title string, lines []string) {
+	content := commandOutputContent(title, lines)
+	if content == "" {
+		return
+	}
+	s.dialog.close()
+	s.messageActions.close()
+	s.transcript = append(s.transcript, transcriptEntry{
+		Kind:    messageKindContext,
+		Role:    "system",
+		Content: content,
+	})
+	s.noteTranscriptAppended()
+}
+
+func commandOutputContent(title string, lines []string) string {
+	output := make([]string, 0, len(lines)+1)
+	if strings.TrimSpace(title) != "" {
+		output = append(output, strings.TrimSpace(title))
+	}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			output = append(output, line)
+		}
+	}
+	return strings.Join(output, "\n")
 }
 
 func appendBoundedEvent(events []string, event string, limit int) []string {
@@ -364,4 +417,9 @@ func (s *tuiState) applyStoreSnapshot(snapshot clientStoreSnapshot) {
 	s.activity = snapshot.Activity
 	s.busy = snapshot.Busy
 	s.pendingApproval = snapshot.Approval
+	if s.pendingApproval == nil {
+		s.approvalDialog.close()
+	} else if !s.approvalDialog.active() || s.approvalDialog.Request.ID != s.pendingApproval.ID {
+		s.approvalDialog.open(s.pendingApproval)
+	}
 }

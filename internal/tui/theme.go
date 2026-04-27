@@ -1,16 +1,16 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import "charm.land/lipgloss/v2"
 
 // Theme colors inspired by Claude Code's dark theme
 var (
 	// Brand / Primary
-	ClaudeOrange    = lipgloss.Color("#D4A373")
+	ClaudeOrange     = lipgloss.Color("#D4A373")
 	ClaudeOrangeBold = lipgloss.Color("#E9C46A")
 
 	// Semantic colors
 	SuccessGreen  = lipgloss.Color("#52B788")
-	ErrorRed     = lipgloss.Color("#EF476F")
+	ErrorRed      = lipgloss.Color("#EF476F")
 	WarningYellow = lipgloss.Color("#FFD166")
 	InfoBlue      = lipgloss.Color("#118AB2")
 
@@ -25,7 +25,7 @@ var (
 	DarkBorder     = lipgloss.Color("#30363D")
 
 	// User message background (gray)
-	UserMsgBg      = lipgloss.Color("#5e5c64")
+	UserMsgBg = lipgloss.Color("#5e5c64")
 
 	// Text colors
 	DarkText       = lipgloss.Color("#E6EDF3")
@@ -33,17 +33,17 @@ var (
 	DarkTextSubtle = lipgloss.Color("#6E7681")
 
 	// Role colors
-	UserRoleColor    = lipgloss.Color("#58A6FF")
-	AssistantColor   = ClaudeOrange
-	ToolColor        = ToolPurple
-	SystemColor      = DarkTextMuted
+	UserRoleColor  = lipgloss.Color("#58A6FF")
+	AssistantColor = ClaudeOrange
+	ToolColor      = ToolPurple
+	SystemColor    = DarkTextMuted
 )
 
 // Claude Code style border definitions
 var (
 	// Top and bottom borders with title
-	TopLeftCorner     = lipgloss.Color("#AB4682") // Pink/magenta for Claude branding
-	BorderColor       = DarkBorder
+	TopLeftCorner = lipgloss.Color("#AB4682") // Pink/magenta for Claude branding
+	BorderColor   = DarkBorder
 
 	// Panel border - rounded style
 	RoundedBorder = lipgloss.Border{
@@ -129,8 +129,8 @@ var (
 // Input styles
 var (
 	InputPromptStyle = lipgloss.NewStyle().
-			Foreground(ClaudeOrangeBold).
-			Bold(true)
+				Foreground(ClaudeOrangeBold).
+				Bold(true)
 
 	InputTextStyle = lipgloss.NewStyle().
 			Foreground(DarkText)
@@ -144,20 +144,20 @@ var (
 // Approval styles
 var (
 	ApprovalBoxStyle = lipgloss.NewStyle().
-			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(PermissionBlue).
-			Foreground(lipgloss.Color("#1F1F1F")).
-			Padding(1, 2)
+				BorderStyle(lipgloss.RoundedBorder()).
+				BorderForeground(PermissionBlue).
+				Foreground(lipgloss.Color("#1F1F1F")).
+				Padding(1, 2)
 
 	ApprovalTitleStyle = lipgloss.NewStyle().
-			Foreground(PermissionBlue).
-			Bold(true)
+				Foreground(PermissionBlue).
+				Bold(true)
 
 	ApprovalToolStyle = lipgloss.NewStyle().
-			Foreground(ToolColor)
+				Foreground(ToolColor)
 
 	ApprovalInputStyle = lipgloss.NewStyle().
-			Foreground(DarkTextMuted)
+				Foreground(DarkTextMuted)
 )
 
 // Status styles - these return the rendered string directly
@@ -170,7 +170,7 @@ var (
 // Spinner styles
 var (
 	SpinnerStyle = lipgloss.NewStyle().
-			Foreground(ClaudeOrange)
+		Foreground(ClaudeOrange)
 )
 
 // Border styles for sections
@@ -180,6 +180,6 @@ var (
 			BorderForeground(DarkBorder)
 
 	HighlightBorderStyle = lipgloss.NewStyle().
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(ClaudeOrange)
+				BorderStyle(lipgloss.NormalBorder()).
+				BorderForeground(ClaudeOrange)
 )

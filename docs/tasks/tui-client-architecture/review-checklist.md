@@ -16,7 +16,8 @@ Use this checklist when reviewing the TUI architecture and downstream implementa
 
 ## 3. Technology Check
 
-- Is the Bubble Tea-based stack clearly justified?
+- Is the Charmbracelet v2 stack clearly justified?
+- Does production TUI use `charm.land/bubbletea/v2` and `charm.land/lipgloss/v2` rather than legacy Charmbracelet import paths?
 - Has the raw TTY-heavy direction been rejected as the long-term path?
 
 ## 4. Store / State Check

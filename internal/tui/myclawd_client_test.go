@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/gorilla/websocket"
 
 	"myclaw/internal/gateway"
@@ -64,6 +64,57 @@ func TestMyclawdClientSendUserMessageCreatesUserEvent(t *testing.T) {
 	}
 }
 
+func TestMyclawdClientSendUserMessageDoesNotRefreshSnapshots(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	methods := make(chan string, 16)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close()
+		for {
+			var req protocolws.Message
+			if err := conn.ReadJSON(&req); err != nil {
+				return
+			}
+			methods <- req.Method
+			writeHarnessResponse(t, conn, req.ID, defaultHarnessPayloadFor(req.Method))
+		}
+	}))
+	defer server.Close()
+
+	client := NewMyclawdClient(context.Background(), server.URL+"/ws", "main", newClientStore(), nil)
+	if err := client.Start(); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	defer client.Close()
+	drainMethods(methods)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- client.SendUserMessage("hello")
+	}()
+
+	if method := waitForMethod(t, methods); method != protocolws.MethodSendMessage {
+		t.Fatalf("method = %q, want send message", method)
+	}
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("SendUserMessage error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("SendUserMessage did not return after send ack")
+	}
+
+	select {
+	case method := <-methods:
+		t.Fatalf("unexpected follow-up request after send: %s", method)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
 func TestMyclawdClientUpdatesStoreForProgressApprovalAndTasks(t *testing.T) {
 	store := newClientStore()
 	client, cleanup, msgCh, conn := startClientWithHarness(t, store)
@@ -71,14 +122,14 @@ func TestMyclawdClientUpdatesStoreForProgressApprovalAndTasks(t *testing.T) {
 
 	respondToOutstandingRequests(t, conn)
 	writeHarnessEvent(t, conn, protocolws.EventMessage("tool.called", map[string]any{
-		"run_id":       "run-1",
-		"tool_name":    "Read",
-		"tool_use_id":  "toolu-1",
-		"tool_input":   `{"file_path":"README.md"}`,
-		"session_id":   "sess-1",
-		"session_key":  "agent:main:main",
-		"agent_id":     "main",
-		"is_main":      true,
+		"run_id":      "run-1",
+		"tool_name":   "Read",
+		"tool_use_id": "toolu-1",
+		"tool_input":  `{"file_path":"README.md"}`,
+		"session_id":  "sess-1",
+		"session_key": "agent:main:main",
+		"agent_id":    "main",
+		"is_main":     true,
 	}))
 	writeHarnessEvent(t, conn, protocolws.EventMessage("tool.progress", map[string]any{
 		"run_id":      "run-1",
@@ -112,16 +163,16 @@ func TestMyclawdClientUpdatesStoreForProgressApprovalAndTasks(t *testing.T) {
 		"session_key": "agent:main:main",
 	}))
 	writeHarnessEvent(t, conn, protocolws.EventMessage("permission.required", map[string]any{
-		"approval_id":  "approval-1",
-		"run_id":       "run-2",
-		"tool_name":    "system.run",
-		"tool_input":   "pwd",
-		"reason":       "needs approval",
-		"status":       "pending",
-		"category":     "shell",
-		"rule_source":  "policy",
-		"session_id":   "sess-1",
-		"session_key":  "agent:main:main",
+		"approval_id": "approval-1",
+		"run_id":      "run-2",
+		"tool_name":   "system.run",
+		"tool_input":  "pwd",
+		"reason":      "needs approval",
+		"status":      "pending",
+		"category":    "shell",
+		"rule_source": "policy",
+		"session_id":  "sess-1",
+		"session_key": "agent:main:main",
 	}))
 	writeHarnessEvent(t, conn, protocolws.EventMessage(protocolws.EventSubagentUpdated, map[string]any{
 		"run_id":            "agent-1",
@@ -176,7 +227,7 @@ func TestModelUpdateWithStoreBackedClientEventShowsApproval(t *testing.T) {
 	model := NewModel(&fakeBridge{}, ModelConfig{LLMLabel: "test-model"})
 	model.bindStore(store)
 
-	updated, _ := model.Update(RuntimeEventMsg{Event: clientEvent{
+	event := clientEvent{
 		Type: "permission.required",
 		Tool: &clientToolEvent{
 			Approval: &clientApproval{
@@ -187,7 +238,9 @@ func TestModelUpdateWithStoreBackedClientEventShowsApproval(t *testing.T) {
 				Status:    "pending",
 			},
 		},
-	}})
+	}
+	store.applyEvent(event)
+	updated, _ := model.Update(RuntimeEventMsg{Event: event})
 	model = updated.(Model)
 
 	if model.pendingApproval == nil || model.pendingApproval.ID != "approval-1" {
@@ -195,6 +248,28 @@ func TestModelUpdateWithStoreBackedClientEventShowsApproval(t *testing.T) {
 	}
 	if !model.approvalDialog.active() {
 		t.Fatal("approval dialog should be active")
+	}
+}
+
+func TestModelUpdateWithStoreBackedClientEventDoesNotApplyEventTwice(t *testing.T) {
+	store := newClientStore()
+	model := NewModel(&fakeBridge{}, ModelConfig{LLMLabel: "test-model"})
+	model.bindStore(store)
+
+	event := clientEvent{
+		Type:    "assistant.delta",
+		Message: &clientMessage{Role: "assistant", Content: "Hello"},
+	}
+	store.applyEvent(event)
+
+	updated, _ := model.Update(RuntimeEventMsg{Event: event})
+	model = updated.(Model)
+
+	if len(model.transcript) != 1 {
+		t.Fatalf("transcript = %#v, want one assistant entry", model.transcript)
+	}
+	if model.transcript[0].Content != "Hello" {
+		t.Fatalf("assistant content = %q, want Hello", model.transcript[0].Content)
 	}
 }
 
@@ -310,7 +385,6 @@ func respondToOutstandingRequests(t *testing.T, conn *websocket.Conn) {
 	}
 }
 
-
 func defaultHarnessPayloadFor(method string) map[string]any {
 	switch method {
 	case protocolws.MethodSessionStatus:
@@ -373,6 +447,27 @@ func writeHarnessEvent(t *testing.T, conn *websocket.Conn, msg protocolws.Messag
 	}
 	if err := conn.WriteJSON(normalized); err != nil {
 		t.Fatalf("WriteJSON event: %v", err)
+	}
+}
+
+func drainMethods(methods <-chan string) {
+	for {
+		select {
+		case <-methods:
+		default:
+			return
+		}
+	}
+}
+
+func waitForMethod(t *testing.T, methods <-chan string) string {
+	t.Helper()
+	select {
+	case method := <-methods:
+		return method
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for websocket request")
+		return ""
 	}
 }
 

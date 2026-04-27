@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 
 	"myclaw/internal/model"
 )
@@ -184,13 +184,19 @@ func (r renderer) renderLayout(m Model, width int) string {
 func (r renderer) renderScreen(snapshot renderSnapshot) string {
 	var b strings.Builder
 	b.WriteString(r.renderHeader(snapshot))
+	if snapshot.Dialog != nil {
+		b.WriteString(r.renderTranscript(snapshot))
+		b.WriteString(r.renderDialog(snapshot))
+		if snapshot.Actions.Active {
+			b.WriteString(r.renderMessageActionsBar(snapshot))
+		}
+		return b.String()
+	}
 	b.WriteString(r.renderTranscript(snapshot))
-	b.WriteString(r.renderPrompt(snapshot))
 	if snapshot.Approval != nil {
 		b.WriteString(r.renderApprovalDialog(snapshot))
-	}
-	if snapshot.Dialog != nil {
-		b.WriteString(r.renderDialog(snapshot))
+	} else {
+		b.WriteString(r.renderPrompt(snapshot))
 	}
 	if snapshot.Actions.Active {
 		b.WriteString(r.renderMessageActionsBar(snapshot))
@@ -988,7 +994,17 @@ func (snapshot renderSnapshot) transcriptVisibleLines() int {
 	if snapshot.Height <= 0 || snapshot.Viewport.ShowAllHistory {
 		return 0
 	}
-	visible := snapshot.Height - headerLineCount - snapshot.promptVisibleLines()
+	reserved := headerLineCount + snapshot.promptVisibleLines()
+	if snapshot.Approval != nil {
+		reserved = headerLineCount + snapshot.approvalVisibleLines()
+	}
+	if snapshot.Dialog != nil {
+		reserved = headerLineCount + snapshot.dialogVisibleLines()
+	}
+	visible := snapshot.Height - reserved - 1
+	if snapshot.Dialog != nil && visible < 1 {
+		return 1
+	}
 	if visible < 3 {
 		return 3
 	}
@@ -1007,6 +1023,27 @@ func (snapshot renderSnapshot) promptVisibleLines() int {
 		lines += len(snapshot.Input.Suggestions)
 	}
 	return lines
+}
+
+func (snapshot renderSnapshot) dialogVisibleLines() int {
+	if snapshot.Dialog == nil {
+		return 0
+	}
+	return renderedLineCount(newRenderer().renderDialog(snapshot))
+}
+
+func (snapshot renderSnapshot) approvalVisibleLines() int {
+	if snapshot.Approval == nil {
+		return 0
+	}
+	return renderedLineCount(newRenderer().renderApprovalDialog(snapshot))
+}
+
+func renderedLineCount(rendered string) int {
+	if rendered == "" {
+		return 0
+	}
+	return strings.Count(rendered, "\n")
 }
 
 func (snapshot renderSnapshot) viewportStatusLine(width int, effectiveOffset int) string {
@@ -1157,43 +1194,13 @@ func truncateCells(text string, width int) string {
 }
 
 func renderInputLinesWithCursor(input string, cursor int, width int) []string {
-	runes := []rune(input)
-	if cursor < 0 {
-		cursor = 0
-	}
-	if cursor > len(runes) {
-		cursor = len(runes)
-	}
 	lines := buildInputVisualLines(input, width)
 	rendered := make([]string, 0, len(lines))
-	cursorLine := inputCursorLineIndex(lines, cursor)
-	for index, line := range lines {
-		lineRunes := []rune(line.Text)
-		if index != cursorLine {
-			rendered = append(rendered, line.Text)
-			continue
-		}
-		cursorOffset := cursor - line.Start
-		if cursorOffset < 0 {
-			cursorOffset = 0
-		}
-		if cursorOffset > len(lineRunes) {
-			cursorOffset = len(lineRunes)
-		}
-		var b strings.Builder
-		b.WriteString(string(lineRunes[:cursorOffset]))
-		if cursorOffset == len(lineRunes) {
-			b.WriteString(CursorStyle.Render(" "))
-		} else {
-			b.WriteString(CursorStyle.Render(string(lineRunes[cursorOffset])))
-			if cursorOffset+1 < len(lineRunes) {
-				b.WriteString(string(lineRunes[cursorOffset+1:]))
-			}
-		}
-		rendered = append(rendered, b.String())
+	for _, line := range lines {
+		rendered = append(rendered, line.Text)
 	}
 	if len(rendered) == 0 {
-		return []string{CursorStyle.Render(" ")}
+		return []string{""}
 	}
 	return rendered
 }

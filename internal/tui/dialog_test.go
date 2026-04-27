@@ -1,9 +1,9 @@
 package tui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestDialogStateOpenNavigateAndClose(t *testing.T) {
@@ -39,20 +39,23 @@ func TestDialogStateOpenNavigateAndClose(t *testing.T) {
 	}
 }
 
-func TestSlashHelpOpensDialogWithoutSendingRuntimeMessage(t *testing.T) {
+func TestSlashHelpAppendsTranscriptOutputWithoutSendingRuntimeMessage(t *testing.T) {
 	bridge := &fakeBridge{}
 	model := NewModel(bridge)
 	model.input = "/help"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.sent) != 0 {
 		t.Fatalf("sent = %#v, want no runtime message", bridge.sent)
 	}
-	if !model.dialog.active() {
-		t.Fatal("dialog inactive, want help dialog open")
+	if model.dialog.active() {
+		t.Fatalf("dialog active, want help output in transcript: %#v", model.dialog)
+	}
+	if len(model.transcript) == 0 || !contains(model.transcript[len(model.transcript)-1].Content, "Commands") {
+		t.Fatalf("transcript = %#v, want help output", model.transcript)
 	}
 	if model.input != "" || model.busy {
 		t.Fatalf("input/busy = %q/%v, want empty/false", model.input, model.busy)
@@ -61,24 +64,24 @@ func TestSlashHelpOpensDialogWithoutSendingRuntimeMessage(t *testing.T) {
 
 func TestDialogConsumesKeysBeforeInputEditing(t *testing.T) {
 	model := NewModel(&fakeBridge{})
-	model.openHelpDialog()
+	model.openModelDialog()
 	model.input = "draft"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	updated, _ := model.Update(testKeyRunes("x"))
 	model = updated.(Model)
 
 	if model.input != "draft" {
 		t.Fatalf("input = %q, want unchanged draft", model.input)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = model.Update(testKey(keyDown))
 	model = updated.(Model)
 	if model.dialog.SelectedIndex != 1 {
 		t.Fatalf("selectedIndex = %d, want 1", model.dialog.SelectedIndex)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	updated, _ = model.Update(testKey(keyEscape))
 	model = updated.(Model)
 	if model.dialog.active() {
 		t.Fatal("dialog active after escape, want closed")
@@ -87,11 +90,11 @@ func TestDialogConsumesKeysBeforeInputEditing(t *testing.T) {
 
 func TestRendererIncludesDialogOverlay(t *testing.T) {
 	model := NewModel(&fakeBridge{})
-	model.openHelpDialog()
+	model.openModelDialog()
 
 	view := newRenderer().renderScreen(newRenderSnapshot(model, 80))
 
-	for _, want := range []string{"Commands", "/help", "/model", "Enter select", "Esc close"} {
+	for _, want := range []string{"Model", "Default", "Sonnet", "Opus", "Enter select", "Esc close"} {
 		if !contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
@@ -104,7 +107,7 @@ func TestSlashModelArgumentSetsSessionOverrideWithoutOpeningDialog(t *testing.T)
 	model.input = "/model opus"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if model.dialog.active() {
@@ -118,13 +121,67 @@ func TestSlashModelArgumentSetsSessionOverrideWithoutOpeningDialog(t *testing.T)
 	}
 }
 
+func TestTypedSlashModelOpensDialogWithoutSendingRuntimeMessage(t *testing.T) {
+	bridge := &fakeBridge{}
+	model := NewModel(bridge)
+
+	updated, _ := model.Update(testKeyRunes("/model"))
+	model = updated.(Model)
+	if len(model.suggestions) == 0 {
+		t.Fatal("suggestions should be visible before enter")
+	}
+
+	updated, cmd := model.Update(testKey(keyEnter))
+	model = updated.(Model)
+
+	if cmd != nil {
+		t.Fatalf("cmd = %v, want nil for local /model command", cmd)
+	}
+	if len(bridge.sent) != 0 {
+		t.Fatalf("sent = %#v, want no runtime message", bridge.sent)
+	}
+	if !model.dialog.active() || model.dialog.Title != "Model" {
+		t.Fatalf("dialog = %#v, want model dialog", model.dialog)
+	}
+	view := model.viewContent()
+	for _, want := range []string{"Model", "Search: (type to filter)", "Default", "Sonnet", "Opus"} {
+		if !contains(view, want) {
+			t.Fatalf("model view missing %q: %q", want, view)
+		}
+	}
+}
+
+func TestModelDialogIsVisibleWithinTerminalHeight(t *testing.T) {
+	bridge := &fakeBridge{}
+	model := NewModel(bridge)
+	model.setSize(80, 20)
+	for i := 1; i <= 20; i++ {
+		model.transcript = append(model.transcript, transcriptEntry{
+			Role:    "assistant",
+			Content: fmt.Sprintf("message-%02d", i),
+		})
+	}
+	model.input = "/model"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(testKey(keyEnter))
+	model = updated.(Model)
+
+	visible := firstLines(model.viewContent(), model.height)
+	for _, want := range []string{"Model", "Search: (type to filter)", "Default", "Sonnet", "Opus"} {
+		if !contains(visible, want) {
+			t.Fatalf("visible view missing %q: %q", want, visible)
+		}
+	}
+}
+
 func TestSlashModelDefaultClearsSessionOverride(t *testing.T) {
 	bridge := &fakeBridge{}
 	model := NewModel(bridge)
 	model.input = "/model default"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if bridge.modelClears != 1 {
@@ -133,4 +190,12 @@ func TestSlashModelDefaultClearsSessionOverride(t *testing.T) {
 	if len(bridge.modelSets) != 0 {
 		t.Fatalf("modelSets = %#v, want none", bridge.modelSets)
 	}
+}
+
+func firstLines(text string, count int) string {
+	lines := strings.Split(text, "\n")
+	if count > len(lines) {
+		count = len(lines)
+	}
+	return strings.Join(lines[:count], "\n")
 }

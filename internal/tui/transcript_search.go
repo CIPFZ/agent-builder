@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func (m *Model) startTranscriptSearch() {
@@ -23,19 +23,19 @@ func (m *Model) handleTranscriptSearchKey(msg tea.KeyMsg) bool {
 	if !m.viewport.Search.Active {
 		return false
 	}
-	switch msg.Type {
-	case tea.KeyEsc, tea.KeyCtrlC:
+	switch keyEventType(msg) {
+	case keyEscape, keyCtrlC:
 		m.closeTranscriptSearch()
-	case tea.KeyEnter, tea.KeyCtrlN:
+	case keyEnter, keyCtrlN:
 		m.moveTranscriptSearchSelection(1)
-	case tea.KeyCtrlP:
+	case keyCtrlP:
 		m.moveTranscriptSearchSelection(-1)
-	case tea.KeyBackspace:
+	case keyBackspace:
 		m.backspaceTranscriptSearchQuery()
-	case tea.KeySpace:
+	case keySpace:
 		m.appendTranscriptSearchQuery(" ")
-	case tea.KeyRunes:
-		m.appendTranscriptSearchQuery(string(msg.Runes))
+	case keyRunes:
+		m.appendTranscriptSearchQuery(string(keyEventRunes(msg)))
 	default:
 		return false
 	}

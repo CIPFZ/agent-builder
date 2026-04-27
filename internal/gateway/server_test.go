@@ -33,6 +33,14 @@ type orchestrationHook struct {
 	events []orchestration.Event
 }
 
+func TestShouldSuppressContinuationRunErrorForApprovalRequired(t *testing.T) {
+	err := &queryengine.ApprovalRequiredError{ToolName: "Bash", Reason: "needs approval"}
+
+	if !shouldSuppressContinuationRunError(err) {
+		t.Fatalf("shouldSuppressContinuationRunError(%v) = false, want true", err)
+	}
+}
+
 type permissionHookFunc func(context.Context, queryengine.PermissionHookRequest) (permissions.Decision, bool, error)
 
 func (f permissionHookFunc) CheckPermission(ctx context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
@@ -496,7 +504,7 @@ func waitForGatewayMCPServerStatus(t *testing.T, conn *websocket.Conn, serverNam
 
 func TestHandleWebSocketMCPStatusReturnsNeedsAuthInventory(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	server.runner = runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), nil, runtimepkg.Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 		MCPClients:       []tools.MCPConnection{{Name: "filesystem", Type: "streamable_http", BaseURL: "https://mcp.example"}},
@@ -552,7 +560,7 @@ func TestHandleWebSocketMCPStatusReturnsNeedsAuthInventory(t *testing.T) {
 
 func TestHandleWebSocketMCPStatusReturnsStartupDiscoveryFailure(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	server.runner = runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), nil, runtimepkg.Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 		MCPClients:       []tools.MCPConnection{{Name: "broken", Type: "stdio"}},
@@ -590,7 +598,7 @@ func TestHandleWebSocketMCPStatusReturnsStartupDiscoveryFailure(t *testing.T) {
 
 func TestHandleWebSocketMCPReconnectRefreshesInventory(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	server.runner = runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), nil, runtimepkg.Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 		MCPClients:       []tools.MCPConnection{{Name: "filesystem", Type: "configured"}},
@@ -647,7 +655,7 @@ func TestHandleWebSocketMCPAuthenticateUsesStoredAuthContextAndReconnectsOnCompl
 		"resource_metadata": "https://auth.example/.well-known/oauth-protected-resource",
 	}
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	server.runner = runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), nil, runtimepkg.Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 		MCPClients:       []tools.MCPConnection{{Name: "filesystem", Type: "streamable_http", BaseURL: "https://mcp.example"}},
@@ -749,7 +757,7 @@ func TestHandleWebSocketMCPAuthenticateUsesStoredAuthContextAndReconnectsOnCompl
 
 func TestHandleWebSocketConnectAndSendMessage(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -862,6 +870,9 @@ func TestHandleWebSocketConnectAndSendMessage(t *testing.T) {
 			deltaCount++
 			continue
 		}
+		if event.Type == protocolws.TypeEvent && (event.Event == "model.request.start" || event.Event == "model.request.end") {
+			continue
+		}
 
 		assistantCreated = event
 		break
@@ -915,7 +926,7 @@ func TestHandleWebSocketConnectAndSendMessage(t *testing.T) {
 
 func TestHandleWebSocketToolLoop(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -956,6 +967,9 @@ func TestHandleWebSocketToolLoop(t *testing.T) {
 
 	events := make([]protocolws.Message, 0, 10)
 	for len(events) < 20 {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set event read deadline: %v", err)
+		}
 		var msg protocolws.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			t.Fatalf("read event %d: %v", len(events), err)
@@ -1084,7 +1098,7 @@ func TestHandleWebSocketEmitsToolProgressEvents(t *testing.T) {
 
 func TestHandleWebSocketDoesNotEmitRunErrorWhenApprovalIsRequired(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -1156,7 +1170,7 @@ func TestHandleWebSocketDoesNotEmitRunErrorWhenApprovalIsRequired(t *testing.T) 
 func TestHandleWebSocketPermissionHookAllowBypassesApprovalPrompt(t *testing.T) {
 	sessionManager := session.NewManager(nil)
 	var hookCalls int
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 		PermissionHook: permissionHookFunc(func(_ context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
 			hookCalls++
@@ -1250,7 +1264,7 @@ func TestHandleWebSocketPermissionHookAllowBypassesApprovalPrompt(t *testing.T) 
 
 func TestHandleWebSocketPermissionHookDenyContinuesWithErrorToolResult(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 		PermissionHook: permissionHookFunc(func(_ context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
 			return permissions.Decision{
@@ -1348,7 +1362,7 @@ func TestHandleWebSocketPermissionHookDenyContinuesWithErrorToolResult(t *testin
 
 func TestHandleWebSocketPermissionRequiredIncludesPromptMetadata(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 		PermissionHook: permissionHookFunc(func(_ context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
 			return permissions.Decision{
@@ -1430,7 +1444,7 @@ func TestHandleWebSocketPermissionRequiredIncludesPromptMetadata(t *testing.T) {
 
 func TestHandleWebSocketApprovalListIncludesPromptMetadata(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 		PermissionHook: permissionHookFunc(func(_ context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
 			return permissions.Decision{
@@ -1517,7 +1531,7 @@ func TestHandleWebSocketApprovalListIncludesPromptMetadata(t *testing.T) {
 
 func TestHandleWebSocketApprovalApproveCarriesFeedbackBlocksIntoToolResult(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -1610,7 +1624,7 @@ func TestHandleWebSocketApprovalApproveCarriesFeedbackBlocksIntoToolResult(t *te
 
 func TestHandleWebSocketCanUseToolControlRequestAllowRunsTool(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -1726,7 +1740,7 @@ func TestHandleWebSocketCanUseToolControlRequestAllowRunsTool(t *testing.T) {
 
 func TestHandleWebSocketCanUseToolControlRequestIncludesStructuredDecisionReason(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{
 			Mode: permissions.ModeAsk,
 			Rules: []permissions.Rule{{
@@ -1798,7 +1812,7 @@ func TestHandleWebSocketCanUseToolControlRequestIncludesStructuredDecisionReason
 
 func TestHandleWebSocketPermissionRequiredIncludesStructuredDecisionReason(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{
 			Mode: permissions.ModeAsk,
 			Rules: []permissions.Rule{{
@@ -1870,7 +1884,7 @@ func TestHandleWebSocketPermissionRequiredIncludesStructuredDecisionReason(t *te
 
 func TestHandleWebSocketCanUseToolControlResponseDenyContinuesWithErrorToolResult(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -1971,7 +1985,7 @@ func TestHandleWebSocketCanUseToolControlResponseDenyContinuesWithErrorToolResul
 
 func TestHandleWebSocketCanUseToolControlResponseUpdatedInputDrivesToolCall(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -2277,7 +2291,7 @@ func TestHandleWebSocketShellFailurePreservesStructuredResult(t *testing.T) {
 
 func TestHandleWebSocketCanUseToolControlRequestRacesFallbackPermissionHook(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy:         permissions.Policy{Mode: permissions.ModeAsk},
 		PermissionControlTimeout: 2 * time.Second,
 		PermissionHook: permissionHookFunc(func(_ context.Context, request queryengine.PermissionHookRequest) (permissions.Decision, bool, error) {
@@ -2373,7 +2387,7 @@ func TestHandleWebSocketCanUseToolControlRequestRacesFallbackPermissionHook(t *t
 
 func TestHandleWebSocketApprovalListReturnsPendingRequests(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -2465,7 +2479,7 @@ func TestHandleWebSocketApprovalListReturnsPendingRequests(t *testing.T) {
 
 func TestHandleWebSocketApprovalApproveUpdatesRequestStatus(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -2579,7 +2593,7 @@ func TestHandleWebSocketApprovalApproveUpdatesRequestStatus(t *testing.T) {
 
 func TestHandleWebSocketApprovalRejectUpdatesRequestStatus(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -2666,7 +2680,7 @@ func TestHandleWebSocketApprovalRejectUpdatesRequestStatus(t *testing.T) {
 
 func TestHandleWebSocketApprovalRejectWithFeedbackContinuesWithErrorToolResult(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -2758,7 +2772,7 @@ func TestHandleWebSocketApprovalRejectWithFeedbackContinuesWithErrorToolResult(t
 
 func TestHandleWebSocketApprovalListCanFilterByStatus(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -2901,7 +2915,7 @@ func TestHandleWebSocketApprovalListCanFilterByStatus(t *testing.T) {
 
 func TestHandleWebSocketApprovalDecisionEmitsAuditEvent(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -3002,7 +3016,7 @@ func TestHandleWebSocketApprovalDecisionEmitsAuditEvent(t *testing.T) {
 
 func TestHandleWebSocketApprovalClearRemovesTerminalRecords(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -3122,7 +3136,7 @@ func TestHandleWebSocketApprovalClearRemovesTerminalRecords(t *testing.T) {
 
 func TestHandleWebSocketSpawnSubagent(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -3192,7 +3206,7 @@ func TestHandleWebSocketSpawnSubagent(t *testing.T) {
 
 func TestHandleWebSocketSessionStatus(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -3246,7 +3260,7 @@ func TestHandleWebSocketSessionStatus(t *testing.T) {
 
 func TestHandleWebSocketSessionStatusIncludesDerivedPermissionModeForSubagent(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{
 			Mode:         permissions.ModeDangerFullAccess,
 			SubagentMode: permissions.ModeAsk,
@@ -3326,7 +3340,7 @@ func TestHandleWebSocketSessionStatusIncludesDerivedPermissionModeForSubagent(t 
 
 func TestHandleWebSocketSessionSetPermissionUpdatesStatusAndEnforcement(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -3426,7 +3440,7 @@ func TestHandleWebSocketSessionSetPermissionUpdatesStatusAndEnforcement(t *testi
 
 func TestHandleWebSocketSessionSetPermissionUpdatesPlanAndAutoModeStatus(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -3517,7 +3531,7 @@ func TestHandleWebSocketSessionSetPermissionUpdatesPlanAndAutoModeStatus(t *test
 
 func TestHandleWebSocketSessionSetPermissionRejectsInvalidPlanAndAutoCombination(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -3576,7 +3590,7 @@ func TestHandleWebSocketSessionSetPermissionRejectsInvalidPlanAndAutoCombination
 
 func TestHandleWebSocketSessionSetPermissionNormalizesClaudeCodeExternalModes(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -3637,7 +3651,7 @@ func TestHandleWebSocketSessionSetPermissionNormalizesClaudeCodeExternalModes(t 
 
 func TestHandleWebSocketSessionStatusIncludesMainLoopModelState(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 		MainLoopModel:    "claude-sonnet-4-6",
 	})
@@ -3708,7 +3722,7 @@ func TestHandleWebSocketSessionStatusIncludesMainLoopModelState(t *testing.T) {
 
 func TestHandleWebSocketSessionStatusLatchesInitialMainLoopModelWithoutOverride(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 		MainLoopModel:    "claude-sonnet-4-6",
 	})
@@ -3769,7 +3783,7 @@ func TestHandleWebSocketSessionStatusLatchesInitialMainLoopModelWithoutOverride(
 
 func TestHandleWebSocketSessionSetModelUpdatesStatusAndResolvedModelState(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 		MainLoopModel:    "claude-sonnet-4-6",
 	})
@@ -3845,7 +3859,7 @@ func TestHandleWebSocketSessionSetModelUpdatesStatusAndResolvedModelState(t *tes
 
 func TestHandleWebSocketSessionSetModelAliasUpdatesResolvedModelState(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 		MainLoopModel:    "claude-sonnet-4-6",
 	})
@@ -3906,7 +3920,7 @@ func TestHandleWebSocketSessionSetModelAliasUpdatesResolvedModelState(t *testing
 
 func TestHandleWebSocketSessionSetModelDefaultClearsOverride(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
 		MainLoopModel:    "claude-sonnet-4-6",
 	})
@@ -4165,7 +4179,7 @@ func TestHandleWebSocketSessionSetModelDefaultRestoresBaseModelForQueries(t *tes
 
 func TestHandleWebSocketSessionSetPermissionCascadeUpdatesExistingSubagentStatus(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{
 			Mode:         permissions.ModeDangerFullAccess,
 			SubagentMode: permissions.ModeWorkspaceWrite,
@@ -4271,7 +4285,7 @@ func TestHandleWebSocketSessionSetPermissionCascadeUpdatesExistingSubagentStatus
 
 func TestHandleWebSocketTasksAndSubagentsList(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -4348,7 +4362,7 @@ func TestHandleWebSocketTasksAndSubagentsList(t *testing.T) {
 
 func TestHandleWebSocketSubagentStop(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -4409,7 +4423,7 @@ func TestHandleWebSocketSubagentStop(t *testing.T) {
 
 func TestHandleWebSocketMemoryList(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	sess := sessionManager.GetOrCreateMain("main")
 	server.runner.MemoryService().SaveCompactionSummary(sess, session.Message{
 		ID:        "summary-1",
@@ -4472,7 +4486,7 @@ func TestHandleWebSocketMemoryList(t *testing.T) {
 
 func TestHandleWebSocketSubagentSteer(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -4544,7 +4558,7 @@ func TestHandleWebSocketSubagentSteer(t *testing.T) {
 
 func TestHandleWebSocketSubagentSteerEmitsUpdatedEvent(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -4623,7 +4637,7 @@ func TestHandleWebSocketSubagentSteerEmitsUpdatedEvent(t *testing.T) {
 
 func TestHandleWebSocketSubagentSteerEmitsOrchestrationUpdatedEvent(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -4722,7 +4736,7 @@ func TestHandleWebSocketSubagentSteerEmitsOrchestrationUpdatedEvent(t *testing.T
 
 func TestHandleWebSocketSubagentStatusReturnsControlMessages(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -4794,7 +4808,7 @@ func TestHandleWebSocketSubagentStatusReturnsControlMessages(t *testing.T) {
 func TestHandleWebSocketSubagentUpdatedIsSentToOrchestrationHook(t *testing.T) {
 	sessionManager := session.NewManager(nil)
 	hook := &orchestrationHook{}
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		Orchestrator: hook,
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -4893,7 +4907,7 @@ func TestHandleWebSocketSubagentUpdatedIsSentToOrchestrationHook(t *testing.T) {
 
 func TestHandleWebSocketOrchestrationStatusReturnsTrackedRuns(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -4989,7 +5003,7 @@ func TestHandleWebSocketOrchestrationStatusReturnsTrackedRuns(t *testing.T) {
 
 func TestHandleWebSocketOrchestrationHistoryReturnsDecisionRecords(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -5083,7 +5097,7 @@ func TestHandleWebSocketOrchestrationHistoryReturnsDecisionRecords(t *testing.T)
 
 func TestHandleWebSocketOrchestrationHistoryCanFilterRecords(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -5183,7 +5197,7 @@ func TestHandleWebSocketOrchestrationHistoryCanFilterRecords(t *testing.T) {
 
 func TestHandleWebSocketOrchestrationSummaryAggregatesSessionState(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -5294,7 +5308,7 @@ func TestHandleWebSocketOrchestrationSummaryAggregatesSessionState(t *testing.T)
 
 func TestHandleWebSocketOrchestrationEvaluateReturnsSuggestions(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -5396,7 +5410,7 @@ func TestHandleWebSocketOrchestrationEvaluateReturnsSuggestions(t *testing.T) {
 
 func TestHandleWebSocketOrchestrationEvaluateCanFilterSuggestions(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -5500,7 +5514,7 @@ func TestHandleWebSocketOrchestrationEvaluateCanFilterSuggestions(t *testing.T) 
 
 func TestHandleWebSocketOrchestrationPlanReturnsOrderedSteps(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -5640,7 +5654,7 @@ func TestHandleWebSocketOrchestrationPlanReturnsOrderedSteps(t *testing.T) {
 
 func TestHandleWebSocketOrchestrationPlanChainsDependencies(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -5730,7 +5744,7 @@ func TestHandleWebSocketOrchestrationPlanChainsDependencies(t *testing.T) {
 
 func TestHandleWebSocketOrchestrationPlanStepUpdatePersistsState(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -5855,7 +5869,7 @@ func TestHandleWebSocketOrchestrationPlanStepUpdatePersistsState(t *testing.T) {
 
 func TestHandleWebSocketOrchestrationPlanStepUpdateRejectsInvalidTransition(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -5959,7 +5973,7 @@ func TestHandleWebSocketOrchestrationPlanStepUpdateRejectsInvalidTransition(t *t
 
 func TestHandleWebSocketOrchestrationPlanStepUpdateUnlocksDependentStep(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -6088,7 +6102,7 @@ func TestHandleWebSocketOrchestrationPlanStepUpdateUnlocksDependentStep(t *testi
 
 func TestHandleWebSocketOrchestrationPlanStepHistoryReturnsExecutionAudit(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -6205,7 +6219,7 @@ func TestHandleWebSocketOrchestrationPlanStepHistoryReturnsExecutionAudit(t *tes
 
 func TestHandleWebSocketOrchestrationPlanStepHistoryCanFilterAndSummarize(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -6336,7 +6350,7 @@ func TestHandleWebSocketOrchestrationPlanStepHistoryCanFilterAndSummarize(t *tes
 
 func TestHandleWebSocketOrchestrationPlanOverviewSummarizesExecutionProgress(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -6528,7 +6542,7 @@ func TestHandleWebSocketOrchestrationPlanOverviewSummarizesExecutionProgress(t *
 
 func TestHandleWebSocketOrchestrationPlanOverviewExposesLatestInProgressAction(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -6683,7 +6697,7 @@ func TestHandleWebSocketOrchestrationPlanOverviewExposesLatestInProgressAction(t
 
 func TestHandleWebSocketOrchestrationPlanOverviewExposesLatestBlockedAction(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -6791,7 +6805,7 @@ func TestHandleWebSocketOrchestrationPlanOverviewExposesLatestBlockedAction(t *t
 
 func TestHandleWebSocketOrchestrationPlanExecutionHistorySummarizesSessionAudit(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -7011,7 +7025,7 @@ func TestHandleWebSocketOrchestrationPlanExecutionHistorySummarizesSessionAudit(
 
 func TestHandleWebSocketOrchestrationPlanExecutionHistoryCanFilterAndExposeLatestActiveAction(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -7197,7 +7211,7 @@ func TestHandleWebSocketOrchestrationPlanExecutionHistoryCanFilterAndExposeLates
 
 func TestHandleWebSocketOrchestrationPlanExecutionHistoryExposesLatestTerminalActions(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -7428,7 +7442,7 @@ func TestHandleWebSocketOrchestrationPlanExecutionHistoryExposesLatestTerminalAc
 
 func TestHandleWebSocketOrchestrationPlanExecutionHistoryCanFilterByActionID(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -7569,7 +7583,7 @@ func TestHandleWebSocketOrchestrationPlanExecutionHistoryCanFilterByActionID(t *
 
 func TestHandleWebSocketOrchestrationPlanExecutionHistoryCanFilterBySince(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -7735,7 +7749,7 @@ func TestHandleWebSocketOrchestrationPlanExecutionHistoryCanFilterBySince(t *tes
 
 func TestHandleWebSocketOrchestrationPlanExecutionHistoryRejectsInvalidSince(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -7786,7 +7800,7 @@ func TestHandleWebSocketOrchestrationPlanExecutionHistoryRejectsInvalidSince(t *
 
 func TestHandleWebSocketOrchestrationPlanExecutionHistoryCanFilterByUntil(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -7952,7 +7966,7 @@ func TestHandleWebSocketOrchestrationPlanExecutionHistoryCanFilterByUntil(t *tes
 
 func TestHandleWebSocketOrchestrationPlanExecutionHistoryRejectsInvalidUntil(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -8003,7 +8017,7 @@ func TestHandleWebSocketOrchestrationPlanExecutionHistoryRejectsInvalidUntil(t *
 
 func TestHandleWebSocketOrchestrationPlanExecutionHistoryCanFilterBySinceAndUntil(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, nil, Options{
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
 		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
 	})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
@@ -8200,7 +8214,7 @@ func TestHandleWebSocketOrchestrationPlanExecutionHistoryCanFilterBySinceAndUnti
 
 func TestHandleWebSocketSubagentResumeReusesChildSession(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -8293,7 +8307,7 @@ func TestHandleWebSocketSubagentResumeReusesChildSession(t *testing.T) {
 
 func TestHandleWebSocketSubagentResumeEmitsCompletedEventForResumedAttempt(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -8400,7 +8414,7 @@ func TestHandleWebSocketSubagentResumeEmitsCompletedEventForResumedAttempt(t *te
 
 func TestHandleWebSocketSystemRunToolLoop(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -8490,7 +8504,7 @@ func TestHandleWebSocketSystemRunToolLoop(t *testing.T) {
 func TestHandleWebSocketSystemRunUsesSandboxForNonMainSession(t *testing.T) {
 	sessionManager := session.NewManager(nil)
 	child := sessionManager.CreateChild("main", "agent:main:child:test")
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -8561,7 +8575,7 @@ func TestHandleWebSocketSystemRunUsesSandboxForNonMainSession(t *testing.T) {
 
 func TestHandleWebSocketReusesMainSessionByAgent(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -8632,7 +8646,7 @@ func TestHandleWebSocketReusesMainSessionByAgent(t *testing.T) {
 func TestHandleWebSocketRejectsMismatchedAgentAndSession(t *testing.T) {
 	sessionManager := session.NewManager(nil)
 	existing := sessionManager.GetOrCreateMain("main")
-	server := NewServer(log.New(io.Discard, "", 0), sessionManager, nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 

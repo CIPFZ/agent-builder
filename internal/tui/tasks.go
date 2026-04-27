@@ -14,23 +14,22 @@ const (
 func (m *Model) openTasksDialog() {
 	bridge, ok := m.bridge.(taskBridge)
 	if !ok {
-		m.dialog.open(dialogSpec{
-			Kind:       dialogKindTasks,
-			Title:      "Tasks",
-			Subtitle:   "Task workbench is not available for this bridge",
-			EmptyText:  "No delegated tasks",
-			FooterHint: "Esc close",
-		})
+		m.appendCommandOutput("Tasks", []string{"Task workbench is not available for this bridge", "No delegated tasks"})
 		return
 	}
 
 	m.taskPanel = bridge.TaskPanelSnapshot()
+	items := taskDialogItems(m.taskPanel)
+	if len(items) == 0 {
+		m.appendCommandOutput("Tasks", []string{taskPanelSubtitle(m.taskPanel), "No delegated tasks"})
+		return
+	}
 	m.dialog.open(dialogSpec{
 		Kind:         dialogKindTasks,
 		Title:        "Tasks",
 		Subtitle:     taskPanelSubtitle(m.taskPanel),
 		QueryEnabled: true,
-		Items:        taskDialogItems(m.taskPanel),
+		Items:        items,
 		EmptyText:    "No delegated tasks",
 		FooterHint:   "Type to filter | Enter details | Esc close",
 		VisibleCount: 7,

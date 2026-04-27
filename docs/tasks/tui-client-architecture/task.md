@@ -141,9 +141,8 @@ This task must explicitly decide the terminal UI stack.
 
 Recommended direction:
 
-- `Bubble Tea`
-- `Lip Gloss`
-- `Bubbles`
+- `charm.land/bubbletea/v2`
+- `charm.land/lipgloss/v2`
 
 This stack should be justified against:
 
@@ -151,6 +150,10 @@ This stack should be justified against:
 - maintainability
 - compatibility with `myclawd` event-driven architecture
 - lower dependence on terminal-specific quirks than the current TTY-heavy path
+
+The package paths are part of the decision. New TUI work should target the
+Charmbracelet v2 module paths instead of the older `github.com/charmbracelet/*`
+imports.
 
 ## 12. Required Implementation Order
 

@@ -200,7 +200,7 @@ func TestNewDaemonHandlerBootstrapsDaemonRuntimeOnlyOnce(t *testing.T) {
 	}
 }
 
-func TestLLMClientFromRuntimeConfigFallsBackToMockWithoutAPIKey(t *testing.T) {
+func TestLLMClientFromRuntimeConfigReturnsUnavailableWithoutAPIKey(t *testing.T) {
 	cfg := config.Config{
 		LLM: config.LLMConfig{
 			Provider: "default",
@@ -211,7 +211,7 @@ func TestLLMClientFromRuntimeConfigFallsBackToMockWithoutAPIKey(t *testing.T) {
 	}
 
 	client := LLMClientFromRuntimeConfig(cfg)
-	if _, ok := client.(*llm.MockClient); !ok {
-		t.Fatalf("client = %T, want *llm.MockClient", client)
+	if _, ok := client.(*llm.UnavailableClient); !ok {
+		t.Fatalf("client = %T, want *llm.UnavailableClient", client)
 	}
 }

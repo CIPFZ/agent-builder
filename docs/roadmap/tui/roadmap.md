@@ -21,7 +21,8 @@ Goal:
 
 Deliverables:
 
-- Bubble Tea application shell
+- Charmbracelet v2 application shell using `charm.land/bubbletea/v2`
+- Lip Gloss v2 styling/layout using `charm.land/lipgloss/v2`
 - `myclawd` websocket client
 - basic session connect/bind
 - simple message stream and prompt input

@@ -165,6 +165,18 @@ func TestTUIStateBridgeErrorTracksDiagnosticsAndClearsBusy(t *testing.T) {
 	}
 }
 
+func TestTUIStateBridgeErrorClearsPendingApproval(t *testing.T) {
+	state := newTUIState()
+	request := &approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd"}
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: request}))
+
+	state.applyBridgeError(assertErr("boom"))
+
+	if state.pendingApproval != nil || state.approvalDialog.active() {
+		t.Fatalf("approval state = pending %#v active %v, want cleared", state.pendingApproval, state.approvalDialog.active())
+	}
+}
+
 func TestTUIStateRuntimeReducerHandlesAssistantAndToolLifecycle(t *testing.T) {
 	state := newTUIState()
 
@@ -196,5 +208,142 @@ func TestTUIStateRuntimeReducerHandlesAssistantAndToolLifecycle(t *testing.T) {
 	}
 	if state.transcript[1].Role != "tool" || state.transcript[1].ToolStatus != toolStatusSucceeded || state.transcript[1].Content != "/repo" {
 		t.Fatalf("tool entry = %#v, want result /repo", state.transcript[1])
+	}
+}
+
+func TestTUIStateIgnoresDuplicateFinalMessages(t *testing.T) {
+	state := newTUIState()
+	state.transcript = append(state.transcript, transcriptEntry{Role: "user", Content: "hello"})
+
+	state.applyRuntimeEvent(clientEvent{
+		Type:    "message.created",
+		Message: &clientMessage{Role: "user", Content: "hello"},
+	})
+	state.applyRuntimeEvent(clientEvent{
+		Type:    "message.created",
+		Message: &clientMessage{Role: "assistant", Content: "answer"},
+	})
+	state.applyRuntimeEvent(clientEvent{
+		Type:    "message.created",
+		Message: &clientMessage{Role: "assistant", Content: "answer"},
+	})
+
+	if len(state.transcript) != 2 {
+		t.Fatalf("transcript = %#v, want one user and one assistant entry", state.transcript)
+	}
+	if state.transcript[0].Role != "user" || state.transcript[1].Role != "assistant" {
+		t.Fatalf("transcript = %#v, want user then assistant", state.transcript)
+	}
+}
+
+func TestTUIStateIgnoresAssistantDeltaAfterFinalMessage(t *testing.T) {
+	state := newTUIState()
+
+	state.applyRuntimeEvent(clientEvent{
+		Type:    "message.created",
+		Message: &clientMessage{ID: "assistant-1", Role: "assistant", Content: "Hi! I'm ready to help."},
+	})
+	state.applyRuntimeEvent(clientEvent{
+		Type:    "assistant.delta",
+		Message: &clientMessage{Role: "assistant", Content: "Hi! I'm ready to help."},
+		Tool:    &clientToolEvent{ProgressMessage: "Hi! I'm ready to help."},
+	})
+
+	if len(state.transcript) != 1 {
+		t.Fatalf("transcript = %#v, want one assistant entry", state.transcript)
+	}
+	if state.transcript[0].Content != "Hi! I'm ready to help." || state.transcript[0].Streaming {
+		t.Fatalf("assistant entry = %#v, want finalized response", state.transcript[0])
+	}
+}
+
+func TestClientStoreIgnoresAssistantDeltaAfterFinalMessage(t *testing.T) {
+	store := newClientStore()
+
+	snapshot := store.applyEvent(clientEvent{
+		Type:    "message.created",
+		Message: &clientMessage{ID: "assistant-1", Role: "assistant", Content: "Hi! I'm ready to help."},
+	})
+	snapshot = store.applyEvent(clientEvent{
+		Type:    "assistant.delta",
+		Message: &clientMessage{Role: "assistant", Content: "Hi! I'm ready to help."},
+		Tool:    &clientToolEvent{ProgressMessage: "Hi! I'm ready to help."},
+	})
+
+	if len(snapshot.Transcript) != 1 {
+		t.Fatalf("transcript = %#v, want one assistant entry", snapshot.Transcript)
+	}
+}
+
+func TestTUIStateIgnoresDuplicateRunError(t *testing.T) {
+	state := newTUIState()
+
+	state.applyRuntimeEvent(clientEvent{Type: "run.error", Error: "model connection failed"})
+	state.applyRuntimeEvent(clientEvent{Type: "run.error", Error: "model connection failed"})
+
+	if len(state.transcript) != 1 {
+		t.Fatalf("transcript = %#v, want one error entry", state.transcript)
+	}
+	if state.transcript[0].Kind != messageKindError || state.transcript[0].Content != "model connection failed" {
+		t.Fatalf("error entry = %#v, want model connection failed", state.transcript[0])
+	}
+}
+
+func TestTUIStateRunErrorClearsPendingApproval(t *testing.T) {
+	state := newTUIState()
+	request := &approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd"}
+	state.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: request}))
+
+	state.applyRuntimeEvent(clientEvent{Type: "run.error", Error: "model connection failed"})
+
+	if state.pendingApproval != nil || state.approvalDialog.active() {
+		t.Fatalf("approval state = pending %#v active %v, want cleared", state.pendingApproval, state.approvalDialog.active())
+	}
+}
+
+func TestClientStoreIgnoresDuplicateRunError(t *testing.T) {
+	store := newClientStore()
+
+	snapshot := store.applyEvent(clientEvent{Type: "run.error", Error: "model connection failed"})
+	snapshot = store.applyEvent(clientEvent{Type: "run.error", Error: "model connection failed"})
+
+	if len(snapshot.Transcript) != 1 {
+		t.Fatalf("transcript = %#v, want one error entry", snapshot.Transcript)
+	}
+	if snapshot.Transcript[0].Kind != messageKindError || snapshot.Transcript[0].Content != "model connection failed" {
+		t.Fatalf("error entry = %#v, want model connection failed", snapshot.Transcript[0])
+	}
+}
+
+func TestClientStoreRunErrorClearsPendingApproval(t *testing.T) {
+	store := newClientStore()
+	snapshot := store.applyEvent(clientEvent{
+		Type: "permission.required",
+		Tool: &clientToolEvent{Approval: &clientApproval{
+			ID:        "approval-1",
+			ToolName:  "system.run",
+			ToolInput: "pwd",
+		}},
+	})
+	if snapshot.Approval == nil {
+		t.Fatal("approval = nil, want pending approval before error")
+	}
+
+	snapshot = store.applyEvent(clientEvent{Type: "run.error", Error: "model connection failed"})
+
+	if snapshot.Approval != nil {
+		t.Fatalf("approval = %#v, want nil after run.error", snapshot.Approval)
+	}
+}
+
+func TestTUIStateApplyStoreSnapshotClosesStaleApprovalDialog(t *testing.T) {
+	state := newTUIState()
+	state.pendingApproval = &clientApproval{ID: "approval-1", ToolName: "Bash"}
+	state.approvalDialog.open(state.pendingApproval)
+
+	state.applyStoreSnapshot(clientStoreSnapshot{Approval: nil})
+
+	if state.pendingApproval != nil || state.approvalDialog.active() {
+		t.Fatalf("approval state = pending %#v active %v, want cleared", state.pendingApproval, state.approvalDialog.active())
 	}
 }

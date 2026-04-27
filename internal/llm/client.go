@@ -52,6 +52,22 @@ func NewMockClient() *MockClient {
 	return &MockClient{}
 }
 
+type UnavailableClient struct {
+	reason string
+}
+
+func NewUnavailableClient(reason string) *UnavailableClient {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "llm provider is not configured"
+	}
+	return &UnavailableClient{reason: reason}
+}
+
+func (c *UnavailableClient) Stream(context.Context, GenerateRequest, StreamHandler) error {
+	return fmt.Errorf("%s", c.reason)
+}
+
 func (c *MockClient) Stream(ctx context.Context, req GenerateRequest, handler StreamHandler) error {
 	if toolMessage := latestToolMessage(req.History); toolMessage != nil {
 		return streamText(ctx, fmt.Sprintf("Using tool result: %s", toolMessage.Content), handler)

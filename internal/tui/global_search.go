@@ -12,17 +12,17 @@ import (
 	"strconv"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 const dialogKindGlobalSearch = "global-search"
 
 const (
-	globalSearchMatchPrefix    = "search:"
-	globalSearchPreviewLines   = 9
-	globalSearchContextRadius  = 1
-	globalSearchMaxPerFile     = 10
-	globalSearchMaxTotal       = 500
+	globalSearchMatchPrefix   = "search:"
+	globalSearchPreviewLines  = 9
+	globalSearchContextRadius = 1
+	globalSearchMaxPerFile    = 10
+	globalSearchMaxTotal      = 500
 )
 
 func (m *Model) openGlobalSearchDialog() {

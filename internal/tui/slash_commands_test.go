@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"myclaw/internal/runtime"
 	"myclaw/internal/session"
 )
@@ -23,7 +21,7 @@ func TestSlashClearClearsVisibleConversationWithoutSendingRuntimeMessage(t *test
 	model.input = "/clear"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.sent) != 0 {
@@ -43,7 +41,7 @@ func TestSlashClearClearsVisibleConversationWithoutSendingRuntimeMessage(t *test
 	}
 }
 
-func TestSlashSessionOpensSessionDialogWithRuntimeMetadata(t *testing.T) {
+func TestSlashSessionAppendsSessionOutputWithRuntimeMetadata(t *testing.T) {
 	bridge := &fakeBridge{
 		platformStatus: platformStatusSnapshot{
 			SessionID:        "main-000001",
@@ -66,16 +64,16 @@ func TestSlashSessionOpensSessionDialogWithRuntimeMetadata(t *testing.T) {
 	model.input = "/session"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.sent) != 0 {
 		t.Fatalf("sent = %#v, want no runtime message", bridge.sent)
 	}
-	if !model.dialog.active() || model.dialog.Title != "Session" {
-		t.Fatalf("dialog = %#v, want session dialog", model.dialog)
+	if model.dialog.active() {
+		t.Fatalf("dialog = %#v, want session transcript output", model.dialog)
 	}
-	view := model.View()
+	view := model.transcript[len(model.transcript)-1].Content
 	for _, want := range []string{
 		"Session",
 		"main-000001",
@@ -98,7 +96,7 @@ func TestSlashSessionOpensSessionDialogWithRuntimeMetadata(t *testing.T) {
 	}
 }
 
-func TestSlashDebugOpensDiagnosticsDialogWithLatestState(t *testing.T) {
+func TestSlashDebugAppendsDiagnosticsOutputWithLatestState(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	updated, _ := model.Update(RuntimeEventMsg{Event: clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "agent.lifecycle.start"})})
 	model = updated.(Model)
@@ -107,13 +105,13 @@ func TestSlashDebugOpensDiagnosticsDialogWithLatestState(t *testing.T) {
 	model.input = "/debug"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
-	if !model.dialog.active() || model.dialog.Title != "Diagnostics" {
-		t.Fatalf("dialog = %#v, want diagnostics dialog", model.dialog)
+	if model.dialog.active() {
+		t.Fatalf("dialog = %#v, want diagnostics transcript output", model.dialog)
 	}
-	view := model.View()
+	view := model.transcript[len(model.transcript)-1].Content
 	for _, want := range []string{"Diagnostics", "Last event", "agent.lifecycle.start", "Last error", "boom", "Event count", "1"} {
 		if !contains(view, want) {
 			t.Fatalf("debug view missing %q: %q", want, view)
@@ -140,13 +138,13 @@ func TestSlashCompactOpensCompactionDialogWithRecentEvents(t *testing.T) {
 	model.input = "/compact"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if !model.dialog.active() || model.dialog.Title != "Compaction" {
 		t.Fatalf("dialog = %#v, want compaction dialog", model.dialog)
 	}
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{
 		"Compaction",
 		"Manual compaction",
@@ -166,7 +164,7 @@ func TestSlashCompactOpensCompactionDialogWithRecentEvents(t *testing.T) {
 func TestHelpDialogListsOnlyImplementedLocalCommandDescriptions(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	model.openHelpDialog()
-	view := model.View()
+	view := model.viewContent()
 
 	for _, want := range []string{"/clear", "Clear visible conversation", "/session", "Show session details", "/compact", "Run manual compaction", "/debug", "Show diagnostics"} {
 		if !contains(view, want) {
@@ -178,6 +176,170 @@ func TestHelpDialogListsOnlyImplementedLocalCommandDescriptions(t *testing.T) {
 	}
 }
 
+func TestDisplayOnlySlashCommandsAppendTranscriptOutputWithoutDialog(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []string
+	}{
+		{input: "/help", want: []string{"Commands", "/help", "/model", "/debug"}},
+		{input: "/keybindings", want: []string{"Keybindings", "Ctrl+S", "Ctrl+G", "Ctrl+R"}},
+		{input: "/session", want: []string{"Session", "Session ID", "main-000001", "Log path", "logs/myclaw.jsonl"}},
+		{input: "/debug", want: []string{"Diagnostics", "Busy", "Event count", "Transcript entries"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			bridge := &fakeBridge{
+				platformStatus: platformStatusSnapshot{
+					SessionID:      "main-000001",
+					SessionKey:     "agent:main:main",
+					AgentID:        "main",
+					IsMain:         true,
+					WorkspaceRoots: []string{"C:/repo"},
+				},
+			}
+			model := NewModel(bridge, ModelConfig{
+				SessionID: "main-000001",
+				LLMLabel:  "test-model",
+				LogPath:   "logs/myclaw.jsonl",
+			})
+			model.input = tt.input
+			model.cursorPos = len([]rune(model.input))
+
+			updated, _ := model.Update(testKey(keyEnter))
+			model = updated.(Model)
+
+			if model.dialog.active() {
+				t.Fatalf("dialog active for display-only command %s: %#v", tt.input, model.dialog)
+			}
+			if len(model.transcript) == 0 {
+				t.Fatalf("transcript empty for %s", tt.input)
+			}
+			content := model.transcript[len(model.transcript)-1].Content
+			for _, want := range tt.want {
+				if !contains(content, want) {
+					t.Fatalf("%s transcript missing %q: %q", tt.input, want, content)
+				}
+			}
+			view := model.viewContent()
+			if contains(view, "Enter select") || contains(view, "Type to filter") {
+				t.Fatalf("%s view still has picker controls: %q", tt.input, view)
+			}
+		})
+	}
+}
+
+func TestEmptyDataSlashCommandsAppendTranscriptOutputWithoutDialog(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []string
+	}{
+		{input: "/mcp", want: []string{"MCP", "No MCP servers"}},
+		{input: "/tasks", want: []string{"Tasks", "No delegated tasks"}},
+		{input: "/resume", want: []string{"Resume session", "No resumable sessions"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			model := NewModel(&fakeBridge{})
+			model.input = tt.input
+			model.cursorPos = len([]rune(model.input))
+
+			updated, _ := model.Update(testKey(keyEnter))
+			model = updated.(Model)
+
+			if model.dialog.active() {
+				t.Fatalf("dialog active for empty-data command %s: %#v", tt.input, model.dialog)
+			}
+			if len(model.transcript) == 0 {
+				t.Fatalf("transcript empty for %s", tt.input)
+			}
+			content := model.transcript[len(model.transcript)-1].Content
+			for _, want := range tt.want {
+				if !contains(content, want) {
+					t.Fatalf("%s transcript missing %q: %q", tt.input, want, content)
+				}
+			}
+		})
+	}
+}
+
+func TestAllRegisteredSlashCommandsRunLocallyAndRenderExpectedState(t *testing.T) {
+	tests := []struct {
+		input     string
+		want      string
+		wantClear bool
+	}{
+		{input: "/help", want: "Commands"},
+		{input: "/keybindings", want: "Keybindings"},
+		{input: "/keys", want: "Keybindings"},
+		{input: "/shortcuts", want: "Keybindings"},
+		{input: "/open", want: "Quick Open"},
+		{input: "/search", want: "Global Search"},
+		{input: "/grep", want: "Global Search"},
+		{input: "/find", want: "Global Search"},
+		{input: "/clear", wantClear: true},
+		{input: "/reset", wantClear: true},
+		{input: "/new", wantClear: true},
+		{input: "/model", want: "Model"},
+		{input: "/context", want: "Context Usage"},
+		{input: "/mcp", want: "MCP"},
+		{input: "/session", want: "Session"},
+		{input: "/tasks", want: "Tasks"},
+		{input: "/agents", want: "Tasks"},
+		{input: "/resume", want: "Resume session"},
+		{input: "/continue", want: "Resume session"},
+		{input: "/compact", want: "Compaction"},
+		{input: "/debug", want: "Diagnostics"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			bridge := &fakeBridge{
+				contextStatus: contextSnapshot{
+					Model:               "test-model",
+					UsedTokens:          1,
+					ContextWindowTokens: 10,
+					UsagePercent:        10,
+				},
+			}
+			model := NewModel(bridge)
+			model.setSize(80, 20)
+			model.transcript = []transcriptEntry{{Role: "assistant", Content: "existing message"}}
+			model.input = tt.input
+			model.cursorPos = len([]rune(model.input))
+
+			updated, cmd := model.Update(testKey(keyEnter))
+			model = updated.(Model)
+
+			if cmd != nil {
+				t.Fatalf("cmd = %v, want nil for local command", cmd)
+			}
+			if len(bridge.sent) != 0 {
+				t.Fatalf("sent = %#v, want no runtime message", bridge.sent)
+			}
+			if tt.wantClear {
+				if len(model.transcript) != 0 {
+					t.Fatalf("transcript = %#v, want cleared", model.transcript)
+				}
+				if len(model.events) == 0 || model.events[len(model.events)-1] != "conversation cleared" {
+					t.Fatalf("events = %#v, want trailing conversation cleared", model.events)
+				}
+				return
+			}
+			view := model.viewContent()
+			if model.dialog.active() {
+				view = firstLines(view, model.height)
+			} else if len(model.transcript) > 0 {
+				view = model.transcript[len(model.transcript)-1].Content
+			}
+			if !contains(view, tt.want) {
+				t.Fatalf("visible view missing %q for %s: %q", tt.want, tt.input, view)
+			}
+		})
+	}
+}
+
 func TestSlashClearAliasesUseLocalClearCommand(t *testing.T) {
 	for _, input := range []string{"/reset", "/new"} {
 		bridge := &fakeBridge{}
@@ -186,7 +348,7 @@ func TestSlashClearAliasesUseLocalClearCommand(t *testing.T) {
 		model.input = input
 		model.cursorPos = len([]rune(model.input))
 
-		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		updated, _ := model.Update(testKey(keyEnter))
 		model = updated.(Model)
 
 		if len(bridge.sent) != 0 {
@@ -204,7 +366,7 @@ func TestSlashCompactAcceptsOptionalInstructionsAsLocalCommand(t *testing.T) {
 	model.input = "/compact summarize tool output only"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.sent) != 0 {
@@ -241,9 +403,9 @@ func TestCompactionDialogEnterRunsManualCompactionAndAppendsTranscriptNotice(t *
 	model.input = "/compact keep decisions only"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.compacts) != 1 || bridge.compacts[0] != "keep decisions only" {
@@ -276,7 +438,7 @@ func TestCompactionDialogCanRunMicrocompact(t *testing.T) {
 	model.openCompactionDialog("")
 	model.dialog.Picker.setQuery("microcompact")
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if bridge.microcompactCount != 1 {
@@ -319,13 +481,13 @@ func TestSlashTasksOpensTaskWorkbenchDialog(t *testing.T) {
 	model.input = "/tasks"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if !model.dialog.active() || model.dialog.Title != "Tasks" {
 		t.Fatalf("dialog = %#v, want tasks dialog", model.dialog)
 	}
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{"Tasks", "running 1", "completed 1", "research", "verify", "monitor", "close"} {
 		if !contains(view, want) {
 			t.Fatalf("tasks view missing %q: %q", want, view)
@@ -333,18 +495,18 @@ func TestSlashTasksOpensTaskWorkbenchDialog(t *testing.T) {
 	}
 }
 
-func TestSlashKeysOpensKeybindingsDialog(t *testing.T) {
+func TestSlashKeysAppendsKeybindingsOutput(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 	model.input = "/keys"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
-	if !model.dialog.active() || model.dialog.Title != "Keybindings" {
-		t.Fatalf("dialog = %#v, want keybindings dialog", model.dialog)
+	if model.dialog.active() {
+		t.Fatalf("dialog = %#v, want keybindings transcript output", model.dialog)
 	}
-	view := model.View()
+	view := model.transcript[len(model.transcript)-1].Content
 	for _, want := range []string{
 		"Keybindings",
 		"Ctrl+S",
@@ -397,13 +559,13 @@ func TestTasksDialogSelectionOpensTaskDetailDialog(t *testing.T) {
 	model := NewModel(bridge)
 	model.openTasksDialog()
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if !model.dialog.active() || model.dialog.Title != "Task details" {
 		t.Fatalf("dialog = %#v, want task detail dialog", model.dialog)
 	}
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{"Task details", "agent-000001", "reviewer", "monitor", "waiting for output", "Inspecting TUI code"} {
 		if !contains(view, want) {
 			t.Fatalf("task detail view missing %q: %q", want, view)
@@ -439,13 +601,13 @@ func TestSlashMCPOpensFilterableServerDialog(t *testing.T) {
 	model.input = "/mcp"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if !model.dialog.active() || model.dialog.Title != "MCP" {
 		t.Fatalf("dialog = %#v, want MCP dialog", model.dialog)
 	}
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{"MCP", "filesystem", "figma", "2 tools", "1 prompts", "1 resources", "Type to filter"} {
 		if !contains(view, want) {
 			t.Fatalf("mcp view missing %q: %q", want, view)
@@ -472,13 +634,13 @@ func TestMCPDialogSelectionOpensServerDetailDialog(t *testing.T) {
 	model := NewModel(bridge)
 	model.openMCPDialog()
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if !model.dialog.active() || model.dialog.Title != "MCP server" {
 		t.Fatalf("dialog = %#v, want MCP server detail dialog", model.dialog)
 	}
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{
 		"MCP server",
 		"filesystem",
@@ -524,13 +686,13 @@ func TestSlashOpenOpensQuickOpenDialog(t *testing.T) {
 	model.input = "/open"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if !model.dialog.active() || model.dialog.Title != "Quick Open" {
 		t.Fatalf("dialog = %#v, want quick open dialog", model.dialog)
 	}
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{"Quick Open", "/model", "resume target", "research", "filesystem", "Type to filter"} {
 		if !contains(view, want) {
 			t.Fatalf("quick open view missing %q: %q", want, view)
@@ -554,14 +716,14 @@ func TestQuickOpenSelectionRoutesToExistingDialogs(t *testing.T) {
 	model.openQuickOpenDialog()
 	model.dialog.Picker.setQuery("research")
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if !model.dialog.active() || model.dialog.Title != "Task details" {
 		t.Fatalf("dialog = %#v, want task details after quick open selection", model.dialog)
 	}
-	if !contains(model.View(), "research") {
-		t.Fatalf("task details missing research: %q", model.View())
+	if !contains(model.viewContent(), "research") {
+		t.Fatalf("task details missing research: %q", model.viewContent())
 	}
 }
 
@@ -580,10 +742,10 @@ func TestQuickOpenIncludesMatchedWorkspaceFilesWithPreview(t *testing.T) {
 	model := NewModel(bridge)
 	model.openQuickOpenDialog()
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("read")})
+	updated, _ := model.Update(testKeyRunes("read"))
 	model = updated.(Model)
 
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{"README.md", "file | workspace", "# Title", "quick open preview line"} {
 		if !contains(view, want) {
 			t.Fatalf("quick open file view missing %q: %q", want, view)
@@ -615,9 +777,9 @@ func TestQuickOpenEnterOpensFocusedWorkspaceFile(t *testing.T) {
 	})
 	model.openQuickOpenDialog()
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("plan")})
+	updated, _ := model.Update(testKeyRunes("plan"))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if opened != target {
@@ -648,9 +810,9 @@ func TestQuickOpenTabAndShiftTabInsertWorkspaceFileReference(t *testing.T) {
 	model.input = "inspect "
 	model.cursorPos = len([]rune(model.input))
 	model.openQuickOpenDialog()
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("guide")})
+	updated, _ := model.Update(testKeyRunes("guide"))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated, _ = model.Update(testKey(keyTab))
 	model = updated.(Model)
 
 	if model.input != "inspect @docs/guide.md " {
@@ -661,9 +823,9 @@ func TestQuickOpenTabAndShiftTabInsertWorkspaceFileReference(t *testing.T) {
 	model.input = "inspect "
 	model.cursorPos = len([]rune(model.input))
 	model.openQuickOpenDialog()
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("guide")})
+	updated, _ = model.Update(testKeyRunes("guide"))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	updated, _ = model.Update(testKey(keyShiftTab))
 	model = updated.(Model)
 
 	if model.input != "inspect docs/guide.md " {
@@ -686,13 +848,13 @@ func TestSlashSearchOpensGlobalSearchDialog(t *testing.T) {
 	model.input = "/search"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if !model.dialog.active() || model.dialog.Title != "Global Search" {
 		t.Fatalf("dialog = %#v, want global search dialog", model.dialog)
 	}
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{"Global Search", "Type workspace text to search", "Type to filter"} {
 		if !contains(view, want) {
 			t.Fatalf("global search view missing %q: %q", want, view)
@@ -729,7 +891,7 @@ func TestGlobalSearchShowsWorkspaceMatchesAndPreview(t *testing.T) {
 	})
 	model.openGlobalSearchDialog()
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("needle")})
+	updated, cmd := model.Update(testKeyRunes("needle"))
 	model = updated.(Model)
 	if cmd == nil {
 		t.Fatal("search cmd = nil, want search command")
@@ -737,7 +899,7 @@ func TestGlobalSearchShowsWorkspaceMatchesAndPreview(t *testing.T) {
 	updated, _ = model.Update(cmd())
 	model = updated.(Model)
 
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{"pkg/search.go:2", "needle match line", "line one", "line three"} {
 		if !contains(view, want) {
 			t.Fatalf("global search results missing %q: %q", want, view)
@@ -781,11 +943,11 @@ func TestGlobalSearchEnterOpensFocusedMatchAtLine(t *testing.T) {
 	})
 	model.openGlobalSearchDialog()
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("needle")})
+	updated, cmd := model.Update(testKeyRunes("needle"))
 	model = updated.(Model)
 	updated, _ = model.Update(cmd())
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if openedPath != matchPath || openedLine != 7 {
@@ -823,11 +985,11 @@ func TestGlobalSearchTabAndShiftTabInsertMatchReference(t *testing.T) {
 	model.input = "inspect "
 	model.cursorPos = len([]rune(model.input))
 	model.openGlobalSearchDialog()
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("needle")})
+	updated, cmd := model.Update(testKeyRunes("needle"))
 	model = updated.(Model)
 	updated, _ = model.Update(cmd())
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyTab})
+	updated, _ = model.Update(testKey(keyTab))
 	model = updated.(Model)
 
 	if model.input != "inspect @docs/guide.md#L4 " {
@@ -838,11 +1000,11 @@ func TestGlobalSearchTabAndShiftTabInsertMatchReference(t *testing.T) {
 	model.input = "inspect "
 	model.cursorPos = len([]rune(model.input))
 	model.openGlobalSearchDialog()
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("needle")})
+	updated, cmd = model.Update(testKeyRunes("needle"))
 	model = updated.(Model)
 	updated, _ = model.Update(cmd())
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	updated, _ = model.Update(testKey(keyShiftTab))
 	model = updated.(Model)
 
 	if model.input != "inspect docs/guide.md:4 " {

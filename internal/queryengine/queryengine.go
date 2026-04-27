@@ -512,7 +512,7 @@ func New(cfg Config) *QueryEngine {
 	}
 	client := cfg.Client
 	if client == nil {
-		client = llm.NewMockClient()
+		client = llm.NewUnavailableClient("llm client is not configured")
 	}
 	workspaceLoader := cfg.WorkspaceLoader
 	if workspaceLoader == nil {
@@ -1025,7 +1025,9 @@ func (q *QueryEngine) RejectAndContinue(ctx context.Context, approvalID, feedbac
 	}
 	reply, err := q.completeWithToolResult(ctx, sess, request.RunID, sink, toolMsg)
 	if err != nil {
-		q.emitRunError(sink, Event{Type: "run.error", Session: sess, RunID: request.RunID, Error: err.Error()})
+		if !isApprovalRequiredError(err) {
+			q.emitRunError(sink, Event{Type: "run.error", Session: sess, RunID: request.RunID, Error: err.Error()})
+		}
 		return err
 	}
 	return q.emit(sink, Event{
@@ -2576,6 +2578,13 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 		onStreamEvent:  q.recordStreamEvent,
 		includePartial: q.includePartialStreamEvents,
 	}
+	if err := q.emit(sink, Event{
+		Type:    "model.request.start",
+		Session: sess,
+		RunID:   runID,
+	}); err != nil {
+		return nil, err
+	}
 	if err := q.client.Stream(ctx, llm.GenerateRequest{
 		Session:     sess,
 		UserMessage: userMessage,
@@ -2584,6 +2593,13 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 		Model:       q.mainLoopModelForSessionWithHistory(sess.ID, history),
 		Tools:       llmToolDefinitions(exposedTools),
 	}, stream); err != nil {
+		return nil, err
+	}
+	if err := q.emit(sink, Event{
+		Type:    "model.request.end",
+		Session: sess,
+		RunID:   runID,
+	}); err != nil {
 		return nil, err
 	}
 	return stream, nil

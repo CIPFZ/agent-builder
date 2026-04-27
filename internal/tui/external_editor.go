@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func (m *Model) handleExternalEditorKey(msg tea.KeyMsg) (tea.Cmd, bool) {
@@ -18,14 +18,14 @@ func (m *Model) handleExternalEditorKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	}
 	if m.externalEditor.PendingCtrlX {
 		m.externalEditor.PendingCtrlX = false
-		if msg.Type == tea.KeyCtrlE {
+		if keyEventType(msg) == keyCtrlE {
 			return m.startExternalEditor(), true
 		}
 	}
-	switch msg.Type {
-	case tea.KeyCtrlG:
+	switch keyEventType(msg) {
+	case keyCtrlG:
 		return m.startExternalEditor(), true
-	case tea.KeyCtrlX:
+	case keyCtrlX:
 		m.externalEditor.PendingCtrlX = true
 		m.clearSuggestions()
 		return nil, true

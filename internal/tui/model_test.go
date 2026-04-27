@@ -3,8 +3,6 @@ package tui
 import (
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"myclaw/internal/approval"
 	"myclaw/internal/runtime"
 	"myclaw/internal/session"
@@ -106,7 +104,7 @@ func (f *fakeBridge) MCPSnapshot() mcpSnapshot {
 
 func TestModelViewShowsCoreSections(t *testing.T) {
 	model := NewModel(&fakeBridge{})
-	view := model.View()
+	view := model.viewContent()
 
 	for _, want := range []string{"MYCLAW", "Commands: /help  /clear  /model  /context", "Enter to send"} {
 		if !contains(view, want) {
@@ -120,12 +118,19 @@ func TestModelEnterSendsInputAndClearsBuffer(t *testing.T) {
 	model := NewModel(bridge)
 
 	for _, r := range "hello" {
-		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		updated, _ := model.Update(testKeyRunes(string(r)))
 		model = updated.(Model)
 	}
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, cmd := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
+	if len(bridge.sent) != 0 {
+		t.Fatalf("sent before command runs = %#v, want none", bridge.sent)
+	}
+	if cmd == nil {
+		t.Fatal("cmd = nil, want async send command")
+	}
+	_ = cmd()
 	if len(bridge.sent) != 1 || bridge.sent[0] != "hello" {
 		t.Fatalf("sent = %#v, want [hello]", bridge.sent)
 	}
@@ -134,6 +139,59 @@ func TestModelEnterSendsInputAndClearsBuffer(t *testing.T) {
 	}
 	if len(model.transcript) == 0 || model.transcript[0].Role != "user" {
 		t.Fatalf("transcript = %#v, want user entry", model.transcript)
+	}
+}
+
+func TestModelEnterSendsInputWithCommand(t *testing.T) {
+	bridge := &fakeBridge{}
+	model := NewModel(bridge)
+
+	updated, _ := model.Update(testKeyRunes("hello"))
+	model = updated.(Model)
+	updated, cmd := model.Update(testKey(keyEnter))
+	model = updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("cmd = nil, want async send command")
+	}
+	if len(bridge.sent) != 0 {
+		t.Fatalf("sent before command runs = %#v, want none", bridge.sent)
+	}
+	if model.input != "" {
+		t.Fatalf("input = %q, want cleared before send completes", model.input)
+	}
+	if len(model.transcript) == 0 || model.transcript[0].Content != "hello" {
+		t.Fatalf("transcript = %#v, want immediate local echo", model.transcript)
+	}
+
+	msg := cmd()
+	if msg != nil {
+		t.Fatalf("cmd returned %#v on success, want nil", msg)
+	}
+	if len(bridge.sent) != 1 || bridge.sent[0] != "hello" {
+		t.Fatalf("sent = %#v, want [hello]", bridge.sent)
+	}
+}
+
+func TestModelEnterCommandReportsBridgeError(t *testing.T) {
+	bridge := &fakeBridge{sendErr: assertErr("send failed")}
+	model := NewModel(bridge)
+
+	updated, _ := model.Update(testKeyRunes("hello"))
+	model = updated.(Model)
+	updated, cmd := model.Update(testKey(keyEnter))
+	model = updated.(Model)
+
+	if cmd == nil {
+		t.Fatal("cmd = nil, want async send command")
+	}
+	msg := cmd()
+	errMsg, ok := msg.(BridgeErrMsg)
+	if !ok {
+		t.Fatalf("msg = %#v, want BridgeErrMsg", msg)
+	}
+	if errMsg.Err == nil || errMsg.Err.Error() != "send failed" {
+		t.Fatalf("err = %v, want send failed", errMsg.Err)
 	}
 }
 
@@ -169,7 +227,7 @@ func TestModelPermissionRequiredShowsApprovalPrompt(t *testing.T) {
 		t.Fatalf("pending approval = %#v, want approval-1", model.pendingApproval)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlY})
+	updated, _ = model.Update(testKey(keyCtrlY))
 	model = updated.(Model)
 	if len(bridge.approved) != 1 || bridge.approved[0] != "approval-1" {
 		t.Fatalf("approved = %#v, want approval-1", bridge.approved)
@@ -188,7 +246,7 @@ func TestModelDiagnosticsViewShowsLatestState(t *testing.T) {
 	updated, _ = model.Update(BridgeErrMsg{Err: assertErr("boom")})
 	model = updated.(Model)
 
-	view := model.View()
+	view := model.viewContent()
 	// New UI doesn't show all diagnostics directly, but should contain basic elements
 	for _, want := range []string{"MYCLAW", "openai-compatible / LongCat-Flash-Chat", "Commands: /help  /clear  /model  /context"} {
 		if !contains(view, want) {
@@ -208,7 +266,7 @@ func TestModelViewShowsCurrentActivityForToolApprovalAndCompaction(t *testing.T)
 		ToolInput: "pwd",
 	})})
 	model = updated.(Model)
-	view := model.View()
+	view := model.viewContent()
 	// New UI shows tool calls differently
 	for _, want := range []string{"system.run", "pwd"} {
 		if !contains(view, want) {
@@ -223,7 +281,7 @@ func TestModelViewShowsCurrentActivityForToolApprovalAndCompaction(t *testing.T)
 		Approval: &request,
 	})})
 	model = updated.(Model)
-	view = model.View()
+	view = model.viewContent()
 	// New UI shows approval
 	if !contains(view, "Permission Required") {
 		t.Fatalf("view missing approval UI: %q", view)
@@ -234,7 +292,7 @@ func TestModelViewShowsCurrentActivityForToolApprovalAndCompaction(t *testing.T)
 		Session: sess,
 	})})
 	model = updated.(Model)
-	view = model.View()
+	view = model.viewContent()
 	// Compaction events are logged internally but may not show in new UI
 	_ = view // Just verify no crash
 }
@@ -258,7 +316,7 @@ func TestModelViewShowsCompactionEventsInEventLog(t *testing.T) {
 		model = updated.(Model)
 	}
 
-	view := model.View()
+	view := model.viewContent()
 	// New UI doesn't show compact events directly, but should render without error
 	// Verify basic UI elements are present
 	for _, want := range []string{"MYCLAW", "Commands: /help  /clear  /model  /context"} {

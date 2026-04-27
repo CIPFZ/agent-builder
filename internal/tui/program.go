@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"myclaw/internal/diagnostics"
 )
@@ -58,7 +58,7 @@ func Run(ctx context.Context, myclawdURL string, options Options) error {
 			return options.Logger.Path()
 		}(),
 	})
-	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	program := tea.NewProgram(model)
 	bridge.Attach(program.Send)
 	_, err := program.Run()
 	if err != nil {

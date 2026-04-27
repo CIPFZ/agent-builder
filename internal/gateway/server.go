@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -61,6 +62,11 @@ type Options struct {
 	DisableMCPPromptSkills    bool
 }
 
+func shouldSuppressContinuationRunError(err error) bool {
+	var approvalErr *queryengine.ApprovalRequiredError
+	return errors.As(err, &approvalErr)
+}
+
 func NewServer(logger *log.Logger, sessionManager *session.Manager, llmClient llm.Client) *Server {
 	return NewServerWithOptions(logger, sessionManager, llmClient, Options{
 		PermissionPolicy: permissions.Policy{
@@ -83,7 +89,7 @@ func NewServerWithOptions(logger *log.Logger, sessionManager *session.Manager, l
 		sessionManager = session.NewManager(nil)
 	}
 	if llmClient == nil {
-		llmClient = llm.NewMockClient()
+		llmClient = llm.NewUnavailableClient("llm client is not configured")
 	}
 
 	coordinator := orchestration.NewCoordinator()
@@ -1315,6 +1321,9 @@ func (s *Server) handleClient(client *Client) error {
 			if inbound.Method == protocolws.MethodApprovalApprove {
 				go func() {
 					if err := s.runner.ApproveAndContinue(context.Background(), approvalID, runtimeSink{client: client}); err != nil {
+						if shouldSuppressContinuationRunError(err) {
+							return
+						}
 						_ = client.WriteJSON(protocolws.EventMessage("run.error", map[string]any{
 							"run_id":     updated.RunID,
 							"session_id": updated.SessionID,
@@ -1325,6 +1334,9 @@ func (s *Server) handleClient(client *Client) error {
 			} else if strings.TrimSpace(rejectFeedback) != "" || contentBlocks != nil {
 				go func() {
 					if err := s.runner.RejectAndContinue(context.Background(), approvalID, rejectFeedback, contentBlocks, runtimeSink{client: client}); err != nil {
+						if shouldSuppressContinuationRunError(err) {
+							return
+						}
 						_ = client.WriteJSON(protocolws.EventMessage("run.error", map[string]any{
 							"run_id":     updated.RunID,
 							"session_id": updated.SessionID,
@@ -1646,6 +1658,13 @@ type runtimeSink struct {
 
 func (s runtimeSink) Emit(event runtime.RuntimeEvent) error {
 	switch event.Type {
+	case "model.request.start", "model.request.end":
+		return s.client.WriteJSON(protocolws.EventMessage(event.Type, map[string]any{
+			"run_id":      event.RunID,
+			"session_id":  event.Session.ID,
+			"session_key": event.Session.Key,
+			"agent_id":    event.Session.AgentID,
+		}))
 	case "agent.lifecycle.start", "agent.lifecycle.end":
 		return s.client.WriteJSON(protocolws.EventMessage(event.Type, map[string]any{
 			"run_id":      event.RunID,

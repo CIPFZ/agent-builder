@@ -24,16 +24,16 @@ func LoadRuntimeConfig(dir string) config.Config {
 }
 
 func normalizeRuntimeConfig(cfg config.Config) config.Config {
-	if strings.TrimSpace(cfg.LLM.APIKey) == "" {
-		cfg.LLM.Provider = "mock"
-		cfg.LLM.BaseURL = "mock://builtin"
-	}
 	return cfg
 }
 
 func LLMClientFromRuntimeConfig(cfg config.Config) llm.Client {
 	if strings.TrimSpace(cfg.LLM.APIKey) == "" || strings.EqualFold(cfg.LLM.Provider, "mock") {
-		return llm.NewMockClient()
+		provider := strings.TrimSpace(cfg.LLM.Provider)
+		if provider == "" {
+			provider = "default"
+		}
+		return llm.NewUnavailableClient("llm provider " + provider + " is not configured: missing api key")
 	}
 	return llm.NewClientFromConfig(cfg.LLM)
 }

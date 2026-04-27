@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"myclaw/internal/runtime"
 	"myclaw/internal/session"
@@ -14,7 +14,7 @@ func TestViewportShowsTranscriptTailWhenTerminalIsShort(t *testing.T) {
 	model := viewportModelWithMessages(14)
 	model.setSize(80, 16)
 
-	view := model.View()
+	view := model.viewContent()
 
 	if contains(view, "message-01") {
 		t.Fatalf("view contains oldest message while short viewport should show tail: %q", view)
@@ -29,10 +29,10 @@ func TestViewportPageUpAndEndControlTranscriptWindow(t *testing.T) {
 	model.setSize(80, 16)
 
 	for i := 0; i < 4; i++ {
-		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+		updated, _ := model.Update(testKey(keyPgUp))
 		model = updated.(Model)
 	}
-	view := model.View()
+	view := model.viewContent()
 	if !contains(view, "message-01") {
 		t.Fatalf("page up view missing oldest message: %q", view)
 	}
@@ -40,9 +40,9 @@ func TestViewportPageUpAndEndControlTranscriptWindow(t *testing.T) {
 		t.Fatalf("page up view still contains newest message: %q", view)
 	}
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	updated, _ := model.Update(testKey(keyEnd))
 	model = updated.(Model)
-	view = model.View()
+	view = model.viewContent()
 	if contains(view, "message-01") || !contains(view, "message-18") {
 		t.Fatalf("end view = %q, want bottom of transcript", view)
 	}
@@ -51,16 +51,16 @@ func TestViewportPageUpAndEndControlTranscriptWindow(t *testing.T) {
 func TestViewportKeepsScrollPositionWhenNewMessageArrivesWhileScrolledUp(t *testing.T) {
 	model := viewportModelWithMessages(18)
 	model.setSize(80, 16)
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	updated, _ := model.Update(testKey(keyPgUp))
 	model = updated.(Model)
-	before := model.View()
+	before := model.viewContent()
 
 	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
 		Type:    "message.created",
 		Message: &session.Message{Role: "assistant", Content: "new-message"},
 	}))
 
-	view := model.View()
+	view := model.viewContent()
 	if contains(view, "new-message") {
 		t.Fatalf("scrolled viewport followed new message unexpectedly: %q", view)
 	}
@@ -81,7 +81,7 @@ func TestViewportFollowsNewMessagesAtBottom(t *testing.T) {
 		Message: &session.Message{Role: "assistant", Content: "new-message"},
 	}))
 
-	view := model.View()
+	view := model.viewContent()
 	if !contains(view, "new-message") {
 		t.Fatalf("bottom viewport did not follow new message: %q", view)
 	}
@@ -94,16 +94,16 @@ func TestViewportUserSubmitReturnsToBottom(t *testing.T) {
 	model := viewportModelWithMessages(18)
 	model.setSize(80, 16)
 	for i := 0; i < 4; i++ {
-		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+		updated, _ := model.Update(testKey(keyPgUp))
 		model = updated.(Model)
 	}
 	model.input = "my question"
 	model.cursorPos = len(model.input)
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
-	view := model.View()
+	view := model.viewContent()
 	if !contains(view, "my question") || contains(view, "new message") {
 		t.Fatalf("submit view = %q, want bottom with submitted input and no new message indicator", view)
 	}
@@ -113,7 +113,7 @@ func TestViewportClearConversationResetsScrollState(t *testing.T) {
 	model := viewportModelWithMessages(18)
 	model.setSize(80, 16)
 	for i := 0; i < 4; i++ {
-		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+		updated, _ := model.Update(testKey(keyPgUp))
 		model = updated.(Model)
 	}
 	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{
@@ -123,7 +123,7 @@ func TestViewportClearConversationResetsScrollState(t *testing.T) {
 
 	model.clearVisibleConversation()
 
-	view := model.View()
+	view := model.viewContent()
 	if contains(view, "new message") || contains(view, "scrolled") {
 		t.Fatalf("cleared conversation view still has viewport status: %q", view)
 	}
@@ -133,9 +133,9 @@ func TestViewportMouseWheelScrollsTranscript(t *testing.T) {
 	model := viewportModelWithMessages(18)
 	model.setSize(80, 16)
 
-	updated, _ := model.Update(tea.MouseMsg{Type: tea.MouseWheelUp})
+	updated, _ := model.Update(testMouseWheel(tea.MouseWheelUp))
 	model = updated.(Model)
-	view := model.View()
+	view := model.viewContent()
 
 	if contains(view, "message-18") {
 		t.Fatalf("single wheel step should move away from newest message: %q", view)
@@ -148,7 +148,7 @@ func TestViewportMouseWheelScrollsTranscript(t *testing.T) {
 func TestViewportTranscriptModeEscExitsWithoutQuitting(t *testing.T) {
 	model := NewModel(&fakeBridge{})
 
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	updated, cmd := model.Update(testKey(keyCtrlO))
 	model = updated.(Model)
 	if cmd != nil {
 		t.Fatalf("ctrl+o cmd = %v, want nil", cmd)
@@ -156,11 +156,11 @@ func TestViewportTranscriptModeEscExitsWithoutQuitting(t *testing.T) {
 	if !model.viewport.TranscriptMode {
 		t.Fatalf("ctrl+o did not enter transcript mode")
 	}
-	if !contains(model.View(), "Transcript") {
-		t.Fatalf("transcript mode view missing footer hint: %q", model.View())
+	if !contains(model.viewContent(), "Transcript") {
+		t.Fatalf("transcript mode view missing footer hint: %q", model.viewContent())
 	}
 
-	updated, cmd = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updated, cmd = model.Update(testKey(keyEscape))
 	model = updated.(Model)
 	if cmd != nil {
 		t.Fatalf("esc in transcript mode cmd = %v, want nil", cmd)

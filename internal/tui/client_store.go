@@ -125,6 +125,9 @@ func (s *clientStore) applyEvent(event clientEvent) clientStoreSnapshot {
 		if message == "" && event.Tool != nil {
 			message = event.Tool.ProgressMessage
 		}
+		if lastFinalAssistantAlreadyContains(s.transcript, message) {
+			break
+		}
 		if len(s.transcript) == 0 || s.transcript[len(s.transcript)-1].Role != "assistant" || !s.transcript[len(s.transcript)-1].Streaming {
 			s.transcript = append(s.transcript, transcriptEntry{Role: "assistant", Content: message, Streaming: true})
 		} else {
@@ -137,16 +140,27 @@ func (s *clientStore) applyEvent(event clientEvent) clientStoreSnapshot {
 				break
 			}
 			switch event.Message.Role {
+			case "user":
+				if !transcriptHasMessageID(s.transcript, event.Message.ID) && !lastTranscriptMessageMatches(s.transcript, "user", event.Message.Content) {
+					s.transcript = append(s.transcript, transcriptEntry{
+						MessageID: event.Message.ID,
+						Role:      "user",
+						Content:   event.Message.Content,
+						Blocks:    cloneClientMessageBlocks(event.Message.Blocks),
+					})
+				}
 			case "assistant":
 				if len(s.transcript) > 0 && s.transcript[len(s.transcript)-1].Role == "assistant" && s.transcript[len(s.transcript)-1].Streaming {
+					s.transcript[len(s.transcript)-1].MessageID = event.Message.ID
 					s.transcript[len(s.transcript)-1].Content = event.Message.Content
 					s.transcript[len(s.transcript)-1].Streaming = false
 					s.transcript[len(s.transcript)-1].Blocks = cloneClientMessageBlocks(event.Message.Blocks)
-				} else {
+				} else if !transcriptHasMessageID(s.transcript, event.Message.ID) && !transcriptMessageExistsSinceLastUser(s.transcript, "assistant", event.Message.Content) {
 					s.transcript = append(s.transcript, transcriptEntry{
-						Role:    "assistant",
-						Content: event.Message.Content,
-						Blocks:  cloneClientMessageBlocks(event.Message.Blocks),
+						MessageID: event.Message.ID,
+						Role:      "assistant",
+						Content:   event.Message.Content,
+						Blocks:    cloneClientMessageBlocks(event.Message.Blocks),
 					})
 				}
 				s.busy = false
@@ -187,10 +201,13 @@ func (s *clientStore) applyEvent(event clientEvent) clientStoreSnapshot {
 		s.approval = nil
 		s.activity.Label = "Idle"
 	case "run.error":
+		s.approval = nil
 		if event.Error != "" {
 			s.diagnostics.LastError = event.Error
 			s.activity.Label = "Run error"
-			s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindError, Role: "system", Content: event.Error})
+			if !lastTranscriptSpecialMessageMatches(s.transcript, messageKindError, event.Error) {
+				s.transcript = append(s.transcript, transcriptEntry{Kind: messageKindError, Role: "system", Content: event.Error})
+			}
 			s.busy = false
 		}
 	case "compact.boundary":
@@ -266,12 +283,65 @@ func (s *clientStore) appendUserMessage(text string) clientStoreSnapshot {
 	}
 }
 
+func lastTranscriptMessageMatches(entries []transcriptEntry, role, content string) bool {
+	if len(entries) == 0 {
+		return false
+	}
+	last := entries[len(entries)-1]
+	return last.Kind == "" && last.Role == role && strings.TrimSpace(last.Content) == strings.TrimSpace(content)
+}
+
+func lastTranscriptSpecialMessageMatches(entries []transcriptEntry, kind, content string) bool {
+	if len(entries) == 0 {
+		return false
+	}
+	last := entries[len(entries)-1]
+	return last.Kind == kind && strings.TrimSpace(last.Content) == strings.TrimSpace(content)
+}
+
+func transcriptHasMessageID(entries []transcriptEntry, id string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.MessageID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func transcriptMessageExistsSinceLastUser(entries []transcriptEntry, role, content string) bool {
+	content = strings.TrimSpace(content)
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := entries[i]
+		if entry.Role == "user" && entry.Kind == "" {
+			return false
+		}
+		if entry.Kind == "" && entry.Role == role && strings.TrimSpace(entry.Content) == content {
+			return true
+		}
+	}
+	return false
+}
+
+func lastFinalAssistantAlreadyContains(entries []transcriptEntry, delta string) bool {
+	delta = strings.TrimSpace(delta)
+	if delta == "" || len(entries) == 0 {
+		return false
+	}
+	last := entries[len(entries)-1]
+	return last.Kind == "" && last.Role == "assistant" && !last.Streaming && strings.Contains(strings.TrimSpace(last.Content), delta)
+}
+
 func (s *clientStore) applyBridgeError(err error) clientStoreSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err != nil {
 		s.events = append(s.events, "error: "+err.Error())
 		s.busy = false
+		s.approval = nil
 		s.diagnostics.LastError = err.Error()
 	}
 	return clientStoreSnapshot{

@@ -3,12 +3,12 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.approvalDialog.active() {
-		if msg.Type == tea.KeyCtrlC {
+		if keyEventType(msg) == keyCtrlC {
 			return m, tea.Quit
 		}
 		result := m.approvalDialog.handleKey(msg)
@@ -27,26 +27,28 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.dialog.active() {
 		dialogKind := m.dialog.Kind
 		if m.dialog.Kind == dialogKindHistorySearch {
-			switch msg.Type {
-			case tea.KeyCtrlC, tea.KeyEsc:
+			switch keyEventType(msg) {
+			case keyCtrlC, keyEscape:
 				m.cancelHistorySearchDialog()
 				return m, nil
-			case tea.KeyBackspace:
+			case keyBackspace:
 				if m.dialog.Picker.Query == "" {
 					m.cancelHistorySearchDialog()
 					return m, nil
 				}
 			}
-		} else if msg.Type == tea.KeyCtrlC {
+		} else if keyEventType(msg) == keyCtrlC {
 			return m, tea.Quit
 		}
 		result := m.dialog.handleKey(msg)
 		if dialogKind == dialogKindQuickOpen && m.dialog.active() {
-			preserveSelection := msg.Type != tea.KeyRunes && msg.Type != tea.KeyBackspace
+			event := keyEventType(msg)
+			preserveSelection := event != keyRunes && event != keyBackspace
 			m.updateQuickOpenDialog(preserveSelection)
 		}
 		if dialogKind == dialogKindGlobalSearch && m.dialog.active() {
-			preserveSelection := msg.Type != tea.KeyRunes && msg.Type != tea.KeyBackspace
+			event := keyEventType(msg)
+			preserveSelection := event != keyRunes && event != keyBackspace
 			cmd := m.triggerGlobalSearch()
 			m.updateGlobalSearchDialog(preserveSelection)
 			return m, cmd
@@ -88,8 +90,8 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.viewport.TranscriptMode {
-		switch msg.Type {
-		case tea.KeyEsc, tea.KeyCtrlC:
+		switch keyEventType(msg) {
+		case keyEscape, keyCtrlC:
 			m.exitTranscriptMode()
 			return m, nil
 		}
@@ -97,15 +99,15 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.handleViewportKey(msg) {
 		return m, nil
 	}
-	if msg.Paste || isLargeInput(msg) || containsBracketedPaste(msg) {
+	if isLargeInput(msg) || containsBracketedPaste(msg) {
 		if m.handlePasteKey(msg) {
 			return m, nil
 		}
 	}
-	switch msg.Type {
-	case tea.KeyCtrlC:
+	switch keyEventType(msg) {
+	case keyCtrlC:
 		return m, tea.Quit
-	case tea.KeyEnter:
+	case keyEnter:
 		if m.pendingApproval != nil {
 			m.clearSuggestions()
 			return m, nil
@@ -122,28 +124,27 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if shouldRestoreStash {
 			m.restorePromptStash()
 		}
-		m.bridge.SendUserMessage(text)
-		return m, nil
-	case tea.KeyCtrlY:
+		return m, sendUserMessageCmd(m.bridge, text)
+	case keyCtrlY:
 		if id, ok := m.approvePending(); ok {
 			m.bridge.Approve(id)
 		}
 		return m, nil
-	case tea.KeyCtrlN:
+	case keyCtrlN:
 		if id, ok := m.rejectPending(); ok {
 			m.bridge.Reject(id)
 		}
 		return m, nil
-	case tea.KeyCtrlR:
+	case keyCtrlR:
 		if m.viewport.Search.Active {
 			return m, nil
 		}
 		m.openHistorySearchDialog()
 		return m, nil
-	case tea.KeyCtrlK:
+	case keyCtrlK:
 		m.openQuickOpenDialog()
 		return m, nil
-	case tea.KeyShiftUp:
+	case keyShiftUp:
 		if m.viewport.Search.Active {
 			return m, nil
 		}
@@ -158,10 +159,14 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handlePasteKey(msg tea.KeyMsg) bool {
-	if msg.Type != tea.KeyRunes {
+	if keyEventType(msg) != keyRunes {
 		return false
 	}
-	text := sanitizePastedText(string(msg.Runes))
+	return m.handlePasteText(string(keyEventRunes(msg)))
+}
+
+func (m *Model) handlePasteText(text string) bool {
+	text = sanitizePastedText(text)
 	if text == "" {
 		m.clearSuggestions()
 		return true
@@ -190,32 +195,36 @@ func (m Model) maxVisiblePasteLines() int {
 }
 
 func isLargeInput(msg tea.KeyMsg) bool {
-	return msg.Type == tea.KeyRunes && len(msg.Runes) > pasteThreshold
+	return keyEventType(msg) == keyRunes && len(keyEventRunes(msg)) > pasteThreshold
 }
 
 func containsBracketedPaste(msg tea.KeyMsg) bool {
-	return msg.Type == tea.KeyRunes && strings.Contains(string(msg.Runes), "\x1b[200~") && strings.Contains(string(msg.Runes), "\x1b[201~")
+	if keyEventType(msg) != keyRunes {
+		return false
+	}
+	text := string(keyEventRunes(msg))
+	return strings.Contains(text, "\x1b[200~") && strings.Contains(text, "\x1b[201~")
 }
 
 func (m *Model) handleViewportKey(msg tea.KeyMsg) bool {
 	pageLines := m.transcriptPageLines()
-	switch msg.Type {
-	case tea.KeyCtrlO:
+	switch keyEventType(msg) {
+	case keyCtrlO:
 		m.toggleTranscriptMode()
-	case tea.KeyCtrlF:
+	case keyCtrlF:
 		m.startTranscriptSearch()
-	case tea.KeyCtrlE:
+	case keyCtrlE:
 		m.toggleTranscriptHistory()
-	case tea.KeyPgUp:
+	case keyPgUp:
 		m.scrollTranscriptUp(pageLines)
-	case tea.KeyPgDown:
+	case keyPgDown:
 		m.scrollTranscriptDown(pageLines)
-	case tea.KeyHome:
+	case keyHome:
 		if !m.viewport.TranscriptMode && m.input != "" {
 			return false
 		}
 		m.scrollTranscriptTop()
-	case tea.KeyEnd:
+	case keyEnd:
 		if !m.viewport.TranscriptMode && m.input != "" {
 			return false
 		}
@@ -237,31 +246,31 @@ func (m Model) transcriptPageLines() int {
 
 func (s *inputState) handleEditingKey(msg tea.KeyMsg, width int, commands []string) bool {
 	s.normalizeCursor()
-	switch msg.Type {
-	case tea.KeyLeft:
+	switch keyEventType(msg) {
+	case keyLeft:
 		s.moveLeft()
-	case tea.KeyRight:
+	case keyRight:
 		s.moveRight()
-	case tea.KeyHome:
+	case keyHome:
 		s.cursorPos = s.lineStartPosition(width)
-	case tea.KeyEnd:
+	case keyEnd:
 		s.cursorPos = s.lineEndPosition(width)
-	case tea.KeyUp:
+	case keyUp:
 		s.moveUp(width)
-	case tea.KeyDown:
+	case keyDown:
 		s.moveDown(width)
-	case tea.KeyTab:
+	case keyTab:
 		s.acceptSuggestion()
-	case tea.KeySpace:
+	case keySpace:
 		s.insertRunes([]rune(" "), commands)
-	case tea.KeyEscape:
+	case keyEscape:
 		s.clearSuggestions()
-	case tea.KeyBackspace:
+	case keyBackspace:
 		s.backspace(commands)
-	case tea.KeyDelete:
+	case keyDelete:
 		s.deleteAtCursor(commands)
-	case tea.KeyRunes:
-		s.insertRunes(msg.Runes, commands)
+	case keyRunes:
+		s.insertRunes(keyEventRunes(msg), commands)
 	default:
 		return false
 	}
@@ -322,6 +331,22 @@ func (s *inputState) moveUp(width int) {
 		s.selectedIndex--
 		return
 	}
+	if s.historyIndex == -1 {
+		lineIndex, lineCount := s.cursorVisualLine(width)
+		if lineCount > 1 {
+			if lineIndex > 0 {
+				s.cursorPos = s.moveCursorUp(width)
+			}
+			return
+		}
+	}
+	if s.historyIndex != -1 || len(s.history) > 0 {
+		s.moveHistoryUp()
+		return
+	}
+}
+
+func (s *inputState) moveHistoryUp() {
 	if len(s.history) > 0 {
 		if s.historyIndex == -1 {
 			s.historyIndex = len(s.history) - 1
@@ -333,13 +358,21 @@ func (s *inputState) moveUp(width int) {
 		s.clearSuggestions()
 		return
 	}
-	s.cursorPos = s.moveCursorUp(width)
 }
 
 func (s *inputState) moveDown(width int) {
 	if len(s.suggestions) > 0 && s.selectedIndex < len(s.suggestions)-1 {
 		s.selectedIndex++
 		return
+	}
+	if s.historyIndex == -1 {
+		lineIndex, lineCount := s.cursorVisualLine(width)
+		if lineCount > 1 {
+			if lineIndex < lineCount-1 {
+				s.cursorPos = s.moveCursorDown(width)
+			}
+			return
+		}
 	}
 	if s.historyIndex != -1 {
 		if s.historyIndex < len(s.history)-1 {
@@ -353,7 +386,14 @@ func (s *inputState) moveDown(width int) {
 		s.clearSuggestions()
 		return
 	}
-	s.cursorPos = s.moveCursorDown(width)
+}
+
+func (s inputState) cursorVisualLine(width int) (int, int) {
+	lines := buildInputVisualLines(s.input, s.visualWidth(width))
+	if len(lines) == 0 {
+		return 0, 0
+	}
+	return inputCursorLineIndex(lines, s.cursorPos), len(lines)
 }
 
 func (s *inputState) updateSuggestions(commands []string) {

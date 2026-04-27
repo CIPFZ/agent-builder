@@ -24,7 +24,7 @@ func TestRendererRendersStructuredAssistantMessageBlocks(t *testing.T) {
 		},
 	}))
 
-	view := tuiModel.View()
+	view := tuiModel.viewContent()
 
 	for _, want := range []string{
 		"thinking",
@@ -65,7 +65,7 @@ func TestRendererRendersRichUserMessageBlocksIncludingImages(t *testing.T) {
 		},
 	}
 
-	view := tuiModel.View()
+	view := tuiModel.viewContent()
 
 	for _, want := range []string{
 		"> Please inspect this screenshot",
@@ -97,7 +97,7 @@ func TestRendererRendersTranscriptToolResultBlocksSeparateFromLiveToolProgress(t
 		},
 	}
 
-	view := tuiModel.View()
+	view := tuiModel.viewContent()
 
 	for _, want := range []string{
 		"tool result",
@@ -208,7 +208,7 @@ func TestRendererRendersSpecialMessageBlocks(t *testing.T) {
 		{Role: "tool", ToolName: "Bash", ToolInputObject: map[string]any{"command": "go test ./..."}, ToolStatus: toolStatusFailed, ToolError: true, Content: "exit status 1"},
 	}
 
-	view := tuiModel.View()
+	view := tuiModel.viewContent()
 
 	for _, want := range []string{
 		"error",

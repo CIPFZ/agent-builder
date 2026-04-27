@@ -16,6 +16,10 @@ func (m *Model) openSessionResumeDialog() {
 	if provider, ok := m.bridge.(sessionResumeBridge); ok {
 		items = sessionResumeItems(provider.SessionSnapshots())
 	}
+	if len(items) == 0 {
+		m.appendCommandOutput("Resume session", []string{"Restore a previous session transcript and prompt context", "No resumable sessions"})
+		return
+	}
 	m.dialog.open(dialogSpec{
 		Kind:         dialogKindSessionResume,
 		Title:        "Resume session",

@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"myclaw/internal/approval"
 	"myclaw/internal/runtime"
 )
@@ -39,13 +37,13 @@ func TestApprovalOverlayConsumesInputAndEnterApprovesSelection(t *testing.T) {
 	model.input = "draft"
 	model.cursorPos = len(model.input)
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	updated, _ := model.Update(testKeyRunes("x"))
 	model = updated.(Model)
 	if model.input != "draft" {
 		t.Fatalf("input = %q, want unchanged while approval dialog is active", model.input)
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.approved) != 1 || bridge.approved[0] != "approval-1" {
@@ -63,7 +61,7 @@ func TestApprovalOverlayEscapeRejectsAndCloses(t *testing.T) {
 	bridge := &fakeBridge{}
 	model := modelWithApproval(bridge)
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	updated, _ := model.Update(testKey(keyEscape))
 	model = updated.(Model)
 
 	if len(bridge.rejected) != 1 || bridge.rejected[0] != "approval-1" {
@@ -81,9 +79,9 @@ func TestApprovalOverlayCanSelectRejectWithDownEnter(t *testing.T) {
 	bridge := &fakeBridge{}
 	model := modelWithApproval(bridge)
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ := model.Update(testKey(keyDown))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(bridge.rejected) != 1 || bridge.rejected[0] != "approval-1" {
@@ -94,11 +92,11 @@ func TestApprovalOverlayCanSelectRejectWithDownEnter(t *testing.T) {
 	}
 }
 
-func TestApprovalOverlayRendersAfterPromptAndHidesCommandDialog(t *testing.T) {
+func TestApprovalOverlayReplacesPromptAndHidesCommandDialog(t *testing.T) {
 	model := NewModel(&fakeBridge{})
-	model.openHelpDialog()
+	model.openModelDialog()
 	if !model.dialog.active() {
-		t.Fatal("help dialog inactive before approval")
+		t.Fatal("model dialog inactive before approval")
 	}
 
 	request := approval.Request{ID: "approval-1", ToolName: "system.run", ToolInput: "pwd", Reason: "needs approval"}
@@ -108,17 +106,36 @@ func TestApprovalOverlayRendersAfterPromptAndHidesCommandDialog(t *testing.T) {
 		t.Fatal("command dialog still active after approval dialog opened")
 	}
 
-	view := model.View()
+	view := model.viewContent()
 	for _, want := range []string{"Permission Required", "Approve once", "Reject", "Esc reject"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q: %q", want, view)
 		}
 	}
-	if approvalIndex, promptIndex := strings.LastIndex(view, "Permission Required"), strings.Index(view, "> "); approvalIndex <= promptIndex {
-		t.Fatalf("approval dialog should render after prompt: approval index %d prompt index %d view %q", approvalIndex, promptIndex, view)
+	if strings.Contains(view, "Enter to send") {
+		t.Fatalf("view includes prompt footer while approval is active: %q", view)
 	}
-	if strings.Contains(view, "Available local TUI commands") {
+	if strings.Contains(view, "Select the model for this session") {
 		t.Fatalf("view includes command dialog while approval is active: %q", view)
+	}
+}
+
+func TestApprovalOverlayOptionsAreVisibleWithinTerminalHeight(t *testing.T) {
+	model := NewModel(&fakeBridge{})
+	model.setSize(80, 20)
+	request := approval.Request{
+		ID:        "approval-1",
+		ToolName:  "Bash",
+		ToolInput: `{"command": "ping -n 4 baidu.com", "description": "Ping baidu.com 4 times"}`,
+	}
+
+	model.applyRuntimeEvent(clientEventFromRuntimeEvent(runtime.RuntimeEvent{Type: "permission.required", Approval: &request}))
+
+	visible := firstLines(model.viewContent(), model.height)
+	for _, want := range []string{"Command Approval", "Approve once", "Reject", "Ctrl+Y approve"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("visible view missing %q: %q", want, visible)
+		}
 	}
 }
 

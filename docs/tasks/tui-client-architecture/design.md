@@ -40,9 +40,9 @@ The current TTY-heavy approach is risky because it:
 
 Recommended stack:
 
-- `Bubble Tea` for terminal UI state/update loop
-- `Lip Gloss` for styling/layout
-- `Bubbles` for common terminal components
+- `charm.land/bubbletea/v2` for terminal UI state/update loop
+- `charm.land/lipgloss/v2` for styling, layout, text width, borders, padding, and color
+- optional Charmbracelet component packages only where they reduce local complexity
 
 Why:
 
@@ -50,6 +50,10 @@ Why:
 - good fit for message/event-driven UI
 - far better architectural direction than raw terminal control logic
 - easier to keep client concerns separate from backend concerns
+
+The v2 package paths are the target architecture. The TUI should not keep
+long-term dependencies on the older `github.com/charmbracelet/bubbletea` or
+`github.com/charmbracelet/lipgloss` import paths.
 
 ## 5. External Reference Review
 
@@ -173,7 +177,7 @@ React remains the rich operator console.
 The correct TUI direction is:
 
 - client of `myclawd`
-- Bubble Tea-based
+- Charmbracelet v2-based
 - state/store-centered
 - lightweight in scope
 - not strongly coupled to raw TTY behavior

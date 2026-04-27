@@ -56,18 +56,18 @@ type clientToolEvent struct {
 }
 
 type clientApproval struct {
-	ID               string
-	SessionID        string
-	RunID            string
-	ToolName         string
-	ToolInput        string
-	ToolInputObject  map[string]any
-	Category         string
-	RuleSource       string
-	Reason           string
-	DecisionReason   string
-	AcceptFeedback   string
-	Status           string
+	ID              string
+	SessionID       string
+	RunID           string
+	ToolName        string
+	ToolInput       string
+	ToolInputObject map[string]any
+	Category        string
+	RuleSource      string
+	Reason          string
+	DecisionReason  string
+	AcceptFeedback  string
+	Status          string
 }
 
 type clientTaskUpdate struct {
@@ -100,6 +100,10 @@ func parseClientEventMessage(msg wsMessageLike) (clientEvent, bool) {
 		Session: parseClientSession(payload),
 	}
 	switch msg.Event {
+	case "assistant.delta":
+		delta := stringValue(payload, "delta")
+		event.Message = &clientMessage{Role: "assistant", Content: delta}
+		event.Tool = &clientToolEvent{ProgressMessage: delta}
 	case "message.created":
 		message, ok := parseClientMessage(payload["message"])
 		if !ok {

@@ -4,8 +4,6 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"myclaw/internal/model"
 	"myclaw/internal/session"
 )
@@ -32,7 +30,7 @@ func TestSlashResumeOpensSearchableSessionDialog(t *testing.T) {
 	model.input = "/resume"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if !model.dialog.active() || model.dialog.Kind != dialogKindSessionResume {
@@ -72,11 +70,11 @@ func TestSessionResumeSelectionRestoresTranscriptAndPromptHistory(t *testing.T) 
 	model.input = "/resume"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, _ = model.Update(testKey(keyDown))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if bridge.resumedSessionID != "main-000002" {
@@ -135,9 +133,9 @@ func TestSessionResumeSelectionRestoresPendingApprovalState(t *testing.T) {
 	model.input = "/resume"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if model.pendingApproval == nil || model.pendingApproval.ID != "approval-1" {
@@ -182,9 +180,9 @@ func TestSessionResumeSelectionUsesContinuationTranscriptForCompactedSessions(t 
 	model.input = "/resume"
 	model.cursorPos = len([]rune(model.input))
 
-	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ := model.Update(testKey(keyEnter))
 	model = updated.(Model)
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = model.Update(testKey(keyEnter))
 	model = updated.(Model)
 
 	if len(model.transcript) != 4 {

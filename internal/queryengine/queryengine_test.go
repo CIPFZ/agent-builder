@@ -813,6 +813,67 @@ func TestQueryEngineApproveAndContinueStabilizesAfterApprovedToolInsteadOfExpand
 	}
 }
 
+func TestQueryEngineRejectAndContinueDoesNotEmitRunErrorForFollowupApproval(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "tool run pwd")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+
+	client := &scriptedClient{
+		scripts: [][]llm.StreamEvent{
+			{
+				{Type: "tool.call", ToolName: "system.run", ToolInput: "pwd", ToolUseID: "toolu-initial"},
+				{Type: "message.end"},
+			},
+			{
+				{Type: "tool.call", ToolName: "system.run", ToolInput: "dir C:\\Users", ToolUseID: "toolu-followup"},
+				{Type: "message.end"},
+			},
+		},
+	}
+	approvalManager := approval.NewManager()
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           client,
+		WorkspaceLoader:  workspace.NewLoader(""),
+		ApprovalManager:  approvalManager,
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+	})
+
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err == nil {
+		t.Fatal("expected initial request to require approval")
+	}
+	requests := approvalManager.ListBySession(sess.ID)
+	if len(requests) != 1 {
+		t.Fatalf("approval count = %d, want 1", len(requests))
+	}
+
+	sink := &captureSink{}
+	err = engine.RejectAndContinue(context.Background(), requests[0].ID, "do not run it", nil, sink)
+	if err == nil {
+		t.Fatal("expected follow-up tool request to require approval")
+	}
+	var approvalErr *queryengine.ApprovalRequiredError
+	if !errors.As(err, &approvalErr) {
+		t.Fatalf("error = %v, want approval required", err)
+	}
+
+	foundPermissionRequired := false
+	for _, event := range sink.events {
+		if event.Type == "permission.required" {
+			foundPermissionRequired = true
+		}
+		if event.Type == "run.error" {
+			t.Fatalf("events = %#v, did not want run.error for follow-up approval", sink.events)
+		}
+	}
+	if !foundPermissionRequired {
+		t.Fatalf("events = %#v, want follow-up permission.required", sink.events)
+	}
+}
+
 func TestQueryEngineApproveAndContinuePreservesProviderToolUseIdentity(t *testing.T) {
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")

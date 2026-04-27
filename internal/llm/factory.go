@@ -16,8 +16,8 @@ func NewClientFromConfig(cfg config.LLMConfig) Client {
 			clients:  make(map[string]Client),
 		}
 	}
-	if cfg.APIKey == "" {
-		return NewMockClient()
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		return NewUnavailableClient("llm provider is not configured: missing api key")
 	}
 
 	return NewOpenAICompatibleClient(OpenAICompatibleConfig{
