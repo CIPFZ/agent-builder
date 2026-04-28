@@ -8856,14 +8856,80 @@ func (c *failingShellToolCallClient) Stream(_ context.Context, _ llm.GenerateReq
 
 type captureModelClient struct {
 	lastRequest llm.GenerateRequest
+	callCount   int
 }
 
 func (c *captureModelClient) Stream(_ context.Context, req llm.GenerateRequest, handler llm.StreamHandler) error {
 	c.lastRequest = req
+	c.callCount++
 	if err := handler.OnEvent(llm.StreamEvent{Type: "text.delta", Delta: "Captured"}); err != nil {
 		return err
 	}
 	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+}
+
+func TestHandleWebSocketSendMessageRoutesSlashCommandThroughRuntimeRegistry(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	client := &captureModelClient{}
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, client, Options{})
+	conn := connectGatewayTestClient(t, server)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "/status include runtime state",
+		},
+	}); err != nil {
+		t.Fatalf("write send_message: %v", err)
+	}
+
+	response := readGatewayResponse(t, conn)
+	if response.Type != protocolws.TypeResponse || !response.OK {
+		t.Fatalf("send_message response = %#v, want ok", response)
+	}
+	_ = waitForEvent(t, conn, "agent.lifecycle.end")
+
+	if client.callCount != 1 {
+		t.Fatalf("llm call count = %d, want 1", client.callCount)
+	}
+	if client.lastRequest.Context.UserInput != "include runtime state" {
+		t.Fatalf("gateway user input = %q, want normalized slash command args", client.lastRequest.Context.UserInput)
+	}
+	if client.lastRequest.UserMessage.Content != "include runtime state" {
+		t.Fatalf("gateway user message = %q, want normalized slash command args", client.lastRequest.UserMessage.Content)
+	}
+}
+
+func TestHandleWebSocketUnknownSlashCommandEmitsRuntimeError(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	client := &captureModelClient{}
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, client, Options{})
+	conn := connectGatewayTestClient(t, server)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "/not-a-command",
+		},
+	}); err != nil {
+		t.Fatalf("write send_message: %v", err)
+	}
+
+	response := readGatewayResponse(t, conn)
+	if response.Type != protocolws.TypeResponse || !response.OK {
+		t.Fatalf("send_message response = %#v, want accepted async request", response)
+	}
+	event := waitForEvent(t, conn, "run.error")
+	if got, _ := event.Payload["message"].(string); !strings.Contains(got, "not registered") {
+		t.Fatalf("run.error payload = %#v, want explicit unknown command error", event.Payload)
+	}
+	if client.callCount != 0 {
+		t.Fatalf("llm call count = %d, want 0 for unknown slash command", client.callCount)
+	}
 }
 
 func TestHandleWebSocketPassesConfiguredMainLoopModelIntoGenerateRequest(t *testing.T) {

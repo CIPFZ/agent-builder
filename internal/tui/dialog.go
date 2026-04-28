@@ -33,7 +33,7 @@ func (d *dialogState) open(spec dialogSpec) {
 	}
 	d.FooterHint = spec.FooterHint
 	if d.FooterHint == "" {
-		d.FooterHint = "????navigate | Enter select | Esc close"
+		d.FooterHint = "Up/Down navigate | Enter select | Esc close"
 	}
 	d.Picker = newListPickerState(listPickerSpec{
 		Items:        d.Items,

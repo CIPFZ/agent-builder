@@ -39,6 +39,19 @@ func TestDialogStateOpenNavigateAndClose(t *testing.T) {
 	}
 }
 
+func TestDialogDefaultFooterUsesReadableNavigationHint(t *testing.T) {
+	state := newDialogState()
+	state.open(dialogSpec{Title: "Commands"})
+
+	const want = "Up/Down navigate | Enter select | Esc close"
+	if state.FooterHint != want {
+		t.Fatalf("footer hint = %q, want %q", state.FooterHint, want)
+	}
+	if strings.Contains(state.FooterHint, "????") {
+		t.Fatalf("footer hint contains corrupted navigation marker: %q", state.FooterHint)
+	}
+}
+
 func TestSlashHelpAppendsTranscriptOutputWithoutSendingRuntimeMessage(t *testing.T) {
 	bridge := &fakeBridge{}
 	model := NewModel(bridge)

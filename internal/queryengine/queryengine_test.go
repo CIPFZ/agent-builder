@@ -421,6 +421,109 @@ func TestQueryEngineSubmitMessageCompletesAssistantTurn(t *testing.T) {
 	}
 }
 
+func TestQueryEngineDefaultInputProcessorHandlesImmediateSlashCommand(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "/permissions")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+
+	client := &scriptedClient{}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           client,
+		WorkspaceLoader:  workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+
+	sink := &captureSink{}
+	if err := engine.SubmitMessage(context.Background(), sess, msg, sink); err != nil {
+		t.Fatalf("submit slash command: %v", err)
+	}
+	if requests := client.Requests(); len(requests) != 0 {
+		t.Fatalf("llm request count = %d, want 0 for immediate slash command", len(requests))
+	}
+
+	messages, ok := sessions.Messages(sess.ID)
+	if !ok {
+		t.Fatalf("messages for %q not found", sess.ID)
+	}
+	last := messages[len(messages)-1]
+	if last.Role != "assistant" || !strings.Contains(last.Content, "Permissions") {
+		t.Fatalf("last message = %#v, want permissions assistant output", last)
+	}
+}
+
+func TestQueryEngineDefaultInputProcessorNormalizesQuerySlashCommand(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "/status include runtime state")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+
+	client := &scriptedClient{scripts: [][]llm.StreamEvent{{
+		{Type: "text.delta", Delta: "status"},
+		{Type: "message.end"},
+	}}}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           client,
+		WorkspaceLoader:  workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit slash command: %v", err)
+	}
+	requests := client.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("request count = %d, want 1", len(requests))
+	}
+	if requests[0].Context.UserInput != "include runtime state" {
+		t.Fatalf("context user input = %q, want normalized args", requests[0].Context.UserInput)
+	}
+	if requests[0].UserMessage.Content != "include runtime state" {
+		t.Fatalf("request user message = %q, want normalized args", requests[0].UserMessage.Content)
+	}
+}
+
+func TestQueryEngineDefaultInputProcessorRejectsUnknownSlashCommand(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "/not-a-command")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+
+	client := &scriptedClient{}
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           client,
+		WorkspaceLoader:  workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+
+	sink := &captureSink{}
+	err = engine.SubmitMessage(context.Background(), sess, msg, sink)
+	if err == nil || !strings.Contains(err.Error(), "not registered") {
+		t.Fatalf("submit unknown slash command error = %v, want explicit registry error", err)
+	}
+	if requests := client.Requests(); len(requests) != 0 {
+		t.Fatalf("llm request count = %d, want 0 for unknown slash command", len(requests))
+	}
+	foundRunError := false
+	for _, event := range sink.events {
+		if event.Type == "run.error" && strings.Contains(event.Error, "not registered") {
+			foundRunError = true
+		}
+	}
+	if !foundRunError {
+		t.Fatalf("events = %#v, want observable run.error for unknown slash command", sink.events)
+	}
+}
+
 func TestQueryEnginePassesNativeToolSchemasToModel(t *testing.T) {
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")
