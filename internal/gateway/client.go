@@ -10,6 +10,7 @@ import (
 
 type Client struct {
 	id                        string
+	clientIdentity            string
 	sessionID                 string
 	sessionKey                string
 	supportsPermissionControl bool
@@ -27,6 +28,14 @@ func NewClient(id string, conn *websocket.Conn) *Client {
 
 func (c *Client) ID() string {
 	return c.id
+}
+
+func (c *Client) BindIdentity(identity string) {
+	c.clientIdentity = identity
+}
+
+func (c *Client) Identity() string {
+	return c.clientIdentity
 }
 
 func (c *Client) BindSession(sessionID, sessionKey string) {

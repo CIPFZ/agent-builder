@@ -145,6 +145,7 @@ func TestMyclawdClientReconnectsAndRetriesRequestAfterDisconnect(t *testing.T) {
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	var sendAttempts atomic.Int32
 	var connectionCount atomic.Int32
+	requestIDs := make(chan string, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -156,6 +157,7 @@ func TestMyclawdClientReconnectsAndRetriesRequestAfterDisconnect(t *testing.T) {
 		for {
 			req := readHarnessRequest(t, conn)
 			if req.Method == protocolws.MethodSendMessage {
+				requestIDs <- req.ID
 				attempt := sendAttempts.Add(1)
 				if attempt == 1 {
 					return
@@ -187,6 +189,11 @@ func TestMyclawdClientReconnectsAndRetriesRequestAfterDisconnect(t *testing.T) {
 	}
 	if got := connectionCount.Load(); got < 2 {
 		t.Fatalf("connection count = %d, want reconnect", got)
+	}
+	firstID := <-requestIDs
+	secondID := <-requestIDs
+	if firstID != secondID {
+		t.Fatalf("retry request id = %q, want original id %q", secondID, firstID)
 	}
 }
 

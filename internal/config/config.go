@@ -33,6 +33,8 @@ type ServerConfig struct {
 }
 
 type RuntimeConfig struct {
+	// MaxTurns is a myclaw runtime safety default. Claude Code leaves maxTurns
+	// unset unless explicitly configured, but myclaw uses 100 by default.
 	MaxTurns int
 }
 

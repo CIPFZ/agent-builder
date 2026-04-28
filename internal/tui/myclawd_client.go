@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/url"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ type MyclawdClient struct {
 	baseURL  string
 	agentID  string
 	clientID string
+	idPrefix string
 	store    *clientStore
 	logger   protocolLogger
 
@@ -73,6 +75,7 @@ func NewMyclawdClientWithOptions(ctx context.Context, baseURL, agentID string, s
 		baseURL:         strings.TrimRight(baseURL, "/"),
 		agentID:         strings.TrimSpace(agentID),
 		clientID:        "myclaw-tui",
+		idPrefix:        fmt.Sprintf("tui-%d-%d", time.Now().UnixNano(), rand.Int63()),
 		store:           store,
 		logger:          logger,
 		pending:         make(map[string]chan protocolws.Message),
@@ -422,8 +425,10 @@ func (c *MyclawdClient) request(method string, payload map[string]any) (protocol
 	c.requestMu.Lock()
 	defer c.requestMu.Unlock()
 	var lastErr error
+	id := c.nextRequestID()
+	payload = clonePayloadWithRequestID(payload, id)
 	for attempt := 0; attempt <= c.retryMaxRetries; attempt++ {
-		msg, err := c.requestOnce(method, payload)
+		msg, err := c.requestOnce(id, method, payload)
 		if err == nil {
 			return msg, nil
 		}
@@ -448,14 +453,13 @@ func (c *MyclawdClient) request(method string, payload map[string]any) (protocol
 	return protocolws.Message{}, errors.New("myclawd request failed")
 }
 
-func (c *MyclawdClient) requestOnce(method string, payload map[string]any) (protocolws.Message, error) {
+func (c *MyclawdClient) requestOnce(id, method string, payload map[string]any) (protocolws.Message, error) {
 	c.mu.RLock()
 	conn := c.conn
 	c.mu.RUnlock()
 	if conn == nil {
 		return protocolws.Message{}, errors.New("not connected")
 	}
-	id := c.nextRequestID()
 	responseCh := c.registerPending(id)
 	if err := conn.WriteJSON(protocolws.Message{
 		Type:    protocolws.TypeRequest,
@@ -539,7 +543,16 @@ func (c *MyclawdClient) dispatch(msg tea.Msg) {
 }
 
 func (c *MyclawdClient) nextRequestID() string {
-	return fmt.Sprintf("tui-%d", c.nextID.Add(1))
+	return fmt.Sprintf("%s-%d", c.idPrefix, c.nextID.Add(1))
+}
+
+func clonePayloadWithRequestID(payload map[string]any, id string) map[string]any {
+	cloned := make(map[string]any, len(payload)+1)
+	for key, value := range payload {
+		cloned[key] = value
+	}
+	cloned["request_id"] = id
+	return cloned
 }
 
 func (c *MyclawdClient) registerPending(id string) chan protocolws.Message {
