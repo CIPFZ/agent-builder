@@ -636,6 +636,16 @@ func mergeTaskSnapshot(base, update taskSnapshot) taskSnapshot {
 	if update.DecisionReason != "" {
 		base.DecisionReason = update.DecisionReason
 	}
+	if update.Isolation != "" {
+		base.Isolation = update.Isolation
+	}
+	if update.CWD != "" {
+		base.CWD = update.CWD
+	}
+	if update.PermissionMode != "" {
+		base.PermissionMode = update.PermissionMode
+	}
+	base.RunInBackground = update.RunInBackground
 	base.AutoExecutable = update.AutoExecutable
 	return base
 }
@@ -756,5 +766,9 @@ func taskSnapshotFromContinuation(payload map[string]any) taskSnapshot {
 		LastEvent:       stringValue(payload, "last_event"),
 		Message:         stringValue(payload, "message"),
 		NextAction:      stringValue(payload, "next_action"),
+		RunInBackground: boolValue(payload, "run_in_background"),
+		Isolation:       stringValue(payload, "isolation"),
+		CWD:             stringValue(payload, "cwd"),
+		PermissionMode:  stringValue(payload, "permission_mode"),
 	}
 }

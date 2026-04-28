@@ -2745,6 +2745,9 @@ func (q *QueryEngine) workspaceContextForSession(sess session.Session) (workspac
 	if root := strings.TrimSpace(sess.Metadata.AgentWorktreePath); root != "" {
 		return q.workspace.WithRoot(root).Load()
 	}
+	if root := strings.TrimSpace(sess.Metadata.AgentCWD); root != "" {
+		return q.workspace.WithRoot(root).Load()
+	}
 	return q.workspace.Load()
 }
 
@@ -4056,11 +4059,14 @@ func estimateTextTokens(content string) int {
 }
 
 func resolveWorkDir(sess session.Session, loader *workspace.Loader) string {
-	if loader == nil {
-		return sess.Key
-	}
 	if root := strings.TrimSpace(sess.Metadata.AgentWorktreePath); root != "" {
 		return root
+	}
+	if root := strings.TrimSpace(sess.Metadata.AgentCWD); root != "" {
+		return root
+	}
+	if loader == nil {
+		return sess.Key
 	}
 	ctx, err := loader.Load()
 	if err != nil || ctx.Root == "" {
@@ -4713,6 +4719,9 @@ func (q *QueryEngine) recordReadFileState(sessionID, toolName string, input map[
 	}
 	if !filepath.IsAbs(path) {
 		base := strings.TrimSpace(sess.Metadata.AgentWorktreePath)
+		if base == "" {
+			base = strings.TrimSpace(sess.Metadata.AgentCWD)
+		}
 		if base == "" {
 			base = resolveWorkDir(sess, q.workspace)
 		}

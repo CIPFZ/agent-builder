@@ -1556,6 +1556,80 @@ func TestRunnerSpawnSubagentUsesWorktreeIsolationFromAgentDefinition(t *testing.
 	}
 }
 
+func TestRunnerSpawnSubagentPersistsIsolationAndPermissionControls(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	client := &captureMemoryClient{}
+	runner := NewRunnerWithOptions(sessions, client, workspace.NewLoader("C:/repo"), nil, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "research", "inspect auth flow", SubagentOptions{
+		AllowedTools:            []string{"Read", "Grep"},
+		CWD:                     filepath.Clean("C:/repo/services/api"),
+		RemoteIsolationBoundary: "remote:disabled",
+		PermissionMode:          "ask",
+		RunInBackground:         true,
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+	var metadata session.AgentRunMetadata
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		updatedParent, ok := sessions.GetByID(parent.ID)
+		if ok && len(updatedParent.Metadata.AgentRuns) == 1 {
+			metadata = updatedParent.Metadata.AgentRuns[0]
+			if metadata.Status == string(agent.StatusCompleted) {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if metadata.ID == "" {
+		t.Fatalf("parent metadata missing persisted run")
+	}
+	if !metadata.RunInBackground || metadata.CWD != filepath.Clean("C:/repo/services/api") || metadata.RemoteIsolationBoundary != "remote:disabled" {
+		t.Fatalf("metadata = %#v, want persisted isolation controls", metadata)
+	}
+	if metadata.PermissionMode != "ask" || !metadata.PermissionInherited {
+		t.Fatalf("metadata = %#v, want persisted permission controls", metadata)
+	}
+	if strings.Join(metadata.AllowedTools, ",") != "Read,Grep" {
+		t.Fatalf("allowed tools = %#v, want Read,Grep", metadata.AllowedTools)
+	}
+	child, ok := sessions.GetByID(run.ChildSessionID)
+	if !ok {
+		t.Fatalf("child session %q not found", run.ChildSessionID)
+	}
+	if child.Metadata.AgentCWD != filepath.Clean("C:/repo/services/api") {
+		t.Fatalf("child metadata = %#v, want cwd override", child.Metadata)
+	}
+	if !containsString(client.lastRequest.Context.SystemContextLines, "workspace_root="+filepath.Clean("C:/repo/services/api")) {
+		t.Fatalf("system context lines = %#v, want cwd workspace root", client.lastRequest.Context.SystemContextLines)
+	}
+}
+
+func TestRunnerSpawnSubagentRejectsCWDOutsideInheritedWorkspaceRoots(t *testing.T) {
+	sessions := session.NewManager(nil)
+	parent := sessions.GetOrCreateMain("main")
+	runner := NewRunnerWithOptions(sessions, &captureMemoryClient{}, workspace.NewLoader("C:/repo"), nil, Options{
+		PermissionPolicy: permissions.Policy{
+			Mode:           permissions.ModeWorkspaceWrite,
+			WorkspaceRoots: []string{filepath.Clean("C:/repo")},
+		},
+	})
+
+	_, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "research", "inspect auth flow", SubagentOptions{
+		CWD: filepath.Clean("C:/outside"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "outside inherited workspace roots") {
+		t.Fatalf("spawn err = %v, want cwd boundary error", err)
+	}
+}
+
 func TestRunnerSpawnSubagentRemovesCleanWorktreeAndClearsMetadata(t *testing.T) {
 	sessions := session.NewManager(nil)
 	parent := sessions.GetOrCreateMain("main")

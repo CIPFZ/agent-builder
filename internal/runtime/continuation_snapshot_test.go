@@ -48,6 +48,56 @@ func TestRunnerContinuationSnapshotRecoversPendingApprovalAfterRestart(t *testin
 	}
 }
 
+func TestRunnerContinuationSnapshotRecoversSubagentIsolationMetadata(t *testing.T) {
+	store := memory.NewSessionStore()
+	sessions := session.NewManager(store)
+	sess := sessions.GetOrCreateMain("main")
+	if err := sessions.UpdateMetadata(sess.ID, func(metadata *session.SessionMetadata) {
+		metadata.AgentRuns = []session.AgentRunMetadata{{
+			ID:                      "agent-000013",
+			ParentSessionID:         sess.ID,
+			ParentAgentID:           sess.AgentID,
+			ChildSessionID:          "child-000013",
+			ChildSessionKey:         "agent:main:child:agent-000013",
+			Label:                   "research",
+			Prompt:                  "inspect auth flow",
+			AllowedTools:            []string{"Read", "Grep"},
+			Status:                  string(agent.StatusStopped),
+			LastAction:              string(agent.ActionBackgrounded),
+			Attempt:                 1,
+			RunInBackground:         true,
+			Isolation:               "worktree",
+			CWD:                     "C:/repo/.worktrees/child",
+			RemoteIsolationBoundary: "remote:disabled",
+			PermissionMode:          "ask",
+			PermissionInherited:     true,
+			ParentRunID:             "agent-000012",
+			ContinuationMode:        "continue",
+			OutputFile:              "C:/tmp/agent-000013.log",
+		}}
+	}); err != nil {
+		t.Fatalf("update metadata: %v", err)
+	}
+
+	reloadedSessions := session.NewManager(store)
+	runner := NewRunnerWithOptions(reloadedSessions, llm.NewMockClient(), workspace.NewLoader(""), nil, Options{})
+
+	snapshot, err := runner.ContinuationSnapshot(sess.ID)
+	if err != nil {
+		t.Fatalf("ContinuationSnapshot: %v", err)
+	}
+	if len(snapshot.Tasks) != 1 {
+		t.Fatalf("tasks = %#v, want one recovered task", snapshot.Tasks)
+	}
+	task := snapshot.Tasks[0]
+	if !task.RunInBackground || task.Isolation != "worktree" || task.CWD != "C:/repo/.worktrees/child" {
+		t.Fatalf("task = %#v, want recovered isolation metadata", task)
+	}
+	if task.PermissionMode != "ask" || !task.PermissionInherited || task.ParentRunID != "agent-000012" || task.ContinuationMode != "continue" {
+		t.Fatalf("task = %#v, want recovered control metadata", task)
+	}
+}
+
 func TestRunnerPersistsFastCompletedSubagentInsteadOfStaleRunningState(t *testing.T) {
 	store := memory.NewSessionStore()
 	sessions := session.NewManager(store)

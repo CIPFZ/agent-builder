@@ -141,6 +141,10 @@ type taskSnapshot struct {
 	DecisionReason      string
 	AutoExecutable      bool
 	ControlMessageCount int
+	RunInBackground     bool
+	Isolation           string
+	CWD                 string
+	PermissionMode      string
 }
 
 type RuntimeEventMsg struct {

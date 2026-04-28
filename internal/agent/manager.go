@@ -23,11 +23,13 @@ const (
 type ControlAction string
 
 const (
-	ActionSpawned ControlAction = "spawned"
-	ActionSteered ControlAction = "steered"
-	ActionResumed ControlAction = "resumed"
-	ActionStopped ControlAction = "stopped"
-	ActionClosed  ControlAction = "closed"
+	ActionSpawned      ControlAction = "spawned"
+	ActionSteered      ControlAction = "steered"
+	ActionResumed      ControlAction = "resumed"
+	ActionStopped      ControlAction = "stopped"
+	ActionClosed       ControlAction = "closed"
+	ActionBackgrounded ControlAction = "backgrounded"
+	ActionForegrounded ControlAction = "foregrounded"
 )
 
 type RunContext struct {
@@ -37,42 +39,59 @@ type RunContext struct {
 }
 
 type SpawnRequest struct {
-	ParentSessionID string
-	ParentAgentID   string
-	ChildSessionID  string
-	ChildSessionKey string
-	Label           string
-	Prompt          string
-	AllowedTools    []string
-	Model           string
-	Effort          string
-	Run             func(context.Context, RunContext) (string, error)
+	ParentSessionID         string
+	ParentAgentID           string
+	ChildSessionID          string
+	ChildSessionKey         string
+	Label                   string
+	Prompt                  string
+	AllowedTools            []string
+	Model                   string
+	Effort                  string
+	RunInBackground         bool
+	Isolation               string
+	CWD                     string
+	RemoteIsolationBoundary string
+	PermissionMode          string
+	PermissionInherited     bool
+	ParentRunID             string
+	ContinuationMode        string
+	OutputFile              string
+	Run                     func(context.Context, RunContext) (string, error)
 }
 
 type Run struct {
-	ID              string
-	ParentSessionID string
-	ParentAgentID   string
-	ChildSessionID  string
-	ChildSessionKey string
-	Label           string
-	Prompt          string
-	AllowedTools    []string
-	Model           string
-	Effort          string
-	Status          Status
-	LastAction      ControlAction
-	Attempt         int
-	Output          string
-	OutputFile      string
-	ErrorSummary    string
-	ControlMessages []string
-	CreatedAt       time.Time
-	StartedAt       time.Time
-	UpdatedAt       time.Time
-	CompletedAt     time.Time
-	LastActionAt    time.Time
-	Err             error
+	ID                      string
+	ParentSessionID         string
+	ParentAgentID           string
+	ChildSessionID          string
+	ChildSessionKey         string
+	Label                   string
+	Prompt                  string
+	AllowedTools            []string
+	Model                   string
+	Effort                  string
+	RunInBackground         bool
+	Isolation               string
+	CWD                     string
+	RemoteIsolationBoundary string
+	PermissionMode          string
+	PermissionInherited     bool
+	ParentRunID             string
+	ContinuationMode        string
+	Status                  Status
+	LastAction              ControlAction
+	Attempt                 int
+	Output                  string
+	OutputFile              string
+	ErrorSummary            string
+	ControlMessages         []string
+	CreatedAt               time.Time
+	StartedAt               time.Time
+	UpdatedAt               time.Time
+	CompletedAt             time.Time
+	LastActionAt            time.Time
+	Err                     error
 
 	cancel       context.CancelFunc
 	done         chan struct{}
@@ -374,6 +393,31 @@ func (m *Manager) SetOutputFile(id, path string) error {
 	return nil
 }
 
+func (m *Manager) SetBackground(id string, background bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	run, ok := m.runs[id]
+	if !ok {
+		return fmt.Errorf("run %q not found", id)
+	}
+	if run.RunInBackground == background {
+		return nil
+	}
+	now := time.Now().UTC()
+	run.RunInBackground = background
+	if background {
+		run.LastAction = ActionBackgrounded
+	} else {
+		run.LastAction = ActionForegrounded
+	}
+	run.LastActionAt = now
+	run.UpdatedAt = now
+	snapshot := cloneRun(run)
+	go m.notifyUpdate(snapshot)
+	return nil
+}
+
 func (m *Manager) Get(id string) (Run, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -395,11 +439,19 @@ func (m *Manager) configureRunLocked(run *Run, req SpawnRequest, action ControlA
 	run.AllowedTools = append([]string(nil), req.AllowedTools...)
 	run.Model = req.Model
 	run.Effort = req.Effort
+	run.RunInBackground = req.RunInBackground
+	run.Isolation = strings.TrimSpace(req.Isolation)
+	run.CWD = strings.TrimSpace(req.CWD)
+	run.RemoteIsolationBoundary = strings.TrimSpace(req.RemoteIsolationBoundary)
+	run.PermissionMode = strings.TrimSpace(req.PermissionMode)
+	run.PermissionInherited = req.PermissionInherited
+	run.ParentRunID = strings.TrimSpace(req.ParentRunID)
+	run.ContinuationMode = strings.TrimSpace(req.ContinuationMode)
 	run.Status = StatusRunning
 	run.LastAction = action
 	run.Attempt++
 	run.Output = ""
-	run.OutputFile = ""
+	run.OutputFile = strings.TrimSpace(req.OutputFile)
 	run.ErrorSummary = ""
 	run.StartedAt = now
 	run.UpdatedAt = now

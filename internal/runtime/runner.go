@@ -391,15 +391,22 @@ func (r *Runner) defaultAgentTaskExecutor(ctx context.Context, request tools.Age
 		promptText = label
 	}
 	options := SubagentOptions{
-		AgentType: request.AgentType,
-		Isolation: request.Isolation,
-		UseFork:   shouldUseForkSubagent(request.ToolContext.Input, request.AgentType),
+		AgentType:               request.AgentType,
+		Isolation:               request.Isolation,
+		CWD:                     request.CWD,
+		RemoteIsolationBoundary: request.RemoteIsolationBoundary,
+		AllowedTools:            append([]string(nil), request.AllowedTools...),
+		PermissionMode:          request.PermissionMode,
+		OutputFile:              request.OutputFile,
+		UseFork:                 shouldUseForkSubagent(request.ToolContext.Input, request.AgentType),
 	}
+	runInBackground := r.shouldRunSubagentInBackground(request)
+	options.RunInBackground = runInBackground
 	run, err := r.SpawnSubagentWithOptions(ctx, request.ToolContext.Session, label, promptText, options)
 	if err != nil {
 		return tools.ToolResult{}, err
 	}
-	if r.shouldRunSubagentInBackground(request) {
+	if runInBackground {
 		return encodeAsyncLaunchedSubagentResult(*run, label, promptText, request.ToolContext)
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
@@ -527,12 +534,19 @@ func (r *Runner) SpawnSubagent(ctx context.Context, parent session.Session, labe
 }
 
 type SubagentOptions struct {
-	AllowedTools []string
-	Model        string
-	Effort       string
-	AgentType    string
-	Isolation    string
-	UseFork      bool
+	AllowedTools            []string
+	Model                   string
+	Effort                  string
+	AgentType               string
+	Isolation               string
+	CWD                     string
+	RemoteIsolationBoundary string
+	PermissionMode          string
+	RunInBackground         bool
+	ParentRunID             string
+	ContinuationMode        string
+	OutputFile              string
+	UseFork                 bool
 }
 
 const forkSubagentType = "fork"
@@ -572,6 +586,7 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 		childPolicy = applyAgentPermissionModeOverride(parentPolicy, childPolicy, resolvedDefinition.PermissionMode)
 		childPolicy.Rules = append(agentDisallowedToolRules(resolvedDefinition.DisallowedTools), childPolicy.Rules...)
 	}
+	childPolicy = applyAgentPermissionModeOverride(parentPolicy, childPolicy, options.PermissionMode)
 	effectiveIsolation := strings.TrimSpace(options.Isolation)
 	if effectiveIsolation == "" && hasResolvedDefinition {
 		effectiveIsolation = strings.TrimSpace(resolvedDefinition.Isolation)
@@ -585,6 +600,13 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 		}
 		worktree = createdWorktree
 		childPolicy = rewritePolicyForWorktree(childPolicy, worktree.Path, baseDir)
+	}
+	cwdOverride := filepath.Clean(strings.TrimSpace(options.CWD))
+	if cwdOverride == "." {
+		cwdOverride = ""
+	}
+	if cwdOverride != "" && effectiveIsolation != "worktree" && !cwdWithinWorkspaceRoots(cwdOverride, parentPolicy.WorkspaceRoots) {
+		return nil, fmt.Errorf("subagent cwd %q is outside inherited workspace roots", cwdOverride)
 	}
 	childPolicy.Rules = append(skillAllowedToolRules(options.AllowedTools), childPolicy.Rules...)
 	r.engine.SetSessionPermissionPolicy(child.ID, childPolicy)
@@ -620,6 +642,11 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 			metadata.AgentWorktreeBranch = worktree.Branch
 			metadata.AgentWorktreeHeadCommit = worktree.HeadCommit
 			metadata.AgentWorktreeGitRoot = worktree.GitRoot
+		} else if cwdOverride != "" {
+			metadata.AgentCWD = cwdOverride
+			if strings.TrimSpace(metadata.AgentIsolation) == "" {
+				metadata.AgentIsolation = "cwd"
+			}
 		}
 	})
 	effectivePrompt := promptText
@@ -639,15 +666,24 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 	}
 
 	run, err := r.options.AgentManager.Spawn(ctx, agent.SpawnRequest{
-		ParentSessionID: parent.ID,
-		ParentAgentID:   parent.AgentID,
-		ChildSessionID:  child.ID,
-		ChildSessionKey: child.Key,
-		Label:           label,
-		Prompt:          effectivePrompt,
-		AllowedTools:    append([]string(nil), options.AllowedTools...),
-		Model:           strings.TrimSpace(options.Model),
-		Effort:          strings.TrimSpace(options.Effort),
+		ParentSessionID:         parent.ID,
+		ParentAgentID:           parent.AgentID,
+		ChildSessionID:          child.ID,
+		ChildSessionKey:         child.Key,
+		Label:                   label,
+		Prompt:                  effectivePrompt,
+		AllowedTools:            append([]string(nil), options.AllowedTools...),
+		Model:                   strings.TrimSpace(options.Model),
+		Effort:                  strings.TrimSpace(options.Effort),
+		RunInBackground:         options.RunInBackground,
+		Isolation:               defaultString(effectiveIsolation, defaultString(strings.TrimSpace(options.Isolation), "local")),
+		CWD:                     cwdOverride,
+		RemoteIsolationBoundary: strings.TrimSpace(options.RemoteIsolationBoundary),
+		PermissionMode:          string(childPolicy.Mode),
+		PermissionInherited:     true,
+		ParentRunID:             strings.TrimSpace(options.ParentRunID),
+		ContinuationMode:        strings.TrimSpace(options.ContinuationMode),
+		OutputFile:              strings.TrimSpace(options.OutputFile),
 		Run: func(ctx context.Context, runCtx agent.RunContext) (string, error) {
 			return r.executeDelegatedSubagentRun(ctx, delegatedSubagentRunConfig{
 				RunContext:          runCtx,
@@ -856,12 +892,24 @@ func (r *Runner) ResumeSubagent(ctx context.Context, runID, label, promptText st
 		r.engine.SetSessionPermissionPolicy(previous.ChildSessionID, childPolicy)
 	}
 	return r.options.AgentManager.Resume(ctx, previous.ID, agent.SpawnRequest{
-		ParentSessionID: previous.ParentSessionID,
-		ParentAgentID:   previous.ParentAgentID,
-		ChildSessionID:  previous.ChildSessionID,
-		ChildSessionKey: previous.ChildSessionKey,
-		Label:           label,
-		Prompt:          promptText,
+		ParentSessionID:         previous.ParentSessionID,
+		ParentAgentID:           previous.ParentAgentID,
+		ChildSessionID:          previous.ChildSessionID,
+		ChildSessionKey:         previous.ChildSessionKey,
+		Label:                   label,
+		Prompt:                  promptText,
+		AllowedTools:            append([]string(nil), previous.AllowedTools...),
+		Model:                   previous.Model,
+		Effort:                  previous.Effort,
+		RunInBackground:         previous.RunInBackground,
+		Isolation:               previous.Isolation,
+		CWD:                     previous.CWD,
+		RemoteIsolationBoundary: previous.RemoteIsolationBoundary,
+		PermissionMode:          string(r.PermissionPolicyForSession(previous.ChildSessionID).Mode),
+		PermissionInherited:     true,
+		ParentRunID:             previous.ID,
+		ContinuationMode:        "resume",
+		OutputFile:              previous.OutputFile,
 		Run: func(ctx context.Context, runCtx agent.RunContext) (string, error) {
 			return r.executeDelegatedSubagentRun(ctx, delegatedSubagentRunConfig{
 				RunContext:    runCtx,
@@ -999,6 +1047,9 @@ func (r *Runner) workspaceRootForSession(sess session.Session) string {
 	if root := strings.TrimSpace(sess.Metadata.AgentWorktreePath); root != "" {
 		return filepath.Clean(root)
 	}
+	if root := strings.TrimSpace(sess.Metadata.AgentCWD); root != "" {
+		return filepath.Clean(root)
+	}
 	if r.engine == nil {
 		return resolveWorkDir(sess, nil)
 	}
@@ -1089,6 +1140,9 @@ func resolveWorkDir(sess session.Session, loader *workspace.Loader) string {
 	if root := strings.TrimSpace(sess.Metadata.AgentWorktreePath); root != "" {
 		return root
 	}
+	if root := strings.TrimSpace(sess.Metadata.AgentCWD); root != "" {
+		return root
+	}
 	if loader == nil {
 		return sess.Key
 	}
@@ -1176,6 +1230,37 @@ func compactAndSortStrings(values []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func cwdWithinWorkspaceRoots(cwd string, roots []string) bool {
+	cwd = filepath.Clean(strings.TrimSpace(cwd))
+	if cwd == "" || len(roots) == 0 {
+		return true
+	}
+	for _, root := range roots {
+		root = filepath.Clean(strings.TrimSpace(root))
+		if root == "" {
+			continue
+		}
+		if strings.EqualFold(cwd, root) {
+			return true
+		}
+		rel, err := filepath.Rel(root, cwd)
+		if err != nil {
+			continue
+		}
+		if rel != "." && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runner) MemoryService() *memory.Service {

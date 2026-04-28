@@ -19,6 +19,7 @@ type SessionMetadata struct {
 	AgentMemoryScope               string               `json:"agent_memory_scope,omitempty"`
 	AgentMaxTurns                  int                  `json:"agent_max_turns,omitempty"`
 	AgentIsolation                 string               `json:"agent_isolation,omitempty"`
+	AgentCWD                       string               `json:"agent_cwd,omitempty"`
 	AgentWorktreePath              string               `json:"agent_worktree_path,omitempty"`
 	AgentWorktreeBranch            string               `json:"agent_worktree_branch,omitempty"`
 	AgentWorktreeHeadCommit        string               `json:"agent_worktree_head_commit,omitempty"`
@@ -53,28 +54,36 @@ type Session struct {
 }
 
 type AgentRunMetadata struct {
-	ID              string    `json:"id"`
-	ParentSessionID string    `json:"parent_session_id,omitempty"`
-	ParentAgentID   string    `json:"parent_agent_id,omitempty"`
-	ChildSessionID  string    `json:"child_session_id,omitempty"`
-	ChildSessionKey string    `json:"child_session_key,omitempty"`
-	Label           string    `json:"label,omitempty"`
-	Prompt          string    `json:"prompt,omitempty"`
-	AllowedTools    []string  `json:"allowed_tools,omitempty"`
-	Model           string    `json:"model,omitempty"`
-	Effort          string    `json:"effort,omitempty"`
-	Status          string    `json:"status,omitempty"`
-	LastAction      string    `json:"last_action,omitempty"`
-	Attempt         int       `json:"attempt,omitempty"`
-	Output          string    `json:"output,omitempty"`
-	OutputFile      string    `json:"output_file,omitempty"`
-	ErrorSummary    string    `json:"error_summary,omitempty"`
-	ControlMessages []string  `json:"control_messages,omitempty"`
-	CreatedAt       time.Time `json:"created_at,omitempty"`
-	StartedAt       time.Time `json:"started_at,omitempty"`
-	UpdatedAt       time.Time `json:"updated_at,omitempty"`
-	CompletedAt     time.Time `json:"completed_at,omitempty"`
-	LastActionAt    time.Time `json:"last_action_at,omitempty"`
+	ID                      string    `json:"id"`
+	ParentSessionID         string    `json:"parent_session_id,omitempty"`
+	ParentAgentID           string    `json:"parent_agent_id,omitempty"`
+	ChildSessionID          string    `json:"child_session_id,omitempty"`
+	ChildSessionKey         string    `json:"child_session_key,omitempty"`
+	Label                   string    `json:"label,omitempty"`
+	Prompt                  string    `json:"prompt,omitempty"`
+	AllowedTools            []string  `json:"allowed_tools,omitempty"`
+	Model                   string    `json:"model,omitempty"`
+	Effort                  string    `json:"effort,omitempty"`
+	RunInBackground         bool      `json:"run_in_background,omitempty"`
+	Isolation               string    `json:"isolation,omitempty"`
+	CWD                     string    `json:"cwd,omitempty"`
+	RemoteIsolationBoundary string    `json:"remote_isolation_boundary,omitempty"`
+	PermissionMode          string    `json:"permission_mode,omitempty"`
+	PermissionInherited     bool      `json:"permission_inherited,omitempty"`
+	ParentRunID             string    `json:"parent_run_id,omitempty"`
+	ContinuationMode        string    `json:"continuation_mode,omitempty"`
+	Status                  string    `json:"status,omitempty"`
+	LastAction              string    `json:"last_action,omitempty"`
+	Attempt                 int       `json:"attempt,omitempty"`
+	Output                  string    `json:"output,omitempty"`
+	OutputFile              string    `json:"output_file,omitempty"`
+	ErrorSummary            string    `json:"error_summary,omitempty"`
+	ControlMessages         []string  `json:"control_messages,omitempty"`
+	CreatedAt               time.Time `json:"created_at,omitempty"`
+	StartedAt               time.Time `json:"started_at,omitempty"`
+	UpdatedAt               time.Time `json:"updated_at,omitempty"`
+	CompletedAt             time.Time `json:"completed_at,omitempty"`
+	LastActionAt            time.Time `json:"last_action_at,omitempty"`
 }
 
 type ReadFileMetadata struct {

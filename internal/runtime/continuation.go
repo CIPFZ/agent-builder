@@ -26,19 +26,28 @@ type ContinuationSnapshot struct {
 }
 
 type TaskSnapshot struct {
-	RunID           string
-	ParentSessionID string
-	Label           string
-	Prompt          string
-	Status          string
-	ChildSessionID  string
-	ChildSessionKey string
-	Attempt         int
-	LastAction      string
-	Output          string
-	OutputFile      string
-	Error           string
-	ControlMessages []string
+	RunID                   string
+	ParentSessionID         string
+	Label                   string
+	Prompt                  string
+	Status                  string
+	ChildSessionID          string
+	ChildSessionKey         string
+	Attempt                 int
+	LastAction              string
+	Output                  string
+	OutputFile              string
+	RunInBackground         bool
+	Isolation               string
+	CWD                     string
+	RemoteIsolationBoundary string
+	PermissionMode          string
+	PermissionInherited     bool
+	AllowedTools            []string
+	ParentRunID             string
+	ContinuationMode        string
+	Error                   string
+	ControlMessages         []string
 }
 
 func (r *Runner) ContinuationSnapshot(sessionID string) (ContinuationSnapshot, error) {
@@ -129,19 +138,28 @@ func (r *Runner) taskSnapshotsForSession(sessionID string) []TaskSnapshot {
 
 func taskSnapshotFromRun(run agent.Run) TaskSnapshot {
 	return TaskSnapshot{
-		RunID:           run.ID,
-		ParentSessionID: run.ParentSessionID,
-		Label:           run.Label,
-		Prompt:          run.Prompt,
-		Status:          string(run.Status),
-		ChildSessionID:  run.ChildSessionID,
-		ChildSessionKey: run.ChildSessionKey,
-		Attempt:         run.Attempt,
-		LastAction:      string(run.LastAction),
-		Output:          run.Output,
-		OutputFile:      run.OutputFile,
-		Error:           run.ErrorSummary,
-		ControlMessages: append([]string(nil), run.ControlMessages...),
+		RunID:                   run.ID,
+		ParentSessionID:         run.ParentSessionID,
+		Label:                   run.Label,
+		Prompt:                  run.Prompt,
+		Status:                  string(run.Status),
+		ChildSessionID:          run.ChildSessionID,
+		ChildSessionKey:         run.ChildSessionKey,
+		Attempt:                 run.Attempt,
+		LastAction:              string(run.LastAction),
+		Output:                  run.Output,
+		OutputFile:              run.OutputFile,
+		RunInBackground:         run.RunInBackground,
+		Isolation:               run.Isolation,
+		CWD:                     run.CWD,
+		RemoteIsolationBoundary: run.RemoteIsolationBoundary,
+		PermissionMode:          run.PermissionMode,
+		PermissionInherited:     run.PermissionInherited,
+		AllowedTools:            append([]string(nil), run.AllowedTools...),
+		ParentRunID:             run.ParentRunID,
+		ContinuationMode:        run.ContinuationMode,
+		Error:                   run.ErrorSummary,
+		ControlMessages:         append([]string(nil), run.ControlMessages...),
 	}
 }
 
@@ -158,55 +176,71 @@ func agentRunFromMetadata(metadata session.AgentRunMetadata) agent.Run {
 		status = agent.StatusStopped
 	}
 	return agent.Run{
-		ID:              metadata.ID,
-		ParentSessionID: metadata.ParentSessionID,
-		ParentAgentID:   metadata.ParentAgentID,
-		ChildSessionID:  metadata.ChildSessionID,
-		ChildSessionKey: metadata.ChildSessionKey,
-		Label:           metadata.Label,
-		Prompt:          metadata.Prompt,
-		AllowedTools:    append([]string(nil), metadata.AllowedTools...),
-		Model:           metadata.Model,
-		Effort:          metadata.Effort,
-		Status:          status,
-		LastAction:      agent.ControlAction(metadata.LastAction),
-		Attempt:         metadata.Attempt,
-		Output:          metadata.Output,
-		OutputFile:      metadata.OutputFile,
-		ErrorSummary:    metadata.ErrorSummary,
-		ControlMessages: append([]string(nil), metadata.ControlMessages...),
-		CreatedAt:       metadata.CreatedAt,
-		StartedAt:       metadata.StartedAt,
-		UpdatedAt:       metadata.UpdatedAt,
-		CompletedAt:     metadata.CompletedAt,
-		LastActionAt:    metadata.LastActionAt,
+		ID:                      metadata.ID,
+		ParentSessionID:         metadata.ParentSessionID,
+		ParentAgentID:           metadata.ParentAgentID,
+		ChildSessionID:          metadata.ChildSessionID,
+		ChildSessionKey:         metadata.ChildSessionKey,
+		Label:                   metadata.Label,
+		Prompt:                  metadata.Prompt,
+		AllowedTools:            append([]string(nil), metadata.AllowedTools...),
+		Model:                   metadata.Model,
+		Effort:                  metadata.Effort,
+		RunInBackground:         metadata.RunInBackground,
+		Isolation:               metadata.Isolation,
+		CWD:                     metadata.CWD,
+		RemoteIsolationBoundary: metadata.RemoteIsolationBoundary,
+		PermissionMode:          metadata.PermissionMode,
+		PermissionInherited:     metadata.PermissionInherited,
+		ParentRunID:             metadata.ParentRunID,
+		ContinuationMode:        metadata.ContinuationMode,
+		Status:                  status,
+		LastAction:              agent.ControlAction(metadata.LastAction),
+		Attempt:                 metadata.Attempt,
+		Output:                  metadata.Output,
+		OutputFile:              metadata.OutputFile,
+		ErrorSummary:            metadata.ErrorSummary,
+		ControlMessages:         append([]string(nil), metadata.ControlMessages...),
+		CreatedAt:               metadata.CreatedAt,
+		StartedAt:               metadata.StartedAt,
+		UpdatedAt:               metadata.UpdatedAt,
+		CompletedAt:             metadata.CompletedAt,
+		LastActionAt:            metadata.LastActionAt,
 	}
 }
 
 func agentRunMetadataFromRun(run agent.Run) session.AgentRunMetadata {
 	return session.AgentRunMetadata{
-		ID:              run.ID,
-		ParentSessionID: run.ParentSessionID,
-		ParentAgentID:   run.ParentAgentID,
-		ChildSessionID:  run.ChildSessionID,
-		ChildSessionKey: run.ChildSessionKey,
-		Label:           run.Label,
-		Prompt:          run.Prompt,
-		AllowedTools:    append([]string(nil), run.AllowedTools...),
-		Model:           run.Model,
-		Effort:          run.Effort,
-		Status:          string(run.Status),
-		LastAction:      string(run.LastAction),
-		Attempt:         run.Attempt,
-		Output:          run.Output,
-		OutputFile:      run.OutputFile,
-		ErrorSummary:    run.ErrorSummary,
-		ControlMessages: append([]string(nil), run.ControlMessages...),
-		CreatedAt:       run.CreatedAt,
-		StartedAt:       run.StartedAt,
-		UpdatedAt:       run.UpdatedAt,
-		CompletedAt:     run.CompletedAt,
-		LastActionAt:    run.LastActionAt,
+		ID:                      run.ID,
+		ParentSessionID:         run.ParentSessionID,
+		ParentAgentID:           run.ParentAgentID,
+		ChildSessionID:          run.ChildSessionID,
+		ChildSessionKey:         run.ChildSessionKey,
+		Label:                   run.Label,
+		Prompt:                  run.Prompt,
+		AllowedTools:            append([]string(nil), run.AllowedTools...),
+		Model:                   run.Model,
+		Effort:                  run.Effort,
+		RunInBackground:         run.RunInBackground,
+		Isolation:               run.Isolation,
+		CWD:                     run.CWD,
+		RemoteIsolationBoundary: run.RemoteIsolationBoundary,
+		PermissionMode:          run.PermissionMode,
+		PermissionInherited:     run.PermissionInherited,
+		ParentRunID:             run.ParentRunID,
+		ContinuationMode:        run.ContinuationMode,
+		Status:                  string(run.Status),
+		LastAction:              string(run.LastAction),
+		Attempt:                 run.Attempt,
+		Output:                  run.Output,
+		OutputFile:              run.OutputFile,
+		ErrorSummary:            run.ErrorSummary,
+		ControlMessages:         append([]string(nil), run.ControlMessages...),
+		CreatedAt:               run.CreatedAt,
+		StartedAt:               run.StartedAt,
+		UpdatedAt:               run.UpdatedAt,
+		CompletedAt:             run.CompletedAt,
+		LastActionAt:            run.LastActionAt,
 	}
 }
 

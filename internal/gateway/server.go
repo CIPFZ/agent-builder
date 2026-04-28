@@ -352,12 +352,17 @@ func (s *Server) handleClient(client *Client) error {
 			}
 
 			run, err := s.runner.SpawnSubagentWithOptions(context.Background(), sess, spawnPayload.Label, spawnPayload.Prompt, runtime.SubagentOptions{
-				AllowedTools: append([]string(nil), spawnPayload.AllowedTools...),
-				Model:        strings.TrimSpace(spawnPayload.Model),
-				Effort:       strings.TrimSpace(spawnPayload.Effort),
-				AgentType:    strings.TrimSpace(spawnPayload.AgentType),
-				Isolation:    strings.TrimSpace(spawnPayload.Isolation),
-				UseFork:      spawnPayload.UseFork,
+				AllowedTools:            append([]string(nil), spawnPayload.AllowedTools...),
+				Model:                   strings.TrimSpace(spawnPayload.Model),
+				Effort:                  strings.TrimSpace(spawnPayload.Effort),
+				AgentType:               strings.TrimSpace(spawnPayload.AgentType),
+				Isolation:               strings.TrimSpace(spawnPayload.Isolation),
+				CWD:                     strings.TrimSpace(spawnPayload.CWD),
+				RemoteIsolationBoundary: strings.TrimSpace(spawnPayload.RemoteIsolationBoundary),
+				PermissionMode:          strings.TrimSpace(spawnPayload.PermissionMode),
+				RunInBackground:         spawnPayload.RunInBackground,
+				OutputFile:              strings.TrimSpace(spawnPayload.OutputFile),
+				UseFork:                 spawnPayload.UseFork,
 			})
 			if err != nil {
 				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
@@ -1906,6 +1911,11 @@ func parseSpawnSubagentPayload(payload map[string]any) (protocolws.SpawnSubagent
 			spawnPayload.AgentType = strings.TrimSpace(legacy)
 		}
 	}
+	if strings.TrimSpace(spawnPayload.RemoteIsolationBoundary) == "" {
+		if legacy, _ := payload["remote_boundary"].(string); strings.TrimSpace(legacy) != "" {
+			spawnPayload.RemoteIsolationBoundary = strings.TrimSpace(legacy)
+		}
+	}
 	if spawnPayload.Prompt == "" {
 		return protocolws.SpawnSubagentPayload{}, &connectError{message: "spawn_subagent payload requires prompt"}
 	}
@@ -2172,6 +2182,33 @@ func taskContinuationPayloads(tasks []runtime.TaskSnapshot) []map[string]any {
 		if task.OutputFile != "" {
 			item["output_file"] = task.OutputFile
 		}
+		if task.RunInBackground {
+			item["run_in_background"] = true
+		}
+		if task.Isolation != "" {
+			item["isolation"] = task.Isolation
+		}
+		if task.CWD != "" {
+			item["cwd"] = task.CWD
+		}
+		if task.RemoteIsolationBoundary != "" {
+			item["remote_isolation_boundary"] = task.RemoteIsolationBoundary
+		}
+		if task.PermissionMode != "" {
+			item["permission_mode"] = task.PermissionMode
+		}
+		if task.PermissionInherited {
+			item["permission_inherited"] = true
+		}
+		if len(task.AllowedTools) > 0 {
+			item["allowed_tools"] = toAnySlice(task.AllowedTools)
+		}
+		if task.ParentRunID != "" {
+			item["parent_run_id"] = task.ParentRunID
+		}
+		if task.ContinuationMode != "" {
+			item["continuation_mode"] = task.ContinuationMode
+		}
 		if task.Error != "" {
 			item["error"] = task.Error
 		}
@@ -2384,6 +2421,33 @@ func subagentPayload(run agent.Run) map[string]any {
 	}
 	if run.OutputFile != "" {
 		payload["output_file"] = run.OutputFile
+	}
+	if run.RunInBackground {
+		payload["run_in_background"] = true
+	}
+	if run.Isolation != "" {
+		payload["isolation"] = run.Isolation
+	}
+	if run.CWD != "" {
+		payload["cwd"] = run.CWD
+	}
+	if run.RemoteIsolationBoundary != "" {
+		payload["remote_isolation_boundary"] = run.RemoteIsolationBoundary
+	}
+	if run.PermissionMode != "" {
+		payload["permission_mode"] = run.PermissionMode
+	}
+	if run.PermissionInherited {
+		payload["permission_inherited"] = true
+	}
+	if len(run.AllowedTools) > 0 {
+		payload["allowed_tools"] = toAnySlice(run.AllowedTools)
+	}
+	if run.ParentRunID != "" {
+		payload["parent_run_id"] = run.ParentRunID
+	}
+	if run.ContinuationMode != "" {
+		payload["continuation_mode"] = run.ContinuationMode
 	}
 	if run.ErrorSummary != "" {
 		payload["error"] = run.ErrorSummary
