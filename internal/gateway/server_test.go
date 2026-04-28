@@ -168,6 +168,31 @@ func waitForEvent(t *testing.T, conn *websocket.Conn, eventName string) protocol
 	return protocolws.Message{}
 }
 
+func waitForResponseID(t *testing.T, conn *websocket.Conn, id string) protocolws.Message {
+	t.Helper()
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set response %s read deadline: %v", id, err)
+	}
+	defer func() {
+		if err := conn.SetReadDeadline(time.Time{}); err != nil {
+			t.Fatalf("clear response %s read deadline: %v", id, err)
+		}
+	}()
+
+	for i := 0; i < 24; i++ {
+		var msg protocolws.Message
+		if err := conn.ReadJSON(&msg); err != nil {
+			t.Fatalf("read message while waiting for response %s: %v", id, err)
+		}
+		if msg.Type == protocolws.TypeResponse && msg.ID == id {
+			return msg
+		}
+	}
+
+	t.Fatalf("expected response %s", id)
+	return protocolws.Message{}
+}
+
 func readCanUseToolControlRequest(t *testing.T, conn *websocket.Conn) protocolws.Message {
 	t.Helper()
 	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
@@ -924,6 +949,86 @@ func TestHandleWebSocketConnectAndSendMessage(t *testing.T) {
 	}
 }
 
+func TestHandleWebSocketSendMessageDeduplicatesIdempotentRetry(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "myclaw-tui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectRes protocolws.Message
+	if err := conn.ReadJSON(&connectRes); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	var hello protocolws.Message
+	if err := conn.ReadJSON(&hello); err != nil {
+		t.Fatalf("read hello event: %v", err)
+	}
+	sessionID, _ := connectRes.Payload["session_id"].(string)
+
+	for _, id := range []string{"2", "3"} {
+		if err := conn.WriteJSON(protocolws.Message{
+			Type:   protocolws.TypeRequest,
+			ID:     id,
+			Method: protocolws.MethodSendMessage,
+			Payload: map[string]any{
+				"content":    "hello once",
+				"request_id": "tui-2",
+			},
+		}); err != nil {
+			t.Fatalf("write send %s: %v", id, err)
+		}
+		var ack protocolws.Message
+		if err := conn.ReadJSON(&ack); err != nil {
+			t.Fatalf("read ack %s: %v", id, err)
+		}
+		if ack.Type != protocolws.TypeResponse || !ack.OK || ack.ID != id {
+			t.Fatalf("ack %s = %#v, want ok response with same id", id, ack)
+		}
+		if id == "2" {
+			var created protocolws.Message
+			if err := conn.ReadJSON(&created); err != nil {
+				t.Fatalf("read created event: %v", err)
+			}
+			if created.Type != protocolws.TypeEvent || created.Event != protocolws.EventMessageCreated {
+				t.Fatalf("created = %#v, want message.created", created)
+			}
+		}
+	}
+
+	messages, ok := sessionManager.Messages(sessionID)
+	if !ok {
+		t.Fatalf("messages for session %q not found", sessionID)
+	}
+	userMessages := 0
+	for _, message := range messages {
+		if message.Role == "user" && message.Content == "hello once" {
+			userMessages++
+		}
+	}
+	if userMessages != 1 {
+		t.Fatalf("user message count = %d, want one idempotent send", userMessages)
+	}
+}
+
 func TestHandleWebSocketToolLoop(t *testing.T) {
 	sessionManager := session.NewManager(nil)
 	server := NewServer(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient())
@@ -1621,6 +1726,99 @@ func TestHandleWebSocketApprovalApproveCarriesFeedbackBlocksIntoToolResult(t *te
 	}
 	if toolMessage.Blocks[1].Text != "approved with UI note" || toolMessage.Blocks[2].Text != "extra UI block" {
 		t.Fatalf("tool message blocks = %#v, want approval feedback blocks", toolMessage.Blocks)
+	}
+}
+
+func TestHandleWebSocketApprovalDecisionDeduplicatesIdempotentRetry(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeAsk},
+	})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "1",
+		Method: protocolws.MethodConnect,
+		Payload: map[string]any{
+			"role":            "client",
+			"client_identity": "myclaw-tui",
+			"agent_id":        "main",
+		},
+	}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	var connectResponse protocolws.Message
+	if err := conn.ReadJSON(&connectResponse); err != nil {
+		t.Fatalf("read connect response: %v", err)
+	}
+	var hello protocolws.Message
+	if err := conn.ReadJSON(&hello); err != nil {
+		t.Fatalf("read hello event: %v", err)
+	}
+	sessionID, _ := connectResponse.Payload["session_id"].(string)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "2",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "tool run pwd",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+	approvalID := waitForPermissionRequired(t, conn)
+	if approvalID == "" {
+		t.Fatal("permission.required event did not include approval_id")
+	}
+
+	decisionPayload := map[string]any{
+		"approval_id": approvalID,
+		"request_id":  "tui-approve-1",
+	}
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:    protocolws.TypeRequest,
+		ID:      "3",
+		Method:  protocolws.MethodApprovalApprove,
+		Payload: decisionPayload,
+	}); err != nil {
+		t.Fatalf("write approval approve: %v", err)
+	}
+	waitForResponseID(t, conn, "3")
+	waitForEvent(t, conn, "tool.result")
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:    protocolws.TypeRequest,
+		ID:      "4",
+		Method:  protocolws.MethodApprovalApprove,
+		Payload: decisionPayload,
+	}); err != nil {
+		t.Fatalf("write duplicate approval approve: %v", err)
+	}
+	waitForResponseID(t, conn, "4")
+	time.Sleep(100 * time.Millisecond)
+
+	messages, ok := sessionManager.Messages(sessionID)
+	if !ok {
+		t.Fatalf("messages for session %q not found", sessionID)
+	}
+	toolMessages := 0
+	for _, message := range messages {
+		if message.Role == "tool" {
+			toolMessages++
+		}
+	}
+	if toolMessages != 1 {
+		t.Fatalf("tool message count = %d, want one idempotent approval continuation", toolMessages)
 	}
 }
 

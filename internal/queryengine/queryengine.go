@@ -702,6 +702,7 @@ func New(cfg Config) *QueryEngine {
 		sessionStartCompactHook:    cfg.SessionStartCompactHook,
 		transcriptPathProvider:     cfg.TranscriptPathProvider,
 	}
+	engine.state.MaxTurns = engine.effectiveMaxTurns(session.Session{})
 	engine.seedCompactBoundaryCounter()
 	return engine
 }
@@ -4608,7 +4609,7 @@ func (q *QueryEngine) effectiveMaxTurns(sess session.Session) int {
 		return sess.Metadata.AgentMaxTurns
 	}
 	if q.maxTurns <= 0 {
-		return 8
+		return 100
 	}
 	return q.maxTurns
 }

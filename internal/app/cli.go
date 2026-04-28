@@ -48,8 +48,12 @@ var runTUI = func(ctx context.Context, _ []string, stdout, stderr io.Writer) err
 		}()
 	}
 	return tui.Run(ctx, daemon.BaseURL, tui.Options{
-		LLMLabel: llmLabel,
-		Logger:   logger,
+		LLMLabel:        llmLabel,
+		Logger:          logger,
+		RequestTimeout:  time.Duration(cfg.Server.RequestTimeoutMs) * time.Millisecond,
+		RetryMaxRetries: cfg.Server.RetryMaxRetries,
+		RetryBaseDelay:  time.Duration(cfg.Server.RetryBaseDelayMs) * time.Millisecond,
+		RetryMaxDelay:   time.Duration(cfg.Server.RetryMaxDelayMs) * time.Millisecond,
 	})
 }
 

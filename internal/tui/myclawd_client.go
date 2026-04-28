@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/url"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ type MyclawdClient struct {
 	baseURL  string
 	agentID  string
 	clientID string
+	idPrefix string
 	store    *clientStore
 	logger   protocolLogger
 
@@ -32,6 +34,12 @@ type MyclawdClient struct {
 	send       func(tea.Msg)
 	pending    map[string]chan protocolws.Message
 	nextID     atomic.Uint64
+	requestMu  sync.Mutex
+
+	requestTimeout  time.Duration
+	retryMaxRetries int
+	retryBaseDelay  time.Duration
+	retryMaxDelay   time.Duration
 
 	turnMu           sync.Mutex
 	turnStartedAt    time.Time
@@ -42,21 +50,62 @@ type protocolLogger interface {
 	Log(level, component, event, message string, fields map[string]any)
 }
 
+type ClientOptions struct {
+	RequestTimeout  time.Duration
+	RetryMaxRetries int
+	RetryBaseDelay  time.Duration
+	RetryMaxDelay   time.Duration
+}
+
+var timeAfter = time.After
+
 func NewMyclawdClient(ctx context.Context, baseURL, agentID string, store *clientStore, logger protocolLogger) *MyclawdClient {
+	return NewMyclawdClientWithOptions(ctx, baseURL, agentID, store, logger, ClientOptions{})
+}
+
+func NewMyclawdClientWithOptions(ctx context.Context, baseURL, agentID string, store *clientStore, logger protocolLogger, options ClientOptions) *MyclawdClient {
 	if store == nil {
 		store = newClientStore()
 	}
 	derived, cancel := context.WithCancel(ctx)
+	options = normalizeClientOptions(options)
 	return &MyclawdClient{
-		ctx:      derived,
-		cancel:   cancel,
-		baseURL:  strings.TrimRight(baseURL, "/"),
-		agentID:  strings.TrimSpace(agentID),
-		clientID: "myclaw-tui",
-		store:    store,
-		logger:   logger,
-		pending:  make(map[string]chan protocolws.Message),
+		ctx:             derived,
+		cancel:          cancel,
+		baseURL:         strings.TrimRight(baseURL, "/"),
+		agentID:         strings.TrimSpace(agentID),
+		clientID:        "myclaw-tui",
+		idPrefix:        fmt.Sprintf("tui-%d-%d", time.Now().UnixNano(), rand.Int63()),
+		store:           store,
+		logger:          logger,
+		pending:         make(map[string]chan protocolws.Message),
+		requestTimeout:  options.RequestTimeout,
+		retryMaxRetries: options.RetryMaxRetries,
+		retryBaseDelay:  options.RetryBaseDelay,
+		retryMaxDelay:   options.RetryMaxDelay,
 	}
+}
+
+func normalizeClientOptions(options ClientOptions) ClientOptions {
+	if options.RequestTimeout <= 0 {
+		options.RequestTimeout = 5 * time.Minute
+	}
+	if options.RetryMaxRetries < 0 {
+		options.RetryMaxRetries = 0
+	}
+	if options.RetryMaxRetries == 0 {
+		options.RetryMaxRetries = 3
+	}
+	if options.RetryBaseDelay <= 0 {
+		options.RetryBaseDelay = 500 * time.Millisecond
+	}
+	if options.RetryMaxDelay <= 0 {
+		options.RetryMaxDelay = 4 * time.Second
+	}
+	if options.RetryMaxDelay < options.RetryBaseDelay {
+		options.RetryMaxDelay = options.RetryBaseDelay
+	}
+	return options
 }
 
 func (c *MyclawdClient) Attach(send func(tea.Msg)) {
@@ -170,7 +219,7 @@ func (c *MyclawdClient) connect() error {
 	c.mu.Lock()
 	c.conn = conn
 	c.mu.Unlock()
-	go c.readLoop()
+	go c.readLoop(conn)
 
 	id := c.nextRequestID()
 	responseCh := c.registerPending(id)
@@ -325,17 +374,19 @@ func (c *MyclawdClient) refreshApprovals() error {
 	return nil
 }
 
-func (c *MyclawdClient) readLoop() {
+func (c *MyclawdClient) readLoop(conn *websocket.Conn) {
 	for {
 		select {
 		case <-c.ctx.Done():
 			return
 		default:
 		}
-		msg, err := c.readMessage()
+		msg, err := c.readMessage(conn)
 		if err != nil {
-			c.failPending()
-			c.dispatch(BridgeErrMsg{Err: err})
+			if c.setDisconnected(conn) {
+				c.failPending()
+				c.dispatch(BridgeErrMsg{Err: err})
+			}
 			return
 		}
 		if msg.Type == protocolws.TypeResponse && c.resolvePending(msg) {
@@ -371,13 +422,44 @@ func (c *MyclawdClient) readLoop() {
 }
 
 func (c *MyclawdClient) request(method string, payload map[string]any) (protocolws.Message, error) {
+	c.requestMu.Lock()
+	defer c.requestMu.Unlock()
+	var lastErr error
+	id := c.nextRequestID()
+	payload = clonePayloadWithRequestID(payload, id)
+	for attempt := 0; attempt <= c.retryMaxRetries; attempt++ {
+		msg, err := c.requestOnce(id, method, payload)
+		if err == nil {
+			return msg, nil
+		}
+		lastErr = err
+		if !isRetryableClientError(err) || attempt == c.retryMaxRetries {
+			return protocolws.Message{}, err
+		}
+		c.log("warn", "request.retry", err.Error(), map[string]any{
+			"method":  method,
+			"attempt": attempt + 1,
+		})
+		if err := c.reconnect(); err != nil {
+			lastErr = err
+		}
+		if err := c.waitForRetry(attempt); err != nil {
+			return protocolws.Message{}, err
+		}
+	}
+	if lastErr != nil {
+		return protocolws.Message{}, lastErr
+	}
+	return protocolws.Message{}, errors.New("myclawd request failed")
+}
+
+func (c *MyclawdClient) requestOnce(id, method string, payload map[string]any) (protocolws.Message, error) {
 	c.mu.RLock()
 	conn := c.conn
 	c.mu.RUnlock()
 	if conn == nil {
 		return protocolws.Message{}, errors.New("not connected")
 	}
-	id := c.nextRequestID()
 	responseCh := c.registerPending(id)
 	if err := conn.WriteJSON(protocolws.Message{
 		Type:    protocolws.TypeRequest,
@@ -398,10 +480,46 @@ func (c *MyclawdClient) request(method string, payload map[string]any) (protocol
 	return msg, nil
 }
 
-func (c *MyclawdClient) readMessage() (protocolws.Message, error) {
-	c.mu.RLock()
-	conn := c.conn
-	c.mu.RUnlock()
+func (c *MyclawdClient) reconnect() error {
+	c.mu.Lock()
+	if c.conn != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+	}
+	c.mu.Unlock()
+	return c.connect()
+}
+
+func (c *MyclawdClient) waitForRetry(attempt int) error {
+	delay := c.retryBaseDelay
+	for i := 0; i < attempt; i++ {
+		delay *= 2
+		if delay >= c.retryMaxDelay {
+			delay = c.retryMaxDelay
+			break
+		}
+	}
+	select {
+	case <-c.ctx.Done():
+		return c.ctx.Err()
+	case <-timeAfter(delay):
+		return nil
+	}
+}
+
+func isRetryableClientError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "not connected") ||
+		strings.Contains(text, "connection closed") ||
+		strings.Contains(text, "timed out") ||
+		strings.Contains(text, "websocket") ||
+		strings.Contains(text, "network")
+}
+
+func (c *MyclawdClient) readMessage(conn *websocket.Conn) (protocolws.Message, error) {
 	if conn == nil {
 		return protocolws.Message{}, errors.New("not connected")
 	}
@@ -425,7 +543,16 @@ func (c *MyclawdClient) dispatch(msg tea.Msg) {
 }
 
 func (c *MyclawdClient) nextRequestID() string {
-	return fmt.Sprintf("tui-%d", c.nextID.Add(1))
+	return fmt.Sprintf("%s-%d", c.idPrefix, c.nextID.Add(1))
+}
+
+func clonePayloadWithRequestID(payload map[string]any, id string) map[string]any {
+	cloned := make(map[string]any, len(payload)+1)
+	for key, value := range payload {
+		cloned[key] = value
+	}
+	cloned["request_id"] = id
+	return cloned
 }
 
 func (c *MyclawdClient) registerPending(id string) chan protocolws.Message {
@@ -480,10 +607,20 @@ func (c *MyclawdClient) awaitResponse(id string, ch chan protocolws.Message) (pr
 			return protocolws.Message{}, errors.New("connection closed")
 		}
 		return msg, nil
-	case <-time.After(10 * time.Second):
+	case <-timeAfter(c.requestTimeout):
 		c.unregisterPending(id)
 		return protocolws.Message{}, errors.New("myclawd request timed out")
 	}
+}
+
+func (c *MyclawdClient) setDisconnected(conn *websocket.Conn) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if conn != nil && c.conn != conn {
+		return false
+	}
+	c.conn = nil
+	return true
 }
 
 func (c *MyclawdClient) log(level, event, message string, fields map[string]any) {

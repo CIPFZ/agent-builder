@@ -111,6 +111,79 @@ func TestLoadFromDirLoadsSingleConfigFileAndIgnoresClaudeSettings(t *testing.T) 
 	}
 }
 
+func TestLoadFromDirAppliesServerAndRuntimeDefaults(t *testing.T) {
+	cfg := defaultConfig()
+
+	if cfg.Server.RequestTimeoutMs != 300000 {
+		t.Fatalf("server request timeout = %d, want 300000", cfg.Server.RequestTimeoutMs)
+	}
+	if cfg.Server.RetryMaxRetries != 3 {
+		t.Fatalf("server retry max retries = %d, want 3", cfg.Server.RetryMaxRetries)
+	}
+	if cfg.Server.RetryBaseDelayMs != 500 {
+		t.Fatalf("server retry base delay = %d, want 500", cfg.Server.RetryBaseDelayMs)
+	}
+	if cfg.Server.RetryMaxDelayMs != 4000 {
+		t.Fatalf("server retry max delay = %d, want 4000", cfg.Server.RetryMaxDelayMs)
+	}
+	if cfg.Runtime.MaxTurns != 100 {
+		t.Fatalf("runtime max turns = %d, want 100", cfg.Runtime.MaxTurns)
+	}
+}
+
+func TestLoadFromDirLoadsServerAndRuntimeControls(t *testing.T) {
+	dir := t.TempDir()
+	writeTestConfig(t, dir, `{
+  "config": {"version": 1},
+  "server": {
+    "http_addr": "127.0.0.1:19090",
+    "ws_path": "/runtime",
+    "request_timeout_ms": 120000,
+    "retry_max_retries": 4,
+    "retry_base_delay_ms": 250,
+    "retry_max_delay_ms": 2000
+  },
+  "runtime": {
+    "max_turns": 123
+  },
+  "llm": {
+    "active_profile": "claude-main",
+    "providers": {
+      "anthropic": {
+        "protocol": "anthropic",
+        "base_url": "https://anthropic.example/v1/messages",
+        "api_key": "file-key",
+        "enabled": true
+      }
+    },
+    "profiles": {
+      "claude-main": {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-5"
+      }
+    }
+  }
+}`)
+
+	cfg := LoadFromDir(dir)
+
+	if cfg.Server.RequestTimeoutMs != 120000 {
+		t.Fatalf("server request timeout = %d, want file value", cfg.Server.RequestTimeoutMs)
+	}
+	if cfg.Server.RetryMaxRetries != 4 {
+		t.Fatalf("server retry max retries = %d, want file value", cfg.Server.RetryMaxRetries)
+	}
+	if cfg.Server.RetryBaseDelayMs != 250 {
+		t.Fatalf("server retry base delay = %d, want file value", cfg.Server.RetryBaseDelayMs)
+	}
+	if cfg.Server.RetryMaxDelayMs != 2000 {
+		t.Fatalf("server retry max delay = %d, want file value", cfg.Server.RetryMaxDelayMs)
+	}
+	if cfg.Runtime.MaxTurns != 123 {
+		t.Fatalf("runtime max turns = %d, want file value", cfg.Runtime.MaxTurns)
+	}
+}
+
 func TestLoadFromDirExpandsEnvAndAppliesProviderAndProfileOverrides(t *testing.T) {
 	dir := t.TempDir()
 	writeTestConfig(t, dir, `{

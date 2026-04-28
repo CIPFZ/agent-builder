@@ -4208,6 +4208,30 @@ func TestQueryEngineSubmitMessageStopsAtMaxTurns(t *testing.T) {
 	}
 }
 
+func TestQueryEngineDefaultMaxTurnsIsOneHundred(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	msg, err := sessions.AppendMessage(sess.ID, "user", "hello")
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           &scriptedClient{scripts: [][]llm.StreamEvent{{{Type: "text.delta", Delta: "done"}, {Type: "message.end"}}}},
+		WorkspaceLoader:  workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+
+	if err := engine.SubmitMessage(context.Background(), sess, msg, &captureSink{}); err != nil {
+		t.Fatalf("submit message: %v", err)
+	}
+
+	if got := engine.State().MaxTurns; got != 100 {
+		t.Fatalf("default max turns = %d, want 100", got)
+	}
+}
+
 func TestQueryEngineStabilizesRepeatedIdenticalToolCallLoop(t *testing.T) {
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")

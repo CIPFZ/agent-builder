@@ -43,6 +43,8 @@ type Server struct {
 	permissionControlTimeout time.Duration
 	mu                       sync.RWMutex
 	clients                  map[string]*Client
+	requestCache             map[string]protocolws.Message
+	requestCacheOrder        []string
 }
 
 type Options struct {
@@ -62,9 +64,28 @@ type Options struct {
 	DisableMCPPromptSkills    bool
 }
 
+const maxIdempotentRequestCacheEntries = 512
+
 func shouldSuppressContinuationRunError(err error) bool {
 	var approvalErr *queryengine.ApprovalRequiredError
 	return errors.As(err, &approvalErr)
+}
+
+func idempotencyKey(client *Client, msg protocolws.Message) (string, bool) {
+	if client == nil || msg.Payload == nil {
+		return "", false
+	}
+	requestID, _ := msg.Payload["request_id"].(string)
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return "", false
+	}
+	return strings.Join([]string{
+		client.SessionID(),
+		client.Identity(),
+		msg.Method,
+		requestID,
+	}, "\x00"), true
 }
 
 func NewServer(logger *log.Logger, sessionManager *session.Manager, llmClient llm.Client) *Server {
@@ -111,6 +132,7 @@ func NewServerWithOptions(logger *log.Logger, sessionManager *session.Manager, l
 		fallbackPermissionHook:   options.PermissionHook,
 		permissionControlTimeout: options.PermissionControlTimeout,
 		clients:                  make(map[string]*Client),
+		requestCache:             make(map[string]protocolws.Message),
 	}
 	if server.permissionControlTimeout == 0 {
 		server.permissionControlTimeout = 30 * time.Second
@@ -160,6 +182,41 @@ func (s *Server) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) cachedIdempotentResponse(client *Client, inbound protocolws.Message) (protocolws.Message, bool) {
+	key, ok := idempotencyKey(client, inbound)
+	if !ok {
+		return protocolws.Message{}, false
+	}
+	s.mu.RLock()
+	cached, ok := s.requestCache[key]
+	s.mu.RUnlock()
+	if !ok {
+		return protocolws.Message{}, false
+	}
+	cached.ID = inbound.ID
+	return cached, true
+}
+
+func (s *Server) storeIdempotentResponse(client *Client, inbound, response protocolws.Message) {
+	key, ok := idempotencyKey(client, inbound)
+	if !ok {
+		return
+	}
+	stored := response
+	stored.ID = ""
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.requestCache[key]; !exists {
+		s.requestCacheOrder = append(s.requestCacheOrder, key)
+	}
+	s.requestCache[key] = stored
+	for len(s.requestCacheOrder) > maxIdempotentRequestCacheEntries {
+		oldest := s.requestCacheOrder[0]
+		s.requestCacheOrder = s.requestCacheOrder[1:]
+		delete(s.requestCache, oldest)
+	}
+}
+
 func (s *Server) handleClient(client *Client) error {
 	first, err := s.readMessage(client)
 	if err != nil {
@@ -183,6 +240,7 @@ func (s *Server) handleClient(client *Client) error {
 		return nil
 	}
 	client.BindSession(sess.ID, sess.Key)
+	client.BindIdentity(connectPayload.ClientIdentity)
 	client.SetSupportsPermissionControl(connectPayload.SupportsPermissionControl || connectPayload.Role == "sdk")
 
 	if err := client.WriteJSON(protocolws.ConnectResponse(first.ID, sess.ID, sess.Key)); err != nil {
@@ -222,6 +280,12 @@ func (s *Server) handleClient(client *Client) error {
 
 		switch inbound.Method {
 		case protocolws.MethodSendMessage:
+			if cached, ok := s.cachedIdempotentResponse(client, inbound); ok {
+				if err := client.WriteJSON(cached); err != nil {
+					return err
+				}
+				continue
+			}
 			sendPayload, err := parseSendMessagePayload(inbound.Payload)
 			if err != nil {
 				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
@@ -238,7 +302,10 @@ func (s *Server) handleClient(client *Client) error {
 				continue
 			}
 
-			if err := client.WriteJSON(protocolws.Message{
+			pending := s.queue.Enqueue(context.Background(), sess, msg, runtimeSink{
+				client: client,
+			})
+			response := protocolws.Message{
 				Type: protocolws.TypeResponse,
 				ID:   inbound.ID,
 				OK:   true,
@@ -246,7 +313,9 @@ func (s *Server) handleClient(client *Client) error {
 					"message_id": msg.ID,
 					"status":     "accepted",
 				},
-			}); err != nil {
+			}
+			s.storeIdempotentResponse(client, inbound, response)
+			if err := client.WriteJSON(response); err != nil {
 				return err
 			}
 
@@ -264,9 +333,6 @@ func (s *Server) handleClient(client *Client) error {
 				return err
 			}
 
-			pending := s.queue.Enqueue(context.Background(), sess, msg, runtimeSink{
-				client: client,
-			})
 			if pending > 1 {
 				if err := client.WriteJSON(protocolws.EventMessage("queue.enqueued", map[string]any{
 					"session_id":  client.SessionID(),
@@ -1261,6 +1327,12 @@ func (s *Server) handleClient(client *Client) error {
 				return err
 			}
 		case protocolws.MethodApprovalApprove, protocolws.MethodApprovalReject:
+			if cached, ok := s.cachedIdempotentResponse(client, inbound); ok {
+				if err := client.WriteJSON(cached); err != nil {
+					return err
+				}
+				continue
+			}
 			approvalID, _ := inbound.Payload["approval_id"].(string)
 			if strings.TrimSpace(approvalID) == "" {
 				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, "approval decision payload requires approval_id")); err != nil {
@@ -1301,7 +1373,7 @@ func (s *Server) handleClient(client *Client) error {
 				}
 				continue
 			}
-			if err := client.WriteJSON(protocolws.Message{
+			response := protocolws.Message{
 				Type: protocolws.TypeResponse,
 				ID:   inbound.ID,
 				OK:   true,
@@ -1309,16 +1381,6 @@ func (s *Server) handleClient(client *Client) error {
 					"approval_id": updated.ID,
 					"status":      string(updated.Status),
 				},
-			}); err != nil {
-				return err
-			}
-			if err := client.WriteJSON(protocolws.EventMessage("approval.updated", map[string]any{
-				"approval_id": updated.ID,
-				"session_id":  updated.SessionID,
-				"run_id":      updated.RunID,
-				"status":      string(updated.Status),
-			})); err != nil {
-				return err
 			}
 			if inbound.Method == protocolws.MethodApprovalApprove {
 				go func() {
@@ -1346,6 +1408,18 @@ func (s *Server) handleClient(client *Client) error {
 						}))
 					}
 				}()
+			}
+			s.storeIdempotentResponse(client, inbound, response)
+			if err := client.WriteJSON(response); err != nil {
+				return err
+			}
+			if err := client.WriteJSON(protocolws.EventMessage("approval.updated", map[string]any{
+				"approval_id": updated.ID,
+				"session_id":  updated.SessionID,
+				"run_id":      updated.RunID,
+				"status":      string(updated.Status),
+			})); err != nil {
+				return err
 			}
 		case protocolws.MethodApprovalClear:
 			clearPayload := protocolws.ApprovalClearPayload{}

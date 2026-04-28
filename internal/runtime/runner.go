@@ -68,6 +68,7 @@ type Options struct {
 	PermissionUpdatePersister queryengine.PermissionUpdatePersister
 	MainLoopModel             string
 	LLMProvider               string
+	MaxTurns                  int
 	Commands                  []tools.Command
 	QuerySource               string
 	CustomSystemPrompt        string
@@ -272,6 +273,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		PermissionUpdatePersister: options.PermissionUpdatePersister,
 		MainLoopModel:             options.MainLoopModel,
 		LLMProvider:               options.LLMProvider,
+		MaxTurns:                  options.MaxTurns,
 		Commands:                  options.Commands,
 		QuerySource:               options.QuerySource,
 		CustomSystemPrompt:        options.CustomSystemPrompt,
@@ -509,6 +511,10 @@ func (r *Runner) HandleUserMessage(ctx context.Context, sess session.Session, us
 		}
 		return r.emitEvent(ctx, sink, runtimeEvent)
 	}))
+}
+
+func (r *Runner) State() queryengine.State {
+	return r.engine.State()
 }
 
 func (r *Runner) SpawnSubagent(ctx context.Context, parent session.Session, label, promptText string) (*agent.Run, error) {

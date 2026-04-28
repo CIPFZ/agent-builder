@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -13,8 +14,12 @@ import (
 )
 
 type Options struct {
-	LLMLabel string
-	Logger   *diagnostics.Logger
+	LLMLabel        string
+	Logger          *diagnostics.Logger
+	RequestTimeout  time.Duration
+	RetryMaxRetries int
+	RetryBaseDelay  time.Duration
+	RetryMaxDelay   time.Duration
 }
 
 func Run(ctx context.Context, myclawdURL string, options Options) error {
@@ -22,7 +27,12 @@ func Run(ctx context.Context, myclawdURL string, options Options) error {
 		return errors.New("empty myclawd url")
 	}
 	store := newClientStore()
-	bridge := NewMyclawdClient(ctx, myclawdURL, "main", store, protocolLoggerAdapter{logger: options.Logger})
+	bridge := NewMyclawdClientWithOptions(ctx, myclawdURL, "main", store, protocolLoggerAdapter{logger: options.Logger}, ClientOptions{
+		RequestTimeout:  options.RequestTimeout,
+		RetryMaxRetries: options.RetryMaxRetries,
+		RetryBaseDelay:  options.RetryBaseDelay,
+		RetryMaxDelay:   options.RetryMaxDelay,
+	})
 	model := NewModel(bridge, ModelConfig{
 		SessionID:       bridge.PlatformStatusSnapshot().SessionID,
 		LLMLabel:        options.LLMLabel,
