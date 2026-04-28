@@ -159,8 +159,8 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (*Run, error) {
 	snapshot := cloneRun(run)
 	m.mu.Unlock()
 
-	m.launch(req.Run, run, runCtx)
 	m.notifyUpdate(snapshot)
+	m.launch(req.Run, run, runCtx)
 	return &snapshot, nil
 }
 
@@ -192,8 +192,8 @@ func (m *Manager) Resume(ctx context.Context, id string, req SpawnRequest) (*Run
 			snapshot := cloneRun(run)
 			m.mu.Unlock()
 
-			m.launch(req.Run, run, runCtx)
 			m.notifyUpdate(snapshot)
+			m.launch(req.Run, run, runCtx)
 			return &snapshot, nil
 		}
 		m.mu.Unlock()

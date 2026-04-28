@@ -1,7 +1,9 @@
 package runtime
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"myclaw/internal/agent"
 	"myclaw/internal/approval"
@@ -44,6 +46,57 @@ func TestRunnerContinuationSnapshotRecoversPendingApprovalAfterRestart(t *testin
 	if snapshot.PendingApproval == nil || snapshot.PendingApproval.ID != "approval-000001" {
 		t.Fatalf("pending approval = %#v, want recovered approval", snapshot.PendingApproval)
 	}
+}
+
+func TestRunnerPersistsFastCompletedSubagentInsteadOfStaleRunningState(t *testing.T) {
+	store := memory.NewSessionStore()
+	sessions := session.NewManager(store)
+	parent := sessions.GetOrCreateMain("main")
+	agentManager := agent.NewManager()
+	NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), nil, Options{
+		AgentManager: agentManager,
+	})
+
+	run, err := agentManager.Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID: parent.ID,
+		ParentAgentID:   parent.AgentID,
+		Label:           "fast",
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			return "fast done", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if _, err := agentManager.Wait(context.Background(), run.ID, time.Second); err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	var reloaded session.Session
+	var recovered session.AgentRunMetadata
+	for time.Now().Before(deadline) {
+		var ok bool
+		reloaded, ok = sessions.GetByID(parent.ID)
+		if !ok {
+			t.Fatalf("parent session %q not found", parent.ID)
+		}
+		recovered = session.AgentRunMetadata{}
+		for _, item := range reloaded.Metadata.AgentRuns {
+			if item.ID == run.ID {
+				recovered = item
+				break
+			}
+		}
+		if recovered.Status == string(agent.StatusCompleted) && recovered.Output == "fast done" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if recovered.ID == "" {
+		t.Fatalf("agent runs = %#v, want persisted run %q", reloaded.Metadata.AgentRuns, run.ID)
+	}
+	t.Fatalf("persisted run = %#v, want completed output", recovered)
 }
 
 func TestRunnerContinuationSnapshotRecoversVisibleSubagentStateAfterRestart(t *testing.T) {
