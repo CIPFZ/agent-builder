@@ -123,10 +123,12 @@ type Options struct {
 type AgentDiscoveryOptions = agents.DiscoveryOptions
 
 type Runner struct {
-	sessions *session.Manager
-	options  Options
-	engine   *queryengine.QueryEngine
-	policyMu sync.RWMutex
+	sessions    *session.Manager
+	options     Options
+	engine      *queryengine.QueryEngine
+	policyMu    sync.RWMutex
+	stateMu     sync.RWMutex
+	stateErrors []string
 }
 
 type MCPInventory = queryengine.MCPInventory
@@ -229,11 +231,14 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		}
 	}
 	rehydratePendingApprovals(sessions, options.ApprovalManager)
+	stateErrors := rehydrateAgentRuns(sessions, options.AgentManager)
 
 	runner := &Runner{
-		sessions: sessions,
-		options:  options,
+		sessions:    sessions,
+		options:     options,
+		stateErrors: stateErrors,
 	}
+	runner.options.AgentManager.SetUpdateHook(runner.persistAgentRun)
 	if runner.options.SkillForkExecutor == nil {
 		runner.options.SkillForkExecutor = runner.defaultSkillForkExecutor
 	}

@@ -89,6 +89,43 @@ func (s *clientStore) taskSnapshot() taskPanelSnapshot {
 	return cloneTaskPanelSnapshot(s.tasks)
 }
 
+func (s *clientStore) applyContinuationProjection(payload map[string]any) clientStoreSnapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if approvalPayload, ok := payload["pending_approval"].(map[string]any); ok {
+		s.approval = clientApprovalFromContinuation(approvalPayload)
+		if s.approval != nil {
+			s.recordApprovalLocked(*s.approval)
+			s.activity.Label = "Awaiting approval: " + strings.TrimSpace(s.approval.ToolName+" "+s.approval.ToolInput)
+		}
+	} else {
+		s.approval = nil
+	}
+
+	tasks := taskPanelSnapshot{SessionID: stringValue(payload, "session_id")}
+	for _, item := range continuationTaskItems(payload["tasks"]) {
+		task := taskSnapshotFromContinuation(item)
+		if task.RunID == "" {
+			continue
+		}
+		tasks.Tasks = append(tasks.Tasks, task)
+	}
+	s.tasks = tasks
+	s.recountTasksLocked()
+	if ready, ok := payload["ready_for_prompt"].(bool); ok && !ready && s.approval != nil {
+		s.busy = false
+	}
+	return clientStoreSnapshot{
+		Transcript:  cloneTranscriptEntries(s.transcript),
+		Events:      append([]string(nil), s.events...),
+		Diagnostics: s.diagnostics,
+		Activity:    s.activity,
+		Busy:        s.busy,
+		Approval:    cloneClientApproval(s.approval),
+	}
+}
+
 func (s *clientStore) snapshot() clientStoreSnapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -665,4 +702,59 @@ func cloneClientApproval(approval *clientApproval) *clientApproval {
 	cloned := *approval
 	cloned.ToolInputObject = cloneAnyMap(approval.ToolInputObject)
 	return &cloned
+}
+
+func clientApprovalFromContinuation(payload map[string]any) *clientApproval {
+	id := stringValue(payload, "id")
+	if strings.TrimSpace(id) == "" {
+		return nil
+	}
+	return &clientApproval{
+		ID:              id,
+		SessionID:       stringValue(payload, "session_id"),
+		RunID:           stringValue(payload, "run_id"),
+		ToolName:        stringValue(payload, "tool_name"),
+		ToolInput:       stringValue(payload, "tool_input"),
+		ToolInputObject: mapValue(payload, "tool_input_object"),
+		Category:        stringValue(payload, "category"),
+		RuleSource:      stringValue(payload, "rule_source"),
+		Reason:          stringValue(payload, "reason"),
+		DecisionReason:  stringValue(payload, "decision_reason"),
+		AcceptFeedback:  stringValue(payload, "accept_feedback"),
+		Status:          stringValue(payload, "status"),
+	}
+}
+
+func continuationTaskItems(raw any) []map[string]any {
+	switch items := raw.(type) {
+	case []map[string]any:
+		return append([]map[string]any(nil), items...)
+	case []any:
+		out := make([]map[string]any, 0, len(items))
+		for _, item := range items {
+			if entry, ok := item.(map[string]any); ok {
+				out = append(out, entry)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func taskSnapshotFromContinuation(payload map[string]any) taskSnapshot {
+	return taskSnapshot{
+		RunID:           stringValue(payload, "run_id"),
+		Label:           stringValue(payload, "label"),
+		Prompt:          stringValue(payload, "prompt"),
+		Status:          stringValue(payload, "status"),
+		ParentSessionID: stringValue(payload, "parent_session_id"),
+		ChildSessionID:  stringValue(payload, "child_session_id"),
+		ChildSessionKey: stringValue(payload, "child_session_key"),
+		Output:          stringValue(payload, "output"),
+		Error:           stringValue(payload, "error"),
+		LastEvent:       stringValue(payload, "last_event"),
+		Message:         stringValue(payload, "message"),
+		NextAction:      stringValue(payload, "next_action"),
+	}
 }

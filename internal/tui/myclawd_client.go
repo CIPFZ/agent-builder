@@ -287,6 +287,9 @@ func (c *MyclawdClient) refreshSessionStatus() error {
 		ModelOverride:  stringValue(msg.Payload, "session_main_loop_model_override"),
 		ResolvedModel:  stringValue(msg.Payload, "resolved_main_loop_model"),
 	})
+	if continuation, ok := msg.Payload["continuation"].(map[string]any); ok {
+		c.store.applyContinuationProjection(continuation)
+	}
 	return nil
 }
 

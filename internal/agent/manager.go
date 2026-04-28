@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -78,15 +80,64 @@ type Run struct {
 }
 
 type Manager struct {
-	nextID atomic.Uint64
-	mu     sync.RWMutex
-	runs   map[string]*Run
+	nextID     atomic.Uint64
+	mu         sync.RWMutex
+	runs       map[string]*Run
+	hookMu     sync.RWMutex
+	updateHook func(Run)
 }
 
 func NewManager() *Manager {
 	return &Manager{
 		runs: make(map[string]*Run),
 	}
+}
+
+func (m *Manager) SetUpdateHook(hook func(Run)) {
+	m.hookMu.Lock()
+	defer m.hookMu.Unlock()
+	m.updateHook = hook
+}
+
+func (m *Manager) Restore(run Run) error {
+	if strings.TrimSpace(run.ID) == "" {
+		return fmt.Errorf("restored run id is required")
+	}
+	if run.Status == "" {
+		run.Status = StatusStopped
+	}
+	if run.Status == StatusRunning {
+		run.Status = StatusStopped
+		run.ErrorSummary = valueOrDefault(run.ErrorSummary, "recovered task has no live worker; resume required")
+	}
+	if run.Attempt == 0 {
+		run.Attempt = 1
+	}
+	if run.CreatedAt.IsZero() {
+		run.CreatedAt = time.Now().UTC()
+	}
+	if run.UpdatedAt.IsZero() {
+		run.UpdatedAt = run.CreatedAt
+	}
+	if run.LastActionAt.IsZero() {
+		run.LastActionAt = run.UpdatedAt
+	}
+	if run.Status != StatusRunning && run.CompletedAt.IsZero() && (run.Status == StatusCompleted || run.Status == StatusFailed || run.Status == StatusStopped || run.Status == StatusClosed) {
+		run.CompletedAt = run.UpdatedAt
+	}
+	m.mu.Lock()
+	cloned := cloneRun(&run)
+	m.runs[cloned.ID] = &cloned
+	if n, ok := parseRunCounter(cloned.ID); ok {
+		for {
+			current := m.nextID.Load()
+			if n <= current || m.nextID.CompareAndSwap(current, n) {
+				break
+			}
+		}
+	}
+	m.mu.Unlock()
+	return nil
 }
 
 func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (*Run, error) {
@@ -109,6 +160,7 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (*Run, error) {
 	m.mu.Unlock()
 
 	m.launch(req.Run, run, runCtx)
+	m.notifyUpdate(snapshot)
 	return &snapshot, nil
 }
 
@@ -141,6 +193,7 @@ func (m *Manager) Resume(ctx context.Context, id string, req SpawnRequest) (*Run
 			m.mu.Unlock()
 
 			m.launch(req.Run, run, runCtx)
+			m.notifyUpdate(snapshot)
 			return &snapshot, nil
 		}
 		m.mu.Unlock()
@@ -231,6 +284,8 @@ func (m *Manager) Stop(id string) error {
 	if run.cancel != nil {
 		run.cancel()
 	}
+	snapshot := cloneRun(run)
+	go m.notifyUpdate(snapshot)
 	return nil
 }
 
@@ -253,6 +308,8 @@ func (m *Manager) Close(id string) error {
 	if run.CompletedAt.IsZero() {
 		run.CompletedAt = now
 	}
+	snapshot := cloneRun(run)
+	go m.notifyUpdate(snapshot)
 	return nil
 }
 
@@ -273,6 +330,8 @@ func (m *Manager) Steer(id, message string) error {
 	run.LastAction = ActionSteered
 	run.LastActionAt = now
 	run.UpdatedAt = now
+	snapshot := cloneRun(run)
+	go m.notifyUpdate(snapshot)
 	return nil
 }
 
@@ -310,6 +369,8 @@ func (m *Manager) SetOutputFile(id, path string) error {
 	}
 	run.OutputFile = path
 	run.UpdatedAt = time.Now().UTC()
+	snapshot := cloneRun(run)
+	go m.notifyUpdate(snapshot)
 	return nil
 }
 
@@ -383,13 +444,26 @@ func (m *Manager) launch(fn func(context.Context, RunContext) (string, error), r
 			live.Status = StatusFailed
 			live.Err = err
 			live.ErrorSummary = err.Error()
+			snapshot := cloneRun(live)
+			go m.notifyUpdate(snapshot)
 			return
 		}
 		live.Status = StatusCompleted
 		live.Output = output
 		live.ErrorSummary = ""
 		live.Err = nil
+		snapshot := cloneRun(live)
+		go m.notifyUpdate(snapshot)
 	}(run.ID, run.ChildSessionID, run.ChildSessionKey, run.done)
+}
+
+func (m *Manager) notifyUpdate(run Run) {
+	m.hookMu.RLock()
+	hook := m.updateHook
+	m.hookMu.RUnlock()
+	if hook != nil {
+		hook(run)
+	}
 }
 
 func cloneRun(run *Run) Run {
@@ -415,4 +489,19 @@ func attemptQuiesced(done chan struct{}) bool {
 	default:
 		return false
 	}
+}
+
+func parseRunCounter(id string) (uint64, bool) {
+	if !strings.HasPrefix(id, "agent-") {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(strings.TrimPrefix(id, "agent-"), 10, 64)
+	return n, err == nil
+}
+
+func valueOrDefault(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }

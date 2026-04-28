@@ -389,27 +389,11 @@ func (s *Server) handleClient(client *Client) error {
 				}
 				continue
 			}
-			messages, _ := s.sessionManager.Messages(targetSession.ID)
 			if err := client.WriteJSON(protocolws.Message{
-				Type: protocolws.TypeResponse,
-				ID:   inbound.ID,
-				OK:   true,
-				Payload: map[string]any{
-					"session_id":                       targetSession.ID,
-					"session_key":                      targetSession.Key,
-					"agent_id":                         targetSession.AgentID,
-					"is_main":                          targetSession.IsMain,
-					"message_count":                    len(messages),
-					"permission_mode":                  string(s.runner.PermissionPolicyForSession(targetSession.ID).Mode),
-					"subagent_mode":                    string(s.runner.PermissionPolicyForSession(targetSession.ID).SubagentMode),
-					"plan_mode":                        s.runner.PermissionPolicyForSession(targetSession.ID).PlanMode,
-					"auto_mode":                        s.runner.PermissionPolicyForSession(targetSession.ID).AutoMode,
-					"workspace_roots":                  toAnySlice(s.runner.PermissionPolicyForSession(targetSession.ID).WorkspaceRoots),
-					"main_loop_model":                  s.runner.BaseMainLoopModelForSession(targetSession.ID),
-					"session_main_loop_model_override": s.runner.SessionMainLoopModelOverride(targetSession.ID),
-					"resolved_main_loop_model":         s.runner.ResolvedMainLoopModelForSession(targetSession.ID),
-					"tool_contracts":                   toolContractsPayload(s.runner.ToolContractsForSession(targetSession.ID)),
-				},
+				Type:    protocolws.TypeResponse,
+				ID:      inbound.ID,
+				OK:      true,
+				Payload: s.sessionStatusPayload(targetSession),
 			}); err != nil {
 				return err
 			}
@@ -2090,6 +2074,113 @@ func sessionMessagePayload(message session.Message) map[string]any {
 		"content":    message.Content,
 		"created_at": message.CreatedAt.Format(time.RFC3339Nano),
 	}
+}
+
+func (s *Server) sessionStatusPayload(targetSession session.Session) map[string]any {
+	messages, _ := s.sessionManager.Messages(targetSession.ID)
+	policy := s.runner.PermissionPolicyForSession(targetSession.ID)
+	payload := map[string]any{
+		"session_id":                       targetSession.ID,
+		"session_key":                      targetSession.Key,
+		"agent_id":                         targetSession.AgentID,
+		"is_main":                          targetSession.IsMain,
+		"message_count":                    len(messages),
+		"permission_mode":                  string(policy.Mode),
+		"subagent_mode":                    string(policy.SubagentMode),
+		"plan_mode":                        policy.PlanMode,
+		"auto_mode":                        policy.AutoMode,
+		"workspace_roots":                  toAnySlice(policy.WorkspaceRoots),
+		"main_loop_model":                  s.runner.BaseMainLoopModelForSession(targetSession.ID),
+		"session_main_loop_model_override": s.runner.SessionMainLoopModelOverride(targetSession.ID),
+		"resolved_main_loop_model":         s.runner.ResolvedMainLoopModelForSession(targetSession.ID),
+		"tool_contracts":                   toolContractsPayload(s.runner.ToolContractsForSession(targetSession.ID)),
+	}
+	if snapshot, err := s.runner.ContinuationSnapshot(targetSession.ID); err != nil {
+		payload["continuation"] = map[string]any{
+			"status":           string(session.ContinuationStatusAwaitingAssistant),
+			"ready_for_prompt": false,
+			"recovery_error":   err.Error(),
+		}
+	} else {
+		payload["continuation"] = continuationPayload(snapshot)
+	}
+	return payload
+}
+
+func continuationPayload(snapshot runtime.ContinuationSnapshot) map[string]any {
+	payload := map[string]any{
+		"session_id":             snapshot.SessionID,
+		"session_key":            snapshot.SessionKey,
+		"agent_id":               snapshot.AgentID,
+		"is_main":                snapshot.IsMain,
+		"status":                 string(snapshot.Status),
+		"ready_for_prompt":       snapshot.ReadyForPrompt,
+		"resume_from_message_id": snapshot.ResumeFromMessageID,
+		"resume_from_role":       snapshot.ResumeFromRole,
+		"has_compaction":         snapshot.HasCompaction,
+		"tasks":                  taskContinuationPayloads(snapshot.Tasks),
+	}
+	if snapshot.RecoveryError != "" {
+		payload["recovery_error"] = snapshot.RecoveryError
+	}
+	if snapshot.PendingApproval != nil {
+		payload["pending_approval"] = approvalContinuationPayload(*snapshot.PendingApproval)
+	}
+	return payload
+}
+
+func approvalContinuationPayload(request approval.Request) map[string]any {
+	payload := map[string]any{
+		"id":                  request.ID,
+		"session_id":          request.SessionID,
+		"run_id":              request.RunID,
+		"user_message_id":     request.UserMessageID,
+		"tool_name":           request.ToolName,
+		"tool_input":          request.ToolInput,
+		"tool_use_id":         request.ToolUseID,
+		"provider_message_id": request.ProviderMessageID,
+		"status":              string(request.Status),
+		"reason":              request.Reason,
+		"decision_reason":     request.DecisionReason,
+		"accept_feedback":     request.AcceptFeedback,
+		"category":            request.Category,
+		"rule_source":         request.RuleSource,
+	}
+	if request.ToolInputObject != nil {
+		payload["tool_input_object"] = request.ToolInputObject
+	}
+	return payload
+}
+
+func taskContinuationPayloads(tasks []runtime.TaskSnapshot) []map[string]any {
+	items := make([]map[string]any, 0, len(tasks))
+	for _, task := range tasks {
+		item := map[string]any{
+			"run_id":            task.RunID,
+			"parent_session_id": task.ParentSessionID,
+			"label":             task.Label,
+			"prompt":            task.Prompt,
+			"status":            task.Status,
+			"child_session_id":  task.ChildSessionID,
+			"child_session_key": task.ChildSessionKey,
+			"attempt":           task.Attempt,
+			"last_action":       task.LastAction,
+		}
+		if task.Output != "" {
+			item["output"] = task.Output
+		}
+		if task.OutputFile != "" {
+			item["output_file"] = task.OutputFile
+		}
+		if task.Error != "" {
+			item["error"] = task.Error
+		}
+		if len(task.ControlMessages) > 0 {
+			item["control_messages"] = toAnySlice(task.ControlMessages)
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 func mcpServerPayloads(servers []runtime.MCPServerSnapshot) []map[string]any {
