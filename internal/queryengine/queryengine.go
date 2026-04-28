@@ -2,9 +2,13 @@ package queryengine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -451,6 +455,7 @@ type QueryEngine struct {
 	tools                      *tools.Registry
 	compactor                  *compaction.Service
 	memory                     *memory.Service
+	contextCache               *prompt.ContextCache
 	approvals                  *approval.Manager
 	permissionHook             PermissionHook
 	preToolUseHook             PreToolUseHook
@@ -620,6 +625,7 @@ func New(cfg Config) *QueryEngine {
 		tools:                     toolRegistry,
 		compactor:                 cfg.Compactor,
 		memory:                    memSvc,
+		contextCache:              prompt.NewContextCache(),
 		approvals:                 approvalMgr,
 		permissionHook:            cfg.PermissionHook,
 		preToolUseHook:            cfg.PreToolUseHook,
@@ -703,6 +709,9 @@ func New(cfg Config) *QueryEngine {
 		transcriptPathProvider:     cfg.TranscriptPathProvider,
 	}
 	engine.state.MaxTurns = engine.effectiveMaxTurns(session.Session{})
+	for _, sess := range sessionsMgr.ListSessions() {
+		memSvc.RecoverSession(sess)
+	}
 	engine.seedCompactBoundaryCounter()
 	return engine
 }
@@ -2591,7 +2600,8 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 			}
 			if result.SummaryMessage != nil && q.memory != nil {
 				summary := *result.SummaryMessage
-				if _, saved := q.memory.SaveCompactionSummary(sess, summary); saved {
+				if items, saved := q.memory.SaveCompactionSummary(sess, summary); saved {
+					q.persistMemoryItems(sess.ID, items)
 					q.recordCompactionMemorySaved(summary.ID)
 					_ = q.emit(sink, Event{Type: "compact.memory_saved", Session: sess, RunID: runID, Message: &summary})
 					_ = q.emit(sink, Event{Type: "memory.saved", Session: sess, RunID: runID, Message: &summary})
@@ -2621,7 +2631,7 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 	if err != nil {
 		return nil, err
 	}
-	contextInput := prompt.Build(prompt.BuildInput{
+	contextBuildInput := prompt.BuildInput{
 		Session:                 sess,
 		History:                 history,
 		UserMessage:             userMessage,
@@ -2638,7 +2648,9 @@ func (q *QueryEngine) runModelPass(ctx context.Context, sess session.Session, us
 		Tools:                   q.exposedTools(sess.ID, false),
 		SessionMemories:         q.memoryLines(sess.ID),
 		SessionMemoryItems:      q.memoryItems(sess.ID),
-	})
+	}
+	contextInput, cacheState := q.contextCache.Build(contextBuildInput)
+	q.persistContextCacheState(sess.ID, workspaceContext, history, contextBuildInput, cacheState)
 	exposedTools := q.exposedTools(sess.ID, false)
 	stream := &textStreamCollector{
 		sink:           sink,
@@ -2699,6 +2711,12 @@ func (q *QueryEngine) memoryLines(sessionID string) []string {
 		return nil
 	}
 	items := q.memory.List(sessionID)
+	if len(items) == 0 {
+		if sess, ok := q.sessions.GetByID(sessionID); ok {
+			q.memory.RecoverSession(sess)
+			items = q.memory.List(sessionID)
+		}
+	}
 	lines := make([]string, 0, len(items))
 	for _, item := range items {
 		lines = append(lines, item.Content)
@@ -2710,7 +2728,14 @@ func (q *QueryEngine) memoryItems(sessionID string) []memory.Item {
 	if q.memory == nil {
 		return nil
 	}
-	return q.memory.List(sessionID)
+	items := q.memory.List(sessionID)
+	if len(items) == 0 {
+		if sess, ok := q.sessions.GetByID(sessionID); ok {
+			q.memory.RecoverSession(sess)
+			items = q.memory.List(sessionID)
+		}
+	}
+	return items
 }
 
 func (q *QueryEngine) workspaceContextForSession(sess session.Session) (workspace.Context, error) {
@@ -2874,9 +2899,77 @@ func (q *QueryEngine) userContextLines(sess session.Session, workspaceContext wo
 
 func (q *QueryEngine) systemContextLines(sess session.Session, workspaceContext workspace.Context) []string {
 	if q.systemContextProvider == nil {
+		return q.readFileContextLines(sess)
+	}
+	lines := q.systemContextProvider.Lines(sess, workspaceContext, q.PermissionPolicyForSession(sess.ID))
+	lines = append(lines, q.readFileContextLines(sess)...)
+	return lines
+}
+
+func (q *QueryEngine) readFileContextLines(sess session.Session) []string {
+	current, ok := q.sessions.GetByID(sess.ID)
+	if ok {
+		sess = current
+	}
+	if len(sess.Metadata.ReadFiles) == 0 {
 		return nil
 	}
-	return q.systemContextProvider.Lines(sess, workspaceContext, q.PermissionPolicyForSession(sess.ID))
+	lines := make([]string, 0, len(sess.Metadata.ReadFiles))
+	for _, item := range sess.Metadata.ReadFiles {
+		fresh, err := readFileMetadata(item.Path, item.ToolUseID)
+		if err != nil {
+			lines = append(lines, "read_file_stale="+filepath.ToSlash(item.Path)+": "+err.Error())
+			continue
+		}
+		if item.Hash != "" && fresh.Hash != item.Hash {
+			lines = append(lines, "read_file_stale="+filepath.ToSlash(item.Path)+": content changed")
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("read_file=%s hash=%s size=%d", filepath.ToSlash(item.Path), fresh.Hash, fresh.Size))
+	}
+	return lines
+}
+
+func (q *QueryEngine) persistContextCacheState(sessionID string, workspaceContext workspace.Context, history []session.Message, input prompt.BuildInput, state prompt.CacheState) {
+	if strings.TrimSpace(state.Key) == "" {
+		return
+	}
+	now := time.Now().UTC()
+	_ = q.sessions.UpdateMetadata(sessionID, func(metadata *session.SessionMetadata) {
+		metadata.ContextCache.Key = state.Key
+		metadata.ContextCache.WorkspaceHash = workspaceContext.Fingerprint
+		metadata.ContextCache.HistoryHash = hashMessages(history)
+		metadata.ContextCache.MemoryHash = hashMemoryItems(input.SessionMemoryItems)
+		if state.Hit {
+			metadata.ContextCache.LastCacheHitAt = now
+		} else {
+			metadata.ContextCache.LastRebuiltAt = now
+		}
+	})
+}
+
+func hashMessages(messages []session.Message) string {
+	h := sha256.New()
+	for _, msg := range messages {
+		h.Write([]byte(msg.ID))
+		h.Write([]byte{0})
+		h.Write([]byte(msg.Role))
+		h.Write([]byte{0})
+		h.Write([]byte(msg.Content))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func hashMemoryItems(items []memory.Item) string {
+	h := sha256.New()
+	for _, item := range items {
+		h.Write([]byte(item.ID))
+		h.Write([]byte{0})
+		h.Write([]byte(item.Content))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func (q *QueryEngine) findMessageByID(sessionID, messageID string) (session.Message, bool) {
@@ -4450,6 +4543,7 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 				continue
 			}
 			toolOutput := toolResult.Output
+			q.recordReadFileState(sess.ID, pending.name, pending.inputObject, pending.toolUseID)
 			q.applyToolContextModifier(sess.ID, executionContext, toolResult.ContextModifier)
 			var postHookResult PostToolUseHookResult
 			var postHookHandled bool
@@ -4602,6 +4696,83 @@ func (q *QueryEngine) completeWithToolResult(ctx context.Context, sess session.S
 	}
 	q.recordModelPass()
 	return q.executeTurnLoop(ctx, sess, userMessage, runID, sink, nil, stream)
+}
+
+func (q *QueryEngine) recordReadFileState(sessionID, toolName string, input map[string]any, toolUseID string) {
+	if !strings.EqualFold(strings.TrimSpace(toolName), "Read") {
+		return
+	}
+	rawPath, _ := input["file_path"].(string)
+	path := strings.TrimSpace(rawPath)
+	if path == "" {
+		return
+	}
+	sess, ok := q.sessions.GetByID(sessionID)
+	if !ok {
+		return
+	}
+	if !filepath.IsAbs(path) {
+		base := strings.TrimSpace(sess.Metadata.AgentWorktreePath)
+		if base == "" {
+			base = resolveWorkDir(sess, q.workspace)
+		}
+		if strings.TrimSpace(base) != "" {
+			path = filepath.Join(base, path)
+		}
+	}
+	meta, err := readFileMetadata(path, toolUseID)
+	if err != nil {
+		return
+	}
+	meta.LastReadAt = time.Now().UTC()
+	_ = q.sessions.UpdateMetadata(sessionID, func(metadata *session.SessionMetadata) {
+		upsertReadFileMetadata(metadata, meta)
+	})
+}
+
+func (q *QueryEngine) persistMemoryItems(sessionID string, items []memory.Item) {
+	metadataItems := memory.MetadataFromItems(items)
+	_ = q.sessions.UpdateMetadata(sessionID, func(metadata *session.SessionMetadata) {
+		metadata.MemoryItems = metadataItems
+	})
+}
+
+func upsertReadFileMetadata(metadata *session.SessionMetadata, item model.ReadFileMetadata) {
+	for i := range metadata.ReadFiles {
+		if sameFilePath(metadata.ReadFiles[i].Path, item.Path) {
+			metadata.ReadFiles[i] = item
+			return
+		}
+	}
+	metadata.ReadFiles = append(metadata.ReadFiles, item)
+}
+
+func sameFilePath(left, right string) bool {
+	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
+}
+
+func readFileMetadata(path, toolUseID string) (model.ReadFileMetadata, error) {
+	clean := filepath.Clean(strings.TrimSpace(path))
+	if clean == "" {
+		return model.ReadFileMetadata{}, fmt.Errorf("missing path")
+	}
+	data, err := os.ReadFile(clean)
+	if err != nil {
+		return model.ReadFileMetadata{}, err
+	}
+	info, err := os.Stat(clean)
+	if err != nil {
+		return model.ReadFileMetadata{}, err
+	}
+	sum := sha256.Sum256(data)
+	return model.ReadFileMetadata{
+		Path:       clean,
+		Hash:       hex.EncodeToString(sum[:]),
+		Size:       info.Size(),
+		ModTime:    info.ModTime().UTC(),
+		ToolUseID:  strings.TrimSpace(toolUseID),
+		LastReadAt: time.Now().UTC(),
+	}, nil
 }
 
 func (q *QueryEngine) effectiveMaxTurns(sess session.Session) int {

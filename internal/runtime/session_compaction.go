@@ -127,8 +127,11 @@ func (r *Runner) applyManualCompaction(sess session.Session, result compaction.R
 		return err
 	}
 
+	var memoryItems []memory.Item
 	if result.SummaryMessage != nil && r.options.MemoryService != nil {
-		r.options.MemoryService.SaveCompactionSummary(sess, *result.SummaryMessage)
+		if items, saved := r.options.MemoryService.SaveCompactionSummary(sess, *result.SummaryMessage); saved {
+			memoryItems = items
+		}
 	}
 
 	return r.sessions.UpdateMetadata(sess.ID, func(metadata *session.SessionMetadata) {
@@ -140,6 +143,9 @@ func (r *Runner) applyManualCompaction(sess session.Session, result compaction.R
 		}
 		if result.SummarizedThroughID != "" {
 			metadata.LastSummarizedMessageID = result.SummarizedThroughID
+		}
+		if len(memoryItems) > 0 {
+			metadata.MemoryItems = memory.MetadataFromItems(memoryItems)
 		}
 	})
 }

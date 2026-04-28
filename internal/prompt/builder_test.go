@@ -5,10 +5,96 @@ import (
 	"testing"
 
 	"myclaw/internal/memory"
+	"myclaw/internal/model"
 	"myclaw/internal/session"
 	"myclaw/internal/tools"
 	"myclaw/internal/workspace"
 )
+
+func TestContextCacheHitsWhenInputsUnchangedAndInvalidatesOnWorkspaceChange(t *testing.T) {
+	cache := NewContextCache()
+	sess := session.Session{ID: "main-000001", Key: "agent:main:main", AgentID: "main", IsMain: true}
+	input := BuildInput{
+		Session:     sess,
+		UserMessage: session.Message{ID: "msg-2", Role: "user", Content: "continue"},
+		History: []session.Message{
+			{ID: "msg-1", Role: "assistant", Content: "ready"},
+			{ID: "msg-2", Role: "user", Content: "continue"},
+		},
+		WorkspaceContext: workspace.Context{
+			Root:        "C:/repo",
+			Fingerprint: "workspace-v1",
+			Files: []workspace.File{
+				{Name: "CLAUDE.md", Path: "C:/repo/CLAUDE.md", Type: "instruction", Content: "rules", Fingerprint: "file-v1"},
+			},
+		},
+	}
+
+	first, firstState := cache.Build(input)
+	if firstState.Hit {
+		t.Fatal("first build unexpectedly hit context cache")
+	}
+	second, secondState := cache.Build(input)
+	if !secondState.Hit {
+		t.Fatalf("second build missed context cache: %#v", secondState)
+	}
+	if firstState.Key != secondState.Key || first.SystemPrompt != second.SystemPrompt {
+		t.Fatalf("cache did not preserve deterministic context")
+	}
+
+	input.WorkspaceContext.Fingerprint = "workspace-v2"
+	input.WorkspaceContext.Files[0].Content = "changed rules"
+	input.WorkspaceContext.Files[0].Fingerprint = "file-v2"
+	_, changedState := cache.Build(input)
+	if changedState.Hit {
+		t.Fatalf("context cache hit after workspace fingerprint changed: %#v", changedState)
+	}
+}
+
+func TestProjectedHistorySnipsTranscriptAndPreservesToolResultPairing(t *testing.T) {
+	history := []session.Message{
+		{ID: "old-user", Role: "user", Content: "old request"},
+		{ID: "summary-1", Role: "summary", Content: "Summary: old context"},
+		{
+			ID:      "tool-use",
+			Role:    "assistant",
+			Content: "Read: file",
+			Blocks: []model.MessageBlock{
+				{Type: model.MessageBlockToolUse, ID: "toolu-read-1", Name: "Read", InputObject: map[string]any{"file_path": "main.go"}},
+			},
+		},
+		{
+			ID:      "tool-result",
+			Role:    "tool",
+			Content: "Read: package main",
+			Blocks: []model.MessageBlock{
+				{Type: model.MessageBlockToolResult, ToolUseID: "toolu-read-1", Content: "package main"},
+			},
+		},
+		{ID: "internal", Role: "attachment", Subtype: "invoked_skills", Content: "{}"},
+		{ID: "current", Role: "user", Content: "continue"},
+	}
+
+	projected := ProjectHistory(history, ProjectionOptions{
+		CurrentUserMessageID: "current",
+		LastSummaryID:        "summary-1",
+	})
+
+	if len(projected) != 3 {
+		t.Fatalf("projected history length = %d, want summary + tool pair", len(projected))
+	}
+	if projected[0].ID != "summary-1" {
+		t.Fatalf("first projected message = %q, want summary", projected[0].ID)
+	}
+	if projected[1].Blocks[0].ID != "toolu-read-1" || projected[2].Blocks[0].ToolUseID != "toolu-read-1" {
+		t.Fatalf("tool_use/tool_result identity was not preserved: %#v", projected)
+	}
+	for _, msg := range projected {
+		if msg.ID == "old-user" || msg.ID == "internal" || msg.ID == "current" {
+			t.Fatalf("projected history included excluded message %#v", msg)
+		}
+	}
+}
 
 func TestBuildSeparatesCurrentUserMessageFromHistory(t *testing.T) {
 	sess := session.Session{

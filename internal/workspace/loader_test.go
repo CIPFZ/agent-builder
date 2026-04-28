@@ -60,15 +60,15 @@ func TestLoaderLoadsInstructionFilesFromGitRootToCurrentDirectoryInPriorityOrder
 		}
 	}
 	writes := map[string]string{
-		filepath.Join(projectRoot, "CLAUDE.md"):              "project root",
-		filepath.Join(projectRoot, ".claude", "CLAUDE.md"):   "project dot claude",
+		filepath.Join(projectRoot, "CLAUDE.md"):                        "project root",
+		filepath.Join(projectRoot, ".claude", "CLAUDE.md"):             "project dot claude",
 		filepath.Join(projectRoot, ".claude", "rules", "root-rule.md"): "project root rule",
-		filepath.Join(projectRoot, "CLAUDE.local.md"):        "project local",
-		filepath.Join(projectRoot, "services", "CLAUDE.md"):  "services project",
+		filepath.Join(projectRoot, "CLAUDE.local.md"):                  "project local",
+		filepath.Join(projectRoot, "services", "CLAUDE.md"):            "services project",
 		filepath.Join(projectRoot, "services", ".claude", "CLAUDE.md"): "services dot claude",
-		filepath.Join(currentDir, "CLAUDE.md"):               "api project",
-		filepath.Join(currentDir, ".claude", "CLAUDE.md"):    "api dot claude",
-		filepath.Join(currentDir, "CLAUDE.local.md"):         "api local",
+		filepath.Join(currentDir, "CLAUDE.md"):                         "api project",
+		filepath.Join(currentDir, ".claude", "CLAUDE.md"):              "api dot claude",
+		filepath.Join(currentDir, "CLAUDE.local.md"):                   "api local",
 	}
 	for path, content := range writes {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -113,10 +113,10 @@ func TestLoaderLoadsRecursiveRulesBeforeLocalInstructions(t *testing.T) {
 		t.Fatalf("mkdir rules: %v", err)
 	}
 	writes := map[string]string{
-		filepath.Join(projectRoot, "CLAUDE.md"):             "project",
+		filepath.Join(projectRoot, "CLAUDE.md"):                "project",
 		filepath.Join(projectRoot, ".claude", "rules", "a.md"): "rule a",
-		filepath.Join(rulesDir, "b.md"):                     "rule b",
-		filepath.Join(projectRoot, "CLAUDE.local.md"):       "local",
+		filepath.Join(rulesDir, "b.md"):                        "rule b",
+		filepath.Join(projectRoot, "CLAUDE.local.md"):          "local",
 	}
 	for path, content := range writes {
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -154,8 +154,8 @@ func TestLoaderLoadsManagedAndUserInstructionsBeforeProjectInstructions(t *testi
 		}
 	}
 	writes := map[string]string{
-		filepath.Join(managedDir, "CLAUDE.md"): "managed",
-		filepath.Join(userDir, "CLAUDE.md"):    "user",
+		filepath.Join(managedDir, "CLAUDE.md"):  "managed",
+		filepath.Join(userDir, "CLAUDE.md"):     "user",
 		filepath.Join(projectRoot, "CLAUDE.md"): "project",
 	}
 	for path, content := range writes {
@@ -177,6 +177,74 @@ func TestLoaderLoadsManagedAndUserInstructionsBeforeProjectInstructions(t *testi
 	want := []string{"managed", "user", "project"}
 	if strings.Join(got, " | ") != strings.Join(want, " | ") {
 		t.Fatalf("instruction order = %#v, want %#v", got, want)
+	}
+}
+
+func TestLoaderRecordsDeterministicInstructionFingerprints(t *testing.T) {
+	root := t.TempDir()
+	projectRoot := filepath.Join(root, "repo")
+	currentDir := filepath.Join(projectRoot, "packages", "api")
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(currentDir, ".claude", "rules"), 0o755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+	writes := map[string]string{
+		filepath.Join(projectRoot, "CLAUDE.md"):                    "root",
+		filepath.Join(currentDir, "CLAUDE.md"):                     "api",
+		filepath.Join(currentDir, ".claude", "rules", "z-rule.md"): "z rule",
+		filepath.Join(currentDir, ".claude", "rules", "a-rule.md"): "a rule",
+		filepath.Join(currentDir, "CLAUDE.local.md"):               "local",
+	}
+	for path, content := range writes {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	first, err := NewLoader(currentDir).Load()
+	if err != nil {
+		t.Fatalf("load workspace: %v", err)
+	}
+	second, err := NewLoader(currentDir).Load()
+	if err != nil {
+		t.Fatalf("reload workspace: %v", err)
+	}
+
+	if first.Fingerprint == "" {
+		t.Fatal("workspace fingerprint is empty")
+	}
+	if first.Fingerprint != second.Fingerprint {
+		t.Fatalf("fingerprint changed across identical loads: %q != %q", first.Fingerprint, second.Fingerprint)
+	}
+	gotNames := make([]string, 0, len(first.Files))
+	for _, file := range first.Files {
+		gotNames = append(gotNames, filepath.ToSlash(strings.TrimPrefix(file.Path, projectRoot+string(os.PathSeparator))))
+		if file.Hash == "" || file.Size <= 0 || file.ModTime.IsZero() || file.Fingerprint == "" {
+			t.Fatalf("file metadata not populated for %#v", file)
+		}
+	}
+	wantNames := []string{
+		"CLAUDE.md",
+		"packages/api/CLAUDE.md",
+		"packages/api/.claude/rules/a-rule.md",
+		"packages/api/.claude/rules/z-rule.md",
+		"packages/api/CLAUDE.local.md",
+	}
+	if strings.Join(gotNames, "|") != strings.Join(wantNames, "|") {
+		t.Fatalf("instruction path order = %#v, want %#v", gotNames, wantNames)
+	}
+
+	if err := os.WriteFile(filepath.Join(currentDir, "CLAUDE.md"), []byte("api changed"), 0o644); err != nil {
+		t.Fatalf("rewrite api CLAUDE.md: %v", err)
+	}
+	changed, err := NewLoader(currentDir).Load()
+	if err != nil {
+		t.Fatalf("reload changed workspace: %v", err)
+	}
+	if changed.Fingerprint == first.Fingerprint {
+		t.Fatalf("fingerprint did not change after instruction content changed: %q", changed.Fingerprint)
 	}
 }
 

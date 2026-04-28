@@ -173,6 +173,55 @@ func TestServiceSaveCompactionSummaryReplacesOlderSummaryMemory(t *testing.T) {
 	}
 }
 
+func TestServiceRecoversCompactionSummaryFromSessionMetadataAfterRestart(t *testing.T) {
+	session := model.Session{
+		ID:      "main-000001",
+		Key:     "agent:main:main",
+		AgentID: "main",
+		IsMain:  true,
+	}
+	service := memory.NewService()
+	memories, saved := service.SaveCompactionSummary(session, model.Message{
+		ID:        "summary-1",
+		SessionID: session.ID,
+		Role:      "summary",
+		Content:   "Summary: persisted across restart",
+		CreatedAt: time.Unix(10, 0).UTC(),
+	})
+	if !saved || len(memories) != 1 {
+		t.Fatalf("save summary memories = %#v saved=%v", memories, saved)
+	}
+	session.Metadata.MemoryItems = memory.MetadataFromItems(memories)
+
+	restarted := memory.NewService()
+	restarted.RecoverSession(session)
+	recovered := restarted.List(session.ID)
+
+	if len(recovered) != 1 {
+		t.Fatalf("recovered memory count = %d, want 1", len(recovered))
+	}
+	if recovered[0].Content != "Summary: persisted across restart" || recovered[0].Type != memory.TypeSummary {
+		t.Fatalf("recovered memory = %#v", recovered[0])
+	}
+}
+
+func TestServiceSkipsInvalidRecoveredMemoryWithoutPanic(t *testing.T) {
+	service := memory.NewService()
+	service.RecoverSession(model.Session{
+		ID: "main-000001",
+		Metadata: model.SessionMetadata{
+			MemoryItems: []model.MemoryMetadata{
+				{ID: "bad", Type: "not-a-valid-type", Content: "bad"},
+				{ID: "empty", Type: string(memory.TypeSummary), Content: "   "},
+			},
+		},
+	})
+
+	if got := service.List("main-000001"); len(got) != 0 {
+		t.Fatalf("recovered invalid memories = %#v, want none", got)
+	}
+}
+
 func TestServiceAgentMemoryIsStoredSeparatelyFromSessionMemory(t *testing.T) {
 	service := memory.NewService()
 	session := model.Session{

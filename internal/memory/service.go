@@ -61,6 +61,60 @@ type Service struct {
 	byAgent   map[string][]Item
 }
 
+func MetadataFromItems(items []Item) []model.MemoryMetadata {
+	out := make([]model.MemoryMetadata, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Content) == "" || item.Type == "" {
+			continue
+		}
+		out = append(out, model.MemoryMetadata{
+			ID:        item.ID,
+			SessionID: item.SessionID,
+			AgentID:   item.AgentID,
+			Type:      string(item.Type),
+			Content:   item.Content,
+			CreatedAt: item.CreatedAt,
+		})
+	}
+	return out
+}
+
+func (s *Service) RecoverSession(session model.Session) {
+	if s == nil || session.ID == "" || len(session.Metadata.MemoryItems) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.bySession[session.ID] = nil
+	for _, meta := range session.Metadata.MemoryItems {
+		typ := Type(strings.TrimSpace(meta.Type))
+		if typ != TypeSummary && typ != TypeTask && typ != TypeInstruction {
+			continue
+		}
+		content := strings.TrimSpace(meta.Content)
+		if content == "" {
+			continue
+		}
+		id := strings.TrimSpace(meta.ID)
+		if id == "" {
+			s.nextID++
+			id = buildID(s.nextID)
+		}
+		agentID := strings.TrimSpace(meta.AgentID)
+		if agentID == "" {
+			agentID = session.AgentID
+		}
+		s.bySession[session.ID] = append(s.bySession[session.ID], Item{
+			ID:        id,
+			SessionID: session.ID,
+			AgentID:   agentID,
+			Type:      typ,
+			Content:   content,
+			CreatedAt: meta.CreatedAt,
+		})
+	}
+}
+
 func NewService() *Service {
 	return &Service{
 		bySession: make(map[string][]Item),
