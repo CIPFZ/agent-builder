@@ -4615,3 +4615,10 @@ func (q *QueryEngine) restoreStateFromSession(snapshot session.RecoverySnapshot)
 		q.state.LastCompactionPhase = "restored"
 	}
 }
+
+func (q *QueryEngine) ToolContractsForSession(sessionID string) []tools.Contract {
+	if q == nil || q.tools == nil {
+		return nil
+	}
+	return q.tools.Contracts(tools.ContractOptions{Policy: q.PermissionPolicyForSession(sessionID), IncludeDeferred: true})
+}

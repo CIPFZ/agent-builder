@@ -1,5 +1,7 @@
 package runtime
 
+import "time"
+
 const (
 	EventSessionStarted        = "session.started"
 	EventSessionRecovered      = "session.recovered"
@@ -8,9 +10,9 @@ const (
 	EventToolCalled            = "tool.called"
 	EventToolResult            = "tool.result"
 	EventPermissionRequired    = "permission.required"
-	EventApprovalResolved      = "approval.resolved"
+	EventApprovalResolved      = "approval.updated"
 	EventCompactBoundary       = "compact.boundary"
-	EventCompactSummary        = "compact.summary"
+	EventCompactSummary        = "compact.memory_saved"
 	EventCommandStarted        = "command.started"
 	EventCommandCompleted      = "command.completed"
 	EventAgentLifecycleStart   = "agent.lifecycle.start"
@@ -37,6 +39,12 @@ func (e RuntimeEvent) Payload() map[string]any {
 		payload["message_id"] = e.Message.ID
 		payload["message_role"] = e.Message.Role
 		payload["message_content"] = e.Message.Content
+		payload["message"] = map[string]any{
+			"id":         e.Message.ID,
+			"role":       e.Message.Role,
+			"content":    e.Message.Content,
+			"created_at": e.Message.CreatedAt.Format(time.RFC3339Nano),
+		}
 	}
 	if e.Delta != "" {
 		payload["delta"] = e.Delta
@@ -63,7 +71,7 @@ func (e RuntimeEvent) Payload() map[string]any {
 		payload["progress"] = cloneToolProgress(e.Progress)
 	}
 	if e.StructuredContent != nil {
-		payload["structured_content"] = e.StructuredContent
+		payload["structured_content"] = deepCloneAny(e.StructuredContent)
 	}
 	if e.Meta != nil {
 		payload["meta"] = cloneAnyMap(e.Meta)
@@ -82,10 +90,34 @@ func (e RuntimeEvent) Payload() map[string]any {
 	}
 	if e.Error != "" {
 		payload["error"] = e.Error
+		payload["message"] = e.Error
 	}
 	if e.Approval != nil {
 		payload["approval_id"] = e.Approval.ID
 		payload["approval_status"] = string(e.Approval.Status)
+		payload["status"] = string(e.Approval.Status)
+		payload["reason"] = e.Approval.Reason
+		payload["category"] = e.Approval.Category
+		payload["rule_source"] = e.Approval.RuleSource
 	}
 	return payload
+}
+
+func deepCloneAny(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = deepCloneAny(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = deepCloneAny(item)
+		}
+		return out
+	default:
+		return typed
+	}
 }

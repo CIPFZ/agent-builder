@@ -28,3 +28,20 @@ func TestRuntimeEventPayloadStabilityForToolApprovalAndCommandFamilies(t *testin
 		t.Fatalf("payload did not clone tool input object: %#v", event.ToolInputObject)
 	}
 }
+
+func TestRuntimeApprovalEventNameMatchesGatewayAndTUIContract(t *testing.T) {
+	if EventApprovalResolved != "approval.updated" {
+		t.Fatalf("approval event = %q, want approval.updated", EventApprovalResolved)
+	}
+}
+
+func TestRuntimeEventPayloadClonesStructuredContent(t *testing.T) {
+	event := RuntimeEvent{Type: EventToolResult, StructuredContent: map[string]any{"items": []any{map[string]any{"name": "stable"}}}}
+	payload := event.Payload()
+	items := payload["structured_content"].(map[string]any)["items"].([]any)
+	items[0].(map[string]any)["name"] = "mutated"
+	original := event.StructuredContent.(map[string]any)["items"].([]any)[0].(map[string]any)["name"]
+	if original != "stable" {
+		t.Fatalf("structured content mutated through payload: %#v", event.StructuredContent)
+	}
+}

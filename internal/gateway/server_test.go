@@ -970,6 +970,7 @@ func TestHandleWebSocketToolLoop(t *testing.T) {
 		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
 			t.Fatalf("set event read deadline: %v", err)
 		}
+
 		var msg protocolws.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			t.Fatalf("read event %d: %v", len(events), err)
@@ -1060,6 +1061,7 @@ func TestHandleWebSocketEmitsToolProgressEvents(t *testing.T) {
 
 	foundProgress := false
 	for i := 0; i < 24; i++ {
+
 		var msg protocolws.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			t.Fatalf("read websocket event %d: %v", i, err)
@@ -2431,6 +2433,7 @@ func TestHandleWebSocketApprovalListReturnsPendingRequests(t *testing.T) {
 		t.Fatalf("set read deadline: %v", err)
 	}
 	for i := 0; i < 8; i++ {
+
 		var msg protocolws.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			if foundPermissionRequired {
@@ -2523,6 +2526,7 @@ func TestHandleWebSocketApprovalApproveUpdatesRequestStatus(t *testing.T) {
 		t.Fatalf("set read deadline: %v", err)
 	}
 	for i := 0; i < 8; i++ {
+
 		var msg protocolws.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			if approvalID != "" {
@@ -2637,6 +2641,7 @@ func TestHandleWebSocketApprovalRejectUpdatesRequestStatus(t *testing.T) {
 		t.Fatalf("set read deadline: %v", err)
 	}
 	for i := 0; i < 8; i++ {
+
 		var msg protocolws.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			if approvalID != "" {
@@ -2816,6 +2821,7 @@ func TestHandleWebSocketApprovalListCanFilterByStatus(t *testing.T) {
 		t.Fatalf("set read deadline: %v", err)
 	}
 	for i := 0; i < 8; i++ {
+
 		var msg protocolws.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			if approvalID != "" {
@@ -2959,6 +2965,7 @@ func TestHandleWebSocketApprovalDecisionEmitsAuditEvent(t *testing.T) {
 		t.Fatalf("set read deadline: %v", err)
 	}
 	for i := 0; i < 8; i++ {
+
 		var msg protocolws.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			if approvalID != "" {
@@ -3060,6 +3067,7 @@ func TestHandleWebSocketApprovalClearRemovesTerminalRecords(t *testing.T) {
 		}
 		var approvalID string
 		for j := 0; j < 16; j++ {
+
 			var msg protocolws.Message
 			if err := conn.ReadJSON(&msg); err != nil {
 				t.Fatalf("read event %d/%d: %v", i, j, err)
@@ -8351,6 +8359,7 @@ func TestHandleWebSocketSubagentResumeEmitsCompletedEventForResumedAttempt(t *te
 	runID, _ := spawn.Payload["run_id"].(string)
 	firstCompleted := false
 	for i := 0; i < 6; i++ {
+
 		var msg protocolws.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			t.Fatalf("read first attempt follow-up %d: %v", i, err)
@@ -8393,6 +8402,7 @@ func TestHandleWebSocketSubagentResumeEmitsCompletedEventForResumedAttempt(t *te
 	}
 
 	for i := 0; i < 6; i++ {
+
 		var msg protocolws.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			t.Fatalf("read resumed attempt follow-up %d: %v", i, err)
@@ -8455,6 +8465,7 @@ func TestHandleWebSocketSystemRunToolLoop(t *testing.T) {
 
 	events := make([]protocolws.Message, 0, 20)
 	for len(events) < 30 {
+
 		var msg protocolws.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			t.Fatalf("read event %d: %v", len(events), err)
@@ -8546,6 +8557,7 @@ func TestHandleWebSocketSystemRunUsesSandboxForNonMainSession(t *testing.T) {
 
 	foundSandboxToolResult := false
 	for i := 0; i < 30; i++ {
+
 		var msg protocolws.Message
 		if err := conn.ReadJSON(&msg); err != nil {
 			t.Fatalf("read event %d: %v", i, err)
@@ -8916,4 +8928,88 @@ func helloCommand() string {
 		return "Write-Output hello"
 	}
 	return "printf hello"
+}
+
+func TestHandleWebSocketSessionStatusIncludesToolContracts(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "1", Method: protocolws.MethodConnect, Payload: map[string]any{"role": "client", "client_identity": "test", "agent_id": "main"}}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	_ = conn.ReadJSON(&protocolws.Message{})
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "2", Method: protocolws.MethodSessionStatus, Payload: map[string]any{}}); err != nil {
+		t.Fatalf("write session_status: %v", err)
+	}
+	var res protocolws.Message
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if err := conn.ReadJSON(&res); err != nil {
+		t.Fatalf("read session_status: %v", err)
+	}
+	items, ok := res.Payload["tool_contracts"].([]any)
+	if !ok || len(items) == 0 {
+		t.Fatalf("tool_contracts = %#v, want non-empty contract list", res.Payload["tool_contracts"])
+	}
+	for _, item := range items {
+		contract, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if contract["name"] == "Bash" {
+			if contract["input_schema"] == nil || contract["read_only"] != false {
+				t.Fatalf("Bash contract = %#v, want input schema and non-readonly classification", contract)
+			}
+			return
+		}
+	}
+	t.Fatalf("tool_contracts = %#v, want Bash contract", items)
+}
+
+func TestRuntimeSinkSerializesUnknownRuntimeEventsWithSharedPayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+
+		client := NewClient("client-1", conn)
+		client.BindSession("session-1", "agent:main:main")
+		if err := (runtimeSink{client: client}).Emit(runtimepkg.RuntimeEvent{Type: runtimepkg.EventCommandCompleted, RunID: "run-1", Error: "command failed"}); err != nil {
+			t.Errorf("emit: %v", err)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	var msg protocolws.Message
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if err := conn.ReadJSON(&msg); err != nil {
+		t.Fatalf("read event: %v", err)
+	}
+	if msg.Event != runtimepkg.EventCommandCompleted || msg.Payload["error"] != "command failed" || msg.Payload["message"] != "command failed" {
+		t.Fatalf("event = %#v, want shared runtime payload", msg)
+	}
 }
