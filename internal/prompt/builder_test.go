@@ -51,6 +51,202 @@ func TestContextCacheHitsWhenInputsUnchangedAndInvalidatesOnWorkspaceChange(t *t
 	}
 }
 
+func TestContextCacheInvalidatesWhenSystemContextLinesChange(t *testing.T) {
+	cache := NewContextCache()
+	input := cacheTestInput()
+	input.SystemContextLines = []string{"read_file=C:/repo/main.go hash=old size=10"}
+
+	first, firstState := cache.Build(input)
+	if firstState.Hit {
+		t.Fatal("first build unexpectedly hit context cache")
+	}
+	if got := strings.Join(first.SystemContextLines, "\n"); !strings.Contains(got, "hash=old") {
+		t.Fatalf("first context system lines = %#v, want old read-file state", first.SystemContextLines)
+	}
+
+	input.SystemContextLines = []string{"read_file_stale=C:/repo/main.go: content changed"}
+	second, secondState := cache.Build(input)
+	if secondState.Hit {
+		t.Fatalf("system context change reused stale cached context: %#v", secondState)
+	}
+	got := strings.Join(second.SystemContextLines, "\n")
+	if !strings.Contains(got, "read_file_stale=") || strings.Contains(got, "hash=old") {
+		t.Fatalf("second context system lines = %#v, want stale read-file state only", second.SystemContextLines)
+	}
+}
+
+func TestContextCacheInvalidatesWhenUserContextLinesChange(t *testing.T) {
+	cache := NewContextCache()
+	input := cacheTestInput()
+	input.UserContextLines = []string{"current_date=2026-04-29"}
+
+	first, firstState := cache.Build(input)
+	if firstState.Hit {
+		t.Fatal("first build unexpectedly hit context cache")
+	}
+	if got := strings.Join(first.UserContextLines, "\n"); !strings.Contains(got, "2026-04-29") {
+		t.Fatalf("first context user lines = %#v, want original date", first.UserContextLines)
+	}
+
+	input.UserContextLines = []string{"current_date=2026-04-30"}
+	second, secondState := cache.Build(input)
+	if secondState.Hit {
+		t.Fatalf("user context change reused stale cached context: %#v", secondState)
+	}
+	got := strings.Join(second.UserContextLines, "\n")
+	if !strings.Contains(got, "2026-04-30") || strings.Contains(got, "2026-04-29") {
+		t.Fatalf("second context user lines = %#v, want changed date only", second.UserContextLines)
+	}
+}
+
+func TestContextCacheInvalidatesWhenSystemPromptInputsChange(t *testing.T) {
+	testCases := []struct {
+		name   string
+		mutate func(*BuildInput)
+		want   string
+		block  string
+	}{
+		{
+			name: "default prompt",
+			mutate: func(input *BuildInput) {
+				input.DefaultSystemPrompt = []string{"changed default prompt"}
+			},
+			want:  "changed default prompt",
+			block: "base default prompt",
+		},
+		{
+			name: "custom prompt",
+			mutate: func(input *BuildInput) {
+				input.CustomSystemPrompt = "changed custom prompt"
+			},
+			want:  "changed custom prompt",
+			block: "base default prompt",
+		},
+		{
+			name: "agent prompt",
+			mutate: func(input *BuildInput) {
+				input.AgentSystemPrompt = "changed agent prompt"
+			},
+			want:  "changed agent prompt",
+			block: "base default prompt",
+		},
+		{
+			name: "coordinator prompt",
+			mutate: func(input *BuildInput) {
+				input.CoordinatorSystemPrompt = "changed coordinator prompt"
+			},
+			want:  "changed coordinator prompt",
+			block: "base default prompt",
+		},
+		{
+			name: "proactive agent prompt",
+			mutate: func(input *BuildInput) {
+				input.AgentSystemPrompt = "changed proactive prompt"
+				input.ProactiveAgentPrompt = true
+			},
+			want:  "# Custom Agent Instructions",
+			block: "plain agent prompt",
+		},
+		{
+			name: "append prompt",
+			mutate: func(input *BuildInput) {
+				input.AppendSystemPrompt = "changed append prompt"
+			},
+			want:  "changed append prompt",
+			block: "base append prompt",
+		},
+		{
+			name: "override prompt",
+			mutate: func(input *BuildInput) {
+				input.OverrideSystemPrompt = "changed override prompt"
+			},
+			want:  "changed override prompt",
+			block: "base default prompt",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := NewContextCache()
+			input := cacheTestInput()
+			input.DefaultSystemPrompt = []string{"base default prompt"}
+			input.AppendSystemPrompt = "base append prompt"
+			first, firstState := cache.Build(input)
+			if firstState.Hit {
+				t.Fatal("first build unexpectedly hit context cache")
+			}
+			if !strings.Contains(first.SystemPrompt, "base default prompt") {
+				t.Fatalf("first system prompt = %q, want base default prompt", first.SystemPrompt)
+			}
+
+			tc.mutate(&input)
+			second, secondState := cache.Build(input)
+			if secondState.Hit {
+				t.Fatalf("system prompt input change reused stale cached context: %#v", secondState)
+			}
+			if !strings.Contains(second.SystemPrompt, tc.want) {
+				t.Fatalf("second system prompt = %q, want %q", second.SystemPrompt, tc.want)
+			}
+			if tc.block != "" && strings.Contains(second.SystemPrompt, tc.block) {
+				t.Fatalf("second system prompt = %q, did not want stale %q", second.SystemPrompt, tc.block)
+			}
+		})
+	}
+}
+
+func TestContextCacheStillHitsForIdenticalFullInput(t *testing.T) {
+	cache := NewContextCache()
+	input := cacheTestInput()
+	input.UserContextLines = []string{"current_date=2026-04-29"}
+	input.SystemContextLines = []string{"read_file=C:/repo/main.go hash=abc size=10"}
+	input.DefaultSystemPrompt = []string{"default prompt"}
+	input.AppendSystemPrompt = "append prompt"
+
+	first, firstState := cache.Build(input)
+	if firstState.Hit {
+		t.Fatal("first build unexpectedly hit context cache")
+	}
+	second, secondState := cache.Build(input)
+	if !secondState.Hit {
+		t.Fatalf("identical input missed context cache: %#v", secondState)
+	}
+	if strings.Join(first.SystemContextLines, "\n") != strings.Join(second.SystemContextLines, "\n") {
+		t.Fatalf("cached system context changed: %#v != %#v", first.SystemContextLines, second.SystemContextLines)
+	}
+	if first.SystemPrompt != second.SystemPrompt {
+		t.Fatalf("cached system prompt changed: %q != %q", first.SystemPrompt, second.SystemPrompt)
+	}
+}
+
+func cacheTestInput() BuildInput {
+	return BuildInput{
+		Session: session.Session{ID: "main-000001", Key: "agent:main:main", AgentID: "main", IsMain: true},
+		UserMessage: session.Message{
+			ID:      "msg-2",
+			Role:    "user",
+			Content: "continue",
+		},
+		History: []session.Message{
+			{ID: "msg-1", Role: "assistant", Content: "ready"},
+			{ID: "msg-2", Role: "user", Content: "continue"},
+		},
+		WorkspaceContext: workspace.Context{
+			Root:        "C:/repo",
+			Fingerprint: "workspace-v1",
+			Files: []workspace.File{
+				{Name: "CLAUDE.md", Path: "C:/repo/CLAUDE.md", Type: "instruction", Content: "rules", Fingerprint: "file-v1"},
+			},
+		},
+		Tools: []tools.Definition{
+			{Name: "Read", Description: "Read files", Source: "builtin", SearchHint: "read file"},
+		},
+		SessionMemories: []string{"Summary: stable"},
+		SessionMemoryItems: []memory.Item{
+			{Type: memory.TypeSummary, Content: "Summary: stable"},
+		},
+	}
+}
+
 func TestProjectedHistorySnipsTranscriptAndPreservesToolResultPairing(t *testing.T) {
 	history := []session.Message{
 		{ID: "old-user", Role: "user", Content: "old request"},
