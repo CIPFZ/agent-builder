@@ -873,46 +873,52 @@ func (q *QueryEngine) SubmitPrompt(ctx context.Context, sess session.Session, pr
 		return err
 	}
 	q.appendMutableMessage(sess.ID, msg)
-	return q.SubmitMessage(ctx, sess, msg, sink)
+	return q.submitMessage(ctx, sess, msg, sink, false)
 }
 
 func (q *QueryEngine) SubmitMessage(ctx context.Context, sess session.Session, userMessage session.Message, sink EventSink) error {
+	return q.submitMessage(ctx, sess, userMessage, sink, true)
+}
+
+func (q *QueryEngine) submitMessage(ctx context.Context, sess session.Session, userMessage session.Message, sink EventSink, processInput bool) error {
 	runID := fmt.Sprintf("run-%06d", q.nextRunID.Add(1))
 	ctx, release := q.beginRun(ctx, runID, sess.ID)
 	defer release()
 	q.ensureMutableMessages(sess.ID)
 	q.ensureUserMessageTracked(sess.ID, userMessage)
-	result, err := q.inputs.Process(ctx, sess, userMessage.Content)
-	if err != nil {
-		q.emitRunError(sink, Event{Type: "run.error", Session: sess, RunID: runID, Message: &userMessage, Error: err.Error()})
-		return err
-	}
-	q.recordInputProcessing(result)
-	if len(result.Messages) > 0 {
-		if err := q.emitImmediateMessages(sess, result.Messages, sink); err != nil {
+	if processInput {
+		result, err := q.inputs.Process(ctx, sess, userMessage.Content)
+		if err != nil {
+			q.emitRunError(sink, Event{Type: "run.error", Session: sess, RunID: runID, Message: &userMessage, Error: err.Error()})
 			return err
 		}
-	}
-	if !result.ShouldQuery {
-		if len(result.Messages) > 0 || strings.TrimSpace(result.ResultText) == "" {
+		q.recordInputProcessing(result)
+		if len(result.Messages) > 0 {
+			if err := q.emitImmediateMessages(sess, result.Messages, sink); err != nil {
+				return err
+			}
+		}
+		if !result.ShouldQuery {
+			if len(result.Messages) > 0 || strings.TrimSpace(result.ResultText) == "" {
+				return nil
+			}
+			reply, err := q.sessions.AppendMessage(sess.ID, "assistant", result.ResultText)
+			if err != nil {
+				return err
+			}
+			q.appendMutableMessage(sess.ID, reply)
+			q.setLastAssistantReply(reply.Content)
+			return q.emit(sink, Event{
+				Type:    "message.created",
+				Session: sess,
+				Message: &reply,
+			})
+		}
+		if strings.TrimSpace(result.NormalizedInput) == "" {
 			return nil
 		}
-		reply, err := q.sessions.AppendMessage(sess.ID, "assistant", result.ResultText)
-		if err != nil {
-			return err
-		}
-		q.appendMutableMessage(sess.ID, reply)
-		q.setLastAssistantReply(reply.Content)
-		return q.emit(sink, Event{
-			Type:    "message.created",
-			Session: sess,
-			Message: &reply,
-		})
+		userMessage.Content = result.NormalizedInput
 	}
-	if strings.TrimSpace(result.NormalizedInput) == "" {
-		return nil
-	}
-	userMessage.Content = result.NormalizedInput
 	if err := q.maybeInjectDynamicSkillAttachments(sess, userMessage); err != nil {
 		return err
 	}

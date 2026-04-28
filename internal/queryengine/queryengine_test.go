@@ -5192,6 +5192,39 @@ func TestQueryEngineSubmitPromptUsesInputProcessor(t *testing.T) {
 	}
 }
 
+func TestQueryEngineSubmitPromptProcessesInputOnlyOnce(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	client := &scriptedClient{scripts: [][]llm.StreamEvent{{
+		{Type: "text.delta", Delta: "ok"},
+		{Type: "message.end"},
+	}}}
+
+	engine := queryengine.New(queryengine.Config{
+		Sessions:         sessions,
+		Client:           client,
+		WorkspaceLoader:  workspace.NewLoader(""),
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+		InputProcessor: inputProcessorFunc(func(_ context.Context, _ session.Session, input string) (string, bool, error) {
+			return "processed:" + strings.TrimSpace(input), true, nil
+		}),
+	})
+
+	if err := engine.SubmitPrompt(context.Background(), sess, "hello", &captureSink{}); err != nil {
+		t.Fatalf("submit prompt: %v", err)
+	}
+	requests := client.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("request count = %d, want 1", len(requests))
+	}
+	if got, want := requests[0].Context.UserInput, "processed:hello"; got != want {
+		t.Fatalf("model user input = %q, want %q", got, want)
+	}
+	if strings.Contains(requests[0].Context.UserInput, "processed:processed:") {
+		t.Fatalf("model user input was processed twice: %q", requests[0].Context.UserInput)
+	}
+}
+
 func TestQueryEngineSubmitPromptCanShortCircuitViaInputProcessor(t *testing.T) {
 	sessions := session.NewManager(nil)
 	sess := sessions.GetOrCreateMain("main")
