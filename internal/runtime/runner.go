@@ -1400,3 +1400,10 @@ func cloneToolProgress(input *tools.ToolProgress) *tools.ToolProgress {
 	cloned.Data = cloneAnyMap(input.Data)
 	return &cloned
 }
+
+func (r *Runner) ToolContractsForSession(sessionID string) []tools.Contract {
+	if r == nil || r.engine == nil {
+		return nil
+	}
+	return r.engine.ToolContractsForSession(sessionID)
+}

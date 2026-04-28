@@ -342,6 +342,7 @@ func (s *Server) handleClient(client *Client) error {
 					"main_loop_model":                  s.runner.BaseMainLoopModelForSession(targetSession.ID),
 					"session_main_loop_model_override": s.runner.SessionMainLoopModelOverride(targetSession.ID),
 					"resolved_main_loop_model":         s.runner.ResolvedMainLoopModelForSession(targetSession.ID),
+					"tool_contracts":                   toolContractsPayload(s.runner.ToolContractsForSession(targetSession.ID)),
 				},
 			}); err != nil {
 				return err
@@ -456,55 +457,55 @@ func (s *Server) handleClient(client *Client) error {
 				}
 				continue
 			}
-				activeSession := session.Session{}
-				deletedActiveSession := false
-				if targetSession.ID == client.SessionID() {
-					if targetSession.IsMain {
-						if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, "main session cannot be deleted")); err != nil {
-							return err
-						}
-						continue
-					}
-					deletedActiveSession = true
-					activeSession = s.sessionManager.GetOrCreateMain(targetSession.AgentID)
-					sess = activeSession
-					client.BindSession(activeSession.ID, activeSession.Key)
-				} else if current, ok := s.sessionManager.GetByID(client.SessionID()); ok {
-					activeSession = current
-				}
-				if err := s.sessionManager.DeleteSession(targetSession.ID); err != nil {
-					if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+			activeSession := session.Session{}
+			deletedActiveSession := false
+			if targetSession.ID == client.SessionID() {
+				if targetSession.IsMain {
+					if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, "main session cannot be deleted")); err != nil {
 						return err
 					}
 					continue
 				}
-				payload := map[string]any{
-					"session_id":  targetSession.ID,
-					"session_key": targetSession.Key,
-					"status":      "deleted",
-				}
-				if activeSession.ID != "" {
-					payload["active_session_id"] = activeSession.ID
-					payload["active_session_key"] = activeSession.Key
-				}
-				if err := client.WriteJSON(protocolws.Message{
-					Type: protocolws.TypeResponse,
-					ID:   inbound.ID,
-					OK:   true,
-					Payload: payload,
-				}); err != nil {
+				deletedActiveSession = true
+				activeSession = s.sessionManager.GetOrCreateMain(targetSession.AgentID)
+				sess = activeSession
+				client.BindSession(activeSession.ID, activeSession.Key)
+			} else if current, ok := s.sessionManager.GetByID(client.SessionID()); ok {
+				activeSession = current
+			}
+			if err := s.sessionManager.DeleteSession(targetSession.ID); err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
 					return err
 				}
-				if deletedActiveSession && activeSession.ID != "" {
-					if err := client.WriteJSON(protocolws.EventMessage(protocolws.EventHello, map[string]any{
-						"client_id":   client.ID(),
-						"session_id":  activeSession.ID,
-						"session_key": activeSession.Key,
-						"agent_id":    activeSession.AgentID,
-					})); err != nil {
-						return err
-					}
+				continue
+			}
+			payload := map[string]any{
+				"session_id":  targetSession.ID,
+				"session_key": targetSession.Key,
+				"status":      "deleted",
+			}
+			if activeSession.ID != "" {
+				payload["active_session_id"] = activeSession.ID
+				payload["active_session_key"] = activeSession.Key
+			}
+			if err := client.WriteJSON(protocolws.Message{
+				Type:    protocolws.TypeResponse,
+				ID:      inbound.ID,
+				OK:      true,
+				Payload: payload,
+			}); err != nil {
+				return err
+			}
+			if deletedActiveSession && activeSession.ID != "" {
+				if err := client.WriteJSON(protocolws.EventMessage(protocolws.EventHello, map[string]any{
+					"client_id":   client.ID(),
+					"session_id":  activeSession.ID,
+					"session_key": activeSession.Key,
+					"agent_id":    activeSession.AgentID,
+				})); err != nil {
+					return err
 				}
+			}
 		case protocolws.MethodMCPStatus:
 			statusPayload, err := parseMCPStatusPayload(inbound.Payload)
 			if err != nil {
@@ -1125,6 +1126,7 @@ func (s *Server) handleClient(client *Client) error {
 					"main_loop_model":                  s.runner.BaseMainLoopModelForSession(targetSession.ID),
 					"session_main_loop_model_override": s.runner.SessionMainLoopModelOverride(targetSession.ID),
 					"resolved_main_loop_model":         s.runner.ResolvedMainLoopModelForSession(targetSession.ID),
+					"tool_contracts":                   toolContractsPayload(s.runner.ToolContractsForSession(targetSession.ID)),
 				},
 			}); err != nil {
 				return err
@@ -1787,7 +1789,7 @@ func (s runtimeSink) Emit(event runtime.RuntimeEvent) error {
 		}
 		return s.client.WriteJSON(protocolws.EventMessage("permission.required", payload))
 	default:
-		return nil
+		return s.client.WriteJSON(protocolws.EventMessage(event.Type, event.Payload()))
 	}
 }
 
@@ -2410,4 +2412,24 @@ func defaultWorkspaceRoot() string {
 	}
 
 	return filepath.Join("configs", "workspace")
+}
+
+func toolContractsPayload(contracts []tools.Contract) []map[string]any {
+	items := make([]map[string]any, 0, len(contracts))
+	for _, contract := range contracts {
+		items = append(items, map[string]any{
+			"name":         contract.Name,
+			"aliases":      toAnySlice(contract.Aliases),
+			"description":  contract.Description,
+			"input_schema": contract.InputSchema,
+			"source":       contract.Source,
+			"search_hint":  contract.SearchHint,
+			"enabled":      contract.Enabled,
+			"read_only":    contract.ReadOnly,
+			"destructive":  contract.Destructive,
+			"should_defer": contract.ShouldDefer,
+			"always_load":  contract.AlwaysLoad,
+		})
+	}
+	return items
 }

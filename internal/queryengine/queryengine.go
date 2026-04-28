@@ -13,6 +13,7 @@ import (
 
 	"myclaw/internal/agent"
 	"myclaw/internal/approval"
+	runtimecommands "myclaw/internal/commands"
 	"myclaw/internal/compaction"
 	"myclaw/internal/llm"
 	"myclaw/internal/memory"
@@ -282,16 +283,48 @@ func (f InputProcessorFunc) Process(ctx context.Context, sess session.Session, i
 	return f(ctx, sess, input)
 }
 
-func (noopInputProcessor) Process(_ context.Context, _ session.Session, input string) (ProcessResult, error) {
+func (noopInputProcessor) Process(_ context.Context, sess session.Session, input string) (ProcessResult, error) {
 	normalized := strings.TrimSpace(input)
 	if normalized == "" {
 		return ProcessResult{}, nil
+	}
+	if strings.HasPrefix(normalized, "/") && !strings.ContainsAny(normalized, "\r\n") {
+		result, err := runtimecommands.NewDefaultRegistry().Execute(defaultCommandContext(sess), normalized)
+		if err != nil {
+			return ProcessResult{}, err
+		}
+		processed := ProcessResult{
+			NormalizedInput: result.NormalizedInput,
+			ShouldQuery:     result.ShouldQuery,
+			ResultText:      result.Output,
+			InputMode:       "command",
+			CommandName:     result.CommandName,
+		}
+		if !processed.ShouldQuery {
+			processed.NormalizedInput = normalized
+		}
+		return processed, nil
 	}
 	return ProcessResult{
 		NormalizedInput: normalized,
 		ShouldQuery:     true,
 		InputMode:       "prompt",
 	}, nil
+}
+
+func defaultCommandContext(sess session.Session) runtimecommands.Context {
+	modelName := strings.TrimSpace(sess.Metadata.MainLoopModelOverride)
+	if modelName == "" {
+		modelName = strings.TrimSpace(sess.Metadata.InitialMainLoopModel)
+	}
+	return runtimecommands.Context{
+		PermissionMode:       "default",
+		Model:                modelName,
+		HasMemory:            true,
+		HasResumableSessions: true,
+		HasTasks:             true,
+		HasMCP:               true,
+	}
 }
 
 type PermissionDenial struct {
@@ -840,15 +873,52 @@ func (q *QueryEngine) SubmitPrompt(ctx context.Context, sess session.Session, pr
 		return err
 	}
 	q.appendMutableMessage(sess.ID, msg)
-	return q.SubmitMessage(ctx, sess, msg, sink)
+	return q.submitMessage(ctx, sess, msg, sink, false)
 }
 
 func (q *QueryEngine) SubmitMessage(ctx context.Context, sess session.Session, userMessage session.Message, sink EventSink) error {
+	return q.submitMessage(ctx, sess, userMessage, sink, true)
+}
+
+func (q *QueryEngine) submitMessage(ctx context.Context, sess session.Session, userMessage session.Message, sink EventSink, processInput bool) error {
 	runID := fmt.Sprintf("run-%06d", q.nextRunID.Add(1))
 	ctx, release := q.beginRun(ctx, runID, sess.ID)
 	defer release()
 	q.ensureMutableMessages(sess.ID)
 	q.ensureUserMessageTracked(sess.ID, userMessage)
+	if processInput {
+		result, err := q.inputs.Process(ctx, sess, userMessage.Content)
+		if err != nil {
+			q.emitRunError(sink, Event{Type: "run.error", Session: sess, RunID: runID, Message: &userMessage, Error: err.Error()})
+			return err
+		}
+		q.recordInputProcessing(result)
+		if len(result.Messages) > 0 {
+			if err := q.emitImmediateMessages(sess, result.Messages, sink); err != nil {
+				return err
+			}
+		}
+		if !result.ShouldQuery {
+			if len(result.Messages) > 0 || strings.TrimSpace(result.ResultText) == "" {
+				return nil
+			}
+			reply, err := q.sessions.AppendMessage(sess.ID, "assistant", result.ResultText)
+			if err != nil {
+				return err
+			}
+			q.appendMutableMessage(sess.ID, reply)
+			q.setLastAssistantReply(reply.Content)
+			return q.emit(sink, Event{
+				Type:    "message.created",
+				Session: sess,
+				Message: &reply,
+			})
+		}
+		if strings.TrimSpace(result.NormalizedInput) == "" {
+			return nil
+		}
+		userMessage.Content = result.NormalizedInput
+	}
 	if err := q.maybeInjectDynamicSkillAttachments(sess, userMessage); err != nil {
 		return err
 	}
@@ -4614,4 +4684,11 @@ func (q *QueryEngine) restoreStateFromSession(snapshot session.RecoverySnapshot)
 		q.state.LastCompactionReason = snapshot.Metadata.LastCompactionReason
 		q.state.LastCompactionPhase = "restored"
 	}
+}
+
+func (q *QueryEngine) ToolContractsForSession(sessionID string) []tools.Contract {
+	if q == nil || q.tools == nil {
+		return nil
+	}
+	return q.tools.Contracts(tools.ContractOptions{Policy: q.PermissionPolicyForSession(sessionID), IncludeDeferred: true})
 }

@@ -1011,3 +1011,47 @@ func TestGlobalSearchTabAndShiftTabInsertMatchReference(t *testing.T) {
 		t.Fatalf("input after shift-tab = %q, want path insert", model.input)
 	}
 }
+
+func TestSlashCommandMetadataIncludesRuntimeRegistryCommands(t *testing.T) {
+	for _, want := range []string{"/permissions", "/memory", "/status"} {
+		if !stringInSlice(want, slashCommands) {
+			t.Fatalf("slashCommands missing shared runtime command %s: %#v", want, slashCommands)
+		}
+	}
+	parsed, ok := parseLocalSlashCommand("/status summarize runtime")
+	if !ok || parsed.Spec.Name != "status" || parsed.Args != "summarize runtime" {
+		t.Fatalf("parsed status = %#v/%v, want shared runtime command with args", parsed, ok)
+	}
+}
+
+func TestAdvertisedRuntimeSlashCommandsUseRegistryBehavior(t *testing.T) {
+	bridge := &fakeBridge{}
+	model := NewModel(bridge)
+	model.input = "/permissions"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, _ := model.Update(testKey(keyEnter))
+	model = updated.(Model)
+
+	if len(bridge.sent) != 0 {
+		t.Fatalf("/permissions sent runtime messages = %#v, want immediate registry output", bridge.sent)
+	}
+	if len(model.transcript) == 0 || !contains(model.transcript[len(model.transcript)-1].Content, "Permissions") {
+		t.Fatalf("transcript = %#v, want permissions output", model.transcript)
+	}
+
+	model = NewModel(bridge)
+	bridge.sent = nil
+	model.input = "/status include runtime state"
+	model.cursorPos = len([]rune(model.input))
+
+	updated, cmd := model.Update(testKey(keyEnter))
+	model = updated.(Model)
+	if cmd == nil {
+		t.Fatal("/status command = nil, want model continuation command")
+	}
+	_ = cmd()
+	if len(bridge.sent) != 1 || bridge.sent[0] != "include runtime state" {
+		t.Fatalf("/status sent = %#v, want normalized model continuation args", bridge.sent)
+	}
+}

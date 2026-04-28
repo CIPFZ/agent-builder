@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
+	runtimecommands "myclaw/internal/commands"
 )
 
 type dialogResult struct {
@@ -31,7 +33,7 @@ func (d *dialogState) open(spec dialogSpec) {
 	}
 	d.FooterHint = spec.FooterHint
 	if d.FooterHint == "" {
-		d.FooterHint = "↑/↓ navigate | Enter select | Esc close"
+		d.FooterHint = "Up/Down navigate | Enter select | Esc close"
 	}
 	d.Picker = newListPickerState(listPickerSpec{
 		Items:        d.Items,
@@ -328,7 +330,17 @@ func (m *Model) handleLocalCommand(text string) bool {
 	case "debug":
 		m.openDiagnosticsDialog()
 	default:
-		return false
+		result, err := runtimecommands.NewDefaultRegistry().Execute(m.runtimeCommandContext(), text)
+		if err != nil {
+			return false
+		}
+		if result.ShouldQuery {
+			m.input = result.NormalizedInput
+			m.cursorPos = len([]rune(m.input))
+			m.clearSuggestions()
+			return false
+		}
+		m.appendCommandOutput(commandTitle(result.CommandName), strings.Split(result.Output, "\n"))
 	}
 	m.input = ""
 	m.cursorPos = 0
@@ -337,6 +349,31 @@ func (m *Model) handleLocalCommand(text string) bool {
 	return true
 }
 
+func (m Model) runtimeCommandContext() runtimecommands.Context {
+	ctx := runtimecommands.Context{
+		PermissionMode:       "default",
+		Model:                m.diagnostics.LLMLabel,
+		HasMemory:            true,
+		HasResumableSessions: true,
+		HasTasks:             true,
+		HasMCP:               true,
+	}
+	if provider, ok := m.bridge.(platformStatusBridge); ok {
+		snapshot := provider.PlatformStatusSnapshot()
+		if strings.TrimSpace(snapshot.ResolvedModel) != "" {
+			ctx.Model = snapshot.ResolvedModel
+		}
+	}
+	return ctx
+}
+
+func commandTitle(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "Command"
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
 func (m *Model) appendDisplayItems(title, subtitle string, items []dialogItem, empty string) {
 	lines := displayItemLines(subtitle, items, empty)
 	m.appendCommandOutput(title, lines)
