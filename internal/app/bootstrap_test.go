@@ -147,3 +147,27 @@ func TestBootstrapRuntimeCanDisableMCPStartup(t *testing.T) {
 		t.Fatalf("mcp servers = %#v, want MCP disabled during bootstrap", servers)
 	}
 }
+
+func TestBootstrapRuntimePassesConfiguredMaxTurnsIntoRunner(t *testing.T) {
+	root := t.TempDir()
+
+	bootstrap, err := bootstrapRuntime(root, config.Config{
+		LLM: config.LLMConfig{
+			Provider: "openai-compatible",
+			Model:    "sonnet",
+		},
+		Runtime: config.RuntimeConfig{
+			MaxTurns: 77,
+		},
+		Permissions: config.PermissionConfig{
+			Mode: "workspace-write",
+		},
+	}, bootstrapOptions{})
+	if err != nil {
+		t.Fatalf("bootstrapRuntime returned unexpected error: %v", err)
+	}
+
+	if got := bootstrap.Runner.State().MaxTurns; got != 77 {
+		t.Fatalf("runner max turns = %d, want configured value", got)
+	}
+}

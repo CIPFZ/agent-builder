@@ -16,6 +16,7 @@ type Config struct {
 	HTTPAddr    string
 	WSPath      string
 	Server      ServerConfig
+	Runtime     RuntimeConfig
 	LLM         LLMConfig
 	Permissions PermissionConfig
 	Compact     CompactConfig
@@ -23,8 +24,16 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	HTTPAddr string
-	WSPath   string
+	HTTPAddr         string
+	WSPath           string
+	RequestTimeoutMs int
+	RetryMaxRetries  int
+	RetryBaseDelayMs int
+	RetryMaxDelayMs  int
+}
+
+type RuntimeConfig struct {
+	MaxTurns int
 }
 
 type LLMConfig struct {
@@ -175,8 +184,15 @@ func defaultConfig() Config {
 		HTTPAddr: "127.0.0.1:18080",
 		WSPath:   "/ws",
 		Server: ServerConfig{
-			HTTPAddr: "127.0.0.1:18080",
-			WSPath:   "/ws",
+			HTTPAddr:         "127.0.0.1:18080",
+			WSPath:           "/ws",
+			RequestTimeoutMs: 300000,
+			RetryMaxRetries:  3,
+			RetryBaseDelayMs: 500,
+			RetryMaxDelayMs:  4000,
+		},
+		Runtime: RuntimeConfig{
+			MaxTurns: 100,
 		},
 		LLM: LLMConfig{
 			DefaultProfile: defaultProfileName,
@@ -219,6 +235,7 @@ func defaultConfig() Config {
 type fileConfig struct {
 	Config      fileRuntimeConfig    `json:"config"`
 	Server      fileServerConfig     `json:"server"`
+	Runtime     fileRuntimeControls  `json:"runtime"`
 	HTTPAddr    string               `json:"http_addr"`
 	WSPath      string               `json:"ws_path"`
 	LLM         fileLLMConfig        `json:"llm"`
@@ -232,8 +249,16 @@ type fileRuntimeConfig struct {
 }
 
 type fileServerConfig struct {
-	HTTPAddr string `json:"http_addr"`
-	WSPath   string `json:"ws_path"`
+	HTTPAddr         string `json:"http_addr"`
+	WSPath           string `json:"ws_path"`
+	RequestTimeoutMs *int   `json:"request_timeout_ms"`
+	RetryMaxRetries  *int   `json:"retry_max_retries"`
+	RetryBaseDelayMs *int   `json:"retry_base_delay_ms"`
+	RetryMaxDelayMs  *int   `json:"retry_max_delay_ms"`
+}
+
+type fileRuntimeControls struct {
+	MaxTurns *int `json:"max_turns"`
 }
 
 type fileLLMConfig struct {
@@ -341,6 +366,21 @@ func mergeFileConfig(cfg *Config, path string) error {
 	if fileCfg.Server.WSPath != "" {
 		cfg.WSPath = expandEnv(fileCfg.Server.WSPath)
 		cfg.Server.WSPath = cfg.WSPath
+	}
+	if fileCfg.Server.RequestTimeoutMs != nil {
+		cfg.Server.RequestTimeoutMs = *fileCfg.Server.RequestTimeoutMs
+	}
+	if fileCfg.Server.RetryMaxRetries != nil {
+		cfg.Server.RetryMaxRetries = *fileCfg.Server.RetryMaxRetries
+	}
+	if fileCfg.Server.RetryBaseDelayMs != nil {
+		cfg.Server.RetryBaseDelayMs = *fileCfg.Server.RetryBaseDelayMs
+	}
+	if fileCfg.Server.RetryMaxDelayMs != nil {
+		cfg.Server.RetryMaxDelayMs = *fileCfg.Server.RetryMaxDelayMs
+	}
+	if fileCfg.Runtime.MaxTurns != nil {
+		cfg.Runtime.MaxTurns = *fileCfg.Runtime.MaxTurns
 	}
 	if fileCfg.HTTPAddr != "" {
 		cfg.HTTPAddr = expandEnv(fileCfg.HTTPAddr)
@@ -474,6 +514,21 @@ func applyEnvOverrides(cfg *Config) {
 	cfg.WSPath = envOrDefault("MYCLAW_WS_PATH", cfg.WSPath)
 	cfg.Server.HTTPAddr = cfg.HTTPAddr
 	cfg.Server.WSPath = cfg.WSPath
+	if value := os.Getenv("MYCLAW_SERVER_REQUEST_TIMEOUT_MS"); value != "" {
+		cfg.Server.RequestTimeoutMs = parseInt(value, cfg.Server.RequestTimeoutMs)
+	}
+	if value := os.Getenv("MYCLAW_SERVER_RETRY_MAX_RETRIES"); value != "" {
+		cfg.Server.RetryMaxRetries = parseInt(value, cfg.Server.RetryMaxRetries)
+	}
+	if value := os.Getenv("MYCLAW_SERVER_RETRY_BASE_DELAY_MS"); value != "" {
+		cfg.Server.RetryBaseDelayMs = parseInt(value, cfg.Server.RetryBaseDelayMs)
+	}
+	if value := os.Getenv("MYCLAW_SERVER_RETRY_MAX_DELAY_MS"); value != "" {
+		cfg.Server.RetryMaxDelayMs = parseInt(value, cfg.Server.RetryMaxDelayMs)
+	}
+	if value := os.Getenv("MYCLAW_RUNTIME_MAX_TURNS"); value != "" {
+		cfg.Runtime.MaxTurns = parseInt(value, cfg.Runtime.MaxTurns)
+	}
 
 	if value := os.Getenv("MYCLAW_LLM_DEFAULT_PROFILE"); value != "" {
 		cfg.LLM.DefaultProfile = normalizeMapKey(value)
@@ -774,6 +829,21 @@ func validateAndResolve(cfg *Config) error {
 	}
 	if strings.TrimSpace(cfg.WSPath) == "" {
 		return fmt.Errorf("server.ws_path must not be empty")
+	}
+	if cfg.Server.RequestTimeoutMs <= 0 {
+		cfg.Server.RequestTimeoutMs = 300000
+	}
+	if cfg.Server.RetryMaxRetries < 0 {
+		cfg.Server.RetryMaxRetries = 0
+	}
+	if cfg.Server.RetryBaseDelayMs <= 0 {
+		cfg.Server.RetryBaseDelayMs = 500
+	}
+	if cfg.Server.RetryMaxDelayMs <= 0 {
+		cfg.Server.RetryMaxDelayMs = cfg.Server.RetryBaseDelayMs
+	}
+	if cfg.Runtime.MaxTurns <= 0 {
+		cfg.Runtime.MaxTurns = 100
 	}
 	if len(cfg.LLM.Providers) == 0 {
 		return fmt.Errorf("llm.providers must define at least one provider")

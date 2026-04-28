@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -115,6 +117,79 @@ func TestMyclawdClientSendUserMessageDoesNotRefreshSnapshots(t *testing.T) {
 	}
 }
 
+func TestMyclawdClientUsesConfiguredRequestTimeout(t *testing.T) {
+	originalAfter := timeAfter
+	defer func() { timeAfter = originalAfter }()
+
+	var gotTimeout time.Duration
+	timeAfter = func(d time.Duration) <-chan time.Time {
+		gotTimeout = d
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
+
+	client := NewMyclawdClientWithOptions(context.Background(), "http://127.0.0.1:8080/ws", "main", newClientStore(), nil, ClientOptions{
+		RequestTimeout: 3 * time.Minute,
+	})
+	_, err := client.awaitResponse("req-1", make(chan protocolws.Message))
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("awaitResponse error = %v, want timeout", err)
+	}
+	if gotTimeout != 3*time.Minute {
+		t.Fatalf("request timeout = %s, want 3m", gotTimeout)
+	}
+}
+
+func TestMyclawdClientReconnectsAndRetriesRequestAfterDisconnect(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	var sendAttempts atomic.Int32
+	var connectionCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade: %v", err)
+			return
+		}
+		defer conn.Close()
+		connectionCount.Add(1)
+		for {
+			req := readHarnessRequest(t, conn)
+			if req.Method == protocolws.MethodSendMessage {
+				attempt := sendAttempts.Add(1)
+				if attempt == 1 {
+					return
+				}
+				writeHarnessResponse(t, conn, req.ID, map[string]any{})
+				return
+			}
+			writeHarnessResponse(t, conn, req.ID, defaultHarnessPayloadFor(req.Method))
+		}
+	}))
+	defer server.Close()
+
+	client := NewMyclawdClientWithOptions(context.Background(), server.URL+"/ws", "main", newClientStore(), nil, ClientOptions{
+		RequestTimeout:  2 * time.Second,
+		RetryMaxRetries: 1,
+		RetryBaseDelay:  1 * time.Millisecond,
+		RetryMaxDelay:   1 * time.Millisecond,
+	})
+	if err := client.Start(); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	defer client.Close()
+
+	if err := client.SendUserMessage("retry this"); err != nil {
+		t.Fatalf("SendUserMessage error: %v", err)
+	}
+	if got := sendAttempts.Load(); got != 2 {
+		t.Fatalf("send attempts = %d, want retry after disconnect", got)
+	}
+	if got := connectionCount.Load(); got < 2 {
+		t.Fatalf("connection count = %d, want reconnect", got)
+	}
+}
+
 func TestMyclawdClientUpdatesStoreForProgressApprovalAndTasks(t *testing.T) {
 	store := newClientStore()
 	client, cleanup, msgCh, conn := startClientWithHarness(t, store)
@@ -204,7 +279,7 @@ func TestMyclawdClientUpdatesStoreForProgressApprovalAndTasks(t *testing.T) {
 	}
 }
 
-func TestMyclawdClientDisconnectReturnsRequestError(t *testing.T) {
+func TestMyclawdClientReconnectsApprovalRequestAfterDisconnect(t *testing.T) {
 	store := newClientStore()
 	client, cleanup, _, conn := startClientWithHarness(t, store)
 	defer cleanup()
@@ -217,8 +292,8 @@ func TestMyclawdClientDisconnectReturnsRequestError(t *testing.T) {
 		t.Fatalf("harness close: %v", err)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if err := client.Reject("approval-1"); err == nil {
-		t.Fatal("expected reject failure after disconnect")
+	if err := client.Reject("approval-1"); err != nil {
+		t.Fatalf("Reject error after reconnect = %v", err)
 	}
 }
 
@@ -337,6 +412,13 @@ func startClientWithHarness(t *testing.T, store *clientStore) (*MyclawdClient, f
 			"session_key": "agent:main:main",
 			"agent_id":    "main",
 		}))
+		for {
+			var req protocolws.Message
+			if err := conn.ReadJSON(&req); err != nil {
+				return
+			}
+			writeHarnessResponse(t, conn, req.ID, defaultHarnessPayloadFor(req.Method))
+		}
 	}))
 
 	client := NewMyclawdClient(context.Background(), server.URL+"/ws", "main", store, nil)

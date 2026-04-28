@@ -54,6 +54,7 @@ func bootstrapRuntime(baseDir string, cfg config.Config, options bootstrapOption
 		PermissionUpdatePersister: config.NewPermissionUpdatePersister(baseDir),
 		MainLoopModel:             cfg.LLM.Model,
 		LLMProvider:               cfg.LLM.Provider,
+		MaxTurns:                  cfg.Runtime.MaxTurns,
 		ModelCatalog:              llm.NewModelCatalogFromConfig(cfg.LLM),
 		MCPClients:                bootstrapMCPConnections(cfg.MCP, options.DisableMCP),
 		DisableMCPPromptSkills:    !cfg.MCP.Skills,
