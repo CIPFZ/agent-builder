@@ -481,7 +481,12 @@ type ExtensionTool struct {
 type ExtensionCommand struct {
 	Type                        string
 	Name                        string
+	Aliases                     []string
 	Description                 string
+	ArgumentHint                string
+	Category                    string
+	Visibility                  string
+	Behavior                    string
 	Source                      string
 	LoadedFrom                  string
 	HasUserSpecifiedDescription bool
@@ -1474,7 +1479,7 @@ func (q *QueryEngine) ExtensionInventory(sessionID string) ExtensionInventory {
 		}
 	}
 	toolsProjection := q.extensionTools(sessionID)
-	commands := q.extensionCommands()
+	commands := q.extensionCommands(sessionID)
 	skills := q.extensionSkills()
 	servers := q.MCPServers()
 	boundaries := defaultLSPBoundaries()
@@ -1526,32 +1531,82 @@ func (q *QueryEngine) extensionTools(sessionID string) []ExtensionTool {
 	return out
 }
 
-func (q *QueryEngine) extensionCommands() []ExtensionCommand {
-	if q == nil || len(q.commands) == 0 {
+func (q *QueryEngine) extensionCommands(sessionID string) []ExtensionCommand {
+	if q == nil {
 		return nil
 	}
-	out := make([]ExtensionCommand, 0, len(q.commands))
+	byName := make(map[string]ExtensionCommand)
+	for _, command := range runtimecommands.NewDefaultRegistry().List(q.extensionCommandContext(sessionID)) {
+		item := extensionCommandFromRuntimeMetadata(command)
+		if item.Name == "" {
+			continue
+		}
+		byName[item.Name] = item
+	}
 	for _, command := range q.commands {
 		if strings.TrimSpace(command.Name) == "" {
 			continue
 		}
-		out = append(out, ExtensionCommand{
-			Type:                        strings.TrimSpace(command.Type),
-			Name:                        strings.TrimSpace(command.Name),
-			Description:                 strings.TrimSpace(command.Description),
-			Source:                      strings.TrimSpace(command.Source),
-			LoadedFrom:                  strings.TrimSpace(command.LoadedFrom),
-			HasUserSpecifiedDescription: command.HasUserSpecifiedDescription,
-			WhenToUse:                   strings.TrimSpace(command.WhenToUse),
-			DisableModelInvocation:      command.DisableModelInvocation,
-			UserInvocable:               command.UserInvocable,
-			IsHidden:                    command.IsHidden,
-		})
+		item := extensionCommandFromConfigured(command)
+		byName[item.Name] = item
+	}
+	out := make([]ExtensionCommand, 0, len(byName))
+	for _, command := range byName {
+		out = append(out, command)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
 	return out
+}
+
+func (q *QueryEngine) extensionCommandContext(sessionID string) runtimecommands.Context {
+	if q == nil || q.sessions == nil {
+		return defaultCommandContext(session.Session{})
+	}
+	if sess, ok := q.sessions.GetByID(sessionID); ok {
+		return defaultCommandContext(sess)
+	}
+	return defaultCommandContext(session.Session{})
+}
+
+func extensionCommandFromRuntimeMetadata(command runtimecommands.Metadata) ExtensionCommand {
+	return ExtensionCommand{
+		Type:          "slash",
+		Name:          strings.TrimSpace(command.Name),
+		Aliases:       compactAndSortStrings(command.Aliases),
+		Description:   strings.TrimSpace(command.Description),
+		ArgumentHint:  strings.TrimSpace(command.ArgumentHint),
+		Category:      strings.TrimSpace(command.Category),
+		Visibility:    string(command.Visibility),
+		Behavior:      string(command.Behavior),
+		Source:        "runtime",
+		UserInvocable: true,
+	}
+}
+
+func extensionCommandFromConfigured(command tools.Command) ExtensionCommand {
+	name := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(command.Name)), "/")
+	source := strings.TrimSpace(command.Source)
+	if source == "" {
+		source = "dynamic"
+	}
+	commandType := strings.TrimSpace(command.Type)
+	if commandType == "" {
+		commandType = "slash"
+	}
+	return ExtensionCommand{
+		Type:                        commandType,
+		Name:                        name,
+		Description:                 strings.TrimSpace(command.Description),
+		Source:                      source,
+		LoadedFrom:                  strings.TrimSpace(command.LoadedFrom),
+		HasUserSpecifiedDescription: command.HasUserSpecifiedDescription,
+		WhenToUse:                   strings.TrimSpace(command.WhenToUse),
+		DisableModelInvocation:      command.DisableModelInvocation,
+		UserInvocable:               command.UserInvocable,
+		IsHidden:                    command.IsHidden,
+	}
 }
 
 func (q *QueryEngine) extensionSkills() []ExtensionSkill {

@@ -2106,7 +2106,12 @@ func extensionCommandPayloads(commands []runtime.ExtensionCommand) []map[string]
 		items = append(items, map[string]any{
 			"type":                           command.Type,
 			"name":                           command.Name,
+			"aliases":                        stringsToAnySlice(command.Aliases),
 			"description":                    command.Description,
+			"argument_hint":                  command.ArgumentHint,
+			"category":                       command.Category,
+			"visibility":                     command.Visibility,
+			"behavior":                       command.Behavior,
 			"source":                         command.Source,
 			"loaded_from":                    command.LoadedFrom,
 			"has_user_specified_description": command.HasUserSpecifiedDescription,

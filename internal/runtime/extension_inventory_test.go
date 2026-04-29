@@ -92,8 +92,13 @@ hooks:
 	for _, command := range inventory.Commands {
 		commandNames = append(commandNames, command.Name)
 	}
-	if !reflect.DeepEqual(commandNames, []string{"inspect", "zeta"}) {
-		t.Fatalf("commands = %#v, want stable sorted dynamic command projection", commandNames)
+	for _, want := range []string{"compact", "help", "inspect", "mcp", "memory", "model", "permissions", "resume", "status", "tasks", "zeta"} {
+		if !containsString(commandNames, want) {
+			t.Fatalf("commands = %#v, want runtime command %q", commandNames, want)
+		}
+	}
+	if !reflect.DeepEqual(commandNames, sortedCopy(commandNames)) {
+		t.Fatalf("commands are not stable sorted: %#v", commandNames)
 	}
 
 	skill, ok := findExtensionSkill(inventory.Skills, "review-local")
@@ -122,6 +127,55 @@ hooks:
 	}
 }
 
+func TestExtensionInventoryIncludesDefaultRuntimeSlashCommandsWithoutConfiguredCommands(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), Options{})
+
+	commandsByName := map[string]ExtensionCommand{}
+	for _, command := range runner.ExtensionInventory(sess.ID).Commands {
+		commandsByName[command.Name] = command
+	}
+	for _, want := range []string{"permissions", "status", "memory", "tasks", "mcp"} {
+		command, ok := commandsByName[want]
+		if !ok {
+			t.Fatalf("runtime command %q missing from extension inventory: %#v", want, commandsByName)
+		}
+		if command.Source != "runtime" || command.Type != "slash" {
+			t.Fatalf("runtime command %q = %#v, want source runtime and type slash", want, command)
+		}
+	}
+}
+
+func TestExtensionInventoryConfiguredCommandsOverrideRuntimeCommands(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), Options{
+		Commands: []tools.Command{
+			{Name: "status", Type: "slash", Source: "plugin", Description: "plugin status", UserInvocable: true},
+			{Name: "custom", Type: "slash", Source: "dynamic", Description: "custom command", UserInvocable: true},
+		},
+	})
+
+	var statusCount int
+	var statusCommand ExtensionCommand
+	for _, command := range runner.ExtensionInventory(sess.ID).Commands {
+		if command.Name == "status" {
+			statusCount++
+			statusCommand = command
+		}
+	}
+	if statusCount != 1 {
+		t.Fatalf("status command count = %d, want one deduped command", statusCount)
+	}
+	if statusCommand.Source != "plugin" || statusCommand.Description != "plugin status" {
+		t.Fatalf("deduped status command = %#v, want configured command override", statusCommand)
+	}
+	if _, ok := findExtensionCommand(runner.ExtensionInventory(sess.ID).Commands, "custom"); !ok {
+		t.Fatalf("custom configured command missing from inventory: %#v", runner.ExtensionInventory(sess.ID).Commands)
+	}
+}
+
 func TestExtensionInventoryRebuildsDeterministicallyAfterRunnerRestart(t *testing.T) {
 	tools.ClearDynamicSkills()
 	t.Cleanup(tools.ClearDynamicSkills)
@@ -139,6 +193,15 @@ func TestExtensionInventoryRebuildsDeterministicallyAfterRunnerRestart(t *testin
 	if !reflect.DeepEqual(first.ExtensionInventory(sess.ID), second.ExtensionInventory(sess.ID)) {
 		t.Fatalf("extension inventory changed across rebuild:\nfirst=%#v\nsecond=%#v", first.ExtensionInventory(sess.ID), second.ExtensionInventory(sess.ID))
 	}
+}
+
+func findExtensionCommand(commands []ExtensionCommand, name string) (ExtensionCommand, bool) {
+	for _, command := range commands {
+		if command.Name == name {
+			return command, true
+		}
+	}
+	return ExtensionCommand{}, false
 }
 
 type extensionProbeTool struct {

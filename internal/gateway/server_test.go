@@ -9282,6 +9282,21 @@ func TestHandleWebSocketExtensionInventoryReturnsRuntimeProjection(t *testing.T)
 	if !ok || len(toolsPayload) == 0 {
 		t.Fatalf("tools payload = %#v, want non-empty runtime tool projection", inventory["tools"])
 	}
+	commandsPayload, ok := inventory["commands"].([]any)
+	if !ok || len(commandsPayload) == 0 {
+		t.Fatalf("commands payload = %#v, want runtime command projection", inventory["commands"])
+	}
+	var foundPermissions bool
+	for _, raw := range commandsPayload {
+		command, _ := raw.(map[string]any)
+		if command["name"] == "permissions" && command["source"] == "runtime" {
+			foundPermissions = true
+			break
+		}
+	}
+	if !foundPermissions {
+		t.Fatalf("commands payload = %#v, want runtime /permissions command", commandsPayload)
+	}
 	lsp, ok := inventory["lsp_boundaries"].([]any)
 	if !ok || len(lsp) != 1 {
 		t.Fatalf("lsp_boundaries = %#v, want deferred LSP boundary", inventory["lsp_boundaries"])

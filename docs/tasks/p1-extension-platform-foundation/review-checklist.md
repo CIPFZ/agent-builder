@@ -21,6 +21,8 @@ Date: 2026-04-29
 - [x] Extension inventory schema exists.
 - [x] Dynamic tools are projected from runtime tool contracts.
 - [x] Dynamic commands are projected from runtime command configuration.
+- [x] Shared runtime slash command registry commands are projected with runtime source metadata.
+- [x] Configured dynamic/plugin-like commands dedupe and override same-name runtime command metadata.
 - [x] MCP servers/tools/resources/prompts/skills are projected.
 - [x] Skill frontmatter allowed tools, hooks, context, and agent metadata are projected.
 - [x] Inventory output is stable sorted and testable.
