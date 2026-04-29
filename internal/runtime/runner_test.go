@@ -22,6 +22,7 @@ import (
 	"myclaw/internal/permissions"
 	"myclaw/internal/queryengine"
 	"myclaw/internal/session"
+	memorystore "myclaw/internal/store/memory"
 	"myclaw/internal/tools"
 	"myclaw/internal/workspace"
 )
@@ -1627,6 +1628,56 @@ func TestRunnerSpawnSubagentRejectsCWDOutsideInheritedWorkspaceRoots(t *testing.
 	})
 	if err == nil || !strings.Contains(err.Error(), "outside inherited workspace roots") {
 		t.Fatalf("spawn err = %v, want cwd boundary error", err)
+	}
+}
+
+func TestRunnerResumeRecoveredSubagentRestoresIsolationPermissionControls(t *testing.T) {
+	store := memorystore.NewSessionStore()
+	sessions := session.NewManager(store)
+	parent := sessions.GetOrCreateMain("main")
+	parentPolicy := permissions.Policy{
+		Mode:           permissions.ModeWorkspaceWrite,
+		WorkspaceRoots: []string{filepath.Clean("C:/repo")},
+	}
+	runner := NewRunnerWithOptions(sessions, &captureMemoryClient{}, workspace.NewLoader("C:/repo"), nil, Options{
+		PermissionPolicy: parentPolicy,
+	})
+
+	run, err := runner.SpawnSubagentWithOptions(context.Background(), parent, "research", "first pass", SubagentOptions{
+		AllowedTools:    []string{"Read", "Grep"},
+		CWD:             filepath.Clean("C:/repo/services/api"),
+		PermissionMode:  string(permissions.ModePlan),
+		RunInBackground: true,
+	})
+	if err != nil {
+		t.Fatalf("spawn subagent: %v", err)
+	}
+	if _, err := runner.AgentManager().Wait(context.Background(), run.ID, 5*time.Second); err != nil {
+		t.Fatalf("wait subagent: %v", err)
+	}
+
+	reloadedSessions := session.NewManager(store)
+	reloaded := NewRunnerWithOptions(reloadedSessions, &captureMemoryClient{}, workspace.NewLoader("C:/repo"), nil, Options{
+		PermissionPolicy: parentPolicy,
+	})
+	if _, err := reloaded.ResumeSubagent(context.Background(), run.ID, "research", "second pass"); err != nil {
+		t.Fatalf("resume recovered subagent: %v", err)
+	}
+
+	childPolicy := reloaded.PermissionPolicyForSession(run.ChildSessionID)
+	if childPolicy.Mode != permissions.ModePlan || !childPolicy.PlanMode {
+		t.Fatalf("child policy = %#v, want recovered plan mode", childPolicy)
+	}
+	if got, want := filepath.ToSlash(strings.Join(childPolicy.WorkspaceRoots, ",")), filepath.ToSlash(filepath.Clean("C:/repo/services/api")); got != want {
+		t.Fatalf("workspace roots = %#v, want cwd boundary %q", childPolicy.WorkspaceRoots, want)
+	}
+	readDecision := childPolicy.Evaluate(permissions.Request{ToolName: "Read"})
+	if !readDecision.Allowed || readDecision.RuleSource != string(permissions.RuleSourceCommand) {
+		t.Fatalf("Read decision = %#v, want persisted allowed-tools rule", readDecision)
+	}
+	grepDecision := childPolicy.Evaluate(permissions.Request{ToolName: "Grep"})
+	if !grepDecision.Allowed || grepDecision.RuleSource != string(permissions.RuleSourceCommand) {
+		t.Fatalf("Grep decision = %#v, want persisted allowed-tools rule", grepDecision)
 	}
 }
 

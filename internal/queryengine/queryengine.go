@@ -2414,6 +2414,13 @@ func (q *QueryEngine) PermissionPolicyForSession(sessionID string) permissions.P
 	return q.policy
 }
 
+func (q *QueryEngine) HasSessionPermissionPolicy(sessionID string) bool {
+	q.policyMu.RLock()
+	defer q.policyMu.RUnlock()
+	_, ok := q.policies[sessionID]
+	return ok
+}
+
 func (q *QueryEngine) SetSessionPermissionPolicy(sessionID string, policy permissions.Policy) {
 	q.policyMu.Lock()
 	defer q.policyMu.Unlock()

@@ -286,6 +286,22 @@ func TestAgentTaskToolInvokeWithContextUsesAgentTaskExecutor(t *testing.T) {
 	}
 }
 
+func TestAgentTaskToolDefinitionExposesRunInBackgroundSchema(t *testing.T) {
+	tool := tools.NewClaudeAgentTool(agent.NewManager(), nil)
+	schema := tool.Definition().InputSchema
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %#v, want object", schema["properties"])
+	}
+	runInBackground, ok := properties["run_in_background"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %#v, want run_in_background schema", properties)
+	}
+	if got := runInBackground["type"]; got != "boolean" {
+		t.Fatalf("run_in_background type = %#v, want boolean", got)
+	}
+}
+
 func TestAgentTaskToolStructuredPromptProjectsIsolationControls(t *testing.T) {
 	projected, ok := tools.ProjectStructuredAgentTaskInputForTest(`{
 		"description":"research",

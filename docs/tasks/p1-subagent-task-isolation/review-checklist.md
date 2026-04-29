@@ -50,3 +50,8 @@ Date: 2026-04-29
 ## Gaps
 
 - [x] Remote execution is deferred with documented boundary semantics.
+
+## Review Fixes
+
+- [x] Recovered subagent resume rebuilds persisted allowed-tools, permission mode, and cwd/worktree isolation boundaries.
+- [x] Agent task schema exposes `run_in_background`.

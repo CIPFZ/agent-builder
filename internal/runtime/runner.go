@@ -608,6 +608,9 @@ func (r *Runner) SpawnSubagentWithOptions(ctx context.Context, parent session.Se
 	if cwdOverride != "" && effectiveIsolation != "worktree" && !cwdWithinWorkspaceRoots(cwdOverride, parentPolicy.WorkspaceRoots) {
 		return nil, fmt.Errorf("subagent cwd %q is outside inherited workspace roots", cwdOverride)
 	}
+	if cwdOverride != "" && effectiveIsolation != "worktree" {
+		childPolicy = restrictPolicyToWorkspaceRoot(childPolicy, cwdOverride)
+	}
 	childPolicy.Rules = append(skillAllowedToolRules(options.AllowedTools), childPolicy.Rules...)
 	r.engine.SetSessionPermissionPolicy(child.ID, childPolicy)
 	if options.Model != "" || options.Effort != "" {
@@ -883,11 +886,13 @@ func (r *Runner) ResumeSubagent(ctx context.Context, runID, label, promptText st
 	}
 	if _, ok := r.sessionPolicy(previous.ChildSessionID); !ok {
 		parentPolicy := r.PermissionPolicyForSession(previous.ParentSessionID)
-		childPolicy := parentPolicy.DeriveForSubagent()
-		if parentSession, ok := r.sessions.GetByID(previous.ParentSessionID); ok {
-			if worktreePath := strings.TrimSpace(child.Metadata.AgentWorktreePath); worktreePath != "" {
-				childPolicy = rewritePolicyForWorktree(childPolicy, worktreePath, r.workspaceRootForSession(parentSession))
-			}
+		parentSession, ok := r.sessions.GetByID(previous.ParentSessionID)
+		if !ok {
+			return nil, fmt.Errorf("parent session %q not found", previous.ParentSessionID)
+		}
+		childPolicy, err := rebuildRecoveredSubagentPolicy(parentPolicy, previous, child, r.workspaceRootForSession(parentSession))
+		if err != nil {
+			return nil, err
 		}
 		r.engine.SetSessionPermissionPolicy(previous.ChildSessionID, childPolicy)
 	}
@@ -1081,6 +1086,41 @@ func rewritePolicyForWorktree(policy permissions.Policy, worktreePath, parentRoo
 		roots = append([]string{worktreePath}, roots...)
 	}
 	updated.WorkspaceRoots = roots
+	return updated
+}
+
+func rebuildRecoveredSubagentPolicy(parentPolicy permissions.Policy, previous agent.Run, child session.Session, parentRoot string) (permissions.Policy, error) {
+	childPolicy := parentPolicy.DeriveForSubagent()
+	if worktreePath := strings.TrimSpace(child.Metadata.AgentWorktreePath); worktreePath != "" {
+		childPolicy = rewritePolicyForWorktree(childPolicy, worktreePath, parentRoot)
+	} else if cwd := recoveredSubagentCWD(previous, child); cwd != "" {
+		if !cwdWithinWorkspaceRoots(cwd, parentPolicy.WorkspaceRoots) {
+			return permissions.Policy{}, fmt.Errorf("recovered subagent cwd %q is outside inherited workspace roots", cwd)
+		}
+		childPolicy = restrictPolicyToWorkspaceRoot(childPolicy, cwd)
+	}
+	childPolicy = applyAgentPermissionModeOverride(parentPolicy, childPolicy, previous.PermissionMode)
+	childPolicy.Rules = append(skillAllowedToolRules(previous.AllowedTools), childPolicy.Rules...)
+	return childPolicy, nil
+}
+
+func recoveredSubagentCWD(previous agent.Run, child session.Session) string {
+	if cwd := filepath.Clean(strings.TrimSpace(child.Metadata.AgentCWD)); cwd != "." {
+		return cwd
+	}
+	if cwd := filepath.Clean(strings.TrimSpace(previous.CWD)); cwd != "." {
+		return cwd
+	}
+	return ""
+}
+
+func restrictPolicyToWorkspaceRoot(policy permissions.Policy, root string) permissions.Policy {
+	root = filepath.Clean(strings.TrimSpace(root))
+	if root == "" || root == "." {
+		return policy
+	}
+	updated := policy
+	updated.WorkspaceRoots = []string{root}
 	return updated
 }
 
@@ -1373,6 +1413,9 @@ func (r *Runner) emitEvent(ctx context.Context, sink EventSink, event RuntimeEve
 }
 
 func (r *Runner) sessionPolicy(sessionID string) (permissions.Policy, bool) {
+	if !r.engine.HasSessionPermissionPolicy(sessionID) {
+		return permissions.Policy{}, false
+	}
 	policy := r.engine.PermissionPolicyForSession(sessionID)
 	if policy.Mode == "" {
 		return permissions.Policy{}, false
