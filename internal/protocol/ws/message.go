@@ -23,14 +23,19 @@ type SendMessagePayload struct {
 }
 
 type SpawnSubagentPayload struct {
-	Label        string   `json:"label"`
-	Prompt       string   `json:"prompt"`
-	AgentType    string   `json:"agent_type,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	Effort       string   `json:"effort,omitempty"`
-	Isolation    string   `json:"isolation,omitempty"`
-	AllowedTools []string `json:"allowed_tools,omitempty"`
-	UseFork      bool     `json:"use_fork,omitempty"`
+	Label                   string   `json:"label"`
+	Prompt                  string   `json:"prompt"`
+	AgentType               string   `json:"agent_type,omitempty"`
+	Model                   string   `json:"model,omitempty"`
+	Effort                  string   `json:"effort,omitempty"`
+	Isolation               string   `json:"isolation,omitempty"`
+	CWD                     string   `json:"cwd,omitempty"`
+	RemoteIsolationBoundary string   `json:"remote_isolation_boundary,omitempty"`
+	PermissionMode          string   `json:"permission_mode,omitempty"`
+	RunInBackground         bool     `json:"run_in_background,omitempty"`
+	OutputFile              string   `json:"output_file,omitempty"`
+	AllowedTools            []string `json:"allowed_tools,omitempty"`
+	UseFork                 bool     `json:"use_fork,omitempty"`
 }
 
 type SessionStatusPayload struct {
@@ -145,6 +150,7 @@ const (
 	MethodMCPStatus                         = "mcp_status"
 	MethodMCPReconnect                      = "mcp_reconnect"
 	MethodMCPAuthenticate                   = "mcp_authenticate"
+	MethodExtensionInventory                = "extension_inventory"
 	MethodOrchestrationStatus               = "orchestration_status"
 	MethodOrchestrationHistory              = "orchestration_history"
 	MethodOrchestrationSummary              = "orchestration_summary"

@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,11 +23,13 @@ const (
 type ControlAction string
 
 const (
-	ActionSpawned ControlAction = "spawned"
-	ActionSteered ControlAction = "steered"
-	ActionResumed ControlAction = "resumed"
-	ActionStopped ControlAction = "stopped"
-	ActionClosed  ControlAction = "closed"
+	ActionSpawned      ControlAction = "spawned"
+	ActionSteered      ControlAction = "steered"
+	ActionResumed      ControlAction = "resumed"
+	ActionStopped      ControlAction = "stopped"
+	ActionClosed       ControlAction = "closed"
+	ActionBackgrounded ControlAction = "backgrounded"
+	ActionForegrounded ControlAction = "foregrounded"
 )
 
 type RunContext struct {
@@ -35,42 +39,59 @@ type RunContext struct {
 }
 
 type SpawnRequest struct {
-	ParentSessionID string
-	ParentAgentID   string
-	ChildSessionID  string
-	ChildSessionKey string
-	Label           string
-	Prompt          string
-	AllowedTools    []string
-	Model           string
-	Effort          string
-	Run             func(context.Context, RunContext) (string, error)
+	ParentSessionID         string
+	ParentAgentID           string
+	ChildSessionID          string
+	ChildSessionKey         string
+	Label                   string
+	Prompt                  string
+	AllowedTools            []string
+	Model                   string
+	Effort                  string
+	RunInBackground         bool
+	Isolation               string
+	CWD                     string
+	RemoteIsolationBoundary string
+	PermissionMode          string
+	PermissionInherited     bool
+	ParentRunID             string
+	ContinuationMode        string
+	OutputFile              string
+	Run                     func(context.Context, RunContext) (string, error)
 }
 
 type Run struct {
-	ID              string
-	ParentSessionID string
-	ParentAgentID   string
-	ChildSessionID  string
-	ChildSessionKey string
-	Label           string
-	Prompt          string
-	AllowedTools    []string
-	Model           string
-	Effort          string
-	Status          Status
-	LastAction      ControlAction
-	Attempt         int
-	Output          string
-	OutputFile      string
-	ErrorSummary    string
-	ControlMessages []string
-	CreatedAt       time.Time
-	StartedAt       time.Time
-	UpdatedAt       time.Time
-	CompletedAt     time.Time
-	LastActionAt    time.Time
-	Err             error
+	ID                      string
+	ParentSessionID         string
+	ParentAgentID           string
+	ChildSessionID          string
+	ChildSessionKey         string
+	Label                   string
+	Prompt                  string
+	AllowedTools            []string
+	Model                   string
+	Effort                  string
+	RunInBackground         bool
+	Isolation               string
+	CWD                     string
+	RemoteIsolationBoundary string
+	PermissionMode          string
+	PermissionInherited     bool
+	ParentRunID             string
+	ContinuationMode        string
+	Status                  Status
+	LastAction              ControlAction
+	Attempt                 int
+	Output                  string
+	OutputFile              string
+	ErrorSummary            string
+	ControlMessages         []string
+	CreatedAt               time.Time
+	StartedAt               time.Time
+	UpdatedAt               time.Time
+	CompletedAt             time.Time
+	LastActionAt            time.Time
+	Err                     error
 
 	cancel       context.CancelFunc
 	done         chan struct{}
@@ -78,15 +99,64 @@ type Run struct {
 }
 
 type Manager struct {
-	nextID atomic.Uint64
-	mu     sync.RWMutex
-	runs   map[string]*Run
+	nextID     atomic.Uint64
+	mu         sync.RWMutex
+	runs       map[string]*Run
+	hookMu     sync.RWMutex
+	updateHook func(Run)
 }
 
 func NewManager() *Manager {
 	return &Manager{
 		runs: make(map[string]*Run),
 	}
+}
+
+func (m *Manager) SetUpdateHook(hook func(Run)) {
+	m.hookMu.Lock()
+	defer m.hookMu.Unlock()
+	m.updateHook = hook
+}
+
+func (m *Manager) Restore(run Run) error {
+	if strings.TrimSpace(run.ID) == "" {
+		return fmt.Errorf("restored run id is required")
+	}
+	if run.Status == "" {
+		run.Status = StatusStopped
+	}
+	if run.Status == StatusRunning {
+		run.Status = StatusStopped
+		run.ErrorSummary = valueOrDefault(run.ErrorSummary, "recovered task has no live worker; resume required")
+	}
+	if run.Attempt == 0 {
+		run.Attempt = 1
+	}
+	if run.CreatedAt.IsZero() {
+		run.CreatedAt = time.Now().UTC()
+	}
+	if run.UpdatedAt.IsZero() {
+		run.UpdatedAt = run.CreatedAt
+	}
+	if run.LastActionAt.IsZero() {
+		run.LastActionAt = run.UpdatedAt
+	}
+	if run.Status != StatusRunning && run.CompletedAt.IsZero() && (run.Status == StatusCompleted || run.Status == StatusFailed || run.Status == StatusStopped || run.Status == StatusClosed) {
+		run.CompletedAt = run.UpdatedAt
+	}
+	m.mu.Lock()
+	cloned := cloneRun(&run)
+	m.runs[cloned.ID] = &cloned
+	if n, ok := parseRunCounter(cloned.ID); ok {
+		for {
+			current := m.nextID.Load()
+			if n <= current || m.nextID.CompareAndSwap(current, n) {
+				break
+			}
+		}
+	}
+	m.mu.Unlock()
+	return nil
 }
 
 func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (*Run, error) {
@@ -108,6 +178,7 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (*Run, error) {
 	snapshot := cloneRun(run)
 	m.mu.Unlock()
 
+	m.notifyUpdate(snapshot)
 	m.launch(req.Run, run, runCtx)
 	return &snapshot, nil
 }
@@ -140,6 +211,7 @@ func (m *Manager) Resume(ctx context.Context, id string, req SpawnRequest) (*Run
 			snapshot := cloneRun(run)
 			m.mu.Unlock()
 
+			m.notifyUpdate(snapshot)
 			m.launch(req.Run, run, runCtx)
 			return &snapshot, nil
 		}
@@ -231,6 +303,8 @@ func (m *Manager) Stop(id string) error {
 	if run.cancel != nil {
 		run.cancel()
 	}
+	snapshot := cloneRun(run)
+	go m.notifyUpdate(snapshot)
 	return nil
 }
 
@@ -253,6 +327,8 @@ func (m *Manager) Close(id string) error {
 	if run.CompletedAt.IsZero() {
 		run.CompletedAt = now
 	}
+	snapshot := cloneRun(run)
+	go m.notifyUpdate(snapshot)
 	return nil
 }
 
@@ -273,6 +349,8 @@ func (m *Manager) Steer(id, message string) error {
 	run.LastAction = ActionSteered
 	run.LastActionAt = now
 	run.UpdatedAt = now
+	snapshot := cloneRun(run)
+	go m.notifyUpdate(snapshot)
 	return nil
 }
 
@@ -310,6 +388,33 @@ func (m *Manager) SetOutputFile(id, path string) error {
 	}
 	run.OutputFile = path
 	run.UpdatedAt = time.Now().UTC()
+	snapshot := cloneRun(run)
+	go m.notifyUpdate(snapshot)
+	return nil
+}
+
+func (m *Manager) SetBackground(id string, background bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	run, ok := m.runs[id]
+	if !ok {
+		return fmt.Errorf("run %q not found", id)
+	}
+	if run.RunInBackground == background {
+		return nil
+	}
+	now := time.Now().UTC()
+	run.RunInBackground = background
+	if background {
+		run.LastAction = ActionBackgrounded
+	} else {
+		run.LastAction = ActionForegrounded
+	}
+	run.LastActionAt = now
+	run.UpdatedAt = now
+	snapshot := cloneRun(run)
+	go m.notifyUpdate(snapshot)
 	return nil
 }
 
@@ -334,11 +439,19 @@ func (m *Manager) configureRunLocked(run *Run, req SpawnRequest, action ControlA
 	run.AllowedTools = append([]string(nil), req.AllowedTools...)
 	run.Model = req.Model
 	run.Effort = req.Effort
+	run.RunInBackground = req.RunInBackground
+	run.Isolation = strings.TrimSpace(req.Isolation)
+	run.CWD = strings.TrimSpace(req.CWD)
+	run.RemoteIsolationBoundary = strings.TrimSpace(req.RemoteIsolationBoundary)
+	run.PermissionMode = strings.TrimSpace(req.PermissionMode)
+	run.PermissionInherited = req.PermissionInherited
+	run.ParentRunID = strings.TrimSpace(req.ParentRunID)
+	run.ContinuationMode = strings.TrimSpace(req.ContinuationMode)
 	run.Status = StatusRunning
 	run.LastAction = action
 	run.Attempt++
 	run.Output = ""
-	run.OutputFile = ""
+	run.OutputFile = strings.TrimSpace(req.OutputFile)
 	run.ErrorSummary = ""
 	run.StartedAt = now
 	run.UpdatedAt = now
@@ -383,13 +496,26 @@ func (m *Manager) launch(fn func(context.Context, RunContext) (string, error), r
 			live.Status = StatusFailed
 			live.Err = err
 			live.ErrorSummary = err.Error()
+			snapshot := cloneRun(live)
+			go m.notifyUpdate(snapshot)
 			return
 		}
 		live.Status = StatusCompleted
 		live.Output = output
 		live.ErrorSummary = ""
 		live.Err = nil
+		snapshot := cloneRun(live)
+		go m.notifyUpdate(snapshot)
 	}(run.ID, run.ChildSessionID, run.ChildSessionKey, run.done)
+}
+
+func (m *Manager) notifyUpdate(run Run) {
+	m.hookMu.RLock()
+	hook := m.updateHook
+	m.hookMu.RUnlock()
+	if hook != nil {
+		hook(run)
+	}
 }
 
 func cloneRun(run *Run) Run {
@@ -415,4 +541,19 @@ func attemptQuiesced(done chan struct{}) bool {
 	default:
 		return false
 	}
+}
+
+func parseRunCounter(id string) (uint64, bool) {
+	if !strings.HasPrefix(id, "agent-") {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(strings.TrimPrefix(id, "agent-"), 10, 64)
+	return n, err == nil
+}
+
+func valueOrDefault(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }

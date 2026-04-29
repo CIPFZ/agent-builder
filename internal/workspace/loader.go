@@ -1,22 +1,31 @@
 package workspace
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type Context struct {
-	Root  string
-	Files []File
+	Root        string
+	Files       []File
+	Fingerprint string
 }
 
 type File struct {
-	Name    string
-	Path    string
-	Type    string
-	Content string
+	Name        string
+	Path        string
+	Type        string
+	Content     string
+	Hash        string
+	Size        int64
+	ModTime     time.Time
+	Fingerprint string
 }
 
 type Loader struct {
@@ -118,15 +127,11 @@ func (l *Loader) Load() (Context, error) {
 		if content == "" {
 			continue
 		}
-		files = append(files, File{
-			Name:    name,
-			Path:    path,
-			Type:    "workspace",
-			Content: content,
-		})
+		files = append(files, newFile(name, path, "workspace", content, data))
 	}
 
 	ctx.Files = files
+	ctx.Fingerprint = contextFingerprint(ctx.Root, files)
 	return ctx, nil
 }
 
@@ -203,13 +208,51 @@ func loadInstructionFile(path string, seen map[string]struct{}) ([]File, error) 
 	if content == "" {
 		return files, nil
 	}
-	files = append(files, File{
-		Name:    filepath.Base(path),
-		Path:    path,
-		Type:    "instruction",
-		Content: content,
-	})
+	files = append(files, newFile(filepath.Base(path), path, "instruction", content, data))
 	return files, nil
+}
+
+func newFile(name, path, typ, content string, data []byte) File {
+	info, _ := os.Stat(path)
+	var modTime time.Time
+	var size int64
+	if info != nil {
+		modTime = info.ModTime().UTC()
+		size = info.Size()
+	}
+	sum := sha256.Sum256(data)
+	hash := hex.EncodeToString(sum[:])
+	return File{
+		Name:        name,
+		Path:        filepath.Clean(path),
+		Type:        typ,
+		Content:     content,
+		Hash:        hash,
+		Size:        size,
+		ModTime:     modTime,
+		Fingerprint: fileFingerprint(path, hash, size),
+	}
+}
+
+func fileFingerprint(path, hash string, size int64) string {
+	sum := sha256.Sum256([]byte(filepath.ToSlash(filepath.Clean(path)) + "\x00" + hash + "\x00" + strconv.FormatInt(size, 10)))
+	return hex.EncodeToString(sum[:])
+}
+
+func contextFingerprint(root string, files []File) string {
+	h := sha256.New()
+	h.Write([]byte(filepath.ToSlash(filepath.Clean(root))))
+	for _, file := range files {
+		h.Write([]byte{0})
+		h.Write([]byte(filepath.ToSlash(filepath.Clean(file.Path))))
+		h.Write([]byte{0})
+		h.Write([]byte(file.Type))
+		h.Write([]byte{0})
+		h.Write([]byte(file.Hash))
+		h.Write([]byte{0})
+		h.Write([]byte(strconv.FormatInt(file.Size, 10)))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func loadRuleFiles(root string, seen map[string]struct{}) ([]File, error) {

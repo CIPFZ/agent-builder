@@ -678,6 +678,16 @@ func TestSessionStorePersistsSessionMetadataAcrossReload(t *testing.T) {
 			LastCompactBoundaryID:   "compact-1",
 			LastCompactionSummaryID: "summary-1",
 			LastCompactionReason:    "message-limit",
+			AgentRuns: []model.AgentRunMetadata{{
+				ID:              "agent-000001",
+				ParentSessionID: "main-000001",
+				ParentAgentID:   "main",
+				ChildSessionID:  "child-000001",
+				ChildSessionKey: "agent:main:child:agent-000001",
+				Label:           "research",
+				Status:          "completed",
+				Output:          "done",
+			}},
 		},
 	}
 	store.SaveSession(sess)
@@ -699,6 +709,9 @@ func TestSessionStorePersistsSessionMetadataAcrossReload(t *testing.T) {
 	}
 	if got.Metadata.LastCompactionReason != "message-limit" {
 		t.Fatalf("metadata = %#v, want persisted compaction reason", got.Metadata)
+	}
+	if len(got.Metadata.AgentRuns) != 1 || got.Metadata.AgentRuns[0].ID != "agent-000001" || got.Metadata.AgentRuns[0].Output != "done" {
+		t.Fatalf("metadata agent runs = %#v, want persisted visible run", got.Metadata.AgentRuns)
 	}
 }
 

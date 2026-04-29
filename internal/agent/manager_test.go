@@ -48,6 +48,46 @@ func TestManagerSpawnAndWait(t *testing.T) {
 	}
 }
 
+func TestManagerPersistsBackgroundTransitionMetadata(t *testing.T) {
+	manager := agent.NewManager()
+	block := make(chan struct{})
+	defer close(block)
+
+	run, err := manager.Spawn(context.Background(), agent.SpawnRequest{
+		ParentSessionID:         "main-000001",
+		ParentAgentID:           "main",
+		Label:                   "research",
+		Prompt:                  "Investigate the failing test",
+		RunInBackground:         false,
+		Isolation:               "local",
+		CWD:                     "C:/repo/services/api",
+		RemoteIsolationBoundary: "remote:disabled",
+		PermissionMode:          "ask",
+		PermissionInherited:     true,
+		Run: func(context.Context, agent.RunContext) (string, error) {
+			<-block
+			return "done", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+
+	if err := manager.SetBackground(run.ID, true); err != nil {
+		t.Fatalf("set background: %v", err)
+	}
+	updated, ok := manager.Get(run.ID)
+	if !ok {
+		t.Fatal("run not found")
+	}
+	if !updated.RunInBackground || updated.LastAction != agent.ActionBackgrounded {
+		t.Fatalf("run = %#v, want backgrounded transition", updated)
+	}
+	if updated.CWD != "C:/repo/services/api" || updated.PermissionMode != "ask" || !updated.PermissionInherited {
+		t.Fatalf("run = %#v, want isolation metadata retained", updated)
+	}
+}
+
 func TestManagerListRunsIncludesActiveAndCompleted(t *testing.T) {
 	manager := agent.NewManager()
 	block := make(chan struct{})

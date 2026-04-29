@@ -14,6 +14,7 @@ import (
 
 type Session = model.Session
 type SessionMetadata = model.SessionMetadata
+type AgentRunMetadata = model.AgentRunMetadata
 
 type Manager struct {
 	nextID    atomic.Uint64

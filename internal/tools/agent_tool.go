@@ -19,12 +19,17 @@ type AgentTaskRunner func(context.Context, session.Session, agent.RunContext, st
 type AgentTaskExecutor func(context.Context, AgentTaskRequest) (ToolResult, error)
 
 type AgentTaskRequest struct {
-	ToolContext      ToolUseContext
-	Label            string
-	Prompt           string
-	AgentType        string
-	RunInBackground  bool
-	Isolation        string
+	ToolContext             ToolUseContext
+	Label                   string
+	Prompt                  string
+	AgentType               string
+	RunInBackground         bool
+	Isolation               string
+	CWD                     string
+	RemoteIsolationBoundary string
+	AllowedTools            []string
+	PermissionMode          string
+	OutputFile              string
 }
 
 type AgentTaskTool struct {
@@ -60,10 +65,16 @@ func (t *AgentTaskTool) Definition() Definition {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"description":   map[string]any{"type": "string"},
-				"prompt":        map[string]any{"type": "string"},
-				"subagent_type": map[string]any{"type": "string"},
-				"isolation":     map[string]any{"type": "string"},
+				"description":       map[string]any{"type": "string"},
+				"prompt":            map[string]any{"type": "string"},
+				"subagent_type":     map[string]any{"type": "string"},
+				"run_in_background": map[string]any{"type": "boolean"},
+				"isolation":         map[string]any{"type": "string"},
+				"cwd":               map[string]any{"type": "string"},
+				"remote_boundary":   map[string]any{"type": "string"},
+				"allowed_tools":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"permission_mode":   map[string]any{"type": "string"},
+				"output_file":       map[string]any{"type": "string"},
 			},
 			"required": []string{"description", "prompt"},
 		},
@@ -359,13 +370,38 @@ func structuredAgentTaskRequest(input string) (AgentTaskRequest, bool) {
 	subagentType, _ := object["subagent_type"].(string)
 	runInBackground, _ := object["run_in_background"].(bool)
 	isolation, _ := object["isolation"].(string)
+	cwd, _ := object["cwd"].(string)
+	remoteBoundary, _ := object["remote_boundary"].(string)
+	permissionMode, _ := object["permission_mode"].(string)
+	outputFile, _ := object["output_file"].(string)
 	return AgentTaskRequest{
-		Label:           strings.TrimSpace(description),
-		Prompt:          strings.TrimSpace(prompt),
-		AgentType:       strings.TrimSpace(subagentType),
-		RunInBackground: runInBackground,
-		Isolation:       strings.TrimSpace(isolation),
+		Label:                   strings.TrimSpace(description),
+		Prompt:                  strings.TrimSpace(prompt),
+		AgentType:               strings.TrimSpace(subagentType),
+		RunInBackground:         runInBackground,
+		Isolation:               strings.TrimSpace(isolation),
+		CWD:                     strings.TrimSpace(cwd),
+		RemoteIsolationBoundary: strings.TrimSpace(remoteBoundary),
+		AllowedTools:            stringListFromAny(object["allowed_tools"]),
+		PermissionMode:          strings.TrimSpace(permissionMode),
+		OutputFile:              strings.TrimSpace(outputFile),
 	}, true
+}
+
+func stringListFromAny(value any) []string {
+	values, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, item := range values {
+		text, _ := item.(string)
+		text = strings.TrimSpace(text)
+		if text != "" {
+			out = append(out, text)
+		}
+	}
+	return out
 }
 
 func agentTaskExecutorFromAppState(appState map[string]any) AgentTaskExecutor {

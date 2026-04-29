@@ -352,12 +352,17 @@ func (s *Server) handleClient(client *Client) error {
 			}
 
 			run, err := s.runner.SpawnSubagentWithOptions(context.Background(), sess, spawnPayload.Label, spawnPayload.Prompt, runtime.SubagentOptions{
-				AllowedTools: append([]string(nil), spawnPayload.AllowedTools...),
-				Model:        strings.TrimSpace(spawnPayload.Model),
-				Effort:       strings.TrimSpace(spawnPayload.Effort),
-				AgentType:    strings.TrimSpace(spawnPayload.AgentType),
-				Isolation:    strings.TrimSpace(spawnPayload.Isolation),
-				UseFork:      spawnPayload.UseFork,
+				AllowedTools:            append([]string(nil), spawnPayload.AllowedTools...),
+				Model:                   strings.TrimSpace(spawnPayload.Model),
+				Effort:                  strings.TrimSpace(spawnPayload.Effort),
+				AgentType:               strings.TrimSpace(spawnPayload.AgentType),
+				Isolation:               strings.TrimSpace(spawnPayload.Isolation),
+				CWD:                     strings.TrimSpace(spawnPayload.CWD),
+				RemoteIsolationBoundary: strings.TrimSpace(spawnPayload.RemoteIsolationBoundary),
+				PermissionMode:          strings.TrimSpace(spawnPayload.PermissionMode),
+				RunInBackground:         spawnPayload.RunInBackground,
+				OutputFile:              strings.TrimSpace(spawnPayload.OutputFile),
+				UseFork:                 spawnPayload.UseFork,
 			})
 			if err != nil {
 				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
@@ -389,27 +394,11 @@ func (s *Server) handleClient(client *Client) error {
 				}
 				continue
 			}
-			messages, _ := s.sessionManager.Messages(targetSession.ID)
 			if err := client.WriteJSON(protocolws.Message{
-				Type: protocolws.TypeResponse,
-				ID:   inbound.ID,
-				OK:   true,
-				Payload: map[string]any{
-					"session_id":                       targetSession.ID,
-					"session_key":                      targetSession.Key,
-					"agent_id":                         targetSession.AgentID,
-					"is_main":                          targetSession.IsMain,
-					"message_count":                    len(messages),
-					"permission_mode":                  string(s.runner.PermissionPolicyForSession(targetSession.ID).Mode),
-					"subagent_mode":                    string(s.runner.PermissionPolicyForSession(targetSession.ID).SubagentMode),
-					"plan_mode":                        s.runner.PermissionPolicyForSession(targetSession.ID).PlanMode,
-					"auto_mode":                        s.runner.PermissionPolicyForSession(targetSession.ID).AutoMode,
-					"workspace_roots":                  toAnySlice(s.runner.PermissionPolicyForSession(targetSession.ID).WorkspaceRoots),
-					"main_loop_model":                  s.runner.BaseMainLoopModelForSession(targetSession.ID),
-					"session_main_loop_model_override": s.runner.SessionMainLoopModelOverride(targetSession.ID),
-					"resolved_main_loop_model":         s.runner.ResolvedMainLoopModelForSession(targetSession.ID),
-					"tool_contracts":                   toolContractsPayload(s.runner.ToolContractsForSession(targetSession.ID)),
-				},
+				Type:    protocolws.TypeResponse,
+				ID:      inbound.ID,
+				OK:      true,
+				Payload: s.sessionStatusPayload(targetSession),
 			}); err != nil {
 				return err
 			}
@@ -653,6 +642,24 @@ func (s *Server) handleClient(client *Client) error {
 					"inventory": mcpInventoryPayload(s.runner.MCPInventory()),
 					"server":    mcpServerPayload(serverSnapshot),
 					"auth":      mcpAuthStartPayload(authResult),
+				},
+			}); err != nil {
+				return err
+			}
+		case protocolws.MethodExtensionInventory:
+			targetSession, resolveErr := s.resolveSessionForStatus(client, protocolws.SessionStatusPayload{})
+			if resolveErr != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, resolveErr.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := client.WriteJSON(protocolws.Message{
+				Type: protocolws.TypeResponse,
+				ID:   inbound.ID,
+				OK:   true,
+				Payload: map[string]any{
+					"inventory": extensionInventoryPayload(s.runner.ExtensionInventory(targetSession.ID)),
 				},
 			}); err != nil {
 				return err
@@ -1922,6 +1929,11 @@ func parseSpawnSubagentPayload(payload map[string]any) (protocolws.SpawnSubagent
 			spawnPayload.AgentType = strings.TrimSpace(legacy)
 		}
 	}
+	if strings.TrimSpace(spawnPayload.RemoteIsolationBoundary) == "" {
+		if legacy, _ := payload["remote_boundary"].(string); strings.TrimSpace(legacy) != "" {
+			spawnPayload.RemoteIsolationBoundary = strings.TrimSpace(legacy)
+		}
+	}
 	if spawnPayload.Prompt == "" {
 		return protocolws.SpawnSubagentPayload{}, &connectError{message: "spawn_subagent payload requires prompt"}
 	}
@@ -2046,6 +2058,130 @@ func mcpInventoryPayload(inventory runtime.MCPInventory) map[string]any {
 	}
 }
 
+func extensionInventoryPayload(inventory runtime.ExtensionInventory) map[string]any {
+	return map[string]any{
+		"summary":               extensionInventorySummaryPayload(inventory.Summary),
+		"tools":                 extensionToolPayloads(inventory.Tools),
+		"commands":              extensionCommandPayloads(inventory.Commands),
+		"skills":                extensionSkillPayloads(inventory.Skills),
+		"mcp_servers":           mcpServerPayloads(inventory.MCPServers),
+		"lsp_boundaries":        extensionBoundaryPayloads(inventory.LSPBoundaries),
+		"deferred_capabilities": stringsToAnySlice(inventory.DeferredCapabilities),
+	}
+}
+
+func extensionInventorySummaryPayload(summary runtime.ExtensionInventorySummary) map[string]any {
+	return map[string]any{
+		"tool_count":         summary.ToolCount,
+		"command_count":      summary.CommandCount,
+		"skill_count":        summary.SkillCount,
+		"mcp_server_count":   summary.MCPServerCount,
+		"lsp_boundary_count": summary.LSPBoundaryCount,
+	}
+}
+
+func extensionToolPayloads(toolItems []runtime.ExtensionTool) []map[string]any {
+	items := make([]map[string]any, 0, len(toolItems))
+	for _, tool := range toolItems {
+		items = append(items, map[string]any{
+			"name":         tool.Name,
+			"aliases":      stringsToAnySlice(tool.Aliases),
+			"description":  tool.Description,
+			"input_schema": tool.InputSchema,
+			"source":       tool.Source,
+			"search_hint":  tool.SearchHint,
+			"enabled":      tool.Enabled,
+			"read_only":    tool.ReadOnly,
+			"destructive":  tool.Destructive,
+			"should_defer": tool.ShouldDefer,
+			"always_load":  tool.AlwaysLoad,
+		})
+	}
+	return items
+}
+
+func extensionCommandPayloads(commands []runtime.ExtensionCommand) []map[string]any {
+	items := make([]map[string]any, 0, len(commands))
+	for _, command := range commands {
+		items = append(items, map[string]any{
+			"type":                           command.Type,
+			"name":                           command.Name,
+			"aliases":                        stringsToAnySlice(command.Aliases),
+			"description":                    command.Description,
+			"argument_hint":                  command.ArgumentHint,
+			"category":                       command.Category,
+			"visibility":                     command.Visibility,
+			"behavior":                       command.Behavior,
+			"source":                         command.Source,
+			"loaded_from":                    command.LoadedFrom,
+			"has_user_specified_description": command.HasUserSpecifiedDescription,
+			"when_to_use":                    command.WhenToUse,
+			"disable_model_invocation":       command.DisableModelInvocation,
+			"user_invocable":                 command.UserInvocable,
+			"is_hidden":                      command.IsHidden,
+		})
+	}
+	return items
+}
+
+func extensionSkillPayloads(skills []runtime.ExtensionSkill) []map[string]any {
+	items := make([]map[string]any, 0, len(skills))
+	for _, skill := range skills {
+		items = append(items, map[string]any{
+			"name":                     skill.Name,
+			"display_name":             skill.DisplayName,
+			"description":              skill.Description,
+			"when_to_use":              skill.WhenToUse,
+			"version":                  skill.Version,
+			"source":                   skill.Source,
+			"loaded_from":              skill.LoadedFrom,
+			"user_invocable":           skill.UserInvocable,
+			"argument_hint":            skill.ArgumentHint,
+			"path":                     skill.Path,
+			"argument_names":           stringsToAnySlice(skill.ArgumentNames),
+			"allowed_tools":            stringsToAnySlice(skill.AllowedTools),
+			"model":                    skill.Model,
+			"context":                  skill.Context,
+			"agent":                    skill.Agent,
+			"effort":                   skill.Effort,
+			"paths":                    stringsToAnySlice(skill.Paths),
+			"shell":                    skill.Shell,
+			"hooks":                    skill.Hooks,
+			"disable_model_invocation": skill.DisableModelInvocation,
+			"mcp_prompt":               skill.MCPPrompt,
+			"mcp_server":               skill.MCPServer,
+			"mcp_prompt_name":          skill.MCPPromptName,
+			"remote_canonical":         skill.RemoteCanonical,
+		})
+	}
+	return items
+}
+
+func extensionBoundaryPayloads(boundaries []runtime.ExtensionBoundary) []map[string]any {
+	items := make([]map[string]any, 0, len(boundaries))
+	for _, boundary := range boundaries {
+		items = append(items, map[string]any{
+			"name":   boundary.Name,
+			"kind":   boundary.Kind,
+			"status": boundary.Status,
+			"phase":  boundary.Phase,
+			"notes":  boundary.Notes,
+		})
+	}
+	return items
+}
+
+func stringsToAnySlice(values []string) []any {
+	if len(values) == 0 {
+		return []any{}
+	}
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, value)
+	}
+	return out
+}
+
 func sessionSummaryPayload(sess session.Session, messages []session.Message) map[string]any {
 	lastActivity := sess.Metadata.LastActivityAt
 	lastUserMessage := ""
@@ -2090,6 +2226,140 @@ func sessionMessagePayload(message session.Message) map[string]any {
 		"content":    message.Content,
 		"created_at": message.CreatedAt.Format(time.RFC3339Nano),
 	}
+}
+
+func (s *Server) sessionStatusPayload(targetSession session.Session) map[string]any {
+	messages, _ := s.sessionManager.Messages(targetSession.ID)
+	policy := s.runner.PermissionPolicyForSession(targetSession.ID)
+	payload := map[string]any{
+		"session_id":                       targetSession.ID,
+		"session_key":                      targetSession.Key,
+		"agent_id":                         targetSession.AgentID,
+		"is_main":                          targetSession.IsMain,
+		"message_count":                    len(messages),
+		"permission_mode":                  string(policy.Mode),
+		"subagent_mode":                    string(policy.SubagentMode),
+		"plan_mode":                        policy.PlanMode,
+		"auto_mode":                        policy.AutoMode,
+		"workspace_roots":                  toAnySlice(policy.WorkspaceRoots),
+		"main_loop_model":                  s.runner.BaseMainLoopModelForSession(targetSession.ID),
+		"session_main_loop_model_override": s.runner.SessionMainLoopModelOverride(targetSession.ID),
+		"resolved_main_loop_model":         s.runner.ResolvedMainLoopModelForSession(targetSession.ID),
+		"tool_contracts":                   toolContractsPayload(s.runner.ToolContractsForSession(targetSession.ID)),
+	}
+	if snapshot, err := s.runner.ContinuationSnapshot(targetSession.ID); err != nil {
+		payload["continuation"] = map[string]any{
+			"status":           string(session.ContinuationStatusAwaitingAssistant),
+			"ready_for_prompt": false,
+			"recovery_error":   err.Error(),
+		}
+	} else {
+		payload["continuation"] = continuationPayload(snapshot)
+	}
+	return payload
+}
+
+func continuationPayload(snapshot runtime.ContinuationSnapshot) map[string]any {
+	payload := map[string]any{
+		"session_id":             snapshot.SessionID,
+		"session_key":            snapshot.SessionKey,
+		"agent_id":               snapshot.AgentID,
+		"is_main":                snapshot.IsMain,
+		"status":                 string(snapshot.Status),
+		"ready_for_prompt":       snapshot.ReadyForPrompt,
+		"resume_from_message_id": snapshot.ResumeFromMessageID,
+		"resume_from_role":       snapshot.ResumeFromRole,
+		"has_compaction":         snapshot.HasCompaction,
+		"tasks":                  taskContinuationPayloads(snapshot.Tasks),
+	}
+	if snapshot.RecoveryError != "" {
+		payload["recovery_error"] = snapshot.RecoveryError
+	}
+	if snapshot.PendingApproval != nil {
+		payload["pending_approval"] = approvalContinuationPayload(*snapshot.PendingApproval)
+	}
+	return payload
+}
+
+func approvalContinuationPayload(request approval.Request) map[string]any {
+	payload := map[string]any{
+		"id":                  request.ID,
+		"session_id":          request.SessionID,
+		"run_id":              request.RunID,
+		"user_message_id":     request.UserMessageID,
+		"tool_name":           request.ToolName,
+		"tool_input":          request.ToolInput,
+		"tool_use_id":         request.ToolUseID,
+		"provider_message_id": request.ProviderMessageID,
+		"status":              string(request.Status),
+		"reason":              request.Reason,
+		"decision_reason":     request.DecisionReason,
+		"accept_feedback":     request.AcceptFeedback,
+		"category":            request.Category,
+		"rule_source":         request.RuleSource,
+	}
+	if request.ToolInputObject != nil {
+		payload["tool_input_object"] = request.ToolInputObject
+	}
+	return payload
+}
+
+func taskContinuationPayloads(tasks []runtime.TaskSnapshot) []map[string]any {
+	items := make([]map[string]any, 0, len(tasks))
+	for _, task := range tasks {
+		item := map[string]any{
+			"run_id":            task.RunID,
+			"parent_session_id": task.ParentSessionID,
+			"label":             task.Label,
+			"prompt":            task.Prompt,
+			"status":            task.Status,
+			"child_session_id":  task.ChildSessionID,
+			"child_session_key": task.ChildSessionKey,
+			"attempt":           task.Attempt,
+			"last_action":       task.LastAction,
+		}
+		if task.Output != "" {
+			item["output"] = task.Output
+		}
+		if task.OutputFile != "" {
+			item["output_file"] = task.OutputFile
+		}
+		if task.RunInBackground {
+			item["run_in_background"] = true
+		}
+		if task.Isolation != "" {
+			item["isolation"] = task.Isolation
+		}
+		if task.CWD != "" {
+			item["cwd"] = task.CWD
+		}
+		if task.RemoteIsolationBoundary != "" {
+			item["remote_isolation_boundary"] = task.RemoteIsolationBoundary
+		}
+		if task.PermissionMode != "" {
+			item["permission_mode"] = task.PermissionMode
+		}
+		if task.PermissionInherited {
+			item["permission_inherited"] = true
+		}
+		if len(task.AllowedTools) > 0 {
+			item["allowed_tools"] = toAnySlice(task.AllowedTools)
+		}
+		if task.ParentRunID != "" {
+			item["parent_run_id"] = task.ParentRunID
+		}
+		if task.ContinuationMode != "" {
+			item["continuation_mode"] = task.ContinuationMode
+		}
+		if task.Error != "" {
+			item["error"] = task.Error
+		}
+		if len(task.ControlMessages) > 0 {
+			item["control_messages"] = toAnySlice(task.ControlMessages)
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 func mcpServerPayloads(servers []runtime.MCPServerSnapshot) []map[string]any {
@@ -2293,6 +2563,33 @@ func subagentPayload(run agent.Run) map[string]any {
 	}
 	if run.OutputFile != "" {
 		payload["output_file"] = run.OutputFile
+	}
+	if run.RunInBackground {
+		payload["run_in_background"] = true
+	}
+	if run.Isolation != "" {
+		payload["isolation"] = run.Isolation
+	}
+	if run.CWD != "" {
+		payload["cwd"] = run.CWD
+	}
+	if run.RemoteIsolationBoundary != "" {
+		payload["remote_isolation_boundary"] = run.RemoteIsolationBoundary
+	}
+	if run.PermissionMode != "" {
+		payload["permission_mode"] = run.PermissionMode
+	}
+	if run.PermissionInherited {
+		payload["permission_inherited"] = true
+	}
+	if len(run.AllowedTools) > 0 {
+		payload["allowed_tools"] = toAnySlice(run.AllowedTools)
+	}
+	if run.ParentRunID != "" {
+		payload["parent_run_id"] = run.ParentRunID
+	}
+	if run.ContinuationMode != "" {
+		payload["continuation_mode"] = run.ContinuationMode
 	}
 	if run.ErrorSummary != "" {
 		payload["error"] = run.ErrorSummary

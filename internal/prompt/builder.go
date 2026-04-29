@@ -60,7 +60,7 @@ func Build(input BuildInput) Context {
 	toolLines := buildToolLines(input.Tools)
 	return Context{
 		SystemPrompt:       buildSystemPrompt(input),
-		HistoryLines:       buildHistoryLines(input.History, input.UserMessage.ID),
+		HistoryLines:       buildHistoryLines(ProjectHistory(input.History, ProjectionOptions{CurrentUserMessageID: input.UserMessage.ID}), input.UserMessage.ID),
 		UserInput:          input.UserMessage.Content,
 		UserContextLines:   append([]string(nil), input.UserContextLines...),
 		SystemContextLines: append([]string(nil), input.SystemContextLines...),

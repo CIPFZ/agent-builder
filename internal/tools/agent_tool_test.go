@@ -265,9 +265,9 @@ func TestAgentTaskToolInvokeWithContextUsesAgentTaskExecutor(t *testing.T) {
 	sess := session.NewManager(nil).GetOrCreateMain("main")
 
 	result, err := tool.InvokeWithContext(context.Background(), tools.ToolUseContext{
-		Session: sess,
+		Session:  sess,
 		ToolName: "agent.task",
-		Input: `{"description":"research","prompt":"inspect auth flow","subagent_type":"researcher","isolation":"worktree"}`,
+		Input:    `{"description":"research","prompt":"inspect auth flow","subagent_type":"researcher","isolation":"worktree"}`,
 		AppState: map[string]any{
 			"agentTaskExecutor": tools.AgentTaskExecutor(func(_ context.Context, request tools.AgentTaskRequest) (tools.ToolResult, error) {
 				got = request
@@ -283,6 +283,49 @@ func TestAgentTaskToolInvokeWithContextUsesAgentTaskExecutor(t *testing.T) {
 	}
 	if result.Output != `{"status":"spawned","runId":"agent-1"}` {
 		t.Fatalf("result = %#v, want executor output", result)
+	}
+}
+
+func TestAgentTaskToolDefinitionExposesRunInBackgroundSchema(t *testing.T) {
+	tool := tools.NewClaudeAgentTool(agent.NewManager(), nil)
+	schema := tool.Definition().InputSchema
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %#v, want object", schema["properties"])
+	}
+	runInBackground, ok := properties["run_in_background"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %#v, want run_in_background schema", properties)
+	}
+	if got := runInBackground["type"]; got != "boolean" {
+		t.Fatalf("run_in_background type = %#v, want boolean", got)
+	}
+}
+
+func TestAgentTaskToolStructuredPromptProjectsIsolationControls(t *testing.T) {
+	projected, ok := tools.ProjectStructuredAgentTaskInputForTest(`{
+		"description":"research",
+		"prompt":"inspect auth flow",
+		"subagent_type":"researcher",
+		"run_in_background":true,
+		"isolation":"worktree",
+		"cwd":"C:/repo/services/api",
+		"remote_boundary":"remote:disabled",
+		"allowed_tools":["Read","Grep"],
+		"permission_mode":"ask",
+		"output_file":"C:/tmp/research.log"
+	}`)
+	if !ok {
+		t.Fatal("expected structured input to parse")
+	}
+	if !projected.RunInBackground || projected.Isolation != "worktree" || projected.CWD != "C:/repo/services/api" {
+		t.Fatalf("projection = %#v, want parsed isolation controls", projected)
+	}
+	if projected.RemoteIsolationBoundary != "remote:disabled" || projected.PermissionMode != "ask" || projected.OutputFile != "C:/tmp/research.log" {
+		t.Fatalf("projection = %#v, want parsed boundary, permission, output controls", projected)
+	}
+	if strings.Join(projected.AllowedTools, ",") != "Read,Grep" {
+		t.Fatalf("allowed tools = %#v, want Read,Grep", projected.AllowedTools)
 	}
 }
 
