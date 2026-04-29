@@ -446,6 +446,61 @@ type MCPServerSnapshot struct {
 	Error                   string
 }
 
+type ExtensionInventory struct {
+	Summary              ExtensionInventorySummary
+	Tools                []ExtensionTool
+	Commands             []ExtensionCommand
+	Skills               []ExtensionSkill
+	MCPServers           []MCPServerSnapshot
+	LSPBoundaries        []ExtensionBoundary
+	DeferredCapabilities []string
+}
+
+type ExtensionInventorySummary struct {
+	ToolCount        int
+	CommandCount     int
+	SkillCount       int
+	MCPServerCount   int
+	LSPBoundaryCount int
+}
+
+type ExtensionTool struct {
+	Name        string
+	Aliases     []string
+	Description string
+	InputSchema map[string]any
+	Source      string
+	SearchHint  string
+	Enabled     bool
+	ReadOnly    bool
+	Destructive bool
+	ShouldDefer bool
+	AlwaysLoad  bool
+}
+
+type ExtensionCommand struct {
+	Type                        string
+	Name                        string
+	Description                 string
+	Source                      string
+	LoadedFrom                  string
+	HasUserSpecifiedDescription bool
+	WhenToUse                   string
+	DisableModelInvocation      bool
+	UserInvocable               bool
+	IsHidden                    bool
+}
+
+type ExtensionSkill = tools.SkillExtensionInventory
+
+type ExtensionBoundary struct {
+	Name   string
+	Kind   string
+	Status string
+	Phase  string
+	Notes  string
+}
+
 type QueryEngine struct {
 	nextRunID                  atomic.Uint64
 	nextBoundaryID             atomic.Uint64
@@ -1409,6 +1464,157 @@ func (q *QueryEngine) MCPInventory() MCPInventory {
 		inventory.SkillCount += len(skills)
 	}
 	return inventory
+}
+
+func (q *QueryEngine) ExtensionInventory(sessionID string) ExtensionInventory {
+	if q == nil {
+		return ExtensionInventory{
+			LSPBoundaries:        defaultLSPBoundaries(),
+			DeferredCapabilities: defaultDeferredExtensionCapabilities(),
+		}
+	}
+	toolsProjection := q.extensionTools(sessionID)
+	commands := q.extensionCommands()
+	skills := q.extensionSkills()
+	servers := q.MCPServers()
+	boundaries := defaultLSPBoundaries()
+	deferred := defaultDeferredExtensionCapabilities()
+	return ExtensionInventory{
+		Summary: ExtensionInventorySummary{
+			ToolCount:        len(toolsProjection),
+			CommandCount:     len(commands),
+			SkillCount:       len(skills),
+			MCPServerCount:   len(servers),
+			LSPBoundaryCount: len(boundaries),
+		},
+		Tools:                toolsProjection,
+		Commands:             commands,
+		Skills:               skills,
+		MCPServers:           servers,
+		LSPBoundaries:        boundaries,
+		DeferredCapabilities: deferred,
+	}
+}
+
+func (q *QueryEngine) extensionTools(sessionID string) []ExtensionTool {
+	if q == nil || q.tools == nil {
+		return nil
+	}
+	contracts := q.tools.Contracts(tools.ContractOptions{
+		Policy:          q.PermissionPolicyForSession(sessionID),
+		IncludeDeferred: true,
+	})
+	out := make([]ExtensionTool, 0, len(contracts))
+	for _, contract := range contracts {
+		out = append(out, ExtensionTool{
+			Name:        strings.TrimSpace(contract.Name),
+			Aliases:     compactAndSortStrings(contract.Aliases),
+			Description: strings.TrimSpace(contract.Description),
+			InputSchema: cloneAnyMap(contract.InputSchema),
+			Source:      strings.TrimSpace(contract.Source),
+			SearchHint:  strings.TrimSpace(contract.SearchHint),
+			Enabled:     contract.Enabled,
+			ReadOnly:    contract.ReadOnly,
+			Destructive: contract.Destructive,
+			ShouldDefer: contract.ShouldDefer,
+			AlwaysLoad:  contract.AlwaysLoad,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out
+}
+
+func (q *QueryEngine) extensionCommands() []ExtensionCommand {
+	if q == nil || len(q.commands) == 0 {
+		return nil
+	}
+	out := make([]ExtensionCommand, 0, len(q.commands))
+	for _, command := range q.commands {
+		if strings.TrimSpace(command.Name) == "" {
+			continue
+		}
+		out = append(out, ExtensionCommand{
+			Type:                        strings.TrimSpace(command.Type),
+			Name:                        strings.TrimSpace(command.Name),
+			Description:                 strings.TrimSpace(command.Description),
+			Source:                      strings.TrimSpace(command.Source),
+			LoadedFrom:                  strings.TrimSpace(command.LoadedFrom),
+			HasUserSpecifiedDescription: command.HasUserSpecifiedDescription,
+			WhenToUse:                   strings.TrimSpace(command.WhenToUse),
+			DisableModelInvocation:      command.DisableModelInvocation,
+			UserInvocable:               command.UserInvocable,
+			IsHidden:                    command.IsHidden,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out
+}
+
+func (q *QueryEngine) extensionSkills() []ExtensionSkill {
+	if q == nil {
+		return nil
+	}
+	q.toolContextMu.Lock()
+	mcpSkills := cloneMCPSkills(q.mcpSkills)
+	q.toolContextMu.Unlock()
+
+	out := make([]ExtensionSkill, 0)
+	add := func(skills []tools.SkillCommand, source string) {
+		for _, skill := range skills {
+			item := tools.SkillExtensionInventoryItem(skill, source)
+			if item.Name == "" {
+				continue
+			}
+			out = append(out, item)
+		}
+	}
+	add(tools.GetBundledSkills(), "bundled")
+	add(tools.GetBuiltinPluginSkillCommands(), "plugin")
+	add(tools.GetDynamicSkills(), "dynamic")
+	servers := make([]string, 0, len(mcpSkills))
+	for server := range mcpSkills {
+		servers = append(servers, server)
+	}
+	sort.Strings(servers)
+	for _, server := range servers {
+		skills := append([]tools.SkillCommand(nil), mcpSkills[server]...)
+		for i := range skills {
+			if strings.TrimSpace(skills[i].MCPServer) == "" {
+				skills[i].MCPServer = server
+			}
+			if strings.TrimSpace(skills[i].Source) == "" {
+				skills[i].Source = "mcp"
+			}
+		}
+		add(skills, "mcp")
+	}
+	sort.Slice(out, func(i, j int) bool {
+		left := strings.ToLower(out[i].Name)
+		right := strings.ToLower(out[j].Name)
+		if left != right {
+			return left < right
+		}
+		return strings.ToLower(out[i].Source) < strings.ToLower(out[j].Source)
+	})
+	return out
+}
+
+func defaultLSPBoundaries() []ExtensionBoundary {
+	return []ExtensionBoundary{{
+		Name:   "language-server-protocol",
+		Kind:   "lsp",
+		Status: "deferred",
+		Phase:  "P2/P3",
+		Notes:  "Schema boundary only; full LSP lifecycle is deferred.",
+	}}
+}
+
+func defaultDeferredExtensionCapabilities() []string {
+	return []string{"plugin_marketplace", "remote_extension_lifecycle"}
 }
 
 func (q *QueryEngine) MCPServers() []MCPServerSnapshot {

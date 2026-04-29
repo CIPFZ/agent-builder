@@ -150,6 +150,7 @@ const (
 	MethodMCPStatus                         = "mcp_status"
 	MethodMCPReconnect                      = "mcp_reconnect"
 	MethodMCPAuthenticate                   = "mcp_authenticate"
+	MethodExtensionInventory                = "extension_inventory"
 	MethodOrchestrationStatus               = "orchestration_status"
 	MethodOrchestrationHistory              = "orchestration_history"
 	MethodOrchestrationSummary              = "orchestration_summary"

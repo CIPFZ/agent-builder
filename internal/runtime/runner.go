@@ -133,6 +133,12 @@ type Runner struct {
 
 type MCPInventory = queryengine.MCPInventory
 type MCPServerSnapshot = queryengine.MCPServerSnapshot
+type ExtensionInventory = queryengine.ExtensionInventory
+type ExtensionInventorySummary = queryengine.ExtensionInventorySummary
+type ExtensionTool = queryengine.ExtensionTool
+type ExtensionCommand = queryengine.ExtensionCommand
+type ExtensionSkill = queryengine.ExtensionSkill
+type ExtensionBoundary = queryengine.ExtensionBoundary
 
 func NewRunner(sessions *session.Manager, client llm.Client, workspaceLoader *workspace.Loader, toolRegistry *tools.Registry) *Runner {
 	return NewRunnerWithOptions(sessions, client, workspaceLoader, toolRegistry, Options{
@@ -1237,6 +1243,13 @@ func (r *Runner) ResolvedMainLoopModelForSession(sessionID string) string {
 
 func (r *Runner) MCPInventory() MCPInventory {
 	return r.engine.MCPInventory()
+}
+
+func (r *Runner) ExtensionInventory(sessionID string) ExtensionInventory {
+	if r == nil || r.engine == nil {
+		return ExtensionInventory{}
+	}
+	return r.engine.ExtensionInventory(sessionID)
 }
 
 func (r *Runner) MCPServers() []MCPServerSnapshot {

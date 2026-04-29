@@ -646,6 +646,24 @@ func (s *Server) handleClient(client *Client) error {
 			}); err != nil {
 				return err
 			}
+		case protocolws.MethodExtensionInventory:
+			targetSession, resolveErr := s.resolveSessionForStatus(client, protocolws.SessionStatusPayload{})
+			if resolveErr != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, resolveErr.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := client.WriteJSON(protocolws.Message{
+				Type: protocolws.TypeResponse,
+				ID:   inbound.ID,
+				OK:   true,
+				Payload: map[string]any{
+					"inventory": extensionInventoryPayload(s.runner.ExtensionInventory(targetSession.ID)),
+				},
+			}); err != nil {
+				return err
+			}
 		case protocolws.MethodOrchestrationStatus:
 			targetSession, resolveErr := s.resolveSessionForStatus(client, protocolws.SessionStatusPayload{})
 			if resolveErr != nil {
@@ -2038,6 +2056,125 @@ func mcpInventoryPayload(inventory runtime.MCPInventory) map[string]any {
 		"resource_count": inventory.ResourceCount,
 		"skill_count":    inventory.SkillCount,
 	}
+}
+
+func extensionInventoryPayload(inventory runtime.ExtensionInventory) map[string]any {
+	return map[string]any{
+		"summary":               extensionInventorySummaryPayload(inventory.Summary),
+		"tools":                 extensionToolPayloads(inventory.Tools),
+		"commands":              extensionCommandPayloads(inventory.Commands),
+		"skills":                extensionSkillPayloads(inventory.Skills),
+		"mcp_servers":           mcpServerPayloads(inventory.MCPServers),
+		"lsp_boundaries":        extensionBoundaryPayloads(inventory.LSPBoundaries),
+		"deferred_capabilities": stringsToAnySlice(inventory.DeferredCapabilities),
+	}
+}
+
+func extensionInventorySummaryPayload(summary runtime.ExtensionInventorySummary) map[string]any {
+	return map[string]any{
+		"tool_count":         summary.ToolCount,
+		"command_count":      summary.CommandCount,
+		"skill_count":        summary.SkillCount,
+		"mcp_server_count":   summary.MCPServerCount,
+		"lsp_boundary_count": summary.LSPBoundaryCount,
+	}
+}
+
+func extensionToolPayloads(toolItems []runtime.ExtensionTool) []map[string]any {
+	items := make([]map[string]any, 0, len(toolItems))
+	for _, tool := range toolItems {
+		items = append(items, map[string]any{
+			"name":         tool.Name,
+			"aliases":      stringsToAnySlice(tool.Aliases),
+			"description":  tool.Description,
+			"input_schema": tool.InputSchema,
+			"source":       tool.Source,
+			"search_hint":  tool.SearchHint,
+			"enabled":      tool.Enabled,
+			"read_only":    tool.ReadOnly,
+			"destructive":  tool.Destructive,
+			"should_defer": tool.ShouldDefer,
+			"always_load":  tool.AlwaysLoad,
+		})
+	}
+	return items
+}
+
+func extensionCommandPayloads(commands []runtime.ExtensionCommand) []map[string]any {
+	items := make([]map[string]any, 0, len(commands))
+	for _, command := range commands {
+		items = append(items, map[string]any{
+			"type":                           command.Type,
+			"name":                           command.Name,
+			"description":                    command.Description,
+			"source":                         command.Source,
+			"loaded_from":                    command.LoadedFrom,
+			"has_user_specified_description": command.HasUserSpecifiedDescription,
+			"when_to_use":                    command.WhenToUse,
+			"disable_model_invocation":       command.DisableModelInvocation,
+			"user_invocable":                 command.UserInvocable,
+			"is_hidden":                      command.IsHidden,
+		})
+	}
+	return items
+}
+
+func extensionSkillPayloads(skills []runtime.ExtensionSkill) []map[string]any {
+	items := make([]map[string]any, 0, len(skills))
+	for _, skill := range skills {
+		items = append(items, map[string]any{
+			"name":                     skill.Name,
+			"display_name":             skill.DisplayName,
+			"description":              skill.Description,
+			"when_to_use":              skill.WhenToUse,
+			"version":                  skill.Version,
+			"source":                   skill.Source,
+			"loaded_from":              skill.LoadedFrom,
+			"user_invocable":           skill.UserInvocable,
+			"argument_hint":            skill.ArgumentHint,
+			"path":                     skill.Path,
+			"argument_names":           stringsToAnySlice(skill.ArgumentNames),
+			"allowed_tools":            stringsToAnySlice(skill.AllowedTools),
+			"model":                    skill.Model,
+			"context":                  skill.Context,
+			"agent":                    skill.Agent,
+			"effort":                   skill.Effort,
+			"paths":                    stringsToAnySlice(skill.Paths),
+			"shell":                    skill.Shell,
+			"hooks":                    skill.Hooks,
+			"disable_model_invocation": skill.DisableModelInvocation,
+			"mcp_prompt":               skill.MCPPrompt,
+			"mcp_server":               skill.MCPServer,
+			"mcp_prompt_name":          skill.MCPPromptName,
+			"remote_canonical":         skill.RemoteCanonical,
+		})
+	}
+	return items
+}
+
+func extensionBoundaryPayloads(boundaries []runtime.ExtensionBoundary) []map[string]any {
+	items := make([]map[string]any, 0, len(boundaries))
+	for _, boundary := range boundaries {
+		items = append(items, map[string]any{
+			"name":   boundary.Name,
+			"kind":   boundary.Kind,
+			"status": boundary.Status,
+			"phase":  boundary.Phase,
+			"notes":  boundary.Notes,
+		})
+	}
+	return items
+}
+
+func stringsToAnySlice(values []string) []any {
+	if len(values) == 0 {
+		return []any{}
+	}
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		out = append(out, value)
+	}
+	return out
 }
 
 func sessionSummaryPayload(sess session.Session, messages []session.Message) map[string]any {

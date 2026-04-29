@@ -9242,6 +9242,56 @@ func TestHandleWebSocketSessionStatusIncludesToolContracts(t *testing.T) {
 	t.Fatalf("tool_contracts = %#v, want Bash contract", items)
 }
 
+func TestHandleWebSocketExtensionInventoryReturnsRuntimeProjection(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "1", Method: protocolws.MethodConnect, Payload: map[string]any{"role": "client", "client_identity": "test", "agent_id": "main"}}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	_ = conn.ReadJSON(&protocolws.Message{})
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "2", Method: protocolws.MethodExtensionInventory, Payload: map[string]any{}}); err != nil {
+		t.Fatalf("write extension_inventory: %v", err)
+	}
+	var res protocolws.Message
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if err := conn.ReadJSON(&res); err != nil {
+		t.Fatalf("read extension_inventory: %v", err)
+	}
+	if res.Type != protocolws.TypeResponse || !res.OK {
+		t.Fatalf("extension_inventory response = %#v, want ok", res)
+	}
+	inventory, ok := res.Payload["inventory"].(map[string]any)
+	if !ok {
+		t.Fatalf("inventory payload = %#v, want object", res.Payload["inventory"])
+	}
+	toolsPayload, ok := inventory["tools"].([]any)
+	if !ok || len(toolsPayload) == 0 {
+		t.Fatalf("tools payload = %#v, want non-empty runtime tool projection", inventory["tools"])
+	}
+	lsp, ok := inventory["lsp_boundaries"].([]any)
+	if !ok || len(lsp) != 1 {
+		t.Fatalf("lsp_boundaries = %#v, want deferred LSP boundary", inventory["lsp_boundaries"])
+	}
+	deferred, ok := inventory["deferred_capabilities"].([]any)
+	if !ok || len(deferred) == 0 {
+		t.Fatalf("deferred_capabilities = %#v, want explicit deferred capabilities", inventory["deferred_capabilities"])
+	}
+}
+
 func TestRuntimeSinkSerializesUnknownRuntimeEventsWithSharedPayload(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
