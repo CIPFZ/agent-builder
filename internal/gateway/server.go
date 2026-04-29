@@ -2084,17 +2084,24 @@ func extensionToolPayloads(toolItems []runtime.ExtensionTool) []map[string]any {
 	items := make([]map[string]any, 0, len(toolItems))
 	for _, tool := range toolItems {
 		items = append(items, map[string]any{
-			"name":         tool.Name,
-			"aliases":      stringsToAnySlice(tool.Aliases),
-			"description":  tool.Description,
-			"input_schema": tool.InputSchema,
-			"source":       tool.Source,
-			"search_hint":  tool.SearchHint,
-			"enabled":      tool.Enabled,
-			"read_only":    tool.ReadOnly,
-			"destructive":  tool.Destructive,
-			"should_defer": tool.ShouldDefer,
-			"always_load":  tool.AlwaysLoad,
+			"lifecycle_type":    tool.Type,
+			"name":              tool.Name,
+			"aliases":           stringsToAnySlice(tool.Aliases),
+			"description":       tool.Description,
+			"input_schema":      tool.InputSchema,
+			"source":            tool.Source,
+			"version":           tool.Version,
+			"capabilities":      stringsToAnySlice(tool.Capabilities),
+			"search_hint":       tool.SearchHint,
+			"enabled":           tool.Enabled,
+			"read_only":         tool.ReadOnly,
+			"destructive":       tool.Destructive,
+			"should_defer":      tool.ShouldDefer,
+			"always_load":       tool.AlwaysLoad,
+			"lifecycle_state":   tool.LifecycleState,
+			"last_error":        tool.LastError,
+			"last_updated":      tool.LastUpdated,
+			"recovery_behavior": tool.RecoveryBehavior,
 		})
 	}
 	return items
@@ -2104,6 +2111,7 @@ func extensionCommandPayloads(commands []runtime.ExtensionCommand) []map[string]
 	items := make([]map[string]any, 0, len(commands))
 	for _, command := range commands {
 		items = append(items, map[string]any{
+			"lifecycle_type":                 command.LifecycleType,
 			"type":                           command.Type,
 			"name":                           command.Name,
 			"aliases":                        stringsToAnySlice(command.Aliases),
@@ -2114,6 +2122,12 @@ func extensionCommandPayloads(commands []runtime.ExtensionCommand) []map[string]
 			"behavior":                       command.Behavior,
 			"source":                         command.Source,
 			"loaded_from":                    command.LoadedFrom,
+			"version":                        command.Version,
+			"capabilities":                   stringsToAnySlice(command.Capabilities),
+			"lifecycle_state":                command.LifecycleState,
+			"last_error":                     command.LastError,
+			"last_updated":                   command.LastUpdated,
+			"recovery_behavior":              command.RecoveryBehavior,
 			"has_user_specified_description": command.HasUserSpecifiedDescription,
 			"when_to_use":                    command.WhenToUse,
 			"disable_model_invocation":       command.DisableModelInvocation,
@@ -2128,6 +2142,7 @@ func extensionSkillPayloads(skills []runtime.ExtensionSkill) []map[string]any {
 	items := make([]map[string]any, 0, len(skills))
 	for _, skill := range skills {
 		items = append(items, map[string]any{
+			"lifecycle_type":           skill.LifecycleType,
 			"name":                     skill.Name,
 			"display_name":             skill.DisplayName,
 			"description":              skill.Description,
@@ -2152,6 +2167,11 @@ func extensionSkillPayloads(skills []runtime.ExtensionSkill) []map[string]any {
 			"mcp_server":               skill.MCPServer,
 			"mcp_prompt_name":          skill.MCPPromptName,
 			"remote_canonical":         skill.RemoteCanonical,
+			"capabilities":             stringsToAnySlice(skill.Capabilities),
+			"lifecycle_state":          skill.LifecycleState,
+			"last_error":               skill.LastError,
+			"last_updated":             skill.LastUpdated,
+			"recovery_behavior":        skill.RecoveryBehavior,
 		})
 	}
 	return items
@@ -2161,11 +2181,18 @@ func extensionBoundaryPayloads(boundaries []runtime.ExtensionBoundary) []map[str
 	items := make([]map[string]any, 0, len(boundaries))
 	for _, boundary := range boundaries {
 		items = append(items, map[string]any{
-			"name":   boundary.Name,
-			"kind":   boundary.Kind,
-			"status": boundary.Status,
-			"phase":  boundary.Phase,
-			"notes":  boundary.Notes,
+			"lifecycle_type":    boundary.LifecycleType,
+			"name":              boundary.Name,
+			"kind":              boundary.Kind,
+			"source":            boundary.Source,
+			"status":            boundary.Status,
+			"phase":             boundary.Phase,
+			"notes":             boundary.Notes,
+			"capabilities":      stringsToAnySlice(boundary.Capabilities),
+			"lifecycle_state":   boundary.LifecycleState,
+			"last_error":        boundary.LastError,
+			"last_updated":      boundary.LastUpdated,
+			"recovery_behavior": boundary.RecoveryBehavior,
 		})
 	}
 	return items
@@ -2372,15 +2399,23 @@ func mcpServerPayloads(servers []runtime.MCPServerSnapshot) []map[string]any {
 
 func mcpServerPayload(server runtime.MCPServerSnapshot) map[string]any {
 	payload := map[string]any{
-		"name":           server.Name,
-		"transport_type": server.TransportType,
-		"endpoint":       server.Endpoint,
-		"enabled":        server.Enabled,
-		"status":         server.Status,
-		"tools":          toAnySlice(server.Tools),
-		"prompts":        toAnySlice(server.Prompts),
-		"resources":      toAnySlice(server.Resources),
-		"skills":         toAnySlice(server.Skills),
+		"lifecycle_type":    server.LifecycleType,
+		"name":              server.Name,
+		"source":            server.Source,
+		"transport_type":    server.TransportType,
+		"endpoint":          server.Endpoint,
+		"enabled":           server.Enabled,
+		"status":            server.Status,
+		"version":           server.Version,
+		"capabilities":      toAnySlice(server.Capabilities),
+		"lifecycle_state":   server.LifecycleState,
+		"last_error":        server.LastError,
+		"last_updated":      server.LastUpdated,
+		"recovery_behavior": server.RecoveryBehavior,
+		"tools":             toAnySlice(server.Tools),
+		"prompts":           toAnySlice(server.Prompts),
+		"resources":         toAnySlice(server.Resources),
+		"skills":            toAnySlice(server.Skills),
 	}
 	if strings.TrimSpace(server.AuthURL) != "" {
 		payload["auth_url"] = server.AuthURL

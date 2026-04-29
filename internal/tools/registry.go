@@ -175,6 +175,7 @@ type Command struct {
 	Description                 string
 	Source                      string
 	LoadedFrom                  string
+	Version                     string
 	HasUserSpecifiedDescription bool
 	WhenToUse                   string
 	DisableModelInvocation      bool

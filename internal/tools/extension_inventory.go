@@ -6,6 +6,7 @@ import (
 )
 
 type SkillExtensionInventory struct {
+	LifecycleType          string
 	Name                   string
 	DisplayName            string
 	Description            string
@@ -30,6 +31,11 @@ type SkillExtensionInventory struct {
 	MCPServer              string
 	MCPPromptName          string
 	RemoteCanonical        bool
+	Capabilities           []string
+	LifecycleState         string
+	LastError              string
+	LastUpdated            string
+	RecoveryBehavior       string
 }
 
 func SkillExtensionInventoryItem(skill SkillCommand, source string) SkillExtensionInventory {
@@ -44,6 +50,7 @@ func SkillExtensionInventoryItem(skill SkillCommand, source string) SkillExtensi
 		source = "dynamic"
 	}
 	return SkillExtensionInventory{
+		LifecycleType:          ExtensionTypeSkill,
 		Name:                   strings.TrimSpace(skill.Name),
 		DisplayName:            strings.TrimSpace(skill.DisplayName),
 		Description:            strings.TrimSpace(skill.Description),
@@ -68,6 +75,9 @@ func SkillExtensionInventoryItem(skill SkillCommand, source string) SkillExtensi
 		MCPServer:              strings.TrimSpace(skill.MCPServer),
 		MCPPromptName:          strings.TrimSpace(skill.MCPPromptName),
 		RemoteCanonical:        skill.RemoteCanonical,
+		Capabilities:           []string{"invoke"},
+		LifecycleState:         ExtensionStateActive,
+		RecoveryBehavior:       ExtensionRecoveryRebuildFromDiscovery,
 	}
 }
 

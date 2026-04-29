@@ -106,6 +106,7 @@ type Options struct {
 	MCPAuthenticator          tools.MCPAuthenticator
 	MCPReconnect              tools.MCPReconnectFunc
 	DisableMCPPromptSkills    bool
+	ExtensionLifecycle        []tools.ExtensionLifecycleRecord
 	BundledSkills             tools.BundledSkillOptions
 	SkillRoots                []string
 	SkillDiscovery            tools.SkillDiscoveryOptions
@@ -139,6 +140,7 @@ type ExtensionTool = queryengine.ExtensionTool
 type ExtensionCommand = queryengine.ExtensionCommand
 type ExtensionSkill = queryengine.ExtensionSkill
 type ExtensionBoundary = queryengine.ExtensionBoundary
+type ExtensionLifecycleOperationResult = tools.ExtensionLifecycleOperationResult
 
 func NewRunner(sessions *session.Manager, client llm.Client, workspaceLoader *workspace.Loader, toolRegistry *tools.Registry) *Runner {
 	return NewRunnerWithOptions(sessions, client, workspaceLoader, toolRegistry, Options{
@@ -322,6 +324,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		MCPAuthenticator:          runner.options.MCPAuthenticator,
 		MCPReconnect:              runner.options.MCPReconnect,
 		DisableMCPPromptSkills:    runner.options.DisableMCPPromptSkills,
+		ExtensionLifecycle:        runner.options.ExtensionLifecycle,
 		SkillRoots:                runner.options.SkillRoots,
 		SkillForkExecutor:         runner.options.SkillForkExecutor,
 		AgentTaskExecutor:         runner.options.AgentTaskExecutor,
@@ -1250,6 +1253,40 @@ func (r *Runner) ExtensionInventory(sessionID string) ExtensionInventory {
 		return ExtensionInventory{}
 	}
 	return r.engine.ExtensionInventory(sessionID)
+}
+
+func (r *Runner) RebuildExtensionInventory(sessionID string) ExtensionInventory {
+	if r == nil || r.engine == nil {
+		return ExtensionInventory{}
+	}
+	return r.engine.RebuildExtensionInventory(sessionID)
+}
+
+func (r *Runner) ExtensionLifecycleRecords() []tools.ExtensionLifecycleRecord {
+	if r == nil || r.engine == nil {
+		return nil
+	}
+	return r.engine.ExtensionLifecycleRecords()
+}
+
+func (r *Runner) DisableExtension(target tools.ExtensionLifecycleRecord) (ExtensionLifecycleOperationResult, error) {
+	return r.engine.DisableExtension(target)
+}
+
+func (r *Runner) EnableExtension(target tools.ExtensionLifecycleRecord) (ExtensionLifecycleOperationResult, error) {
+	return r.engine.EnableExtension(target)
+}
+
+func (r *Runner) ReloadExtension(ctx context.Context, target tools.ExtensionLifecycleRecord) (ExtensionLifecycleOperationResult, error) {
+	return r.engine.ReloadExtension(ctx, target)
+}
+
+func (r *Runner) MarkExtensionDegraded(target tools.ExtensionLifecycleRecord, message string) (ExtensionLifecycleOperationResult, error) {
+	return r.engine.MarkExtensionDegraded(target, message)
+}
+
+func (r *Runner) MarkExtensionFailed(target tools.ExtensionLifecycleRecord, message string) (ExtensionLifecycleOperationResult, error) {
+	return r.engine.MarkExtensionFailed(target, message)
 }
 
 func (r *Runner) MCPServers() []MCPServerSnapshot {

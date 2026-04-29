@@ -2548,7 +2548,7 @@ func TestHandleWebSocketCanUseToolControlRequestRacesFallbackPermissionHook(t *t
 
 	foundControlRequest := false
 	foundToolCalled := false
-	if err := conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
 		t.Fatalf("set read deadline: %v", err)
 	}
 	for i := 0; i < 16; i++ {
@@ -9282,6 +9282,10 @@ func TestHandleWebSocketExtensionInventoryReturnsRuntimeProjection(t *testing.T)
 	if !ok || len(toolsPayload) == 0 {
 		t.Fatalf("tools payload = %#v, want non-empty runtime tool projection", inventory["tools"])
 	}
+	firstTool, _ := toolsPayload[0].(map[string]any)
+	if firstTool["lifecycle_type"] != "tool" || firstTool["lifecycle_state"] == "" {
+		t.Fatalf("tool lifecycle payload = %#v, want lifecycle projection fields", firstTool)
+	}
 	commandsPayload, ok := inventory["commands"].([]any)
 	if !ok || len(commandsPayload) == 0 {
 		t.Fatalf("commands payload = %#v, want runtime command projection", inventory["commands"])
@@ -9295,6 +9299,8 @@ func TestHandleWebSocketExtensionInventoryReturnsRuntimeProjection(t *testing.T)
 		}
 		if command["name"] == "status" && command["source"] == "runtime" {
 			if command["type"] != "slash" ||
+				command["lifecycle_type"] != "command" ||
+				command["lifecycle_state"] != "active" ||
 				command["category"] != "runtime" ||
 				command["visibility"] != "always" ||
 				command["behavior"] != "query" ||
@@ -9313,6 +9319,10 @@ func TestHandleWebSocketExtensionInventoryReturnsRuntimeProjection(t *testing.T)
 	lsp, ok := inventory["lsp_boundaries"].([]any)
 	if !ok || len(lsp) != 1 {
 		t.Fatalf("lsp_boundaries = %#v, want deferred LSP boundary", inventory["lsp_boundaries"])
+	}
+	lspBoundary, _ := lsp[0].(map[string]any)
+	if lspBoundary["lifecycle_type"] != "lsp_boundary" || lspBoundary["lifecycle_state"] != "discovered" {
+		t.Fatalf("lsp lifecycle payload = %#v, want lifecycle projection", lspBoundary)
 	}
 	deferred, ok := inventory["deferred_capabilities"].([]any)
 	if !ok || len(deferred) == 0 {

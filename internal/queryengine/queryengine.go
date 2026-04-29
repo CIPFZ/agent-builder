@@ -251,6 +251,7 @@ type Config struct {
 	MCPAuthenticator           tools.MCPAuthenticator
 	MCPReconnect               tools.MCPReconnectFunc
 	DisableMCPPromptSkills     bool
+	ExtensionLifecycle         []tools.ExtensionLifecycleRecord
 	SkillRoots                 []string
 	SkillForkExecutor          tools.SkillForkExecutor
 	AgentTaskExecutor          tools.AgentTaskExecutor
@@ -429,11 +430,19 @@ type MCPInventory struct {
 }
 
 type MCPServerSnapshot struct {
+	LifecycleType           string
 	Name                    string
+	Source                  string
 	TransportType           string
 	Endpoint                string
 	Enabled                 bool
 	Status                  string
+	Version                 string
+	Capabilities            []string
+	LifecycleState          string
+	LastError               string
+	LastUpdated             string
+	RecoveryBehavior        string
 	Tools                   []string
 	Prompts                 []string
 	Resources               []string
@@ -465,20 +474,28 @@ type ExtensionInventorySummary struct {
 }
 
 type ExtensionTool struct {
-	Name        string
-	Aliases     []string
-	Description string
-	InputSchema map[string]any
-	Source      string
-	SearchHint  string
-	Enabled     bool
-	ReadOnly    bool
-	Destructive bool
-	ShouldDefer bool
-	AlwaysLoad  bool
+	Type             string
+	Name             string
+	Aliases          []string
+	Description      string
+	InputSchema      map[string]any
+	Source           string
+	Version          string
+	Capabilities     []string
+	SearchHint       string
+	Enabled          bool
+	ReadOnly         bool
+	Destructive      bool
+	ShouldDefer      bool
+	AlwaysLoad       bool
+	LifecycleState   string
+	LastError        string
+	LastUpdated      string
+	RecoveryBehavior string
 }
 
 type ExtensionCommand struct {
+	LifecycleType               string
 	Type                        string
 	Name                        string
 	Aliases                     []string
@@ -489,6 +506,12 @@ type ExtensionCommand struct {
 	Behavior                    string
 	Source                      string
 	LoadedFrom                  string
+	Version                     string
+	Capabilities                []string
+	LifecycleState              string
+	LastError                   string
+	LastUpdated                 string
+	RecoveryBehavior            string
 	HasUserSpecifiedDescription bool
 	WhenToUse                   string
 	DisableModelInvocation      bool
@@ -499,11 +522,18 @@ type ExtensionCommand struct {
 type ExtensionSkill = tools.SkillExtensionInventory
 
 type ExtensionBoundary struct {
-	Name   string
-	Kind   string
-	Status string
-	Phase  string
-	Notes  string
+	LifecycleType    string
+	Name             string
+	Kind             string
+	Source           string
+	Status           string
+	Phase            string
+	Notes            string
+	Capabilities     []string
+	LifecycleState   string
+	LastError        string
+	LastUpdated      string
+	RecoveryBehavior string
 }
 
 type QueryEngine struct {
@@ -548,6 +578,7 @@ type QueryEngine struct {
 	mcpSkills                  map[string][]tools.SkillCommand
 	mcpPromptCaller            tools.MCPPromptCaller
 	disableMCPPromptSkills     bool
+	extensionLifecycle         map[string]tools.ExtensionLifecycleRecord
 	skillRoots                 []string
 	skillForkExecutor          tools.SkillForkExecutor
 	agentTaskExecutor          tools.AgentTaskExecutor
@@ -716,6 +747,7 @@ func New(cfg Config) *QueryEngine {
 		mcpSkills:                 cloneMCPSkills(cfg.MCPSkills),
 		mcpPromptCaller:           cfg.MCPPromptCaller,
 		disableMCPPromptSkills:    cfg.DisableMCPPromptSkills,
+		extensionLifecycle:        lifecycleRecordsMap(cfg.ExtensionLifecycle),
 		skillRoots:                append([]string(nil), cfg.SkillRoots...),
 		skillForkExecutor:         cfg.SkillForkExecutor,
 		agentTaskExecutor:         cfg.AgentTaskExecutor,
@@ -1501,6 +1533,278 @@ func (q *QueryEngine) ExtensionInventory(sessionID string) ExtensionInventory {
 	}
 }
 
+func (q *QueryEngine) RebuildExtensionInventory(sessionID string) ExtensionInventory {
+	return q.ExtensionInventory(sessionID)
+}
+
+func (q *QueryEngine) ExtensionLifecycleRecords() []tools.ExtensionLifecycleRecord {
+	if q == nil {
+		return nil
+	}
+	q.toolContextMu.Lock()
+	defer q.toolContextMu.Unlock()
+	out := make([]tools.ExtensionLifecycleRecord, 0, len(q.extensionLifecycle))
+	for _, record := range q.extensionLifecycle {
+		out = append(out, tools.NormalizeExtensionLifecycleRecord(record))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Key() < out[j].Key()
+	})
+	return out
+}
+
+func (q *QueryEngine) DisableExtension(target tools.ExtensionLifecycleRecord) (tools.ExtensionLifecycleOperationResult, error) {
+	return q.setExtensionLifecycleState("disable", target, tools.ExtensionStateDisabled, "", tools.ExtensionRecoveryPersistedOverlay)
+}
+
+func (q *QueryEngine) EnableExtension(target tools.ExtensionLifecycleRecord) (tools.ExtensionLifecycleOperationResult, error) {
+	record := tools.NormalizeExtensionLifecycleRecord(target)
+	if err := validateExtensionLifecycleTarget(record); err != nil {
+		return tools.ExtensionLifecycleOperationResult{}, err
+	}
+	q.toolContextMu.Lock()
+	delete(q.extensionLifecycle, record.Key())
+	q.toolContextMu.Unlock()
+	record.State = tools.ExtensionStateActive
+	record.RecoveryBehavior = tools.ExtensionRecoveryRebuildFromDiscovery
+	return tools.ExtensionLifecycleOperationResult{Operation: "enable", Record: record}, nil
+}
+
+func (q *QueryEngine) ReloadExtension(ctx context.Context, target tools.ExtensionLifecycleRecord) (tools.ExtensionLifecycleOperationResult, error) {
+	record := tools.NormalizeExtensionLifecycleRecord(target)
+	if err := validateExtensionLifecycleTarget(record); err != nil {
+		return tools.ExtensionLifecycleOperationResult{}, err
+	}
+	if record.Type == tools.ExtensionTypeLSPBoundary || record.Source == "lsp" {
+		err := fmt.Errorf("reload unsupported for extension source %q type %q", record.Source, record.Type)
+		record.State = tools.ExtensionStateDegraded
+		record.LastError = err.Error()
+		record.RecoveryBehavior = tools.ExtensionRecoveryUnsupported
+		return tools.ExtensionLifecycleOperationResult{Operation: "reload", Record: record, Unsupported: true, Message: err.Error()}, err
+	}
+	if record.Type == tools.ExtensionTypeMCPServer {
+		if _, err := q.ReconnectMCP(ctx, record.Name); err != nil {
+			_, _ = q.MarkExtensionFailed(record, err.Error())
+			return tools.ExtensionLifecycleOperationResult{}, err
+		}
+	}
+	return q.setExtensionLifecycleState("reload", record, tools.ExtensionStateReloaded, "", tools.ExtensionRecoveryRebuildFromDiscovery)
+}
+
+func (q *QueryEngine) MarkExtensionDegraded(target tools.ExtensionLifecycleRecord, message string) (tools.ExtensionLifecycleOperationResult, error) {
+	return q.setExtensionLifecycleState("mark_degraded", target, tools.ExtensionStateDegraded, message, tools.ExtensionRecoveryPersistedOverlay)
+}
+
+func (q *QueryEngine) MarkExtensionFailed(target tools.ExtensionLifecycleRecord, message string) (tools.ExtensionLifecycleOperationResult, error) {
+	return q.setExtensionLifecycleState("mark_failed", target, tools.ExtensionStateFailed, message, tools.ExtensionRecoveryPersistedOverlay)
+}
+
+func (q *QueryEngine) setExtensionLifecycleState(operation string, target tools.ExtensionLifecycleRecord, state, message, recovery string) (tools.ExtensionLifecycleOperationResult, error) {
+	record := tools.NormalizeExtensionLifecycleRecord(target)
+	if err := validateExtensionLifecycleTarget(record); err != nil {
+		return tools.ExtensionLifecycleOperationResult{}, err
+	}
+	record.State = tools.NormalizeExtensionState(state)
+	record.LastError = strings.TrimSpace(message)
+	record.LastUpdated = time.Now().UTC()
+	record.RecoveryBehavior = recovery
+	record = tools.NormalizeExtensionLifecycleRecord(record)
+	q.toolContextMu.Lock()
+	if q.extensionLifecycle == nil {
+		q.extensionLifecycle = make(map[string]tools.ExtensionLifecycleRecord)
+	}
+	q.extensionLifecycle[record.Key()] = record
+	q.toolContextMu.Unlock()
+	return tools.ExtensionLifecycleOperationResult{Operation: operation, Record: record}, nil
+}
+
+func validateExtensionLifecycleTarget(record tools.ExtensionLifecycleRecord) error {
+	if record.Key() == "" {
+		return fmt.Errorf("extension lifecycle target requires type, source, and name")
+	}
+	return nil
+}
+
+func lifecycleRecordsMap(records []tools.ExtensionLifecycleRecord) map[string]tools.ExtensionLifecycleRecord {
+	out := make(map[string]tools.ExtensionLifecycleRecord)
+	for _, record := range records {
+		record = tools.NormalizeExtensionLifecycleRecord(record)
+		if key := record.Key(); key != "" {
+			out[key] = record
+		}
+	}
+	return out
+}
+
+func (q *QueryEngine) lifecycleRecord(record tools.ExtensionLifecycleRecord) (tools.ExtensionLifecycleRecord, bool) {
+	if q == nil {
+		return tools.ExtensionLifecycleRecord{}, false
+	}
+	record = tools.NormalizeExtensionLifecycleRecord(record)
+	if record.Key() == "" {
+		return tools.ExtensionLifecycleRecord{}, false
+	}
+	q.toolContextMu.Lock()
+	defer q.toolContextMu.Unlock()
+	found, ok := q.extensionLifecycle[record.Key()]
+	if !ok {
+		return tools.ExtensionLifecycleRecord{}, false
+	}
+	return tools.NormalizeExtensionLifecycleRecord(found), true
+}
+
+func (q *QueryEngine) applyToolLifecycle(item ExtensionTool) ExtensionTool {
+	item.Source = strings.ToLower(strings.TrimSpace(item.Source))
+	record, ok := q.lifecycleRecord(tools.ExtensionLifecycleRecord{
+		Type:         tools.ExtensionTypeTool,
+		Source:       item.Source,
+		Name:         item.Name,
+		Version:      item.Version,
+		State:        item.LifecycleState,
+		Capabilities: item.Capabilities,
+	})
+	if !ok {
+		return item
+	}
+	item.LifecycleState = record.State
+	item.LastError = record.LastError
+	item.LastUpdated = lifecycleTimeString(record.LastUpdated)
+	item.RecoveryBehavior = record.RecoveryBehavior
+	if len(record.Capabilities) > 0 {
+		item.Capabilities = record.Capabilities
+	}
+	if record.Version != "" {
+		item.Version = record.Version
+	}
+	return item
+}
+
+func (q *QueryEngine) toolLifecycleDisabled(def tools.Definition) bool {
+	record, ok := q.lifecycleRecord(tools.ExtensionLifecycleRecord{
+		Type:   tools.ExtensionTypeTool,
+		Source: strings.ToLower(strings.TrimSpace(def.Source)),
+		Name:   strings.TrimSpace(def.Name),
+	})
+	return ok && record.State == tools.ExtensionStateDisabled
+}
+
+func (q *QueryEngine) applyCommandLifecycle(item ExtensionCommand) ExtensionCommand {
+	item.Source = strings.ToLower(strings.TrimSpace(item.Source))
+	record, ok := q.lifecycleRecord(tools.ExtensionLifecycleRecord{
+		Type:         tools.ExtensionTypeCommand,
+		Source:       item.Source,
+		Name:         item.Name,
+		Version:      item.Version,
+		State:        item.LifecycleState,
+		Capabilities: item.Capabilities,
+	})
+	if !ok {
+		return item
+	}
+	item.LifecycleState = record.State
+	item.LastError = record.LastError
+	item.LastUpdated = lifecycleTimeString(record.LastUpdated)
+	item.RecoveryBehavior = record.RecoveryBehavior
+	if len(record.Capabilities) > 0 {
+		item.Capabilities = record.Capabilities
+	}
+	if record.Version != "" {
+		item.Version = record.Version
+	}
+	return item
+}
+
+func (q *QueryEngine) applySkillLifecycle(item ExtensionSkill) ExtensionSkill {
+	item.Source = strings.ToLower(strings.TrimSpace(item.Source))
+	record, ok := q.lifecycleRecord(tools.ExtensionLifecycleRecord{
+		Type:         tools.ExtensionTypeSkill,
+		Source:       item.Source,
+		Name:         item.Name,
+		Version:      item.Version,
+		State:        item.LifecycleState,
+		Capabilities: item.Capabilities,
+	})
+	if !ok {
+		return item
+	}
+	item.LifecycleState = record.State
+	item.LastError = record.LastError
+	item.LastUpdated = lifecycleTimeString(record.LastUpdated)
+	item.RecoveryBehavior = record.RecoveryBehavior
+	if len(record.Capabilities) > 0 {
+		item.Capabilities = record.Capabilities
+	}
+	if record.Version != "" {
+		item.Version = record.Version
+	}
+	return item
+}
+
+func (q *QueryEngine) applyMCPServerLifecycle(item MCPServerSnapshot) MCPServerSnapshot {
+	item.Source = "mcp"
+	item.LifecycleType = tools.ExtensionTypeMCPServer
+	if item.LifecycleState == "" {
+		switch item.Status {
+		case "connected":
+			item.LifecycleState = tools.ExtensionStateActive
+		case "needs-auth", "error":
+			item.LifecycleState = tools.ExtensionStateDegraded
+		default:
+			item.LifecycleState = tools.ExtensionStateLoaded
+		}
+	}
+	item.RecoveryBehavior = tools.ExtensionRecoveryRebuildFromDiscovery
+	record, ok := q.lifecycleRecord(tools.ExtensionLifecycleRecord{
+		Type:         tools.ExtensionTypeMCPServer,
+		Source:       item.Source,
+		Name:         item.Name,
+		Version:      item.Version,
+		State:        item.LifecycleState,
+		Capabilities: item.Capabilities,
+	})
+	if !ok {
+		return item
+	}
+	item.LifecycleState = record.State
+	item.LastError = record.LastError
+	if item.LastError != "" {
+		item.Error = item.LastError
+	}
+	item.LastUpdated = lifecycleTimeString(record.LastUpdated)
+	item.RecoveryBehavior = record.RecoveryBehavior
+	if len(record.Capabilities) > 0 {
+		item.Capabilities = record.Capabilities
+	}
+	if record.Version != "" {
+		item.Version = record.Version
+	}
+	return item
+}
+
+func lifecycleTimeString(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func mcpServerCapabilities(server MCPServerSnapshot) []string {
+	capabilities := make([]string, 0, 4)
+	if len(server.Tools) > 0 {
+		capabilities = append(capabilities, "tools")
+	}
+	if len(server.Prompts) > 0 {
+		capabilities = append(capabilities, "prompts")
+	}
+	if len(server.Resources) > 0 {
+		capabilities = append(capabilities, "resources")
+	}
+	if len(server.Skills) > 0 {
+		capabilities = append(capabilities, "skills")
+	}
+	return compactAndSortStrings(capabilities)
+}
+
 func (q *QueryEngine) extensionTools(sessionID string) []ExtensionTool {
 	if q == nil || q.tools == nil {
 		return nil
@@ -1511,19 +1815,24 @@ func (q *QueryEngine) extensionTools(sessionID string) []ExtensionTool {
 	})
 	out := make([]ExtensionTool, 0, len(contracts))
 	for _, contract := range contracts {
-		out = append(out, ExtensionTool{
-			Name:        strings.TrimSpace(contract.Name),
-			Aliases:     compactAndSortStrings(contract.Aliases),
-			Description: strings.TrimSpace(contract.Description),
-			InputSchema: cloneAnyMap(contract.InputSchema),
-			Source:      strings.TrimSpace(contract.Source),
-			SearchHint:  strings.TrimSpace(contract.SearchHint),
-			Enabled:     contract.Enabled,
-			ReadOnly:    contract.ReadOnly,
-			Destructive: contract.Destructive,
-			ShouldDefer: contract.ShouldDefer,
-			AlwaysLoad:  contract.AlwaysLoad,
-		})
+		item := ExtensionTool{
+			Type:             tools.ExtensionTypeTool,
+			Name:             strings.TrimSpace(contract.Name),
+			Aliases:          compactAndSortStrings(contract.Aliases),
+			Description:      strings.TrimSpace(contract.Description),
+			InputSchema:      cloneAnyMap(contract.InputSchema),
+			Source:           strings.ToLower(strings.TrimSpace(contract.Source)),
+			Capabilities:     []string{"invoke"},
+			SearchHint:       strings.TrimSpace(contract.SearchHint),
+			Enabled:          contract.Enabled,
+			ReadOnly:         contract.ReadOnly,
+			Destructive:      contract.Destructive,
+			ShouldDefer:      contract.ShouldDefer,
+			AlwaysLoad:       contract.AlwaysLoad,
+			LifecycleState:   tools.ExtensionStateActive,
+			RecoveryBehavior: tools.ExtensionRecoveryRebuildFromDiscovery,
+		}
+		out = append(out, q.applyToolLifecycle(item))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
@@ -1552,7 +1861,7 @@ func (q *QueryEngine) extensionCommands(sessionID string) []ExtensionCommand {
 	}
 	out := make([]ExtensionCommand, 0, len(byName))
 	for _, command := range byName {
-		out = append(out, command)
+		out = append(out, q.applyCommandLifecycle(command))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
@@ -1572,16 +1881,20 @@ func (q *QueryEngine) extensionCommandContext(sessionID string) runtimecommands.
 
 func extensionCommandFromRuntimeMetadata(command runtimecommands.Metadata) ExtensionCommand {
 	return ExtensionCommand{
-		Type:          "slash",
-		Name:          strings.TrimSpace(command.Name),
-		Aliases:       compactAndSortStrings(command.Aliases),
-		Description:   strings.TrimSpace(command.Description),
-		ArgumentHint:  strings.TrimSpace(command.ArgumentHint),
-		Category:      strings.TrimSpace(command.Category),
-		Visibility:    string(command.Visibility),
-		Behavior:      string(command.Behavior),
-		Source:        "runtime",
-		UserInvocable: true,
+		LifecycleType:    tools.ExtensionTypeCommand,
+		Type:             "slash",
+		Name:             strings.TrimSpace(command.Name),
+		Aliases:          compactAndSortStrings(command.Aliases),
+		Description:      strings.TrimSpace(command.Description),
+		ArgumentHint:     strings.TrimSpace(command.ArgumentHint),
+		Category:         strings.TrimSpace(command.Category),
+		Visibility:       string(command.Visibility),
+		Behavior:         string(command.Behavior),
+		Source:           "runtime",
+		Capabilities:     []string{"invoke"},
+		LifecycleState:   tools.ExtensionStateActive,
+		RecoveryBehavior: tools.ExtensionRecoveryRebuildFromDiscovery,
+		UserInvocable:    true,
 	}
 }
 
@@ -1596,11 +1909,16 @@ func extensionCommandFromConfigured(command tools.Command) ExtensionCommand {
 		commandType = "slash"
 	}
 	return ExtensionCommand{
+		LifecycleType:               tools.ExtensionTypeCommand,
 		Type:                        commandType,
 		Name:                        name,
 		Description:                 strings.TrimSpace(command.Description),
-		Source:                      source,
+		Source:                      strings.ToLower(source),
 		LoadedFrom:                  strings.TrimSpace(command.LoadedFrom),
+		Version:                     strings.TrimSpace(command.Version),
+		Capabilities:                []string{"invoke"},
+		LifecycleState:              tools.ExtensionStateActive,
+		RecoveryBehavior:            tools.ExtensionRecoveryRebuildFromDiscovery,
 		HasUserSpecifiedDescription: command.HasUserSpecifiedDescription,
 		WhenToUse:                   strings.TrimSpace(command.WhenToUse),
 		DisableModelInvocation:      command.DisableModelInvocation,
@@ -1618,13 +1936,18 @@ func (q *QueryEngine) extensionSkills() []ExtensionSkill {
 	q.toolContextMu.Unlock()
 
 	out := make([]ExtensionSkill, 0)
+	seenSkills := make(map[string]struct{})
 	add := func(skills []tools.SkillCommand, source string) {
 		for _, skill := range skills {
 			item := tools.SkillExtensionInventoryItem(skill, source)
 			if item.Name == "" {
 				continue
 			}
-			out = append(out, item)
+			if _, exists := seenSkills[item.Name]; exists {
+				continue
+			}
+			seenSkills[item.Name] = struct{}{}
+			out = append(out, q.applySkillLifecycle(item))
 		}
 	}
 	add(tools.GetBundledSkills(), "bundled")
@@ -1660,11 +1983,16 @@ func (q *QueryEngine) extensionSkills() []ExtensionSkill {
 
 func defaultLSPBoundaries() []ExtensionBoundary {
 	return []ExtensionBoundary{{
-		Name:   "language-server-protocol",
-		Kind:   "lsp",
-		Status: "deferred",
-		Phase:  "P2/P3",
-		Notes:  "Schema boundary only; full LSP lifecycle is deferred.",
+		LifecycleType:    tools.ExtensionTypeLSPBoundary,
+		Name:             "language-server-protocol",
+		Kind:             "lsp",
+		Source:           "lsp",
+		Status:           "deferred",
+		Phase:            "P2/P3",
+		Notes:            "Schema boundary only; full LSP lifecycle is deferred.",
+		Capabilities:     []string{"placeholder"},
+		LifecycleState:   tools.ExtensionStateDiscovered,
+		RecoveryBehavior: tools.ExtensionRecoveryUnsupported,
 	}}
 }
 
@@ -1674,7 +2002,6 @@ func defaultDeferredExtensionCapabilities() []string {
 
 func (q *QueryEngine) MCPServers() []MCPServerSnapshot {
 	q.toolContextMu.Lock()
-	defer q.toolContextMu.Unlock()
 
 	index := make(map[string]*MCPServerSnapshot)
 	for _, client := range q.mcpClients {
@@ -1758,7 +2085,14 @@ func (q *QueryEngine) MCPServers() []MCPServerSnapshot {
 		if !server.Enabled {
 			server.Enabled = true
 		}
+		server.LifecycleType = tools.ExtensionTypeMCPServer
+		server.Source = "mcp"
+		server.Capabilities = mcpServerCapabilities(*server)
 		servers = append(servers, *server)
+	}
+	q.toolContextMu.Unlock()
+	for i := range servers {
+		servers[i] = q.applyMCPServerLifecycle(servers[i])
 	}
 	sort.Slice(servers, func(i, j int) bool {
 		return servers[i].Name < servers[j].Name
@@ -4372,6 +4706,9 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 			if !ok {
 				return session.Message{}, fmt.Errorf("tool %q is not available under the current tool policy", strings.TrimSpace(pending.name))
 			}
+			if q.toolLifecycleDisabled(toolDef) {
+				return session.Message{}, fmt.Errorf("tool %q is disabled by extension lifecycle state", strings.TrimSpace(toolDef.Name))
+			}
 			if deferredToolExecuted && toolDef.ShouldDefer {
 				if lastToolMessage != nil {
 					return q.completeWithToolResult(ctx, sess, runID, sink, *lastToolMessage)
@@ -4747,6 +5084,9 @@ func (q *QueryEngine) executeTurnLoop(ctx context.Context, sess session.Session,
 				return session.Message{}, err
 			}
 			executionContext := q.toolUseContext(ctx, sess, pending, runID, sink)
+			if q.toolLifecycleDisabled(toolDef) {
+				return session.Message{}, fmt.Errorf("tool %q is disabled by extension lifecycle state", strings.TrimSpace(toolDef.Name))
+			}
 			toolResult, err := q.tools.InvokeWithContext(ctx, executionContext)
 			if err != nil {
 				q.markMCPServerNeedsAuth(pending.name, err)
