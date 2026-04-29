@@ -9287,15 +9287,28 @@ func TestHandleWebSocketExtensionInventoryReturnsRuntimeProjection(t *testing.T)
 		t.Fatalf("commands payload = %#v, want runtime command projection", inventory["commands"])
 	}
 	var foundPermissions bool
+	var foundStatusMetadata bool
 	for _, raw := range commandsPayload {
 		command, _ := raw.(map[string]any)
 		if command["name"] == "permissions" && command["source"] == "runtime" {
 			foundPermissions = true
-			break
+		}
+		if command["name"] == "status" && command["source"] == "runtime" {
+			if command["type"] != "slash" ||
+				command["category"] != "runtime" ||
+				command["visibility"] != "always" ||
+				command["behavior"] != "query" ||
+				command["user_invocable"] != true {
+				t.Fatalf("runtime /status command metadata = %#v, want full runtime metadata", command)
+			}
+			foundStatusMetadata = true
 		}
 	}
 	if !foundPermissions {
 		t.Fatalf("commands payload = %#v, want runtime /permissions command", commandsPayload)
+	}
+	if !foundStatusMetadata {
+		t.Fatalf("commands payload = %#v, want runtime /status metadata", commandsPayload)
 	}
 	lsp, ok := inventory["lsp_boundaries"].([]any)
 	if !ok || len(lsp) != 1 {
