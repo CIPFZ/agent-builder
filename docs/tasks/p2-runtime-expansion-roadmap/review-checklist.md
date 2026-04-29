@@ -29,4 +29,3 @@ Date: 2026-04-29
 - [x] Gateway and TUI remain projections.
 - [x] Runtime remains source of truth.
 - [x] P2 deferred/P3-style capabilities are not silently pulled into P1.
-

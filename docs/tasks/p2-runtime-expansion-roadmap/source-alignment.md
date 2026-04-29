@@ -34,4 +34,3 @@ Go already has:
 - Remote/bridge/trusted-device: gateway exists; remote identity/trust/liveness is P2.3.
 - Advanced execution surfaces: shell/tool patterns exist; first-class contracts are P2.4 if still relevant.
 - Operator/UI: TUI and gateway projections exist; React/operator integration readiness is P2.5.
-

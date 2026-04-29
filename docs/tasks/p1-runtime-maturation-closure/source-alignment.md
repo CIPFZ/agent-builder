@@ -35,4 +35,3 @@ These Claude Code semantic areas are intentionally moved into P2:
 - remote, bridge, trusted-device, and structured host control foundation
 - advanced execution surfaces if they still fit the runtime architecture
 - operator/React UI integration once runtime contracts remain stable
-

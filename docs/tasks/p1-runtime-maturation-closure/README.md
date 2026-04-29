@@ -25,4 +25,3 @@ P1.5 is complete when:
 - Any discovered closure gap is covered by a focused test before implementation.
 - P2 deferred capabilities are recorded in `docs/tasks/p2-runtime-expansion-roadmap/`.
 - P1 roadmap docs accurately describe the closure gate and handoff without claiming unimplemented P2/P3 scope.
-

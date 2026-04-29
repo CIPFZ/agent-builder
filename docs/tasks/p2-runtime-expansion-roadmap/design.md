@@ -63,4 +63,3 @@ P2 must not break:
 - task/subagent isolation metadata
 - approval pending/recovered semantics
 - context cache keys and invalidation rules
-

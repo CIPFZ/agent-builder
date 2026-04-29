@@ -112,4 +112,3 @@ Report:
 - blockers or P2 deferred items
 - final `git status`
 - commit hash if committed
-

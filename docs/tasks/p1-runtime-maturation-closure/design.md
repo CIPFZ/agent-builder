@@ -74,4 +74,3 @@ P1.5 confirms but does not implement:
 - remote bridge and trusted-device session runtime
 - enterprise policy administration
 - React/operator UI integration
-

@@ -24,4 +24,3 @@ P2 expands the runtime only after P0/P1 contracts remain stable: command registr
 3. P2.3 Remote/bridge/trusted-device foundation
 4. P2.4 Advanced execution surfaces if still relevant
 5. P2.5 Operator/UI integration readiness if still relevant
-

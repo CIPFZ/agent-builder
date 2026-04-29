@@ -78,4 +78,3 @@ Acceptance:
 Run required validation commands and `git status`.
 
 If all required validation passes, commit the work.
-
