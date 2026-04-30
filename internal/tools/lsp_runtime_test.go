@@ -68,6 +68,42 @@ func TestLSPStateNormalizationPreservesSpecificRuntimeStates(t *testing.T) {
 	}
 }
 
+func TestLSPPermissionClassificationCoversExplicitCapabilityKinds(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  LSPServerConfig
+		want string
+	}{
+		{
+			name: "read only",
+			cfg:  LSPServerConfig{Name: "readonly", ReadOnlyCapabilities: []string{"definition", "diagnostics"}},
+			want: LSPPermissionReadOnly,
+		},
+		{
+			name: "mutating",
+			cfg:  LSPServerConfig{Name: "mutating", MutatingCapabilities: []string{"rename"}},
+			want: LSPPermissionMutating,
+		},
+		{
+			name: "mixed",
+			cfg:  LSPServerConfig{Name: "mixed", ReadOnlyCapabilities: []string{"definition"}, MutatingCapabilities: []string{"rename"}},
+			want: LSPPermissionMixed,
+		},
+		{
+			name: "empty defaults read only",
+			cfg:  LSPServerConfig{Name: "empty"},
+			want: LSPPermissionReadOnly,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := LSPPermissionClassification(tc.cfg); got != tc.want {
+				t.Fatalf("LSPPermissionClassification(%#v) = %q, want %q", tc.cfg, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestLSPReadOnlyToolContractsArePermissionClassified(t *testing.T) {
 	registry := NewRegistry(NewLSPTools(nil, []LSPServerConfig{{Name: "gopls", Enabled: true}})...)
 
@@ -95,6 +131,22 @@ func TestLSPReadOnlyToolContractsArePermissionClassified(t *testing.T) {
 	})
 	if _, ok := findLSPContract(denied, "lsp_definition"); ok {
 		t.Fatalf("denied lsp_definition remained exposed: %#v", denied)
+	}
+}
+
+func TestLSPToolsRequireEnabledServersForContracts(t *testing.T) {
+	disabledOnly := NewRegistry(NewLSPTools(nil, []LSPServerConfig{{Name: "gopls", Enabled: false}})...)
+	if contracts := disabledOnly.Contracts(ContractOptions{Policy: permissions.Policy{Mode: permissions.ModeDangerFullAccess}}); len(contracts) != 0 {
+		t.Fatalf("disabled-only LSP contracts = %#v, want none exposed", contracts)
+	}
+
+	mixed := NewRegistry(NewLSPTools(nil, []LSPServerConfig{
+		{Name: "disabled", Enabled: false},
+		{Name: "enabled", Enabled: true},
+	})...)
+	contracts := mixed.Contracts(ContractOptions{Policy: permissions.Policy{Mode: permissions.ModeDangerFullAccess}})
+	if _, ok := findLSPContract(contracts, "lsp_definition"); !ok {
+		t.Fatalf("mixed enabled/disabled LSP contracts = %#v, want enabled LSP tools", contracts)
 	}
 }
 

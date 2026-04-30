@@ -135,6 +135,8 @@ func LSPPermissionClassification(config LSPServerConfig) string {
 	hasReadOnly := len(config.ReadOnlyCapabilities) > 0
 	hasMutating := len(config.MutatingCapabilities) > 0
 	switch {
+	case hasReadOnly && hasMutating:
+		return LSPPermissionMixed
 	case hasReadOnly:
 		return LSPPermissionReadOnly
 	case hasMutating:
@@ -145,13 +147,25 @@ func LSPPermissionClassification(config LSPServerConfig) string {
 }
 
 func NewLSPTools(handler LSPHandler, servers []LSPServerConfig) []Tool {
-	normalized := NormalizeLSPServerConfigs(servers)
+	normalized := enabledLSPServerConfigs(servers)
 	return []Tool{
 		newLSPTool("lsp_symbol_search", "Search symbols from configured LSP servers.", "symbol_search", handler, normalized),
 		newLSPTool("lsp_definition", "Find a symbol definition from configured LSP servers.", "definition", handler, normalized),
 		newLSPTool("lsp_references", "Find symbol references from configured LSP servers.", "references", handler, normalized),
 		newLSPTool("lsp_diagnostics", "Read diagnostics from configured LSP servers.", "diagnostics", handler, normalized),
 	}
+}
+
+func enabledLSPServerConfigs(servers []LSPServerConfig) []LSPServerConfig {
+	normalized := NormalizeLSPServerConfigs(servers)
+	out := make([]LSPServerConfig, 0, len(normalized))
+	for _, server := range normalized {
+		if !server.Enabled {
+			continue
+		}
+		out = append(out, server)
+	}
+	return out
 }
 
 type lspTool struct {

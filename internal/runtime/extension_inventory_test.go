@@ -221,7 +221,7 @@ func TestExtensionInventoryProjectsConfiguredLSPServers(t *testing.T) {
 	if boundary.Name != "gopls" || boundary.Status != tools.LSPStateConfigured || boundary.LifecycleState != tools.LSPStateConfigured {
 		t.Fatalf("lsp boundary = %#v, want configured gopls", boundary)
 	}
-	if boundary.PermissionClassification != "read_only" || !containsString(boundary.ReadOnlyCapabilities, "definition") {
+	if boundary.PermissionClassification != tools.LSPPermissionMixed || !containsString(boundary.ReadOnlyCapabilities, "definition") {
 		t.Fatalf("lsp permission classification = %#v", boundary)
 	}
 }

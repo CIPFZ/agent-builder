@@ -9385,7 +9385,7 @@ func TestHandleWebSocketExtensionInventorySerializesLSPRuntimeProjection(t *test
 		boundary["lifecycle_state"] != tools.LSPStateConfigured ||
 		boundary["status"] != tools.LSPStateConfigured ||
 		boundary["workspace_root"] != "C:/repo" ||
-		boundary["permission_classification"] != "read_only" {
+		boundary["permission_classification"] != tools.LSPPermissionMixed {
 		t.Fatalf("lsp boundary payload = %#v", boundary)
 	}
 	if got := boundary["language_ids"].([]any); len(got) != 1 || got[0] != "go" {

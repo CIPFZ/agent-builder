@@ -44,7 +44,7 @@ func TestLSPInventoryProjectsConfiguredServers(t *testing.T) {
 	if !reflect.DeepEqual(boundary.LanguageIDs, []string{"go"}) || !reflect.DeepEqual(boundary.FilePatterns, []string{"**/*.go"}) {
 		t.Fatalf("lsp coverage = %#v/%#v", boundary.LanguageIDs, boundary.FilePatterns)
 	}
-	if boundary.PermissionClassification != "read_only" || !reflect.DeepEqual(boundary.ReadOnlyCapabilities, []string{"definition", "diagnostics"}) {
+	if boundary.PermissionClassification != tools.LSPPermissionMixed || !reflect.DeepEqual(boundary.ReadOnlyCapabilities, []string{"definition", "diagnostics"}) {
 		t.Fatalf("lsp permission projection = %#v", boundary)
 	}
 	if boundary.Command != "gopls serve" || boundary.WorkspaceRoot != "C:/repo" || !boundary.Enabled {
@@ -150,6 +150,59 @@ func TestLSPInventoryRebuildsDeterministically(t *testing.T) {
 	second := New(cfg)
 	if !reflect.DeepEqual(first.ExtensionInventory(sess.ID).LSPBoundaries, second.ExtensionInventory(sess.ID).LSPBoundaries) {
 		t.Fatalf("lsp inventory changed across rebuild:\nfirst=%#v\nsecond=%#v", first.ExtensionInventory(sess.ID).LSPBoundaries, second.ExtensionInventory(sess.ID).LSPBoundaries)
+	}
+}
+
+func TestDisabledLSPConfigRemainsVisibleWithoutToolContracts(t *testing.T) {
+	manager := session.NewManager(nil)
+	sess := manager.GetOrCreateMain("main")
+	engine := New(Config{
+		Sessions:   manager,
+		Client:     llm.NewMockClient(),
+		LSPServers: []tools.LSPServerConfig{{Name: "gopls", Enabled: false}},
+	})
+
+	boundary, ok := findLSPBoundary(engine.ExtensionInventory(sess.ID).LSPBoundaries, "gopls")
+	if !ok || boundary.LifecycleState != tools.ExtensionStateDisabled || boundary.Status != tools.ExtensionStateDisabled {
+		t.Fatalf("disabled lsp boundary = %#v, found=%v", boundary, ok)
+	}
+	for _, contract := range engine.ToolContractsForSession(sess.ID) {
+		if strings.HasPrefix(contract.Name, "lsp_") {
+			t.Fatalf("disabled-only lsp contract exposed: %#v", contract)
+		}
+	}
+}
+
+func TestMixedEnabledDisabledLSPConfigsExposeToolsAndAllBoundaries(t *testing.T) {
+	manager := session.NewManager(nil)
+	sess := manager.GetOrCreateMain("main")
+	engine := New(Config{
+		Sessions: manager,
+		Client:   llm.NewMockClient(),
+		LSPServers: []tools.LSPServerConfig{
+			{Name: "disabled", Enabled: false},
+			{Name: "enabled", Enabled: true},
+		},
+	})
+
+	if len(engine.ExtensionInventory(sess.ID).LSPBoundaries) != 2 {
+		t.Fatalf("lsp boundaries = %#v, want disabled and enabled servers", engine.ExtensionInventory(sess.ID).LSPBoundaries)
+	}
+	disabled, ok := findLSPBoundary(engine.ExtensionInventory(sess.ID).LSPBoundaries, "disabled")
+	if !ok || disabled.LifecycleState != tools.ExtensionStateDisabled {
+		t.Fatalf("disabled boundary = %#v, found=%v", disabled, ok)
+	}
+	if _, ok := findLSPBoundary(engine.ExtensionInventory(sess.ID).LSPBoundaries, "enabled"); !ok {
+		t.Fatalf("enabled boundary missing: %#v", engine.ExtensionInventory(sess.ID).LSPBoundaries)
+	}
+	var foundLSPContract bool
+	for _, contract := range engine.ToolContractsForSession(sess.ID) {
+		if contract.Name == "lsp_definition" {
+			foundLSPContract = true
+		}
+	}
+	if !foundLSPContract {
+		t.Fatalf("tool contracts = %#v, want lsp_definition from enabled server", engine.ToolContractsForSession(sess.ID))
 	}
 }
 
