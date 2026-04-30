@@ -11,6 +11,7 @@ import (
 	"myclaw/internal/llm"
 	"myclaw/internal/permissions"
 	"myclaw/internal/session"
+	storememory "myclaw/internal/store/memory"
 	"myclaw/internal/tools"
 	"myclaw/internal/workspace"
 )
@@ -253,7 +254,8 @@ func TestExtensionLifecycleDisableEnableAndReloadBehavior(t *testing.T) {
 }
 
 func TestExtensionLifecycleDegradedFailedAndRestartRecovery(t *testing.T) {
-	sessions := session.NewManager(nil)
+	store := storememory.NewSessionStore()
+	sessions := session.NewManager(store)
 	sess := sessions.GetOrCreateMain("main")
 	target := tools.ExtensionLifecycleRecord{Type: tools.ExtensionTypeMCPServer, Source: "mcp", Name: "beta"}
 	options := Options{
@@ -273,12 +275,15 @@ func TestExtensionLifecycleDegradedFailedAndRestartRecovery(t *testing.T) {
 	if _, err := runner.MarkExtensionFailed(target, "connection refused"); err != nil {
 		t.Fatalf("mark failed: %v", err)
 	}
-	recovered := runner.ExtensionLifecycleRecords()
-	restarted := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), Options{
-		MCPTools:           options.MCPTools,
-		ExtensionLifecycle: recovered,
+	restartedSessions := session.NewManager(store)
+	restartedSession, ok := restartedSessions.GetByID(sess.ID)
+	if !ok {
+		t.Fatal("restarted session missing")
+	}
+	restarted := NewRunnerWithOptions(restartedSessions, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), Options{
+		MCPTools: options.MCPTools,
 	})
-	server, ok = findMCPServer(restarted.ExtensionInventory(sess.ID).MCPServers, "beta")
+	server, ok = findMCPServer(restarted.ExtensionInventory(restartedSession.ID).MCPServers, "beta")
 	if !ok || server.LifecycleState != tools.ExtensionStateFailed || server.LastError != "connection refused" {
 		t.Fatalf("recovered failed server = %#v, found=%v", server, ok)
 	}
