@@ -90,6 +90,42 @@ type ApprovalClearPayload struct {
 	Status string `json:"status,omitempty"`
 }
 
+type RemoteStatePayload struct {
+	SessionID  string `json:"session_id,omitempty"`
+	SessionKey string `json:"session_key,omitempty"`
+}
+
+type RemoteUpdatePayload struct {
+	SessionID      string   `json:"session_id,omitempty"`
+	SessionKey     string   `json:"session_key,omitempty"`
+	ConnectionID   string   `json:"connection_id"`
+	ClientIdentity string   `json:"client_identity,omitempty"`
+	DeviceID       string   `json:"device_id,omitempty"`
+	UserID         string   `json:"user_id,omitempty"`
+	AgentID        string   `json:"agent_id,omitempty"`
+	TransportKind  string   `json:"transport_kind,omitempty"`
+	Capabilities   []string `json:"capabilities,omitempty"`
+}
+
+type RemoteTrustUpdatePayload struct {
+	SessionID    string `json:"session_id,omitempty"`
+	SessionKey   string `json:"session_key,omitempty"`
+	ConnectionID string `json:"connection_id"`
+	TrustState   string `json:"trust_state"`
+}
+
+type RemoteApprovalCorrelatePayload struct {
+	SessionID           string         `json:"session_id,omitempty"`
+	SessionKey          string         `json:"session_key,omitempty"`
+	LocalApprovalID     string         `json:"local_approval_id"`
+	RemoteCorrelationID string         `json:"remote_correlation_id"`
+	ConnectionID        string         `json:"connection_id,omitempty"`
+	ClientIdentity      string         `json:"client_identity,omitempty"`
+	DeviceID            string         `json:"device_id,omitempty"`
+	Status              string         `json:"status,omitempty"`
+	DecisionPayload     map[string]any `json:"decision_payload,omitempty"`
+}
+
 type OrchestrationHistoryPayload struct {
 	SessionID        string `json:"session_id,omitempty"`
 	SessionKey       string `json:"session_key,omitempty"`
@@ -171,6 +207,11 @@ const (
 	MethodApprovalClear                     = "approval_clear"
 	MethodSubagentSteer                     = "subagent_steer"
 	MethodSubagentResume                    = "subagent_resume"
+	MethodRemoteState                       = "remote_state"
+	MethodRemoteHeartbeat                   = "remote_heartbeat"
+	MethodRemoteReconnect                   = "remote_reconnect"
+	MethodRemoteTrustUpdate                 = "remote_trust_update"
+	MethodRemoteApprovalCorrelate           = "remote_approval_correlate"
 
 	EventHello                        = "hello"
 	EventMessageCreated               = "message.created"

@@ -44,6 +44,8 @@ type SessionMetadata struct {
 	MemoryItems                    []MemoryMetadata             `json:"memory_items,omitempty"`
 	ContextCache                   ContextCacheMetadata         `json:"context_cache,omitempty"`
 	ExtensionLifecycleOverlays     []ExtensionLifecycleMetadata `json:"extension_lifecycle_overlays,omitempty"`
+	RemoteIdentities               []RemoteIdentityMetadata     `json:"remote_identities,omitempty"`
+	RemoteApprovalCorrelations     []RemoteApprovalMetadata     `json:"remote_approval_correlations,omitempty"`
 }
 
 type Session struct {
@@ -125,4 +127,35 @@ type ExtensionLifecycleMetadata struct {
 	LastError        string    `json:"last_error,omitempty"`
 	LastUpdated      time.Time `json:"last_updated,omitempty"`
 	RecoveryBehavior string    `json:"recovery_behavior,omitempty"`
+}
+
+type RemoteIdentityMetadata struct {
+	ConnectionID      string            `json:"connection_id,omitempty"`
+	SessionID         string            `json:"session_id,omitempty"`
+	ClientIdentity    string            `json:"client_identity,omitempty"`
+	DeviceID          string            `json:"device_id,omitempty"`
+	UserID            string            `json:"user_id,omitempty"`
+	AgentID           string            `json:"agent_id,omitempty"`
+	TransportKind     string            `json:"transport_kind,omitempty"`
+	TrustState        string            `json:"trust_state,omitempty"`
+	LivenessState     string            `json:"liveness_state,omitempty"`
+	ConnectedAt       time.Time         `json:"connected_at,omitempty"`
+	DisconnectedAt    time.Time         `json:"disconnected_at,omitempty"`
+	LastHeartbeatAt   time.Time         `json:"last_heartbeat_at,omitempty"`
+	ReconnectDeadline time.Time         `json:"reconnect_deadline,omitempty"`
+	Capabilities      []string          `json:"capabilities,omitempty"`
+	Correlation       map[string]string `json:"correlation,omitempty"`
+}
+
+type RemoteApprovalMetadata struct {
+	LocalApprovalID     string         `json:"local_approval_id,omitempty"`
+	RemoteCorrelationID string         `json:"remote_correlation_id,omitempty"`
+	ConnectionID        string         `json:"connection_id,omitempty"`
+	ClientIdentity      string         `json:"client_identity,omitempty"`
+	DeviceID            string         `json:"device_id,omitempty"`
+	Status              string         `json:"status,omitempty"`
+	CreatedAt           time.Time      `json:"created_at,omitempty"`
+	UpdatedAt           time.Time      `json:"updated_at,omitempty"`
+	ExpiresAt           time.Time      `json:"expires_at,omitempty"`
+	DecisionPayload     map[string]any `json:"decision_payload,omitempty"`
 }

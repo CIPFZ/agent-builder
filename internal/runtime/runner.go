@@ -132,6 +132,7 @@ type Runner struct {
 	policyMu    sync.RWMutex
 	stateMu     sync.RWMutex
 	stateErrors []string
+	remote      *RemoteManager
 }
 
 type MCPInventory = queryengine.MCPInventory
@@ -248,6 +249,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		options:     options,
 		stateErrors: stateErrors,
 	}
+	runner.remote = NewRemoteManager(sessions)
 	runner.options.AgentManager.SetUpdateHook(runner.persistAgentRun)
 	if runner.options.SkillForkExecutor == nil {
 		runner.options.SkillForkExecutor = runner.defaultSkillForkExecutor
@@ -1599,4 +1601,39 @@ func (r *Runner) ToolContractsForSession(sessionID string) []tools.Contract {
 		return nil
 	}
 	return r.engine.ToolContractsForSession(sessionID)
+}
+
+func (r *Runner) UpsertRemoteIdentity(sessionID string, identity RemoteIdentity) (RemoteIdentity, error) {
+	return r.remote.UpsertIdentity(sessionID, identity)
+}
+
+func (r *Runner) RecordRemoteHeartbeat(sessionID, connectionID string, at, deadline time.Time) (RemoteIdentity, error) {
+	return r.remote.RecordHeartbeat(sessionID, connectionID, at, deadline)
+}
+
+func (r *Runner) MarkRemoteReconnecting(sessionID, connectionID string, at, deadline time.Time) (RemoteIdentity, error) {
+	return r.remote.MarkReconnecting(sessionID, connectionID, at, deadline)
+}
+
+func (r *Runner) DisconnectRemote(sessionID, connectionID string, at time.Time) (RemoteIdentity, error) {
+	return r.remote.Disconnect(sessionID, connectionID, at)
+}
+
+func (r *Runner) UpdateRemoteTrust(sessionID, connectionID string, state RemoteTrustState) (RemoteIdentity, error) {
+	return r.remote.UpdateTrust(sessionID, connectionID, state)
+}
+
+func (r *Runner) RecordRemoteApprovalCorrelation(sessionID string, record RemoteApprovalCorrelation) (RemoteApprovalCorrelation, error) {
+	return r.remote.RecordApprovalCorrelation(sessionID, record)
+}
+
+func (r *Runner) RemoteSnapshot(sessionID string) RemoteSnapshot {
+	return r.RemoteSnapshotAt(sessionID, time.Now().UTC())
+}
+
+func (r *Runner) RemoteSnapshotAt(sessionID string, at time.Time) RemoteSnapshot {
+	if r == nil || r.remote == nil {
+		return RemoteSnapshot{SessionID: sessionID}
+	}
+	return r.remote.SnapshotAt(sessionID, at)
 }
