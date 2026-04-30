@@ -101,7 +101,30 @@ func (t *RunTool) InvokeWithContext(ctx context.Context, toolCtx tools.ToolUseCo
 				bgCtx, cancel = context.WithTimeout(bgCtx, spec.Timeout)
 				defer cancel()
 			}
-			_, _ = t.router.RunDetailedWithOptions(bgCtx, toolCtx.Session, spec.Command, t.runOptions(toolCtx))
+			toolCtx.ReportProgress(tools.ToolProgress{
+				ToolUseID: toolCtx.ToolUseID,
+				Type:      "shell.running",
+				Message:   spec.Command,
+				Data:      shellProgressData(t.name, spec.Command, toolCtx, false, true),
+			})
+			execResult, err := t.router.RunDetailedWithOptions(bgCtx, toolCtx.Session, spec.Command, t.runOptions(toolCtx))
+			timedOut := bgCtx.Err() == context.DeadlineExceeded
+			toolCtx.ReportProgress(tools.ToolProgress{
+				ToolUseID: toolCtx.ToolUseID,
+				Type:      "shell.output",
+				Message:   truncateShellOutput(execResult.Output()),
+				Data:      shellOutputProgressData(t.name, spec.Command, toolCtx, execResult, timedOut, true),
+			})
+			finishedType := "shell.finished"
+			if err != nil || execResult.ExitCode != 0 || timedOut || execResult.TimedOut {
+				finishedType = "shell.failed"
+			}
+			toolCtx.ReportProgress(tools.ToolProgress{
+				ToolUseID: toolCtx.ToolUseID,
+				Type:      finishedType,
+				Message:   spec.Command,
+				Data:      shellFinishedProgressData(t.name, spec.Command, toolCtx, execResult, timedOut, true),
+			})
 		}()
 		result := shellExecutionResult{
 			Tool:             t.name,
@@ -128,13 +151,29 @@ func (t *RunTool) InvokeWithContext(ctx context.Context, toolCtx tools.ToolUseCo
 		Message:   spec.Command,
 		Data:      shellProgressData(t.name, spec.Command, toolCtx, false, false),
 	})
+	toolCtx.ReportProgress(tools.ToolProgress{
+		ToolUseID: toolCtx.ToolUseID,
+		Type:      "shell.running",
+		Message:   spec.Command,
+		Data:      shellProgressData(t.name, spec.Command, toolCtx, false, false),
+	})
 	execResult, err := t.router.RunDetailedWithOptions(runCtx, toolCtx.Session, spec.Command, t.runOptions(toolCtx))
 	timedOut := runCtx.Err() == context.DeadlineExceeded
 	toolCtx.ReportProgress(tools.ToolProgress{
 		ToolUseID: toolCtx.ToolUseID,
-		Type:      "shell.finished",
+		Type:      "shell.output",
+		Message:   truncateShellOutput(execResult.Output()),
+		Data:      shellOutputProgressData(t.name, spec.Command, toolCtx, execResult, timedOut, false),
+	})
+	finishedType := "shell.finished"
+	if err != nil || execResult.ExitCode != 0 || timedOut || execResult.TimedOut {
+		finishedType = "shell.failed"
+	}
+	toolCtx.ReportProgress(tools.ToolProgress{
+		ToolUseID: toolCtx.ToolUseID,
+		Type:      finishedType,
 		Message:   spec.Command,
-		Data:      shellProgressData(t.name, spec.Command, toolCtx, timedOut, false),
+		Data:      shellFinishedProgressData(t.name, spec.Command, toolCtx, execResult, timedOut, false),
 	})
 	output := truncateShellOutput(execResult.Output())
 	result := shellExecutionResult{
@@ -322,6 +361,21 @@ func shellProgressData(toolName, command string, toolCtx tools.ToolUseContext, t
 	if background {
 		data["run_in_background"] = true
 	}
+	return data
+}
+
+func shellOutputProgressData(toolName, command string, toolCtx tools.ToolUseContext, result sandbox.ExecutionResult, timedOut, background bool) map[string]any {
+	data := shellProgressData(toolName, command, toolCtx, timedOut || result.TimedOut, background)
+	data["execution_mode"] = result.ExecutionMode
+	data["stdout"] = truncateShellOutput(result.Stdout)
+	data["stderr"] = truncateShellOutput(result.Stderr)
+	data["exit_code"] = result.ExitCode
+	return data
+}
+
+func shellFinishedProgressData(toolName, command string, toolCtx tools.ToolUseContext, result sandbox.ExecutionResult, timedOut, background bool) map[string]any {
+	data := shellOutputProgressData(toolName, command, toolCtx, result, timedOut, background)
+	data["success"] = result.ExitCode == 0 && !timedOut && !result.TimedOut
 	return data
 }
 

@@ -106,6 +106,9 @@ type Options struct {
 	MCPAuthenticator          tools.MCPAuthenticator
 	MCPReconnect              tools.MCPReconnectFunc
 	DisableMCPPromptSkills    bool
+	ExtensionLifecycle        []tools.ExtensionLifecycleRecord
+	LSPServers                []tools.LSPServerConfig
+	LSPHandler                tools.LSPHandler
 	BundledSkills             tools.BundledSkillOptions
 	SkillRoots                []string
 	SkillDiscovery            tools.SkillDiscoveryOptions
@@ -129,6 +132,7 @@ type Runner struct {
 	policyMu    sync.RWMutex
 	stateMu     sync.RWMutex
 	stateErrors []string
+	remote      *RemoteManager
 }
 
 type MCPInventory = queryengine.MCPInventory
@@ -139,6 +143,7 @@ type ExtensionTool = queryengine.ExtensionTool
 type ExtensionCommand = queryengine.ExtensionCommand
 type ExtensionSkill = queryengine.ExtensionSkill
 type ExtensionBoundary = queryengine.ExtensionBoundary
+type ExtensionLifecycleOperationResult = tools.ExtensionLifecycleOperationResult
 
 func NewRunner(sessions *session.Manager, client llm.Client, workspaceLoader *workspace.Loader, toolRegistry *tools.Registry) *Runner {
 	return NewRunnerWithOptions(sessions, client, workspaceLoader, toolRegistry, Options{
@@ -244,6 +249,7 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		options:     options,
 		stateErrors: stateErrors,
 	}
+	runner.remote = NewRemoteManager(sessions)
 	runner.options.AgentManager.SetUpdateHook(runner.persistAgentRun)
 	if runner.options.SkillForkExecutor == nil {
 		runner.options.SkillForkExecutor = runner.defaultSkillForkExecutor
@@ -322,6 +328,9 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		MCPAuthenticator:          runner.options.MCPAuthenticator,
 		MCPReconnect:              runner.options.MCPReconnect,
 		DisableMCPPromptSkills:    runner.options.DisableMCPPromptSkills,
+		ExtensionLifecycle:        runner.options.ExtensionLifecycle,
+		LSPServers:                runner.options.LSPServers,
+		LSPHandler:                runner.options.LSPHandler,
 		SkillRoots:                runner.options.SkillRoots,
 		SkillForkExecutor:         runner.options.SkillForkExecutor,
 		AgentTaskExecutor:         runner.options.AgentTaskExecutor,
@@ -1252,6 +1261,40 @@ func (r *Runner) ExtensionInventory(sessionID string) ExtensionInventory {
 	return r.engine.ExtensionInventory(sessionID)
 }
 
+func (r *Runner) RebuildExtensionInventory(sessionID string) ExtensionInventory {
+	if r == nil || r.engine == nil {
+		return ExtensionInventory{}
+	}
+	return r.engine.RebuildExtensionInventory(sessionID)
+}
+
+func (r *Runner) ExtensionLifecycleRecords() []tools.ExtensionLifecycleRecord {
+	if r == nil || r.engine == nil {
+		return nil
+	}
+	return r.engine.ExtensionLifecycleRecords()
+}
+
+func (r *Runner) DisableExtension(target tools.ExtensionLifecycleRecord) (ExtensionLifecycleOperationResult, error) {
+	return r.engine.DisableExtension(target)
+}
+
+func (r *Runner) EnableExtension(target tools.ExtensionLifecycleRecord) (ExtensionLifecycleOperationResult, error) {
+	return r.engine.EnableExtension(target)
+}
+
+func (r *Runner) ReloadExtension(ctx context.Context, target tools.ExtensionLifecycleRecord) (ExtensionLifecycleOperationResult, error) {
+	return r.engine.ReloadExtension(ctx, target)
+}
+
+func (r *Runner) MarkExtensionDegraded(target tools.ExtensionLifecycleRecord, message string) (ExtensionLifecycleOperationResult, error) {
+	return r.engine.MarkExtensionDegraded(target, message)
+}
+
+func (r *Runner) MarkExtensionFailed(target tools.ExtensionLifecycleRecord, message string) (ExtensionLifecycleOperationResult, error) {
+	return r.engine.MarkExtensionFailed(target, message)
+}
+
 func (r *Runner) MCPServers() []MCPServerSnapshot {
 	return r.engine.MCPServers()
 }
@@ -1558,4 +1601,53 @@ func (r *Runner) ToolContractsForSession(sessionID string) []tools.Contract {
 		return nil
 	}
 	return r.engine.ToolContractsForSession(sessionID)
+}
+
+func (r *Runner) UpsertRemoteIdentity(sessionID string, identity RemoteIdentity) (RemoteIdentity, error) {
+	return r.remote.UpsertIdentity(sessionID, identity)
+}
+
+func (r *Runner) RecordRemoteHeartbeat(sessionID, connectionID string, at, deadline time.Time) (RemoteIdentity, error) {
+	return r.remote.RecordHeartbeat(sessionID, connectionID, at, deadline)
+}
+
+func (r *Runner) MarkRemoteReconnecting(sessionID, connectionID string, at, deadline time.Time) (RemoteIdentity, error) {
+	return r.remote.MarkReconnecting(sessionID, connectionID, at, deadline)
+}
+
+func (r *Runner) DisconnectRemote(sessionID, connectionID string, at time.Time) (RemoteIdentity, error) {
+	return r.remote.Disconnect(sessionID, connectionID, at)
+}
+
+func (r *Runner) UpdateRemoteTrust(sessionID, connectionID string, state RemoteTrustState) (RemoteIdentity, error) {
+	return r.remote.UpdateTrust(sessionID, connectionID, state)
+}
+
+func (r *Runner) RecordRemoteApprovalCorrelation(sessionID string, record RemoteApprovalCorrelation) (RemoteApprovalCorrelation, error) {
+	if r == nil || r.options.ApprovalManager == nil {
+		return RemoteApprovalCorrelation{}, fmt.Errorf("approval manager is not configured")
+	}
+	localApprovalID := strings.TrimSpace(record.LocalApprovalID)
+	request, ok := r.options.ApprovalManager.Get(localApprovalID)
+	if !ok {
+		return RemoteApprovalCorrelation{}, fmt.Errorf("local approval %q not found", localApprovalID)
+	}
+	if request.SessionID != sessionID {
+		return RemoteApprovalCorrelation{}, fmt.Errorf("local approval %q belongs to session %q, not %q", localApprovalID, request.SessionID, sessionID)
+	}
+	if request.Status != approval.StatusPending {
+		return RemoteApprovalCorrelation{}, fmt.Errorf("local approval %q status %q cannot be remotely correlated", localApprovalID, request.Status)
+	}
+	return r.remote.RecordApprovalCorrelation(sessionID, record)
+}
+
+func (r *Runner) RemoteSnapshot(sessionID string) RemoteSnapshot {
+	return r.RemoteSnapshotAt(sessionID, time.Now().UTC())
+}
+
+func (r *Runner) RemoteSnapshotAt(sessionID string, at time.Time) RemoteSnapshot {
+	if r == nil || r.remote == nil {
+		return RemoteSnapshot{SessionID: sessionID}
+	}
+	return r.remote.SnapshotAt(sessionID, at)
 }

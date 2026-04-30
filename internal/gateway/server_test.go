@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"myclaw/internal/agent"
+	"myclaw/internal/approval"
 	"myclaw/internal/llm"
 	"myclaw/internal/orchestration"
 	"myclaw/internal/permissions"
@@ -49,13 +51,25 @@ func (f permissionHookFunc) CheckPermission(ctx context.Context, request queryen
 
 type progressToolForGateway struct{}
 
-type shellFailureExecutorForGateway struct{}
+type shellFailureExecutorForGateway struct {
+	stdout string
+}
 
-func (shellFailureExecutorForGateway) Run(_ context.Context, _ string) (string, error) {
+func (e shellFailureExecutorForGateway) Run(_ context.Context, _ string) (string, error) {
+	if e.stdout != "" {
+		return e.stdout, nil
+	}
 	return "", context.DeadlineExceeded
 }
 
-func (shellFailureExecutorForGateway) RunDetailed(_ context.Context, _ string) (sandbox.ExecutionResult, error) {
+func (e shellFailureExecutorForGateway) RunDetailed(_ context.Context, _ string) (sandbox.ExecutionResult, error) {
+	if e.stdout != "" {
+		return sandbox.ExecutionResult{
+			Stdout:        e.stdout,
+			ExitCode:      0,
+			ExecutionMode: "host",
+		}, nil
+	}
 	return sandbox.ExecutionResult{
 		Stdout:        "permission denied",
 		Stderr:        "exit status 1",
@@ -2416,6 +2430,109 @@ func TestHandleWebSocketToolLifecycleCarriesStructuredShellPayload(t *testing.T)
 	}
 }
 
+func TestHandleWebSocketForwardsShellProgressLifecycle(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, &objectToolCallClient{}, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	conn := connectGatewayTestClient(t, server)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "shell-progress",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "emit shell lifecycle",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	var progressTypes []string
+	var outputProgress map[string]any
+	for i := 0; i < 24; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.progress" {
+			progressType, _ := event.Payload["type"].(string)
+			progressTypes = append(progressTypes, progressType)
+			if progressType == "shell.output" {
+				outputProgress, _ = event.Payload["data"].(map[string]any)
+			}
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.result" {
+			break
+		}
+	}
+	wantTypes := []string{"shell.started", "shell.running", "shell.output", "shell.finished"}
+	if !reflect.DeepEqual(progressTypes, wantTypes) {
+		t.Fatalf("progress types = %#v, want %#v", progressTypes, wantTypes)
+	}
+	if outputProgress["stdout"] == "" || outputProgress["exit_code"] != float64(0) {
+		t.Fatalf("output progress data = %#v, want stdout and exit_code", outputProgress)
+	}
+}
+
+func TestHandleWebSocketForwardsBackgroundShellTerminalProgress(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	registry := tools.NewRegistry(systemtools.NewBashTool(sandbox.NewRouter(shellFailureExecutorForGateway{stdout: "background"}, nil)))
+	client := &backgroundShellToolCallClient{}
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, client, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	server.runner = runtimepkg.NewRunnerWithOptions(sessionManager, client, workspace.NewLoader(""), registry, runtimepkg.Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	server.queue = runtimepkg.NewQueue(server.runner)
+	conn := connectGatewayTestClient(t, server)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "shell-background-progress",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "emit background shell lifecycle",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	var progressTypes []string
+	var terminalProgress map[string]any
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var event protocolws.Message
+		if err := conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+			t.Fatalf("set read deadline: %v", err)
+		}
+		err := conn.ReadJSON(&event)
+		if err != nil {
+			continue
+		}
+		if event.Type != protocolws.TypeEvent || event.Event != "tool.progress" {
+			continue
+		}
+		progressType, _ := event.Payload["type"].(string)
+		progressTypes = append(progressTypes, progressType)
+		if progressType == "shell.finished" {
+			terminalProgress, _ = event.Payload["data"].(map[string]any)
+			break
+		}
+	}
+	wantTypes := []string{"shell.background_started", "shell.running", "shell.output", "shell.finished"}
+	if !reflect.DeepEqual(progressTypes, wantTypes) {
+		t.Fatalf("progress types = %#v, want %#v", progressTypes, wantTypes)
+	}
+	if terminalProgress["run_in_background"] != true ||
+		terminalProgress["stdout"] == "" ||
+		terminalProgress["exit_code"] != float64(0) ||
+		terminalProgress["success"] != true {
+		t.Fatalf("terminal progress = %#v, want background terminal payload", terminalProgress)
+	}
+}
+
 func TestHandleWebSocketShellFailurePreservesStructuredResult(t *testing.T) {
 	sessionManager := session.NewManager(nil)
 	registry := tools.NewRegistry(systemtools.NewBashTool(sandbox.NewRouter(shellFailureExecutorForGateway{}, nil)))
@@ -2548,7 +2665,7 @@ func TestHandleWebSocketCanUseToolControlRequestRacesFallbackPermissionHook(t *t
 
 	foundControlRequest := false
 	foundToolCalled := false
-	if err := conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
 		t.Fatalf("set read deadline: %v", err)
 	}
 	for i := 0; i < 16; i++ {
@@ -9013,6 +9130,25 @@ func (c *objectToolCallClient) Stream(_ context.Context, _ llm.GenerateRequest, 
 	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
 }
 
+type backgroundShellToolCallClient struct{}
+
+func (c *backgroundShellToolCallClient) Stream(_ context.Context, req llm.GenerateRequest, handler llm.StreamHandler) error {
+	for _, message := range req.History {
+		if message.Role == "tool" {
+			return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+		}
+	}
+	if err := handler.OnEvent(llm.StreamEvent{
+		Type:            "tool.call",
+		ToolName:        "Bash",
+		ToolInput:       `{"command":"echo background","run_in_background":true}`,
+		ToolInputObject: map[string]any{"command": "echo background", "run_in_background": true},
+	}); err != nil {
+		return err
+	}
+	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+}
+
 type progressToolCallClient struct{}
 
 func (c *progressToolCallClient) Stream(_ context.Context, _ llm.GenerateRequest, handler llm.StreamHandler) error {
@@ -9282,29 +9418,362 @@ func TestHandleWebSocketExtensionInventoryReturnsRuntimeProjection(t *testing.T)
 	if !ok || len(toolsPayload) == 0 {
 		t.Fatalf("tools payload = %#v, want non-empty runtime tool projection", inventory["tools"])
 	}
+	firstTool, _ := toolsPayload[0].(map[string]any)
+	if firstTool["lifecycle_type"] != "tool" || firstTool["lifecycle_state"] == "" {
+		t.Fatalf("tool lifecycle payload = %#v, want lifecycle projection fields", firstTool)
+	}
 	commandsPayload, ok := inventory["commands"].([]any)
 	if !ok || len(commandsPayload) == 0 {
 		t.Fatalf("commands payload = %#v, want runtime command projection", inventory["commands"])
 	}
 	var foundPermissions bool
+	var foundStatusMetadata bool
 	for _, raw := range commandsPayload {
 		command, _ := raw.(map[string]any)
 		if command["name"] == "permissions" && command["source"] == "runtime" {
 			foundPermissions = true
-			break
+		}
+		if command["name"] == "status" && command["source"] == "runtime" {
+			if command["type"] != "slash" ||
+				command["lifecycle_type"] != "command" ||
+				command["lifecycle_state"] != "active" ||
+				command["category"] != "runtime" ||
+				command["visibility"] != "always" ||
+				command["behavior"] != "query" ||
+				command["user_invocable"] != true {
+				t.Fatalf("runtime /status command metadata = %#v, want full runtime metadata", command)
+			}
+			foundStatusMetadata = true
 		}
 	}
 	if !foundPermissions {
 		t.Fatalf("commands payload = %#v, want runtime /permissions command", commandsPayload)
 	}
+	if !foundStatusMetadata {
+		t.Fatalf("commands payload = %#v, want runtime /status metadata", commandsPayload)
+	}
 	lsp, ok := inventory["lsp_boundaries"].([]any)
 	if !ok || len(lsp) != 1 {
 		t.Fatalf("lsp_boundaries = %#v, want deferred LSP boundary", inventory["lsp_boundaries"])
+	}
+	lspBoundary, _ := lsp[0].(map[string]any)
+	if lspBoundary["lifecycle_type"] != "lsp_boundary" || lspBoundary["lifecycle_state"] != "discovered" {
+		t.Fatalf("lsp lifecycle payload = %#v, want lifecycle projection", lspBoundary)
 	}
 	deferred, ok := inventory["deferred_capabilities"].([]any)
 	if !ok || len(deferred) == 0 {
 		t.Fatalf("deferred_capabilities = %#v, want explicit deferred capabilities", inventory["deferred_capabilities"])
 	}
+}
+
+func TestHandleWebSocketExtensionInventorySerializesLSPRuntimeProjection(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	runner := runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), runtimepkg.Options{
+		LSPServers: []tools.LSPServerConfig{{
+			Name:                 "gopls",
+			LanguageIDs:          []string{"go"},
+			FilePatterns:         []string{"**/*.go"},
+			Command:              "gopls",
+			Args:                 []string{"serve"},
+			WorkspaceRoot:        "C:/repo",
+			Enabled:              true,
+			ReadOnlyCapabilities: []string{"definition", "diagnostics"},
+			MutatingCapabilities: []string{"rename"},
+		}},
+	})
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{Runner: runner})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "1", Method: protocolws.MethodConnect, Payload: map[string]any{"role": "client", "client_identity": "test", "agent_id": "main"}}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	_ = conn.ReadJSON(&protocolws.Message{})
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "2", Method: protocolws.MethodExtensionInventory, Payload: map[string]any{}}); err != nil {
+		t.Fatalf("write extension_inventory: %v", err)
+	}
+	var res protocolws.Message
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if err := conn.ReadJSON(&res); err != nil {
+		t.Fatalf("read extension_inventory: %v", err)
+	}
+	inventory, ok := res.Payload["inventory"].(map[string]any)
+	if !ok {
+		t.Fatalf("inventory payload = %#v", res.Payload)
+	}
+	lsp, ok := inventory["lsp_boundaries"].([]any)
+	if !ok || len(lsp) != 1 {
+		t.Fatalf("lsp_boundaries = %#v, want configured server", inventory["lsp_boundaries"])
+	}
+	boundary, _ := lsp[0].(map[string]any)
+	if boundary["name"] != "gopls" ||
+		boundary["lifecycle_state"] != tools.LSPStateConfigured ||
+		boundary["status"] != tools.LSPStateConfigured ||
+		boundary["workspace_root"] != "C:/repo" ||
+		boundary["permission_classification"] != tools.LSPPermissionMixed {
+		t.Fatalf("lsp boundary payload = %#v", boundary)
+	}
+	if got := boundary["language_ids"].([]any); len(got) != 1 || got[0] != "go" {
+		t.Fatalf("language ids payload = %#v", boundary["language_ids"])
+	}
+	if got := boundary["read_only_capabilities"].([]any); len(got) != 2 {
+		t.Fatalf("read_only_capabilities payload = %#v", boundary["read_only_capabilities"])
+	}
+	if got := boundary["mutating_capabilities"].([]any); len(got) != 1 || got[0] != "rename" {
+		t.Fatalf("mutating_capabilities payload = %#v", boundary["mutating_capabilities"])
+	}
+}
+
+func TestHandleWebSocketRemoteBridgeStateProjection(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	approvalManager := approval.NewManager()
+	mainSession := sessionManager.GetOrCreateMain("main")
+	pendingApproval := approvalManager.Create(mainSession.ID, "run-1", "msg-1", "system.run", "pwd", "approval required", "approval", "")
+	runner := runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), runtimepkg.Options{
+		ApprovalManager: approvalManager,
+	})
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{Runner: runner})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "1", Method: protocolws.MethodConnect, Payload: map[string]any{"role": "sdk", "client_identity": "sdk-client", "agent_id": "main"}}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	_ = conn.ReadJSON(&protocolws.Message{})
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "2", Method: protocolws.MethodRemoteHeartbeat, Payload: map[string]any{
+		"connection_id":   "conn-remote",
+		"client_identity": "sdk-client",
+		"device_id":       "device-1",
+		"user_id":         "user-1",
+		"agent_id":        "main",
+		"transport_kind":  "websocket",
+		"capabilities":    []any{"heartbeat", "approval_forwarding"},
+	}}); err != nil {
+		t.Fatalf("write remote heartbeat: %v", err)
+	}
+	var heartbeat protocolws.Message
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if err := conn.ReadJSON(&heartbeat); err != nil {
+		t.Fatalf("read remote heartbeat: %v", err)
+	}
+	if heartbeat.Type != protocolws.TypeResponse || !heartbeat.OK {
+		t.Fatalf("remote heartbeat response = %#v", heartbeat)
+	}
+	remote, ok := heartbeat.Payload["remote"].(map[string]any)
+	if !ok {
+		t.Fatalf("remote payload = %#v", heartbeat.Payload)
+	}
+	identities, ok := remote["identities"].([]any)
+	if !ok || len(identities) != 1 {
+		t.Fatalf("remote identities = %#v", remote["identities"])
+	}
+	identity, _ := identities[0].(map[string]any)
+	if identity["connection_id"] != "conn-remote" ||
+		identity["trust_state"] != string(runtimepkg.RemoteTrustUnknown) ||
+		identity["liveness_state"] != string(runtimepkg.RemoteLivenessConnected) {
+		t.Fatalf("remote identity payload = %#v", identity)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "3", Method: protocolws.MethodRemoteTrustUpdate, Payload: map[string]any{
+		"connection_id": "conn-remote",
+		"trust_state":   string(runtimepkg.RemoteTrustTrusted),
+	}}); err != nil {
+		t.Fatalf("write trust update: %v", err)
+	}
+	var trusted protocolws.Message
+	if err := conn.ReadJSON(&trusted); err != nil {
+		t.Fatalf("read trust update: %v", err)
+	}
+	remote = trusted.Payload["remote"].(map[string]any)
+	identity = remote["identities"].([]any)[0].(map[string]any)
+	if identity["trust_state"] != string(runtimepkg.RemoteTrustTrusted) {
+		t.Fatalf("trusted identity payload = %#v", identity)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "4", Method: protocolws.MethodRemoteApprovalCorrelate, Payload: map[string]any{
+		"local_approval_id":     pendingApproval.ID,
+		"remote_correlation_id": "remote-approval-1",
+		"connection_id":         "conn-remote",
+		"client_identity":       "sdk-client",
+		"device_id":             "device-1",
+		"status":                string(runtimepkg.RemoteApprovalPending),
+		"decision_payload":      map[string]any{"kind": "prompt"},
+	}}); err != nil {
+		t.Fatalf("write approval correlation: %v", err)
+	}
+	var correlation protocolws.Message
+	if err := conn.ReadJSON(&correlation); err != nil {
+		t.Fatalf("read approval correlation: %v", err)
+	}
+	remote = correlation.Payload["remote"].(map[string]any)
+	correlations, ok := remote["approval_correlations"].([]any)
+	if !ok || len(correlations) != 1 {
+		t.Fatalf("approval correlations = %#v", remote["approval_correlations"])
+	}
+	item := correlations[0].(map[string]any)
+	if item["local_approval_id"] != pendingApproval.ID || item["remote_correlation_id"] != "remote-approval-1" {
+		t.Fatalf("approval correlation payload = %#v", item)
+	}
+}
+
+func TestHandleWebSocketRemoteHeartbeatPreservesTrustState(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{})
+	conn := connectGatewayTestClient(t, server)
+
+	heartbeatPayload := map[string]any{
+		"connection_id":   "conn-remote",
+		"client_identity": "sdk-client",
+		"device_id":       "device-1",
+		"user_id":         "user-1",
+		"agent_id":        "main",
+		"transport_kind":  "websocket",
+		"capabilities":    []any{"heartbeat", "approval_forwarding"},
+	}
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "heartbeat-1", Method: protocolws.MethodRemoteHeartbeat, Payload: heartbeatPayload}); err != nil {
+		t.Fatalf("write first heartbeat: %v", err)
+	}
+	firstHeartbeat := readGatewayResponse(t, conn)
+	if !firstHeartbeat.OK {
+		t.Fatalf("first heartbeat response = %#v, want ok", firstHeartbeat)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "trust-1", Method: protocolws.MethodRemoteTrustUpdate, Payload: map[string]any{
+		"connection_id": "conn-remote",
+		"trust_state":   string(runtimepkg.RemoteTrustTrusted),
+	}}); err != nil {
+		t.Fatalf("write trust update: %v", err)
+	}
+	trusted := readGatewayResponse(t, conn)
+	if !trusted.OK {
+		t.Fatalf("trust update response = %#v, want ok", trusted)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "heartbeat-2", Method: protocolws.MethodRemoteHeartbeat, Payload: heartbeatPayload}); err != nil {
+		t.Fatalf("write second heartbeat: %v", err)
+	}
+	secondHeartbeat := readGatewayResponse(t, conn)
+	identity := firstRemoteIdentityPayload(t, secondHeartbeat)
+	if identity["trust_state"] != string(runtimepkg.RemoteTrustTrusted) {
+		t.Fatalf("trust state after second heartbeat = %#v, want trusted", identity)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "trust-2", Method: protocolws.MethodRemoteTrustUpdate, Payload: map[string]any{
+		"connection_id": "conn-remote",
+		"trust_state":   string(runtimepkg.RemoteTrustRevoked),
+	}}); err != nil {
+		t.Fatalf("write revoked trust update: %v", err)
+	}
+	revoked := readGatewayResponse(t, conn)
+	if !revoked.OK {
+		t.Fatalf("revoked trust update response = %#v, want ok", revoked)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "heartbeat-3", Method: protocolws.MethodRemoteHeartbeat, Payload: heartbeatPayload}); err != nil {
+		t.Fatalf("write third heartbeat: %v", err)
+	}
+	thirdHeartbeat := readGatewayResponse(t, conn)
+	identity = firstRemoteIdentityPayload(t, thirdHeartbeat)
+	if identity["trust_state"] != string(runtimepkg.RemoteTrustRevoked) {
+		t.Fatalf("trust state after revoked heartbeat = %#v, want revoked", identity)
+	}
+}
+
+func TestHandleWebSocketRemoteApprovalCorrelateValidatesLocalApprovalAuthority(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	mainSession := sessionManager.GetOrCreateMain("main")
+	otherSession := sessionManager.CreateSession("main")
+	approvalManager := approval.NewManager()
+	otherApproval := approvalManager.Create(otherSession.ID, "run-1", "msg-1", "system.run", "pwd", "approval required", "approval", "")
+	validApproval := approvalManager.Create(mainSession.ID, "run-2", "msg-2", "system.run", "pwd", "approval required", "approval", "")
+	runner := runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), runtimepkg.Options{
+		ApprovalManager: approvalManager,
+	})
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{Runner: runner})
+	conn := connectGatewayTestClient(t, server)
+
+	writeRemoteApprovalCorrelation := func(id, localApprovalID, remoteCorrelationID string) protocolws.Message {
+		t.Helper()
+		if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: id, Method: protocolws.MethodRemoteApprovalCorrelate, Payload: map[string]any{
+			"local_approval_id":     localApprovalID,
+			"remote_correlation_id": remoteCorrelationID,
+			"connection_id":         "conn-remote",
+			"client_identity":       "sdk-client",
+			"device_id":             "device-1",
+			"status":                string(runtimepkg.RemoteApprovalPending),
+			"decision_payload":      map[string]any{"kind": "prompt"},
+		}}); err != nil {
+			t.Fatalf("write approval correlation %s: %v", id, err)
+		}
+		return readGatewayResponse(t, conn)
+	}
+
+	missing := writeRemoteApprovalCorrelation("missing", "approval-missing", "remote-missing")
+	if missing.OK || missing.Error == nil || !strings.Contains(missing.Error.Message, "not found") {
+		t.Fatalf("missing approval correlation response = %#v, want not found error", missing)
+	}
+	if snapshot := runner.RemoteSnapshot(mainSession.ID); len(snapshot.ApprovalCorrelations) != 0 {
+		t.Fatalf("snapshot after missing approval correlation = %#v, want none", snapshot.ApprovalCorrelations)
+	}
+
+	crossSession := writeRemoteApprovalCorrelation("cross-session", otherApproval.ID, "remote-other")
+	if crossSession.OK || crossSession.Error == nil || !strings.Contains(crossSession.Error.Message, "belongs to session") {
+		t.Fatalf("cross-session approval correlation response = %#v, want session ownership error", crossSession)
+	}
+	if snapshot := runner.RemoteSnapshot(mainSession.ID); len(snapshot.ApprovalCorrelations) != 0 {
+		t.Fatalf("snapshot after cross-session approval correlation = %#v, want none", snapshot.ApprovalCorrelations)
+	}
+
+	valid := writeRemoteApprovalCorrelation("valid", validApproval.ID, "remote-valid")
+	if !valid.OK {
+		t.Fatalf("valid approval correlation response = %#v, want ok", valid)
+	}
+	snapshot := runner.RemoteSnapshot(mainSession.ID)
+	if len(snapshot.ApprovalCorrelations) != 1 || snapshot.ApprovalCorrelations[0].LocalApprovalID != validApproval.ID {
+		t.Fatalf("snapshot after valid approval correlation = %#v, want one valid record", snapshot.ApprovalCorrelations)
+	}
+}
+
+func firstRemoteIdentityPayload(t *testing.T, message protocolws.Message) map[string]any {
+	t.Helper()
+	if message.Type != protocolws.TypeResponse || !message.OK {
+		t.Fatalf("remote response = %#v, want ok response", message)
+	}
+	remote, ok := message.Payload["remote"].(map[string]any)
+	if !ok {
+		t.Fatalf("remote payload = %#v, want object", message.Payload["remote"])
+	}
+	identities, ok := remote["identities"].([]any)
+	if !ok || len(identities) != 1 {
+		t.Fatalf("remote identities = %#v, want one identity", remote["identities"])
+	}
+	identity, ok := identities[0].(map[string]any)
+	if !ok {
+		t.Fatalf("remote identity = %#v, want object", identities[0])
+	}
+	return identity
 }
 
 func TestRuntimeSinkSerializesUnknownRuntimeEventsWithSharedPayload(t *testing.T) {

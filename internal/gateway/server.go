@@ -1519,6 +1519,130 @@ func (s *Server) handleClient(client *Client) error {
 			if err := s.emitOrchestrationUpdated(client, run.ID); err != nil {
 				return err
 			}
+		case protocolws.MethodRemoteState:
+			remotePayload, err := parseRemoteStatePayload(inbound.Payload)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			targetSession, resolveErr := s.resolveSessionForStatus(client, protocolws.SessionStatusPayload{SessionID: remotePayload.SessionID, SessionKey: remotePayload.SessionKey})
+			if resolveErr != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, resolveErr.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := client.WriteJSON(protocolws.Message{Type: protocolws.TypeResponse, ID: inbound.ID, OK: true, Payload: map[string]any{"remote": remoteSnapshotPayload(s.runner.RemoteSnapshot(targetSession.ID))}}); err != nil {
+				return err
+			}
+		case protocolws.MethodRemoteHeartbeat, protocolws.MethodRemoteReconnect:
+			remotePayload, err := parseRemoteUpdatePayload(inbound.Payload)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			targetSession, resolveErr := s.resolveSessionForStatus(client, protocolws.SessionStatusPayload{SessionID: remotePayload.SessionID, SessionKey: remotePayload.SessionKey})
+			if resolveErr != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, resolveErr.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			now := time.Now().UTC()
+			identity := runtime.RemoteIdentity{
+				ConnectionID:      remotePayload.ConnectionID,
+				ClientIdentity:    defaultString(remotePayload.ClientIdentity, client.Identity()),
+				DeviceID:          remotePayload.DeviceID,
+				UserID:            remotePayload.UserID,
+				AgentID:           defaultString(remotePayload.AgentID, targetSession.AgentID),
+				TransportKind:     remotePayload.TransportKind,
+				TrustState:        runtime.RemoteTrustUnknown,
+				ConnectedAt:       now,
+				LastHeartbeatAt:   now,
+				ReconnectDeadline: now.Add(runtime.RemoteReconnectWindow),
+				Capabilities:      append([]string(nil), remotePayload.Capabilities...),
+			}
+			if _, err := s.runner.UpsertRemoteIdentity(targetSession.ID, identity); err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if inbound.Method == protocolws.MethodRemoteReconnect {
+				if _, err := s.runner.MarkRemoteReconnecting(targetSession.ID, remotePayload.ConnectionID, now, now.Add(runtime.RemoteReconnectWindow)); err != nil {
+					if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+			if err := client.WriteJSON(protocolws.Message{Type: protocolws.TypeResponse, ID: inbound.ID, OK: true, Payload: map[string]any{"remote": remoteSnapshotPayload(s.runner.RemoteSnapshot(targetSession.ID))}}); err != nil {
+				return err
+			}
+		case protocolws.MethodRemoteTrustUpdate:
+			trustPayload, err := parseRemoteTrustUpdatePayload(inbound.Payload)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			targetSession, resolveErr := s.resolveSessionForStatus(client, protocolws.SessionStatusPayload{SessionID: trustPayload.SessionID, SessionKey: trustPayload.SessionKey})
+			if resolveErr != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, resolveErr.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if _, err := s.runner.UpdateRemoteTrust(targetSession.ID, trustPayload.ConnectionID, runtime.RemoteTrustState(trustPayload.TrustState)); err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := client.WriteJSON(protocolws.Message{Type: protocolws.TypeResponse, ID: inbound.ID, OK: true, Payload: map[string]any{"remote": remoteSnapshotPayload(s.runner.RemoteSnapshot(targetSession.ID))}}); err != nil {
+				return err
+			}
+		case protocolws.MethodRemoteApprovalCorrelate:
+			correlationPayload, err := parseRemoteApprovalCorrelatePayload(inbound.Payload)
+			if err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			targetSession, resolveErr := s.resolveSessionForStatus(client, protocolws.SessionStatusPayload{SessionID: correlationPayload.SessionID, SessionKey: correlationPayload.SessionKey})
+			if resolveErr != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, resolveErr.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			now := time.Now().UTC()
+			if _, err := s.runner.RecordRemoteApprovalCorrelation(targetSession.ID, runtime.RemoteApprovalCorrelation{
+				LocalApprovalID:     correlationPayload.LocalApprovalID,
+				RemoteCorrelationID: correlationPayload.RemoteCorrelationID,
+				ConnectionID:        correlationPayload.ConnectionID,
+				ClientIdentity:      defaultString(correlationPayload.ClientIdentity, client.Identity()),
+				DeviceID:            correlationPayload.DeviceID,
+				Status:              runtime.RemoteApprovalStatus(correlationPayload.Status),
+				CreatedAt:           now,
+				UpdatedAt:           now,
+				ExpiresAt:           now.Add(runtime.RemoteReconnectWindow),
+				DecisionPayload:     cloneAnyMap(correlationPayload.DecisionPayload),
+			}); err != nil {
+				if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, err.Error())); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := client.WriteJSON(protocolws.Message{Type: protocolws.TypeResponse, ID: inbound.ID, OK: true, Payload: map[string]any{"remote": remoteSnapshotPayload(s.runner.RemoteSnapshot(targetSession.ID))}}); err != nil {
+				return err
+			}
 		default:
 			if err := client.WriteJSON(protocolws.ErrorResponse(inbound.ID, "unsupported method")); err != nil {
 				return err
@@ -2048,6 +2172,63 @@ func parseSessionSetModelPayload(payload map[string]any) (protocolws.SessionSetM
 	return setPayload, nil
 }
 
+func parseRemoteStatePayload(payload map[string]any) (protocolws.RemoteStatePayload, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return protocolws.RemoteStatePayload{}, err
+	}
+	var remotePayload protocolws.RemoteStatePayload
+	if err := json.Unmarshal(raw, &remotePayload); err != nil {
+		return protocolws.RemoteStatePayload{}, err
+	}
+	return remotePayload, nil
+}
+
+func parseRemoteUpdatePayload(payload map[string]any) (protocolws.RemoteUpdatePayload, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return protocolws.RemoteUpdatePayload{}, err
+	}
+	var remotePayload protocolws.RemoteUpdatePayload
+	if err := json.Unmarshal(raw, &remotePayload); err != nil {
+		return protocolws.RemoteUpdatePayload{}, err
+	}
+	if strings.TrimSpace(remotePayload.ConnectionID) == "" {
+		return protocolws.RemoteUpdatePayload{}, &connectError{message: "remote payload requires connection_id"}
+	}
+	return remotePayload, nil
+}
+
+func parseRemoteTrustUpdatePayload(payload map[string]any) (protocolws.RemoteTrustUpdatePayload, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return protocolws.RemoteTrustUpdatePayload{}, err
+	}
+	var trustPayload protocolws.RemoteTrustUpdatePayload
+	if err := json.Unmarshal(raw, &trustPayload); err != nil {
+		return protocolws.RemoteTrustUpdatePayload{}, err
+	}
+	if strings.TrimSpace(trustPayload.ConnectionID) == "" || strings.TrimSpace(trustPayload.TrustState) == "" {
+		return protocolws.RemoteTrustUpdatePayload{}, &connectError{message: "remote_trust_update payload requires connection_id and trust_state"}
+	}
+	return trustPayload, nil
+}
+
+func parseRemoteApprovalCorrelatePayload(payload map[string]any) (protocolws.RemoteApprovalCorrelatePayload, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return protocolws.RemoteApprovalCorrelatePayload{}, err
+	}
+	var correlationPayload protocolws.RemoteApprovalCorrelatePayload
+	if err := json.Unmarshal(raw, &correlationPayload); err != nil {
+		return protocolws.RemoteApprovalCorrelatePayload{}, err
+	}
+	if strings.TrimSpace(correlationPayload.LocalApprovalID) == "" || strings.TrimSpace(correlationPayload.RemoteCorrelationID) == "" {
+		return protocolws.RemoteApprovalCorrelatePayload{}, &connectError{message: "remote_approval_correlate payload requires local_approval_id and remote_correlation_id"}
+	}
+	return correlationPayload, nil
+}
+
 func mcpInventoryPayload(inventory runtime.MCPInventory) map[string]any {
 	return map[string]any{
 		"server_count":   inventory.ServerCount,
@@ -2056,6 +2237,57 @@ func mcpInventoryPayload(inventory runtime.MCPInventory) map[string]any {
 		"resource_count": inventory.ResourceCount,
 		"skill_count":    inventory.SkillCount,
 	}
+}
+
+func remoteSnapshotPayload(snapshot runtime.RemoteSnapshot) map[string]any {
+	return map[string]any{
+		"session_id":            snapshot.SessionID,
+		"identities":            remoteIdentityPayloads(snapshot.Identities),
+		"approval_correlations": remoteApprovalCorrelationPayloads(snapshot.ApprovalCorrelations),
+	}
+}
+
+func remoteIdentityPayloads(identities []runtime.RemoteIdentity) []map[string]any {
+	items := make([]map[string]any, 0, len(identities))
+	for _, identity := range identities {
+		items = append(items, map[string]any{
+			"connection_id":      identity.ConnectionID,
+			"session_id":         identity.SessionID,
+			"client_identity":    identity.ClientIdentity,
+			"device_id":          identity.DeviceID,
+			"user_id":            identity.UserID,
+			"agent_id":           identity.AgentID,
+			"transport_kind":     identity.TransportKind,
+			"trust_state":        string(identity.TrustState),
+			"liveness_state":     string(identity.LivenessState),
+			"connected_at":       formatOptionalTime(identity.ConnectedAt),
+			"disconnected_at":    formatOptionalTime(identity.DisconnectedAt),
+			"last_heartbeat_at":  formatOptionalTime(identity.LastHeartbeatAt),
+			"reconnect_deadline": formatOptionalTime(identity.ReconnectDeadline),
+			"capabilities":       stringsToAnySlice(identity.Capabilities),
+			"correlation":        stringMapToAny(identity.Correlation),
+		})
+	}
+	return items
+}
+
+func remoteApprovalCorrelationPayloads(correlations []runtime.RemoteApprovalCorrelation) []map[string]any {
+	items := make([]map[string]any, 0, len(correlations))
+	for _, correlation := range correlations {
+		items = append(items, map[string]any{
+			"local_approval_id":     correlation.LocalApprovalID,
+			"remote_correlation_id": correlation.RemoteCorrelationID,
+			"connection_id":         correlation.ConnectionID,
+			"client_identity":       correlation.ClientIdentity,
+			"device_id":             correlation.DeviceID,
+			"status":                string(correlation.Status),
+			"created_at":            formatOptionalTime(correlation.CreatedAt),
+			"updated_at":            formatOptionalTime(correlation.UpdatedAt),
+			"expires_at":            formatOptionalTime(correlation.ExpiresAt),
+			"decision_payload":      cloneAnyMap(correlation.DecisionPayload),
+		})
+	}
+	return items
 }
 
 func extensionInventoryPayload(inventory runtime.ExtensionInventory) map[string]any {
@@ -2084,17 +2316,24 @@ func extensionToolPayloads(toolItems []runtime.ExtensionTool) []map[string]any {
 	items := make([]map[string]any, 0, len(toolItems))
 	for _, tool := range toolItems {
 		items = append(items, map[string]any{
-			"name":         tool.Name,
-			"aliases":      stringsToAnySlice(tool.Aliases),
-			"description":  tool.Description,
-			"input_schema": tool.InputSchema,
-			"source":       tool.Source,
-			"search_hint":  tool.SearchHint,
-			"enabled":      tool.Enabled,
-			"read_only":    tool.ReadOnly,
-			"destructive":  tool.Destructive,
-			"should_defer": tool.ShouldDefer,
-			"always_load":  tool.AlwaysLoad,
+			"lifecycle_type":    tool.Type,
+			"name":              tool.Name,
+			"aliases":           stringsToAnySlice(tool.Aliases),
+			"description":       tool.Description,
+			"input_schema":      tool.InputSchema,
+			"source":            tool.Source,
+			"version":           tool.Version,
+			"capabilities":      stringsToAnySlice(tool.Capabilities),
+			"search_hint":       tool.SearchHint,
+			"enabled":           tool.Enabled,
+			"read_only":         tool.ReadOnly,
+			"destructive":       tool.Destructive,
+			"should_defer":      tool.ShouldDefer,
+			"always_load":       tool.AlwaysLoad,
+			"lifecycle_state":   tool.LifecycleState,
+			"last_error":        tool.LastError,
+			"last_updated":      tool.LastUpdated,
+			"recovery_behavior": tool.RecoveryBehavior,
 		})
 	}
 	return items
@@ -2104,6 +2343,7 @@ func extensionCommandPayloads(commands []runtime.ExtensionCommand) []map[string]
 	items := make([]map[string]any, 0, len(commands))
 	for _, command := range commands {
 		items = append(items, map[string]any{
+			"lifecycle_type":                 command.LifecycleType,
 			"type":                           command.Type,
 			"name":                           command.Name,
 			"aliases":                        stringsToAnySlice(command.Aliases),
@@ -2114,6 +2354,12 @@ func extensionCommandPayloads(commands []runtime.ExtensionCommand) []map[string]
 			"behavior":                       command.Behavior,
 			"source":                         command.Source,
 			"loaded_from":                    command.LoadedFrom,
+			"version":                        command.Version,
+			"capabilities":                   stringsToAnySlice(command.Capabilities),
+			"lifecycle_state":                command.LifecycleState,
+			"last_error":                     command.LastError,
+			"last_updated":                   command.LastUpdated,
+			"recovery_behavior":              command.RecoveryBehavior,
 			"has_user_specified_description": command.HasUserSpecifiedDescription,
 			"when_to_use":                    command.WhenToUse,
 			"disable_model_invocation":       command.DisableModelInvocation,
@@ -2128,6 +2374,7 @@ func extensionSkillPayloads(skills []runtime.ExtensionSkill) []map[string]any {
 	items := make([]map[string]any, 0, len(skills))
 	for _, skill := range skills {
 		items = append(items, map[string]any{
+			"lifecycle_type":           skill.LifecycleType,
 			"name":                     skill.Name,
 			"display_name":             skill.DisplayName,
 			"description":              skill.Description,
@@ -2152,6 +2399,11 @@ func extensionSkillPayloads(skills []runtime.ExtensionSkill) []map[string]any {
 			"mcp_server":               skill.MCPServer,
 			"mcp_prompt_name":          skill.MCPPromptName,
 			"remote_canonical":         skill.RemoteCanonical,
+			"capabilities":             stringsToAnySlice(skill.Capabilities),
+			"lifecycle_state":          skill.LifecycleState,
+			"last_error":               skill.LastError,
+			"last_updated":             skill.LastUpdated,
+			"recovery_behavior":        skill.RecoveryBehavior,
 		})
 	}
 	return items
@@ -2161,11 +2413,28 @@ func extensionBoundaryPayloads(boundaries []runtime.ExtensionBoundary) []map[str
 	items := make([]map[string]any, 0, len(boundaries))
 	for _, boundary := range boundaries {
 		items = append(items, map[string]any{
-			"name":   boundary.Name,
-			"kind":   boundary.Kind,
-			"status": boundary.Status,
-			"phase":  boundary.Phase,
-			"notes":  boundary.Notes,
+			"lifecycle_type":            boundary.LifecycleType,
+			"name":                      boundary.Name,
+			"kind":                      boundary.Kind,
+			"source":                    boundary.Source,
+			"status":                    boundary.Status,
+			"phase":                     boundary.Phase,
+			"notes":                     boundary.Notes,
+			"capabilities":              stringsToAnySlice(boundary.Capabilities),
+			"lifecycle_state":           boundary.LifecycleState,
+			"last_error":                boundary.LastError,
+			"last_updated":              boundary.LastUpdated,
+			"recovery_behavior":         boundary.RecoveryBehavior,
+			"version":                   boundary.Version,
+			"language_ids":              stringsToAnySlice(boundary.LanguageIDs),
+			"file_patterns":             stringsToAnySlice(boundary.FilePatterns),
+			"command":                   boundary.Command,
+			"cwd":                       boundary.CWD,
+			"workspace_root":            boundary.WorkspaceRoot,
+			"enabled":                   boundary.Enabled,
+			"read_only_capabilities":    stringsToAnySlice(boundary.ReadOnlyCapabilities),
+			"mutating_capabilities":     stringsToAnySlice(boundary.MutatingCapabilities),
+			"permission_classification": boundary.PermissionClassification,
 		})
 	}
 	return items
@@ -2372,15 +2641,23 @@ func mcpServerPayloads(servers []runtime.MCPServerSnapshot) []map[string]any {
 
 func mcpServerPayload(server runtime.MCPServerSnapshot) map[string]any {
 	payload := map[string]any{
-		"name":           server.Name,
-		"transport_type": server.TransportType,
-		"endpoint":       server.Endpoint,
-		"enabled":        server.Enabled,
-		"status":         server.Status,
-		"tools":          toAnySlice(server.Tools),
-		"prompts":        toAnySlice(server.Prompts),
-		"resources":      toAnySlice(server.Resources),
-		"skills":         toAnySlice(server.Skills),
+		"lifecycle_type":    server.LifecycleType,
+		"name":              server.Name,
+		"source":            server.Source,
+		"transport_type":    server.TransportType,
+		"endpoint":          server.Endpoint,
+		"enabled":           server.Enabled,
+		"status":            server.Status,
+		"version":           server.Version,
+		"capabilities":      toAnySlice(server.Capabilities),
+		"lifecycle_state":   server.LifecycleState,
+		"last_error":        server.LastError,
+		"last_updated":      server.LastUpdated,
+		"recovery_behavior": server.RecoveryBehavior,
+		"tools":             toAnySlice(server.Tools),
+		"prompts":           toAnySlice(server.Prompts),
+		"resources":         toAnySlice(server.Resources),
+		"skills":            toAnySlice(server.Skills),
 	}
 	if strings.TrimSpace(server.AuthURL) != "" {
 		payload["auth_url"] = server.AuthURL
@@ -2536,6 +2813,21 @@ func toAnyMap(items map[string]int) map[string]any {
 		values[key] = value
 	}
 	return values
+}
+
+func stringMapToAny(items map[string]string) map[string]any {
+	values := make(map[string]any, len(items))
+	for key, value := range items {
+		values[key] = value
+	}
+	return values
+}
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func formatOptionalTime(value time.Time) string {
