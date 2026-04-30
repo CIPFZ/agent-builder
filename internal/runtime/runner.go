@@ -107,6 +107,8 @@ type Options struct {
 	MCPReconnect              tools.MCPReconnectFunc
 	DisableMCPPromptSkills    bool
 	ExtensionLifecycle        []tools.ExtensionLifecycleRecord
+	LSPServers                []tools.LSPServerConfig
+	LSPHandler                tools.LSPHandler
 	BundledSkills             tools.BundledSkillOptions
 	SkillRoots                []string
 	SkillDiscovery            tools.SkillDiscoveryOptions
@@ -325,6 +327,8 @@ func NewRunnerWithOptions(sessions *session.Manager, client llm.Client, workspac
 		MCPReconnect:              runner.options.MCPReconnect,
 		DisableMCPPromptSkills:    runner.options.DisableMCPPromptSkills,
 		ExtensionLifecycle:        runner.options.ExtensionLifecycle,
+		LSPServers:                runner.options.LSPServers,
+		LSPHandler:                runner.options.LSPHandler,
 		SkillRoots:                runner.options.SkillRoots,
 		SkillForkExecutor:         runner.options.SkillForkExecutor,
 		AgentTaskExecutor:         runner.options.AgentTaskExecutor,

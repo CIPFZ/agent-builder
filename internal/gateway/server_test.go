@@ -9330,6 +9330,75 @@ func TestHandleWebSocketExtensionInventoryReturnsRuntimeProjection(t *testing.T)
 	}
 }
 
+func TestHandleWebSocketExtensionInventorySerializesLSPRuntimeProjection(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	runner := runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), runtimepkg.Options{
+		LSPServers: []tools.LSPServerConfig{{
+			Name:                 "gopls",
+			LanguageIDs:          []string{"go"},
+			FilePatterns:         []string{"**/*.go"},
+			Command:              "gopls",
+			Args:                 []string{"serve"},
+			WorkspaceRoot:        "C:/repo",
+			Enabled:              true,
+			ReadOnlyCapabilities: []string{"definition", "diagnostics"},
+			MutatingCapabilities: []string{"rename"},
+		}},
+	})
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{Runner: runner})
+	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
+	t.Cleanup(httpServer.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "1", Method: protocolws.MethodConnect, Payload: map[string]any{"role": "client", "client_identity": "test", "agent_id": "main"}}); err != nil {
+		t.Fatalf("write connect: %v", err)
+	}
+	_ = conn.ReadJSON(&protocolws.Message{})
+	_ = conn.ReadJSON(&protocolws.Message{})
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "2", Method: protocolws.MethodExtensionInventory, Payload: map[string]any{}}); err != nil {
+		t.Fatalf("write extension_inventory: %v", err)
+	}
+	var res protocolws.Message
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if err := conn.ReadJSON(&res); err != nil {
+		t.Fatalf("read extension_inventory: %v", err)
+	}
+	inventory, ok := res.Payload["inventory"].(map[string]any)
+	if !ok {
+		t.Fatalf("inventory payload = %#v", res.Payload)
+	}
+	lsp, ok := inventory["lsp_boundaries"].([]any)
+	if !ok || len(lsp) != 1 {
+		t.Fatalf("lsp_boundaries = %#v, want configured server", inventory["lsp_boundaries"])
+	}
+	boundary, _ := lsp[0].(map[string]any)
+	if boundary["name"] != "gopls" ||
+		boundary["lifecycle_state"] != tools.LSPStateConfigured ||
+		boundary["status"] != tools.LSPStateConfigured ||
+		boundary["workspace_root"] != "C:/repo" ||
+		boundary["permission_classification"] != "read_only" {
+		t.Fatalf("lsp boundary payload = %#v", boundary)
+	}
+	if got := boundary["language_ids"].([]any); len(got) != 1 || got[0] != "go" {
+		t.Fatalf("language ids payload = %#v", boundary["language_ids"])
+	}
+	if got := boundary["read_only_capabilities"].([]any); len(got) != 2 {
+		t.Fatalf("read_only_capabilities payload = %#v", boundary["read_only_capabilities"])
+	}
+	if got := boundary["mutating_capabilities"].([]any); len(got) != 1 || got[0] != "rename" {
+		t.Fatalf("mutating_capabilities payload = %#v", boundary["mutating_capabilities"])
+	}
+}
+
 func TestRuntimeSinkSerializesUnknownRuntimeEventsWithSharedPayload(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}

@@ -119,6 +119,8 @@ type Config struct {
 	MCPReconnect               tools.MCPReconnectFunc
 	DisableMCPPromptSkills     bool
 	ExtensionLifecycle         []tools.ExtensionLifecycleRecord
+	LSPServers                 []tools.LSPServerConfig
+	LSPHandler                 tools.LSPHandler
 	SkillRoots                 []string
 	SkillForkExecutor          tools.SkillForkExecutor
 	AgentTaskExecutor          tools.AgentTaskExecutor
@@ -172,6 +174,8 @@ type QueryEngine struct {
 	mcpPromptCaller            tools.MCPPromptCaller
 	disableMCPPromptSkills     bool
 	extensionLifecycle         map[string]tools.ExtensionLifecycleRecord
+	lspServers                 []tools.LSPServerConfig
+	lspHandler                 tools.LSPHandler
 	skillRoots                 []string
 	skillForkExecutor          tools.SkillForkExecutor
 	agentTaskExecutor          tools.AgentTaskExecutor
@@ -341,6 +345,8 @@ func New(cfg Config) *QueryEngine {
 		mcpPromptCaller:           cfg.MCPPromptCaller,
 		disableMCPPromptSkills:    cfg.DisableMCPPromptSkills,
 		extensionLifecycle:        lifecycleRecordsMap(mergeLifecycleRecords(cfg.ExtensionLifecycle, recoveredExtensionLifecycleRecords(sessionsMgr))),
+		lspServers:                tools.NormalizeLSPServerConfigs(cfg.LSPServers),
+		lspHandler:                cfg.LSPHandler,
 		skillRoots:                append([]string(nil), cfg.SkillRoots...),
 		skillForkExecutor:         cfg.SkillForkExecutor,
 		agentTaskExecutor:         cfg.AgentTaskExecutor,
@@ -393,6 +399,7 @@ func New(cfg Config) *QueryEngine {
 		sessionStartCompactHook:    cfg.SessionStartCompactHook,
 		transcriptPathProvider:     cfg.TranscriptPathProvider,
 	}
+	registerConfiguredLSPTools(engine.tools, engine, engine.lspServers)
 	if processor, ok := engine.inputs.(lifecycleInputProcessor); ok && processor.resolver == nil {
 		processor.resolver = engine
 		engine.inputs = processor

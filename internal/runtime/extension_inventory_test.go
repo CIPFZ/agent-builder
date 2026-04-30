@@ -196,6 +196,36 @@ func TestExtensionInventoryRebuildsDeterministicallyAfterRunnerRestart(t *testin
 	}
 }
 
+func TestExtensionInventoryProjectsConfiguredLSPServers(t *testing.T) {
+	sessions := session.NewManager(nil)
+	sess := sessions.GetOrCreateMain("main")
+	runner := NewRunnerWithOptions(sessions, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), Options{
+		LSPServers: []tools.LSPServerConfig{{
+			Name:                 "gopls",
+			LanguageIDs:          []string{"go"},
+			FilePatterns:         []string{"**/*.go"},
+			Command:              "gopls",
+			Args:                 []string{"serve"},
+			WorkspaceRoot:        "C:/repo",
+			Enabled:              true,
+			ReadOnlyCapabilities: []string{"definition", "diagnostics"},
+			MutatingCapabilities: []string{"rename"},
+		}},
+	})
+
+	inventory := runner.ExtensionInventory(sess.ID)
+	if len(inventory.LSPBoundaries) != 1 {
+		t.Fatalf("lsp boundaries = %#v, want one configured server", inventory.LSPBoundaries)
+	}
+	boundary := inventory.LSPBoundaries[0]
+	if boundary.Name != "gopls" || boundary.Status != tools.LSPStateConfigured || boundary.LifecycleState != tools.LSPStateConfigured {
+		t.Fatalf("lsp boundary = %#v, want configured gopls", boundary)
+	}
+	if boundary.PermissionClassification != "read_only" || !containsString(boundary.ReadOnlyCapabilities, "definition") {
+		t.Fatalf("lsp permission classification = %#v", boundary)
+	}
+}
+
 func TestExtensionInventoryIncludesLifecycleFieldsForAllSources(t *testing.T) {
 	tools.ClearDynamicSkills()
 	t.Cleanup(tools.ClearDynamicSkills)

@@ -75,18 +75,28 @@ type ExtensionCommand struct {
 type ExtensionSkill = tools.SkillExtensionInventory
 
 type ExtensionBoundary struct {
-	LifecycleType    string
-	Name             string
-	Kind             string
-	Source           string
-	Status           string
-	Phase            string
-	Notes            string
-	Capabilities     []string
-	LifecycleState   string
-	LastError        string
-	LastUpdated      string
-	RecoveryBehavior string
+	LifecycleType            string
+	Name                     string
+	Kind                     string
+	Source                   string
+	Status                   string
+	Phase                    string
+	Notes                    string
+	Capabilities             []string
+	LifecycleState           string
+	LastError                string
+	LastUpdated              string
+	RecoveryBehavior         string
+	Version                  string
+	LanguageIDs              []string
+	FilePatterns             []string
+	Command                  string
+	CWD                      string
+	WorkspaceRoot            string
+	Enabled                  bool
+	ReadOnlyCapabilities     []string
+	MutatingCapabilities     []string
+	PermissionClassification string
 }
 
 func (q *QueryEngine) ExtensionInventory(sessionID string) ExtensionInventory {
@@ -100,7 +110,7 @@ func (q *QueryEngine) ExtensionInventory(sessionID string) ExtensionInventory {
 	commands := q.extensionCommands(sessionID)
 	skills := q.extensionSkills()
 	servers := q.MCPServers()
-	boundaries := defaultLSPBoundaries()
+	boundaries := q.lspBoundaries()
 	deferred := defaultDeferredExtensionCapabilities()
 	return ExtensionInventory{
 		Summary: ExtensionInventorySummary{
