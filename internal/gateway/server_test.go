@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -50,13 +51,25 @@ func (f permissionHookFunc) CheckPermission(ctx context.Context, request queryen
 
 type progressToolForGateway struct{}
 
-type shellFailureExecutorForGateway struct{}
+type shellFailureExecutorForGateway struct {
+	stdout string
+}
 
-func (shellFailureExecutorForGateway) Run(_ context.Context, _ string) (string, error) {
+func (e shellFailureExecutorForGateway) Run(_ context.Context, _ string) (string, error) {
+	if e.stdout != "" {
+		return e.stdout, nil
+	}
 	return "", context.DeadlineExceeded
 }
 
-func (shellFailureExecutorForGateway) RunDetailed(_ context.Context, _ string) (sandbox.ExecutionResult, error) {
+func (e shellFailureExecutorForGateway) RunDetailed(_ context.Context, _ string) (sandbox.ExecutionResult, error) {
+	if e.stdout != "" {
+		return sandbox.ExecutionResult{
+			Stdout:        e.stdout,
+			ExitCode:      0,
+			ExecutionMode: "host",
+		}, nil
+	}
 	return sandbox.ExecutionResult{
 		Stdout:        "permission denied",
 		Stderr:        "exit status 1",
@@ -2414,6 +2427,109 @@ func TestHandleWebSocketToolLifecycleCarriesStructuredShellPayload(t *testing.T)
 	structured, _ := result.Payload["structured_content"].(map[string]any)
 	if structured["command"] != "pwd" || structured["exit_code"] != float64(0) {
 		t.Fatalf("tool.result structured = %#v, want shell structured payload", structured)
+	}
+}
+
+func TestHandleWebSocketForwardsShellProgressLifecycle(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, &objectToolCallClient{}, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	conn := connectGatewayTestClient(t, server)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "shell-progress",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "emit shell lifecycle",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	var progressTypes []string
+	var outputProgress map[string]any
+	for i := 0; i < 24; i++ {
+		var event protocolws.Message
+		if err := conn.ReadJSON(&event); err != nil {
+			t.Fatalf("read event %d: %v", i, err)
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.progress" {
+			progressType, _ := event.Payload["type"].(string)
+			progressTypes = append(progressTypes, progressType)
+			if progressType == "shell.output" {
+				outputProgress, _ = event.Payload["data"].(map[string]any)
+			}
+		}
+		if event.Type == protocolws.TypeEvent && event.Event == "tool.result" {
+			break
+		}
+	}
+	wantTypes := []string{"shell.started", "shell.running", "shell.output", "shell.finished"}
+	if !reflect.DeepEqual(progressTypes, wantTypes) {
+		t.Fatalf("progress types = %#v, want %#v", progressTypes, wantTypes)
+	}
+	if outputProgress["stdout"] == "" || outputProgress["exit_code"] != float64(0) {
+		t.Fatalf("output progress data = %#v, want stdout and exit_code", outputProgress)
+	}
+}
+
+func TestHandleWebSocketForwardsBackgroundShellTerminalProgress(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	registry := tools.NewRegistry(systemtools.NewBashTool(sandbox.NewRouter(shellFailureExecutorForGateway{stdout: "background"}, nil)))
+	client := &backgroundShellToolCallClient{}
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, client, Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	server.runner = runtimepkg.NewRunnerWithOptions(sessionManager, client, workspace.NewLoader(""), registry, runtimepkg.Options{
+		PermissionPolicy: permissions.Policy{Mode: permissions.ModeDangerFullAccess},
+	})
+	server.queue = runtimepkg.NewQueue(server.runner)
+	conn := connectGatewayTestClient(t, server)
+
+	if err := conn.WriteJSON(protocolws.Message{
+		Type:   protocolws.TypeRequest,
+		ID:     "shell-background-progress",
+		Method: protocolws.MethodSendMessage,
+		Payload: map[string]any{
+			"content": "emit background shell lifecycle",
+		},
+	}); err != nil {
+		t.Fatalf("write inbound: %v", err)
+	}
+
+	var progressTypes []string
+	var terminalProgress map[string]any
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var event protocolws.Message
+		if err := conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+			t.Fatalf("set read deadline: %v", err)
+		}
+		err := conn.ReadJSON(&event)
+		if err != nil {
+			continue
+		}
+		if event.Type != protocolws.TypeEvent || event.Event != "tool.progress" {
+			continue
+		}
+		progressType, _ := event.Payload["type"].(string)
+		progressTypes = append(progressTypes, progressType)
+		if progressType == "shell.finished" {
+			terminalProgress, _ = event.Payload["data"].(map[string]any)
+			break
+		}
+	}
+	wantTypes := []string{"shell.background_started", "shell.running", "shell.output", "shell.finished"}
+	if !reflect.DeepEqual(progressTypes, wantTypes) {
+		t.Fatalf("progress types = %#v, want %#v", progressTypes, wantTypes)
+	}
+	if terminalProgress["run_in_background"] != true ||
+		terminalProgress["stdout"] == "" ||
+		terminalProgress["exit_code"] != float64(0) ||
+		terminalProgress["success"] != true {
+		t.Fatalf("terminal progress = %#v, want background terminal payload", terminalProgress)
 	}
 }
 
@@ -9008,6 +9124,25 @@ func (c *objectToolCallClient) Stream(_ context.Context, _ llm.GenerateRequest, 
 		ToolName:        "system.run",
 		ToolInput:       `{"command":"pwd"}`,
 		ToolInputObject: map[string]any{"command": "pwd"},
+	}); err != nil {
+		return err
+	}
+	return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+}
+
+type backgroundShellToolCallClient struct{}
+
+func (c *backgroundShellToolCallClient) Stream(_ context.Context, req llm.GenerateRequest, handler llm.StreamHandler) error {
+	for _, message := range req.History {
+		if message.Role == "tool" {
+			return handler.OnEvent(llm.StreamEvent{Type: "message.end"})
+		}
+	}
+	if err := handler.OnEvent(llm.StreamEvent{
+		Type:            "tool.call",
+		ToolName:        "Bash",
+		ToolInput:       `{"command":"echo background","run_in_background":true}`,
+		ToolInputObject: map[string]any{"command": "echo background", "run_in_background": true},
 	}); err != nil {
 		return err
 	}
