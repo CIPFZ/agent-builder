@@ -182,6 +182,12 @@ func (m *RemoteManager) UpsertIdentity(sessionID string, identity RemoteIdentity
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.sessions.UpdateMetadata(sessionID, func(metadata *session.SessionMetadata) {
+		for _, existing := range identitiesFromMetadata(metadata.RemoteIdentities) {
+			if existing.ConnectionID == identity.ConnectionID {
+				identity.TrustState = existing.TrustState
+				break
+			}
+		}
 		metadata.RemoteIdentities = upsertRemoteIdentityMetadata(metadata.RemoteIdentities, identityToMetadata(identity))
 	}); err != nil {
 		return RemoteIdentity{}, err

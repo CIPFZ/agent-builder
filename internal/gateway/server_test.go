@@ -15,6 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"myclaw/internal/agent"
+	"myclaw/internal/approval"
 	"myclaw/internal/llm"
 	"myclaw/internal/orchestration"
 	"myclaw/internal/permissions"
@@ -9401,7 +9402,13 @@ func TestHandleWebSocketExtensionInventorySerializesLSPRuntimeProjection(t *test
 
 func TestHandleWebSocketRemoteBridgeStateProjection(t *testing.T) {
 	sessionManager := session.NewManager(nil)
-	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{})
+	approvalManager := approval.NewManager()
+	mainSession := sessionManager.GetOrCreateMain("main")
+	pendingApproval := approvalManager.Create(mainSession.ID, "run-1", "msg-1", "system.run", "pwd", "approval required", "approval", "")
+	runner := runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), runtimepkg.Options{
+		ApprovalManager: approvalManager,
+	})
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{Runner: runner})
 	httpServer := httptest.NewServer(http.HandlerFunc(server.HandleWebSocket))
 	t.Cleanup(httpServer.Close)
 
@@ -9471,7 +9478,7 @@ func TestHandleWebSocketRemoteBridgeStateProjection(t *testing.T) {
 	}
 
 	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "4", Method: protocolws.MethodRemoteApprovalCorrelate, Payload: map[string]any{
-		"local_approval_id":     "approval-000001",
+		"local_approval_id":     pendingApproval.ID,
 		"remote_correlation_id": "remote-approval-1",
 		"connection_id":         "conn-remote",
 		"client_identity":       "sdk-client",
@@ -9491,9 +9498,147 @@ func TestHandleWebSocketRemoteBridgeStateProjection(t *testing.T) {
 		t.Fatalf("approval correlations = %#v", remote["approval_correlations"])
 	}
 	item := correlations[0].(map[string]any)
-	if item["local_approval_id"] != "approval-000001" || item["remote_correlation_id"] != "remote-approval-1" {
+	if item["local_approval_id"] != pendingApproval.ID || item["remote_correlation_id"] != "remote-approval-1" {
 		t.Fatalf("approval correlation payload = %#v", item)
 	}
+}
+
+func TestHandleWebSocketRemoteHeartbeatPreservesTrustState(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{})
+	conn := connectGatewayTestClient(t, server)
+
+	heartbeatPayload := map[string]any{
+		"connection_id":   "conn-remote",
+		"client_identity": "sdk-client",
+		"device_id":       "device-1",
+		"user_id":         "user-1",
+		"agent_id":        "main",
+		"transport_kind":  "websocket",
+		"capabilities":    []any{"heartbeat", "approval_forwarding"},
+	}
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "heartbeat-1", Method: protocolws.MethodRemoteHeartbeat, Payload: heartbeatPayload}); err != nil {
+		t.Fatalf("write first heartbeat: %v", err)
+	}
+	firstHeartbeat := readGatewayResponse(t, conn)
+	if !firstHeartbeat.OK {
+		t.Fatalf("first heartbeat response = %#v, want ok", firstHeartbeat)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "trust-1", Method: protocolws.MethodRemoteTrustUpdate, Payload: map[string]any{
+		"connection_id": "conn-remote",
+		"trust_state":   string(runtimepkg.RemoteTrustTrusted),
+	}}); err != nil {
+		t.Fatalf("write trust update: %v", err)
+	}
+	trusted := readGatewayResponse(t, conn)
+	if !trusted.OK {
+		t.Fatalf("trust update response = %#v, want ok", trusted)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "heartbeat-2", Method: protocolws.MethodRemoteHeartbeat, Payload: heartbeatPayload}); err != nil {
+		t.Fatalf("write second heartbeat: %v", err)
+	}
+	secondHeartbeat := readGatewayResponse(t, conn)
+	identity := firstRemoteIdentityPayload(t, secondHeartbeat)
+	if identity["trust_state"] != string(runtimepkg.RemoteTrustTrusted) {
+		t.Fatalf("trust state after second heartbeat = %#v, want trusted", identity)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "trust-2", Method: protocolws.MethodRemoteTrustUpdate, Payload: map[string]any{
+		"connection_id": "conn-remote",
+		"trust_state":   string(runtimepkg.RemoteTrustRevoked),
+	}}); err != nil {
+		t.Fatalf("write revoked trust update: %v", err)
+	}
+	revoked := readGatewayResponse(t, conn)
+	if !revoked.OK {
+		t.Fatalf("revoked trust update response = %#v, want ok", revoked)
+	}
+
+	if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: "heartbeat-3", Method: protocolws.MethodRemoteHeartbeat, Payload: heartbeatPayload}); err != nil {
+		t.Fatalf("write third heartbeat: %v", err)
+	}
+	thirdHeartbeat := readGatewayResponse(t, conn)
+	identity = firstRemoteIdentityPayload(t, thirdHeartbeat)
+	if identity["trust_state"] != string(runtimepkg.RemoteTrustRevoked) {
+		t.Fatalf("trust state after revoked heartbeat = %#v, want revoked", identity)
+	}
+}
+
+func TestHandleWebSocketRemoteApprovalCorrelateValidatesLocalApprovalAuthority(t *testing.T) {
+	sessionManager := session.NewManager(nil)
+	mainSession := sessionManager.GetOrCreateMain("main")
+	otherSession := sessionManager.CreateSession("main")
+	approvalManager := approval.NewManager()
+	otherApproval := approvalManager.Create(otherSession.ID, "run-1", "msg-1", "system.run", "pwd", "approval required", "approval", "")
+	validApproval := approvalManager.Create(mainSession.ID, "run-2", "msg-2", "system.run", "pwd", "approval required", "approval", "")
+	runner := runtimepkg.NewRunnerWithOptions(sessionManager, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), runtimepkg.Options{
+		ApprovalManager: approvalManager,
+	})
+	server := NewServerWithOptions(log.New(io.Discard, "", 0), sessionManager, llm.NewMockClient(), Options{Runner: runner})
+	conn := connectGatewayTestClient(t, server)
+
+	writeRemoteApprovalCorrelation := func(id, localApprovalID, remoteCorrelationID string) protocolws.Message {
+		t.Helper()
+		if err := conn.WriteJSON(protocolws.Message{Type: protocolws.TypeRequest, ID: id, Method: protocolws.MethodRemoteApprovalCorrelate, Payload: map[string]any{
+			"local_approval_id":     localApprovalID,
+			"remote_correlation_id": remoteCorrelationID,
+			"connection_id":         "conn-remote",
+			"client_identity":       "sdk-client",
+			"device_id":             "device-1",
+			"status":                string(runtimepkg.RemoteApprovalPending),
+			"decision_payload":      map[string]any{"kind": "prompt"},
+		}}); err != nil {
+			t.Fatalf("write approval correlation %s: %v", id, err)
+		}
+		return readGatewayResponse(t, conn)
+	}
+
+	missing := writeRemoteApprovalCorrelation("missing", "approval-missing", "remote-missing")
+	if missing.OK || missing.Error == nil || !strings.Contains(missing.Error.Message, "not found") {
+		t.Fatalf("missing approval correlation response = %#v, want not found error", missing)
+	}
+	if snapshot := runner.RemoteSnapshot(mainSession.ID); len(snapshot.ApprovalCorrelations) != 0 {
+		t.Fatalf("snapshot after missing approval correlation = %#v, want none", snapshot.ApprovalCorrelations)
+	}
+
+	crossSession := writeRemoteApprovalCorrelation("cross-session", otherApproval.ID, "remote-other")
+	if crossSession.OK || crossSession.Error == nil || !strings.Contains(crossSession.Error.Message, "belongs to session") {
+		t.Fatalf("cross-session approval correlation response = %#v, want session ownership error", crossSession)
+	}
+	if snapshot := runner.RemoteSnapshot(mainSession.ID); len(snapshot.ApprovalCorrelations) != 0 {
+		t.Fatalf("snapshot after cross-session approval correlation = %#v, want none", snapshot.ApprovalCorrelations)
+	}
+
+	valid := writeRemoteApprovalCorrelation("valid", validApproval.ID, "remote-valid")
+	if !valid.OK {
+		t.Fatalf("valid approval correlation response = %#v, want ok", valid)
+	}
+	snapshot := runner.RemoteSnapshot(mainSession.ID)
+	if len(snapshot.ApprovalCorrelations) != 1 || snapshot.ApprovalCorrelations[0].LocalApprovalID != validApproval.ID {
+		t.Fatalf("snapshot after valid approval correlation = %#v, want one valid record", snapshot.ApprovalCorrelations)
+	}
+}
+
+func firstRemoteIdentityPayload(t *testing.T, message protocolws.Message) map[string]any {
+	t.Helper()
+	if message.Type != protocolws.TypeResponse || !message.OK {
+		t.Fatalf("remote response = %#v, want ok response", message)
+	}
+	remote, ok := message.Payload["remote"].(map[string]any)
+	if !ok {
+		t.Fatalf("remote payload = %#v, want object", message.Payload["remote"])
+	}
+	identities, ok := remote["identities"].([]any)
+	if !ok || len(identities) != 1 {
+		t.Fatalf("remote identities = %#v, want one identity", remote["identities"])
+	}
+	identity, ok := identities[0].(map[string]any)
+	if !ok {
+		t.Fatalf("remote identity = %#v, want object", identities[0])
+	}
+	return identity
 }
 
 func TestRuntimeSinkSerializesUnknownRuntimeEventsWithSharedPayload(t *testing.T) {

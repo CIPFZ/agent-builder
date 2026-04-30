@@ -1624,6 +1624,20 @@ func (r *Runner) UpdateRemoteTrust(sessionID, connectionID string, state RemoteT
 }
 
 func (r *Runner) RecordRemoteApprovalCorrelation(sessionID string, record RemoteApprovalCorrelation) (RemoteApprovalCorrelation, error) {
+	if r == nil || r.options.ApprovalManager == nil {
+		return RemoteApprovalCorrelation{}, fmt.Errorf("approval manager is not configured")
+	}
+	localApprovalID := strings.TrimSpace(record.LocalApprovalID)
+	request, ok := r.options.ApprovalManager.Get(localApprovalID)
+	if !ok {
+		return RemoteApprovalCorrelation{}, fmt.Errorf("local approval %q not found", localApprovalID)
+	}
+	if request.SessionID != sessionID {
+		return RemoteApprovalCorrelation{}, fmt.Errorf("local approval %q belongs to session %q, not %q", localApprovalID, request.SessionID, sessionID)
+	}
+	if request.Status != approval.StatusPending {
+		return RemoteApprovalCorrelation{}, fmt.Errorf("local approval %q status %q cannot be remotely correlated", localApprovalID, request.Status)
+	}
 	return r.remote.RecordApprovalCorrelation(sessionID, record)
 }
 

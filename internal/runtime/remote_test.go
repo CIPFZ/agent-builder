@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"myclaw/internal/approval"
 	"myclaw/internal/llm"
 	"myclaw/internal/permissions"
 	"myclaw/internal/session"
@@ -110,12 +111,81 @@ func TestRemoteLivenessHeartbeatReconnectAndExpiry(t *testing.T) {
 	}
 }
 
-func TestRemoteStateAndApprovalCorrelationRecoverThroughSessionStore(t *testing.T) {
+func TestRemoteIdentityUpsertPreservesExistingTrustState(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	store := storememory.NewSessionStore()
 	manager := session.NewManager(store)
 	sess := manager.GetOrCreateMain("main")
 	runner := NewRunnerWithOptions(manager, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), Options{})
+
+	if _, err := runner.UpsertRemoteIdentity(sess.ID, RemoteIdentity{
+		ConnectionID:      "conn-1",
+		ClientIdentity:    "sdk",
+		DeviceID:          "device-1",
+		AgentID:           "main",
+		TransportKind:     "websocket",
+		TrustState:        RemoteTrustUnknown,
+		ConnectedAt:       now,
+		LastHeartbeatAt:   now,
+		ReconnectDeadline: now.Add(RemoteReconnectWindow),
+		Capabilities:      []string{"heartbeat"},
+	}); err != nil {
+		t.Fatalf("upsert remote identity: %v", err)
+	}
+	if _, err := runner.UpdateRemoteTrust(sess.ID, "conn-1", RemoteTrustTrusted); err != nil {
+		t.Fatalf("update trust: %v", err)
+	}
+
+	updated, err := runner.UpsertRemoteIdentity(sess.ID, RemoteIdentity{
+		ConnectionID:      "conn-1",
+		ClientIdentity:    "sdk",
+		DeviceID:          "device-1",
+		AgentID:           "main",
+		TransportKind:     "websocket",
+		TrustState:        RemoteTrustUnknown,
+		ConnectedAt:       now.Add(time.Second),
+		LastHeartbeatAt:   now.Add(time.Second),
+		ReconnectDeadline: now.Add(RemoteReconnectWindow),
+		Capabilities:      []string{"heartbeat", "approval_forwarding"},
+	})
+	if err != nil {
+		t.Fatalf("upsert existing remote identity: %v", err)
+	}
+	if updated.TrustState != RemoteTrustTrusted {
+		t.Fatalf("trust state after upsert = %q, want trusted", updated.TrustState)
+	}
+
+	if _, err := runner.UpdateRemoteTrust(sess.ID, "conn-1", RemoteTrustRevoked); err != nil {
+		t.Fatalf("update trust revoked: %v", err)
+	}
+	revoked, err := runner.UpsertRemoteIdentity(sess.ID, RemoteIdentity{
+		ConnectionID:      "conn-1",
+		ClientIdentity:    "sdk",
+		DeviceID:          "device-1",
+		AgentID:           "main",
+		TransportKind:     "websocket",
+		TrustState:        RemoteTrustUnknown,
+		ConnectedAt:       now.Add(2 * time.Second),
+		LastHeartbeatAt:   now.Add(2 * time.Second),
+		ReconnectDeadline: now.Add(RemoteReconnectWindow),
+		Capabilities:      []string{"heartbeat"},
+	})
+	if err != nil {
+		t.Fatalf("upsert revoked remote identity: %v", err)
+	}
+	if revoked.TrustState != RemoteTrustRevoked {
+		t.Fatalf("trust state after revoked upsert = %q, want revoked", revoked.TrustState)
+	}
+}
+
+func TestRemoteStateAndApprovalCorrelationRecoverThroughSessionStore(t *testing.T) {
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	store := storememory.NewSessionStore()
+	manager := session.NewManager(store)
+	sess := manager.GetOrCreateMain("main")
+	approvalManager := approval.NewManager()
+	request := approvalManager.Create(sess.ID, "run-1", "msg-1", "system.run", "pwd", "approval required", "approval", "")
+	runner := NewRunnerWithOptions(manager, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), Options{ApprovalManager: approvalManager})
 
 	if _, err := runner.UpsertRemoteIdentity(sess.ID, RemoteIdentity{
 		ConnectionID:      "conn-1",
@@ -132,7 +202,7 @@ func TestRemoteStateAndApprovalCorrelationRecoverThroughSessionStore(t *testing.
 		t.Fatalf("upsert remote identity: %v", err)
 	}
 	correlation, err := runner.RecordRemoteApprovalCorrelation(sess.ID, RemoteApprovalCorrelation{
-		LocalApprovalID:     "approval-000001",
+		LocalApprovalID:     request.ID,
 		RemoteCorrelationID: "remote-approval-1",
 		ConnectionID:        "conn-1",
 		ClientIdentity:      "sdk",
@@ -162,6 +232,78 @@ func TestRemoteStateAndApprovalCorrelationRecoverThroughSessionStore(t *testing.
 	}
 	if len(snapshot.ApprovalCorrelations) != 1 || snapshot.ApprovalCorrelations[0].RemoteCorrelationID != "remote-approval-1" {
 		t.Fatalf("recovered approval correlations = %#v", snapshot.ApprovalCorrelations)
+	}
+}
+
+func TestRecordRemoteApprovalCorrelationValidatesLocalApprovalAuthority(t *testing.T) {
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	store := storememory.NewSessionStore()
+	manager := session.NewManager(store)
+	sess := manager.GetOrCreateMain("main")
+	other := manager.CreateSession("main")
+	approvalManager := approval.NewManager()
+	otherRequest := approvalManager.Create(other.ID, "run-1", "msg-1", "system.run", "pwd", "approval required", "approval", "")
+	validRequest := approvalManager.Create(sess.ID, "run-2", "msg-2", "system.run", "pwd", "approval required", "approval", "")
+	runner := NewRunnerWithOptions(manager, llm.NewMockClient(), workspace.NewLoader(""), tools.NewRegistry(), Options{ApprovalManager: approvalManager})
+
+	_, err := runner.RecordRemoteApprovalCorrelation(sess.ID, RemoteApprovalCorrelation{
+		LocalApprovalID:     "approval-missing",
+		RemoteCorrelationID: "remote-missing",
+		ConnectionID:        "conn-1",
+		Status:              RemoteApprovalPending,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	})
+	if err == nil {
+		t.Fatal("record missing approval correlation succeeded, want error")
+	}
+	if snapshot := runner.RemoteSnapshotAt(sess.ID, now); len(snapshot.ApprovalCorrelations) != 0 {
+		t.Fatalf("snapshot after missing approval correlation = %#v, want no records", snapshot.ApprovalCorrelations)
+	}
+
+	_, err = runner.RecordRemoteApprovalCorrelation(sess.ID, RemoteApprovalCorrelation{
+		LocalApprovalID:     otherRequest.ID,
+		RemoteCorrelationID: "remote-other-session",
+		ConnectionID:        "conn-1",
+		Status:              RemoteApprovalPending,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	})
+	if err == nil {
+		t.Fatal("record cross-session approval correlation succeeded, want error")
+	}
+	if snapshot := runner.RemoteSnapshotAt(sess.ID, now); len(snapshot.ApprovalCorrelations) != 0 {
+		t.Fatalf("snapshot after cross-session approval correlation = %#v, want no records", snapshot.ApprovalCorrelations)
+	}
+
+	if _, err := approvalManager.UpdateStatus(validRequest.ID, approval.StatusApproved); err != nil {
+		t.Fatalf("approve request: %v", err)
+	}
+	_, err = runner.RecordRemoteApprovalCorrelation(sess.ID, RemoteApprovalCorrelation{
+		LocalApprovalID:     validRequest.ID,
+		RemoteCorrelationID: "remote-approved",
+		ConnectionID:        "conn-1",
+		Status:              RemoteApprovalPending,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	})
+	if err == nil {
+		t.Fatal("record terminal approval correlation succeeded, want error")
+	}
+
+	pendingRequest := approvalManager.Create(sess.ID, "run-3", "msg-3", "system.run", "pwd", "approval required", "approval", "")
+	if _, err := runner.RecordRemoteApprovalCorrelation(sess.ID, RemoteApprovalCorrelation{
+		LocalApprovalID:     pendingRequest.ID,
+		RemoteCorrelationID: "remote-pending",
+		ConnectionID:        "conn-1",
+		Status:              RemoteApprovalPending,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}); err != nil {
+		t.Fatalf("record pending approval correlation: %v", err)
+	}
+	if snapshot := runner.RemoteSnapshotAt(sess.ID, now); len(snapshot.ApprovalCorrelations) != 1 {
+		t.Fatalf("snapshot after pending approval correlation = %#v, want one record", snapshot.ApprovalCorrelations)
 	}
 }
 
