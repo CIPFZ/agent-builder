@@ -1,6 +1,7 @@
 package queryengine
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 	"time"
@@ -11,6 +12,14 @@ import (
 )
 
 const maxGitStatusChars = 2000
+const defaultGitStatusSnapshotTimeout = 2 * time.Second
+
+type gitCommandRunner func(context.Context, string, ...string) (string, bool)
+
+var (
+	gitStatusSnapshotTimeout                  = defaultGitStatusSnapshotTimeout
+	gitCommandRunnerFunc     gitCommandRunner = runGitCommandWithContext
+)
 
 type UserContextProvider interface {
 	Lines(session.Session, workspace.Context) []string
@@ -83,27 +92,30 @@ func gitStatusSnapshot(root string) (string, bool) {
 	if root == "" {
 		return "", false
 	}
-	if !gitCommandSucceeded(root, "rev-parse", "--is-inside-work-tree") {
+	ctx, cancel := context.WithTimeout(context.Background(), gitStatusSnapshotTimeout)
+	defer cancel()
+
+	if !gitCommandSucceeded(ctx, root, "rev-parse", "--is-inside-work-tree") {
 		return "", false
 	}
 
-	branch, ok := runGitCommand(root, "branch", "--show-current")
+	branch, ok := runGitCommand(ctx, root, "branch", "--show-current")
 	if !ok {
 		return "", false
 	}
-	mainBranch, ok := defaultGitMainBranch(root, branch)
+	mainBranch, ok := defaultGitMainBranch(ctx, root, branch)
 	if !ok {
 		return "", false
 	}
-	status, ok := runGitCommand(root, "--no-optional-locks", "status", "--short")
+	status, ok := runGitCommand(ctx, root, "--no-optional-locks", "status", "--short")
 	if !ok {
 		return "", false
 	}
-	log, ok := runGitCommand(root, "--no-optional-locks", "log", "--oneline", "-n", "5")
+	log, ok := runGitCommand(ctx, root, "--no-optional-locks", "log", "--oneline", "-n", "5")
 	if !ok {
 		return "", false
 	}
-	userName, _ := runGitCommand(root, "config", "user.name")
+	userName, _ := runGitCommand(ctx, root, "config", "user.name")
 
 	parts := []string{
 		"This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.",
@@ -115,14 +127,14 @@ func gitStatusSnapshot(root string) (string, bool) {
 	}
 	status = truncateGitStatus(status)
 	parts = append(parts,
-		"Status:\n" + emptyFallback(status, "(clean)"),
-		"Recent commits:\n" + log,
+		"Status:\n"+emptyFallback(status, "(clean)"),
+		"Recent commits:\n"+log,
 	)
 	return strings.Join(parts, "\n\n"), true
 }
 
-func defaultGitMainBranch(root, currentBranch string) (string, bool) {
-	if branch, ok := runGitCommand(root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); ok {
+func defaultGitMainBranch(ctx context.Context, root, currentBranch string) (string, bool) {
+	if branch, ok := runGitCommand(ctx, root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); ok {
 		if idx := strings.LastIndex(branch, "/"); idx >= 0 && idx+1 < len(branch) {
 			return strings.TrimSpace(branch[idx+1:]), true
 		}
@@ -136,18 +148,20 @@ func defaultGitMainBranch(root, currentBranch string) (string, bool) {
 	return "", false
 }
 
-func gitCommandSucceeded(root string, args ...string) bool {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = root
-	output, err := cmd.Output()
-	if err != nil {
+func gitCommandSucceeded(ctx context.Context, root string, args ...string) bool {
+	output, ok := runGitCommand(ctx, root, args...)
+	if !ok {
 		return false
 	}
-	return strings.TrimSpace(string(output)) == "true"
+	return strings.TrimSpace(output) == "true"
 }
 
-func runGitCommand(root string, args ...string) (string, bool) {
-	cmd := exec.Command("git", args...)
+func runGitCommand(ctx context.Context, root string, args ...string) (string, bool) {
+	return gitCommandRunnerFunc(ctx, root, args...)
+}
+
+func runGitCommandWithContext(ctx context.Context, root string, args ...string) (string, bool) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = root
 	output, err := cmd.Output()
 	if err != nil {
