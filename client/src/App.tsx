@@ -38,7 +38,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons'
 import TextArea from 'antd/es/input/TextArea'
-import { requestChatCompletion, requestConfiguredModels, startRuntimeChat } from './api/chat'
+import { loadModelConfig, requestChatCompletion, requestConfiguredModels, saveModelConfig, startRuntimeChat } from './api/chat'
 import type { ChatRequest, ModelConfig } from './api/chat'
 import './App.css'
 
@@ -111,12 +111,23 @@ function AppContent() {
   const [config, setConfig] = useState<ModelConfig>(defaultConfig)
   const [models, setModels] = useState<string[]>([defaultConfig.model])
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSaving, setSettingsSaving] = useState(false)
   const [operationsOpen, setOperationsOpen] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [activeChatTitle, setActiveChatTitle] = useState('New chat')
   const viewportRef = useRef<HTMLDivElement | null>(null)
 
   const hasMessages = messages.length > 0
+
+  useEffect(() => {
+    loadModelConfig()
+      .then((savedConfig) => {
+        setConfig((current) => ({ ...current, ...savedConfig }))
+      })
+      .catch(() => {
+        setConfig(defaultConfig)
+      })
+  }, [])
 
   useEffect(() => {
     requestConfiguredModels()
@@ -129,9 +140,9 @@ function AppContent() {
         }))
       })
       .catch(() => {
-        setModels([defaultConfig.model])
+        setModels(config.model ? [config.model] : [defaultConfig.model])
       })
-  }, [])
+  }, [config.model])
 
   const modelItems = useMemo<MenuProps['items']>(
     () =>
@@ -364,7 +375,27 @@ function AppContent() {
         ) : null}
       </main>
 
-      <ModelSettingsDrawer config={config} open={settingsOpen} onClose={() => setSettingsOpen(false)} onSave={setConfig} />
+      <ModelSettingsDrawer
+        config={config}
+        open={settingsOpen}
+        saving={settingsSaving}
+        onClose={() => setSettingsOpen(false)}
+        onSave={async (nextConfig) => {
+          setSettingsSaving(true)
+          try {
+            const saved = await saveModelConfig(nextConfig)
+            setConfig((current) => ({ ...current, ...saved }))
+            setModels(saved.model ? [saved.model] : [])
+            message.success('Model settings saved')
+            setSettingsOpen(false)
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error)
+            message.error(reason)
+          } finally {
+            setSettingsSaving(false)
+          }
+        }}
+      />
       <OperationsPreview open={operationsOpen} onClose={() => setOperationsOpen(false)} />
     </div>
   )
@@ -424,11 +455,12 @@ function Composer({ config, input, isSending, modelItems, onChange, onOpenSettin
 type ModelSettingsDrawerProps = {
   config: ModelConfig
   open: boolean
+  saving: boolean
   onClose: () => void
-  onSave: (config: ModelConfig) => void
+  onSave: (config: ModelConfig) => Promise<void>
 }
 
-function ModelSettingsDrawer({ config, open, onClose, onSave }: ModelSettingsDrawerProps) {
+function ModelSettingsDrawer({ config, open, saving, onClose, onSave }: ModelSettingsDrawerProps) {
   const [form] = Form.useForm<ModelConfig>()
 
   return (
@@ -444,10 +476,9 @@ function ModelSettingsDrawer({ config, open, onClose, onSave }: ModelSettingsDra
       extra={
         <Button
           type="primary"
+          loading={saving}
           onClick={() => {
-            const values = form.getFieldsValue()
-            onSave(values)
-            onClose()
+            form.validateFields().then((values) => onSave(values))
           }}
         >
           Save
@@ -455,7 +486,7 @@ function ModelSettingsDrawer({ config, open, onClose, onSave }: ModelSettingsDra
       }
     >
       <Paragraph type="secondary">
-        Configure the LLM connection used by the local proxy. Keep only the connection fields here; choose the model from the composer.
+        Saved to the desktop config directory beside the application.
       </Paragraph>
       <Form form={form} layout="vertical" initialValues={config}>
         <Form.Item label="Protocol" name="protocol" rules={[{ required: true }]}>
@@ -469,8 +500,11 @@ function ModelSettingsDrawer({ config, open, onClose, onSave }: ModelSettingsDra
         <Form.Item label="URL" name="url" rules={[{ required: true }]}>
           <Input placeholder="https://api.deepseek.com" />
         </Form.Item>
-        <Form.Item label="API key" name="apiKey">
-          <Input.Password placeholder="Read from local config if empty" />
+        <Form.Item label="API key" name="apiKey" rules={config.hasApiKey ? [] : [{ required: true }]}>
+          <Input.Password placeholder={config.hasApiKey ? 'Saved. Leave empty to keep current key.' : 'sk-...'} />
+        </Form.Item>
+        <Form.Item label="Model" name="model" rules={[{ required: true }]}>
+          <Input placeholder="deepseek-v4-flash" />
         </Form.Item>
         <Collapse
           ghost

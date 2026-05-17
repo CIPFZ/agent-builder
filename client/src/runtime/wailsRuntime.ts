@@ -7,6 +7,12 @@ export const wailsRuntime: AgentRuntime = {
     return bridge.Chat(request)
   },
 
+  async getModelConfig() {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.GetModelConfig()
+    return response.config
+  },
+
   async listModels() {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.Models()
@@ -16,6 +22,12 @@ export const wailsRuntime: AgentRuntime = {
   async newChat(title: string) {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.NewChat(title)
+  },
+
+  async saveModelConfig(config) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.SaveModelConfig(config)
+    return response.config
   },
 
   async status() {

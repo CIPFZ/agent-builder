@@ -1,9 +1,17 @@
-import type { RuntimeChatRequest, RuntimeChatResponse, RuntimeModel, RuntimeStatus } from './types'
+import type {
+  RuntimeChatRequest,
+  RuntimeChatResponse,
+  RuntimeModel,
+  RuntimeModelConfig,
+  RuntimeStatus,
+} from './types'
 
 type WailsRuntimeBridge = {
   Chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
+  GetModelConfig: () => Promise<{ config: RuntimeModelConfig }>
   Models: () => Promise<{ models: RuntimeModel[] }>
   NewChat: (title: string) => Promise<RuntimeStatus>
+  SaveModelConfig: (request: RuntimeModelConfig) => Promise<{ config: RuntimeModelConfig }>
   Status: () => Promise<RuntimeStatus>
 }
 

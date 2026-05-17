@@ -25,9 +25,22 @@ export type RuntimeChatResponse = {
   model: string
 }
 
+export type RuntimeModelConfig = {
+  protocol: 'openai' | 'anthropic'
+  url: string
+  apiKey?: string
+  model: string
+  proxy?: string
+  models?: string[]
+  hasApiKey?: boolean
+  configPath?: string
+}
+
 export type AgentRuntime = {
   chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
+  getModelConfig: () => Promise<RuntimeModelConfig>
   listModels: () => Promise<RuntimeModel[]>
   newChat: (title: string) => Promise<RuntimeStatus>
+  saveModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelConfig>
   status: () => Promise<RuntimeStatus>
 }

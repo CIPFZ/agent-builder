@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -53,6 +51,10 @@ type RuntimeModelsResponse struct {
 	Models []RuntimeModel `json:"models"`
 }
 
+type RuntimeConfigResponse struct {
+	Config RuntimeModelConfig `json:"config"`
+}
+
 type RuntimeChatRequest struct {
 	Prompt string `json:"prompt"`
 }
@@ -63,11 +65,15 @@ type RuntimeChatResponse struct {
 	Model    string `json:"model"`
 }
 
-type localModelConfig struct {
-	Protocol string   `json:"protocol"`
-	URL      string   `json:"url"`
-	APIKey   string   `json:"apiKey"`
-	Models   []string `json:"models"`
+type RuntimeModelConfig struct {
+	Protocol   string   `json:"protocol"`
+	URL        string   `json:"url"`
+	APIKey     string   `json:"apiKey,omitempty"`
+	Model      string   `json:"model"`
+	Proxy      string   `json:"proxy,omitempty"`
+	Models     []string `json:"models,omitempty"`
+	HasAPIKey  bool     `json:"hasApiKey"`
+	ConfigPath string   `json:"configPath,omitempty"`
 }
 
 type localModelConfigResult struct {
@@ -75,6 +81,14 @@ type localModelConfigResult struct {
 	Path         string
 	CheckedPaths []string
 	Error        error
+}
+
+type desktopLayout struct {
+	Root            string
+	ConfigDir       string
+	DataDir         string
+	LogsDir         string
+	ModelConfigPath string
 }
 
 func NewRuntimeBridge() *RuntimeBridge {
@@ -137,6 +151,73 @@ func (r *RuntimeBridge) Models(ctx context.Context) (RuntimeModelsResponse, erro
 	return RuntimeModelsResponse{Models: models}, nil
 }
 
+func (r *RuntimeBridge) GetModelConfig(ctx context.Context) (RuntimeConfigResponse, error) {
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return RuntimeConfigResponse{}, err
+	}
+	if err := ensureDesktopLayout(layout); err != nil {
+		return RuntimeConfigResponse{}, err
+	}
+
+	local, result := loadLocalModelConfig(layout)
+	if result.Error != nil {
+		return RuntimeConfigResponse{}, result.Error
+	}
+	if !result.Applied {
+		local = RuntimeModelConfig{
+			Protocol: "openai",
+			URL:      "https://api.deepseek.com",
+		}
+	}
+	hasAPIKey := result.Applied && local.APIKey != ""
+	local.APIKey = ""
+	local.HasAPIKey = hasAPIKey
+	local.ConfigPath = layout.ModelConfigPath
+
+	return RuntimeConfigResponse{Config: local}, nil
+}
+
+func (r *RuntimeBridge) SaveModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeConfigResponse, error) {
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return RuntimeConfigResponse{}, err
+	}
+
+	current, result := loadLocalModelConfig(layout)
+	if result.Error != nil {
+		return RuntimeConfigResponse{}, result.Error
+	}
+
+	next := RuntimeModelConfig{
+		Protocol: strings.TrimSpace(req.Protocol),
+		URL:      strings.TrimSpace(req.URL),
+		APIKey:   strings.TrimSpace(req.APIKey),
+		Model:    strings.TrimSpace(req.Model),
+		Proxy:    strings.TrimSpace(req.Proxy),
+	}
+	if next.APIKey == "" {
+		next.APIKey = current.APIKey
+	}
+	if next.Model != "" {
+		next.Models = []string{next.Model}
+	}
+	if err := validateModelConfig(next); err != nil {
+		return RuntimeConfigResponse{}, err
+	}
+
+	if err := saveLocalModelConfig(layout, next); err != nil {
+		return RuntimeConfigResponse{}, err
+	}
+
+	r.restart()
+
+	next.APIKey = ""
+	next.HasAPIKey = true
+	next.ConfigPath = layout.ModelConfigPath
+	return RuntimeConfigResponse{Config: next}, nil
+}
+
 func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (RuntimeChatResponse, error) {
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
@@ -191,6 +272,22 @@ func (r *RuntimeBridge) NewChat(ctx context.Context, title string) (RuntimeStatu
 	return r.Status(ctx)
 }
 
+func (r *RuntimeBridge) restart() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.runtime != nil && r.workspace != nil {
+		r.runtime.DeleteWorkspace(r.workspace.ID)
+	}
+	if r.cancel != nil {
+		r.cancel()
+	}
+	r.runtime = nil
+	r.workspace = nil
+	r.sessionID = ""
+	r.cancel = nil
+}
+
 func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	r.mu.Lock()
 	if r.runtime != nil && r.workspace != nil && r.sessionID != "" {
@@ -205,17 +302,25 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 		return nil
 	}
 
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return err
+	}
+	if err := ensureDesktopLayout(layout); err != nil {
+		return err
+	}
+
 	workingDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to resolve working directory: %w", err)
 	}
 	workingDir = filepath.Clean(workingDir)
 
-	store, err := config.Init(workingDir, "", false)
+	store, err := config.Init(workingDir, layout.DataDir, false)
 	if err != nil {
 		return fmt.Errorf("failed to initialize Crush config: %w", err)
 	}
-	localResult := applyLocalModelConfig(store, workingDir)
+	localResult := applyLocalModelConfig(store, layout)
 	if localResult.Error != nil {
 		return localResult.Error
 	}
@@ -226,7 +331,7 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 		)
 	}
 
-	logFile := filepath.Join(store.Config().Options.DataDirectory, "logs", "agent-builder.log")
+	logFile := filepath.Join(layout.LogsDir, "agent-builder.log")
 	crushlog.Setup(logFile, false)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -235,6 +340,7 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 
 	wsRuntime, ws, err := r.runtime.CreateWorkspace(proto.Workspace{
 		Path:    workingDir,
+		DataDir: layout.DataDir,
 		Version: version.Version,
 		Env:     os.Environ(),
 	})
@@ -244,7 +350,7 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 		r.cancel = nil
 		return fmt.Errorf("failed to create Crush workspace: %w", err)
 	}
-	workspaceLocalResult := applyLocalModelConfig(wsRuntime.Cfg, workingDir)
+	workspaceLocalResult := applyLocalModelConfig(wsRuntime.Cfg, layout)
 	if workspaceLocalResult.Error != nil {
 		return workspaceLocalResult.Error
 	}
@@ -361,34 +467,107 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func applyLocalModelConfig(store *config.ConfigStore, workingDir string) localModelConfigResult {
+func resolveDesktopLayout() (desktopLayout, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return desktopLayout{}, fmt.Errorf("failed to resolve executable path: %w", err)
+	}
+	root := filepath.Dir(exe)
+	layout := desktopLayout{
+		Root:      root,
+		ConfigDir: filepath.Join(root, "config"),
+		DataDir:   filepath.Join(root, "data"),
+		LogsDir:   filepath.Join(root, "logs"),
+	}
+	layout.ModelConfigPath = filepath.Join(layout.ConfigDir, "model.local.json")
+	return layout, nil
+}
+
+func ensureDesktopLayout(layout desktopLayout) error {
+	for _, dir := range []string{layout.ConfigDir, layout.DataDir, layout.LogsDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("failed to create desktop directory %s: %w", dir, err)
+		}
+	}
+	return nil
+}
+
+func loadLocalModelConfig(layout desktopLayout) (RuntimeModelConfig, localModelConfigResult) {
 	result := localModelConfigResult{}
-	for _, path := range localModelConfigPaths(workingDir) {
+	for _, path := range localModelConfigPaths(layout) {
 		result.CheckedPaths = append(result.CheckedPaths, path)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
 
-		var local localModelConfig
+		var local RuntimeModelConfig
 		if err := json.Unmarshal(data, &local); err != nil {
 			result.Error = fmt.Errorf("failed to parse local model config %s: %w", path, err)
-			return result
+			return RuntimeModelConfig{}, result
 		}
-		if local.APIKey == "" || local.URL == "" || len(local.Models) == 0 {
-			result.Error = fmt.Errorf("local model config %s requires url, apiKey, and models", path)
-			return result
+		if local.Model == "" && len(local.Models) > 0 {
+			local.Model = local.Models[0]
+		}
+		if local.Model != "" && len(local.Models) == 0 {
+			local.Models = []string{local.Model}
+		}
+		if err := validateModelConfig(local); err != nil {
+			result.Error = fmt.Errorf("invalid local model config %s: %w", path, err)
+			return RuntimeModelConfig{}, result
 		}
 
-		applyModelConfig(store, local)
+		if path != layout.ModelConfigPath {
+			_ = saveLocalModelConfig(layout, local)
+		}
+
 		result.Applied = true
 		result.Path = path
+		return local, result
+	}
+	return RuntimeModelConfig{}, result
+}
+
+func applyLocalModelConfig(store *config.ConfigStore, layout desktopLayout) localModelConfigResult {
+	local, result := loadLocalModelConfig(layout)
+	if result.Error != nil || !result.Applied {
 		return result
 	}
+	applyModelConfig(store, local)
 	return result
 }
 
-func applyModelConfig(store *config.ConfigStore, local localModelConfig) {
+func validateModelConfig(local RuntimeModelConfig) error {
+	if local.Protocol != "openai" && local.Protocol != "anthropic" {
+		return errors.New("protocol must be openai or anthropic")
+	}
+	if local.APIKey == "" || local.URL == "" || local.Model == "" {
+		return errors.New("url, apiKey, and model are required")
+	}
+	return nil
+}
+
+func saveLocalModelConfig(layout desktopLayout, local RuntimeModelConfig) error {
+	if err := ensureDesktopLayout(layout); err != nil {
+		return err
+	}
+	local.ConfigPath = ""
+	local.HasAPIKey = false
+	if local.Model != "" {
+		local.Models = []string{local.Model}
+	}
+	data, err := json.MarshalIndent(local, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to encode local model config: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(layout.ModelConfigPath, data, 0o600); err != nil {
+		return fmt.Errorf("failed to write local model config: %w", err)
+	}
+	return nil
+}
+
+func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig) {
 	if store.Config().Options == nil {
 		store.Config().Options = &config.Options{}
 	}
@@ -400,8 +579,12 @@ func applyModelConfig(store *config.ConfigStore, local localModelConfig) {
 		providerType = catwalk.TypeAnthropic
 	}
 
-	models := make([]catwalk.Model, 0, len(local.Models))
-	for _, model := range local.Models {
+	modelIDs := local.Models
+	if len(modelIDs) == 0 && local.Model != "" {
+		modelIDs = []string{local.Model}
+	}
+	models := make([]catwalk.Model, 0, len(modelIDs))
+	for _, model := range modelIDs {
 		if model == "" {
 			continue
 		}
@@ -435,7 +618,7 @@ func applyModelConfig(store *config.ConfigStore, local localModelConfig) {
 	store.Config().Models[config.SelectedModelTypeSmall] = selected
 }
 
-func localModelConfigPaths(workingDir string) []string {
+func localModelConfigPaths(layout desktopLayout) []string {
 	var paths []string
 	add := func(path string) {
 		if path == "" {
@@ -450,6 +633,8 @@ func localModelConfigPaths(workingDir string) []string {
 		paths = append(paths, path)
 	}
 
+	add(layout.ModelConfigPath)
+
 	appendRelativeCandidates := func(root string) {
 		if root == "" {
 			return
@@ -458,36 +643,10 @@ func localModelConfigPaths(workingDir string) []string {
 		add(filepath.Join(root, "client", "server", "deepseek.local.json"))
 	}
 
-	for current := workingDir; current != ""; current = filepath.Dir(current) {
+	for current := layout.Root; current != ""; current = filepath.Dir(current) {
 		appendRelativeCandidates(current)
 		if filepath.VolumeName(current) == current || filepath.Dir(current) == current {
 			break
-		}
-	}
-	if exe, err := os.Executable(); err == nil {
-		for current := filepath.Dir(exe); ; current = filepath.Dir(current) {
-			appendRelativeCandidates(current)
-			if filepath.VolumeName(current) == current || filepath.Dir(current) == current {
-				break
-			}
-		}
-	}
-
-	if appData := os.Getenv("APPDATA"); appData != "" {
-		add(filepath.Join(appData, "AgentBuilder", "model.local.json"))
-	}
-	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
-		add(filepath.Join(localAppData, "AgentBuilder", "model.local.json"))
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		add(filepath.Join(home, ".agent-builder", "model.local.json"))
-	}
-	if currentUser, err := user.Current(); err == nil && currentUser.HomeDir != "" {
-		add(filepath.Join(currentUser.HomeDir, ".agent-builder", "model.local.json"))
-	}
-	if runtime.GOOS != "windows" {
-		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-			add(filepath.Join(xdg, "agent-builder", "model.local.json"))
 		}
 	}
 	return paths
