@@ -118,6 +118,16 @@
   color: #64748b;
 }
 
+.next-steps {
+  margin: 0;
+  padding-left: 20px;
+  color: #334155;
+}
+
+.next-steps li + li {
+  margin-top: 6px;
+}
+
 .ant-table-wrapper .ant-table {
   border-radius: 6px;
 }

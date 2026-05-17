@@ -11,13 +11,17 @@ The current screen models an SSH troubleshooting assistant:
 
 - run list and progress;
 - active agents and capabilities;
-- conversation with agent reasoning steps;
+- conversation with event-driven agent reasoning steps;
 - SSH command and MCP search evidence;
 - run timeline;
 - approval prompt preview;
 - recommendation/report panel;
 - runtime contract preview for future `RunEvent`, `ToolCall`,
   `PermissionRequest`, and `Artifact` events.
+
+The `Start replay` button replays typed mock `RunEvent` values. The UI updates
+from those events instead of relying on static screen data, which keeps the
+prototype aligned with the later SSE runtime contract.
 
 ## Stack
 
@@ -55,7 +59,6 @@ npm run lint
 
 ## Next Steps
 
-- Extract mock run data into typed fixtures.
-- Add a mock event stream to simulate run progression.
+- Add controls for approval decisions in the mock runtime.
 - Add responsive polish for narrow desktop windows.
 - Replace mock events with Crush runtime API events in a later phase.

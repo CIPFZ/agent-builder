@@ -1,3 +1,4 @@
+import { useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Badge,
@@ -34,6 +35,7 @@ import {
   DeploymentUnitOutlined,
   FileSearchOutlined,
   PlayCircleOutlined,
+  ReloadOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
   SettingOutlined,
@@ -42,90 +44,29 @@ import {
   UserOutlined,
 } from '@ant-design/icons'
 import { Bubble, Sender, ThoughtChain } from '@ant-design/x'
+import { historicRuns } from './mock/fixtures'
+import { createInitialRuntimeState, reduceRunEvent, replayEvents } from './mock/runtime'
+import type {
+  CapabilityItem,
+  ConversationMessage,
+  EvidenceItem,
+  RunStatus,
+  RuntimeState,
+  TimelineEntry,
+} from './types/runtime'
 import './App.css'
 
 const { Header, Sider, Content } = Layout
 const { Text, Title, Paragraph } = Typography
-
-type RunStatus = 'running' | 'waiting' | 'completed'
-
-type RunItem = {
-  id: string
-  title: string
-  target: string
-  status: RunStatus
-  progress: number
-}
-
-type EvidenceItem = {
-  key: string
-  source: string
-  command: string
-  signal: string
-  status: 'normal' | 'warning' | 'critical'
-}
-
-const runs: RunItem[] = [
-  {
-    id: 'RUN-1027',
-    title: 'SSH 排障：订单服务错误率升高',
-    target: 'prod-bj-01 / order-api',
-    status: 'running',
-    progress: 68,
-  },
-  {
-    id: 'RUN-1026',
-    title: '节点磁盘水位巡检',
-    target: 'prod-sh-02 / node-7',
-    status: 'completed',
-    progress: 100,
-  },
-  {
-    id: 'RUN-1025',
-    title: '支付网关连接超时排查',
-    target: 'prod-bj-01 / payment-gw',
-    status: 'waiting',
-    progress: 44,
-  },
-]
-
-const evidence: EvidenceItem[] = [
-  {
-    key: '1',
-    source: 'SSH',
-    command: 'systemctl status order-api',
-    signal: '服务在线，但最近 10 分钟发生 14 次重启',
-    status: 'warning',
-  },
-  {
-    key: '2',
-    source: 'SSH',
-    command: 'journalctl -u order-api --since "15 min ago"',
-    signal: '出现数据库连接池耗尽：pool timeout after 30s',
-    status: 'critical',
-  },
-  {
-    key: '3',
-    source: 'SSH',
-    command: 'ss -antp | grep 5432',
-    signal: '到 PostgreSQL 的 ESTABLISHED 连接数接近配置上限',
-    status: 'warning',
-  },
-  {
-    key: '4',
-    source: 'MCP',
-    command: 'search_runbook("order-api pool timeout")',
-    signal: '命中 SOP：订单服务连接池耗尽排障步骤',
-    status: 'normal',
-  },
-]
 
 const evidenceColumns: ColumnsType<EvidenceItem> = [
   {
     title: '来源',
     dataIndex: 'source',
     width: 88,
-    render: (source: string) => <Tag icon={source === 'SSH' ? <CodeOutlined /> : <SearchOutlined />}>{source}</Tag>,
+    render: (source: EvidenceItem['source']) => (
+      <Tag icon={source === 'SSH' ? <CodeOutlined /> : <SearchOutlined />}>{source}</Tag>
+    ),
   },
   {
     title: '命令 / 查询',
@@ -149,86 +90,112 @@ const evidenceColumns: ColumnsType<EvidenceItem> = [
   },
 ]
 
-const thoughtItems = [
-  {
-    title: '识别故障上下文',
-    description: '目标服务为 prod-bj-01/order-api，用户描述为错误率升高和部分请求超时。',
-    status: 'success' as const,
-  },
-  {
-    title: '执行 SOP 只读检查',
-    description: '通过 SSH 收集服务状态、最近日志、端口连接和资源水位。',
-    status: 'success' as const,
-  },
-  {
-    title: '检索知识库与 MCP 资源',
-    description: '匹配到连接池耗尽相关 runbook，正在比对当前证据。',
-    status: 'loading' as const,
-  },
-  {
-    title: '生成建议和风险提示',
-    description: '准备输出低风险观察项和需要审批的修复动作。',
-    status: 'loading' as const,
-  },
-]
-
-const timelineItems = [
-  {
-    color: 'green',
-    icon: <CheckCircleOutlined />,
-    content: (
-      <>
-        <Text strong>连接 SSH 目标</Text>
-        <Paragraph className="timeline-copy">已连接 jumpbox 到 prod-bj-01/order-api，使用只读排障 profile。</Paragraph>
-      </>
-    ),
-  },
-  {
-    color: 'green',
-    icon: <CheckCircleOutlined />,
-    content: (
-      <>
-        <Text strong>执行 SOP 步骤 1-3</Text>
-        <Paragraph className="timeline-copy">收集 systemctl、journalctl、ss、df、top 摘要，输出已写入 evidence。</Paragraph>
-      </>
-    ),
-  },
-  {
-    color: 'blue',
-    icon: <SearchOutlined />,
-    content: (
-      <>
-        <Text strong>调用 MCP 知识搜索</Text>
-        <Paragraph className="timeline-copy">检索 order-api pool timeout、PostgreSQL 连接池耗尽、重启风暴。</Paragraph>
-      </>
-    ),
-  },
-  {
-    color: 'gold',
-    icon: <AlertOutlined />,
-    content: (
-      <>
-        <Text strong>等待高风险动作确认</Text>
-        <Paragraph className="timeline-copy">建议临时扩容连接池和滚动重启，需要用户确认后才会执行。</Paragraph>
-      </>
-    ),
-  },
-]
-
-const pluginItems = [
-  { icon: <CloudServerOutlined />, name: 'SSH Connector', meta: '只读 profile / prod-bj-01' },
-  { icon: <FileSearchOutlined />, name: 'Troubleshooting SOP', meta: 'order-api-pool-timeout.md' },
-  { icon: <ApiOutlined />, name: 'Knowledge MCP', meta: 'runbook + incident archive' },
-  { icon: <AuditOutlined />, name: 'Audit Stream', meta: 'run events enabled' },
-]
-
 function statusBadge(status: RunStatus) {
   if (status === 'completed') return <Badge status="success" text="Completed" />
-  if (status === 'waiting') return <Badge status="warning" text="Waiting" />
+  if (status === 'waiting_approval') return <Badge status="warning" text="Waiting" />
+  if (status === 'idle') return <Badge status="default" text="Idle" />
   return <Badge status="processing" text="Running" />
 }
 
+function capabilityIcon(type: CapabilityItem['type']) {
+  if (type === 'ssh') return <CloudServerOutlined />
+  if (type === 'skill') return <FileSearchOutlined />
+  if (type === 'mcp') return <ApiOutlined />
+  return <AuditOutlined />
+}
+
+function timelineIcon(kind: TimelineEntry['kind']) {
+  if (kind === 'success') return <CheckCircleOutlined />
+  if (kind === 'warning') return <AlertOutlined />
+  if (kind === 'error') return <AlertOutlined />
+  return <SearchOutlined />
+}
+
+function timelineColor(kind: TimelineEntry['kind']) {
+  if (kind === 'success') return 'green'
+  if (kind === 'warning') return 'gold'
+  if (kind === 'error') return 'red'
+  return 'blue'
+}
+
+function messageAvatar(role: ConversationMessage['role']) {
+  if (role === 'user') return <UserOutlined />
+  if (role === 'tool') return <ToolOutlined />
+  if (role === 'approval') return <SafetyCertificateOutlined />
+  return <DeploymentUnitOutlined />
+}
+
+function messagePlacement(role: ConversationMessage['role']) {
+  return role === 'user' ? 'end' : 'start'
+}
+
+function renderMessage(message: ConversationMessage, state: RuntimeState) {
+  if (message.role === 'assistant' && message.id === 'msg-agent-1') {
+    return (
+      <Space orientation="vertical" size={10}>
+        <Text>{message.content}</Text>
+        <ThoughtChain items={state.thoughts} />
+      </Space>
+    )
+  }
+
+  if (message.role === 'approval') {
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        title="发现潜在高风险修复动作"
+        description={message.content}
+      />
+    )
+  }
+
+  return message.content
+}
+
 function App() {
+  const [runtimeState, setRuntimeState] = useState(createInitialRuntimeState)
+  const [isReplaying, setIsReplaying] = useState(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  const runs = useMemo(() => [runtimeState.run, ...historicRuns], [runtimeState.run])
+
+  const timelineItems = useMemo(
+    () =>
+      runtimeState.timeline.map((entry) => ({
+        color: timelineColor(entry.kind),
+        icon: timelineIcon(entry.kind),
+        content: (
+          <>
+            <Text strong>{entry.title}</Text>
+            <Paragraph className="timeline-copy">{entry.description}</Paragraph>
+          </>
+        ),
+      })),
+    [runtimeState.timeline],
+  )
+
+  const startReplay = () => {
+    abortControllerRef.current?.abort()
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+    setRuntimeState(createInitialRuntimeState())
+    setIsReplaying(true)
+    replayEvents(
+      (event) => {
+        setRuntimeState((current) => reduceRunEvent(current, event))
+      },
+      { signal: controller.signal },
+    )
+    window.setTimeout(() => setIsReplaying(false), 14_000)
+  }
+
+  const resetReplay = () => {
+    abortControllerRef.current?.abort()
+    setRuntimeState(createInitialRuntimeState())
+    setIsReplaying(false)
+  }
+
   return (
     <ConfigProvider
       theme={{
@@ -252,14 +219,20 @@ function App() {
                 <Title level={4} className="brand-title">
                   Agentic Operations
                 </Title>
-                <Text type="secondary">SSH troubleshooting prototype</Text>
+                <Text type="secondary">SSH troubleshooting event-stream prototype</Text>
               </div>
             </Space>
-            <Space size={12}>
+            <Space size={12} wrap>
               <Segmented options={['Plan', 'Default', 'Accept edits']} value="Default" />
               <Tag icon={<SafetyCertificateOutlined />} color="blue">
-                mock runtime
+                mock event stream
               </Tag>
+              <Button icon={<ReloadOutlined />} onClick={resetReplay}>
+                Reset
+              </Button>
+              <Button type="primary" icon={<PlayCircleOutlined />} loading={isReplaying} onClick={startReplay}>
+                Start replay
+              </Button>
               <Button icon={<SettingOutlined />}>Settings</Button>
             </Space>
           </Flex>
@@ -270,13 +243,13 @@ function App() {
             <section className="rail-section">
               <Flex justify="space-between" align="center">
                 <Text strong>Runs</Text>
-                <Button size="small" type="primary" icon={<PlayCircleOutlined />}>
+                <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={startReplay}>
                   New
                 </Button>
               </Flex>
               <div className="run-list">
                 {runs.map((run) => (
-                  <div key={run.id} className={run.id === 'RUN-1027' ? 'run-item active' : 'run-item'}>
+                  <div key={run.id} className={run.id === runtimeState.run.id ? 'run-item active' : 'run-item'}>
                     <Space orientation="vertical" size={6} className="full-width">
                       <Flex justify="space-between" align="center">
                         <Text strong>{run.id}</Text>
@@ -294,16 +267,14 @@ function App() {
             <section className="rail-section">
               <Text strong>Agents</Text>
               <div className="compact-list">
-                {[
-                  { name: 'Coordinator', status: 'planning', icon: <BranchesOutlined /> },
-                  { name: 'SSH Collector', status: 'running', icon: <ThunderboltOutlined /> },
-                  { name: 'Runbook Searcher', status: 'running', icon: <SearchOutlined /> },
-                ].map((item) => (
-                  <div key={item.name} className="compact-list-item">
+                {runtimeState.agents.map((agent) => (
+                  <div key={agent.name} className="compact-list-item">
                     <Space>
-                      <span className="list-icon">{item.icon}</span>
-                      <span>{item.name}</span>
-                      <Tag>{item.status}</Tag>
+                      <span className="list-icon">
+                        {agent.name === 'Coordinator' ? <BranchesOutlined /> : agent.name === 'SSH Collector' ? <ThunderboltOutlined /> : <SearchOutlined />}
+                      </span>
+                      <span>{agent.name}</span>
+                      <Tag>{agent.status}</Tag>
                     </Space>
                   </div>
                 ))}
@@ -313,13 +284,13 @@ function App() {
             <section className="rail-section">
               <Text strong>Capabilities</Text>
               <div className="compact-list">
-                {pluginItems.map((item) => (
-                  <div key={item.name} className="compact-list-item">
+                {runtimeState.capabilities.map((capability) => (
+                  <div key={capability.name} className="compact-list-item">
                     <Space align="start">
-                      <span className="list-icon">{item.icon}</span>
+                      <span className="list-icon">{capabilityIcon(capability.type)}</span>
                       <Space orientation="vertical" size={0}>
-                        <Text>{item.name}</Text>
-                        <Text type="secondary">{item.meta}</Text>
+                        <Text>{capability.name}</Text>
+                        <Text type="secondary">{capability.meta}</Text>
                       </Space>
                     </Space>
                   </div>
@@ -330,33 +301,16 @@ function App() {
 
           <Content className="content-grid">
             <section className="conversation-panel">
-              <Card className="panel-card" title="Conversation" extra={<Tag color="processing">RUN-1027</Tag>}>
+              <Card className="panel-card" title="Conversation" extra={<Tag color="processing">{runtimeState.run.id}</Tag>}>
                 <div className="conversation-scroll">
-                  <Bubble
-                    placement="end"
-                    avatar={<UserOutlined />}
-                    content="订单服务错误率升高，帮我按 SOP 看一下是不是数据库连接池问题。"
-                  />
-                  <Bubble
-                    avatar={<DeploymentUnitOutlined />}
-                    content={
-                      <Space orientation="vertical" size={10}>
-                        <Text>我会以只读排障模式连接 prod-bj-01/order-api，先收集服务状态和最近日志，再通过 MCP 检索相关 runbook。</Text>
-                        <ThoughtChain items={thoughtItems} />
-                      </Space>
-                    }
-                  />
-                  <Bubble
-                    avatar={<ToolOutlined />}
-                    content={
-                      <Alert
-                        type="warning"
-                        showIcon
-                        title="发现潜在高风险修复动作"
-                        description="临时扩容连接池和滚动重启可能影响在线请求。当前只展示建议，不会自动执行。"
-                      />
-                    }
-                  />
+                  {runtimeState.messages.map((message) => (
+                    <Bubble
+                      key={message.id}
+                      placement={messagePlacement(message.role)}
+                      avatar={messageAvatar(message.role)}
+                      content={renderMessage(message, runtimeState)}
+                    />
+                  ))}
                 </div>
                 <Sender
                   className="sender"
@@ -367,7 +321,16 @@ function App() {
               </Card>
 
               <Card className="panel-card" title="Run Timeline">
-                <Timeline items={timelineItems} />
+                {timelineItems.length > 0 ? (
+                  <Timeline items={timelineItems} />
+                ) : (
+                  <Alert
+                    type="info"
+                    showIcon
+                    title="等待运行"
+                    description="点击 Start replay，模拟从 runtime SSE 接收 RunEvent 并逐步更新 UI。"
+                  />
+                )}
               </Card>
             </section>
 
@@ -375,18 +338,18 @@ function App() {
               <Card className="panel-card" title="Run Summary">
                 <Row gutter={[12, 12]}>
                   <Col span={8}>
-                    <Statistic title="Progress" value={68} suffix="%" />
+                    <Statistic title="Progress" value={runtimeState.run.progress} suffix="%" />
                   </Col>
                   <Col span={8}>
-                    <Statistic title="Signals" value={4} />
+                    <Statistic title="Signals" value={runtimeState.evidence.length} />
                   </Col>
                   <Col span={8}>
-                    <Statistic title="Risk" value="Medium" />
+                    <Statistic title="Risk" value={runtimeState.approval ? 'Medium' : 'Low'} />
                   </Col>
                 </Row>
                 <Divider />
                 <Descriptions column={1} size="small">
-                  <Descriptions.Item label="Target">prod-bj-01 / order-api</Descriptions.Item>
+                  <Descriptions.Item label="Target">{runtimeState.run.target}</Descriptions.Item>
                   <Descriptions.Item label="SSH profile">readonly-prod</Descriptions.Item>
                   <Descriptions.Item label="SOP">order-api-pool-timeout.md</Descriptions.Item>
                   <Descriptions.Item label="Policy mode">default</Descriptions.Item>
@@ -396,7 +359,8 @@ function App() {
               <Card className="panel-card" title="Evidence">
                 <Table<EvidenceItem>
                   columns={evidenceColumns}
-                  dataSource={evidence}
+                  dataSource={runtimeState.evidence}
+                  locale={{ emptyText: 'Start replay to collect SSH and MCP evidence.' }}
                   pagination={false}
                   size="small"
                   rowKey="key"
@@ -409,37 +373,53 @@ function App() {
                     {
                       key: 'summary',
                       label: 'Summary',
-                      children: (
+                      children: runtimeState.recommendation ? (
                         <Space orientation="vertical" size={12}>
                           <Alert
                             type="error"
                             showIcon
-                            title="初步判断：数据库连接池耗尽导致请求超时"
-                            description="order-api 最近有重启记录，日志中出现 pool timeout，数据库连接数接近上限。"
+                            title={runtimeState.recommendation.title}
+                            description={runtimeState.recommendation.description}
                           />
-                          <Paragraph>
-                            建议先确认数据库端最大连接数和应用连接池配置是否匹配。若业务流量仍在上升，可在审批后临时扩大连接池并滚动重启服务。
-                          </Paragraph>
+                          <ul className="next-steps">
+                            {runtimeState.recommendation.nextSteps.map((step) => (
+                              <li key={step}>{step}</li>
+                            ))}
+                          </ul>
                         </Space>
+                      ) : (
+                        <Alert
+                          type="info"
+                          showIcon
+                          title="尚未生成建议"
+                          description="等待 mock runtime 生成报告事件。"
+                        />
                       ),
                     },
                     {
                       key: 'approval',
                       label: 'Approval',
-                      children: (
+                      children: runtimeState.approval ? (
                         <Space orientation="vertical" size={12} className="full-width">
                           <Alert
                             type="warning"
                             showIcon
-                            title="需要确认：是否生成修复执行计划"
-                            description="此原型不会执行真实修复，只展示后续权限确认和审计体验。"
+                            title={runtimeState.approval.title}
+                            description={runtimeState.approval.description}
                           />
-                          <Space>
-                            <Button type="primary">Approve plan</Button>
-                            <Button>Deny</Button>
-                            <Button>Export report</Button>
+                          <Space wrap>
+                            {runtimeState.approval.actions.map((action) => (
+                              <Button key={action}>{action}</Button>
+                            ))}
                           </Space>
                         </Space>
+                      ) : (
+                        <Alert
+                          type="success"
+                          showIcon
+                          title="暂无待审批动作"
+                          description="当前只运行只读 SSH/SOP/MCP 步骤。"
+                        />
                       ),
                     },
                   ]}
@@ -453,7 +433,7 @@ function App() {
                   <Tag icon={<SafetyCertificateOutlined />}>PermissionRequest</Tag>
                   <Tag icon={<AuditOutlined />}>Artifact</Tag>
                   <Text type="secondary">
-                    This prototype is driven by mock events. The UI is shaped to later consume HTTP JSON API + SSE events from Crush.
+                    This prototype replays typed mock events. Later phases can replace the mock replay with HTTP JSON API + SSE events from Crush.
                   </Text>
                 </Space>
               </Card>
