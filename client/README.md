@@ -49,24 +49,35 @@ Run the local report proxy:
 npm run dev:api
 ```
 
-Optional DeepSeek configuration:
-
-```bash
-cp .env.example .env.local
-```
-
-Set `DEEPSEEK_API_KEY` in `.env.local`, then load it into your shell before
-starting `npm run dev:api`. If no key is configured, the proxy returns a
-deterministic fallback chat/report for local acceptance testing.
-
-PowerShell example:
+Local DeepSeek configuration:
 
 ```powershell
-$env:DEEPSEEK_API_KEY="your-key"
-$env:DEEPSEEK_MODEL="deepseek-v4-flash"
-$env:DEEPSEEK_API_BASE="https://api.deepseek.com"
+Copy-Item server\deepseek.config.example.json server\deepseek.local.json
+```
+
+Edit `server/deepseek.local.json`:
+
+```json
+{
+  "apiBase": "https://api.deepseek.com",
+  "apiKey": "your-key",
+  "model": "deepseek-v4-flash",
+  "port": 4177
+}
+```
+
+Then start the proxy:
+
+```powershell
 npm run dev:api
 ```
+
+`server/deepseek.local.json` is ignored by Git. Environment variables can still
+override the file when needed: `DEEPSEEK_CONFIG`, `DEEPSEEK_API_KEY`,
+`DEEPSEEK_MODEL`, `DEEPSEEK_API_BASE`, and `DEEPSEEK_PROXY_PORT`.
+
+If no key is configured, the proxy returns a deterministic fallback chat/report
+for local acceptance testing.
 
 Build:
 

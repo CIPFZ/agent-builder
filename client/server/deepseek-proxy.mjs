@@ -1,9 +1,28 @@
 import { createServer } from 'node:http'
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const port = Number(process.env.DEEPSEEK_PROXY_PORT || 4177)
-const apiKey = process.env.DEEPSEEK_API_KEY
-const model = process.env.DEEPSEEK_MODEL || 'deepseek-chat'
-const apiBase = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com'
+const serverDir = dirname(fileURLToPath(import.meta.url))
+const defaultConfigPath = resolve(serverDir, 'deepseek.local.json')
+
+function readLocalConfig() {
+  const configPath = process.env.DEEPSEEK_CONFIG || defaultConfigPath
+  try {
+    return JSON.parse(readFileSync(configPath, 'utf8'))
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      console.warn(`Failed to read DeepSeek config at ${configPath}: ${error.message}`)
+    }
+    return {}
+  }
+}
+
+const localConfig = readLocalConfig()
+const port = Number(process.env.DEEPSEEK_PROXY_PORT || localConfig.port || 4177)
+const apiKey = process.env.DEEPSEEK_API_KEY || localConfig.apiKey
+const model = process.env.DEEPSEEK_MODEL || localConfig.model || 'deepseek-v4-flash'
+const apiBase = process.env.DEEPSEEK_API_BASE || localConfig.apiBase || 'https://api.deepseek.com'
 
 function json(res, statusCode, payload) {
   res.writeHead(statusCode, {

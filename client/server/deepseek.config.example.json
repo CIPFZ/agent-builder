@@ -1,0 +1,6 @@
+{
+  "apiBase": "https://api.deepseek.com",
+  "apiKey": "replace-with-your-api-key",
+  "model": "deepseek-v4-flash",
+  "port": 4177
+}
