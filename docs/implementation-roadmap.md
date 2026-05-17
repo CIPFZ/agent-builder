@@ -70,7 +70,7 @@ Phase 9: Enterprise Hardening
 ### 目标
 
 先验证 agentic operations client 的信息架构和交互体验，不依赖真实 Crush
-runtime 改造。
+runtime 改造。Phase 1 结束时需要形成一个可供本地验收的客户端版本。
 
 ### 主要任务
 
@@ -86,6 +86,11 @@ runtime 改造。
   - Approval Center。
   - Artifact/Report Viewer。
 - 做一个“SSH 排障助手”端到端演示流程。
+- 增加 SOP fixture selector。
+- 增加 SSH target config mock。
+- 增加 mock event stream 和审批交互。
+- 增加 DeepSeek 报告生成验收通道。
+- 形成可打包的验收版本。
 
 ### 交付物
 
@@ -93,20 +98,39 @@ runtime 改造。
 - mock runtime event 数据。
 - SSH 排障助手演示页面。
 - UI 交互说明文档。
+- Phase 1 acceptance build。
 
 ### 验收标准
 
 - 能看到用户从自然语言描述故障或选择排障 SOP。
 - 能看到 agent 计划、SSH 命令执行、知识搜索、风险提示和最终排障报告。
+- 能切换 mock SOP。
+- 能配置 mock SSH target。
+- 能通过真实 DeepSeek API 生成报告或建议。
+- `npm run build` 和 `npm run lint` 无错误、无告警。
 - 能验证 Ant Design + Ant Design X 是否满足产品体验。
 - UI 与真实 Crush runtime 解耦。
 
 ### 暂不做
 
 - 不直接调用真实集群。
-- 不接真实模型。
+- 不让真实模型驱动工具执行。
 - 不接真实 Crush 工具。
-- 不做 Wails 打包。
+- 不执行真实高风险动作。
+
+### Phase 1 子阶段
+
+```text
+Phase 1.1: Mock Event Stream
+Phase 1.2: Approval Interaction + Event Log
+Phase 1.3: SOP Fixture Selector
+Phase 1.4: SSH Target Config Mock
+Phase 1.5: DeepSeek Report Generation
+Phase 1.6: Acceptance Build
+```
+
+Phase 1.5 的 DeepSeek 接入只用于报告生成和建议生成。SOP、SSH 和 MCP 可以
+继续使用 mock 数据。API key 不写入前端源码，验收阶段通过本地环境配置。
 
 ## Phase 2: Runtime API Boundary
 

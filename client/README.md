@@ -18,10 +18,15 @@ The current screen models an SSH troubleshooting assistant:
 - recommendation/report panel;
 - runtime contract preview for future `RunEvent`, `ToolCall`,
   `PermissionRequest`, and `Artifact` events.
+- SOP fixture selection;
+- SSH target configuration mock.
 
 The `Start replay` button replays typed mock `RunEvent` values. The UI updates
 from those events instead of relying on static screen data, which keeps the
 prototype aligned with the later SSE runtime contract.
+
+The SOP and SSH target controls are mock configuration surfaces. They model the
+future `skill + script + MCP` plugin shape without running real SSH commands.
 
 ## Stack
 
@@ -60,5 +65,7 @@ npm run lint
 ## Next Steps
 
 - Add controls for approval decisions in the mock runtime.
-- Add responsive polish for narrow desktop windows.
+- Generate event fixtures from the selected SOP instead of replaying one fixed
+  event script.
+- Add DeepSeek report generation for the Phase 1 acceptance build.
 - Replace mock events with Crush runtime API events in a later phase.

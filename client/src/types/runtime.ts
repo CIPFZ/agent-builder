@@ -90,6 +90,34 @@ export type RuntimeState = {
   eventLog: RuntimeEventRecord[]
 }
 
+export type SopStep = {
+  id: string
+  title: string
+  command: string
+  expectedSignal: string
+  risk: 'read' | 'write' | 'destructive'
+}
+
+export type SopFixture = {
+  id: string
+  name: string
+  description: string
+  targetService: string
+  riskLevel: 'low' | 'medium' | 'high'
+  requiredCapabilities: string[]
+  steps: SopStep[]
+}
+
+export type SshTarget = {
+  id: string
+  name: string
+  host: string
+  user: string
+  port: number
+  profile: string
+  environment: string
+}
+
 export type RunEvent =
   | {
       type: 'run_started'

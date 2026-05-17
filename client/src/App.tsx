@@ -9,10 +9,13 @@ import {
   Descriptions,
   Divider,
   Flex,
+  Form,
+  Input,
   Layout,
   Progress,
   Row,
   Segmented,
+  Select,
   Space,
   Statistic,
   Table,
@@ -49,12 +52,15 @@ import {
   reduceRunEvent,
   replayEvents,
 } from './mock/runtime'
+import { sopFixtures, sshTargets } from './mock/sops'
 import type {
   ApprovalDecision,
   CapabilityItem,
   EvidenceItem,
   RunEvent,
   RunStatus,
+  SopFixture,
+  SshTarget,
   TimelineEntry,
 } from './types/runtime'
 import './App.css'
@@ -149,10 +155,28 @@ function eventSummary(event: RunEvent) {
 
 function App() {
   const [runtimeState, setRuntimeState] = useState(createInitialRuntimeState)
+  const [selectedSopId, setSelectedSopId] = useState(sopFixtures[0].id)
+  const [selectedTargetId, setSelectedTargetId] = useState(sshTargets[0].id)
   const [isReplaying, setIsReplaying] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  const runs = useMemo(() => [runtimeState.run, ...historicRuns], [runtimeState.run])
+  const selectedSop = useMemo<SopFixture>(
+    () => sopFixtures.find((sop) => sop.id === selectedSopId) ?? sopFixtures[0],
+    [selectedSopId],
+  )
+  const selectedTarget = useMemo<SshTarget>(
+    () => sshTargets.find((target) => target.id === selectedTargetId) ?? sshTargets[0],
+    [selectedTargetId],
+  )
+
+  const configuredRun = useMemo(
+    () => ({
+      ...runtimeState.run,
+      title: `SSH 排障：${selectedSop.name}`,
+      target: selectedTarget.name,
+    }),
+    [runtimeState.run, selectedSop.name, selectedTarget.name],
+  )
 
   const timelineItems = useMemo(
     () =>
@@ -173,7 +197,25 @@ function App() {
     abortControllerRef.current?.abort()
     const controller = new AbortController()
     abortControllerRef.current = controller
-    setRuntimeState(createInitialRuntimeState())
+    setRuntimeState((current) => ({
+      ...createInitialRuntimeState(),
+      run: {
+        ...current.run,
+        title: `SSH 排障：${selectedSop.name}`,
+        target: selectedTarget.name,
+        status: 'idle',
+        progress: 0,
+      },
+      capabilities: current.capabilities.map((capability) => ({
+        ...capability,
+        meta:
+          capability.type === 'skill'
+            ? `${selectedSop.id}.md`
+            : capability.type === 'ssh'
+              ? `${selectedTarget.profile} / ${selectedTarget.host}`
+              : capability.meta,
+      })),
+    }))
     setIsReplaying(true)
     replayEvents(
       (event) => {
@@ -186,7 +228,14 @@ function App() {
 
   const resetReplay = () => {
     abortControllerRef.current?.abort()
-    setRuntimeState(createInitialRuntimeState())
+    setRuntimeState({
+      ...createInitialRuntimeState(),
+      run: {
+        ...createInitialRuntimeState().run,
+        title: `SSH 排障：${selectedSop.name}`,
+        target: selectedTarget.name,
+      },
+    })
     setIsReplaying(false)
   }
 
@@ -246,8 +295,8 @@ function App() {
                 </Button>
               </Flex>
               <div className="run-list">
-                {runs.map((run) => (
-                  <div key={run.id} className={run.id === runtimeState.run.id ? 'run-item active' : 'run-item'}>
+                {[configuredRun, ...historicRuns].map((run) => (
+                  <div key={run.id} className={run.id === configuredRun.id ? 'run-item active' : 'run-item'}>
                     <Space orientation="vertical" size={6} className="full-width">
                       <Flex justify="space-between" align="center">
                         <Text strong>{run.id}</Text>
@@ -260,6 +309,36 @@ function App() {
                   </div>
                 ))}
               </div>
+            </section>
+
+            <section className="rail-section">
+              <Text strong>Troubleshooting SOP</Text>
+              <Space orientation="vertical" size={10} className="selector-block">
+                <Select
+                  value={selectedSopId}
+                  options={sopFixtures.map((sop) => ({ value: sop.id, label: sop.name }))}
+                  onChange={setSelectedSopId}
+                />
+                <Text type="secondary">{selectedSop.description}</Text>
+                <Tag color={selectedSop.riskLevel === 'high' ? 'red' : selectedSop.riskLevel === 'medium' ? 'gold' : 'green'}>
+                  {selectedSop.riskLevel} risk
+                </Tag>
+              </Space>
+            </section>
+
+            <section className="rail-section">
+              <Text strong>SSH Target</Text>
+              <Space orientation="vertical" size={10} className="selector-block">
+                <Select
+                  value={selectedTargetId}
+                  options={sshTargets.map((target) => ({ value: target.id, label: target.name }))}
+                  onChange={setSelectedTargetId}
+                />
+                <Text type="secondary">
+                  {selectedTarget.user}@{selectedTarget.host}:{selectedTarget.port}
+                </Text>
+                <Tag>{selectedTarget.profile}</Tag>
+              </Space>
             </section>
 
             <section className="rail-section">
@@ -334,11 +413,38 @@ function App() {
                 </Row>
                 <Divider />
                 <Descriptions column={1} size="small">
-                  <Descriptions.Item label="Target">{runtimeState.run.target}</Descriptions.Item>
-                  <Descriptions.Item label="SSH profile">readonly-prod</Descriptions.Item>
-                  <Descriptions.Item label="SOP">order-api-pool-timeout.md</Descriptions.Item>
+                  <Descriptions.Item label="Target">{selectedTarget.name}</Descriptions.Item>
+                  <Descriptions.Item label="SSH profile">{selectedTarget.profile}</Descriptions.Item>
+                  <Descriptions.Item label="SOP">{selectedSop.id}.md</Descriptions.Item>
                   <Descriptions.Item label="Policy mode">default</Descriptions.Item>
                 </Descriptions>
+              </Card>
+
+              <Card className="panel-card" title="SOP and SSH Configuration">
+                <Form layout="vertical" size="small">
+                  <Form.Item label="SOP">
+                    <Input value={selectedSop.name} readOnly />
+                  </Form.Item>
+                  <Form.Item label="Target host">
+                    <Input value={`${selectedTarget.user}@${selectedTarget.host}:${selectedTarget.port}`} readOnly />
+                  </Form.Item>
+                  <Form.Item label="SOP steps">
+                    <div className="sop-steps">
+                      {selectedSop.steps.map((step, index) => (
+                        <div className="sop-step" key={step.id}>
+                          <Flex justify="space-between" align="center">
+                            <Text strong>
+                              {index + 1}. {step.title}
+                            </Text>
+                            <Tag>{step.risk}</Tag>
+                          </Flex>
+                          <Text code>{step.command}</Text>
+                          <Text type="secondary">{step.expectedSignal}</Text>
+                        </div>
+                      ))}
+                    </div>
+                  </Form.Item>
+                </Form>
               </Card>
 
               <Card className="panel-card" title="Evidence">

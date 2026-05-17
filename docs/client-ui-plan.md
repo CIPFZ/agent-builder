@@ -259,6 +259,26 @@ UI 上可以使用 Ant Design 的 Modal、Drawer、Descriptions、Alert、Steps
 - mock runtime event stream。
 - 做出 agent operations client 的主界面。
 - 验证“SSH 排障”这类端到端任务展示是否合理。
+- 支持 SOP fixture selector。
+- 支持 SSH target config mock。
+- 支持审批交互和 raw event log。
+- 支持验收阶段的 DeepSeek 报告生成。
+
+### 阶段 1 验收版
+
+Phase 1 结束时需要形成一个可供本地验收的客户端版本：
+
+- 客户端可以本地 build 和 preview。
+- UI 能完整展示 SSH 排障助手流程。
+- mock event stream 可交互。
+- 可以选择不同 SOP fixture。
+- 可以配置 mock SSH target。
+- 可以配置真实 DeepSeek API，用于报告生成和建议生成。
+- 不执行真实 SSH 高风险操作。
+
+DeepSeek API 只用于最后的分析总结，不让模型自由决定工具调用，也不让模型
+执行真实命令。后续接入 Crush runtime 后，模型和工具调用都应通过 Go
+runtime 的 provider、tool scheduler 和 permission/policy 层。
 
 ### 阶段 2：Runtime API
 

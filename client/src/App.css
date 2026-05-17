@@ -68,6 +68,15 @@
   padding: 10px 0;
 }
 
+.selector-block {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.selector-block .ant-select {
+  width: 100%;
+}
+
 .list-icon {
   color: #2563eb;
   font-size: 16px;
@@ -153,6 +162,22 @@
   display: block;
   margin-top: 6px;
   color: #334155;
+}
+
+.sop-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sop-step {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: #f8fafc;
+  border: 1px solid #e5eaf3;
+  border-radius: 6px;
 }
 
 .ant-table-wrapper .ant-table {
