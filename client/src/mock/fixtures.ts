@@ -54,6 +54,7 @@ export const initialRuntimeState: RuntimeState = {
   ],
   timeline: [],
   evidence: [],
+  eventLog: [],
 }
 
 export const historicRuns = [

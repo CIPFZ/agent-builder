@@ -43,8 +43,20 @@ import {
   ToolOutlined,
 } from '@ant-design/icons'
 import { historicRuns } from './mock/fixtures'
-import { createInitialRuntimeState, reduceRunEvent, replayEvents } from './mock/runtime'
-import type { CapabilityItem, EvidenceItem, RunStatus, TimelineEntry } from './types/runtime'
+import {
+  createApprovalResolvedEvent,
+  createInitialRuntimeState,
+  reduceRunEvent,
+  replayEvents,
+} from './mock/runtime'
+import type {
+  ApprovalDecision,
+  CapabilityItem,
+  EvidenceItem,
+  RunEvent,
+  RunStatus,
+  TimelineEntry,
+} from './types/runtime'
 import './App.css'
 
 const { Header, Sider, Content } = Layout
@@ -112,6 +124,29 @@ function timelineColor(kind: TimelineEntry['kind']) {
   return 'blue'
 }
 
+function eventSummary(event: RunEvent) {
+  switch (event.type) {
+    case 'run_started':
+      return event.run.title
+    case 'agent_updated':
+      return `${event.agent.name}: ${event.agent.status}`
+    case 'message_added':
+      return event.message.content
+    case 'thought_updated':
+      return event.thought.title
+    case 'timeline_added':
+      return event.entry.title
+    case 'evidence_added':
+      return event.evidence.signal
+    case 'approval_requested':
+      return event.approval.title
+    case 'report_generated':
+      return event.recommendation.title
+    case 'approval_resolved':
+      return `${event.decision}: ${event.entry.title}`
+  }
+}
+
 function App() {
   const [runtimeState, setRuntimeState] = useState(createInitialRuntimeState)
   const [isReplaying, setIsReplaying] = useState(false)
@@ -153,6 +188,10 @@ function App() {
     abortControllerRef.current?.abort()
     setRuntimeState(createInitialRuntimeState())
     setIsReplaying(false)
+  }
+
+  const resolveApproval = (decision: ApprovalDecision) => {
+    setRuntimeState((current) => reduceRunEvent(current, createApprovalResolvedEvent(decision)))
   }
 
   return (
@@ -354,10 +393,17 @@ function App() {
                             description={runtimeState.approval.description}
                           />
                           <Space wrap>
-                            {runtimeState.approval.actions.map((action) => (
-                              <Button key={action}>{action}</Button>
-                            ))}
+                            <Button type="primary" onClick={() => resolveApproval('approved')}>
+                              Approve plan
+                            </Button>
+                            <Button onClick={() => resolveApproval('denied')}>Deny</Button>
+                            <Button>Export report</Button>
                           </Space>
+                          <div className="approval-actions">
+                            {runtimeState.approval.actions.map((action) => (
+                              <Tag key={action}>{action}</Tag>
+                            ))}
+                          </div>
                         </Space>
                       ) : (
                         <Alert
@@ -382,6 +428,24 @@ function App() {
                     This prototype replays typed mock events. Later phases can replace the mock replay with HTTP JSON API + SSE events from Crush.
                   </Text>
                 </Space>
+              </Card>
+
+              <Card className="panel-card" title="Raw Event Log">
+                <div className="event-log">
+                  {runtimeState.eventLog.length > 0 ? (
+                    runtimeState.eventLog.map((record) => (
+                      <div className="event-log-row" key={record.id}>
+                        <Flex justify="space-between" align="center" gap={8}>
+                          <Tag color="blue">{record.event.type}</Tag>
+                          <Text type="secondary">{new Date(record.timestamp).toLocaleTimeString()}</Text>
+                        </Flex>
+                        <Text className="event-log-summary">{eventSummary(record.event)}</Text>
+                      </div>
+                    ))
+                  ) : (
+                    <Text type="secondary">No events received yet.</Text>
+                  )}
+                </div>
               </Card>
             </aside>
           </Content>

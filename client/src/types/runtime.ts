@@ -1,4 +1,5 @@
 export type RunStatus = 'idle' | 'running' | 'waiting_approval' | 'completed'
+export type ApprovalDecision = 'approved' | 'denied'
 
 export type EvidenceStatus = 'normal' | 'warning' | 'critical'
 
@@ -64,6 +65,12 @@ export type ApprovalRequest = {
   actions: string[]
 }
 
+export type RuntimeEventRecord = {
+  id: string
+  timestamp: string
+  event: RunEvent
+}
+
 export type Recommendation = {
   title: string
   description: string
@@ -80,6 +87,7 @@ export type RuntimeState = {
   evidence: EvidenceItem[]
   approval?: ApprovalRequest
   recommendation?: Recommendation
+  eventLog: RuntimeEventRecord[]
 }
 
 export type RunEvent =
@@ -120,5 +128,13 @@ export type RunEvent =
       type: 'report_generated'
       recommendation: Recommendation
       message: ConversationMessage
+      progress: number
+    }
+  | {
+      type: 'approval_resolved'
+      approvalId: string
+      decision: ApprovalDecision
+      message: ConversationMessage
+      entry: TimelineEntry
       progress: number
     }
