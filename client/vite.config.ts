@@ -22,8 +22,22 @@ export default defineConfig({
           if (id.includes('node_modules/@ant-design/x')) {
             return 'ant-design-x-shared'
           }
-          if (id.includes('node_modules/antd') || id.includes('node_modules/@ant-design/icons')) {
-            return 'antd'
+          if (id.includes('node_modules/@ant-design/icons')) {
+            return 'ant-design-icons'
+          }
+          if (id.includes('node_modules/antd/es/')) {
+            const match = id.match(/node_modules\/antd\/es\/([^/]+)/)
+            const component = match?.[1]?.replace(/^_/, 'internal') || 'shared'
+            if (['drawer', 'modal'].includes(component)) {
+              return 'antd-overlays'
+            }
+            if (['form', 'input', 'input-number', 'select'].includes(component)) {
+              return 'antd-form'
+            }
+            return `antd-${component}`
+          }
+          if (id.includes('node_modules/antd')) {
+            return 'antd-shared'
           }
           return undefined
         },

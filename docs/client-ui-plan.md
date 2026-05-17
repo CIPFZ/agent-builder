@@ -269,16 +269,15 @@ UI 上可以使用 Ant Design 的 Modal、Drawer、Descriptions、Alert、Steps
 Phase 1 结束时需要形成一个可供本地验收的客户端版本：
 
 - 客户端可以本地 build、preview，并通过 Wails v3 打成桌面可执行文件。
-- UI 能完整展示 SSH 排障助手流程。
-- mock event stream 可交互。
-- 可以选择不同 SOP fixture。
-- 可以配置 mock SSH target。
-- 可以配置真实 DeepSeek API，用于报告生成和建议生成。
+- 首屏必须是简单的聊天入口，而不是完整运维工作台。
+- 可以配置 provider、model、local proxy API base 和 temperature。
+- 可以通过真实 DeepSeek API 进行基础对话。
+- Operations/SSH/SOP 能力作为二级入口保留，不在首屏展开。
 - 不执行真实 SSH 高风险操作。
 
-DeepSeek API 只用于最后的分析总结，不让模型自由决定工具调用，也不让模型
-执行真实命令。后续接入 Crush runtime 后，模型和工具调用都应通过 Go
-runtime 的 provider、tool scheduler 和 permission/policy 层。
+DeepSeek API 在 Phase 1 可用于基础聊天和报告总结，但不让模型自由决定工具
+调用，也不让模型执行真实命令。后续接入 Crush runtime 后，模型和工具调用
+都应通过 Go runtime 的 provider、tool scheduler 和 permission/policy 层。
 
 Phase 1.6 先提供一个桌面验收壳：
 

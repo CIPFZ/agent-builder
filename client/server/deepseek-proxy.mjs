@@ -7,7 +7,7 @@ const apiBase = process.env.DEEPSEEK_API_BASE || 'https://api.deepseek.com'
 
 function json(res, statusCode, payload) {
   res.writeHead(statusCode, {
-    'Access-Control-Allow-Origin': 'http://127.0.0.1:5173',
+    'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'content-type',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Content-Type': 'application/json; charset=utf-8',
@@ -38,12 +38,75 @@ function fallbackReport(body) {
   }
 }
 
+function fallbackChat(body) {
+  const messages = Array.isArray(body.messages) ? body.messages : []
+  const lastUserMessage = [...messages].reverse().find((message) => message.role === 'user')
+  const content = lastUserMessage?.content || 'hello'
+
+  return {
+    provider: 'fallback',
+    content: [
+      `我已经收到你的消息：“${content}”。`,
+      '',
+      '当前本地 proxy 没有检测到 DEEPSEEK_API_KEY，所以返回 fallback 对话结果。',
+      '你可以先用它验证桌面聊天体验、模型选择和输入框交互；配置 key 后会切换为真实 DeepSeek 响应。',
+    ].join('\n'),
+  }
+}
+
 async function readJson(req) {
   const chunks = []
   for await (const chunk of req) {
     chunks.push(chunk)
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
+}
+
+async function generateChatWithDeepSeek(body) {
+  const requestedConfig = body?.config || {}
+  const requestedModel = requestedConfig.model || model
+  const requestedTemperature =
+    typeof requestedConfig.temperature === 'number' ? requestedConfig.temperature : 0.2
+  const messages = Array.isArray(body.messages) ? body.messages : []
+
+  const response = await fetch(`${apiBase}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: requestedModel,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are Agent Builder, a concise desktop assistant for agentic operations design, coding, and troubleshooting. Reply in Chinese unless the user asks otherwise.',
+        },
+        ...messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+      ],
+      temperature: requestedTemperature,
+    }),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`DeepSeek chat request failed: ${response.status} ${text}`)
+  }
+
+  const data = await response.json()
+  const content = data?.choices?.[0]?.message?.content
+  if (!content) {
+    throw new Error('DeepSeek chat response did not include message content')
+  }
+
+  return {
+    provider: 'deepseek',
+    content,
+  }
 }
 
 async function generateWithDeepSeek(body) {
@@ -101,18 +164,30 @@ const server = createServer(async (req, res) => {
     return
   }
 
-  if (req.method !== 'POST' || req.url !== '/api/deepseek/report') {
+  if (req.method !== 'POST') {
     json(res, 404, { error: 'not_found' })
     return
   }
 
   try {
     const body = await readJson(req)
-    const report = apiKey ? await generateWithDeepSeek(body) : fallbackReport(body)
-    json(res, 200, report)
+
+    if (req.url === '/api/chat') {
+      const chat = apiKey ? await generateChatWithDeepSeek(body) : fallbackChat(body)
+      json(res, 200, chat)
+      return
+    }
+
+    if (req.url === '/api/deepseek/report') {
+      const report = apiKey ? await generateWithDeepSeek(body) : fallbackReport(body)
+      json(res, 200, report)
+      return
+    }
+
+    json(res, 404, { error: 'not_found' })
   } catch (error) {
     json(res, 500, {
-      error: 'report_generation_failed',
+      error: 'proxy_request_failed',
       message: error instanceof Error ? error.message : String(error),
     })
   }
