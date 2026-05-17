@@ -38,7 +38,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons'
 import TextArea from 'antd/es/input/TextArea'
-import { requestChatCompletion, requestConfiguredModels } from './api/chat'
+import { requestChatCompletion, requestConfiguredModels, startRuntimeChat } from './api/chat'
 import type { ChatRequest, ModelConfig } from './api/chat'
 import './App.css'
 
@@ -151,6 +151,10 @@ function AppContent() {
     setMessages([])
     setInput('')
     setActiveChatTitle('New chat')
+    startRuntimeChat('New chat').catch((error) => {
+      const reason = error instanceof Error ? error.message : String(error)
+      message.error(reason)
+    })
   }
 
   const sendMessage = async (text = input) => {

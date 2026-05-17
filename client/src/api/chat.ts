@@ -1,6 +1,7 @@
 export type ModelConfig = {
   protocol: 'openai' | 'anthropic'
   model: string
+  provider?: string
   url: string
   apiKey?: string
   proxy?: string
@@ -17,38 +18,81 @@ export type ChatRequest = {
 }
 
 export type ChatResponse = {
-  provider: 'deepseek'
+  provider: string
   content: string
+  model?: string
 }
 
 export type ModelsResponse = {
   models: string[]
 }
 
+type RuntimeModel = {
+  id: string
+  name: string
+  provider: string
+  selected: boolean
+}
+
+type RuntimeChatResponse = {
+  provider: string
+  content: string
+  model: string
+}
+
+type RuntimeStatus = {
+  ready: boolean
+  workspaceId: string
+  sessionId: string
+  workingDir: string
+  model: string
+  provider: string
+  busy: boolean
+}
+
+type RuntimeBridgeApi = {
+  Chat: (request: { prompt: string }) => Promise<RuntimeChatResponse>
+  Models: () => Promise<{ models: RuntimeModel[] }>
+  NewChat: (title: string) => Promise<RuntimeStatus>
+  Status: () => Promise<RuntimeStatus>
+}
+
+async function runtimeBridge(): Promise<RuntimeBridgeApi> {
+  const bindingPath = '/bindings/github.com/charmbracelet/crush/desktop/agent-builder/index.js'
+  const module = (await import(/* @vite-ignore */ bindingPath)) as { RuntimeBridge: RuntimeBridgeApi }
+
+  return module.RuntimeBridge
+}
+
+function lastUserPrompt(request: ChatRequest) {
+  return [...request.messages].reverse().find((item) => item.role === 'user')?.content ?? ''
+}
+
 export async function requestChatCompletion(request: ChatRequest): Promise<ChatResponse> {
-  const response = await fetch('http://127.0.0.1:4177/api/chat', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(request),
-  })
+  const bridge = await runtimeBridge()
+  const response = await bridge.Chat({ prompt: lastUserPrompt(request) })
 
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}))
-    throw new Error(payload.message || `Chat request failed with ${response.status}`)
+  return {
+    provider: response.provider,
+    content: response.content,
+    model: response.model,
   }
-
-  return response.json()
 }
 
 export async function requestConfiguredModels(): Promise<ModelsResponse> {
-  const response = await fetch('http://127.0.0.1:4177/api/models')
+  const bridge = await runtimeBridge()
+  const response = await bridge.Models()
+  const models = response.models.map((item: RuntimeModel) => item.id)
 
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}))
-    throw new Error(payload.message || `Models request failed with ${response.status}`)
-  }
+  return { models }
+}
 
-  return response.json()
+export async function requestRuntimeStatus() {
+  const bridge = await runtimeBridge()
+  return bridge.Status()
+}
+
+export async function startRuntimeChat(title: string) {
+  const bridge = await runtimeBridge()
+  return bridge.NewChat(title)
 }

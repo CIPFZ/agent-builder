@@ -11,6 +11,8 @@ const clientDir = resolve(repoRoot, "client");
 const clientNodeModules = resolve(clientDir, "node_modules");
 const sourceDist = resolve(clientDir, "dist");
 const targetDist = resolve(desktopRoot, "frontend", "dist");
+const sourceBindings = resolve(desktopRoot, "frontend", "bindings");
+const targetBindings = resolve(targetDist, "bindings");
 const shouldBuildClient = process.argv.includes("--build-client");
 
 function run(command, args, options = {}) {
@@ -54,5 +56,8 @@ if (!existsSync(sourceDist)) {
 await rm(targetDist, { force: true, recursive: true });
 await mkdir(targetDist, { recursive: true });
 await cp(sourceDist, targetDist, { recursive: true });
+if (existsSync(sourceBindings)) {
+  await cp(sourceBindings, targetBindings, { recursive: true });
+}
 
 console.log(`Synced ${sourceDist} to ${targetDist}`);

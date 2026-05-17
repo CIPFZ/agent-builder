@@ -14,6 +14,9 @@ func main() {
 	app := application.New(application.Options{
 		Name:        "Agent Builder",
 		Description: "Agentic operations desktop client",
+		Services: []application.Service{
+			application.NewService(NewRuntimeBridge()),
+		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
