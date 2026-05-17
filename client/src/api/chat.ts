@@ -1,3 +1,5 @@
+import { getAgentRuntime } from '../runtime'
+
 export type ModelConfig = {
   protocol: 'openai' | 'anthropic'
   model: string
@@ -27,50 +29,12 @@ export type ModelsResponse = {
   models: string[]
 }
 
-type RuntimeModel = {
-  id: string
-  name: string
-  provider: string
-  selected: boolean
-}
-
-type RuntimeChatResponse = {
-  provider: string
-  content: string
-  model: string
-}
-
-type RuntimeStatus = {
-  ready: boolean
-  workspaceId: string
-  sessionId: string
-  workingDir: string
-  model: string
-  provider: string
-  busy: boolean
-}
-
-type RuntimeBridgeApi = {
-  Chat: (request: { prompt: string }) => Promise<RuntimeChatResponse>
-  Models: () => Promise<{ models: RuntimeModel[] }>
-  NewChat: (title: string) => Promise<RuntimeStatus>
-  Status: () => Promise<RuntimeStatus>
-}
-
-async function runtimeBridge(): Promise<RuntimeBridgeApi> {
-  const bindingPath = '/bindings/github.com/charmbracelet/crush/desktop/agent-builder/index.js'
-  const module = (await import(/* @vite-ignore */ bindingPath)) as { RuntimeBridge: RuntimeBridgeApi }
-
-  return module.RuntimeBridge
-}
-
 function lastUserPrompt(request: ChatRequest) {
   return [...request.messages].reverse().find((item) => item.role === 'user')?.content ?? ''
 }
 
 export async function requestChatCompletion(request: ChatRequest): Promise<ChatResponse> {
-  const bridge = await runtimeBridge()
-  const response = await bridge.Chat({ prompt: lastUserPrompt(request) })
+  const response = await getAgentRuntime().chat({ prompt: lastUserPrompt(request) })
 
   return {
     provider: response.provider,
@@ -80,19 +44,15 @@ export async function requestChatCompletion(request: ChatRequest): Promise<ChatR
 }
 
 export async function requestConfiguredModels(): Promise<ModelsResponse> {
-  const bridge = await runtimeBridge()
-  const response = await bridge.Models()
-  const models = response.models.map((item: RuntimeModel) => item.id)
+  const models = await getAgentRuntime().listModels()
 
-  return { models }
+  return { models: models.map((item) => item.id) }
 }
 
 export async function requestRuntimeStatus() {
-  const bridge = await runtimeBridge()
-  return bridge.Status()
+  return getAgentRuntime().status()
 }
 
 export async function startRuntimeChat(title: string) {
-  const bridge = await runtimeBridge()
-  return bridge.NewChat(title)
+  return getAgentRuntime().newChat(title)
 }
