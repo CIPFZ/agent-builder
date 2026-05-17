@@ -1,6 +1,7 @@
 import type {
   RuntimeChatRequest,
   RuntimeChatResponse,
+  RuntimeMessage,
   RuntimeModel,
   RuntimeModelConfig,
   RuntimeStatus,
@@ -9,6 +10,7 @@ import type {
 type WailsRuntimeBridge = {
   Chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
   GetModelConfig: () => Promise<{ config: RuntimeModelConfig }>
+  Messages: () => Promise<{ messages: RuntimeMessage[] }>
   Models: () => Promise<{ models: RuntimeModel[] }>
   NewChat: (title: string) => Promise<RuntimeStatus>
   SaveModelConfig: (request: RuntimeModelConfig) => Promise<{ config: RuntimeModelConfig }>

@@ -62,9 +62,25 @@ type RuntimeChatRequest struct {
 }
 
 type RuntimeChatResponse struct {
-	Provider string `json:"provider"`
-	Content  string `json:"content"`
-	Model    string `json:"model"`
+	Message RuntimeMessage `json:"message"`
+	Status  RuntimeStatus  `json:"status"`
+}
+
+type RuntimeMessage struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionId"`
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	Provider  string `json:"provider,omitempty"`
+	Model     string `json:"model,omitempty"`
+	CreatedAt int64  `json:"createdAt"`
+	UpdatedAt int64  `json:"updatedAt"`
+	Finished  bool   `json:"finished"`
+	Error     string `json:"error,omitempty"`
+}
+
+type RuntimeMessagesResponse struct {
+	Messages []RuntimeMessage `json:"messages"`
 }
 
 type RuntimeModelConfig struct {
@@ -270,11 +286,41 @@ func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (Runti
 	}
 	slog.Info("Desktop chat finished", "workspace_id", wsID, "session_id", sessionID, "provider", msg.Provider, "model", msg.Model, "duration", time.Since(start).String(), "content_len", len(msg.Content().String()))
 
+	status, err := r.Status(ctx)
+	if err != nil {
+		return RuntimeChatResponse{}, err
+	}
+
 	return RuntimeChatResponse{
-		Provider: msg.Provider,
-		Content:  assistantContent(msg),
-		Model:    msg.Model,
+		Message: toRuntimeMessage(msg),
+		Status:  status,
 	}, nil
+}
+
+func (r *RuntimeBridge) Messages(ctx context.Context) (RuntimeMessagesResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeMessagesResponse{}, err
+	}
+
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	sessionID := r.sessionID
+	r.mu.Unlock()
+
+	messages, err := r.runtime.ListSessionMessages(ctx, wsID, sessionID)
+	if err != nil {
+		return RuntimeMessagesResponse{}, fmt.Errorf("failed to list Crush session messages: %w", err)
+	}
+
+	runtimeMessages := make([]RuntimeMessage, 0, len(messages))
+	for _, msg := range messages {
+		if msg.IsSummaryMessage || msg.Role == message.Tool || msg.Role == message.System {
+			continue
+		}
+		runtimeMessages = append(runtimeMessages, toRuntimeMessage(toProtoMessage(msg)))
+	}
+
+	return RuntimeMessagesResponse{Messages: runtimeMessages}, nil
 }
 
 func (r *RuntimeBridge) readConfiguredModel() (RuntimeModelConfig, error) {
@@ -557,6 +603,48 @@ func assistantContent(msg proto.Message) string {
 	}
 
 	return msg.Content().String()
+}
+
+func toRuntimeMessage(msg proto.Message) RuntimeMessage {
+	content := msg.Content().String()
+	var finishError string
+	finished := false
+	for _, part := range msg.Parts {
+		finish, ok := part.(proto.Finish)
+		if !ok {
+			continue
+		}
+		finished = true
+		if finish.Reason != proto.FinishReasonError {
+			continue
+		}
+		switch {
+		case finish.Message != "" && finish.Details != "":
+			finishError = finish.Message + ": " + finish.Details
+		case finish.Message != "":
+			finishError = finish.Message
+		case finish.Details != "":
+			finishError = finish.Details
+		default:
+			finishError = "Provider returned an error without details. Check logs for more information."
+		}
+	}
+	if strings.TrimSpace(content) == "" && finishError != "" {
+		content = finishError
+	}
+
+	return RuntimeMessage{
+		ID:        msg.ID,
+		SessionID: msg.SessionID,
+		Role:      string(msg.Role),
+		Content:   content,
+		Provider:  msg.Provider,
+		Model:     msg.Model,
+		CreatedAt: msg.CreatedAt,
+		UpdatedAt: msg.UpdatedAt,
+		Finished:  finished,
+		Error:     finishError,
+	}
 }
 
 func firstNonEmpty(values ...string) string {

@@ -5,6 +5,7 @@ export type {
   AgentRuntime,
   RuntimeChatRequest,
   RuntimeChatResponse,
+  RuntimeMessage,
   RuntimeModel,
   RuntimeStatus,
 } from './types'

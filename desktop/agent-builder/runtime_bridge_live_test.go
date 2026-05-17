@@ -20,8 +20,8 @@ func TestDesktopRuntimeBridgeLiveChat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(resp.Content) == "" {
-		t.Fatalf("empty response from provider %q model %q", resp.Provider, resp.Model)
+	if strings.TrimSpace(resp.Message.Content) == "" {
+		t.Fatalf("empty response from provider %q model %q", resp.Message.Provider, resp.Message.Model)
 	}
-	t.Logf("provider=%s model=%s content=%q", resp.Provider, resp.Model, resp.Content)
+	t.Logf("provider=%s model=%s content=%q", resp.Message.Provider, resp.Message.Model, resp.Message.Content)
 }

@@ -20,9 +20,21 @@ export type RuntimeChatRequest = {
 }
 
 export type RuntimeChatResponse = {
-  provider: string
+  message: RuntimeMessage
+  status: RuntimeStatus
+}
+
+export type RuntimeMessage = {
+  id: string
+  sessionId: string
+  role: 'user' | 'assistant'
   content: string
-  model: string
+  provider?: string
+  model?: string
+  createdAt: number
+  updatedAt: number
+  finished: boolean
+  error?: string
 }
 
 export type RuntimeModelConfig = {
@@ -40,6 +52,7 @@ export type AgentRuntime = {
   chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
   getModelConfig: () => Promise<RuntimeModelConfig>
   listModels: () => Promise<RuntimeModel[]>
+  listMessages: () => Promise<RuntimeMessage[]>
   newChat: (title: string) => Promise<RuntimeStatus>
   saveModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelConfig>
   status: () => Promise<RuntimeStatus>

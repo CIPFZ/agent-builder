@@ -19,6 +19,12 @@ export const wailsRuntime: AgentRuntime = {
     return response.models
   },
 
+  async listMessages() {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.Messages()
+    return response.messages
+  },
+
   async newChat(title: string) {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.NewChat(title)

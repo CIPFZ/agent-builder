@@ -38,19 +38,19 @@ import {
   UserOutlined,
 } from '@ant-design/icons'
 import TextArea from 'antd/es/input/TextArea'
-import { loadModelConfig, requestChatCompletion, requestConfiguredModels, saveModelConfig, startRuntimeChat } from './api/chat'
-import type { ChatRequest, ModelConfig } from './api/chat'
+import {
+  loadModelConfig,
+  requestConfiguredModels,
+  requestRuntimeMessages,
+  saveModelConfig,
+  sendRuntimePrompt,
+  startRuntimeChat,
+} from './api/chat'
+import type { ModelConfig } from './api/chat'
+import type { RuntimeMessage } from './runtime'
 import './App.css'
 
 const { Text, Title, Paragraph } = Typography
-
-type ChatMessage = {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  createdAt: string
-  provider?: string
-}
 
 const defaultConfig: ModelConfig = {
   protocol: 'openai',
@@ -59,17 +59,13 @@ const defaultConfig: ModelConfig = {
 }
 
 const starterPrompts = [
-  { label: 'Write', icon: <EditOutlined />, prompt: '帮我写一个 Kubernetes 故障排查 SOP 模板。' },
-  { label: 'Learn', icon: <AppstoreOutlined />, prompt: '解释一下 agent runtime、tools、skills、MCP 的关系。' },
-  { label: 'Code', icon: <CodeOutlined />, prompt: '帮我设计一个 Go runtime 的最小 HTTP + SSE API。' },
-  { label: 'Ops', icon: <ToolOutlined />, prompt: '模拟一次订单服务错误率升高的排障对话。' },
+  { label: 'Write', icon: <EditOutlined />, prompt: 'Draft a Kubernetes troubleshooting SOP template.' },
+  { label: 'Learn', icon: <AppstoreOutlined />, prompt: 'Explain the relationship between agent runtime, tools, skills, and MCP.' },
+  { label: 'Code', icon: <CodeOutlined />, prompt: 'Design a minimal HTTP + SSE API for a Go agent runtime.' },
+  { label: 'Ops', icon: <ToolOutlined />, prompt: 'Simulate a troubleshooting chat for a service error-rate spike.' },
 ]
 
-const recentItems = ['Greeting', 'Agent runtime 方案', 'SSH 排障助手 MVP']
-
-function nowIso() {
-  return new Date().toISOString()
-}
+const recentItems = ['Greeting', 'Agent runtime plan', 'SSH troubleshooting MVP']
 
 function greeting() {
   const hour = new Date().getHours()
@@ -78,35 +74,13 @@ function greeting() {
   return 'Good evening'
 }
 
-function makeId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
 function modelLabel(config: ModelConfig) {
   return config.model || 'Select model'
 }
 
-function buildChatRequest(messages: ChatMessage[], config: ModelConfig): ChatRequest {
-  const payloadMessages = messages.flatMap((message) =>
-    message.role === 'user' || message.role === 'assistant'
-      ? [
-          {
-            role: message.role,
-            content: message.content,
-          },
-        ]
-      : [],
-  )
-
-  return {
-    config,
-    messages: payloadMessages,
-  }
-}
-
 function AppContent() {
   const { message } = AntApp.useApp()
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<RuntimeMessage[]>([])
   const [input, setInput] = useState('')
   const [config, setConfig] = useState<ModelConfig>(defaultConfig)
   const [models, setModels] = useState<string[]>([defaultConfig.model])
@@ -118,6 +92,11 @@ function AppContent() {
   const viewportRef = useRef<HTMLDivElement | null>(null)
 
   const hasMessages = messages.length > 0
+
+  const refreshMessages = async () => {
+    const runtimeMessages = await requestRuntimeMessages()
+    setMessages(runtimeMessages)
+  }
 
   useEffect(() => {
     loadModelConfig()
@@ -159,60 +138,32 @@ function AppContent() {
   }
 
   const startNewChat = () => {
-    setMessages([])
     setInput('')
     setActiveChatTitle('New chat')
-    startRuntimeChat('New chat').catch((error) => {
-      const reason = error instanceof Error ? error.message : String(error)
-      message.error(reason)
-    })
+    startRuntimeChat('New chat')
+      .then(() => setMessages([]))
+      .catch((error) => {
+        const reason = error instanceof Error ? error.message : String(error)
+        message.error(reason)
+      })
   }
 
   const sendMessage = async (text = input) => {
     const content = text.trim()
     if (!content || isSending) return
 
-    const userMessage: ChatMessage = {
-      id: makeId('user'),
-      role: 'user',
-      content,
-      createdAt: nowIso(),
-    }
-    const nextMessages = [...messages, userMessage]
-    setMessages(nextMessages)
     setInput('')
     setIsSending(true)
     if (!hasMessages) {
       setActiveChatTitle(content.length > 24 ? `${content.slice(0, 24)}...` : content)
     }
-    scrollToBottom()
-
     try {
-      const response = await requestChatCompletion(buildChatRequest(nextMessages, config))
-
-      setMessages((current) => [
-        ...current,
-        {
-          id: makeId('assistant'),
-          role: 'assistant',
-          content: response.content,
-          createdAt: nowIso(),
-          provider: response.provider,
-        },
-      ])
+      await sendRuntimePrompt(content)
+      await refreshMessages()
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       message.error(reason)
-      setMessages((current) => [
-        ...current,
-        {
-          id: makeId('assistant'),
-          role: 'assistant',
-          content: `请求失败：${reason}`,
-          createdAt: nowIso(),
-          provider: 'error',
-        },
-      ])
+      await refreshMessages().catch(() => undefined)
     } finally {
       setIsSending(false)
       scrollToBottom()
@@ -485,9 +436,7 @@ function ModelSettingsDrawer({ config, open, saving, onClose, onSave }: ModelSet
         </Button>
       }
     >
-      <Paragraph type="secondary">
-        Saved to the desktop config directory beside the application.
-      </Paragraph>
+      <Paragraph type="secondary">Saved to the desktop config directory beside the application.</Paragraph>
       <Form form={form} layout="vertical" initialValues={config}>
         <Form.Item label="Protocol" name="protocol" rules={[{ required: true }]}>
           <Select
@@ -550,8 +499,7 @@ function App() {
         token: {
           colorPrimary: '#d97757',
           borderRadius: 8,
-          fontFamily:
-            'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+          fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
         },
       }}
     >

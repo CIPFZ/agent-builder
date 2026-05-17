@@ -1,4 +1,5 @@
 import { getAgentRuntime } from '../runtime'
+import type { RuntimeMessage } from '../runtime'
 
 export type ModelConfig = {
   protocol: 'openai' | 'anthropic'
@@ -11,37 +12,19 @@ export type ModelConfig = {
   configPath?: string
 }
 
-export type ChatMessagePayload = {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-export type ChatRequest = {
-  config: ModelConfig
-  messages: ChatMessagePayload[]
-}
-
 export type ChatResponse = {
-  provider: string
-  content: string
-  model?: string
+  message: RuntimeMessage
 }
 
 export type ModelsResponse = {
   models: string[]
 }
 
-function lastUserPrompt(request: ChatRequest) {
-  return [...request.messages].reverse().find((item) => item.role === 'user')?.content ?? ''
-}
-
-export async function requestChatCompletion(request: ChatRequest): Promise<ChatResponse> {
-  const response = await getAgentRuntime().chat({ prompt: lastUserPrompt(request) })
+export async function sendRuntimePrompt(prompt: string): Promise<ChatResponse> {
+  const response = await getAgentRuntime().chat({ prompt })
 
   return {
-    provider: response.provider,
-    content: response.content,
-    model: response.model,
+    message: response.message,
   }
 }
 
@@ -79,6 +62,10 @@ export async function saveModelConfig(config: ModelConfig): Promise<ModelConfig>
 
 export async function requestRuntimeStatus() {
   return getAgentRuntime().status()
+}
+
+export async function requestRuntimeMessages() {
+  return getAgentRuntime().listMessages()
 }
 
 export async function startRuntimeChat(title: string) {
