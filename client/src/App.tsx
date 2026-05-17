@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import AntApp from 'antd/es/app'
 import Button from 'antd/es/button'
+import Collapse from 'antd/es/collapse'
 import ConfigProvider from 'antd/es/config-provider'
 import Drawer from 'antd/es/drawer'
 import Dropdown from 'antd/es/dropdown'
@@ -37,7 +38,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons'
 import TextArea from 'antd/es/input/TextArea'
-import { requestChatCompletion } from './api/chat'
+import { requestChatCompletion, requestConfiguredModels } from './api/chat'
 import type { ChatRequest, ModelConfig } from './api/chat'
 import './App.css'
 
@@ -55,7 +56,6 @@ const defaultConfig: ModelConfig = {
   protocol: 'openai',
   model: 'deepseek-v4-flash',
   url: 'https://api.deepseek.com',
-  temperature: 0.2,
 }
 
 const starterPrompts = [
@@ -104,21 +104,12 @@ function buildChatRequest(messages: ChatMessage[], config: ModelConfig): ChatReq
   }
 }
 
-function fallbackReply(input: string, config: ModelConfig) {
-  return [
-    `我已经收到你的消息：“${input}”。`,
-    '',
-    `当前模型配置为 ${config.protocol} / ${config.model}。如果本地 chat proxy 没有启动，客户端会先用这条本地 fallback 回复保持对话可测试。`,
-    '',
-    '下一步可以在右下角模型设置里配置协议、URL、API key 和代理，然后启动本地 proxy 进行真实模型对话。',
-  ].join('\n')
-}
-
 function AppContent() {
   const { message } = AntApp.useApp()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [config, setConfig] = useState<ModelConfig>(defaultConfig)
+  const [models, setModels] = useState<string[]>([defaultConfig.model])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [operationsOpen, setOperationsOpen] = useState(false)
   const [isSending, setIsSending] = useState(false)
@@ -127,30 +118,29 @@ function AppContent() {
 
   const hasMessages = messages.length > 0
 
+  useEffect(() => {
+    requestConfiguredModels()
+      .then((response) => {
+        if (response.models.length === 0) return
+        setModels(response.models)
+        setConfig((current) => ({
+          ...current,
+          model: response.models.includes(current.model) ? current.model : response.models[0],
+        }))
+      })
+      .catch(() => {
+        setModels([defaultConfig.model])
+      })
+  }, [])
+
   const modelItems = useMemo<MenuProps['items']>(
-    () => [
-      {
-        key: 'deepseek-v4-flash',
-        label: 'DeepSeek V4 Flash',
-        onClick: () => setConfig((current) => ({ ...current, model: 'deepseek-v4-flash' })),
-      },
-      {
-        key: 'deepseek-chat',
-        label: 'DeepSeek Chat',
-        onClick: () => setConfig((current) => ({ ...current, model: 'deepseek-chat' })),
-      },
-      {
-        key: 'deepseek-reasoner',
-        label: 'DeepSeek Reasoner',
-        onClick: () => setConfig((current) => ({ ...current, model: 'deepseek-reasoner' })),
-      },
-      {
-        key: 'mock-local',
-        label: 'Mock Local',
-        onClick: () => setConfig((current) => ({ ...current, protocol: 'mock', model: 'local-fallback' })),
-      },
-    ],
-    [],
+    () =>
+      models.map((modelName) => ({
+        key: modelName,
+        label: modelName,
+        onClick: () => setConfig((current) => ({ ...current, model: modelName })),
+      })),
+    [models],
   )
 
   const scrollToBottom = () => {
@@ -183,10 +173,7 @@ function AppContent() {
     scrollToBottom()
 
     try {
-      const response =
-        config.protocol === 'mock'
-          ? { provider: 'fallback' as const, content: fallbackReply(content, config) }
-          : await requestChatCompletion(buildChatRequest(nextMessages, config))
+      const response = await requestChatCompletion(buildChatRequest(nextMessages, config))
 
       setMessages((current) => [
         ...current,
@@ -200,15 +187,15 @@ function AppContent() {
       ])
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
-      message.warning('本地 chat proxy 不可用，已使用 fallback 回复。')
+      message.error(reason)
       setMessages((current) => [
         ...current,
         {
           id: makeId('assistant'),
           role: 'assistant',
-          content: `${fallbackReply(content, config)}\n\nProxy error: ${reason}`,
+          content: `请求失败：${reason}`,
           createdAt: nowIso(),
-          provider: 'fallback',
+          provider: 'error',
         },
       ])
     } finally {
@@ -472,7 +459,6 @@ function ModelSettingsDrawer({ config, open, onClose, onSave }: ModelSettingsDra
             options={[
               { value: 'openai', label: 'OpenAI compatible' },
               { value: 'anthropic', label: 'Anthropic compatible' },
-              { value: 'mock', label: 'Mock local' },
             ]}
           />
         </Form.Item>
@@ -482,14 +468,21 @@ function ModelSettingsDrawer({ config, open, onClose, onSave }: ModelSettingsDra
         <Form.Item label="API key" name="apiKey">
           <Input.Password placeholder="Read from local config if empty" />
         </Form.Item>
-        <Form.Item label="Proxy (advanced)" name="proxy">
-          <Input placeholder="http://127.0.0.1:7890" />
-        </Form.Item>
+        <Collapse
+          ghost
+          items={[
+            {
+              key: 'advanced',
+              label: 'Advanced',
+              children: (
+                <Form.Item label="Proxy" name="proxy">
+                  <Input placeholder="http://127.0.0.1:7890" />
+                </Form.Item>
+              ),
+            },
+          ]}
+        />
       </Form>
-      <div className="settings-note">
-        <Text strong>Local proxy command</Text>
-        <pre>cd client{'\n'}npm run dev:api</pre>
-      </div>
     </Drawer>
   )
 }

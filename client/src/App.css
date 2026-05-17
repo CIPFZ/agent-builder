@@ -348,21 +348,6 @@ button {
   font-size: 13px;
 }
 
-.settings-note {
-  margin-top: 20px;
-  padding: 14px;
-  background: #f7f5f1;
-  border: 1px solid #ebe6df;
-  border-radius: 8px;
-}
-
-.settings-note pre {
-  margin: 10px 0 0;
-  overflow: auto;
-  color: #5f564d;
-  font-size: 12px;
-}
-
 @media (max-width: 980px) {
   .desktop-shell {
     grid-template-columns: 1fr;

@@ -2,8 +2,8 @@
 
 This is the Phase 1 UI prototype for the Crush-based agentic operations client.
 
-The prototype is intentionally mock-driven. It does not connect to the Crush
-runtime, SSH targets, MCP servers, or real model providers yet.
+The prototype does not connect to the Crush runtime, SSH targets, or MCP servers
+yet. Chat uses the configured LLM proxy.
 
 ## Scope
 
@@ -13,7 +13,6 @@ The current screen is intentionally chat-first:
 - model picker in the composer;
 - model settings drawer for protocol, URL, API key, and advanced proxy;
 - real chat requests through the local DeepSeek/OpenAI-compatible proxy;
-- fallback reply path when the proxy or API key is unavailable;
 - operations workspace entry kept as a secondary surface for later SSH/SOP work.
 
 The previous SSH troubleshooting dashboard is no longer the first screen. That
@@ -61,6 +60,7 @@ Edit `server/deepseek.local.json`:
   "protocol": "openai",
   "url": "https://api.deepseek.com",
   "apiKey": "your-key",
+  "models": ["deepseek-v4-flash"],
   "proxy": "",
   "port": 4177
 }
@@ -87,8 +87,7 @@ Environment variables can still override the file when needed:
 records the value and warns if it is set, but does not route `fetch` through it
 yet.
 
-If no key is configured, the proxy returns a deterministic fallback chat/report
-for local acceptance testing.
+If no key is configured, chat requests fail with a clear configuration error.
 
 Build:
 

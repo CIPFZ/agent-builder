@@ -22,7 +22,10 @@ const localConfig = readLocalConfig()
 const port = Number(process.env.DEEPSEEK_PROXY_PORT || localConfig.port || 4177)
 const protocol = process.env.DEEPSEEK_PROTOCOL || localConfig.protocol || 'openai'
 const apiKey = process.env.DEEPSEEK_API_KEY || localConfig.apiKey
-const model = process.env.DEEPSEEK_MODEL || localConfig.model || 'deepseek-v4-flash'
+const configuredModels = Array.isArray(localConfig.models)
+  ? localConfig.models
+  : [process.env.DEEPSEEK_MODEL || localConfig.model || 'deepseek-v4-flash']
+const model = configuredModels[0]
 const apiUrl = process.env.DEEPSEEK_API_BASE || localConfig.url || localConfig.apiBase || 'https://api.deepseek.com'
 const proxyUrl = process.env.DEEPSEEK_PROXY || localConfig.proxy || ''
 
@@ -76,22 +79,6 @@ function fallbackReport(body) {
   }
 }
 
-function fallbackChat(body) {
-  const messages = Array.isArray(body.messages) ? body.messages : []
-  const lastUserMessage = [...messages].reverse().find((message) => message.role === 'user')
-  const content = lastUserMessage?.content || 'hello'
-
-  return {
-    provider: 'fallback',
-    content: [
-      `我已经收到你的消息：“${content}”。`,
-      '',
-      '当前本地 proxy 没有检测到 DEEPSEEK_API_KEY，所以返回 fallback 对话结果。',
-      '你可以先用它验证桌面聊天体验、模型选择和输入框交互；配置 key 后会切换为真实 DeepSeek 响应。',
-    ].join('\n'),
-  }
-}
-
 async function readJson(req) {
   const chunks = []
   for await (const chunk of req) {
@@ -109,7 +96,7 @@ async function generateChatWithDeepSeek(body) {
   const connection = resolveConnection(requestedConfig)
 
   if (!connection.apiKey) {
-    return fallbackChat(body)
+    throw new Error('API key is not configured. Please set apiKey in server/deepseek.local.json.')
   }
 
   if (connection.protocol === 'anthropic') {
@@ -265,6 +252,11 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  if (req.method === 'GET' && req.url === '/api/models') {
+    json(res, 200, { models: configuredModels })
+    return
+  }
+
   if (req.method !== 'POST') {
     json(res, 404, { error: 'not_found' })
     return
@@ -274,7 +266,7 @@ const server = createServer(async (req, res) => {
     const body = await readJson(req)
 
     if (req.url === '/api/chat') {
-      const chat = apiKey ? await generateChatWithDeepSeek(body) : fallbackChat(body)
+      const chat = await generateChatWithDeepSeek(body)
       json(res, 200, chat)
       return
     }

@@ -1,10 +1,9 @@
 export type ModelConfig = {
-  protocol: 'openai' | 'anthropic' | 'mock'
+  protocol: 'openai' | 'anthropic'
   model: string
   url: string
   apiKey?: string
   proxy?: string
-  temperature?: number
 }
 
 export type ChatMessagePayload = {
@@ -18,8 +17,12 @@ export type ChatRequest = {
 }
 
 export type ChatResponse = {
-  provider: 'deepseek' | 'fallback'
+  provider: 'deepseek'
   content: string
+}
+
+export type ModelsResponse = {
+  models: string[]
 }
 
 export async function requestChatCompletion(request: ChatRequest): Promise<ChatResponse> {
@@ -34,6 +37,17 @@ export async function requestChatCompletion(request: ChatRequest): Promise<ChatR
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}))
     throw new Error(payload.message || `Chat request failed with ${response.status}`)
+  }
+
+  return response.json()
+}
+
+export async function requestConfiguredModels(): Promise<ModelsResponse> {
+  const response = await fetch('http://127.0.0.1:4177/api/models')
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.message || `Models request failed with ${response.status}`)
   }
 
   return response.json()
