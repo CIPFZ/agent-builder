@@ -268,7 +268,7 @@ UI 上可以使用 Ant Design 的 Modal、Drawer、Descriptions、Alert、Steps
 
 Phase 1 结束时需要形成一个可供本地验收的客户端版本：
 
-- 客户端可以本地 build 和 preview。
+- 客户端可以本地 build、preview，并通过 Wails v3 打成桌面可执行文件。
 - UI 能完整展示 SSH 排障助手流程。
 - mock event stream 可交互。
 - 可以选择不同 SOP fixture。
@@ -279,6 +279,16 @@ Phase 1 结束时需要形成一个可供本地验收的客户端版本：
 DeepSeek API 只用于最后的分析总结，不让模型自由决定工具调用，也不让模型
 执行真实命令。后续接入 Crush runtime 后，模型和工具调用都应通过 Go
 runtime 的 provider、tool scheduler 和 permission/policy 层。
+
+Phase 1.6 先提供一个桌面验收壳：
+
+- 桌面工程位于 `desktop/agent-builder`。
+- Wails 只负责窗口、资源嵌入和本地打包。
+- React UI 仍然以 `client` 为唯一来源。
+- 构建时先运行 `client` 的生产构建，再将 `client/dist` 同步到
+  `desktop/agent-builder/frontend/dist`。
+- Windows 验收可执行文件输出到
+  `desktop/agent-builder/bin/AgentBuilder.exe`。
 
 ### 阶段 2：Runtime API
 
