@@ -49,6 +49,7 @@ Thumbs.db
 
 /crush
 /tmp/
+/refer/
 
 manpages/
 completions/crush.*sh
