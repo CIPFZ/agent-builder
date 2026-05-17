@@ -7,7 +7,6 @@ import Dropdown from 'antd/es/dropdown'
 import Flex from 'antd/es/flex'
 import Form from 'antd/es/form'
 import Input from 'antd/es/input'
-import InputNumber from 'antd/es/input-number'
 import Modal from 'antd/es/modal'
 import Select from 'antd/es/select'
 import Space from 'antd/es/space'
@@ -53,9 +52,9 @@ type ChatMessage = {
 }
 
 const defaultConfig: ModelConfig = {
-  provider: 'deepseek',
+  protocol: 'openai',
   model: 'deepseek-v4-flash',
-  apiBase: 'http://127.0.0.1:4177',
+  url: 'https://api.deepseek.com',
   temperature: 0.2,
 }
 
@@ -109,9 +108,9 @@ function fallbackReply(input: string, config: ModelConfig) {
   return [
     `我已经收到你的消息：“${input}”。`,
     '',
-    `当前模型配置为 ${config.provider} / ${config.model}。如果本地 chat proxy 没有启动，客户端会先用这条本地 fallback 回复保持对话可测试。`,
+    `当前模型配置为 ${config.protocol} / ${config.model}。如果本地 chat proxy 没有启动，客户端会先用这条本地 fallback 回复保持对话可测试。`,
     '',
-    '下一步可以在右下角模型设置里配置 provider、model、API base，然后启动本地 proxy 进行真实模型对话。',
+    '下一步可以在右下角模型设置里配置协议、URL、API key 和代理，然后启动本地 proxy 进行真实模型对话。',
   ].join('\n')
 }
 
@@ -133,22 +132,22 @@ function AppContent() {
       {
         key: 'deepseek-v4-flash',
         label: 'DeepSeek V4 Flash',
-        onClick: () => setConfig((current) => ({ ...current, provider: 'deepseek', model: 'deepseek-v4-flash' })),
+        onClick: () => setConfig((current) => ({ ...current, model: 'deepseek-v4-flash' })),
       },
       {
         key: 'deepseek-chat',
         label: 'DeepSeek Chat',
-        onClick: () => setConfig((current) => ({ ...current, provider: 'deepseek', model: 'deepseek-chat' })),
+        onClick: () => setConfig((current) => ({ ...current, model: 'deepseek-chat' })),
       },
       {
         key: 'deepseek-reasoner',
         label: 'DeepSeek Reasoner',
-        onClick: () => setConfig((current) => ({ ...current, provider: 'deepseek', model: 'deepseek-reasoner' })),
+        onClick: () => setConfig((current) => ({ ...current, model: 'deepseek-reasoner' })),
       },
       {
         key: 'mock-local',
         label: 'Mock Local',
-        onClick: () => setConfig((current) => ({ ...current, provider: 'mock', model: 'local-fallback' })),
+        onClick: () => setConfig((current) => ({ ...current, protocol: 'mock', model: 'local-fallback' })),
       },
     ],
     [],
@@ -185,7 +184,7 @@ function AppContent() {
 
     try {
       const response =
-        config.provider === 'mock'
+        config.protocol === 'mock'
           ? { provider: 'fallback' as const, content: fallbackReply(content, config) }
           : await requestChatCompletion(buildChatRequest(nextMessages, config))
 
@@ -465,31 +464,31 @@ function ModelSettingsDrawer({ config, open, onClose, onSave }: ModelSettingsDra
       }
     >
       <Paragraph type="secondary">
-        Configure the model used by the local chat proxy. API keys stay in your shell environment, not in the UI.
+        Configure the LLM connection used by the local proxy. Keep only the connection fields here; choose the model from the composer.
       </Paragraph>
       <Form form={form} layout="vertical" initialValues={config}>
-        <Form.Item label="Provider" name="provider" rules={[{ required: true }]}>
+        <Form.Item label="Protocol" name="protocol" rules={[{ required: true }]}>
           <Select
             options={[
-              { value: 'deepseek', label: 'DeepSeek' },
-              { value: 'openai-compatible', label: 'OpenAI compatible' },
+              { value: 'openai', label: 'OpenAI compatible' },
+              { value: 'anthropic', label: 'Anthropic compatible' },
               { value: 'mock', label: 'Mock local' },
             ]}
           />
         </Form.Item>
-        <Form.Item label="Model" name="model" rules={[{ required: true }]}>
-          <Input placeholder="deepseek-v4-flash" />
+        <Form.Item label="URL" name="url" rules={[{ required: true }]}>
+          <Input placeholder="https://api.deepseek.com" />
         </Form.Item>
-        <Form.Item label="Local proxy API base" name="apiBase" rules={[{ required: true }]}>
-          <Input placeholder="http://127.0.0.1:4177" />
+        <Form.Item label="API key" name="apiKey">
+          <Input.Password placeholder="Read from local config if empty" />
         </Form.Item>
-        <Form.Item label="Temperature" name="temperature">
-          <InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} />
+        <Form.Item label="Proxy (advanced)" name="proxy">
+          <Input placeholder="http://127.0.0.1:7890" />
         </Form.Item>
       </Form>
       <div className="settings-note">
         <Text strong>Local proxy command</Text>
-        <pre>cd client{'\n'}$env:DEEPSEEK_API_KEY="your-key"{'\n'}npm run dev:api</pre>
+        <pre>cd client{'\n'}npm run dev:api</pre>
       </div>
     </Drawer>
   )

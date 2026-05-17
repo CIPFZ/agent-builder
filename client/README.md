@@ -11,8 +11,7 @@ The current screen is intentionally chat-first:
 
 - Claude Desktop inspired left rail and centered chat surface;
 - model picker in the composer;
-- model settings drawer for provider, model, local proxy API base, and
-  temperature;
+- model settings drawer for protocol, URL, API key, and advanced proxy;
 - real chat requests through the local DeepSeek/OpenAI-compatible proxy;
 - fallback reply path when the proxy or API key is unavailable;
 - operations workspace entry kept as a secondary surface for later SSH/SOP work.
@@ -59,9 +58,10 @@ Edit `server/deepseek.local.json`:
 
 ```json
 {
-  "apiBase": "https://api.deepseek.com",
+  "protocol": "openai",
+  "url": "https://api.deepseek.com",
   "apiKey": "your-key",
-  "model": "deepseek-v4-flash",
+  "proxy": "",
   "port": 4177
 }
 ```
@@ -72,9 +72,20 @@ Then start the proxy:
 npm run dev:api
 ```
 
-`server/deepseek.local.json` is ignored by Git. Environment variables can still
-override the file when needed: `DEEPSEEK_CONFIG`, `DEEPSEEK_API_KEY`,
-`DEEPSEEK_MODEL`, `DEEPSEEK_API_BASE`, and `DEEPSEEK_PROXY_PORT`.
+`server/deepseek.local.json` is ignored by Git. `protocol` can be `openai` or
+`anthropic`. For DeepSeek, use:
+
+- OpenAI-compatible: `protocol=openai`, `url=https://api.deepseek.com`
+- Anthropic-compatible: `protocol=anthropic`,
+  `url=https://api.deepseek.com/anthropic`
+
+Environment variables can still override the file when needed:
+`DEEPSEEK_CONFIG`, `DEEPSEEK_PROTOCOL`, `DEEPSEEK_API_KEY`,
+`DEEPSEEK_API_BASE`, `DEEPSEEK_PROXY`, and `DEEPSEEK_PROXY_PORT`.
+
+`proxy` is reserved for the advanced connection setting. The current Node proxy
+records the value and warns if it is set, but does not route `fetch` through it
+yet.
 
 If no key is configured, the proxy returns a deterministic fallback chat/report
 for local acceptance testing.
@@ -93,7 +104,7 @@ npm run lint
 
 ## Next Steps
 
-- Persist model settings locally.
+- Persist connection settings locally.
 - Move the proxy into the Go runtime provider layer.
 - Add streaming responses.
 - Reintroduce SSH/SOP as a secondary Operations workflow after chat acceptance.

@@ -1,7 +1,9 @@
 export type ModelConfig = {
-  provider: 'deepseek' | 'openai-compatible' | 'mock'
+  protocol: 'openai' | 'anthropic' | 'mock'
   model: string
-  apiBase: string
+  url: string
+  apiKey?: string
+  proxy?: string
   temperature?: number
 }
 
@@ -21,8 +23,7 @@ export type ChatResponse = {
 }
 
 export async function requestChatCompletion(request: ChatRequest): Promise<ChatResponse> {
-  const apiBase = request.config.apiBase.replace(/\/$/, '')
-  const response = await fetch(`${apiBase}/api/chat`, {
+  const response = await fetch('http://127.0.0.1:4177/api/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

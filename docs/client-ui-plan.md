@@ -270,7 +270,7 @@ Phase 1 结束时需要形成一个可供本地验收的客户端版本：
 
 - 客户端可以本地 build、preview，并通过 Wails v3 打成桌面可执行文件。
 - 首屏必须是简单的聊天入口，而不是完整运维工作台。
-- 可以配置 provider、model、local proxy API base 和 temperature。
+- 可以配置 LLM 连接信息：协议、URL、API key 和高级代理。
 - 可以通过真实 DeepSeek API 进行基础对话。
 - Operations/SSH/SOP 能力作为二级入口保留，不在首屏展开。
 - 不执行真实 SSH 高风险操作。

@@ -77,8 +77,8 @@ runtime 改造。Phase 1 结束时需要形成一个可供本地验收的客户�
 - 创建 React + TypeScript + Vite 前端原型。
 - 引入 Ant Design 和 Ant Design X。
 - 先建立简单聊天首屏，降低首次验收复杂度。
-- 增加模型配置：provider、model、local proxy API base、temperature。
-- 通过本地 proxy 支持真实 DeepSeek 对话。
+- 增加 LLM 连接配置：协议、URL、API key、高级代理。
+- 通过本地 proxy 支持 OpenAI-compatible 和 Anthropic-compatible 协议。
 - 将 Operations/SSH/SOP 能力保留为二级入口，而不是首屏信息墙。
 - 增加 DeepSeek 报告生成验收通道。
 - 形成可打包的验收版本。
@@ -87,7 +87,7 @@ runtime 改造。Phase 1 结束时需要形成一个可供本地验收的客户�
 
 - 前端原型工程。
 - Claude Desktop 风格聊天首页。
-- 模型配置抽屉。
+- LLM 连接配置抽屉。
 - 本地 DeepSeek/OpenAI-compatible chat proxy。
 - UI 交互说明文档。
 - Phase 1 acceptance build。
@@ -95,7 +95,7 @@ runtime 改造。Phase 1 结束时需要形成一个可供本地验收的客户�
 ### 验收标准
 
 - 能直接进入聊天，而不是先理解复杂运维看板。
-- 能配置模型，并看到当前选中的模型。
+- 能配置 LLM 连接，并看到当前选中的模型。
 - 能通过真实 DeepSeek API 完成基础对话。
 - `npm run build` 和 `npm run lint` 无错误、无告警。
 - 能验证 Claude Desktop 风格的基础交互是否满足第一阶段体验。

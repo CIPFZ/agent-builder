@@ -9,7 +9,7 @@ const defaultConfigPath = resolve(serverDir, 'deepseek.local.json')
 function readLocalConfig() {
   const configPath = process.env.DEEPSEEK_CONFIG || defaultConfigPath
   try {
-    return JSON.parse(readFileSync(configPath, 'utf8'))
+    return JSON.parse(readFileSync(configPath, 'utf8').replace(/^\uFEFF/, ''))
   } catch (error) {
     if (error?.code !== 'ENOENT') {
       console.warn(`Failed to read DeepSeek config at ${configPath}: ${error.message}`)
@@ -20,9 +20,28 @@ function readLocalConfig() {
 
 const localConfig = readLocalConfig()
 const port = Number(process.env.DEEPSEEK_PROXY_PORT || localConfig.port || 4177)
+const protocol = process.env.DEEPSEEK_PROTOCOL || localConfig.protocol || 'openai'
 const apiKey = process.env.DEEPSEEK_API_KEY || localConfig.apiKey
 const model = process.env.DEEPSEEK_MODEL || localConfig.model || 'deepseek-v4-flash'
-const apiBase = process.env.DEEPSEEK_API_BASE || localConfig.apiBase || 'https://api.deepseek.com'
+const apiUrl = process.env.DEEPSEEK_API_BASE || localConfig.url || localConfig.apiBase || 'https://api.deepseek.com'
+const proxyUrl = process.env.DEEPSEEK_PROXY || localConfig.proxy || ''
+
+if (proxyUrl) {
+  console.warn('Proxy URL is configured but not active yet. Install a fetch proxy dispatcher before using it.')
+}
+
+function resolveConnection(requestConfig = {}) {
+  return {
+    protocol: requestConfig.protocol || protocol,
+    url: requestConfig.url || apiUrl,
+    apiKey: requestConfig.apiKey || apiKey,
+    proxy: requestConfig.proxy || proxyUrl,
+  }
+}
+
+function joinUrl(baseUrl, path) {
+  return `${baseUrl.replace(/\/$/, '')}${path}`
+}
 
 function json(res, statusCode, payload) {
   res.writeHead(statusCode, {
@@ -87,11 +106,30 @@ async function generateChatWithDeepSeek(body) {
   const requestedTemperature =
     typeof requestedConfig.temperature === 'number' ? requestedConfig.temperature : 0.2
   const messages = Array.isArray(body.messages) ? body.messages : []
+  const connection = resolveConnection(requestedConfig)
 
-  const response = await fetch(`${apiBase}/chat/completions`, {
+  if (!connection.apiKey) {
+    return fallbackChat(body)
+  }
+
+  if (connection.protocol === 'anthropic') {
+    return generateChatWithAnthropicProtocol({
+      apiKey: connection.apiKey,
+      baseUrl: connection.url,
+      messages,
+      model: requestedModel,
+      temperature: requestedTemperature,
+    })
+  }
+
+  if (connection.protocol !== 'openai') {
+    throw new Error(`Unsupported LLM protocol: ${connection.protocol}`)
+  }
+
+  const response = await fetch(joinUrl(connection.url, '/chat/completions'), {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${connection.apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -128,6 +166,50 @@ async function generateChatWithDeepSeek(body) {
   }
 }
 
+async function generateChatWithAnthropicProtocol({ apiKey: anthropicApiKey, baseUrl, messages, model: requestedModel, temperature }) {
+  const response = await fetch(joinUrl(baseUrl, '/v1/messages'), {
+    method: 'POST',
+    headers: {
+      'x-api-key': anthropicApiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: requestedModel,
+      max_tokens: 4096,
+      messages: messages.map((message) => ({
+        role: message.role === 'assistant' ? 'assistant' : 'user',
+        content: message.content,
+      })),
+      system:
+        'You are Agent Builder, a concise desktop assistant for agentic operations design, coding, and troubleshooting. Reply in Chinese unless the user asks otherwise.',
+      temperature,
+    }),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`Anthropic chat request failed: ${response.status} ${text}`)
+  }
+
+  const data = await response.json()
+  const content = Array.isArray(data?.content)
+    ? data.content
+        .filter((block) => block?.type === 'text')
+        .map((block) => block.text)
+        .join('\n')
+    : ''
+
+  if (!content) {
+    throw new Error('Anthropic chat response did not include text content')
+  }
+
+  return {
+    provider: 'deepseek',
+    content,
+  }
+}
+
 async function generateWithDeepSeek(body) {
   const prompt = [
     '你是企业运维排障助手。请基于用户问题、SOP、SSH/MCP 证据生成排障报告。',
@@ -137,7 +219,7 @@ async function generateWithDeepSeek(body) {
     JSON.stringify(body, null, 2),
   ].join('\n')
 
-  const response = await fetch(`${apiBase}/chat/completions`, {
+  const response = await fetch(joinUrl(apiUrl, '/chat/completions'), {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,

@@ -1,6 +1,7 @@
 {
-  "apiBase": "https://api.deepseek.com",
+  "protocol": "openai",
+  "url": "https://api.deepseek.com",
   "apiKey": "replace-with-your-api-key",
-  "model": "deepseek-v4-flash",
+  "proxy": "",
   "port": 4177
 }
