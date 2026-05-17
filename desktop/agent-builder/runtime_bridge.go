@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/backend"
@@ -92,6 +94,7 @@ type desktopLayout struct {
 }
 
 const localProviderID = "local-model"
+const chatTimeout = 2 * time.Minute
 
 var errModelConfigMissing = errors.New("model is not configured. Open model settings and save protocol, URL, API key, and model before chatting.")
 
@@ -247,21 +250,29 @@ func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (Runti
 	sessionID := r.sessionID
 	r.mu.Unlock()
 
-	if err := r.runtime.SendMessage(ctx, wsID, proto.AgentMessage{
+	chatCtx, cancel := context.WithTimeout(ctx, chatTimeout)
+	defer cancel()
+
+	start := time.Now()
+	slog.Info("Desktop chat started", "workspace_id", wsID, "session_id", sessionID, "prompt_len", len(prompt))
+	if err := r.runtime.SendMessage(chatCtx, wsID, proto.AgentMessage{
 		SessionID: sessionID,
 		Prompt:    prompt,
 	}); err != nil {
+		slog.Error("Desktop chat failed", "workspace_id", wsID, "session_id", sessionID, "duration", time.Since(start).String(), "error", err)
 		return RuntimeChatResponse{}, fmt.Errorf("failed to send message to Crush agent: %w", err)
 	}
 
-	msg, err := r.waitForAssistant(ctx, wsID, sessionID)
+	msg, err := r.waitForAssistant(chatCtx, wsID, sessionID)
 	if err != nil {
+		slog.Error("Desktop chat response unavailable", "workspace_id", wsID, "session_id", sessionID, "duration", time.Since(start).String(), "error", err)
 		return RuntimeChatResponse{}, err
 	}
+	slog.Info("Desktop chat finished", "workspace_id", wsID, "session_id", sessionID, "provider", msg.Provider, "model", msg.Model, "duration", time.Since(start).String(), "content_len", len(msg.Content().String()))
 
 	return RuntimeChatResponse{
 		Provider: msg.Provider,
-		Content:  msg.Content().String(),
+		Content:  assistantContent(msg),
 		Model:    msg.Model,
 	}, nil
 }
@@ -339,6 +350,7 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	if err := ensureDesktopLayout(layout); err != nil {
 		return err
 	}
+	augmentDesktopPath(layout)
 
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -346,10 +358,8 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	}
 	workingDir = filepath.Clean(workingDir)
 
-	store, err := config.Init(workingDir, layout.DataDir, false)
-	if err != nil {
-		return fmt.Errorf("failed to initialize Crush config: %w", err)
-	}
+	cfg := config.NewRuntimeConfig(workingDir, layout.DataDir, false)
+	store := config.NewRuntimeStore(workingDir, cfg, layout.ModelConfigPath)
 	localResult := applyLocalModelConfig(store, layout)
 	if localResult.Error != nil {
 		return localResult.Error
@@ -357,9 +367,11 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	if !store.Config().IsConfigured() {
 		return errModelConfigMissing
 	}
+	store.Config().SetupAgents()
 
 	logFile := filepath.Join(layout.LogsDir, "agent-builder.log")
 	crushlog.Setup(logFile, false)
+	logConfiguredModel(store)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
@@ -369,6 +381,7 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 		Path:    workingDir,
 		DataDir: layout.DataDir,
 		Version: version.Version,
+		Config:  store.Config(),
 		Env:     os.Environ(),
 	})
 	if err != nil {
@@ -387,9 +400,6 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	wsRuntime.Cfg.SetupAgents()
 	r.workspace = &ws
 
-	if err := r.runtime.InitAgent(ctx, ws.ID); err != nil {
-		return fmt.Errorf("failed to initialize Crush coder agent: %w", err)
-	}
 	if err := r.runtime.UpdateAgent(ctx, ws.ID); err != nil {
 		return fmt.Errorf("failed to update Crush agent model: %w", err)
 	}
@@ -402,8 +412,49 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	return nil
 }
 
+func augmentDesktopPath(layout desktopLayout) {
+	candidates := []string{
+		filepath.Join(layout.Root, "tools"),
+		filepath.Join(layout.Root, "bin"),
+	}
+	current := os.Getenv("PATH")
+	parts := filepath.SplitList(current)
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err != nil {
+			continue
+		}
+		seen := false
+		for _, part := range parts {
+			if strings.EqualFold(filepath.Clean(part), filepath.Clean(candidate)) {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			parts = append([]string{candidate}, parts...)
+		}
+	}
+	if len(parts) > 0 {
+		_ = os.Setenv("PATH", strings.Join(parts, string(os.PathListSeparator)))
+	}
+}
+
 func (r *RuntimeBridge) waitForAssistant(ctx context.Context, workspaceID, sessionID string) (proto.Message, error) {
-	return r.latestAssistantMessage(ctx, workspaceID, sessionID)
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		msg, err := r.latestAssistantMessage(ctx, workspaceID, sessionID)
+		if err == nil {
+			return msg, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return proto.Message{}, fmt.Errorf("timed out waiting for assistant response: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func (r *RuntimeBridge) latestAssistantMessage(ctx context.Context, workspaceID, sessionID string) (proto.Message, error) {
@@ -482,6 +533,32 @@ func toProtoMessage(msg message.Message) proto.Message {
 	return out
 }
 
+func assistantContent(msg proto.Message) string {
+	content := strings.TrimSpace(msg.Content().String())
+	if content != "" {
+		return msg.Content().String()
+	}
+
+	for _, part := range msg.Parts {
+		finish, ok := part.(proto.Finish)
+		if !ok || finish.Reason != proto.FinishReasonError {
+			continue
+		}
+		switch {
+		case finish.Message != "" && finish.Details != "":
+			return finish.Message + ": " + finish.Details
+		case finish.Message != "":
+			return finish.Message
+		case finish.Details != "":
+			return finish.Details
+		default:
+			return "Provider returned an error without details. Check logs for more information."
+		}
+	}
+
+	return msg.Content().String()
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {
@@ -492,11 +569,15 @@ func firstNonEmpty(values ...string) string {
 }
 
 func resolveDesktopLayout() (desktopLayout, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return desktopLayout{}, fmt.Errorf("failed to resolve executable path: %w", err)
+	root := strings.TrimSpace(os.Getenv("AGENT_BUILDER_DESKTOP_ROOT"))
+	if root == "" {
+		exe, err := os.Executable()
+		if err != nil {
+			return desktopLayout{}, fmt.Errorf("failed to resolve executable path: %w", err)
+		}
+		root = filepath.Dir(exe)
 	}
-	root := filepath.Dir(exe)
+	root = filepath.Clean(root)
 	layout := desktopLayout{
 		Root:      root,
 		ConfigDir: filepath.Join(root, "config"),
@@ -623,10 +704,11 @@ func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig) {
 		return
 	}
 
+	baseURL := normalizeModelBaseURL(local.Protocol, local.URL)
 	store.Config().Providers.Set(localProviderID, config.ProviderConfig{
 		ID:      localProviderID,
 		Name:    "Local Model",
-		BaseURL: local.URL,
+		BaseURL: baseURL,
 		Type:    providerType,
 		APIKey:  local.APIKey,
 		Models:  models,
@@ -641,6 +723,27 @@ func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig) {
 	store.Config().Models[config.SelectedModelTypeSmall] = selected
 }
 
+func normalizeModelBaseURL(protocol, rawURL string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(rawURL), "/")
+	if protocol == "openai" && !strings.HasSuffix(trimmed, "/v1") {
+		return trimmed + "/v1"
+	}
+	return trimmed
+}
+
 func localModelConfigPaths(layout desktopLayout) []string {
 	return []string{filepath.Clean(layout.ModelConfigPath)}
+}
+
+func logConfiguredModel(store *config.ConfigStore) {
+	selected := store.Config().Models[config.SelectedModelTypeLarge]
+	provider, _ := store.Config().Providers.Get(selected.Provider)
+	slog.Info(
+		"Desktop model configured",
+		"provider", selected.Provider,
+		"protocol", string(provider.Type),
+		"model", selected.Model,
+		"base_url", provider.BaseURL,
+		"has_api_key", provider.APIKey != "",
+	)
 }

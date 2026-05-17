@@ -464,7 +464,31 @@ func NewTestStore(cfg *Config, loadedPaths ...string) *ConfigStore {
 	return &ConfigStore{
 		config:      cfg,
 		loadedPaths: loadedPaths,
+		resolver:    IdentityResolver(),
 	}
+}
+
+// NewRuntimeStore creates a ConfigStore around an already prepared runtime
+// config. It is used by embedders that need to construct configuration
+// programmatically before app initialization.
+func NewRuntimeStore(workingDir string, cfg *Config, loadedPaths ...string) *ConfigStore {
+	return &ConfigStore{
+		config:         cfg,
+		workingDir:     workingDir,
+		globalDataPath: GlobalConfigData(),
+		workspacePath:  filepath.Join(cfg.Options.DataDirectory, fmt.Sprintf("%s.json", appName)),
+		loadedPaths:    loadedPaths,
+		resolver:       IdentityResolver(),
+	}
+}
+
+// NewRuntimeConfig creates a defaulted in-memory config for embedders that
+// provide runtime configuration outside Crush's normal config files.
+func NewRuntimeConfig(workingDir, dataDir string, debug bool) *Config {
+	cfg := &Config{}
+	cfg.setDefaults(workingDir, dataDir)
+	cfg.Options.Debug = debug
+	return cfg
 }
 
 // ImportCopilot attempts to import a GitHub Copilot token from disk.

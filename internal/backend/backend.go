@@ -90,9 +90,15 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	}
 
 	id := uuid.New().String()
-	cfg, err := config.Init(args.Path, args.DataDir, args.Debug)
-	if err != nil {
-		return nil, proto.Workspace{}, fmt.Errorf("failed to initialize config: %w", err)
+	var cfg *config.ConfigStore
+	if args.Config != nil {
+		cfg = config.NewRuntimeStore(args.Path, args.Config)
+	} else {
+		var err error
+		cfg, err = config.Init(args.Path, args.DataDir, args.Debug)
+		if err != nil {
+			return nil, proto.Workspace{}, fmt.Errorf("failed to initialize config: %w", err)
+		}
 	}
 
 	cfg.Overrides().SkipPermissionRequests = args.YOLO
