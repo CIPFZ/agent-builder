@@ -54,8 +54,8 @@ type ChatMessage = {
 
 const defaultConfig: ModelConfig = {
   protocol: 'openai',
-  model: 'deepseek-v4-flash',
-  url: 'https://api.deepseek.com',
+  model: '',
+  url: '',
 }
 
 const starterPrompts = [
@@ -140,7 +140,7 @@ function AppContent() {
         }))
       })
       .catch(() => {
-        setModels(config.model ? [config.model] : [defaultConfig.model])
+        setModels(config.model ? [config.model] : [])
       })
   }, [config.model])
 
@@ -498,13 +498,13 @@ function ModelSettingsDrawer({ config, open, saving, onClose, onSave }: ModelSet
           />
         </Form.Item>
         <Form.Item label="URL" name="url" rules={[{ required: true }]}>
-          <Input placeholder="https://api.deepseek.com" />
+          <Input placeholder="https://api.example.com" />
         </Form.Item>
         <Form.Item label="API key" name="apiKey" rules={config.hasApiKey ? [] : [{ required: true }]}>
           <Input.Password placeholder={config.hasApiKey ? 'Saved. Leave empty to keep current key.' : 'sk-...'} />
         </Form.Item>
         <Form.Item label="Model" name="model" rules={[{ required: true }]}>
-          <Input placeholder="deepseek-v4-flash" />
+          <Input placeholder="model-name" />
         </Form.Item>
         <Collapse
           ghost

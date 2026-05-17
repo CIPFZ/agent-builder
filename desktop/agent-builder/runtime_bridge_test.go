@@ -23,13 +23,12 @@ func TestLocalModelConfigPathsIncludeWorkingDirectoryConfig(t *testing.T) {
 	}
 	got := localModelConfigPaths(layout)
 	want := layout.ModelConfigPath
-	rootWant := filepath.Join(root, "client", "server", "deepseek.local.json")
 
 	if !slices.Contains(got, want) {
 		t.Fatalf("localModelConfigPaths() missing %s in %#v", want, got)
 	}
-	if !slices.Contains(got, rootWant) {
-		t.Fatalf("localModelConfigPaths() missing %s in %#v", rootWant, got)
+	if len(got) != 1 {
+		t.Fatalf("localModelConfigPaths() = %#v, want only %s", got, want)
 	}
 }
 
@@ -49,10 +48,10 @@ func TestApplyLocalModelConfigConfiguresProvider(t *testing.T) {
 	}
 	if err := os.WriteFile(layout.ModelConfigPath, []byte(`{
   "protocol": "openai",
-  "url": "https://api.deepseek.com",
+  "url": "https://api.example.com",
   "apiKey": "test-key",
-  "model": "deepseek-v4-flash",
-  "models": ["deepseek-v4-flash"]
+  "model": "example-chat",
+  "models": ["example-chat"]
 }`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -74,16 +73,44 @@ func TestApplyLocalModelConfigConfiguresProvider(t *testing.T) {
 		t.Fatalf("Path = %s, want %s", result.Path, layout.ModelConfigPath)
 	}
 
-	provider, ok := store.Config().Providers.Get("deepseek-local")
+	provider, ok := store.Config().Providers.Get(localProviderID)
 	if !ok {
-		t.Fatal("deepseek-local provider was not configured")
+		t.Fatal("local provider was not configured")
 	}
 	if provider.APIKey != "test-key" {
 		t.Fatal("api key was not applied")
 	}
 	selected := store.Config().Models[config.SelectedModelTypeLarge]
-	if selected.Provider != "deepseek-local" || selected.Model != "deepseek-v4-flash" {
+	if selected.Provider != localProviderID || selected.Model != "example-chat" {
 		t.Fatalf("selected model = %#v", selected)
+	}
+}
+
+func TestLocalModelConfigIgnoresLegacyFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	layout := desktopLayout{
+		Root:            root,
+		ConfigDir:       filepath.Join(root, "config"),
+		DataDir:         filepath.Join(root, "data"),
+		LogsDir:         filepath.Join(root, "logs"),
+		ModelConfigPath: filepath.Join(root, "config", "model.local.json"),
+	}
+	legacyDir := filepath.Join(root, "client", "server")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "deepseek.local.json"), []byte("\xef\xbb\xbf{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, result := loadLocalModelConfig(layout)
+	if result.Error != nil {
+		t.Fatal(result.Error)
+	}
+	if result.Applied {
+		t.Fatal("legacy model config should not be loaded")
 	}
 }
 
@@ -101,9 +128,9 @@ func TestSaveLocalModelConfigWritesDesktopConfig(t *testing.T) {
 
 	err := saveLocalModelConfig(layout, RuntimeModelConfig{
 		Protocol: "openai",
-		URL:      "https://api.deepseek.com",
+		URL:      "https://api.example.com",
 		APIKey:   "test-key",
-		Model:    "deepseek-v4-flash",
+		Model:    "example-chat",
 	})
 	if err != nil {
 		t.Fatal(err)

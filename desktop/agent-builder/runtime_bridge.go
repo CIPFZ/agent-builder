@@ -91,6 +91,10 @@ type desktopLayout struct {
 	ModelConfigPath string
 }
 
+const localProviderID = "local-model"
+
+var errModelConfigMissing = errors.New("model is not configured. Open model settings and save protocol, URL, API key, and model before chatting.")
+
 func NewRuntimeBridge() *RuntimeBridge {
 	return &RuntimeBridge{}
 }
@@ -123,6 +127,18 @@ func (r *RuntimeBridge) Status(ctx context.Context) (RuntimeStatus, error) {
 
 func (r *RuntimeBridge) Models(ctx context.Context) (RuntimeModelsResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
+		if errors.Is(err, errModelConfigMissing) {
+			cfg, cfgErr := r.readConfiguredModel()
+			if cfgErr != nil {
+				return RuntimeModelsResponse{}, err
+			}
+			return RuntimeModelsResponse{Models: []RuntimeModel{{
+				ID:       cfg.Model,
+				Name:     cfg.Model,
+				Provider: localProviderID,
+				Selected: true,
+			}}}, nil
+		}
 		return RuntimeModelsResponse{}, err
 	}
 
@@ -167,7 +183,6 @@ func (r *RuntimeBridge) GetModelConfig(ctx context.Context) (RuntimeConfigRespon
 	if !result.Applied {
 		local = RuntimeModelConfig{
 			Protocol: "openai",
-			URL:      "https://api.deepseek.com",
 		}
 	}
 	hasAPIKey := result.Applied && local.APIKey != ""
@@ -251,6 +266,21 @@ func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (Runti
 	}, nil
 }
 
+func (r *RuntimeBridge) readConfiguredModel() (RuntimeModelConfig, error) {
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return RuntimeModelConfig{}, err
+	}
+	local, result := loadLocalModelConfig(layout)
+	if result.Error != nil {
+		return RuntimeModelConfig{}, result.Error
+	}
+	if !result.Applied {
+		return RuntimeModelConfig{}, errModelConfigMissing
+	}
+	return local, nil
+}
+
 func (r *RuntimeBridge) NewChat(ctx context.Context, title string) (RuntimeStatus, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeStatus{}, err
@@ -325,10 +355,7 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 		return localResult.Error
 	}
 	if !store.Config().IsConfigured() {
-		return fmt.Errorf(
-			"Crush has no configured provider. Configure a provider in crush.json or create an Agent Builder local model config. Checked: %s",
-			strings.Join(localResult.CheckedPaths, ", "),
-		)
+		return errModelConfigMissing
 	}
 
 	logFile := filepath.Join(layout.LogsDir, "agent-builder.log")
@@ -355,10 +382,7 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 		return workspaceLocalResult.Error
 	}
 	if !wsRuntime.Cfg.Config().IsConfigured() {
-		return fmt.Errorf(
-			"Crush workspace has no configured provider. Configure a provider in crush.json or create an Agent Builder local model config. Checked: %s",
-			strings.Join(workspaceLocalResult.CheckedPaths, ", "),
-		)
+		return errModelConfigMissing
 	}
 	wsRuntime.Cfg.SetupAgents()
 	r.workspace = &ws
@@ -599,10 +623,9 @@ func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig) {
 		return
 	}
 
-	providerID := "deepseek-local"
-	store.Config().Providers.Set(providerID, config.ProviderConfig{
-		ID:      providerID,
-		Name:    "DeepSeek Local",
+	store.Config().Providers.Set(localProviderID, config.ProviderConfig{
+		ID:      localProviderID,
+		Name:    "Local Model",
 		BaseURL: local.URL,
 		Type:    providerType,
 		APIKey:  local.APIKey,
@@ -610,7 +633,7 @@ func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig) {
 	})
 
 	selected := config.SelectedModel{
-		Provider:  providerID,
+		Provider:  localProviderID,
 		Model:     models[0].ID,
 		MaxTokens: models[0].DefaultMaxTokens,
 	}
@@ -619,35 +642,5 @@ func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig) {
 }
 
 func localModelConfigPaths(layout desktopLayout) []string {
-	var paths []string
-	add := func(path string) {
-		if path == "" {
-			return
-		}
-		path = filepath.Clean(path)
-		for _, existing := range paths {
-			if strings.EqualFold(existing, path) {
-				return
-			}
-		}
-		paths = append(paths, path)
-	}
-
-	add(layout.ModelConfigPath)
-
-	appendRelativeCandidates := func(root string) {
-		if root == "" {
-			return
-		}
-		add(filepath.Join(root, "agent-builder.local.json"))
-		add(filepath.Join(root, "client", "server", "deepseek.local.json"))
-	}
-
-	for current := layout.Root; current != ""; current = filepath.Dir(current) {
-		appendRelativeCandidates(current)
-		if filepath.VolumeName(current) == current || filepath.Dir(current) == current {
-			break
-		}
-	}
-	return paths
+	return []string{filepath.Clean(layout.ModelConfigPath)}
 }
