@@ -20,6 +20,7 @@ The current screen models an SSH troubleshooting assistant:
   `PermissionRequest`, and `Artifact` events.
 - SOP fixture selection;
 - SSH target configuration mock.
+- DeepSeek/fallback report generation through a local proxy.
 
 The `Start replay` button replays typed mock `RunEvent` values. The UI updates
 from those events instead of relying on static screen data, which keeps the
@@ -50,6 +51,22 @@ Run the development server:
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
+Run the local report proxy:
+
+```bash
+npm run dev:api
+```
+
+Optional DeepSeek configuration:
+
+```bash
+cp .env.example .env.local
+```
+
+Set `DEEPSEEK_API_KEY` in `.env.local`, then load it into your shell before
+starting `npm run dev:api`. If no key is configured, the proxy returns a
+deterministic fallback report for local acceptance testing.
+
 Build:
 
 ```bash
@@ -67,5 +84,5 @@ npm run lint
 - Add controls for approval decisions in the mock runtime.
 - Generate event fixtures from the selected SOP instead of replaying one fixed
   event script.
-- Add DeepSeek report generation for the Phase 1 acceptance build.
+- Move the report proxy into the Go runtime provider layer in a later phase.
 - Replace mock events with Crush runtime API events in a later phase.
