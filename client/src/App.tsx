@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Badge,
@@ -41,23 +41,17 @@ import {
   SettingOutlined,
   ThunderboltOutlined,
   ToolOutlined,
-  UserOutlined,
 } from '@ant-design/icons'
-import { Bubble, Sender, ThoughtChain } from '@ant-design/x'
 import { historicRuns } from './mock/fixtures'
 import { createInitialRuntimeState, reduceRunEvent, replayEvents } from './mock/runtime'
-import type {
-  CapabilityItem,
-  ConversationMessage,
-  EvidenceItem,
-  RunStatus,
-  RuntimeState,
-  TimelineEntry,
-} from './types/runtime'
+import type { CapabilityItem, EvidenceItem, RunStatus, TimelineEntry } from './types/runtime'
 import './App.css'
 
 const { Header, Sider, Content } = Layout
 const { Text, Title, Paragraph } = Typography
+const AgentConversation = lazy(() =>
+  import('./components/AgentConversation').then((module) => ({ default: module.AgentConversation })),
+)
 
 const evidenceColumns: ColumnsType<EvidenceItem> = [
   {
@@ -116,41 +110,6 @@ function timelineColor(kind: TimelineEntry['kind']) {
   if (kind === 'warning') return 'gold'
   if (kind === 'error') return 'red'
   return 'blue'
-}
-
-function messageAvatar(role: ConversationMessage['role']) {
-  if (role === 'user') return <UserOutlined />
-  if (role === 'tool') return <ToolOutlined />
-  if (role === 'approval') return <SafetyCertificateOutlined />
-  return <DeploymentUnitOutlined />
-}
-
-function messagePlacement(role: ConversationMessage['role']) {
-  return role === 'user' ? 'end' : 'start'
-}
-
-function renderMessage(message: ConversationMessage, state: RuntimeState) {
-  if (message.role === 'assistant' && message.id === 'msg-agent-1') {
-    return (
-      <Space orientation="vertical" size={10}>
-        <Text>{message.content}</Text>
-        <ThoughtChain items={state.thoughts} />
-      </Space>
-    )
-  }
-
-  if (message.role === 'approval') {
-    return (
-      <Alert
-        type="warning"
-        showIcon
-        title="发现潜在高风险修复动作"
-        description={message.content}
-      />
-    )
-  }
-
-  return message.content
 }
 
 function App() {
@@ -302,22 +261,9 @@ function App() {
           <Content className="content-grid">
             <section className="conversation-panel">
               <Card className="panel-card" title="Conversation" extra={<Tag color="processing">{runtimeState.run.id}</Tag>}>
-                <div className="conversation-scroll">
-                  {runtimeState.messages.map((message) => (
-                    <Bubble
-                      key={message.id}
-                      placement={messagePlacement(message.role)}
-                      avatar={messageAvatar(message.role)}
-                      content={renderMessage(message, runtimeState)}
-                    />
-                  ))}
-                </div>
-                <Sender
-                  className="sender"
-                  placeholder="Describe the issue, ask for another SOP step, or approve a proposed action..."
-                  disabled
-                  value=""
-                />
+                <Suspense fallback={<Alert type="info" showIcon title="Loading conversation" />}>
+                  <AgentConversation state={runtimeState} />
+                </Suspense>
               </Card>
 
               <Card className="panel-card" title="Run Timeline">
