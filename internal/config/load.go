@@ -24,6 +24,7 @@ import (
 	"github.com/charmbracelet/crush/internal/filepathext"
 	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/home"
+	"github.com/charmbracelet/crush/internal/osprocess"
 	powernapConfig "github.com/charmbracelet/x/powernap/pkg/config"
 	"github.com/qjebbs/go-jsons"
 )
@@ -894,11 +895,13 @@ func assignIfNil[T any](ptr **T, val T) {
 }
 
 func isInsideWorktree() bool {
-	bts, err := exec.CommandContext(
+	cmd := exec.CommandContext(
 		context.Background(),
 		"git", "rev-parse",
 		"--is-inside-work-tree",
-	).CombinedOutput()
+	)
+	osprocess.HideWindow(cmd)
+	bts, err := cmd.CombinedOutput()
 	return err == nil && strings.TrimSpace(string(bts)) == "true"
 }
 
@@ -913,6 +916,7 @@ func worktreeRoot(dir string) string {
 		"git", "rev-parse", "--show-toplevel",
 	)
 	cmd.Dir = dir
+	osprocess.HideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

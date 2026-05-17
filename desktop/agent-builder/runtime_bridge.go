@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -66,6 +68,13 @@ type localModelConfig struct {
 	URL      string   `json:"url"`
 	APIKey   string   `json:"apiKey"`
 	Models   []string `json:"models"`
+}
+
+type localModelConfigResult struct {
+	Applied      bool
+	Path         string
+	CheckedPaths []string
+	Error        error
 }
 
 func NewRuntimeBridge() *RuntimeBridge {
@@ -206,9 +215,15 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize Crush config: %w", err)
 	}
-	applyLocalModelConfig(store, workingDir)
+	localResult := applyLocalModelConfig(store, workingDir)
+	if localResult.Error != nil {
+		return localResult.Error
+	}
 	if !store.Config().IsConfigured() {
-		return errors.New("Crush has no configured provider. Configure providers in crush.json before using the desktop runtime.")
+		return fmt.Errorf(
+			"Crush has no configured provider. Configure a provider in crush.json or create an Agent Builder local model config. Checked: %s",
+			strings.Join(localResult.CheckedPaths, ", "),
+		)
 	}
 
 	logFile := filepath.Join(store.Config().Options.DataDirectory, "logs", "agent-builder.log")
@@ -218,7 +233,7 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	r.cancel = cancel
 	r.runtime = backend.New(ctx, store, nil)
 
-	_, ws, err := r.runtime.CreateWorkspace(proto.Workspace{
+	wsRuntime, ws, err := r.runtime.CreateWorkspace(proto.Workspace{
 		Path:    workingDir,
 		Version: version.Version,
 		Env:     os.Environ(),
@@ -229,6 +244,17 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 		r.cancel = nil
 		return fmt.Errorf("failed to create Crush workspace: %w", err)
 	}
+	workspaceLocalResult := applyLocalModelConfig(wsRuntime.Cfg, workingDir)
+	if workspaceLocalResult.Error != nil {
+		return workspaceLocalResult.Error
+	}
+	if !wsRuntime.Cfg.Config().IsConfigured() {
+		return fmt.Errorf(
+			"Crush workspace has no configured provider. Configure a provider in crush.json or create an Agent Builder local model config. Checked: %s",
+			strings.Join(workspaceLocalResult.CheckedPaths, ", "),
+		)
+	}
+	wsRuntime.Cfg.SetupAgents()
 	r.workspace = &ws
 
 	if err := r.runtime.InitAgent(ctx, ws.ID); err != nil {
@@ -335,20 +361,39 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func applyLocalModelConfig(store *config.ConfigStore, workingDir string) {
-	path := filepath.Join(workingDir, "client", "server", "deepseek.local.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
+func applyLocalModelConfig(store *config.ConfigStore, workingDir string) localModelConfigResult {
+	result := localModelConfigResult{}
+	for _, path := range localModelConfigPaths(workingDir) {
+		result.CheckedPaths = append(result.CheckedPaths, path)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
 
-	var local localModelConfig
-	if err := json.Unmarshal(data, &local); err != nil {
-		return
+		var local localModelConfig
+		if err := json.Unmarshal(data, &local); err != nil {
+			result.Error = fmt.Errorf("failed to parse local model config %s: %w", path, err)
+			return result
+		}
+		if local.APIKey == "" || local.URL == "" || len(local.Models) == 0 {
+			result.Error = fmt.Errorf("local model config %s requires url, apiKey, and models", path)
+			return result
+		}
+
+		applyModelConfig(store, local)
+		result.Applied = true
+		result.Path = path
+		return result
 	}
-	if local.APIKey == "" || local.URL == "" || len(local.Models) == 0 {
-		return
+	return result
+}
+
+func applyModelConfig(store *config.ConfigStore, local localModelConfig) {
+	if store.Config().Options == nil {
+		store.Config().Options = &config.Options{}
 	}
+	autoLSP := false
+	store.Config().Options.AutoLSP = &autoLSP
 
 	providerType := catwalk.TypeOpenAICompat
 	if local.Protocol == "anthropic" {
@@ -388,4 +433,62 @@ func applyLocalModelConfig(store *config.ConfigStore, workingDir string) {
 	}
 	store.Config().Models[config.SelectedModelTypeLarge] = selected
 	store.Config().Models[config.SelectedModelTypeSmall] = selected
+}
+
+func localModelConfigPaths(workingDir string) []string {
+	var paths []string
+	add := func(path string) {
+		if path == "" {
+			return
+		}
+		path = filepath.Clean(path)
+		for _, existing := range paths {
+			if strings.EqualFold(existing, path) {
+				return
+			}
+		}
+		paths = append(paths, path)
+	}
+
+	appendRelativeCandidates := func(root string) {
+		if root == "" {
+			return
+		}
+		add(filepath.Join(root, "agent-builder.local.json"))
+		add(filepath.Join(root, "client", "server", "deepseek.local.json"))
+	}
+
+	for current := workingDir; current != ""; current = filepath.Dir(current) {
+		appendRelativeCandidates(current)
+		if filepath.VolumeName(current) == current || filepath.Dir(current) == current {
+			break
+		}
+	}
+	if exe, err := os.Executable(); err == nil {
+		for current := filepath.Dir(exe); ; current = filepath.Dir(current) {
+			appendRelativeCandidates(current)
+			if filepath.VolumeName(current) == current || filepath.Dir(current) == current {
+				break
+			}
+		}
+	}
+
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		add(filepath.Join(appData, "AgentBuilder", "model.local.json"))
+	}
+	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+		add(filepath.Join(localAppData, "AgentBuilder", "model.local.json"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		add(filepath.Join(home, ".agent-builder", "model.local.json"))
+	}
+	if currentUser, err := user.Current(); err == nil && currentUser.HomeDir != "" {
+		add(filepath.Join(currentUser.HomeDir, ".agent-builder", "model.local.json"))
+	}
+	if runtime.GOOS != "windows" {
+		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+			add(filepath.Join(xdg, "agent-builder", "model.local.json"))
+		}
+	}
+	return paths
 }

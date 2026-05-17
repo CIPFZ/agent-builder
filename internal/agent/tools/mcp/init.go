@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/home"
+	"github.com/charmbracelet/crush/internal/osprocess"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/version"
@@ -457,6 +458,7 @@ func createTransport(ctx context.Context, m config.MCPConfig, resolver config.Va
 		}
 		cmd := exec.CommandContext(ctx, home.Long(command), args...)
 		cmd.Env = append(os.Environ(), envs...)
+		osprocess.HideWindow(cmd)
 		return &mcp.CommandTransport{
 			Command: cmd,
 		}, nil
@@ -527,6 +529,7 @@ func stdioCheck(old *exec.Cmd) error {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, old.Path, old.Args...)
 	cmd.Env = old.Env
+	osprocess.HideWindow(cmd)
 	out, err := cmd.CombinedOutput()
 	if err == nil || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return nil

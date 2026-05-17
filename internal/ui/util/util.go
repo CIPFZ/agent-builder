@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/crush/internal/osprocess"
 	"mvdan.cc/sh/v3/shell"
 )
 
@@ -92,5 +93,6 @@ func ExecShell(ctx context.Context, cmdStr string, callback tea.ExecCallback) te
 	}
 
 	cmd := exec.CommandContext(ctx, fields[0], fields[1:]...)
+	osprocess.HideWindow(cmd)
 	return tea.ExecProcess(cmd, callback)
 }

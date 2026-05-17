@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/crush/internal/filepathext"
+	"github.com/charmbracelet/crush/internal/osprocess"
 	"mvdan.cc/sh/v3/expand"
 	"mvdan.cc/sh/v3/interp"
 	"mvdan.cc/sh/v3/syntax"
@@ -197,6 +198,7 @@ func dispatchShebang(ctx context.Context, scriptPath string, probe []byte, args 
 	cmd.Stdin = hc.Stdin
 	cmd.Stdout = hc.Stdout
 	cmd.Stderr = hc.Stderr
+	osprocess.HideWindow(cmd)
 
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
