@@ -210,6 +210,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/capabilities":
 		value, err := s.service.Capabilities(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/audit/turns/"):
+		value, err := s.service.AuditTurn(r.Context(), strings.TrimPrefix(r.URL.Path, "/v1/audit/turns/"))
+		writeRuntimeResult(w, value, err)
 	default:
 		http.NotFound(w, r)
 	}

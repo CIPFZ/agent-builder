@@ -710,6 +710,10 @@ func (s *recordingRuntimeService) SubscribeEvents(context.Context) (<-chan Runti
 	}
 }
 
+func (s *recordingRuntimeService) AuditTurn(context.Context, string) (RuntimeAuditResponse, error) {
+	return RuntimeAuditResponse{}, nil
+}
+
 func (s *recordingRuntimeService) Skills(context.Context) (RuntimeSkillsResponse, error) {
 	s.skillsCalls++
 	return s.skills, nil

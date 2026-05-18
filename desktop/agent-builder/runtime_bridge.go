@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/db"
 	crushlog "github.com/charmbracelet/crush/internal/log"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/permission"
@@ -44,6 +46,7 @@ type RuntimeService interface {
 	Events(context.Context) (RuntimeEventsResponse, error)
 	EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error)
 	SubscribeEvents(context.Context) (<-chan RuntimeEvent, func())
+	AuditTurn(context.Context, string) (RuntimeAuditResponse, error)
 	Skills(context.Context) (RuntimeSkillsResponse, error)
 	RefreshSkills(context.Context) (RuntimeSkillsResponse, error)
 	SetSkillEnabled(context.Context, RuntimeSkillToggleRequest) (RuntimeSkillsResponse, error)
@@ -445,6 +448,10 @@ func (r *RuntimeBridge) SubscribeEvents(ctx context.Context) (<-chan RuntimeEven
 	return r.service.SubscribeEvents(ctx)
 }
 
+func (r *RuntimeBridge) AuditTurn(ctx context.Context, turnID string) (RuntimeAuditResponse, error) {
+	return r.service.AuditTurn(ctx, turnID)
+}
+
 func (r *RuntimeBridge) Skills(ctx context.Context) (RuntimeSkillsResponse, error) {
 	return r.service.Skills(ctx)
 }
@@ -778,6 +785,14 @@ func (r *runtimeService) SubscribeEvents(_ context.Context) (<-chan RuntimeEvent
 	}
 }
 
+func (r *runtimeService) AuditTurn(ctx context.Context, turnID string) (RuntimeAuditResponse, error) {
+	db, err := r.workspaceDB(ctx)
+	if err != nil {
+		return RuntimeAuditResponse{}, err
+	}
+	return newRuntimeAuditStore(db).ListTurn(ctx, strings.TrimSpace(turnID))
+}
+
 func (r *runtimeService) Skills(ctx context.Context) (RuntimeSkillsResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeSkillsResponse{}, err
@@ -918,6 +933,18 @@ func (r *runtimeService) workspaceConfig(ctx context.Context) (*config.ConfigSto
 		return nil, "", err
 	}
 	return ws.Cfg, wsID, nil
+}
+
+func (r *runtimeService) workspaceDB(ctx context.Context) (*sql.DB, error) {
+	cfg, _, err := r.workspaceConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := db.Connect(ctx, cfg.Config().Options.DataDirectory)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
 
 func (r *runtimeService) refreshSkills(ctx context.Context, publish bool) (RuntimeSkillsResponse, error) {
@@ -2050,6 +2077,8 @@ func toProtoPermissionRequest(perm permission.PermissionRequest) proto.Permissio
 }
 
 func (r *runtimeService) writeAudit(entry auditEntry) {
+	r.writeRuntimeAuditEvent(context.Background(), entry)
+
 	layout, err := resolveDesktopLayout()
 	if err != nil {
 		slog.Error("Failed to resolve desktop audit path", "error", err)
@@ -2078,6 +2107,42 @@ func (r *runtimeService) writeAudit(entry auditEntry) {
 	if _, err := file.Write(append(data, '\n')); err != nil {
 		slog.Error("Failed to write desktop audit entry", "path", path, "error", err)
 	}
+}
+
+func (r *runtimeService) writeRuntimeAuditEvent(ctx context.Context, entry auditEntry) {
+	db, err := r.workspaceDB(ctx)
+	if err != nil {
+		slog.Debug("Runtime audit database unavailable", "error", err)
+		return
+	}
+	payload, err := auditPayload(entry)
+	if err != nil {
+		slog.Error("Failed to prepare runtime audit payload", "error", err)
+		return
+	}
+	event := RuntimeAuditEvent{
+		ID:        newRuntimeEventID(),
+		SessionID: entry.SessionID,
+		TurnID:    firstNonEmpty(entry.RequestID, entry.SessionID),
+		Type:      entry.Event,
+		CreatedAt: firstNonEmpty(entry.Timestamp, time.Now().UTC().Format(time.RFC3339Nano)),
+		Payload:   payload,
+	}
+	if err := newRuntimeAuditStore(db).Append(ctx, event); err != nil {
+		slog.Error("Failed to write runtime audit event", "error", err)
+	}
+}
+
+func auditPayload(entry auditEntry) (map[string]any, error) {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
 }
 
 func preview(value string, limit int) string {
