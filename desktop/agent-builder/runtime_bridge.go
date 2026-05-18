@@ -28,10 +28,31 @@ import (
 	"github.com/charmbracelet/crush/internal/version"
 )
 
-// RuntimeBridge exposes a small desktop-facing API over the real Crush
-// runtime. The React UI stays thin; this service owns workspace, session, and
-// agent lifecycle.
+// RuntimeService is the transport-neutral runtime boundary used by Wails and
+// the local HTTP adapter.
+type RuntimeService interface {
+	Status(context.Context) (RuntimeStatus, error)
+	Models(context.Context) (RuntimeModelsResponse, error)
+	GetModelConfig(context.Context) (RuntimeConfigResponse, error)
+	SaveModelConfig(context.Context, RuntimeModelConfig) (RuntimeConfigResponse, error)
+	Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error)
+	Messages(context.Context) (RuntimeMessagesResponse, error)
+	Permissions(context.Context) (RuntimePermissionsResponse, error)
+	Events(context.Context) (RuntimeEventsResponse, error)
+	EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error)
+	DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error)
+	Cancel(context.Context) (RuntimeStatus, error)
+	NewChat(context.Context, string) (RuntimeStatus, error)
+}
+
+// RuntimeBridge is the Wails adapter. It intentionally delegates to
+// RuntimeService so desktop bindings do not become the business boundary.
 type RuntimeBridge struct {
+	service RuntimeService
+}
+
+// runtimeService owns workspace, session, and agent lifecycle.
+type runtimeService struct {
 	mu          sync.Mutex
 	runtime     *backend.Backend
 	workspace   *proto.Workspace
@@ -258,6 +279,16 @@ var errModelConfigMissing = errors.New("model is not configured. Open model sett
 
 func NewRuntimeBridge() *RuntimeBridge {
 	return &RuntimeBridge{
+		service: NewRuntimeService(),
+	}
+}
+
+func NewRuntimeService() RuntimeService {
+	return newRuntimeService()
+}
+
+func newRuntimeService() *runtimeService {
+	return &runtimeService{
 		requests:    make(map[string]runtimeRequestState),
 		permissions: make(map[string]pendingRuntimePermission),
 		eventStream: newRuntimeSSEServer(),
@@ -265,6 +296,54 @@ func NewRuntimeBridge() *RuntimeBridge {
 }
 
 func (r *RuntimeBridge) Status(ctx context.Context) (RuntimeStatus, error) {
+	return r.service.Status(ctx)
+}
+
+func (r *RuntimeBridge) Models(ctx context.Context) (RuntimeModelsResponse, error) {
+	return r.service.Models(ctx)
+}
+
+func (r *RuntimeBridge) GetModelConfig(ctx context.Context) (RuntimeConfigResponse, error) {
+	return r.service.GetModelConfig(ctx)
+}
+
+func (r *RuntimeBridge) SaveModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeConfigResponse, error) {
+	return r.service.SaveModelConfig(ctx, req)
+}
+
+func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (RuntimeChatResponse, error) {
+	return r.service.Chat(ctx, req)
+}
+
+func (r *RuntimeBridge) Messages(ctx context.Context) (RuntimeMessagesResponse, error) {
+	return r.service.Messages(ctx)
+}
+
+func (r *RuntimeBridge) Permissions(ctx context.Context) (RuntimePermissionsResponse, error) {
+	return r.service.Permissions(ctx)
+}
+
+func (r *RuntimeBridge) Events(ctx context.Context) (RuntimeEventsResponse, error) {
+	return r.service.Events(ctx)
+}
+
+func (r *RuntimeBridge) EventsEndpoint(ctx context.Context) (RuntimeEventsEndpointResponse, error) {
+	return r.service.EventsEndpoint(ctx)
+}
+
+func (r *RuntimeBridge) DecidePermission(ctx context.Context, req RuntimePermissionDecision) (RuntimeStatus, error) {
+	return r.service.DecidePermission(ctx, req)
+}
+
+func (r *RuntimeBridge) Cancel(ctx context.Context) (RuntimeStatus, error) {
+	return r.service.Cancel(ctx)
+}
+
+func (r *RuntimeBridge) NewChat(ctx context.Context, title string) (RuntimeStatus, error) {
+	return r.service.NewChat(ctx, title)
+}
+
+func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeStatus{}, err
 	}
@@ -299,7 +378,7 @@ func (r *RuntimeBridge) Status(ctx context.Context) (RuntimeStatus, error) {
 	}, nil
 }
 
-func (r *RuntimeBridge) Models(ctx context.Context) (RuntimeModelsResponse, error) {
+func (r *runtimeService) Models(ctx context.Context) (RuntimeModelsResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		if errors.Is(err, errModelConfigMissing) {
 			cfg, cfgErr := r.readConfiguredModel()
@@ -341,7 +420,7 @@ func (r *RuntimeBridge) Models(ctx context.Context) (RuntimeModelsResponse, erro
 	return RuntimeModelsResponse{Models: models}, nil
 }
 
-func (r *RuntimeBridge) GetModelConfig(ctx context.Context) (RuntimeConfigResponse, error) {
+func (r *runtimeService) GetModelConfig(ctx context.Context) (RuntimeConfigResponse, error) {
 	layout, err := resolveDesktopLayout()
 	if err != nil {
 		return RuntimeConfigResponse{}, err
@@ -367,7 +446,7 @@ func (r *RuntimeBridge) GetModelConfig(ctx context.Context) (RuntimeConfigRespon
 	return RuntimeConfigResponse{Config: local}, nil
 }
 
-func (r *RuntimeBridge) SaveModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeConfigResponse, error) {
+func (r *runtimeService) SaveModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeConfigResponse, error) {
 	layout, err := resolveDesktopLayout()
 	if err != nil {
 		return RuntimeConfigResponse{}, err
@@ -407,7 +486,7 @@ func (r *RuntimeBridge) SaveModelConfig(ctx context.Context, req RuntimeModelCon
 	return RuntimeConfigResponse{Config: next}, nil
 }
 
-func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (RuntimeChatResponse, error) {
+func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (RuntimeChatResponse, error) {
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
 		return RuntimeChatResponse{}, errors.New("prompt is required")
@@ -463,7 +542,7 @@ func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (Runti
 	}, nil
 }
 
-func (r *RuntimeBridge) Messages(ctx context.Context) (RuntimeMessagesResponse, error) {
+func (r *runtimeService) Messages(ctx context.Context) (RuntimeMessagesResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeMessagesResponse{}, err
 	}
@@ -493,7 +572,7 @@ func (r *RuntimeBridge) Messages(ctx context.Context) (RuntimeMessagesResponse, 
 	return RuntimeMessagesResponse{Messages: runtimeMessages}, nil
 }
 
-func (r *RuntimeBridge) Permissions(ctx context.Context) (RuntimePermissionsResponse, error) {
+func (r *runtimeService) Permissions(ctx context.Context) (RuntimePermissionsResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimePermissionsResponse{}, err
 	}
@@ -508,7 +587,7 @@ func (r *RuntimeBridge) Permissions(ctx context.Context) (RuntimePermissionsResp
 	return RuntimePermissionsResponse{Permissions: permissions}, nil
 }
 
-func (r *RuntimeBridge) Events(ctx context.Context) (RuntimeEventsResponse, error) {
+func (r *runtimeService) Events(ctx context.Context) (RuntimeEventsResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeEventsResponse{}, err
 	}
@@ -521,14 +600,14 @@ func (r *RuntimeBridge) Events(ctx context.Context) (RuntimeEventsResponse, erro
 	return RuntimeEventsResponse{Events: events}, nil
 }
 
-func (r *RuntimeBridge) EventsEndpoint(_ context.Context) (RuntimeEventsEndpointResponse, error) {
+func (r *runtimeService) EventsEndpoint(_ context.Context) (RuntimeEventsEndpointResponse, error) {
 	if err := r.ensureEventStream(); err != nil {
 		return RuntimeEventsEndpointResponse{}, err
 	}
 	return RuntimeEventsEndpointResponse{URL: r.eventStream.URL()}, nil
 }
 
-func (r *RuntimeBridge) DecidePermission(ctx context.Context, req RuntimePermissionDecision) (RuntimeStatus, error) {
+func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermissionDecision) (RuntimeStatus, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeStatus{}, err
 	}
@@ -571,7 +650,7 @@ func (r *RuntimeBridge) DecidePermission(ctx context.Context, req RuntimePermiss
 	return r.Status(ctx)
 }
 
-func (r *RuntimeBridge) Cancel(ctx context.Context) (RuntimeStatus, error) {
+func (r *runtimeService) Cancel(ctx context.Context) (RuntimeStatus, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeStatus{}, err
 	}
@@ -593,7 +672,7 @@ func (r *RuntimeBridge) Cancel(ctx context.Context) (RuntimeStatus, error) {
 	return r.Status(ctx)
 }
 
-func (r *RuntimeBridge) runChat(ctx context.Context, requestID, wsID, sessionID, prompt string, start time.Time, usageBefore RuntimeUsage, provider, model string) {
+func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID, prompt string, start time.Time, usageBefore RuntimeUsage, provider, model string) {
 	err := r.runtime.SendMessage(ctx, wsID, proto.AgentMessage{
 		SessionID: sessionID,
 		Prompt:    prompt,
@@ -651,7 +730,7 @@ func (r *RuntimeBridge) runChat(ctx context.Context, requestID, wsID, sessionID,
 	r.writeAudit(entry)
 }
 
-func (r *RuntimeBridge) readConfiguredModel() (RuntimeModelConfig, error) {
+func (r *runtimeService) readConfiguredModel() (RuntimeModelConfig, error) {
 	layout, err := resolveDesktopLayout()
 	if err != nil {
 		return RuntimeModelConfig{}, err
@@ -666,7 +745,7 @@ func (r *RuntimeBridge) readConfiguredModel() (RuntimeModelConfig, error) {
 	return local, nil
 }
 
-func (r *RuntimeBridge) NewChat(ctx context.Context, title string) (RuntimeStatus, error) {
+func (r *runtimeService) NewChat(ctx context.Context, title string) (RuntimeStatus, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeStatus{}, err
 	}
@@ -687,7 +766,7 @@ func (r *RuntimeBridge) NewChat(ctx context.Context, title string) (RuntimeStatu
 	return r.Status(ctx)
 }
 
-func (r *RuntimeBridge) restart() {
+func (r *runtimeService) restart() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -708,7 +787,7 @@ func (r *RuntimeBridge) restart() {
 	r.events = nil
 }
 
-func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
+func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	r.mu.Lock()
 	if r.runtime != nil && r.workspace != nil && r.sessionID != "" {
 		r.mu.Unlock()
@@ -795,7 +874,7 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	return nil
 }
 
-func (r *RuntimeBridge) consumeRuntimeEvents(ctx context.Context, workspaceID string) {
+func (r *runtimeService) consumeRuntimeEvents(ctx context.Context, workspaceID string) {
 	events, err := r.runtime.SubscribeEvents(ctx, workspaceID)
 	if err != nil {
 		slog.Error("Failed to subscribe to Crush runtime events", "workspace_id", workspaceID, "error", err)
@@ -814,7 +893,7 @@ func (r *RuntimeBridge) consumeRuntimeEvents(ctx context.Context, workspaceID st
 	}
 }
 
-func (r *RuntimeBridge) consumeDesktopPermissions(ctx context.Context, workspaceID string, permissions permission.Service) {
+func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspaceID string, permissions permission.Service) {
 	events := permissions.Subscribe(ctx)
 	for {
 		select {
@@ -854,7 +933,7 @@ func (r *RuntimeBridge) consumeDesktopPermissions(ctx context.Context, workspace
 	}
 }
 
-func (r *RuntimeBridge) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
+func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
 	r.mu.Lock()
 
 	var runtimeEvent RuntimeEvent
@@ -921,7 +1000,7 @@ func augmentDesktopPath(layout desktopLayout) {
 	}
 }
 
-func (r *RuntimeBridge) latestFinishedAssistantMessage(ctx context.Context, workspaceID, sessionID string) (proto.Message, error) {
+func (r *runtimeService) latestFinishedAssistantMessage(ctx context.Context, workspaceID, sessionID string) (proto.Message, error) {
 	msgs, err := r.runtime.ListSessionMessages(ctx, workspaceID, sessionID)
 	if err != nil {
 		return proto.Message{}, fmt.Errorf("failed to read session messages: %w", err)
@@ -1150,7 +1229,7 @@ func isDisplayableRuntimeMessage(msg RuntimeMessage) bool {
 	return msg.Finished && msg.FinishReason == string(proto.FinishReasonError)
 }
 
-func (r *RuntimeBridge) sessionUsage(ctx context.Context, workspaceID, sessionID string) (RuntimeUsage, error) {
+func (r *runtimeService) sessionUsage(ctx context.Context, workspaceID, sessionID string) (RuntimeUsage, error) {
 	sess, err := r.runtime.GetSession(ctx, workspaceID, sessionID)
 	if err != nil {
 		return RuntimeUsage{}, fmt.Errorf("failed to read Crush session usage: %w", err)
@@ -1183,7 +1262,7 @@ func (s runtimeEventStats) snapshot() RuntimeEventStats {
 	}
 }
 
-func (r *RuntimeBridge) runtimeRequestsLocked() RuntimeRequests {
+func (r *runtimeService) runtimeRequestsLocked() RuntimeRequests {
 	var out RuntimeRequests
 	now := time.Now().UnixMilli()
 	for requestID, state := range r.requests {
@@ -1200,7 +1279,7 @@ func (r *RuntimeBridge) runtimeRequestsLocked() RuntimeRequests {
 	return out
 }
 
-func (r *RuntimeBridge) appendRuntimeEventLocked(event RuntimeEvent) RuntimeEvent {
+func (r *runtimeService) appendRuntimeEventLocked(event RuntimeEvent) RuntimeEvent {
 	if event.ID == "" {
 		event.ID = newRuntimeEventID()
 	}
@@ -1214,14 +1293,14 @@ func (r *RuntimeBridge) appendRuntimeEventLocked(event RuntimeEvent) RuntimeEven
 	return event
 }
 
-func (r *RuntimeBridge) ensureEventStream() error {
+func (r *runtimeService) ensureEventStream() error {
 	if r.eventStream == nil {
 		r.eventStream = newRuntimeSSEServer()
 	}
 	return r.eventStream.Start()
 }
 
-func (r *RuntimeBridge) publishRuntimeEvent(event RuntimeEvent) {
+func (r *runtimeService) publishRuntimeEvent(event RuntimeEvent) {
 	if event.Type == "" || r.eventStream == nil {
 		return
 	}
@@ -1298,7 +1377,7 @@ func toProtoPermissionRequest(perm permission.PermissionRequest) proto.Permissio
 	}
 }
 
-func (r *RuntimeBridge) writeAudit(entry auditEntry) {
+func (r *runtimeService) writeAudit(entry auditEntry) {
 	layout, err := resolveDesktopLayout()
 	if err != nil {
 		slog.Error("Failed to resolve desktop audit path", "error", err)

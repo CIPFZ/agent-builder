@@ -342,14 +342,14 @@ func TestRuntimeRequestsLockedReportsActiveRequest(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UnixMilli()
-	bridge := &RuntimeBridge{
+	service := &runtimeService{
 		requests: map[string]runtimeRequestState{
 			"finished": {StartedAt: now - 2000, Finished: true},
 			"running":  {StartedAt: now - 1000},
 		},
 	}
 
-	got := bridge.runtimeRequestsLocked()
+	got := service.runtimeRequestsLocked()
 	if got.Running != 1 {
 		t.Fatalf("Running = %d, want 1", got.Running)
 	}
@@ -364,8 +364,8 @@ func TestRuntimeRequestsLockedReportsActiveRequest(t *testing.T) {
 func TestAppendRuntimeEventLockedReturnsPublishEvent(t *testing.T) {
 	t.Parallel()
 
-	bridge := NewRuntimeBridge()
-	event := bridge.appendRuntimeEventLocked(RuntimeEvent{
+	service := newRuntimeService()
+	event := service.appendRuntimeEventLocked(RuntimeEvent{
 		Type:      "message.created",
 		SessionID: "session-1",
 		MessageID: "message-1",
@@ -384,8 +384,22 @@ func TestAppendRuntimeEventLockedReturnsPublishEvent(t *testing.T) {
 	if event.Type != "message.created" || event.MessageID != "message-1" {
 		t.Fatalf("event = %#v", event)
 	}
-	if len(bridge.events) != 1 {
-		t.Fatalf("stored events = %d, want 1", len(bridge.events))
+	if len(service.events) != 1 {
+		t.Fatalf("stored events = %d, want 1", len(service.events))
+	}
+}
+
+func TestRuntimeBridgeDelegatesToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	bridge := &RuntimeBridge{service: service}
+
+	if _, err := bridge.Chat(context.Background(), RuntimeChatRequest{Prompt: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if service.chatCalls != 1 {
+		t.Fatalf("chatCalls = %d, want 1", service.chatCalls)
 	}
 }
 
@@ -446,4 +460,57 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Fatal("runtime SSE event was not received")
+}
+
+type recordingRuntimeService struct {
+	chatCalls int
+}
+
+func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
+	return RuntimeStatus{}, nil
+}
+
+func (s *recordingRuntimeService) Models(context.Context) (RuntimeModelsResponse, error) {
+	return RuntimeModelsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) GetModelConfig(context.Context) (RuntimeConfigResponse, error) {
+	return RuntimeConfigResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SaveModelConfig(context.Context, RuntimeModelConfig) (RuntimeConfigResponse, error) {
+	return RuntimeConfigResponse{}, nil
+}
+
+func (s *recordingRuntimeService) Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error) {
+	s.chatCalls++
+	return RuntimeChatResponse{RequestID: "request-1"}, nil
+}
+
+func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {
+	return RuntimeMessagesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) Permissions(context.Context) (RuntimePermissionsResponse, error) {
+	return RuntimePermissionsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) Events(context.Context) (RuntimeEventsResponse, error) {
+	return RuntimeEventsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error) {
+	return RuntimeEventsEndpointResponse{}, nil
+}
+
+func (s *recordingRuntimeService) DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error) {
+	return RuntimeStatus{}, nil
+}
+
+func (s *recordingRuntimeService) Cancel(context.Context) (RuntimeStatus, error) {
+	return RuntimeStatus{}, nil
+}
+
+func (s *recordingRuntimeService) NewChat(context.Context, string) (RuntimeStatus, error) {
+	return RuntimeStatus{}, nil
 }
