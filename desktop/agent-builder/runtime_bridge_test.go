@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -354,4 +359,83 @@ func TestRuntimeRequestsLockedReportsActiveRequest(t *testing.T) {
 	if got.ActiveDurationMS <= 0 {
 		t.Fatalf("ActiveDurationMS = %d, want positive", got.ActiveDurationMS)
 	}
+}
+
+func TestAppendRuntimeEventLockedReturnsPublishEvent(t *testing.T) {
+	t.Parallel()
+
+	bridge := NewRuntimeBridge()
+	event := bridge.appendRuntimeEventLocked(RuntimeEvent{
+		Type:      "message",
+		Role:      "assistant",
+		SessionID: "session-1",
+		MessageID: "message-1",
+		Summary:   "hello",
+	})
+
+	if event.CreatedAt == 0 {
+		t.Fatal("CreatedAt was not assigned")
+	}
+	if event.Type != "message" || event.MessageID != "message-1" {
+		t.Fatalf("event = %#v", event)
+	}
+	if len(bridge.events) != 1 {
+		t.Fatalf("stored events = %d, want 1", len(bridge.events))
+	}
+}
+
+func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
+	t.Parallel()
+
+	stream := newRuntimeSSEServer()
+	if err := stream.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close(context.Background()) //nolint:errcheck
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, stream.URL(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("StatusCode = %d", resp.StatusCode)
+	}
+
+	stream.Publish(RuntimeEvent{
+		Type:      "message",
+		Role:      "assistant",
+		SessionID: "session-1",
+		MessageID: "message-1",
+		CreatedAt: time.Now().UnixMilli(),
+		Summary:   "hello",
+	})
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var event RuntimeEvent
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Type != "message" || event.MessageID != "message-1" {
+			t.Fatalf("event = %#v", event)
+		}
+		return
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	t.Fatal("runtime SSE event was not received")
 }

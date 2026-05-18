@@ -15,6 +15,7 @@ type WailsRuntimeBridge = {
   Chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
   DecidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
   Events: () => Promise<{ events: RuntimeEvent[] }>
+  EventsEndpoint: () => Promise<{ url: string }>
   GetModelConfig: () => Promise<{ config: RuntimeModelConfig }>
   Messages: () => Promise<{ messages: RuntimeMessage[] }>
   Models: () => Promise<{ models: RuntimeModel[] }>

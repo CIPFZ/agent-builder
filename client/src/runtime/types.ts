@@ -53,6 +53,10 @@ export type RuntimeEvent = {
   summary?: string
 }
 
+export type RuntimeEventsEndpoint = {
+  url: string
+}
+
 export type RuntimeMessage = {
   id: string
   sessionId: string
@@ -127,6 +131,7 @@ export type AgentRuntime = {
   chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
   decidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
   getModelConfig: () => Promise<RuntimeModelConfig>
+  getEventsEndpoint: () => Promise<RuntimeEventsEndpoint>
   listEvents: () => Promise<RuntimeEvent[]>
   listModels: () => Promise<RuntimeModel[]>
   listMessages: () => Promise<RuntimeMessage[]>

@@ -65,6 +65,10 @@ export async function requestRuntimeEvents() {
   return getAgentRuntime().listEvents()
 }
 
+export async function requestRuntimeEventsEndpoint() {
+  return getAgentRuntime().getEventsEndpoint()
+}
+
 export async function requestRuntimePermissions() {
   return getAgentRuntime().listPermissions()
 }

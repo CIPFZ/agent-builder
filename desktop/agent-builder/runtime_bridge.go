@@ -41,6 +41,7 @@ type RuntimeBridge struct {
 	requests    map[string]runtimeRequestState
 	permissions map[string]pendingRuntimePermission
 	events      []RuntimeEvent
+	eventStream *runtimeSSEServer
 }
 
 type RuntimeStatus struct {
@@ -176,6 +177,10 @@ type RuntimeEventsResponse struct {
 	Events []RuntimeEvent `json:"events"`
 }
 
+type RuntimeEventsEndpointResponse struct {
+	URL string `json:"url"`
+}
+
 type RuntimeModelConfig struct {
 	Protocol   string   `json:"protocol"`
 	URL        string   `json:"url"`
@@ -261,6 +266,7 @@ func NewRuntimeBridge() *RuntimeBridge {
 	return &RuntimeBridge{
 		requests:    make(map[string]runtimeRequestState),
 		permissions: make(map[string]pendingRuntimePermission),
+		eventStream: newRuntimeSSEServer(),
 	}
 }
 
@@ -519,6 +525,13 @@ func (r *RuntimeBridge) Events(ctx context.Context) (RuntimeEventsResponse, erro
 	events := make([]RuntimeEvent, len(r.events))
 	copy(events, r.events)
 	return RuntimeEventsResponse{Events: events}, nil
+}
+
+func (r *RuntimeBridge) EventsEndpoint(_ context.Context) (RuntimeEventsEndpointResponse, error) {
+	if err := r.ensureEventStream(); err != nil {
+		return RuntimeEventsEndpointResponse{}, err
+	}
+	return RuntimeEventsEndpointResponse{URL: r.eventStream.URL()}, nil
 }
 
 func (r *RuntimeBridge) DecidePermission(ctx context.Context, req RuntimePermissionDecision) (RuntimeStatus, error) {
@@ -817,6 +830,7 @@ func (r *RuntimeBridge) consumeDesktopPermissions(ctx context.Context, workspace
 			}
 			perm := event.Payload
 			runtimePerm := toRuntimePermissionRequest(perm)
+			var runtimeEvent RuntimeEvent
 			r.mu.Lock()
 			r.permissions[perm.ID] = pendingRuntimePermission{
 				Permission: runtimePerm,
@@ -824,7 +838,7 @@ func (r *RuntimeBridge) consumeDesktopPermissions(ctx context.Context, workspace
 			}
 			r.eventStats.permissionEvents++
 			r.eventStats.lastEventAt = time.Now().UnixMilli()
-			r.appendRuntimeEventLocked(RuntimeEvent{
+			runtimeEvent = r.appendRuntimeEventLocked(RuntimeEvent{
 				Type:      "permission_requested",
 				SessionID: perm.SessionID,
 				MessageID: perm.ToolCallID,
@@ -832,6 +846,7 @@ func (r *RuntimeBridge) consumeDesktopPermissions(ctx context.Context, workspace
 				Summary:   perm.ToolName + ":" + perm.Action,
 			})
 			r.mu.Unlock()
+			r.publishRuntimeEvent(runtimeEvent)
 
 			slog.Info("Desktop permission requested", "workspace_id", workspaceID, "session_id", perm.SessionID, "tool", perm.ToolName, "action", perm.Action, "path", perm.Path)
 			r.writeAudit(auditEntry{
@@ -852,13 +867,13 @@ func (r *RuntimeBridge) consumeDesktopPermissions(ctx context.Context, workspace
 
 func (r *RuntimeBridge) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
+	var runtimeEvent RuntimeEvent
 	r.eventStats.lastEventAt = time.Now().UnixMilli()
 	switch payload := event.Payload.(type) {
 	case pubsub.Event[message.Message]:
 		r.eventStats.messageEvents++
-		r.appendRuntimeEventLocked(RuntimeEvent{
+		runtimeEvent = r.appendRuntimeEventLocked(RuntimeEvent{
 			Type:      "message",
 			Role:      string(payload.Payload.Role),
 			SessionID: payload.Payload.SessionID,
@@ -871,7 +886,7 @@ func (r *RuntimeBridge) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
 		}
 	case pubsub.Event[proto.Message]:
 		r.eventStats.messageEvents++
-		r.appendRuntimeEventLocked(RuntimeEvent{
+		runtimeEvent = r.appendRuntimeEventLocked(RuntimeEvent{
 			Type:      "message",
 			Role:      string(payload.Payload.Role),
 			SessionID: payload.Payload.SessionID,
@@ -884,7 +899,7 @@ func (r *RuntimeBridge) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
 		}
 	case pubsub.Event[proto.Session]:
 		r.eventStats.sessionEvents++
-		r.appendRuntimeEventLocked(RuntimeEvent{
+		runtimeEvent = r.appendRuntimeEventLocked(RuntimeEvent{
 			Type:      "session",
 			SessionID: payload.Payload.ID,
 			CreatedAt: r.eventStats.lastEventAt,
@@ -892,7 +907,7 @@ func (r *RuntimeBridge) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
 		})
 	case pubsub.Event[session.Session]:
 		r.eventStats.sessionEvents++
-		r.appendRuntimeEventLocked(RuntimeEvent{
+		runtimeEvent = r.appendRuntimeEventLocked(RuntimeEvent{
 			Type:      "session",
 			SessionID: payload.Payload.ID,
 			CreatedAt: r.eventStats.lastEventAt,
@@ -905,6 +920,8 @@ func (r *RuntimeBridge) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
 	default:
 		r.eventStats.otherEvents++
 	}
+	r.mu.Unlock()
+	r.publishRuntimeEvent(runtimeEvent)
 }
 
 func augmentDesktopPath(layout desktopLayout) {
@@ -1213,7 +1230,7 @@ func (r *RuntimeBridge) runtimeRequestsLocked() RuntimeRequests {
 	return out
 }
 
-func (r *RuntimeBridge) appendRuntimeEventLocked(event RuntimeEvent) {
+func (r *RuntimeBridge) appendRuntimeEventLocked(event RuntimeEvent) RuntimeEvent {
 	if event.CreatedAt == 0 {
 		event.CreatedAt = time.Now().UnixMilli()
 	}
@@ -1221,6 +1238,25 @@ func (r *RuntimeBridge) appendRuntimeEventLocked(event RuntimeEvent) {
 	if len(r.events) > runtimeEventLimit {
 		r.events = r.events[len(r.events)-runtimeEventLimit:]
 	}
+	return event
+}
+
+func (r *RuntimeBridge) ensureEventStream() error {
+	if r.eventStream == nil {
+		r.eventStream = newRuntimeSSEServer()
+	}
+	return r.eventStream.Start()
+}
+
+func (r *RuntimeBridge) publishRuntimeEvent(event RuntimeEvent) {
+	if event.Type == "" || r.eventStream == nil {
+		return
+	}
+	if err := r.ensureEventStream(); err != nil {
+		slog.Error("Failed to start desktop runtime SSE stream", "error", err)
+		return
+	}
+	r.eventStream.Publish(event)
 }
 
 func toRuntimePermissionRequest(perm permission.PermissionRequest) RuntimePermissionRequest {

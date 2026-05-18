@@ -23,6 +23,11 @@ export const wailsRuntime: AgentRuntime = {
     return response.config
   },
 
+  async getEventsEndpoint() {
+    const bridge = await loadWailsRuntimeBridge()
+    return bridge.EventsEndpoint()
+  },
+
   async listEvents() {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.Events()

@@ -49,6 +49,7 @@ import {
   loadModelConfig,
   requestConfiguredModels,
   requestRuntimeEvents,
+  requestRuntimeEventsEndpoint,
   requestRuntimeMessages,
   requestRuntimePermissions,
   requestRuntimeStatus,
@@ -57,6 +58,7 @@ import {
   startRuntimeChat,
 } from './api/chat'
 import type { ModelConfig } from './api/chat'
+import { subscribeRuntimeEvents } from './runtime/events'
 import type {
   RuntimeEvent,
   RuntimeMessage,
@@ -88,6 +90,8 @@ const emptyUsage = {
   totalTokens: 0,
   cost: 0,
 }
+
+const runtimeEventLimit = 200
 
 function greeting() {
   const hour = new Date().getHours()
@@ -158,12 +162,6 @@ function AppContent() {
     return nextPermissions
   }
 
-  const refreshEvents = async () => {
-    const nextEvents = await requestRuntimeEvents()
-    setEvents(nextEvents)
-    return nextEvents
-  }
-
   useEffect(() => {
     loadModelConfig()
       .then((savedConfig) => {
@@ -208,6 +206,38 @@ function AppContent() {
       .catch(() => undefined)
     return () => {
       cancelled = true
+    }
+  }, [isModelConfigured])
+
+  useEffect(() => {
+    if (!isModelConfigured) return
+    let unsubscribe: (() => void) | undefined
+    let cancelled = false
+
+    requestRuntimeEventsEndpoint()
+      .then(({ url }) => {
+        if (cancelled || !url) return
+        unsubscribe = subscribeRuntimeEvents(
+          url,
+          (event) => {
+            setEvents((current) => [...current, event].slice(-runtimeEventLimit))
+            if (event.type === 'message') {
+              refreshMessages().catch(() => undefined)
+              refreshStatus().catch(() => undefined)
+            }
+            if (event.type === 'permission_requested') {
+              refreshPermissions().catch(() => undefined)
+              refreshStatus().catch(() => undefined)
+            }
+          },
+          () => undefined,
+        )
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+      unsubscribe?.()
     }
   }, [isModelConfigured])
 
@@ -267,7 +297,6 @@ function AppContent() {
       let runtimeMessages = await requestRuntimeMessages()
       setMessages(runtimeMessages)
       await refreshPermissions().catch(() => undefined)
-      await refreshEvents().catch(() => undefined)
       let nextStatus = await refreshStatus().catch(() => runtimeStatus)
       const started = Date.now()
       while (Date.now() - started < 30 * 60 * 1000) {
@@ -275,7 +304,6 @@ function AppContent() {
         runtimeMessages = await requestRuntimeMessages().catch(() => runtimeMessages)
         setMessages(runtimeMessages)
         await refreshPermissions().catch(() => undefined)
-        await refreshEvents().catch(() => undefined)
         nextStatus = await refreshStatus().catch(() => nextStatus)
         scrollToBottom()
         const latestAssistant = [...runtimeMessages].reverse().find((chatMessage) => chatMessage.role === 'assistant')
@@ -287,7 +315,6 @@ function AppContent() {
       runtimeMessages = await requestRuntimeMessages().catch(() => runtimeMessages)
       setMessages(runtimeMessages)
       await refreshPermissions().catch(() => undefined)
-      await refreshEvents().catch(() => undefined)
       await refreshStatus().catch(() => undefined)
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
@@ -325,7 +352,6 @@ function AppContent() {
       setIsSending(false)
       await refreshMessages().catch(() => undefined)
       await refreshPermissions().catch(() => undefined)
-      await refreshEvents().catch(() => undefined)
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       setLastError(reason)

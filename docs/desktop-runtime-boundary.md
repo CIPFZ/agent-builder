@@ -28,8 +28,8 @@ Current implementation follows this boundary:
 - Runtime cancellation is exposed through `RuntimeBridge.Cancel`, backed by
   `Backend.CancelSession`.
 - Runtime events are exposed as a small queryable event log through
-  `RuntimeBridge.Events`. This is the Phase 1 bridge toward the later
-  SSE/WebSocket event stream.
+  `RuntimeBridge.Events` and pushed through a local `127.0.0.1` SSE endpoint
+  returned by `RuntimeBridge.EventsEndpoint`.
 - Wails is only the desktop bridge and packaging layer. It is not the runtime
   architecture.
 
@@ -54,6 +54,7 @@ is no longer the active baseline. The accepted Phase 1 foundation is:
 
 ```text
 React UI -> Wails adapter -> Go RuntimeBridge -> real Crush backend/session/message/permission services
+React UI -> loopback SSE -> Go RuntimeBridge runtime events
 ```
 
 The long-term target is still a transport-neutral runtime API plus event stream:
@@ -64,3 +65,8 @@ React UI -> Client Transport -> HTTP/JSON-RPC + SSE/WebSocket -> Crush runtime
 
 The Wails binding is acceptable for the first executable, but it must remain an
 adapter behind `AgentRuntime`, not the core runtime architecture.
+
+Command-style operations such as chat, cancellation, permission decisions, and
+model settings still use the Wails adapter in Phase 1. Runtime event delivery is
+already separated onto SSE so the future Web console and remote runtime do not
+need a different event model.
