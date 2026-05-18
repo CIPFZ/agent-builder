@@ -6,6 +6,7 @@ export type {
   RuntimeChatRequest,
   RuntimeChatResponse,
   RuntimeMessage,
+  RuntimeMessagePart,
   RuntimeModel,
   RuntimeEventStats,
   RuntimeStatus,

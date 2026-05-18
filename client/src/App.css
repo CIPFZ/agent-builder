@@ -300,6 +300,11 @@ button {
   align-items: flex-end;
 }
 
+.message-row.tool {
+  margin-top: -12px;
+  margin-bottom: 18px;
+}
+
 .message-body {
   display: flex;
   flex-direction: column;
@@ -335,6 +340,83 @@ button {
   font-family: Georgia, "Times New Roman", serif;
   font-size: 38px;
   line-height: 1;
+}
+
+.tool-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  color: #6d6257;
+  background: #ede9e2;
+  border-radius: 50%;
+}
+
+.reasoning-panel,
+.tool-activity {
+  width: min(680px, 100%);
+  margin-bottom: 12px;
+}
+
+.reasoning-panel {
+  padding: 10px 12px;
+  color: #625c55;
+  background: #f3f0ea;
+  border: 1px solid #e3ded5;
+  border-radius: 8px;
+}
+
+.tool-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-step {
+  padding: 10px 12px;
+  background: #ffffff;
+  border: 1px solid #e0d9cf;
+  border-left: 3px solid #8c7a65;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(50, 43, 35, 0.04);
+}
+
+.tool-step.error {
+  border-left-color: #c24d3e;
+}
+
+.tool-step-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 24px;
+}
+
+.tool-step-header .ant-typography:last-child {
+  max-width: 190px;
+  overflow: hidden;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.part-preview {
+  max-height: 220px;
+  margin: 8px 0 0;
+  padding: 10px;
+  overflow: auto;
+  color: #3c3934;
+  background: #f8f7f4;
+  border: 1px solid #ebe6df;
+  border-radius: 7px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .message-actions {

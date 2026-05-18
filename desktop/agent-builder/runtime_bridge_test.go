@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
+	"github.com/charmbracelet/crush/internal/proto"
 )
 
 func TestLocalModelConfigPathsIncludeWorkingDirectoryConfig(t *testing.T) {
@@ -173,5 +174,131 @@ func TestSaveLocalModelConfigWritesDesktopConfig(t *testing.T) {
 	}
 	if string(data) == "" {
 		t.Fatal("config file is empty")
+	}
+}
+
+func TestRuntimeMessagePartsExposeToolActivity(t *testing.T) {
+	t.Parallel()
+
+	msg := proto.Message{
+		ID:        "assistant-1",
+		SessionID: "session-1",
+		Role:      proto.Assistant,
+		Parts: []proto.ContentPart{
+			proto.ReasoningContent{Thinking: "Need to inspect files."},
+			proto.ToolCall{ID: "tool-1", Name: "ls", Input: `{"path":"."}`, Finished: true},
+			proto.Finish{Reason: proto.FinishReasonToolUse},
+		},
+	}
+
+	got := toRuntimeMessage(msg)
+	if !isDisplayableRuntimeMessage(got) {
+		t.Fatal("tool-use assistant message should be displayable")
+	}
+	if got.FinishReason != string(proto.FinishReasonToolUse) {
+		t.Fatalf("FinishReason = %q", got.FinishReason)
+	}
+	if len(got.Parts) != 3 {
+		t.Fatalf("Parts len = %d, want 3", len(got.Parts))
+	}
+	if got.Parts[0].Type != "reasoning" || got.Parts[0].Thinking == "" {
+		t.Fatalf("reasoning part not exposed: %#v", got.Parts[0])
+	}
+	if got.Parts[1].Type != "tool_call" || got.Parts[1].ToolCallID != "tool-1" || got.Parts[1].Name != "ls" {
+		t.Fatalf("tool call part not exposed: %#v", got.Parts[1])
+	}
+}
+
+func TestRuntimeMessagePartsExposeToolResults(t *testing.T) {
+	t.Parallel()
+
+	msg := proto.Message{
+		ID:        "tool-result-1",
+		SessionID: "session-1",
+		Role:      proto.Tool,
+		Parts: []proto.ContentPart{
+			proto.ToolResult{ToolCallID: "tool-1", Name: "ls", Content: "file.txt", IsError: false},
+		},
+	}
+
+	got := toRuntimeMessage(msg)
+	if !isDisplayableRuntimeMessage(got) {
+		t.Fatal("tool result message should be displayable")
+	}
+	if got.Role != "tool" {
+		t.Fatalf("Role = %q, want tool", got.Role)
+	}
+	if len(got.Parts) != 1 {
+		t.Fatalf("Parts len = %d, want 1", len(got.Parts))
+	}
+	if got.Parts[0].Type != "tool_result" || got.Parts[0].ToolCallID != "tool-1" || got.Parts[0].Content != "file.txt" {
+		t.Fatalf("tool result part not exposed: %#v", got.Parts[0])
+	}
+}
+
+func TestIsDisplayableRuntimeMessageSkipsEmptyAssistantMessages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		msg  RuntimeMessage
+		want bool
+	}{
+		{
+			name: "user text",
+			msg: RuntimeMessage{
+				Role:    "user",
+				Content: "hello",
+			},
+			want: true,
+		},
+		{
+			name: "assistant final text",
+			msg: RuntimeMessage{
+				Role:         "assistant",
+				Content:      "done",
+				Finished:     true,
+				FinishReason: string(proto.FinishReasonEndTurn),
+			},
+			want: true,
+		},
+		{
+			name: "empty assistant tool-use finish without parts",
+			msg: RuntimeMessage{
+				Role:         "assistant",
+				Finished:     true,
+				FinishReason: string(proto.FinishReasonToolUse),
+			},
+			want: false,
+		},
+		{
+			name: "assistant tool call without text",
+			msg: RuntimeMessage{
+				Role:         "assistant",
+				Parts:        []RuntimeMessagePart{{Type: "tool_call", ToolCallID: "tool-1", Name: "ls"}},
+				Finished:     true,
+				FinishReason: string(proto.FinishReasonToolUse),
+			},
+			want: true,
+		},
+		{
+			name: "assistant error without text",
+			msg: RuntimeMessage{
+				Role:         "assistant",
+				Finished:     true,
+				FinishReason: string(proto.FinishReasonError),
+				Error:        "provider error",
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isDisplayableRuntimeMessage(tt.msg); got != tt.want {
+				t.Fatalf("isDisplayableRuntimeMessage() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

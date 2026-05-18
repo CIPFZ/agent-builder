@@ -69,7 +69,7 @@ func TestDesktopRuntimeBridgeLiveToolPermission(t *testing.T) {
 
 	bridge := NewRuntimeBridge()
 	resp, err := bridge.Chat(ctx, RuntimeChatRequest{
-		Prompt: "使用C语言写一个归并排序",
+		Prompt: "Use C to write a merge sort implementation in merge_sort.c, then inspect the file.",
 	})
 	if err != nil {
 		t.Fatal(err)

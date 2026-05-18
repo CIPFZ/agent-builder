@@ -35,6 +35,9 @@ import {
   SendOutlined,
   SettingOutlined,
   ShareAltOutlined,
+  BulbOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
   ToolOutlined,
   UserOutlined,
 } from '@ant-design/icons'
@@ -49,7 +52,7 @@ import {
   startRuntimeChat,
 } from './api/chat'
 import type { ModelConfig } from './api/chat'
-import type { RuntimeMessage, RuntimeStatus } from './runtime'
+import type { RuntimeMessage, RuntimeMessagePart, RuntimeStatus } from './runtime'
 import './App.css'
 
 const { Text, Title, Paragraph } = Typography
@@ -84,6 +87,18 @@ function greeting() {
 
 function modelLabel(config: ModelConfig) {
   return config.model || 'Select model'
+}
+
+function hasAssistantText(chatMessage: RuntimeMessage) {
+  return chatMessage.role === 'assistant' && chatMessage.content.trim() !== ''
+}
+
+function messageToolParts(chatMessage: RuntimeMessage) {
+  return (chatMessage.parts ?? []).filter((part) => part.type === 'tool_call' || part.type === 'tool_result')
+}
+
+function messageReasoningParts(chatMessage: RuntimeMessage) {
+  return (chatMessage.parts ?? []).filter((part) => part.type === 'reasoning' && part.thinking?.trim())
 }
 
 function AppContent() {
@@ -375,26 +390,7 @@ function AppContent() {
           ) : (
             <section className="thread">
               {messages.map((chatMessage) => (
-                <article className={`message-row ${chatMessage.role}`} key={chatMessage.id}>
-                  {chatMessage.role === 'assistant' ? (
-                    <div className="assistant-mark">*</div>
-                  ) : (
-                    <div className="user-avatar">
-                      <UserOutlined />
-                    </div>
-                  )}
-                  <div className="message-body">
-                    <div className="message-bubble">{chatMessage.content}</div>
-                    {chatMessage.role === 'assistant' ? (
-                      <Space className="message-actions" size={8}>
-                        <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => copyMessage(chatMessage.content)} />
-                        <Button type="text" size="small" icon={<ReloadOutlined />} />
-                        {chatMessage.provider ? <Tag>{chatMessage.provider}</Tag> : null}
-                        {chatMessage.model ? <Tag>{chatMessage.model}</Tag> : null}
-                      </Space>
-                    ) : null}
-                  </div>
-                </article>
+                <MessageItem chatMessage={chatMessage} key={chatMessage.id} onCopy={copyMessage} />
               ))}
             </section>
           )}
@@ -441,6 +437,84 @@ function AppContent() {
         }}
       />
       <OperationsPreview open={operationsOpen} onClose={() => setOperationsOpen(false)} />
+    </div>
+  )
+}
+
+function MessageItem({ chatMessage, onCopy }: { chatMessage: RuntimeMessage; onCopy: (content: string) => void }) {
+  const reasoningParts = messageReasoningParts(chatMessage)
+  const toolParts = messageToolParts(chatMessage)
+  const showText = chatMessage.role === 'user' || hasAssistantText(chatMessage)
+  const isToolOnly = !showText && toolParts.length > 0
+
+  return (
+    <article className={`message-row ${isToolOnly ? 'tool' : chatMessage.role}`}>
+      {chatMessage.role === 'user' ? (
+        <div className="user-avatar">
+          <UserOutlined />
+        </div>
+      ) : (
+        <div className={isToolOnly ? 'tool-mark' : 'assistant-mark'}>{isToolOnly ? <ToolOutlined /> : '*'}</div>
+      )}
+      <div className="message-body">
+        {reasoningParts.length > 0 ? <ReasoningPanel parts={reasoningParts} /> : null}
+        {toolParts.length > 0 ? <ToolActivity parts={toolParts} /> : null}
+        {showText ? <div className="message-bubble">{chatMessage.content}</div> : null}
+        {hasAssistantText(chatMessage) ? (
+          <Space className="message-actions" size={8}>
+            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => onCopy(chatMessage.content)} />
+            <Button type="text" size="small" icon={<ReloadOutlined />} />
+            {chatMessage.provider ? <Tag>{chatMessage.provider}</Tag> : null}
+            {chatMessage.model ? <Tag>{chatMessage.model}</Tag> : null}
+          </Space>
+        ) : null}
+      </div>
+    </article>
+  )
+}
+
+function ReasoningPanel({ parts }: { parts: RuntimeMessagePart[] }) {
+  return (
+    <div className="reasoning-panel">
+      <Space size={8}>
+        <BulbOutlined />
+        <Text type="secondary">Thinking</Text>
+      </Space>
+      {parts.map((part, index) => (
+        <pre className="part-preview" key={`${part.startedAt ?? index}-${index}`}>
+          {part.thinking}
+        </pre>
+      ))}
+    </div>
+  )
+}
+
+function ToolActivity({ parts }: { parts: RuntimeMessagePart[] }) {
+  return (
+    <div className="tool-activity">
+      {parts.map((part, index) => (
+        <ToolActivityItem key={`${part.toolCallId ?? part.name ?? index}-${part.type}-${index}`} part={part} />
+      ))}
+    </div>
+  )
+}
+
+function ToolActivityItem({ part }: { part: RuntimeMessagePart }) {
+  const isResult = part.type === 'tool_result'
+  const hasPreview = Boolean((isResult ? part.content || part.data || part.metadata : part.input)?.trim())
+  const preview = isResult ? part.content || part.data || part.metadata : part.input
+
+  return (
+    <div className={part.isError ? 'tool-step error' : 'tool-step'}>
+      <div className="tool-step-header">
+        <Space size={8}>
+          {part.isError ? <CloseCircleOutlined /> : isResult ? <CheckCircleOutlined /> : <ToolOutlined />}
+          <Text strong>{part.name || 'tool'}</Text>
+          <Tag>{isResult ? (part.isError ? 'failed' : 'result') : part.finished ? 'called' : 'running'}</Tag>
+        </Space>
+        {part.toolCallId ? <Text type="secondary">{part.toolCallId}</Text> : null}
+      </div>
+      {hasPreview ? <pre className="part-preview">{preview}</pre> : null}
     </div>
   )
 }

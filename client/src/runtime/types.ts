@@ -29,8 +29,9 @@ export type RuntimeChatResponse = {
 export type RuntimeMessage = {
   id: string
   sessionId: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'tool'
   content: string
+  parts?: RuntimeMessagePart[]
   provider?: string
   model?: string
   createdAt: number
@@ -38,6 +39,26 @@ export type RuntimeMessage = {
   finished: boolean
   finishReason?: string
   error?: string
+}
+
+export type RuntimeMessagePart = {
+  type: 'text' | 'reasoning' | 'tool_call' | 'tool_result' | 'finish' | 'image_url' | 'binary'
+  text?: string
+  thinking?: string
+  startedAt?: number
+  finishedAt?: number
+  toolCallId?: string
+  name?: string
+  input?: string
+  finished?: boolean
+  content?: string
+  data?: string
+  mimeType?: string
+  metadata?: string
+  isError?: boolean
+  reason?: string
+  message?: string
+  details?: string
 }
 
 export type RuntimeUsage = {

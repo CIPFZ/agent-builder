@@ -78,17 +78,38 @@ type RuntimeChatResponse struct {
 }
 
 type RuntimeMessage struct {
-	ID           string `json:"id"`
-	SessionID    string `json:"sessionId"`
-	Role         string `json:"role"`
-	Content      string `json:"content"`
-	Provider     string `json:"provider,omitempty"`
-	Model        string `json:"model,omitempty"`
-	CreatedAt    int64  `json:"createdAt"`
-	UpdatedAt    int64  `json:"updatedAt"`
-	Finished     bool   `json:"finished"`
-	FinishReason string `json:"finishReason,omitempty"`
-	Error        string `json:"error,omitempty"`
+	ID           string               `json:"id"`
+	SessionID    string               `json:"sessionId"`
+	Role         string               `json:"role"`
+	Content      string               `json:"content"`
+	Parts        []RuntimeMessagePart `json:"parts,omitempty"`
+	Provider     string               `json:"provider,omitempty"`
+	Model        string               `json:"model,omitempty"`
+	CreatedAt    int64                `json:"createdAt"`
+	UpdatedAt    int64                `json:"updatedAt"`
+	Finished     bool                 `json:"finished"`
+	FinishReason string               `json:"finishReason,omitempty"`
+	Error        string               `json:"error,omitempty"`
+}
+
+type RuntimeMessagePart struct {
+	Type       string `json:"type"`
+	Text       string `json:"text,omitempty"`
+	Thinking   string `json:"thinking,omitempty"`
+	StartedAt  int64  `json:"startedAt,omitempty"`
+	FinishedAt int64  `json:"finishedAt,omitempty"`
+	ToolCallID string `json:"toolCallId,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Input      string `json:"input,omitempty"`
+	Finished   bool   `json:"finished,omitempty"`
+	Content    string `json:"content,omitempty"`
+	Data       string `json:"data,omitempty"`
+	MIMEType   string `json:"mimeType,omitempty"`
+	Metadata   string `json:"metadata,omitempty"`
+	IsError    bool   `json:"isError,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	Message    string `json:"message,omitempty"`
+	Details    string `json:"details,omitempty"`
 }
 
 type RuntimeMessagesResponse struct {
@@ -181,6 +202,7 @@ type auditEntry struct {
 
 const localProviderID = "local-model"
 const auditPreviewLimit = 600
+const runtimePartPreviewLimit = 4000
 
 var errModelConfigMissing = errors.New("model is not configured. Open model settings and save protocol, URL, API key, and model before chatting.")
 
@@ -404,10 +426,14 @@ func (r *RuntimeBridge) Messages(ctx context.Context) (RuntimeMessagesResponse, 
 
 	runtimeMessages := make([]RuntimeMessage, 0, len(messages))
 	for _, msg := range messages {
-		if msg.IsSummaryMessage || msg.Role == message.Tool || msg.Role == message.System {
+		if msg.IsSummaryMessage || msg.Role == message.System {
 			continue
 		}
-		runtimeMessages = append(runtimeMessages, toRuntimeMessage(toProtoMessage(msg)))
+		runtimeMessage := toRuntimeMessage(toProtoMessage(msg))
+		if !isDisplayableRuntimeMessage(runtimeMessage) {
+			continue
+		}
+		runtimeMessages = append(runtimeMessages, runtimeMessage)
 	}
 
 	return RuntimeMessagesResponse{Messages: runtimeMessages}, nil
@@ -852,6 +878,7 @@ func toRuntimeMessage(msg proto.Message) RuntimeMessage {
 		SessionID:    msg.SessionID,
 		Role:         string(msg.Role),
 		Content:      content,
+		Parts:        toRuntimeMessageParts(msg),
 		Provider:     msg.Provider,
 		Model:        msg.Model,
 		CreatedAt:    msg.CreatedAt,
@@ -860,6 +887,87 @@ func toRuntimeMessage(msg proto.Message) RuntimeMessage {
 		FinishReason: finishReason,
 		Error:        finishError,
 	}
+}
+
+func toRuntimeMessageParts(msg proto.Message) []RuntimeMessagePart {
+	parts := make([]RuntimeMessagePart, 0, len(msg.Parts))
+	for _, part := range msg.Parts {
+		switch p := part.(type) {
+		case proto.TextContent:
+			parts = append(parts, RuntimeMessagePart{
+				Type: "text",
+				Text: p.Text,
+			})
+		case proto.ReasoningContent:
+			parts = append(parts, RuntimeMessagePart{
+				Type:       "reasoning",
+				Thinking:   p.Thinking,
+				StartedAt:  p.StartedAt,
+				FinishedAt: p.FinishedAt,
+			})
+		case proto.ToolCall:
+			parts = append(parts, RuntimeMessagePart{
+				Type:       "tool_call",
+				ToolCallID: p.ID,
+				Name:       p.Name,
+				Input:      preview(p.Input, runtimePartPreviewLimit),
+				Finished:   p.Finished,
+			})
+		case proto.ToolResult:
+			parts = append(parts, RuntimeMessagePart{
+				Type:       "tool_result",
+				ToolCallID: p.ToolCallID,
+				Name:       p.Name,
+				Content:    preview(p.Content, runtimePartPreviewLimit),
+				Data:       preview(p.Data, runtimePartPreviewLimit),
+				MIMEType:   p.MIMEType,
+				Metadata:   preview(p.Metadata, runtimePartPreviewLimit),
+				IsError:    p.IsError,
+			})
+		case proto.Finish:
+			parts = append(parts, RuntimeMessagePart{
+				Type:    "finish",
+				Reason:  string(p.Reason),
+				Message: p.Message,
+				Details: p.Details,
+			})
+		case proto.ImageURLContent:
+			parts = append(parts, RuntimeMessagePart{
+				Type: "image_url",
+				Text: p.URL,
+			})
+		case proto.BinaryContent:
+			parts = append(parts, RuntimeMessagePart{
+				Type:     "binary",
+				Text:     p.Path,
+				MIMEType: p.MIMEType,
+			})
+		}
+	}
+	return parts
+}
+
+func isDisplayableRuntimeMessage(msg RuntimeMessage) bool {
+	if msg.Role == string(message.User) {
+		return strings.TrimSpace(msg.Content) != ""
+	}
+	if msg.Role != string(message.Assistant) && msg.Role != string(message.Tool) {
+		return false
+	}
+	if strings.TrimSpace(msg.Content) != "" || msg.Error != "" {
+		return true
+	}
+	for _, part := range msg.Parts {
+		switch part.Type {
+		case "reasoning":
+			if strings.TrimSpace(part.Thinking) != "" {
+				return true
+			}
+		case "tool_call", "tool_result":
+			return true
+		}
+	}
+	return msg.Finished && msg.FinishReason == string(proto.FinishReasonError)
 }
 
 func (r *RuntimeBridge) sessionUsage(ctx context.Context, workspaceID, sessionID string) (RuntimeUsage, error) {
