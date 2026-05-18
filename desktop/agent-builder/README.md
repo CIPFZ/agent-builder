@@ -25,6 +25,18 @@ The Windows executable is written to:
 desktop/agent-builder/bin/AgentBuilder.exe
 ```
 
+The executable owns sibling runtime directories:
+
+```text
+desktop/agent-builder/bin/config/
+desktop/agent-builder/bin/data/
+desktop/agent-builder/bin/logs/
+```
+
+Model settings are saved by the Go runtime bridge to
+`bin/config/model.local.json`. See
+`../../docs/phase-1-acceptance-test.md` for the local validation flow.
+
 ## Frontend Sync
 
 The Wails build runs `npm run build` in `../../client` through

@@ -266,6 +266,11 @@ button {
   background: #f7f5f1;
 }
 
+.runtime-alert {
+  width: min(820px, calc(100vw - 420px));
+  margin-top: 18px;
+}
+
 .thread {
   width: min(960px, calc(100vw - 430px));
   margin: 0 auto;
@@ -343,6 +348,11 @@ button {
   pointer-events: auto;
 }
 
+.dock-alert {
+  width: min(820px, calc(100vw - 420px));
+  pointer-events: auto;
+}
+
 .disclaimer {
   color: #9a948d;
   font-size: 13px;
@@ -358,6 +368,8 @@ button {
   }
 
   .composer,
+  .runtime-alert,
+  .dock-alert,
   .thread {
     width: min(860px, calc(100vw - 32px));
     min-width: 0;

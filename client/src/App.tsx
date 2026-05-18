@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import AntApp from 'antd/es/app'
+import Alert from 'antd/es/alert'
 import Button from 'antd/es/button'
 import Collapse from 'antd/es/collapse'
 import ConfigProvider from 'antd/es/config-provider'
@@ -88,10 +89,13 @@ function AppContent() {
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [operationsOpen, setOperationsOpen] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [configLoaded, setConfigLoaded] = useState(false)
+  const [lastError, setLastError] = useState('')
   const [activeChatTitle, setActiveChatTitle] = useState('New chat')
   const viewportRef = useRef<HTMLDivElement | null>(null)
 
   const hasMessages = messages.length > 0
+  const isModelConfigured = Boolean(config.url && config.model && (config.hasApiKey || config.apiKey))
 
   const refreshMessages = async () => {
     const runtimeMessages = await requestRuntimeMessages()
@@ -102,9 +106,14 @@ function AppContent() {
     loadModelConfig()
       .then((savedConfig) => {
         setConfig((current) => ({ ...current, ...savedConfig }))
+        setLastError('')
       })
       .catch(() => {
         setConfig(defaultConfig)
+        setLastError('Model is not configured. Open model settings and save protocol, URL, API key, and model before chatting.')
+      })
+      .finally(() => {
+        setConfigLoaded(true)
       })
   }, [])
 
@@ -138,6 +147,11 @@ function AppContent() {
   }
 
   const startNewChat = () => {
+    if (!isModelConfigured) {
+      setSettingsOpen(true)
+      setLastError('Configure a model before creating a runtime session.')
+      return
+    }
     setInput('')
     setActiveChatTitle('New chat')
     startRuntimeChat('New chat')
@@ -151,9 +165,15 @@ function AppContent() {
   const sendMessage = async (text = input) => {
     const content = text.trim()
     if (!content || isSending) return
+    if (!isModelConfigured) {
+      setSettingsOpen(true)
+      setLastError('Configure a model before sending a message.')
+      return
+    }
 
     setInput('')
     setIsSending(true)
+    setLastError('')
     if (!hasMessages) {
       setActiveChatTitle(content.length > 24 ? `${content.slice(0, 24)}...` : content)
     }
@@ -162,6 +182,7 @@ function AppContent() {
       await refreshMessages()
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
+      setLastError(reason)
       message.error(reason)
       await refreshMessages().catch(() => undefined)
     } finally {
@@ -268,6 +289,7 @@ function AppContent() {
               <Composer
                 config={config}
                 input={input}
+                isDisabled={!configLoaded || !isModelConfigured}
                 isSending={isSending}
                 modelItems={modelItems}
                 onChange={setInput}
@@ -282,6 +304,21 @@ function AppContent() {
                   </button>
                 ))}
               </div>
+              {!isModelConfigured ? (
+                <Alert
+                  className="runtime-alert"
+                  type="warning"
+                  showIcon
+                  message="Model configuration required"
+                  description="Open model settings and save protocol, URL, API key, and model before chatting."
+                  action={
+                    <Button size="small" type="primary" onClick={() => setSettingsOpen(true)}>
+                      Configure
+                    </Button>
+                  }
+                />
+              ) : null}
+              {lastError && isModelConfigured ? <Alert className="runtime-alert" type="error" showIcon message={lastError} /> : null}
             </section>
           ) : (
             <section className="thread">
@@ -301,6 +338,7 @@ function AppContent() {
                         <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => copyMessage(chatMessage.content)} />
                         <Button type="text" size="small" icon={<ReloadOutlined />} />
                         {chatMessage.provider ? <Tag>{chatMessage.provider}</Tag> : null}
+                        {chatMessage.model ? <Tag>{chatMessage.model}</Tag> : null}
                       </Space>
                     ) : null}
                   </div>
@@ -315,12 +353,14 @@ function AppContent() {
             <Composer
               config={config}
               input={input}
+              isDisabled={!configLoaded || !isModelConfigured}
               isSending={isSending}
               modelItems={modelItems}
               onChange={setInput}
               onOpenSettings={() => setSettingsOpen(true)}
               onSend={() => sendMessage()}
             />
+            {lastError ? <Alert className="dock-alert" type="error" showIcon message={lastError} /> : null}
             <Text className="disclaimer">Agent Builder can make mistakes. Check important operations before execution.</Text>
           </div>
         ) : null}
@@ -337,6 +377,7 @@ function AppContent() {
             const saved = await saveModelConfig(nextConfig)
             setConfig((current) => ({ ...current, ...saved }))
             setModels(saved.model ? [saved.model] : [])
+            setLastError('')
             message.success('Model settings saved')
             setSettingsOpen(false)
           } catch (error) {
@@ -355,6 +396,7 @@ function AppContent() {
 type ComposerProps = {
   config: ModelConfig
   input: string
+  isDisabled: boolean
   isSending: boolean
   modelItems: MenuProps['items']
   onChange: (value: string) => void
@@ -362,13 +404,14 @@ type ComposerProps = {
   onSend: () => void
 }
 
-function Composer({ config, input, isSending, modelItems, onChange, onOpenSettings, onSend }: ComposerProps) {
+function Composer({ config, input, isDisabled, isSending, modelItems, onChange, onOpenSettings, onSend }: ComposerProps) {
   return (
     <div className="composer">
       <TextArea
         autoSize={{ minRows: 2, maxRows: 7 }}
         className="composer-input"
         placeholder="How can I help you today?"
+        disabled={isDisabled || isSending}
         value={input}
         onChange={(event) => onChange(event.target.value)}
         onPressEnter={(event) => {

@@ -51,6 +51,7 @@ func TestApplyLocalModelConfigConfiguresProvider(t *testing.T) {
   "url": "https://api.example.com",
   "apiKey": "test-key",
   "model": "example-chat",
+  "proxy": "http://127.0.0.1:7890",
   "models": ["example-chat"]
 }`), 0o600); err != nil {
 		t.Fatal(err)
@@ -72,6 +73,9 @@ func TestApplyLocalModelConfigConfiguresProvider(t *testing.T) {
 	if result.Path != layout.ModelConfigPath {
 		t.Fatalf("Path = %s, want %s", result.Path, layout.ModelConfigPath)
 	}
+	if result.Config.Proxy != "http://127.0.0.1:7890" {
+		t.Fatalf("Proxy = %s", result.Config.Proxy)
+	}
 
 	provider, ok := store.Config().Providers.Get(localProviderID)
 	if !ok {
@@ -83,6 +87,30 @@ func TestApplyLocalModelConfigConfiguresProvider(t *testing.T) {
 	selected := store.Config().Models[config.SelectedModelTypeLarge]
 	if selected.Provider != localProviderID || selected.Model != "example-chat" {
 		t.Fatalf("selected model = %#v", selected)
+	}
+}
+
+func TestApplyDesktopProxySetsAndClearsProxyEnvironment(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("HTTPS_PROXY", "")
+	t.Setenv("http_proxy", "")
+	t.Setenv("https_proxy", "")
+
+	applyDesktopProxy(localModelConfigResult{
+		Applied: true,
+		Config:  RuntimeModelConfig{Proxy: "http://127.0.0.1:7890"},
+	})
+
+	if os.Getenv("HTTP_PROXY") != "http://127.0.0.1:7890" {
+		t.Fatalf("HTTP_PROXY = %q", os.Getenv("HTTP_PROXY"))
+	}
+	if os.Getenv("HTTPS_PROXY") != "http://127.0.0.1:7890" {
+		t.Fatalf("HTTPS_PROXY = %q", os.Getenv("HTTPS_PROXY"))
+	}
+
+	applyDesktopProxy(localModelConfigResult{Applied: true})
+	if os.Getenv("HTTP_PROXY") != "" || os.Getenv("HTTPS_PROXY") != "" || os.Getenv("http_proxy") != "" || os.Getenv("https_proxy") != "" {
+		t.Fatal("proxy environment was not cleared")
 	}
 }
 

@@ -98,6 +98,7 @@ type localModelConfigResult struct {
 	Applied      bool
 	Path         string
 	CheckedPaths []string
+	Config       RuntimeModelConfig
 	Error        error
 }
 
@@ -414,6 +415,7 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 		return errModelConfigMissing
 	}
 	store.Config().SetupAgents()
+	applyDesktopProxy(localResult)
 
 	logFile := filepath.Join(layout.LogsDir, "agent-builder.log")
 	crushlog.Setup(logFile, false)
@@ -716,6 +718,7 @@ func loadLocalModelConfig(layout desktopLayout) (RuntimeModelConfig, localModelC
 
 		result.Applied = true
 		result.Path = path
+		result.Config = local
 		return local, result
 	}
 	return RuntimeModelConfig{}, result
@@ -728,6 +731,26 @@ func applyLocalModelConfig(store *config.ConfigStore, layout desktopLayout) loca
 	}
 	applyModelConfig(store, local)
 	return result
+}
+
+func applyDesktopProxy(result localModelConfigResult) {
+	if !result.Applied {
+		return
+	}
+
+	proxy := strings.TrimSpace(result.Config.Proxy)
+	if proxy == "" {
+		_ = os.Unsetenv("HTTP_PROXY")
+		_ = os.Unsetenv("HTTPS_PROXY")
+		_ = os.Unsetenv("http_proxy")
+		_ = os.Unsetenv("https_proxy")
+		return
+	}
+
+	_ = os.Setenv("HTTP_PROXY", proxy)
+	_ = os.Setenv("HTTPS_PROXY", proxy)
+	_ = os.Setenv("http_proxy", proxy)
+	_ = os.Setenv("https_proxy", proxy)
 }
 
 func validateModelConfig(local RuntimeModelConfig) error {
@@ -833,5 +856,10 @@ func logConfiguredModel(store *config.ConfigStore) {
 		"model", selected.Model,
 		"base_url", provider.BaseURL,
 		"has_api_key", provider.APIKey != "",
+		"has_proxy", hasDesktopProxy(),
 	)
+}
+
+func hasDesktopProxy() bool {
+	return os.Getenv("HTTPS_PROXY") != "" || os.Getenv("HTTP_PROXY") != "" || os.Getenv("https_proxy") != "" || os.Getenv("http_proxy") != ""
 }
