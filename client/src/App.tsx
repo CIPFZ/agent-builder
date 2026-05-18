@@ -38,21 +38,33 @@ import {
   BulbOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
+  StopOutlined,
   ToolOutlined,
   UserOutlined,
 } from '@ant-design/icons'
 import TextArea from 'antd/es/input/TextArea'
 import {
+  cancelRuntimeTurn,
+  decideRuntimePermission,
   loadModelConfig,
   requestConfiguredModels,
+  requestRuntimeEvents,
   requestRuntimeMessages,
+  requestRuntimePermissions,
   requestRuntimeStatus,
   saveModelConfig,
   sendRuntimePrompt,
   startRuntimeChat,
 } from './api/chat'
 import type { ModelConfig } from './api/chat'
-import type { RuntimeMessage, RuntimeMessagePart, RuntimeStatus } from './runtime'
+import type {
+  RuntimeEvent,
+  RuntimeMessage,
+  RuntimeMessagePart,
+  RuntimePermissionDecision,
+  RuntimePermissionRequest,
+  RuntimeStatus,
+} from './runtime'
 import './App.css'
 
 const { Text, Title, Paragraph } = Typography
@@ -104,6 +116,8 @@ function messageReasoningParts(chatMessage: RuntimeMessage) {
 function AppContent() {
   const { message } = AntApp.useApp()
   const [messages, setMessages] = useState<RuntimeMessage[]>([])
+  const [permissions, setPermissions] = useState<RuntimePermissionRequest[]>([])
+  const [events, setEvents] = useState<RuntimeEvent[]>([])
   const [input, setInput] = useState('')
   const [config, setConfig] = useState<ModelConfig>(defaultConfig)
   const [models, setModels] = useState<string[]>([defaultConfig.model])
@@ -129,6 +143,18 @@ function AppContent() {
     const nextStatus = await requestRuntimeStatus()
     setRuntimeStatus(nextStatus)
     return nextStatus
+  }
+
+  const refreshPermissions = async () => {
+    const nextPermissions = await requestRuntimePermissions()
+    setPermissions(nextPermissions)
+    return nextPermissions
+  }
+
+  const refreshEvents = async () => {
+    const nextEvents = await requestRuntimeEvents()
+    setEvents(nextEvents)
+    return nextEvents
   }
 
   useEffect(() => {
@@ -164,11 +190,13 @@ function AppContent() {
   useEffect(() => {
     if (!isModelConfigured) return
     let cancelled = false
-    Promise.all([requestRuntimeStatus(), requestRuntimeMessages()])
-      .then(([nextStatus, runtimeMessages]) => {
+    Promise.all([requestRuntimeStatus(), requestRuntimeMessages(), requestRuntimePermissions(), requestRuntimeEvents()])
+      .then(([nextStatus, runtimeMessages, runtimePermissions, runtimeEvents]) => {
         if (cancelled) return
         setRuntimeStatus(nextStatus)
         setMessages(runtimeMessages)
+        setPermissions(runtimePermissions)
+        setEvents(runtimeEvents)
       })
       .catch(() => undefined)
     return () => {
@@ -198,10 +226,12 @@ function AppContent() {
     }
     setInput('')
     setActiveChatTitle('New chat')
-    startRuntimeChat('New chat')
+      startRuntimeChat('New chat')
       .then((nextStatus) => {
         setRuntimeStatus(nextStatus)
         setMessages([])
+        setPermissions([])
+        setEvents([])
       })
       .catch((error) => {
         const reason = error instanceof Error ? error.message : String(error)
@@ -229,12 +259,16 @@ function AppContent() {
       await sendRuntimePrompt(content)
       let runtimeMessages = await requestRuntimeMessages()
       setMessages(runtimeMessages)
+      await refreshPermissions().catch(() => undefined)
+      await refreshEvents().catch(() => undefined)
       let nextStatus = await refreshStatus().catch(() => runtimeStatus)
       const started = Date.now()
       while (Date.now() - started < 30 * 60 * 1000) {
         await new Promise((resolve) => window.setTimeout(resolve, 700))
         runtimeMessages = await requestRuntimeMessages().catch(() => runtimeMessages)
         setMessages(runtimeMessages)
+        await refreshPermissions().catch(() => undefined)
+        await refreshEvents().catch(() => undefined)
         nextStatus = await refreshStatus().catch(() => nextStatus)
         scrollToBottom()
         const latestAssistant = [...runtimeMessages].reverse().find((chatMessage) => chatMessage.role === 'assistant')
@@ -245,6 +279,8 @@ function AppContent() {
       }
       runtimeMessages = await requestRuntimeMessages().catch(() => runtimeMessages)
       setMessages(runtimeMessages)
+      await refreshPermissions().catch(() => undefined)
+      await refreshEvents().catch(() => undefined)
       await refreshStatus().catch(() => undefined)
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
@@ -260,6 +296,34 @@ function AppContent() {
   const copyMessage = async (content: string) => {
     await navigator.clipboard.writeText(content)
     message.success('Copied')
+  }
+
+  const decidePermission = async (permissionId: string, action: RuntimePermissionDecision['action']) => {
+    try {
+      const nextStatus = await decideRuntimePermission({ permissionId, action })
+      setRuntimeStatus(nextStatus)
+      setPermissions((current) => current.filter((permission) => permission.id !== permissionId))
+      message.success(action === 'deny' ? 'Permission denied' : 'Permission granted')
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      setLastError(reason)
+      message.error(reason)
+    }
+  }
+
+  const cancelTurn = async () => {
+    try {
+      const nextStatus = await cancelRuntimeTurn()
+      setRuntimeStatus(nextStatus)
+      setIsSending(false)
+      await refreshMessages().catch(() => undefined)
+      await refreshPermissions().catch(() => undefined)
+      await refreshEvents().catch(() => undefined)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      setLastError(reason)
+      message.error(reason)
+    }
   }
 
   return (
@@ -336,6 +400,11 @@ function AppContent() {
             <UsageReadout status={runtimeStatus} />
           </Space>
           <Space size={4}>
+            {runtimeStatus?.busy || isSending ? (
+              <Tooltip title="Cancel current run">
+                <Button type="text" danger icon={<StopOutlined />} onClick={cancelTurn} />
+              </Tooltip>
+            ) : null}
             <Tooltip title="Share later">
               <Button type="text" icon={<ShareAltOutlined />} />
             </Tooltip>
@@ -436,8 +505,56 @@ function AppContent() {
           }
         }}
       />
-      <OperationsPreview open={operationsOpen} onClose={() => setOperationsOpen(false)} />
+      <PermissionReviewModal permissions={permissions} onDecide={decidePermission} />
+      <OperationsPreview events={events} open={operationsOpen} onClose={() => setOperationsOpen(false)} />
     </div>
+  )
+}
+
+function PermissionReviewModal({
+  permissions,
+  onDecide,
+}: {
+  permissions: RuntimePermissionRequest[]
+  onDecide: (permissionId: string, action: RuntimePermissionDecision['action']) => Promise<void>
+}) {
+  const permission = permissions[0]
+
+  return (
+    <Modal
+      title="Tool permission"
+      open={Boolean(permission)}
+      closable={false}
+      maskClosable={false}
+      footer={
+        permission
+          ? [
+              <Button key="deny" danger onClick={() => onDecide(permission.id, 'deny')}>
+                Deny
+              </Button>,
+              <Button key="allow-session" onClick={() => onDecide(permission.id, 'allow_session')}>
+                Allow session
+              </Button>,
+              <Button key="allow" type="primary" onClick={() => onDecide(permission.id, 'allow')}>
+                Allow once
+              </Button>,
+            ]
+          : null
+      }
+      width={640}
+    >
+      {permission ? (
+        <div className="permission-review">
+          <Space wrap>
+            <Tag>{permission.toolName}</Tag>
+            <Tag>{permission.action}</Tag>
+            {permission.path ? <Tag>{permission.path}</Tag> : null}
+          </Space>
+          {permission.description ? <Paragraph>{permission.description}</Paragraph> : null}
+          {permission.params ? <pre className="part-preview">{JSON.stringify(permission.params, null, 2)}</pre> : null}
+        </div>
+      ) : null}
+    </Modal>
   )
 }
 
@@ -658,7 +775,7 @@ function ModelSettingsDrawer({ config, open, saving, onClose, onSave }: ModelSet
   )
 }
 
-function OperationsPreview({ open, onClose }: { open: boolean; onClose: () => void }) {
+function OperationsPreview({ events, open, onClose }: { events: RuntimeEvent[]; open: boolean; onClose: () => void }) {
   return (
     <Modal title="Operations workspace" open={open} onCancel={onClose} footer={<Button onClick={onClose}>Close</Button>} width={720}>
       <Paragraph>
@@ -671,6 +788,15 @@ function OperationsPreview({ open, onClose }: { open: boolean; onClose: () => vo
         <Tag>Approval policy</Tag>
         <Tag>Runtime event log</Tag>
       </Space>
+      <div className="event-log">
+        {events.slice(-8).map((event) => (
+          <div className="event-log-row" key={`${event.createdAt}-${event.type}-${event.messageId ?? event.sessionId ?? ''}`}>
+            <Tag>{event.type}</Tag>
+            {event.role ? <Text type="secondary">{event.role}</Text> : null}
+            {event.summary ? <Text>{event.summary}</Text> : null}
+          </div>
+        ))}
+      </div>
     </Modal>
   )
 }

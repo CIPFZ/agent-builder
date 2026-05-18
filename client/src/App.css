@@ -419,6 +419,37 @@ button {
   word-break: break-word;
 }
 
+.permission-review {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.event-log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.event-log-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 8px;
+  background: #f8f7f4;
+  border: 1px solid #ebe6df;
+  border-radius: 7px;
+}
+
+.event-log-row .ant-typography:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .message-actions {
   margin-top: 12px;
 }

@@ -62,6 +62,11 @@ Expected result:
 - The assistant response appears in the thread.
 - The assistant message shows the runtime provider tag, for example
   `local-model`.
+- If the model requests a tool, the UI shows a permission dialog with
+  **Allow once**, **Allow session**, and **Deny** actions.
+- Tool calls and tool results appear as runtime activity, not as empty
+  assistant bubbles.
+- The current run can be cancelled from the header while the runtime is busy.
 - No command-line window is shown while chatting.
 - The UI does not require restarting after saving model settings.
 
@@ -104,5 +109,7 @@ Phase 1 acceptance passes when:
 - Model settings save to `bin/config/model.local.json`.
 - Chat works through the real Crush runtime.
 - Logs confirm a completed backend chat turn.
+- Permission requests are not unconditionally auto-approved.
+- Runtime event counts and recent event log come from the Go bridge.
 - No API key is printed in logs or committed files.
 - `npm run lint`, `npm run build`, Go tests, and `wails3 task build` pass.

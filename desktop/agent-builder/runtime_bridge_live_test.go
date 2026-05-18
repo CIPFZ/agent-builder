@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/crush/internal/proto"
 )
 
 func TestDesktopRuntimeBridgeLiveChat(t *testing.T) {
@@ -80,6 +82,7 @@ func TestDesktopRuntimeBridgeLiveToolPermission(t *testing.T) {
 
 	var latest RuntimeMessage
 	var status RuntimeStatus
+	decidedPermissions := map[string]bool{}
 	for deadline := time.Now().Add(2 * time.Minute); time.Now().Before(deadline); {
 		messages, err := bridge.Messages(ctx)
 		if err != nil {
@@ -93,6 +96,23 @@ func TestDesktopRuntimeBridgeLiveToolPermission(t *testing.T) {
 		status, err = bridge.Status(ctx)
 		if err != nil {
 			t.Fatal(err)
+		}
+		permissions, err := bridge.Permissions(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, perm := range permissions.Permissions {
+			if decidedPermissions[perm.ID] {
+				continue
+			}
+			_, err := bridge.DecidePermission(ctx, RuntimePermissionDecision{
+				PermissionID: perm.ID,
+				Action:       string(proto.PermissionAllowForSession),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			decidedPermissions[perm.ID] = true
 		}
 		if strings.TrimSpace(latest.Content) != "" && latest.Finished {
 			break

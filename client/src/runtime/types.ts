@@ -8,6 +8,7 @@ export type RuntimeStatus = {
   busy: boolean
   usage: RuntimeUsage
   events: RuntimeEventStats
+  requests: RuntimeRequests
 }
 
 export type RuntimeModel = {
@@ -24,6 +25,32 @@ export type RuntimeChatRequest = {
 export type RuntimeChatResponse = {
   requestId: string
   status: RuntimeStatus
+}
+
+export type RuntimePermissionRequest = {
+  id: string
+  sessionId: string
+  toolCallId: string
+  toolName: string
+  description?: string
+  action: string
+  params?: unknown
+  path?: string
+  createdAt: number
+}
+
+export type RuntimePermissionDecision = {
+  permissionId: string
+  action: 'allow' | 'allow_session' | 'deny'
+}
+
+export type RuntimeEvent = {
+  type: string
+  role?: string
+  sessionId?: string
+  messageId?: string
+  createdAt: number
+  summary?: string
 }
 
 export type RuntimeMessage = {
@@ -68,6 +95,13 @@ export type RuntimeUsage = {
   cost: number
 }
 
+export type RuntimeRequests = {
+  activeRequestId?: string
+  activeStartedAt?: number
+  activeDurationMs?: number
+  running: number
+}
+
 export type RuntimeEventStats = {
   lastEventAt: number
   messageEvents: number
@@ -89,10 +123,14 @@ export type RuntimeModelConfig = {
 }
 
 export type AgentRuntime = {
+  cancel: () => Promise<RuntimeStatus>
   chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
+  decidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
   getModelConfig: () => Promise<RuntimeModelConfig>
+  listEvents: () => Promise<RuntimeEvent[]>
   listModels: () => Promise<RuntimeModel[]>
   listMessages: () => Promise<RuntimeMessage[]>
+  listPermissions: () => Promise<RuntimePermissionRequest[]>
   newChat: (title: string) => Promise<RuntimeStatus>
   saveModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelConfig>
   status: () => Promise<RuntimeStatus>

@@ -1,7 +1,8 @@
 # Desktop Runtime Boundary
 
 This document records the Phase 1.5 architecture boundary for the desktop
-client.
+client. The active Phase 1 baseline is also summarized in
+`docs/phase-1-runtime-baseline.md`.
 
 ## Decision
 
@@ -21,6 +22,14 @@ Current implementation follows this boundary:
 - Message display is refreshed from `RuntimeBridge.Messages`, backed by the
   Crush session database, instead of constructing user/assistant messages in
   React.
+- Permission requests are owned by Crush and exposed through
+  `RuntimeBridge.Permissions`; React can only allow once, allow for session, or
+  deny a pending runtime request.
+- Runtime cancellation is exposed through `RuntimeBridge.Cancel`, backed by
+  `Backend.CancelSession`.
+- Runtime events are exposed as a small queryable event log through
+  `RuntimeBridge.Events`. This is the Phase 1 bridge toward the later
+  SSE/WebSocket event stream.
 - Wails is only the desktop bridge and packaging layer. It is not the runtime
   architecture.
 
@@ -34,3 +43,24 @@ Current implementation follows this boundary:
   converge on the same Crush runtime state model.
 - UI-only mocks must not be reintroduced for model, message, provider, or agent
   execution paths unless they are isolated test fixtures.
+- Phase 1 must not use unconditional permission bypass for normal desktop
+  operation. Bypass can exist later as an explicit policy mode, but the default
+  Phase 1 behavior is ask/allow/deny.
+
+## Phase 1 Delta
+
+Earlier planning documents described Phase 1 as a pure UI/mock prototype. That
+is no longer the active baseline. The accepted Phase 1 foundation is:
+
+```text
+React UI -> Wails adapter -> Go RuntimeBridge -> real Crush backend/session/message/permission services
+```
+
+The long-term target is still a transport-neutral runtime API plus event stream:
+
+```text
+React UI -> Client Transport -> HTTP/JSON-RPC + SSE/WebSocket -> Crush runtime
+```
+
+The Wails binding is acceptable for the first executable, but it must remain an
+adapter behind `AgentRuntime`, not the core runtime architecture.

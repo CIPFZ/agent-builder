@@ -5,9 +5,11 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/proto"
 )
 
@@ -300,5 +302,56 @@ func TestIsDisplayableRuntimeMessageSkipsEmptyAssistantMessages(t *testing.T) {
 				t.Fatalf("isDisplayableRuntimeMessage() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRuntimePermissionRequestMapping(t *testing.T) {
+	t.Parallel()
+
+	perm := permission.PermissionRequest{
+		ID:          "perm-1",
+		SessionID:   "session-1",
+		ToolCallID:  "tool-1",
+		ToolName:    "bash",
+		Description: "Run a command",
+		Action:      "execute",
+		Params:      map[string]any{"command": "pwd"},
+		Path:        "C:\\work",
+	}
+
+	runtimePerm := toRuntimePermissionRequest(perm)
+	if runtimePerm.ID != perm.ID || runtimePerm.ToolName != perm.ToolName || runtimePerm.Action != perm.Action {
+		t.Fatalf("runtime permission mapping failed: %#v", runtimePerm)
+	}
+	if runtimePerm.CreatedAt == 0 {
+		t.Fatal("runtime permission CreatedAt was not set")
+	}
+
+	protoPerm := toProtoPermissionRequest(perm)
+	if protoPerm.ID != perm.ID || protoPerm.ToolCallID != perm.ToolCallID || protoPerm.Path != perm.Path {
+		t.Fatalf("proto permission mapping failed: %#v", protoPerm)
+	}
+}
+
+func TestRuntimeRequestsLockedReportsActiveRequest(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UnixMilli()
+	bridge := &RuntimeBridge{
+		requests: map[string]runtimeRequestState{
+			"finished": {StartedAt: now - 2000, Finished: true},
+			"running":  {StartedAt: now - 1000},
+		},
+	}
+
+	got := bridge.runtimeRequestsLocked()
+	if got.Running != 1 {
+		t.Fatalf("Running = %d, want 1", got.Running)
+	}
+	if got.ActiveRequestID != "running" {
+		t.Fatalf("ActiveRequestID = %q, want running", got.ActiveRequestID)
+	}
+	if got.ActiveDurationMS <= 0 {
+		t.Fatalf("ActiveDurationMS = %d, want positive", got.ActiveDurationMS)
 	}
 }

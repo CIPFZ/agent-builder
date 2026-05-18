@@ -1,5 +1,5 @@
 import { getAgentRuntime } from '../runtime'
-import type { RuntimeStatus } from '../runtime'
+import type { RuntimePermissionDecision, RuntimeStatus } from '../runtime'
 
 export type ModelConfig = {
   protocol: 'openai' | 'anthropic'
@@ -59,6 +59,22 @@ export async function requestRuntimeStatus() {
 
 export async function requestRuntimeMessages() {
   return getAgentRuntime().listMessages()
+}
+
+export async function requestRuntimeEvents() {
+  return getAgentRuntime().listEvents()
+}
+
+export async function requestRuntimePermissions() {
+  return getAgentRuntime().listPermissions()
+}
+
+export async function decideRuntimePermission(request: RuntimePermissionDecision) {
+  return getAgentRuntime().decidePermission(request)
+}
+
+export async function cancelRuntimeTurn() {
+  return getAgentRuntime().cancel()
 }
 
 export async function startRuntimeChat(title: string) {

@@ -31,14 +31,16 @@ import (
 // runtime. The React UI stays thin; this service owns workspace, session, and
 // agent lifecycle.
 type RuntimeBridge struct {
-	mu         sync.Mutex
-	runtime    *backend.Backend
-	workspace  *proto.Workspace
-	sessionID  string
-	runtimeCtx context.Context
-	cancel     context.CancelFunc
-	eventStats runtimeEventStats
-	requests   map[string]runtimeRequestState
+	mu          sync.Mutex
+	runtime     *backend.Backend
+	workspace   *proto.Workspace
+	sessionID   string
+	runtimeCtx  context.Context
+	cancel      context.CancelFunc
+	eventStats  runtimeEventStats
+	requests    map[string]runtimeRequestState
+	permissions map[string]pendingRuntimePermission
+	events      []RuntimeEvent
 }
 
 type RuntimeStatus struct {
@@ -51,6 +53,7 @@ type RuntimeStatus struct {
 	Busy        bool              `json:"busy"`
 	Usage       RuntimeUsage      `json:"usage"`
 	Events      RuntimeEventStats `json:"events"`
+	Requests    RuntimeRequests   `json:"requests"`
 }
 
 type RuntimeModel struct {
@@ -116,6 +119,34 @@ type RuntimeMessagesResponse struct {
 	Messages []RuntimeMessage `json:"messages"`
 }
 
+type RuntimePermissionRequest struct {
+	ID          string `json:"id"`
+	SessionID   string `json:"sessionId"`
+	ToolCallID  string `json:"toolCallId"`
+	ToolName    string `json:"toolName"`
+	Description string `json:"description,omitempty"`
+	Action      string `json:"action"`
+	Params      any    `json:"params,omitempty"`
+	Path        string `json:"path,omitempty"`
+	CreatedAt   int64  `json:"createdAt"`
+}
+
+type RuntimePermissionsResponse struct {
+	Permissions []RuntimePermissionRequest `json:"permissions"`
+}
+
+type RuntimePermissionDecision struct {
+	PermissionID string `json:"permissionId"`
+	Action       string `json:"action"`
+}
+
+type RuntimeRequests struct {
+	ActiveRequestID  string `json:"activeRequestId,omitempty"`
+	ActiveStartedAt  int64  `json:"activeStartedAt,omitempty"`
+	ActiveDurationMS int64  `json:"activeDurationMs,omitempty"`
+	Running          int    `json:"running"`
+}
+
 type RuntimeUsage struct {
 	PromptTokens     int64   `json:"promptTokens"`
 	CompletionTokens int64   `json:"completionTokens"`
@@ -130,6 +161,19 @@ type RuntimeEventStats struct {
 	OtherEvents      int64 `json:"otherEvents"`
 	AssistantEvents  int64 `json:"assistantEvents"`
 	PermissionEvents int64 `json:"permissionEvents"`
+}
+
+type RuntimeEvent struct {
+	Type      string `json:"type"`
+	Role      string `json:"role,omitempty"`
+	SessionID string `json:"sessionId,omitempty"`
+	MessageID string `json:"messageId,omitempty"`
+	CreatedAt int64  `json:"createdAt"`
+	Summary   string `json:"summary,omitempty"`
+}
+
+type RuntimeEventsResponse struct {
+	Events []RuntimeEvent `json:"events"`
 }
 
 type RuntimeModelConfig struct {
@@ -165,6 +209,11 @@ type runtimeRequestState struct {
 	Error     string `json:"error,omitempty"`
 }
 
+type pendingRuntimePermission struct {
+	Permission RuntimePermissionRequest
+	Raw        permission.PermissionRequest
+}
+
 type runtimeEventStats struct {
 	lastEventAt      int64
 	messageEvents    int64
@@ -173,6 +222,8 @@ type runtimeEventStats struct {
 	assistantEvents  int64
 	permissionEvents int64
 }
+
+const runtimeEventLimit = 200
 
 type auditEntry struct {
 	RequestID             string        `json:"request_id"`
@@ -208,7 +259,8 @@ var errModelConfigMissing = errors.New("model is not configured. Open model sett
 
 func NewRuntimeBridge() *RuntimeBridge {
 	return &RuntimeBridge{
-		requests: make(map[string]runtimeRequestState),
+		requests:    make(map[string]runtimeRequestState),
+		permissions: make(map[string]pendingRuntimePermission),
 	}
 }
 
@@ -221,6 +273,7 @@ func (r *RuntimeBridge) Status(ctx context.Context) (RuntimeStatus, error) {
 	ws := *r.workspace
 	sessionID := r.sessionID
 	events := r.eventStats.snapshot()
+	requests := r.runtimeRequestsLocked()
 	r.mu.Unlock()
 
 	info, err := r.runtime.GetAgentInfo(ws.ID)
@@ -242,6 +295,7 @@ func (r *RuntimeBridge) Status(ctx context.Context) (RuntimeStatus, error) {
 		Busy:        info.IsBusy,
 		Usage:       usage,
 		Events:      events,
+		Requests:    requests,
 	}, nil
 }
 
@@ -439,6 +493,99 @@ func (r *RuntimeBridge) Messages(ctx context.Context) (RuntimeMessagesResponse, 
 	return RuntimeMessagesResponse{Messages: runtimeMessages}, nil
 }
 
+func (r *RuntimeBridge) Permissions(ctx context.Context) (RuntimePermissionsResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimePermissionsResponse{}, err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	permissions := make([]RuntimePermissionRequest, 0, len(r.permissions))
+	for _, pending := range r.permissions {
+		permissions = append(permissions, pending.Permission)
+	}
+	return RuntimePermissionsResponse{Permissions: permissions}, nil
+}
+
+func (r *RuntimeBridge) Events(ctx context.Context) (RuntimeEventsResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeEventsResponse{}, err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	events := make([]RuntimeEvent, len(r.events))
+	copy(events, r.events)
+	return RuntimeEventsResponse{Events: events}, nil
+}
+
+func (r *RuntimeBridge) DecidePermission(ctx context.Context, req RuntimePermissionDecision) (RuntimeStatus, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeStatus{}, err
+	}
+
+	action := proto.PermissionAction(strings.TrimSpace(req.Action))
+	if action != proto.PermissionAllow && action != proto.PermissionAllowForSession && action != proto.PermissionDeny {
+		return RuntimeStatus{}, fmt.Errorf("invalid permission action: %s", req.Action)
+	}
+
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	pending, ok := r.permissions[req.PermissionID]
+	r.mu.Unlock()
+	if !ok {
+		return RuntimeStatus{}, fmt.Errorf("permission request %s is not pending", req.PermissionID)
+	}
+
+	if err := r.runtime.GrantPermission(wsID, proto.PermissionGrant{
+		Permission: toProtoPermissionRequest(pending.Raw),
+		Action:     action,
+	}); err != nil {
+		return RuntimeStatus{}, fmt.Errorf("failed to decide permission: %w", err)
+	}
+
+	r.mu.Lock()
+	delete(r.permissions, req.PermissionID)
+	r.mu.Unlock()
+
+	r.writeAudit(auditEntry{
+		Event:            "permission_decided",
+		Timestamp:        time.Now().Format(time.RFC3339Nano),
+		WorkspaceID:      wsID,
+		SessionID:        pending.Permission.SessionID,
+		PermissionTool:   pending.Permission.ToolName,
+		PermissionAction: pending.Permission.Action,
+		PermissionPath:   pending.Permission.Path,
+		PermissionPolicy: string(action),
+	})
+
+	return r.Status(ctx)
+}
+
+func (r *RuntimeBridge) Cancel(ctx context.Context) (RuntimeStatus, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeStatus{}, err
+	}
+
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	sessionID := r.sessionID
+	r.mu.Unlock()
+
+	if err := r.runtime.CancelSession(wsID, sessionID); err != nil {
+		return RuntimeStatus{}, fmt.Errorf("failed to cancel session: %w", err)
+	}
+	r.writeAudit(auditEntry{
+		Event:       "cancel_requested",
+		Timestamp:   time.Now().Format(time.RFC3339Nano),
+		WorkspaceID: wsID,
+		SessionID:   sessionID,
+	})
+	return r.Status(ctx)
+}
+
 func (r *RuntimeBridge) runChat(ctx context.Context, requestID, wsID, sessionID, prompt string, start time.Time, usageBefore RuntimeUsage, provider, model string) {
 	err := r.runtime.SendMessage(ctx, wsID, proto.AgentMessage{
 		SessionID: sessionID,
@@ -550,6 +697,8 @@ func (r *RuntimeBridge) restart() {
 	r.cancel = nil
 	r.eventStats = runtimeEventStats{}
 	r.requests = make(map[string]runtimeRequestState)
+	r.permissions = make(map[string]pendingRuntimePermission)
+	r.events = nil
 }
 
 func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
@@ -625,7 +774,7 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	wsRuntime.Cfg.SetupAgents()
 	r.workspace = &ws
 	go r.consumeRuntimeEvents(runtimeCtx, ws.ID)
-	go r.autoApproveDesktopPermissions(runtimeCtx, ws.ID, wsRuntime.Permissions)
+	go r.consumeDesktopPermissions(runtimeCtx, ws.ID, wsRuntime.Permissions)
 
 	if err := r.runtime.UpdateAgent(runtimeCtx, ws.ID); err != nil {
 		return fmt.Errorf("failed to update Crush agent model: %w", err)
@@ -658,7 +807,7 @@ func (r *RuntimeBridge) consumeRuntimeEvents(ctx context.Context, workspaceID st
 	}
 }
 
-func (r *RuntimeBridge) autoApproveDesktopPermissions(ctx context.Context, workspaceID string, permissions permission.Service) {
+func (r *RuntimeBridge) consumeDesktopPermissions(ctx context.Context, workspaceID string, permissions permission.Service) {
 	events := permissions.Subscribe(ctx)
 	for {
 		select {
@@ -667,18 +816,34 @@ func (r *RuntimeBridge) autoApproveDesktopPermissions(ctx context.Context, works
 				return
 			}
 			perm := event.Payload
-			slog.Info("Desktop permission auto-approved", "workspace_id", workspaceID, "session_id", perm.SessionID, "tool", perm.ToolName, "action", perm.Action, "path", perm.Path)
+			runtimePerm := toRuntimePermissionRequest(perm)
+			r.mu.Lock()
+			r.permissions[perm.ID] = pendingRuntimePermission{
+				Permission: runtimePerm,
+				Raw:        perm,
+			}
+			r.eventStats.permissionEvents++
+			r.eventStats.lastEventAt = time.Now().UnixMilli()
+			r.appendRuntimeEventLocked(RuntimeEvent{
+				Type:      "permission_requested",
+				SessionID: perm.SessionID,
+				MessageID: perm.ToolCallID,
+				CreatedAt: time.Now().UnixMilli(),
+				Summary:   perm.ToolName + ":" + perm.Action,
+			})
+			r.mu.Unlock()
+
+			slog.Info("Desktop permission requested", "workspace_id", workspaceID, "session_id", perm.SessionID, "tool", perm.ToolName, "action", perm.Action, "path", perm.Path)
 			r.writeAudit(auditEntry{
-				Event:            "permission_auto_approved",
+				Event:            "permission_requested",
 				Timestamp:        time.Now().Format(time.RFC3339Nano),
 				WorkspaceID:      workspaceID,
 				SessionID:        perm.SessionID,
 				PermissionTool:   perm.ToolName,
 				PermissionAction: perm.Action,
 				PermissionPath:   perm.Path,
-				PermissionPolicy: "desktop_auto_approve_session",
+				PermissionPolicy: "ask",
 			})
-			permissions.Grant(perm)
 		case <-ctx.Done():
 			return
 		}
@@ -693,18 +858,46 @@ func (r *RuntimeBridge) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
 	switch payload := event.Payload.(type) {
 	case pubsub.Event[message.Message]:
 		r.eventStats.messageEvents++
+		r.appendRuntimeEventLocked(RuntimeEvent{
+			Type:      "message",
+			Role:      string(payload.Payload.Role),
+			SessionID: payload.Payload.SessionID,
+			MessageID: payload.Payload.ID,
+			CreatedAt: r.eventStats.lastEventAt,
+			Summary:   preview(payload.Payload.Content().Text, 160),
+		})
 		if payload.Payload.Role == message.Assistant {
 			r.eventStats.assistantEvents++
 		}
 	case pubsub.Event[proto.Message]:
 		r.eventStats.messageEvents++
+		r.appendRuntimeEventLocked(RuntimeEvent{
+			Type:      "message",
+			Role:      string(payload.Payload.Role),
+			SessionID: payload.Payload.SessionID,
+			MessageID: payload.Payload.ID,
+			CreatedAt: r.eventStats.lastEventAt,
+			Summary:   preview(payload.Payload.Content().Text, 160),
+		})
 		if payload.Payload.Role == proto.Assistant {
 			r.eventStats.assistantEvents++
 		}
 	case pubsub.Event[proto.Session]:
 		r.eventStats.sessionEvents++
+		r.appendRuntimeEventLocked(RuntimeEvent{
+			Type:      "session",
+			SessionID: payload.Payload.ID,
+			CreatedAt: r.eventStats.lastEventAt,
+			Summary:   payload.Payload.Title,
+		})
 	case pubsub.Event[session.Session]:
 		r.eventStats.sessionEvents++
+		r.appendRuntimeEventLocked(RuntimeEvent{
+			Type:      "session",
+			SessionID: payload.Payload.ID,
+			CreatedAt: r.eventStats.lastEventAt,
+			Summary:   payload.Payload.Title,
+		})
 	case pubsub.Event[permission.PermissionRequest]:
 		r.eventStats.permissionEvents++
 	case pubsub.Event[proto.PermissionRequest]:
@@ -1000,6 +1193,60 @@ func (s runtimeEventStats) snapshot() RuntimeEventStats {
 		OtherEvents:      s.otherEvents,
 		AssistantEvents:  s.assistantEvents,
 		PermissionEvents: s.permissionEvents,
+	}
+}
+
+func (r *RuntimeBridge) runtimeRequestsLocked() RuntimeRequests {
+	var out RuntimeRequests
+	now := time.Now().UnixMilli()
+	for requestID, state := range r.requests {
+		if state.Finished {
+			continue
+		}
+		out.Running++
+		if out.ActiveStartedAt == 0 || state.StartedAt < out.ActiveStartedAt {
+			out.ActiveRequestID = requestID
+			out.ActiveStartedAt = state.StartedAt
+			out.ActiveDurationMS = now - state.StartedAt
+		}
+	}
+	return out
+}
+
+func (r *RuntimeBridge) appendRuntimeEventLocked(event RuntimeEvent) {
+	if event.CreatedAt == 0 {
+		event.CreatedAt = time.Now().UnixMilli()
+	}
+	r.events = append(r.events, event)
+	if len(r.events) > runtimeEventLimit {
+		r.events = r.events[len(r.events)-runtimeEventLimit:]
+	}
+}
+
+func toRuntimePermissionRequest(perm permission.PermissionRequest) RuntimePermissionRequest {
+	return RuntimePermissionRequest{
+		ID:          perm.ID,
+		SessionID:   perm.SessionID,
+		ToolCallID:  perm.ToolCallID,
+		ToolName:    perm.ToolName,
+		Description: perm.Description,
+		Action:      perm.Action,
+		Params:      perm.Params,
+		Path:        perm.Path,
+		CreatedAt:   time.Now().UnixMilli(),
+	}
+}
+
+func toProtoPermissionRequest(perm permission.PermissionRequest) proto.PermissionRequest {
+	return proto.PermissionRequest{
+		ID:          perm.ID,
+		SessionID:   perm.SessionID,
+		ToolCallID:  perm.ToolCallID,
+		ToolName:    perm.ToolName,
+		Description: perm.Description,
+		Action:      perm.Action,
+		Params:      perm.Params,
+		Path:        perm.Path,
 	}
 }
 
