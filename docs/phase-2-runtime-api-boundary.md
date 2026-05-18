@@ -18,6 +18,17 @@ Wails remains a desktop adapter. It must not become the long-term product
 protocol. Runtime state, sessions, turns, messages, tools, permissions, skills,
 MCP, usage, and audit data must come from Go/Crush.
 
+The governing principle is:
+
+```text
+Backend runtime first.
+Frontend proves and exposes runtime capability.
+```
+
+The desktop UI is an input, display, configuration, and approval surface. It
+must not own core business state. Any state shown in the UI must be recoverable
+from runtime APIs or runtime events.
+
 Phase 2 must also leave the project with a usable desktop assistant experience.
 At the end of this phase, the app should be comparable to common market
 assistant clients for core conversation use: configure a model, start or resume
@@ -80,6 +91,10 @@ these operations:
 ```text
 GET  /v1/runtime/status
 
+GET  /v1/config/model
+PUT  /v1/config/model
+POST /v1/config/model/verify
+
 GET  /v1/sessions
 POST /v1/sessions
 GET  /v1/sessions/{session_id}
@@ -102,6 +117,8 @@ POST /v1/mcp/servers/{server_name}/refresh
 GET  /v1/mcp/servers/{server_name}/tools
 GET  /v1/mcp/servers/{server_name}/resources
 GET  /v1/mcp/servers/{server_name}/prompts
+
+GET  /v1/audit/turns/{turn_id}
 
 GET  /v1/events
 ```
@@ -321,6 +338,25 @@ Future phases can add:
 - `plugin_tool`
 - `agent`
 
+## Model Configuration
+
+Phase 2 model configuration must be runtime-owned.
+
+Required behavior:
+
+- The client can read the current model configuration from the runtime.
+- The client can save provider protocol, base URL, API key, model, and optional
+  proxy settings through the runtime.
+- The client can verify connectivity through the runtime without storing mock
+  provider state in the frontend.
+- The runtime persists configuration under the desktop/runtime config directory.
+- API responses, logs, and events redact API keys, authorization headers, and
+  proxy credentials.
+
+The UI can provide a simple setup form, but the source of truth is runtime
+configuration, not browser storage, frontend constants, or environment-only
+state.
+
 ## Assistant Client Baseline
 
 Phase 2 must produce a client that can be used as a real auxiliary assistant,
@@ -388,6 +424,10 @@ Phase 2 audit data should answer these questions:
 
 Audit records should be structured and redact secrets by default.
 
+The audit/debug view is not a frontend-only log viewer. It must read structured
+runtime audit data. Console logs and text files can support debugging, but they
+are not the primary product contract.
+
 ## Non-goals
 
 Phase 2 should not include:
@@ -403,6 +443,21 @@ Phase 2 should not include:
 - Remote multi-user runtime.
 
 These are later phases. Phase 2 only prepares the runtime boundary they need.
+
+## Open Decisions Before Implementation
+
+These points should be confirmed before starting Phase 2 implementation:
+
+- Whether the local HTTP API listens only inside the Wails process or also binds
+  a loopback port for browser/headless clients.
+- Whether Wails calls the runtime service directly, calls the local HTTP API, or
+  supports both through one client transport abstraction.
+- Whether turn audit data is stored only in existing session/message tables for
+  Phase 2 or gets a small dedicated audit table.
+- Whether MCP server editing in Phase 2 supports full config editing or starts
+  with list, status, refresh, enable, and disable only.
+- Whether skill enable/disable is limited to `options.disabled_skills` or also
+  includes per-session capability filtering.
 
 ## Implementation Order
 
