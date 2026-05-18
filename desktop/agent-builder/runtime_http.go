@@ -191,6 +191,22 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req.Name = name
 		value, err := s.service.SetSkillEnabled(r.Context(), req)
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/mcp/servers":
+		value, err := s.service.MCPServers(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/mcp/servers/") && strings.HasSuffix(r.URL.Path, "/refresh"):
+		name := trimPathID(r.URL.Path, "/v1/mcp/servers/", "/refresh")
+		value, err := s.service.RefreshMCPServer(r.Context(), name)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/mcp/servers/") && strings.HasSuffix(r.URL.Path, "/tools"):
+		value, err := s.service.MCPTools(r.Context(), trimPathID(r.URL.Path, "/v1/mcp/servers/", "/tools"))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/mcp/servers/") && strings.HasSuffix(r.URL.Path, "/resources"):
+		value, err := s.service.MCPResources(r.Context(), trimPathID(r.URL.Path, "/v1/mcp/servers/", "/resources"))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/mcp/servers/") && strings.HasSuffix(r.URL.Path, "/prompts"):
+		value, err := s.service.MCPPrompts(r.Context(), trimPathID(r.URL.Path, "/v1/mcp/servers/", "/prompts"))
+		writeRuntimeResult(w, value, err)
 	default:
 		http.NotFound(w, r)
 	}

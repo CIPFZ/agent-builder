@@ -107,6 +107,30 @@ func TestRuntimeHTTPServerRoutesSkillsToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesMCPServersToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		mcpServers: RuntimeMCPServersResponse{
+			Servers: []RuntimeMCPServer{{Name: "docs", Type: "http", State: "connected"}},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodGet, "/v1/mcp/servers", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.mcpServerCalls != 1 {
+		t.Fatalf("mcpServerCalls = %d, want 1", service.mcpServerCalls)
+	}
+}
+
 func TestRuntimeServiceAPIEndpointBindsLoopbackWithToken(t *testing.T) {
 	t.Parallel()
 

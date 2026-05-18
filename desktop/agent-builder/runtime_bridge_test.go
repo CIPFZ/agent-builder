@@ -248,6 +248,40 @@ func TestRuntimeSkillsFromConfigIncludesBuiltinAndDisabledState(t *testing.T) {
 	}
 }
 
+func TestRuntimeMCPServersFromConfigRedactsSecrets(t *testing.T) {
+	t.Parallel()
+
+	store := config.NewTestStore(&config.Config{
+		MCP: config.MCPs{
+			"docs": {
+				Type:    config.MCPHttp,
+				URL:     "https://user:secret@example.com/mcp",
+				Headers: map[string]string{"Authorization": "Bearer secret-token", "X-Team": "docs"},
+				Env:     map[string]string{"API_TOKEN": "secret-token", "MODE": "test"},
+			},
+		},
+		Options: &config.Options{},
+	})
+
+	resp := runtimeMCPServersFromConfig(store)
+	if len(resp.Servers) != 1 {
+		t.Fatalf("servers = %#v", resp.Servers)
+	}
+	server := resp.Servers[0]
+	if server.URL != "[REDACTED_URL]" {
+		t.Fatalf("URL = %q, want redacted", server.URL)
+	}
+	if server.Headers["Authorization"] != "[REDACTED]" {
+		t.Fatalf("Authorization header was not redacted: %#v", server.Headers)
+	}
+	if server.Headers["X-Team"] != "docs" {
+		t.Fatalf("non-secret header was redacted: %#v", server.Headers)
+	}
+	if server.Env["API_TOKEN"] != "[REDACTED]" || server.Env["MODE"] != "test" {
+		t.Fatalf("env redaction failed: %#v", server.Env)
+	}
+}
+
 func TestRuntimeSkillsFromConfigIncludesInvalidSkillDiagnostics(t *testing.T) {
 	t.Parallel()
 
@@ -583,11 +617,13 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 }
 
 type recordingRuntimeService struct {
-	chatCalls   int
-	statusCalls int
-	skillsCalls int
-	status      RuntimeStatus
-	skills      RuntimeSkillsResponse
+	chatCalls      int
+	statusCalls    int
+	skillsCalls    int
+	mcpServerCalls int
+	status         RuntimeStatus
+	skills         RuntimeSkillsResponse
+	mcpServers     RuntimeMCPServersResponse
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -646,6 +682,27 @@ func (s *recordingRuntimeService) RefreshSkills(context.Context) (RuntimeSkillsR
 
 func (s *recordingRuntimeService) SetSkillEnabled(context.Context, RuntimeSkillToggleRequest) (RuntimeSkillsResponse, error) {
 	return RuntimeSkillsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) MCPServers(context.Context) (RuntimeMCPServersResponse, error) {
+	s.mcpServerCalls++
+	return s.mcpServers, nil
+}
+
+func (s *recordingRuntimeService) RefreshMCPServer(context.Context, string) (RuntimeMCPServersResponse, error) {
+	return RuntimeMCPServersResponse{}, nil
+}
+
+func (s *recordingRuntimeService) MCPTools(context.Context, string) (RuntimeMCPToolsResponse, error) {
+	return RuntimeMCPToolsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) MCPResources(context.Context, string) (RuntimeMCPResourcesResponse, error) {
+	return RuntimeMCPResourcesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) MCPPrompts(context.Context, string) (RuntimeMCPPromptsResponse, error) {
+	return RuntimeMCPPromptsResponse{}, nil
 }
 
 func (s *recordingRuntimeService) DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error) {

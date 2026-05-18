@@ -17,6 +17,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/catwalk/pkg/catwalk"
+	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
 	crushlog "github.com/charmbracelet/crush/internal/log"
@@ -46,6 +47,11 @@ type RuntimeService interface {
 	Skills(context.Context) (RuntimeSkillsResponse, error)
 	RefreshSkills(context.Context) (RuntimeSkillsResponse, error)
 	SetSkillEnabled(context.Context, RuntimeSkillToggleRequest) (RuntimeSkillsResponse, error)
+	MCPServers(context.Context) (RuntimeMCPServersResponse, error)
+	RefreshMCPServer(context.Context, string) (RuntimeMCPServersResponse, error)
+	MCPTools(context.Context, string) (RuntimeMCPToolsResponse, error)
+	MCPResources(context.Context, string) (RuntimeMCPResourcesResponse, error)
+	MCPPrompts(context.Context, string) (RuntimeMCPPromptsResponse, error)
 	DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error)
 	Cancel(context.Context) (RuntimeStatus, error)
 	NewChat(context.Context, string) (RuntimeStatus, error)
@@ -223,6 +229,66 @@ type RuntimeSkillToggleRequest struct {
 	Enabled bool   `json:"enabled"`
 }
 
+type RuntimeMCPCounts struct {
+	Tools     int `json:"tools"`
+	Prompts   int `json:"prompts"`
+	Resources int `json:"resources"`
+}
+
+type RuntimeMCPServer struct {
+	Name          string            `json:"name"`
+	Type          string            `json:"type"`
+	URL           string            `json:"url,omitempty"`
+	Command       string            `json:"command,omitempty"`
+	Args          []string          `json:"args,omitempty"`
+	Disabled      bool              `json:"disabled"`
+	State         string            `json:"state"`
+	Counts        RuntimeMCPCounts  `json:"counts"`
+	Error         string            `json:"error,omitempty"`
+	Env           map[string]string `json:"env,omitempty"`
+	Headers       map[string]string `json:"headers,omitempty"`
+	EnabledTools  []string          `json:"enabled_tools,omitempty"`
+	DisabledTools []string          `json:"disabled_tools,omitempty"`
+}
+
+type RuntimeMCPServersResponse struct {
+	Servers []RuntimeMCPServer `json:"servers"`
+}
+
+type RuntimeMCPTool struct {
+	Server      string `json:"server"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Enabled     bool   `json:"enabled"`
+	InputSchema any    `json:"input_schema,omitempty"`
+}
+
+type RuntimeMCPToolsResponse struct {
+	Tools []RuntimeMCPTool `json:"tools"`
+}
+
+type RuntimeMCPResource struct {
+	Server      string `json:"server"`
+	URI         string `json:"uri"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	MIMEType    string `json:"mime_type,omitempty"`
+}
+
+type RuntimeMCPResourcesResponse struct {
+	Resources []RuntimeMCPResource `json:"resources"`
+}
+
+type RuntimeMCPPrompt struct {
+	Server      string `json:"server"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+type RuntimeMCPPromptsResponse struct {
+	Prompts []RuntimeMCPPrompt `json:"prompts"`
+}
+
 type RuntimeModelConfig struct {
 	Protocol   string   `json:"protocol"`
 	URL        string   `json:"url"`
@@ -374,6 +440,26 @@ func (r *RuntimeBridge) RefreshSkills(ctx context.Context) (RuntimeSkillsRespons
 
 func (r *RuntimeBridge) SetSkillEnabled(ctx context.Context, req RuntimeSkillToggleRequest) (RuntimeSkillsResponse, error) {
 	return r.service.SetSkillEnabled(ctx, req)
+}
+
+func (r *RuntimeBridge) MCPServers(ctx context.Context) (RuntimeMCPServersResponse, error) {
+	return r.service.MCPServers(ctx)
+}
+
+func (r *RuntimeBridge) RefreshMCPServer(ctx context.Context, name string) (RuntimeMCPServersResponse, error) {
+	return r.service.RefreshMCPServer(ctx, name)
+}
+
+func (r *RuntimeBridge) MCPTools(ctx context.Context, name string) (RuntimeMCPToolsResponse, error) {
+	return r.service.MCPTools(ctx, name)
+}
+
+func (r *RuntimeBridge) MCPResources(ctx context.Context, name string) (RuntimeMCPResourcesResponse, error) {
+	return r.service.MCPResources(ctx, name)
+}
+
+func (r *RuntimeBridge) MCPPrompts(ctx context.Context, name string) (RuntimeMCPPromptsResponse, error) {
+	return r.service.MCPPrompts(ctx, name)
 }
 
 func (r *RuntimeBridge) APIEndpoint(ctx context.Context) (RuntimeAPIEndpointResponse, error) {
@@ -734,6 +820,73 @@ func (r *runtimeService) SetSkillEnabled(ctx context.Context, req RuntimeSkillTo
 		},
 	})
 	return r.refreshSkills(ctx, true)
+}
+
+func (r *runtimeService) MCPServers(ctx context.Context) (RuntimeMCPServersResponse, error) {
+	cfg, _, err := r.workspaceConfig(ctx)
+	if err != nil {
+		return RuntimeMCPServersResponse{}, err
+	}
+	return runtimeMCPServersFromConfig(cfg), nil
+}
+
+func (r *runtimeService) RefreshMCPServer(ctx context.Context, name string) (RuntimeMCPServersResponse, error) {
+	cfg, wsID, err := r.workspaceConfig(ctx)
+	if err != nil {
+		return RuntimeMCPServersResponse{}, err
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return RuntimeMCPServersResponse{}, errors.New("mcp server name is required")
+	}
+	r.runtime.RefreshMCPTools(ctx, wsID, name)
+	r.runtime.MCPRefreshPrompts(ctx, wsID, name)
+	r.runtime.MCPRefreshResources(ctx, wsID, name)
+	r.publishRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventMCPToolsUpdated,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Payload: map[string]any{
+			"name": name,
+		},
+	})
+	return runtimeMCPServersFromConfig(cfg), nil
+}
+
+func (r *runtimeService) MCPTools(ctx context.Context, name string) (RuntimeMCPToolsResponse, error) {
+	cfg, _, err := r.workspaceConfig(ctx)
+	if err != nil {
+		return RuntimeMCPToolsResponse{}, err
+	}
+	return runtimeMCPToolsFromConfig(cfg, strings.TrimSpace(name)), nil
+}
+
+func (r *runtimeService) MCPResources(ctx context.Context, name string) (RuntimeMCPResourcesResponse, error) {
+	if _, _, err := r.workspaceConfig(ctx); err != nil {
+		return RuntimeMCPResourcesResponse{}, err
+	}
+	return runtimeMCPResources(strings.TrimSpace(name)), nil
+}
+
+func (r *runtimeService) MCPPrompts(ctx context.Context, name string) (RuntimeMCPPromptsResponse, error) {
+	if _, _, err := r.workspaceConfig(ctx); err != nil {
+		return RuntimeMCPPromptsResponse{}, err
+	}
+	return runtimeMCPPrompts(strings.TrimSpace(name)), nil
+}
+
+func (r *runtimeService) workspaceConfig(ctx context.Context) (*config.ConfigStore, string, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return nil, "", err
+	}
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	r.mu.Unlock()
+	ws, err := r.runtime.GetWorkspace(wsID)
+	if err != nil {
+		return nil, "", err
+	}
+	return ws.Cfg, wsID, nil
 }
 
 func (r *runtimeService) refreshSkills(ctx context.Context, publish bool) (RuntimeSkillsResponse, error) {
@@ -1606,6 +1759,151 @@ func runtimeSkillsFromConfig(store *config.ConfigStore) RuntimeSkillsResponse {
 		return strings.Compare(strings.ToLower(a.Path), strings.ToLower(b.Path))
 	})
 	return RuntimeSkillsResponse{Skills: result}
+}
+
+func runtimeMCPServersFromConfig(store *config.ConfigStore) RuntimeMCPServersResponse {
+	states := mcptools.GetStates()
+	servers := make([]RuntimeMCPServer, 0, len(store.Config().MCP))
+	for _, item := range store.Config().MCP.Sorted() {
+		cfg := item.MCP
+		state := "disabled"
+		var counts RuntimeMCPCounts
+		var errorText string
+		if !cfg.Disabled {
+			state = "starting"
+			if info, ok := states[item.Name]; ok {
+				state = info.State.String()
+				counts = RuntimeMCPCounts{
+					Tools:     info.Counts.Tools,
+					Prompts:   info.Counts.Prompts,
+					Resources: info.Counts.Resources,
+				}
+				if info.Error != nil {
+					errorText = info.Error.Error()
+				}
+			}
+		}
+		servers = append(servers, RuntimeMCPServer{
+			Name:          item.Name,
+			Type:          string(cfg.Type),
+			URL:           redactURL(cfg.URL),
+			Command:       cfg.Command,
+			Args:          slices.Clone(cfg.Args),
+			Disabled:      cfg.Disabled,
+			State:         state,
+			Counts:        counts,
+			Error:         errorText,
+			Env:           redactMap(cfg.Env),
+			Headers:       redactMap(cfg.Headers),
+			EnabledTools:  slices.Clone(cfg.EnabledTools),
+			DisabledTools: slices.Clone(cfg.DisabledTools),
+		})
+	}
+	return RuntimeMCPServersResponse{Servers: servers}
+}
+
+func runtimeMCPToolsFromConfig(store *config.ConfigStore, server string) RuntimeMCPToolsResponse {
+	var tools []RuntimeMCPTool
+	for name, serverTools := range mcptools.Tools() {
+		if server != "" && name != server {
+			continue
+		}
+		cfg := store.Config().MCP[name]
+		for _, tool := range serverTools {
+			tools = append(tools, RuntimeMCPTool{
+				Server:      name,
+				Name:        tool.Name,
+				Description: tool.Description,
+				Enabled:     mcpToolEnabled(cfg, tool.Name),
+				InputSchema: tool.InputSchema,
+			})
+		}
+	}
+	slices.SortStableFunc(tools, func(a, b RuntimeMCPTool) int {
+		if c := strings.Compare(a.Server, b.Server); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	return RuntimeMCPToolsResponse{Tools: tools}
+}
+
+func runtimeMCPResources(server string) RuntimeMCPResourcesResponse {
+	var resources []RuntimeMCPResource
+	for name, serverResources := range mcptools.Resources() {
+		if server != "" && name != server {
+			continue
+		}
+		for _, resource := range serverResources {
+			resources = append(resources, RuntimeMCPResource{
+				Server:      name,
+				URI:         resource.URI,
+				Name:        resource.Name,
+				Description: resource.Description,
+				MIMEType:    resource.MIMEType,
+			})
+		}
+	}
+	return RuntimeMCPResourcesResponse{Resources: resources}
+}
+
+func runtimeMCPPrompts(server string) RuntimeMCPPromptsResponse {
+	var prompts []RuntimeMCPPrompt
+	for name, serverPrompts := range mcptools.Prompts() {
+		if server != "" && name != server {
+			continue
+		}
+		for _, prompt := range serverPrompts {
+			prompts = append(prompts, RuntimeMCPPrompt{
+				Server:      name,
+				Name:        prompt.Name,
+				Description: prompt.Description,
+			})
+		}
+	}
+	return RuntimeMCPPromptsResponse{Prompts: prompts}
+}
+
+func mcpToolEnabled(cfg config.MCPConfig, name string) bool {
+	if len(cfg.EnabledTools) > 0 && !slices.Contains(cfg.EnabledTools, name) {
+		return false
+	}
+	return !slices.Contains(cfg.DisabledTools, name)
+}
+
+func redactMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	redacted := make(map[string]string, len(values))
+	for key, value := range values {
+		if shouldRedact(key, value) {
+			redacted[key] = "[REDACTED]"
+			continue
+		}
+		redacted[key] = value
+	}
+	return redacted
+}
+
+func redactURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if strings.Contains(raw, "@") {
+		return "[REDACTED_URL]"
+	}
+	return raw
+}
+
+func shouldRedact(key, value string) bool {
+	normalized := strings.ToLower(key + " " + value)
+	for _, marker := range []string{"authorization", "api_key", "apikey", "token", "secret", "password", "bearer "} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func toProtoPermissionRequest(perm permission.PermissionRequest) proto.PermissionRequest {
