@@ -201,9 +201,37 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/mcp/servers":
 		value, err := s.service.MCPServers(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/v1/mcp/servers/"):
+		name := strings.TrimPrefix(r.URL.Path, "/v1/mcp/servers/")
+		var req RuntimeMCPServerConfigRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		req.Name = name
+		value, err := s.service.SaveMCPServer(r.Context(), req)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/mcp/servers/") && strings.HasSuffix(r.URL.Path, "/refresh"):
 		name := trimPathID(r.URL.Path, "/v1/mcp/servers/", "/refresh")
 		value, err := s.service.RefreshMCPServer(r.Context(), name)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/mcp/servers/") && strings.Contains(r.URL.Path, "/tools/") && strings.HasSuffix(r.URL.Path, "/enabled"):
+		server, tool := mcpToolEnabledPathIDs(r.URL.Path)
+		var req RuntimeMCPToolToggleRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		req.Server = server
+		req.Tool = tool
+		value, err := s.service.SetMCPToolEnabled(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/mcp/servers/") && strings.HasSuffix(r.URL.Path, "/enabled"):
+		name := trimPathID(r.URL.Path, "/v1/mcp/servers/", "/enabled")
+		var req RuntimeMCPServerToggleRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		req.Name = name
+		value, err := s.service.SetMCPServerEnabled(r.Context(), req)
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/mcp/servers/") && strings.HasSuffix(r.URL.Path, "/tools"):
 		value, err := s.service.MCPTools(r.Context(), trimPathID(r.URL.Path, "/v1/mcp/servers/", "/tools"))
@@ -341,4 +369,18 @@ func trimPathID(path, prefix, suffix string) string {
 		return ""
 	}
 	return id
+}
+
+func mcpToolEnabledPathIDs(path string) (string, string) {
+	const prefix = "/v1/mcp/servers/"
+	const suffix = "/enabled"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return "", ""
+	}
+	rest := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	parts := strings.Split(rest, "/tools/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || strings.Contains(parts[0], "/") || strings.Contains(parts[1], "/") {
+		return "", ""
+	}
+	return parts[0], parts[1]
 }

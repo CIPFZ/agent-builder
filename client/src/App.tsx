@@ -54,11 +54,18 @@ import {
   requestRuntimeAudit,
   requestRuntimeMessages,
   requestRuntimeMcpServers,
+  requestRuntimeMcpTools,
   requestRuntimePermissions,
   requestRuntimeSkills,
   requestRuntimeStatus,
+  refreshRuntimeMcpServer,
+  refreshRuntimeSkills,
   saveModelConfig,
+  saveRuntimeMcpServer,
   sendRuntimePrompt,
+  setRuntimeMcpServerEnabled,
+  setRuntimeMcpToolEnabled,
+  setRuntimeSkillEnabled,
   startRuntimeChat,
   verifyModelConfig,
 } from './api/chat'
@@ -71,6 +78,8 @@ import type {
   RuntimeMessage,
   RuntimeMessagePart,
   RuntimeMcpServer,
+  RuntimeMcpServerConfig,
+  RuntimeMcpTool,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
   RuntimeSkill,
@@ -132,6 +141,7 @@ function AppContent() {
   const [events, setEvents] = useState<RuntimeEvent[]>([])
   const [skills, setSkills] = useState<RuntimeSkill[]>([])
   const [mcpServers, setMcpServers] = useState<RuntimeMcpServer[]>([])
+  const [mcpToolsByServer, setMcpToolsByServer] = useState<Record<string, RuntimeMcpTool[]>>({})
   const [capabilities, setCapabilities] = useState<RuntimeCapability[]>([])
   const [input, setInput] = useState('')
   const [config, setConfig] = useState<ModelConfig>(defaultConfig)
@@ -185,6 +195,12 @@ function AppContent() {
     setSkills(nextSkills)
     setMcpServers(nextMcpServers)
     setCapabilities(nextCapabilities)
+  }
+
+  const refreshMcpTools = async (server: string) => {
+    const tools = await requestRuntimeMcpTools(server)
+    setMcpToolsByServer((current) => ({ ...current, [server]: tools }))
+    return tools
   }
 
   const refreshAudit = async (turnId?: string) => {
@@ -611,9 +627,48 @@ function AppContent() {
         auditEvents={auditEvents}
         events={events}
         mcpServers={mcpServers}
+        mcpToolsByServer={mcpToolsByServer}
         open={operationsOpen}
         skills={skills}
+        onEditMcpServer={async (config) => {
+          const nextServers = await saveRuntimeMcpServer(config)
+          setMcpServers(nextServers)
+          await refreshRuntimeInventory()
+          message.success('MCP server saved')
+        }}
         onRefreshAudit={() => refreshAudit()}
+        onRefreshMcpServer={async (server) => {
+          const nextServers = await refreshRuntimeMcpServer(server)
+          setMcpServers(nextServers)
+          await refreshMcpTools(server).catch(() => undefined)
+          await refreshRuntimeInventory()
+          message.success('MCP server refreshed')
+        }}
+        onRefreshSkills={async () => {
+          const nextSkills = await refreshRuntimeSkills()
+          setSkills(nextSkills)
+          await refreshRuntimeInventory()
+          message.success('Skills refreshed')
+        }}
+        onToggleMcpServer={async (server, enabled) => {
+          const nextServers = await setRuntimeMcpServerEnabled(server, enabled)
+          setMcpServers(nextServers)
+          await refreshRuntimeInventory()
+          message.success(enabled ? 'MCP server enabled' : 'MCP server disabled')
+        }}
+        onToggleMcpTool={async (server, tool, enabled) => {
+          const nextTools = await setRuntimeMcpToolEnabled(server, tool, enabled)
+          setMcpToolsByServer((current) => ({ ...current, [server]: nextTools }))
+          await refreshRuntimeInventory()
+          message.success(enabled ? 'MCP tool allowed' : 'MCP tool denied')
+        }}
+        onToggleSkill={async (name, enabled) => {
+          const nextSkills = await setRuntimeSkillEnabled(name, enabled)
+          setSkills(nextSkills)
+          await refreshRuntimeInventory()
+          message.success(enabled ? 'Skill enabled' : 'Skill disabled')
+        }}
+        onViewMcpTools={(server) => refreshMcpTools(server)}
         onClose={() => setOperationsOpen(false)}
       />
     </div>
@@ -901,18 +956,34 @@ function OperationsPreview({
   capabilities,
   events,
   mcpServers,
+  mcpToolsByServer,
   open,
   skills,
+  onEditMcpServer,
   onRefreshAudit,
+  onRefreshMcpServer,
+  onRefreshSkills,
+  onToggleMcpServer,
+  onToggleMcpTool,
+  onToggleSkill,
+  onViewMcpTools,
   onClose,
 }: {
   auditEvents: RuntimeAuditEvent[]
   capabilities: RuntimeCapability[]
   events: RuntimeEvent[]
   mcpServers: RuntimeMcpServer[]
+  mcpToolsByServer: Record<string, RuntimeMcpTool[]>
   open: boolean
   skills: RuntimeSkill[]
+  onEditMcpServer: (config: RuntimeMcpServerConfig) => Promise<void>
   onRefreshAudit: () => void
+  onRefreshMcpServer: (server: string) => Promise<void>
+  onRefreshSkills: () => Promise<void>
+  onToggleMcpServer: (server: string, enabled: boolean) => Promise<void>
+  onToggleMcpTool: (server: string, tool: string, enabled: boolean) => Promise<void>
+  onToggleSkill: (name: string, enabled: boolean) => Promise<void>
+  onViewMcpTools: (server: string) => Promise<RuntimeMcpTool[]>
   onClose: () => void
 }) {
   const enabledSkills = skills.filter((skill) => skill.enabled).length
@@ -951,12 +1022,22 @@ function OperationsPreview({
           {
             key: 'skills',
             label: 'Skills',
-            children: <RuntimeSkillList skills={skills} />,
+            children: <RuntimeSkillList skills={skills} onRefresh={onRefreshSkills} onToggle={onToggleSkill} />,
           },
           {
             key: 'mcp',
             label: 'MCP servers',
-            children: <RuntimeMcpList servers={mcpServers} />,
+            children: (
+              <RuntimeMcpManager
+                servers={mcpServers}
+                toolsByServer={mcpToolsByServer}
+                onEdit={onEditMcpServer}
+                onRefresh={onRefreshMcpServer}
+                onToggle={onToggleMcpServer}
+                onToggleTool={onToggleMcpTool}
+                onViewTools={onViewMcpTools}
+              />
+            ),
           },
           {
             key: 'capabilities',
@@ -998,16 +1079,30 @@ function RuntimeAuditList({ events, onRefresh }: { events: RuntimeAuditEvent[]; 
   )
 }
 
-function RuntimeSkillList({ skills }: { skills: RuntimeSkill[] }) {
-  if (skills.length === 0) return <Text type="secondary">No skills discovered.</Text>
+function RuntimeSkillList({
+  skills,
+  onRefresh,
+  onToggle,
+}: {
+  skills: RuntimeSkill[]
+  onRefresh: () => Promise<void>
+  onToggle: (name: string, enabled: boolean) => Promise<void>
+}) {
   return (
     <div className="runtime-list">
+      <Button size="small" icon={<ReloadOutlined />} onClick={() => onRefresh()}>
+        Refresh skills
+      </Button>
+      {skills.length === 0 ? <Text type="secondary">No skills discovered.</Text> : null}
       {skills.slice(0, 12).map((skill) => (
         <div className="runtime-list-row" key={`${skill.name}-${skill.path ?? ''}`}>
           <Space size={8}>
             <Tag color={skill.enabled ? 'green' : 'default'}>{skill.enabled ? 'enabled' : 'disabled'}</Tag>
             <Text strong>{skill.name}</Text>
             {skill.builtin ? <Tag>builtin</Tag> : null}
+            <Button size="small" onClick={() => onToggle(skill.name, !skill.enabled)}>
+              {skill.enabled ? 'Disable' : 'Enable'}
+            </Button>
           </Space>
           {skill.error ? <Text type="danger">{skill.error}</Text> : <Text type="secondary">{skill.description}</Text>}
         </div>
@@ -1016,7 +1111,7 @@ function RuntimeSkillList({ skills }: { skills: RuntimeSkill[] }) {
   )
 }
 
-function RuntimeMcpList({ servers }: { servers: RuntimeMcpServer[] }) {
+export function RuntimeMcpList({ servers }: { servers: RuntimeMcpServer[] }) {
   if (servers.length === 0) return <Text type="secondary">No MCP servers configured.</Text>
   return (
     <div className="runtime-list">
@@ -1035,6 +1130,164 @@ function RuntimeMcpList({ servers }: { servers: RuntimeMcpServer[] }) {
       ))}
     </div>
   )
+}
+
+function RuntimeMcpManager({
+  servers,
+  toolsByServer,
+  onEdit,
+  onRefresh,
+  onToggle,
+  onToggleTool,
+  onViewTools,
+}: {
+  servers: RuntimeMcpServer[]
+  toolsByServer: Record<string, RuntimeMcpTool[]>
+  onEdit: (config: RuntimeMcpServerConfig) => Promise<void>
+  onRefresh: (server: string) => Promise<void>
+  onToggle: (server: string, enabled: boolean) => Promise<void>
+  onToggleTool: (server: string, tool: string, enabled: boolean) => Promise<void>
+  onViewTools: (server: string) => Promise<RuntimeMcpTool[]>
+}) {
+  const [editing, setEditing] = useState<RuntimeMcpServer | null>(null)
+  const [form] = Form.useForm<RuntimeMcpServerConfig & { argsText?: string; envText?: string; headersText?: string }>()
+
+  const openEditor = (server?: RuntimeMcpServer) => {
+    const next = server ?? ({ name: '', type: 'http', disabled: false, state: 'disabled', counts: { tools: 0, prompts: 0, resources: 0 } } as RuntimeMcpServer)
+    setEditing(next)
+    form.setFieldsValue({
+      name: next.name,
+      type: next.type,
+      url: next.url ?? '',
+      command: next.command ?? '',
+      disabled: next.disabled,
+      argsText: (next.args ?? []).join('\n'),
+      envText: mapToLines(next.env),
+      headersText: mapToLines(next.headers),
+      enabled_tools: next.enabled_tools ?? [],
+      disabled_tools: next.disabled_tools ?? [],
+    })
+  }
+
+  return (
+    <div className="runtime-list">
+      <Button size="small" icon={<PlusOutlined />} onClick={() => openEditor()}>
+        Add MCP server
+      </Button>
+      {servers.length === 0 ? <Text type="secondary">No MCP servers configured.</Text> : null}
+      {servers.map((server) => (
+        <div className="runtime-list-row" key={server.name}>
+          <Space size={8}>
+            <Tag color={server.state === 'connected' ? 'green' : server.state === 'error' ? 'red' : 'default'}>{server.state}</Tag>
+            <Text strong>{server.name}</Text>
+            <Tag>{server.type}</Tag>
+            <Button size="small" onClick={() => onToggle(server.name, server.disabled)}>
+              {server.disabled ? 'Enable' : 'Disable'}
+            </Button>
+            <Button size="small" icon={<ReloadOutlined />} onClick={() => onRefresh(server.name)} />
+            <Button size="small" onClick={() => openEditor(server)}>
+              Edit
+            </Button>
+            <Button size="small" onClick={() => onViewTools(server.name)}>
+              Tools
+            </Button>
+          </Space>
+          <Text type="secondary">
+            tools {server.counts.tools} / prompts {server.counts.prompts} / resources {server.counts.resources}
+          </Text>
+          {server.error ? <Text type="danger">{server.error}</Text> : null}
+          {(toolsByServer[server.name] ?? []).map((tool) => (
+            <div className="runtime-list-row compact" key={`${server.name}-${tool.name}`}>
+              <Space size={8}>
+                <Tag color={tool.enabled ? 'green' : 'default'}>{tool.enabled ? 'allowed' : 'denied'}</Tag>
+                <Text>{tool.name}</Text>
+                <Button size="small" onClick={() => onToggleTool(server.name, tool.name, !tool.enabled)}>
+                  {tool.enabled ? 'Deny' : 'Allow'}
+                </Button>
+              </Space>
+              {tool.description ? <Text type="secondary">{tool.description}</Text> : null}
+            </div>
+          ))}
+        </div>
+      ))}
+      <Modal
+        title="MCP server"
+        open={editing !== null}
+        onCancel={() => setEditing(null)}
+        onOk={() => {
+          form.validateFields().then(async (values) => {
+            await onEdit({
+              name: values.name,
+              type: values.type,
+              url: values.url,
+              command: values.command,
+              disabled: values.disabled,
+              args: linesToList(values.argsText),
+              env: linesToMap(values.envText),
+              headers: linesToMap(values.headersText),
+              enabled_tools: values.enabled_tools,
+              disabled_tools: values.disabled_tools,
+            })
+            setEditing(null)
+          })
+        }}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item label="Name" name="name" rules={[{ required: true }]}>
+            <Input disabled={Boolean(editing?.name)} placeholder="docs" />
+          </Form.Item>
+          <Form.Item label="Type" name="type" rules={[{ required: true }]}>
+            <Select options={['http', 'sse', 'stdio'].map((value) => ({ label: value, value }))} />
+          </Form.Item>
+          <Form.Item label="URL" name="url">
+            <Input placeholder="https://example.com/mcp" />
+          </Form.Item>
+          <Form.Item label="Command" name="command">
+            <Input placeholder="npx" />
+          </Form.Item>
+          <Form.Item label="Args" name="argsText">
+            <TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder={'--yes\n@modelcontextprotocol/server'} />
+          </Form.Item>
+          <Form.Item label="Env" name="envText">
+            <TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="API_TOKEN=$MCP_TOKEN" />
+          </Form.Item>
+          <Form.Item label="Headers" name="headersText">
+            <TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="Authorization=Bearer $MCP_TOKEN" />
+          </Form.Item>
+          <Form.Item label="Enabled tools" name="enabled_tools">
+            <Select mode="tags" tokenSeparators={[',']} />
+          </Form.Item>
+          <Form.Item label="Disabled tools" name="disabled_tools">
+            <Select mode="tags" tokenSeparators={[',']} />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </div>
+  )
+}
+
+function mapToLines(values?: Record<string, string>) {
+  if (!values) return ''
+  return Object.entries(values)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n')
+}
+
+function linesToList(value?: string) {
+  return (value ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+}
+
+function linesToMap(value?: string) {
+  const result: Record<string, string> = {}
+  for (const line of linesToList(value)) {
+    const index = line.indexOf('=')
+    if (index <= 0) continue
+    result[line.slice(0, index).trim()] = line.slice(index + 1)
+  }
+  return Object.keys(result).length > 0 ? result : undefined
 }
 
 function RuntimeCapabilityList({ capabilities }: { capabilities: RuntimeCapability[] }) {

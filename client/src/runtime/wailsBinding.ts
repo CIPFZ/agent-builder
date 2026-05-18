@@ -4,6 +4,8 @@ import type {
   RuntimeCapability,
   RuntimeAuditEvent,
   RuntimeEvent,
+  RuntimeMcpServerConfig,
+  RuntimeMcpTool,
   RuntimeMcpServer,
   RuntimeMessage,
   RuntimeModel,
@@ -25,11 +27,18 @@ type WailsRuntimeBridge = {
   EventsEndpoint: () => Promise<{ url: string }>
   GetModelConfig: () => Promise<{ config: RuntimeModelConfig }>
   MCPServers: () => Promise<{ servers: RuntimeMcpServer[] }>
+  MCPTools: (server: string) => Promise<{ tools: RuntimeMcpTool[] }>
   Messages: () => Promise<{ messages: RuntimeMessage[] }>
   Models: () => Promise<{ models: RuntimeModel[] }>
   NewChat: (title: string) => Promise<RuntimeStatus>
   Permissions: () => Promise<{ permissions: RuntimePermissionRequest[] }>
+  RefreshMCPServer: (server: string) => Promise<{ servers: RuntimeMcpServer[] }>
+  RefreshSkills: () => Promise<{ skills: RuntimeSkill[] }>
   SaveModelConfig: (request: RuntimeModelConfig) => Promise<{ config: RuntimeModelConfig }>
+  SaveMCPServer: (request: RuntimeMcpServerConfig) => Promise<{ servers: RuntimeMcpServer[] }>
+  SetMCPServerEnabled: (request: { name: string; enabled: boolean }) => Promise<{ servers: RuntimeMcpServer[] }>
+  SetMCPToolEnabled: (request: { server: string; tool: string; enabled: boolean }) => Promise<{ tools: RuntimeMcpTool[] }>
+  SetSkillEnabled: (request: { name: string; enabled: boolean }) => Promise<{ skills: RuntimeSkill[] }>
   Skills: () => Promise<{ skills: RuntimeSkill[] }>
   Status: () => Promise<RuntimeStatus>
   VerifyModelConfig: (request: RuntimeModelConfig) => Promise<RuntimeModelVerifyResponse>

@@ -295,6 +295,59 @@ func TestRuntimeMCPServersFromConfigRedactsSecrets(t *testing.T) {
 	}
 }
 
+func TestRuntimeMCPConfigFromRequestPreservesArgsAndRedactsResponse(t *testing.T) {
+	t.Parallel()
+
+	name, cfg, err := runtimeMCPConfigFromRequest(RuntimeMCPServerConfigRequest{
+		Name:          "docs",
+		Type:          "http",
+		URL:           "https://example.com/mcp",
+		Args:          []string{"--token", "$TOKEN"},
+		EnabledTools:  []string{"search", "search"},
+		DisabledTools: []string{"write"},
+		Headers:       map[string]string{"Authorization": "Bearer secret", "X-Team": "docs"},
+		Env:           map[string]string{"API_TOKEN": "secret", "MODE": "test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "docs" {
+		t.Fatalf("name = %q", name)
+	}
+	if got := strings.Join(cfg.Args, " "); got != "--token $TOKEN" {
+		t.Fatalf("args order changed: %#v", cfg.Args)
+	}
+	if len(cfg.EnabledTools) != 1 || cfg.EnabledTools[0] != "search" {
+		t.Fatalf("enabled tools = %#v", cfg.EnabledTools)
+	}
+
+	resp := runtimeMCPServersFromConfig(config.NewTestStore(&config.Config{
+		MCP:     config.MCPs{name: cfg},
+		Options: &config.Options{},
+	}))
+	server := resp.Servers[0]
+	if server.Headers["Authorization"] != "[REDACTED]" || server.Headers["X-Team"] != "docs" {
+		t.Fatalf("headers were not redacted correctly: %#v", server.Headers)
+	}
+	if server.Env["API_TOKEN"] != "[REDACTED]" || server.Env["MODE"] != "test" {
+		t.Fatalf("env was not redacted correctly: %#v", server.Env)
+	}
+}
+
+func TestRuntimeMCPConfigFromRequestValidatesNameAndRequiredFields(t *testing.T) {
+	t.Parallel()
+
+	if _, _, err := runtimeMCPConfigFromRequest(RuntimeMCPServerConfigRequest{Name: "bad/name", Type: "http", URL: "https://example.com"}); err == nil {
+		t.Fatal("expected invalid name error")
+	}
+	if _, _, err := runtimeMCPConfigFromRequest(RuntimeMCPServerConfigRequest{Name: "docs", Type: "http"}); err == nil {
+		t.Fatal("expected missing url error")
+	}
+	if _, _, err := runtimeMCPConfigFromRequest(RuntimeMCPServerConfigRequest{Name: "docs", Type: "stdio"}); err == nil {
+		t.Fatal("expected missing command error")
+	}
+}
+
 func TestRuntimeCapabilitiesIncludeToolsSkillsAndMCP(t *testing.T) {
 	t.Parallel()
 
@@ -668,14 +721,17 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 }
 
 type recordingRuntimeService struct {
-	chatCalls      int
-	statusCalls    int
-	skillsCalls    int
-	mcpServerCalls int
-	status         RuntimeStatus
-	skills         RuntimeSkillsResponse
-	mcpServers     RuntimeMCPServersResponse
-	capabilities   RuntimeCapabilitiesResponse
+	chatCalls        int
+	statusCalls      int
+	skillsCalls      int
+	mcpServerCalls   int
+	status           RuntimeStatus
+	skills           RuntimeSkillsResponse
+	mcpServers       RuntimeMCPServersResponse
+	capabilities     RuntimeCapabilitiesResponse
+	savedMCPServer   RuntimeMCPServerConfigRequest
+	toggledMCPServer RuntimeMCPServerToggleRequest
+	toggledMCPTool   RuntimeMCPToolToggleRequest
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -749,8 +805,23 @@ func (s *recordingRuntimeService) MCPServers(context.Context) (RuntimeMCPServers
 	return s.mcpServers, nil
 }
 
+func (s *recordingRuntimeService) SaveMCPServer(_ context.Context, req RuntimeMCPServerConfigRequest) (RuntimeMCPServersResponse, error) {
+	s.savedMCPServer = req
+	return RuntimeMCPServersResponse{Servers: []RuntimeMCPServer{{Name: req.Name, Type: req.Type, URL: redactURL(req.URL), Headers: redactMap(req.Headers), Env: redactMap(req.Env)}}}, nil
+}
+
+func (s *recordingRuntimeService) SetMCPServerEnabled(_ context.Context, req RuntimeMCPServerToggleRequest) (RuntimeMCPServersResponse, error) {
+	s.toggledMCPServer = req
+	return RuntimeMCPServersResponse{}, nil
+}
+
 func (s *recordingRuntimeService) RefreshMCPServer(context.Context, string) (RuntimeMCPServersResponse, error) {
 	return RuntimeMCPServersResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SetMCPToolEnabled(_ context.Context, req RuntimeMCPToolToggleRequest) (RuntimeMCPToolsResponse, error) {
+	s.toggledMCPTool = req
+	return RuntimeMCPToolsResponse{}, nil
 }
 
 func (s *recordingRuntimeService) MCPTools(context.Context, string) (RuntimeMCPToolsResponse, error) {

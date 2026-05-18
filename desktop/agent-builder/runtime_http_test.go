@@ -192,6 +192,56 @@ func TestRuntimeHTTPServerRoutesMCPServersToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesMCPEditingToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodPut, "/v1/mcp/servers/docs", strings.NewReader(`{
+  "type": "http",
+  "url": "https://example.com/mcp",
+  "headers": {"Authorization": "Bearer secret"}
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.savedMCPServer.Name != "docs" || service.savedMCPServer.URL != "https://example.com/mcp" {
+		t.Fatalf("saved mcp server = %#v", service.savedMCPServer)
+	}
+	if strings.Contains(resp.body.String(), "secret") {
+		t.Fatalf("mcp response leaked secret: %s", resp.body.String())
+	}
+}
+
+func TestRuntimeHTTPServerRoutesMCPToolToggleBeforeServerToggle(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodPost, "/v1/mcp/servers/docs/tools/search/enabled", strings.NewReader(`{"enabled":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.toggledMCPTool.Server != "docs" || service.toggledMCPTool.Tool != "search" || service.toggledMCPTool.Enabled {
+		t.Fatalf("tool toggle = %#v", service.toggledMCPTool)
+	}
+	if service.toggledMCPServer.Name != "" {
+		t.Fatalf("server toggle was called for tool route: %#v", service.toggledMCPServer)
+	}
+}
+
 func TestRuntimeServiceAPIEndpointBindsLoopbackWithToken(t *testing.T) {
 	t.Parallel()
 

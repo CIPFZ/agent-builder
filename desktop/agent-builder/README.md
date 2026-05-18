@@ -48,3 +48,24 @@ Manual sync:
 ```powershell
 node scripts/sync-client-dist.mjs --build-client
 ```
+
+## Phase 2 Smoke
+
+Run the repeatable packaged desktop smoke from the desktop project:
+
+```powershell
+.\scripts\phase2-smoke.ps1 -Build
+```
+
+The script builds `bin/AgentBuilder.exe`, uses a temporary
+`AGENT_BUILDER_DESKTOP_ROOT`, checks runtime API coverage, starts the packaged
+exe, and verifies runtime directories are created outside the repository
+runtime data directory.
+
+To include the live DeepSeek chat smoke, put the key in an environment variable
+instead of a checked-in file:
+
+```powershell
+$env:DEEPSEEK_API_KEY="..."
+.\scripts\phase2-smoke.ps1 -Build -Live
+```

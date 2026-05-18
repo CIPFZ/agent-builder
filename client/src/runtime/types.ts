@@ -75,6 +75,7 @@ export type RuntimeMcpServer = {
   type: string
   url?: string
   command?: string
+  args?: string[]
   disabled: boolean
   state: string
   counts: {
@@ -83,6 +84,31 @@ export type RuntimeMcpServer = {
     resources: number
   }
   error?: string
+  env?: Record<string, string>
+  headers?: Record<string, string>
+  enabled_tools?: string[]
+  disabled_tools?: string[]
+}
+
+export type RuntimeMcpServerConfig = {
+  name: string
+  type: string
+  url?: string
+  command?: string
+  args?: string[]
+  disabled?: boolean
+  env?: Record<string, string>
+  headers?: Record<string, string>
+  enabled_tools?: string[]
+  disabled_tools?: string[]
+}
+
+export type RuntimeMcpTool = {
+  server: string
+  name: string
+  description?: string
+  enabled: boolean
+  input_schema?: unknown
 }
 
 export type RuntimeCapability = {
@@ -190,12 +216,19 @@ export type AgentRuntime = {
   listCapabilities: () => Promise<RuntimeCapability[]>
   listEvents: () => Promise<RuntimeEvent[]>
   listMcpServers: () => Promise<RuntimeMcpServer[]>
+  listMcpTools: (server: string) => Promise<RuntimeMcpTool[]>
   listModels: () => Promise<RuntimeModel[]>
   listMessages: () => Promise<RuntimeMessage[]>
   listPermissions: () => Promise<RuntimePermissionRequest[]>
   listSkills: () => Promise<RuntimeSkill[]>
   newChat: (title: string) => Promise<RuntimeStatus>
+  refreshMcpServer: (server: string) => Promise<RuntimeMcpServer[]>
+  refreshSkills: () => Promise<RuntimeSkill[]>
   saveModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelConfig>
+  saveMcpServer: (config: RuntimeMcpServerConfig) => Promise<RuntimeMcpServer[]>
+  setMcpServerEnabled: (server: string, enabled: boolean) => Promise<RuntimeMcpServer[]>
+  setMcpToolEnabled: (server: string, tool: string, enabled: boolean) => Promise<RuntimeMcpTool[]>
+  setSkillEnabled: (name: string, enabled: boolean) => Promise<RuntimeSkill[]>
   status: () => Promise<RuntimeStatus>
   verifyModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelVerifyResponse>
 }

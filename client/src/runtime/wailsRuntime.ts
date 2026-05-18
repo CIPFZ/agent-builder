@@ -52,6 +52,12 @@ export const wailsRuntime: AgentRuntime = {
     return response.servers
   },
 
+  async listMcpTools(server) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.MCPTools(server)
+    return response.tools
+  },
+
   async listModels() {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.Models()
@@ -85,6 +91,42 @@ export const wailsRuntime: AgentRuntime = {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.SaveModelConfig(config)
     return response.config
+  },
+
+  async refreshMcpServer(server) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.RefreshMCPServer(server)
+    return response.servers
+  },
+
+  async refreshSkills() {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.RefreshSkills()
+    return response.skills
+  },
+
+  async saveMcpServer(config) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.SaveMCPServer(config)
+    return response.servers
+  },
+
+  async setMcpServerEnabled(server, enabled) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.SetMCPServerEnabled({ name: server, enabled })
+    return response.servers
+  },
+
+  async setMcpToolEnabled(server, tool, enabled) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.SetMCPToolEnabled({ server, tool, enabled })
+    return response.tools
+  },
+
+  async setSkillEnabled(name, enabled) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.SetSkillEnabled({ name, enabled })
+    return response.skills
   },
 
   async status() {

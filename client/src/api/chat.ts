@@ -1,5 +1,5 @@
 import { getAgentRuntime } from '../runtime'
-import type { RuntimePermissionDecision, RuntimeStatus } from '../runtime'
+import type { RuntimeMcpServerConfig, RuntimePermissionDecision, RuntimeStatus } from '../runtime'
 
 export type ModelConfig = {
   protocol: 'openai' | 'anthropic'
@@ -85,6 +85,10 @@ export async function requestRuntimeMcpServers() {
   return getAgentRuntime().listMcpServers()
 }
 
+export async function requestRuntimeMcpTools(server: string) {
+  return getAgentRuntime().listMcpTools(server)
+}
+
 export async function requestRuntimeCapabilities() {
   return getAgentRuntime().listCapabilities()
 }
@@ -99,6 +103,30 @@ export async function decideRuntimePermission(request: RuntimePermissionDecision
 
 export async function cancelRuntimeTurn() {
   return getAgentRuntime().cancel()
+}
+
+export async function refreshRuntimeSkills() {
+  return getAgentRuntime().refreshSkills()
+}
+
+export async function setRuntimeSkillEnabled(name: string, enabled: boolean) {
+  return getAgentRuntime().setSkillEnabled(name, enabled)
+}
+
+export async function refreshRuntimeMcpServer(server: string) {
+  return getAgentRuntime().refreshMcpServer(server)
+}
+
+export async function saveRuntimeMcpServer(config: RuntimeMcpServerConfig) {
+  return getAgentRuntime().saveMcpServer(config)
+}
+
+export async function setRuntimeMcpServerEnabled(server: string, enabled: boolean) {
+  return getAgentRuntime().setMcpServerEnabled(server, enabled)
+}
+
+export async function setRuntimeMcpToolEnabled(server: string, tool: string, enabled: boolean) {
+  return getAgentRuntime().setMcpToolEnabled(server, tool, enabled)
 }
 
 export async function startRuntimeChat(title: string) {
