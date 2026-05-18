@@ -308,17 +308,13 @@ func TestDispatch_DirectoryNotFile(t *testing.T) {
 // TestDispatch_BashShebang runs a #!/bin/bash script via os/exec. Skipped
 // if bash isn't available (rare in CI, but keep the test robust).
 func TestDispatch_BashShebang(t *testing.T) {
-	bash, err := exec.LookPath("bash")
-	if err != nil {
-		t.Skipf("bash not in PATH: %v", err)
-	}
-	_ = bash
+	requireUsableBash(t)
 
 	dir := t.TempDir()
 	script := writeScript(t, dir, "bash-echo.sh", "#!/usr/bin/env bash\necho bashout\n")
 
 	var stdout, stderr bytes.Buffer
-	err = Run(t.Context(), RunOptions{
+	err := Run(t.Context(), RunOptions{
 		Command: script,
 		Cwd:     dir,
 		Stdout:  &stdout,
@@ -335,9 +331,7 @@ func TestDispatch_BashShebang(t *testing.T) {
 // TestDispatch_ShebangPassesExitCode maps interpreter exit codes through to
 // interp.ExitStatus so the caller can inspect them with ExitCode.
 func TestDispatch_ShebangPassesExitCode(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skipf("bash not in PATH: %v", err)
-	}
+	requireUsableBash(t)
 	dir := t.TempDir()
 	script := writeScript(t, dir, "fail.sh", "#!/usr/bin/env bash\nexit 5\n")
 
@@ -350,6 +344,19 @@ func TestDispatch_ShebangPassesExitCode(t *testing.T) {
 	}
 	if code := ExitCode(err); code != 5 {
 		t.Fatalf("ExitCode = %d, want 5", code)
+	}
+}
+
+func requireUsableBash(t *testing.T) {
+	t.Helper()
+
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skipf("bash not in PATH: %v", err)
+	}
+	cmd := exec.Command(bash, "-c", "exit 0")
+	if err := cmd.Run(); err != nil {
+		t.Skipf("bash is not usable: %v", err)
 	}
 }
 

@@ -40,7 +40,7 @@ func (sb *syncBuffer) WriteString(s string) (n int, err error) {
 func (sb *syncBuffer) String() string {
 	sb.mu.RLock()
 	defer sb.mu.RUnlock()
-	return sb.buf.String()
+	return normalizeCommandOutput(sb.buf.String())
 }
 
 // BackgroundShell represents a shell running in the background.

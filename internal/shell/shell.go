@@ -281,7 +281,7 @@ func (s *Shell) execCommon(ctx context.Context, command string, stdout, stderr i
 func (s *Shell) exec(ctx context.Context, command string) (string, string, error) {
 	var stdout, stderr bytes.Buffer
 	err := s.execCommon(ctx, command, &stdout, &stderr)
-	return stdout.String(), stderr.String(), err
+	return normalizeCommandOutput(stdout.String()), normalizeCommandOutput(stderr.String()), err
 }
 
 // execStream executes commands using POSIX shell emulation with streaming output
