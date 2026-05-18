@@ -64,6 +64,7 @@ type runtimeService struct {
 	permissions map[string]pendingRuntimePermission
 	events      []RuntimeEvent
 	eventStream *runtimeSSEServer
+	httpAPI     *runtimeHTTPServer
 }
 
 type RuntimeStatus struct {
@@ -288,11 +289,13 @@ func NewRuntimeService() RuntimeService {
 }
 
 func newRuntimeService() *runtimeService {
-	return &runtimeService{
+	service := &runtimeService{
 		requests:    make(map[string]runtimeRequestState),
 		permissions: make(map[string]pendingRuntimePermission),
 		eventStream: newRuntimeSSEServer(),
 	}
+	service.httpAPI = newRuntimeHTTPServer(service)
+	return service
 }
 
 func (r *RuntimeBridge) Status(ctx context.Context) (RuntimeStatus, error) {
@@ -329,6 +332,16 @@ func (r *RuntimeBridge) Events(ctx context.Context) (RuntimeEventsResponse, erro
 
 func (r *RuntimeBridge) EventsEndpoint(ctx context.Context) (RuntimeEventsEndpointResponse, error) {
 	return r.service.EventsEndpoint(ctx)
+}
+
+func (r *RuntimeBridge) APIEndpoint(ctx context.Context) (RuntimeAPIEndpointResponse, error) {
+	service, ok := r.service.(interface {
+		APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error)
+	})
+	if !ok {
+		return RuntimeAPIEndpointResponse{}, errors.New("runtime service does not expose an HTTP API endpoint")
+	}
+	return service.APIEndpoint(ctx)
 }
 
 func (r *RuntimeBridge) DecidePermission(ctx context.Context, req RuntimePermissionDecision) (RuntimeStatus, error) {
@@ -605,6 +618,19 @@ func (r *runtimeService) EventsEndpoint(_ context.Context) (RuntimeEventsEndpoin
 		return RuntimeEventsEndpointResponse{}, err
 	}
 	return RuntimeEventsEndpointResponse{URL: r.eventStream.URL()}, nil
+}
+
+func (r *runtimeService) APIEndpoint(_ context.Context) (RuntimeAPIEndpointResponse, error) {
+	if r.httpAPI == nil {
+		r.httpAPI = newRuntimeHTTPServer(r)
+	}
+	if err := r.httpAPI.Start(); err != nil {
+		return RuntimeAPIEndpointResponse{}, err
+	}
+	return RuntimeAPIEndpointResponse{
+		URL:   r.httpAPI.URL(),
+		Token: r.httpAPI.Token(),
+	}, nil
 }
 
 func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermissionDecision) (RuntimeStatus, error) {

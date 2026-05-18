@@ -463,11 +463,14 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 }
 
 type recordingRuntimeService struct {
-	chatCalls int
+	chatCalls   int
+	statusCalls int
+	status      RuntimeStatus
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
-	return RuntimeStatus{}, nil
+	s.statusCalls++
+	return s.status, nil
 }
 
 func (s *recordingRuntimeService) Models(context.Context) (RuntimeModelsResponse, error) {
