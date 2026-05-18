@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/permission"
@@ -214,6 +215,125 @@ func TestRuntimeMessagePartsExposeToolActivity(t *testing.T) {
 	if got.Parts[1].Type != "tool_call" || got.Parts[1].ToolCallID != "tool-1" || got.Parts[1].Name != "ls" {
 		t.Fatalf("tool call part not exposed: %#v", got.Parts[1])
 	}
+}
+
+func TestRuntimeSkillsFromConfigIncludesBuiltinAndDisabledState(t *testing.T) {
+	t.Parallel()
+
+	store := config.NewTestStore(&config.Config{
+		Options: &config.Options{
+			DisabledSkills: []string{"crush-config"},
+		},
+	})
+
+	resp := runtimeSkillsFromConfig(store)
+	var found *RuntimeSkill
+	for i := range resp.Skills {
+		if resp.Skills[i].Name == "crush-config" {
+			found = &resp.Skills[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("builtin crush-config skill was not exposed")
+	}
+	if !found.Builtin {
+		t.Fatalf("Builtin = false for %#v", found)
+	}
+	if found.Enabled {
+		t.Fatalf("Enabled = true for disabled skill %#v", found)
+	}
+	if found.State != "normal" {
+		t.Fatalf("State = %q, want normal", found.State)
+	}
+}
+
+func TestRuntimeSkillsFromConfigIncludesInvalidSkillDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "bad-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("missing frontmatter"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := config.NewTestStore(&config.Config{
+		Options: &config.Options{
+			SkillsPaths: []string{root},
+		},
+	})
+
+	resp := runtimeSkillsFromConfig(store)
+	for _, skill := range resp.Skills {
+		if skill.State == "error" && strings.Contains(skill.Path, "SKILL.md") && skill.Error != "" {
+			return
+		}
+	}
+	t.Fatalf("invalid skill diagnostic missing from %#v", resp.Skills)
+}
+
+func TestRefreshSkillsPublishesDiscoveryEvents(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	runtime, workspace := backendForSkillTest(t)
+	service.runtime = runtime
+	service.workspace = &proto.Workspace{ID: workspace.ID}
+	service.sessionID = "session-1"
+
+	events, unsubscribe := service.SubscribeEvents(context.Background())
+	defer unsubscribe()
+
+	if _, err := service.RefreshSkills(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	seenStarted := false
+	seenCompleted := false
+	for i := 0; i < 2; i++ {
+		select {
+		case event := <-events:
+			if event.Type == "skill.discovery.started" {
+				seenStarted = true
+			}
+			if event.Type == "skill.discovery.completed" {
+				seenCompleted = true
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for skill discovery events")
+		}
+	}
+	if !seenStarted || !seenCompleted {
+		t.Fatalf("skill discovery events missing: started=%v completed=%v", seenStarted, seenCompleted)
+	}
+}
+
+func backendForSkillTest(t *testing.T) (*backend.Backend, proto.Workspace) {
+	t.Helper()
+	workingDir := t.TempDir()
+	dataDir := filepath.Join(workingDir, ".crush")
+	cfg := config.NewRuntimeConfig(workingDir, dataDir, false)
+	cfg.Options.AutoLSP = ptr(false)
+	store := config.NewRuntimeStore(workingDir, cfg)
+	runtime := backend.New(context.Background(), store, nil)
+	_, workspace, err := runtime.CreateWorkspace(proto.Workspace{
+		Path:    workingDir,
+		DataDir: dataDir,
+		Config:  store.Config(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		runtime.DeleteWorkspace(workspace.ID)
+	})
+	return runtime, workspace
+}
+
+func ptr[T any](value T) *T {
+	return &value
 }
 
 func TestRuntimeMessagePartsExposeToolResults(t *testing.T) {
@@ -465,7 +585,9 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 type recordingRuntimeService struct {
 	chatCalls   int
 	statusCalls int
+	skillsCalls int
 	status      RuntimeStatus
+	skills      RuntimeSkillsResponse
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -511,6 +633,19 @@ func (s *recordingRuntimeService) SubscribeEvents(context.Context) (<-chan Runti
 	return events, func() {
 		close(events)
 	}
+}
+
+func (s *recordingRuntimeService) Skills(context.Context) (RuntimeSkillsResponse, error) {
+	s.skillsCalls++
+	return s.skills, nil
+}
+
+func (s *recordingRuntimeService) RefreshSkills(context.Context) (RuntimeSkillsResponse, error) {
+	return RuntimeSkillsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SetSkillEnabled(context.Context, RuntimeSkillToggleRequest) (RuntimeSkillsResponse, error) {
+	return RuntimeSkillsResponse{}, nil
 }
 
 func (s *recordingRuntimeService) DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error) {

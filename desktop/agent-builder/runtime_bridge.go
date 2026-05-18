@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/skills"
 	"github.com/charmbracelet/crush/internal/version"
 )
 
@@ -41,6 +43,9 @@ type RuntimeService interface {
 	Events(context.Context) (RuntimeEventsResponse, error)
 	EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error)
 	SubscribeEvents(context.Context) (<-chan RuntimeEvent, func())
+	Skills(context.Context) (RuntimeSkillsResponse, error)
+	RefreshSkills(context.Context) (RuntimeSkillsResponse, error)
+	SetSkillEnabled(context.Context, RuntimeSkillToggleRequest) (RuntimeSkillsResponse, error)
 	DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error)
 	Cancel(context.Context) (RuntimeStatus, error)
 	NewChat(context.Context, string) (RuntimeStatus, error)
@@ -198,6 +203,26 @@ type RuntimeEventsEndpointResponse struct {
 	URL string `json:"url"`
 }
 
+type RuntimeSkill struct {
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	Builtin       bool   `json:"builtin"`
+	Enabled       bool   `json:"enabled"`
+	Path          string `json:"path,omitempty"`
+	SkillFilePath string `json:"skill_file_path,omitempty"`
+	State         string `json:"state"`
+	Error         string `json:"error,omitempty"`
+}
+
+type RuntimeSkillsResponse struct {
+	Skills []RuntimeSkill `json:"skills"`
+}
+
+type RuntimeSkillToggleRequest struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
 type RuntimeModelConfig struct {
 	Protocol   string   `json:"protocol"`
 	URL        string   `json:"url"`
@@ -337,6 +362,18 @@ func (r *RuntimeBridge) EventsEndpoint(ctx context.Context) (RuntimeEventsEndpoi
 
 func (r *RuntimeBridge) SubscribeEvents(ctx context.Context) (<-chan RuntimeEvent, func()) {
 	return r.service.SubscribeEvents(ctx)
+}
+
+func (r *RuntimeBridge) Skills(ctx context.Context) (RuntimeSkillsResponse, error) {
+	return r.service.Skills(ctx)
+}
+
+func (r *RuntimeBridge) RefreshSkills(ctx context.Context) (RuntimeSkillsResponse, error) {
+	return r.service.RefreshSkills(ctx)
+}
+
+func (r *RuntimeBridge) SetSkillEnabled(ctx context.Context, req RuntimeSkillToggleRequest) (RuntimeSkillsResponse, error) {
+	return r.service.SetSkillEnabled(ctx, req)
 }
 
 func (r *RuntimeBridge) APIEndpoint(ctx context.Context) (RuntimeAPIEndpointResponse, error) {
@@ -634,6 +671,100 @@ func (r *runtimeService) SubscribeEvents(_ context.Context) (<-chan RuntimeEvent
 	return events, func() {
 		r.eventStream.removeSubscriber(events)
 	}
+}
+
+func (r *runtimeService) Skills(ctx context.Context) (RuntimeSkillsResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	return r.refreshSkills(ctx, false)
+}
+
+func (r *runtimeService) RefreshSkills(ctx context.Context) (RuntimeSkillsResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	return r.refreshSkills(ctx, true)
+}
+
+func (r *runtimeService) SetSkillEnabled(ctx context.Context, req RuntimeSkillToggleRequest) (RuntimeSkillsResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return RuntimeSkillsResponse{}, errors.New("skill name is required")
+	}
+
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	r.mu.Unlock()
+
+	ws, err := r.runtime.GetWorkspace(wsID)
+	if err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	cfg := ws.Cfg
+	if cfg.Config().Options == nil {
+		cfg.Config().Options = &config.Options{}
+	}
+	disabled := slices.DeleteFunc(slices.Clone(cfg.Config().Options.DisabledSkills), func(existing string) bool {
+		return existing == name
+	})
+	if !req.Enabled {
+		disabled = append(disabled, name)
+	}
+	slices.Sort(disabled)
+	disabled = slices.Compact(disabled)
+	cfg.Config().Options.DisabledSkills = disabled
+	if err := cfg.SetConfigField(config.ScopeGlobal, "options.disabled_skills", disabled); err != nil {
+		return RuntimeSkillsResponse{}, fmt.Errorf("failed to persist disabled skills: %w", err)
+	}
+
+	eventType := runtimeapi.EventSkillEnabled
+	if !req.Enabled {
+		eventType = runtimeapi.EventSkillDisabled
+	}
+	r.publishRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      eventType,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Payload: map[string]any{
+			"name": name,
+		},
+	})
+	return r.refreshSkills(ctx, true)
+}
+
+func (r *runtimeService) refreshSkills(ctx context.Context, publish bool) (RuntimeSkillsResponse, error) {
+	if publish {
+		r.publishRuntimeEvent(runtimeapi.NewEvent(newRuntimeEventID(), runtimeapi.EventSkillDiscoveryStarted, time.Now()))
+	}
+
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	r.mu.Unlock()
+
+	ws, err := r.runtime.GetWorkspace(wsID)
+	if err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	resp := runtimeSkillsFromConfig(ws.Cfg)
+	if publish {
+		eventType := runtimeapi.EventSkillDiscoveryCompleted
+		for _, skill := range resp.Skills {
+			if skill.State == "error" {
+				eventType = runtimeapi.EventSkillDiscoveryFailed
+				break
+			}
+		}
+		event := runtimeapi.NewEvent(newRuntimeEventID(), eventType, time.Now())
+		event.Payload = map[string]any{
+			"count": len(resp.Skills),
+		}
+		r.publishRuntimeEvent(event)
+	}
+	return resp, nil
 }
 
 func (r *runtimeService) APIEndpoint(_ context.Context) (RuntimeAPIEndpointResponse, error) {
@@ -1404,6 +1535,77 @@ func toRuntimePermissionRequest(perm permission.PermissionRequest) RuntimePermis
 		Path:        perm.Path,
 		CreatedAt:   time.Now().UnixMilli(),
 	}
+}
+
+func runtimeSkillsFromConfig(store *config.ConfigStore) RuntimeSkillsResponse {
+	opts := store.Config().Options
+	builtin, builtinStates := skills.DiscoverBuiltinWithStates()
+	discovered := append([]*skills.Skill(nil), builtin...)
+	states := append([]*skills.SkillState(nil), builtinStates...)
+
+	if opts != nil && len(opts.SkillsPaths) > 0 {
+		paths := make([]string, 0, len(opts.SkillsPaths))
+		for _, path := range opts.SkillsPaths {
+			expanded := path
+			if strings.HasPrefix(expanded, "$") {
+				if resolved, err := store.Resolver().ResolveValue(expanded); err == nil {
+					expanded = resolved
+				}
+			}
+			paths = append(paths, expanded)
+		}
+		userSkills, userStates := skills.DiscoverWithStates(paths)
+		discovered = append(discovered, userSkills...)
+		states = append(states, userStates...)
+	}
+
+	allSkills := skills.Deduplicate(discovered)
+	states = skills.DeduplicateStates(states)
+	skillByName := make(map[string]*skills.Skill, len(allSkills))
+	for _, skill := range allSkills {
+		skillByName[skill.Name] = skill
+	}
+
+	var disabled []string
+	if opts != nil {
+		disabled = opts.DisabledSkills
+	}
+	disabledSet := make(map[string]bool, len(disabled))
+	for _, name := range disabled {
+		disabledSet[name] = true
+	}
+
+	result := make([]RuntimeSkill, 0, len(states))
+	for _, state := range states {
+		runtimeSkill := RuntimeSkill{
+			Name:  state.Name,
+			Path:  state.Path,
+			State: "normal",
+		}
+		if state.State == skills.StateError {
+			runtimeSkill.State = "error"
+			if state.Err != nil {
+				runtimeSkill.Error = state.Err.Error()
+			}
+		}
+		if skill := skillByName[state.Name]; skill != nil {
+			runtimeSkill.Name = skill.Name
+			runtimeSkill.Description = skill.Description
+			runtimeSkill.Builtin = skill.Builtin
+			runtimeSkill.Enabled = !disabledSet[skill.Name] && runtimeSkill.State != "error"
+			runtimeSkill.Path = skill.Path
+			runtimeSkill.SkillFilePath = skill.SkillFilePath
+		}
+		result = append(result, runtimeSkill)
+	}
+
+	slices.SortStableFunc(result, func(a, b RuntimeSkill) int {
+		if c := strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)); c != 0 {
+			return c
+		}
+		return strings.Compare(strings.ToLower(a.Path), strings.ToLower(b.Path))
+	})
+	return RuntimeSkillsResponse{Skills: result}
 }
 
 func toProtoPermissionRequest(perm permission.PermissionRequest) proto.PermissionRequest {

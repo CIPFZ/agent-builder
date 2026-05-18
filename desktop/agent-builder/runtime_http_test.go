@@ -76,6 +76,37 @@ func TestRuntimeHTTPServerRoutesSessionTurnToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesSkillsToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		skills: RuntimeSkillsResponse{
+			Skills: []RuntimeSkill{{Name: "crush-config", Builtin: true, Enabled: true, State: "normal"}},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodGet, "/v1/skills", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.skillsCalls != 1 {
+		t.Fatalf("skillsCalls = %d, want 1", service.skillsCalls)
+	}
+	var skills RuntimeSkillsResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &skills); err != nil {
+		t.Fatal(err)
+	}
+	if len(skills.Skills) != 1 || skills.Skills[0].Name != "crush-config" {
+		t.Fatalf("skills = %#v", skills.Skills)
+	}
+}
+
 func TestRuntimeServiceAPIEndpointBindsLoopbackWithToken(t *testing.T) {
 	t.Parallel()
 

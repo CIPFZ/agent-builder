@@ -176,6 +176,21 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/events":
 		s.handleEvents(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/skills":
+		value, err := s.service.Skills(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/skills/refresh":
+		value, err := s.service.RefreshSkills(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/skills/") && strings.HasSuffix(r.URL.Path, "/enabled"):
+		name := trimPathID(r.URL.Path, "/v1/skills/", "/enabled")
+		var req RuntimeSkillToggleRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		req.Name = name
+		value, err := s.service.SetSkillEnabled(r.Context(), req)
+		writeRuntimeResult(w, value, err)
 	default:
 		http.NotFound(w, r)
 	}
