@@ -62,4 +62,5 @@ React UI -> Client Transport -> HTTP/JSON-RPC + SSE/WebSocket -> Crush runtime
 
 Phase 1 uses Wails bindings for command-style desktop calls and loopback SSE for
 runtime events. Phase 2 should formalize the same boundary as a
-transport-neutral runtime API for Web and remote clients.
+transport-neutral runtime API for Web and remote clients, and should expose
+skills and MCP servers as first-class runtime capabilities.
