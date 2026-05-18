@@ -164,7 +164,24 @@ export type RuntimeModelConfig = {
   configPath?: string
 }
 
+export type RuntimeModelVerifyResponse = {
+  ok: boolean
+  protocol: RuntimeModelConfig['protocol']
+  model: string
+  error?: string
+}
+
+export type RuntimeAuditEvent = {
+  id: string
+  session_id?: string
+  turn_id?: string
+  type: string
+  created_at: string
+  payload: Record<string, unknown>
+}
+
 export type AgentRuntime = {
+  auditTurn: (turnId: string) => Promise<RuntimeAuditEvent[]>
   cancel: () => Promise<RuntimeStatus>
   chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
   decidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
@@ -180,4 +197,5 @@ export type AgentRuntime = {
   newChat: (title: string) => Promise<RuntimeStatus>
   saveModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelConfig>
   status: () => Promise<RuntimeStatus>
+  verifyModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelVerifyResponse>
 }

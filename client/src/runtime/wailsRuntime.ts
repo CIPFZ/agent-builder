@@ -2,6 +2,12 @@ import type { AgentRuntime, RuntimeChatRequest } from './types'
 import { loadWailsRuntimeBridge } from './wailsBinding'
 
 export const wailsRuntime: AgentRuntime = {
+  async auditTurn(turnId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.AuditTurn(turnId)
+    return response.events
+  },
+
   async cancel() {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.Cancel()
@@ -84,5 +90,10 @@ export const wailsRuntime: AgentRuntime = {
   async status() {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.Status()
+  },
+
+  async verifyModelConfig(config) {
+    const bridge = await loadWailsRuntimeBridge()
+    return bridge.VerifyModelConfig(config)
   },
 }

@@ -51,6 +51,7 @@ import {
   requestRuntimeEvents,
   requestRuntimeEventsEndpoint,
   requestRuntimeCapabilities,
+  requestRuntimeAudit,
   requestRuntimeMessages,
   requestRuntimeMcpServers,
   requestRuntimePermissions,
@@ -59,12 +60,14 @@ import {
   saveModelConfig,
   sendRuntimePrompt,
   startRuntimeChat,
+  verifyModelConfig,
 } from './api/chat'
 import type { ModelConfig } from './api/chat'
 import { subscribeRuntimeEvents } from './runtime/events'
 import type {
   RuntimeEvent,
   RuntimeCapability,
+  RuntimeAuditEvent,
   RuntimeMessage,
   RuntimeMessagePart,
   RuntimeMcpServer,
@@ -135,12 +138,14 @@ function AppContent() {
   const [models, setModels] = useState<string[]>([defaultConfig.model])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSaving, setSettingsSaving] = useState(false)
+  const [settingsVerifying, setSettingsVerifying] = useState(false)
   const [operationsOpen, setOperationsOpen] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [configLoaded, setConfigLoaded] = useState(false)
   const [lastError, setLastError] = useState('')
   const [activeChatTitle, setActiveChatTitle] = useState('New chat')
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null)
+  const [auditEvents, setAuditEvents] = useState<RuntimeAuditEvent[]>([])
   const viewportRef = useRef<HTMLDivElement | null>(null)
 
   const hasMessages = messages.length > 0
@@ -180,6 +185,13 @@ function AppContent() {
     setSkills(nextSkills)
     setMcpServers(nextMcpServers)
     setCapabilities(nextCapabilities)
+  }
+
+  const refreshAudit = async (turnId?: string) => {
+    const id = turnId || runtimeStatus?.requests?.activeRequestId || [...events].reverse().find((event) => event.turn_id)?.turn_id
+    if (!id) return
+    const nextAudit = await requestRuntimeAudit(id)
+    setAuditEvents(nextAudit)
   }
 
   useEffect(() => {
@@ -262,6 +274,9 @@ function AppContent() {
             }
             if (event.type.startsWith('skill.') || event.type.startsWith('mcp.')) {
               refreshRuntimeInventory().catch(() => undefined)
+            }
+            if (event.type === 'audit.recorded') {
+              refreshAudit(event.turn_id).catch(() => undefined)
             }
           },
           () => undefined,
@@ -556,6 +571,7 @@ function AppContent() {
         open={settingsOpen}
         saving={settingsSaving}
         onClose={() => setSettingsOpen(false)}
+        verifying={settingsVerifying}
         onSave={async (nextConfig) => {
           setSettingsSaving(true)
           try {
@@ -572,14 +588,32 @@ function AppContent() {
             setSettingsSaving(false)
           }
         }}
+        onVerify={async (nextConfig) => {
+          setSettingsVerifying(true)
+          try {
+            const result = await verifyModelConfig(nextConfig)
+            if (result.ok) {
+              message.success(`Verified ${result.model}`)
+            } else {
+              message.error(result.error || 'Model verification failed')
+            }
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error)
+            message.error(reason)
+          } finally {
+            setSettingsVerifying(false)
+          }
+        }}
       />
       <PermissionReviewModal permissions={permissions} onDecide={decidePermission} />
       <OperationsPreview
         capabilities={capabilities}
+        auditEvents={auditEvents}
         events={events}
         mcpServers={mcpServers}
         open={operationsOpen}
         skills={skills}
+        onRefreshAudit={() => refreshAudit()}
         onClose={() => setOperationsOpen(false)}
       />
     </div>
@@ -783,11 +817,13 @@ type ModelSettingsDrawerProps = {
   config: ModelConfig
   open: boolean
   saving: boolean
+  verifying: boolean
   onClose: () => void
   onSave: (config: ModelConfig) => Promise<void>
+  onVerify: (config: ModelConfig) => Promise<void>
 }
 
-function ModelSettingsDrawer({ config, open, saving, onClose, onSave }: ModelSettingsDrawerProps) {
+function ModelSettingsDrawer({ config, open, saving, verifying, onClose, onSave, onVerify }: ModelSettingsDrawerProps) {
   const [form] = Form.useForm<ModelConfig>()
 
   return (
@@ -801,15 +837,25 @@ function ModelSettingsDrawer({ config, open, saving, onClose, onSave }: ModelSet
         if (visible) form.setFieldsValue(config)
       }}
       extra={
-        <Button
-          type="primary"
-          loading={saving}
-          onClick={() => {
-            form.validateFields().then((values) => onSave(values))
-          }}
-        >
-          Save
-        </Button>
+        <Space>
+          <Button
+            loading={verifying}
+            onClick={() => {
+              form.validateFields().then((values) => onVerify(values))
+            }}
+          >
+            Verify
+          </Button>
+          <Button
+            type="primary"
+            loading={saving}
+            onClick={() => {
+              form.validateFields().then((values) => onSave(values))
+            }}
+          >
+            Save
+          </Button>
+        </Space>
       }
     >
       <Paragraph type="secondary">Saved to the desktop config directory beside the application.</Paragraph>
@@ -851,18 +897,22 @@ function ModelSettingsDrawer({ config, open, saving, onClose, onSave }: ModelSet
 }
 
 function OperationsPreview({
+  auditEvents,
   capabilities,
   events,
   mcpServers,
   open,
   skills,
+  onRefreshAudit,
   onClose,
 }: {
+  auditEvents: RuntimeAuditEvent[]
   capabilities: RuntimeCapability[]
   events: RuntimeEvent[]
   mcpServers: RuntimeMcpServer[]
   open: boolean
   skills: RuntimeSkill[]
+  onRefreshAudit: () => void
   onClose: () => void
 }) {
   const enabledSkills = skills.filter((skill) => skill.enabled).length
@@ -894,6 +944,11 @@ function OperationsPreview({
         ghost
         items={[
           {
+            key: 'audit',
+            label: 'Audit',
+            children: <RuntimeAuditList events={auditEvents} onRefresh={onRefreshAudit} />,
+          },
+          {
             key: 'skills',
             label: 'Skills',
             children: <RuntimeSkillList skills={skills} />,
@@ -920,6 +975,26 @@ function OperationsPreview({
         ))}
       </div>
     </Modal>
+  )
+}
+
+function RuntimeAuditList({ events, onRefresh }: { events: RuntimeAuditEvent[]; onRefresh: () => void }) {
+  return (
+    <div className="runtime-list">
+      <Button size="small" onClick={onRefresh}>
+        Refresh audit
+      </Button>
+      {events.length === 0 ? <Text type="secondary">No audit events for the active turn.</Text> : null}
+      {events.slice(-10).map((event) => (
+        <div className="runtime-list-row" key={event.id}>
+          <Space size={8}>
+            <Tag>{event.type}</Tag>
+            <Text strong>{event.turn_id}</Text>
+          </Space>
+          <pre className="part-preview">{JSON.stringify(event.payload, null, 2)}</pre>
+        </div>
+      ))}
+    </div>
   )
 }
 

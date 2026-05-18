@@ -53,6 +53,10 @@ export async function saveModelConfig(config: ModelConfig): Promise<ModelConfig>
   }
 }
 
+export async function verifyModelConfig(config: ModelConfig) {
+  return getAgentRuntime().verifyModelConfig(config)
+}
+
 export async function requestRuntimeStatus() {
   return getAgentRuntime().status()
 }
@@ -83,6 +87,10 @@ export async function requestRuntimeMcpServers() {
 
 export async function requestRuntimeCapabilities() {
   return getAgentRuntime().listCapabilities()
+}
+
+export async function requestRuntimeAudit(turnId: string) {
+  return getAgentRuntime().auditTurn(turnId)
 }
 
 export async function decideRuntimePermission(request: RuntimePermissionDecision) {

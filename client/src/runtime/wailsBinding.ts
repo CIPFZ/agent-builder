@@ -2,11 +2,13 @@ import type {
   RuntimeChatRequest,
   RuntimeChatResponse,
   RuntimeCapability,
+  RuntimeAuditEvent,
   RuntimeEvent,
   RuntimeMcpServer,
   RuntimeMessage,
   RuntimeModel,
   RuntimeModelConfig,
+  RuntimeModelVerifyResponse,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
   RuntimeSkill,
@@ -14,6 +16,7 @@ import type {
 } from './types'
 
 type WailsRuntimeBridge = {
+  AuditTurn: (turnId: string) => Promise<{ events: RuntimeAuditEvent[] }>
   Cancel: () => Promise<RuntimeStatus>
   Capabilities: () => Promise<{ capabilities: RuntimeCapability[] }>
   Chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
@@ -29,6 +32,7 @@ type WailsRuntimeBridge = {
   SaveModelConfig: (request: RuntimeModelConfig) => Promise<{ config: RuntimeModelConfig }>
   Skills: () => Promise<{ skills: RuntimeSkill[] }>
   Status: () => Promise<RuntimeStatus>
+  VerifyModelConfig: (request: RuntimeModelConfig) => Promise<RuntimeModelVerifyResponse>
 }
 
 let bridgePromise: Promise<WailsRuntimeBridge> | undefined

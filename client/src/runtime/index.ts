@@ -3,12 +3,14 @@ import { wailsRuntime } from './wailsRuntime'
 
 export type {
   AgentRuntime,
+  RuntimeAuditEvent,
   RuntimeChatRequest,
   RuntimeChatResponse,
   RuntimeCapability,
   RuntimeMessage,
   RuntimeMessagePart,
   RuntimeModel,
+  RuntimeModelVerifyResponse,
   RuntimeMcpServer,
   RuntimeEvent,
   RuntimeEventsEndpoint,
