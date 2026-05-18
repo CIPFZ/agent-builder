@@ -3,8 +3,8 @@
 This document is the active Phase 2 plan. Phase 1 proved that the desktop
 client can talk to the real Crush runtime through Wails commands and a local
 SSE event stream. Phase 2 turns that working bridge into a stable runtime API
-boundary that can support the desktop client, future Web clients, headless
-clients, skills, and MCP.
+boundary and a usable assistant client baseline that can support the desktop
+client, future Web clients, headless clients, skills, and MCP.
 
 ## Goal
 
@@ -18,17 +18,24 @@ Wails remains a desktop adapter. It must not become the long-term product
 protocol. Runtime state, sessions, turns, messages, tools, permissions, skills,
 MCP, usage, and audit data must come from Go/Crush.
 
+Phase 2 must also leave the project with a usable desktop assistant experience.
+At the end of this phase, the app should be comparable to common market
+assistant clients for core conversation use: configure a model, start or resume
+conversations, stream responses, observe tools, approve risky actions, inspect
+errors, and use available skills and MCP capabilities.
+
 ## Scope
 
-Phase 2 includes three connected tracks:
+Phase 2 includes four connected tracks:
 
 1. Runtime API boundary.
 2. Runtime event and audit schema.
 3. Skill and MCP capability integration.
+4. Assistant client baseline.
 
 The goal is not to build a plugin marketplace or a full operations workflow in
 this phase. The goal is to make the primitives visible, configurable, testable,
-and observable through one runtime boundary.
+observable, and usable through one runtime boundary.
 
 ## Runtime Concepts
 
@@ -314,6 +321,57 @@ Future phases can add:
 - `plugin_tool`
 - `agent`
 
+## Assistant Client Baseline
+
+Phase 2 must produce a client that can be used as a real auxiliary assistant,
+not only as an API demo. The UI remains thin, but it must expose enough runtime
+capability for practical daily use.
+
+### Required User Flows
+
+- Configure a model provider from the desktop app.
+- Verify model connectivity without using mock providers.
+- Start a new conversation.
+- Resume a previous conversation.
+- Send a user message and see streamed assistant output.
+- See thinking/tool activity as structured runtime parts.
+- See MCP tool activity in the same timeline as built-in tools.
+- See which skills and MCP servers are available to the runtime.
+- Approve, allow for session, deny, or cancel permission requests.
+- Cancel an active turn.
+- See clear errors when model, config, MCP, skill, or runtime setup fails.
+- Open an audit/debug view for the current turn with timing, model, usage,
+  tool calls, permission decisions, skill availability, and MCP availability.
+
+### Client UX Requirements
+
+- The first screen must remain conversation-first.
+- Model configuration is easy to find, but not the center of the daily chat
+  experience after setup.
+- Advanced settings, proxy, MCP details, and diagnostics stay behind explicit
+  panels or drawers.
+- Empty states should tell the user what is missing: model config, unavailable
+  MCP server, invalid skill, or runtime error.
+- Tool, skill, MCP, permission, and audit details are visible when needed but do
+  not crowd the default chat view.
+- The frontend must not synthesize runtime messages, tool calls, usage, or
+  permission decisions.
+
+### Desktop Artifact Requirements
+
+The Phase 2 desktop build should keep the Phase 1 artifact shape:
+
+```text
+AgentBuilder.exe
+config/
+data/
+logs/
+```
+
+The app should be testable on the local machine as a packaged desktop client.
+Configuration written from the UI must persist under the runtime-owned config
+directory, and logs/audit data must stay outside source-controlled paths.
+
 ## Audit Requirements
 
 Phase 2 audit data should answer these questions:
@@ -356,9 +414,12 @@ These are later phases. Phase 2 only prepares the runtime boundary they need.
 5. Add skill list, refresh, diagnostics, enable, and disable operations.
 6. Add MCP server list, refresh, status, and capability APIs.
 7. Normalize built-in tools, skills, and MCP tools into capabilities.
-8. Add API smoke tests for session, turn, events, skill discovery, and MCP
+8. Update the desktop client to use the stable runtime shapes for chat, model
+   config, sessions, permissions, skill/MCP status, and audit/debug views.
+9. Add API smoke tests for session, turn, events, skill discovery, and MCP
    discovery.
-9. Keep the desktop UI thin and update it to consume the stable runtime shapes.
+10. Add packaged desktop smoke testing for model configuration, one real
+    conversation, event streaming, and cancellation.
 
 ## Phase 2 Acceptance
 
@@ -371,5 +432,10 @@ Phase 2 is complete when:
 - MCP servers and MCP tools are visible through the runtime API.
 - MCP tool calls appear in the same tool event stream as built-in tools.
 - Runtime API responses and logs redact secrets.
-- The desktop client still works as a thin UI.
+- The desktop client works as a thin UI over the runtime API.
+- The desktop client can be used as a basic assistant client: configure model,
+  chat, stream output, resume history, inspect tools, approve permissions,
+  inspect skill/MCP status, view useful errors, cancel an active turn, and see
+  turn audit details.
+- A packaged desktop build can be manually tested on the local machine.
 - The existing TUI is not broken.
