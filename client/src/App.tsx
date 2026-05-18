@@ -50,8 +50,11 @@ import {
   requestConfiguredModels,
   requestRuntimeEvents,
   requestRuntimeEventsEndpoint,
+  requestRuntimeCapabilities,
   requestRuntimeMessages,
+  requestRuntimeMcpServers,
   requestRuntimePermissions,
+  requestRuntimeSkills,
   requestRuntimeStatus,
   saveModelConfig,
   sendRuntimePrompt,
@@ -61,10 +64,13 @@ import type { ModelConfig } from './api/chat'
 import { subscribeRuntimeEvents } from './runtime/events'
 import type {
   RuntimeEvent,
+  RuntimeCapability,
   RuntimeMessage,
   RuntimeMessagePart,
+  RuntimeMcpServer,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
+  RuntimeSkill,
   RuntimeStatus,
 } from './runtime'
 import './App.css'
@@ -121,6 +127,9 @@ function AppContent() {
   const [messages, setMessages] = useState<RuntimeMessage[]>([])
   const [permissions, setPermissions] = useState<RuntimePermissionRequest[]>([])
   const [events, setEvents] = useState<RuntimeEvent[]>([])
+  const [skills, setSkills] = useState<RuntimeSkill[]>([])
+  const [mcpServers, setMcpServers] = useState<RuntimeMcpServer[]>([])
+  const [capabilities, setCapabilities] = useState<RuntimeCapability[]>([])
   const [input, setInput] = useState('')
   const [config, setConfig] = useState<ModelConfig>(defaultConfig)
   const [models, setModels] = useState<string[]>([defaultConfig.model])
@@ -162,6 +171,17 @@ function AppContent() {
     return nextPermissions
   }
 
+  const refreshRuntimeInventory = async () => {
+    const [nextSkills, nextMcpServers, nextCapabilities] = await Promise.all([
+      requestRuntimeSkills(),
+      requestRuntimeMcpServers(),
+      requestRuntimeCapabilities(),
+    ])
+    setSkills(nextSkills)
+    setMcpServers(nextMcpServers)
+    setCapabilities(nextCapabilities)
+  }
+
   useEffect(() => {
     loadModelConfig()
       .then((savedConfig) => {
@@ -195,13 +215,24 @@ function AppContent() {
   useEffect(() => {
     if (!isModelConfigured) return
     let cancelled = false
-    Promise.all([requestRuntimeStatus(), requestRuntimeMessages(), requestRuntimePermissions(), requestRuntimeEvents()])
-      .then(([nextStatus, runtimeMessages, runtimePermissions, runtimeEvents]) => {
+    Promise.all([
+      requestRuntimeStatus(),
+      requestRuntimeMessages(),
+      requestRuntimePermissions(),
+      requestRuntimeEvents(),
+      requestRuntimeSkills(),
+      requestRuntimeMcpServers(),
+      requestRuntimeCapabilities(),
+    ])
+      .then(([nextStatus, runtimeMessages, runtimePermissions, runtimeEvents, runtimeSkills, runtimeMcpServers, runtimeCapabilities]) => {
         if (cancelled) return
         setRuntimeStatus(nextStatus)
         setMessages(runtimeMessages)
         setPermissions(runtimePermissions)
         setEvents(runtimeEvents)
+        setSkills(runtimeSkills)
+        setMcpServers(runtimeMcpServers)
+        setCapabilities(runtimeCapabilities)
       })
       .catch(() => undefined)
     return () => {
@@ -228,6 +259,9 @@ function AppContent() {
             if (event.type === 'permission.requested') {
               refreshPermissions().catch(() => undefined)
               refreshStatus().catch(() => undefined)
+            }
+            if (event.type.startsWith('skill.') || event.type.startsWith('mcp.')) {
+              refreshRuntimeInventory().catch(() => undefined)
             }
           },
           () => undefined,
@@ -269,6 +303,7 @@ function AppContent() {
         setMessages([])
         setPermissions([])
         setEvents([])
+        refreshRuntimeInventory().catch(() => undefined)
       })
       .catch((error) => {
         const reason = error instanceof Error ? error.message : String(error)
@@ -539,7 +574,14 @@ function AppContent() {
         }}
       />
       <PermissionReviewModal permissions={permissions} onDecide={decidePermission} />
-      <OperationsPreview events={events} open={operationsOpen} onClose={() => setOperationsOpen(false)} />
+      <OperationsPreview
+        capabilities={capabilities}
+        events={events}
+        mcpServers={mcpServers}
+        open={operationsOpen}
+        skills={skills}
+        onClose={() => setOperationsOpen(false)}
+      />
     </div>
   )
 }
@@ -808,19 +850,66 @@ function ModelSettingsDrawer({ config, open, saving, onClose, onSave }: ModelSet
   )
 }
 
-function OperationsPreview({ events, open, onClose }: { events: RuntimeEvent[]; open: boolean; onClose: () => void }) {
+function OperationsPreview({
+  capabilities,
+  events,
+  mcpServers,
+  open,
+  skills,
+  onClose,
+}: {
+  capabilities: RuntimeCapability[]
+  events: RuntimeEvent[]
+  mcpServers: RuntimeMcpServer[]
+  open: boolean
+  skills: RuntimeSkill[]
+  onClose: () => void
+}) {
+  const enabledSkills = skills.filter((skill) => skill.enabled).length
+  const connectedMcp = mcpServers.filter((server) => server.state === 'connected').length
+  const enabledCapabilities = capabilities.filter((capability) => capability.enabled).length
+
   return (
-    <Modal title="Operations workspace" open={open} onCancel={onClose} footer={<Button onClick={onClose}>Close</Button>} width={720}>
-      <Paragraph>
-        The SSH troubleshooting workspace is still available as the next layer, but it is intentionally no longer the first screen.
-      </Paragraph>
-      <Space wrap>
-        <Tag>SSH target</Tag>
-        <Tag>SOP skill</Tag>
-        <Tag>MCP knowledge search</Tag>
-        <Tag>Approval policy</Tag>
-        <Tag>Runtime event log</Tag>
-      </Space>
+    <Modal title="Runtime details" open={open} onCancel={onClose} footer={<Button onClick={onClose}>Close</Button>} width={820}>
+      <div className="runtime-summary-grid">
+        <div className="runtime-summary-item">
+          <Text type="secondary">Capabilities</Text>
+          <Title level={4}>{enabledCapabilities}</Title>
+        </div>
+        <div className="runtime-summary-item">
+          <Text type="secondary">Skills</Text>
+          <Title level={4}>
+            {enabledSkills}/{skills.length}
+          </Title>
+        </div>
+        <div className="runtime-summary-item">
+          <Text type="secondary">MCP</Text>
+          <Title level={4}>
+            {connectedMcp}/{mcpServers.length}
+          </Title>
+        </div>
+      </div>
+      <Collapse
+        className="runtime-collapse"
+        ghost
+        items={[
+          {
+            key: 'skills',
+            label: 'Skills',
+            children: <RuntimeSkillList skills={skills} />,
+          },
+          {
+            key: 'mcp',
+            label: 'MCP servers',
+            children: <RuntimeMcpList servers={mcpServers} />,
+          },
+          {
+            key: 'capabilities',
+            label: 'Capabilities',
+            children: <RuntimeCapabilityList capabilities={capabilities} />,
+          },
+        ]}
+      />
       <div className="event-log">
         {events.slice(-8).map((event) => (
           <div className="event-log-row" key={event.id || `${event.created_at}-${event.type}`}>
@@ -831,6 +920,64 @@ function OperationsPreview({ events, open, onClose }: { events: RuntimeEvent[]; 
         ))}
       </div>
     </Modal>
+  )
+}
+
+function RuntimeSkillList({ skills }: { skills: RuntimeSkill[] }) {
+  if (skills.length === 0) return <Text type="secondary">No skills discovered.</Text>
+  return (
+    <div className="runtime-list">
+      {skills.slice(0, 12).map((skill) => (
+        <div className="runtime-list-row" key={`${skill.name}-${skill.path ?? ''}`}>
+          <Space size={8}>
+            <Tag color={skill.enabled ? 'green' : 'default'}>{skill.enabled ? 'enabled' : 'disabled'}</Tag>
+            <Text strong>{skill.name}</Text>
+            {skill.builtin ? <Tag>builtin</Tag> : null}
+          </Space>
+          {skill.error ? <Text type="danger">{skill.error}</Text> : <Text type="secondary">{skill.description}</Text>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function RuntimeMcpList({ servers }: { servers: RuntimeMcpServer[] }) {
+  if (servers.length === 0) return <Text type="secondary">No MCP servers configured.</Text>
+  return (
+    <div className="runtime-list">
+      {servers.map((server) => (
+        <div className="runtime-list-row" key={server.name}>
+          <Space size={8}>
+            <Tag color={server.state === 'connected' ? 'green' : server.state === 'error' ? 'red' : 'default'}>{server.state}</Tag>
+            <Text strong>{server.name}</Text>
+            <Tag>{server.type}</Tag>
+          </Space>
+          <Text type="secondary">
+            tools {server.counts.tools} · prompts {server.counts.prompts} · resources {server.counts.resources}
+          </Text>
+          {server.error ? <Text type="danger">{server.error}</Text> : null}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function RuntimeCapabilityList({ capabilities }: { capabilities: RuntimeCapability[] }) {
+  if (capabilities.length === 0) return <Text type="secondary">No capabilities available.</Text>
+  return (
+    <div className="runtime-list">
+      {capabilities.slice(0, 18).map((capability) => (
+        <div className="runtime-list-row compact" key={capability.id}>
+          <Space size={8}>
+            <Tag>{capability.kind}</Tag>
+            <Text strong>{capability.name}</Text>
+            <Tag color={capability.enabled ? 'green' : 'default'}>{capability.enabled ? 'on' : 'off'}</Tag>
+            <Tag>{capability.risk}</Tag>
+          </Space>
+          {capability.source ? <Text type="secondary">{capability.source}</Text> : null}
+        </div>
+      ))}
+    </div>
   )
 }
 

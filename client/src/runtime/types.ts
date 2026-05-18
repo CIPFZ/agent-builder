@@ -59,6 +59,42 @@ export type RuntimeEventsEndpoint = {
   url: string
 }
 
+export type RuntimeSkill = {
+  name: string
+  description?: string
+  builtin: boolean
+  enabled: boolean
+  path?: string
+  skill_file_path?: string
+  state: string
+  error?: string
+}
+
+export type RuntimeMcpServer = {
+  name: string
+  type: string
+  url?: string
+  command?: string
+  disabled: boolean
+  state: string
+  counts: {
+    tools: number
+    prompts: number
+    resources: number
+  }
+  error?: string
+}
+
+export type RuntimeCapability = {
+  id: string
+  kind: string
+  name: string
+  source?: string
+  enabled: boolean
+  risk: string
+  description?: string
+}
+
 export type RuntimeMessage = {
   id: string
   sessionId: string
@@ -134,10 +170,13 @@ export type AgentRuntime = {
   decidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
   getModelConfig: () => Promise<RuntimeModelConfig>
   getEventsEndpoint: () => Promise<RuntimeEventsEndpoint>
+  listCapabilities: () => Promise<RuntimeCapability[]>
   listEvents: () => Promise<RuntimeEvent[]>
+  listMcpServers: () => Promise<RuntimeMcpServer[]>
   listModels: () => Promise<RuntimeModel[]>
   listMessages: () => Promise<RuntimeMessage[]>
   listPermissions: () => Promise<RuntimePermissionRequest[]>
+  listSkills: () => Promise<RuntimeSkill[]>
   newChat: (title: string) => Promise<RuntimeStatus>
   saveModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelConfig>
   status: () => Promise<RuntimeStatus>

@@ -425,6 +425,56 @@ button {
   gap: 12px;
 }
 
+.runtime-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.runtime-summary-item {
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8f7f4;
+  border: 1px solid #ebe6df;
+  border-radius: 7px;
+}
+
+.runtime-summary-item .ant-typography {
+  margin: 0;
+}
+
+.runtime-collapse {
+  margin-bottom: 6px;
+}
+
+.runtime-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.runtime-list-row {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: #f8f7f4;
+  border: 1px solid #ebe6df;
+  border-radius: 7px;
+}
+
+.runtime-list-row.compact {
+  gap: 2px;
+}
+
+.runtime-list-row .ant-typography {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .event-log {
   display: flex;
   flex-direction: column;

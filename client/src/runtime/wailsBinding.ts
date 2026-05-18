@@ -1,27 +1,33 @@
 import type {
   RuntimeChatRequest,
   RuntimeChatResponse,
+  RuntimeCapability,
   RuntimeEvent,
+  RuntimeMcpServer,
   RuntimeMessage,
   RuntimeModel,
   RuntimeModelConfig,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
+  RuntimeSkill,
   RuntimeStatus,
 } from './types'
 
 type WailsRuntimeBridge = {
   Cancel: () => Promise<RuntimeStatus>
+  Capabilities: () => Promise<{ capabilities: RuntimeCapability[] }>
   Chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
   DecidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
   Events: () => Promise<{ events: RuntimeEvent[] }>
   EventsEndpoint: () => Promise<{ url: string }>
   GetModelConfig: () => Promise<{ config: RuntimeModelConfig }>
+  MCPServers: () => Promise<{ servers: RuntimeMcpServer[] }>
   Messages: () => Promise<{ messages: RuntimeMessage[] }>
   Models: () => Promise<{ models: RuntimeModel[] }>
   NewChat: (title: string) => Promise<RuntimeStatus>
   Permissions: () => Promise<{ permissions: RuntimePermissionRequest[] }>
   SaveModelConfig: (request: RuntimeModelConfig) => Promise<{ config: RuntimeModelConfig }>
+  Skills: () => Promise<{ skills: RuntimeSkill[] }>
   Status: () => Promise<RuntimeStatus>
 }
 

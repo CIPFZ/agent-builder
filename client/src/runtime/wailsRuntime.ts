@@ -28,10 +28,22 @@ export const wailsRuntime: AgentRuntime = {
     return bridge.EventsEndpoint()
   },
 
+  async listCapabilities() {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.Capabilities()
+    return response.capabilities
+  },
+
   async listEvents() {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.Events()
     return response.events
+  },
+
+  async listMcpServers() {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.MCPServers()
+    return response.servers
   },
 
   async listModels() {
@@ -50,6 +62,12 @@ export const wailsRuntime: AgentRuntime = {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.Permissions()
     return response.permissions
+  },
+
+  async listSkills() {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.Skills()
+    return response.skills
   },
 
   async newChat(title: string) {

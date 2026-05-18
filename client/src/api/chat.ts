@@ -73,6 +73,18 @@ export async function requestRuntimePermissions() {
   return getAgentRuntime().listPermissions()
 }
 
+export async function requestRuntimeSkills() {
+  return getAgentRuntime().listSkills()
+}
+
+export async function requestRuntimeMcpServers() {
+  return getAgentRuntime().listMcpServers()
+}
+
+export async function requestRuntimeCapabilities() {
+  return getAgentRuntime().listCapabilities()
+}
+
 export async function decideRuntimePermission(request: RuntimePermissionDecision) {
   return getAgentRuntime().decidePermission(request)
 }
