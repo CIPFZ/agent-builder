@@ -82,7 +82,6 @@ const starterPrompts = [
   { label: 'Ops', icon: <ToolOutlined />, prompt: 'Simulate a troubleshooting chat for a service error-rate spike.' },
 ]
 
-const recentItems = ['Greeting', 'Agent runtime plan', 'SSH troubleshooting MVP']
 const emptyUsage = {
   promptTokens: 0,
   completionTokens: 0,
@@ -133,6 +132,14 @@ function AppContent() {
 
   const hasMessages = messages.length > 0
   const isModelConfigured = Boolean(config.url && config.model && (config.hasApiKey || config.apiKey))
+  const recentItems = useMemo(() => {
+    const titles = messages
+      .filter((chatMessage) => chatMessage.role === 'user' && chatMessage.content.trim())
+      .map((chatMessage) => chatMessage.content.trim())
+      .slice(-5)
+      .reverse()
+    return titles.length > 0 ? titles : [activeChatTitle]
+  }, [activeChatTitle, messages])
 
   const refreshMessages = async () => {
     const runtimeMessages = await requestRuntimeMessages()
@@ -371,14 +378,14 @@ function AppContent() {
           </nav>
         </div>
 
-        <div className="recents">
-          <Text className="section-label">Recents</Text>
-          {recentItems.map((item) => (
-            <button className={item === activeChatTitle ? 'recent-item active' : 'recent-item'} key={item} type="button">
-              {item}
-            </button>
-          ))}
-        </div>
+          <div className="recents">
+            <Text className="section-label">Recents</Text>
+            {recentItems.map((item) => (
+              <button className={item === activeChatTitle ? 'recent-item active' : 'recent-item'} key={item} type="button">
+                {item}
+              </button>
+            ))}
+          </div>
 
         <div className="sidebar-footer">
           <Space>
@@ -386,8 +393,8 @@ function AppContent() {
             <span>Agent Builder</span>
             <Text type="secondary">Local</Text>
           </Space>
-          <Tooltip title="Export later">
-            <Button type="text" size="small" icon={<ArrowDownOutlined />} />
+          <Tooltip title="Runtime logs">
+            <Button type="text" size="small" icon={<ArrowDownOutlined />} onClick={() => setOperationsOpen(true)} />
           </Tooltip>
         </div>
       </aside>
@@ -405,8 +412,8 @@ function AppContent() {
                 <Button type="text" danger icon={<StopOutlined />} onClick={cancelTurn} />
               </Tooltip>
             ) : null}
-            <Tooltip title="Share later">
-              <Button type="text" icon={<ShareAltOutlined />} />
+            <Tooltip title="Runtime events">
+              <Button type="text" icon={<ShareAltOutlined />} onClick={() => setOperationsOpen(true)} />
             </Tooltip>
             <Tooltip title="Model settings">
               <Button type="text" icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)} />
@@ -417,7 +424,7 @@ function AppContent() {
         <div className="chat-viewport" ref={viewportRef}>
           {!hasMessages ? (
             <section className="welcome-pane">
-              <Tag className="plan-pill">Local prototype</Tag>
+              <Tag className="plan-pill">Crush runtime</Tag>
               <Title className="welcome-title">
                 <span className="brand-flower">*</span>
                 {greeting()}, Agent Builder
@@ -666,11 +673,11 @@ function Composer({ config, input, isDisabled, isSending, modelItems, onChange, 
       />
       <Flex justify="space-between" align="center" className="composer-toolbar">
         <Space>
-          <Tooltip title="Attach later">
-            <Button type="text" icon={<PlusOutlined />} />
+          <Tooltip title="Clear input">
+            <Button type="text" icon={<PlusOutlined />} onClick={() => onChange('')} />
           </Tooltip>
-          <Tooltip title="Tools later">
-            <Button type="text" icon={<ToolOutlined />} />
+          <Tooltip title="Model settings">
+            <Button type="text" icon={<ToolOutlined />} onClick={onOpenSettings} />
           </Tooltip>
         </Space>
         <Space>
