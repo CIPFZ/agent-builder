@@ -157,7 +157,6 @@ func (s *runtimeSSEServer) removeSubscriber(events chan RuntimeEvent) {
 	defer s.mu.Unlock()
 	if _, ok := s.subscribers[events]; ok {
 		delete(s.subscribers, events)
-		close(events)
 	}
 }
 
