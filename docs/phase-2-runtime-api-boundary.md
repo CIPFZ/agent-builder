@@ -83,6 +83,33 @@ This is enough for the desktop app and future local Web clients:
 WebSocket or JSON-RPC can be added later if multi-client collaboration, remote
 runtime control, or bidirectional streaming requires it.
 
+### Transport Decision
+
+Phase 2 will expose a local loopback API:
+
+```text
+bind: 127.0.0.1:random_port
+auth: local runtime token
+events: SSE
+```
+
+The API must not bind to a LAN-facing address by default. The runtime creates
+the local token and the desktop shell passes it only to the local client.
+
+Wails is an adapter, not the business boundary. Wails and HTTP must share the
+same Go runtime service. The frontend talks to an `AgentRuntime` client
+abstraction so the desktop path and future HTTP/Web path consume the same
+runtime shapes.
+
+```text
+React UI -> AgentRuntime interface
+  -> Wails runtime adapter
+  -> HTTP runtime adapter
+
+Wails adapter -> shared Go runtime service
+HTTP adapter  -> shared Go runtime service
+```
+
 ## Minimal API
 
 The exact package structure can evolve, but the API contract should start with
@@ -215,6 +242,9 @@ Phase 2 should expose this through the runtime boundary.
 - Disabled skills are persisted in Crush config, not in frontend state.
 - Skill instructions stay runtime-owned. The frontend may display metadata, but
   it should not inject skill content into model context.
+- Phase 2 implements project-level enable and disable through
+  `options.disabled_skills`.
+- Session-level skill filtering is reserved for a later policy phase.
 
 ### Minimal Skill API Shape
 
@@ -262,6 +292,20 @@ Phase 2 should make MCP first-class in the runtime boundary.
 - MCP tool calls flow through existing permission, tool, message, usage, and
   audit events.
 - MCP configuration with secrets must be redacted in API responses and logs.
+
+Phase 2 MCP editing should support the usable baseline:
+
+- List configured servers.
+- Show status and errors.
+- Refresh a server.
+- Enable or disable a server.
+- Add or edit a simple server.
+- Edit basic fields: name, type, URL, command, args, enabled tools, disabled
+  tools, env, and headers.
+- Redact env and header values that are likely secrets.
+
+Phase 2 should not implement OAuth flows, marketplace installation, complex
+secret management, remote MCP administration, or policy/profile merging.
 
 ### Minimal MCP Server API Shape
 
@@ -428,6 +472,26 @@ The audit/debug view is not a frontend-only log viewer. It must read structured
 runtime audit data. Console logs and text files can support debugging, but they
 are not the primary product contract.
 
+### Audit Storage Decision
+
+Phase 2 should add a lightweight append-only audit store instead of hiding audit
+data inside chat messages.
+
+Minimal table shape:
+
+```text
+runtime_audit_events
+- id
+- session_id
+- turn_id
+- type
+- created_at
+- payload_json
+```
+
+This table is intentionally small. It prepares the ground for the later
+operation/run model without forcing Phase 2 to implement full operations.
+
 ## Non-goals
 
 Phase 2 should not include:
@@ -444,20 +508,23 @@ Phase 2 should not include:
 
 These are later phases. Phase 2 only prepares the runtime boundary they need.
 
-## Open Decisions Before Implementation
+## Phase 2 Engineering Decisions
 
-These points should be confirmed before starting Phase 2 implementation:
+The following decisions are fixed for Phase 2:
 
-- Whether the local HTTP API listens only inside the Wails process or also binds
-  a loopback port for browser/headless clients.
-- Whether Wails calls the runtime service directly, calls the local HTTP API, or
-  supports both through one client transport abstraction.
-- Whether turn audit data is stored only in existing session/message tables for
-  Phase 2 or gets a small dedicated audit table.
-- Whether MCP server editing in Phase 2 supports full config editing or starts
-  with list, status, refresh, enable, and disable only.
-- Whether skill enable/disable is limited to `options.disabled_skills` or also
-  includes per-session capability filtering.
+- Local HTTP API binds to `127.0.0.1` on a random port and requires a local
+  runtime token.
+- Runtime events use SSE.
+- Wails remains an adapter and shares the same Go runtime service as the HTTP
+  adapter.
+- The frontend depends on an `AgentRuntime` abstraction, not directly on Wails
+  business logic.
+- Audit uses a small append-only `runtime_audit_events` store.
+- MCP editing covers the usable baseline: list, status, refresh,
+  enable/disable, simple add/edit, tool allow/deny, env, and headers with
+  secret redaction.
+- Skill enable/disable is project-level through `options.disabled_skills`.
+- Session-level capability filtering is reserved for the later policy phase.
 
 ## Implementation Order
 
