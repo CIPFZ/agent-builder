@@ -43,12 +43,13 @@ import {
   loadModelConfig,
   requestConfiguredModels,
   requestRuntimeMessages,
+  requestRuntimeStatus,
   saveModelConfig,
   sendRuntimePrompt,
   startRuntimeChat,
 } from './api/chat'
 import type { ModelConfig } from './api/chat'
-import type { RuntimeMessage } from './runtime'
+import type { RuntimeMessage, RuntimeStatus } from './runtime'
 import './App.css'
 
 const { Text, Title, Paragraph } = Typography
@@ -67,6 +68,12 @@ const starterPrompts = [
 ]
 
 const recentItems = ['Greeting', 'Agent runtime plan', 'SSH troubleshooting MVP']
+const emptyUsage = {
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0,
+  cost: 0,
+}
 
 function greeting() {
   const hour = new Date().getHours()
@@ -92,6 +99,7 @@ function AppContent() {
   const [configLoaded, setConfigLoaded] = useState(false)
   const [lastError, setLastError] = useState('')
   const [activeChatTitle, setActiveChatTitle] = useState('New chat')
+  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
 
   const hasMessages = messages.length > 0
@@ -100,6 +108,12 @@ function AppContent() {
   const refreshMessages = async () => {
     const runtimeMessages = await requestRuntimeMessages()
     setMessages(runtimeMessages)
+  }
+
+  const refreshStatus = async () => {
+    const nextStatus = await requestRuntimeStatus()
+    setRuntimeStatus(nextStatus)
+    return nextStatus
   }
 
   useEffect(() => {
@@ -132,6 +146,21 @@ function AppContent() {
       })
   }, [config.model])
 
+  useEffect(() => {
+    if (!isModelConfigured) return
+    let cancelled = false
+    Promise.all([requestRuntimeStatus(), requestRuntimeMessages()])
+      .then(([nextStatus, runtimeMessages]) => {
+        if (cancelled) return
+        setRuntimeStatus(nextStatus)
+        setMessages(runtimeMessages)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [isModelConfigured])
+
   const modelItems = useMemo<MenuProps['items']>(
     () =>
       models.map((modelName) => ({
@@ -155,7 +184,10 @@ function AppContent() {
     setInput('')
     setActiveChatTitle('New chat')
     startRuntimeChat('New chat')
-      .then(() => setMessages([]))
+      .then((nextStatus) => {
+        setRuntimeStatus(nextStatus)
+        setMessages([])
+      })
       .catch((error) => {
         const reason = error instanceof Error ? error.message : String(error)
         message.error(reason)
@@ -178,8 +210,27 @@ function AppContent() {
       setActiveChatTitle(content.length > 24 ? `${content.slice(0, 24)}...` : content)
     }
     try {
+      const previousAssistantId = [...messages].reverse().find((chatMessage) => chatMessage.role === 'assistant')?.id
       await sendRuntimePrompt(content)
-      await refreshMessages()
+      let runtimeMessages = await requestRuntimeMessages()
+      setMessages(runtimeMessages)
+      let nextStatus = await refreshStatus().catch(() => runtimeStatus)
+      const started = Date.now()
+      while (Date.now() - started < 30 * 60 * 1000) {
+        await new Promise((resolve) => window.setTimeout(resolve, 700))
+        runtimeMessages = await requestRuntimeMessages().catch(() => runtimeMessages)
+        setMessages(runtimeMessages)
+        nextStatus = await refreshStatus().catch(() => nextStatus)
+        scrollToBottom()
+        const latestAssistant = [...runtimeMessages].reverse().find((chatMessage) => chatMessage.role === 'assistant')
+        if (latestAssistant?.error) {
+          setLastError(latestAssistant.error)
+        }
+        if (nextStatus && !nextStatus.busy && latestAssistant?.finished && latestAssistant.id !== previousAssistantId) break
+      }
+      runtimeMessages = await requestRuntimeMessages().catch(() => runtimeMessages)
+      setMessages(runtimeMessages)
+      await refreshStatus().catch(() => undefined)
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       setLastError(reason)
@@ -267,6 +318,7 @@ function AppContent() {
           <Space>
             <Text strong>{activeChatTitle}</Text>
             <DownOutlined className="muted-icon" />
+            <UsageReadout status={runtimeStatus} />
           </Space>
           <Space size={4}>
             <Tooltip title="Share later">
@@ -443,6 +495,20 @@ function Composer({ config, input, isDisabled, isSending, modelItems, onChange, 
         </Space>
       </Flex>
     </div>
+  )
+}
+
+function UsageReadout({ status }: { status: RuntimeStatus | null }) {
+  const usage = status?.usage ?? emptyUsage
+  return (
+    <Space className="usage-readout" size={10}>
+      <Tag>{status?.busy ? 'Running' : 'Idle'}</Tag>
+      <Text type="secondary">Tokens {usage.totalTokens}</Text>
+      <Text type="secondary">In {usage.promptTokens}</Text>
+      <Text type="secondary">Out {usage.completionTokens}</Text>
+      <Text type="secondary">Events {status?.events?.messageEvents ?? 0}</Text>
+      <Text type="secondary">${usage.cost.toFixed(4)}</Text>
+    </Space>
   )
 }
 

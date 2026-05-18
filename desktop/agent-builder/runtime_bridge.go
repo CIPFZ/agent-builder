@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,12 +14,15 @@ import (
 	"sync"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
 	crushlog "github.com/charmbracelet/crush/internal/log"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/version"
 )
 
@@ -25,21 +30,26 @@ import (
 // runtime. The React UI stays thin; this service owns workspace, session, and
 // agent lifecycle.
 type RuntimeBridge struct {
-	mu        sync.Mutex
-	runtime   *backend.Backend
-	workspace *proto.Workspace
-	sessionID string
-	cancel    context.CancelFunc
+	mu         sync.Mutex
+	runtime    *backend.Backend
+	workspace  *proto.Workspace
+	sessionID  string
+	runtimeCtx context.Context
+	cancel     context.CancelFunc
+	eventStats runtimeEventStats
+	requests   map[string]runtimeRequestState
 }
 
 type RuntimeStatus struct {
-	Ready       bool   `json:"ready"`
-	WorkspaceID string `json:"workspaceId"`
-	SessionID   string `json:"sessionId"`
-	WorkingDir  string `json:"workingDir"`
-	Model       string `json:"model"`
-	Provider    string `json:"provider"`
-	Busy        bool   `json:"busy"`
+	Ready       bool              `json:"ready"`
+	WorkspaceID string            `json:"workspaceId"`
+	SessionID   string            `json:"sessionId"`
+	WorkingDir  string            `json:"workingDir"`
+	Model       string            `json:"model"`
+	Provider    string            `json:"provider"`
+	Busy        bool              `json:"busy"`
+	Usage       RuntimeUsage      `json:"usage"`
+	Events      RuntimeEventStats `json:"events"`
 }
 
 type RuntimeModel struct {
@@ -62,25 +72,41 @@ type RuntimeChatRequest struct {
 }
 
 type RuntimeChatResponse struct {
-	Message RuntimeMessage `json:"message"`
-	Status  RuntimeStatus  `json:"status"`
+	RequestID string        `json:"requestId"`
+	Status    RuntimeStatus `json:"status"`
 }
 
 type RuntimeMessage struct {
-	ID        string `json:"id"`
-	SessionID string `json:"sessionId"`
-	Role      string `json:"role"`
-	Content   string `json:"content"`
-	Provider  string `json:"provider,omitempty"`
-	Model     string `json:"model,omitempty"`
-	CreatedAt int64  `json:"createdAt"`
-	UpdatedAt int64  `json:"updatedAt"`
-	Finished  bool   `json:"finished"`
-	Error     string `json:"error,omitempty"`
+	ID           string `json:"id"`
+	SessionID    string `json:"sessionId"`
+	Role         string `json:"role"`
+	Content      string `json:"content"`
+	Provider     string `json:"provider,omitempty"`
+	Model        string `json:"model,omitempty"`
+	CreatedAt    int64  `json:"createdAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
+	Finished     bool   `json:"finished"`
+	FinishReason string `json:"finishReason,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 type RuntimeMessagesResponse struct {
 	Messages []RuntimeMessage `json:"messages"`
+}
+
+type RuntimeUsage struct {
+	PromptTokens     int64   `json:"promptTokens"`
+	CompletionTokens int64   `json:"completionTokens"`
+	TotalTokens      int64   `json:"totalTokens"`
+	Cost             float64 `json:"cost"`
+}
+
+type RuntimeEventStats struct {
+	LastEventAt     int64 `json:"lastEventAt"`
+	MessageEvents   int64 `json:"messageEvents"`
+	SessionEvents   int64 `json:"sessionEvents"`
+	OtherEvents     int64 `json:"otherEvents"`
+	AssistantEvents int64 `json:"assistantEvents"`
 }
 
 type RuntimeModelConfig struct {
@@ -110,13 +136,51 @@ type desktopLayout struct {
 	ModelConfigPath string
 }
 
+type runtimeRequestState struct {
+	StartedAt int64  `json:"startedAt"`
+	Finished  bool   `json:"finished"`
+	Error     string `json:"error,omitempty"`
+}
+
+type runtimeEventStats struct {
+	lastEventAt     int64
+	messageEvents   int64
+	sessionEvents   int64
+	otherEvents     int64
+	assistantEvents int64
+}
+
+type auditEntry struct {
+	RequestID             string        `json:"request_id"`
+	Event                 string        `json:"event"`
+	Timestamp             string        `json:"timestamp"`
+	WorkspaceID           string        `json:"workspace_id,omitempty"`
+	SessionID             string        `json:"session_id,omitempty"`
+	Provider              string        `json:"provider,omitempty"`
+	Model                 string        `json:"model,omitempty"`
+	PromptLength          int           `json:"prompt_length,omitempty"`
+	PromptPreview         string        `json:"prompt_preview,omitempty"`
+	ResponseLength        int           `json:"response_length,omitempty"`
+	ResponsePreview       string        `json:"response_preview,omitempty"`
+	DurationMS            int64         `json:"duration_ms,omitempty"`
+	FinishReason          string        `json:"finish_reason,omitempty"`
+	UsageBefore           *RuntimeUsage `json:"usage_before,omitempty"`
+	UsageAfter            *RuntimeUsage `json:"usage_after,omitempty"`
+	UsageDelta            *RuntimeUsage `json:"usage_delta,omitempty"`
+	Error                 string        `json:"error,omitempty"`
+	LatestAssistantID     string        `json:"latest_assistant_id,omitempty"`
+	LatestAssistantFinish bool          `json:"latest_assistant_finished,omitempty"`
+}
+
 const localProviderID = "local-model"
-const chatTimeout = 2 * time.Minute
+const auditPreviewLimit = 600
 
 var errModelConfigMissing = errors.New("model is not configured. Open model settings and save protocol, URL, API key, and model before chatting.")
 
 func NewRuntimeBridge() *RuntimeBridge {
-	return &RuntimeBridge{}
+	return &RuntimeBridge{
+		requests: make(map[string]runtimeRequestState),
+	}
 }
 
 func (r *RuntimeBridge) Status(ctx context.Context) (RuntimeStatus, error) {
@@ -127,9 +191,14 @@ func (r *RuntimeBridge) Status(ctx context.Context) (RuntimeStatus, error) {
 	r.mu.Lock()
 	ws := *r.workspace
 	sessionID := r.sessionID
+	events := r.eventStats.snapshot()
 	r.mu.Unlock()
 
 	info, err := r.runtime.GetAgentInfo(ws.ID)
+	if err != nil {
+		return RuntimeStatus{}, err
+	}
+	usage, err := r.sessionUsage(ctx, ws.ID, sessionID)
 	if err != nil {
 		return RuntimeStatus{}, err
 	}
@@ -142,6 +211,8 @@ func (r *RuntimeBridge) Status(ctx context.Context) (RuntimeStatus, error) {
 		Model:       info.ModelCfg.Model,
 		Provider:    info.ModelCfg.Provider,
 		Busy:        info.IsBusy,
+		Usage:       usage,
+		Events:      events,
 	}, nil
 }
 
@@ -265,36 +336,47 @@ func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (Runti
 	r.mu.Lock()
 	wsID := r.workspace.ID
 	sessionID := r.sessionID
+	runCtx := r.runtimeCtx
+	if runCtx == nil {
+		runCtx = context.Background()
+	}
 	r.mu.Unlock()
 
-	chatCtx, cancel := context.WithTimeout(ctx, chatTimeout)
-	defer cancel()
-
+	requestID := newRequestID()
 	start := time.Now()
-	slog.Info("Desktop chat started", "workspace_id", wsID, "session_id", sessionID, "prompt_len", len(prompt))
-	if err := r.runtime.SendMessage(chatCtx, wsID, proto.AgentMessage{
-		SessionID: sessionID,
-		Prompt:    prompt,
-	}); err != nil {
-		slog.Error("Desktop chat failed", "workspace_id", wsID, "session_id", sessionID, "duration", time.Since(start).String(), "error", err)
-		return RuntimeChatResponse{}, fmt.Errorf("failed to send message to Crush agent: %w", err)
-	}
-
-	msg, err := r.waitForAssistant(chatCtx, wsID, sessionID)
+	usageBefore, err := r.sessionUsage(ctx, wsID, sessionID)
 	if err != nil {
-		slog.Error("Desktop chat response unavailable", "workspace_id", wsID, "session_id", sessionID, "duration", time.Since(start).String(), "error", err)
 		return RuntimeChatResponse{}, err
 	}
-	slog.Info("Desktop chat finished", "workspace_id", wsID, "session_id", sessionID, "provider", msg.Provider, "model", msg.Model, "duration", time.Since(start).String(), "content_len", len(msg.Content().String()))
+
+	r.mu.Lock()
+	r.requests[requestID] = runtimeRequestState{StartedAt: start.UnixMilli()}
+	r.mu.Unlock()
 
 	status, err := r.Status(ctx)
 	if err != nil {
 		return RuntimeChatResponse{}, err
 	}
 
+	slog.Info("Desktop chat queued", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "prompt_len", len(prompt))
+	r.writeAudit(auditEntry{
+		RequestID:     requestID,
+		Event:         "started",
+		Timestamp:     start.Format(time.RFC3339Nano),
+		WorkspaceID:   wsID,
+		SessionID:     sessionID,
+		Provider:      status.Provider,
+		Model:         status.Model,
+		PromptLength:  len(prompt),
+		PromptPreview: preview(prompt, auditPreviewLimit),
+		UsageBefore:   &usageBefore,
+	})
+
+	go r.runChat(runCtx, requestID, wsID, sessionID, prompt, start, usageBefore, status.Provider, status.Model)
+
 	return RuntimeChatResponse{
-		Message: toRuntimeMessage(msg),
-		Status:  status,
+		RequestID: requestID,
+		Status:    status,
 	}, nil
 }
 
@@ -322,6 +404,64 @@ func (r *RuntimeBridge) Messages(ctx context.Context) (RuntimeMessagesResponse, 
 	}
 
 	return RuntimeMessagesResponse{Messages: runtimeMessages}, nil
+}
+
+func (r *RuntimeBridge) runChat(ctx context.Context, requestID, wsID, sessionID, prompt string, start time.Time, usageBefore RuntimeUsage, provider, model string) {
+	err := r.runtime.SendMessage(ctx, wsID, proto.AgentMessage{
+		SessionID: sessionID,
+		Prompt:    prompt,
+	})
+	duration := time.Since(start)
+	usageAfter, usageErr := r.sessionUsage(context.Background(), wsID, sessionID)
+	if usageErr != nil {
+		slog.Error("Desktop chat usage unavailable", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "error", usageErr)
+	}
+	assistant, assistantErr := r.latestFinishedAssistantMessage(context.Background(), wsID, sessionID)
+	if assistantErr != nil {
+		slog.Warn("Desktop chat assistant message unavailable", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "error", assistantErr)
+	}
+
+	r.mu.Lock()
+	state := r.requests[requestID]
+	state.Finished = true
+	if err != nil {
+		state.Error = err.Error()
+	}
+	r.requests[requestID] = state
+	r.mu.Unlock()
+
+	entry := auditEntry{
+		RequestID:     requestID,
+		Timestamp:     time.Now().Format(time.RFC3339Nano),
+		WorkspaceID:   wsID,
+		SessionID:     sessionID,
+		Provider:      provider,
+		Model:         model,
+		DurationMS:    duration.Milliseconds(),
+		PromptLength:  len(prompt),
+		PromptPreview: preview(prompt, auditPreviewLimit),
+	}
+	usageDelta := usageAfter.Sub(usageBefore)
+	entry.UsageBefore = &usageBefore
+	entry.UsageAfter = &usageAfter
+	entry.UsageDelta = &usageDelta
+	if assistantErr == nil {
+		runtimeMsg := toRuntimeMessage(assistant)
+		entry.LatestAssistantID = runtimeMsg.ID
+		entry.LatestAssistantFinish = runtimeMsg.Finished
+		entry.FinishReason = runtimeMsg.FinishReason
+		entry.ResponseLength = len(runtimeMsg.Content)
+		entry.ResponsePreview = preview(runtimeMsg.Content, auditPreviewLimit)
+	}
+	if err != nil {
+		entry.Event = "failed"
+		entry.Error = err.Error()
+		slog.Error("Desktop chat failed", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "duration", duration.String(), "error", err)
+	} else {
+		entry.Event = "finished"
+		slog.Info("Desktop chat finished", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "provider", provider, "model", model, "duration", duration.String(), "content_len", entry.ResponseLength, "finish_reason", entry.FinishReason)
+	}
+	r.writeAudit(entry)
 }
 
 func (r *RuntimeBridge) readConfiguredModel() (RuntimeModelConfig, error) {
@@ -373,7 +513,10 @@ func (r *RuntimeBridge) restart() {
 	r.runtime = nil
 	r.workspace = nil
 	r.sessionID = ""
+	r.runtimeCtx = nil
 	r.cancel = nil
+	r.eventStats = runtimeEventStats{}
+	r.requests = make(map[string]runtimeRequestState)
 }
 
 func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
@@ -421,9 +564,10 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	crushlog.Setup(logFile, false)
 	logConfiguredModel(store)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	runtimeCtx, cancel := context.WithCancel(context.Background())
+	r.runtimeCtx = runtimeCtx
 	r.cancel = cancel
-	r.runtime = backend.New(ctx, store, nil)
+	r.runtime = backend.New(runtimeCtx, store, nil)
 
 	wsRuntime, ws, err := r.runtime.CreateWorkspace(proto.Workspace{
 		Path:    workingDir,
@@ -447,8 +591,9 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	}
 	wsRuntime.Cfg.SetupAgents()
 	r.workspace = &ws
+	go r.consumeRuntimeEvents(runtimeCtx, ws.ID)
 
-	if err := r.runtime.UpdateAgent(ctx, ws.ID); err != nil {
+	if err := r.runtime.UpdateAgent(runtimeCtx, ws.ID); err != nil {
 		return fmt.Errorf("failed to update Crush agent model: %w", err)
 	}
 
@@ -458,6 +603,50 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	}
 	r.sessionID = sess.ID
 	return nil
+}
+
+func (r *RuntimeBridge) consumeRuntimeEvents(ctx context.Context, workspaceID string) {
+	events, err := r.runtime.SubscribeEvents(ctx, workspaceID)
+	if err != nil {
+		slog.Error("Failed to subscribe to Crush runtime events", "workspace_id", workspaceID, "error", err)
+		return
+	}
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			r.recordRuntimeEvent(event)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (r *RuntimeBridge) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.eventStats.lastEventAt = time.Now().UnixMilli()
+	switch payload := event.Payload.(type) {
+	case pubsub.Event[message.Message]:
+		r.eventStats.messageEvents++
+		if payload.Payload.Role == message.Assistant {
+			r.eventStats.assistantEvents++
+		}
+	case pubsub.Event[proto.Message]:
+		r.eventStats.messageEvents++
+		if payload.Payload.Role == proto.Assistant {
+			r.eventStats.assistantEvents++
+		}
+	case pubsub.Event[proto.Session]:
+		r.eventStats.sessionEvents++
+	case pubsub.Event[session.Session]:
+		r.eventStats.sessionEvents++
+	default:
+		r.eventStats.otherEvents++
+	}
 }
 
 func augmentDesktopPath(layout desktopLayout) {
@@ -487,35 +676,17 @@ func augmentDesktopPath(layout desktopLayout) {
 	}
 }
 
-func (r *RuntimeBridge) waitForAssistant(ctx context.Context, workspaceID, sessionID string) (proto.Message, error) {
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		msg, err := r.latestAssistantMessage(ctx, workspaceID, sessionID)
-		if err == nil {
-			return msg, nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return proto.Message{}, fmt.Errorf("timed out waiting for assistant response: %w", ctx.Err())
-		case <-ticker.C:
-		}
-	}
-}
-
-func (r *RuntimeBridge) latestAssistantMessage(ctx context.Context, workspaceID, sessionID string) (proto.Message, error) {
+func (r *RuntimeBridge) latestFinishedAssistantMessage(ctx context.Context, workspaceID, sessionID string) (proto.Message, error) {
 	msgs, err := r.runtime.ListSessionMessages(ctx, workspaceID, sessionID)
 	if err != nil {
-		return proto.Message{}, fmt.Errorf("failed to read session messages after timeout: %w", err)
+		return proto.Message{}, fmt.Errorf("failed to read session messages: %w", err)
 	}
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == message.Assistant {
+		if msgs[i].Role == message.Assistant && msgs[i].FinishPart() != nil {
 			return toProtoMessage(msgs[i]), nil
 		}
 	}
-	return proto.Message{}, errors.New("timed out waiting for assistant response")
+	return proto.Message{}, errors.New("finished assistant response is not available")
 }
 
 func toProtoMessage(msg message.Message) proto.Message {
@@ -610,6 +781,7 @@ func assistantContent(msg proto.Message) string {
 func toRuntimeMessage(msg proto.Message) RuntimeMessage {
 	content := msg.Content().String()
 	var finishError string
+	var finishReason string
 	finished := false
 	for _, part := range msg.Parts {
 		finish, ok := part.(proto.Finish)
@@ -617,6 +789,7 @@ func toRuntimeMessage(msg proto.Message) RuntimeMessage {
 			continue
 		}
 		finished = true
+		finishReason = string(finish.Reason)
 		if finish.Reason != proto.FinishReasonError {
 			continue
 		}
@@ -636,17 +809,100 @@ func toRuntimeMessage(msg proto.Message) RuntimeMessage {
 	}
 
 	return RuntimeMessage{
-		ID:        msg.ID,
-		SessionID: msg.SessionID,
-		Role:      string(msg.Role),
-		Content:   content,
-		Provider:  msg.Provider,
-		Model:     msg.Model,
-		CreatedAt: msg.CreatedAt,
-		UpdatedAt: msg.UpdatedAt,
-		Finished:  finished,
-		Error:     finishError,
+		ID:           msg.ID,
+		SessionID:    msg.SessionID,
+		Role:         string(msg.Role),
+		Content:      content,
+		Provider:     msg.Provider,
+		Model:        msg.Model,
+		CreatedAt:    msg.CreatedAt,
+		UpdatedAt:    msg.UpdatedAt,
+		Finished:     finished,
+		FinishReason: finishReason,
+		Error:        finishError,
 	}
+}
+
+func (r *RuntimeBridge) sessionUsage(ctx context.Context, workspaceID, sessionID string) (RuntimeUsage, error) {
+	sess, err := r.runtime.GetSession(ctx, workspaceID, sessionID)
+	if err != nil {
+		return RuntimeUsage{}, fmt.Errorf("failed to read Crush session usage: %w", err)
+	}
+	return RuntimeUsage{
+		PromptTokens:     sess.PromptTokens,
+		CompletionTokens: sess.CompletionTokens,
+		TotalTokens:      sess.PromptTokens + sess.CompletionTokens,
+		Cost:             sess.Cost,
+	}, nil
+}
+
+func (u RuntimeUsage) Sub(before RuntimeUsage) RuntimeUsage {
+	return RuntimeUsage{
+		PromptTokens:     u.PromptTokens - before.PromptTokens,
+		CompletionTokens: u.CompletionTokens - before.CompletionTokens,
+		TotalTokens:      u.TotalTokens - before.TotalTokens,
+		Cost:             u.Cost - before.Cost,
+	}
+}
+
+func (s runtimeEventStats) snapshot() RuntimeEventStats {
+	return RuntimeEventStats{
+		LastEventAt:     s.lastEventAt,
+		MessageEvents:   s.messageEvents,
+		SessionEvents:   s.sessionEvents,
+		OtherEvents:     s.otherEvents,
+		AssistantEvents: s.assistantEvents,
+	}
+}
+
+func (r *RuntimeBridge) writeAudit(entry auditEntry) {
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		slog.Error("Failed to resolve desktop audit path", "error", err)
+		return
+	}
+	if err := ensureDesktopLayout(layout); err != nil {
+		slog.Error("Failed to create desktop audit directory", "error", err)
+		return
+	}
+	if entry.Timestamp == "" {
+		entry.Timestamp = time.Now().Format(time.RFC3339Nano)
+	}
+	path := filepath.Join(layout.LogsDir, "agent-builder-audit.jsonl")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		slog.Error("Failed to open desktop audit log", "path", path, "error", err)
+		return
+	}
+	defer file.Close() //nolint:errcheck
+
+	data, err := json.Marshal(entry)
+	if err != nil {
+		slog.Error("Failed to encode desktop audit entry", "error", err)
+		return
+	}
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		slog.Error("Failed to write desktop audit entry", "path", path, "error", err)
+	}
+}
+
+func preview(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= limit {
+		return value
+	}
+	if limit <= 3 {
+		return value[:limit]
+	}
+	return value[:limit-3] + "..."
+}
+
+func newRequestID() string {
+	var data [8]byte
+	if _, err := rand.Read(data[:]); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%d-%s", time.Now().UnixMilli(), hex.EncodeToString(data[:]))
 }
 
 func firstNonEmpty(values ...string) string {

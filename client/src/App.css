@@ -169,6 +169,15 @@ button {
   font-size: 12px;
 }
 
+.usage-readout {
+  margin-left: 10px;
+  white-space: nowrap;
+}
+
+.usage-readout .ant-typography {
+  font-size: 12px;
+}
+
 .chat-viewport {
   flex: 1;
   min-height: 0;

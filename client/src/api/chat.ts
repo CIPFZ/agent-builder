@@ -1,5 +1,5 @@
 import { getAgentRuntime } from '../runtime'
-import type { RuntimeMessage } from '../runtime'
+import type { RuntimeStatus } from '../runtime'
 
 export type ModelConfig = {
   protocol: 'openai' | 'anthropic'
@@ -12,20 +12,13 @@ export type ModelConfig = {
   configPath?: string
 }
 
-export type ChatResponse = {
-  message: RuntimeMessage
-}
-
 export type ModelsResponse = {
   models: string[]
 }
 
-export async function sendRuntimePrompt(prompt: string): Promise<ChatResponse> {
+export async function sendRuntimePrompt(prompt: string): Promise<RuntimeStatus> {
   const response = await getAgentRuntime().chat({ prompt })
-
-  return {
-    message: response.message,
-  }
+  return response.status
 }
 
 export async function requestConfiguredModels(): Promise<ModelsResponse> {

@@ -7,7 +7,9 @@ export type {
   RuntimeChatResponse,
   RuntimeMessage,
   RuntimeModel,
+  RuntimeEventStats,
   RuntimeStatus,
+  RuntimeUsage,
 } from './types'
 
 export function getAgentRuntime(): AgentRuntime {

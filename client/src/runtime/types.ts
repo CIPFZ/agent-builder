@@ -6,6 +6,8 @@ export type RuntimeStatus = {
   model: string
   provider: string
   busy: boolean
+  usage: RuntimeUsage
+  events: RuntimeEventStats
 }
 
 export type RuntimeModel = {
@@ -20,7 +22,7 @@ export type RuntimeChatRequest = {
 }
 
 export type RuntimeChatResponse = {
-  message: RuntimeMessage
+  requestId: string
   status: RuntimeStatus
 }
 
@@ -34,7 +36,23 @@ export type RuntimeMessage = {
   createdAt: number
   updatedAt: number
   finished: boolean
+  finishReason?: string
   error?: string
+}
+
+export type RuntimeUsage = {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  cost: number
+}
+
+export type RuntimeEventStats = {
+  lastEventAt: number
+  messageEvents: number
+  sessionEvents: number
+  otherEvents: number
+  assistantEvents: number
 }
 
 export type RuntimeModelConfig = {

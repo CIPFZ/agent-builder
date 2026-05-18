@@ -7,13 +7,13 @@ require github.com/charmbracelet/crush v0.0.0
 replace github.com/charmbracelet/crush => ../..
 
 require (
+	charm.land/bubbletea/v2 v2.0.6
 	charm.land/catwalk v0.40.0
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.92
 )
 
 require (
 	charm.land/bubbles/v2 v2.1.0 // indirect
-	charm.land/bubbletea/v2 v2.0.6 // indirect
 	charm.land/fantasy v0.24.0 // indirect
 	charm.land/glamour/v2 v2.0.0 // indirect
 	charm.land/lipgloss/v2 v2.0.3 // indirect
