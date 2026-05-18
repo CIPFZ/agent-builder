@@ -457,10 +457,6 @@ func (r *RuntimeBridge) EventsEndpoint(ctx context.Context) (RuntimeEventsEndpoi
 	return r.service.EventsEndpoint(ctx)
 }
 
-func (r *RuntimeBridge) SubscribeEvents(ctx context.Context) (<-chan RuntimeEvent, func()) {
-	return r.service.SubscribeEvents(ctx)
-}
-
 func (r *RuntimeBridge) AuditTurn(ctx context.Context, turnID string) (RuntimeAuditResponse, error) {
 	return r.service.AuditTurn(ctx, turnID)
 }
