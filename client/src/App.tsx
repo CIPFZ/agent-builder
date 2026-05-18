@@ -507,6 +507,7 @@ function UsageReadout({ status }: { status: RuntimeStatus | null }) {
       <Text type="secondary">In {usage.promptTokens}</Text>
       <Text type="secondary">Out {usage.completionTokens}</Text>
       <Text type="secondary">Events {status?.events?.messageEvents ?? 0}</Text>
+      <Text type="secondary">Perms {status?.events?.permissionEvents ?? 0}</Text>
       <Text type="secondary">${usage.cost.toFixed(4)}</Text>
     </Space>
   )

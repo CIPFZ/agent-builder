@@ -53,6 +53,7 @@ export type RuntimeEventStats = {
   sessionEvents: number
   otherEvents: number
   assistantEvents: number
+  permissionEvents: number
 }
 
 export type RuntimeModelConfig = {

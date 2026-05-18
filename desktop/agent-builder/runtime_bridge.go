@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	crushlog "github.com/charmbracelet/crush/internal/log"
 	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
@@ -102,11 +103,12 @@ type RuntimeUsage struct {
 }
 
 type RuntimeEventStats struct {
-	LastEventAt     int64 `json:"lastEventAt"`
-	MessageEvents   int64 `json:"messageEvents"`
-	SessionEvents   int64 `json:"sessionEvents"`
-	OtherEvents     int64 `json:"otherEvents"`
-	AssistantEvents int64 `json:"assistantEvents"`
+	LastEventAt      int64 `json:"lastEventAt"`
+	MessageEvents    int64 `json:"messageEvents"`
+	SessionEvents    int64 `json:"sessionEvents"`
+	OtherEvents      int64 `json:"otherEvents"`
+	AssistantEvents  int64 `json:"assistantEvents"`
+	PermissionEvents int64 `json:"permissionEvents"`
 }
 
 type RuntimeModelConfig struct {
@@ -143,11 +145,12 @@ type runtimeRequestState struct {
 }
 
 type runtimeEventStats struct {
-	lastEventAt     int64
-	messageEvents   int64
-	sessionEvents   int64
-	otherEvents     int64
-	assistantEvents int64
+	lastEventAt      int64
+	messageEvents    int64
+	sessionEvents    int64
+	otherEvents      int64
+	assistantEvents  int64
+	permissionEvents int64
 }
 
 type auditEntry struct {
@@ -170,6 +173,10 @@ type auditEntry struct {
 	Error                 string        `json:"error,omitempty"`
 	LatestAssistantID     string        `json:"latest_assistant_id,omitempty"`
 	LatestAssistantFinish bool          `json:"latest_assistant_finished,omitempty"`
+	PermissionTool        string        `json:"permission_tool,omitempty"`
+	PermissionAction      string        `json:"permission_action,omitempty"`
+	PermissionPath        string        `json:"permission_path,omitempty"`
+	PermissionPolicy      string        `json:"permission_policy,omitempty"`
 }
 
 const localProviderID = "local-model"
@@ -592,6 +599,7 @@ func (r *RuntimeBridge) ensureStarted(ctx context.Context) error {
 	wsRuntime.Cfg.SetupAgents()
 	r.workspace = &ws
 	go r.consumeRuntimeEvents(runtimeCtx, ws.ID)
+	go r.autoApproveDesktopPermissions(runtimeCtx, ws.ID, wsRuntime.Permissions)
 
 	if err := r.runtime.UpdateAgent(runtimeCtx, ws.ID); err != nil {
 		return fmt.Errorf("failed to update Crush agent model: %w", err)
@@ -624,6 +632,33 @@ func (r *RuntimeBridge) consumeRuntimeEvents(ctx context.Context, workspaceID st
 	}
 }
 
+func (r *RuntimeBridge) autoApproveDesktopPermissions(ctx context.Context, workspaceID string, permissions permission.Service) {
+	events := permissions.Subscribe(ctx)
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			perm := event.Payload
+			slog.Info("Desktop permission auto-approved", "workspace_id", workspaceID, "session_id", perm.SessionID, "tool", perm.ToolName, "action", perm.Action, "path", perm.Path)
+			r.writeAudit(auditEntry{
+				Event:            "permission_auto_approved",
+				Timestamp:        time.Now().Format(time.RFC3339Nano),
+				WorkspaceID:      workspaceID,
+				SessionID:        perm.SessionID,
+				PermissionTool:   perm.ToolName,
+				PermissionAction: perm.Action,
+				PermissionPath:   perm.Path,
+				PermissionPolicy: "desktop_auto_approve_session",
+			})
+			permissions.Grant(perm)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 func (r *RuntimeBridge) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -644,6 +679,10 @@ func (r *RuntimeBridge) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
 		r.eventStats.sessionEvents++
 	case pubsub.Event[session.Session]:
 		r.eventStats.sessionEvents++
+	case pubsub.Event[permission.PermissionRequest]:
+		r.eventStats.permissionEvents++
+	case pubsub.Event[proto.PermissionRequest]:
+		r.eventStats.permissionEvents++
 	default:
 		r.eventStats.otherEvents++
 	}
@@ -847,11 +886,12 @@ func (u RuntimeUsage) Sub(before RuntimeUsage) RuntimeUsage {
 
 func (s runtimeEventStats) snapshot() RuntimeEventStats {
 	return RuntimeEventStats{
-		LastEventAt:     s.lastEventAt,
-		MessageEvents:   s.messageEvents,
-		SessionEvents:   s.sessionEvents,
-		OtherEvents:     s.otherEvents,
-		AssistantEvents: s.assistantEvents,
+		LastEventAt:      s.lastEventAt,
+		MessageEvents:    s.messageEvents,
+		SessionEvents:    s.sessionEvents,
+		OtherEvents:      s.otherEvents,
+		AssistantEvents:  s.assistantEvents,
+		PermissionEvents: s.permissionEvents,
 	}
 }
 
