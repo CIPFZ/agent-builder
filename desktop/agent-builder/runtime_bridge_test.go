@@ -282,6 +282,44 @@ func TestRuntimeMCPServersFromConfigRedactsSecrets(t *testing.T) {
 	}
 }
 
+func TestRuntimeCapabilitiesIncludeToolsSkillsAndMCP(t *testing.T) {
+	t.Parallel()
+
+	store := config.NewTestStore(&config.Config{
+		Options: &config.Options{
+			DisabledTools:  []string{"bash"},
+			DisabledSkills: []string{"crush-config"},
+		},
+	})
+	resp := runtimeCapabilities(
+		store,
+		RuntimeSkillsResponse{Skills: []RuntimeSkill{{Name: "crush-config", Enabled: false, Builtin: true, State: "normal"}}},
+		RuntimeMCPToolsResponse{Tools: []RuntimeMCPTool{{Server: "docs", Name: "search_docs", Enabled: true}}},
+		RuntimeMCPResourcesResponse{Resources: []RuntimeMCPResource{{Server: "docs", URI: "docs://intro"}}},
+		RuntimeMCPPromptsResponse{Prompts: []RuntimeMCPPrompt{{Server: "docs", Name: "summarize"}}},
+	)
+
+	byID := make(map[string]RuntimeCapability)
+	for _, capability := range resp.Capabilities {
+		byID[capability.ID] = capability
+	}
+	if byID["builtin:bash"].Enabled {
+		t.Fatalf("disabled builtin tool capability = %#v", byID["builtin:bash"])
+	}
+	if byID["skill:crush-config"].Enabled {
+		t.Fatalf("disabled skill capability = %#v", byID["skill:crush-config"])
+	}
+	if byID["mcp:docs:search_docs"].Kind != "mcp_tool" {
+		t.Fatalf("mcp tool capability missing: %#v", byID["mcp:docs:search_docs"])
+	}
+	if byID["mcp_resource:docs:docs://intro"].Kind != "mcp_resource" {
+		t.Fatalf("mcp resource capability missing: %#v", byID["mcp_resource:docs:docs://intro"])
+	}
+	if byID["mcp_prompt:docs:summarize"].Kind != "mcp_prompt" {
+		t.Fatalf("mcp prompt capability missing: %#v", byID["mcp_prompt:docs:summarize"])
+	}
+}
+
 func TestRuntimeSkillsFromConfigIncludesInvalidSkillDiagnostics(t *testing.T) {
 	t.Parallel()
 
@@ -703,6 +741,10 @@ func (s *recordingRuntimeService) MCPResources(context.Context, string) (Runtime
 
 func (s *recordingRuntimeService) MCPPrompts(context.Context, string) (RuntimeMCPPromptsResponse, error) {
 	return RuntimeMCPPromptsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) Capabilities(context.Context) (RuntimeCapabilitiesResponse, error) {
+	return RuntimeCapabilitiesResponse{}, nil
 }
 
 func (s *recordingRuntimeService) DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error) {
