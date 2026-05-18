@@ -23,6 +23,7 @@ import (
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/charmbracelet/crush/internal/runtimeapi"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/version"
 )
@@ -164,14 +165,7 @@ type RuntimeEventStats struct {
 	PermissionEvents int64 `json:"permissionEvents"`
 }
 
-type RuntimeEvent struct {
-	Type      string `json:"type"`
-	Role      string `json:"role,omitempty"`
-	SessionID string `json:"sessionId,omitempty"`
-	MessageID string `json:"messageId,omitempty"`
-	CreatedAt int64  `json:"createdAt"`
-	Summary   string `json:"summary,omitempty"`
-}
+type RuntimeEvent = runtimeapi.Event
 
 type RuntimeEventsResponse struct {
 	Events []RuntimeEvent `json:"events"`
@@ -831,20 +825,15 @@ func (r *RuntimeBridge) consumeDesktopPermissions(ctx context.Context, workspace
 			perm := event.Payload
 			runtimePerm := toRuntimePermissionRequest(perm)
 			var runtimeEvent RuntimeEvent
+			now := time.Now()
 			r.mu.Lock()
 			r.permissions[perm.ID] = pendingRuntimePermission{
 				Permission: runtimePerm,
 				Raw:        perm,
 			}
 			r.eventStats.permissionEvents++
-			r.eventStats.lastEventAt = time.Now().UnixMilli()
-			runtimeEvent = r.appendRuntimeEventLocked(RuntimeEvent{
-				Type:      "permission_requested",
-				SessionID: perm.SessionID,
-				MessageID: perm.ToolCallID,
-				CreatedAt: time.Now().UnixMilli(),
-				Summary:   perm.ToolName + ":" + perm.Action,
-			})
+			r.eventStats.lastEventAt = now.UnixMilli()
+			runtimeEvent = r.appendRuntimeEventLocked(newPermissionRuntimeEvent(now, runtimePerm))
 			r.mu.Unlock()
 			r.publishRuntimeEvent(runtimeEvent)
 
@@ -869,50 +858,31 @@ func (r *RuntimeBridge) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
 	r.mu.Lock()
 
 	var runtimeEvent RuntimeEvent
-	r.eventStats.lastEventAt = time.Now().UnixMilli()
+	now := time.Now()
+	r.eventStats.lastEventAt = now.UnixMilli()
 	switch payload := event.Payload.(type) {
 	case pubsub.Event[message.Message]:
 		r.eventStats.messageEvents++
-		runtimeEvent = r.appendRuntimeEventLocked(RuntimeEvent{
-			Type:      "message",
-			Role:      string(payload.Payload.Role),
-			SessionID: payload.Payload.SessionID,
-			MessageID: payload.Payload.ID,
-			CreatedAt: r.eventStats.lastEventAt,
-			Summary:   preview(payload.Payload.Content().Text, 160),
-		})
+		runtimeEvent = newMessageRuntimeEvent(now, toProtoMessage(payload.Payload))
+		runtimeEvent = r.appendRuntimeEventLocked(runtimeEvent)
 		if payload.Payload.Role == message.Assistant {
 			r.eventStats.assistantEvents++
 		}
 	case pubsub.Event[proto.Message]:
 		r.eventStats.messageEvents++
-		runtimeEvent = r.appendRuntimeEventLocked(RuntimeEvent{
-			Type:      "message",
-			Role:      string(payload.Payload.Role),
-			SessionID: payload.Payload.SessionID,
-			MessageID: payload.Payload.ID,
-			CreatedAt: r.eventStats.lastEventAt,
-			Summary:   preview(payload.Payload.Content().Text, 160),
-		})
+		runtimeEvent = newMessageRuntimeEvent(now, payload.Payload)
+		runtimeEvent = r.appendRuntimeEventLocked(runtimeEvent)
 		if payload.Payload.Role == proto.Assistant {
 			r.eventStats.assistantEvents++
 		}
 	case pubsub.Event[proto.Session]:
 		r.eventStats.sessionEvents++
-		runtimeEvent = r.appendRuntimeEventLocked(RuntimeEvent{
-			Type:      "session",
-			SessionID: payload.Payload.ID,
-			CreatedAt: r.eventStats.lastEventAt,
-			Summary:   payload.Payload.Title,
-		})
+		runtimeEvent = newSessionRuntimeEvent(now, payload.Payload.ID, payload.Payload.Title)
+		runtimeEvent = r.appendRuntimeEventLocked(runtimeEvent)
 	case pubsub.Event[session.Session]:
 		r.eventStats.sessionEvents++
-		runtimeEvent = r.appendRuntimeEventLocked(RuntimeEvent{
-			Type:      "session",
-			SessionID: payload.Payload.ID,
-			CreatedAt: r.eventStats.lastEventAt,
-			Summary:   payload.Payload.Title,
-		})
+		runtimeEvent = newSessionRuntimeEvent(now, payload.Payload.ID, payload.Payload.Title)
+		runtimeEvent = r.appendRuntimeEventLocked(runtimeEvent)
 	case pubsub.Event[permission.PermissionRequest]:
 		r.eventStats.permissionEvents++
 	case pubsub.Event[proto.PermissionRequest]:
@@ -1231,8 +1201,11 @@ func (r *RuntimeBridge) runtimeRequestsLocked() RuntimeRequests {
 }
 
 func (r *RuntimeBridge) appendRuntimeEventLocked(event RuntimeEvent) RuntimeEvent {
-	if event.CreatedAt == 0 {
-		event.CreatedAt = time.Now().UnixMilli()
+	if event.ID == "" {
+		event.ID = newRuntimeEventID()
+	}
+	if event.CreatedAt == "" {
+		event.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	r.events = append(r.events, event)
 	if len(r.events) > runtimeEventLimit {
@@ -1257,6 +1230,45 @@ func (r *RuntimeBridge) publishRuntimeEvent(event RuntimeEvent) {
 		return
 	}
 	r.eventStream.Publish(event)
+}
+
+func newMessageRuntimeEvent(createdAt time.Time, msg proto.Message) RuntimeEvent {
+	eventType := runtimeapi.EventMessageUpdated
+	if msg.FinishPart() != nil {
+		eventType = runtimeapi.EventMessageCompleted
+	}
+	event := runtimeapi.NewEvent(newRuntimeEventID(), eventType, createdAt)
+	event.SessionID = msg.SessionID
+	event.MessageID = msg.ID
+	event.Payload = map[string]any{
+		"role":    string(msg.Role),
+		"summary": preview(msg.Content().Text, 160),
+	}
+	return event
+}
+
+func newSessionRuntimeEvent(createdAt time.Time, sessionID, title string) RuntimeEvent {
+	event := runtimeapi.NewEvent(newRuntimeEventID(), runtimeapi.EventSessionUpdated, createdAt)
+	event.SessionID = sessionID
+	event.Payload = map[string]any{
+		"title": title,
+	}
+	return event
+}
+
+func newPermissionRuntimeEvent(createdAt time.Time, perm RuntimePermissionRequest) RuntimeEvent {
+	event := runtimeapi.NewEvent(newRuntimeEventID(), runtimeapi.EventPermissionRequested, createdAt)
+	event.SessionID = perm.SessionID
+	event.ToolCallID = perm.ToolCallID
+	event.Payload = map[string]any{
+		"permission_id": perm.ID,
+		"tool_name":     perm.ToolName,
+		"action":        perm.Action,
+		"description":   perm.Description,
+		"path":          perm.Path,
+		"summary":       perm.ToolName + ":" + perm.Action,
+	}
+	return event
 }
 
 func toRuntimePermissionRequest(perm permission.PermissionRequest) RuntimePermissionRequest {
@@ -1334,6 +1346,10 @@ func newRequestID() string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return fmt.Sprintf("%d-%s", time.Now().UnixMilli(), hex.EncodeToString(data[:]))
+}
+
+func newRuntimeEventID() string {
+	return "evt_" + newRequestID()
 }
 
 func firstNonEmpty(values ...string) string {

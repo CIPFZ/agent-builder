@@ -221,11 +221,11 @@ function AppContent() {
           url,
           (event) => {
             setEvents((current) => [...current, event].slice(-runtimeEventLimit))
-            if (event.type === 'message') {
+            if (event.type === 'message.created' || event.type === 'message.updated' || event.type === 'message.completed') {
               refreshMessages().catch(() => undefined)
               refreshStatus().catch(() => undefined)
             }
-            if (event.type === 'permission_requested') {
+            if (event.type === 'permission.requested') {
               refreshPermissions().catch(() => undefined)
               refreshStatus().catch(() => undefined)
             }
@@ -823,10 +823,10 @@ function OperationsPreview({ events, open, onClose }: { events: RuntimeEvent[]; 
       </Space>
       <div className="event-log">
         {events.slice(-8).map((event) => (
-          <div className="event-log-row" key={`${event.createdAt}-${event.type}-${event.messageId ?? event.sessionId ?? ''}`}>
+          <div className="event-log-row" key={event.id || `${event.created_at}-${event.type}`}>
             <Tag>{event.type}</Tag>
-            {event.role ? <Text type="secondary">{event.role}</Text> : null}
-            {event.summary ? <Text>{event.summary}</Text> : null}
+            {typeof event.payload?.role === 'string' ? <Text type="secondary">{event.payload.role}</Text> : null}
+            {typeof event.payload?.summary === 'string' ? <Text>{event.payload.summary}</Text> : null}
           </div>
         ))}
       </div>

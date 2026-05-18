@@ -366,17 +366,22 @@ func TestAppendRuntimeEventLockedReturnsPublishEvent(t *testing.T) {
 
 	bridge := NewRuntimeBridge()
 	event := bridge.appendRuntimeEventLocked(RuntimeEvent{
-		Type:      "message",
-		Role:      "assistant",
+		Type:      "message.created",
 		SessionID: "session-1",
 		MessageID: "message-1",
-		Summary:   "hello",
+		Payload: map[string]any{
+			"role":    "assistant",
+			"summary": "hello",
+		},
 	})
 
-	if event.CreatedAt == 0 {
+	if event.ID == "" {
+		t.Fatal("ID was not assigned")
+	}
+	if event.CreatedAt == "" {
 		t.Fatal("CreatedAt was not assigned")
 	}
-	if event.Type != "message" || event.MessageID != "message-1" {
+	if event.Type != "message.created" || event.MessageID != "message-1" {
 		t.Fatalf("event = %#v", event)
 	}
 	if len(bridge.events) != 1 {
@@ -411,12 +416,15 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 	}
 
 	stream.Publish(RuntimeEvent{
-		Type:      "message",
-		Role:      "assistant",
+		ID:        "event-1",
+		Type:      "message.created",
 		SessionID: "session-1",
 		MessageID: "message-1",
-		CreatedAt: time.Now().UnixMilli(),
-		Summary:   "hello",
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Payload: map[string]any{
+			"role":    "assistant",
+			"summary": "hello",
+		},
 	})
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -429,7 +437,7 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
 			t.Fatal(err)
 		}
-		if event.Type != "message" || event.MessageID != "message-1" {
+		if event.Type != "message.created" || event.MessageID != "message-1" {
 			t.Fatalf("event = %#v", event)
 		}
 		return

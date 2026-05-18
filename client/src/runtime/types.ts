@@ -45,12 +45,14 @@ export type RuntimePermissionDecision = {
 }
 
 export type RuntimeEvent = {
+  id: string
   type: string
-  role?: string
-  sessionId?: string
-  messageId?: string
-  createdAt: number
-  summary?: string
+  created_at: string
+  session_id?: string
+  turn_id?: string
+  message_id?: string
+  tool_call_id?: string
+  payload?: Record<string, unknown>
 }
 
 export type RuntimeEventsEndpoint = {
