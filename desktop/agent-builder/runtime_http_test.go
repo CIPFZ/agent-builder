@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -95,10 +96,98 @@ func TestRuntimeServiceAPIEndpointBindsLoopbackWithToken(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerStreamsRuntimeEvents(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	server := newRuntimeHTTPServer(service)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/v1/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	recorder := newStreamingRecorder()
+	done := make(chan struct{})
+	go func() {
+		server.ServeHTTP(recorder, req)
+		close(done)
+	}()
+
+	recorder.waitForLine(t, ": connected")
+	service.publishRuntimeEvent(RuntimeEvent{
+		ID:        "event-1",
+		Type:      "message.created",
+		CreatedAt: "2026-05-18T00:00:00Z",
+		MessageID: "message-1",
+	})
+
+	line := recorder.waitForPrefix(t, "data: ")
+	var event RuntimeEvent
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.ID != "event-1" || event.MessageID != "message-1" {
+		t.Fatalf("event = %#v", event)
+	}
+	cancel()
+	<-done
+}
+
 type httpRecorder struct {
 	header http.Header
 	status int
 	body   bytes.Buffer
+}
+
+type streamingRecorder struct {
+	*httpRecorder
+	lines chan string
+}
+
+func newStreamingRecorder() *streamingRecorder {
+	return &streamingRecorder{
+		httpRecorder: &httpRecorder{header: make(http.Header)},
+		lines:        make(chan string, 16),
+	}
+}
+
+func (r *streamingRecorder) Write(data []byte) (int, error) {
+	written, err := r.httpRecorder.Write(data)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		if scanner.Text() != "" {
+			r.lines <- scanner.Text()
+		}
+	}
+	return written, err
+}
+
+func (r *streamingRecorder) Flush() {}
+
+func (r *streamingRecorder) waitForLine(t *testing.T, want string) {
+	t.Helper()
+	for i := 0; i < 16; i++ {
+		line := <-r.lines
+		if line == want {
+			return
+		}
+	}
+	t.Fatalf("line %q was not received", want)
+}
+
+func (r *streamingRecorder) waitForPrefix(t *testing.T, prefix string) string {
+	t.Helper()
+	for i := 0; i < 16; i++ {
+		line := <-r.lines
+		if strings.HasPrefix(line, prefix) {
+			return line
+		}
+	}
+	t.Fatalf("line with prefix %q was not received", prefix)
+	return ""
 }
 
 func httptestResponse(handler http.Handler, req *http.Request) httpRecorder {

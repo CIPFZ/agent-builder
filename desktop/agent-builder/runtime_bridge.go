@@ -40,6 +40,7 @@ type RuntimeService interface {
 	Permissions(context.Context) (RuntimePermissionsResponse, error)
 	Events(context.Context) (RuntimeEventsResponse, error)
 	EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error)
+	SubscribeEvents(context.Context) (<-chan RuntimeEvent, func())
 	DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error)
 	Cancel(context.Context) (RuntimeStatus, error)
 	NewChat(context.Context, string) (RuntimeStatus, error)
@@ -334,6 +335,10 @@ func (r *RuntimeBridge) EventsEndpoint(ctx context.Context) (RuntimeEventsEndpoi
 	return r.service.EventsEndpoint(ctx)
 }
 
+func (r *RuntimeBridge) SubscribeEvents(ctx context.Context) (<-chan RuntimeEvent, func()) {
+	return r.service.SubscribeEvents(ctx)
+}
+
 func (r *RuntimeBridge) APIEndpoint(ctx context.Context) (RuntimeAPIEndpointResponse, error) {
 	service, ok := r.service.(interface {
 		APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error)
@@ -618,6 +623,17 @@ func (r *runtimeService) EventsEndpoint(_ context.Context) (RuntimeEventsEndpoin
 		return RuntimeEventsEndpointResponse{}, err
 	}
 	return RuntimeEventsEndpointResponse{URL: r.eventStream.URL()}, nil
+}
+
+func (r *runtimeService) SubscribeEvents(_ context.Context) (<-chan RuntimeEvent, func()) {
+	events := make(chan RuntimeEvent, 64)
+	if r.eventStream == nil {
+		r.eventStream = newRuntimeSSEServer()
+	}
+	r.eventStream.addSubscriber(events)
+	return events, func() {
+		r.eventStream.removeSubscriber(events)
+	}
 }
 
 func (r *runtimeService) APIEndpoint(_ context.Context) (RuntimeAPIEndpointResponse, error) {

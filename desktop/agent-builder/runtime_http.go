@@ -174,6 +174,8 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && turnCancelPathID(r.URL.Path) != "":
 		value, err := s.service.Cancel(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/events":
+		s.handleEvents(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -183,6 +185,43 @@ func (s *runtimeHTTPServer) authorized(r *http.Request) bool {
 	got := strings.TrimSpace(r.Header.Get("Authorization"))
 	want := "Bearer " + s.Token()
 	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
+func (s *runtimeHTTPServer) handleEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming is not supported", http.StatusInternalServerError)
+		return
+	}
+
+	events, unsubscribe := s.service.SubscribeEvents(r.Context())
+	defer unsubscribe()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "http://127.0.0.1")
+
+	fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
+
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(event)
+			if err != nil {
+				slog.Error("Failed to encode runtime HTTP SSE event", "error", err)
+				continue
+			}
+			fmt.Fprintf(w, "event: runtime-event\ndata: %s\n\n", data)
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
 }
 
 func writeRuntimeResult[T any](w http.ResponseWriter, value T, err error) {

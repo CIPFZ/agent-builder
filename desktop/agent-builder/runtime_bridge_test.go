@@ -506,6 +506,13 @@ func (s *recordingRuntimeService) EventsEndpoint(context.Context) (RuntimeEvents
 	return RuntimeEventsEndpointResponse{}, nil
 }
 
+func (s *recordingRuntimeService) SubscribeEvents(context.Context) (<-chan RuntimeEvent, func()) {
+	events := make(chan RuntimeEvent)
+	return events, func() {
+		close(events)
+	}
+}
+
 func (s *recordingRuntimeService) DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error) {
 	return RuntimeStatus{}, nil
 }
