@@ -4,9 +4,10 @@
 // working directory and environment. Each shell execution is independent.
 //
 // WINDOWS COMPATIBILITY:
-// This implementation provides POSIX shell emulation (mvdan.cc/sh/v3) even on
-// Windows. Commands should use forward slashes (/) as path separators to work
-// correctly on all platforms.
+// This package uses Crush's embedded portable shell (mvdan.cc/sh/v3) on
+// Windows too. It does not run the user's system Bash, PowerShell, or cmd.exe
+// as the command language. External commands are still resolved from PATH, so
+// OS-specific tools and arguments must be chosen deliberately.
 package shell
 
 import (

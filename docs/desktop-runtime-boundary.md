@@ -30,6 +30,10 @@ Current implementation follows this boundary:
 - Runtime events are exposed as a small queryable event log through
   `RuntimeBridge.Events` and pushed through a local `127.0.0.1` SSE endpoint
   returned by `RuntimeBridge.EventsEndpoint`.
+- Shell execution is owned by Crush. The desktop UI must present tool output,
+  not reinterpret shell semantics. The current `bash` tool name is
+  compatibility naming; the implementation is Crush's embedded portable shell,
+  not a guarantee that system Bash, PowerShell, or cmd.exe is available.
 - Wails is only the desktop bridge and packaging layer. It is not the runtime
   architecture.
 

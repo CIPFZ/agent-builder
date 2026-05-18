@@ -1,9 +1,14 @@
 Execute shell commands; long-running commands automatically move to background and return a shell ID.
 
 <cross_platform>
-Uses mvdan/sh interpreter (Bash-compatible on all platforms including Windows).
+Uses Crush's embedded portable shell (`mvdan.cc/sh`). This is not the user's
+system Bash, PowerShell, or cmd.exe.
 Use forward slashes for paths: "ls C:/foo/bar" not "ls C:\foo\bar".
-Common shell builtins and core utils available on Windows.
+Use portable POSIX-style syntax for shell composition. Do not assume
+PowerShell/cmd syntax, Windows batch syntax, or a real Bash installation is
+available.
+Common shell builtins and selected coreutils are available on Windows, but OS
+commands still depend on what exists on the host PATH.
 </cross_platform>
 
 <execution_steps>
@@ -21,6 +26,9 @@ Common shell builtins and core utils available on Windows.
 - Chain with ';' or '&&', avoid newlines except in quoted strings
 - Each command runs in independent shell (no state persistence between calls)
 - Prefer absolute paths over 'cd' (use 'cd' only if user explicitly requests)
+- For Windows, prefer native executables with portable arguments where possible
+  (for example `ping -n 4 host`) and avoid Bash-only utilities unless you first
+  verify they exist.
 {{- if .RgAvailable }}
 - Ripgrep (`rg`) is available; prefer it over `grep` for faster, more intuitive searching
 {{- end }}

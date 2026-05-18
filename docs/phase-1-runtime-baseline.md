@@ -33,7 +33,26 @@ Go/Crush:
 - Cancellation is exposed for the current runtime session.
 - Runtime events are published through a local `127.0.0.1` SSE stream and are
   replayable through `RuntimeBridge.Events`.
+- The shell tool uses Crush's embedded portable shell. It must not be treated
+  as the user's system Bash, PowerShell, or cmd.exe; Windows commands must be
+  selected with that boundary in mind.
 - Wails remains an adapter behind `AgentRuntime`, not the long-term protocol.
+
+## Shell Boundary
+
+The current tool name remains `bash` for Crush compatibility, but Phase 1
+behavior is a portable shell abstraction:
+
+- Shell composition uses `mvdan.cc/sh` semantics.
+- Windows does not require a real Bash installation.
+- PowerShell and cmd.exe syntax are not implicitly supported by the shell tool.
+- External commands such as `ping`, `go`, `npm`, or `rg` still execute from the
+  host PATH and can have OS-specific arguments.
+- Windows command output is normalized to UTF-8 before it reaches messages and
+  the desktop UI.
+
+Future plugin/tool work should add explicit native command runners when a task
+requires PowerShell, cmd.exe, SSH clients, or product-specific executables.
 
 ## Long-Term Target
 
