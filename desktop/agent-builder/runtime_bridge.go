@@ -21,6 +21,7 @@ import (
 	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/db"
 	crushlog "github.com/charmbracelet/crush/internal/log"
 	"github.com/charmbracelet/crush/internal/message"
@@ -40,6 +41,7 @@ type RuntimeService interface {
 	Models(context.Context) (RuntimeModelsResponse, error)
 	GetModelConfig(context.Context) (RuntimeConfigResponse, error)
 	SaveModelConfig(context.Context, RuntimeModelConfig) (RuntimeConfigResponse, error)
+	VerifyModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelVerifyResponse, error)
 	Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error)
 	Messages(context.Context) (RuntimeMessagesResponse, error)
 	Permissions(context.Context) (RuntimePermissionsResponse, error)
@@ -318,6 +320,13 @@ type RuntimeModelConfig struct {
 	ConfigPath string   `json:"configPath,omitempty"`
 }
 
+type RuntimeModelVerifyResponse struct {
+	OK       bool   `json:"ok"`
+	Protocol string `json:"protocol"`
+	Model    string `json:"model"`
+	Error    string `json:"error,omitempty"`
+}
+
 type localModelConfigResult struct {
 	Applied      bool
 	Path         string
@@ -422,6 +431,10 @@ func (r *RuntimeBridge) GetModelConfig(ctx context.Context) (RuntimeConfigRespon
 
 func (r *RuntimeBridge) SaveModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeConfigResponse, error) {
 	return r.service.SaveModelConfig(ctx, req)
+}
+
+func (r *RuntimeBridge) VerifyModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeModelVerifyResponse, error) {
+	return r.service.VerifyModelConfig(ctx, req)
 }
 
 func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (RuntimeChatResponse, error) {
@@ -651,6 +664,45 @@ func (r *runtimeService) SaveModelConfig(ctx context.Context, req RuntimeModelCo
 	next.HasAPIKey = true
 	next.ConfigPath = layout.ModelConfigPath
 	return RuntimeConfigResponse{Config: next}, nil
+}
+
+func (r *runtimeService) VerifyModelConfig(_ context.Context, req RuntimeModelConfig) (RuntimeModelVerifyResponse, error) {
+	cfg := RuntimeModelConfig{
+		Protocol: strings.TrimSpace(req.Protocol),
+		URL:      strings.TrimSpace(req.URL),
+		APIKey:   strings.TrimSpace(req.APIKey),
+		Model:    strings.TrimSpace(req.Model),
+		Proxy:    strings.TrimSpace(req.Proxy),
+	}
+	if cfg.Model != "" {
+		cfg.Models = []string{cfg.Model}
+	}
+	if err := validateModelConfig(cfg); err != nil {
+		return RuntimeModelVerifyResponse{}, err
+	}
+	store := config.NewTestStore(&config.Config{
+		Providers: csync.NewMap[string, config.ProviderConfig](),
+		Models:    map[config.SelectedModelType]config.SelectedModel{},
+		Options:   &config.Options{},
+	})
+	applyModelConfig(store, cfg)
+	provider, ok := store.Config().Providers.Get(localProviderID)
+	if !ok {
+		return RuntimeModelVerifyResponse{}, errors.New("model provider was not configured")
+	}
+	if err := provider.TestConnection(store.Resolver()); err != nil {
+		return RuntimeModelVerifyResponse{
+			OK:       false,
+			Protocol: cfg.Protocol,
+			Model:    cfg.Model,
+			Error:    err.Error(),
+		}, nil
+	}
+	return RuntimeModelVerifyResponse{
+		OK:       true,
+		Protocol: cfg.Protocol,
+		Model:    cfg.Model,
+	}, nil
 }
 
 func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (RuntimeChatResponse, error) {

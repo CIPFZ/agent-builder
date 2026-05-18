@@ -108,6 +108,13 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/config/model":
 		value, err := s.service.GetModelConfig(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/config/model/verify":
+		var req RuntimeModelConfig
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.VerifyModelConfig(r.Context(), req)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPut && r.URL.Path == "/v1/config/model":
 		var req RuntimeModelConfig
 		if !decodeRuntimeJSON(w, r, &req) {

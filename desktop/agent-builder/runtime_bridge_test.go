@@ -185,6 +185,19 @@ func TestSaveLocalModelConfigWritesDesktopConfig(t *testing.T) {
 	}
 }
 
+func TestVerifyModelConfigRejectsIncompleteConfig(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	_, err := service.VerifyModelConfig(context.Background(), RuntimeModelConfig{
+		Protocol: "openai",
+		Model:    "test-model",
+	})
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
 func TestRuntimeMessagePartsExposeToolActivity(t *testing.T) {
 	t.Parallel()
 
@@ -680,6 +693,10 @@ func (s *recordingRuntimeService) GetModelConfig(context.Context) (RuntimeConfig
 
 func (s *recordingRuntimeService) SaveModelConfig(context.Context, RuntimeModelConfig) (RuntimeConfigResponse, error) {
 	return RuntimeConfigResponse{}, nil
+}
+
+func (s *recordingRuntimeService) VerifyModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelVerifyResponse, error) {
+	return RuntimeModelVerifyResponse{OK: true, Model: "test-model", Protocol: "openai"}, nil
 }
 
 func (s *recordingRuntimeService) Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error) {
