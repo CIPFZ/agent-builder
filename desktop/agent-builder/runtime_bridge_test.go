@@ -662,6 +662,7 @@ type recordingRuntimeService struct {
 	status         RuntimeStatus
 	skills         RuntimeSkillsResponse
 	mcpServers     RuntimeMCPServersResponse
+	capabilities   RuntimeCapabilitiesResponse
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -683,7 +684,7 @@ func (s *recordingRuntimeService) SaveModelConfig(context.Context, RuntimeModelC
 
 func (s *recordingRuntimeService) Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error) {
 	s.chatCalls++
-	return RuntimeChatResponse{RequestID: "request-1"}, nil
+	return RuntimeChatResponse{RequestID: "request-1", Status: s.status}, nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {
@@ -744,7 +745,7 @@ func (s *recordingRuntimeService) MCPPrompts(context.Context, string) (RuntimeMC
 }
 
 func (s *recordingRuntimeService) Capabilities(context.Context) (RuntimeCapabilitiesResponse, error) {
-	return RuntimeCapabilitiesResponse{}, nil
+	return s.capabilities, nil
 }
 
 func (s *recordingRuntimeService) DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error) {
@@ -756,5 +757,5 @@ func (s *recordingRuntimeService) Cancel(context.Context) (RuntimeStatus, error)
 }
 
 func (s *recordingRuntimeService) NewChat(context.Context, string) (RuntimeStatus, error) {
-	return RuntimeStatus{}, nil
+	return s.status, nil
 }

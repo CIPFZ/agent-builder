@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -73,6 +74,41 @@ func TestRuntimeHTTPServerRoutesSessionTurnToRuntimeService(t *testing.T) {
 	}
 	if service.chatCalls != 1 {
 		t.Fatalf("chatCalls = %d, want 1", service.chatCalls)
+	}
+}
+
+func TestRuntimeHTTPServerSmokeCoversSessionTurnAndInventory(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		status: RuntimeStatus{Ready: true, SessionID: "session-1"},
+		skills: RuntimeSkillsResponse{
+			Skills: []RuntimeSkill{{Name: "crush-config", Builtin: true, Enabled: true, State: "normal"}},
+		},
+		mcpServers: RuntimeMCPServersResponse{
+			Servers: []RuntimeMCPServer{{Name: "docs", Type: "http", State: "connected"}},
+		},
+		capabilities: RuntimeCapabilitiesResponse{
+			Capabilities: []RuntimeCapability{{ID: "skill:crush-config", Kind: "skill", Name: "crush-config", Enabled: true}},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+	client := runtimeSmokeClient{server: server, token: server.Token()}
+
+	if status := client.postSession(t); status.SessionID != "session-1" {
+		t.Fatalf("new session status = %#v", status)
+	}
+	if response := client.postTurn(t, "session-1", "hello"); response.RequestID == "" {
+		t.Fatalf("turn response = %#v", response)
+	}
+	if skills := client.getSkills(t); len(skills.Skills) != 1 {
+		t.Fatalf("skills = %#v", skills)
+	}
+	if servers := client.getMCPServers(t); len(servers.Servers) != 1 {
+		t.Fatalf("mcp servers = %#v", servers)
+	}
+	if capabilities := client.getCapabilities(t); len(capabilities.Capabilities) != 1 {
+		t.Fatalf("capabilities = %#v", capabilities)
 	}
 }
 
@@ -243,6 +279,78 @@ func (r *streamingRecorder) waitForPrefix(t *testing.T, prefix string) string {
 	}
 	t.Fatalf("line with prefix %q was not received", prefix)
 	return ""
+}
+
+type runtimeSmokeClient struct {
+	server *runtimeHTTPServer
+	token  string
+}
+
+func (c runtimeSmokeClient) postSession(t *testing.T) RuntimeStatus {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, "/v1/sessions", strings.NewReader(`{"title":"Smoke"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status RuntimeStatus
+	c.doJSON(t, req, &status)
+	return status
+}
+
+func (c runtimeSmokeClient) postTurn(t *testing.T, sessionID, prompt string) RuntimeChatResponse {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, "/v1/sessions/"+sessionID+"/turns", strings.NewReader(`{"prompt":`+strconv.Quote(prompt)+`}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response RuntimeChatResponse
+	c.doJSON(t, req, &response)
+	return response
+}
+
+func (c runtimeSmokeClient) getSkills(t *testing.T) RuntimeSkillsResponse {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "/v1/skills", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response RuntimeSkillsResponse
+	c.doJSON(t, req, &response)
+	return response
+}
+
+func (c runtimeSmokeClient) getMCPServers(t *testing.T) RuntimeMCPServersResponse {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "/v1/mcp/servers", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response RuntimeMCPServersResponse
+	c.doJSON(t, req, &response)
+	return response
+}
+
+func (c runtimeSmokeClient) getCapabilities(t *testing.T) RuntimeCapabilitiesResponse {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "/v1/capabilities", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response RuntimeCapabilitiesResponse
+	c.doJSON(t, req, &response)
+	return response
+}
+
+func (c runtimeSmokeClient) doJSON(t *testing.T, req *http.Request, target any) {
+	t.Helper()
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp := httptestResponse(c.server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("%s %s status = %d body = %s", req.Method, req.URL.Path, resp.status, resp.body.String())
+	}
+	if err := json.Unmarshal(resp.body.Bytes(), target); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func httptestResponse(handler http.Handler, req *http.Request) httpRecorder {
