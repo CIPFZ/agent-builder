@@ -526,6 +526,33 @@ The following decisions are fixed for Phase 2:
 - Skill enable/disable is project-level through `options.disabled_skills`.
 - Session-level capability filtering is reserved for the later policy phase.
 
+## Execution Policy
+
+Phase 2 implementation should be driven to completion without requiring the
+user to watch the machine continuously.
+
+Default behavior:
+
+- Continue through the Phase 2 implementation order until all acceptance
+  criteria are met.
+- Do not stop after analysis or after only one subtask when the next step is
+  clear.
+- Fix warnings, lint failures, test failures, and build failures as soon as they
+  appear.
+- Add or update automated tests for every implemented stage.
+- Run the relevant automated tests before considering a stage complete.
+- Commit and push each completed, verified stage to `feat/agentic-ops-client`.
+- Keep implementation scope inside Phase 2 unless a fix is required to unblock
+  Phase 2.
+
+Pause for user confirmation only when:
+
+- A decision would expose secrets, tokens, or credentials.
+- A change would perform destructive filesystem or remote operations.
+- A required external service credential is missing and no mock or local test
+  seam can cover the behavior.
+- The implementation would require changing the agreed Phase 2 scope.
+
 ## Implementation Order
 
 1. Document and freeze the Phase 2 API and event schema.
@@ -542,6 +569,10 @@ The following decisions are fixed for Phase 2:
    discovery.
 10. Add packaged desktop smoke testing for model configuration, one real
     conversation, event streaming, and cancellation.
+
+Each implementation step must have a matching automated verification path.
+Examples include Go unit tests, API smoke tests, frontend lint/build tests,
+Playwright desktop or browser checks, and packaged-app smoke scripts.
 
 ## Phase 2 Acceptance
 
@@ -560,4 +591,6 @@ Phase 2 is complete when:
   inspect skill/MCP status, view useful errors, cancel an active turn, and see
   turn audit details.
 - A packaged desktop build can be manually tested on the local machine.
+- Each completed implementation stage has automated tests or smoke tests
+  recorded in the final summary for that stage.
 - The existing TUI is not broken.
