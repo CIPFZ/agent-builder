@@ -2,6 +2,12 @@ import type { AgentRuntime, RuntimeChatRequest } from './types'
 import { loadWailsRuntimeBridge } from './wailsBinding'
 
 export const wailsRuntime: AgentRuntime = {
+  async auditSession(sessionId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.AuditSession(sessionId)
+    return response.events
+  },
+
   async auditTurn(turnId: string) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.AuditTurn(turnId)
@@ -21,6 +27,12 @@ export const wailsRuntime: AgentRuntime = {
   async decidePermission(request) {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.DecidePermission(request)
+  },
+
+  async deleteSession(sessionId) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.DeleteSession(sessionId)
+    return response.sessions
   },
 
   async getModelConfig() {
@@ -70,10 +82,22 @@ export const wailsRuntime: AgentRuntime = {
     return response.messages
   },
 
+  async listSessionMessages(sessionId) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.SessionMessages(sessionId)
+    return response.messages
+  },
+
   async listPermissions() {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.Permissions()
     return response.permissions
+  },
+
+  async listSessions() {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.Sessions()
+    return response.sessions
   },
 
   async listSkills() {
@@ -105,10 +129,21 @@ export const wailsRuntime: AgentRuntime = {
     return response.skills
   },
 
+  async renameSession(sessionId, title) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.RenameSession({ sessionId, title })
+    return response.sessions
+  },
+
   async saveMcpServer(config) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.SaveMCPServer(config)
     return response.servers
+  },
+
+  async selectSession(sessionId) {
+    const bridge = await loadWailsRuntimeBridge()
+    return bridge.SelectSession(sessionId)
   },
 
   async setMcpServerEnabled(server, enabled) {

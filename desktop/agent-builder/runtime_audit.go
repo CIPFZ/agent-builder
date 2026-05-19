@@ -73,6 +73,27 @@ ORDER BY created_at ASC`, turnID)
 	}
 	defer rows.Close() //nolint:errcheck
 
+	return scanRuntimeAuditRows(rows)
+}
+
+func (s runtimeAuditStore) ListSession(ctx context.Context, sessionID string) (RuntimeAuditResponse, error) {
+	if s.db == nil {
+		return RuntimeAuditResponse{}, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, session_id, turn_id, type, created_at, payload_json
+FROM runtime_audit_events
+WHERE session_id = ?
+ORDER BY created_at ASC`, sessionID)
+	if err != nil {
+		return RuntimeAuditResponse{}, fmt.Errorf("failed to list runtime audit events: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	return scanRuntimeAuditRows(rows)
+}
+
+func scanRuntimeAuditRows(rows *sql.Rows) (RuntimeAuditResponse, error) {
 	var events []RuntimeAuditEvent
 	for rows.Next() {
 		var event RuntimeAuditEvent

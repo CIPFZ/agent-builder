@@ -732,6 +732,10 @@ type recordingRuntimeService struct {
 	savedMCPServer   RuntimeMCPServerConfigRequest
 	toggledMCPServer RuntimeMCPServerToggleRequest
 	toggledMCPTool   RuntimeMCPToolToggleRequest
+	selectedSession  string
+	renamedSession   RuntimeSessionUpdateRequest
+	deletedSession   string
+	messageSession   string
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -760,6 +764,37 @@ func (s *recordingRuntimeService) Chat(context.Context, RuntimeChatRequest) (Run
 	return RuntimeChatResponse{RequestID: "request-1", Status: s.status}, nil
 }
 
+func (s *recordingRuntimeService) Sessions(context.Context) (RuntimeSessionsResponse, error) {
+	return RuntimeSessionsResponse{Sessions: []RuntimeSession{
+		{ID: "session-1", Title: "Test chat", Active: s.status.SessionID == "session-1"},
+		{ID: "session-2", Title: "Other chat", Active: s.status.SessionID == "session-2"},
+	}}, nil
+}
+
+func (s *recordingRuntimeService) Session(context.Context, string) (RuntimeSessionResponse, error) {
+	return RuntimeSessionResponse{Session: RuntimeSession{ID: s.status.SessionID, Title: "Test chat", Active: true}}, nil
+}
+
+func (s *recordingRuntimeService) SelectSession(_ context.Context, sessionID string) (RuntimeStatus, error) {
+	s.selectedSession = sessionID
+	return s.status, nil
+}
+
+func (s *recordingRuntimeService) RenameSession(_ context.Context, req RuntimeSessionUpdateRequest) (RuntimeSessionsResponse, error) {
+	s.renamedSession = req
+	return RuntimeSessionsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) DeleteSession(_ context.Context, sessionID string) (RuntimeSessionsResponse, error) {
+	s.deletedSession = sessionID
+	return RuntimeSessionsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SessionMessages(_ context.Context, sessionID string) (RuntimeMessagesResponse, error) {
+	s.messageSession = sessionID
+	return RuntimeMessagesResponse{}, nil
+}
+
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {
 	return RuntimeMessagesResponse{}, nil
 }
@@ -784,6 +819,10 @@ func (s *recordingRuntimeService) SubscribeEvents(context.Context) (<-chan Runti
 }
 
 func (s *recordingRuntimeService) AuditTurn(context.Context, string) (RuntimeAuditResponse, error) {
+	return RuntimeAuditResponse{}, nil
+}
+
+func (s *recordingRuntimeService) AuditSession(context.Context, string) (RuntimeAuditResponse, error) {
 	return RuntimeAuditResponse{}, nil
 }
 

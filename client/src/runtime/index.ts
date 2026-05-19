@@ -18,6 +18,7 @@ export type {
   RuntimeEventsEndpoint,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
+  RuntimeSession,
   RuntimeRequests,
   RuntimeEventStats,
   RuntimeSkill,

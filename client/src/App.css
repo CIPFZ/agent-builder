@@ -54,7 +54,6 @@ button {
 
 .mode-tab,
 .nav-item,
-.recent-item,
 .starter-chip {
   display: inline-flex;
   align-items: center;
@@ -93,8 +92,8 @@ button {
 
 .nav-item:hover,
 .nav-item.active,
-.recent-item:hover,
-.recent-item.active {
+.recent-row:hover,
+.recent-row.active {
   background: #f1efec;
 }
 
@@ -113,14 +112,49 @@ button {
   font-size: 13px;
 }
 
+.recent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  min-height: 42px;
+  border-radius: 7px;
+}
+
 .recent-item {
-  justify-content: flex-start;
+  display: flex;
+  justify-content: center;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
   width: 100%;
-  padding: 0 8px;
+  min-height: 42px;
+  padding: 4px 8px;
+  color: #4c4945;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
   overflow: hidden;
   text-align: left;
+}
+
+.recent-title,
+.recent-meta {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.recent-title {
+  font-size: 13px;
+}
+
+.recent-meta,
+.empty-recents {
+  padding: 0 8px;
+  font-size: 12px;
 }
 
 .sidebar-footer {

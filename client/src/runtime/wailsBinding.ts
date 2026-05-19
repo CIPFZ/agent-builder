@@ -13,11 +13,13 @@ import type {
   RuntimeModelVerifyResponse,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
+  RuntimeSession,
   RuntimeSkill,
   RuntimeStatus,
 } from './types'
 
 type WailsRuntimeBridge = {
+  AuditSession: (sessionId: string) => Promise<{ events: RuntimeAuditEvent[] }>
   AuditTurn: (turnId: string) => Promise<{ events: RuntimeAuditEvent[] }>
   Cancel: () => Promise<RuntimeStatus>
   Capabilities: () => Promise<{ capabilities: RuntimeCapability[] }>
@@ -31,11 +33,16 @@ type WailsRuntimeBridge = {
   Messages: () => Promise<{ messages: RuntimeMessage[] }>
   Models: () => Promise<{ models: RuntimeModel[] }>
   NewChat: (title: string) => Promise<RuntimeStatus>
+  DeleteSession: (sessionId: string) => Promise<{ sessions: RuntimeSession[] }>
   Permissions: () => Promise<{ permissions: RuntimePermissionRequest[] }>
   RefreshMCPServer: (server: string) => Promise<{ servers: RuntimeMcpServer[] }>
   RefreshSkills: () => Promise<{ skills: RuntimeSkill[] }>
   SaveModelConfig: (request: RuntimeModelConfig) => Promise<{ config: RuntimeModelConfig }>
   SaveMCPServer: (request: RuntimeMcpServerConfig) => Promise<{ servers: RuntimeMcpServer[] }>
+  RenameSession: (request: { sessionId: string; title: string }) => Promise<{ sessions: RuntimeSession[] }>
+  SelectSession: (sessionId: string) => Promise<RuntimeStatus>
+  SessionMessages: (sessionId: string) => Promise<{ messages: RuntimeMessage[] }>
+  Sessions: () => Promise<{ sessions: RuntimeSession[] }>
   SetMCPServerEnabled: (request: { name: string; enabled: boolean }) => Promise<{ servers: RuntimeMcpServer[] }>
   SetMCPToolEnabled: (request: { server: string; tool: string; enabled: boolean }) => Promise<{ tools: RuntimeMcpTool[] }>
   SetSkillEnabled: (request: { name: string; enabled: boolean }) => Promise<{ skills: RuntimeSkill[] }>

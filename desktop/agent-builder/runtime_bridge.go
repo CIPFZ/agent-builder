@@ -43,12 +43,19 @@ type RuntimeService interface {
 	SaveModelConfig(context.Context, RuntimeModelConfig) (RuntimeConfigResponse, error)
 	VerifyModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelVerifyResponse, error)
 	Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error)
+	Sessions(context.Context) (RuntimeSessionsResponse, error)
+	Session(context.Context, string) (RuntimeSessionResponse, error)
+	SelectSession(context.Context, string) (RuntimeStatus, error)
+	RenameSession(context.Context, RuntimeSessionUpdateRequest) (RuntimeSessionsResponse, error)
+	DeleteSession(context.Context, string) (RuntimeSessionsResponse, error)
+	SessionMessages(context.Context, string) (RuntimeMessagesResponse, error)
 	Messages(context.Context) (RuntimeMessagesResponse, error)
 	Permissions(context.Context) (RuntimePermissionsResponse, error)
 	Events(context.Context) (RuntimeEventsResponse, error)
 	EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error)
 	SubscribeEvents(context.Context) (<-chan RuntimeEvent, func())
 	AuditTurn(context.Context, string) (RuntimeAuditResponse, error)
+	AuditSession(context.Context, string) (RuntimeAuditResponse, error)
 	Skills(context.Context) (RuntimeSkillsResponse, error)
 	RefreshSkills(context.Context) (RuntimeSkillsResponse, error)
 	SetSkillEnabled(context.Context, RuntimeSkillToggleRequest) (RuntimeSkillsResponse, error)
@@ -117,7 +124,8 @@ type RuntimeConfigResponse struct {
 }
 
 type RuntimeChatRequest struct {
-	Prompt string `json:"prompt"`
+	Prompt    string `json:"prompt"`
+	SessionID string `json:"sessionId,omitempty"`
 }
 
 type RuntimeChatResponse struct {
@@ -158,6 +166,32 @@ type RuntimeMessagePart struct {
 	Reason     string `json:"reason,omitempty"`
 	Message    string `json:"message,omitempty"`
 	Details    string `json:"details,omitempty"`
+}
+
+type RuntimeSession struct {
+	ID               string       `json:"id"`
+	Title            string       `json:"title"`
+	MessageCount     int64        `json:"messageCount"`
+	PromptTokens     int64        `json:"promptTokens"`
+	CompletionTokens int64        `json:"completionTokens"`
+	Cost             float64      `json:"cost"`
+	CreatedAt        int64        `json:"createdAt"`
+	UpdatedAt        int64        `json:"updatedAt"`
+	Active           bool         `json:"active"`
+	Usage            RuntimeUsage `json:"usage"`
+}
+
+type RuntimeSessionsResponse struct {
+	Sessions []RuntimeSession `json:"sessions"`
+}
+
+type RuntimeSessionResponse struct {
+	Session RuntimeSession `json:"session"`
+}
+
+type RuntimeSessionUpdateRequest struct {
+	SessionID string `json:"sessionId"`
+	Title     string `json:"title"`
 }
 
 type RuntimeMessagesResponse struct {
@@ -468,6 +502,30 @@ func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (Runti
 	return r.service.Chat(ctx, req)
 }
 
+func (r *RuntimeBridge) Sessions(ctx context.Context) (RuntimeSessionsResponse, error) {
+	return r.service.Sessions(ctx)
+}
+
+func (r *RuntimeBridge) Session(ctx context.Context, sessionID string) (RuntimeSessionResponse, error) {
+	return r.service.Session(ctx, sessionID)
+}
+
+func (r *RuntimeBridge) SelectSession(ctx context.Context, sessionID string) (RuntimeStatus, error) {
+	return r.service.SelectSession(ctx, sessionID)
+}
+
+func (r *RuntimeBridge) RenameSession(ctx context.Context, req RuntimeSessionUpdateRequest) (RuntimeSessionsResponse, error) {
+	return r.service.RenameSession(ctx, req)
+}
+
+func (r *RuntimeBridge) DeleteSession(ctx context.Context, sessionID string) (RuntimeSessionsResponse, error) {
+	return r.service.DeleteSession(ctx, sessionID)
+}
+
+func (r *RuntimeBridge) SessionMessages(ctx context.Context, sessionID string) (RuntimeMessagesResponse, error) {
+	return r.service.SessionMessages(ctx, sessionID)
+}
+
 func (r *RuntimeBridge) Messages(ctx context.Context) (RuntimeMessagesResponse, error) {
 	return r.service.Messages(ctx)
 }
@@ -486,6 +544,10 @@ func (r *RuntimeBridge) EventsEndpoint(ctx context.Context) (RuntimeEventsEndpoi
 
 func (r *RuntimeBridge) AuditTurn(ctx context.Context, turnID string) (RuntimeAuditResponse, error) {
 	return r.service.AuditTurn(ctx, turnID)
+}
+
+func (r *RuntimeBridge) AuditSession(ctx context.Context, sessionID string) (RuntimeAuditResponse, error) {
+	return r.service.AuditSession(ctx, sessionID)
 }
 
 func (r *RuntimeBridge) Skills(ctx context.Context) (RuntimeSkillsResponse, error) {
@@ -751,12 +813,20 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 
 	r.mu.Lock()
 	wsID := r.workspace.ID
-	sessionID := r.sessionID
+	sessionID := firstNonEmpty(strings.TrimSpace(req.SessionID), r.sessionID)
 	runCtx := r.runtimeCtx
 	if runCtx == nil {
 		runCtx = context.Background()
 	}
 	r.mu.Unlock()
+	if strings.TrimSpace(req.SessionID) != "" {
+		if _, err := r.runtime.GetSession(ctx, wsID, sessionID); err != nil {
+			return RuntimeChatResponse{}, fmt.Errorf("failed to select Crush session: %w", err)
+		}
+		r.mu.Lock()
+		r.sessionID = sessionID
+		r.mu.Unlock()
+	}
 
 	requestID := newRequestID()
 	start := time.Now()
@@ -796,6 +866,168 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 	}, nil
 }
 
+func (r *runtimeService) Sessions(ctx context.Context) (RuntimeSessionsResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeSessionsResponse{}, err
+	}
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	activeID := r.sessionID
+	r.mu.Unlock()
+
+	sessions, err := r.runtime.ListSessions(ctx, wsID)
+	if err != nil {
+		return RuntimeSessionsResponse{}, fmt.Errorf("failed to list Crush sessions: %w", err)
+	}
+	return RuntimeSessionsResponse{Sessions: toRuntimeSessions(sessions, activeID)}, nil
+}
+
+func (r *runtimeService) Session(ctx context.Context, sessionID string) (RuntimeSessionResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeSessionResponse{}, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return RuntimeSessionResponse{}, errors.New("session id is required")
+	}
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	activeID := r.sessionID
+	r.mu.Unlock()
+
+	sess, err := r.runtime.GetSession(ctx, wsID, sessionID)
+	if err != nil {
+		return RuntimeSessionResponse{}, fmt.Errorf("failed to read Crush session: %w", err)
+	}
+	return RuntimeSessionResponse{Session: toRuntimeSession(sess, activeID)}, nil
+}
+
+func (r *runtimeService) SelectSession(ctx context.Context, sessionID string) (RuntimeStatus, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeStatus{}, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return RuntimeStatus{}, errors.New("session id is required")
+	}
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	r.mu.Unlock()
+
+	sess, err := r.runtime.GetSession(ctx, wsID, sessionID)
+	if err != nil {
+		return RuntimeStatus{}, fmt.Errorf("failed to select Crush session: %w", err)
+	}
+	r.mu.Lock()
+	r.sessionID = sess.ID
+	r.mu.Unlock()
+	r.publishRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventSessionUpdated,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID: sess.ID,
+		Payload: map[string]any{
+			"title":  sess.Title,
+			"active": true,
+		},
+	})
+	return r.Status(ctx)
+}
+
+func (r *runtimeService) RenameSession(ctx context.Context, req RuntimeSessionUpdateRequest) (RuntimeSessionsResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeSessionsResponse{}, err
+	}
+	sessionID := strings.TrimSpace(req.SessionID)
+	title := strings.TrimSpace(req.Title)
+	if sessionID == "" {
+		return RuntimeSessionsResponse{}, errors.New("session id is required")
+	}
+	if title == "" {
+		return RuntimeSessionsResponse{}, errors.New("session title is required")
+	}
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	r.mu.Unlock()
+
+	sess, err := r.runtime.GetSession(ctx, wsID, sessionID)
+	if err != nil {
+		return RuntimeSessionsResponse{}, fmt.Errorf("failed to read Crush session: %w", err)
+	}
+	sess.Title = title
+	if _, err := r.runtime.SaveSession(ctx, wsID, sess); err != nil {
+		return RuntimeSessionsResponse{}, fmt.Errorf("failed to rename Crush session: %w", err)
+	}
+	r.publishRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventSessionUpdated,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID: sessionID,
+		Payload: map[string]any{
+			"title": title,
+		},
+	})
+	return r.Sessions(ctx)
+}
+
+func (r *runtimeService) DeleteSession(ctx context.Context, sessionID string) (RuntimeSessionsResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeSessionsResponse{}, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return RuntimeSessionsResponse{}, errors.New("session id is required")
+	}
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	activeID := r.sessionID
+	r.mu.Unlock()
+
+	if err := r.runtime.DeleteSession(ctx, wsID, sessionID); err != nil {
+		return RuntimeSessionsResponse{}, fmt.Errorf("failed to delete Crush session: %w", err)
+	}
+	if sessionID == activeID {
+		sessions, err := r.runtime.ListSessions(ctx, wsID)
+		if err != nil {
+			return RuntimeSessionsResponse{}, fmt.Errorf("failed to list Crush sessions after delete: %w", err)
+		}
+		nextID := ""
+		if len(sessions) == 0 {
+			sess, err := r.runtime.CreateSession(ctx, wsID, "New chat")
+			if err != nil {
+				return RuntimeSessionsResponse{}, fmt.Errorf("failed to create replacement Crush session: %w", err)
+			}
+			nextID = sess.ID
+		} else {
+			nextID = sessions[0].ID
+		}
+		r.mu.Lock()
+		r.sessionID = nextID
+		r.mu.Unlock()
+	}
+	r.publishRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventSessionDeleted,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID: sessionID,
+	})
+	return r.Sessions(ctx)
+}
+
+func (r *runtimeService) SessionMessages(ctx context.Context, sessionID string) (RuntimeMessagesResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeMessagesResponse{}, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return RuntimeMessagesResponse{}, errors.New("session id is required")
+	}
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	r.mu.Unlock()
+	return r.sessionMessages(ctx, wsID, sessionID)
+}
+
 func (r *runtimeService) Messages(ctx context.Context) (RuntimeMessagesResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeMessagesResponse{}, err
@@ -805,7 +1037,10 @@ func (r *runtimeService) Messages(ctx context.Context) (RuntimeMessagesResponse,
 	wsID := r.workspace.ID
 	sessionID := r.sessionID
 	r.mu.Unlock()
+	return r.sessionMessages(ctx, wsID, sessionID)
+}
 
+func (r *runtimeService) sessionMessages(ctx context.Context, wsID, sessionID string) (RuntimeMessagesResponse, error) {
 	messages, err := r.runtime.ListSessionMessages(ctx, wsID, sessionID)
 	if err != nil {
 		return RuntimeMessagesResponse{}, fmt.Errorf("failed to list Crush session messages: %w", err)
@@ -878,6 +1113,23 @@ func (r *runtimeService) AuditTurn(ctx context.Context, turnID string) (RuntimeA
 		return RuntimeAuditResponse{}, err
 	}
 	return newRuntimeAuditStore(db).ListTurn(ctx, strings.TrimSpace(turnID))
+}
+
+func (r *runtimeService) AuditSession(ctx context.Context, sessionID string) (RuntimeAuditResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeAuditResponse{}, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		r.mu.Lock()
+		sessionID = r.sessionID
+		r.mu.Unlock()
+	}
+	db, err := r.workspaceDB(ctx)
+	if err != nil {
+		return RuntimeAuditResponse{}, err
+	}
+	return newRuntimeAuditStore(db).ListSession(ctx, sessionID)
 }
 
 func (r *runtimeService) Skills(ctx context.Context) (RuntimeSkillsResponse, error) {
@@ -1463,9 +1715,15 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 		return fmt.Errorf("failed to update Crush agent model: %w", err)
 	}
 
-	sess, err := r.runtime.CreateSession(ctx, ws.ID, "Desktop chat")
+	var sess session.Session
+	last, listErr := r.runtime.ListSessions(ctx, ws.ID)
+	if listErr == nil && len(last) > 0 {
+		sess = last[0]
+	} else {
+		sess, err = r.runtime.CreateSession(ctx, ws.ID, "New chat")
+	}
 	if err != nil {
-		return fmt.Errorf("failed to create Crush session: %w", err)
+		return fmt.Errorf("failed to restore Crush session: %w", err)
 	}
 	r.sessionID = sess.ID
 	return nil
@@ -1837,6 +2095,35 @@ func (r *runtimeService) sessionUsage(ctx context.Context, workspaceID, sessionI
 		TotalTokens:      sess.PromptTokens + sess.CompletionTokens,
 		Cost:             sess.Cost,
 	}, nil
+}
+
+func toRuntimeSessions(sessions []session.Session, activeID string) []RuntimeSession {
+	out := make([]RuntimeSession, 0, len(sessions))
+	for _, sess := range sessions {
+		out = append(out, toRuntimeSession(sess, activeID))
+	}
+	return out
+}
+
+func toRuntimeSession(sess session.Session, activeID string) RuntimeSession {
+	usage := RuntimeUsage{
+		PromptTokens:     sess.PromptTokens,
+		CompletionTokens: sess.CompletionTokens,
+		TotalTokens:      sess.PromptTokens + sess.CompletionTokens,
+		Cost:             sess.Cost,
+	}
+	return RuntimeSession{
+		ID:               sess.ID,
+		Title:            firstNonEmpty(sess.Title, "New chat"),
+		MessageCount:     sess.MessageCount,
+		PromptTokens:     sess.PromptTokens,
+		CompletionTokens: sess.CompletionTokens,
+		Cost:             sess.Cost,
+		CreatedAt:        sess.CreatedAt,
+		UpdatedAt:        sess.UpdatedAt,
+		Active:           sess.ID == activeID,
+		Usage:            usage,
+	}
 }
 
 func (u RuntimeUsage) Sub(before RuntimeUsage) RuntimeUsage {
@@ -2434,7 +2721,19 @@ func (r *runtimeService) writeRuntimeAuditEvent(ctx context.Context, entry audit
 	}
 	if err := newRuntimeAuditStore(db).Append(ctx, event); err != nil {
 		slog.Error("Failed to write runtime audit event", "error", err)
+		return
 	}
+	r.publishRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventAuditRecorded,
+		CreatedAt: event.CreatedAt,
+		SessionID: event.SessionID,
+		TurnID:    event.TurnID,
+		Payload: map[string]any{
+			"audit_id": event.ID,
+			"type":     event.Type,
+		},
+	})
 }
 
 func auditPayload(entry auditEntry) (map[string]any, error) {

@@ -144,39 +144,35 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		value, err := s.service.NewChat(r.Context(), req.Title)
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/sessions":
-		status, err := s.service.Status(r.Context())
-		if err != nil {
-			writeRuntimeError(w, err)
-			return
-		}
-		writeRuntimeJSON(w, http.StatusOK, map[string]any{
-			"sessions": []map[string]any{{
-				"id":          status.SessionID,
-				"working_dir": status.WorkingDir,
-				"model":       status.Model,
-				"provider":    status.Provider,
-			}},
-		})
-	case r.Method == http.MethodGet && sessionPathID(r.URL.Path) != "":
-		status, err := s.service.Status(r.Context())
-		if err != nil {
-			writeRuntimeError(w, err)
-			return
-		}
-		if status.SessionID != sessionPathID(r.URL.Path) {
-			http.NotFound(w, r)
-			return
-		}
-		writeRuntimeJSON(w, http.StatusOK, map[string]any{"session": status})
+		value, err := s.service.Sessions(r.Context())
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionMessagesPathID(r.URL.Path) != "":
-		value, err := s.service.Messages(r.Context())
+		value, err := s.service.SessionMessages(r.Context(), sessionMessagesPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && sessionTurnsPathID(r.URL.Path) != "":
 		var req RuntimeChatRequest
 		if !decodeRuntimeJSON(w, r, &req) {
 			return
 		}
+		req.SessionID = sessionTurnsPathID(r.URL.Path)
 		value, err := s.service.Chat(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPut && sessionPathID(r.URL.Path) != "":
+		var req RuntimeSessionUpdateRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		req.SessionID = sessionPathID(r.URL.Path)
+		value, err := s.service.RenameSession(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodDelete && sessionPathID(r.URL.Path) != "":
+		value, err := s.service.DeleteSession(r.Context(), sessionPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/sessions/") && strings.HasSuffix(r.URL.Path, "/select"):
+		value, err := s.service.SelectSession(r.Context(), trimPathID(r.URL.Path, "/v1/sessions/", "/select"))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionPathID(r.URL.Path) != "":
+		value, err := s.service.Session(r.Context(), sessionPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && turnCancelPathID(r.URL.Path) != "":
 		value, err := s.service.Cancel(r.Context())
@@ -248,6 +244,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/audit/turns/"):
 		value, err := s.service.AuditTurn(r.Context(), strings.TrimPrefix(r.URL.Path, "/v1/audit/turns/"))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/audit/sessions/"):
+		value, err := s.service.AuditSession(r.Context(), strings.TrimPrefix(r.URL.Path, "/v1/audit/sessions/"))
+		writeRuntimeResult(w, value, err)
 	default:
 		http.NotFound(w, r)
 	}
@@ -317,7 +316,7 @@ func writeRuntimeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Access-Control-Allow-Origin", "http://127.0.0.1")
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	w.WriteHeader(status)
 	if value == nil || status == http.StatusNoContent {
 		return

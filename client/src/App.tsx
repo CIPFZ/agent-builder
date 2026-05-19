@@ -23,6 +23,7 @@ import {
   ArrowDownOutlined,
   CodeOutlined,
   CopyOutlined,
+  DeleteOutlined,
   DownOutlined,
   EditOutlined,
   FolderOutlined,
@@ -45,6 +46,7 @@ import {
 import TextArea from 'antd/es/input/TextArea'
 import {
   cancelRuntimeTurn,
+  deleteRuntimeSession,
   decideRuntimePermission,
   loadModelConfig,
   requestConfiguredModels,
@@ -56,12 +58,17 @@ import {
   requestRuntimeMcpServers,
   requestRuntimeMcpTools,
   requestRuntimePermissions,
+  requestRuntimeSessionAudit,
+  requestRuntimeSessionMessages,
+  requestRuntimeSessions,
   requestRuntimeSkills,
   requestRuntimeStatus,
   refreshRuntimeMcpServer,
   refreshRuntimeSkills,
+  renameRuntimeSession,
   saveModelConfig,
   saveRuntimeMcpServer,
+  selectRuntimeSession,
   sendRuntimePrompt,
   setRuntimeMcpServerEnabled,
   setRuntimeMcpToolEnabled,
@@ -82,6 +89,7 @@ import type {
   RuntimeMcpTool,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
+  RuntimeSession,
   RuntimeSkill,
   RuntimeStatus,
 } from './runtime'
@@ -139,6 +147,7 @@ function AppContent() {
   const [messages, setMessages] = useState<RuntimeMessage[]>([])
   const [permissions, setPermissions] = useState<RuntimePermissionRequest[]>([])
   const [events, setEvents] = useState<RuntimeEvent[]>([])
+  const [sessions, setSessions] = useState<RuntimeSession[]>([])
   const [skills, setSkills] = useState<RuntimeSkill[]>([])
   const [mcpServers, setMcpServers] = useState<RuntimeMcpServer[]>([])
   const [mcpToolsByServer, setMcpToolsByServer] = useState<Record<string, RuntimeMcpTool[]>>({})
@@ -160,18 +169,26 @@ function AppContent() {
 
   const hasMessages = messages.length > 0
   const isModelConfigured = Boolean(config.url && config.model && (config.hasApiKey || config.apiKey))
-  const recentItems = useMemo(() => {
-    const titles = messages
-      .filter((chatMessage) => chatMessage.role === 'user' && chatMessage.content.trim())
-      .map((chatMessage) => chatMessage.content.trim())
-      .slice(-5)
-      .reverse()
-    return titles.length > 0 ? titles : [activeChatTitle]
-  }, [activeChatTitle, messages])
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.active) ?? sessions.find((session) => session.id === runtimeStatus?.sessionId),
+    [runtimeStatus?.sessionId, sessions],
+  )
 
   const refreshMessages = async () => {
-    const runtimeMessages = await requestRuntimeMessages()
+    const runtimeMessages = runtimeStatus?.sessionId
+      ? await requestRuntimeSessionMessages(runtimeStatus.sessionId)
+      : await requestRuntimeMessages()
     setMessages(runtimeMessages)
+  }
+
+  const refreshSessions = async () => {
+    const nextSessions = await requestRuntimeSessions()
+    setSessions(nextSessions)
+    const current = nextSessions.find((session) => session.active)
+    if (current) {
+      setActiveChatTitle(current.title)
+    }
+    return nextSessions
   }
 
   const refreshStatus = async () => {
@@ -205,8 +222,11 @@ function AppContent() {
 
   const refreshAudit = async (turnId?: string) => {
     const id = turnId || runtimeStatus?.requests?.activeRequestId || [...events].reverse().find((event) => event.turn_id)?.turn_id
-    if (!id) return
-    const nextAudit = await requestRuntimeAudit(id)
+    const nextAudit = id
+      ? await requestRuntimeAudit(id)
+      : runtimeStatus?.sessionId
+        ? await requestRuntimeSessionAudit(runtimeStatus.sessionId)
+        : []
     setAuditEvents(nextAudit)
   }
 
@@ -245,6 +265,7 @@ function AppContent() {
     let cancelled = false
     Promise.all([
       requestRuntimeStatus(),
+      requestRuntimeSessions(),
       requestRuntimeMessages(),
       requestRuntimePermissions(),
       requestRuntimeEvents(),
@@ -252,9 +273,11 @@ function AppContent() {
       requestRuntimeMcpServers(),
       requestRuntimeCapabilities(),
     ])
-      .then(([nextStatus, runtimeMessages, runtimePermissions, runtimeEvents, runtimeSkills, runtimeMcpServers, runtimeCapabilities]) => {
+      .then(([nextStatus, runtimeSessions, runtimeMessages, runtimePermissions, runtimeEvents, runtimeSkills, runtimeMcpServers, runtimeCapabilities]) => {
         if (cancelled) return
         setRuntimeStatus(nextStatus)
+        setSessions(runtimeSessions)
+        setActiveChatTitle(runtimeSessions.find((session) => session.active)?.title ?? 'New chat')
         setMessages(runtimeMessages)
         setPermissions(runtimePermissions)
         setEvents(runtimeEvents)
@@ -283,6 +306,10 @@ function AppContent() {
             if (event.type === 'message.created' || event.type === 'message.updated' || event.type === 'message.completed') {
               refreshMessages().catch(() => undefined)
               refreshStatus().catch(() => undefined)
+              refreshSessions().catch(() => undefined)
+            }
+            if (event.type === 'session.created' || event.type === 'session.updated' || event.type === 'session.deleted') {
+              refreshSessions().catch(() => undefined)
             }
             if (event.type === 'permission.requested') {
               refreshPermissions().catch(() => undefined)
@@ -327,13 +354,14 @@ function AppContent() {
       return
     }
     setInput('')
-    setActiveChatTitle('New chat')
-      startRuntimeChat('New chat')
+    startRuntimeChat('New chat')
       .then((nextStatus) => {
         setRuntimeStatus(nextStatus)
         setMessages([])
         setPermissions([])
-        setEvents([])
+        setAuditEvents([])
+        setActiveChatTitle('New chat')
+        refreshSessions().catch(() => undefined)
         refreshRuntimeInventory().catch(() => undefined)
       })
       .catch((error) => {
@@ -354,8 +382,12 @@ function AppContent() {
     setInput('')
     setIsSending(true)
     setLastError('')
-    if (!hasMessages) {
-      setActiveChatTitle(content.length > 24 ? `${content.slice(0, 24)}...` : content)
+    if (activeSession?.title === 'New chat' || !activeSession?.title) {
+      const previewTitle = content.length > 28 ? `${content.slice(0, 28)}...` : content
+      setActiveChatTitle(previewTitle)
+      if (runtimeStatus?.sessionId) {
+        renameRuntimeSession(runtimeStatus.sessionId, previewTitle).catch(() => undefined)
+      }
     }
     try {
       const previousAssistantId = [...messages].reverse().find((chatMessage) => chatMessage.role === 'assistant')?.id
@@ -382,6 +414,7 @@ function AppContent() {
       setMessages(runtimeMessages)
       await refreshPermissions().catch(() => undefined)
       await refreshStatus().catch(() => undefined)
+      await refreshSessions().catch(() => undefined)
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       setLastError(reason)
@@ -390,6 +423,68 @@ function AppContent() {
     } finally {
       setIsSending(false)
       scrollToBottom()
+    }
+  }
+
+  const selectSession = async (sessionId: string) => {
+    if (sessionId === runtimeStatus?.sessionId) return
+    try {
+      const nextStatus = await selectRuntimeSession(sessionId)
+      setRuntimeStatus(nextStatus)
+      const [runtimeMessages, runtimePermissions, nextAudit] = await Promise.all([
+        requestRuntimeSessionMessages(sessionId),
+        requestRuntimePermissions(),
+        requestRuntimeSessionAudit(sessionId).catch(() => []),
+      ])
+      setMessages(runtimeMessages)
+      setPermissions(runtimePermissions)
+      setAuditEvents(nextAudit)
+      await refreshSessions().catch(() => undefined)
+      scrollToBottom()
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      setLastError(reason)
+      message.error(reason)
+    }
+  }
+
+  const renameSession = async (session: RuntimeSession) => {
+    const title = window.prompt('Rename session', session.title)?.trim()
+    if (!title || title === session.title) return
+    try {
+      const nextSessions = await renameRuntimeSession(session.id, title)
+      setSessions(nextSessions)
+      if (session.active || session.id === runtimeStatus?.sessionId) {
+        setActiveChatTitle(title)
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      setLastError(reason)
+      message.error(reason)
+    }
+  }
+
+  const deleteSession = async (session: RuntimeSession) => {
+    if (!window.confirm(`Delete session "${session.title}"?`)) return
+    try {
+      const nextSessions = await deleteRuntimeSession(session.id)
+      setSessions(nextSessions)
+      const nextActive = nextSessions.find((item) => item.active) ?? nextSessions[0]
+      if (nextActive) {
+        const nextStatus = await selectRuntimeSession(nextActive.id)
+        setRuntimeStatus(nextStatus)
+        setActiveChatTitle(nextActive.title)
+        setMessages(await requestRuntimeSessionMessages(nextActive.id))
+        setAuditEvents(await requestRuntimeSessionAudit(nextActive.id).catch(() => []))
+      } else {
+        setMessages([])
+        setAuditEvents([])
+        setActiveChatTitle('New chat')
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      setLastError(reason)
+      message.error(reason)
     }
   }
 
@@ -472,11 +567,40 @@ function AppContent() {
 
           <div className="recents">
             <Text className="section-label">Recents</Text>
-            {recentItems.map((item) => (
-              <button className={item === activeChatTitle ? 'recent-item active' : 'recent-item'} key={item} type="button">
-                {item}
-              </button>
-            ))}
+            {sessions.length === 0 ? (
+              <Text className="empty-recents" type="secondary">No saved sessions</Text>
+            ) : (
+              sessions.map((session) => (
+                <div className={session.active ? 'recent-row active' : 'recent-row'} key={session.id}>
+                  <button className="recent-item" type="button" onClick={() => selectSession(session.id)}>
+                    <span className="recent-title">{session.title || 'New chat'}</span>
+                    <span className="recent-meta">{session.messageCount} messages</span>
+                  </button>
+                  <Dropdown
+                    menu={{
+                      items: [
+                        {
+                          key: 'rename',
+                          icon: <EditOutlined />,
+                          label: 'Rename',
+                          onClick: () => renameSession(session),
+                        },
+                        {
+                          key: 'delete',
+                          danger: true,
+                          icon: <DeleteOutlined />,
+                          label: 'Delete',
+                          onClick: () => deleteSession(session),
+                        },
+                      ],
+                    }}
+                    trigger={['click']}
+                  >
+                    <Button type="text" size="small" icon={<DownOutlined />} onClick={(event) => event.stopPropagation()} />
+                  </Dropdown>
+                </div>
+              ))
+            )}
           </div>
 
         <div className="sidebar-footer">
@@ -494,7 +618,7 @@ function AppContent() {
       <main className="chat-main">
         <header className="chat-header">
           <Space>
-            <Text strong>{activeChatTitle}</Text>
+            <Text strong>{activeSession?.title ?? activeChatTitle}</Text>
             <DownOutlined className="muted-icon" />
             <UsageReadout status={runtimeStatus} />
           </Space>

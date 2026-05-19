@@ -65,6 +65,14 @@ export async function requestRuntimeMessages() {
   return getAgentRuntime().listMessages()
 }
 
+export async function requestRuntimeSessions() {
+  return getAgentRuntime().listSessions()
+}
+
+export async function requestRuntimeSessionMessages(sessionId: string) {
+  return getAgentRuntime().listSessionMessages(sessionId)
+}
+
 export async function requestRuntimeEvents() {
   return getAgentRuntime().listEvents()
 }
@@ -95,6 +103,10 @@ export async function requestRuntimeCapabilities() {
 
 export async function requestRuntimeAudit(turnId: string) {
   return getAgentRuntime().auditTurn(turnId)
+}
+
+export async function requestRuntimeSessionAudit(sessionId: string) {
+  return getAgentRuntime().auditSession(sessionId)
 }
 
 export async function decideRuntimePermission(request: RuntimePermissionDecision) {
@@ -131,4 +143,16 @@ export async function setRuntimeMcpToolEnabled(server: string, tool: string, ena
 
 export async function startRuntimeChat(title: string) {
   return getAgentRuntime().newChat(title)
+}
+
+export async function selectRuntimeSession(sessionId: string) {
+  return getAgentRuntime().selectSession(sessionId)
+}
+
+export async function renameRuntimeSession(sessionId: string, title: string) {
+  return getAgentRuntime().renameSession(sessionId, title)
+}
+
+export async function deleteRuntimeSession(sessionId: string) {
+  return getAgentRuntime().deleteSession(sessionId)
 }

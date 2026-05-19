@@ -42,4 +42,12 @@ func TestRuntimeAuditStoreAppendAndListTurn(t *testing.T) {
 	if resp.Events[0].Payload["model"] != "test-model" {
 		t.Fatalf("payload = %#v", resp.Events[0].Payload)
 	}
+
+	resp, err = store.ListSession(context.Background(), "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Events) != 1 {
+		t.Fatalf("session events = %#v", resp.Events)
+	}
 }

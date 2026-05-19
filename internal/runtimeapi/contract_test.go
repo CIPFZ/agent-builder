@@ -35,6 +35,7 @@ func TestEndpointsFreezePhase2MinimalAPI(t *testing.T) {
 		{Method: MethodGet, Path: "/v1/mcp/servers/{server_name}/resources"},
 		{Method: MethodGet, Path: "/v1/mcp/servers/{server_name}/prompts"},
 		{Method: MethodGet, Path: "/v1/audit/turns/{turn_id}"},
+		{Method: MethodGet, Path: "/v1/audit/sessions/{session_id}"},
 		{Method: MethodGet, Path: "/v1/events"},
 	}
 

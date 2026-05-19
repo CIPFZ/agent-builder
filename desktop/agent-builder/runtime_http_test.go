@@ -102,6 +102,70 @@ func TestRuntimeHTTPServerRoutesSessionTurnToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesSessionManagementToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{status: RuntimeStatus{Ready: true, SessionID: "session-1"}}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/sessions", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("list status = %d body = %s", resp.status, resp.body.String())
+	}
+	var sessions RuntimeSessionsResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &sessions); err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions.Sessions) != 2 || sessions.Sessions[0].ID != "session-1" {
+		t.Fatalf("sessions = %#v", sessions.Sessions)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, "/v1/sessions/session-2/select", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.selectedSession != "session-2" {
+		t.Fatalf("select status = %d session = %q body = %s", resp.status, service.selectedSession, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/sessions/session-2/messages", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.messageSession != "session-2" {
+		t.Fatalf("messages status = %d session = %q body = %s", resp.status, service.messageSession, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodPut, "/v1/sessions/session-2", strings.NewReader(`{"title":"Renamed"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.renamedSession.SessionID != "session-2" || service.renamedSession.Title != "Renamed" {
+		t.Fatalf("rename status = %d req = %#v body = %s", resp.status, service.renamedSession, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodDelete, "/v1/sessions/session-2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.deletedSession != "session-2" {
+		t.Fatalf("delete status = %d session = %q body = %s", resp.status, service.deletedSession, resp.body.String())
+	}
+}
+
 func TestRuntimeHTTPServerSmokeCoversSessionTurnAndInventory(t *testing.T) {
 	t.Parallel()
 

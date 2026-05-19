@@ -20,6 +20,7 @@ export type RuntimeModel = {
 
 export type RuntimeChatRequest = {
   prompt: string
+  sessionId?: string
 }
 
 export type RuntimeChatResponse = {
@@ -136,6 +137,19 @@ export type RuntimeMessage = {
   error?: string
 }
 
+export type RuntimeSession = {
+  id: string
+  title: string
+  messageCount: number
+  promptTokens: number
+  completionTokens: number
+  cost: number
+  createdAt: number
+  updatedAt: number
+  active: boolean
+  usage: RuntimeUsage
+}
+
 export type RuntimeMessagePart = {
   type: 'text' | 'reasoning' | 'tool_call' | 'tool_result' | 'finish' | 'image_url' | 'binary'
   text?: string
@@ -207,9 +221,11 @@ export type RuntimeAuditEvent = {
 }
 
 export type AgentRuntime = {
+  auditSession: (sessionId: string) => Promise<RuntimeAuditEvent[]>
   auditTurn: (turnId: string) => Promise<RuntimeAuditEvent[]>
   cancel: () => Promise<RuntimeStatus>
   chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
+  deleteSession: (sessionId: string) => Promise<RuntimeSession[]>
   decidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
   getModelConfig: () => Promise<RuntimeModelConfig>
   getEventsEndpoint: () => Promise<RuntimeEventsEndpoint>
@@ -219,13 +235,17 @@ export type AgentRuntime = {
   listMcpTools: (server: string) => Promise<RuntimeMcpTool[]>
   listModels: () => Promise<RuntimeModel[]>
   listMessages: () => Promise<RuntimeMessage[]>
+  listSessionMessages: (sessionId: string) => Promise<RuntimeMessage[]>
   listPermissions: () => Promise<RuntimePermissionRequest[]>
+  listSessions: () => Promise<RuntimeSession[]>
   listSkills: () => Promise<RuntimeSkill[]>
   newChat: (title: string) => Promise<RuntimeStatus>
   refreshMcpServer: (server: string) => Promise<RuntimeMcpServer[]>
   refreshSkills: () => Promise<RuntimeSkill[]>
   saveModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelConfig>
   saveMcpServer: (config: RuntimeMcpServerConfig) => Promise<RuntimeMcpServer[]>
+  renameSession: (sessionId: string, title: string) => Promise<RuntimeSession[]>
+  selectSession: (sessionId: string) => Promise<RuntimeStatus>
   setMcpServerEnabled: (server: string, enabled: boolean) => Promise<RuntimeMcpServer[]>
   setMcpToolEnabled: (server: string, tool: string, enabled: boolean) => Promise<RuntimeMcpTool[]>
   setSkillEnabled: (name: string, enabled: boolean) => Promise<RuntimeSkill[]>
