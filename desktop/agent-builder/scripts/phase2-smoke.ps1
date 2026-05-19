@@ -31,6 +31,27 @@ try {
     throw "AgentBuilder.exe was not found at $exePath"
   }
 
+  if ($Live) {
+    $providerKey = $env:DEEPSEEK_API_KEY
+    if ([string]::IsNullOrWhiteSpace($providerKey)) {
+      throw "Live smoke requires DEEPSEEK_API_KEY in the environment."
+    }
+
+    $modelConfig = @{
+      protocol = "openai"
+      url = "https://api.deepseek.com"
+      apiKey = $providerKey
+      model = "deepseek-chat"
+      models = @("deepseek-chat")
+    } | ConvertTo-Json -Depth 4
+    New-Item -ItemType Directory -Path (Join-Path $smokeRoot "config") -Force | Out-Null
+    [System.IO.File]::WriteAllText(
+      (Join-Path $smokeRoot "config\model.local.json"),
+      $modelConfig + [Environment]::NewLine,
+      [System.Text.UTF8Encoding]::new($false)
+    )
+  }
+
   Write-Host ">> go test ."
   Run "go" @("test", ".") $desktopRoot
 
@@ -56,21 +77,6 @@ try {
   }
 
   if ($Live) {
-    $providerKey = $env:DEEPSEEK_API_KEY
-    if ([string]::IsNullOrWhiteSpace($providerKey)) {
-      throw "Live smoke requires DEEPSEEK_API_KEY in the environment."
-    }
-
-    $modelConfig = @{
-      protocol = "openai"
-      url = "https://api.deepseek.com"
-      apiKey = $providerKey
-      model = "deepseek-chat"
-      models = @("deepseek-chat")
-    } | ConvertTo-Json -Depth 4
-    New-Item -ItemType Directory -Path (Join-Path $smokeRoot "config") -Force | Out-Null
-    Set-Content -Path (Join-Path $smokeRoot "config\model.local.json") -Value $modelConfig -Encoding UTF8
-
     Write-Host ">> go test -tags desktop_live . -run TestDesktopRuntimeBridgeLiveChat"
     Run "go" @("test", "-tags", "desktop_live", ".", "-run", "TestDesktopRuntimeBridgeLiveChat", "-count=1", "-timeout", "5m") $desktopRoot
   } else {
