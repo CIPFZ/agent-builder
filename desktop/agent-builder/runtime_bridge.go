@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -395,10 +397,11 @@ type RuntimeModelConfig struct {
 }
 
 type RuntimeModelVerifyResponse struct {
-	OK       bool   `json:"ok"`
-	Protocol string `json:"protocol"`
-	Model    string `json:"model"`
-	Error    string `json:"error,omitempty"`
+	OK       bool     `json:"ok"`
+	Protocol string   `json:"protocol"`
+	Model    string   `json:"model"`
+	Models   []string `json:"models,omitempty"`
+	Error    string   `json:"error,omitempty"`
 }
 
 type localModelConfigResult struct {
@@ -765,10 +768,16 @@ func (r *runtimeService) SaveModelConfig(ctx context.Context, req RuntimeModelCo
 	if next.APIKey == "" {
 		next.APIKey = current.APIKey
 	}
-	if next.Model != "" {
-		next.Models = []string{next.Model}
+	discovered, discoverErr := discoverModelIDs(ctx, next)
+	if discoverErr == nil && len(discovered) > 0 {
+		next.Models = discovered
+		if next.Model == "" || !slices.Contains(next.Models, next.Model) {
+			next.Model = next.Models[0]
+		}
+	} else if next.Model != "" {
+		next.Models = mergeModelIDs([]string{next.Model}, req.Models, current.Models)
 	}
-	if err := validateModelConfig(next); err != nil {
+	if err := validateModelConfig(next, true); err != nil {
 		return RuntimeConfigResponse{}, err
 	}
 
@@ -784,18 +793,36 @@ func (r *runtimeService) SaveModelConfig(ctx context.Context, req RuntimeModelCo
 	return RuntimeConfigResponse{Config: next}, nil
 }
 
-func (r *runtimeService) VerifyModelConfig(_ context.Context, req RuntimeModelConfig) (RuntimeModelVerifyResponse, error) {
+func (r *runtimeService) VerifyModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeModelVerifyResponse, error) {
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return RuntimeModelVerifyResponse{}, err
+	}
+	current, result := loadLocalModelConfig(layout)
+	if result.Error != nil {
+		return RuntimeModelVerifyResponse{}, result.Error
+	}
 	cfg := RuntimeModelConfig{
 		Protocol: strings.TrimSpace(req.Protocol),
 		URL:      strings.TrimSpace(req.URL),
 		APIKey:   strings.TrimSpace(req.APIKey),
 		Model:    strings.TrimSpace(req.Model),
 		Proxy:    strings.TrimSpace(req.Proxy),
+		Models:   req.Models,
 	}
-	if cfg.Model != "" {
-		cfg.Models = []string{cfg.Model}
+	if cfg.APIKey == "" {
+		cfg.APIKey = current.APIKey
 	}
-	if err := validateModelConfig(cfg); err != nil {
+	discovered, discoverErr := discoverModelIDs(ctx, cfg)
+	if discoverErr == nil && len(discovered) > 0 {
+		cfg.Models = discovered
+		if cfg.Model == "" || !slices.Contains(cfg.Models, cfg.Model) {
+			cfg.Model = cfg.Models[0]
+		}
+	} else if cfg.Model != "" {
+		cfg.Models = mergeModelIDs([]string{cfg.Model}, req.Models)
+	}
+	if err := validateModelConfig(cfg, true); err != nil {
 		return RuntimeModelVerifyResponse{}, err
 	}
 	store := config.NewTestStore(&config.Config{
@@ -813,13 +840,24 @@ func (r *runtimeService) VerifyModelConfig(_ context.Context, req RuntimeModelCo
 			OK:       false,
 			Protocol: cfg.Protocol,
 			Model:    cfg.Model,
+			Models:   cfg.Models,
 			Error:    err.Error(),
+		}, nil
+	}
+	if discoverErr != nil {
+		return RuntimeModelVerifyResponse{
+			OK:       false,
+			Protocol: cfg.Protocol,
+			Model:    cfg.Model,
+			Models:   cfg.Models,
+			Error:    fmt.Sprintf("connected, but failed to fetch models: %v", discoverErr),
 		}, nil
 	}
 	return RuntimeModelVerifyResponse{
 		OK:       true,
 		Protocol: cfg.Protocol,
 		Model:    cfg.Model,
+		Models:   cfg.Models,
 	}, nil
 }
 
@@ -2990,7 +3028,7 @@ func loadLocalModelConfig(layout desktopLayout) (RuntimeModelConfig, localModelC
 		if local.Model != "" && len(local.Models) == 0 {
 			local.Models = []string{local.Model}
 		}
-		if err := validateModelConfig(local); err != nil {
+		if err := validateModelConfig(local, false); err != nil {
 			result.Error = fmt.Errorf("invalid local model config %s: %w", path, err)
 			return RuntimeModelConfig{}, result
 		}
@@ -3036,12 +3074,15 @@ func applyDesktopProxy(result localModelConfigResult) {
 	_ = os.Setenv("https_proxy", proxy)
 }
 
-func validateModelConfig(local RuntimeModelConfig) error {
+func validateModelConfig(local RuntimeModelConfig, requireModel bool) error {
 	if local.Protocol != "openai" && local.Protocol != "anthropic" {
 		return errors.New("protocol must be openai or anthropic")
 	}
-	if local.APIKey == "" || local.URL == "" || local.Model == "" {
-		return errors.New("url, apiKey, and model are required")
+	if local.APIKey == "" || local.URL == "" || (requireModel && local.Model == "") {
+		if requireModel {
+			return errors.New("url, apiKey, and model are required")
+		}
+		return errors.New("url and apiKey are required")
 	}
 	return nil
 }
@@ -3052,7 +3093,7 @@ func saveLocalModelConfig(layout desktopLayout, local RuntimeModelConfig) error 
 	}
 	local.ConfigPath = ""
 	local.HasAPIKey = false
-	if local.Model != "" {
+	if local.Model != "" && len(local.Models) == 0 {
 		local.Models = []string{local.Model}
 	}
 	data, err := json.MarshalIndent(local, "", "  ")
@@ -3064,6 +3105,104 @@ func saveLocalModelConfig(layout desktopLayout, local RuntimeModelConfig) error 
 		return fmt.Errorf("failed to write local model config: %w", err)
 	}
 	return nil
+}
+
+func discoverModelIDs(ctx context.Context, local RuntimeModelConfig) ([]string, error) {
+	if strings.TrimSpace(local.Protocol) == "" || strings.TrimSpace(local.URL) == "" || strings.TrimSpace(local.APIKey) == "" {
+		return nil, errors.New("protocol, url, and apiKey are required to fetch models")
+	}
+
+	endpoint, headers, err := modelDiscoveryRequest(local)
+	if err != nil {
+		return nil, err
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create models request: %w", err)
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch models: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch models: %s", resp.Status)
+	}
+
+	var payload struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+		} `json:"data"`
+		Models []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("failed to decode models response: %w", err)
+	}
+
+	models := make([]string, 0, len(payload.Data)+len(payload.Models))
+	for _, model := range payload.Data {
+		models = append(models, firstNonEmpty(strings.TrimSpace(model.ID), strings.TrimSpace(model.DisplayName)))
+	}
+	for _, model := range payload.Models {
+		models = append(models, firstNonEmpty(strings.TrimSpace(model.ID), strings.TrimSpace(model.Name)))
+	}
+	models = compactModelIDs(models)
+	if len(models) == 0 {
+		return nil, errors.New("models response did not include any model ids")
+	}
+	return models, nil
+}
+
+func modelDiscoveryRequest(local RuntimeModelConfig) (string, map[string]string, error) {
+	baseURL := normalizeModelBaseURL(local.Protocol, local.URL)
+	if _, err := url.ParseRequestURI(baseURL); err != nil {
+		return "", nil, fmt.Errorf("invalid model base url: %w", err)
+	}
+	headers := map[string]string{}
+	switch local.Protocol {
+	case "openai":
+		headers["Authorization"] = "Bearer " + local.APIKey
+		return strings.TrimRight(baseURL, "/") + "/models", headers, nil
+	case "anthropic":
+		headers["x-api-key"] = local.APIKey
+		headers["anthropic-version"] = "2023-06-01"
+		return strings.TrimRight(baseURL, "/") + "/models", headers, nil
+	default:
+		return "", nil, errors.New("protocol must be openai or anthropic")
+	}
+}
+
+func mergeModelIDs(groups ...[]string) []string {
+	models := make([]string, 0)
+	for _, group := range groups {
+		models = append(models, group...)
+	}
+	return compactModelIDs(models)
+}
+
+func compactModelIDs(models []string) []string {
+	seen := map[string]bool{}
+	compact := make([]string, 0, len(models))
+	for _, model := range models {
+		model = strings.TrimSpace(model)
+		if model == "" || seen[model] {
+			continue
+		}
+		seen[model] = true
+		compact = append(compact, model)
+	}
+	return compact
 }
 
 func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig) {

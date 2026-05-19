@@ -8,6 +8,7 @@ export type ModelConfig = {
   url: string
   apiKey?: string
   proxy?: string
+  models?: string[]
   hasApiKey?: boolean
   configPath?: string
 }
@@ -34,6 +35,7 @@ export async function loadModelConfig(): Promise<ModelConfig> {
     url: config.url,
     apiKey: config.apiKey,
     model: config.model,
+    models: config.models,
     proxy: config.proxy,
     hasApiKey: config.hasApiKey,
     configPath: config.configPath,
@@ -47,6 +49,7 @@ export async function saveModelConfig(config: ModelConfig): Promise<ModelConfig>
     url: saved.url,
     apiKey: saved.apiKey,
     model: saved.model,
+    models: saved.models,
     proxy: saved.proxy,
     hasApiKey: saved.hasApiKey,
     configPath: saved.configPath,

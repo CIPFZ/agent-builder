@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import AntApp from 'antd/es/app'
 import Alert from 'antd/es/alert'
 import Button from 'antd/es/button'
@@ -44,6 +45,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons'
 import TextArea from 'antd/es/input/TextArea'
+import type { TextAreaRef } from 'antd/es/input/TextArea'
 import {
   addRuntimeSkillPath,
   cancelRuntimeTurn,
@@ -93,6 +95,7 @@ import type {
   RuntimeMcpPrompt,
   RuntimeMcpResource,
   RuntimeMcpTool,
+  RuntimeModelVerifyResponse,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
   RuntimeSession,
@@ -108,6 +111,7 @@ const defaultConfig: ModelConfig = {
   protocol: 'openai',
   model: '',
   url: '',
+  models: [],
 }
 
 const starterPrompts = [
@@ -175,6 +179,7 @@ function AppContent() {
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null)
   const [auditEvents, setAuditEvents] = useState<RuntimeAuditEvent[]>([])
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const composerInputRef = useRef<TextAreaRef | null>(null)
 
   const hasMessages = messages.length > 0
   const isModelConfigured = Boolean(config.url && config.model && (config.hasApiKey || config.apiKey))
@@ -243,6 +248,12 @@ function AppContent() {
         ? await requestRuntimeSessionAudit(runtimeStatus.sessionId)
         : []
     setAuditEvents(nextAudit)
+  }
+
+  const openOperations = () => {
+    setOperationsOpen(true)
+    refreshAudit().catch(() => undefined)
+    refreshRuntimeInventory().catch(() => undefined)
   }
 
   useEffect(() => {
@@ -554,7 +565,7 @@ function AppContent() {
               <MessageOutlined />
               Chat
             </button>
-            <button className="mode-tab" type="button" onClick={() => setOperationsOpen(true)}>
+            <button className="mode-tab" type="button" onClick={openOperations}>
               <CodeOutlined />
               Ops
             </button>
@@ -569,7 +580,7 @@ function AppContent() {
               <FolderOutlined />
               Projects
             </button>
-            <button className="nav-item" type="button" onClick={() => setOperationsOpen(true)}>
+            <button className="nav-item" type="button" onClick={openOperations}>
               <ProjectOutlined />
               Operations
             </button>
@@ -625,7 +636,7 @@ function AppContent() {
             <Text type="secondary">Local</Text>
           </Space>
           <Tooltip title="Runtime logs">
-            <Button type="text" size="small" icon={<ArrowDownOutlined />} onClick={() => setOperationsOpen(true)} />
+            <Button type="text" size="small" icon={<ArrowDownOutlined />} onClick={openOperations} />
           </Tooltip>
         </div>
       </aside>
@@ -644,7 +655,7 @@ function AppContent() {
               </Tooltip>
             ) : null}
             <Tooltip title="Runtime events">
-              <Button type="text" icon={<ShareAltOutlined />} onClick={() => setOperationsOpen(true)} />
+              <Button type="text" icon={<ShareAltOutlined />} onClick={openOperations} />
             </Tooltip>
             <Tooltip title="Model settings">
               <Button type="text" icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)} />
@@ -667,6 +678,7 @@ function AppContent() {
                 isSending={isSending}
                 modelItems={modelItems}
                 onChange={setInput}
+                inputRef={composerInputRef}
                 onOpenSettings={() => setSettingsOpen(true)}
                 onSend={() => sendMessage()}
               />
@@ -712,6 +724,7 @@ function AppContent() {
               isSending={isSending}
               modelItems={modelItems}
               onChange={setInput}
+              inputRef={composerInputRef}
               onOpenSettings={() => setSettingsOpen(true)}
               onSend={() => sendMessage()}
             />
@@ -732,7 +745,7 @@ function AppContent() {
           try {
             const saved = await saveModelConfig(nextConfig)
             setConfig((current) => ({ ...current, ...saved }))
-            setModels(saved.model ? [saved.model] : [])
+            setModels(saved.models?.length ? saved.models : saved.model ? [saved.model] : [])
             setLastError('')
             message.success('Model settings saved')
             setSettingsOpen(false)
@@ -748,13 +761,20 @@ function AppContent() {
           try {
             const result = await verifyModelConfig(nextConfig)
             if (result.ok) {
-              message.success(`Verified ${result.model}`)
+              const nextModels = result.models?.length ? result.models : result.model ? [result.model] : []
+              if (nextModels.length > 0) {
+                setModels(nextModels)
+                setConfig((current) => ({ ...current, models: nextModels, model: result.model || nextModels[0] }))
+              }
+              message.success(`Verified ${result.model || nextModels[0]}`)
             } else {
               message.error(result.error || 'Model verification failed')
             }
+            return result
           } catch (error) {
             const reason = error instanceof Error ? error.message : String(error)
             message.error(reason)
+            throw error
           } finally {
             setSettingsVerifying(false)
           }
@@ -956,6 +976,7 @@ function ToolActivityItem({ part }: { part: RuntimeMessagePart }) {
 type ComposerProps = {
   config: ModelConfig
   input: string
+  inputRef: RefObject<TextAreaRef | null>
   isDisabled: boolean
   isSending: boolean
   modelItems: MenuProps['items']
@@ -964,12 +985,14 @@ type ComposerProps = {
   onSend: () => void
 }
 
-function Composer({ config, input, isDisabled, isSending, modelItems, onChange, onOpenSettings, onSend }: ComposerProps) {
+function Composer({ config, input, inputRef, isDisabled, isSending, modelItems, onChange, onOpenSettings, onSend }: ComposerProps) {
   return (
-    <div className="composer">
+    <div className="composer" onClick={() => inputRef.current?.focus()}>
       <TextArea
+        aria-label="Message composer"
         autoSize={{ minRows: 2, maxRows: 7 }}
         className="composer-input"
+        ref={inputRef}
         placeholder="How can I help you today?"
         disabled={isDisabled || isSending}
         value={input}
@@ -1028,11 +1051,18 @@ type ModelSettingsDrawerProps = {
   verifying: boolean
   onClose: () => void
   onSave: (config: ModelConfig) => Promise<void>
-  onVerify: (config: ModelConfig) => Promise<void>
+  onVerify: (config: ModelConfig) => Promise<RuntimeModelVerifyResponse>
 }
 
 function ModelSettingsDrawer({ config, open, saving, verifying, onClose, onSave, onVerify }: ModelSettingsDrawerProps) {
   const [form] = Form.useForm<ModelConfig>()
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const modelOptions = ((availableModels.length ? availableModels : undefined) ??
+    (config.models?.length ? config.models : undefined) ??
+    (config.model ? [config.model] : [])).map((model) => ({
+    value: model,
+    label: model,
+  }))
 
   return (
     <Drawer
@@ -1042,14 +1072,24 @@ function ModelSettingsDrawer({ config, open, saving, verifying, onClose, onSave,
       open={open}
       onClose={onClose}
       afterOpenChange={(visible) => {
-        if (visible) form.setFieldsValue(config)
+        if (visible) {
+          form.setFieldsValue(config)
+          setAvailableModels(config.models?.length ? config.models : config.model ? [config.model] : [])
+        }
       }}
       extra={
         <Space>
           <Button
             loading={verifying}
             onClick={() => {
-              form.validateFields().then((values) => onVerify(values))
+              form.validateFields().then(async (values) => {
+                const result = await onVerify(values)
+                const nextModels = result.models?.length ? result.models : result.model ? [result.model] : []
+                if (result.ok && nextModels.length > 0) {
+                  setAvailableModels(nextModels)
+                  form.setFieldsValue({ model: result.model || nextModels[0] })
+                }
+              })
             }}
           >
             Verify
@@ -1082,8 +1122,12 @@ function ModelSettingsDrawer({ config, open, saving, verifying, onClose, onSave,
         <Form.Item label="API key" name="apiKey" rules={config.hasApiKey ? [] : [{ required: true }]}>
           <Input.Password placeholder={config.hasApiKey ? 'Saved. Leave empty to keep current key.' : 'sk-...'} />
         </Form.Item>
-        <Form.Item label="Model" name="model" rules={[{ required: true }]}>
-          <Input placeholder="model-name" />
+        <Form.Item label="Model" name="model">
+          <Select
+            showSearch
+            placeholder="Model list is fetched after verification or save"
+            options={modelOptions}
+          />
         </Form.Item>
         <Collapse
           ghost

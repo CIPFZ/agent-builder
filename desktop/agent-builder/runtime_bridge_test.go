@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -168,6 +169,7 @@ func TestSaveLocalModelConfigWritesDesktopConfig(t *testing.T) {
 		URL:      "https://api.example.com",
 		APIKey:   "test-key",
 		Model:    "example-chat",
+		Models:   []string{"example-chat", "example-reasoner"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -182,6 +184,40 @@ func TestSaveLocalModelConfigWritesDesktopConfig(t *testing.T) {
 	}
 	if string(data) == "" {
 		t.Fatal("config file is empty")
+	}
+	var saved RuntimeModelConfig
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(saved.Models, []string{"example-chat", "example-reasoner"}) {
+		t.Fatalf("Models = %#v", saved.Models)
+	}
+}
+
+func TestDiscoverModelIDsOpenAICompatible(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("Path = %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			t.Fatalf("Authorization = %q", r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"deepseek-chat"},{"id":"deepseek-reasoner"},{"id":"deepseek-chat"}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	models, err := discoverModelIDs(context.Background(), RuntimeModelConfig{
+		Protocol: "openai",
+		URL:      server.URL,
+		APIKey:   "test-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(models, []string{"deepseek-chat", "deepseek-reasoner"}) {
+		t.Fatalf("models = %#v", models)
 	}
 }
 

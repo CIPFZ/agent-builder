@@ -229,6 +229,7 @@ export type RuntimeModelVerifyResponse = {
   ok: boolean
   protocol: RuntimeModelConfig['protocol']
   model: string
+  models?: string[]
   error?: string
 }
 
