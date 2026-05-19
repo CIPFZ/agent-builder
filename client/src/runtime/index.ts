@@ -19,6 +19,7 @@ export type {
   RuntimePermissionDecision,
   RuntimePermissionRequest,
   RuntimeSession,
+  RuntimeSkillCreateRequest,
   RuntimeRequests,
   RuntimeEventStats,
   RuntimeSkill,

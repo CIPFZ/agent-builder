@@ -2,6 +2,12 @@ import type { AgentRuntime, RuntimeChatRequest } from './types'
 import { loadWailsRuntimeBridge } from './wailsBinding'
 
 export const wailsRuntime: AgentRuntime = {
+  async addSkillPath(path: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.AddSkillPath({ path })
+    return response.skills
+  },
+
   async auditSession(sessionId: string) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.AuditSession(sessionId)
@@ -22,6 +28,12 @@ export const wailsRuntime: AgentRuntime = {
   async chat(request: RuntimeChatRequest) {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.Chat(request)
+  },
+
+  async createSkill(request) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.CreateSkill(request)
+    return response.skills
   },
 
   async decidePermission(request) {

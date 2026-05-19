@@ -58,6 +58,8 @@ type RuntimeService interface {
 	AuditSession(context.Context, string) (RuntimeAuditResponse, error)
 	Skills(context.Context) (RuntimeSkillsResponse, error)
 	RefreshSkills(context.Context) (RuntimeSkillsResponse, error)
+	CreateSkill(context.Context, RuntimeSkillCreateRequest) (RuntimeSkillsResponse, error)
+	AddSkillPath(context.Context, RuntimeSkillPathRequest) (RuntimeSkillsResponse, error)
 	SetSkillEnabled(context.Context, RuntimeSkillToggleRequest) (RuntimeSkillsResponse, error)
 	MCPServers(context.Context) (RuntimeMCPServersResponse, error)
 	SaveMCPServer(context.Context, RuntimeMCPServerConfigRequest) (RuntimeMCPServersResponse, error)
@@ -265,6 +267,17 @@ type RuntimeSkill struct {
 
 type RuntimeSkillsResponse struct {
 	Skills []RuntimeSkill `json:"skills"`
+}
+
+type RuntimeSkillCreateRequest struct {
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Instructions string `json:"instructions"`
+	Directory    string `json:"directory,omitempty"`
+}
+
+type RuntimeSkillPathRequest struct {
+	Path string `json:"path"`
 }
 
 type RuntimeSkillToggleRequest struct {
@@ -556,6 +569,14 @@ func (r *RuntimeBridge) Skills(ctx context.Context) (RuntimeSkillsResponse, erro
 
 func (r *RuntimeBridge) RefreshSkills(ctx context.Context) (RuntimeSkillsResponse, error) {
 	return r.service.RefreshSkills(ctx)
+}
+
+func (r *RuntimeBridge) CreateSkill(ctx context.Context, req RuntimeSkillCreateRequest) (RuntimeSkillsResponse, error) {
+	return r.service.CreateSkill(ctx, req)
+}
+
+func (r *RuntimeBridge) AddSkillPath(ctx context.Context, req RuntimeSkillPathRequest) (RuntimeSkillsResponse, error) {
+	return r.service.AddSkillPath(ctx, req)
 }
 
 func (r *RuntimeBridge) SetSkillEnabled(ctx context.Context, req RuntimeSkillToggleRequest) (RuntimeSkillsResponse, error) {
@@ -1070,7 +1091,11 @@ func (r *runtimeService) Permissions(ctx context.Context) (RuntimePermissionsRes
 	defer r.mu.Unlock()
 
 	permissions := make([]RuntimePermissionRequest, 0, len(r.permissions))
+	activeSession := r.sessionID
 	for _, pending := range r.permissions {
+		if activeSession != "" && pending.Permission.SessionID != activeSession {
+			continue
+		}
 		permissions = append(permissions, pending.Permission)
 	}
 	return RuntimePermissionsResponse{Permissions: permissions}, nil
@@ -1193,6 +1218,109 @@ func (r *runtimeService) SetSkillEnabled(ctx context.Context, req RuntimeSkillTo
 		},
 	})
 	return r.refreshSkills(ctx, true)
+}
+
+func (r *runtimeService) AddSkillPath(ctx context.Context, req RuntimeSkillPathRequest) (RuntimeSkillsResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	path := strings.TrimSpace(req.Path)
+	if path == "" {
+		return RuntimeSkillsResponse{}, errors.New("skill path is required")
+	}
+	cfg, _, err := r.workspaceConfig(ctx)
+	if err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	paths, err := r.addSkillPathToConfig(cfg, path)
+	if err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	if err := cfg.SetConfigField(config.ScopeGlobal, "options.skills_paths", paths); err != nil {
+		return RuntimeSkillsResponse{}, fmt.Errorf("failed to persist skill paths: %w", err)
+	}
+	return r.refreshSkills(ctx, true)
+}
+
+func (r *runtimeService) CreateSkill(ctx context.Context, req RuntimeSkillCreateRequest) (RuntimeSkillsResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	name, err := validateRuntimeSkillName(req.Name)
+	if err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	description := strings.TrimSpace(req.Description)
+	if description == "" {
+		return RuntimeSkillsResponse{}, errors.New("skill description is required")
+	}
+	instructions := strings.TrimSpace(req.Instructions)
+	if instructions == "" {
+		return RuntimeSkillsResponse{}, errors.New("skill instructions are required")
+	}
+	cfg, _, err := r.workspaceConfig(ctx)
+	if err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	workingDir := cfg.WorkingDir()
+	baseDir := strings.TrimSpace(req.Directory)
+	if baseDir == "" {
+		baseDir = filepath.Join(workingDir, ".agents", "skills")
+	}
+	if !filepath.IsAbs(baseDir) {
+		baseDir = filepath.Join(workingDir, baseDir)
+	}
+	baseDir = filepath.Clean(baseDir)
+	skillDir := filepath.Join(baseDir, name)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		return RuntimeSkillsResponse{}, fmt.Errorf("failed to create skill directory: %w", err)
+	}
+	skillFile := filepath.Join(skillDir, skills.SkillFileName)
+	if _, err := os.Stat(skillFile); err == nil {
+		return RuntimeSkillsResponse{}, fmt.Errorf("skill %s already exists at %s", name, skillFile)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return RuntimeSkillsResponse{}, fmt.Errorf("failed to inspect skill file: %w", err)
+	}
+	content := formatRuntimeSkillMarkdown(name, description, instructions)
+	if err := os.WriteFile(skillFile, []byte(content), 0o644); err != nil {
+		return RuntimeSkillsResponse{}, fmt.Errorf("failed to write skill file: %w", err)
+	}
+	paths, err := r.addSkillPathToConfig(cfg, baseDir)
+	if err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	if err := cfg.SetConfigField(config.ScopeGlobal, "options.skills_paths", paths); err != nil {
+		return RuntimeSkillsResponse{}, fmt.Errorf("failed to persist skill paths: %w", err)
+	}
+	event := runtimeapi.NewEvent(newRuntimeEventID(), runtimeapi.EventSkillDiscoveryStarted, time.Now())
+	event.Payload = map[string]any{
+		"name": name,
+		"path": skillFile,
+	}
+	r.publishRuntimeEvent(event)
+	return r.refreshSkills(ctx, true)
+}
+
+func (r *runtimeService) addSkillPathToConfig(cfg *config.ConfigStore, path string) ([]string, error) {
+	if cfg.Config().Options == nil {
+		cfg.Config().Options = &config.Options{}
+	}
+	normalized := filepath.Clean(path)
+	paths := slices.Clone(cfg.Config().Options.SkillsPaths)
+	seen := false
+	for _, existing := range paths {
+		if strings.EqualFold(filepath.Clean(existing), normalized) {
+			seen = true
+			break
+		}
+	}
+	if !seen {
+		paths = append(paths, normalized)
+	}
+	slices.Sort(paths)
+	paths = slices.Compact(paths)
+	cfg.Config().Options.SkillsPaths = paths
+	return paths, nil
 }
 
 func (r *runtimeService) MCPServers(ctx context.Context) (RuntimeMCPServersResponse, error) {
@@ -1494,6 +1622,19 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 		PermissionAction: pending.Permission.Action,
 		PermissionPath:   pending.Permission.Path,
 		PermissionPolicy: string(action),
+	})
+	r.publishRuntimeEvent(runtimeapi.Event{
+		ID:         newRuntimeEventID(),
+		Type:       runtimeapi.EventPermissionDecided,
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID:  pending.Permission.SessionID,
+		ToolCallID: pending.Permission.ToolCallID,
+		Payload: map[string]any{
+			"permission_id": req.PermissionID,
+			"tool_name":     pending.Permission.ToolName,
+			"action":        string(action),
+			"path":          pending.Permission.Path,
+		},
 	})
 
 	return r.Status(ctx)
@@ -2470,6 +2611,26 @@ func validateRuntimeMCPName(value string) (string, error) {
 		return "", fmt.Errorf("mcp server name %q must use only letters, numbers, underscore, or dash", name)
 	}
 	return name, nil
+}
+
+func validateRuntimeSkillName(value string) (string, error) {
+	name := strings.TrimSpace(value)
+	if name == "" {
+		return "", errors.New("skill name is required")
+	}
+	for _, char := range name {
+		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '_' || char == '-' {
+			continue
+		}
+		return "", fmt.Errorf("skill name %q must use only lowercase letters, numbers, underscore, or dash", name)
+	}
+	return name, nil
+}
+
+func formatRuntimeSkillMarkdown(name, description, instructions string) string {
+	description = strings.ReplaceAll(strings.TrimSpace(description), "\r\n", "\n")
+	instructions = strings.ReplaceAll(strings.TrimSpace(instructions), "\r\n", "\n")
+	return fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n%s\n", name, description, instructions)
 }
 
 func trimStringSlice(values []string) []string {

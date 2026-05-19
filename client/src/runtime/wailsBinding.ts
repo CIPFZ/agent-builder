@@ -14,16 +14,19 @@ import type {
   RuntimePermissionDecision,
   RuntimePermissionRequest,
   RuntimeSession,
+  RuntimeSkillCreateRequest,
   RuntimeSkill,
   RuntimeStatus,
 } from './types'
 
 type WailsRuntimeBridge = {
+  AddSkillPath: (request: { path: string }) => Promise<{ skills: RuntimeSkill[] }>
   AuditSession: (sessionId: string) => Promise<{ events: RuntimeAuditEvent[] }>
   AuditTurn: (turnId: string) => Promise<{ events: RuntimeAuditEvent[] }>
   Cancel: () => Promise<RuntimeStatus>
   Capabilities: () => Promise<{ capabilities: RuntimeCapability[] }>
   Chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
+  CreateSkill: (request: RuntimeSkillCreateRequest) => Promise<{ skills: RuntimeSkill[] }>
   DecidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
   Events: () => Promise<{ events: RuntimeEvent[] }>
   EventsEndpoint: () => Promise<{ url: string }>

@@ -348,6 +348,17 @@ func TestRuntimeMCPConfigFromRequestValidatesNameAndRequiredFields(t *testing.T)
 	}
 }
 
+func TestRuntimeSkillNameValidation(t *testing.T) {
+	t.Parallel()
+
+	if got, err := validateRuntimeSkillName("my-skill_1"); err != nil || got != "my-skill_1" {
+		t.Fatalf("validateRuntimeSkillName valid = %q, %v", got, err)
+	}
+	if _, err := validateRuntimeSkillName("My Skill"); err == nil {
+		t.Fatal("validateRuntimeSkillName accepted invalid skill name")
+	}
+}
+
 func TestRuntimeCapabilitiesIncludeToolsSkillsAndMCP(t *testing.T) {
 	t.Parallel()
 
@@ -736,6 +747,8 @@ type recordingRuntimeService struct {
 	renamedSession   RuntimeSessionUpdateRequest
 	deletedSession   string
 	messageSession   string
+	createdSkill     RuntimeSkillCreateRequest
+	addedSkillPath   string
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -832,6 +845,16 @@ func (s *recordingRuntimeService) Skills(context.Context) (RuntimeSkillsResponse
 }
 
 func (s *recordingRuntimeService) RefreshSkills(context.Context) (RuntimeSkillsResponse, error) {
+	return RuntimeSkillsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) CreateSkill(_ context.Context, req RuntimeSkillCreateRequest) (RuntimeSkillsResponse, error) {
+	s.createdSkill = req
+	return RuntimeSkillsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) AddSkillPath(_ context.Context, req RuntimeSkillPathRequest) (RuntimeSkillsResponse, error) {
+	s.addedSkillPath = req.Path
 	return RuntimeSkillsResponse{}, nil
 }
 

@@ -185,6 +185,20 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/skills/refresh":
 		value, err := s.service.RefreshSkills(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/skills":
+		var req RuntimeSkillCreateRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.CreateSkill(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/skills/paths":
+		var req RuntimeSkillPathRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.AddSkillPath(r.Context(), req)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/skills/") && strings.HasSuffix(r.URL.Path, "/enabled"):
 		name := trimPathID(r.URL.Path, "/v1/skills/", "/enabled")
 		var req RuntimeSkillToggleRequest

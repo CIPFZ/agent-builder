@@ -232,6 +232,42 @@ func TestRuntimeHTTPServerRoutesSkillsToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesSkillManagementToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodPost, "/v1/skills", strings.NewReader(`{
+  "name": "my-skill",
+  "description": "Use when testing.",
+  "instructions": "# My Skill"
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("create status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.createdSkill.Name != "my-skill" || service.createdSkill.Description == "" {
+		t.Fatalf("created skill = %#v", service.createdSkill)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, "/v1/skills/paths", strings.NewReader(`{"path":".agents/skills"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("path status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.addedSkillPath != ".agents/skills" {
+		t.Fatalf("added skill path = %q", service.addedSkillPath)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesMCPServersToRuntimeService(t *testing.T) {
 	t.Parallel()
 

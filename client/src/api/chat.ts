@@ -1,5 +1,5 @@
 import { getAgentRuntime } from '../runtime'
-import type { RuntimeMcpServerConfig, RuntimePermissionDecision, RuntimeStatus } from '../runtime'
+import type { RuntimeMcpServerConfig, RuntimePermissionDecision, RuntimeSkillCreateRequest, RuntimeStatus } from '../runtime'
 
 export type ModelConfig = {
   protocol: 'openai' | 'anthropic'
@@ -119,6 +119,14 @@ export async function cancelRuntimeTurn() {
 
 export async function refreshRuntimeSkills() {
   return getAgentRuntime().refreshSkills()
+}
+
+export async function createRuntimeSkill(request: RuntimeSkillCreateRequest) {
+  return getAgentRuntime().createSkill(request)
+}
+
+export async function addRuntimeSkillPath(path: string) {
+  return getAgentRuntime().addSkillPath(path)
 }
 
 export async function setRuntimeSkillEnabled(name: string, enabled: boolean) {

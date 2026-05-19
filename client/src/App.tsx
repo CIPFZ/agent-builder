@@ -45,7 +45,9 @@ import {
 } from '@ant-design/icons'
 import TextArea from 'antd/es/input/TextArea'
 import {
+  addRuntimeSkillPath,
   cancelRuntimeTurn,
+  createRuntimeSkill,
   deleteRuntimeSession,
   decideRuntimePermission,
   loadModelConfig,
@@ -91,6 +93,7 @@ import type {
   RuntimePermissionRequest,
   RuntimeSession,
   RuntimeSkill,
+  RuntimeSkillCreateRequest,
   RuntimeStatus,
 } from './runtime'
 import './App.css'
@@ -774,6 +777,18 @@ function AppContent() {
           await refreshRuntimeInventory()
           message.success('Skills refreshed')
         }}
+        onCreateSkill={async (request) => {
+          const nextSkills = await createRuntimeSkill(request)
+          setSkills(nextSkills)
+          await refreshRuntimeInventory()
+          message.success('Skill created')
+        }}
+        onAddSkillPath={async (path) => {
+          const nextSkills = await addRuntimeSkillPath(path)
+          setSkills(nextSkills)
+          await refreshRuntimeInventory()
+          message.success('Skill path added')
+        }}
         onToggleMcpServer={async (server, enabled) => {
           const nextServers = await setRuntimeMcpServerEnabled(server, enabled)
           setMcpServers(nextServers)
@@ -1087,6 +1102,8 @@ function OperationsPreview({
   onRefreshAudit,
   onRefreshMcpServer,
   onRefreshSkills,
+  onCreateSkill,
+  onAddSkillPath,
   onToggleMcpServer,
   onToggleMcpTool,
   onToggleSkill,
@@ -1104,6 +1121,8 @@ function OperationsPreview({
   onRefreshAudit: () => void
   onRefreshMcpServer: (server: string) => Promise<void>
   onRefreshSkills: () => Promise<void>
+  onCreateSkill: (request: RuntimeSkillCreateRequest) => Promise<void>
+  onAddSkillPath: (path: string) => Promise<void>
   onToggleMcpServer: (server: string, enabled: boolean) => Promise<void>
   onToggleMcpTool: (server: string, tool: string, enabled: boolean) => Promise<void>
   onToggleSkill: (name: string, enabled: boolean) => Promise<void>
@@ -1146,7 +1165,15 @@ function OperationsPreview({
           {
             key: 'skills',
             label: 'Skills',
-            children: <RuntimeSkillList skills={skills} onRefresh={onRefreshSkills} onToggle={onToggleSkill} />,
+            children: (
+              <RuntimeSkillList
+                skills={skills}
+                onRefresh={onRefreshSkills}
+                onCreate={onCreateSkill}
+                onAddPath={onAddSkillPath}
+                onToggle={onToggleSkill}
+              />
+            ),
           },
           {
             key: 'mcp',
@@ -1206,17 +1233,34 @@ function RuntimeAuditList({ events, onRefresh }: { events: RuntimeAuditEvent[]; 
 function RuntimeSkillList({
   skills,
   onRefresh,
+  onCreate,
+  onAddPath,
   onToggle,
 }: {
   skills: RuntimeSkill[]
   onRefresh: () => Promise<void>
+  onCreate: (request: RuntimeSkillCreateRequest) => Promise<void>
+  onAddPath: (path: string) => Promise<void>
   onToggle: (name: string, enabled: boolean) => Promise<void>
 }) {
+  const [createOpen, setCreateOpen] = useState(false)
+  const [pathOpen, setPathOpen] = useState(false)
+  const [skillForm] = Form.useForm<RuntimeSkillCreateRequest>()
+  const [pathForm] = Form.useForm<{ path: string }>()
+
   return (
     <div className="runtime-list">
-      <Button size="small" icon={<ReloadOutlined />} onClick={() => onRefresh()}>
-        Refresh skills
-      </Button>
+      <Space wrap>
+        <Button size="small" icon={<ReloadOutlined />} onClick={() => onRefresh()}>
+          Refresh skills
+        </Button>
+        <Button size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+          Create skill
+        </Button>
+        <Button size="small" onClick={() => setPathOpen(true)}>
+          Add path
+        </Button>
+      </Space>
       {skills.length === 0 ? <Text type="secondary">No skills discovered.</Text> : null}
       {skills.slice(0, 12).map((skill) => (
         <div className="runtime-list-row" key={`${skill.name}-${skill.path ?? ''}`}>
@@ -1231,6 +1275,57 @@ function RuntimeSkillList({
           {skill.error ? <Text type="danger">{skill.error}</Text> : <Text type="secondary">{skill.description}</Text>}
         </div>
       ))}
+      <Modal
+        title="Create skill"
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onOk={() => {
+          skillForm
+            .validateFields()
+            .then((values) => onCreate(values))
+            .then(() => {
+              skillForm.resetFields()
+              setCreateOpen(false)
+            })
+            .catch(() => undefined)
+        }}
+      >
+        <Form form={skillForm} layout="vertical" initialValues={{ directory: '.agents/skills' }}>
+          <Form.Item label="Name" name="name" rules={[{ required: true }]}>
+            <Input placeholder="my-skill" />
+          </Form.Item>
+          <Form.Item label="Directory" name="directory">
+            <Input placeholder=".agents/skills" />
+          </Form.Item>
+          <Form.Item label="Description" name="description" rules={[{ required: true }]}>
+            <Input placeholder="Use when..." />
+          </Form.Item>
+          <Form.Item label="Instructions" name="instructions" rules={[{ required: true }]}>
+            <TextArea rows={6} placeholder="# My Skill&#10;&#10;Steps..." />
+          </Form.Item>
+        </Form>
+      </Modal>
+      <Modal
+        title="Add skill path"
+        open={pathOpen}
+        onCancel={() => setPathOpen(false)}
+        onOk={() => {
+          pathForm
+            .validateFields()
+            .then(({ path }) => onAddPath(path))
+            .then(() => {
+              pathForm.resetFields()
+              setPathOpen(false)
+            })
+            .catch(() => undefined)
+        }}
+      >
+        <Form form={pathForm} layout="vertical">
+          <Form.Item label="Path" name="path" rules={[{ required: true }]}>
+            <Input placeholder=".agents/skills" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   )
 }

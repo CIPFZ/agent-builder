@@ -71,6 +71,13 @@ export type RuntimeSkill = {
   error?: string
 }
 
+export type RuntimeSkillCreateRequest = {
+  name: string
+  description: string
+  instructions: string
+  directory?: string
+}
+
 export type RuntimeMcpServer = {
   name: string
   type: string
@@ -229,6 +236,7 @@ export type AgentRuntime = {
   decidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
   getModelConfig: () => Promise<RuntimeModelConfig>
   getEventsEndpoint: () => Promise<RuntimeEventsEndpoint>
+  addSkillPath: (path: string) => Promise<RuntimeSkill[]>
   listCapabilities: () => Promise<RuntimeCapability[]>
   listEvents: () => Promise<RuntimeEvent[]>
   listMcpServers: () => Promise<RuntimeMcpServer[]>
@@ -239,6 +247,7 @@ export type AgentRuntime = {
   listPermissions: () => Promise<RuntimePermissionRequest[]>
   listSessions: () => Promise<RuntimeSession[]>
   listSkills: () => Promise<RuntimeSkill[]>
+  createSkill: (request: RuntimeSkillCreateRequest) => Promise<RuntimeSkill[]>
   newChat: (title: string) => Promise<RuntimeStatus>
   refreshMcpServer: (server: string) => Promise<RuntimeMcpServer[]>
   refreshSkills: () => Promise<RuntimeSkill[]>
