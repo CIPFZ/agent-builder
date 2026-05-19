@@ -119,6 +119,20 @@ export type RuntimeMcpTool = {
   input_schema?: unknown
 }
 
+export type RuntimeMcpResource = {
+  server: string
+  uri: string
+  name?: string
+  description?: string
+  mime_type?: string
+}
+
+export type RuntimeMcpPrompt = {
+  server: string
+  name: string
+  description?: string
+}
+
 export type RuntimeCapability = {
   id: string
   kind: string
@@ -240,6 +254,8 @@ export type AgentRuntime = {
   listCapabilities: () => Promise<RuntimeCapability[]>
   listEvents: () => Promise<RuntimeEvent[]>
   listMcpServers: () => Promise<RuntimeMcpServer[]>
+  listMcpResources: (server: string) => Promise<RuntimeMcpResource[]>
+  listMcpPrompts: (server: string) => Promise<RuntimeMcpPrompt[]>
   listMcpTools: (server: string) => Promise<RuntimeMcpTool[]>
   listModels: () => Promise<RuntimeModel[]>
   listMessages: () => Promise<RuntimeMessage[]>

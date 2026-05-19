@@ -58,6 +58,8 @@ import {
   requestRuntimeAudit,
   requestRuntimeMessages,
   requestRuntimeMcpServers,
+  requestRuntimeMcpPrompts,
+  requestRuntimeMcpResources,
   requestRuntimeMcpTools,
   requestRuntimePermissions,
   requestRuntimeSessionAudit,
@@ -88,6 +90,8 @@ import type {
   RuntimeMessagePart,
   RuntimeMcpServer,
   RuntimeMcpServerConfig,
+  RuntimeMcpPrompt,
+  RuntimeMcpResource,
   RuntimeMcpTool,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
@@ -154,6 +158,8 @@ function AppContent() {
   const [skills, setSkills] = useState<RuntimeSkill[]>([])
   const [mcpServers, setMcpServers] = useState<RuntimeMcpServer[]>([])
   const [mcpToolsByServer, setMcpToolsByServer] = useState<Record<string, RuntimeMcpTool[]>>({})
+  const [mcpResourcesByServer, setMcpResourcesByServer] = useState<Record<string, RuntimeMcpResource[]>>({})
+  const [mcpPromptsByServer, setMcpPromptsByServer] = useState<Record<string, RuntimeMcpPrompt[]>>({})
   const [capabilities, setCapabilities] = useState<RuntimeCapability[]>([])
   const [input, setInput] = useState('')
   const [config, setConfig] = useState<ModelConfig>(defaultConfig)
@@ -218,8 +224,14 @@ function AppContent() {
   }
 
   const refreshMcpTools = async (server: string) => {
-    const tools = await requestRuntimeMcpTools(server)
+    const [tools, resources, prompts] = await Promise.all([
+      requestRuntimeMcpTools(server),
+      requestRuntimeMcpResources(server),
+      requestRuntimeMcpPrompts(server),
+    ])
     setMcpToolsByServer((current) => ({ ...current, [server]: tools }))
+    setMcpResourcesByServer((current) => ({ ...current, [server]: resources }))
+    setMcpPromptsByServer((current) => ({ ...current, [server]: prompts }))
     return tools
   }
 
@@ -754,6 +766,8 @@ function AppContent() {
         auditEvents={auditEvents}
         events={events}
         mcpServers={mcpServers}
+        mcpResourcesByServer={mcpResourcesByServer}
+        mcpPromptsByServer={mcpPromptsByServer}
         mcpToolsByServer={mcpToolsByServer}
         open={operationsOpen}
         skills={skills}
@@ -1095,6 +1109,8 @@ function OperationsPreview({
   capabilities,
   events,
   mcpServers,
+  mcpResourcesByServer,
+  mcpPromptsByServer,
   mcpToolsByServer,
   open,
   skills,
@@ -1114,6 +1130,8 @@ function OperationsPreview({
   capabilities: RuntimeCapability[]
   events: RuntimeEvent[]
   mcpServers: RuntimeMcpServer[]
+  mcpResourcesByServer: Record<string, RuntimeMcpResource[]>
+  mcpPromptsByServer: Record<string, RuntimeMcpPrompt[]>
   mcpToolsByServer: Record<string, RuntimeMcpTool[]>
   open: boolean
   skills: RuntimeSkill[]
@@ -1181,6 +1199,8 @@ function OperationsPreview({
             children: (
               <RuntimeMcpManager
                 servers={mcpServers}
+                resourcesByServer={mcpResourcesByServer}
+                promptsByServer={mcpPromptsByServer}
                 toolsByServer={mcpToolsByServer}
                 onEdit={onEditMcpServer}
                 onRefresh={onRefreshMcpServer}
@@ -1353,6 +1373,8 @@ export function RuntimeMcpList({ servers }: { servers: RuntimeMcpServer[] }) {
 
 function RuntimeMcpManager({
   servers,
+  resourcesByServer,
+  promptsByServer,
   toolsByServer,
   onEdit,
   onRefresh,
@@ -1361,6 +1383,8 @@ function RuntimeMcpManager({
   onViewTools,
 }: {
   servers: RuntimeMcpServer[]
+  resourcesByServer: Record<string, RuntimeMcpResource[]>
+  promptsByServer: Record<string, RuntimeMcpPrompt[]>
   toolsByServer: Record<string, RuntimeMcpTool[]>
   onEdit: (config: RuntimeMcpServerConfig) => Promise<void>
   onRefresh: (server: string) => Promise<void>
@@ -1425,6 +1449,24 @@ function RuntimeMcpManager({
                 </Button>
               </Space>
               {tool.description ? <Text type="secondary">{tool.description}</Text> : null}
+            </div>
+          ))}
+          {(resourcesByServer[server.name] ?? []).map((resource) => (
+            <div className="runtime-list-row compact" key={`${server.name}-${resource.uri}`}>
+              <Space size={8}>
+                <Tag>resource</Tag>
+                <Text>{resource.name || resource.uri}</Text>
+              </Space>
+              {resource.description ? <Text type="secondary">{resource.description}</Text> : <Text type="secondary">{resource.uri}</Text>}
+            </div>
+          ))}
+          {(promptsByServer[server.name] ?? []).map((prompt) => (
+            <div className="runtime-list-row compact" key={`${server.name}-${prompt.name}`}>
+              <Space size={8}>
+                <Tag>prompt</Tag>
+                <Text>{prompt.name}</Text>
+              </Space>
+              {prompt.description ? <Text type="secondary">{prompt.description}</Text> : null}
             </div>
           ))}
         </div>

@@ -10,6 +10,8 @@ export type {
   RuntimeMessage,
   RuntimeMessagePart,
   RuntimeMcpServerConfig,
+  RuntimeMcpPrompt,
+  RuntimeMcpResource,
   RuntimeMcpTool,
   RuntimeModel,
   RuntimeModelVerifyResponse,

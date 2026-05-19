@@ -5,6 +5,8 @@ import type {
   RuntimeAuditEvent,
   RuntimeEvent,
   RuntimeMcpServerConfig,
+  RuntimeMcpPrompt,
+  RuntimeMcpResource,
   RuntimeMcpTool,
   RuntimeMcpServer,
   RuntimeMessage,
@@ -32,6 +34,8 @@ type WailsRuntimeBridge = {
   EventsEndpoint: () => Promise<{ url: string }>
   GetModelConfig: () => Promise<{ config: RuntimeModelConfig }>
   MCPServers: () => Promise<{ servers: RuntimeMcpServer[] }>
+  MCPResources: (server: string) => Promise<{ resources: RuntimeMcpResource[] }>
+  MCPPrompts: (server: string) => Promise<{ prompts: RuntimeMcpPrompt[] }>
   MCPTools: (server: string) => Promise<{ tools: RuntimeMcpTool[] }>
   Messages: () => Promise<{ messages: RuntimeMessage[] }>
   Models: () => Promise<{ models: RuntimeModel[] }>

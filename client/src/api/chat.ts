@@ -97,6 +97,14 @@ export async function requestRuntimeMcpTools(server: string) {
   return getAgentRuntime().listMcpTools(server)
 }
 
+export async function requestRuntimeMcpResources(server: string) {
+  return getAgentRuntime().listMcpResources(server)
+}
+
+export async function requestRuntimeMcpPrompts(server: string) {
+  return getAgentRuntime().listMcpPrompts(server)
+}
+
 export async function requestRuntimeCapabilities() {
   return getAgentRuntime().listCapabilities()
 }

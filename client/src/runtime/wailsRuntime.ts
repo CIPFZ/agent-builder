@@ -76,6 +76,18 @@ export const wailsRuntime: AgentRuntime = {
     return response.servers
   },
 
+  async listMcpResources(server) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.MCPResources(server)
+    return response.resources
+  },
+
+  async listMcpPrompts(server) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.MCPPrompts(server)
+    return response.prompts
+  },
+
   async listMcpTools(server) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.MCPTools(server)
