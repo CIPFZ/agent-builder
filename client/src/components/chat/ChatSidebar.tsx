@@ -5,87 +5,96 @@ import Space from 'antd/es/space'
 import Tooltip from 'antd/es/tooltip'
 import Typography from 'antd/es/typography'
 import {
-  ArrowDownOutlined,
-  CodeOutlined,
+  ApiOutlined,
+  AppstoreOutlined,
   DeleteOutlined,
   DownOutlined,
   EditOutlined,
-  FolderOutlined,
   MenuOutlined,
   MessageOutlined,
   PlusOutlined,
-  ProjectOutlined,
   SearchOutlined,
   SettingOutlined,
+  ToolOutlined,
 } from '@ant-design/icons'
 import type { RuntimeSession } from '../../runtime'
+import type { RuntimeFeatureView } from '../runtime/RuntimeFeatureWorkspace'
 
 const { Text } = Typography
 
 type ChatSidebarProps = {
+  activeView: RuntimeFeatureView | 'chat'
+  collapsed: boolean
   sessions: RuntimeSession[]
   onDeleteSession: (session: RuntimeSession) => void
-  onOpenOperations: () => void
   onOpenSettings: () => void
+  onOpenView: (view: RuntimeFeatureView) => void
   onRenameSession: (session: RuntimeSession) => void
+  onSearch: () => void
   onSelectSession: (sessionId: string) => void
   onStartNewChat: () => void
+  onToggleCollapsed: () => void
 }
 
 export function ChatSidebar({
+  activeView,
+  collapsed,
   sessions,
   onDeleteSession,
-  onOpenOperations,
   onOpenSettings,
+  onOpenView,
   onRenameSession,
+  onSearch,
   onSelectSession,
   onStartNewChat,
+  onToggleCollapsed,
 }: ChatSidebarProps) {
   return (
-    <aside className="sidebar">
+    <aside className={collapsed ? 'sidebar collapsed' : 'sidebar'}>
       <div className="sidebar-top">
         <Flex justify="space-between" align="center">
-          <Space size={14}>
-            <Button type="text" icon={<MenuOutlined />} />
-            <Button type="text" icon={<SearchOutlined />} />
+          <Space size={10}>
+            <Tooltip title={collapsed ? 'Show sidebar' : 'Hide sidebar'}>
+              <Button type="text" icon={<MenuOutlined />} onClick={onToggleCollapsed} />
+            </Tooltip>
+            {!collapsed ? (
+              <Tooltip title="Search">
+                <Button type="text" icon={<SearchOutlined />} onClick={onSearch} />
+              </Tooltip>
+            ) : null}
           </Space>
-          <Tooltip title="New chat">
-            <Button type="text" icon={<PlusOutlined />} onClick={onStartNewChat} />
-          </Tooltip>
+          {!collapsed ? (
+            <Tooltip title="New chat">
+              <Button type="text" icon={<PlusOutlined />} onClick={onStartNewChat} />
+            </Tooltip>
+          ) : null}
         </Flex>
 
-        <div className="mode-switch">
-          <button className="mode-tab active" type="button">
-            <MessageOutlined />
-            Chat
-          </button>
-          <button className="mode-tab" type="button" onClick={onOpenOperations}>
-            <CodeOutlined />
-            Ops
-          </button>
-        </div>
-
         <nav className="nav-list">
-          <button className="nav-item active" type="button" onClick={onStartNewChat}>
-            <PlusOutlined />
-            New chat
+          <button className={activeView === 'chat' ? 'nav-item active' : 'nav-item'} type="button" onClick={onStartNewChat}>
+            <MessageOutlined />
+            <span>New chat</span>
           </button>
-          <button className="nav-item" type="button">
-            <FolderOutlined />
-            Projects
+          <button className={activeView === 'skills' ? 'nav-item active' : 'nav-item'} type="button" onClick={() => onOpenView('skills')}>
+            <ToolOutlined />
+            <span>Skills</span>
           </button>
-          <button className="nav-item" type="button" onClick={onOpenOperations}>
-            <ProjectOutlined />
-            Operations
+          <button className={activeView === 'plugins' ? 'nav-item active' : 'nav-item'} type="button" onClick={() => onOpenView('plugins')}>
+            <AppstoreOutlined />
+            <span>Plugins</span>
+          </button>
+          <button className={activeView === 'mcp' ? 'nav-item active' : 'nav-item'} type="button" onClick={() => onOpenView('mcp')}>
+            <ApiOutlined />
+            <span>MCP</span>
           </button>
           <button className="nav-item" type="button" onClick={onOpenSettings}>
             <SettingOutlined />
-            Model settings
+            <span>Model settings</span>
           </button>
         </nav>
       </div>
 
-      <div className="recents">
+      {!collapsed ? <div className="recents">
         <Text className="section-label">Recents</Text>
         {sessions.length === 0 ? (
           <Text className="empty-recents" type="secondary">
@@ -123,18 +132,15 @@ export function ChatSidebar({
             </div>
           ))
         )}
-      </div>
+      </div> : null}
 
-      <div className="sidebar-footer">
+      {!collapsed ? <div className="sidebar-footer">
         <Space>
           <span className="avatar-dot">A</span>
           <span>Agent Builder</span>
           <Text type="secondary">Local</Text>
         </Space>
-        <Tooltip title="Runtime logs">
-          <Button type="text" size="small" icon={<ArrowDownOutlined />} onClick={onOpenOperations} />
-        </Tooltip>
-      </div>
+      </div> : null}
     </aside>
   )
 }

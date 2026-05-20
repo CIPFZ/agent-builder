@@ -15,7 +15,8 @@ import {
 import { ChatSidebar } from './components/chat/ChatSidebar'
 import { ChatWorkspace } from './components/chat/ChatWorkspace'
 import { PermissionReviewModal } from './components/permissions/PermissionReviewModal'
-import { OperationsPreview } from './components/runtime/OperationsPreview'
+import { RuntimeAuditDrawer } from './components/runtime/RuntimeAuditDrawer'
+import { RuntimeFeatureWorkspace } from './components/runtime/RuntimeFeatureWorkspace'
 import { ModelSettingsDrawer } from './components/settings/ModelSettingsDrawer'
 import { useAssistantClient } from './hooks/useAssistantClient'
 
@@ -26,38 +27,107 @@ export function AssistantClient() {
   return (
     <div className="desktop-shell">
       <ChatSidebar
+        activeView={client.activeView}
+        collapsed={client.sidebarCollapsed}
         sessions={client.sessions}
         onDeleteSession={client.deleteSession}
-        onOpenOperations={client.openOperations}
         onOpenSettings={() => client.setSettingsOpen(true)}
+        onOpenView={client.openRuntimeView}
         onRenameSession={client.renameSession}
+        onSearch={() => client.composerInputRef.current?.focus()}
         onSelectSession={client.selectSession}
-        onStartNewChat={client.startNewChat}
+        onStartNewChat={() => {
+          client.setActiveView('chat')
+          client.startNewChat()
+        }}
+        onToggleCollapsed={() => client.setSidebarCollapsed((current) => !current)}
       />
 
-      <ChatWorkspace
-        activeChatTitle={client.activeChatTitle}
-        activeSession={client.activeSession}
-        composerInputRef={client.composerInputRef}
-        config={client.config}
-        configLoaded={client.configLoaded}
-        hasMessages={client.hasMessages}
-        input={client.input}
-        isModelConfigured={client.isModelConfigured}
-        isSending={client.isSending}
-        lastError={client.lastError}
-        messages={client.messages}
-        modelItems={client.modelItems}
-        modelSwitching={client.modelSwitching}
-        runtimeStatus={client.runtimeStatus}
-        viewportRef={client.viewportRef}
-        onCancelTurn={client.cancelTurn}
-        onCopyMessage={client.copyMessage}
-        onOpenOperations={client.openOperations}
-        onOpenSettings={() => client.setSettingsOpen(true)}
-        onSendMessage={client.sendMessage}
-        onSetInput={client.setInput}
-      />
+      {client.activeView === 'chat' ? (
+        <ChatWorkspace
+          activeChatTitle={client.activeChatTitle}
+          activeSession={client.activeSession}
+          composerInputRef={client.composerInputRef}
+          config={client.config}
+          configLoaded={client.configLoaded}
+          hasMessages={client.hasMessages}
+          input={client.input}
+          isModelConfigured={client.isModelConfigured}
+          isSending={client.isSending}
+          lastError={client.lastError}
+          messages={client.messages}
+          modelItems={client.modelItems}
+          modelSwitching={client.modelSwitching}
+          runtimeStatus={client.runtimeStatus}
+          viewportRef={client.viewportRef}
+          onCancelTurn={client.cancelTurn}
+          onCopyMessage={client.copyMessage}
+          onOpenAudit={client.openAudit}
+          onOpenSettings={() => client.setSettingsOpen(true)}
+          onSendMessage={client.sendMessage}
+          onSetInput={client.setInput}
+        />
+      ) : (
+        <RuntimeFeatureWorkspace
+          capabilities={client.capabilities}
+          mcpServers={client.mcpServers}
+          mcpResourcesByServer={client.mcpResourcesByServer}
+          mcpPromptsByServer={client.mcpPromptsByServer}
+          mcpToolsByServer={client.mcpToolsByServer}
+          skills={client.skills}
+          view={client.activeView}
+          onEditMcpServer={async (config) => {
+            const nextServers = await saveRuntimeMcpServer(config)
+            client.setMcpServers(nextServers)
+            await client.refreshRuntimeInventory()
+            message.success('MCP server saved')
+          }}
+          onRefreshMcpServer={async (server) => {
+            const nextServers = await refreshRuntimeMcpServer(server)
+            client.setMcpServers(nextServers)
+            await client.refreshMcpTools(server).catch(() => undefined)
+            await client.refreshRuntimeInventory()
+            message.success('MCP server refreshed')
+          }}
+          onRefreshSkills={async () => {
+            const nextSkills = await refreshRuntimeSkills()
+            client.setSkills(nextSkills)
+            await client.refreshRuntimeInventory()
+            message.success('Skills refreshed')
+          }}
+          onCreateSkill={async (request) => {
+            const nextSkills = await createRuntimeSkill(request)
+            client.setSkills(nextSkills)
+            await client.refreshRuntimeInventory()
+            message.success('Skill created')
+          }}
+          onAddSkillPath={async (path) => {
+            const nextSkills = await addRuntimeSkillPath(path)
+            client.setSkills(nextSkills)
+            await client.refreshRuntimeInventory()
+            message.success('Skill path added')
+          }}
+          onToggleMcpServer={async (server, enabled) => {
+            const nextServers = await setRuntimeMcpServerEnabled(server, enabled)
+            client.setMcpServers(nextServers)
+            await client.refreshRuntimeInventory()
+            message.success(enabled ? 'MCP server enabled' : 'MCP server disabled')
+          }}
+          onToggleMcpTool={async (server, tool, enabled) => {
+            const nextTools = await setRuntimeMcpToolEnabled(server, tool, enabled)
+            client.setMcpToolsByServer((current) => ({ ...current, [server]: nextTools }))
+            await client.refreshRuntimeInventory()
+            message.success(enabled ? 'MCP tool allowed' : 'MCP tool denied')
+          }}
+          onToggleSkill={async (name, enabled) => {
+            const nextSkills = await setRuntimeSkillEnabled(name, enabled)
+            client.setSkills(nextSkills)
+            await client.refreshRuntimeInventory()
+            message.success(enabled ? 'Skill enabled' : 'Skill disabled')
+          }}
+          onViewMcpTools={(server) => client.refreshMcpTools(server)}
+        />
+      )}
 
       <ModelSettingsDrawer
         config={client.config}
@@ -128,68 +198,11 @@ export function AssistantClient() {
         }}
       />
       <PermissionReviewModal permissions={client.permissions} onDecide={client.decidePermission} />
-      <OperationsPreview
-        capabilities={client.capabilities}
-        auditEvents={client.auditEvents}
-        events={client.events}
-        mcpServers={client.mcpServers}
-        mcpResourcesByServer={client.mcpResourcesByServer}
-        mcpPromptsByServer={client.mcpPromptsByServer}
-        mcpToolsByServer={client.mcpToolsByServer}
-        open={client.operationsOpen}
-        skills={client.skills}
-        onEditMcpServer={async (config) => {
-          const nextServers = await saveRuntimeMcpServer(config)
-          client.setMcpServers(nextServers)
-          await client.refreshRuntimeInventory()
-          message.success('MCP server saved')
-        }}
-        onRefreshAudit={() => client.refreshAudit()}
-        onRefreshMcpServer={async (server) => {
-          const nextServers = await refreshRuntimeMcpServer(server)
-          client.setMcpServers(nextServers)
-          await client.refreshMcpTools(server).catch(() => undefined)
-          await client.refreshRuntimeInventory()
-          message.success('MCP server refreshed')
-        }}
-        onRefreshSkills={async () => {
-          const nextSkills = await refreshRuntimeSkills()
-          client.setSkills(nextSkills)
-          await client.refreshRuntimeInventory()
-          message.success('Skills refreshed')
-        }}
-        onCreateSkill={async (request) => {
-          const nextSkills = await createRuntimeSkill(request)
-          client.setSkills(nextSkills)
-          await client.refreshRuntimeInventory()
-          message.success('Skill created')
-        }}
-        onAddSkillPath={async (path) => {
-          const nextSkills = await addRuntimeSkillPath(path)
-          client.setSkills(nextSkills)
-          await client.refreshRuntimeInventory()
-          message.success('Skill path added')
-        }}
-        onToggleMcpServer={async (server, enabled) => {
-          const nextServers = await setRuntimeMcpServerEnabled(server, enabled)
-          client.setMcpServers(nextServers)
-          await client.refreshRuntimeInventory()
-          message.success(enabled ? 'MCP server enabled' : 'MCP server disabled')
-        }}
-        onToggleMcpTool={async (server, tool, enabled) => {
-          const nextTools = await setRuntimeMcpToolEnabled(server, tool, enabled)
-          client.setMcpToolsByServer((current) => ({ ...current, [server]: nextTools }))
-          await client.refreshRuntimeInventory()
-          message.success(enabled ? 'MCP tool allowed' : 'MCP tool denied')
-        }}
-        onToggleSkill={async (name, enabled) => {
-          const nextSkills = await setRuntimeSkillEnabled(name, enabled)
-          client.setSkills(nextSkills)
-          await client.refreshRuntimeInventory()
-          message.success(enabled ? 'Skill enabled' : 'Skill disabled')
-        }}
-        onViewMcpTools={(server) => client.refreshMcpTools(server)}
-        onClose={() => client.setOperationsOpen(false)}
+      <RuntimeAuditDrawer
+        events={client.auditEvents}
+        open={client.auditOpen}
+        onClose={() => client.setAuditOpen(false)}
+        onRefresh={() => client.refreshAudit()}
       />
     </div>
   )

@@ -19,7 +19,7 @@ button {
 
 .desktop-shell {
   display: grid;
-  grid-template-columns: 336px minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
   background: #fbfaf7;
@@ -38,22 +38,17 @@ button {
   box-shadow: 0 16px 42px rgba(50, 43, 35, 0.08);
 }
 
+.sidebar.collapsed {
+  width: 64px;
+  padding: 16px 8px;
+}
+
 .sidebar-top {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
 }
 
-.mode-switch {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 4px;
-  background: #f2f0ed;
-  border-radius: 8px;
-}
-
-.mode-tab,
 .nav-item,
 .starter-chip {
   display: inline-flex;
@@ -67,28 +62,27 @@ button {
   cursor: pointer;
 }
 
-.mode-tab {
-  justify-content: center;
-  font-weight: 600;
-}
-
-.mode-tab.active {
-  color: #2f2d2a;
-  background: #ffffff;
-  box-shadow: 0 1px 4px rgba(50, 43, 35, 0.12);
-}
-
 .nav-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
 }
 
 .nav-item {
   justify-content: flex-start;
   width: 100%;
-  padding: 0 10px;
+  min-height: 40px;
+  padding: 0 12px;
   text-align: left;
+}
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar.collapsed .nav-item span {
+  display: none;
 }
 
 .nav-item:hover,
@@ -218,6 +212,42 @@ button {
   min-width: 0;
   flex-direction: column;
   height: 100vh;
+}
+
+.feature-main {
+  min-width: 0;
+  height: 100vh;
+  overflow: auto;
+  padding: 40px 48px;
+}
+
+.feature-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 980px;
+  margin: 0 auto 24px;
+}
+
+.feature-header .ant-typography {
+  margin: 0;
+}
+
+.feature-title-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: #5b5751;
+  background: #f0ede8;
+  border: 1px solid #e1dcd5;
+  border-radius: 8px;
+  font-size: 20px;
+}
+
+.feature-content {
+  max-width: 980px;
+  margin: 0 auto;
 }
 
 .chat-header {
@@ -515,18 +545,19 @@ button {
 .runtime-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .runtime-list-row {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  background: #f8f7f4;
+  gap: 6px;
+  padding: 12px;
+  background: #ffffff;
   border: 1px solid #ebe6df;
   border-radius: 7px;
+  box-shadow: 0 1px 2px rgba(50, 43, 35, 0.04);
 }
 
 .runtime-list-row.compact {
@@ -562,6 +593,43 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.audit-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.audit-card {
+  padding: 12px;
+  background: #fffdfa;
+  border: 1px solid #ebe6df;
+  border-radius: 8px;
+}
+
+.audit-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.audit-payload {
+  max-height: 280px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: #3c3934;
+  background: #f8f7f4;
+  border: 1px solid #eee8df;
+  border-radius: 7px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .message-actions {

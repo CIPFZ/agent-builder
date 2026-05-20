@@ -32,6 +32,7 @@ import {
 } from '../api/chat'
 import type { ModelConfig } from '../api/chat'
 import { isDefaultSessionTitle } from '../components/chat/chatUtils'
+import type { RuntimeFeatureView } from '../components/runtime/RuntimeFeatureWorkspace'
 import { useRuntimeEventSubscription } from './useRuntimeEventSubscription'
 import type {
   RuntimeAuditEvent,
@@ -82,7 +83,9 @@ export function useAssistantClient() {
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsVerifying, setSettingsVerifying] = useState(false)
   const [modelSwitching, setModelSwitching] = useState(false)
-  const [operationsOpen, setOperationsOpen] = useState(false)
+  const [auditOpen, setAuditOpen] = useState(false)
+  const [activeView, setActiveView] = useState<RuntimeFeatureView | 'chat'>('chat')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [configLoaded, setConfigLoaded] = useState(false)
   const [lastError, setLastError] = useState('')
@@ -177,9 +180,13 @@ export function useAssistantClient() {
     setAuditEvents(nextAudit)
   }
 
-  const openOperations = () => {
-    setOperationsOpen(true)
+  const openAudit = () => {
+    setAuditOpen(true)
     refreshAudit().catch(() => undefined)
+  }
+
+  const openRuntimeView = (view: RuntimeFeatureView) => {
+    setActiveView(view)
     refreshRuntimeInventory().catch(() => undefined)
   }
 
@@ -542,7 +549,9 @@ export function useAssistantClient() {
 
 	return {
 		activeChatTitle,
+    activeView,
 		activeSession,
+    auditOpen,
 		auditEvents,
 		capabilities,
     cancelTurn,
@@ -564,8 +573,8 @@ export function useAssistantClient() {
 		modelSwitching,
 		events,
 		messages,
-		openOperations,
-    operationsOpen,
+    openAudit,
+    openRuntimeView,
     permissions,
     refreshAudit,
     refreshMcpTools,
@@ -581,7 +590,8 @@ export function useAssistantClient() {
 		setMcpServers,
 		setMcpToolsByServer,
 		setModels,
-    setOperationsOpen,
+    setActiveView,
+    setAuditOpen,
     setSettingsDiscovering,
     setSettingsOpen,
     setSettingsSaving,
@@ -591,6 +601,8 @@ export function useAssistantClient() {
     settingsOpen,
     settingsSaving,
     settingsVerifying,
+    setSidebarCollapsed,
+    sidebarCollapsed,
     skills,
     startNewChat,
     viewportRef,

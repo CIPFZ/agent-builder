@@ -48,7 +48,7 @@ type ChatWorkspaceProps = {
   viewportRef: RefObject<HTMLDivElement | null>
   onCancelTurn: () => void
   onCopyMessage: (content: string) => void
-  onOpenOperations: () => void
+  onOpenAudit: () => void
   onOpenSettings: () => void
   onSendMessage: (text?: string) => void
   onSetInput: (value: string) => void
@@ -72,7 +72,7 @@ export function ChatWorkspace({
   viewportRef,
   onCancelTurn,
   onCopyMessage,
-  onOpenOperations,
+  onOpenAudit,
   onOpenSettings,
   onSendMessage,
   onSetInput,
@@ -91,8 +91,8 @@ export function ChatWorkspace({
               <Button type="text" danger icon={<StopOutlined />} onClick={onCancelTurn} />
             </Tooltip>
           ) : null}
-          <Tooltip title="Runtime details / audit">
-            <Button type="text" icon={<AuditOutlined />} onClick={onOpenOperations} />
+          <Tooltip title="Audit">
+            <Button type="text" icon={<AuditOutlined />} onClick={onOpenAudit} />
           </Tooltip>
           <Tooltip title="Model settings">
             <Button type="text" icon={<SettingOutlined />} onClick={onOpenSettings} />
