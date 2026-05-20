@@ -119,6 +119,9 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	if err := applyDesktopSkillConfigToStore(store, layout); err != nil {
 		return err
 	}
+	if err := applyDesktopMCPConfigToStore(store, layout); err != nil {
+		return err
+	}
 	store.Config().SetupAgents()
 	applyDesktopProxy(localResult)
 
@@ -152,6 +155,9 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 		return errModelConfigMissing
 	}
 	if err := applyDesktopSkillConfigToStore(wsRuntime.Cfg, layout); err != nil {
+		return err
+	}
+	if err := applyDesktopMCPConfigToStore(wsRuntime.Cfg, layout); err != nil {
 		return err
 	}
 	wsRuntime.Cfg.SetupAgents()

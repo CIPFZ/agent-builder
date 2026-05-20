@@ -34,7 +34,9 @@ func (r *runtimeService) SaveMCPServer(ctx context.Context, req RuntimeMCPServer
 		cfg.Config().MCP = config.MCPs{}
 	}
 	cfg.Config().MCP[name] = next
-	if err := cfg.SetConfigField(config.ScopeGlobal, "mcp."+name, next); err != nil {
+	if err := r.saveDesktopMCPServers(func(servers config.MCPs) {
+		servers[name] = next
+	}); err != nil {
 		return RuntimeMCPServersResponse{}, fmt.Errorf("failed to persist mcp server: %w", err)
 	}
 	r.publishRuntimeEvent(runtimeapi.Event{
@@ -75,7 +77,9 @@ func (r *runtimeService) SetMCPServerEnabled(ctx context.Context, req RuntimeMCP
 	}
 	next.Disabled = !req.Enabled
 	cfg.Config().MCP[name] = next
-	if err := cfg.SetConfigField(config.ScopeGlobal, "mcp."+name, next); err != nil {
+	if err := r.saveDesktopMCPServers(func(servers config.MCPs) {
+		servers[name] = next
+	}); err != nil {
 		return RuntimeMCPServersResponse{}, fmt.Errorf("failed to persist mcp server state: %w", err)
 	}
 	eventType := runtimeapi.EventMCPServerDisabled
@@ -154,7 +158,9 @@ func (r *runtimeService) SetMCPToolEnabled(ctx context.Context, req RuntimeMCPTo
 		next.DisabledTools = slices.Compact(next.DisabledTools)
 	}
 	cfg.Config().MCP[server] = next
-	if err := cfg.SetConfigField(config.ScopeGlobal, "mcp."+server, next); err != nil {
+	if err := r.saveDesktopMCPServers(func(servers config.MCPs) {
+		servers[server] = next
+	}); err != nil {
 		return RuntimeMCPToolsResponse{}, fmt.Errorf("failed to persist mcp tool state: %w", err)
 	}
 	r.publishRuntimeEvent(runtimeapi.Event{
@@ -190,6 +196,22 @@ func (r *runtimeService) MCPPrompts(ctx context.Context, name string) (RuntimeMC
 		return RuntimeMCPPromptsResponse{}, err
 	}
 	return runtimeMCPPrompts(strings.TrimSpace(name)), nil
+}
+
+func (r *runtimeService) saveDesktopMCPServers(update func(config.MCPs)) error {
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return err
+	}
+	desktopCfg, err := loadDesktopMCPConfig(layout)
+	if err != nil {
+		return err
+	}
+	if desktopCfg.Servers == nil {
+		desktopCfg.Servers = config.MCPs{}
+	}
+	update(desktopCfg.Servers)
+	return saveDesktopMCPConfig(layout, desktopCfg)
 }
 
 func runtimeMCPServersFromConfig(store *config.ConfigStore) RuntimeMCPServersResponse {

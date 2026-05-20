@@ -36,6 +36,7 @@ func resolveDesktopLayout() (desktopLayout, error) {
 	}
 	layout.ModelConfigPath = filepath.Join(layout.ConfigDir, "model.json")
 	layout.SkillConfigPath = filepath.Join(layout.ConfigDir, "skills.json")
+	layout.MCPConfigPath = filepath.Join(layout.ConfigDir, "mcp.json")
 	return layout, nil
 }
 

@@ -402,6 +402,51 @@ func TestRuntimeMCPConfigFromRequestValidatesNameAndRequiredFields(t *testing.T)
 	}
 }
 
+func TestDesktopMCPConfigIsSeparateFromCrushConfig(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	layout := desktopLayout{
+		Root:            root,
+		ConfigDir:       filepath.Join(root, "config"),
+		DataDir:         filepath.Join(root, "data"),
+		LogsDir:         filepath.Join(root, "logs"),
+		ModelConfigPath: filepath.Join(root, "config", "model.json"),
+		SkillConfigPath: filepath.Join(root, "config", "skills.json"),
+		MCPConfigPath:   filepath.Join(root, "config", "mcp.json"),
+	}
+	store := config.NewTestStore(&config.Config{
+		MCP: config.MCPs{
+			"project": {Type: config.MCPHttp, URL: "https://project.example.com/mcp"},
+		},
+		Options: &config.Options{},
+	})
+	if err := saveDesktopMCPConfig(layout, desktopMCPConfig{
+		Servers: config.MCPs{
+			"desktop": {Type: config.MCPStdio, Command: "npx", Args: []string{"server", "server"}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := applyDesktopMCPConfigToStore(store, layout); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.Config().MCP["project"]; !ok {
+		t.Fatalf("project mcp server removed: %#v", store.Config().MCP)
+	}
+	desktop, ok := store.Config().MCP["desktop"]
+	if !ok {
+		t.Fatalf("desktop mcp server missing: %#v", store.Config().MCP)
+	}
+	if desktop.Command != "npx" || !slices.Equal(desktop.Args, []string{"server"}) {
+		t.Fatalf("desktop mcp server was not normalized: %#v", desktop)
+	}
+	if _, err := os.Stat(layout.MCPConfigPath); err != nil {
+		t.Fatalf("desktop mcp config was not written: %v", err)
+	}
+}
+
 func TestRuntimeSkillNameValidation(t *testing.T) {
 	t.Parallel()
 

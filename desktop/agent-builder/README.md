@@ -37,6 +37,14 @@ Model settings are saved by the Go runtime bridge to
 `bin/config/model.json`. See
 `../../docs/phase-1-acceptance-test.md` for the local validation flow.
 
+Desktop-managed runtime settings live next to the executable:
+
+```text
+bin/config/model.json
+bin/config/skills.json
+bin/config/mcp.json
+```
+
 ## Frontend Sync
 
 The Wails build runs `npm run build` in `../../client` through
