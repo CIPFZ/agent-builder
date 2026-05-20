@@ -441,6 +441,8 @@ func TestDiscoverBuiltin(t *testing.T) {
 			require.Equal(t, "crush://skills/skill-creator", s.Path)
 			require.NotEmpty(t, s.Description)
 			require.NotEmpty(t, s.Instructions)
+			require.Contains(t, s.Instructions, "Evaluation Checklist")
+			require.Contains(t, s.Instructions, "Crush Skill Structure")
 			require.True(t, s.Builtin)
 		}
 	}

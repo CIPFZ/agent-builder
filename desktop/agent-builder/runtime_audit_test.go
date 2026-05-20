@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/charmbracelet/crush/internal/db"
@@ -49,5 +50,55 @@ func TestRuntimeAuditStoreAppendAndListTurn(t *testing.T) {
 	}
 	if len(resp.Events) != 1 {
 		t.Fatalf("session events = %#v", resp.Events)
+	}
+}
+
+func TestAuditPayloadIncludesRuntimeCapabilitySnapshot(t *testing.T) {
+	t.Parallel()
+
+	payload, err := auditPayload(auditEntry{
+		RequestID: "turn-1",
+		Event:     "started",
+		Skills: []RuntimeSkill{
+			{Name: "skill-creator", Builtin: true, Enabled: true, State: "normal"},
+		},
+		MCPServers: []RuntimeMCPServer{
+			{Name: "docs", Type: "http", URL: "[REDACTED_URL]", State: "connected"},
+		},
+		MCPTools: []RuntimeMCPTool{
+			{Server: "docs", Name: "search", Enabled: true},
+		},
+		ToolCalls: []auditToolCall{
+			{ID: "tool-1", Name: "bash", Input: "pwd", Output: "C:/work"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Skills     []RuntimeSkill     `json:"skills"`
+		MCPServers []RuntimeMCPServer `json:"mcp_servers"`
+		MCPTools   []RuntimeMCPTool   `json:"mcp_tools"`
+		ToolCalls  []auditToolCall    `json:"tool_calls"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Skills) != 1 || decoded.Skills[0].Name != "skill-creator" {
+		t.Fatalf("skills missing from payload: %#v", decoded.Skills)
+	}
+	if len(decoded.MCPServers) != 1 || decoded.MCPServers[0].URL != "[REDACTED_URL]" {
+		t.Fatalf("mcp servers missing/redaction changed: %#v", decoded.MCPServers)
+	}
+	if len(decoded.MCPTools) != 1 || decoded.MCPTools[0].Name != "search" {
+		t.Fatalf("mcp tools missing from payload: %#v", decoded.MCPTools)
+	}
+	if len(decoded.ToolCalls) != 1 || decoded.ToolCalls[0].Output != "C:/work" {
+		t.Fatalf("tool calls missing from payload: %#v", decoded.ToolCalls)
 	}
 }

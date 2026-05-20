@@ -5,12 +5,9 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,7 +16,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/catwalk/pkg/catwalk"
 	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
@@ -441,32 +437,6 @@ type runtimeEventStats struct {
 }
 
 const runtimeEventLimit = 200
-
-type auditEntry struct {
-	RequestID             string        `json:"request_id"`
-	Event                 string        `json:"event"`
-	Timestamp             string        `json:"timestamp"`
-	WorkspaceID           string        `json:"workspace_id,omitempty"`
-	SessionID             string        `json:"session_id,omitempty"`
-	Provider              string        `json:"provider,omitempty"`
-	Model                 string        `json:"model,omitempty"`
-	PromptLength          int           `json:"prompt_length,omitempty"`
-	PromptPreview         string        `json:"prompt_preview,omitempty"`
-	ResponseLength        int           `json:"response_length,omitempty"`
-	ResponsePreview       string        `json:"response_preview,omitempty"`
-	DurationMS            int64         `json:"duration_ms,omitempty"`
-	FinishReason          string        `json:"finish_reason,omitempty"`
-	UsageBefore           *RuntimeUsage `json:"usage_before,omitempty"`
-	UsageAfter            *RuntimeUsage `json:"usage_after,omitempty"`
-	UsageDelta            *RuntimeUsage `json:"usage_delta,omitempty"`
-	Error                 string        `json:"error,omitempty"`
-	LatestAssistantID     string        `json:"latest_assistant_id,omitempty"`
-	LatestAssistantFinish bool          `json:"latest_assistant_finished,omitempty"`
-	PermissionTool        string        `json:"permission_tool,omitempty"`
-	PermissionAction      string        `json:"permission_action,omitempty"`
-	PermissionPath        string        `json:"permission_path,omitempty"`
-	PermissionPolicy      string        `json:"permission_policy,omitempty"`
-}
 
 const localProviderID = "local-model"
 const auditPreviewLimit = 600
@@ -902,6 +872,7 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 	if err != nil {
 		return RuntimeChatResponse{}, err
 	}
+	skills, mcpServers, mcpTools := r.runtimeAuditInventory(ctx)
 
 	slog.Info("Desktop chat queued", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "prompt_len", len(prompt))
 	r.writeAudit(auditEntry{
@@ -915,6 +886,9 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		PromptLength:  len(prompt),
 		PromptPreview: preview(prompt, auditPreviewLimit),
 		UsageBefore:   &usageBefore,
+		Skills:        skills,
+		MCPServers:    mcpServers,
+		MCPTools:      mcpTools,
 	})
 
 	go r.runChat(runCtx, requestID, wsID, sessionID, prompt, start, usageBefore, status.Provider, status.Model)
@@ -1747,6 +1721,11 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 		entry.ResponseLength = len(runtimeMsg.Content)
 		entry.ResponsePreview = preview(runtimeMsg.Content, auditPreviewLimit)
 	}
+	if toolCalls, toolErr := r.auditToolCalls(context.Background(), wsID, sessionID); toolErr != nil {
+		slog.Warn("Desktop chat tool audit unavailable", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "error", toolErr)
+	} else {
+		entry.ToolCalls = toolCalls
+	}
 	if err != nil {
 		entry.Event = "failed"
 		entry.Error = err.Error()
@@ -2045,6 +2024,60 @@ func (r *runtimeService) latestFinishedAssistantMessage(ctx context.Context, wor
 		}
 	}
 	return proto.Message{}, errors.New("finished assistant response is not available")
+}
+
+func (r *runtimeService) runtimeAuditInventory(ctx context.Context) ([]RuntimeSkill, []RuntimeMCPServer, []RuntimeMCPTool) {
+	cfg, _, err := r.workspaceConfig(ctx)
+	if err != nil {
+		slog.Debug("Runtime audit inventory unavailable", "error", err)
+		return nil, nil, nil
+	}
+	return runtimeSkillsFromConfig(cfg).Skills,
+		runtimeMCPServersFromConfig(cfg).Servers,
+		runtimeMCPToolsFromConfig(cfg, "").Tools
+}
+
+func (r *runtimeService) auditToolCalls(ctx context.Context, workspaceID, sessionID string) ([]auditToolCall, error) {
+	msgs, err := r.runtime.ListSessionMessages(ctx, workspaceID, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read session messages: %w", err)
+	}
+	byID := make(map[string]*auditToolCall)
+	var calls []auditToolCall
+	for _, msg := range msgs {
+		for _, part := range toProtoMessage(msg).Parts {
+			switch p := part.(type) {
+			case proto.ToolCall:
+				call := auditToolCall{
+					ID:    p.ID,
+					Name:  p.Name,
+					Input: preview(p.Input, runtimePartPreviewLimit),
+				}
+				calls = append(calls, call)
+				if p.ID != "" {
+					byID[p.ID] = &calls[len(calls)-1]
+				}
+			case proto.ToolResult:
+				if p.ToolCallID != "" {
+					if call := byID[p.ToolCallID]; call != nil {
+						if call.Name == "" {
+							call.Name = p.Name
+						}
+						call.Output = preview(firstNonEmpty(p.Content, p.Data), runtimePartPreviewLimit)
+						call.IsError = p.IsError
+						continue
+					}
+				}
+				calls = append(calls, auditToolCall{
+					ID:      p.ToolCallID,
+					Name:    p.Name,
+					Output:  preview(firstNonEmpty(p.Content, p.Data), runtimePartPreviewLimit),
+					IsError: p.IsError,
+				})
+			}
+		}
+	}
+	return calls, nil
 }
 
 func toProtoMessage(msg message.Message) proto.Message {
@@ -2866,87 +2899,6 @@ func toProtoPermissionRequest(perm permission.PermissionRequest) proto.Permissio
 	}
 }
 
-func (r *runtimeService) writeAudit(entry auditEntry) {
-	r.writeRuntimeAuditEvent(context.Background(), entry)
-
-	layout, err := resolveDesktopLayout()
-	if err != nil {
-		slog.Error("Failed to resolve desktop audit path", "error", err)
-		return
-	}
-	if err := ensureDesktopLayout(layout); err != nil {
-		slog.Error("Failed to create desktop audit directory", "error", err)
-		return
-	}
-	if entry.Timestamp == "" {
-		entry.Timestamp = time.Now().Format(time.RFC3339Nano)
-	}
-	path := filepath.Join(layout.LogsDir, "agent-builder-audit.jsonl")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		slog.Error("Failed to open desktop audit log", "path", path, "error", err)
-		return
-	}
-	defer file.Close() //nolint:errcheck
-
-	data, err := json.Marshal(entry)
-	if err != nil {
-		slog.Error("Failed to encode desktop audit entry", "error", err)
-		return
-	}
-	if _, err := file.Write(append(data, '\n')); err != nil {
-		slog.Error("Failed to write desktop audit entry", "path", path, "error", err)
-	}
-}
-
-func (r *runtimeService) writeRuntimeAuditEvent(ctx context.Context, entry auditEntry) {
-	db, err := r.workspaceDB(ctx)
-	if err != nil {
-		slog.Debug("Runtime audit database unavailable", "error", err)
-		return
-	}
-	payload, err := auditPayload(entry)
-	if err != nil {
-		slog.Error("Failed to prepare runtime audit payload", "error", err)
-		return
-	}
-	event := RuntimeAuditEvent{
-		ID:        newRuntimeEventID(),
-		SessionID: entry.SessionID,
-		TurnID:    firstNonEmpty(entry.RequestID, entry.SessionID),
-		Type:      entry.Event,
-		CreatedAt: firstNonEmpty(entry.Timestamp, time.Now().UTC().Format(time.RFC3339Nano)),
-		Payload:   payload,
-	}
-	if err := newRuntimeAuditStore(db).Append(ctx, event); err != nil {
-		slog.Error("Failed to write runtime audit event", "error", err)
-		return
-	}
-	r.publishRuntimeEvent(runtimeapi.Event{
-		ID:        newRuntimeEventID(),
-		Type:      runtimeapi.EventAuditRecorded,
-		CreatedAt: event.CreatedAt,
-		SessionID: event.SessionID,
-		TurnID:    event.TurnID,
-		Payload: map[string]any{
-			"audit_id": event.ID,
-			"type":     event.Type,
-		},
-	})
-}
-
-func auditPayload(entry auditEntry) (map[string]any, error) {
-	data, err := json.Marshal(entry)
-	if err != nil {
-		return nil, err
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil, err
-	}
-	return payload, nil
-}
-
 func preview(value string, limit int) string {
 	value = strings.TrimSpace(value)
 	if len(value) <= limit {
@@ -2977,311 +2929,4 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func resolveDesktopLayout() (desktopLayout, error) {
-	root := strings.TrimSpace(os.Getenv("AGENT_BUILDER_DESKTOP_ROOT"))
-	if root == "" {
-		exe, err := os.Executable()
-		if err != nil {
-			return desktopLayout{}, fmt.Errorf("failed to resolve executable path: %w", err)
-		}
-		root = filepath.Dir(exe)
-	}
-	root = filepath.Clean(root)
-	layout := desktopLayout{
-		Root:      root,
-		ConfigDir: filepath.Join(root, "config"),
-		DataDir:   filepath.Join(root, "data"),
-		LogsDir:   filepath.Join(root, "logs"),
-	}
-	layout.ModelConfigPath = filepath.Join(layout.ConfigDir, "model.local.json")
-	return layout, nil
-}
-
-func ensureDesktopLayout(layout desktopLayout) error {
-	for _, dir := range []string{layout.ConfigDir, layout.DataDir, layout.LogsDir} {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return fmt.Errorf("failed to create desktop directory %s: %w", dir, err)
-		}
-	}
-	return nil
-}
-
-func loadLocalModelConfig(layout desktopLayout) (RuntimeModelConfig, localModelConfigResult) {
-	result := localModelConfigResult{}
-	for _, path := range localModelConfigPaths(layout) {
-		result.CheckedPaths = append(result.CheckedPaths, path)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		var local RuntimeModelConfig
-		if err := json.Unmarshal(data, &local); err != nil {
-			result.Error = fmt.Errorf("failed to parse local model config %s: %w", path, err)
-			return RuntimeModelConfig{}, result
-		}
-		if local.Model == "" && len(local.Models) > 0 {
-			local.Model = local.Models[0]
-		}
-		if local.Model != "" && len(local.Models) == 0 {
-			local.Models = []string{local.Model}
-		}
-		if err := validateModelConfig(local, false); err != nil {
-			result.Error = fmt.Errorf("invalid local model config %s: %w", path, err)
-			return RuntimeModelConfig{}, result
-		}
-
-		if path != layout.ModelConfigPath {
-			_ = saveLocalModelConfig(layout, local)
-		}
-
-		result.Applied = true
-		result.Path = path
-		result.Config = local
-		return local, result
-	}
-	return RuntimeModelConfig{}, result
-}
-
-func applyLocalModelConfig(store *config.ConfigStore, layout desktopLayout) localModelConfigResult {
-	local, result := loadLocalModelConfig(layout)
-	if result.Error != nil || !result.Applied {
-		return result
-	}
-	applyModelConfig(store, local)
-	return result
-}
-
-func applyDesktopProxy(result localModelConfigResult) {
-	if !result.Applied {
-		return
-	}
-
-	proxy := strings.TrimSpace(result.Config.Proxy)
-	if proxy == "" {
-		_ = os.Unsetenv("HTTP_PROXY")
-		_ = os.Unsetenv("HTTPS_PROXY")
-		_ = os.Unsetenv("http_proxy")
-		_ = os.Unsetenv("https_proxy")
-		return
-	}
-
-	_ = os.Setenv("HTTP_PROXY", proxy)
-	_ = os.Setenv("HTTPS_PROXY", proxy)
-	_ = os.Setenv("http_proxy", proxy)
-	_ = os.Setenv("https_proxy", proxy)
-}
-
-func validateModelConfig(local RuntimeModelConfig, requireModel bool) error {
-	if local.Protocol != "openai" && local.Protocol != "anthropic" {
-		return errors.New("protocol must be openai or anthropic")
-	}
-	if local.APIKey == "" || local.URL == "" || (requireModel && local.Model == "") {
-		if requireModel {
-			return errors.New("url, apiKey, and model are required")
-		}
-		return errors.New("url and apiKey are required")
-	}
-	return nil
-}
-
-func saveLocalModelConfig(layout desktopLayout, local RuntimeModelConfig) error {
-	if err := ensureDesktopLayout(layout); err != nil {
-		return err
-	}
-	local.ConfigPath = ""
-	local.HasAPIKey = false
-	if local.Model != "" && len(local.Models) == 0 {
-		local.Models = []string{local.Model}
-	}
-	data, err := json.MarshalIndent(local, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to encode local model config: %w", err)
-	}
-	data = append(data, '\n')
-	if err := os.WriteFile(layout.ModelConfigPath, data, 0o600); err != nil {
-		return fmt.Errorf("failed to write local model config: %w", err)
-	}
-	return nil
-}
-
-func discoverModelIDs(ctx context.Context, local RuntimeModelConfig) ([]string, error) {
-	if strings.TrimSpace(local.Protocol) == "" || strings.TrimSpace(local.URL) == "" || strings.TrimSpace(local.APIKey) == "" {
-		return nil, errors.New("protocol, url, and apiKey are required to fetch models")
-	}
-
-	endpoint, headers, err := modelDiscoveryRequest(local)
-	if err != nil {
-		return nil, err
-	}
-	requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create models request: %w", err)
-	}
-	for key, value := range headers {
-		req.Header.Set(key, value)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch models: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch models: %s", resp.Status)
-	}
-
-	var payload struct {
-		Data []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"display_name"`
-		} `json:"data"`
-		Models []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"models"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("failed to decode models response: %w", err)
-	}
-
-	models := make([]string, 0, len(payload.Data)+len(payload.Models))
-	for _, model := range payload.Data {
-		models = append(models, firstNonEmpty(strings.TrimSpace(model.ID), strings.TrimSpace(model.DisplayName)))
-	}
-	for _, model := range payload.Models {
-		models = append(models, firstNonEmpty(strings.TrimSpace(model.ID), strings.TrimSpace(model.Name)))
-	}
-	models = compactModelIDs(models)
-	if len(models) == 0 {
-		return nil, errors.New("models response did not include any model ids")
-	}
-	return models, nil
-}
-
-func modelDiscoveryRequest(local RuntimeModelConfig) (string, map[string]string, error) {
-	baseURL := normalizeModelBaseURL(local.Protocol, local.URL)
-	if _, err := url.ParseRequestURI(baseURL); err != nil {
-		return "", nil, fmt.Errorf("invalid model base url: %w", err)
-	}
-	headers := map[string]string{}
-	switch local.Protocol {
-	case "openai":
-		headers["Authorization"] = "Bearer " + local.APIKey
-		return strings.TrimRight(baseURL, "/") + "/models", headers, nil
-	case "anthropic":
-		headers["x-api-key"] = local.APIKey
-		headers["anthropic-version"] = "2023-06-01"
-		return strings.TrimRight(baseURL, "/") + "/models", headers, nil
-	default:
-		return "", nil, errors.New("protocol must be openai or anthropic")
-	}
-}
-
-func mergeModelIDs(groups ...[]string) []string {
-	models := make([]string, 0)
-	for _, group := range groups {
-		models = append(models, group...)
-	}
-	return compactModelIDs(models)
-}
-
-func compactModelIDs(models []string) []string {
-	seen := map[string]bool{}
-	compact := make([]string, 0, len(models))
-	for _, model := range models {
-		model = strings.TrimSpace(model)
-		if model == "" || seen[model] {
-			continue
-		}
-		seen[model] = true
-		compact = append(compact, model)
-	}
-	return compact
-}
-
-func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig) {
-	if store.Config().Options == nil {
-		store.Config().Options = &config.Options{}
-	}
-	autoLSP := false
-	store.Config().Options.AutoLSP = &autoLSP
-
-	providerType := catwalk.TypeOpenAICompat
-	if local.Protocol == "anthropic" {
-		providerType = catwalk.TypeAnthropic
-	}
-
-	modelIDs := local.Models
-	if len(modelIDs) == 0 && local.Model != "" {
-		modelIDs = []string{local.Model}
-	}
-	models := make([]catwalk.Model, 0, len(modelIDs))
-	for _, model := range modelIDs {
-		if model == "" {
-			continue
-		}
-		models = append(models, catwalk.Model{
-			ID:               model,
-			Name:             model,
-			ContextWindow:    64000,
-			DefaultMaxTokens: 4096,
-		})
-	}
-	if len(models) == 0 {
-		return
-	}
-
-	baseURL := normalizeModelBaseURL(local.Protocol, local.URL)
-	store.Config().Providers.Set(localProviderID, config.ProviderConfig{
-		ID:      localProviderID,
-		Name:    "Local Model",
-		BaseURL: baseURL,
-		Type:    providerType,
-		APIKey:  local.APIKey,
-		Models:  models,
-	})
-
-	selected := config.SelectedModel{
-		Provider:  localProviderID,
-		Model:     models[0].ID,
-		MaxTokens: models[0].DefaultMaxTokens,
-	}
-	store.Config().Models[config.SelectedModelTypeLarge] = selected
-	store.Config().Models[config.SelectedModelTypeSmall] = selected
-}
-
-func normalizeModelBaseURL(protocol, rawURL string) string {
-	trimmed := strings.TrimRight(strings.TrimSpace(rawURL), "/")
-	if protocol == "openai" && !strings.HasSuffix(trimmed, "/v1") {
-		return trimmed + "/v1"
-	}
-	return trimmed
-}
-
-func localModelConfigPaths(layout desktopLayout) []string {
-	return []string{filepath.Clean(layout.ModelConfigPath)}
-}
-
-func logConfiguredModel(store *config.ConfigStore) {
-	selected := store.Config().Models[config.SelectedModelTypeLarge]
-	provider, _ := store.Config().Providers.Get(selected.Provider)
-	slog.Info(
-		"Desktop model configured",
-		"provider", selected.Provider,
-		"protocol", string(provider.Type),
-		"model", selected.Model,
-		"base_url", provider.BaseURL,
-		"has_api_key", provider.APIKey != "",
-		"has_proxy", hasDesktopProxy(),
-	)
-}
-
-func hasDesktopProxy() bool {
-	return os.Getenv("HTTPS_PROXY") != "" || os.Getenv("HTTP_PROXY") != "" || os.Getenv("https_proxy") != "" || os.Getenv("http_proxy") != ""
 }
