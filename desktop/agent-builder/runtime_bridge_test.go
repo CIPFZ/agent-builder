@@ -529,7 +529,7 @@ func TestDesktopSkillConfigIsSeparateFromCrushConfig(t *testing.T) {
 		DataDir:         filepath.Join(root, "data"),
 		LogsDir:         filepath.Join(root, "logs"),
 		ModelConfigPath: filepath.Join(root, "config", "model.local.json"),
-		SkillConfigPath: filepath.Join(root, "config", "skills.local.json"),
+		SkillConfigPath: filepath.Join(root, "config", "skills.json"),
 	}
 	store := config.NewTestStore(&config.Config{
 		Options: &config.Options{
@@ -559,6 +559,38 @@ func TestDesktopSkillConfigIsSeparateFromCrushConfig(t *testing.T) {
 	if !slices.Contains(store.Config().Options.DisabledSkills, "project-disabled") ||
 		!slices.Contains(store.Config().Options.DisabledSkills, "desktop-disabled") {
 		t.Fatalf("disabled skills not merged in memory: %#v", store.Config().Options.DisabledSkills)
+	}
+}
+
+func TestDesktopSkillConfigMigratesLegacyLocalFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	layout := desktopLayout{
+		Root:            root,
+		ConfigDir:       filepath.Join(root, "config"),
+		DataDir:         filepath.Join(root, "data"),
+		LogsDir:         filepath.Join(root, "logs"),
+		ModelConfigPath: filepath.Join(root, "config", "model.local.json"),
+		SkillConfigPath: filepath.Join(root, "config", "skills.json"),
+	}
+	if err := os.MkdirAll(layout.ConfigDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := legacyDesktopSkillConfigPath(layout)
+	if err := os.WriteFile(legacyPath, []byte(`{"skill_paths":["legacy-skills"],"disabled_skills":["legacy-disabled"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := loadDesktopSkillConfig(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(cfg.SkillPaths, "legacy-skills") || !slices.Contains(cfg.DisabledSkills, "legacy-disabled") {
+		t.Fatalf("legacy config not loaded: %#v", cfg)
+	}
+	if _, err := os.Stat(layout.SkillConfigPath); err != nil {
+		t.Fatalf("legacy config was not migrated to skills.json: %v", err)
 	}
 }
 

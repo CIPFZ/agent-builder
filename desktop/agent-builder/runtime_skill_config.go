@@ -20,14 +20,30 @@ type desktopSkillConfig struct {
 func loadDesktopSkillConfig(layout desktopLayout) (desktopSkillConfig, error) {
 	data, err := os.ReadFile(layout.SkillConfigPath)
 	if errors.Is(err, os.ErrNotExist) {
-		return desktopSkillConfig{}, nil
+		legacyPath := legacyDesktopSkillConfigPath(layout)
+		data, err = os.ReadFile(legacyPath)
+		if errors.Is(err, os.ErrNotExist) {
+			return desktopSkillConfig{}, nil
+		}
+		if err == nil {
+			cfg, parseErr := parseDesktopSkillConfig(data, legacyPath)
+			if parseErr != nil {
+				return desktopSkillConfig{}, parseErr
+			}
+			_ = saveDesktopSkillConfig(layout, cfg)
+			return cfg, nil
+		}
 	}
 	if err != nil {
 		return desktopSkillConfig{}, fmt.Errorf("failed to read desktop skill config: %w", err)
 	}
+	return parseDesktopSkillConfig(data, layout.SkillConfigPath)
+}
+
+func parseDesktopSkillConfig(data []byte, path string) (desktopSkillConfig, error) {
 	var cfg desktopSkillConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return desktopSkillConfig{}, fmt.Errorf("failed to parse desktop skill config: %w", err)
+		return desktopSkillConfig{}, fmt.Errorf("failed to parse desktop skill config %s: %w", path, err)
 	}
 	cfg.SkillPaths = normalizeStringList(cfg.SkillPaths)
 	cfg.DisabledSkills = normalizeSkillNames(cfg.DisabledSkills)
@@ -58,6 +74,10 @@ func desktopSkillConfigForRuntime(layout desktopLayout) (desktopSkillConfig, err
 	}
 	cfg.SkillPaths = appendRuntimeSkillPath(cfg.SkillPaths, desktopSkillsDir(layout))
 	return cfg, nil
+}
+
+func legacyDesktopSkillConfigPath(layout desktopLayout) string {
+	return filepath.Join(layout.ConfigDir, "skills.local.json")
 }
 
 func applyDesktopSkillConfigToStore(store *config.ConfigStore, layout desktopLayout) error {
