@@ -13,7 +13,6 @@ import (
 	"github.com/charmbracelet/crush/internal/db"
 	crushlog "github.com/charmbracelet/crush/internal/log"
 	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/version"
 )
 
@@ -81,7 +80,7 @@ func (r *runtimeService) restart() {
 
 func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	r.mu.Lock()
-	if r.runtime != nil && r.workspace != nil && r.sessionID != "" {
+	if r.runtime != nil && r.workspace != nil {
 		r.mu.Unlock()
 		return nil
 	}
@@ -89,7 +88,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.runtime != nil && r.workspace != nil && r.sessionID != "" {
+	if r.runtime != nil && r.workspace != nil {
 		return nil
 	}
 
@@ -116,6 +115,9 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	}
 	if !store.Config().IsConfigured() {
 		return errModelConfigMissing
+	}
+	if err := applyDesktopSkillConfigToStore(store, layout); err != nil {
+		return err
 	}
 	store.Config().SetupAgents()
 	applyDesktopProxy(localResult)
@@ -149,6 +151,9 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	if !wsRuntime.Cfg.Config().IsConfigured() {
 		return errModelConfigMissing
 	}
+	if err := applyDesktopSkillConfigToStore(wsRuntime.Cfg, layout); err != nil {
+		return err
+	}
 	wsRuntime.Cfg.SetupAgents()
 	r.workspace = &ws
 	go r.consumeRuntimeEvents(runtimeCtx, ws.ID)
@@ -158,17 +163,12 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 		return fmt.Errorf("failed to update Crush agent model: %w", err)
 	}
 
-	var sess session.Session
 	last, listErr := r.runtime.ListSessions(ctx, ws.ID)
 	if listErr == nil && len(last) > 0 {
-		sess = last[0]
-	} else {
-		sess, err = r.runtime.CreateSession(ctx, ws.ID, "New chat")
+		r.sessionID = last[0].ID
+	} else if listErr != nil {
+		return fmt.Errorf("failed to restore Crush sessions: %w", listErr)
 	}
-	if err != nil {
-		return fmt.Errorf("failed to restore Crush session: %w", err)
-	}
-	r.sessionID = sess.ID
 	return nil
 }
 

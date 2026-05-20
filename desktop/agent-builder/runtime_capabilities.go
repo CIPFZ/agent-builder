@@ -13,7 +13,7 @@ func (r *runtimeService) Capabilities(ctx context.Context) (RuntimeCapabilitiesR
 	if err != nil {
 		return RuntimeCapabilitiesResponse{}, err
 	}
-	skills := runtimeSkillsFromConfig(cfg)
+	skills := runtimeSkillsFromConfig(cfg, r.desktopSkillPaths()...)
 	tools := runtimeMCPToolsFromConfig(cfg, "")
 	resources := runtimeMCPResources("")
 	prompts := runtimeMCPPrompts("")

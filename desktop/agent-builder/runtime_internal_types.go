@@ -14,6 +14,7 @@ type desktopLayout struct {
 	DataDir         string
 	LogsDir         string
 	ModelConfigPath string
+	SkillConfigPath string
 }
 
 type runtimeRequestState struct {

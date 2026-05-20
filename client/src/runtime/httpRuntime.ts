@@ -105,7 +105,7 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
         sessionId = status.sessionId
       }
       if (!sessionId) {
-        throw new Error('No active runtime session. Create or select a session before sending a message.')
+        return post<RuntimeChatResponse>('/v1/turns', request)
       }
       return post<RuntimeChatResponse>(`/v1/sessions/${encodePath(sessionId)}/turns`, { ...request, sessionId })
     },

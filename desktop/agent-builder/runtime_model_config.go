@@ -35,6 +35,7 @@ func resolveDesktopLayout() (desktopLayout, error) {
 		LogsDir:   filepath.Join(root, "logs"),
 	}
 	layout.ModelConfigPath = filepath.Join(layout.ConfigDir, "model.local.json")
+	layout.SkillConfigPath = filepath.Join(layout.ConfigDir, "skills.local.json")
 	return layout, nil
 }
 

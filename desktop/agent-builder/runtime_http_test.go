@@ -116,6 +116,26 @@ func TestRuntimeHTTPServerRoutesSessionTurnToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesDraftTurnToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodPost, "/v1/turns", strings.NewReader(`{"prompt":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.chatCalls != 1 {
+		t.Fatalf("chatCalls = %d, want 1", service.chatCalls)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesTurnGetAndCancelToRuntimeService(t *testing.T) {
 	t.Parallel()
 

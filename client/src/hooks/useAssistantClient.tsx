@@ -63,6 +63,7 @@ const runtimeEventLimit = 200
 
 export function useAssistantClient() {
   const { message } = AntApp.useApp()
+  const { modal } = AntApp.useApp()
   const [messages, setMessages] = useState<RuntimeMessage[]>([])
   const [permissions, setPermissions] = useState<RuntimePermissionRequest[]>([])
   const [events, setEvents] = useState<RuntimeEvent[]>([])
@@ -322,6 +323,13 @@ export function useAssistantClient() {
       return
     }
     setInput('')
+    if (!runtimeStatus?.sessionId && messages.length === 0) {
+      setPermissions([])
+      setAuditEvents([])
+      setActiveChatTitle('New chat')
+      composerInputRef.current?.focus()
+      return
+    }
     startRuntimeChat('New chat')
       .then((nextStatus) => {
         activeSessionIdRef.current = nextStatus.sessionId
@@ -332,6 +340,7 @@ export function useAssistantClient() {
         setActiveChatTitle('New chat')
         refreshSessions().catch(() => undefined)
         refreshRuntimeInventory().catch(() => undefined)
+        composerInputRef.current?.focus()
       })
       .catch((error) => {
         const reason = error instanceof Error ? error.message : String(error)
@@ -360,21 +369,23 @@ export function useAssistantClient() {
     }
     try {
       const targetSessionId = runtimeStatus?.sessionId
-      if (!targetSessionId) {
-        throw new Error('No active runtime session. Create or select a session before sending a message.')
-      }
       const previousAssistantId = [...messages].reverse().find((chatMessage) => chatMessage.role === 'assistant')?.id
       const turn = await sendRuntimePrompt(content, targetSessionId)
+      const sessionId = turn.status.sessionId || targetSessionId
+      if (!sessionId) {
+        throw new Error('Runtime did not create a session for this message.')
+      }
       const activeTurnId = turn.turnId || turn.requestId
       setRuntimeStatus(turn.status)
-      let runtimeMessages = await loadMessagesForSession(targetSessionId)
+      activeSessionIdRef.current = sessionId
+      let runtimeMessages = await loadMessagesForSession(sessionId)
       setMessages(runtimeMessages)
       await refreshPermissions().catch(() => undefined)
       let nextStatus = await refreshStatus().catch(() => runtimeStatus)
       const started = Date.now()
       while (Date.now() - started < 30 * 60 * 1000) {
         await new Promise((resolve) => window.setTimeout(resolve, 700))
-        runtimeMessages = await requestRuntimeSessionMessages(targetSessionId).catch(() => runtimeMessages)
+        runtimeMessages = await requestRuntimeSessionMessages(sessionId).catch(() => runtimeMessages)
         setMessages(runtimeMessages)
         await refreshPermissions().catch(() => undefined)
         nextStatus = await refreshStatus().catch(() => nextStatus)
@@ -385,7 +396,7 @@ export function useAssistantClient() {
         }
         if (nextStatus && !nextStatus.busy && latestAssistant?.finished && latestAssistant.id !== previousAssistantId) break
       }
-      runtimeMessages = await requestRuntimeSessionMessages(targetSessionId).catch(() => runtimeMessages)
+      runtimeMessages = await requestRuntimeSessionMessages(sessionId).catch(() => runtimeMessages)
       setMessages(runtimeMessages)
       await refreshPermissions().catch(() => undefined)
       await refreshStatus().catch(() => undefined)
@@ -428,45 +439,71 @@ export function useAssistantClient() {
   }
 
   const renameSession = async (session: RuntimeSession) => {
-    const title = window.prompt('Rename session', session.title)?.trim()
-    if (!title || title === session.title) return
-    try {
-      const nextSessions = await renameRuntimeSession(session.id, title)
-      setSessions(nextSessions)
-      if (session.active || session.id === runtimeStatus?.sessionId) {
-        setActiveChatTitle(title)
-      }
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
-      setLastError(reason)
-      message.error(reason)
-    }
+    let nextTitle = session.title
+    modal.confirm({
+      title: 'Rename Session',
+      content: (
+        <input
+          className="session-modal-input"
+          autoFocus
+          defaultValue={session.title}
+          onChange={(event) => {
+            nextTitle = event.target.value
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              const button = document.querySelector<HTMLElement>('.ant-modal-confirm-btns .ant-btn-primary')
+              button?.click()
+            }
+          }}
+        />
+      ),
+      okText: 'Save',
+      async onOk() {
+        const title = nextTitle.trim()
+        if (!title || title === session.title) return
+        try {
+          const nextSessions = await renameRuntimeSession(session.id, title)
+          setSessions(nextSessions)
+          if (session.active || session.id === runtimeStatus?.sessionId) {
+            setActiveChatTitle(title)
+          }
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          setLastError(reason)
+          message.error(reason)
+          throw error
+        }
+      },
+    })
   }
 
   const deleteSession = async (session: RuntimeSession) => {
-    if (!window.confirm(`Delete session "${session.title}"?`)) return
-    try {
-      const nextSessions = await deleteRuntimeSession(session.id)
-      setSessions(nextSessions)
-      const nextActive = nextSessions.find((item) => item.active) ?? nextSessions[0]
-      if (nextActive) {
-        const nextStatus = await selectRuntimeSession(nextActive.id)
-        activeSessionIdRef.current = nextStatus.sessionId
-        setRuntimeStatus(nextStatus)
-        setActiveChatTitle(nextActive.title)
-        setMessages(await requestRuntimeSessionMessages(nextActive.id))
-        setAuditEvents(await requestRuntimeSessionAudit(nextActive.id).catch(() => []))
-      } else {
-        activeSessionIdRef.current = ''
-        setMessages([])
-        setAuditEvents([])
-        setActiveChatTitle('New chat')
-      }
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error)
-      setLastError(reason)
-      message.error(reason)
-    }
+    modal.confirm({
+      title: 'Delete Session',
+      content: `Delete "${session.title || 'Untitled Session'}"? This only removes the local session history.`,
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      async onOk() {
+        try {
+          const nextSessions = await deleteRuntimeSession(session.id)
+          setSessions(nextSessions)
+          if (session.active || session.id === runtimeStatus?.sessionId) {
+            const nextStatus = await refreshStatus()
+            activeSessionIdRef.current = nextStatus.sessionId
+            setMessages([])
+            setAuditEvents([])
+            setPermissions([])
+            setActiveChatTitle('New chat')
+          }
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
+          setLastError(reason)
+          message.error(reason)
+          throw error
+        }
+      },
+    })
   }
 
   const copyMessage = async (content: string) => {

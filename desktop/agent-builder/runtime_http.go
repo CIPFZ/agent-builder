@@ -160,6 +160,13 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req.SessionID = sessionTurnsPathID(r.URL.Path)
 		value, err := s.service.Chat(r.Context(), req)
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/turns":
+		var req RuntimeChatRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.Chat(r.Context(), req)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnPathID(r.URL.Path) != "":
 		value, err := s.service.Turn(r.Context(), turnPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)

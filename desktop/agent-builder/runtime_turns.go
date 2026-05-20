@@ -30,7 +30,25 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		runCtx = context.Background()
 	}
 	r.mu.Unlock()
-	if strings.TrimSpace(req.SessionID) != "" {
+	if sessionID == "" {
+		sess, err := r.runtime.CreateSession(ctx, wsID, "New chat")
+		if err != nil {
+			return RuntimeChatResponse{}, fmt.Errorf("failed to create session: %w", err)
+		}
+		sessionID = sess.ID
+		r.mu.Lock()
+		r.sessionID = sessionID
+		r.mu.Unlock()
+		r.publishRuntimeEvent(runtimeapi.Event{
+			ID:        newRuntimeEventID(),
+			Type:      runtimeapi.EventSessionCreated,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			SessionID: sessionID,
+			Payload: map[string]any{
+				"title": sess.Title,
+			},
+		})
+	} else if strings.TrimSpace(req.SessionID) != "" {
 		if _, err := r.runtime.GetSession(ctx, wsID, sessionID); err != nil {
 			return RuntimeChatResponse{}, fmt.Errorf("failed to select Crush session: %w", err)
 		}
@@ -322,7 +340,7 @@ func (r *runtimeService) runtimeAuditInventory(ctx context.Context) ([]RuntimeSk
 		slog.Debug("Runtime audit inventory unavailable", "error", err)
 		return nil, nil, nil
 	}
-	return runtimeSkillsFromConfig(cfg).Skills,
+	return runtimeSkillsFromConfig(cfg, r.desktopSkillPaths()...).Skills,
 		runtimeMCPServersFromConfig(cfg).Servers,
 		runtimeMCPToolsFromConfig(cfg, "").Tools
 }

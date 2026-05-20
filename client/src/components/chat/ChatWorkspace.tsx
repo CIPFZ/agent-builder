@@ -6,7 +6,7 @@ import Tag from 'antd/es/tag'
 import Tooltip from 'antd/es/tooltip'
 import Typography from 'antd/es/typography'
 import type { MenuProps } from 'antd'
-import { AppstoreOutlined, CodeOutlined, DownOutlined, EditOutlined, SettingOutlined, ShareAltOutlined, StopOutlined, ToolOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, AuditOutlined, CodeOutlined, DownOutlined, EditOutlined, SettingOutlined, StopOutlined, ToolOutlined } from '@ant-design/icons'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
 import type { ModelConfig } from '../../api/chat'
 import type { RuntimeMessage, RuntimeSession, RuntimeStatus } from '../../runtime'
@@ -91,8 +91,8 @@ export function ChatWorkspace({
               <Button type="text" danger icon={<StopOutlined />} onClick={onCancelTurn} />
             </Tooltip>
           ) : null}
-          <Tooltip title="Runtime events">
-            <Button type="text" icon={<ShareAltOutlined />} onClick={onOpenOperations} />
+          <Tooltip title="Runtime details / audit">
+            <Button type="text" icon={<AuditOutlined />} onClick={onOpenOperations} />
           </Tooltip>
           <Tooltip title="Model settings">
             <Button type="text" icon={<SettingOutlined />} onClick={onOpenSettings} />

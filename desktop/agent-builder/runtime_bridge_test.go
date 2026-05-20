@@ -486,6 +486,82 @@ func TestRuntimeSkillsFromConfigIncludesInvalidSkillDiagnostics(t *testing.T) {
 	t.Fatalf("invalid skill diagnostic missing from %#v", resp.Skills)
 }
 
+func TestRuntimeSkillsFromConfigIncludesDesktopManagedPath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "managed-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: managed-skill
+description: Runtime managed skill.
+---
+
+Use this skill from the desktop runtime.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := config.NewTestStore(&config.Config{
+		Options: &config.Options{},
+	})
+
+	resp := runtimeSkillsFromConfig(store, root)
+	for _, skill := range resp.Skills {
+		if skill.Name == "managed-skill" && skill.Enabled && strings.HasPrefix(skill.SkillFilePath, root) {
+			if len(store.Config().Options.SkillsPaths) != 0 {
+				t.Fatalf("desktop path was persisted to config: %#v", store.Config().Options.SkillsPaths)
+			}
+			return
+		}
+	}
+	t.Fatalf("desktop managed skill missing from %#v", resp.Skills)
+}
+
+func TestDesktopSkillConfigIsSeparateFromCrushConfig(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	layout := desktopLayout{
+		Root:            root,
+		ConfigDir:       filepath.Join(root, "config"),
+		DataDir:         filepath.Join(root, "data"),
+		LogsDir:         filepath.Join(root, "logs"),
+		ModelConfigPath: filepath.Join(root, "config", "model.local.json"),
+		SkillConfigPath: filepath.Join(root, "config", "skills.local.json"),
+	}
+	store := config.NewTestStore(&config.Config{
+		Options: &config.Options{
+			SkillsPaths:    []string{"project-skills"},
+			DisabledSkills: []string{"project-disabled"},
+		},
+	})
+	if err := saveDesktopSkillConfig(layout, desktopSkillConfig{
+		SkillPaths:     []string{filepath.Join(root, "user-skills")},
+		DisabledSkills: []string{"desktop-disabled"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := applyDesktopSkillConfigToStore(store, layout); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(store.Config().Options.SkillsPaths, "project-skills") {
+		t.Fatalf("project skill path removed: %#v", store.Config().Options.SkillsPaths)
+	}
+	if !slices.Contains(store.Config().Options.SkillsPaths, filepath.Join(root, "user-skills")) {
+		t.Fatalf("desktop skill path missing: %#v", store.Config().Options.SkillsPaths)
+	}
+	if !slices.Contains(store.Config().Options.SkillsPaths, desktopSkillsDir(layout)) {
+		t.Fatalf("managed skill path missing: %#v", store.Config().Options.SkillsPaths)
+	}
+	if !slices.Contains(store.Config().Options.DisabledSkills, "project-disabled") ||
+		!slices.Contains(store.Config().Options.DisabledSkills, "desktop-disabled") {
+		t.Fatalf("disabled skills not merged in memory: %#v", store.Config().Options.DisabledSkills)
+	}
+}
+
 func TestRefreshSkillsPublishesDiscoveryEvents(t *testing.T) {
 	t.Parallel()
 
@@ -522,7 +598,7 @@ func TestRefreshSkillsPublishesDiscoveryEvents(t *testing.T) {
 	}
 }
 
-func TestRuntimeSessionManagementPreservesRecents(t *testing.T) {
+func TestRuntimeNewChatUsesDraftSessionAndPreservesRecents(t *testing.T) {
 	t.Parallel()
 
 	service := newRuntimeService()
@@ -539,25 +615,21 @@ func TestRuntimeSessionManagementPreservesRecents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.SessionID == "" || status.SessionID == first.ID {
-		t.Fatalf("new chat did not select a new session: %#v", status)
+	if status.SessionID != "" {
+		t.Fatalf("new chat should enter draft mode without selecting a session: %#v", status)
 	}
 
 	sessions, err := service.Sessions(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sessions.Sessions) != 2 {
-		t.Fatalf("sessions = %#v, want both previous and new sessions", sessions.Sessions)
+	if len(sessions.Sessions) != 1 {
+		t.Fatalf("sessions = %#v, want only previous persisted session", sessions.Sessions)
 	}
-	activeCount := 0
 	for _, session := range sessions.Sessions {
 		if session.Active {
-			activeCount++
+			t.Fatalf("draft mode should not mark persisted sessions active: %#v", sessions.Sessions)
 		}
-	}
-	if activeCount != 1 {
-		t.Fatalf("active sessions = %d in %#v", activeCount, sessions.Sessions)
 	}
 
 	if _, err := service.SelectSession(context.Background(), first.ID); err != nil {
@@ -571,6 +643,42 @@ func TestRuntimeSessionManagementPreservesRecents(t *testing.T) {
 		if session.ID == first.ID && !session.Active {
 			t.Fatalf("selected session is not active: %#v", selected.Sessions)
 		}
+	}
+}
+
+func TestRuntimeDeleteActiveSessionReturnsToDraft(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	runtime, workspace := backendForSkillTest(t)
+	first, err := runtime.CreateSession(context.Background(), workspace.ID, "First chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := runtime.CreateSession(context.Background(), workspace.ID, "Second chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.runtime = runtime
+	service.workspace = &proto.Workspace{ID: workspace.ID}
+	service.sessionID = first.ID
+
+	resp, err := service.DeleteSession(context.Background(), first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.sessionID != "" {
+		t.Fatalf("active session after delete = %q, want draft", service.sessionID)
+	}
+	if len(resp.Sessions) != 1 || resp.Sessions[0].ID != second.ID || resp.Sessions[0].Active {
+		t.Fatalf("sessions after delete = %#v", resp.Sessions)
+	}
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.SessionID != "" || status.Usage.TotalTokens != 0 {
+		t.Fatalf("status after delete = %#v", status)
 	}
 }
 

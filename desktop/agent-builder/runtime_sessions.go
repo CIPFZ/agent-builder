@@ -134,22 +134,8 @@ func (r *runtimeService) DeleteSession(ctx context.Context, sessionID string) (R
 		return RuntimeSessionsResponse{}, fmt.Errorf("failed to delete Crush session: %w", err)
 	}
 	if sessionID == activeID {
-		sessions, err := r.runtime.ListSessions(ctx, wsID)
-		if err != nil {
-			return RuntimeSessionsResponse{}, fmt.Errorf("failed to list Crush sessions after delete: %w", err)
-		}
-		nextID := ""
-		if len(sessions) == 0 {
-			sess, err := r.runtime.CreateSession(ctx, wsID, "New chat")
-			if err != nil {
-				return RuntimeSessionsResponse{}, fmt.Errorf("failed to create replacement Crush session: %w", err)
-			}
-			nextID = sess.ID
-		} else {
-			nextID = sessions[0].ID
-		}
 		r.mu.Lock()
-		r.sessionID = nextID
+		r.sessionID = ""
 		r.mu.Unlock()
 	}
 	r.publishRuntimeEvent(runtimeapi.Event{
@@ -184,6 +170,9 @@ func (r *runtimeService) Messages(ctx context.Context) (RuntimeMessagesResponse,
 	wsID := r.workspace.ID
 	sessionID := r.sessionID
 	r.mu.Unlock()
+	if sessionID == "" {
+		return RuntimeMessagesResponse{}, nil
+	}
 	return r.sessionMessages(ctx, wsID, sessionID)
 }
 
@@ -214,16 +203,7 @@ func (r *runtimeService) NewChat(ctx context.Context, title string) (RuntimeStat
 	}
 
 	r.mu.Lock()
-	wsID := r.workspace.ID
-	r.mu.Unlock()
-
-	sess, err := r.runtime.CreateSession(ctx, wsID, firstNonEmpty(strings.TrimSpace(title), "New chat"))
-	if err != nil {
-		return RuntimeStatus{}, fmt.Errorf("failed to create session: %w", err)
-	}
-
-	r.mu.Lock()
-	r.sessionID = sess.ID
+	r.sessionID = ""
 	r.mu.Unlock()
 
 	return r.Status(ctx)

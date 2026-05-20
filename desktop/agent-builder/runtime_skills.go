@@ -47,21 +47,35 @@ func (r *runtimeService) SetSkillEnabled(ctx context.Context, req RuntimeSkillTo
 		return RuntimeSkillsResponse{}, err
 	}
 	cfg := ws.Cfg
-	if cfg.Config().Options == nil {
-		cfg.Config().Options = &config.Options{}
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return RuntimeSkillsResponse{}, err
 	}
-	disabled := slices.DeleteFunc(slices.Clone(cfg.Config().Options.DisabledSkills), func(existing string) bool {
+	desktopCfg, err := loadDesktopSkillConfig(layout)
+	if err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	disabled := slices.DeleteFunc(slices.Clone(desktopCfg.DisabledSkills), func(existing string) bool {
 		return existing == name
 	})
 	if !req.Enabled {
 		disabled = append(disabled, name)
 	}
-	slices.Sort(disabled)
-	disabled = slices.Compact(disabled)
-	cfg.Config().Options.DisabledSkills = disabled
-	if err := cfg.SetConfigField(config.ScopeGlobal, "options.disabled_skills", disabled); err != nil {
+	disabled = normalizeSkillNames(disabled)
+	desktopCfg.DisabledSkills = disabled
+	if err := saveDesktopSkillConfig(layout, desktopCfg); err != nil {
 		return RuntimeSkillsResponse{}, fmt.Errorf("failed to persist disabled skills: %w", err)
 	}
+	if cfg.Config().Options == nil {
+		cfg.Config().Options = &config.Options{}
+	}
+	runtimeDisabled := slices.DeleteFunc(slices.Clone(cfg.Config().Options.DisabledSkills), func(existing string) bool {
+		return existing == name
+	})
+	if !req.Enabled {
+		runtimeDisabled = appendRuntimeSkillName(runtimeDisabled, name)
+	}
+	cfg.Config().Options.DisabledSkills = runtimeDisabled
 
 	eventType := runtimeapi.EventSkillEnabled
 	if !req.Enabled {
@@ -90,13 +104,22 @@ func (r *runtimeService) AddSkillPath(ctx context.Context, req RuntimeSkillPathR
 	if err != nil {
 		return RuntimeSkillsResponse{}, err
 	}
-	paths, err := r.addSkillPathToConfig(cfg, path)
+	layout, err := resolveDesktopLayout()
 	if err != nil {
 		return RuntimeSkillsResponse{}, err
 	}
-	if err := cfg.SetConfigField(config.ScopeGlobal, "options.skills_paths", paths); err != nil {
+	desktopCfg, err := loadDesktopSkillConfig(layout)
+	if err != nil {
+		return RuntimeSkillsResponse{}, err
+	}
+	desktopCfg.SkillPaths = appendRuntimeSkillPath(desktopCfg.SkillPaths, path)
+	if err := saveDesktopSkillConfig(layout, desktopCfg); err != nil {
 		return RuntimeSkillsResponse{}, fmt.Errorf("failed to persist skill paths: %w", err)
 	}
+	if cfg.Config().Options == nil {
+		cfg.Config().Options = &config.Options{}
+	}
+	cfg.Config().Options.SkillsPaths = appendRuntimeSkillPath(cfg.Config().Options.SkillsPaths, path)
 	return r.refreshSkills(ctx, true)
 }
 
@@ -116,17 +139,15 @@ func (r *runtimeService) CreateSkill(ctx context.Context, req RuntimeSkillCreate
 	if instructions == "" {
 		return RuntimeSkillsResponse{}, errors.New("skill instructions are required")
 	}
-	cfg, _, err := r.workspaceConfig(ctx)
-	if err != nil {
-		return RuntimeSkillsResponse{}, err
-	}
-	workingDir := cfg.WorkingDir()
 	baseDir := strings.TrimSpace(req.Directory)
 	if baseDir == "" {
-		baseDir = filepath.Join(workingDir, ".agents", "skills")
-	}
-	if !filepath.IsAbs(baseDir) {
-		baseDir = filepath.Join(workingDir, baseDir)
+		baseDir = r.desktopSkillsDir()
+	} else if !filepath.IsAbs(baseDir) {
+		cfg, _, err := r.workspaceConfig(ctx)
+		if err != nil {
+			return RuntimeSkillsResponse{}, err
+		}
+		baseDir = filepath.Join(cfg.WorkingDir(), baseDir)
 	}
 	baseDir = filepath.Clean(baseDir)
 	skillDir := filepath.Join(baseDir, name)
@@ -143,13 +164,6 @@ func (r *runtimeService) CreateSkill(ctx context.Context, req RuntimeSkillCreate
 	if err := os.WriteFile(skillFile, []byte(content), 0o644); err != nil {
 		return RuntimeSkillsResponse{}, fmt.Errorf("failed to write skill file: %w", err)
 	}
-	paths, err := r.addSkillPathToConfig(cfg, baseDir)
-	if err != nil {
-		return RuntimeSkillsResponse{}, err
-	}
-	if err := cfg.SetConfigField(config.ScopeGlobal, "options.skills_paths", paths); err != nil {
-		return RuntimeSkillsResponse{}, fmt.Errorf("failed to persist skill paths: %w", err)
-	}
 	event := runtimeapi.NewEvent(newRuntimeEventID(), runtimeapi.EventSkillDiscoveryStarted, time.Now())
 	event.Payload = map[string]any{
 		"name": name,
@@ -157,28 +171,6 @@ func (r *runtimeService) CreateSkill(ctx context.Context, req RuntimeSkillCreate
 	}
 	r.publishRuntimeEvent(event)
 	return r.refreshSkills(ctx, true)
-}
-
-func (r *runtimeService) addSkillPathToConfig(cfg *config.ConfigStore, path string) ([]string, error) {
-	if cfg.Config().Options == nil {
-		cfg.Config().Options = &config.Options{}
-	}
-	normalized := filepath.Clean(path)
-	paths := slices.Clone(cfg.Config().Options.SkillsPaths)
-	seen := false
-	for _, existing := range paths {
-		if strings.EqualFold(filepath.Clean(existing), normalized) {
-			seen = true
-			break
-		}
-	}
-	if !seen {
-		paths = append(paths, normalized)
-	}
-	slices.Sort(paths)
-	paths = slices.Compact(paths)
-	cfg.Config().Options.SkillsPaths = paths
-	return paths, nil
 }
 
 func (r *runtimeService) refreshSkills(ctx context.Context, publish bool) (RuntimeSkillsResponse, error) {
@@ -194,7 +186,7 @@ func (r *runtimeService) refreshSkills(ctx context.Context, publish bool) (Runti
 	if err != nil {
 		return RuntimeSkillsResponse{}, err
 	}
-	resp := runtimeSkillsFromConfig(ws.Cfg)
+	resp := runtimeSkillsFromConfig(ws.Cfg, r.desktopSkillPaths()...)
 	if publish {
 		eventType := runtimeapi.EventSkillDiscoveryCompleted
 		for _, skill := range resp.Skills {
@@ -212,24 +204,25 @@ func (r *runtimeService) refreshSkills(ctx context.Context, publish bool) (Runti
 	return resp, nil
 }
 
-func runtimeSkillsFromConfig(store *config.ConfigStore) RuntimeSkillsResponse {
+func runtimeSkillsFromConfig(store *config.ConfigStore, extraPaths ...string) RuntimeSkillsResponse {
 	opts := store.Config().Options
 	builtin, builtinStates := skills.DiscoverBuiltinWithStates()
 	discovered := append([]*skills.Skill(nil), builtin...)
 	states := append([]*skills.SkillState(nil), builtinStates...)
 
-	if opts != nil && len(opts.SkillsPaths) > 0 {
-		paths := make([]string, 0, len(opts.SkillsPaths))
-		for _, path := range opts.SkillsPaths {
+	paths := runtimeSkillPaths(store, extraPaths...)
+	if len(paths) > 0 {
+		expandedPaths := make([]string, 0, len(paths))
+		for _, path := range paths {
 			expanded := path
 			if strings.HasPrefix(expanded, "$") {
 				if resolved, err := store.Resolver().ResolveValue(expanded); err == nil {
 					expanded = resolved
 				}
 			}
-			paths = append(paths, expanded)
+			expandedPaths = append(expandedPaths, expanded)
 		}
-		userSkills, userStates := skills.DiscoverWithStates(paths)
+		userSkills, userStates := skills.DiscoverWithStates(expandedPaths)
 		discovered = append(discovered, userSkills...)
 		states = append(states, userStates...)
 	}
@@ -281,6 +274,72 @@ func runtimeSkillsFromConfig(store *config.ConfigStore) RuntimeSkillsResponse {
 		return strings.Compare(strings.ToLower(a.Path), strings.ToLower(b.Path))
 	})
 	return RuntimeSkillsResponse{Skills: result}
+}
+
+func (r *runtimeService) desktopSkillsDir() string {
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return ""
+	}
+	return desktopSkillsDir(layout)
+}
+
+func (r *runtimeService) desktopSkillPaths() []string {
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return nil
+	}
+	cfg, err := desktopSkillConfigForRuntime(layout)
+	if err != nil {
+		return nil
+	}
+	return cfg.SkillPaths
+}
+
+func desktopSkillsDir(layout desktopLayout) string {
+	return filepath.Join(layout.DataDir, "skills")
+}
+
+func runtimeSkillPaths(store *config.ConfigStore, extraPaths ...string) []string {
+	var paths []string
+	if store.Config().Options != nil {
+		paths = slices.Clone(store.Config().Options.SkillsPaths)
+	}
+	for _, path := range extraPaths {
+		paths = appendRuntimeSkillPath(paths, path)
+	}
+	return paths
+}
+
+func appendRuntimeSkillPath(paths []string, path string) []string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return paths
+	}
+	normalized := filepath.Clean(path)
+	for _, existing := range paths {
+		if strings.EqualFold(filepath.Clean(existing), normalized) {
+			return paths
+		}
+	}
+	paths = append(paths, normalized)
+	slices.Sort(paths)
+	return slices.Compact(paths)
+}
+
+func appendRuntimeSkillName(names []string, name string) []string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return names
+	}
+	for _, existing := range names {
+		if existing == name {
+			return names
+		}
+	}
+	names = append(names, name)
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 func validateRuntimeSkillName(value string) (string, error) {
