@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -285,10 +286,24 @@ func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig) {
 		Models:  models,
 	})
 
+	selectedID := strings.TrimSpace(local.Model)
+	if selectedID == "" || !slices.ContainsFunc(models, func(model catwalk.Model) bool {
+		return model.ID == selectedID
+	}) {
+		selectedID = models[0].ID
+	}
+
+	selectedModel := models[0]
+	for _, model := range models {
+		if model.ID == selectedID {
+			selectedModel = model
+			break
+		}
+	}
 	selected := config.SelectedModel{
 		Provider:  localProviderID,
-		Model:     models[0].ID,
-		MaxTokens: models[0].DefaultMaxTokens,
+		Model:     selectedModel.ID,
+		MaxTokens: selectedModel.DefaultMaxTokens,
 	}
 	store.Config().Models[config.SelectedModelTypeLarge] = selected
 	store.Config().Models[config.SelectedModelTypeSmall] = selected

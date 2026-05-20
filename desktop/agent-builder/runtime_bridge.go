@@ -16,6 +16,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/crush/internal/agent"
 	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
@@ -856,6 +857,9 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		r.sessionID = sessionID
 		r.mu.Unlock()
 	}
+	if err := r.ensureSessionTitle(ctx, wsID, sessionID, prompt); err != nil {
+		slog.Warn("Failed to update desktop session title", "workspace_id", wsID, "session_id", sessionID, "error", err)
+	}
 
 	requestID := newRequestID()
 	start := time.Now()
@@ -1688,6 +1692,9 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 	if assistantErr != nil {
 		slog.Warn("Desktop chat assistant message unavailable", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "error", assistantErr)
 	}
+	if titleErr := r.ensureSessionTitle(context.Background(), wsID, sessionID, prompt); titleErr != nil {
+		slog.Warn("Failed to finalize desktop session title", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "error", titleErr)
+	}
 
 	r.mu.Lock()
 	state := r.requests[requestID]
@@ -2024,6 +2031,39 @@ func (r *runtimeService) latestFinishedAssistantMessage(ctx context.Context, wor
 		}
 	}
 	return proto.Message{}, errors.New("finished assistant response is not available")
+}
+
+func (r *runtimeService) ensureSessionTitle(ctx context.Context, workspaceID, sessionID, prompt string) error {
+	sess, err := r.runtime.GetSession(ctx, workspaceID, sessionID)
+	if err != nil {
+		return err
+	}
+	if !isDefaultRuntimeSessionTitle(sess.Title) {
+		return nil
+	}
+	title := preview(strings.TrimSpace(prompt), 48)
+	if title == "" {
+		return nil
+	}
+	sess.Title = title
+	if _, err := r.runtime.SaveSession(ctx, workspaceID, sess); err != nil {
+		return err
+	}
+	r.publishRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventSessionUpdated,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID: sessionID,
+		Payload: map[string]any{
+			"title": title,
+		},
+	})
+	return nil
+}
+
+func isDefaultRuntimeSessionTitle(title string) bool {
+	title = strings.TrimSpace(title)
+	return title == "" || title == "New chat" || title == agent.DefaultSessionName
 }
 
 func (r *runtimeService) runtimeAuditInventory(ctx context.Context) ([]RuntimeSkill, []RuntimeMCPServer, []RuntimeMCPTool) {

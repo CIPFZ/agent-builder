@@ -140,6 +140,10 @@ function modelLabel(config: ModelConfig) {
   return config.model || 'Select model'
 }
 
+function isDefaultSessionTitle(title?: string) {
+  return !title || title === 'New chat' || title === 'Untitled Session'
+}
+
 function hasAssistantText(chatMessage: RuntimeMessage) {
   return chatMessage.role === 'assistant' && chatMessage.content.trim() !== ''
 }
@@ -456,7 +460,7 @@ function AppContent() {
     setInput('')
     setIsSending(true)
     setLastError('')
-    if (activeSession?.title === 'New chat' || !activeSession?.title) {
+    if (isDefaultSessionTitle(activeSession?.title)) {
       const previewTitle = content.length > 28 ? `${content.slice(0, 28)}...` : content
       setActiveChatTitle(previewTitle)
       if (runtimeStatus?.sessionId) {

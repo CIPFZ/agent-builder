@@ -100,6 +100,29 @@ func TestApplyLocalModelConfigConfiguresProvider(t *testing.T) {
 	}
 }
 
+func TestApplyModelConfigSelectsConfiguredModelFromDiscoveredList(t *testing.T) {
+	t.Parallel()
+
+	store := config.NewTestStore(&config.Config{
+		Providers: csync.NewMap[string, config.ProviderConfig](),
+		Models:    map[config.SelectedModelType]config.SelectedModel{},
+		Options:   &config.Options{},
+	})
+
+	applyModelConfig(store, RuntimeModelConfig{
+		Protocol: "openai",
+		URL:      "https://api.example.com",
+		APIKey:   "test-key",
+		Model:    "deepseek-v4-pro",
+		Models:   []string{"deepseek-v4-flash", "deepseek-v4-pro"},
+	})
+
+	selected := store.Config().Models[config.SelectedModelTypeLarge]
+	if selected.Model != "deepseek-v4-pro" {
+		t.Fatalf("selected model = %q, want configured model", selected.Model)
+	}
+}
+
 func TestApplyDesktopProxySetsAndClearsProxyEnvironment(t *testing.T) {
 	t.Setenv("HTTP_PROXY", "")
 	t.Setenv("HTTPS_PROXY", "")
@@ -544,6 +567,34 @@ func TestRuntimeSessionManagementPreservesRecents(t *testing.T) {
 		if session.ID == first.ID && !session.Active {
 			t.Fatalf("selected session is not active: %#v", selected.Sessions)
 		}
+	}
+}
+
+func TestRuntimeChatRenamesDefaultSessionTitle(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	runtime, workspace := backendForSkillTest(t)
+	sess, err := runtime.CreateSession(context.Background(), workspace.ID, "Untitled Session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.runtime = runtime
+	service.workspace = &proto.Workspace{ID: workspace.ID}
+	service.sessionID = sess.ID
+
+	if err := service.ensureSessionTitle(context.Background(), workspace.ID, sess.ID, "Summarize runtime session behavior in one line."); err != nil {
+		t.Fatal(err)
+	}
+	renamed, err := runtime.GetSession(context.Background(), workspace.ID, sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Title == "Untitled Session" || renamed.Title == "" {
+		t.Fatalf("session was not renamed: %#v", renamed)
+	}
+	if renamed.Title != "Summarize runtime session behavior in one line." {
+		t.Fatalf("title = %q", renamed.Title)
 	}
 }
 
