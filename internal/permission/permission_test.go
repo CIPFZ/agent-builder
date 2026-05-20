@@ -259,6 +259,42 @@ func TestPermissionService_SequentialProperties(t *testing.T) {
 		wg.Wait()
 		assert.False(t, result2, "Second request should be denied")
 	})
+	t.Run("Deny does not persist across matching requests", func(t *testing.T) {
+		service := NewPermissionService("/tmp", false, []string{})
+
+		req := CreatePermissionRequest{
+			SessionID:   "session3",
+			ToolName:    "bash",
+			Description: "Execute command",
+			Action:      "execute",
+			Params:      map[string]string{"command": "echo denied"},
+			Path:        "/tmp",
+		}
+
+		events := service.Subscribe(t.Context())
+		var first bool
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			first, _ = service.Request(t.Context(), req)
+		})
+
+		firstEvent := <-events
+		service.Deny(firstEvent.Payload)
+		wg.Wait()
+		assert.False(t, first, "First request should be denied")
+
+		secondRequestPublished := make(chan PermissionRequest, 1)
+		wg.Go(func() {
+			second, _ := service.Request(t.Context(), req)
+			assert.True(t, second, "Second request should be grantable after a prior deny")
+		})
+		secondEvent := <-events
+		secondRequestPublished <- secondEvent.Payload
+		assert.NotEqual(t, firstEvent.Payload.ID, secondEvent.Payload.ID, "Second request should not reuse the denied permission")
+		service.Grant(secondEvent.Payload)
+		wg.Wait()
+		assert.Equal(t, secondEvent.Payload, <-secondRequestPublished)
+	})
 	t.Run("Concurrent requests with different outcomes", func(t *testing.T) {
 		service := NewPermissionService("/tmp", false, []string{})
 

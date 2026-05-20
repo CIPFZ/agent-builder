@@ -171,6 +171,7 @@ function AppContent() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsVerifying, setSettingsVerifying] = useState(false)
+  const [modelSwitching, setModelSwitching] = useState(false)
   const [operationsOpen, setOperationsOpen] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [configLoaded, setConfigLoaded] = useState(false)
@@ -359,14 +360,41 @@ function AppContent() {
     }
   }, [isModelConfigured])
 
+  const switchModel = async (modelName: string) => {
+    if (modelName === config.model || modelSwitching) return
+    setModelSwitching(true)
+    try {
+      const saved = await saveModelConfig({ ...config, model: modelName })
+      setConfig((current) => ({ ...current, ...saved }))
+      setModels(saved.models?.length ? saved.models : saved.model ? [saved.model] : [])
+      setMessages([])
+      setPermissions([])
+      setAuditEvents([])
+      const nextStatus = await refreshStatus().catch(() => undefined)
+      await refreshSessions().catch(() => undefined)
+      if (nextStatus?.sessionId) {
+        setMessages(await requestRuntimeSessionMessages(nextStatus.sessionId).catch(() => []))
+      }
+      message.success(`Model switched to ${saved.model}`)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      setLastError(reason)
+      message.error(reason)
+    } finally {
+      setModelSwitching(false)
+    }
+  }
+
   const modelItems = useMemo<MenuProps['items']>(
     () =>
       models.map((modelName) => ({
         key: modelName,
         label: modelName,
-        onClick: () => setConfig((current) => ({ ...current, model: modelName })),
+        onClick: () => {
+          void switchModel(modelName)
+        },
       })),
-    [models],
+    [config, modelSwitching, models],
   )
 
   const scrollToBottom = () => {
@@ -675,7 +703,7 @@ function AppContent() {
                 config={config}
                 input={input}
                 isDisabled={!configLoaded || !isModelConfigured}
-                isSending={isSending}
+                isSending={isSending || modelSwitching}
                 modelItems={modelItems}
                 onChange={setInput}
                 inputRef={composerInputRef}
@@ -721,7 +749,7 @@ function AppContent() {
               config={config}
               input={input}
               isDisabled={!configLoaded || !isModelConfigured}
-              isSending={isSending}
+              isSending={isSending || modelSwitching}
               modelItems={modelItems}
               onChange={setInput}
               inputRef={composerInputRef}

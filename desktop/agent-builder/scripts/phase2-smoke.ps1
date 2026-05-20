@@ -24,6 +24,7 @@ try {
   $env:AGENT_BUILDER_DESKTOP_ROOT = $smokeRoot
 
   if ($Build -or -not (Test-Path $exePath)) {
+    Run "wails3" @("task", "sync:frontend") $desktopRoot
     Run "wails3" @("task", "build") $desktopRoot
   }
 
