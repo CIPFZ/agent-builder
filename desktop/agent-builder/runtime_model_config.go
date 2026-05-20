@@ -50,39 +50,33 @@ func ensureDesktopLayout(layout desktopLayout) error {
 
 func loadLocalModelConfig(layout desktopLayout) (RuntimeModelConfig, localModelConfigResult) {
 	result := localModelConfigResult{}
-	for _, path := range localModelConfigPaths(layout) {
-		result.CheckedPaths = append(result.CheckedPaths, path)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		var local RuntimeModelConfig
-		if err := json.Unmarshal(data, &local); err != nil {
-			result.Error = fmt.Errorf("failed to parse local model config %s: %w", path, err)
-			return RuntimeModelConfig{}, result
-		}
-		if local.Model == "" && len(local.Models) > 0 {
-			local.Model = local.Models[0]
-		}
-		if local.Model != "" && len(local.Models) == 0 {
-			local.Models = []string{local.Model}
-		}
-		if err := validateModelConfig(local, false); err != nil {
-			result.Error = fmt.Errorf("invalid local model config %s: %w", path, err)
-			return RuntimeModelConfig{}, result
-		}
-
-		if path != layout.ModelConfigPath {
-			_ = saveLocalModelConfig(layout, local)
-		}
-
-		result.Applied = true
-		result.Path = path
-		result.Config = local
-		return local, result
+	path := filepath.Clean(layout.ModelConfigPath)
+	result.CheckedPaths = append(result.CheckedPaths, path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return RuntimeModelConfig{}, result
 	}
-	return RuntimeModelConfig{}, result
+
+	var local RuntimeModelConfig
+	if err := json.Unmarshal(data, &local); err != nil {
+		result.Error = fmt.Errorf("failed to parse local model config %s: %w", path, err)
+		return RuntimeModelConfig{}, result
+	}
+	if local.Model == "" && len(local.Models) > 0 {
+		local.Model = local.Models[0]
+	}
+	if local.Model != "" && len(local.Models) == 0 {
+		local.Models = []string{local.Model}
+	}
+	if err := validateModelConfig(local, false); err != nil {
+		result.Error = fmt.Errorf("invalid local model config %s: %w", path, err)
+		return RuntimeModelConfig{}, result
+	}
+
+	result.Applied = true
+	result.Path = path
+	result.Config = local
+	return local, result
 }
 
 func applyLocalModelConfig(store *config.ConfigStore, layout desktopLayout) localModelConfigResult {
@@ -316,17 +310,6 @@ func normalizeModelBaseURL(protocol, rawURL string) string {
 		return trimmed + "/v1"
 	}
 	return trimmed
-}
-
-func localModelConfigPaths(layout desktopLayout) []string {
-	return []string{
-		filepath.Clean(layout.ModelConfigPath),
-		filepath.Clean(legacyLocalModelConfigPath(layout)),
-	}
-}
-
-func legacyLocalModelConfigPath(layout desktopLayout) string {
-	return filepath.Join(layout.ConfigDir, "model.local.json")
 }
 
 func logConfiguredModel(store *config.ConfigStore) {
