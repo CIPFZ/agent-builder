@@ -1,4 +1,5 @@
 import type { AgentRuntime } from './types'
+import { createHTTPRuntime } from './httpRuntime'
 import { wailsRuntime } from './wailsRuntime'
 
 export type {
@@ -18,6 +19,7 @@ export type {
   RuntimeMcpServer,
   RuntimeEvent,
   RuntimeEventsEndpoint,
+  RuntimeTurn,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
   RuntimeSession,
@@ -30,5 +32,10 @@ export type {
 } from './types'
 
 export function getAgentRuntime(): AgentRuntime {
+  const baseUrl = import.meta.env.VITE_RUNTIME_API_URL?.trim()
+  const token = import.meta.env.VITE_RUNTIME_API_TOKEN?.trim()
+  if (baseUrl && token) {
+    return createHTTPRuntime({ baseUrl, token })
+  }
   return wailsRuntime
 }

@@ -5,10 +5,11 @@ type RuntimeEventErrorHandler = (error: Event) => void
 
 export function subscribeRuntimeEvents(
   url: string,
+  token: string | undefined,
   onEvent: RuntimeEventHandler,
   onError: RuntimeEventErrorHandler,
 ) {
-  const source = new EventSource(url)
+  const source = new EventSource(token ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : url)
 
   source.addEventListener('runtime-event', (event) => {
     try {
@@ -21,4 +22,3 @@ export function subscribeRuntimeEvents(
 
   return () => source.close()
 }
-

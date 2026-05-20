@@ -24,6 +24,7 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/config/model"},
 	{Method: MethodPut, Path: "/v1/config/model"},
 	{Method: MethodPost, Path: "/v1/config/model/verify"},
+	{Method: MethodGet, Path: "/v1/config/models"},
 	{Method: MethodGet, Path: "/v1/sessions"},
 	{Method: MethodPost, Path: "/v1/sessions"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}"},

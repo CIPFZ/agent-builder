@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -32,410 +31,6 @@ import (
 	"github.com/charmbracelet/crush/internal/skills"
 	"github.com/charmbracelet/crush/internal/version"
 )
-
-// RuntimeService is the transport-neutral runtime boundary used by Wails and
-// the local HTTP adapter.
-type RuntimeService interface {
-	Status(context.Context) (RuntimeStatus, error)
-	Models(context.Context) (RuntimeModelsResponse, error)
-	GetModelConfig(context.Context) (RuntimeConfigResponse, error)
-	SaveModelConfig(context.Context, RuntimeModelConfig) (RuntimeConfigResponse, error)
-	VerifyModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelVerifyResponse, error)
-	Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error)
-	Sessions(context.Context) (RuntimeSessionsResponse, error)
-	Session(context.Context, string) (RuntimeSessionResponse, error)
-	SelectSession(context.Context, string) (RuntimeStatus, error)
-	RenameSession(context.Context, RuntimeSessionUpdateRequest) (RuntimeSessionsResponse, error)
-	DeleteSession(context.Context, string) (RuntimeSessionsResponse, error)
-	SessionMessages(context.Context, string) (RuntimeMessagesResponse, error)
-	Messages(context.Context) (RuntimeMessagesResponse, error)
-	Permissions(context.Context) (RuntimePermissionsResponse, error)
-	Events(context.Context) (RuntimeEventsResponse, error)
-	EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error)
-	SubscribeEvents(context.Context) (<-chan RuntimeEvent, func())
-	AuditTurn(context.Context, string) (RuntimeAuditResponse, error)
-	AuditSession(context.Context, string) (RuntimeAuditResponse, error)
-	Skills(context.Context) (RuntimeSkillsResponse, error)
-	RefreshSkills(context.Context) (RuntimeSkillsResponse, error)
-	CreateSkill(context.Context, RuntimeSkillCreateRequest) (RuntimeSkillsResponse, error)
-	AddSkillPath(context.Context, RuntimeSkillPathRequest) (RuntimeSkillsResponse, error)
-	SetSkillEnabled(context.Context, RuntimeSkillToggleRequest) (RuntimeSkillsResponse, error)
-	MCPServers(context.Context) (RuntimeMCPServersResponse, error)
-	SaveMCPServer(context.Context, RuntimeMCPServerConfigRequest) (RuntimeMCPServersResponse, error)
-	SetMCPServerEnabled(context.Context, RuntimeMCPServerToggleRequest) (RuntimeMCPServersResponse, error)
-	RefreshMCPServer(context.Context, string) (RuntimeMCPServersResponse, error)
-	SetMCPToolEnabled(context.Context, RuntimeMCPToolToggleRequest) (RuntimeMCPToolsResponse, error)
-	MCPTools(context.Context, string) (RuntimeMCPToolsResponse, error)
-	MCPResources(context.Context, string) (RuntimeMCPResourcesResponse, error)
-	MCPPrompts(context.Context, string) (RuntimeMCPPromptsResponse, error)
-	Capabilities(context.Context) (RuntimeCapabilitiesResponse, error)
-	DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error)
-	Cancel(context.Context) (RuntimeStatus, error)
-	NewChat(context.Context, string) (RuntimeStatus, error)
-}
-
-// RuntimeBridge is the Wails adapter. It intentionally delegates to
-// RuntimeService so desktop bindings do not become the business boundary.
-type RuntimeBridge struct {
-	service RuntimeService
-}
-
-// runtimeService owns workspace, session, and agent lifecycle.
-type runtimeService struct {
-	mu          sync.Mutex
-	runtime     *backend.Backend
-	workspace   *proto.Workspace
-	sessionID   string
-	runtimeCtx  context.Context
-	cancel      context.CancelFunc
-	eventStats  runtimeEventStats
-	requests    map[string]runtimeRequestState
-	permissions map[string]pendingRuntimePermission
-	events      []RuntimeEvent
-	eventStream *runtimeSSEServer
-	httpAPI     *runtimeHTTPServer
-}
-
-type RuntimeStatus struct {
-	Ready       bool              `json:"ready"`
-	WorkspaceID string            `json:"workspaceId"`
-	SessionID   string            `json:"sessionId"`
-	WorkingDir  string            `json:"workingDir"`
-	Model       string            `json:"model"`
-	Provider    string            `json:"provider"`
-	Busy        bool              `json:"busy"`
-	Usage       RuntimeUsage      `json:"usage"`
-	Events      RuntimeEventStats `json:"events"`
-	Requests    RuntimeRequests   `json:"requests"`
-}
-
-type RuntimeModel struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	Selected bool   `json:"selected"`
-}
-
-type RuntimeModelsResponse struct {
-	Models []RuntimeModel `json:"models"`
-}
-
-type RuntimeConfigResponse struct {
-	Config RuntimeModelConfig `json:"config"`
-}
-
-type RuntimeChatRequest struct {
-	Prompt    string `json:"prompt"`
-	SessionID string `json:"sessionId,omitempty"`
-}
-
-type RuntimeChatResponse struct {
-	RequestID string        `json:"requestId"`
-	Status    RuntimeStatus `json:"status"`
-}
-
-type RuntimeMessage struct {
-	ID           string               `json:"id"`
-	SessionID    string               `json:"sessionId"`
-	Role         string               `json:"role"`
-	Content      string               `json:"content"`
-	Parts        []RuntimeMessagePart `json:"parts,omitempty"`
-	Provider     string               `json:"provider,omitempty"`
-	Model        string               `json:"model,omitempty"`
-	CreatedAt    int64                `json:"createdAt"`
-	UpdatedAt    int64                `json:"updatedAt"`
-	Finished     bool                 `json:"finished"`
-	FinishReason string               `json:"finishReason,omitempty"`
-	Error        string               `json:"error,omitempty"`
-}
-
-type RuntimeMessagePart struct {
-	Type       string `json:"type"`
-	Text       string `json:"text,omitempty"`
-	Thinking   string `json:"thinking,omitempty"`
-	StartedAt  int64  `json:"startedAt,omitempty"`
-	FinishedAt int64  `json:"finishedAt,omitempty"`
-	ToolCallID string `json:"toolCallId,omitempty"`
-	Name       string `json:"name,omitempty"`
-	Input      string `json:"input,omitempty"`
-	Finished   bool   `json:"finished,omitempty"`
-	Content    string `json:"content,omitempty"`
-	Data       string `json:"data,omitempty"`
-	MIMEType   string `json:"mimeType,omitempty"`
-	Metadata   string `json:"metadata,omitempty"`
-	IsError    bool   `json:"isError,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-	Message    string `json:"message,omitempty"`
-	Details    string `json:"details,omitempty"`
-}
-
-type RuntimeSession struct {
-	ID               string       `json:"id"`
-	Title            string       `json:"title"`
-	MessageCount     int64        `json:"messageCount"`
-	PromptTokens     int64        `json:"promptTokens"`
-	CompletionTokens int64        `json:"completionTokens"`
-	Cost             float64      `json:"cost"`
-	CreatedAt        int64        `json:"createdAt"`
-	UpdatedAt        int64        `json:"updatedAt"`
-	Active           bool         `json:"active"`
-	Usage            RuntimeUsage `json:"usage"`
-}
-
-type RuntimeSessionsResponse struct {
-	Sessions []RuntimeSession `json:"sessions"`
-}
-
-type RuntimeSessionResponse struct {
-	Session RuntimeSession `json:"session"`
-}
-
-type RuntimeSessionUpdateRequest struct {
-	SessionID string `json:"sessionId"`
-	Title     string `json:"title"`
-}
-
-type RuntimeMessagesResponse struct {
-	Messages []RuntimeMessage `json:"messages"`
-}
-
-type RuntimePermissionRequest struct {
-	ID          string `json:"id"`
-	SessionID   string `json:"sessionId"`
-	ToolCallID  string `json:"toolCallId"`
-	ToolName    string `json:"toolName"`
-	Description string `json:"description,omitempty"`
-	Action      string `json:"action"`
-	Params      any    `json:"params,omitempty"`
-	Path        string `json:"path,omitempty"`
-	CreatedAt   int64  `json:"createdAt"`
-}
-
-type RuntimePermissionsResponse struct {
-	Permissions []RuntimePermissionRequest `json:"permissions"`
-}
-
-type RuntimePermissionDecision struct {
-	PermissionID string `json:"permissionId"`
-	Action       string `json:"action"`
-}
-
-type RuntimeRequests struct {
-	ActiveRequestID  string `json:"activeRequestId,omitempty"`
-	ActiveStartedAt  int64  `json:"activeStartedAt,omitempty"`
-	ActiveDurationMS int64  `json:"activeDurationMs,omitempty"`
-	Running          int    `json:"running"`
-}
-
-type RuntimeUsage struct {
-	PromptTokens     int64   `json:"promptTokens"`
-	CompletionTokens int64   `json:"completionTokens"`
-	TotalTokens      int64   `json:"totalTokens"`
-	Cost             float64 `json:"cost"`
-}
-
-type RuntimeEventStats struct {
-	LastEventAt      int64 `json:"lastEventAt"`
-	MessageEvents    int64 `json:"messageEvents"`
-	SessionEvents    int64 `json:"sessionEvents"`
-	OtherEvents      int64 `json:"otherEvents"`
-	AssistantEvents  int64 `json:"assistantEvents"`
-	PermissionEvents int64 `json:"permissionEvents"`
-}
-
-type RuntimeEvent = runtimeapi.Event
-
-type RuntimeEventsResponse struct {
-	Events []RuntimeEvent `json:"events"`
-}
-
-type RuntimeEventsEndpointResponse struct {
-	URL string `json:"url"`
-}
-
-type RuntimeSkill struct {
-	Name          string `json:"name"`
-	Description   string `json:"description,omitempty"`
-	Builtin       bool   `json:"builtin"`
-	Enabled       bool   `json:"enabled"`
-	Path          string `json:"path,omitempty"`
-	SkillFilePath string `json:"skill_file_path,omitempty"`
-	State         string `json:"state"`
-	Error         string `json:"error,omitempty"`
-}
-
-type RuntimeSkillsResponse struct {
-	Skills []RuntimeSkill `json:"skills"`
-}
-
-type RuntimeSkillCreateRequest struct {
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	Instructions string `json:"instructions"`
-	Directory    string `json:"directory,omitempty"`
-}
-
-type RuntimeSkillPathRequest struct {
-	Path string `json:"path"`
-}
-
-type RuntimeSkillToggleRequest struct {
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
-}
-
-type RuntimeMCPCounts struct {
-	Tools     int `json:"tools"`
-	Prompts   int `json:"prompts"`
-	Resources int `json:"resources"`
-}
-
-type RuntimeMCPServer struct {
-	Name          string            `json:"name"`
-	Type          string            `json:"type"`
-	URL           string            `json:"url,omitempty"`
-	Command       string            `json:"command,omitempty"`
-	Args          []string          `json:"args,omitempty"`
-	Disabled      bool              `json:"disabled"`
-	State         string            `json:"state"`
-	Counts        RuntimeMCPCounts  `json:"counts"`
-	Error         string            `json:"error,omitempty"`
-	Env           map[string]string `json:"env,omitempty"`
-	Headers       map[string]string `json:"headers,omitempty"`
-	EnabledTools  []string          `json:"enabled_tools,omitempty"`
-	DisabledTools []string          `json:"disabled_tools,omitempty"`
-}
-
-type RuntimeMCPServersResponse struct {
-	Servers []RuntimeMCPServer `json:"servers"`
-}
-
-type RuntimeMCPServerConfigRequest struct {
-	Name          string            `json:"name"`
-	Type          string            `json:"type"`
-	URL           string            `json:"url,omitempty"`
-	Command       string            `json:"command,omitempty"`
-	Args          []string          `json:"args,omitempty"`
-	Disabled      bool              `json:"disabled"`
-	EnabledTools  []string          `json:"enabled_tools,omitempty"`
-	DisabledTools []string          `json:"disabled_tools,omitempty"`
-	Env           map[string]string `json:"env,omitempty"`
-	Headers       map[string]string `json:"headers,omitempty"`
-}
-
-type RuntimeMCPServerToggleRequest struct {
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
-}
-
-type RuntimeMCPTool struct {
-	Server      string `json:"server"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Enabled     bool   `json:"enabled"`
-	InputSchema any    `json:"input_schema,omitempty"`
-}
-
-type RuntimeMCPToolsResponse struct {
-	Tools []RuntimeMCPTool `json:"tools"`
-}
-
-type RuntimeMCPToolToggleRequest struct {
-	Server  string `json:"server"`
-	Tool    string `json:"tool"`
-	Enabled bool   `json:"enabled"`
-}
-
-type RuntimeMCPResource struct {
-	Server      string `json:"server"`
-	URI         string `json:"uri"`
-	Name        string `json:"name,omitempty"`
-	Description string `json:"description,omitempty"`
-	MIMEType    string `json:"mime_type,omitempty"`
-}
-
-type RuntimeMCPResourcesResponse struct {
-	Resources []RuntimeMCPResource `json:"resources"`
-}
-
-type RuntimeMCPPrompt struct {
-	Server      string `json:"server"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-}
-
-type RuntimeMCPPromptsResponse struct {
-	Prompts []RuntimeMCPPrompt `json:"prompts"`
-}
-
-type RuntimeCapability struct {
-	ID          string `json:"id"`
-	Kind        string `json:"kind"`
-	Name        string `json:"name"`
-	Source      string `json:"source,omitempty"`
-	Enabled     bool   `json:"enabled"`
-	Risk        string `json:"risk"`
-	Description string `json:"description,omitempty"`
-}
-
-type RuntimeCapabilitiesResponse struct {
-	Capabilities []RuntimeCapability `json:"capabilities"`
-}
-
-type RuntimeModelConfig struct {
-	Protocol   string   `json:"protocol"`
-	URL        string   `json:"url"`
-	APIKey     string   `json:"apiKey,omitempty"`
-	Model      string   `json:"model"`
-	Proxy      string   `json:"proxy,omitempty"`
-	Models     []string `json:"models,omitempty"`
-	HasAPIKey  bool     `json:"hasApiKey"`
-	ConfigPath string   `json:"configPath,omitempty"`
-}
-
-type RuntimeModelVerifyResponse struct {
-	OK       bool     `json:"ok"`
-	Protocol string   `json:"protocol"`
-	Model    string   `json:"model"`
-	Models   []string `json:"models,omitempty"`
-	Error    string   `json:"error,omitempty"`
-}
-
-type localModelConfigResult struct {
-	Applied      bool
-	Path         string
-	CheckedPaths []string
-	Config       RuntimeModelConfig
-	Error        error
-}
-
-type desktopLayout struct {
-	Root            string
-	ConfigDir       string
-	DataDir         string
-	LogsDir         string
-	ModelConfigPath string
-}
-
-type runtimeRequestState struct {
-	StartedAt int64  `json:"startedAt"`
-	Finished  bool   `json:"finished"`
-	Error     string `json:"error,omitempty"`
-}
-
-type pendingRuntimePermission struct {
-	Permission RuntimePermissionRequest
-	Raw        permission.PermissionRequest
-}
-
-type runtimeEventStats struct {
-	lastEventAt      int64
-	messageEvents    int64
-	sessionEvents    int64
-	otherEvents      int64
-	assistantEvents  int64
-	permissionEvents int64
-}
 
 const runtimeEventLimit = 200
 
@@ -457,9 +52,11 @@ func NewRuntimeService() RuntimeService {
 
 func newRuntimeService() *runtimeService {
 	service := &runtimeService{
-		requests:    make(map[string]runtimeRequestState),
-		permissions: make(map[string]pendingRuntimePermission),
-		eventStream: newRuntimeSSEServer(),
+		requests:     make(map[string]runtimeRequestState),
+		sessionTurns: make(map[string]string),
+		toolEvents:   make(map[string]runtimeToolEventState),
+		permissions:  make(map[string]pendingRuntimePermission),
+		eventStream:  newRuntimeSSEServer(),
 	}
 	service.httpAPI = newRuntimeHTTPServer(service)
 	return service
@@ -487,6 +84,10 @@ func (r *RuntimeBridge) VerifyModelConfig(ctx context.Context, req RuntimeModelC
 
 func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (RuntimeChatResponse, error) {
 	return r.service.Chat(ctx, req)
+}
+
+func (r *RuntimeBridge) Turn(ctx context.Context, turnID string) (RuntimeTurnResponse, error) {
+	return r.service.Turn(ctx, turnID)
 }
 
 func (r *RuntimeBridge) Sessions(ctx context.Context) (RuntimeSessionsResponse, error) {
@@ -594,13 +195,7 @@ func (r *RuntimeBridge) Capabilities(ctx context.Context) (RuntimeCapabilitiesRe
 }
 
 func (r *RuntimeBridge) APIEndpoint(ctx context.Context) (RuntimeAPIEndpointResponse, error) {
-	service, ok := r.service.(interface {
-		APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error)
-	})
-	if !ok {
-		return RuntimeAPIEndpointResponse{}, errors.New("runtime service does not expose an HTTP API endpoint")
-	}
-	return service.APIEndpoint(ctx)
+	return r.service.APIEndpoint(ctx)
 }
 
 func (r *RuntimeBridge) DecidePermission(ctx context.Context, req RuntimePermissionDecision) (RuntimeStatus, error) {
@@ -609,6 +204,10 @@ func (r *RuntimeBridge) DecidePermission(ctx context.Context, req RuntimePermiss
 
 func (r *RuntimeBridge) Cancel(ctx context.Context) (RuntimeStatus, error) {
 	return r.service.Cancel(ctx)
+}
+
+func (r *RuntimeBridge) CancelTurn(ctx context.Context, turnID string) (RuntimeStatus, error) {
+	return r.service.CancelTurn(ctx, turnID)
 }
 
 func (r *RuntimeBridge) NewChat(ctx context.Context, title string) (RuntimeStatus, error) {
@@ -867,15 +466,24 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 	if err != nil {
 		return RuntimeChatResponse{}, err
 	}
-
-	r.mu.Lock()
-	r.requests[requestID] = runtimeRequestState{StartedAt: start.UnixMilli()}
-	r.mu.Unlock()
-
 	status, err := r.Status(ctx)
 	if err != nil {
 		return RuntimeChatResponse{}, err
 	}
+
+	r.mu.Lock()
+	r.requests[requestID] = runtimeRequestState{
+		SessionID:     sessionID,
+		Provider:      status.Provider,
+		Model:         status.Model,
+		PromptPreview: preview(prompt, auditPreviewLimit),
+		StartedAt:     start.UnixMilli(),
+		Status:        "running",
+		UsageBefore:   usageBefore,
+	}
+	r.sessionTurns[sessionID] = requestID
+	r.mu.Unlock()
+
 	skills, mcpServers, mcpTools := r.runtimeAuditInventory(ctx)
 
 	slog.Info("Desktop chat queued", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "prompt_len", len(prompt))
@@ -894,11 +502,26 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		MCPServers:    mcpServers,
 		MCPTools:      mcpTools,
 	})
+	r.storeRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventTurnStarted,
+		CreatedAt: start.UTC().Format(time.RFC3339Nano),
+		SessionID: sessionID,
+		TurnID:    requestID,
+		Payload: map[string]any{
+			"provider":       status.Provider,
+			"model":          status.Model,
+			"prompt_length":  len(prompt),
+			"prompt_preview": preview(prompt, 160),
+			"usage_before":   usageBefore,
+		},
+	})
 
 	go r.runChat(runCtx, requestID, wsID, sessionID, prompt, start, usageBefore, status.Provider, status.Model)
 
 	return RuntimeChatResponse{
 		RequestID: requestID,
+		TurnID:    requestID,
 		Status:    status,
 	}, nil
 }
@@ -1098,6 +721,56 @@ func (r *runtimeService) sessionMessages(ctx context.Context, wsID, sessionID st
 	return RuntimeMessagesResponse{Messages: runtimeMessages}, nil
 }
 
+func (r *runtimeService) Turn(ctx context.Context, turnID string) (RuntimeTurnResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeTurnResponse{}, err
+	}
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return RuntimeTurnResponse{}, errors.New("turn id is required")
+	}
+
+	r.mu.Lock()
+	state, ok := r.requests[turnID]
+	wsID := r.workspace.ID
+	r.mu.Unlock()
+	if !ok {
+		return RuntimeTurnResponse{}, fmt.Errorf("turn %s was not found", turnID)
+	}
+
+	turn := RuntimeTurn{
+		ID:              turnID,
+		SessionID:       state.SessionID,
+		Status:          runtimeTurnStatus(state),
+		StartedAt:       state.StartedAt,
+		FinishedAt:      state.FinishedAt,
+		Provider:        state.Provider,
+		Model:           state.Model,
+		PromptPreview:   state.PromptPreview,
+		UsageBefore:     state.UsageBefore,
+		UsageAfter:      state.UsageAfter,
+		UsageDelta:      state.UsageDelta,
+		LatestMessageID: state.LatestMessageID,
+		Error:           state.Error,
+	}
+	if turn.FinishedAt > 0 && turn.StartedAt > 0 {
+		turn.DurationMS = turn.FinishedAt - turn.StartedAt
+	}
+	if state.LatestMessageID != "" {
+		msgs, err := r.runtime.ListSessionMessages(ctx, wsID, state.SessionID)
+		if err != nil {
+			return RuntimeTurnResponse{}, fmt.Errorf("failed to read turn messages: %w", err)
+		}
+		for _, msg := range msgs {
+			if msg.ID == state.LatestMessageID {
+				turn.LatestAssistant = toRuntimeMessage(toProtoMessage(msg))
+				break
+			}
+		}
+	}
+	return RuntimeTurnResponse{Turn: turn}, nil
+}
+
 func (r *runtimeService) Permissions(ctx context.Context) (RuntimePermissionsResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimePermissionsResponse{}, err
@@ -1117,11 +790,7 @@ func (r *runtimeService) Permissions(ctx context.Context) (RuntimePermissionsRes
 	return RuntimePermissionsResponse{Permissions: permissions}, nil
 }
 
-func (r *runtimeService) Events(ctx context.Context) (RuntimeEventsResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
-		return RuntimeEventsResponse{}, err
-	}
-
+func (r *runtimeService) Events(context.Context) (RuntimeEventsResponse, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -1644,6 +1313,7 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 		Type:       runtimeapi.EventPermissionDecided,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
 		SessionID:  pending.Permission.SessionID,
+		TurnID:     r.activeTurnForSession(pending.Permission.SessionID),
 		ToolCallID: pending.Permission.ToolCallID,
 		Payload: map[string]any{
 			"permission_id": req.PermissionID,
@@ -1662,18 +1332,57 @@ func (r *runtimeService) Cancel(ctx context.Context) (RuntimeStatus, error) {
 	}
 
 	r.mu.Lock()
-	wsID := r.workspace.ID
-	sessionID := r.sessionID
+	activeTurnID := r.sessionTurns[r.sessionID]
 	r.mu.Unlock()
 
-	if err := r.runtime.CancelSession(wsID, sessionID); err != nil {
+	return r.CancelTurn(ctx, activeTurnID)
+}
+
+func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (RuntimeStatus, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeStatus{}, err
+	}
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return RuntimeStatus{}, errors.New("turn id is required")
+	}
+
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	state, ok := r.requests[turnID]
+	r.mu.Unlock()
+	if !ok {
+		return RuntimeStatus{}, fmt.Errorf("turn %s was not found", turnID)
+	}
+
+	if err := r.runtime.CancelSession(wsID, state.SessionID); err != nil {
 		return RuntimeStatus{}, fmt.Errorf("failed to cancel session: %w", err)
 	}
+	now := time.Now()
+	r.mu.Lock()
+	state.Cancelled = true
+	state.Status = "cancelled"
+	if state.FinishedAt == 0 {
+		state.FinishedAt = now.UnixMilli()
+	}
+	r.requests[turnID] = state
+	r.mu.Unlock()
 	r.writeAudit(auditEntry{
+		RequestID:   turnID,
 		Event:       "cancel_requested",
-		Timestamp:   time.Now().Format(time.RFC3339Nano),
+		Timestamp:   now.Format(time.RFC3339Nano),
 		WorkspaceID: wsID,
-		SessionID:   sessionID,
+		SessionID:   state.SessionID,
+	})
+	r.storeRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventTurnCancelled,
+		CreatedAt: now.UTC().Format(time.RFC3339Nano),
+		SessionID: state.SessionID,
+		TurnID:    turnID,
+		Payload: map[string]any{
+			"status": "cancelled",
+		},
 	})
 	return r.Status(ctx)
 }
@@ -1698,10 +1407,18 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 
 	r.mu.Lock()
 	state := r.requests[requestID]
+	state.Status = "completed"
 	state.Finished = true
+	state.FinishedAt = time.Now().UnixMilli()
 	if err != nil {
+		state.Status = "failed"
 		state.Error = err.Error()
 	}
+	if state.Cancelled {
+		state.Status = "cancelled"
+	}
+	state.UsageAfter = usageAfter
+	state.UsageDelta = usageAfter.Sub(usageBefore)
 	r.requests[requestID] = state
 	r.mu.Unlock()
 
@@ -1727,21 +1444,31 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 		entry.FinishReason = runtimeMsg.FinishReason
 		entry.ResponseLength = len(runtimeMsg.Content)
 		entry.ResponsePreview = preview(runtimeMsg.Content, auditPreviewLimit)
+		r.mu.Lock()
+		state := r.requests[requestID]
+		state.LatestMessageID = runtimeMsg.ID
+		r.requests[requestID] = state
+		r.mu.Unlock()
 	}
 	if toolCalls, toolErr := r.auditToolCalls(context.Background(), wsID, sessionID); toolErr != nil {
 		slog.Warn("Desktop chat tool audit unavailable", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "error", toolErr)
 	} else {
 		entry.ToolCalls = toolCalls
 	}
-	if err != nil {
+	if err != nil && !stateCancelled(r, requestID) {
 		entry.Event = "failed"
 		entry.Error = err.Error()
 		slog.Error("Desktop chat failed", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "duration", duration.String(), "error", err)
+	} else if stateCancelled(r, requestID) {
+		entry.Event = "cancelled"
+		slog.Info("Desktop chat cancelled", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "duration", duration.String())
 	} else {
 		entry.Event = "finished"
 		slog.Info("Desktop chat finished", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "provider", provider, "model", model, "duration", duration.String(), "content_len", entry.ResponseLength, "finish_reason", entry.FinishReason)
 	}
 	r.writeAudit(entry)
+	r.storeRuntimeEvent(newUsageRuntimeEvent(time.Now(), requestID, sessionID, usageAfter, usageDelta))
+	r.storeRuntimeEvent(newTurnFinishedRuntimeEvent(time.Now(), requestID, sessionID, entry.Event, duration, provider, model, usageDelta, entry.Error))
 }
 
 func (r *runtimeService) readConfiguredModel() (RuntimeModelConfig, error) {
@@ -1797,6 +1524,8 @@ func (r *runtimeService) restart() {
 	r.cancel = nil
 	r.eventStats = runtimeEventStats{}
 	r.requests = make(map[string]runtimeRequestState)
+	r.sessionTurns = make(map[string]string)
+	r.toolEvents = make(map[string]runtimeToolEventState)
 	r.permissions = make(map[string]pendingRuntimePermission)
 	r.events = nil
 }
@@ -1932,7 +1661,9 @@ func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspac
 			}
 			r.eventStats.permissionEvents++
 			r.eventStats.lastEventAt = now.UnixMilli()
-			runtimeEvent = r.appendRuntimeEventLocked(newPermissionRuntimeEvent(now, runtimePerm))
+			runtimeEvent = newPermissionRuntimeEvent(now, runtimePerm)
+			runtimeEvent.TurnID = r.sessionTurns[perm.SessionID]
+			runtimeEvent = r.appendRuntimeEventLocked(runtimeEvent)
 			r.mu.Unlock()
 			r.publishRuntimeEvent(runtimeEvent)
 
@@ -1956,32 +1687,41 @@ func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspac
 func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
 	r.mu.Lock()
 
-	var runtimeEvent RuntimeEvent
+	var runtimeEvents []RuntimeEvent
 	now := time.Now()
 	r.eventStats.lastEventAt = now.UnixMilli()
 	switch payload := event.Payload.(type) {
 	case pubsub.Event[message.Message]:
 		r.eventStats.messageEvents++
-		runtimeEvent = newMessageRuntimeEvent(now, toProtoMessage(payload.Payload))
-		runtimeEvent = r.appendRuntimeEventLocked(runtimeEvent)
+		msg := toProtoMessage(payload.Payload)
+		turnID := r.sessionTurns[msg.SessionID]
+		runtimeEvent := newMessageRuntimeEvent(now, msg)
+		runtimeEvent.TurnID = turnID
+		runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(runtimeEvent))
+		for _, event := range newToolRuntimeEvents(now, msg, turnID, r.toolEvents) {
+			runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(event))
+		}
 		if payload.Payload.Role == message.Assistant {
 			r.eventStats.assistantEvents++
 		}
 	case pubsub.Event[proto.Message]:
 		r.eventStats.messageEvents++
-		runtimeEvent = newMessageRuntimeEvent(now, payload.Payload)
-		runtimeEvent = r.appendRuntimeEventLocked(runtimeEvent)
+		turnID := r.sessionTurns[payload.Payload.SessionID]
+		runtimeEvent := newMessageRuntimeEvent(now, payload.Payload)
+		runtimeEvent.TurnID = turnID
+		runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(runtimeEvent))
+		for _, event := range newToolRuntimeEvents(now, payload.Payload, turnID, r.toolEvents) {
+			runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(event))
+		}
 		if payload.Payload.Role == proto.Assistant {
 			r.eventStats.assistantEvents++
 		}
 	case pubsub.Event[proto.Session]:
 		r.eventStats.sessionEvents++
-		runtimeEvent = newSessionRuntimeEvent(now, payload.Payload.ID, payload.Payload.Title)
-		runtimeEvent = r.appendRuntimeEventLocked(runtimeEvent)
+		runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(newSessionRuntimeEvent(now, payload.Payload.ID, payload.Payload.Title)))
 	case pubsub.Event[session.Session]:
 		r.eventStats.sessionEvents++
-		runtimeEvent = newSessionRuntimeEvent(now, payload.Payload.ID, payload.Payload.Title)
-		runtimeEvent = r.appendRuntimeEventLocked(runtimeEvent)
+		runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(newSessionRuntimeEvent(now, payload.Payload.ID, payload.Payload.Title)))
 	case pubsub.Event[permission.PermissionRequest]:
 		r.eventStats.permissionEvents++
 	case pubsub.Event[proto.PermissionRequest]:
@@ -1990,7 +1730,9 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
 		r.eventStats.otherEvents++
 	}
 	r.mu.Unlock()
-	r.publishRuntimeEvent(runtimeEvent)
+	for _, runtimeEvent := range runtimeEvents {
+		r.publishRuntimeEvent(runtimeEvent)
+	}
 }
 
 func augmentDesktopPath(layout desktopLayout) {
@@ -2415,6 +2157,41 @@ func (r *runtimeService) runtimeRequestsLocked() RuntimeRequests {
 	return out
 }
 
+func runtimeTurnStatus(state runtimeRequestState) string {
+	switch {
+	case state.Status != "":
+		return state.Status
+	case state.Cancelled:
+		return "cancelled"
+	case state.Error != "":
+		return "failed"
+	case state.Finished:
+		return "completed"
+	default:
+		return "running"
+	}
+}
+
+func stateCancelled(r *runtimeService, requestID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.requests[requestID].Cancelled
+}
+
+func (r *runtimeService) activeTurnForSession(sessionID string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sessionTurns[sessionID]
+}
+
+func (r *runtimeService) storeRuntimeEvent(event RuntimeEvent) RuntimeEvent {
+	r.mu.Lock()
+	event = r.appendRuntimeEventLocked(event)
+	r.mu.Unlock()
+	r.publishRuntimeEvent(event)
+	return event
+}
+
 func (r *runtimeService) appendRuntimeEventLocked(event RuntimeEvent) RuntimeEvent {
 	if event.ID == "" {
 		event.ID = newRuntimeEventID()
@@ -2448,9 +2225,12 @@ func (r *runtimeService) publishRuntimeEvent(event RuntimeEvent) {
 }
 
 func newMessageRuntimeEvent(createdAt time.Time, msg proto.Message) RuntimeEvent {
-	eventType := runtimeapi.EventMessageUpdated
-	if msg.FinishPart() != nil {
+	eventType := runtimeapi.EventMessageCreated
+	switch {
+	case msg.FinishPart() != nil:
 		eventType = runtimeapi.EventMessageCompleted
+	case msg.UpdatedAt > msg.CreatedAt:
+		eventType = runtimeapi.EventMessageUpdated
 	}
 	event := runtimeapi.NewEvent(newRuntimeEventID(), eventType, createdAt)
 	event.SessionID = msg.SessionID
@@ -2460,6 +2240,108 @@ func newMessageRuntimeEvent(createdAt time.Time, msg proto.Message) RuntimeEvent
 		"summary": preview(msg.Content().Text, 160),
 	}
 	return event
+}
+
+func newUsageRuntimeEvent(createdAt time.Time, turnID, sessionID string, usage, delta RuntimeUsage) RuntimeEvent {
+	event := runtimeapi.NewEvent(newRuntimeEventID(), runtimeapi.EventUsageUpdated, createdAt)
+	event.SessionID = sessionID
+	event.TurnID = turnID
+	event.Payload = map[string]any{
+		"usage": usage,
+		"delta": delta,
+	}
+	return event
+}
+
+func newTurnFinishedRuntimeEvent(createdAt time.Time, turnID, sessionID, status string, duration time.Duration, provider, model string, usageDelta RuntimeUsage, errText string) RuntimeEvent {
+	eventType := runtimeapi.EventTurnCompleted
+	switch status {
+	case "failed":
+		eventType = runtimeapi.EventTurnFailed
+	case "cancelled":
+		eventType = runtimeapi.EventTurnCancelled
+	}
+	event := runtimeapi.NewEvent(newRuntimeEventID(), eventType, createdAt)
+	event.SessionID = sessionID
+	event.TurnID = turnID
+	event.Payload = map[string]any{
+		"status":      status,
+		"duration_ms": duration.Milliseconds(),
+		"provider":    provider,
+		"model":       model,
+		"usage_delta": usageDelta,
+	}
+	if errText != "" {
+		event.Payload["error"] = errText
+	}
+	return event
+}
+
+func newToolRuntimeEvents(createdAt time.Time, msg proto.Message, turnID string, states map[string]runtimeToolEventState) []RuntimeEvent {
+	events := make([]RuntimeEvent, 0)
+	for _, call := range msg.ToolCalls() {
+		if call.ID == "" {
+			continue
+		}
+		state := states[call.ID]
+		if !state.Started {
+			event := runtimeapi.NewEvent(newRuntimeEventID(), runtimeapi.EventToolCallStarted, createdAt)
+			event.SessionID = msg.SessionID
+			event.TurnID = turnID
+			event.MessageID = msg.ID
+			event.ToolCallID = call.ID
+			event.Payload = map[string]any{
+				"name":     call.Name,
+				"input":    preview(call.Input, runtimePartPreviewLimit),
+				"finished": call.Finished,
+			}
+			events = append(events, event)
+			state.Started = true
+		}
+		if call.Finished && !state.Completed {
+			event := runtimeapi.NewEvent(newRuntimeEventID(), runtimeapi.EventToolCallCompleted, createdAt)
+			event.SessionID = msg.SessionID
+			event.TurnID = turnID
+			event.MessageID = msg.ID
+			event.ToolCallID = call.ID
+			event.Payload = map[string]any{
+				"name":  call.Name,
+				"input": preview(call.Input, runtimePartPreviewLimit),
+			}
+			events = append(events, event)
+			state.Completed = true
+		}
+		states[call.ID] = state
+	}
+	for _, result := range msg.ToolResults() {
+		if result.ToolCallID == "" {
+			continue
+		}
+		state := states[result.ToolCallID]
+		if !state.Output {
+			eventType := runtimeapi.EventToolCallOutput
+			if result.IsError {
+				eventType = runtimeapi.EventToolCallFailed
+			}
+			event := runtimeapi.NewEvent(newRuntimeEventID(), eventType, createdAt)
+			event.SessionID = msg.SessionID
+			event.TurnID = turnID
+			event.MessageID = msg.ID
+			event.ToolCallID = result.ToolCallID
+			event.Payload = map[string]any{
+				"name":     result.Name,
+				"content":  preview(result.Content, runtimePartPreviewLimit),
+				"is_error": result.IsError,
+			}
+			events = append(events, event)
+			state.Output = true
+			if result.IsError {
+				state.Completed = true
+			}
+			states[result.ToolCallID] = state
+		}
+	}
+	return events
 }
 
 func newSessionRuntimeEvent(createdAt time.Time, sessionID, title string) RuntimeEvent {

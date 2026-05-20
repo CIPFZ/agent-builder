@@ -25,6 +25,11 @@ export const wailsRuntime: AgentRuntime = {
     return bridge.Cancel()
   },
 
+  async cancelTurn(turnId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    return bridge.CancelTurn(turnId)
+  },
+
   async chat(request: RuntimeChatRequest) {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.Chat(request)
@@ -51,6 +56,17 @@ export const wailsRuntime: AgentRuntime = {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.GetModelConfig()
     return response.config
+  },
+
+  async getAPIEndpoint() {
+    const bridge = await loadWailsRuntimeBridge()
+    return bridge.APIEndpoint()
+  },
+
+  async getTurn(turnId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.Turn(turnId)
+    return response.turn
   },
 
   async getEventsEndpoint() {

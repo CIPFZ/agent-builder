@@ -1,5 +1,5 @@
 import { getAgentRuntime } from '../runtime'
-import type { RuntimeMcpServerConfig, RuntimePermissionDecision, RuntimeSkillCreateRequest, RuntimeStatus } from '../runtime'
+import type { RuntimeMcpServerConfig, RuntimePermissionDecision, RuntimeSkillCreateRequest } from '../runtime'
 
 export type ModelConfig = {
   protocol: 'openai' | 'anthropic'
@@ -17,9 +17,9 @@ export type ModelsResponse = {
   models: string[]
 }
 
-export async function sendRuntimePrompt(prompt: string, sessionId?: string): Promise<RuntimeStatus> {
+export async function sendRuntimePrompt(prompt: string, sessionId?: string) {
   const response = await getAgentRuntime().chat({ prompt, sessionId })
-  return response.status
+  return response
 }
 
 export async function requestConfiguredModels(): Promise<ModelsResponse> {
@@ -126,6 +126,10 @@ export async function decideRuntimePermission(request: RuntimePermissionDecision
 
 export async function cancelRuntimeTurn() {
   return getAgentRuntime().cancel()
+}
+
+export async function cancelRuntimeTurnById(turnId: string) {
+  return getAgentRuntime().cancelTurn(turnId)
 }
 
 export async function refreshRuntimeSkills() {

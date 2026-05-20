@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import AntApp from 'antd/es/app'
 import Alert from 'antd/es/alert'
@@ -49,6 +49,7 @@ import type { TextAreaRef } from 'antd/es/input/TextArea'
 import {
   addRuntimeSkillPath,
   cancelRuntimeTurn,
+  cancelRuntimeTurnById,
   createRuntimeSkill,
   deleteRuntimeSession,
   decideRuntimePermission,
@@ -83,7 +84,7 @@ import {
   verifyModelConfig,
 } from './api/chat'
 import type { ModelConfig } from './api/chat'
-import { subscribeRuntimeEvents } from './runtime/events'
+import { useRuntimeEventSubscription } from './hooks/useRuntimeEventSubscription'
 import { OperationsPreview } from './components/runtime/OperationsPreview'
 import type {
   RuntimeEvent,
@@ -341,47 +342,33 @@ function AppContent() {
     }
   }, [isModelConfigured])
 
-  useEffect(() => {
-    if (!isModelConfigured) return
-    let unsubscribe: (() => void) | undefined
-    let cancelled = false
-
-    requestRuntimeEventsEndpoint()
-      .then(({ url }) => {
-        if (cancelled || !url) return
-        unsubscribe = subscribeRuntimeEvents(
-          url,
-          (event) => {
-            setEvents((current) => [...current, event].slice(-runtimeEventLimit))
-            if (event.type === 'message.created' || event.type === 'message.updated' || event.type === 'message.completed') {
-              refreshMessages().catch(() => undefined)
-              refreshStatus().catch(() => undefined)
-              refreshSessions().catch(() => undefined)
-            }
-            if (event.type === 'session.created' || event.type === 'session.updated' || event.type === 'session.deleted') {
-              refreshSessions().catch(() => undefined)
-            }
-            if (event.type === 'permission.requested') {
-              refreshPermissions().catch(() => undefined)
-              refreshStatus().catch(() => undefined)
-            }
-            if (event.type.startsWith('skill.') || event.type.startsWith('mcp.')) {
-              refreshRuntimeInventory().catch(() => undefined)
-            }
-            if (event.type === 'audit.recorded') {
-              refreshAudit(event.turn_id).catch(() => undefined)
-            }
-          },
-          () => undefined,
-        )
-      })
-      .catch(() => undefined)
-
-    return () => {
-      cancelled = true
-      unsubscribe?.()
+  const handleRuntimeEvent = useCallback((event: RuntimeEvent) => {
+    setEvents((current) => [...current, event].slice(-runtimeEventLimit))
+    if (event.type === 'message.created' || event.type === 'message.updated' || event.type === 'message.completed') {
+      refreshMessages().catch(() => undefined)
+      refreshStatus().catch(() => undefined)
+      refreshSessions().catch(() => undefined)
     }
-  }, [isModelConfigured])
+    if (event.type === 'session.created' || event.type === 'session.updated' || event.type === 'session.deleted') {
+      refreshSessions().catch(() => undefined)
+    }
+    if (event.type === 'permission.requested') {
+      refreshPermissions().catch(() => undefined)
+      refreshStatus().catch(() => undefined)
+    }
+    if (event.type.startsWith('skill.') || event.type.startsWith('mcp.')) {
+      refreshRuntimeInventory().catch(() => undefined)
+    }
+    if (event.type === 'audit.recorded') {
+      refreshAudit(event.turn_id).catch(() => undefined)
+    }
+  }, [])
+
+  useRuntimeEventSubscription({
+    enabled: isModelConfigured,
+    requestEndpoint: requestRuntimeEventsEndpoint,
+    onEvent: handleRuntimeEvent,
+  })
 
   const switchModel = async (modelName: string) => {
     if (modelName === config.model || modelSwitching) return
@@ -473,7 +460,9 @@ function AppContent() {
         throw new Error('No active runtime session. Create or select a session before sending a message.')
       }
       const previousAssistantId = [...messages].reverse().find((chatMessage) => chatMessage.role === 'assistant')?.id
-      await sendRuntimePrompt(content, targetSessionId)
+      const turn = await sendRuntimePrompt(content, targetSessionId)
+      const activeTurnId = turn.turnId || turn.requestId
+      setRuntimeStatus(turn.status)
       let runtimeMessages = await loadMessagesForSession(targetSessionId)
       setMessages(runtimeMessages)
       await refreshPermissions().catch(() => undefined)
@@ -496,6 +485,9 @@ function AppContent() {
       setMessages(runtimeMessages)
       await refreshPermissions().catch(() => undefined)
       await refreshStatus().catch(() => undefined)
+      if (activeTurnId) {
+        await refreshAudit(activeTurnId).catch(() => undefined)
+      }
       await refreshSessions().catch(() => undefined)
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
@@ -593,7 +585,8 @@ function AppContent() {
 
   const cancelTurn = async () => {
     try {
-      const nextStatus = await cancelRuntimeTurn()
+      const activeTurnId = runtimeStatus?.requests?.activeRequestId || [...events].reverse().find((event) => event.turn_id)?.turn_id
+      const nextStatus = activeTurnId ? await cancelRuntimeTurnById(activeTurnId) : await cancelRuntimeTurn()
       setRuntimeStatus(nextStatus)
       setIsSending(false)
       await refreshMessages().catch(() => undefined)

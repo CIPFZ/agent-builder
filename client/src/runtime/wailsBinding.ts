@@ -19,13 +19,17 @@ import type {
   RuntimeSkillCreateRequest,
   RuntimeSkill,
   RuntimeStatus,
+  RuntimeTurn,
+  RuntimeAPIEndpoint,
 } from './types'
 
 type WailsRuntimeBridge = {
   AddSkillPath: (request: { path: string }) => Promise<{ skills: RuntimeSkill[] }>
+  APIEndpoint: () => Promise<RuntimeAPIEndpoint>
   AuditSession: (sessionId: string) => Promise<{ events: RuntimeAuditEvent[] }>
   AuditTurn: (turnId: string) => Promise<{ events: RuntimeAuditEvent[] }>
   Cancel: () => Promise<RuntimeStatus>
+  CancelTurn: (turnId: string) => Promise<RuntimeStatus>
   Capabilities: () => Promise<{ capabilities: RuntimeCapability[] }>
   Chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
   CreateSkill: (request: RuntimeSkillCreateRequest) => Promise<{ skills: RuntimeSkill[] }>
@@ -55,6 +59,7 @@ type WailsRuntimeBridge = {
   SetSkillEnabled: (request: { name: string; enabled: boolean }) => Promise<{ skills: RuntimeSkill[] }>
   Skills: () => Promise<{ skills: RuntimeSkill[] }>
   Status: () => Promise<RuntimeStatus>
+  Turn: (turnId: string) => Promise<{ turn: RuntimeTurn }>
   VerifyModelConfig: (request: RuntimeModelConfig) => Promise<RuntimeModelVerifyResponse>
 }
 

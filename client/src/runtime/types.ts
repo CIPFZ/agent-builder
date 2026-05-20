@@ -25,7 +25,26 @@ export type RuntimeChatRequest = {
 
 export type RuntimeChatResponse = {
   requestId: string
+  turnId?: string
   status: RuntimeStatus
+}
+
+export type RuntimeTurn = {
+  id: string
+  sessionId: string
+  status: string
+  startedAt: number
+  finishedAt?: number
+  durationMs?: number
+  provider?: string
+  model?: string
+  promptPreview?: string
+  usageBefore?: RuntimeUsage
+  usageAfter?: RuntimeUsage
+  usageDelta?: RuntimeUsage
+  latestMessageId?: string
+  latestAssistant?: RuntimeMessage
+  error?: string
 }
 
 export type RuntimePermissionRequest = {
@@ -58,6 +77,12 @@ export type RuntimeEvent = {
 
 export type RuntimeEventsEndpoint = {
   url: string
+  token?: string
+}
+
+export type RuntimeAPIEndpoint = {
+  url: string
+  token: string
 }
 
 export type RuntimeSkill = {
@@ -246,10 +271,13 @@ export type AgentRuntime = {
   auditSession: (sessionId: string) => Promise<RuntimeAuditEvent[]>
   auditTurn: (turnId: string) => Promise<RuntimeAuditEvent[]>
   cancel: () => Promise<RuntimeStatus>
+  cancelTurn: (turnId: string) => Promise<RuntimeStatus>
   chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
   deleteSession: (sessionId: string) => Promise<RuntimeSession[]>
   decidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
   getModelConfig: () => Promise<RuntimeModelConfig>
+  getAPIEndpoint: () => Promise<RuntimeAPIEndpoint>
+  getTurn: (turnId: string) => Promise<RuntimeTurn>
   getEventsEndpoint: () => Promise<RuntimeEventsEndpoint>
   addSkillPath: (path: string) => Promise<RuntimeSkill[]>
   listCapabilities: () => Promise<RuntimeCapability[]>

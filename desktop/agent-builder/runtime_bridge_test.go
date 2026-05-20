@@ -13,11 +13,15 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
+	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
 func TestLocalModelConfigPathsIncludeWorkingDirectoryConfig(t *testing.T) {
@@ -797,6 +801,67 @@ func TestAppendRuntimeEventLockedReturnsPublishEvent(t *testing.T) {
 	}
 }
 
+func TestRecordRuntimeEventEmitsTurnScopedToolEvents(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	service.sessionTurns["session-1"] = "turn-1"
+	msg := message.Message{
+		ID:        "message-1",
+		SessionID: "session-1",
+		Role:      message.Assistant,
+		CreatedAt: time.Now().Add(-time.Second).UnixMilli(),
+		UpdatedAt: time.Now().UnixMilli(),
+		Parts: []message.ContentPart{
+			message.ToolCall{ID: "tool-1", Name: "bash", Input: `{"command":"pwd"}`, Finished: true},
+			message.ToolResult{ToolCallID: "tool-1", Name: "bash", Content: "C:/work"},
+		},
+	}
+
+	service.recordRuntimeEvent(pubsub.Event[tea.Msg]{
+		Payload: pubsub.Event[message.Message]{Payload: msg},
+	})
+
+	var types []string
+	for _, event := range service.events {
+		types = append(types, event.Type)
+		if event.TurnID != "turn-1" {
+			t.Fatalf("event %s TurnID = %q, want turn-1", event.Type, event.TurnID)
+		}
+	}
+	want := []string{
+		runtimeapi.EventMessageUpdated,
+		runtimeapi.EventToolCallStarted,
+		runtimeapi.EventToolCallCompleted,
+		runtimeapi.EventToolCallOutput,
+	}
+	if !slices.Equal(types, want) {
+		t.Fatalf("event types = %#v, want %#v", types, want)
+	}
+
+	service.recordRuntimeEvent(pubsub.Event[tea.Msg]{
+		Payload: pubsub.Event[message.Message]{Payload: msg},
+	})
+	if len(service.events) != len(want)+1 {
+		t.Fatalf("duplicate tool events were emitted: %#v", service.events)
+	}
+}
+
+func TestTurnRuntimeEventsCarryUsageAndStatus(t *testing.T) {
+	t.Parallel()
+
+	usage := RuntimeUsage{PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7, Cost: 0.01}
+	delta := RuntimeUsage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3, Cost: 0.001}
+	usageEvent := newUsageRuntimeEvent(time.Now(), "turn-1", "session-1", usage, delta)
+	if usageEvent.Type != runtimeapi.EventUsageUpdated || usageEvent.TurnID != "turn-1" {
+		t.Fatalf("usage event = %#v", usageEvent)
+	}
+	turnEvent := newTurnFinishedRuntimeEvent(time.Now(), "turn-1", "session-1", "failed", 10*time.Millisecond, "provider", "model", delta, "boom")
+	if turnEvent.Type != runtimeapi.EventTurnFailed || turnEvent.Payload["error"] != "boom" {
+		t.Fatalf("turn event = %#v", turnEvent)
+	}
+}
+
 func TestRuntimeBridgeDelegatesToRuntimeService(t *testing.T) {
 	t.Parallel()
 
@@ -888,6 +953,8 @@ type recordingRuntimeService struct {
 	messageSession   string
 	createdSkill     RuntimeSkillCreateRequest
 	addedSkillPath   string
+	cancelledTurn    string
+	turn             RuntimeTurnResponse
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -913,7 +980,11 @@ func (s *recordingRuntimeService) VerifyModelConfig(context.Context, RuntimeMode
 
 func (s *recordingRuntimeService) Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error) {
 	s.chatCalls++
-	return RuntimeChatResponse{RequestID: "request-1", Status: s.status}, nil
+	return RuntimeChatResponse{RequestID: "request-1", TurnID: "request-1", Status: s.status}, nil
+}
+
+func (s *recordingRuntimeService) Turn(context.Context, string) (RuntimeTurnResponse, error) {
+	return s.turn, nil
 }
 
 func (s *recordingRuntimeService) Sessions(context.Context) (RuntimeSessionsResponse, error) {
@@ -1041,11 +1112,20 @@ func (s *recordingRuntimeService) Capabilities(context.Context) (RuntimeCapabili
 	return s.capabilities, nil
 }
 
+func (s *recordingRuntimeService) APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error) {
+	return RuntimeAPIEndpointResponse{URL: "http://127.0.0.1:1", Token: "token"}, nil
+}
+
 func (s *recordingRuntimeService) DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error) {
 	return RuntimeStatus{}, nil
 }
 
 func (s *recordingRuntimeService) Cancel(context.Context) (RuntimeStatus, error) {
+	return RuntimeStatus{}, nil
+}
+
+func (s *recordingRuntimeService) CancelTurn(_ context.Context, turnID string) (RuntimeStatus, error) {
+	s.cancelledTurn = turnID
 	return RuntimeStatus{}, nil
 }
 

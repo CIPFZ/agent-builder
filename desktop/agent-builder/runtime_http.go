@@ -122,6 +122,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		value, err := s.service.SaveModelConfig(r.Context(), req)
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/config/models":
+		value, err := s.service.Models(r.Context())
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/permissions":
 		value, err := s.service.Permissions(r.Context())
 		writeRuntimeResult(w, value, err)
@@ -157,6 +160,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req.SessionID = sessionTurnsPathID(r.URL.Path)
 		value, err := s.service.Chat(r.Context(), req)
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && turnPathID(r.URL.Path) != "":
+		value, err := s.service.Turn(r.Context(), turnPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPut && sessionPathID(r.URL.Path) != "":
 		var req RuntimeSessionUpdateRequest
 		if !decodeRuntimeJSON(w, r, &req) {
@@ -175,10 +181,13 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		value, err := s.service.Session(r.Context(), sessionPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && turnCancelPathID(r.URL.Path) != "":
-		value, err := s.service.Cancel(r.Context())
+		value, err := s.service.CancelTurn(r.Context(), turnCancelPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
-	case r.Method == http.MethodGet && r.URL.Path == "/v1/events":
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/events" && strings.Contains(r.Header.Get("Accept"), "text/event-stream"):
 		s.handleEvents(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/events":
+		value, err := s.service.Events(r.Context())
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/skills":
 		value, err := s.service.Skills(r.Context())
 		writeRuntimeResult(w, value, err)
@@ -269,7 +278,11 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *runtimeHTTPServer) authorized(r *http.Request) bool {
 	got := strings.TrimSpace(r.Header.Get("Authorization"))
 	want := "Bearer " + s.Token()
-	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+	if subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1 {
+		return true
+	}
+	queryToken := strings.TrimSpace(r.URL.Query().Get("token"))
+	return queryToken != "" && subtle.ConstantTimeCompare([]byte(queryToken), []byte(s.Token())) == 1
 }
 
 func (s *runtimeHTTPServer) handleEvents(w http.ResponseWriter, r *http.Request) {
@@ -371,6 +384,14 @@ func sessionPathID(path string) string {
 
 func turnCancelPathID(path string) string {
 	return trimPathID(path, "/v1/turns/", "/cancel")
+}
+
+func turnPathID(path string) string {
+	id := strings.TrimPrefix(path, "/v1/turns/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
 }
 
 func trimPathID(path, prefix, suffix string) string {

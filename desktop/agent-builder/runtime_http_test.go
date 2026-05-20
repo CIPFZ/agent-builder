@@ -25,6 +25,20 @@ func TestRuntimeHTTPServerRequiresBearerToken(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerAllowsQueryTokenForEventSource(t *testing.T) {
+	t.Parallel()
+
+	server := newRuntimeHTTPServer(&recordingRuntimeService{})
+	req, err := http.NewRequest(http.MethodGet, "/v1/events?token="+server.Token(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d, want %d body = %s", resp.status, http.StatusOK, resp.body.String())
+	}
+}
+
 func TestRuntimeHTTPServerRoutesStatusToRuntimeService(t *testing.T) {
 	t.Parallel()
 
@@ -99,6 +113,45 @@ func TestRuntimeHTTPServerRoutesSessionTurnToRuntimeService(t *testing.T) {
 	}
 	if service.chatCalls != 1 {
 		t.Fatalf("chatCalls = %d, want 1", service.chatCalls)
+	}
+}
+
+func TestRuntimeHTTPServerRoutesTurnGetAndCancelToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		turn: RuntimeTurnResponse{Turn: RuntimeTurn{ID: "turn-1", SessionID: "session-1", Status: "running"}},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/turns/turn-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("get status = %d body = %s", resp.status, resp.body.String())
+	}
+	var turn RuntimeTurnResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &turn); err != nil {
+		t.Fatal(err)
+	}
+	if turn.Turn.ID != "turn-1" || turn.Turn.Status != "running" {
+		t.Fatalf("turn = %#v", turn.Turn)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, "/v1/turns/turn-1/cancel", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("cancel status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.cancelledTurn != "turn-1" {
+		t.Fatalf("cancelledTurn = %q, want turn-1", service.cancelledTurn)
 	}
 }
 
@@ -375,6 +428,7 @@ func TestRuntimeHTTPServerStreamsRuntimeEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+server.Token())
+	req.Header.Set("Accept", "text/event-stream")
 	recorder := newStreamingRecorder()
 	done := make(chan struct{})
 	go func() {
@@ -400,6 +454,36 @@ func TestRuntimeHTTPServerStreamsRuntimeEvents(t *testing.T) {
 	}
 	cancel()
 	<-done
+}
+
+func TestRuntimeHTTPServerRoutesEventsHistoryToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	service.storeRuntimeEvent(RuntimeEvent{
+		ID:        "event-1",
+		Type:      "message.created",
+		CreatedAt: "2026-05-18T00:00:00Z",
+		MessageID: "message-1",
+	})
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodGet, "/v1/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	var history RuntimeEventsResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &history); err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Events) != 1 || history.Events[0].ID != "event-1" {
+		t.Fatalf("history = %#v", history.Events)
+	}
 }
 
 type httpRecorder struct {
