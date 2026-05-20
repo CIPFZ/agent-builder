@@ -17,6 +17,7 @@ type RuntimeService interface {
 	Models(context.Context) (RuntimeModelsResponse, error)
 	GetModelConfig(context.Context) (RuntimeConfigResponse, error)
 	SaveModelConfig(context.Context, RuntimeModelConfig) (RuntimeConfigResponse, error)
+	DiscoverModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelDiscoveryResponse, error)
 	VerifyModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelVerifyResponse, error)
 	Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error)
 	Turn(context.Context, string) (RuntimeTurnResponse, error)

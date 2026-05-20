@@ -107,9 +107,6 @@ func (r *runtimeService) SaveModelConfig(ctx context.Context, req RuntimeModelCo
 	discovered, discoverErr := discoverModelIDs(ctx, next)
 	if discoverErr == nil && len(discovered) > 0 {
 		next.Models = discovered
-		if next.Model == "" || !slices.Contains(next.Models, next.Model) {
-			next.Model = next.Models[0]
-		}
 	} else if next.Model != "" {
 		next.Models = mergeModelIDs([]string{next.Model}, req.Models, current.Models)
 	}
@@ -127,6 +124,47 @@ func (r *runtimeService) SaveModelConfig(ctx context.Context, req RuntimeModelCo
 	next.HasAPIKey = true
 	next.ConfigPath = layout.ModelConfigPath
 	return RuntimeConfigResponse{Config: next}, nil
+}
+
+func (r *runtimeService) DiscoverModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeModelDiscoveryResponse, error) {
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return RuntimeModelDiscoveryResponse{}, err
+	}
+	current, result := loadLocalModelConfig(layout)
+	if result.Error != nil {
+		return RuntimeModelDiscoveryResponse{}, result.Error
+	}
+	cfg := RuntimeModelConfig{
+		Protocol: strings.TrimSpace(req.Protocol),
+		URL:      strings.TrimSpace(req.URL),
+		APIKey:   strings.TrimSpace(req.APIKey),
+		Model:    strings.TrimSpace(req.Model),
+		Proxy:    strings.TrimSpace(req.Proxy),
+	}
+	if cfg.APIKey == "" {
+		cfg.APIKey = current.APIKey
+	}
+	if err := validateModelConfig(cfg, false); err != nil {
+		return RuntimeModelDiscoveryResponse{}, err
+	}
+	models, err := discoverModelIDs(ctx, cfg)
+	if err != nil {
+		return RuntimeModelDiscoveryResponse{
+			Protocol: cfg.Protocol,
+			Model:    cfg.Model,
+			Error:    err.Error(),
+		}, nil
+	}
+	selected := cfg.Model
+	if selected != "" && !slices.Contains(models, selected) {
+		selected = ""
+	}
+	return RuntimeModelDiscoveryResponse{
+		Protocol: cfg.Protocol,
+		Model:    selected,
+		Models:   models,
+	}, nil
 }
 
 func (r *runtimeService) VerifyModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeModelVerifyResponse, error) {

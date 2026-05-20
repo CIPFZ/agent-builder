@@ -96,6 +96,30 @@ func TestRuntimeHTTPServerRoutesModelVerifyToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesModelDiscoveryToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodPost, "/v1/config/model/discover", strings.NewReader(`{
+  "protocol": "openai",
+  "url": "https://api.example.com",
+  "apiKey": "secret"
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if strings.Contains(resp.body.String(), "secret") {
+		t.Fatalf("discovery response leaked api key: %s", resp.body.String())
+	}
+}
+
 func TestRuntimeHTTPServerRoutesSessionTurnToRuntimeService(t *testing.T) {
 	t.Parallel()
 

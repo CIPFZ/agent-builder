@@ -15,6 +15,7 @@ export type {
   RuntimeMcpResource,
   RuntimeMcpTool,
   RuntimeModel,
+  RuntimeModelDiscoveryResponse,
   RuntimeModelVerifyResponse,
   RuntimeMcpServer,
   RuntimeEvent,

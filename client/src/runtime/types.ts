@@ -258,6 +258,13 @@ export type RuntimeModelVerifyResponse = {
   error?: string
 }
 
+export type RuntimeModelDiscoveryResponse = {
+  protocol: RuntimeModelConfig['protocol']
+  model?: string
+  models: string[]
+  error?: string
+}
+
 export type RuntimeAuditEvent = {
   id: string
   session_id?: string
@@ -279,6 +286,7 @@ export type AgentRuntime = {
   getAPIEndpoint: () => Promise<RuntimeAPIEndpoint>
   getTurn: (turnId: string) => Promise<RuntimeTurn>
   getEventsEndpoint: () => Promise<RuntimeEventsEndpoint>
+  discoverModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelDiscoveryResponse>
   addSkillPath: (path: string) => Promise<RuntimeSkill[]>
   listCapabilities: () => Promise<RuntimeCapability[]>
   listEvents: () => Promise<RuntimeEvent[]>

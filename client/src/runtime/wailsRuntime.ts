@@ -41,6 +41,11 @@ export const wailsRuntime: AgentRuntime = {
     return response.skills
   },
 
+  async discoverModelConfig(config) {
+    const bridge = await loadWailsRuntimeBridge()
+    return bridge.DiscoverModelConfig(config)
+  },
+
   async decidePermission(request) {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.DecidePermission(request)

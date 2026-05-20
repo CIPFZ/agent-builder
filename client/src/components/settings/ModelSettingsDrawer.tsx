@@ -8,29 +8,45 @@ import Select from 'antd/es/select'
 import Space from 'antd/es/space'
 import Typography from 'antd/es/typography'
 import type { ModelConfig } from '../../api/chat'
-import type { RuntimeModelVerifyResponse } from '../../runtime'
+import type { RuntimeModelDiscoveryResponse, RuntimeModelVerifyResponse } from '../../runtime'
 
 const { Paragraph } = Typography
 
 type ModelSettingsDrawerProps = {
   config: ModelConfig
+  discovering: boolean
   open: boolean
   saving: boolean
   verifying: boolean
   onClose: () => void
+  onDiscover: (config: ModelConfig) => Promise<RuntimeModelDiscoveryResponse>
   onSave: (config: ModelConfig) => Promise<void>
   onVerify: (config: ModelConfig) => Promise<RuntimeModelVerifyResponse>
 }
 
-export function ModelSettingsDrawer({ config, open, saving, verifying, onClose, onSave, onVerify }: ModelSettingsDrawerProps) {
+export function ModelSettingsDrawer({
+  config,
+  discovering,
+  open,
+  saving,
+  verifying,
+  onClose,
+  onDiscover,
+  onSave,
+  onVerify,
+}: ModelSettingsDrawerProps) {
   const [form] = Form.useForm<ModelConfig>()
   const [availableModels, setAvailableModels] = useState<string[]>([])
-  const modelOptions = ((availableModels.length ? availableModels : undefined) ??
-    (config.models?.length ? config.models : undefined) ??
-    (config.model ? [config.model] : [])).map((model) => ({
+  const [selectedModel, setSelectedModel] = useState(config.model)
+  const modelOptions = availableModels.map((model) => ({
     value: model,
     label: model,
   }))
+
+  const submitValues = (values: ModelConfig): ModelConfig => ({
+    ...values,
+    models: availableModels,
+  })
 
   return (
     <Drawer
@@ -43,19 +59,40 @@ export function ModelSettingsDrawer({ config, open, saving, verifying, onClose, 
         if (visible) {
           form.setFieldsValue(config)
           setAvailableModels(config.models?.length ? config.models : config.model ? [config.model] : [])
+          setSelectedModel(config.model)
         }
       }}
       extra={
         <Space>
           <Button
+            loading={discovering}
+            onClick={() => {
+              form.validateFields(['protocol', 'url', 'apiKey']).then(async () => {
+                const values = form.getFieldsValue()
+                const result = await onDiscover(values)
+                const nextModels = result.models ?? []
+                if (!result.error) {
+                  const nextModel = result.model || (nextModels.includes(values.model) ? values.model : undefined)
+                  setAvailableModels(nextModels)
+                  form.setFieldsValue({ model: nextModel })
+                  setSelectedModel(nextModel ?? '')
+                }
+              })
+            }}
+          >
+            Refresh models
+          </Button>
+          <Button
             loading={verifying}
+            disabled={!selectedModel}
             onClick={() => {
               form.validateFields().then(async (values) => {
                 const result = await onVerify(values)
                 const nextModels = result.models?.length ? result.models : result.model ? [result.model] : []
                 if (result.ok && nextModels.length > 0) {
                   setAvailableModels(nextModels)
-                  form.setFieldsValue({ model: result.model || nextModels[0] })
+                  form.setFieldsValue({ model: result.model })
+                  setSelectedModel(result.model)
                 }
               })
             }}
@@ -65,8 +102,9 @@ export function ModelSettingsDrawer({ config, open, saving, verifying, onClose, 
           <Button
             type="primary"
             loading={saving}
+            disabled={!selectedModel}
             onClick={() => {
-              form.validateFields().then((values) => onSave(values))
+              form.validateFields().then((values) => onSave(submitValues(values)))
             }}
           >
             Save
@@ -75,7 +113,18 @@ export function ModelSettingsDrawer({ config, open, saving, verifying, onClose, 
       }
     >
       <Paragraph type="secondary">Saved to the desktop config directory beside the application.</Paragraph>
-      <Form form={form} layout="vertical" initialValues={config}>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={config}
+        onValuesChange={(changed) => {
+          if ('protocol' in changed || 'url' in changed || 'apiKey' in changed) {
+            setAvailableModels([])
+            setSelectedModel('')
+            form.setFieldsValue({ model: '' })
+          }
+        }}
+      >
         <Form.Item label="Protocol" name="protocol" rules={[{ required: true }]}>
           <Select
             options={[
@@ -90,8 +139,14 @@ export function ModelSettingsDrawer({ config, open, saving, verifying, onClose, 
         <Form.Item label="API key" name="apiKey" rules={config.hasApiKey ? [] : [{ required: true }]}>
           <Input.Password placeholder={config.hasApiKey ? 'Saved. Leave empty to keep current key.' : 'sk-...'} />
         </Form.Item>
-        <Form.Item label="Model" name="model">
-          <Select showSearch placeholder="Model list is fetched after verification or save" options={modelOptions} />
+        <Form.Item label="Model" name="model" rules={[{ required: true, message: 'Refresh models and select one.' }]}>
+          <Select
+            showSearch
+            placeholder="Refresh models first"
+            options={modelOptions}
+            notFoundContent="Refresh models after entering protocol, URL, and API key."
+            onChange={(value) => setSelectedModel(value)}
+          />
         </Form.Item>
         <Collapse
           ghost

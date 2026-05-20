@@ -113,6 +113,9 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
       const response = await post<{ skills: RuntimeSkill[] }>('/v1/skills', request)
       return response.skills
     },
+    discoverModelConfig(config: RuntimeModelConfig) {
+      return post('/v1/config/model/discover', config)
+    },
     decidePermission(request: RuntimePermissionDecision) {
       return post<RuntimeStatus>(`/v1/permissions/${encodePath(request.permissionId)}/decision`, request)
     },

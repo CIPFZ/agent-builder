@@ -78,6 +78,7 @@ export function useAssistantClient() {
   const [config, setConfig] = useState<ModelConfig>(defaultConfig)
   const [models, setModels] = useState<string[]>([defaultConfig.model])
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsDiscovering, setSettingsDiscovering] = useState(false)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsVerifying, setSettingsVerifying] = useState(false)
   const [modelSwitching, setModelSwitching] = useState(false)
@@ -581,10 +582,12 @@ export function useAssistantClient() {
 		setMcpToolsByServer,
 		setModels,
     setOperationsOpen,
+    setSettingsDiscovering,
     setSettingsOpen,
     setSettingsSaving,
     setSettingsVerifying,
     setSkills,
+    settingsDiscovering,
     settingsOpen,
     settingsSaving,
     settingsVerifying,

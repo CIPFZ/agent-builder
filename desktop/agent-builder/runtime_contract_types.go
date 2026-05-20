@@ -325,3 +325,10 @@ type RuntimeModelVerifyResponse struct {
 	Models   []string `json:"models,omitempty"`
 	Error    string   `json:"error,omitempty"`
 }
+
+type RuntimeModelDiscoveryResponse struct {
+	Protocol string   `json:"protocol"`
+	Model    string   `json:"model,omitempty"`
+	Models   []string `json:"models"`
+	Error    string   `json:"error,omitempty"`
+}

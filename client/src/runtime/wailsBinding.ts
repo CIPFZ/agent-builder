@@ -12,6 +12,7 @@ import type {
   RuntimeMessage,
   RuntimeModel,
   RuntimeModelConfig,
+  RuntimeModelDiscoveryResponse,
   RuntimeModelVerifyResponse,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
@@ -34,6 +35,7 @@ type WailsRuntimeBridge = {
   Chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
   CreateSkill: (request: RuntimeSkillCreateRequest) => Promise<{ skills: RuntimeSkill[] }>
   DecidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
+  DiscoverModelConfig: (request: RuntimeModelConfig) => Promise<RuntimeModelDiscoveryResponse>
   Events: () => Promise<{ events: RuntimeEvent[] }>
   EventsEndpoint: () => Promise<{ url: string }>
   GetModelConfig: () => Promise<{ config: RuntimeModelConfig }>

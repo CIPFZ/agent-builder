@@ -252,6 +252,34 @@ func TestVerifyModelConfigRejectsIncompleteConfig(t *testing.T) {
 	}
 }
 
+func TestDiscoverModelConfigDoesNotRequireModel(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("Path = %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			t.Fatalf("Authorization = %q", r.Header.Get("Authorization"))
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"model-a"},{"id":"model-b"}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	service := newRuntimeService()
+	resp, err := service.DiscoverModelConfig(context.Background(), RuntimeModelConfig{
+		Protocol: "openai",
+		URL:      server.URL,
+		APIKey:   "test-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Error != "" || !slices.Equal(resp.Models, []string{"model-a", "model-b"}) || resp.Model != "" {
+		t.Fatalf("discovery response = %#v", resp)
+	}
+}
+
 func TestRuntimeMessagePartsExposeToolActivity(t *testing.T) {
 	t.Parallel()
 
@@ -1116,6 +1144,10 @@ func (s *recordingRuntimeService) GetModelConfig(context.Context) (RuntimeConfig
 
 func (s *recordingRuntimeService) SaveModelConfig(context.Context, RuntimeModelConfig) (RuntimeConfigResponse, error) {
 	return RuntimeConfigResponse{}, nil
+}
+
+func (s *recordingRuntimeService) DiscoverModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelDiscoveryResponse, error) {
+	return RuntimeModelDiscoveryResponse{Protocol: "openai", Models: []string{"test-model"}}, nil
 }
 
 func (s *recordingRuntimeService) VerifyModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelVerifyResponse, error) {

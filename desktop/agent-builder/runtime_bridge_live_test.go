@@ -13,6 +13,36 @@ import (
 	"github.com/charmbracelet/crush/internal/proto"
 )
 
+func TestDesktopRuntimeBridgeLiveModelDiscovery(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	apiKey := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
+	if apiKey == "" {
+		t.Fatal("DEEPSEEK_API_KEY is required")
+	}
+
+	bridge := NewRuntimeBridge()
+	resp, err := bridge.DiscoverModelConfig(ctx, RuntimeModelConfig{
+		Protocol: "openai",
+		URL:      "https://api.deepseek.com",
+		APIKey:   apiKey,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Error != "" {
+		t.Fatal(resp.Error)
+	}
+	if len(resp.Models) == 0 {
+		t.Fatal("model discovery returned no models")
+	}
+	if resp.Model != "" {
+		t.Fatalf("model discovery selected a model before the user did: %q", resp.Model)
+	}
+	t.Logf("discovered %d models", len(resp.Models))
+}
+
 func TestDesktopRuntimeBridgeLiveChat(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()

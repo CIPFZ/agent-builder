@@ -19,6 +19,18 @@ function Run($command, $arguments, $workingDirectory) {
   }
 }
 
+function Get-OpenAICompatibleModels($baseURL, $apiKey) {
+  $endpoint = $baseURL.TrimEnd("/") + "/v1/models"
+  $response = Invoke-RestMethod -Method Get -Uri $endpoint -Headers @{
+    Authorization = "Bearer $apiKey"
+  } -TimeoutSec 30
+  $models = @($response.data | ForEach-Object { $_.id } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+  if ($models.Count -eq 0) {
+    throw "Live smoke model discovery returned no models."
+  }
+  return $models
+}
+
 try {
   New-Item -ItemType Directory -Path $smokeRoot | Out-Null
   $env:AGENT_BUILDER_DESKTOP_ROOT = $smokeRoot
@@ -38,12 +50,15 @@ try {
       throw "Live smoke requires DEEPSEEK_API_KEY in the environment."
     }
 
+    $models = Get-OpenAICompatibleModels "https://api.deepseek.com" $providerKey
+    $selectedModel = $models[0]
+    Write-Host "Live smoke selected model: $selectedModel"
     $modelConfig = @{
       protocol = "openai"
       url = "https://api.deepseek.com"
       apiKey = $providerKey
-      model = "deepseek-chat"
-      models = @("deepseek-chat")
+      model = $selectedModel
+      models = $models
     } | ConvertTo-Json -Depth 4
     New-Item -ItemType Directory -Path (Join-Path $smokeRoot "config") -Force | Out-Null
     [System.IO.File]::WriteAllText(

@@ -37,6 +37,12 @@ func (r *RuntimeBridge) SaveModelConfig(ctx context.Context, req RuntimeModelCon
 
 }
 
+func (r *RuntimeBridge) DiscoverModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeModelDiscoveryResponse, error) {
+
+	return r.service.DiscoverModelConfig(ctx, req)
+
+}
+
 func (r *RuntimeBridge) VerifyModelConfig(ctx context.Context, req RuntimeModelConfig) (RuntimeModelVerifyResponse, error) {
 
 	return r.service.VerifyModelConfig(ctx, req)

@@ -60,6 +60,10 @@ export async function verifyModelConfig(config: ModelConfig) {
   return getAgentRuntime().verifyModelConfig(config)
 }
 
+export async function discoverModelConfig(config: ModelConfig) {
+  return getAgentRuntime().discoverModelConfig(config)
+}
+
 export async function requestRuntimeStatus() {
   return getAgentRuntime().status()
 }

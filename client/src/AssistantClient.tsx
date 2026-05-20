@@ -2,6 +2,7 @@ import AntApp from 'antd/es/app'
 import {
   addRuntimeSkillPath,
   createRuntimeSkill,
+  discoverModelConfig,
   refreshRuntimeMcpServer,
   refreshRuntimeSkills,
   saveModelConfig,
@@ -64,6 +65,7 @@ export function AssistantClient() {
         saving={client.settingsSaving}
         onClose={() => client.setSettingsOpen(false)}
         verifying={client.settingsVerifying}
+        discovering={client.settingsDiscovering}
         onSave={async (nextConfig) => {
           client.setSettingsSaving(true)
           try {
@@ -101,6 +103,27 @@ export function AssistantClient() {
             throw error
           } finally {
             client.setSettingsVerifying(false)
+          }
+        }}
+        onDiscover={async (nextConfig) => {
+          client.setSettingsDiscovering(true)
+          try {
+            const result = await discoverModelConfig(nextConfig)
+            if (result.error) {
+              message.error(result.error)
+              return result
+            }
+            const nextModels = result.models ?? []
+            client.setModels(nextModels)
+            client.setConfig((current) => ({ ...current, models: nextModels, model: result.model || current.model }))
+            message.success(`Loaded ${nextModels.length} models`)
+            return result
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error)
+            message.error(reason)
+            throw error
+          } finally {
+            client.setSettingsDiscovering(false)
           }
         }}
       />
