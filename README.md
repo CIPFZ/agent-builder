@@ -166,6 +166,105 @@ Or just install it with Go:
 go install github.com/charmbracelet/crush@latest
 ```
 
+## AgentBuilder Desktop
+
+This repository also contains the Wails desktop client used for the
+agentic-operations runtime work. The desktop app embeds the shared React
+client from `client/` and builds a Windows executable named
+`AgentBuilder.exe`.
+
+### Desktop Build Requirements
+
+- Windows 10/11 for local Windows GUI testing.
+- Microsoft Edge WebView2 Runtime. It is included on most current Windows
+  installs; install it manually if the executable cannot start a WebView.
+- Go matching `go.mod` (`1.26.3` for this branch).
+- Node.js with `npm`.
+- Git.
+- Wails v3 CLI:
+
+```powershell
+go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+$env:PATH="$env:USERPROFILE\go\bin;$env:PATH"
+```
+
+The default Windows build uses `CGO_ENABLED=0`, so Visual Studio Build Tools
+are not required for the normal `AgentBuilder.exe` build.
+
+### Build the Windows EXE
+
+From the repository root:
+
+```powershell
+cd desktop\agent-builder
+wails3 task build
+```
+
+The build task will:
+
+1. Install frontend dependencies when missing.
+2. Build the shared React client in `client/`.
+3. Sync `client/dist` into `desktop/agent-builder/frontend/dist`.
+4. Generate Wails bindings and Windows resources.
+5. Build the executable.
+
+The output executable is:
+
+```text
+desktop/agent-builder/bin/AgentBuilder.exe
+```
+
+Run it directly:
+
+```powershell
+.\bin\AgentBuilder.exe
+```
+
+### Desktop Runtime Files
+
+`AgentBuilder.exe` owns runtime files next to the executable:
+
+```text
+desktop/agent-builder/bin/config/model.json
+desktop/agent-builder/bin/config/skills.json
+desktop/agent-builder/bin/config/mcp.json
+desktop/agent-builder/bin/data/
+desktop/agent-builder/bin/logs/
+```
+
+These files are local runtime data and should not be committed. Model settings
+are configured through the desktop UI by entering protocol, base URL, and API
+key, refreshing models, selecting a model, then verifying and saving.
+
+### Development and Smoke Tests
+
+Run the desktop app in Wails development mode:
+
+```powershell
+cd desktop\agent-builder
+wails3 task dev
+```
+
+Run the repeatable Phase 2 packaged smoke test:
+
+```powershell
+cd desktop\agent-builder
+.\scripts\phase2-smoke.ps1 -Build
+```
+
+This builds `bin/AgentBuilder.exe`, starts the packaged executable with a
+temporary runtime root, verifies local runtime API coverage, and checks that
+runtime directories are created.
+
+To include a live DeepSeek connectivity smoke, keep the API key in the process
+environment instead of any checked-in file:
+
+```powershell
+$env:DEEPSEEK_API_KEY="..."
+.\scripts\phase2-smoke.ps1 -Build -Live
+Remove-Item Env:\DEEPSEEK_API_KEY
+```
+
 > [!WARNING]
 > Productivity may increase when using Crush and you may find yourself nerd
 > sniped when first using the application. If the symptoms persist, join the
