@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -110,4 +111,29 @@ func scanRuntimeAuditRows(rows *sql.Rows) (RuntimeAuditResponse, error) {
 		return RuntimeAuditResponse{}, fmt.Errorf("failed to iterate runtime audit events: %w", err)
 	}
 	return RuntimeAuditResponse{Events: events}, nil
+}
+
+func (r *runtimeService) AuditTurn(ctx context.Context, turnID string) (RuntimeAuditResponse, error) {
+	db, err := r.workspaceDB(ctx)
+	if err != nil {
+		return RuntimeAuditResponse{}, err
+	}
+	return newRuntimeAuditStore(db).ListTurn(ctx, strings.TrimSpace(turnID))
+}
+
+func (r *runtimeService) AuditSession(ctx context.Context, sessionID string) (RuntimeAuditResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeAuditResponse{}, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		r.mu.Lock()
+		sessionID = r.sessionID
+		r.mu.Unlock()
+	}
+	db, err := r.workspaceDB(ctx)
+	if err != nil {
+		return RuntimeAuditResponse{}, err
+	}
+	return newRuntimeAuditStore(db).ListSession(ctx, sessionID)
 }
