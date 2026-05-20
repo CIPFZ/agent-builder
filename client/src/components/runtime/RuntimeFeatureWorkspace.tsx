@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
-import { AppstoreOutlined, ApiOutlined, ToolOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, ApiOutlined, MenuOutlined, ToolOutlined } from '@ant-design/icons'
+import Button from 'antd/es/button'
+import Tooltip from 'antd/es/tooltip'
 import Typography from 'antd/es/typography'
 import type {
   RuntimeCapability,
@@ -26,6 +28,7 @@ type RuntimeFeatureWorkspaceProps = {
   mcpPromptsByServer: Record<string, RuntimeMcpPrompt[]>
   mcpToolsByServer: Record<string, RuntimeMcpTool[]>
   skills: RuntimeSkill[]
+  sidebarCollapsed: boolean
   view: RuntimeFeatureView
   onAddSkillPath: (path: string) => Promise<void>
   onCreateSkill: (request: RuntimeSkillCreateRequest) => Promise<void>
@@ -35,6 +38,7 @@ type RuntimeFeatureWorkspaceProps = {
   onToggleMcpServer: (server: string, enabled: boolean) => Promise<void>
   onToggleMcpTool: (server: string, tool: string, enabled: boolean) => Promise<void>
   onToggleSkill: (name: string, enabled: boolean) => Promise<void>
+  onToggleSidebar: () => void
   onViewMcpTools: (server: string) => Promise<RuntimeMcpTool[]>
 }
 
@@ -63,6 +67,7 @@ export function RuntimeFeatureWorkspace({
   mcpPromptsByServer,
   mcpToolsByServer,
   skills,
+  sidebarCollapsed,
   view,
   onAddSkillPath,
   onCreateSkill,
@@ -72,6 +77,7 @@ export function RuntimeFeatureWorkspace({
   onToggleMcpServer,
   onToggleMcpTool,
   onToggleSkill,
+  onToggleSidebar,
   onViewMcpTools,
 }: RuntimeFeatureWorkspaceProps) {
   const meta = viewMeta[view]
@@ -79,6 +85,11 @@ export function RuntimeFeatureWorkspace({
   return (
     <main className="feature-main">
       <header className="feature-header">
+        {sidebarCollapsed ? (
+          <Tooltip title="Show sidebar">
+            <Button type="text" icon={<MenuOutlined />} onClick={onToggleSidebar} />
+          </Tooltip>
+        ) : null}
         <div className="feature-title-icon">{meta.icon}</div>
         <div>
           <Title level={3}>{meta.title}</Title>

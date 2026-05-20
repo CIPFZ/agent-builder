@@ -25,6 +25,10 @@ button {
   background: #fbfaf7;
 }
 
+.desktop-shell.sidebar-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -36,11 +40,6 @@ button {
   border: 1px solid #ebe7e1;
   border-radius: 8px;
   box-shadow: 0 16px 42px rgba(50, 43, 35, 0.08);
-}
-
-.sidebar.collapsed {
-  width: 64px;
-  padding: 16px 8px;
 }
 
 .sidebar-top {
@@ -74,15 +73,6 @@ button {
   min-height: 40px;
   padding: 0 12px;
   text-align: left;
-}
-
-.sidebar.collapsed .nav-item {
-  justify-content: center;
-  padding: 0;
-}
-
-.sidebar.collapsed .nav-item span {
-  display: none;
 }
 
 .nav-item:hover,
@@ -646,6 +636,10 @@ button {
   flex-direction: column;
   gap: 8px;
   pointer-events: none;
+}
+
+.sidebar-hidden .composer-dock {
+  left: 40px;
 }
 
 .composer-dock .composer {

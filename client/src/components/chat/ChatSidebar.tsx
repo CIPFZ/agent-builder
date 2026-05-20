@@ -49,25 +49,23 @@ export function ChatSidebar({
   onStartNewChat,
   onToggleCollapsed,
 }: ChatSidebarProps) {
+  if (collapsed) return null
+
   return (
-    <aside className={collapsed ? 'sidebar collapsed' : 'sidebar'}>
+    <aside className="sidebar">
       <div className="sidebar-top">
         <Flex justify="space-between" align="center">
           <Space size={10}>
-            <Tooltip title={collapsed ? 'Show sidebar' : 'Hide sidebar'}>
+            <Tooltip title="Hide sidebar">
               <Button type="text" icon={<MenuOutlined />} onClick={onToggleCollapsed} />
             </Tooltip>
-            {!collapsed ? (
-              <Tooltip title="Search">
-                <Button type="text" icon={<SearchOutlined />} onClick={onSearch} />
-              </Tooltip>
-            ) : null}
-          </Space>
-          {!collapsed ? (
-            <Tooltip title="New chat">
-              <Button type="text" icon={<PlusOutlined />} onClick={onStartNewChat} />
+            <Tooltip title="Search">
+              <Button type="text" icon={<SearchOutlined />} onClick={onSearch} />
             </Tooltip>
-          ) : null}
+          </Space>
+          <Tooltip title="New chat">
+            <Button type="text" icon={<PlusOutlined />} onClick={onStartNewChat} />
+          </Tooltip>
         </Flex>
 
         <nav className="nav-list">
@@ -90,7 +88,7 @@ export function ChatSidebar({
         </nav>
       </div>
 
-      {!collapsed ? <div className="recents">
+      <div className="recents">
         <Text className="section-label">Recents</Text>
         {sessions.length === 0 ? (
           <Text className="empty-recents" type="secondary">
@@ -128,9 +126,9 @@ export function ChatSidebar({
             </div>
           ))
         )}
-      </div> : null}
+      </div>
 
-      {!collapsed ? <div className="sidebar-footer">
+      <div className="sidebar-footer">
         <Space>
           <span className="avatar-dot">A</span>
           <span>Agent Builder</span>
@@ -139,7 +137,7 @@ export function ChatSidebar({
         <Tooltip title="Settings">
           <Button type="text" size="small" icon={<SettingOutlined />} onClick={onOpenSettings} />
         </Tooltip>
-      </div> : null}
+      </div>
     </aside>
   )
 }

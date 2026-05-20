@@ -25,7 +25,7 @@ export function AssistantClient() {
   const client = useAssistantClient()
 
   return (
-    <div className="desktop-shell">
+    <div className={client.sidebarCollapsed ? 'desktop-shell sidebar-hidden' : 'desktop-shell'}>
       <ChatSidebar
         activeView={client.activeView}
         collapsed={client.sidebarCollapsed}
@@ -59,6 +59,7 @@ export function AssistantClient() {
           modelItems={client.modelItems}
           modelSwitching={client.modelSwitching}
           runtimeStatus={client.runtimeStatus}
+          sidebarCollapsed={client.sidebarCollapsed}
           viewportRef={client.viewportRef}
           onCancelTurn={client.cancelTurn}
           onCopyMessage={client.copyMessage}
@@ -66,6 +67,7 @@ export function AssistantClient() {
           onOpenSettings={() => client.setSettingsOpen(true)}
           onSendMessage={client.sendMessage}
           onSetInput={client.setInput}
+          onToggleSidebar={() => client.setSidebarCollapsed(false)}
         />
       ) : (
         <RuntimeFeatureWorkspace
@@ -75,6 +77,7 @@ export function AssistantClient() {
           mcpPromptsByServer={client.mcpPromptsByServer}
           mcpToolsByServer={client.mcpToolsByServer}
           skills={client.skills}
+          sidebarCollapsed={client.sidebarCollapsed}
           view={client.activeView}
           onEditMcpServer={async (config) => {
             const nextServers = await saveRuntimeMcpServer(config)
@@ -125,6 +128,7 @@ export function AssistantClient() {
             await client.refreshRuntimeInventory()
             message.success(enabled ? 'Skill enabled' : 'Skill disabled')
           }}
+          onToggleSidebar={() => client.setSidebarCollapsed(false)}
           onViewMcpTools={(server) => client.refreshMcpTools(server)}
         />
       )}

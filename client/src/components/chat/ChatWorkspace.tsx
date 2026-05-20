@@ -6,7 +6,7 @@ import Tag from 'antd/es/tag'
 import Tooltip from 'antd/es/tooltip'
 import Typography from 'antd/es/typography'
 import type { MenuProps } from 'antd'
-import { AppstoreOutlined, AuditOutlined, CodeOutlined, DownOutlined, EditOutlined, SettingOutlined, StopOutlined, ToolOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, AuditOutlined, CodeOutlined, DownOutlined, EditOutlined, MenuOutlined, SettingOutlined, StopOutlined, ToolOutlined } from '@ant-design/icons'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
 import type { ModelConfig } from '../../api/chat'
 import type { RuntimeMessage, RuntimeSession, RuntimeStatus } from '../../runtime'
@@ -45,6 +45,7 @@ type ChatWorkspaceProps = {
   modelItems: MenuProps['items']
   modelSwitching: boolean
   runtimeStatus: RuntimeStatus | null
+  sidebarCollapsed: boolean
   viewportRef: RefObject<HTMLDivElement | null>
   onCancelTurn: () => void
   onCopyMessage: (content: string) => void
@@ -52,6 +53,7 @@ type ChatWorkspaceProps = {
   onOpenSettings: () => void
   onSendMessage: (text?: string) => void
   onSetInput: (value: string) => void
+  onToggleSidebar: () => void
 }
 
 export function ChatWorkspace({
@@ -69,6 +71,7 @@ export function ChatWorkspace({
   modelItems,
   modelSwitching,
   runtimeStatus,
+  sidebarCollapsed,
   viewportRef,
   onCancelTurn,
   onCopyMessage,
@@ -76,11 +79,17 @@ export function ChatWorkspace({
   onOpenSettings,
   onSendMessage,
   onSetInput,
+  onToggleSidebar,
 }: ChatWorkspaceProps) {
   return (
     <main className="chat-main">
       <header className="chat-header">
         <Space>
+          {sidebarCollapsed ? (
+            <Tooltip title="Show sidebar">
+              <Button type="text" icon={<MenuOutlined />} onClick={onToggleSidebar} />
+            </Tooltip>
+          ) : null}
           <Text strong>{activeSession?.title ?? activeChatTitle}</Text>
           <DownOutlined className="muted-icon" />
           <UsageReadout status={runtimeStatus} />
