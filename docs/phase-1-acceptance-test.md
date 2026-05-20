@@ -42,7 +42,7 @@ Optional advanced field:
 The backend saves the config to:
 
 ```text
-desktop/agent-builder/bin/config/model.local.json
+desktop/agent-builder/bin/config/model.json
 ```
 
 React must not persist model settings itself. The UI displays the configuration
@@ -106,7 +106,7 @@ Phase 1 acceptance passes when:
 
 - `AgentBuilder.exe` starts.
 - Missing model config is shown as a clear UI warning.
-- Model settings save to `bin/config/model.local.json`.
+- Model settings save to `bin/config/model.json`.
 - Chat works through the real Crush runtime.
 - Logs confirm a completed backend chat turn.
 - Permission requests are not unconditionally auto-approved.

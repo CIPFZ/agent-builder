@@ -213,7 +213,7 @@ harder.
 
 2. It is not a basic model config path problem.
 
-   The runtime loaded `bin/config/model.local.json` and logged
+   The runtime loaded `bin/config/model.json` and logged
    `has_api_key=true`.
 
 3. It is not a complete Wails binding failure.

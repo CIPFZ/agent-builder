@@ -34,7 +34,7 @@ desktop/agent-builder/bin/logs/
 ```
 
 Model settings are saved by the Go runtime bridge to
-`bin/config/model.local.json`. See
+`bin/config/model.json`. See
 `../../docs/phase-1-acceptance-test.md` for the local validation flow.
 
 ## Frontend Sync

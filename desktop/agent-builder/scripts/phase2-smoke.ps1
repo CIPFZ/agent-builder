@@ -47,7 +47,7 @@ try {
     } | ConvertTo-Json -Depth 4
     New-Item -ItemType Directory -Path (Join-Path $smokeRoot "config") -Force | Out-Null
     [System.IO.File]::WriteAllText(
-      (Join-Path $smokeRoot "config\model.local.json"),
+      (Join-Path $smokeRoot "config\model.json"),
       $modelConfig + [Environment]::NewLine,
       [System.Text.UTF8Encoding]::new($false)
     )

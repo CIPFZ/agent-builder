@@ -33,7 +33,7 @@ func TestLocalModelConfigPathsIncludeWorkingDirectoryConfig(t *testing.T) {
 		ConfigDir:       filepath.Join(root, "desktop", "agent-builder", "bin", "config"),
 		DataDir:         filepath.Join(root, "desktop", "agent-builder", "bin", "data"),
 		LogsDir:         filepath.Join(root, "desktop", "agent-builder", "bin", "logs"),
-		ModelConfigPath: filepath.Join(root, "desktop", "agent-builder", "bin", "config", "model.local.json"),
+		ModelConfigPath: filepath.Join(root, "desktop", "agent-builder", "bin", "config", "model.json"),
 	}
 	got := localModelConfigPaths(layout)
 	want := layout.ModelConfigPath
@@ -41,8 +41,11 @@ func TestLocalModelConfigPathsIncludeWorkingDirectoryConfig(t *testing.T) {
 	if !slices.Contains(got, want) {
 		t.Fatalf("localModelConfigPaths() missing %s in %#v", want, got)
 	}
-	if len(got) != 1 {
-		t.Fatalf("localModelConfigPaths() = %#v, want only %s", got, want)
+	if !slices.Contains(got, legacyLocalModelConfigPath(layout)) {
+		t.Fatalf("localModelConfigPaths() missing legacy path in %#v", got)
+	}
+	if len(got) != 2 {
+		t.Fatalf("localModelConfigPaths() = %#v, want current and legacy paths", got)
 	}
 }
 
@@ -55,7 +58,7 @@ func TestApplyLocalModelConfigConfiguresProvider(t *testing.T) {
 		ConfigDir:       filepath.Join(root, "config"),
 		DataDir:         filepath.Join(root, "data"),
 		LogsDir:         filepath.Join(root, "logs"),
-		ModelConfigPath: filepath.Join(root, "config", "model.local.json"),
+		ModelConfigPath: filepath.Join(root, "config", "model.json"),
 	}
 	if err := os.MkdirAll(layout.ConfigDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -160,7 +163,7 @@ func TestLocalModelConfigIgnoresLegacyFile(t *testing.T) {
 		ConfigDir:       filepath.Join(root, "config"),
 		DataDir:         filepath.Join(root, "data"),
 		LogsDir:         filepath.Join(root, "logs"),
-		ModelConfigPath: filepath.Join(root, "config", "model.local.json"),
+		ModelConfigPath: filepath.Join(root, "config", "model.json"),
 	}
 	legacyDir := filepath.Join(root, "client", "server")
 	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
@@ -188,7 +191,7 @@ func TestSaveLocalModelConfigWritesDesktopConfig(t *testing.T) {
 		ConfigDir:       filepath.Join(root, "config"),
 		DataDir:         filepath.Join(root, "data"),
 		LogsDir:         filepath.Join(root, "logs"),
-		ModelConfigPath: filepath.Join(root, "config", "model.local.json"),
+		ModelConfigPath: filepath.Join(root, "config", "model.json"),
 	}
 
 	err := saveLocalModelConfig(layout, RuntimeModelConfig{
@@ -218,6 +221,42 @@ func TestSaveLocalModelConfigWritesDesktopConfig(t *testing.T) {
 	}
 	if !slices.Equal(saved.Models, []string{"example-chat", "example-reasoner"}) {
 		t.Fatalf("Models = %#v", saved.Models)
+	}
+}
+
+func TestLocalModelConfigMigratesLegacyLocalFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	layout := desktopLayout{
+		Root:            root,
+		ConfigDir:       filepath.Join(root, "config"),
+		DataDir:         filepath.Join(root, "data"),
+		LogsDir:         filepath.Join(root, "logs"),
+		ModelConfigPath: filepath.Join(root, "config", "model.json"),
+	}
+	if err := os.MkdirAll(layout.ConfigDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := legacyLocalModelConfigPath(layout)
+	if err := os.WriteFile(legacyPath, []byte(`{
+  "protocol": "openai",
+  "url": "https://api.example.com",
+  "apiKey": "test-key",
+  "model": "example-chat"
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, result := loadLocalModelConfig(layout)
+	if result.Error != nil {
+		t.Fatal(result.Error)
+	}
+	if !result.Applied || result.Path != legacyPath {
+		t.Fatalf("legacy config was not loaded: %#v", result)
+	}
+	if _, err := os.Stat(layout.ModelConfigPath); err != nil {
+		t.Fatalf("legacy config was not migrated to model.json: %v", err)
 	}
 }
 
@@ -528,7 +567,7 @@ func TestDesktopSkillConfigIsSeparateFromCrushConfig(t *testing.T) {
 		ConfigDir:       filepath.Join(root, "config"),
 		DataDir:         filepath.Join(root, "data"),
 		LogsDir:         filepath.Join(root, "logs"),
-		ModelConfigPath: filepath.Join(root, "config", "model.local.json"),
+		ModelConfigPath: filepath.Join(root, "config", "model.json"),
 		SkillConfigPath: filepath.Join(root, "config", "skills.json"),
 	}
 	store := config.NewTestStore(&config.Config{
@@ -571,7 +610,7 @@ func TestDesktopSkillConfigMigratesLegacyLocalFile(t *testing.T) {
 		ConfigDir:       filepath.Join(root, "config"),
 		DataDir:         filepath.Join(root, "data"),
 		LogsDir:         filepath.Join(root, "logs"),
-		ModelConfigPath: filepath.Join(root, "config", "model.local.json"),
+		ModelConfigPath: filepath.Join(root, "config", "model.json"),
 		SkillConfigPath: filepath.Join(root, "config", "skills.json"),
 	}
 	if err := os.MkdirAll(layout.ConfigDir, 0o755); err != nil {

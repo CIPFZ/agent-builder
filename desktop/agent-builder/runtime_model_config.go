@@ -34,7 +34,7 @@ func resolveDesktopLayout() (desktopLayout, error) {
 		DataDir:   filepath.Join(root, "data"),
 		LogsDir:   filepath.Join(root, "logs"),
 	}
-	layout.ModelConfigPath = filepath.Join(layout.ConfigDir, "model.local.json")
+	layout.ModelConfigPath = filepath.Join(layout.ConfigDir, "model.json")
 	layout.SkillConfigPath = filepath.Join(layout.ConfigDir, "skills.json")
 	return layout, nil
 }
@@ -319,7 +319,14 @@ func normalizeModelBaseURL(protocol, rawURL string) string {
 }
 
 func localModelConfigPaths(layout desktopLayout) []string {
-	return []string{filepath.Clean(layout.ModelConfigPath)}
+	return []string{
+		filepath.Clean(layout.ModelConfigPath),
+		filepath.Clean(legacyLocalModelConfigPath(layout)),
+	}
+}
+
+func legacyLocalModelConfigPath(layout desktopLayout) string {
+	return filepath.Join(layout.ConfigDir, "model.local.json")
 }
 
 func logConfiguredModel(store *config.ConfigStore) {
