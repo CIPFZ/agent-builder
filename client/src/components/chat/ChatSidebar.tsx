@@ -87,10 +87,6 @@ export function ChatSidebar({
             <ApiOutlined />
             <span>MCP</span>
           </button>
-          <button className="nav-item" type="button" onClick={onOpenSettings}>
-            <SettingOutlined />
-            <span>Model settings</span>
-          </button>
         </nav>
       </div>
 
@@ -140,6 +136,9 @@ export function ChatSidebar({
           <span>Agent Builder</span>
           <Text type="secondary">Local</Text>
         </Space>
+        <Tooltip title="Settings">
+          <Button type="text" size="small" icon={<SettingOutlined />} onClick={onOpenSettings} />
+        </Tooltip>
       </div> : null}
     </aside>
   )
