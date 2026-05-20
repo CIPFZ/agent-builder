@@ -1,4 +1,5 @@
 ﻿import { useState } from 'react'
+import { ReloadOutlined } from '@ant-design/icons'
 import Button from 'antd/es/button'
 import Collapse from 'antd/es/collapse'
 import Drawer from 'antd/es/drawer'
@@ -6,6 +7,7 @@ import Form from 'antd/es/form'
 import Input from 'antd/es/input'
 import Select from 'antd/es/select'
 import Space from 'antd/es/space'
+import Tooltip from 'antd/es/tooltip'
 import Typography from 'antd/es/typography'
 import type { ModelConfig } from '../../api/chat'
 import type { RuntimeModelDiscoveryResponse, RuntimeModelVerifyResponse } from '../../runtime'
@@ -48,6 +50,20 @@ export function ModelSettingsDrawer({
     models: availableModels,
   })
 
+  const refreshModels = () => {
+    form.validateFields(['protocol', 'url', 'apiKey']).then(async () => {
+      const values = form.getFieldsValue()
+      const result = await onDiscover(values)
+      const nextModels = result.models ?? []
+      if (!result.error) {
+        const nextModel = result.model || (nextModels.includes(values.model) ? values.model : undefined)
+        setAvailableModels(nextModels)
+        form.setFieldsValue({ model: nextModel })
+        setSelectedModel(nextModel ?? '')
+      }
+    })
+  }
+
   return (
     <Drawer
       title="Model settings"
@@ -64,24 +80,6 @@ export function ModelSettingsDrawer({
       }}
       extra={
         <Space>
-          <Button
-            loading={discovering}
-            onClick={() => {
-              form.validateFields(['protocol', 'url', 'apiKey']).then(async () => {
-                const values = form.getFieldsValue()
-                const result = await onDiscover(values)
-                const nextModels = result.models ?? []
-                if (!result.error) {
-                  const nextModel = result.model || (nextModels.includes(values.model) ? values.model : undefined)
-                  setAvailableModels(nextModels)
-                  form.setFieldsValue({ model: nextModel })
-                  setSelectedModel(nextModel ?? '')
-                }
-              })
-            }}
-          >
-            Refresh models
-          </Button>
           <Button
             loading={verifying}
             disabled={!selectedModel}
@@ -139,7 +137,28 @@ export function ModelSettingsDrawer({
         <Form.Item label="API key" name="apiKey" rules={config.hasApiKey ? [] : [{ required: true }]}>
           <Input.Password placeholder={config.hasApiKey ? 'Saved. Leave empty to keep current key.' : 'sk-...'} />
         </Form.Item>
-        <Form.Item label="Model" name="model" rules={[{ required: true, message: 'Refresh models and select one.' }]}>
+        <Form.Item
+          label={
+            <Space size={8}>
+              <span>Model</span>
+              <Tooltip title="Refresh models">
+                <Button
+                  aria-label="Refresh models"
+                  icon={<ReloadOutlined />}
+                  loading={discovering}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    refreshModels()
+                  }}
+                  size="small"
+                  type="text"
+                />
+              </Tooltip>
+            </Space>
+          }
+          name="model"
+          rules={[{ required: true, message: 'Refresh models and select one.' }]}
+        >
           <Select
             showSearch
             placeholder="Refresh models first"
