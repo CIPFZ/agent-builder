@@ -495,6 +495,58 @@ func TestRefreshSkillsPublishesDiscoveryEvents(t *testing.T) {
 	}
 }
 
+func TestRuntimeSessionManagementPreservesRecents(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	runtime, workspace := backendForSkillTest(t)
+	first, err := runtime.CreateSession(context.Background(), workspace.ID, "First chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.runtime = runtime
+	service.workspace = &proto.Workspace{ID: workspace.ID}
+	service.sessionID = first.ID
+
+	status, err := service.NewChat(context.Background(), "Second chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.SessionID == "" || status.SessionID == first.ID {
+		t.Fatalf("new chat did not select a new session: %#v", status)
+	}
+
+	sessions, err := service.Sessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions.Sessions) != 2 {
+		t.Fatalf("sessions = %#v, want both previous and new sessions", sessions.Sessions)
+	}
+	activeCount := 0
+	for _, session := range sessions.Sessions {
+		if session.Active {
+			activeCount++
+		}
+	}
+	if activeCount != 1 {
+		t.Fatalf("active sessions = %d in %#v", activeCount, sessions.Sessions)
+	}
+
+	if _, err := service.SelectSession(context.Background(), first.ID); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := service.Sessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, session := range selected.Sessions {
+		if session.ID == first.ID && !session.Active {
+			t.Fatalf("selected session is not active: %#v", selected.Sessions)
+		}
+	}
+}
+
 func backendForSkillTest(t *testing.T) (*backend.Backend, proto.Workspace) {
 	t.Helper()
 	workingDir := t.TempDir()

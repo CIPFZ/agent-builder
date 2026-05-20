@@ -181,6 +181,7 @@ function AppContent() {
   const [auditEvents, setAuditEvents] = useState<RuntimeAuditEvent[]>([])
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const composerInputRef = useRef<TextAreaRef | null>(null)
+  const activeSessionIdRef = useRef<string>('')
 
   const hasMessages = messages.length > 0
   const isModelConfigured = Boolean(config.url && config.model && (config.hasApiKey || config.apiKey))
@@ -189,11 +190,24 @@ function AppContent() {
     [runtimeStatus?.sessionId, sessions],
   )
 
+  useEffect(() => {
+    activeSessionIdRef.current = runtimeStatus?.sessionId ?? ''
+  }, [runtimeStatus?.sessionId])
+
   const refreshMessages = async () => {
-    const runtimeMessages = runtimeStatus?.sessionId
-      ? await requestRuntimeSessionMessages(runtimeStatus.sessionId)
+    const activeID = activeSessionIdRef.current
+    const runtimeMessages = activeID
+      ? await requestRuntimeSessionMessages(activeID)
       : await requestRuntimeMessages()
     setMessages(runtimeMessages)
+  }
+
+  const loadMessagesForSession = async (sessionId?: string) => {
+    const runtimeMessages = sessionId
+      ? await requestRuntimeSessionMessages(sessionId)
+      : await requestRuntimeMessages()
+    setMessages(runtimeMessages)
+    return runtimeMessages
   }
 
   const refreshSessions = async () => {
@@ -208,6 +222,7 @@ function AppContent() {
 
   const refreshStatus = async () => {
     const nextStatus = await requestRuntimeStatus()
+    activeSessionIdRef.current = nextStatus.sessionId
     setRuntimeStatus(nextStatus)
     return nextStatus
   }
@@ -242,11 +257,12 @@ function AppContent() {
   }
 
   const refreshAudit = async (turnId?: string) => {
+    const activeID = activeSessionIdRef.current
     const id = turnId || runtimeStatus?.requests?.activeRequestId || [...events].reverse().find((event) => event.turn_id)?.turn_id
     const nextAudit = id
       ? await requestRuntimeAudit(id)
-      : runtimeStatus?.sessionId
-        ? await requestRuntimeSessionAudit(runtimeStatus.sessionId)
+      : activeID
+        ? await requestRuntimeSessionAudit(activeID)
         : []
     setAuditEvents(nextAudit)
   }
@@ -293,15 +309,19 @@ function AppContent() {
     Promise.all([
       requestRuntimeStatus(),
       requestRuntimeSessions(),
-      requestRuntimeMessages(),
       requestRuntimePermissions(),
       requestRuntimeEvents(),
       requestRuntimeSkills(),
       requestRuntimeMcpServers(),
       requestRuntimeCapabilities(),
     ])
-      .then(([nextStatus, runtimeSessions, runtimeMessages, runtimePermissions, runtimeEvents, runtimeSkills, runtimeMcpServers, runtimeCapabilities]) => {
+      .then(async ([nextStatus, runtimeSessions, runtimePermissions, runtimeEvents, runtimeSkills, runtimeMcpServers, runtimeCapabilities]) => {
         if (cancelled) return
+        const runtimeMessages = nextStatus.sessionId
+          ? await requestRuntimeSessionMessages(nextStatus.sessionId)
+          : await requestRuntimeMessages()
+        if (cancelled) return
+        activeSessionIdRef.current = nextStatus.sessionId
         setRuntimeStatus(nextStatus)
         setSessions(runtimeSessions)
         setActiveChatTitle(runtimeSessions.find((session) => session.active)?.title ?? 'New chat')
@@ -410,6 +430,7 @@ function AppContent() {
     setInput('')
     startRuntimeChat('New chat')
       .then((nextStatus) => {
+        activeSessionIdRef.current = nextStatus.sessionId
         setRuntimeStatus(nextStatus)
         setMessages([])
         setPermissions([])
@@ -444,16 +465,20 @@ function AppContent() {
       }
     }
     try {
+      const targetSessionId = runtimeStatus?.sessionId
+      if (!targetSessionId) {
+        throw new Error('No active runtime session. Create or select a session before sending a message.')
+      }
       const previousAssistantId = [...messages].reverse().find((chatMessage) => chatMessage.role === 'assistant')?.id
-      await sendRuntimePrompt(content)
-      let runtimeMessages = await requestRuntimeMessages()
+      await sendRuntimePrompt(content, targetSessionId)
+      let runtimeMessages = await loadMessagesForSession(targetSessionId)
       setMessages(runtimeMessages)
       await refreshPermissions().catch(() => undefined)
       let nextStatus = await refreshStatus().catch(() => runtimeStatus)
       const started = Date.now()
       while (Date.now() - started < 30 * 60 * 1000) {
         await new Promise((resolve) => window.setTimeout(resolve, 700))
-        runtimeMessages = await requestRuntimeMessages().catch(() => runtimeMessages)
+        runtimeMessages = await requestRuntimeSessionMessages(targetSessionId).catch(() => runtimeMessages)
         setMessages(runtimeMessages)
         await refreshPermissions().catch(() => undefined)
         nextStatus = await refreshStatus().catch(() => nextStatus)
@@ -464,7 +489,7 @@ function AppContent() {
         }
         if (nextStatus && !nextStatus.busy && latestAssistant?.finished && latestAssistant.id !== previousAssistantId) break
       }
-      runtimeMessages = await requestRuntimeMessages().catch(() => runtimeMessages)
+      runtimeMessages = await requestRuntimeSessionMessages(targetSessionId).catch(() => runtimeMessages)
       setMessages(runtimeMessages)
       await refreshPermissions().catch(() => undefined)
       await refreshStatus().catch(() => undefined)
@@ -484,6 +509,7 @@ function AppContent() {
     if (sessionId === runtimeStatus?.sessionId) return
     try {
       const nextStatus = await selectRuntimeSession(sessionId)
+      activeSessionIdRef.current = nextStatus.sessionId
       setRuntimeStatus(nextStatus)
       const [runtimeMessages, runtimePermissions, nextAudit] = await Promise.all([
         requestRuntimeSessionMessages(sessionId),
@@ -526,11 +552,13 @@ function AppContent() {
       const nextActive = nextSessions.find((item) => item.active) ?? nextSessions[0]
       if (nextActive) {
         const nextStatus = await selectRuntimeSession(nextActive.id)
+        activeSessionIdRef.current = nextStatus.sessionId
         setRuntimeStatus(nextStatus)
         setActiveChatTitle(nextActive.title)
         setMessages(await requestRuntimeSessionMessages(nextActive.id))
         setAuditEvents(await requestRuntimeSessionAudit(nextActive.id).catch(() => []))
       } else {
+        activeSessionIdRef.current = ''
         setMessages([])
         setAuditEvents([])
         setActiveChatTitle('New chat')

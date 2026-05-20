@@ -17,8 +17,8 @@ export type ModelsResponse = {
   models: string[]
 }
 
-export async function sendRuntimePrompt(prompt: string): Promise<RuntimeStatus> {
-  const response = await getAgentRuntime().chat({ prompt })
+export async function sendRuntimePrompt(prompt: string, sessionId?: string): Promise<RuntimeStatus> {
+  const response = await getAgentRuntime().chat({ prompt, sessionId })
   return response.status
 }
 
