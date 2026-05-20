@@ -17,6 +17,12 @@ type Manager struct {
 	activeSkills []*Skill
 	states       []*SkillState
 
+	// resolvedPaths are the expanded SkillsPaths used during discovery.
+	// Stored so Catalog/ReadContent can label skills without
+	// re-resolving.
+	resolvedPaths []string
+	workingDir    string
+
 	broker       *pubsub.Broker[Event]
 	globalMirror bool
 }
@@ -31,7 +37,26 @@ func WithGlobalMirror() ManagerOption {
 	}
 }
 
-// NewManager constructs a workspace-scoped Manager with discovery results.
+// WithResolvedPaths stores the expanded skills directory paths that
+// were used during discovery. Catalog and ReadContent use these for
+// source labelling.
+func WithResolvedPaths(paths []string) ManagerOption {
+	return func(m *Manager) {
+		m.resolvedPaths = paths
+	}
+}
+
+// WithWorkingDir stores the workspace working directory. Catalog and
+// ReadContent use it to distinguish project skills from user skills.
+func WithWorkingDir(dir string) ManagerOption {
+	return func(m *Manager) {
+		m.workingDir = dir
+	}
+}
+
+// NewManager constructs a workspace-scoped Manager with the given
+// pre-computed discovery results. The slices are stored as-is; callers
+// should not mutate them afterwards.
 func NewManager(allSkills, activeSkills []*Skill, states []*SkillState, opts ...ManagerOption) *Manager {
 	m := &Manager{
 		allSkills:    allSkills,
@@ -62,7 +87,19 @@ func (m *Manager) ActiveSkills() []*Skill {
 	return m.activeSkills
 }
 
-// States returns the latest discovery state snapshot.
+// ResolvedPaths returns the expanded skills directory paths stored at
+// construction time.
+func (m *Manager) ResolvedPaths() []string {
+	return m.resolvedPaths
+}
+
+// WorkingDir returns the workspace working directory stored at
+// construction time.
+func (m *Manager) WorkingDir() string {
+	return m.workingDir
+}
+
+// States returns a clone of the latest discovery state snapshot.
 func (m *Manager) States() []*SkillState {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -118,17 +155,8 @@ func DiscoverFromConfig(cfg DiscoveryConfig) (allSkills, activeSkills []*Skill, 
 	discovered := append([]*Skill(nil), builtin...)
 
 	var userStates []*SkillState
-	if len(cfg.SkillsPaths) > 0 {
-		userPaths := make([]string, 0, len(cfg.SkillsPaths))
-		for _, pth := range cfg.SkillsPaths {
-			expanded := home.Long(pth)
-			if strings.HasPrefix(expanded, "$") && cfg.Resolver != nil {
-				if resolved, err := cfg.Resolver(expanded); err == nil {
-					expanded = resolved
-				}
-			}
-			userPaths = append(userPaths, expanded)
-		}
+	userPaths := cfg.ResolvePaths()
+	if len(userPaths) > 0 {
 		var userSkills []*Skill
 		userSkills, userStates = DiscoverWithStates(userPaths)
 		discovered = append(discovered, userSkills...)
@@ -150,5 +178,28 @@ func DiscoverFromConfig(cfg DiscoveryConfig) (allSkills, activeSkills []*Skill, 
 type DiscoveryConfig struct {
 	SkillsPaths    []string
 	DisabledSkills []string
-	Resolver       func(string) (string, error)
+	WorkingDir     string
+	// Resolver expands $VAR-style references in paths. May be nil.
+	Resolver func(string) (string, error)
+}
+
+// ResolvePaths expands home-directory and $VAR references in
+// SkillsPaths. This is the canonical path-resolution logic used by
+// DiscoverFromConfig; callers that need the resolved list (e.g. for
+// Catalog labels) can call this directly.
+func (c DiscoveryConfig) ResolvePaths() []string {
+	if len(c.SkillsPaths) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(c.SkillsPaths))
+	for _, pth := range c.SkillsPaths {
+		expanded := home.Long(pth)
+		if strings.HasPrefix(expanded, "$") && c.Resolver != nil {
+			if resolved, err := c.Resolver(expanded); err == nil {
+				expanded = resolved
+			}
+		}
+		out = append(out, expanded)
+	}
+	return out
 }

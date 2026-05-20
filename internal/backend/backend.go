@@ -121,8 +121,16 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		return nil, proto.Workspace{}, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	allSkills, activeSkills, skillStates := discoverWorkspaceSkills(cfg)
-	skillsMgr := skills.NewManager(allSkills, activeSkills, skillStates)
+	// Discover skills once per workspace, before app.New. The backend
+	// hosts multiple workspaces concurrently, so the manager is
+	// constructed WITHOUT WithGlobalMirror to prevent last-writer-wins
+	// cross-talk between workspaces.
+	discoveryCfg := skillsDiscoveryConfig(cfg)
+	allSkills, activeSkills, skillStates := skills.DiscoverFromConfig(discoveryCfg)
+	skillsMgr := skills.NewManager(allSkills, activeSkills, skillStates,
+		skills.WithResolvedPaths(discoveryCfg.ResolvePaths()),
+		skills.WithWorkingDir(discoveryCfg.WorkingDir),
+	)
 
 	appWorkspace, err := app.NewWithSchedulerRecorder(b.ctx, conn, cfg, skillsMgr, b.schedulerRecorder)
 	if err != nil {
@@ -165,6 +173,27 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	}
 
 	return ws, result, nil
+}
+
+// skillsDiscoveryConfig adapts a *config.ConfigStore to the
+// skills.DiscoveryConfig that DiscoverFromConfig consumes.
+func skillsDiscoveryConfig(cfg *config.ConfigStore) skills.DiscoveryConfig {
+	opts := cfg.Config().Options
+	var paths, disabled []string
+	if opts != nil {
+		paths = opts.SkillsPaths
+		disabled = opts.DisabledSkills
+	}
+	var resolver func(string) (string, error)
+	if r := cfg.Resolver(); r != nil {
+		resolver = r.ResolveValue
+	}
+	return skills.DiscoveryConfig{
+		SkillsPaths:    paths,
+		DisabledSkills: disabled,
+		WorkingDir:     cfg.WorkingDir(),
+		Resolver:       resolver,
+	}
 }
 
 // DeleteWorkspace shuts down and removes a workspace. If it was the
@@ -230,24 +259,6 @@ func workspaceToProto(ws *Workspace) proto.Workspace {
 		Env:     ws.Env,
 		Skills:  skillStatesToProto(skillStates),
 	}
-}
-
-func discoverWorkspaceSkills(cfg *config.ConfigStore) ([]*skills.Skill, []*skills.Skill, []*skills.SkillState) {
-	opts := cfg.Config().Options
-	var paths, disabled []string
-	if opts != nil {
-		paths = opts.SkillsPaths
-		disabled = opts.DisabledSkills
-	}
-	var resolver func(string) (string, error)
-	if r := cfg.Resolver(); r != nil {
-		resolver = r.ResolveValue
-	}
-	return skills.DiscoverFromConfig(skills.DiscoveryConfig{
-		SkillsPaths:    paths,
-		DisabledSkills: disabled,
-		Resolver:       resolver,
-	})
 }
 
 func skillStatesToProto(states []*skills.SkillState) []proto.SkillState {
