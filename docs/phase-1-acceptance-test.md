@@ -4,7 +4,7 @@ This document defines the local acceptance flow for the Phase 1 desktop build.
 
 ## Build Artifact
 
-Build the desktop package from `desktop/agent-builder`:
+Build the desktop package from `desktop`:
 
 ```powershell
 wails3 task build
@@ -13,15 +13,15 @@ wails3 task build
 The Windows executable is:
 
 ```text
-desktop/agent-builder/bin/AgentBuilder.exe
+desktop/bin/AgentBuilder.exe
 ```
 
 The desktop runtime owns these sibling directories:
 
 ```text
-desktop/agent-builder/bin/config/
-desktop/agent-builder/bin/data/
-desktop/agent-builder/bin/logs/
+desktop/bin/config/
+desktop/bin/data/
+desktop/bin/logs/
 ```
 
 ## Model Configuration
@@ -42,7 +42,7 @@ Optional advanced field:
 The backend saves the config to:
 
 ```text
-desktop/agent-builder/bin/config/model.json
+desktop/bin/config/model.json
 ```
 
 React must not persist model settings itself. The UI displays the configuration
@@ -75,7 +75,7 @@ Expected result:
 Open:
 
 ```text
-desktop/agent-builder/bin/logs/agent-builder.log
+desktop/bin/logs/agent-builder.log
 ```
 
 Expected log entries:
@@ -94,7 +94,7 @@ The log must not contain the API key value.
 The runtime database is stored under:
 
 ```text
-desktop/agent-builder/bin/data/
+desktop/bin/data/
 ```
 
 Message display must come from the Go/Crush session database through

@@ -1,10 +1,10 @@
-module github.com/charmbracelet/crush/desktop/agent-builder
+module github.com/charmbracelet/crush/desktop
 
 go 1.26.3
 
 require github.com/charmbracelet/crush v0.0.0
 
-replace github.com/charmbracelet/crush => ../..
+replace github.com/charmbracelet/crush => ..
 
 require (
 	charm.land/bubbletea/v2 v2.0.6

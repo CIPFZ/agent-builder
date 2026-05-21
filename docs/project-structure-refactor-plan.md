@@ -8,8 +8,8 @@
 
 主要问题：
 
-- `desktop/agent-builder/runtime_*` 承担了通用 runtime 职责，但位于 desktop 目录下。
-- `desktop/agent-builder` 多套了一层目录，后续应改成单层 `desktop/`。
+- `desktop/runtime_*` 承担了通用 runtime 职责，但位于 desktop 目录下。
+- `desktop` 多套了一层目录，后续应改成单层 `desktop/`。
 - `internal` 中混合了 Crush core、CLI/TUI、runtime、平台工具、客户端边界等不同职责。
 - CLI/TUI 相关代码仍容易污染客户端主路径。
 - React 客户端目前按技术层分组，后续应向 feature 分组演进。
@@ -144,7 +144,7 @@ desktop/
 
 要求：
 
-- 不再保留 `desktop/agent-builder/` 二级目录。
+- 不再保留 `desktop/` 二级目录。
 - `desktop/` 只保留 Wails 桌面壳、窗口、菜单、打包、native bootstrap。
 - `runtime_*` 中通用逻辑迁到 `internal/runtime/`。
 - desktop 内的 `go.mod/go.sum` 需要评估是否保留。优先使用根 `go.mod`，避免多 Go module 造成依赖漂移。
@@ -284,7 +284,7 @@ docs/legacy-crush-inventory.md
 
 - 根目录 Crush 遗留文件。
 - `internal/ui` / `internal/cmd` / `internal/commands`。
-- `desktop/agent-builder` 内重复 module 文件。
+- `desktop` 内重复 module 文件。
 - 过时 docs。
 - demo-only 或 mock-only 文件。
 
@@ -300,7 +300,7 @@ docs/legacy-crush-inventory.md
 
 ### 阶段 2：Desktop 单层化
 
-目标：把 `desktop/agent-builder` 改成单层 `desktop/`。
+目标：把 `desktop` 改成单层 `desktop/`。
 
 动作：
 
@@ -460,14 +460,14 @@ npm run build
 - 在没有测试保护时删除 CLI/TUI。
 - 让 React 直接承担 runtime 事实状态。
 - 在 `desktop/` 中继续新增业务 runtime。
-- 继续保留 `desktop/agent-builder` 二级目录。
+- 继续保留 `desktop` 二级目录。
 - 把 Wails bridge 当成长期业务协议。
 
 ## 优先级
 
 最高优先级：
 
-1. `desktop/agent-builder` 单层化为 `desktop/`。
+1. `desktop` 单层化为 `desktop/`。
 2. `desktop/runtime_*` 通用逻辑迁到 `internal/runtime`。
 3. `tea.Msg` 从客户端 runtime 主路径剥离。
 4. Tool Scheduler / PermissionPolicy 建立主链路。
@@ -483,8 +483,8 @@ docs/legacy-crush-inventory.md
 
 然后从低风险开始执行：
 
-1. 清点根目录和 `desktop/agent-builder`。
+1. 清点根目录和 `desktop`。
 2. 标记 keep/migrate/legacy/archive/delete。
-3. 先做 `desktop/agent-builder -> desktop` 单层化。
+3. 先做 `desktop -> desktop` 单层化。
 4. 再迁移 runtime 到 `internal/runtime`。
 

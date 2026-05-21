@@ -281,13 +281,13 @@ DeepSeek API 在 Phase 1 可用于基础聊天和报告总结，但不让模型�
 
 Phase 1.6 先提供一个桌面验收壳：
 
-- 桌面工程位于 `desktop/agent-builder`。
+- 桌面工程位于 `desktop`。
 - Wails 只负责窗口、资源嵌入和本地打包。
 - React UI 仍然以 `client` 为唯一来源。
 - 构建时先运行 `client` 的生产构建，再将 `client/dist` 同步到
-  `desktop/agent-builder/frontend/dist`。
+  `desktop/frontend/dist`。
 - Windows 验收可执行文件输出到
-  `desktop/agent-builder/bin/AgentBuilder.exe`。
+  `desktop/bin/AgentBuilder.exe`。
 
 ### 阶段 2：Runtime API
 

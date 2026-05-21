@@ -1,7 +1,7 @@
 # Agent Builder Desktop
 
 This is the Phase 1 Wails desktop shell for the agentic operations client.
-It intentionally stays thin: the product UI remains in `../../client`, and
+It intentionally stays thin: the product UI remains in `../client`, and
 the desktop build embeds the shared `client/dist` output.
 
 ## Build
@@ -22,20 +22,20 @@ wails3 task build
 The Windows executable is written to:
 
 ```text
-desktop/agent-builder/bin/AgentBuilder.exe
+desktop/bin/AgentBuilder.exe
 ```
 
 The executable owns sibling runtime directories:
 
 ```text
-desktop/agent-builder/bin/config/
-desktop/agent-builder/bin/data/
-desktop/agent-builder/bin/logs/
+desktop/bin/config/
+desktop/bin/data/
+desktop/bin/logs/
 ```
 
 Model settings are saved by the Go runtime bridge to
 `bin/config/model.json`. See
-`../../docs/phase-1-acceptance-test.md` for the local validation flow.
+`../docs/phase-1-acceptance-test.md` for the local validation flow.
 
 Desktop-managed runtime settings live next to the executable:
 
@@ -47,8 +47,8 @@ bin/config/mcp.json
 
 ## Frontend Sync
 
-The Wails build runs `npm run build` in `../../client` through
-`scripts/sync-client-dist.mjs`, then copies `../../client/dist` into
+The Wails build runs `npm run build` in `../client` through
+`scripts/sync-client-dist.mjs`, then copies `../client/dist` into
 `frontend/dist` before embedding assets.
 
 Manual sync:

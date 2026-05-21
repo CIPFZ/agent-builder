@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $desktopRoot = Resolve-Path (Join-Path $scriptDir "..")
-$repoRoot = Resolve-Path (Join-Path $desktopRoot "..\..")
+$repoRoot = Resolve-Path (Join-Path $desktopRoot "..")
 $exePath = Join-Path $desktopRoot "bin\AgentBuilder.exe"
 $smokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("agent-builder-phase2-smoke-" + [System.Guid]::NewGuid().ToString("N"))
 

@@ -35,7 +35,7 @@ Agent Builder 当前主线已经走在正确方向上：
 - 持久化：`internal/db`、`internal/session`、`internal/message`
 - 权限：`internal/permission`
 - MCP/skills/hooks/LSP：`internal/agent/tools/mcp`、`internal/skills`、`internal/hooks`、`internal/lsp`
-- 桌面壳：`desktop/agent-builder`
+- 桌面壳：`desktop`
 - React 客户端：`client`
 - 新 runtime API 契约：`internal/runtimeapi`
 

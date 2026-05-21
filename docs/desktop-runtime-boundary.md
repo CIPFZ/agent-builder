@@ -16,7 +16,7 @@ Current implementation follows this boundary:
 - `client/src/App.tsx` collects user input, displays runtime messages, and
   opens settings.
 - Model settings are saved by Go to
-  `desktop/agent-builder/bin/config/model.json`.
+  `desktop/bin/config/model.json`.
 - Chat execution goes through `RuntimeBridge.Chat`, which calls the real Crush
   backend and waits for the assistant message.
 - Message display is refreshed from `RuntimeBridge.Messages`, backed by the

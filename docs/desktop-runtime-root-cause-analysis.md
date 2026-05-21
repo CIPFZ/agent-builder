@@ -18,7 +18,7 @@ React App
   -> client/src/api/chat.ts sendRuntimePrompt()
   -> client/src/runtime/wailsRuntime.ts bridge.Chat()
   -> Wails generated binding
-  -> desktop/agent-builder/runtime_bridge.go RuntimeBridge.Chat()
+  -> desktop/runtime_bridge.go RuntimeBridge.Chat()
   -> internal/backend/agent.go Backend.SendMessage()
   -> internal/agent/coordinator.go Coordinator.Run()
   -> internal/agent/agent.go sessionAgent.Run()
@@ -46,7 +46,7 @@ React App
 
    Evidence:
 
-   - `desktop/agent-builder/runtime_bridge.go:275` calls
+   - `desktop/runtime_bridge.go:275` calls
      `r.runtime.SendMessage(...)`.
    - `internal/backend/agent.go:22` calls `ws.AgentCoordinator.Run(...)`.
    - Runtime logs show `Skill turn summary`, which is emitted by the Crush
@@ -62,7 +62,7 @@ React App
    2026-05-18T16:08:22 Desktop chat failed duration=2m0.0018309s error="context deadline exceeded"
    ```
 
-   This matches `desktop/agent-builder/runtime_bridge.go:270`, where desktop
+   This matches `desktop/runtime_bridge.go:270`, where desktop
    creates a hard `context.WithTimeout(ctx, chatTimeout)` with
    `chatTimeout = 2 * time.Minute`.
 
@@ -232,7 +232,7 @@ harder.
 Create:
 
 ```text
-desktop/agent-builder/bin/logs/agent-builder-audit.jsonl
+desktop/bin/logs/agent-builder-audit.jsonl
 ```
 
 Each chat turn should write JSONL records:

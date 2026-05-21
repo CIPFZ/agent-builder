@@ -124,12 +124,12 @@ Phase 1.5 的 DeepSeek 接入只用于报告生成和建议生成。SOP、SSH �
 
 Phase 1.6 的验收构建包含桌面包基础：
 
-- 使用 `desktop/agent-builder` 作为 Wails v3 thin shell。
+- 使用 `desktop` 作为 Wails v3 thin shell。
 - Wails 桌面壳嵌入共享的 `client/dist`，不复制业务 UI。
-- 构建时由 `desktop/agent-builder/scripts/sync-client-dist.mjs`
+- 构建时由 `desktop/scripts/sync-client-dist.mjs`
   先执行 `client` 生产构建，再同步静态资源。
 - Windows 可执行文件输出到
-  `desktop/agent-builder/bin/AgentBuilder.exe`。
+  `desktop/bin/AgentBuilder.exe`。
 - 这一阶段仍然不连接真实 SSH/runtime，只用于本机第一阶段验收。
 
 ## Phase 2: Runtime API Boundary

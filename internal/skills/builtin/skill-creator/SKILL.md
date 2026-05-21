@@ -82,7 +82,7 @@ Use these checks when relevant:
 
 ```text
 go test ./internal/skills
-go test ./desktop/agent-builder
+cd desktop && go test ./...
 ```
 
 For desktop/runtime validation, refresh skills from Runtime Details and confirm

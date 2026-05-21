@@ -72,7 +72,7 @@ export async function loadWailsRuntimeBridge(): Promise<WailsRuntimeBridge> {
     path: string,
   ) => Promise<{ RuntimeBridge?: WailsRuntimeBridge }>
 
-  bridgePromise ??= importBinding('/bindings/github.com/charmbracelet/crush/desktop/agent-builder/index.js').then((module) => {
+  bridgePromise ??= importBinding('/bindings/github.com/charmbracelet/crush/desktop/index.js').then((module) => {
     const runtimeBridge = (module as { RuntimeBridge?: WailsRuntimeBridge }).RuntimeBridge
     if (!runtimeBridge) {
       throw new Error('Wails RuntimeBridge binding is not available.')

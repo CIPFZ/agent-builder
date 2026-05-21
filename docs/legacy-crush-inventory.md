@@ -19,7 +19,7 @@ Status labels:
 The repository is still rooted in the original Crush CLI/TUI application while
 also carrying the Agent Builder desktop PoC. The highest-risk coupling is that
 the current desktop runtime implementation lives under
-`desktop/agent-builder/` and still consumes Bubble Tea `tea.Msg` events through
+`desktop/` and still consumes Bubble Tea `tea.Msg` events through
 `internal/backend` and `internal/ui` event shapes.
 
 The immediate migration path should keep the existing working build intact,
@@ -55,40 +55,40 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 
 | Path | Label | Reason | Next action |
 | --- | --- | --- | --- |
-| `desktop/agent-builder/` | migrate | Current Wails app is nested one level too deep. The plan requires single-layer `desktop/`. | Move Wails shell files into `desktop/` in Phase 2. |
-| `desktop/agent-builder/main.go` | migrate | Wails desktop entry point, belongs in the desktop adapter. | Move to `desktop/main.go`. |
-| `desktop/agent-builder/runtime_bridge.go` | migrate | Wails-facing bridge code. It should stay desktop-owned, but at single-layer path. | Move to `desktop/runtime_bridge.go`; later reduce it to adapter calls into `internal/runtime`. |
-| `desktop/agent-builder/runtime_bridge_test.go`, `runtime_bridge_live_test.go` | migrate | Tests cover the bridge and should move with the bridge. | Move to `desktop/`; update imports after runtime extraction. |
-| `desktop/agent-builder/runtime_service.go` | migrate | Generic runtime service assembly, not a desktop concern. | Move to `internal/runtime/service.go`. |
-| `desktop/agent-builder/runtime_service_types.go` | migrate | Generic runtime service contracts and state. | Move to `internal/runtime/service_types.go` or merge into `service.go`. |
-| `desktop/agent-builder/runtime_contract_types.go` | migrate | Runtime API contract types overlap with `internal/runtimeapi`. | Consolidate into `internal/runtimeapi` or `internal/runtime/contract_types.go`. |
-| `desktop/agent-builder/runtime_internal_types.go` | migrate | Runtime-private types. | Move to `internal/runtime/internal_types.go`. |
-| `desktop/agent-builder/runtime_lifecycle.go` | migrate | Runtime lifecycle is not Wails-specific. | Move to `internal/runtime/lifecycle.go`. |
-| `desktop/agent-builder/runtime_status.go` | migrate | Generic runtime status handling. | Move to `internal/runtime/status.go`. |
-| `desktop/agent-builder/runtime_turns.go` | migrate | Generic turn lifecycle. | Move to `internal/runtime/turns.go`. |
-| `desktop/agent-builder/runtime_sessions.go` | migrate | Generic session operations. | Move to `internal/runtime/sessions.go`. |
-| `desktop/agent-builder/runtime_events.go` | migrate | Generic event recording but currently consumes `pubsub.Event[tea.Msg]`. | Move only after replacing `tea.Msg` with runtime-native events or isolating conversion in a TUI adapter. |
-| `desktop/agent-builder/runtime_permissions.go` | migrate | Generic permission request/decision handling. | Move to `internal/runtime/permissions.go`; later pair with `PermissionPolicy`. |
-| `desktop/agent-builder/runtime_audit.go`, `runtime_audit_writer.go`, `runtime_audit_test.go` | migrate | Generic audit storage/writing. | Move to `internal/runtime/audit*.go`. |
-| `desktop/agent-builder/runtime_capabilities.go` | migrate | Generic capability reporting. | Move to `internal/runtime/capabilities.go`. |
-| `desktop/agent-builder/runtime_skills.go`, `runtime_skill_config.go` | migrate | Generic skill listing/configuration. | Move to `internal/runtime/skills.go` and keep config ownership explicit. |
-| `desktop/agent-builder/runtime_mcp.go`, `runtime_mcp_config.go` | migrate | Generic MCP runtime operations/config. | Move to `internal/runtime/mcp*.go`. |
-| `desktop/agent-builder/runtime_model.go`, `runtime_model_config.go` | migrate | Generic model config/runtime operations. | Move to `internal/runtime/model*.go`. |
-| `desktop/agent-builder/runtime_http.go`, `runtime_http_test.go` | migrate | Local HTTP adapter is useful, but should not be owned by the Wails package. | Move to `internal/adapters/http` or `internal/runtime/http.go` depending on final adapter boundary. |
-| `desktop/agent-builder/runtime_sse.go` | migrate | SSE transport adapter. | Move to `internal/adapters/http` or `internal/runtime/sse.go`; consume runtime events only. |
-| `desktop/agent-builder/runtime_mapping.go`, `runtime_utils.go` | migrate | Mostly conversion/helper logic for runtime contracts. | Move into `internal/runtime` or `internal/runtimeapi` after duplication is reviewed. |
-| `desktop/agent-builder/go.mod`, `go.sum` | delete | Duplicate nested Go module with `replace github.com/charmbracelet/crush => ../..`. It causes dependency drift. | Remove after Phase 2 proves desktop builds from the root module. |
-| `desktop/agent-builder/README.md` | migrate | Useful desktop build/smoke instructions, but path references will be wrong after flattening. | Move/update to `desktop/README.md` or merge into root docs. |
-| `desktop/agent-builder/Taskfile.yml` | migrate | Wails build tasks for the nested app. | Move/update to `desktop/Taskfile.yml` or root `Taskfile.yaml`. |
-| `desktop/agent-builder/.gitignore` | migrate | Desktop-specific generated artifacts. | Merge into root `.gitignore` or keep as `desktop/.gitignore`. |
-| `desktop/agent-builder/scripts/sync-client-dist.mjs` | migrate | Active build helper that syncs `client/dist` into Wails assets. | Move to `desktop/scripts/` and update paths. |
-| `desktop/agent-builder/scripts/phase2-smoke.ps1` | migrate | Active packaged desktop smoke test. | Move to `desktop/scripts/` and update paths. |
-| `desktop/agent-builder/frontend/package.json`, `package-lock.json` | delete | Minimal placeholder package next to embedded `frontend/dist`; real React app is `client/`. | Remove after Wails asset embedding no longer expects this package metadata. |
-| `desktop/agent-builder/frontend/dist/` | delete | Generated copy of `client/dist`. | Keep ignored/generated only; do not treat as source. |
-| `desktop/agent-builder/build/` | migrate | Wails packaging assets and generated platform scaffolding. | Move to `desktop/build/`; later delete generated platform files that Wails can regenerate. |
-| `desktop/agent-builder/build/windows`, `build/darwin`, `build/linux` | migrate | Desktop packaging assets. | Move with desktop shell. |
-| `desktop/agent-builder/build/android`, `build/ios` | archive | Mobile scaffolding is not on the current desktop product path. | Archive or delete after confirming Wails mobile targets are out of scope. |
-| `desktop/agent-builder/build/docker` | archive | Cross/server Dockerfiles appear inherited from Wails template or old packaging. | Archive unless current release pipeline needs them. |
+| `desktop/` | migrate | Current Wails app is nested one level too deep. The plan requires single-layer `desktop/`. | Move Wails shell files into `desktop/` in Phase 2. |
+| `desktop/main.go` | migrate | Wails desktop entry point, belongs in the desktop adapter. | Move to `desktop/main.go`. |
+| `desktop/runtime_bridge.go` | migrate | Wails-facing bridge code. It should stay desktop-owned, but at single-layer path. | Move to `desktop/runtime_bridge.go`; later reduce it to adapter calls into `internal/runtime`. |
+| `desktop/runtime_bridge_test.go`, `runtime_bridge_live_test.go` | migrate | Tests cover the bridge and should move with the bridge. | Move to `desktop/`; update imports after runtime extraction. |
+| `desktop/runtime_service.go` | migrate | Generic runtime service assembly, not a desktop concern. | Move to `internal/runtime/service.go`. |
+| `desktop/runtime_service_types.go` | migrate | Generic runtime service contracts and state. | Move to `internal/runtime/service_types.go` or merge into `service.go`. |
+| `desktop/runtime_contract_types.go` | migrate | Runtime API contract types overlap with `internal/runtimeapi`. | Consolidate into `internal/runtimeapi` or `internal/runtime/contract_types.go`. |
+| `desktop/runtime_internal_types.go` | migrate | Runtime-private types. | Move to `internal/runtime/internal_types.go`. |
+| `desktop/runtime_lifecycle.go` | migrate | Runtime lifecycle is not Wails-specific. | Move to `internal/runtime/lifecycle.go`. |
+| `desktop/runtime_status.go` | migrate | Generic runtime status handling. | Move to `internal/runtime/status.go`. |
+| `desktop/runtime_turns.go` | migrate | Generic turn lifecycle. | Move to `internal/runtime/turns.go`. |
+| `desktop/runtime_sessions.go` | migrate | Generic session operations. | Move to `internal/runtime/sessions.go`. |
+| `desktop/runtime_events.go` | migrate | Generic event recording but currently consumes `pubsub.Event[tea.Msg]`. | Move only after replacing `tea.Msg` with runtime-native events or isolating conversion in a TUI adapter. |
+| `desktop/runtime_permissions.go` | migrate | Generic permission request/decision handling. | Move to `internal/runtime/permissions.go`; later pair with `PermissionPolicy`. |
+| `desktop/runtime_audit.go`, `runtime_audit_writer.go`, `runtime_audit_test.go` | migrate | Generic audit storage/writing. | Move to `internal/runtime/audit*.go`. |
+| `desktop/runtime_capabilities.go` | migrate | Generic capability reporting. | Move to `internal/runtime/capabilities.go`. |
+| `desktop/runtime_skills.go`, `runtime_skill_config.go` | migrate | Generic skill listing/configuration. | Move to `internal/runtime/skills.go` and keep config ownership explicit. |
+| `desktop/runtime_mcp.go`, `runtime_mcp_config.go` | migrate | Generic MCP runtime operations/config. | Move to `internal/runtime/mcp*.go`. |
+| `desktop/runtime_model.go`, `runtime_model_config.go` | migrate | Generic model config/runtime operations. | Move to `internal/runtime/model*.go`. |
+| `desktop/runtime_http.go`, `runtime_http_test.go` | migrate | Local HTTP adapter is useful, but should not be owned by the Wails package. | Move to `internal/adapters/http` or `internal/runtime/http.go` depending on final adapter boundary. |
+| `desktop/runtime_sse.go` | migrate | SSE transport adapter. | Move to `internal/adapters/http` or `internal/runtime/sse.go`; consume runtime events only. |
+| `desktop/runtime_mapping.go`, `runtime_utils.go` | migrate | Mostly conversion/helper logic for runtime contracts. | Move into `internal/runtime` or `internal/runtimeapi` after duplication is reviewed. |
+| `desktop/go.mod`, `go.sum` | legacy | Independent desktop Go module retained for a conservative Phase 2 move; it now uses `replace github.com/charmbracelet/crush => ..`. | Remove in a later pass after desktop builds from the root module. |
+| `desktop/README.md` | migrate | Useful desktop build/smoke instructions, but path references will be wrong after flattening. | Move/update to `desktop/README.md` or merge into root docs. |
+| `desktop/Taskfile.yml` | migrate | Wails build tasks for the nested app. | Move/update to `desktop/Taskfile.yml` or root `Taskfile.yaml`. |
+| `desktop/.gitignore` | migrate | Desktop-specific generated artifacts. | Merge into root `.gitignore` or keep as `desktop/.gitignore`. |
+| `desktop/scripts/sync-client-dist.mjs` | migrate | Active build helper that syncs `client/dist` into Wails assets. | Move to `desktop/scripts/` and update paths. |
+| `desktop/scripts/phase2-smoke.ps1` | migrate | Active packaged desktop smoke test. | Move to `desktop/scripts/` and update paths. |
+| `desktop/frontend/package.json`, `package-lock.json` | delete | Minimal placeholder package next to embedded `frontend/dist`; real React app is `client/`. | Remove after Wails asset embedding no longer expects this package metadata. |
+| `desktop/frontend/dist/` | delete | Generated copy of `client/dist`. | Keep ignored/generated only; do not treat as source. |
+| `desktop/build/` | migrate | Wails packaging assets and generated platform scaffolding. | Move to `desktop/build/`; later delete generated platform files that Wails can regenerate. |
+| `desktop/build/windows`, `build/darwin`, `build/linux` | migrate | Desktop packaging assets. | Move with desktop shell. |
+| `desktop/build/android`, `build/ios` | archive | Mobile scaffolding is not on the current desktop product path. | Archive or delete after confirming Wails mobile targets are out of scope. |
+| `desktop/build/docker` | archive | Cross/server Dockerfiles appear inherited from Wails template or old packaging. | Archive unless current release pipeline needs them. |
 
 ## Runtime And Client Product Path
 
@@ -172,12 +172,12 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 | `internal/swagger/docs.go`, `swagger.json`, `swagger.yaml` | legacy | Generated docs for legacy server API. | Keep while `task swag` and legacy server remain. |
 | `internal/agent/testdata/` | keep | Agent tests depend on cassette/testdata files. | Keep. |
 | `internal/ui/diffview/testdata/` | legacy | TUI golden tests depend on this corpus. | Keep until TUI tests are retired or moved. |
-| `desktop/agent-builder/bin/` | delete | Build output if present. Not source. | Ensure ignored and delete from worktree if generated. |
-| `desktop/agent-builder/frontend/dist/` | delete | Generated client build copy. | Ensure ignored and recreate during desktop build. |
+| `desktop/bin/` | delete | Build output if present. Not source. | Ensure ignored and delete from worktree if generated. |
+| `desktop/frontend/dist/` | delete | Generated client build copy. | Ensure ignored and recreate during desktop build. |
 
 ## Migration Priority
 
-1. Flatten `desktop/agent-builder` to single-layer `desktop/`.
+1. Flatten `desktop` to single-layer `desktop/`.
    Move Wails entry, bridge, build config, scripts, and desktop README first.
    Keep behavior unchanged and still call the existing runtime code.
 
@@ -191,7 +191,7 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
    Leave `runtime_bridge.go` in `desktop/` as the Wails adapter.
 
 4. Replace `tea.Msg` on the client runtime path.
-   The critical files are `desktop/agent-builder/runtime_events.go` and
+   The critical files are `desktop/runtime_events.go` and
    `internal/backend/events.go`. Introduce runtime-native events, then keep
    Bubble Tea conversion only in `internal/ui` or a future
    `internal/adapters/tui` package.

@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(scriptDir, "..");
-const repoRoot = resolve(desktopRoot, "..", "..");
+const repoRoot = resolve(desktopRoot, "..");
 const clientDir = resolve(repoRoot, "client");
 const clientNodeModules = resolve(clientDir, "node_modules");
 const sourceDist = resolve(clientDir, "dist");

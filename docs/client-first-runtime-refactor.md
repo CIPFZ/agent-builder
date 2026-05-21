@@ -71,7 +71,7 @@ Crush 和 Claude Code 都是从 CLI/TUI 场景成长出来的。它们的很多�
 | `internal/lsp` | LSP diagnostics 与代码上下文能力 |
 | `internal/server` | 可作为 legacy/API 参考，但不应直接成为客户端主协议 |
 | `internal/runtimeapi` | 新客户端 runtime contract，应继续强化 |
-| `desktop/agent-builder/runtime_*` | 当前 Wails/HTTP/SSE runtime bridge 基础 |
+| `desktop/runtime_*` | 当前 Wails/HTTP/SSE runtime bridge 基础 |
 
 ### 应隔离或逐步删除的 CLI/TUI 适配
 
@@ -122,7 +122,7 @@ Claude Code 很多能力值得借鉴，但以下模块主要服务 CLI/terminal/
 ### 分层结构
 
 ```text
-desktop/agent-builder
+desktop
   Wails shell
   window/menu/native integration
   local runtime bootstrap
@@ -388,7 +388,7 @@ runtime core event -> Wails adapter -> frontend event
 
 ### 3. RuntimeService 前移
 
-当前 `desktop/agent-builder/runtime_service.go` 已经实现了很多客户端 runtime 能力，但它在 desktop module 下。
+当前 `desktop/runtime_service.go` 已经实现了很多客户端 runtime 能力，但它在 desktop module 下。
 
 建议后续迁移为：
 
@@ -484,7 +484,7 @@ desktop -> same API
 建议下一步优先做三件事：
 
 1. 将 runtime event 从 `tea.Msg` 依赖中剥离，建立 runtime-native event bus。
-2. 将 `desktop/agent-builder/runtime_service` 的通用部分迁移规划到 `internal/runtime`。
+2. 将 `desktop/runtime_service` 的通用部分迁移规划到 `internal/runtime`。
 3. 定义 client-first `Turn` / `ToolCall` / `PermissionRequest` API，并让 React 只消费这些结构。
 
 完成这三步后，Agent Builder 才会真正从“Crush 的桌面包装”转向“客户端优先的 agent runtime 产品”。

@@ -53,7 +53,7 @@ client/
   HTTP adapter
   SSE subscription
 
-desktop/agent-builder/
+desktop/
   Wails shell
   native window/menu/bootstrap
   local API startup
@@ -82,7 +82,7 @@ internal/adapters/
   tui adapter
 ```
 
-当前代码还没有完全形成 `internal/runtime` 和 `internal/adapters`。现状是 `desktop/agent-builder/runtime_*` 已经承担了大量 runtime boundary 责任。后续应把通用 runtime 能力从 desktop 包迁移到 `internal/runtime`，让 Wails 只做 adapter。
+当前代码还没有完全形成 `internal/runtime` 和 `internal/adapters`。现状是 `desktop/runtime_*` 已经承担了大量 runtime boundary 责任。后续应把通用 runtime 能力从 desktop 包迁移到 `internal/runtime`，让 Wails 只做 adapter。
 
 ## 核心架构决策
 
@@ -376,11 +376,11 @@ Right Drawer / Modal
 | React chat shell | `client/src/AssistantClient.tsx` | 已有可用形态 |
 | 客户端状态 hook | `client/src/hooks/useAssistantClient.tsx` | 已有主流程，但状态恢复还需要加强 |
 | SSE 订阅 | `client/src/hooks/useRuntimeEventSubscription.ts` | 已有基础，需要 cursor/reconnect 语义 |
-| RuntimeService | `desktop/agent-builder/runtime_service_types.go` | 边界正确，但位置应迁移到 `internal/runtime` |
-| HTTP adapter | `desktop/agent-builder/runtime_http.go` | 已有基础，需与 contract 文档保持一致 |
-| Event translation | `desktop/agent-builder/runtime_events.go` | 可用过渡层，但仍依赖 Crush/TUI event 形态 |
-| Permission bridge | `desktop/agent-builder/runtime_permissions.go` + `internal/permission` | 已有审批基础，需升级 policy model |
-| Audit | `desktop/agent-builder/runtime_audit*.go` | 已有基础，需从文件/内存走向 runtime audit store |
+| RuntimeService | `desktop/runtime_service_types.go` | 边界正确，但位置应迁移到 `internal/runtime` |
+| HTTP adapter | `desktop/runtime_http.go` | 已有基础，需与 contract 文档保持一致 |
+| Event translation | `desktop/runtime_events.go` | 可用过渡层，但仍依赖 Crush/TUI event 形态 |
+| Permission bridge | `desktop/runtime_permissions.go` + `internal/permission` | 已有审批基础，需升级 policy model |
+| Audit | `desktop/runtime_audit*.go` | 已有基础，需从文件/内存走向 runtime audit store |
 
 ## 需要冻结的基础流程
 
@@ -415,7 +415,7 @@ Turn -> ToolCall -> Permission -> Event -> Audit
 4. 抽出 Tool Scheduler。
 5. 升级 permission policy model。
 6. 加入 state recovery 和 event cursor。
-7. 将 `desktop/agent-builder/runtime_*` 通用部分迁移到 `internal/runtime`。
+7. 将 `desktop/runtime_*` 通用部分迁移到 `internal/runtime`。
 8. 将 Wails、HTTP、未来 CLI/TUI 都改成 adapter。
 9. 强化 React 页面信息架构和状态恢复。
 

@@ -196,7 +196,7 @@ are not required for the normal `AgentBuilder.exe` build.
 From the repository root:
 
 ```powershell
-cd desktop\agent-builder
+cd desktop
 wails3 task build
 ```
 
@@ -204,14 +204,14 @@ The build task will:
 
 1. Install frontend dependencies when missing.
 2. Build the shared React client in `client/`.
-3. Sync `client/dist` into `desktop/agent-builder/frontend/dist`.
+3. Sync `client/dist` into `desktop/frontend/dist`.
 4. Generate Wails bindings and Windows resources.
 5. Build the executable.
 
 The output executable is:
 
 ```text
-desktop/agent-builder/bin/AgentBuilder.exe
+desktop/bin/AgentBuilder.exe
 ```
 
 Run it directly:
@@ -225,11 +225,11 @@ Run it directly:
 `AgentBuilder.exe` owns runtime files next to the executable:
 
 ```text
-desktop/agent-builder/bin/config/model.json
-desktop/agent-builder/bin/config/skills.json
-desktop/agent-builder/bin/config/mcp.json
-desktop/agent-builder/bin/data/
-desktop/agent-builder/bin/logs/
+desktop/bin/config/model.json
+desktop/bin/config/skills.json
+desktop/bin/config/mcp.json
+desktop/bin/data/
+desktop/bin/logs/
 ```
 
 These files are local runtime data and should not be committed. Model settings
@@ -241,14 +241,14 @@ key, refreshing models, selecting a model, then verifying and saving.
 Run the desktop app in Wails development mode:
 
 ```powershell
-cd desktop\agent-builder
+cd desktop
 wails3 task dev
 ```
 
 Run the repeatable Phase 2 packaged smoke test:
 
 ```powershell
-cd desktop\agent-builder
+cd desktop
 .\scripts\phase2-smoke.ps1 -Build
 ```
 
