@@ -1,0 +1,258 @@
+# Turn / Task / Run 数据模型
+
+本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
+
+## 为什么需要这层模型
+
+当前实现里 `RuntimeChatRequest` 触发 `Chat()`，`requestID` 被当作 turn id 使用。这可以跑通桌面聊天，但不足以支撑 Codex 形态客户端：
+
+- 一个用户请求可能产生多个工具调用。
+- 一个工具调用可能需要权限审批。
+- 一个 turn 可能派生后台子任务。
+- 客户端重启后需要恢复 active turn。
+- audit 需要按 turn 聚合完整证据。
+- 后续 agentic operations 需要比 chat turn 更长生命周期的 run。
+
+因此需要区分：
+
+| 概念 | 含义 |
+| --- | --- |
+| `Session` | 一条会话或工作线程，承载上下文和历史。 |
+| `Turn` | 用户在 session 中发起的一次交互。 |
+| `Task` | turn 内或后台产生的可跟踪工作单元，例如 subagent、长工具任务、计划步骤。 |
+| `Run` | 跨 turn 的较长操作，适合未来 agentic operations。 |
+
+## 初始阶段的边界
+
+Phase 2 先把 `Turn` 做成一等对象。`Task` 和 `Run` 可以先保留模型定义，不急于完整实现。
+
+```text
+Session
+  Turn
+    Message[]
+    ToolCall[]
+    PermissionRequest[]
+    AuditEvent[]
+    Artifact[]
+    Task[] optional
+
+Run optional later
+  Task[]
+  Turn[]
+```
+
+## Turn
+
+推荐字段：
+
+```text
+Turn
+  id
+  session_id
+  status: queued | running | waiting_permission | cancelling | completed | failed | cancelled | interrupted
+  user_message_id
+  latest_assistant_message_id
+  provider
+  model
+  prompt_preview
+  usage_before
+  usage_after
+  usage_delta
+  started_at
+  updated_at
+  finished_at
+  error
+```
+
+状态含义：
+
+| 状态 | 含义 |
+| --- | --- |
+| `queued` | 已创建但尚未开始执行。 |
+| `running` | model loop 或 tool scheduler 正在执行。 |
+| `waiting_permission` | 等待用户审批。 |
+| `cancelling` | 已收到取消请求，正在停止。 |
+| `completed` | 正常完成。 |
+| `failed` | 失败结束。 |
+| `cancelled` | 用户取消。 |
+| `interrupted` | runtime 退出或恢复时发现无法继续。 |
+
+## ToolCall
+
+推荐字段：
+
+```text
+ToolCall
+  id
+  turn_id
+  session_id
+  message_id
+  name
+  source: builtin | mcp | plugin | shell
+  status: pending | waiting_permission | running | completed | failed | cancelled
+  input_json
+  input_summary
+  output_json
+  stdout
+  stderr
+  diff_refs
+  artifact_refs
+  started_at
+  finished_at
+  error
+```
+
+ToolCall 必须独立于 message 存在。message part 可以引用 tool call，但客户端需要按 tool call 查看详情、权限、输出、diff 和审计。
+
+## PermissionRequest
+
+推荐字段：
+
+```text
+PermissionRequest
+  id
+  session_id
+  turn_id
+  tool_call_id
+  tool_name
+  action
+  risk
+  target_path
+  params_summary
+  status: pending | allowed | allowed_for_session | denied | expired | cancelled
+  created_at
+  decided_at
+  decision_by
+```
+
+当前 `internal/permission.PermissionRequest` 已有基础字段，但缺少 turn id、risk、status、decision record。客户端化后应补齐。
+
+## Task
+
+Task 用于描述 turn 内的可跟踪子工作。
+
+典型场景：
+
+- subagent/background agent
+- 长时间 shell command
+- 多步骤计划中的步骤
+- 批量文件修改
+- MCP 长任务
+
+推荐字段：
+
+```text
+Task
+  id
+  parent_turn_id
+  parent_task_id
+  title
+  kind: subagent | tool | plan_step | background
+  status
+  progress
+  owner
+  started_at
+  updated_at
+  finished_at
+  result_summary
+  error
+```
+
+Task 不替代 ToolCall。ToolCall 是模型请求工具，Task 是 runtime 追踪工作。
+
+## Run
+
+Run 是未来 agentic operations 的跨 turn 长生命周期对象。
+
+适用场景：
+
+- “实现一个功能并持续验证”
+- “执行迁移计划”
+- “后台监控任务”
+- “多 agent 协作”
+
+推荐字段：
+
+```text
+Run
+  id
+  title
+  workspace_id
+  status
+  goal
+  created_by
+  active_session_id
+  turn_ids
+  task_ids
+  started_at
+  updated_at
+  finished_at
+```
+
+当前不建议先实现完整 Run，避免过早复杂化。先把 Turn 和 ToolCall 做稳。
+
+## API 影响
+
+最小 API：
+
+```text
+POST /v1/sessions/{session_id}/turns
+GET  /v1/turns/{turn_id}
+POST /v1/turns/{turn_id}/cancel
+GET  /v1/turns/{turn_id}/tool-calls
+GET  /v1/turns/{turn_id}/permissions
+GET  /v1/audit/turns/{turn_id}
+```
+
+后续扩展：
+
+```text
+GET  /v1/tasks/{task_id}
+GET  /v1/runs
+POST /v1/runs
+GET  /v1/runs/{run_id}
+POST /v1/runs/{run_id}/cancel
+```
+
+## 事件影响
+
+Turn 和 ToolCall 至少需要这些事件：
+
+```text
+turn.started
+turn.progress
+turn.waiting_permission
+turn.completed
+turn.failed
+turn.cancelled
+turn.interrupted
+
+tool.call.started
+tool.call.output
+tool.call.completed
+tool.call.failed
+tool.call.cancelled
+```
+
+## 存储建议
+
+初始可增加轻量表：
+
+```text
+runtime_turns
+runtime_tool_calls
+runtime_permission_requests
+runtime_audit_events
+```
+
+message 仍可保留现有 Crush 存储，但 turn/tool/permission/audit 应有 runtime 级索引，避免客户端只能从 message parts 反推状态。
+
+## 迁移步骤
+
+1. 保留当前 `requestID == turnID` 过渡行为。
+2. 新增 runtime turn store，Chat 创建 turn 时写入。
+3. `runtime_events.go` 记录 message/tool/permission 时附带 turn id。
+4. `GET /v1/turns/{turn_id}` 从 turn store 读取，而不是只读内存 `requests`。
+5. ToolCall 从 message part 反推逐步改为 ToolScheduler 写入。
+6. 客户端 active turn 状态从 `RuntimeStatus.requests` 迁移到 turn API。
+
