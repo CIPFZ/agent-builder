@@ -1,4 +1,4 @@
-package main
+package runtime
 
 import (
 	"context"
@@ -53,12 +53,6 @@ type RuntimeService interface {
 	Cancel(context.Context) (RuntimeStatus, error)
 	CancelTurn(context.Context, string) (RuntimeStatus, error)
 	NewChat(context.Context, string) (RuntimeStatus, error)
-}
-
-// RuntimeBridge is the Wails adapter. It intentionally delegates to
-// RuntimeService so desktop bindings do not become the business boundary.
-type RuntimeBridge struct {
-	service RuntimeService
 }
 
 // runtimeService owns workspace, session, and agent lifecycle.

@@ -2,13 +2,72 @@ package main
 
 import (
 	"context"
+
+	runtime "github.com/charmbracelet/crush/internal/runtime"
 )
+
+type RuntimeStatus = runtime.RuntimeStatus
+type RuntimeModel = runtime.RuntimeModel
+type RuntimeModelsResponse = runtime.RuntimeModelsResponse
+type RuntimeConfigResponse = runtime.RuntimeConfigResponse
+type RuntimeChatRequest = runtime.RuntimeChatRequest
+type RuntimeChatResponse = runtime.RuntimeChatResponse
+type RuntimeTurn = runtime.RuntimeTurn
+type RuntimeTurnResponse = runtime.RuntimeTurnResponse
+type RuntimeMessage = runtime.RuntimeMessage
+type RuntimeMessagePart = runtime.RuntimeMessagePart
+type RuntimeSession = runtime.RuntimeSession
+type RuntimeSessionsResponse = runtime.RuntimeSessionsResponse
+type RuntimeSessionResponse = runtime.RuntimeSessionResponse
+type RuntimeSessionUpdateRequest = runtime.RuntimeSessionUpdateRequest
+type RuntimeMessagesResponse = runtime.RuntimeMessagesResponse
+type RuntimePermissionRequest = runtime.RuntimePermissionRequest
+type RuntimePermissionsResponse = runtime.RuntimePermissionsResponse
+type RuntimePermissionDecision = runtime.RuntimePermissionDecision
+type RuntimeRequests = runtime.RuntimeRequests
+type RuntimeUsage = runtime.RuntimeUsage
+type RuntimeEventStats = runtime.RuntimeEventStats
+type RuntimeEventsResponse = runtime.RuntimeEventsResponse
+type RuntimeEventsEndpointResponse = runtime.RuntimeEventsEndpointResponse
+type RuntimeSkill = runtime.RuntimeSkill
+type RuntimeSkillsResponse = runtime.RuntimeSkillsResponse
+type RuntimeSkillCreateRequest = runtime.RuntimeSkillCreateRequest
+type RuntimeSkillPathRequest = runtime.RuntimeSkillPathRequest
+type RuntimeSkillToggleRequest = runtime.RuntimeSkillToggleRequest
+type RuntimeMCPCounts = runtime.RuntimeMCPCounts
+type RuntimeMCPServer = runtime.RuntimeMCPServer
+type RuntimeMCPServersResponse = runtime.RuntimeMCPServersResponse
+type RuntimeMCPServerConfigRequest = runtime.RuntimeMCPServerConfigRequest
+type RuntimeMCPServerToggleRequest = runtime.RuntimeMCPServerToggleRequest
+type RuntimeMCPTool = runtime.RuntimeMCPTool
+type RuntimeMCPToolsResponse = runtime.RuntimeMCPToolsResponse
+type RuntimeMCPToolToggleRequest = runtime.RuntimeMCPToolToggleRequest
+type RuntimeMCPResource = runtime.RuntimeMCPResource
+type RuntimeMCPResourcesResponse = runtime.RuntimeMCPResourcesResponse
+type RuntimeMCPPrompt = runtime.RuntimeMCPPrompt
+type RuntimeMCPPromptsResponse = runtime.RuntimeMCPPromptsResponse
+type RuntimeCapability = runtime.RuntimeCapability
+type RuntimeCapabilitiesResponse = runtime.RuntimeCapabilitiesResponse
+type RuntimeModelConfig = runtime.RuntimeModelConfig
+type RuntimeModelVerifyResponse = runtime.RuntimeModelVerifyResponse
+type RuntimeModelDiscoveryResponse = runtime.RuntimeModelDiscoveryResponse
+type RuntimeAPIEndpointResponse = runtime.RuntimeAPIEndpointResponse
+type RuntimeAuditEvent = runtime.RuntimeAuditEvent
+type RuntimeAuditResponse = runtime.RuntimeAuditResponse
+type RuntimeEvent = runtime.RuntimeEvent
+
+// RuntimeBridge is the Wails adapter. It intentionally delegates to
+// runtime.RuntimeService so desktop bindings do not become the business
+// boundary.
+type RuntimeBridge struct {
+	service runtime.RuntimeService
+}
 
 func NewRuntimeBridge() *RuntimeBridge {
 
 	return &RuntimeBridge{
 
-		service: NewRuntimeService(),
+		service: runtime.NewRuntimeService(),
 	}
 
 }

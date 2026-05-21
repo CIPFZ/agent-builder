@@ -1,4 +1,4 @@
-package main
+package runtime
 
 type RuntimeStatus struct {
 	Ready       bool              `json:"ready"`
