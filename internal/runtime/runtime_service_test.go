@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
@@ -22,6 +21,7 @@ import (
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/charmbracelet/crush/internal/session"
 )
 
 func TestLocalModelConfigUsesDesktopConfigPath(t *testing.T) {
@@ -990,7 +990,7 @@ func TestRecordRuntimeEventEmitsTurnScopedToolEvents(t *testing.T) {
 		},
 	}
 
-	service.recordRuntimeEvent(pubsub.Event[tea.Msg]{
+	service.recordRuntimeEvent(pubsub.Event[any]{
 		Payload: pubsub.Event[message.Message]{Payload: msg},
 	})
 
@@ -1011,11 +1011,37 @@ func TestRecordRuntimeEventEmitsTurnScopedToolEvents(t *testing.T) {
 		t.Fatalf("event types = %#v, want %#v", types, want)
 	}
 
-	service.recordRuntimeEvent(pubsub.Event[tea.Msg]{
+	service.recordRuntimeEvent(pubsub.Event[any]{
 		Payload: pubsub.Event[message.Message]{Payload: msg},
 	})
 	if len(service.events) != len(want)+1 {
 		t.Fatalf("duplicate tool events were emitted: %#v", service.events)
+	}
+}
+
+func TestRecordRuntimeEventConvertsSessionAndPermissionPayloads(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	service.recordRuntimeEvent(pubsub.Event[any]{
+		Payload: pubsub.Event[session.Session]{
+			Payload: session.Session{ID: "session-1", Title: "Runtime session"},
+		},
+	})
+	service.recordRuntimeEvent(pubsub.Event[any]{
+		Payload: pubsub.Event[permission.PermissionRequest]{
+			Payload: permission.PermissionRequest{ID: "perm-1"},
+		},
+	})
+
+	if len(service.events) != 1 {
+		t.Fatalf("events = %#v, want one session runtime event", service.events)
+	}
+	if service.events[0].Type != runtimeapi.EventSessionUpdated || service.events[0].SessionID != "session-1" {
+		t.Fatalf("session event = %#v", service.events[0])
+	}
+	if service.eventStats.sessionEvents != 1 || service.eventStats.permissionEvents != 1 {
+		t.Fatalf("event stats = %#v", service.eventStats)
 	}
 }
 

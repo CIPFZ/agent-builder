@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/proto"
@@ -44,7 +43,7 @@ func (r *runtimeService) SubscribeEvents(_ context.Context) (<-chan RuntimeEvent
 }
 
 func (r *runtimeService) consumeRuntimeEvents(ctx context.Context, workspaceID string) {
-	events, err := r.runtime.SubscribeEvents(ctx, workspaceID)
+	events, err := r.runtime.SubscribeRawEvents(ctx, workspaceID)
 	if err != nil {
 		slog.Error("Failed to subscribe to Crush runtime events", "workspace_id", workspaceID, "error", err)
 		return
@@ -104,7 +103,7 @@ func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspac
 	}
 }
 
-func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[tea.Msg]) {
+func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 	r.mu.Lock()
 
 	var runtimeEvents []RuntimeEvent

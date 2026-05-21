@@ -22,6 +22,40 @@ func (b *Backend) SubscribeEvents(ctx context.Context, workspaceID string) (<-ch
 	return ws.Events(ctx), nil
 }
 
+// SubscribeRawEvents returns workspace events without exposing the legacy
+// Bubble Tea transport type to non-TUI consumers.
+func (b *Backend) SubscribeRawEvents(ctx context.Context, workspaceID string) (<-chan pubsub.Event[any], error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+
+	legacyEvents := ws.Events(ctx)
+	events := make(chan pubsub.Event[any], 64)
+	go func() {
+		defer close(events)
+		for {
+			select {
+			case event, ok := <-legacyEvents:
+				if !ok {
+					return
+				}
+				select {
+				case events <- pubsub.Event[any]{
+					Type:    event.Type,
+					Payload: event.Payload,
+				}:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return events, nil
+}
+
 // GetLSPStates returns the state of all LSP clients.
 func (b *Backend) GetLSPStates(workspaceID string) (map[string]app.LSPClientInfo, error) {
 	_, err := b.GetWorkspace(workspaceID)
