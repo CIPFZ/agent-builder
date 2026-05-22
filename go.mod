@@ -3,7 +3,7 @@ module github.com/charmbracelet/crush
 go 1.26.3
 
 require (
-	charm.land/catwalk v0.41.0
+	charm.land/catwalk v0.41.7
 	charm.land/fantasy v0.25.2
 	charm.land/x/vcr v0.1.1
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
