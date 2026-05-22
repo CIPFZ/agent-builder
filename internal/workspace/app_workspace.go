@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/agent"
 	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/app"
-	"github.com/charmbracelet/crush/internal/commands"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/history"
 	"github.com/charmbracelet/crush/internal/lsp"
@@ -334,7 +333,14 @@ func (w *AppWorkspace) ReadMCPResource(ctx context.Context, name, uri string) ([
 }
 
 func (w *AppWorkspace) GetMCPPrompt(clientID, promptID string, args map[string]string) (string, error) {
-	return commands.GetMCPPrompt(w.store, clientID, promptID, args)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := mcptools.GetPromptMessages(ctx, w.store, clientID, promptID, args)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(result, " "), nil
 }
 
 func (w *AppWorkspace) EnableDockerMCP(ctx context.Context) error {
@@ -363,12 +369,6 @@ func (w *AppWorkspace) DisableDockerMCP() error {
 		return fmt.Errorf("failed to disable docker MCP: %w", err)
 	}
 	return w.store.DisableDockerMCP()
-}
-
-// -- Lifecycle --
-
-func (w *AppWorkspace) Subscribe(program *tea.Program) {
-	w.app.Subscribe(program)
 }
 
 func (w *AppWorkspace) Shutdown() {

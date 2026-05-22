@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/agent"
 	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
-	"github.com/charmbracelet/crush/internal/commands"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/oauth"
 )
@@ -201,7 +202,14 @@ func (b *Backend) GetMCPPrompt(workspaceID, clientID, promptID string, args map[
 	if err != nil {
 		return "", err
 	}
-	return commands.GetMCPPrompt(ws.Cfg, clientID, promptID, args)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	result, err := mcptools.GetPromptMessages(ctx, ws.Cfg, clientID, promptID, args)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(result, " "), nil
 }
 
 // GetWorkingDir returns the working directory for a workspace.

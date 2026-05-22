@@ -8,13 +8,11 @@ import (
 	"sync"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/agent/notify"
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/client"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/history"
-	"github.com/charmbracelet/crush/internal/log"
 	"github.com/charmbracelet/crush/internal/lsp"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/oauth"
@@ -537,35 +535,12 @@ func (w *ClientWorkspace) DisableDockerMCP() error {
 	return w.client.DisableDockerMCP(context.Background(), w.workspaceID())
 }
 
-// -- Lifecycle --
-
-func (w *ClientWorkspace) Subscribe(program *tea.Program) {
-	defer log.RecoverPanic("ClientWorkspace.Subscribe", func() {
-		slog.Info("TUI subscription panic: attempting graceful shutdown")
-		program.Quit()
-	})
-
-	evc, err := w.client.SubscribeEvents(context.Background(), w.workspaceID())
-	if err != nil {
-		slog.Error("Failed to subscribe to events", "error", err)
-		return
-	}
-
-	for ev := range evc {
-		translated := translateEvent(ev)
-		if translated != nil {
-			program.Send(translated)
-		}
-	}
-}
-
 func (w *ClientWorkspace) Shutdown() {
 	_ = w.client.DeleteWorkspace(context.Background(), w.workspaceID())
 }
 
-// translateEvent converts proto-typed SSE events into the domain types
-// that the TUI's Update() method expects.
-func translateEvent(ev any) tea.Msg {
+// translateEvent converts proto-typed SSE events into workspace domain events.
+func translateEvent(ev any) any {
 	switch e := ev.(type) {
 	case pubsub.Event[proto.LSPEvent]:
 		return pubsub.Event[LSPEvent]{

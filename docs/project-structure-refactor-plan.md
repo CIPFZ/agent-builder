@@ -2,6 +2,13 @@
 
 本文定义 Agent Builder 从可行性验证 demo 走向稳定客户端项目的目录整理方案。当前阶段先输出方案，不移动代码。
 
+## 当前状态更新
+
+Crush TUI/终端 UI 遗留层已经从活动代码中移除：`internal/ui/`、
+`internal/commands/` 已删除，`internal/cmd/` 仅保留不依赖 Bubble Tea 的
+最小入口 stub。客户端主路径现在使用 Go runtime/backend 的原始事件和
+runtime event，不再暴露 `tea.Msg` 或 `*tea.Program`。桌面 React client 是当前主界面。
+
 ## 背景判断
 
 当前项目仍保留大量 Crush 原始结构，同时叠加了 Wails3 + React 客户端 PoC。它已经证明了方向可行，但目录、文件归属和架构边界还不稳定。

@@ -3,6 +3,21 @@
 This document defines the target and execution rules for removing the legacy
 Bubble Tea TUI from Agent Builder.
 
+## Current Status
+
+The legacy Crush TUI has been removed from the active codebase. The current
+product path is:
+
+```text
+React Client -> Wails Adapter -> Go Runtime / Backend -> Agent / Tools
+```
+
+`internal/ui/` and `internal/commands/` are gone. `internal/cmd/` is reduced to
+a minimal non-TUI compatibility stub for the root `main.go` entry point. App and
+backend event subscription now expose raw application/runtime payloads through
+`pubsub.Event[any]`; `tea.Msg` and `*tea.Program` are no longer part of the
+client runtime path.
+
 ## Goal
 
 Remove the complete Crush TUI surface from the product codebase and leave Agent

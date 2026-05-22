@@ -2,6 +2,14 @@
 
 本文补充 `docs/archive/crush-claude-code-gap-analysis.md` 中没有展开的一点：Agent Builder 的目标不是继续做一个 CLI/TUI agent，而是做一个客户端产品。因此，Crush 和 Claude Code 中大量为 CLI、TUI、终端 REPL、结构化 stdio、命令行交互适配的部分，不应该原样保留在产品主路径中。
 
+## 当前状态更新
+
+CLI/TUI 裁剪已经完成到删除阶段：`internal/ui/`、`internal/commands/` 已移除，
+`internal/cmd/` 只保留最小非 TUI stub。`internal/app` 和
+`internal/backend` 的事件订阅不再使用 `tea.Msg`，客户端 runtime 主路径消费
+`pubsub.Event[any]` 和 runtime event。后续客户端命令面板、diff、permission UI
+应在 React/Wails/runtime API 上重建，而不是复用终端 UI 模型。
+
 目标是：
 
 ```text

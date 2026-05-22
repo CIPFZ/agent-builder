@@ -10,6 +10,11 @@ The desktop client must keep React as a thin presentation layer. The source of
 truth for model config, session state, messages, provider selection, agent
 execution, tool calls, and future permissions is the Go/Crush runtime.
 
+The legacy Bubble Tea TUI has been removed. The desktop React client is now the
+active product interface, and Wails remains an adapter over the Go runtime.
+Runtime event consumers must use runtime/raw event payloads rather than
+`tea.Msg` or `*tea.Program`.
+
 Current implementation follows this boundary:
 
 - `client/src/runtime/*` defines a narrow `AgentRuntime` facade.
@@ -43,8 +48,8 @@ Current implementation follows this boundary:
   second frontend runtime.
 - Later HTTP/SSE or JSON-RPC APIs can replace the in-process Wails binding
   without changing the React application model.
-- The TUI, desktop client, future Web console, and automation clients can all
-  converge on the same Crush runtime state model.
+- The desktop client, future Web console, and automation clients can all
+  converge on the same runtime state model.
 - UI-only mocks must not be reintroduced for model, message, provider, or agent
   execution paths unless they are isolated test fixtures.
 - Phase 1 must not use unconditional permission bypass for normal desktop

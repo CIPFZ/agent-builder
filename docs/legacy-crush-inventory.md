@@ -4,6 +4,15 @@ This inventory is the Phase 1 output for the project structure refactor. It
 classifies current files and directories before any move, delete, or rename is
 performed.
 
+## Current Removal Status
+
+The Crush TUI/terminal UI surface has been removed from the active tree.
+`internal/ui/` and its tests/fixtures were deleted, `internal/commands/` was
+deleted, and `internal/cmd/` now contains only a minimal non-TUI compatibility
+stub for `main.go`. Backend event subscriptions no longer expose Bubble Tea
+types; app/backend/runtime consumers use raw `pubsub.Event[any]` payloads and
+runtime events. The desktop React client is the current primary interface.
+
 Status labels:
 
 | Label | Meaning |

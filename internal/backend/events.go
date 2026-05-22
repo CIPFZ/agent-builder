@@ -3,17 +3,21 @@ package backend
 import (
 	"context"
 
-	tea "charm.land/bubbletea/v2"
-
 	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/app"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/pubsub"
 )
 
+// WarningEvent carries non-fatal runtime warnings for adapters that expose
+// workspace events.
+type WarningEvent struct {
+	Message string
+}
+
 // SubscribeEvents returns a per-caller event channel for a workspace.
 // Each caller receives all events; multiple callers do not compete.
-func (b *Backend) SubscribeEvents(ctx context.Context, workspaceID string) (<-chan pubsub.Event[tea.Msg], error) {
+func (b *Backend) SubscribeEvents(ctx context.Context, workspaceID string) (<-chan pubsub.Event[any], error) {
 	ws, err := b.GetWorkspace(workspaceID)
 	if err != nil {
 		return nil, err
@@ -22,38 +26,10 @@ func (b *Backend) SubscribeEvents(ctx context.Context, workspaceID string) (<-ch
 	return ws.Events(ctx), nil
 }
 
-// SubscribeRawEvents returns workspace events without exposing the legacy
-// Bubble Tea transport type to non-TUI consumers.
+// SubscribeRawEvents is retained for runtime callers while the backend API
+// settles on SubscribeEvents as the raw application event stream.
 func (b *Backend) SubscribeRawEvents(ctx context.Context, workspaceID string) (<-chan pubsub.Event[any], error) {
-	ws, err := b.GetWorkspace(workspaceID)
-	if err != nil {
-		return nil, err
-	}
-
-	legacyEvents := ws.Events(ctx)
-	events := make(chan pubsub.Event[any], 64)
-	go func() {
-		defer close(events)
-		for {
-			select {
-			case event, ok := <-legacyEvents:
-				if !ok {
-					return
-				}
-				select {
-				case events <- pubsub.Event[any]{
-					Type:    event.Type,
-					Payload: event.Payload,
-				}:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	return events, nil
+	return b.SubscribeEvents(ctx, workspaceID)
 }
 
 // GetLSPStates returns the state of all LSP clients.

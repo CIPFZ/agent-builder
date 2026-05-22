@@ -16,10 +16,10 @@ import (
 	"github.com/charmbracelet/crush/internal/session"
 )
 
-// wrapEvent converts a raw tea.Msg (a pubsub.Event[T] from the app
-// event fan-in) into a pubsub.Payload envelope with the correct
-// PayloadType discriminator and a proto-typed inner payload that has
-// proper JSON tags. Returns nil if the event type is unrecognized.
+// wrapEvent converts a raw app pubsub.Event[T] payload into a pubsub.Payload
+// envelope with the correct PayloadType discriminator and a proto-typed inner
+// payload that has proper JSON tags. Returns nil if the event type is
+// unrecognized.
 func wrapEvent(ev any) *pubsub.Payload {
 	switch e := ev.(type) {
 	case pubsub.Event[app.LSPEvent]:

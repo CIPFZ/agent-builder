@@ -8,7 +8,6 @@ import (
 	"context"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/catwalk/pkg/catwalk"
 	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/config"
@@ -39,7 +38,7 @@ const (
 	LSPEventDiagnosticsChanged LSPEventType = "diagnostics_changed"
 )
 
-// LSPEvent represents an LSP event forwarded to the TUI.
+// LSPEvent represents an LSP event forwarded through workspace event streams.
 type LSPEvent struct {
 	Type            LSPEventType
 	Name            string
@@ -54,7 +53,7 @@ type AgentModel struct {
 	ModelCfg   config.SelectedModel
 }
 
-// Workspace is the main abstraction consumed by the TUI and CLI. It
+// Workspace is the main abstraction consumed by runtime adapters. It
 // groups every operation a frontend needs to perform against a running
 // workspace, regardless of whether the workspace is in-process or
 // remote.
@@ -139,7 +138,6 @@ type Workspace interface {
 	DisableDockerMCP() error
 
 	// Events
-	Subscribe(program *tea.Program)
 	Shutdown()
 }
 
