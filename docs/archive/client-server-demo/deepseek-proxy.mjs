@@ -96,7 +96,7 @@ async function generateChatWithDeepSeek(body) {
   const connection = resolveConnection(requestedConfig)
 
   if (!connection.apiKey) {
-    throw new Error('API key is not configured. Please set apiKey in server/deepseek.local.json.')
+    throw new Error('API key is not configured. Please set apiKey in docs/archive/client-server-demo/deepseek.local.json.')
   }
 
   if (connection.protocol === 'anthropic') {

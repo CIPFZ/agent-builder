@@ -41,6 +41,7 @@ Thumbs.db
 # Local environment variables
 .env
 .env.local
+/docs/archive/client-server-demo/deepseek.local.json
 
 # Nix/direnv
 .direnv/

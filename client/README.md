@@ -41,7 +41,7 @@ Run the development server:
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-Run the local report proxy:
+Run the archived local report proxy:
 
 ```bash
 npm run dev:api
@@ -50,10 +50,10 @@ npm run dev:api
 Local DeepSeek configuration:
 
 ```powershell
-Copy-Item server\deepseek.config.example.json server\deepseek.local.json
+Copy-Item ..\docs\archive\client-server-demo\deepseek.config.example.json ..\docs\archive\client-server-demo\deepseek.local.json
 ```
 
-Edit `server/deepseek.local.json`:
+Edit `..\docs\archive\client-server-demo\deepseek.local.json`:
 
 ```json
 {
@@ -72,8 +72,8 @@ Then start the proxy:
 npm run dev:api
 ```
 
-`server/deepseek.local.json` is ignored by Git. `protocol` can be `openai` or
-`anthropic`. For DeepSeek, use:
+`docs/archive/client-server-demo/deepseek.local.json` is ignored by Git.
+`protocol` can be `openai` or `anthropic`. For DeepSeek, use:
 
 - OpenAI-compatible: `protocol=openai`, `url=https://api.deepseek.com`
 - Anthropic-compatible: `protocol=anthropic`,

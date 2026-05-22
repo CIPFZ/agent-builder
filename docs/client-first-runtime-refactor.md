@@ -1,6 +1,6 @@
 # 客户端优先的 Runtime 改造与 CLI/TUI 裁剪方案
 
-本文补充 `docs/crush-claude-code-gap-analysis.md` 中没有展开的一点：Agent Builder 的目标不是继续做一个 CLI/TUI agent，而是做一个客户端产品。因此，Crush 和 Claude Code 中大量为 CLI、TUI、终端 REPL、结构化 stdio、命令行交互适配的部分，不应该原样保留在产品主路径中。
+本文补充 `docs/archive/crush-claude-code-gap-analysis.md` 中没有展开的一点：Agent Builder 的目标不是继续做一个 CLI/TUI agent，而是做一个客户端产品。因此，Crush 和 Claude Code 中大量为 CLI、TUI、终端 REPL、结构化 stdio、命令行交互适配的部分，不应该原样保留在产品主路径中。
 
 目标是：
 
@@ -476,7 +476,7 @@ desktop -> same API
 
 - `desktop-runtime-boundary.md` 已说明 React 是薄展示层。
 - `phase-2-runtime-api-boundary.md` 已说明 HTTP/SSE 是长期边界。
-- `crush-claude-code-gap-analysis.md` 已说明 Crush 与 Claude Code 的能力差距。
+- `docs/archive/crush-claude-code-gap-analysis.md` 已说明 Crush 与 Claude Code 的能力差距。
 - 本文进一步明确：CLI/TUI 适配不是 Agent Builder 的产品主路径，应隔离并逐步从 runtime core 中剥离。
 
 ## 最小下一步

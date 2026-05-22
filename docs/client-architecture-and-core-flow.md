@@ -2,7 +2,7 @@
 
 本文是 Agent Builder 客户端化改造的主架构文档。它承接：
 
-- `docs/crush-claude-code-gap-analysis.md`
+- `docs/archive/crush-claude-code-gap-analysis.md`
 - `docs/client-first-runtime-refactor.md`
 - `docs/phase-2-runtime-api-boundary.md`
 

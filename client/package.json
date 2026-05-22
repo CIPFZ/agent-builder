@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:api": "node server/deepseek-proxy.mjs",
+    "dev:api": "node ../docs/archive/client-server-demo/deepseek-proxy.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

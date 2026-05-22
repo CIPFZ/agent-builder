@@ -2,7 +2,7 @@
 
 This document records the Phase 1.5 architecture boundary for the desktop
 client. The active Phase 1 baseline is also summarized in
-`docs/phase-1-runtime-baseline.md`.
+`docs/archive/phase-1-runtime-baseline.md`.
 
 ## Decision
 

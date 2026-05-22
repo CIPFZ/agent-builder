@@ -35,7 +35,7 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 | --- | --- | --- | --- |
 | `AGENTS.md` | keep | Active repository instructions for development. | Keep at root. |
 | `README.md` | migrate | Mostly original Crush README plus Agent Builder desktop notes. It mixes product docs, CLI docs, config docs, and desktop build notes. | Split into Agent Builder README plus legacy Crush reference docs. |
-| `CLA.md` | archive | Looks like upstream/legal or project reference material, not part of the Agent Builder runtime path. | Confirm legal/product need, then move to `docs/archive/` or `docs/reference/`. |
+| `CLA.md` | archive | Looks like upstream/legal or project reference material, not part of the Agent Builder runtime path. | Phase 7 retained: `.github/workflows/cla.yml` still participates in the CLA/legal process. Archive after CI/legal ownership is replaced. |
 | `LICENSE.md` | keep | Required project license material. | Keep at root. |
 | `main.go` | legacy | Root CLI entry point for Crush command tree. Not part of desktop runtime path. | Keep until CLI adapter boundary exists; later move under `internal/adapters/cli` or a `cmd/` package if the CLI remains supported. |
 | `go.mod`, `go.sum` | keep | Root Go module for core packages, tests, and current CLI. Should become the single Go module used by desktop too. | Keep and make desktop depend on this module directly after single-layer desktop migration. |
@@ -43,8 +43,8 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 | `crush.json` | keep | Current project-level Crush config for gopls/LSP. Useful while the repo is still developed with Crush. | Keep for now; document that it is a developer config, not Agent Builder runtime config. |
 | `schema.json` | migrate | Generated Crush config schema from `go run main.go schema`; not runtime-critical for the desktop client. | Move to `docs/reference/` or generate on demand once config ownership is clarified. |
 | `sqlc.yaml` | keep | Used by `task sqlc` and `internal/db/sql`. DB remains on the product path. | Keep at root unless SQL generation is moved under scripts. |
-| `.goreleaser.yml` | archive | Upstream Crush release pipeline: packages `crush`, completions, man pages, AUR/Homebrew/NPM/etc. Not suitable for Agent Builder desktop releases. | Archive or replace with desktop release packaging after Wails path is stable. |
-| `flake.nix`, `flake.lock`, `.envrc` | archive | Nix dev shell is useful only if the team actively uses it; current metadata still says "Crush development environment". | Confirm team usage. If unused, archive/delete; if used, update to Agent Builder wording and desktop dependencies. |
+| `.goreleaser.yml` | archive | Upstream Crush release pipeline: packages `crush`, completions, man pages, AUR/Homebrew/NPM/etc. Not suitable for Agent Builder desktop releases. | Phase 7 retained: GitHub release/snapshot workflows still reference GoReleaser. Archive after release workflows are replaced. |
+| `flake.nix`, `flake.lock`, `.envrc` | archive | Nix dev shell is useful only if the team actively uses it; current metadata still says "Crush development environment". | Phase 7 retained: team/dev-shell usage is unconfirmed, so these were not moved. Update or archive after ownership is confirmed. |
 | `.golangci.yml` | keep | Active lint config used by `task lint`. | Keep. |
 | `.gitattributes`, `.gitignore` | keep | Repository hygiene files. | Keep; update after desktop flattening removes nested generated paths. |
 | `.github/` | keep | CI and repository automation likely still needed. | Keep, then audit workflows after package moves. |
@@ -83,8 +83,8 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 | `desktop/.gitignore` | migrate | Desktop-specific generated artifacts. | Merge into root `.gitignore` or keep as `desktop/.gitignore`. |
 | `desktop/scripts/sync-client-dist.mjs` | migrate | Active build helper that syncs `client/dist` into Wails assets. | Move to `desktop/scripts/` and update paths. |
 | `desktop/scripts/phase2-smoke.ps1` | migrate | Active packaged desktop smoke test. | Move to `desktop/scripts/` and update paths. |
-| `desktop/frontend/package.json`, `package-lock.json` | delete | Minimal placeholder package next to embedded `frontend/dist`; real React app is `client/`. | Remove after Wails asset embedding no longer expects this package metadata. |
-| `desktop/frontend/dist/` | delete | Generated copy of `client/dist`. | Keep ignored/generated only; do not treat as source. |
+| `desktop/frontend/package.json`, `package-lock.json` | delete | Minimal placeholder package next to embedded `frontend/dist`; real React app is `client/`. | Phase 7 deleted after confirming no active source reference requires the metadata. |
+| `desktop/frontend/dist/` | delete | Generated copy of `client/dist`. | Phase 7 retained: `desktop/main.go` embeds `frontend/dist` with `go:embed`, so deleting it currently breaks desktop builds. Keep generated only until the desktop asset sync/build path owns regeneration. |
 | `desktop/build/` | migrate | Wails packaging assets and generated platform scaffolding. | Move to `desktop/build/`; later delete generated platform files that Wails can regenerate. |
 | `desktop/build/windows`, `build/darwin`, `build/linux` | migrate | Desktop packaging assets. | Move with desktop shell. |
 | `desktop/build/android`, `build/ios` | archive | Mobile scaffolding is not on the current desktop product path. | Archive or delete after confirming Wails mobile targets are out of scope. |
@@ -100,10 +100,10 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 | `client/src/components/chat/` | migrate | Product feature UI. | Move to `client/src/features/chat/`. |
 | `client/src/components/settings/` | migrate | Product feature UI. | Move to `client/src/features/settings/`. |
 | `client/src/hooks/` | migrate | Hooks are mixed app/runtime/feature concerns. | Move runtime subscriptions to runtime/app layer; chat hooks to chat feature. |
-| `client/src/assets/react.svg`, `client/src/assets/vite.svg` | delete | Vite starter assets, not product assets. | Delete after confirming unused. |
+| `client/src/assets/react.svg`, `client/src/assets/vite.svg` | delete | Vite starter assets, not product assets. | Phase 7 deleted after confirming no client references. |
 | `client/src/assets/hero.png` | keep | Product visual asset if referenced by current UI. | Keep while referenced. |
-| `client/server/deepseek-proxy.mjs` | archive | Demo/local proxy for DeepSeek, not the desktop runtime path. | Archive or move to `docs/examples/` if still useful. |
-| `client/server/deepseek.config.example.json` | archive | Example config for the demo proxy. | Archive with the proxy. |
+| `client/server/deepseek-proxy.mjs` | archive | Demo/local proxy for DeepSeek, not the desktop runtime path. | Phase 7 archived to `docs/archive/client-server-demo/deepseek-proxy.mjs`; `npm run dev:api` points to the archived demo. |
+| `client/server/deepseek.config.example.json` | archive | Example config for the demo proxy. | Phase 7 archived to `docs/archive/client-server-demo/deepseek.config.example.json`. |
 | `internal/runtimeapi/` | keep | Existing runtime contract package and tests. | Keep; use as anchor while extracting `internal/runtime`. |
 | `internal/db/` | keep | SQLite persistence remains on product path; includes runtime audit migration. | Keep. |
 | `internal/session/`, `internal/message/`, `internal/permission/` | keep | Core runtime domain packages. | Keep and connect to `internal/runtime`. |
@@ -151,16 +151,16 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 | `docs/client-state-recovery.md` | keep | Active client/runtime recovery notes. | Keep active. |
 | `docs/client-ui-plan.md` | keep | Active UI plan. | Keep active; revise paths after desktop flattening. |
 | `docs/desktop-runtime-boundary.md` | keep | Active boundary doc for desktop runtime. | Keep active. |
-| `docs/desktop-runtime-root-cause-analysis.md` | archive | Historical root cause analysis for a fixed/diagnostic issue. | Move to `docs/archive/` once findings are reflected in active docs. |
+| `docs/desktop-runtime-root-cause-analysis.md` | archive | Historical root cause analysis for a fixed/diagnostic issue. | Phase 7 archived to `docs/archive/desktop-runtime-root-cause-analysis.md`. |
 | `docs/dev-baseline.md` | keep | Useful validation baseline. | Keep active. |
 | `docs/phase-1-acceptance-test.md` | keep | Current desktop smoke/acceptance procedure. | Keep active, update paths after flattening. |
-| `docs/phase-1-runtime-baseline.md` | archive | Phase baseline snapshot. | Archive after current migration plan supersedes it. |
+| `docs/phase-1-runtime-baseline.md` | archive | Phase baseline snapshot. | Phase 7 archived to `docs/archive/phase-1-runtime-baseline.md`; active references were updated. |
 | `docs/phase-2-runtime-api-boundary.md` | keep | Active runtime API boundary design. | Keep active. |
 | `docs/permission-policy-model.md` | keep | Active design input for PermissionPolicy work. | Keep active. |
 | `docs/tool-scheduler-design.md` | keep | Active design input for scheduler work. | Keep active. |
 | `docs/turn-task-run-model.md` | keep | Active design input for turn/task model. | Keep active. |
-| `docs/crush-claude-code-gap-analysis.md` | archive | Reference comparison, not an active product contract. | Archive under `docs/archive/reference-analysis/` or keep in `docs/reference-analysis/`. |
-| `docs/reference-analysis/` | archive | Comparative reference research. | Move under `docs/archive/` or keep as explicitly named reference material. |
+| `docs/crush-claude-code-gap-analysis.md` | archive | Reference comparison, not an active product contract. | Phase 7 archived to `docs/archive/crush-claude-code-gap-analysis.md`; active references were updated. |
+| `docs/reference-analysis/` | archive | Comparative reference research. | Phase 7 archived to `docs/archive/reference-analysis/`. |
 | `docs/hooks/` | migrate | User-facing Crush hooks documentation. Hooks are still product-relevant but docs are Crush-branded. | Move/update to `docs/reference/hooks/` or rewrite as Agent Builder hook docs. |
 
 ## Config And Generated Artifacts
@@ -172,8 +172,8 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 | `internal/swagger/docs.go`, `swagger.json`, `swagger.yaml` | legacy | Generated docs for legacy server API. | Keep while `task swag` and legacy server remain. |
 | `internal/agent/testdata/` | keep | Agent tests depend on cassette/testdata files. | Keep. |
 | `internal/ui/diffview/testdata/` | legacy | TUI golden tests depend on this corpus. | Keep until TUI tests are retired or moved. |
-| `desktop/bin/` | delete | Build output if present. Not source. | Ensure ignored and delete from worktree if generated. |
-| `desktop/frontend/dist/` | delete | Generated client build copy. | Ensure ignored and recreate during desktop build. |
+| `desktop/bin/` | delete | Build output if present. Not source. | Phase 7 checked: directory was not present. |
+| `desktop/frontend/dist/` | delete | Generated client build copy. | Phase 7 retained: `desktop/main.go` embeds this path, so deletion must wait until desktop build regeneration is guaranteed. |
 
 ## Migration Priority
 
