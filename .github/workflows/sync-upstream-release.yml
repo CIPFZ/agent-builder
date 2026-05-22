@@ -1,0 +1,90 @@
+name: Sync Upstream Release and Notify
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-release
+  cancel-in-progress: false
+
+jobs:
+  sync-and-notify:
+    runs-on: ubuntu-latest
+    env:
+      FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Check and sync latest upstream release tag
+        id: sync_check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream https://github.com/charmbracelet/crush.git 2>/dev/null || git remote set-url upstream https://github.com/charmbracelet/crush.git
+          git fetch upstream --tags --force
+          git fetch origin upstream-stable || true
+
+          latest_tag="$(git ls-remote --tags --refs upstream 'v*' | awk '{ sub("refs/tags/", "", $2); print $2 }' | sort -V | tail -n 1)"
+          if [ -z "$latest_tag" ]; then
+            echo "No upstream release tag found."
+            echo "has_new_update=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          latest_sha="$(git rev-list -n 1 "refs/tags/$latest_tag")"
+          current_sha=""
+          if git rev-parse --verify origin/upstream-stable >/dev/null 2>&1; then
+            current_sha="$(git rev-parse origin/upstream-stable)"
+          fi
+
+          echo "Latest upstream release: $latest_tag ($latest_sha)"
+          echo "Current upstream-stable: ${current_sha:-none}"
+
+          if [ "$current_sha" = "$latest_sha" ]; then
+            echo "has_new_update=false" >> "$GITHUB_OUTPUT"
+            echo "No new upstream release."
+            exit 0
+          fi
+
+          git checkout -B upstream-stable "$latest_tag"
+          git push origin upstream-stable --force
+
+          echo "has_new_update=true" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          echo "latest_sha=$latest_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Send webhook notification
+        if: steps.sync_check.outputs.has_new_update == 'true' && env.FEISHU_WEBHOOK_URL != ''
+        shell: bash
+        env:
+          LATEST_TAG: ${{ steps.sync_check.outputs.latest_tag }}
+          LATEST_SHA: ${{ steps.sync_check.outputs.latest_sha }}
+        run: |
+          set -euo pipefail
+
+          payload="$(jq -n \
+            --arg tag "$LATEST_TAG" \
+            --arg sha "$LATEST_SHA" \
+            '{
+              msg_type: "text",
+              content: {
+                text: ("GitHub 自动化提醒：\nCrush upstream 发布了新稳定版 " + $tag + "。\n已同步到本仓库 upstream-stable 分支。\nCommit: " + $sha + "\n下一步可以让 AI 分析 upstream-stable 与 main 的差异，筛选需要合并的修复和能力。")
+              }
+            }')"
+
+          curl -fsSL -X POST \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            "$FEISHU_WEBHOOK_URL"
