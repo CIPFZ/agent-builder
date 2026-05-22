@@ -13,7 +13,7 @@ tasks:
       - task: install:frontend:deps:{{.PACKAGE_MANAGER}}
 
   install:frontend:deps:npm:
-    dir: frontend
+    dir: ../client
     sources:
       - package.json
       - package-lock.json
@@ -26,7 +26,7 @@ tasks:
       - npm install
 
   install:frontend:deps:bun:
-    dir: frontend
+    dir: ../client
     sources:
       - package.json
       - bun.lock
@@ -40,7 +40,7 @@ tasks:
       - bun install
 
   install:frontend:deps:pnpm:
-    dir: frontend
+    dir: ../client
     sources:
       - package.json
       - pnpm-lock.yaml
@@ -53,7 +53,7 @@ tasks:
       - pnpm install
 
   install:frontend:deps:yarn:
-    dir: frontend
+    dir: ../client
     sources:
       - package.json
       - yarn.lock
@@ -68,7 +68,7 @@ tasks:
   build:frontend:
     label: build:frontend (DEV={{.DEV}} RUNNER={{.PACKAGE_MANAGER}})
     summary: Build the frontend project
-    dir: frontend
+    dir: ../client
     sources:
       - "**/*"
       - exclude: node_modules/**/*
@@ -97,28 +97,28 @@ tasks:
       SCRIPT: "{{.SCRIPT}}"
 
   frontend:run:npm:
-    dir: frontend
+    dir: ../client
     cmds:
       - npm run {{.SCRIPT}} -q
     vars:
       SCRIPT: "{{.SCRIPT}}"
 
   frontend:run:yarn:
-    dir: frontend
+    dir: ../client
     cmds:
       - yarn {{.SCRIPT}}
     vars:
       SCRIPT: "{{.SCRIPT}}"
 
   frontend:run:pnpm:
-    dir: frontend
+    dir: ../client
     cmds:
       - pnpm run {{.SCRIPT}}
     vars:
       SCRIPT: "{{.SCRIPT}}"
 
   frontend:run:bun:
-    dir: frontend
+    dir: ../client
     cmds:
       - bun run {{.SCRIPT}}
     vars:
@@ -203,22 +203,22 @@ tasks:
       - task: frontend:dev:{{.PACKAGE_MANAGER}}
 
   frontend:dev:npm:
-    dir: frontend
+    dir: ../client
     cmds:
       - npm run dev -- --port {{.VITE_PORT}} --strictPort
 
   frontend:dev:yarn:
-    dir: frontend
+    dir: ../client
     cmds:
       - yarn dev --port {{.VITE_PORT}} --strictPort
 
   frontend:dev:pnpm:
-    dir: frontend
+    dir: ../client
     cmds:
       - pnpm dev --port {{.VITE_PORT}} --strictPort
 
   frontend:dev:bun:
-    dir: frontend
+    dir: ../client
     cmds:
       - bun run dev --port {{.VITE_PORT}} --strictPort
 
