@@ -1,12 +1,12 @@
-// Package main is the entry point for the Crush CLI.
+// Package main is the entry point for the Agent Builder runtime and CLI adapter.
 //
-//	@title			Crush API
+//	@title			Agent Builder API
 //	@version		1.0
-//	@description	Crush is a terminal-based AI coding assistant. This API is served over a Unix socket (or Windows named pipe) and provides programmatic access to workspaces, sessions, agents, LSP, MCP, and more.
+//	@description	Agent Builder is a desktop-first AI agent client. This API is served by the local runtime and provides programmatic access to workspaces, sessions, turns, tools, LSP, MCP, and more.
 //	@contact.name	Charm
 //	@contact.url	https://charm.sh
 //	@license.name	MIT
-//	@license.url	https://github.com/charmbracelet/crush/blob/main/LICENSE
+//	@license.url	https://github.com/CIPFZ/agent-builder/blob/main/LICENSE.md
 //	@BasePath		/v1
 package main
 
