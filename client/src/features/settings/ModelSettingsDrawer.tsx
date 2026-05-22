@@ -9,7 +9,7 @@ import Select from 'antd/es/select'
 import Space from 'antd/es/space'
 import Tooltip from 'antd/es/tooltip'
 import Typography from 'antd/es/typography'
-import type { ModelConfig } from '../../api/chat'
+import type { ModelConfig } from '../../runtime/api'
 import type { RuntimeModelDiscoveryResponse, RuntimeModelVerifyResponse } from '../../runtime'
 
 const { Paragraph } = Typography

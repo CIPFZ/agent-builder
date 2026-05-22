@@ -1,4 +1,4 @@
-﻿import type { ModelConfig } from '../../api/chat'
+﻿import type { ModelConfig } from '../../runtime/api'
 import type { RuntimeMessage, RuntimeMessagePart } from '../../runtime'
 
 export const emptyUsage = {

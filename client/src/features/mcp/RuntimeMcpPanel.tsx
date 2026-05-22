@@ -10,7 +10,7 @@ import Tag from 'antd/es/tag'
 import TextArea from 'antd/es/input/TextArea'
 import Typography from 'antd/es/typography'
 import type { RuntimeMcpPrompt, RuntimeMcpResource, RuntimeMcpServer, RuntimeMcpServerConfig, RuntimeMcpTool } from '../../runtime'
-import { linesToList, linesToMap, mapToLines } from './runtimePanelUtils'
+import { linesToList, linesToMap, mapToLines } from '../capabilities/runtimePanelUtils'
 
 const { Text } = Typography
 
@@ -169,4 +169,3 @@ export function RuntimeMcpPanel({
     </div>
   )
 }
-

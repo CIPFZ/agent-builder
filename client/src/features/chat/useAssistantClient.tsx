@@ -29,11 +29,11 @@ import {
   selectRuntimeSession,
   sendRuntimePrompt,
   startRuntimeChat,
-} from '../api/chat'
-import type { ModelConfig } from '../api/chat'
-import { isDefaultSessionTitle } from '../components/chat/chatUtils'
-import type { RuntimeFeatureView } from '../components/runtime/RuntimeFeatureWorkspace'
-import { useRuntimeEventSubscription } from './useRuntimeEventSubscription'
+} from '../../runtime/api'
+import type { ModelConfig } from '../../runtime/api'
+import { isDefaultSessionTitle } from './chatUtils'
+import type { RuntimeFeatureView } from '../capabilities/RuntimeFeatureWorkspace'
+import { useRuntimeEventSubscription } from '../../runtime/useRuntimeEventSubscription'
 import type {
   RuntimeAuditEvent,
   RuntimeCapability,
@@ -48,7 +48,7 @@ import type {
   RuntimeSession,
   RuntimeSkill,
   RuntimeStatus,
-} from '../runtime'
+} from '../../runtime'
 const defaultConfig: ModelConfig = {
   protocol: 'openai',
   model: '',

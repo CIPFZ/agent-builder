@@ -11,14 +11,14 @@ import {
   setRuntimeMcpToolEnabled,
   setRuntimeSkillEnabled,
   verifyModelConfig,
-} from './api/chat'
-import { ChatSidebar } from './components/chat/ChatSidebar'
-import { ChatWorkspace } from './components/chat/ChatWorkspace'
-import { PermissionReviewModal } from './components/permissions/PermissionReviewModal'
-import { RuntimeAuditDrawer } from './components/runtime/RuntimeAuditDrawer'
-import { RuntimeFeatureWorkspace } from './components/runtime/RuntimeFeatureWorkspace'
-import { ModelSettingsDrawer } from './components/settings/ModelSettingsDrawer'
-import { useAssistantClient } from './hooks/useAssistantClient'
+} from '../runtime/api'
+import { ChatSidebar } from '../features/chat/ChatSidebar'
+import { ChatWorkspace } from '../features/chat/ChatWorkspace'
+import { PermissionReviewModal } from '../features/permissions/PermissionReviewModal'
+import { RuntimeAuditDrawer } from '../features/audit/RuntimeAuditDrawer'
+import { RuntimeFeatureWorkspace } from '../features/capabilities/RuntimeFeatureWorkspace'
+import { ModelSettingsDrawer } from '../features/settings/ModelSettingsDrawer'
+import { useAssistantClient } from '../features/chat/useAssistantClient'
 
 export function AssistantClient() {
   const { message } = AntApp.useApp()

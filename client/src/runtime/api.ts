@@ -1,5 +1,5 @@
-import { getAgentRuntime } from '../runtime'
-import type { RuntimeMcpServerConfig, RuntimePermissionDecision, RuntimeSkillCreateRequest } from '../runtime'
+import { getAgentRuntime } from './index'
+import type { RuntimeMcpServerConfig, RuntimePermissionDecision, RuntimeSkillCreateRequest } from './types'
 
 export type ModelConfig = {
   protocol: 'openai' | 'anthropic'

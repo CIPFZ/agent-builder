@@ -18,7 +18,7 @@ import {
   ToolOutlined,
 } from '@ant-design/icons'
 import type { RuntimeSession } from '../../runtime'
-import type { RuntimeFeatureView } from '../runtime/RuntimeFeatureWorkspace'
+import type { RuntimeFeatureView } from '../capabilities/RuntimeFeatureWorkspace'
 
 const { Text } = Typography
 

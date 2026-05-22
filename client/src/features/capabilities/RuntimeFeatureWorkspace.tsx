@@ -14,8 +14,8 @@ import type {
   RuntimeSkillCreateRequest,
 } from '../../runtime'
 import { RuntimeCapabilityPanel } from './RuntimeCapabilityPanel'
-import { RuntimeMcpPanel } from './RuntimeMcpPanel'
-import { RuntimeSkillPanel } from './RuntimeSkillPanel'
+import { RuntimeMcpPanel } from '../mcp/RuntimeMcpPanel'
+import { RuntimeSkillPanel } from '../skills/RuntimeSkillPanel'
 
 const { Text, Title } = Typography
 

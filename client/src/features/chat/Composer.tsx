@@ -8,7 +8,7 @@ import type { MenuProps } from 'antd'
 import { ApiOutlined, DownOutlined, PlusOutlined, SendOutlined, ToolOutlined } from '@ant-design/icons'
 import TextArea from 'antd/es/input/TextArea'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
-import type { ModelConfig } from '../../api/chat'
+import type { ModelConfig } from '../../runtime/api'
 import { modelLabel } from './chatUtils'
 
 export type ComposerProps = {

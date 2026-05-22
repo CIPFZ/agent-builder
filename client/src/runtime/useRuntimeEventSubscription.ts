@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
-import type { RuntimeEvent } from '../runtime'
-import { subscribeRuntimeEvents } from '../runtime/events'
+import type { RuntimeEvent } from './types'
+import { subscribeRuntimeEvents } from './events'
 
 type RuntimeEventSubscription = {
   enabled: boolean
@@ -27,4 +27,3 @@ export function useRuntimeEventSubscription({ enabled, requestEndpoint, onEvent 
     }
   }, [enabled, onEvent, requestEndpoint])
 }
-
