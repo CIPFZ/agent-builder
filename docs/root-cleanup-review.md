@@ -42,13 +42,13 @@
 | `.github/workflows/release.yml` | migrate/archive | 大概率仍偏旧 Crush release 流程。 |
 | `.github/workflows/nightly.yml` | archive | 多半是旧模板继承。 |
 | `.github/workflows/cla.yml` | archive | 若不继续维护 CLA 流程，应移除或归档。 |
-| `.github/workflows/labeler.yml` | keep | 只要 label 规则仍有用就保留。 |
-| `.github/workflows/lint-sync.yml` | keep | 如果仍引用 meta 模板可保留。 |
+| `.github/workflows/labeler.yml` | delete | 低价值自动化，依赖旧标签规则和额外 token。 |
+| `.github/workflows/lint-sync.yml` | delete | 旧 Charm meta 同步任务，不是当前产品主链路。 |
 | `.github/workflows/security.yml` | keep/migrate | 视是否仍适配当前 repo 而定。 |
-| `.github/dependabot.yml` | keep/migrate | 依赖管理仍有价值，但要确认目录和包名已更新。 |
+| `.github/dependabot.yml` | delete | 依赖升级先通过人工或后续重新设计的 dependency workflow 管理。 |
 | `.github/entitlements.plist` | keep/migrate | 若 desktop 打包需要代码签名权限则保留。 |
 | `.github/cla-signatures.json` | archive | 若不再走 CLA 流程，可以归档或删除。 |
-| `.github/labeler.yml` | keep | CI label 管理文件。 |
+| `.github/labeler.yml` | delete | labeler workflow 删除后不再需要。 |
 
 ## `.agents/` 建议
 
@@ -89,4 +89,3 @@
 3. 清理 `.github/workflows` 中的旧 Crush 依赖。
 4. 归档或删除 `CLA.md`、`cla-signatures.json`、旧发布模板。
 5. 评估 `crush.json`、`schema.json`、`flake.*` 是否还需要。
-

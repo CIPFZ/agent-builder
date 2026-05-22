@@ -44,26 +44,33 @@ jobs:
           fi
 
           latest_sha="$(git rev-list -n 1 "refs/tags/$latest_tag")"
-          current_sha=""
+          current_tag=""
           if git rev-parse --verify origin/upstream-stable >/dev/null 2>&1; then
-            current_sha="$(git rev-parse origin/upstream-stable)"
+            current_tag="$(git show origin/upstream-stable:.agent-builder-upstream-release 2>/dev/null || true)"
           fi
 
           echo "Latest upstream release: $latest_tag ($latest_sha)"
-          echo "Current upstream-stable: ${current_sha:-none}"
+          echo "Current upstream-stable release marker: ${current_tag:-none}"
 
-          if [ "$current_sha" = "$latest_sha" ]; then
+          if [ "$current_tag" = "$latest_tag" ]; then
             echo "has_new_update=false" >> "$GITHUB_OUTPUT"
             echo "No new upstream release."
             exit 0
           fi
 
           git checkout -B upstream-stable "$latest_tag"
+          rm -rf .github/workflows
+          printf "%s\n" "$latest_tag" > .agent-builder-upstream-release
+          git add -A .github/workflows
+          git add .agent-builder-upstream-release
+          git commit --allow-empty -m "chore: sync upstream $latest_tag without workflows"
+          sanitized_sha="$(git rev-parse HEAD)"
           git push origin upstream-stable --force
 
           echo "has_new_update=true" >> "$GITHUB_OUTPUT"
           echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
           echo "latest_sha=$latest_sha" >> "$GITHUB_OUTPUT"
+          echo "sanitized_sha=$sanitized_sha" >> "$GITHUB_OUTPUT"
 
       - name: Send webhook notification
         if: steps.sync_check.outputs.has_new_update == 'true' && env.FEISHU_WEBHOOK_URL != ''
@@ -71,6 +78,7 @@ jobs:
         env:
           LATEST_TAG: ${{ steps.sync_check.outputs.latest_tag }}
           LATEST_SHA: ${{ steps.sync_check.outputs.latest_sha }}
+          SANITIZED_SHA: ${{ steps.sync_check.outputs.sanitized_sha }}
         run: |
           set -euo pipefail
 
@@ -80,7 +88,7 @@ jobs:
             '{
               msg_type: "text",
               content: {
-                text: ("GitHub 自动化提醒：\nCrush upstream 发布了新稳定版 " + $tag + "。\n已同步到本仓库 upstream-stable 分支。\nCommit: " + $sha + "\n下一步可以让 AI 分析 upstream-stable 与 main 的差异，筛选需要合并的修复和能力。")
+                text: ("GitHub 自动化提醒：\nCrush upstream 发布了新稳定版 " + $tag + "。\n已同步到本仓库 upstream-stable 分支。\nUpstream commit: " + $sha + "\n注意：同步分支已剔除 upstream 的 .github/workflows，避免 GitHub App workflow 权限限制。\n下一步可以让 AI 分析 upstream-stable 与 main 的差异，筛选需要合并的修复和能力。")
               }
             }')"
 
