@@ -15,7 +15,7 @@ const docTemplate = `{
         },
         "license": {
             "name": "MIT",
-            "url": "https://github.com/charmbracelet/crush/blob/main/LICENSE"
+            "url": "https://github.com/CIPFZ/agent-builder/blob/main/LICENSE.md"
         },
         "version": "{{.Version}}"
     },
@@ -731,58 +731,6 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "type": "object"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/proto.Error"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/proto.Error"
-                        }
-                    }
-                }
-            }
-        },
-        "/workspaces/{id}/config/compact": {
-            "post": {
-                "consumes": [
-                    "application/json"
-                ],
-                "tags": [
-                    "config"
-                ],
-                "summary": "Set compact mode",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Workspace ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Config compact request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/proto.ConfigCompactRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/proto.Error"
                         }
                     },
                     "404": {
@@ -1825,7 +1773,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_charmbracelet_crush_internal_proto.Message"
+                                "$ref": "#/definitions/proto.Message"
                             }
                         }
                     },
@@ -2519,7 +2467,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_charmbracelet_crush_internal_proto.Message"
+                                "$ref": "#/definitions/proto.Message"
                             }
                         }
                     },
@@ -2569,7 +2517,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_charmbracelet_crush_internal_proto.Message"
+                                "$ref": "#/definitions/proto.Message"
                             }
                         }
                     },
@@ -2675,14 +2623,60 @@ const docTemplate = `{
                 }
             }
         },
-        "config.Completions": {
+        "config.Config": {
             "type": "object",
             "properties": {
-                "max_depth": {
-                    "type": "integer"
+                "$schema": {
+                    "type": "string"
                 },
-                "max_items": {
-                    "type": "integer"
+                "hooks": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/config.HookConfig"
+                        }
+                    }
+                },
+                "lsp": {
+                    "$ref": "#/definitions/config.LSPs"
+                },
+                "mcp": {
+                    "$ref": "#/definitions/config.MCPs"
+                },
+                "models": {
+                    "description": "We currently only support large/small as values here.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/config.SelectedModel"
+                    }
+                },
+                "options": {
+                    "$ref": "#/definitions/config.Options"
+                },
+                "permissions": {
+                    "$ref": "#/definitions/config.Permissions"
+                },
+                "providers": {
+                    "description": "The providers that are configured",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/csync.Map-string-config_ProviderConfig"
+                        }
+                    ]
+                },
+                "recent_models": {
+                    "description": "Recently used models stored in the data directory config.",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/config.SelectedModel"
+                        }
+                    }
+                },
+                "tools": {
+                    "$ref": "#/definitions/config.Tools"
                 }
             }
         },
@@ -2825,6 +2819,72 @@ const docTemplate = `{
                 "$ref": "#/definitions/config.MCPConfig"
             }
         },
+        "config.Options": {
+            "type": "object",
+            "properties": {
+                "attribution": {
+                    "$ref": "#/definitions/config.Attribution"
+                },
+                "auto_lsp": {
+                    "type": "boolean"
+                },
+                "context_paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "data_directory": {
+                    "description": "DataDirectory is where Crush keeps per-project state such as\nthe SQLite database and workspace overrides. Relative paths are\nresolved against the working directory; absolute paths are used\nverbatim. After defaulting the stored value is always absolute.",
+                    "type": "string"
+                },
+                "debug": {
+                    "type": "boolean"
+                },
+                "debug_lsp": {
+                    "type": "boolean"
+                },
+                "disable_auto_summarize": {
+                    "type": "boolean"
+                },
+                "disable_default_providers": {
+                    "type": "boolean"
+                },
+                "disable_metrics": {
+                    "type": "boolean"
+                },
+                "disable_notifications": {
+                    "type": "boolean"
+                },
+                "disable_provider_auto_update": {
+                    "type": "boolean"
+                },
+                "disabled_skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "disabled_tools": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "initialize_as": {
+                    "type": "string"
+                },
+                "progress": {
+                    "type": "boolean"
+                },
+                "skills_paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "config.Permissions": {
             "type": "object",
             "properties": {
@@ -2903,23 +2963,6 @@ const docTemplate = `{
                 "SelectedModelTypeSmall"
             ]
         },
-        "config.TUIOptions": {
-            "type": "object",
-            "properties": {
-                "compact_mode": {
-                    "type": "boolean"
-                },
-                "completions": {
-                    "$ref": "#/definitions/config.Completions"
-                },
-                "diff_mode": {
-                    "type": "string"
-                },
-                "transparent": {
-                    "type": "boolean"
-                }
-            }
-        },
         "config.ToolGrep": {
             "type": "object",
             "properties": {
@@ -2965,162 +3008,6 @@ const docTemplate = `{
         },
         "csync.Map-string-config_ProviderConfig": {
             "type": "object"
-        },
-        "github_com_charmbracelet_crush_internal_config.Config": {
-            "type": "object",
-            "properties": {
-                "$schema": {
-                    "type": "string"
-                },
-                "hooks": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/definitions/config.HookConfig"
-                        }
-                    }
-                },
-                "lsp": {
-                    "$ref": "#/definitions/config.LSPs"
-                },
-                "mcp": {
-                    "$ref": "#/definitions/config.MCPs"
-                },
-                "models": {
-                    "description": "We currently only support large/small as values here.",
-                    "type": "object",
-                    "additionalProperties": {
-                        "$ref": "#/definitions/config.SelectedModel"
-                    }
-                },
-                "options": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Options"
-                },
-                "permissions": {
-                    "$ref": "#/definitions/config.Permissions"
-                },
-                "providers": {
-                    "description": "The providers that are configured",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/csync.Map-string-config_ProviderConfig"
-                        }
-                    ]
-                },
-                "recent_models": {
-                    "description": "Recently used models stored in the data directory config.",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/definitions/config.SelectedModel"
-                        }
-                    }
-                },
-                "tools": {
-                    "$ref": "#/definitions/config.Tools"
-                }
-            }
-        },
-        "github_com_charmbracelet_crush_internal_config.Options": {
-            "type": "object",
-            "properties": {
-                "attribution": {
-                    "$ref": "#/definitions/config.Attribution"
-                },
-                "auto_lsp": {
-                    "type": "boolean"
-                },
-                "context_paths": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "data_directory": {
-                    "description": "DataDirectory is where Crush keeps per-project state such as\nthe SQLite database and workspace overrides. Relative paths are\nresolved against the working directory; absolute paths are used\nverbatim. After defaulting the stored value is always absolute.",
-                    "type": "string"
-                },
-                "debug": {
-                    "type": "boolean"
-                },
-                "debug_lsp": {
-                    "type": "boolean"
-                },
-                "disable_auto_summarize": {
-                    "type": "boolean"
-                },
-                "disable_default_providers": {
-                    "type": "boolean"
-                },
-                "disable_metrics": {
-                    "type": "boolean"
-                },
-                "disable_notifications": {
-                    "type": "boolean"
-                },
-                "disable_provider_auto_update": {
-                    "type": "boolean"
-                },
-                "disabled_skills": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "disabled_tools": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "initialize_as": {
-                    "type": "string"
-                },
-                "progress": {
-                    "type": "boolean"
-                },
-                "skills_paths": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "tui": {
-                    "$ref": "#/definitions/config.TUIOptions"
-                }
-            }
-        },
-        "github_com_charmbracelet_crush_internal_proto.Message": {
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "type": "integer"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "model": {
-                    "type": "string"
-                },
-                "parts": {
-                    "type": "array",
-                    "items": {}
-                },
-                "provider": {
-                    "type": "string"
-                },
-                "role": {
-                    "$ref": "#/definitions/proto.MessageRole"
-                },
-                "session_id": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "integer"
-                }
-            }
         },
         "lsp.ServerState": {
             "type": "integer",
@@ -3219,6 +3106,12 @@ const docTemplate = `{
                 "title": {
                     "type": "string"
                 },
+                "todos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.Todo"
+                    }
+                },
                 "updated_at": {
                     "type": "integer"
                 }
@@ -3241,17 +3134,6 @@ const docTemplate = `{
                 },
                 "mime_type": {
                     "type": "string"
-                }
-            }
-        },
-        "proto.ConfigCompactRequest": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "type": "boolean"
-                },
-                "scope": {
-                    "$ref": "#/definitions/config.Scope"
                 }
             }
         },
@@ -3486,6 +3368,36 @@ const docTemplate = `{
                 "MCPStateError"
             ]
         },
+        "proto.Message": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "parts": {
+                    "type": "array",
+                    "items": {}
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/proto.MessageRole"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
+                }
+            }
+        },
         "proto.MessageRole": {
             "type": "string",
             "enum": [
@@ -3531,6 +3443,12 @@ const docTemplate = `{
                 "action": {
                     "type": "string"
                 },
+                "created_at": {
+                    "type": "integer"
+                },
+                "decided_at": {
+                    "type": "integer"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -3541,13 +3459,22 @@ const docTemplate = `{
                 "path": {
                     "type": "string"
                 },
+                "risk": {
+                    "type": "string"
+                },
                 "session_id": {
+                    "type": "string"
+                },
+                "status": {
                     "type": "string"
                 },
                 "tool_call_id": {
                     "type": "string"
                 },
                 "tool_name": {
+                    "type": "string"
+                },
+                "turn_id": {
                     "type": "string"
                 }
             }
@@ -3614,8 +3541,28 @@ const docTemplate = `{
                 "title": {
                     "type": "string"
                 },
+                "todos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.Todo"
+                    }
+                },
                 "updated_at": {
                     "type": "integer"
+                }
+            }
+        },
+        "proto.Todo": {
+            "type": "object",
+            "properties": {
+                "active_form": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },
@@ -3643,7 +3590,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "config": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Config"
+                    "$ref": "#/definitions/config.Config"
                 },
                 "data_dir": {
                     "type": "string"
@@ -3682,9 +3629,25 @@ const docTemplate = `{
                 1000000,
                 1000000000,
                 60000000000,
+                3600000000000,
+                -9223372036854775808,
+                9223372036854775807,
+                1,
+                1000,
+                1000000,
+                1000000000,
+                60000000000,
                 3600000000000
             ],
             "x-enum-varnames": [
+                "minDuration",
+                "maxDuration",
+                "Nanosecond",
+                "Microsecond",
+                "Millisecond",
+                "Second",
+                "Minute",
+                "Hour",
                 "minDuration",
                 "maxDuration",
                 "Nanosecond",
@@ -3704,8 +3667,8 @@ var SwaggerInfo = &swag.Spec{
 	Host:             "",
 	BasePath:         "/v1",
 	Schemes:          []string{},
-	Title:            "Crush API",
-	Description:      "Crush is a terminal-based AI coding assistant. This API is served over a Unix socket (or Windows named pipe) and provides programmatic access to workspaces, sessions, agents, LSP, MCP, and more.",
+	Title:            "Agent Builder API",
+	Description:      "Agent Builder is a desktop-first AI agent client. This API is served by the local runtime and provides programmatic access to workspaces, sessions, turns, tools, LSP, MCP, and more.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

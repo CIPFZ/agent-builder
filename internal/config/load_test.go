@@ -174,7 +174,6 @@ func TestConfig_setDefaults(t *testing.T) {
 		cfg.setDefaults(workingDir, "")
 
 		require.NotNil(t, cfg.Options)
-		require.NotNil(t, cfg.Options.TUI)
 		require.NotNil(t, cfg.Options.ContextPaths)
 		require.NotNil(t, cfg.Providers)
 		require.NotNil(t, cfg.Models)

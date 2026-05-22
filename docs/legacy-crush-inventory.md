@@ -76,7 +76,7 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 | `desktop/runtime_status.go` | migrate | Generic runtime status handling. | Move to `internal/runtime/status.go`. |
 | `desktop/runtime_turns.go` | migrate | Generic turn lifecycle. | Move to `internal/runtime/turns.go`. |
 | `desktop/runtime_sessions.go` | migrate | Generic session operations. | Move to `internal/runtime/sessions.go`. |
-| `desktop/runtime_events.go` | migrate | Generic event recording but currently consumes `pubsub.Event[tea.Msg]`. | Move only after replacing `tea.Msg` with runtime-native events or isolating conversion in a TUI adapter. |
+| `desktop/runtime_events.go` | migrate | Generic event recording now consumes runtime/raw event payloads instead of Bubble Tea messages. | Move to `internal/runtime/events.go` after consolidating runtime service ownership. |
 | `desktop/runtime_permissions.go` | migrate | Generic permission request/decision handling. | Move to `internal/runtime/permissions.go`; later pair with `PermissionPolicy`. |
 | `desktop/runtime_audit.go`, `runtime_audit_writer.go`, `runtime_audit_test.go` | migrate | Generic audit storage/writing. | Move to `internal/runtime/audit*.go`. |
 | `desktop/runtime_capabilities.go` | migrate | Generic capability reporting. | Move to `internal/runtime/capabilities.go`. |
@@ -121,27 +121,20 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 | `internal/workspace/`, `internal/projects/`, `internal/filetracker/` | keep | Workspace/session supporting services. | Keep; review adapter assumptions later. |
 | `internal/env/`, `internal/home/`, `internal/osprocess/`, `internal/fsext/`, `internal/filepathext/`, `internal/dns/` | migrate | Platform utility packages. | Move under `internal/platform/` in a later low-risk pass. |
 
-## CLI/TUI And Legacy Crush Surface
+## Removed CLI/TUI And Legacy Crush Surface
 
 | Path | Label | Reason | Next action |
 | --- | --- | --- | --- |
-| `internal/ui/` | legacy | Bubble Tea TUI implementation with chat, dialogs, diff view, notifications, key handling, and terminal rendering. Not part of the client runtime path. | Keep untouched until a TUI adapter boundary exists. |
-| `internal/ui/AGENTS.md` | keep | Required instructions when working inside TUI code. | Keep with `internal/ui`. |
-| `internal/ui/model/` | legacy | Main Bubble Tea model and event handling. | Keep as TUI adapter candidate. |
-| `internal/ui/chat/`, `internal/ui/dialog/`, `internal/ui/completions/`, `internal/ui/attachments/` | legacy | Terminal-specific UI features. | Keep as legacy TUI modules. |
-| `internal/ui/diffview/` | legacy | TUI diff renderer and large golden corpus. | Keep while CLI/TUI tests exist; do not delete golden files without test migration. |
-| `internal/ui/notification/` | legacy | Desktop/native notification code tied to TUI session flow. | Keep until runtime notification needs are separated. |
-| `internal/ui/styles/`, `internal/ui/logo/`, `internal/ui/list/`, `internal/ui/image/`, `internal/ui/anim/`, `internal/ui/common/`, `internal/ui/util/`, `internal/ui/xchroma/` | legacy | Terminal presentation support packages. | Keep under TUI legacy boundary. |
-| `internal/cmd/` | legacy | Cobra CLI commands, including interactive root, run, login/logout, models, schema, server, stats, sessions, projects. | Keep as CLI adapter; prevent client runtime from depending on it. |
-| `internal/cmd/stats/` | legacy | Static web assets for CLI stats command. | Keep with CLI stats or archive if stats command is removed. |
-| `internal/cmd/gitignore/` | legacy | Embedded gitignore templates for CLI behavior. | Keep while CLI/workspace init uses them. |
-| `internal/cmd/clientserverrace/` | legacy | CLI/server race test. | Keep until client/server mode is replaced or retired. |
-| `internal/commands/` | legacy | Slash/custom command parser for terminal command UX. | Split command primitives from terminal UI later; keep current package for CLI/TUI. |
-| `internal/backend/events.go` | migrate | Currently exposes `pubsub.Event[tea.Msg]` to consumers. This is a runtime path leak. | Replace with runtime-native event stream; keep `tea.Msg` conversion inside TUI adapter. |
-| `internal/server/` | legacy | Crush client/server transport and event wrapping around legacy app events. | Keep until local HTTP/SSE runtime adapter supersedes it. |
-| `internal/client/` | legacy | Client for Crush local server mode. | Keep with legacy CLI/server path. |
-| `internal/proto/`, `internal/swagger/` | legacy | Protocol/OpenAPI surface for legacy server. | Keep until new runtime API replaces or adopts it. |
-| `internal/app/` | migrate | Top-level Crush app wiring mixes core services, UI/server assumptions, LSP/MCP/events. | Extract reusable service construction for `internal/runtime`; leave CLI/TUI wiring in adapter. |
+| `internal/ui/` | delete | Removed Bubble Tea TUI implementation, terminal renderers, dialogs, diff golden tests, notifications, styles, and assets. | Do not reintroduce; rebuild UI features in React/runtime APIs. |
+| `internal/cmd/` | legacy | Reduced to a minimal non-TUI compatibility stub for the root `main.go` entry point. | Replace or remove when the desktop/root startup path is normalized. |
+| `internal/cmd/stats/`, `internal/cmd/gitignore/`, `internal/cmd/clientserverrace/` | delete | Removed with the terminal CLI command surface. | Do not reference from tasks or generated assets. |
+| `internal/commands/` | delete | Removed terminal slash/custom command parser. MCP prompt retrieval moved to backend/workspace runtime paths. | Rebuild any future command palette as client/runtime-owned behavior. |
+| `internal/backend/events.go` | migrate | Backend subscriptions now expose `pubsub.Event[any]` raw app events instead of Bubble Tea messages. | Continue converging on stable runtime event schemas. |
+| `internal/config` TUI options | delete | Terminal compact/transparent/completion options were removed from core config and OpenAPI schema. | Add client-specific settings only through runtime/client-owned config. |
+| `internal/server/` | legacy | HTTP/SSE transport remains for non-TUI runtime/backend access. | Keep until local HTTP/SSE runtime adapter supersedes it. |
+| `internal/client/` | legacy | Client for the retained HTTP server path. | Keep only while server path is useful to runtime/adapters. |
+| `internal/proto/`, `internal/swagger/` | legacy | Protocol/OpenAPI surface for retained server APIs. | Keep generated docs aligned with removed TUI config endpoints. |
+| `internal/app/` | migrate | Top-level app wiring remains service aggregation, now without Bubble Tea event transport. | Extract reusable service construction for `internal/runtime`. |
 | `internal/update/`, `internal/version/` | legacy | CLI release/update/version support. | Keep until Agent Builder release/version ownership is defined. |
 | `internal/format/`, `internal/ansiext/`, `internal/stringext/`, `internal/diff/`, `internal/diffdetect/` | keep | Mixed utility packages; some are TUI-related, some tool/runtime-related. | Keep; classify more narrowly only when imports are changed. |
 

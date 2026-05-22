@@ -83,13 +83,6 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 		slog.Warn("No git repository detected in working directory, will limit file walk operations", "depth", depth, "items", items)
 		assignIfNil(&cfg.Tools.Ls.MaxDepth, depth)
 		assignIfNil(&cfg.Tools.Ls.MaxItems, items)
-		assignIfNil(&cfg.Options.TUI.Completions.MaxDepth, depth)
-		assignIfNil(&cfg.Options.TUI.Completions.MaxItems, items)
-	}
-
-	if isAppleTerminal() {
-		slog.Warn("Detected Apple Terminal, enabling transparent mode")
-		assignIfNil(&cfg.Options.TUI.Transparent, true)
 	}
 
 	// Load known providers, this loads the config from catwalk
@@ -416,9 +409,6 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 func (c *Config) setDefaults(workingDir, dataDir string) {
 	if c.Options == nil {
 		c.Options = &Options{}
-	}
-	if c.Options.TUI == nil {
-		c.Options.TUI = &TUIOptions{}
 	}
 	if dataDir != "" {
 		c.Options.DataDirectory = dataDir

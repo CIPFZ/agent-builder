@@ -56,12 +56,42 @@ definitions:
       trailer_style:
         $ref: '#/definitions/config.TrailerStyle'
     type: object
-  config.Completions:
+  config.Config:
     properties:
-      max_depth:
-        type: integer
-      max_items:
-        type: integer
+      $schema:
+        type: string
+      hooks:
+        additionalProperties:
+          items:
+            $ref: '#/definitions/config.HookConfig'
+          type: array
+        type: object
+      lsp:
+        $ref: '#/definitions/config.LSPs'
+      mcp:
+        $ref: '#/definitions/config.MCPs'
+      models:
+        additionalProperties:
+          $ref: '#/definitions/config.SelectedModel'
+        description: We currently only support large/small as values here.
+        type: object
+      options:
+        $ref: '#/definitions/config.Options'
+      permissions:
+        $ref: '#/definitions/config.Permissions'
+      providers:
+        allOf:
+        - $ref: '#/definitions/csync.Map-string-config_ProviderConfig'
+        description: The providers that are configured
+      recent_models:
+        additionalProperties:
+          items:
+            $ref: '#/definitions/config.SelectedModel'
+          type: array
+        description: Recently used models stored in the data directory config.
+        type: object
+      tools:
+        $ref: '#/definitions/config.Tools'
     type: object
   config.HookConfig:
     properties:
@@ -165,6 +195,54 @@ definitions:
     additionalProperties:
       $ref: '#/definitions/config.MCPConfig'
     type: object
+  config.Options:
+    properties:
+      attribution:
+        $ref: '#/definitions/config.Attribution'
+      auto_lsp:
+        type: boolean
+      context_paths:
+        items:
+          type: string
+        type: array
+      data_directory:
+        description: |-
+          DataDirectory is where Crush keeps per-project state such as
+          the SQLite database and workspace overrides. Relative paths are
+          resolved against the working directory; absolute paths are used
+          verbatim. After defaulting the stored value is always absolute.
+        type: string
+      debug:
+        type: boolean
+      debug_lsp:
+        type: boolean
+      disable_auto_summarize:
+        type: boolean
+      disable_default_providers:
+        type: boolean
+      disable_metrics:
+        type: boolean
+      disable_notifications:
+        type: boolean
+      disable_provider_auto_update:
+        type: boolean
+      disabled_skills:
+        items:
+          type: string
+        type: array
+      disabled_tools:
+        items:
+          type: string
+        type: array
+      initialize_as:
+        type: string
+      progress:
+        type: boolean
+      skills_paths:
+        items:
+          type: string
+        type: array
+    type: object
   config.Permissions:
     properties:
       allowed_tools:
@@ -226,17 +304,6 @@ definitions:
     x-enum-varnames:
     - SelectedModelTypeLarge
     - SelectedModelTypeSmall
-  config.TUIOptions:
-    properties:
-      compact_mode:
-        type: boolean
-      completions:
-        $ref: '#/definitions/config.Completions'
-      diff_mode:
-        type: string
-      transparent:
-        type: boolean
-    type: object
   config.ToolGrep:
     properties:
       timeout:
@@ -267,113 +334,6 @@ definitions:
     - TrailerStyleCoAuthoredBy
     - TrailerStyleAssistedBy
   csync.Map-string-config_ProviderConfig:
-    type: object
-  github_com_charmbracelet_crush_internal_config.Config:
-    properties:
-      $schema:
-        type: string
-      hooks:
-        additionalProperties:
-          items:
-            $ref: '#/definitions/config.HookConfig'
-          type: array
-        type: object
-      lsp:
-        $ref: '#/definitions/config.LSPs'
-      mcp:
-        $ref: '#/definitions/config.MCPs'
-      models:
-        additionalProperties:
-          $ref: '#/definitions/config.SelectedModel'
-        description: We currently only support large/small as values here.
-        type: object
-      options:
-        $ref: '#/definitions/github_com_charmbracelet_crush_internal_config.Options'
-      permissions:
-        $ref: '#/definitions/config.Permissions'
-      providers:
-        allOf:
-        - $ref: '#/definitions/csync.Map-string-config_ProviderConfig'
-        description: The providers that are configured
-      recent_models:
-        additionalProperties:
-          items:
-            $ref: '#/definitions/config.SelectedModel'
-          type: array
-        description: Recently used models stored in the data directory config.
-        type: object
-      tools:
-        $ref: '#/definitions/config.Tools'
-    type: object
-  github_com_charmbracelet_crush_internal_config.Options:
-    properties:
-      attribution:
-        $ref: '#/definitions/config.Attribution'
-      auto_lsp:
-        type: boolean
-      context_paths:
-        items:
-          type: string
-        type: array
-      data_directory:
-        description: |-
-          DataDirectory is where Crush keeps per-project state such as
-          the SQLite database and workspace overrides. Relative paths are
-          resolved against the working directory; absolute paths are used
-          verbatim. After defaulting the stored value is always absolute.
-        type: string
-      debug:
-        type: boolean
-      debug_lsp:
-        type: boolean
-      disable_auto_summarize:
-        type: boolean
-      disable_default_providers:
-        type: boolean
-      disable_metrics:
-        type: boolean
-      disable_notifications:
-        type: boolean
-      disable_provider_auto_update:
-        type: boolean
-      disabled_skills:
-        items:
-          type: string
-        type: array
-      disabled_tools:
-        items:
-          type: string
-        type: array
-      initialize_as:
-        type: string
-      progress:
-        type: boolean
-      skills_paths:
-        items:
-          type: string
-        type: array
-      tui:
-        $ref: '#/definitions/config.TUIOptions'
-    type: object
-  github_com_charmbracelet_crush_internal_proto.Message:
-    properties:
-      created_at:
-        type: integer
-      id:
-        type: string
-      model:
-        type: string
-      parts:
-        items: {}
-        type: array
-      provider:
-        type: string
-      role:
-        $ref: '#/definitions/proto.MessageRole'
-      session_id:
-        type: string
-      updated_at:
-        type: integer
     type: object
   lsp.ServerState:
     enum:
@@ -443,6 +403,10 @@ definitions:
         type: string
       title:
         type: string
+      todos:
+        items:
+          $ref: '#/definitions/proto.Todo'
+        type: array
       updated_at:
         type: integer
     type: object
@@ -458,13 +422,6 @@ definitions:
         type: string
       mime_type:
         type: string
-    type: object
-  proto.ConfigCompactRequest:
-    properties:
-      enabled:
-        type: boolean
-      scope:
-        $ref: '#/definitions/config.Scope'
     type: object
   proto.ConfigModelRequest:
     properties:
@@ -618,6 +575,26 @@ definitions:
     - MCPStateStarting
     - MCPStateConnected
     - MCPStateError
+  proto.Message:
+    properties:
+      created_at:
+        type: integer
+      id:
+        type: string
+      model:
+        type: string
+      parts:
+        items: {}
+        type: array
+      provider:
+        type: string
+      role:
+        $ref: '#/definitions/proto.MessageRole'
+      session_id:
+        type: string
+      updated_at:
+        type: integer
+    type: object
   proto.MessageRole:
     enum:
     - assistant
@@ -651,6 +628,10 @@ definitions:
     properties:
       action:
         type: string
+      created_at:
+        type: integer
+      decided_at:
+        type: integer
       description:
         type: string
       id:
@@ -658,11 +639,17 @@ definitions:
       params: {}
       path:
         type: string
+      risk:
+        type: string
       session_id:
+        type: string
+      status:
         type: string
       tool_call_id:
         type: string
       tool_name:
+        type: string
+      turn_id:
         type: string
     type: object
   proto.PermissionSkipRequest:
@@ -705,8 +692,21 @@ definitions:
         type: string
       title:
         type: string
+      todos:
+        items:
+          $ref: '#/definitions/proto.Todo'
+        type: array
       updated_at:
         type: integer
+    type: object
+  proto.Todo:
+    properties:
+      active_form:
+        type: string
+      content:
+        type: string
+      status:
+        type: string
     type: object
   proto.VersionInfo:
     properties:
@@ -724,7 +724,7 @@ definitions:
   proto.Workspace:
     properties:
       config:
-        $ref: '#/definitions/github_com_charmbracelet_crush_internal_config.Config'
+        $ref: '#/definitions/config.Config'
       data_dir:
         type: string
       debug:
@@ -752,9 +752,25 @@ definitions:
     - 1000000000
     - 60000000000
     - 3600000000000
+    - -9223372036854775808
+    - 9223372036854775807
+    - 1
+    - 1000
+    - 1000000
+    - 1000000000
+    - 60000000000
+    - 3600000000000
     format: int64
     type: integer
     x-enum-varnames:
+    - minDuration
+    - maxDuration
+    - Nanosecond
+    - Microsecond
+    - Millisecond
+    - Second
+    - Minute
+    - Hour
     - minDuration
     - maxDuration
     - Nanosecond
@@ -767,13 +783,13 @@ info:
   contact:
     name: Charm
     url: https://charm.sh
-  description: Crush is a terminal-based AI coding assistant. This API is served over
-    a Unix socket (or Windows named pipe) and provides programmatic access to workspaces,
-    sessions, agents, LSP, MCP, and more.
+  description: Agent Builder is a desktop-first AI agent client. This API is served
+    by the local runtime and provides programmatic access to workspaces, sessions,
+    turns, tools, LSP, MCP, and more.
   license:
     name: MIT
-    url: https://github.com/charmbracelet/crush/blob/main/LICENSE
-  title: Crush API
+    url: https://github.com/CIPFZ/agent-builder/blob/main/LICENSE.md
+  title: Agent Builder API
   version: "1.0"
 paths:
   /config:
@@ -1249,40 +1265,6 @@ paths:
       summary: Get workspace config
       tags:
       - workspaces
-  /workspaces/{id}/config/compact:
-    post:
-      consumes:
-      - application/json
-      parameters:
-      - description: Workspace ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Config compact request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/proto.ConfigCompactRequest'
-      responses:
-        "200":
-          description: OK
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/proto.Error'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/proto.Error'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/proto.Error'
-      summary: Set compact mode
-      tags:
-      - config
   /workspaces/{id}/config/import-copilot:
     post:
       parameters:
@@ -1952,7 +1934,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_charmbracelet_crush_internal_proto.Message'
+              $ref: '#/definitions/proto.Message'
             type: array
         "404":
           description: Not Found
@@ -2408,7 +2390,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_charmbracelet_crush_internal_proto.Message'
+              $ref: '#/definitions/proto.Message'
             type: array
         "404":
           description: Not Found
@@ -2441,7 +2423,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_charmbracelet_crush_internal_proto.Message'
+              $ref: '#/definitions/proto.Message'
             type: array
         "404":
           description: Not Found

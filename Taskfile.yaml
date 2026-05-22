@@ -96,11 +96,6 @@ tasks:
     cmds:
       - gofumpt -w .
 
-  fmt:html:
-    desc: Run prettier on HTML/CSS/JS files
-    cmds:
-      - prettier --write internal/cmd/stats/index.html internal/cmd/stats/index.css internal/cmd/stats/index.js
-
   modernize:
     desc: Run modernize
     cmds:

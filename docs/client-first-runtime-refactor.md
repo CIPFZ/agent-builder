@@ -81,19 +81,19 @@ Crush 和 Claude Code 都是从 CLI/TUI 场景成长出来的。它们的很多�
 | `internal/runtimeapi` | 新客户端 runtime contract，应继续强化 |
 | `desktop/runtime_*` | 当前 Wails/HTTP/SSE runtime bridge 基础 |
 
-### 应隔离或逐步删除的 CLI/TUI 适配
+### 已删除或降级的 CLI/TUI 适配
 
 | 模块/概念 | 建议处理 |
 | --- | --- |
-| `internal/ui/*` | 保留短期 TUI 兼容，长期从客户端主路径移除 |
-| `tea.Msg` 作为事件载体 | 替换为 runtime-specific event schema |
-| `internal/app.Subscribe(program *tea.Program)` | 保留 TUI adapter，runtime core 不应依赖它 |
-| `internal/cmd/*` CLI command | 保留 legacy CLI，客户端不应通过 CLI command 调 runtime |
-| `internal/commands` slash/custom command 终端形态 | 拆成 runtime command primitives 与 client command UI |
-| TUI-specific dialog/model/list/chat | 不进入 Agent Builder 主路径 |
-| terminal compact/transparent settings | 客户端无关，移出核心 config 或标记为 TUI-only |
+| `internal/ui/*` | 已删除；后续 UI 功能应在 React/runtime API 上重建 |
+| `tea.Msg` 作为事件载体 | 已从 app/backend/runtime 主路径移除 |
+| TUI program subscription hook | 已删除 |
+| `internal/cmd/*` CLI command | 已降级为最小非 TUI stub |
+| `internal/commands` slash/custom command 终端形态 | 已删除；MCP prompt 获取逻辑保留在 backend/workspace 路径 |
+| TUI-specific dialog/model/list/chat | 已删除 |
+| terminal compact/transparent settings | 已从核心 config、server API 和 OpenAPI schema 移除 |
 
-当前明显的问题是 `internal/app` 和 `internal/backend/events.go` 仍以 `tea.Msg` 作为事件类型。这对 TUI 合理，但对客户端 runtime 不合理。客户端需要的是稳定 JSON event schema，而不是终端 UI 消息。
+剩余工作不再是隔离 TUI，而是把 raw app/backend events 继续收敛成稳定 JSON runtime event schema。
 
 ## Claude Code 中不应照搬的部分
 

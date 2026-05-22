@@ -28,12 +28,6 @@ type ConfigModelRequest struct {
 	Model     config.SelectedModel     `json:"model"`
 }
 
-// ConfigCompactRequest represents a request to set compact mode.
-type ConfigCompactRequest struct {
-	Scope   config.Scope `json:"scope"`
-	Enabled bool         `json:"enabled"`
-}
-
 // APIKeyKind discriminates the kind of credential carried in a
 // ConfigProviderKeyRequest. JSON's `any` loses Go type information, so
 // the wire format names the kind explicitly and the server decodes

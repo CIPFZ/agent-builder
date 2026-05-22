@@ -218,24 +218,6 @@ func (s *ConfigStore) UpdatePreferredModel(scope Scope, modelType SelectedModelT
 	return nil
 }
 
-// SetCompactMode sets the compact mode setting and persists it.
-func (s *ConfigStore) SetCompactMode(scope Scope, enabled bool) error {
-	if s.config.Options == nil {
-		s.config.Options = &Options{}
-	}
-	s.config.Options.TUI.CompactMode = enabled
-	return s.SetConfigField(scope, "options.tui.compact_mode", enabled)
-}
-
-// SetTransparentBackground sets the transparent background setting and persists it.
-func (s *ConfigStore) SetTransparentBackground(scope Scope, enabled bool) error {
-	if s.config.Options == nil {
-		s.config.Options = &Options{}
-	}
-	s.config.Options.TUI.Transparent = &enabled
-	return s.SetConfigField(scope, "options.tui.transparent", enabled)
-}
-
 // SetProviderAPIKey sets the API key for a provider and persists it.
 func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey any) error {
 	var providerConfig ProviderConfig

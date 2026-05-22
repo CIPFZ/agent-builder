@@ -33,7 +33,7 @@ agent-builder/
   internal/runtime/    # 客户端优先的 Go runtime
   internal/agent/      # agent loop、model、context
   internal/tools/      # tool scheduler、builtin tools、MCP tools
-  internal/adapters/   # Wails/HTTP/CLI/TUI adapter
+  internal/adapters/   # Wails/HTTP adapters; future headless adapters only when needed
   internal/platform/   # OS、路径、进程、环境等底层能力
   docs/                # 架构和迁移文档
   scripts/             # 构建、测试、开发脚本
@@ -79,17 +79,17 @@ adapter 只做协议、平台或 UI 外壳适配：
 
 adapter 不应拥有 session、turn、tool、permission、audit 的业务状态。
 
-### Legacy Path
+### Removed Legacy Surface
 
-CLI/TUI 相关能力应逐步归为 legacy 或 adapter：
+Crush CLI/TUI 相关能力已经从活动代码中移除或降级：
 
-- `internal/ui`
-- `internal/cmd`
-- `internal/commands`
-- Bubble Tea / `tea.Msg`
-- terminal prompt / keybinding / slash command UI
+- `internal/ui` 已删除。
+- `internal/commands` 已删除。
+- `internal/cmd` 仅保留非 TUI root stub。
+- Bubble Tea / `tea.Msg` 不再出现在客户端 runtime 主路径。
+- terminal prompt、keybinding、slash command UI 不再作为产品代码保留。
 
-短期不强删，但客户端主路径不能继续依赖它们。
+后续如需 headless 或命令面板能力，应建立 runtime/client-owned API，而不是恢复终端 UI 模型。
 
 ## 目标目录结构
 
