@@ -39,6 +39,7 @@ type auditEntry struct {
 	PermissionAction      string             `json:"permission_action,omitempty"`
 	PermissionPath        string             `json:"permission_path,omitempty"`
 	PermissionPolicy      string             `json:"permission_policy,omitempty"`
+	ToolCallID            string             `json:"tool_call_id,omitempty"`
 }
 
 type auditToolCall struct {

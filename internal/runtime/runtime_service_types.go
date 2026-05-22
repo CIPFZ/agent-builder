@@ -21,6 +21,8 @@ type RuntimeService interface {
 	VerifyModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelVerifyResponse, error)
 	Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error)
 	Turn(context.Context, string) (RuntimeTurnResponse, error)
+	ToolCall(context.Context, string) (RuntimeToolCallResponse, error)
+	TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error)
 	Sessions(context.Context) (RuntimeSessionsResponse, error)
 	Session(context.Context, string) (RuntimeSessionResponse, error)
 	SelectSession(context.Context, string) (RuntimeStatus, error)
@@ -67,6 +69,7 @@ type runtimeService struct {
 	requests     map[string]runtimeRequestState
 	sessionTurns map[string]string
 	toolEvents   map[string]runtimeToolEventState
+	toolCalls    runtimeToolCallStore
 	permissions  map[string]pendingRuntimePermission
 	events       []RuntimeEvent
 	eventStream  *runtimeSSEServer

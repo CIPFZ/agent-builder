@@ -16,12 +16,17 @@ func (b *Backend) GrantPermission(workspaceID string, req proto.PermissionGrant)
 	perm := permission.PermissionRequest{
 		ID:          req.Permission.ID,
 		SessionID:   req.Permission.SessionID,
+		TurnID:      req.Permission.TurnID,
 		ToolCallID:  req.Permission.ToolCallID,
 		ToolName:    req.Permission.ToolName,
 		Description: req.Permission.Description,
 		Action:      req.Permission.Action,
 		Params:      req.Permission.Params,
 		Path:        req.Permission.Path,
+		Risk:        permission.Risk(req.Permission.Risk),
+		Status:      req.Permission.Status,
+		CreatedAt:   req.Permission.CreatedAt,
+		DecidedAt:   req.Permission.DecidedAt,
 	}
 
 	switch req.Action {

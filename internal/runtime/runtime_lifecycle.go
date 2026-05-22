@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/crush/internal/db"
 	crushlog "github.com/charmbracelet/crush/internal/log"
 	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/charmbracelet/crush/internal/tools/scheduler"
 	"github.com/charmbracelet/crush/internal/version"
 )
 
@@ -74,6 +75,7 @@ func (r *runtimeService) restart() {
 	r.requests = make(map[string]runtimeRequestState)
 	r.sessionTurns = make(map[string]string)
 	r.toolEvents = make(map[string]runtimeToolEventState)
+	r.toolCalls = scheduler.New(NewRuntimeToolCallStore())
 	r.permissions = make(map[string]pendingRuntimePermission)
 	r.events = nil
 }

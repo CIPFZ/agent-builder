@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/pubsub"
@@ -36,12 +37,14 @@ func hookApproved(ctx context.Context, toolCallID string) bool {
 
 type CreatePermissionRequest struct {
 	SessionID   string `json:"session_id"`
+	TurnID      string `json:"turn_id"`
 	ToolCallID  string `json:"tool_call_id"`
 	ToolName    string `json:"tool_name"`
 	Description string `json:"description"`
 	Action      string `json:"action"`
 	Params      any    `json:"params"`
 	Path        string `json:"path"`
+	Risk        Risk   `json:"risk"`
 }
 
 type PermissionNotification struct {
@@ -53,12 +56,17 @@ type PermissionNotification struct {
 type PermissionRequest struct {
 	ID          string `json:"id"`
 	SessionID   string `json:"session_id"`
+	TurnID      string `json:"turn_id"`
 	ToolCallID  string `json:"tool_call_id"`
 	ToolName    string `json:"tool_name"`
 	Description string `json:"description"`
 	Action      string `json:"action"`
 	Params      any    `json:"params"`
 	Path        string `json:"path"`
+	Risk        Risk   `json:"risk"`
+	Status      string `json:"status"`
+	CreatedAt   int64  `json:"created_at"`
+	DecidedAt   int64  `json:"decided_at,omitempty"`
 }
 
 type Service interface {
@@ -88,6 +96,7 @@ type permissionService struct {
 	workingDir            string
 	sessionPermissions    *csync.Map[PermissionKey, bool]
 	pendingRequests       *csync.Map[string, chan bool]
+	policy                PermissionPolicy
 	autoApproveSessions   map[string]bool
 	autoApproveSessionsMu sync.RWMutex
 	skip                  bool
@@ -100,6 +109,8 @@ type permissionService struct {
 }
 
 func (s *permissionService) GrantPersistent(permission PermissionRequest) {
+	permission.Status = "allowed_session"
+	permission.DecidedAt = time.Now().UnixMilli()
 	s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
 		ToolCallID: permission.ToolCallID,
 		Granted:    true,
@@ -124,6 +135,8 @@ func (s *permissionService) GrantPersistent(permission PermissionRequest) {
 }
 
 func (s *permissionService) Grant(permission PermissionRequest) {
+	permission.Status = "allowed_once"
+	permission.DecidedAt = time.Now().UnixMilli()
 	s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
 		ToolCallID: permission.ToolCallID,
 		Granted:    true,
@@ -141,6 +154,8 @@ func (s *permissionService) Grant(permission PermissionRequest) {
 }
 
 func (s *permissionService) Deny(permission PermissionRequest) {
+	permission.Status = "denied"
+	permission.DecidedAt = time.Now().UnixMilli()
 	s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
 		ToolCallID: permission.ToolCallID,
 		Granted:    false,
@@ -181,6 +196,29 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		return true, nil
 	}
 
+	risk := opts.Risk
+	if risk == "" {
+		risk = ClassifyRisk(opts.ToolName, opts.Description)
+	}
+	if s.policy != nil {
+		result := s.policy.Evaluate(policyToolCall(opts, risk))
+		risk = result.Risk
+		switch result.Decision {
+		case PolicyAllow:
+			s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+				ToolCallID: opts.ToolCallID,
+				Granted:    true,
+			})
+			return true, nil
+		case PolicyDeny:
+			s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+				ToolCallID: opts.ToolCallID,
+				Denied:     true,
+			})
+			return false, nil
+		}
+	}
+
 	s.requestMu.Lock()
 	defer s.requestMu.Unlock()
 
@@ -218,11 +256,15 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		ID:          uuid.New().String(),
 		Path:        dir,
 		SessionID:   opts.SessionID,
+		TurnID:      opts.TurnID,
 		ToolCallID:  opts.ToolCallID,
 		ToolName:    opts.ToolName,
 		Description: opts.Description,
 		Action:      opts.Action,
 		Params:      opts.Params,
+		Risk:        risk,
+		Status:      "pending",
+		CreatedAt:   time.Now().UnixMilli(),
 	}
 
 	if _, ok := s.sessionPermissions.Get(PermissionKey{
@@ -282,6 +324,7 @@ func NewPermissionService(workingDir string, skip bool, allowedTools []string) S
 		workingDir:          workingDir,
 		sessionPermissions:  csync.NewMap[PermissionKey, bool](),
 		autoApproveSessions: make(map[string]bool),
+		policy:              NewPermissionPolicy(PolicyModeAsk),
 		skip:                skip,
 		allowedTools:        allowedTools,
 		pendingRequests:     csync.NewMap[string, chan bool](),

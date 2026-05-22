@@ -21,6 +21,8 @@ func TestEndpointsFreezePhase2MinimalAPI(t *testing.T) {
 		{Method: MethodGet, Path: "/v1/sessions/{session_id}/messages"},
 		{Method: MethodPost, Path: "/v1/sessions/{session_id}/turns"},
 		{Method: MethodGet, Path: "/v1/turns/{turn_id}"},
+		{Method: MethodGet, Path: "/v1/turns/{turn_id}/tool-calls"},
+		{Method: MethodGet, Path: "/v1/tool-calls/{tool_call_id}"},
 		{Method: MethodPost, Path: "/v1/turns/{turn_id}/cancel"},
 		{Method: MethodGet, Path: "/v1/permissions"},
 		{Method: MethodPost, Path: "/v1/permissions/{permission_id}/decision"},

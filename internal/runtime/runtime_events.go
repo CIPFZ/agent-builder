@@ -70,10 +70,26 @@ func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspac
 				return
 			}
 			perm := event.Payload
+			if perm.TurnID == "" {
+				r.mu.Lock()
+				perm.TurnID = r.sessionTurns[perm.SessionID]
+				r.mu.Unlock()
+			}
+			if perm.Risk == "" {
+				perm.Risk = permission.ClassifyRisk(perm.ToolName, perm.Description)
+			}
+			if perm.Status == "" {
+				perm.Status = "pending"
+			}
 			runtimePerm := toRuntimePermissionRequest(perm)
 			var runtimeEvent RuntimeEvent
 			now := time.Now()
 			r.mu.Lock()
+			if r.toolCalls != nil && perm.ToolCallID != "" {
+				if _, err := r.toolCalls.GetCall(context.Background(), perm.ToolCallID); err == nil {
+					_, _ = r.toolCalls.MarkWaitingPermission(context.Background(), perm.ToolCallID)
+				}
+			}
 			r.permissions[perm.ID] = pendingRuntimePermission{
 				Permission: runtimePerm,
 				Raw:        perm,
@@ -96,6 +112,7 @@ func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspac
 				PermissionAction: perm.Action,
 				PermissionPath:   perm.Path,
 				PermissionPolicy: "ask",
+				ToolCallID:       perm.ToolCallID,
 			})
 		case <-ctx.Done():
 			return
@@ -114,6 +131,7 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 		r.eventStats.messageEvents++
 		msg := toProtoMessage(payload.Payload)
 		turnID := r.sessionTurns[msg.SessionID]
+		r.recordToolCallsFromMessage(context.Background(), msg, turnID, now)
 		runtimeEvent := newMessageRuntimeEvent(now, msg)
 		runtimeEvent.TurnID = turnID
 		runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(runtimeEvent))
@@ -126,6 +144,7 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 	case pubsub.Event[proto.Message]:
 		r.eventStats.messageEvents++
 		turnID := r.sessionTurns[payload.Payload.SessionID]
+		r.recordToolCallsFromMessage(context.Background(), payload.Payload, turnID, now)
 		runtimeEvent := newMessageRuntimeEvent(now, payload.Payload)
 		runtimeEvent.TurnID = turnID
 		runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(runtimeEvent))
@@ -338,12 +357,15 @@ func newPermissionRuntimeEvent(createdAt time.Time, perm RuntimePermissionReques
 	event := runtimeapi.NewEvent(newRuntimeEventID(), runtimeapi.EventPermissionRequested, createdAt)
 	event.SessionID = perm.SessionID
 	event.ToolCallID = perm.ToolCallID
+	event.TurnID = perm.TurnID
 	event.Payload = map[string]any{
 		"permission_id": perm.ID,
 		"tool_name":     perm.ToolName,
 		"action":        perm.Action,
 		"description":   perm.Description,
 		"path":          perm.Path,
+		"risk":          perm.Risk,
+		"status":        firstNonEmpty(perm.Status, "pending"),
 		"summary":       perm.ToolName + ":" + perm.Action,
 	}
 	return event

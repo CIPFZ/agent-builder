@@ -7,12 +7,14 @@ import (
 // CreatePermissionRequest represents a request to create a permission.
 type CreatePermissionRequest struct {
 	SessionID   string `json:"session_id"`
+	TurnID      string `json:"turn_id"`
 	ToolCallID  string `json:"tool_call_id"`
 	ToolName    string `json:"tool_name"`
 	Description string `json:"description"`
 	Action      string `json:"action"`
 	Params      any    `json:"params"`
 	Path        string `json:"path"`
+	Risk        string `json:"risk"`
 }
 
 // PermissionNotification represents a notification about a permission change.
@@ -26,12 +28,17 @@ type PermissionNotification struct {
 type PermissionRequest struct {
 	ID          string `json:"id"`
 	SessionID   string `json:"session_id"`
+	TurnID      string `json:"turn_id"`
 	ToolCallID  string `json:"tool_call_id"`
 	ToolName    string `json:"tool_name"`
 	Description string `json:"description"`
 	Action      string `json:"action"`
 	Params      any    `json:"params"`
 	Path        string `json:"path"`
+	Risk        string `json:"risk"`
+	Status      string `json:"status"`
+	CreatedAt   int64  `json:"created_at"`
+	DecidedAt   int64  `json:"decided_at,omitempty"`
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface. This is needed

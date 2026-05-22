@@ -199,6 +199,52 @@ func TestRuntimeHTTPServerRoutesTurnGetAndCancelToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesToolCallQueriesToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		toolCall: RuntimeToolCallResponse{ToolCall: RuntimeToolCall{ID: "tool-1", TurnID: "turn-1", Name: "bash"}},
+		toolCalls: RuntimeToolCallsResponse{ToolCalls: []RuntimeToolCall{
+			{ID: "tool-1", TurnID: "turn-1", Name: "bash"},
+		}},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/turns/turn-1/tool-calls", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("list status = %d body = %s", resp.status, resp.body.String())
+	}
+	var list RuntimeToolCallsResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.ToolCalls) != 1 || list.ToolCalls[0].ID != "tool-1" {
+		t.Fatalf("tool calls = %#v", list.ToolCalls)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/tool-calls/tool-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("get status = %d body = %s", resp.status, resp.body.String())
+	}
+	var detail RuntimeToolCallResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.ToolCall.ID != "tool-1" {
+		t.Fatalf("tool call = %#v", detail.ToolCall)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesSessionManagementToRuntimeService(t *testing.T) {
 	t.Parallel()
 

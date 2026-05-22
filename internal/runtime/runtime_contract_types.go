@@ -61,6 +61,32 @@ type RuntimeTurnResponse struct {
 	Turn RuntimeTurn `json:"turn"`
 }
 
+type RuntimeToolCall struct {
+	ID            string `json:"id"`
+	SessionID     string `json:"sessionId"`
+	TurnID        string `json:"turnId"`
+	MessageID     string `json:"messageId,omitempty"`
+	Name          string `json:"name"`
+	Source        string `json:"source"`
+	Status        string `json:"status"`
+	InputSummary  string `json:"inputSummary,omitempty"`
+	OutputSummary string `json:"outputSummary,omitempty"`
+	Stdout        string `json:"stdout,omitempty"`
+	Stderr        string `json:"stderr,omitempty"`
+	IsError       bool   `json:"isError,omitempty"`
+	StartedAt     int64  `json:"startedAt"`
+	FinishedAt    int64  `json:"finishedAt,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
+type RuntimeToolCallResponse struct {
+	ToolCall RuntimeToolCall `json:"toolCall"`
+}
+
+type RuntimeToolCallsResponse struct {
+	ToolCalls []RuntimeToolCall `json:"toolCalls"`
+}
+
 type RuntimeMessage struct {
 	ID           string               `json:"id"`
 	SessionID    string               `json:"sessionId"`
@@ -129,13 +155,18 @@ type RuntimeMessagesResponse struct {
 type RuntimePermissionRequest struct {
 	ID          string `json:"id"`
 	SessionID   string `json:"sessionId"`
+	TurnID      string `json:"turnId,omitempty"`
 	ToolCallID  string `json:"toolCallId"`
 	ToolName    string `json:"toolName"`
 	Description string `json:"description,omitempty"`
 	Action      string `json:"action"`
 	Params      any    `json:"params,omitempty"`
 	Path        string `json:"path,omitempty"`
+	Target      string `json:"target,omitempty"`
+	Risk        string `json:"risk,omitempty"`
+	Status      string `json:"status,omitempty"`
 	CreatedAt   int64  `json:"createdAt"`
+	DecidedAt   int64  `json:"decidedAt,omitempty"`
 }
 
 type RuntimePermissionsResponse struct {

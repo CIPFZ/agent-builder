@@ -900,24 +900,28 @@ func TestRuntimePermissionRequestMapping(t *testing.T) {
 	perm := permission.PermissionRequest{
 		ID:          "perm-1",
 		SessionID:   "session-1",
+		TurnID:      "turn-1",
 		ToolCallID:  "tool-1",
 		ToolName:    "bash",
 		Description: "Run a command",
 		Action:      "execute",
 		Params:      map[string]any{"command": "pwd"},
 		Path:        "C:\\work",
+		Risk:        permission.RiskExecute,
+		Status:      "pending",
+		CreatedAt:   123,
 	}
 
 	runtimePerm := toRuntimePermissionRequest(perm)
 	if runtimePerm.ID != perm.ID || runtimePerm.ToolName != perm.ToolName || runtimePerm.Action != perm.Action {
 		t.Fatalf("runtime permission mapping failed: %#v", runtimePerm)
 	}
-	if runtimePerm.CreatedAt == 0 {
-		t.Fatal("runtime permission CreatedAt was not set")
+	if runtimePerm.TurnID != "turn-1" || runtimePerm.Risk != "execute" || runtimePerm.Status != "pending" || runtimePerm.CreatedAt != 123 {
+		t.Fatalf("runtime permission metadata failed: %#v", runtimePerm)
 	}
 
 	protoPerm := toProtoPermissionRequest(perm)
-	if protoPerm.ID != perm.ID || protoPerm.ToolCallID != perm.ToolCallID || protoPerm.Path != perm.Path {
+	if protoPerm.ID != perm.ID || protoPerm.ToolCallID != perm.ToolCallID || protoPerm.Path != perm.Path || protoPerm.TurnID != "turn-1" {
 		t.Fatalf("proto permission mapping failed: %#v", protoPerm)
 	}
 }
@@ -1009,6 +1013,13 @@ func TestRecordRuntimeEventEmitsTurnScopedToolEvents(t *testing.T) {
 	}
 	if !slices.Equal(types, want) {
 		t.Fatalf("event types = %#v, want %#v", types, want)
+	}
+	calls, err := service.TurnToolCalls(context.Background(), "turn-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calls.ToolCalls) != 1 || calls.ToolCalls[0].ID != "tool-1" || calls.ToolCalls[0].Status != "completed" {
+		t.Fatalf("tool calls = %#v", calls.ToolCalls)
 	}
 
 	service.recordRuntimeEvent(pubsub.Event[any]{
@@ -1139,6 +1150,8 @@ type recordingRuntimeService struct {
 	addedSkillPath   string
 	cancelledTurn    string
 	turn             RuntimeTurnResponse
+	toolCall         RuntimeToolCallResponse
+	toolCalls        RuntimeToolCallsResponse
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -1173,6 +1186,14 @@ func (s *recordingRuntimeService) Chat(context.Context, RuntimeChatRequest) (Run
 
 func (s *recordingRuntimeService) Turn(context.Context, string) (RuntimeTurnResponse, error) {
 	return s.turn, nil
+}
+
+func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeToolCallResponse, error) {
+	return s.toolCall, nil
+}
+
+func (s *recordingRuntimeService) TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error) {
+	return s.toolCalls, nil
 }
 
 func (s *recordingRuntimeService) Sessions(context.Context) (RuntimeSessionsResponse, error) {

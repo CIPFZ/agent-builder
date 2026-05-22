@@ -21,6 +21,7 @@ import type {
   RuntimeSkill,
   RuntimeSkillCreateRequest,
   RuntimeStatus,
+  RuntimeToolCall,
   RuntimeTurn,
 } from './types'
 
@@ -137,6 +138,10 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
       const response = await get<{ turn: RuntimeTurn }>(`/v1/turns/${encodePath(turnId)}`)
       return response.turn
     },
+    async getToolCall(toolCallId: string) {
+      const response = await get<{ toolCall: RuntimeToolCall }>(`/v1/tool-calls/${encodePath(toolCallId)}`)
+      return response.toolCall
+    },
     async listCapabilities() {
       const response = await get<{ capabilities: RuntimeCapability[] }>('/v1/capabilities')
       return response.capabilities
@@ -179,6 +184,10 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async listPermissions() {
       const response = await get<{ permissions: RuntimePermissionRequest[] }>('/v1/permissions')
       return response.permissions
+    },
+    async listTurnToolCalls(turnId: string) {
+      const response = await get<{ toolCalls: RuntimeToolCall[] }>(`/v1/turns/${encodePath(turnId)}/tool-calls`)
+      return response.toolCalls
     },
     async listSessions() {
       const response = await get<{ sessions: RuntimeSession[] }>('/v1/sessions')

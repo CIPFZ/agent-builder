@@ -50,13 +50,44 @@ export type RuntimeTurn = {
 export type RuntimePermissionRequest = {
   id: string
   sessionId: string
+  turnId?: string
   toolCallId: string
   toolName: string
   description?: string
   action: string
   params?: unknown
   path?: string
+  target?: string
+  risk?: string
+  status?: string
   createdAt: number
+  decidedAt?: number
+}
+
+export type RuntimeToolCall = {
+  id: string
+  sessionId: string
+  turnId: string
+  messageId?: string
+  name: string
+  source: 'builtin' | 'mcp' | 'shell' | 'unknown' | string
+  status:
+    | 'pending'
+    | 'waiting_permission'
+    | 'running'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'denied'
+    | string
+  inputSummary?: string
+  outputSummary?: string
+  stdout?: string
+  stderr?: string
+  isError?: boolean
+  startedAt: number
+  finishedAt?: number
+  error?: string
 }
 
 export type RuntimePermissionDecision = {
@@ -285,6 +316,7 @@ export type AgentRuntime = {
   getModelConfig: () => Promise<RuntimeModelConfig>
   getAPIEndpoint: () => Promise<RuntimeAPIEndpoint>
   getTurn: (turnId: string) => Promise<RuntimeTurn>
+  getToolCall: (toolCallId: string) => Promise<RuntimeToolCall>
   getEventsEndpoint: () => Promise<RuntimeEventsEndpoint>
   discoverModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelDiscoveryResponse>
   addSkillPath: (path: string) => Promise<RuntimeSkill[]>
@@ -300,6 +332,7 @@ export type AgentRuntime = {
   listPermissions: () => Promise<RuntimePermissionRequest[]>
   listSessions: () => Promise<RuntimeSession[]>
   listSkills: () => Promise<RuntimeSkill[]>
+  listTurnToolCalls: (turnId: string) => Promise<RuntimeToolCall[]>
   createSkill: (request: RuntimeSkillCreateRequest) => Promise<RuntimeSkill[]>
   newChat: (title: string) => Promise<RuntimeStatus>
   refreshMcpServer: (server: string) => Promise<RuntimeMcpServer[]>

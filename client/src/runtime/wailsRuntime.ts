@@ -74,6 +74,12 @@ export const wailsRuntime: AgentRuntime = {
     return response.turn
   },
 
+  async getToolCall(toolCallId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.ToolCall(toolCallId)
+    return response.toolCall
+  },
+
   async getEventsEndpoint() {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.EventsEndpoint()
@@ -137,6 +143,12 @@ export const wailsRuntime: AgentRuntime = {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.Permissions()
     return response.permissions
+  },
+
+  async listTurnToolCalls(turnId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.TurnToolCalls(turnId)
+    return response.toolCalls
   },
 
   async listSessions() {

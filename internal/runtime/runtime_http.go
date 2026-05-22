@@ -174,8 +174,14 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		value, err := s.service.Chat(r.Context(), req)
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && turnToolCallsPathID(r.URL.Path) != "":
+		value, err := s.service.TurnToolCalls(r.Context(), turnToolCallsPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnPathID(r.URL.Path) != "":
 		value, err := s.service.Turn(r.Context(), turnPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && toolCallPathID(r.URL.Path) != "":
+		value, err := s.service.ToolCall(r.Context(), toolCallPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPut && sessionPathID(r.URL.Path) != "":
 		var req RuntimeSessionUpdateRequest
@@ -401,7 +407,22 @@ func turnCancelPathID(path string) string {
 }
 
 func turnPathID(path string) string {
+	if strings.HasSuffix(path, "/tool-calls") {
+		return ""
+	}
 	id := strings.TrimPrefix(path, "/v1/turns/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func turnToolCallsPathID(path string) string {
+	return trimPathID(path, "/v1/turns/", "/tool-calls")
+}
+
+func toolCallPathID(path string) string {
+	id := strings.TrimPrefix(path, "/v1/tool-calls/")
 	if id == path || id == "" || strings.Contains(id, "/") {
 		return ""
 	}
