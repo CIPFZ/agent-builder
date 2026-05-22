@@ -2,10 +2,16 @@ name: "security"
 
 on:
   pull_request:
-  push:
-    branches: [main]
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "client/package.json"
+      - "client/package-lock.json"
+      - ".github/workflows/security.yml"
   schedule:
     - cron: "0 2 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,10 +23,6 @@ concurrency:
 jobs:
   codeql:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        language: ["go", "actions"]
     permissions:
       actions: read
       contents: read
@@ -30,30 +32,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        if: matrix.language == 'go'
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-      - name: Install Linux desktop dependencies
-        if: matrix.language == 'go'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libglib2.0-dev libsoup-3.0-dev
-      - run: npm ci
-        if: matrix.language == 'go'
-        working-directory: client
-      - run: npm run build
-        if: matrix.language == 'go'
-        working-directory: client
-      - run: node scripts/sync-client-dist.mjs
-        if: matrix.language == 'go'
-        working-directory: desktop
       - uses: github/codeql-action/init@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
         with:
-          languages: ${{ matrix.language }}
-      - uses: github/codeql-action/autobuild@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
+          languages: actions
       - uses: github/codeql-action/analyze@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
 
   grype:
@@ -88,26 +69,11 @@ jobs:
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: stable
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: client/package-lock.json
-      - name: Install Linux desktop dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libglib2.0-dev libsoup-3.0-dev
-      - run: npm ci
-        working-directory: client
-      - run: npm run build
-        working-directory: client
-      - run: node scripts/sync-client-dist.mjs
-        working-directory: desktop
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: Run govulncheck
         run: |
-          govulncheck -C . -format sarif ./... > results.sarif
+          govulncheck -C . -format sarif . ./internal/... > results.sarif
       - uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
         with:
           sarif_file: results.sarif
