@@ -21,6 +21,7 @@ type Workspace struct {
 	Version string         `json:"version,omitempty"`
 	Config  *config.Config `json:"config,omitempty"`
 	Env     []string       `json:"env,omitempty"`
+	Skills  []SkillState   `json:"skills,omitempty"`
 }
 
 // Error represents an error response.

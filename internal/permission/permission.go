@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
-	"time"
 	"sync/atomic"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/pubsub"

@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/charmbracelet/crush/internal/skills"
 	"github.com/charmbracelet/crush/internal/version"
 	"github.com/google/uuid"
 )
@@ -46,10 +47,11 @@ type Backend struct {
 // associated resources and state.
 type Workspace struct {
 	*app.App
-	ID   string
-	Path string
-	Cfg  *config.ConfigStore
-	Env  []string
+	ID     string
+	Path   string
+	Cfg    *config.ConfigStore
+	Env    []string
+	Skills *skills.Manager
 }
 
 // New creates a new [Backend].
@@ -111,17 +113,21 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		return nil, proto.Workspace{}, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	appWorkspace, err := app.New(b.ctx, conn, cfg)
+	allSkills, activeSkills, skillStates := discoverWorkspaceSkills(cfg)
+	skillsMgr := skills.NewManager(allSkills, activeSkills, skillStates)
+
+	appWorkspace, err := app.New(b.ctx, conn, cfg, skillsMgr)
 	if err != nil {
 		return nil, proto.Workspace{}, fmt.Errorf("failed to create app workspace: %w", err)
 	}
 
 	ws := &Workspace{
-		App:  appWorkspace,
-		ID:   id,
-		Path: args.Path,
-		Cfg:  cfg,
-		Env:  args.Env,
+		App:    appWorkspace,
+		ID:     id,
+		Path:   args.Path,
+		Cfg:    cfg,
+		Env:    args.Env,
+		Skills: skillsMgr,
 	}
 
 	b.workspaces.Set(id, ws)
@@ -147,6 +153,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		YOLO:    cfg.Overrides().SkipPermissionRequests,
 		Config:  cfg.Config(),
 		Env:     args.Env,
+		Skills:  skillStatesToProto(skillStates),
 	}
 
 	return ws, result, nil
@@ -201,6 +208,10 @@ func (b *Backend) Shutdown() {
 
 func workspaceToProto(ws *Workspace) proto.Workspace {
 	cfg := ws.Cfg.Config()
+	var skillStates []*skills.SkillState
+	if ws.Skills != nil {
+		skillStates = ws.Skills.States()
+	}
 	return proto.Workspace{
 		ID:      ws.ID,
 		Path:    ws.Path,
@@ -208,5 +219,43 @@ func workspaceToProto(ws *Workspace) proto.Workspace {
 		DataDir: cfg.Options.DataDirectory,
 		Debug:   cfg.Options.Debug,
 		Config:  cfg,
+		Env:     ws.Env,
+		Skills:  skillStatesToProto(skillStates),
 	}
+}
+
+func discoverWorkspaceSkills(cfg *config.ConfigStore) ([]*skills.Skill, []*skills.Skill, []*skills.SkillState) {
+	opts := cfg.Config().Options
+	var paths, disabled []string
+	if opts != nil {
+		paths = opts.SkillsPaths
+		disabled = opts.DisabledSkills
+	}
+	var resolver func(string) (string, error)
+	if r := cfg.Resolver(); r != nil {
+		resolver = r.ResolveValue
+	}
+	return skills.DiscoverFromConfig(skills.DiscoveryConfig{
+		SkillsPaths:    paths,
+		DisabledSkills: disabled,
+		Resolver:       resolver,
+	})
+}
+
+func skillStatesToProto(states []*skills.SkillState) []proto.SkillState {
+	if len(states) == 0 {
+		return nil
+	}
+	out := make([]proto.SkillState, len(states))
+	for i, s := range states {
+		out[i] = proto.SkillState{
+			Name:  s.Name,
+			Path:  s.Path,
+			State: proto.SkillDiscoveryState(s.State),
+		}
+		if s.Err != nil {
+			out[i].Error = s.Err.Error()
+		}
+	}
+	return out
 }

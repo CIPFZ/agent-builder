@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/charmbracelet/crush/internal/skills"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,3 +45,25 @@ func TestMessageToProtoToolResult(t *testing.T) {
 	require.Equal(t, `{"file_path":"/tmp/x","content":"hi"}`, tr.Metadata)
 	require.False(t, tr.IsError)
 }
+
+func TestSkillsEventToProto(t *testing.T) {
+	t.Parallel()
+
+	got := skillsEventToProto(skills.Event{States: []*skills.SkillState{
+		{Name: "ok", Path: "/skills/ok", State: skills.StateNormal},
+		{Name: "bad", Path: "/skills/bad", State: skills.StateError, Err: errTestSkill},
+	}})
+
+	require.Len(t, got.States, 2)
+	require.Equal(t, "ok", got.States[0].Name)
+	require.Equal(t, proto.SkillStateNormal, got.States[0].State)
+	require.Equal(t, "bad", got.States[1].Name)
+	require.Equal(t, proto.SkillStateError, got.States[1].State)
+	require.Equal(t, "skill error", got.States[1].Error)
+}
+
+var errTestSkill = testSkillError("skill error")
+
+type testSkillError string
+
+func (e testSkillError) Error() string { return string(e) }

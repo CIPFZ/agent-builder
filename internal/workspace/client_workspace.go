@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/skills"
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 )
 
@@ -607,10 +609,34 @@ func translateEvent(ev any) any {
 				Type:         notify.Type(e.Payload.Type),
 			},
 		}
+	case pubsub.Event[proto.SkillsEvent]:
+		return pubsub.Event[skills.Event]{
+			Type:    e.Type,
+			Payload: skills.Event{States: protoToSkillStates(e.Payload.States)},
+		}
 	default:
 		slog.Warn("Unknown event type in translateEvent", "type", fmt.Sprintf("%T", ev))
 		return nil
 	}
+}
+
+func protoToSkillStates(in []proto.SkillState) []*skills.SkillState {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*skills.SkillState, len(in))
+	for i, s := range in {
+		state := &skills.SkillState{
+			Name:  s.Name,
+			Path:  s.Path,
+			State: skills.DiscoveryState(s.State),
+		}
+		if s.Error != "" {
+			state.Err = errors.New(s.Error)
+		}
+		out[i] = state
+	}
+	return out
 }
 
 func protoToMCPEventType(t proto.MCPEventType) mcp.EventType {

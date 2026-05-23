@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/skills"
 )
 
 // wrapEvent converts a raw app pubsub.Event[T] payload into a pubsub.Payload
@@ -91,6 +92,11 @@ func wrapEvent(ev any) *pubsub.Payload {
 				Type:         proto.AgentEventType(e.Payload.Type),
 			},
 		})
+	case pubsub.Event[skills.Event]:
+		return envelope(pubsub.PayloadTypeSkillsEvent, pubsub.Event[proto.SkillsEvent]{
+			Type:    e.Type,
+			Payload: skillsEventToProto(e.Payload),
+		})
 	default:
 		slog.Warn("Unrecognized event type for SSE wrapping", "type", fmt.Sprintf("%T", ev))
 		return nil
@@ -166,6 +172,24 @@ func fileToProto(f history.File) proto.File {
 		CreatedAt: f.CreatedAt,
 		UpdatedAt: f.UpdatedAt,
 	}
+}
+
+func skillsEventToProto(e skills.Event) proto.SkillsEvent {
+	if len(e.States) == 0 {
+		return proto.SkillsEvent{}
+	}
+	out := proto.SkillsEvent{States: make([]proto.SkillState, len(e.States))}
+	for i, s := range e.States {
+		out.States[i] = proto.SkillState{
+			Name:  s.Name,
+			Path:  s.Path,
+			State: proto.SkillDiscoveryState(s.State),
+		}
+		if s.Err != nil {
+			out.States[i].Error = s.Err.Error()
+		}
+	}
+	return out
 }
 
 func messageToProto(m message.Message) proto.Message {
