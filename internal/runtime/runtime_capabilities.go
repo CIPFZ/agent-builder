@@ -29,7 +29,7 @@ func (r *runtimeService) Capabilities(ctx context.Context) (RuntimeCapabilitiesR
 	if err != nil {
 		return RuntimeCapabilitiesResponse{}, err
 	}
-	skills := runtimeSkillsFromConfig(cfg, r.desktopSkillPaths()...)
+	skills := r.runtimeSkillsFromWorkspaceConfig(cfg, r.desktopSkillPaths()...)
 	tools := runtimeMCPToolsFromConfig(cfg, "")
 	resources := runtimeMCPResources("")
 	prompts := runtimeMCPPrompts("")
@@ -302,15 +302,18 @@ func runtimeCapabilities(
 		}
 		if !skill.Enabled {
 			capability.State = capabilityStateDisabled
-			capability.Reason = "disabled_skill"
-			capability.Diagnostics = "Skill is disabled by runtime configuration."
+			capability.Reason = firstNonEmpty(skill.Reason, "disabled_skill")
+			capability.Diagnostics = firstNonEmpty(skill.Diagnostics, "Skill is disabled by runtime configuration.")
 		}
-		if skill.State == "error" {
+		if len(skill.AllowedTools) > 0 && capability.Diagnostics == "" {
+			capability.Diagnostics = "Skill declares allowed_tools metadata; runtime preserves it as policy hints only."
+		}
+		if skill.State == capabilityStateFailed {
 			capability.Enabled = false
 			capability.State = capabilityStateFailed
 			capability.Error = skill.Error
-			capability.Diagnostics = skill.Error
-			capability.Reason = "skill_diagnostic"
+			capability.Diagnostics = firstNonEmpty(skill.Diagnostics, skill.Error)
+			capability.Reason = firstNonEmpty(skill.Reason, "skill_diagnostic")
 		}
 		capabilities = append(capabilities, applyCapabilityLoadRecord(capability, loadRecords))
 	}

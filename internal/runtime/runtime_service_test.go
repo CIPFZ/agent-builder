@@ -342,8 +342,11 @@ func TestRuntimeSkillsFromConfigIncludesBuiltinAndDisabledState(t *testing.T) {
 	if found.Enabled {
 		t.Fatalf("Enabled = true for disabled skill %#v", found)
 	}
-	if found.State != "normal" {
-		t.Fatalf("State = %q, want normal", found.State)
+	if found.State != capabilityStateDisabled {
+		t.Fatalf("State = %q, want disabled", found.State)
+	}
+	if found.Activation.Included {
+		t.Fatalf("Activation included disabled skill %#v", found.Activation)
 	}
 }
 
@@ -883,11 +886,141 @@ func TestRuntimeSkillsFromConfigIncludesInvalidSkillDiagnostics(t *testing.T) {
 
 	resp := runtimeSkillsFromConfig(store)
 	for _, skill := range resp.Skills {
-		if skill.State == "error" && strings.Contains(skill.Path, "SKILL.md") && skill.Error != "" {
+		if skill.State == capabilityStateFailed && strings.Contains(skill.Path, "SKILL.md") && skill.Error != "" && skill.Diagnostics != "" {
 			return
 		}
 	}
 	t.Fatalf("invalid skill diagnostic missing from %#v", resp.Skills)
+}
+
+func TestRuntimeSkillsFromConfigNormalizesActivationMetadata(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "metadata-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: metadata-skill
+description: Runtime activation metadata skill.
+allowed_tools:
+  - view
+  - bash
+---
+
+Use this skill from the desktop runtime.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := config.NewTestStore(&config.Config{
+		Options: &config.Options{
+			SkillsPaths: []string{root},
+		},
+	})
+
+	resp := runtimeSkillsFromConfig(store)
+	for _, skill := range resp.Skills {
+		if skill.Name != "metadata-skill" {
+			continue
+		}
+		if skill.State != capabilityStateUnloaded || !skill.Enabled || skill.CapabilityID != "skill:metadata-skill" {
+			t.Fatalf("skill state metadata = %#v", skill)
+		}
+		if got := strings.Join(skill.AllowedTools, ","); got != "bash,view" {
+			t.Fatalf("allowed tools = %q", got)
+		}
+		if !skill.Activation.Included || skill.Activation.Reason == "" {
+			t.Fatalf("activation metadata missing: %#v", skill.Activation)
+		}
+		if !strings.Contains(skill.PolicyReason, "does not expand runtime permissions") {
+			t.Fatalf("policy hook reason missing: %#v", skill)
+		}
+		return
+	}
+	t.Fatalf("metadata skill missing from %#v", resp.Skills)
+}
+
+func TestRuntimeSkillsFromConfigDisabledSkillExcludedFromActivation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "disabled-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: disabled-skill
+description: Disabled skill.
+---
+
+Should not be activated.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := config.NewTestStore(&config.Config{
+		Options: &config.Options{
+			SkillsPaths:    []string{root},
+			DisabledSkills: []string{"disabled-skill"},
+		},
+	})
+
+	resp := runtimeSkillsFromConfig(store)
+	for _, skill := range resp.Skills {
+		if skill.Name != "disabled-skill" {
+			continue
+		}
+		if skill.Enabled || skill.State != capabilityStateDisabled || skill.Activation.Included {
+			t.Fatalf("disabled skill should be excluded: %#v", skill)
+		}
+		summary := runtimeTurnSkillSummary(resp.Skills, "ask")
+		for _, item := range summary.Excluded {
+			if item.Name == "disabled-skill" && item.Reason == "excluded by disabled config" {
+				return
+			}
+		}
+		t.Fatalf("disabled skill missing from excluded summary: %#v", summary)
+	}
+	t.Fatalf("disabled skill missing from %#v", resp.Skills)
+}
+
+func TestRuntimeSkillsWithDenyAllPolicyExcludedFromActivation(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "policy-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: policy-skill
+description: Policy gated skill.
+---
+
+Should not be activated when deny_all is active.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := config.NewTestStore(&config.Config{
+		Options: &config.Options{
+			SkillsPaths: []string{root},
+		},
+	})
+
+	resp := runtimeSkillsFromConfigWithPolicy(store, permission.PolicyModeDenyAll)
+	for _, skill := range resp.Skills {
+		if skill.Name != "policy-skill" {
+			continue
+		}
+		if skill.Enabled || skill.State != capabilityStateDisabled || skill.Reason != "policy_denied" || skill.Activation.Included {
+			t.Fatalf("deny_all skill should be policy excluded: %#v", skill)
+		}
+		if skill.PolicyMode != string(permission.PolicyModeDenyAll) || skill.PolicyRisk != string(permission.RiskRead) {
+			t.Fatalf("policy metadata missing: %#v", skill)
+		}
+		return
+	}
+	t.Fatalf("policy skill missing from %#v", resp.Skills)
 }
 
 func TestRuntimeSkillsFromConfigIncludesDesktopManagedPath(t *testing.T) {

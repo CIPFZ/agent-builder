@@ -12,6 +12,14 @@ import type { RuntimeSkill, RuntimeSkillCreateRequest } from '../../runtime'
 
 const { Text } = Typography
 
+function skillStateColor(state: string, enabled: boolean) {
+  if (!enabled || state === 'disabled') return 'default'
+  if (state === 'loaded') return 'green'
+  if (state === 'loading') return 'processing'
+  if (state === 'failed' || state === 'unavailable') return 'red'
+  return 'gold'
+}
+
 export function RuntimeSkillPanel({
   skills,
   onRefresh,
@@ -48,13 +56,19 @@ export function RuntimeSkillPanel({
         <div className="runtime-list-row" key={`${skill.name}-${skill.path ?? ''}`}>
           <Space size={8}>
             <Tag color={skill.enabled ? 'green' : 'default'}>{skill.enabled ? 'enabled' : 'disabled'}</Tag>
+            <Tag color={skillStateColor(skill.state, skill.enabled)}>{skill.state}</Tag>
             <Text strong>{skill.name}</Text>
             {skill.builtin ? <Tag>builtin</Tag> : null}
+            {skill.allowed_tools?.length ? <Tag>tools {skill.allowed_tools.length}</Tag> : null}
             <Button size="small" onClick={() => onToggle(skill.name, !skill.enabled)}>
               {skill.enabled ? 'Disable' : 'Enable'}
             </Button>
           </Space>
-          {skill.error ? <Text type="danger">{skill.error}</Text> : <Text type="secondary">{skill.description}</Text>}
+          {skill.error || skill.diagnostics ? <Text type="danger">{skill.error || skill.diagnostics}</Text> : <Text type="secondary">{skill.description}</Text>}
+          {skill.activation?.reason || skill.activation_metadata?.reason || skill.reason ? (
+            <Text type="secondary">{skill.activation?.reason || skill.activation_metadata?.reason || skill.reason}</Text>
+          ) : null}
+          {skill.policy_reason ? <Text type="secondary">{skill.policy_reason}</Text> : null}
         </div>
       ))}
       <Modal
@@ -111,4 +125,3 @@ export function RuntimeSkillPanel({
     </div>
   )
 }
-

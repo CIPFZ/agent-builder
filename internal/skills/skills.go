@@ -40,6 +40,7 @@ type Skill struct {
 	Description   string            `yaml:"description" json:"description"`
 	License       string            `yaml:"license,omitempty" json:"license,omitempty"`
 	Compatibility string            `yaml:"compatibility,omitempty" json:"compatibility,omitempty"`
+	AllowedTools  []string          `yaml:"allowed_tools,omitempty" json:"allowed_tools,omitempty"`
 	Metadata      map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	Instructions  string            `yaml:"-" json:"instructions"`
 	Path          string            `yaml:"-" json:"path"`

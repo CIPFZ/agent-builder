@@ -176,7 +176,23 @@ export type RuntimeSkill = {
   path?: string
   skill_file_path?: string
   state: string
+  diagnostics?: string
   error?: string
+  reason?: string
+  allowed_tools?: string[]
+  activation?: RuntimeSkillActivationMetadata
+  activation_metadata?: RuntimeSkillActivationMetadata
+  metadata?: Record<string, string>
+  capability_id?: string
+  policy_mode?: string
+  policy_risk?: string
+  policy_reason?: string
+}
+
+export type RuntimeSkillActivationMetadata = {
+  available: boolean
+  included: boolean
+  reason?: string
 }
 
 export type RuntimeSkillCreateRequest = {

@@ -209,6 +209,9 @@ func mergeAuditSummaryPayload(summary *RuntimeAuditTurnSummary, payload map[stri
 	if errText := stringFromMap(payload, "error"); errText != "" && !slices.Contains(summary.Errors, errText) {
 		summary.Errors = append(summary.Errors, errText)
 	}
+	if skillSummary, ok := payload["skill_summary"].(map[string]any); ok && summary.Skills == nil {
+		summary.Skills = runtimeTurnSkillSummaryFromPayload(skillSummary)
+	}
 	if summary.FinalStatus == "" {
 		switch stringFromMap(payload, "event") {
 		case "finished":
@@ -221,6 +224,47 @@ func mergeAuditSummaryPayload(summary *RuntimeAuditTurnSummary, payload map[stri
 	}
 }
 
+func runtimeTurnSkillSummaryFromPayload(payload map[string]any) *RuntimeTurnSkillSummary {
+	summary := &RuntimeTurnSkillSummary{
+		AvailableCount: intFromMap(payload, "available_count"),
+		PolicyMode:     stringFromMap(payload, "policy_mode"),
+		PolicyRisk:     stringFromMap(payload, "policy_risk"),
+		PolicyReason:   stringFromMap(payload, "policy_reason"),
+		SourcePaths:    stringSliceFromMap(payload, "source_paths"),
+	}
+	summary.Available = runtimeSkillTurnItemsFromMap(payload, "available")
+	summary.Activated = runtimeSkillTurnItemsFromMap(payload, "activated")
+	summary.Excluded = runtimeSkillTurnItemsFromMap(payload, "excluded")
+	summary.Failed = runtimeSkillTurnItemsFromMap(payload, "failed")
+	return summary
+}
+
+func runtimeSkillTurnItemsFromMap(payload map[string]any, key string) []RuntimeSkillTurnItem {
+	raw, ok := payload[key].([]any)
+	if !ok {
+		return nil
+	}
+	items := make([]RuntimeSkillTurnItem, 0, len(raw))
+	for _, value := range raw {
+		itemMap, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		items = append(items, RuntimeSkillTurnItem{
+			Name:          stringFromMap(itemMap, "name"),
+			CapabilityID:  stringFromMap(itemMap, "capability_id"),
+			Builtin:       boolFromMap(itemMap, "builtin"),
+			Path:          stringFromMap(itemMap, "path"),
+			SkillFilePath: stringFromMap(itemMap, "skill_file_path"),
+			State:         stringFromMap(itemMap, "state"),
+			Reason:        stringFromMap(itemMap, "reason"),
+			Error:         stringFromMap(itemMap, "error"),
+			AllowedTools:  stringSliceFromMap(itemMap, "allowed_tools"),
+		})
+	}
+	return items
+}
+
 func stringFromMap(values map[string]any, key string) string {
 	value, ok := values[key]
 	if !ok || value == nil {
@@ -230,4 +274,49 @@ func stringFromMap(values map[string]any, key string) string {
 		return s
 	}
 	return fmt.Sprint(value)
+}
+
+func stringSliceFromMap(values map[string]any, key string) []string {
+	value, ok := values[key]
+	if !ok || value == nil {
+		return nil
+	}
+	raw, ok := value.([]any)
+	if !ok {
+		if strings, ok := value.([]string); ok {
+			return strings
+		}
+		return nil
+	}
+	result := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if text, ok := item.(string); ok {
+			result = append(result, text)
+		}
+	}
+	return result
+}
+
+func intFromMap(values map[string]any, key string) int {
+	value, ok := values[key]
+	if !ok || value == nil {
+		return 0
+	}
+	switch typed := value.(type) {
+	case float64:
+		return int(typed)
+	case int:
+		return typed
+	default:
+		return 0
+	}
+}
+
+func boolFromMap(values map[string]any, key string) bool {
+	value, ok := values[key]
+	if !ok || value == nil {
+		return false
+	}
+	result, _ := value.(bool)
+	return result
 }

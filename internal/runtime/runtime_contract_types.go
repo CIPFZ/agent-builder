@@ -272,23 +272,24 @@ type RuntimeRecoveryStatus struct {
 }
 
 type RuntimeAuditTurnSummary struct {
-	TurnID                   string            `json:"turn_id"`
-	SessionID                string            `json:"session_id,omitempty"`
-	Provider                 string            `json:"provider,omitempty"`
-	Model                    string            `json:"model,omitempty"`
-	PromptPreview            string            `json:"prompt_preview,omitempty"`
-	UsageBefore              RuntimeUsage      `json:"usage_before,omitempty"`
-	UsageAfter               RuntimeUsage      `json:"usage_after,omitempty"`
-	UsageDelta               RuntimeUsage      `json:"usage_delta,omitempty"`
-	FinalStatus              string            `json:"final_status,omitempty"`
-	LatestAssistantMessageID string            `json:"latest_assistant_id,omitempty"`
-	ToolCalls                []RuntimeToolCall `json:"tool_calls,omitempty"`
-	Permissions              []map[string]any  `json:"permissions,omitempty"`
-	Errors                   []string          `json:"errors,omitempty"`
-	StartedAt                int64             `json:"started_at,omitempty"`
-	FinishedAt               int64             `json:"finished_at,omitempty"`
-	CreatedAt                string            `json:"created_at,omitempty"`
-	UpdatedAt                string            `json:"updated_at,omitempty"`
+	TurnID                   string                   `json:"turn_id"`
+	SessionID                string                   `json:"session_id,omitempty"`
+	Provider                 string                   `json:"provider,omitempty"`
+	Model                    string                   `json:"model,omitempty"`
+	PromptPreview            string                   `json:"prompt_preview,omitempty"`
+	UsageBefore              RuntimeUsage             `json:"usage_before,omitempty"`
+	UsageAfter               RuntimeUsage             `json:"usage_after,omitempty"`
+	UsageDelta               RuntimeUsage             `json:"usage_delta,omitempty"`
+	FinalStatus              string                   `json:"final_status,omitempty"`
+	LatestAssistantMessageID string                   `json:"latest_assistant_id,omitempty"`
+	ToolCalls                []RuntimeToolCall        `json:"tool_calls,omitempty"`
+	Permissions              []map[string]any         `json:"permissions,omitempty"`
+	Skills                   *RuntimeTurnSkillSummary `json:"skills,omitempty"`
+	Errors                   []string                 `json:"errors,omitempty"`
+	StartedAt                int64                    `json:"started_at,omitempty"`
+	FinishedAt               int64                    `json:"finished_at,omitempty"`
+	CreatedAt                string                   `json:"created_at,omitempty"`
+	UpdatedAt                string                   `json:"updated_at,omitempty"`
 }
 
 type RuntimeAuditResponse struct {
@@ -297,18 +298,58 @@ type RuntimeAuditResponse struct {
 }
 
 type RuntimeSkill struct {
-	Name          string `json:"name"`
-	Description   string `json:"description,omitempty"`
-	Builtin       bool   `json:"builtin"`
-	Enabled       bool   `json:"enabled"`
-	Path          string `json:"path,omitempty"`
-	SkillFilePath string `json:"skill_file_path,omitempty"`
-	State         string `json:"state"`
-	Error         string `json:"error,omitempty"`
+	Name               string                         `json:"name"`
+	Description        string                         `json:"description,omitempty"`
+	Builtin            bool                           `json:"builtin"`
+	Enabled            bool                           `json:"enabled"`
+	Path               string                         `json:"path,omitempty"`
+	SkillFilePath      string                         `json:"skill_file_path,omitempty"`
+	State              string                         `json:"state"`
+	Diagnostics        string                         `json:"diagnostics,omitempty"`
+	Error              string                         `json:"error,omitempty"`
+	Reason             string                         `json:"reason,omitempty"`
+	AllowedTools       []string                       `json:"allowed_tools,omitempty"`
+	Activation         RuntimeSkillActivationMetadata `json:"activation,omitempty"`
+	ActivationMetadata RuntimeSkillActivationMetadata `json:"activation_metadata,omitempty"`
+	Metadata           map[string]string              `json:"metadata,omitempty"`
+	CapabilityID       string                         `json:"capability_id,omitempty"`
+	PolicyMode         string                         `json:"policy_mode,omitempty"`
+	PolicyRisk         string                         `json:"policy_risk,omitempty"`
+	PolicyReason       string                         `json:"policy_reason,omitempty"`
 }
 
 type RuntimeSkillsResponse struct {
 	Skills []RuntimeSkill `json:"skills"`
+}
+
+type RuntimeSkillActivationMetadata struct {
+	Available bool   `json:"available"`
+	Included  bool   `json:"included"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+type RuntimeTurnSkillSummary struct {
+	AvailableCount int                    `json:"available_count"`
+	Available      []RuntimeSkillTurnItem `json:"available,omitempty"`
+	Activated      []RuntimeSkillTurnItem `json:"activated,omitempty"`
+	Excluded       []RuntimeSkillTurnItem `json:"excluded,omitempty"`
+	Failed         []RuntimeSkillTurnItem `json:"failed,omitempty"`
+	PolicyMode     string                 `json:"policy_mode,omitempty"`
+	PolicyRisk     string                 `json:"policy_risk,omitempty"`
+	PolicyReason   string                 `json:"policy_reason,omitempty"`
+	SourcePaths    []string               `json:"source_paths,omitempty"`
+}
+
+type RuntimeSkillTurnItem struct {
+	Name          string   `json:"name"`
+	CapabilityID  string   `json:"capability_id,omitempty"`
+	Builtin       bool     `json:"builtin"`
+	Path          string   `json:"path,omitempty"`
+	SkillFilePath string   `json:"skill_file_path,omitempty"`
+	State         string   `json:"state,omitempty"`
+	Reason        string   `json:"reason,omitempty"`
+	Error         string   `json:"error,omitempty"`
+	AllowedTools  []string `json:"allowed_tools,omitempty"`
 }
 
 type RuntimeSkillCreateRequest struct {

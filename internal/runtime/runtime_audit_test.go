@@ -144,6 +144,34 @@ func TestAuditPayloadIncludesRuntimeCapabilitySnapshot(t *testing.T) {
 	}
 }
 
+func TestAuditPayloadIncludesSkillActivationSummary(t *testing.T) {
+	t.Parallel()
+
+	summary := runtimeTurnSkillSummary([]RuntimeSkill{
+		{Name: "docs", Builtin: true, Enabled: true, State: capabilityStateUnloaded, Path: "crush://skills/docs", SkillFilePath: "crush://skills/docs/SKILL.md", CapabilityID: "skill:docs"},
+		{Name: "disabled", Enabled: false, State: capabilityStateDisabled, Reason: "disabled_skill"},
+		{Name: "broken", Enabled: false, State: capabilityStateFailed, Error: "parse failed"},
+	}, "ask")
+	payload, err := auditPayload(auditEntry{
+		RequestID:    "turn-1",
+		Event:        "started",
+		SkillSummary: &summary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed := runtimeTurnSkillSummaryFromPayload(payload["skill_summary"].(map[string]any))
+	if parsed.AvailableCount != 3 || len(parsed.Activated) != 1 || parsed.Activated[0].Name != "docs" {
+		t.Fatalf("activated skill summary missing: %#v", parsed)
+	}
+	if len(parsed.Excluded) != 1 || parsed.Excluded[0].Name != "disabled" {
+		t.Fatalf("excluded skill summary missing: %#v", parsed)
+	}
+	if len(parsed.Failed) != 1 || parsed.Failed[0].Name != "broken" {
+		t.Fatalf("failed skill summary missing: %#v", parsed)
+	}
+}
+
 func TestAuditPayloadRedactsCapabilityLoadError(t *testing.T) {
 	t.Parallel()
 

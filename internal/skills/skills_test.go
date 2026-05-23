@@ -379,6 +379,27 @@ Instructions here.
 	require.Empty(t, skill.SkillFilePath)
 }
 
+func TestParseContentAllowedToolsMetadata(t *testing.T) {
+	t.Parallel()
+
+	content := []byte(`---
+name: tool-skill
+description: A test skill.
+allowed_tools:
+  - view
+  - bash
+metadata:
+  owner: runtime
+---
+
+Instructions here.
+`)
+	skill, err := ParseContent(content)
+	require.NoError(t, err)
+	require.Equal(t, []string{"view", "bash"}, skill.AllowedTools)
+	require.Equal(t, "runtime", skill.Metadata["owner"])
+}
+
 func TestParseContent_NoFrontmatter(t *testing.T) {
 	t.Parallel()
 

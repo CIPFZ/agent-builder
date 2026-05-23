@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/charmbracelet/crush/internal/tools/scheduler"
 )
 
 func (r *runtimeService) Skills(ctx context.Context) (RuntimeSkillsResponse, error) {
@@ -86,7 +88,8 @@ func (r *runtimeService) SetSkillEnabled(ctx context.Context, req RuntimeSkillTo
 		Type:      eventType,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 		Payload: map[string]any{
-			"name": name,
+			"name":          name,
+			"capability_id": "skill:" + name,
 		},
 	})
 	return r.refreshSkills(ctx, true)
@@ -186,7 +189,7 @@ func (r *runtimeService) refreshSkills(ctx context.Context, publish bool) (Runti
 	if err != nil {
 		return RuntimeSkillsResponse{}, err
 	}
-	resp := runtimeSkillsFromConfig(ws.Cfg, r.desktopSkillPaths()...)
+	resp := r.runtimeSkillsFromWorkspaceConfig(ws.Cfg, r.desktopSkillPaths()...)
 	if publish {
 		eventType := runtimeapi.EventSkillDiscoveryCompleted
 		for _, skill := range resp.Skills {
@@ -197,14 +200,23 @@ func (r *runtimeService) refreshSkills(ctx context.Context, publish bool) (Runti
 		}
 		event := runtimeapi.NewEvent(newRuntimeEventID(), eventType, time.Now())
 		event.Payload = map[string]any{
-			"count": len(resp.Skills),
+			"count":  len(resp.Skills),
+			"skills": runtimeSkillEventSummaries(resp.Skills),
 		}
 		r.publishRuntimeEvent(event)
 	}
 	return resp, nil
 }
 
+func (r *runtimeService) runtimeSkillsFromWorkspaceConfig(store *config.ConfigStore, extraPaths ...string) RuntimeSkillsResponse {
+	return runtimeSkillsFromConfigWithPolicy(store, r.currentPolicyMode(), extraPaths...)
+}
+
 func runtimeSkillsFromConfig(store *config.ConfigStore, extraPaths ...string) RuntimeSkillsResponse {
+	return runtimeSkillsFromConfigWithPolicy(store, permission.PolicyModeAsk, extraPaths...)
+}
+
+func runtimeSkillsFromConfigWithPolicy(store *config.ConfigStore, policyMode permission.PolicyMode, extraPaths ...string) RuntimeSkillsResponse {
 	opts := store.Config().Options
 	builtin, builtinStates := skills.DiscoverBuiltinWithStates()
 	discovered := append([]*skills.Skill(nil), builtin...)
@@ -243,26 +255,80 @@ func runtimeSkillsFromConfig(store *config.ConfigStore, extraPaths ...string) Ru
 		disabledSet[name] = true
 	}
 
+	policy := permission.NewPermissionPolicy(policyMode)
 	result := make([]RuntimeSkill, 0, len(states))
 	for _, state := range states {
 		runtimeSkill := RuntimeSkill{
-			Name:  state.Name,
-			Path:  state.Path,
-			State: "normal",
+			Name:         state.Name,
+			Path:         state.Path,
+			State:        capabilityStateUnloaded,
+			Enabled:      true,
+			CapabilityID: "skill:" + state.Name,
+			Activation: RuntimeSkillActivationMetadata{
+				Available: true,
+				Included:  true,
+				Reason:    "runtime included in prompt",
+			},
+			ActivationMetadata: RuntimeSkillActivationMetadata{
+				Available: true,
+				Included:  true,
+				Reason:    "runtime included in prompt",
+			},
 		}
 		if state.State == skills.StateError {
-			runtimeSkill.State = "error"
+			runtimeSkill.State = capabilityStateFailed
+			runtimeSkill.Enabled = false
+			runtimeSkill.Reason = "skill_diagnostic"
 			if state.Err != nil {
 				runtimeSkill.Error = state.Err.Error()
+				runtimeSkill.Diagnostics = state.Err.Error()
 			}
+			runtimeSkill.Activation = RuntimeSkillActivationMetadata{Available: false, Included: false, Reason: "failed diagnostics"}
+			runtimeSkill.ActivationMetadata = runtimeSkill.Activation
 		}
 		if skill := skillByName[state.Name]; skill != nil {
 			runtimeSkill.Name = skill.Name
 			runtimeSkill.Description = skill.Description
 			runtimeSkill.Builtin = skill.Builtin
-			runtimeSkill.Enabled = !disabledSet[skill.Name] && runtimeSkill.State != "error"
+			runtimeSkill.Enabled = !disabledSet[skill.Name] && runtimeSkill.State != capabilityStateFailed
 			runtimeSkill.Path = skill.Path
 			runtimeSkill.SkillFilePath = skill.SkillFilePath
+			runtimeSkill.CapabilityID = "skill:" + skill.Name
+			runtimeSkill.AllowedTools = normalizeSkillMetadataList(skill.AllowedTools)
+			runtimeSkill.Metadata = cloneSkillMetadata(skill.Metadata)
+			if len(runtimeSkill.AllowedTools) > 0 {
+				runtimeSkill.PolicyReason = "Skill allowed_tools metadata is preserved for policy inspection and does not expand runtime permissions."
+			}
+			if !runtimeSkill.Enabled && runtimeSkill.State != capabilityStateFailed {
+				runtimeSkill.State = capabilityStateDisabled
+				runtimeSkill.Reason = "disabled_skill"
+				runtimeSkill.Diagnostics = "Skill is disabled by runtime configuration."
+				runtimeSkill.Activation = RuntimeSkillActivationMetadata{Available: true, Included: false, Reason: "excluded by disabled config"}
+				runtimeSkill.ActivationMetadata = runtimeSkill.Activation
+			}
+		}
+		if runtimeSkill.CapabilityID == "skill:" {
+			runtimeSkill.CapabilityID = "skill:" + runtimeSkill.Name
+		}
+		if runtimeSkill.State == capabilityStateUnloaded && runtimeSkill.Enabled {
+			decision := policy.Evaluate(scheduler.ToolCall{
+				ID:           runtimeSkill.CapabilityID,
+				Name:         "context_activation",
+				Source:       scheduler.ToolSourceUnknown,
+				Status:       scheduler.ToolCallPending,
+				InputSummary: runtimeSkillPolicySummary(runtimeSkill),
+			})
+			runtimeSkill.PolicyMode = string(decision.Mode)
+			runtimeSkill.PolicyRisk = string(decision.Risk)
+			runtimeSkill.PolicyReason = firstNonEmpty(runtimeSkill.PolicyReason, decision.Reason)
+			if decision.Decision == permission.PolicyDeny {
+				runtimeSkill.Enabled = false
+				runtimeSkill.State = capabilityStateDisabled
+				runtimeSkill.Reason = "policy_denied"
+				runtimeSkill.Diagnostics = decision.Reason
+				runtimeSkill.Activation = RuntimeSkillActivationMetadata{Available: true, Included: false, Reason: decision.Reason}
+				runtimeSkill.ActivationMetadata = runtimeSkill.Activation
+			}
 		}
 		result = append(result, runtimeSkill)
 	}
@@ -274,6 +340,56 @@ func runtimeSkillsFromConfig(store *config.ConfigStore, extraPaths ...string) Ru
 		return strings.Compare(strings.ToLower(a.Path), strings.ToLower(b.Path))
 	})
 	return RuntimeSkillsResponse{Skills: result}
+}
+
+func runtimeSkillPolicySummary(skill RuntimeSkill) string {
+	if len(skill.AllowedTools) > 0 {
+		return "read skill activation metadata with allowed_tools policy hints"
+	}
+	return "read skill activation metadata"
+}
+
+func normalizeSkillMetadataList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || slices.Contains(result, value) {
+			continue
+		}
+		result = append(result, value)
+	}
+	slices.Sort(result)
+	return result
+}
+
+func cloneSkillMetadata(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(values))
+	for key, value := range values {
+		result[key] = value
+	}
+	return result
+}
+
+func runtimeSkillEventSummaries(skills []RuntimeSkill) []map[string]any {
+	result := make([]map[string]any, 0, len(skills))
+	for _, skill := range skills {
+		result = append(result, map[string]any{
+			"name":          skill.Name,
+			"capability_id": skill.CapabilityID,
+			"path":          skill.Path,
+			"enabled":       skill.Enabled,
+			"state":         skill.State,
+			"reason":        skill.Reason,
+			"error":         skill.Error,
+		})
+	}
+	return result
 }
 
 func (r *runtimeService) desktopSkillsDir() string {

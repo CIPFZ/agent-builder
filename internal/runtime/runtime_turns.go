@@ -97,6 +97,7 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 	}
 
 	skills, mcpServers, mcpTools := r.runtimeAuditInventory(ctx)
+	skillSummary := runtimeTurnSkillSummary(skills, string(r.currentPolicyMode()))
 
 	slog.Info("Desktop chat queued", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "prompt_len", len(prompt))
 	r.writeAudit(auditEntry{
@@ -111,6 +112,7 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		PromptPreview: preview(prompt, auditPreviewLimit),
 		UsageBefore:   &usageBefore,
 		Skills:        skills,
+		SkillSummary:  &skillSummary,
 		MCPServers:    mcpServers,
 		MCPTools:      mcpTools,
 	})
@@ -423,7 +425,7 @@ func (r *runtimeService) runtimeAuditInventory(ctx context.Context) ([]RuntimeSk
 		slog.Debug("Runtime audit inventory unavailable", "error", err)
 		return nil, nil, nil
 	}
-	return runtimeSkillsFromConfig(cfg, r.desktopSkillPaths()...).Skills,
+	return r.runtimeSkillsFromWorkspaceConfig(cfg, r.desktopSkillPaths()...).Skills,
 		runtimeMCPServersFromConfig(cfg).Servers,
 		runtimeMCPToolsFromConfig(cfg, "").Tools
 }
