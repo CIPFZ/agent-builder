@@ -1,14 +1,28 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { RuntimeEvent } from './types'
 import { subscribeRuntimeEvents } from './events'
 
 type RuntimeEventSubscription = {
   enabled: boolean
+  lastSequence?: number
   requestEndpoint: () => Promise<{ url: string; token?: string }>
   onEvent: (event: RuntimeEvent) => void
+  onSnapshotRequired?: () => void
 }
 
-export function useRuntimeEventSubscription({ enabled, requestEndpoint, onEvent }: RuntimeEventSubscription) {
+export function useRuntimeEventSubscription({
+  enabled,
+  lastSequence,
+  requestEndpoint,
+  onEvent,
+  onSnapshotRequired,
+}: RuntimeEventSubscription) {
+  const lastSequenceRef = useRef(lastSequence)
+
+  useEffect(() => {
+    lastSequenceRef.current = lastSequence
+  }, [lastSequence])
+
   useEffect(() => {
     if (!enabled) return
     let unsubscribe: (() => void) | undefined
@@ -17,7 +31,19 @@ export function useRuntimeEventSubscription({ enabled, requestEndpoint, onEvent 
     requestEndpoint()
       .then(({ url, token }) => {
         if (cancelled || !url) return
-        unsubscribe = subscribeRuntimeEvents(url, token, onEvent, () => undefined)
+        unsubscribe = subscribeRuntimeEvents(
+          url,
+          token,
+          lastSequenceRef.current,
+          (event) => {
+            if (event.type === 'snapshot_required') {
+              onSnapshotRequired?.()
+              return
+            }
+            onEvent(event)
+          },
+          () => undefined,
+        )
       })
       .catch(() => undefined)
 
@@ -25,5 +51,5 @@ export function useRuntimeEventSubscription({ enabled, requestEndpoint, onEvent 
       cancelled = true
       unsubscribe?.()
     }
-  }, [enabled, onEvent, requestEndpoint])
+  }, [enabled, onEvent, onSnapshotRequired, requestEndpoint])
 }

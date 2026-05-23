@@ -108,6 +108,10 @@ func (s *runtimeSSEServer) handleEvents(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if _, err := parseRuntimeSequence(r.URL.Query().Get("after")); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {

@@ -95,6 +95,7 @@ export function useAssistantClient() {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const composerInputRef = useRef<TextAreaRef | null>(null)
   const activeSessionIdRef = useRef<string>('')
+  const lastEventSequenceRef = useRef(0)
 
   const hasMessages = messages.length > 0
   const isModelConfigured = Boolean(config.url && config.model && (config.hasApiKey || config.apiKey))
@@ -180,6 +181,33 @@ export function useAssistantClient() {
     setAuditEvents(nextAudit)
   }
 
+  const refreshRuntimeSnapshot = useCallback(async () => {
+    const [nextStatus, runtimeSessions, runtimePermissions, runtimeEvents, runtimeSkills, runtimeMcpServers, runtimeCapabilities] =
+      await Promise.all([
+        requestRuntimeStatus(),
+        requestRuntimeSessions(),
+        requestRuntimePermissions(),
+        requestRuntimeEvents(),
+        requestRuntimeSkills(),
+        requestRuntimeMcpServers(),
+        requestRuntimeCapabilities(),
+      ])
+    const runtimeMessages = nextStatus.sessionId
+      ? await requestRuntimeSessionMessages(nextStatus.sessionId)
+      : await requestRuntimeMessages()
+    activeSessionIdRef.current = nextStatus.sessionId
+    setRuntimeStatus(nextStatus)
+    setSessions(runtimeSessions)
+    setActiveChatTitle(runtimeSessions.find((session) => session.active)?.title ?? 'New chat')
+    setMessages(runtimeMessages)
+    setPermissions(runtimePermissions)
+    setEvents(runtimeEvents.events)
+    lastEventSequenceRef.current = runtimeEvents.last_sequence ?? runtimeEvents.events.at(-1)?.sequence ?? 0
+    setSkills(runtimeSkills)
+    setMcpServers(runtimeMcpServers)
+    setCapabilities(runtimeCapabilities)
+  }, [])
+
   const openAudit = () => {
     setAuditOpen(true)
     refreshAudit().catch(() => undefined)
@@ -244,7 +272,8 @@ export function useAssistantClient() {
         setActiveChatTitle(runtimeSessions.find((session) => session.active)?.title ?? 'New chat')
         setMessages(runtimeMessages)
         setPermissions(runtimePermissions)
-        setEvents(runtimeEvents)
+        setEvents(runtimeEvents.events)
+        lastEventSequenceRef.current = runtimeEvents.last_sequence ?? runtimeEvents.events.at(-1)?.sequence ?? 0
         setSkills(runtimeSkills)
         setMcpServers(runtimeMcpServers)
         setCapabilities(runtimeCapabilities)
@@ -256,6 +285,7 @@ export function useAssistantClient() {
   }, [isModelConfigured])
 
   const handleRuntimeEvent = (event: RuntimeEvent) => {
+    lastEventSequenceRef.current = Math.max(lastEventSequenceRef.current, event.sequence || 0)
     setEvents((current) => [...current, event].slice(-runtimeEventLimit))
     if (event.type === 'message.created' || event.type === 'message.updated' || event.type === 'message.completed') {
       refreshMessages().catch(() => undefined)
@@ -279,8 +309,12 @@ export function useAssistantClient() {
 
   useRuntimeEventSubscription({
     enabled: isModelConfigured,
+    lastSequence: lastEventSequenceRef.current,
     requestEndpoint: requestRuntimeEventsEndpoint,
     onEvent: handleRuntimeEvent,
+    onSnapshotRequired: () => {
+      refreshRuntimeSnapshot().catch(() => undefined)
+    },
   })
 
   const switchModel = useCallback(async (modelName: string) => {

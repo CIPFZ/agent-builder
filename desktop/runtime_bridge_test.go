@@ -102,7 +102,7 @@ func (s *recordingRuntimeService) Permissions(context.Context) (RuntimePermissio
 	return RuntimePermissionsResponse{}, nil
 }
 
-func (s *recordingRuntimeService) Events(context.Context) (RuntimeEventsResponse, error) {
+func (s *recordingRuntimeService) Events(context.Context, ...int64) (RuntimeEventsResponse, error) {
 	return RuntimeEventsResponse{}, nil
 }
 
@@ -110,7 +110,7 @@ func (s *recordingRuntimeService) EventsEndpoint(context.Context) (RuntimeEvents
 	return RuntimeEventsEndpointResponse{}, nil
 }
 
-func (s *recordingRuntimeService) SubscribeEvents(context.Context) (<-chan RuntimeEvent, func()) {
+func (s *recordingRuntimeService) SubscribeEvents(context.Context, ...int64) (<-chan RuntimeEvent, func()) {
 	events := make(chan RuntimeEvent)
 	return events, func() {
 		close(events)

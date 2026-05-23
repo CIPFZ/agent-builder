@@ -37,6 +37,7 @@ type auditEntry struct {
 	LatestAssistantFinish bool               `json:"latest_assistant_finished,omitempty"`
 	PermissionTool        string             `json:"permission_tool,omitempty"`
 	PermissionAction      string             `json:"permission_action,omitempty"`
+	PermissionID          string             `json:"permission_id,omitempty"`
 	PermissionPath        string             `json:"permission_path,omitempty"`
 	PermissionPolicy      string             `json:"permission_policy,omitempty"`
 	ToolCallID            string             `json:"tool_call_id,omitempty"`
@@ -95,26 +96,30 @@ func (r *runtimeService) writeRuntimeAuditEvent(ctx context.Context, entry audit
 		return
 	}
 	event := RuntimeAuditEvent{
-		ID:        newRuntimeEventID(),
-		SessionID: entry.SessionID,
-		TurnID:    entry.RequestID,
-		Type:      entry.Event,
-		CreatedAt: firstNonEmpty(entry.Timestamp, time.Now().UTC().Format(time.RFC3339Nano)),
-		Payload:   payload,
+		ID:           newRuntimeEventID(),
+		SessionID:    entry.SessionID,
+		TurnID:       entry.RequestID,
+		ToolCallID:   entry.ToolCallID,
+		PermissionID: entry.PermissionID,
+		Type:         entry.Event,
+		CreatedAt:    firstNonEmpty(entry.Timestamp, time.Now().UTC().Format(time.RFC3339Nano)),
+		Payload:      payload,
 	}
 	if err := newRuntimeAuditStore(db).Append(ctx, event); err != nil {
 		slog.Error("Failed to write runtime audit event", "error", err)
 		return
 	}
-	r.publishRuntimeEvent(runtimeapi.Event{
-		ID:        newRuntimeEventID(),
-		Type:      runtimeapi.EventAuditRecorded,
-		CreatedAt: event.CreatedAt,
-		SessionID: event.SessionID,
-		TurnID:    event.TurnID,
+	r.storeRuntimeEvent(runtimeapi.Event{
+		ID:         newRuntimeEventID(),
+		Type:       runtimeapi.EventAuditRecorded,
+		CreatedAt:  event.CreatedAt,
+		SessionID:  event.SessionID,
+		TurnID:     event.TurnID,
+		ToolCallID: event.ToolCallID,
 		Payload: map[string]any{
-			"audit_id": event.ID,
-			"type":     event.Type,
+			"audit_id":      event.ID,
+			"type":          event.Type,
+			"permission_id": event.PermissionID,
 		},
 	})
 }
@@ -128,5 +133,5 @@ func auditPayload(entry auditEntry) (map[string]any, error) {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return nil, err
 	}
-	return payload, nil
+	return redactRuntimePayload(payload), nil
 }

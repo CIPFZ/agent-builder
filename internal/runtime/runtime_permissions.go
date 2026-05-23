@@ -104,9 +104,10 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 		PermissionAction: pending.Permission.Action,
 		PermissionPath:   pending.Permission.Path,
 		PermissionPolicy: string(action),
+		PermissionID:     pending.Permission.ID,
 		ToolCallID:       pending.Permission.ToolCallID,
 	})
-	r.publishRuntimeEvent(runtimeapi.Event{
+	r.storeRuntimeEvent(runtimeapi.Event{
 		ID:         newRuntimeEventID(),
 		Type:       runtimeapi.EventPermissionDecided,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),

@@ -6,10 +6,15 @@ type RuntimeEventErrorHandler = (error: Event) => void
 export function subscribeRuntimeEvents(
   url: string,
   token: string | undefined,
+  after: number | undefined,
   onEvent: RuntimeEventHandler,
   onError: RuntimeEventErrorHandler,
 ) {
-  const source = new EventSource(token ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : url)
+  const params = new URLSearchParams()
+  if (token) params.set('token', token)
+  if (after && after > 0) params.set('after', String(after))
+  const separator = url.includes('?') ? '&' : '?'
+  const source = new EventSource(params.size ? `${url}${separator}${params.toString()}` : url)
 
   source.addEventListener('runtime-event', (event) => {
     try {

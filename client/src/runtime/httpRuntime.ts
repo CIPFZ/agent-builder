@@ -4,7 +4,7 @@ import type {
   RuntimeCapability,
   RuntimeChatRequest,
   RuntimeChatResponse,
-  RuntimeEvent,
+  RuntimeEventsResponse,
   RuntimeEventsEndpoint,
   RuntimeMcpPrompt,
   RuntimeMcpResource,
@@ -146,9 +146,9 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
       const response = await get<{ capabilities: RuntimeCapability[] }>('/v1/capabilities')
       return response.capabilities
     },
-    async listEvents() {
-      const response = await get<{ events: RuntimeEvent[] }>('/v1/events')
-      return response.events
+    listEvents(after?: number) {
+      const query = after && after > 0 ? `?after=${encodeURIComponent(String(after))}` : ''
+      return get<RuntimeEventsResponse>(`/v1/events${query}`)
     },
     async listMcpServers() {
       const response = await get<{ servers: RuntimeMcpServer[] }>('/v1/mcp/servers')

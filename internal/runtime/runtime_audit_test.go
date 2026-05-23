@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/crush/internal/db"
@@ -22,12 +23,14 @@ func TestRuntimeAuditStoreAppendAndListTurn(t *testing.T) {
 
 	store := newRuntimeAuditStore(conn)
 	err = store.Append(context.Background(), RuntimeAuditEvent{
-		ID:        "audit-1",
-		SessionID: "session-1",
-		TurnID:    "turn-1",
-		Type:      "started",
-		CreatedAt: "2026-05-18T00:00:00Z",
-		Payload:   map[string]any{"model": "test-model"},
+		ID:           "audit-1",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		ToolCallID:   "tool-1",
+		PermissionID: "perm-1",
+		Type:         "started",
+		CreatedAt:    "2026-05-18T00:00:00Z",
+		Payload:      map[string]any{"model": "test-model"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -43,6 +46,9 @@ func TestRuntimeAuditStoreAppendAndListTurn(t *testing.T) {
 	if resp.Events[0].Payload["model"] != "test-model" {
 		t.Fatalf("payload = %#v", resp.Events[0].Payload)
 	}
+	if resp.Events[0].ToolCallID != "tool-1" || resp.Events[0].PermissionID != "perm-1" {
+		t.Fatalf("linkage = %#v", resp.Events[0])
+	}
 
 	resp, err = store.ListSession(context.Background(), "session-1")
 	if err != nil {
@@ -50,6 +56,41 @@ func TestRuntimeAuditStoreAppendAndListTurn(t *testing.T) {
 	}
 	if len(resp.Events) != 1 {
 		t.Fatalf("session events = %#v", resp.Events)
+	}
+}
+
+func TestAuditPayloadRedactsSecrets(t *testing.T) {
+	t.Parallel()
+
+	payload, err := auditPayload(auditEntry{
+		RequestID:     "turn-1",
+		Event:         "started",
+		PromptPreview: `use api_key=sk-secret and Authorization: Bearer token`,
+		MCPServers: []RuntimeMCPServer{
+			{
+				Name:    "docs",
+				Type:    "http",
+				URL:     "https://user:password@example.com/mcp?token=secret",
+				Headers: map[string]string{"Authorization": "Bearer secret", "X-Team": "docs"},
+				Env:     map[string]string{"API_TOKEN": "secret", "MODE": "test"},
+			},
+		},
+		ToolCalls: []auditToolCall{
+			{ID: "tool-1", Name: "bash", Input: `{"api_key":"sk-secret"}`, Output: "ok"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, leaked := range []string{"sk-secret", "Bearer secret", "API_TOKEN\":\"secret", "user:password", "token=secret"} {
+		if strings.Contains(text, leaked) {
+			t.Fatalf("audit payload leaked %q: %s", leaked, text)
+		}
 	}
 }
 

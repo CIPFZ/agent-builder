@@ -208,11 +208,40 @@ type RuntimeEventStats struct {
 }
 
 type RuntimeEventsResponse struct {
-	Events []RuntimeEvent `json:"events"`
+	Events           []RuntimeEvent `json:"events"`
+	SnapshotRequired bool           `json:"snapshot_required,omitempty"`
+	FirstSequence    int64          `json:"first_sequence,omitempty"`
+	LastSequence     int64          `json:"last_sequence,omitempty"`
 }
 
 type RuntimeEventsEndpointResponse struct {
-	URL string `json:"url"`
+	URL   string `json:"url"`
+	Token string `json:"token,omitempty"`
+}
+
+type RuntimeAuditTurnSummary struct {
+	TurnID                   string            `json:"turn_id"`
+	SessionID                string            `json:"session_id,omitempty"`
+	Provider                 string            `json:"provider,omitempty"`
+	Model                    string            `json:"model,omitempty"`
+	PromptPreview            string            `json:"prompt_preview,omitempty"`
+	UsageBefore              RuntimeUsage      `json:"usage_before,omitempty"`
+	UsageAfter               RuntimeUsage      `json:"usage_after,omitempty"`
+	UsageDelta               RuntimeUsage      `json:"usage_delta,omitempty"`
+	FinalStatus              string            `json:"final_status,omitempty"`
+	LatestAssistantMessageID string            `json:"latest_assistant_id,omitempty"`
+	ToolCalls                []RuntimeToolCall `json:"tool_calls,omitempty"`
+	Permissions              []map[string]any  `json:"permissions,omitempty"`
+	Errors                   []string          `json:"errors,omitempty"`
+	StartedAt                int64             `json:"started_at,omitempty"`
+	FinishedAt               int64             `json:"finished_at,omitempty"`
+	CreatedAt                string            `json:"created_at,omitempty"`
+	UpdatedAt                string            `json:"updated_at,omitempty"`
+}
+
+type RuntimeAuditResponse struct {
+	Summary RuntimeAuditTurnSummary `json:"summary,omitempty"`
+	Events  []RuntimeAuditEvent     `json:"events"`
 }
 
 type RuntimeSkill struct {

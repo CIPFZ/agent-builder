@@ -99,6 +99,7 @@ export type RuntimePermissionDecision = {
 
 export type RuntimeEvent = {
   id: string
+  sequence: number
   type: string
   created_at: string
   session_id?: string
@@ -111,6 +112,13 @@ export type RuntimeEvent = {
 export type RuntimeEventsEndpoint = {
   url: string
   token?: string
+}
+
+export type RuntimeEventsResponse = {
+  events: RuntimeEvent[]
+  snapshot_required?: boolean
+  first_sequence?: number
+  last_sequence?: number
 }
 
 export type RuntimeAPIEndpoint = {
@@ -323,7 +331,7 @@ export type AgentRuntime = {
   discoverModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelDiscoveryResponse>
   addSkillPath: (path: string) => Promise<RuntimeSkill[]>
   listCapabilities: () => Promise<RuntimeCapability[]>
-  listEvents: () => Promise<RuntimeEvent[]>
+  listEvents: (after?: number) => Promise<RuntimeEventsResponse>
   listMcpServers: () => Promise<RuntimeMcpServer[]>
   listMcpResources: (server: string) => Promise<RuntimeMcpResource[]>
   listMcpPrompts: (server: string) => Promise<RuntimeMcpPrompt[]>

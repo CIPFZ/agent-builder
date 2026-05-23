@@ -3,7 +3,6 @@ import type {
   RuntimeChatResponse,
   RuntimeCapability,
   RuntimeAuditEvent,
-  RuntimeEvent,
   RuntimeMcpServerConfig,
   RuntimeMcpPrompt,
   RuntimeMcpResource,
@@ -23,6 +22,7 @@ import type {
   RuntimeToolCall,
   RuntimeTurn,
   RuntimeAPIEndpoint,
+  RuntimeEventsResponse,
 } from './types'
 
 type WailsRuntimeBridge = {
@@ -37,7 +37,7 @@ type WailsRuntimeBridge = {
   CreateSkill: (request: RuntimeSkillCreateRequest) => Promise<{ skills: RuntimeSkill[] }>
   DecidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
   DiscoverModelConfig: (request: RuntimeModelConfig) => Promise<RuntimeModelDiscoveryResponse>
-  Events: () => Promise<{ events: RuntimeEvent[] }>
+  Events: () => Promise<RuntimeEventsResponse>
   EventsEndpoint: () => Promise<{ url: string }>
   GetModelConfig: () => Promise<{ config: RuntimeModelConfig }>
   MCPServers: () => Promise<{ servers: RuntimeMcpServer[] }>

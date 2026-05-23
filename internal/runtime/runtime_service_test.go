@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -969,11 +970,49 @@ func TestAppendRuntimeEventLockedReturnsPublishEvent(t *testing.T) {
 	if event.CreatedAt == "" {
 		t.Fatal("CreatedAt was not assigned")
 	}
+	if event.Sequence != 1 {
+		t.Fatalf("Sequence = %d, want 1", event.Sequence)
+	}
 	if event.Type != "message.created" || event.MessageID != "message-1" {
 		t.Fatalf("event = %#v", event)
 	}
 	if len(service.events) != 1 {
 		t.Fatalf("stored events = %d, want 1", len(service.events))
+	}
+}
+
+func TestRuntimeEventsAfterCursorAndSnapshotRequired(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	for i := 0; i < runtimeEventLimit+2; i++ {
+		service.storeRuntimeEvent(RuntimeEvent{
+			Type:      runtimeapi.EventMessageCreated,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			MessageID: fmt.Sprintf("message-%d", i),
+		})
+	}
+
+	history, err := service.Events(context.Background(), service.events[len(service.events)-2].Sequence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if history.SnapshotRequired {
+		t.Fatal("recent cursor should not require snapshot")
+	}
+	if len(history.Events) != 1 {
+		t.Fatalf("events after recent cursor = %d, want 1", len(history.Events))
+	}
+
+	old, err := service.Events(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !old.SnapshotRequired {
+		t.Fatal("old cursor should require snapshot")
+	}
+	if old.FirstSequence <= 1 || old.LastSequence == 0 {
+		t.Fatalf("sequence bounds = %d/%d", old.FirstSequence, old.LastSequence)
 	}
 }
 
@@ -1242,7 +1281,7 @@ func (s *recordingRuntimeService) Permissions(context.Context) (RuntimePermissio
 	return RuntimePermissionsResponse{}, nil
 }
 
-func (s *recordingRuntimeService) Events(context.Context) (RuntimeEventsResponse, error) {
+func (s *recordingRuntimeService) Events(context.Context, ...int64) (RuntimeEventsResponse, error) {
 	return RuntimeEventsResponse{}, nil
 }
 
@@ -1250,7 +1289,7 @@ func (s *recordingRuntimeService) EventsEndpoint(context.Context) (RuntimeEvents
 	return RuntimeEventsEndpointResponse{}, nil
 }
 
-func (s *recordingRuntimeService) SubscribeEvents(context.Context) (<-chan RuntimeEvent, func()) {
+func (s *recordingRuntimeService) SubscribeEvents(context.Context, ...int64) (<-chan RuntimeEvent, func()) {
 	events := make(chan RuntimeEvent)
 	return events, func() {
 		close(events)

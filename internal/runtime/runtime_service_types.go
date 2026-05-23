@@ -32,9 +32,9 @@ type RuntimeService interface {
 	SessionMessages(context.Context, string) (RuntimeMessagesResponse, error)
 	Messages(context.Context) (RuntimeMessagesResponse, error)
 	Permissions(context.Context) (RuntimePermissionsResponse, error)
-	Events(context.Context) (RuntimeEventsResponse, error)
+	Events(context.Context, ...int64) (RuntimeEventsResponse, error)
 	EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error)
-	SubscribeEvents(context.Context) (<-chan RuntimeEvent, func())
+	SubscribeEvents(context.Context, ...int64) (<-chan RuntimeEvent, func())
 	AuditTurn(context.Context, string) (RuntimeAuditResponse, error)
 	AuditSession(context.Context, string) (RuntimeAuditResponse, error)
 	Skills(context.Context) (RuntimeSkillsResponse, error)
@@ -60,22 +60,23 @@ type RuntimeService interface {
 
 // runtimeService owns workspace, session, and agent lifecycle.
 type runtimeService struct {
-	mu           sync.Mutex
-	runtime      *backend.Backend
-	workspace    *proto.Workspace
-	sessionID    string
-	runtimeCtx   context.Context
-	cancel       context.CancelFunc
-	eventStats   runtimeEventStats
-	requests     map[string]runtimeRequestState
-	sessionTurns map[string]string
-	toolEvents   map[string]runtimeToolEventState
-	toolCalls    runtimeToolCallStore
-	turns        runtimeTurnStore
-	permissions  map[string]pendingRuntimePermission
-	events       []RuntimeEvent
-	eventStream  *runtimeSSEServer
-	httpAPI      *runtimeHTTPServer
+	mu                sync.Mutex
+	runtime           *backend.Backend
+	workspace         *proto.Workspace
+	sessionID         string
+	runtimeCtx        context.Context
+	cancel            context.CancelFunc
+	eventStats        runtimeEventStats
+	requests          map[string]runtimeRequestState
+	sessionTurns      map[string]string
+	toolEvents        map[string]runtimeToolEventState
+	toolCalls         runtimeToolCallStore
+	turns             runtimeTurnStore
+	permissions       map[string]pendingRuntimePermission
+	events            []RuntimeEvent
+	nextEventSequence int64
+	eventStream       *runtimeSSEServer
+	httpAPI           *runtimeHTTPServer
 }
 
 type RuntimeEvent = runtimeapi.Event

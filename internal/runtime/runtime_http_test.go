@@ -604,6 +604,40 @@ func TestRuntimeHTTPServerRoutesEventsHistoryToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesEventsAfterCursor(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	first := service.storeRuntimeEvent(RuntimeEvent{
+		Type:      "message.created",
+		CreatedAt: "2026-05-18T00:00:00Z",
+		MessageID: "message-1",
+	})
+	second := service.storeRuntimeEvent(RuntimeEvent{
+		Type:      "message.created",
+		CreatedAt: "2026-05-18T00:00:01Z",
+		MessageID: "message-2",
+	})
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodGet, "/v1/events?after="+strconv.FormatInt(first.Sequence, 10), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	var history RuntimeEventsResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &history); err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Events) != 1 || history.Events[0].Sequence != second.Sequence {
+		t.Fatalf("history = %#v", history.Events)
+	}
+}
+
 type httpRecorder struct {
 	header http.Header
 	status int

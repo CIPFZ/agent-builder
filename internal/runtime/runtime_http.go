@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -209,7 +210,12 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/events" && strings.Contains(r.Header.Get("Accept"), "text/event-stream"):
 		s.handleEvents(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/events":
-		value, err := s.service.Events(r.Context())
+		after, err := parseRuntimeSequence(r.URL.Query().Get("after"))
+		if err != nil {
+			writeRuntimeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		value, err := s.service.Events(r.Context(), after)
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/skills":
 		value, err := s.service.Skills(r.Context())
@@ -315,7 +321,12 @@ func (s *runtimeHTTPServer) handleEvents(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	events, unsubscribe := s.service.SubscribeEvents(r.Context())
+	after, err := parseRuntimeSequence(r.URL.Query().Get("after"))
+	if err != nil {
+		writeRuntimeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	events, unsubscribe := s.service.SubscribeEvents(r.Context(), after)
 	defer unsubscribe()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -343,6 +354,18 @@ func (s *runtimeHTTPServer) handleEvents(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+}
+
+func parseRuntimeSequence(value string) (int64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	sequence, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || sequence < 0 {
+		return 0, fmt.Errorf("after must be a non-negative event sequence")
+	}
+	return sequence, nil
 }
 
 func writeRuntimeResult[T any](w http.ResponseWriter, value T, err error) {

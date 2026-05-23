@@ -91,6 +91,7 @@ const (
 	EventMCPPromptsUpdated       = "mcp.prompts.updated"
 	EventUsageUpdated            = "usage.updated"
 	EventAuditRecorded           = "audit.recorded"
+	EventSnapshotRequired        = "snapshot_required"
 )
 
 var EventTypes = []string{
@@ -129,17 +130,19 @@ var EventTypes = []string{
 	EventMCPPromptsUpdated,
 	EventUsageUpdated,
 	EventAuditRecorded,
+	EventSnapshotRequired,
 }
 
 type Event struct {
 	ID         string         `json:"id"`
+	Sequence   int64          `json:"sequence"`
 	Type       string         `json:"type"`
 	CreatedAt  string         `json:"created_at"`
-	SessionID  string         `json:"session_id,omitempty"`
-	TurnID     string         `json:"turn_id,omitempty"`
-	MessageID  string         `json:"message_id,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
-	Payload    map[string]any `json:"payload,omitempty"`
+	SessionID  string         `json:"session_id"`
+	TurnID     string         `json:"turn_id"`
+	MessageID  string         `json:"message_id"`
+	ToolCallID string         `json:"tool_call_id"`
+	Payload    map[string]any `json:"payload"`
 }
 
 func NewEvent(id, eventType string, createdAt time.Time) Event {

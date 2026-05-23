@@ -15,28 +15,46 @@ import (
 
 const runtimeEventLimit = 200
 
-func (r *runtimeService) Events(context.Context) (RuntimeEventsResponse, error) {
+func (r *runtimeService) Events(_ context.Context, afterValues ...int64) (RuntimeEventsResponse, error) {
+	var after int64
+	if len(afterValues) > 0 {
+		after = afterValues[0]
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	events := make([]RuntimeEvent, len(r.events))
-	copy(events, r.events)
-	return RuntimeEventsResponse{Events: events}, nil
+	return r.eventsAfterLocked(after), nil
 }
 
 func (r *runtimeService) EventsEndpoint(_ context.Context) (RuntimeEventsEndpointResponse, error) {
-	if err := r.ensureEventStream(); err != nil {
+	if err := r.httpAPI.Start(); err != nil {
 		return RuntimeEventsEndpointResponse{}, err
 	}
-	return RuntimeEventsEndpointResponse{URL: r.eventStream.URL()}, nil
+	return RuntimeEventsEndpointResponse{
+		URL:   r.httpAPI.URL() + "/v1/events",
+		Token: r.httpAPI.Token(),
+	}, nil
 }
 
-func (r *runtimeService) SubscribeEvents(_ context.Context) (<-chan RuntimeEvent, func()) {
-	events := make(chan RuntimeEvent, 64)
+func (r *runtimeService) SubscribeEvents(_ context.Context, afterValues ...int64) (<-chan RuntimeEvent, func()) {
+	var after int64
+	if len(afterValues) > 0 {
+		after = afterValues[0]
+	}
+	events := make(chan RuntimeEvent, runtimeEventLimit+16)
 	if r.eventStream == nil {
 		r.eventStream = newRuntimeSSEServer()
 	}
+	r.mu.Lock()
+	history := r.eventsAfterLocked(after)
+	for _, event := range history.Events {
+		events <- event
+	}
+	if history.SnapshotRequired {
+		events <- newSnapshotRequiredEvent(after, history.FirstSequence, history.LastSequence)
+	}
 	r.eventStream.addSubscriber(events)
+	r.mu.Unlock()
 	return events, func() {
 		r.eventStream.removeSubscriber(events)
 	}
@@ -120,6 +138,7 @@ func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspac
 				PermissionAction: perm.Action,
 				PermissionPath:   perm.Path,
 				PermissionPolicy: "ask",
+				PermissionID:     perm.ID,
 				ToolCallID:       perm.ToolCallID,
 			})
 		case <-ctx.Done():
@@ -207,11 +226,42 @@ func (r *runtimeService) appendRuntimeEventLocked(event RuntimeEvent) RuntimeEve
 	if event.CreatedAt == "" {
 		event.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
+	if event.Sequence == 0 {
+		r.nextEventSequence++
+		event.Sequence = r.nextEventSequence
+	} else if event.Sequence > r.nextEventSequence {
+		r.nextEventSequence = event.Sequence
+	}
+	if event.Payload == nil {
+		event.Payload = map[string]any{}
+	}
+	event.Payload = redactRuntimePayload(event.Payload)
 	r.events = append(r.events, event)
 	if len(r.events) > runtimeEventLimit {
 		r.events = r.events[len(r.events)-runtimeEventLimit:]
 	}
 	return event
+}
+
+func (r *runtimeService) eventsAfterLocked(after int64) RuntimeEventsResponse {
+	events := make([]RuntimeEvent, 0, len(r.events))
+	var firstSequence, lastSequence int64
+	if len(r.events) > 0 {
+		firstSequence = r.events[0].Sequence
+		lastSequence = r.events[len(r.events)-1].Sequence
+	}
+	snapshotRequired := after > 0 && firstSequence > 0 && after < firstSequence-1
+	for _, event := range r.events {
+		if after == 0 || event.Sequence > after {
+			events = append(events, event)
+		}
+	}
+	return RuntimeEventsResponse{
+		Events:           events,
+		SnapshotRequired: snapshotRequired,
+		FirstSequence:    firstSequence,
+		LastSequence:     lastSequence,
+	}
 }
 
 func (r *runtimeService) ensureEventStream() error {
@@ -225,11 +275,27 @@ func (r *runtimeService) publishRuntimeEvent(event RuntimeEvent) {
 	if event.Type == "" || r.eventStream == nil {
 		return
 	}
+	if event.Sequence == 0 {
+		event = r.storeRuntimeEvent(event)
+		return
+	}
 	if err := r.ensureEventStream(); err != nil {
 		slog.Error("Failed to start desktop runtime SSE stream", "error", err)
 		return
 	}
 	r.eventStream.Publish(event)
+}
+
+func newSnapshotRequiredEvent(after, firstSequence, lastSequence int64) RuntimeEvent {
+	event := runtimeapi.NewEvent(newRuntimeEventID(), runtimeapi.EventSnapshotRequired, time.Now())
+	event.Sequence = lastSequence
+	event.Payload = map[string]any{
+		"after":             after,
+		"first_sequence":    firstSequence,
+		"last_sequence":     lastSequence,
+		"snapshot_required": true,
+	}
+	return event
 }
 
 func newMessageRuntimeEvent(createdAt time.Time, msg proto.Message) RuntimeEvent {
@@ -370,7 +436,7 @@ func newPermissionRuntimeEvent(createdAt time.Time, perm RuntimePermissionReques
 		"permission_id": perm.ID,
 		"tool_name":     perm.ToolName,
 		"action":        perm.Action,
-		"description":   perm.Description,
+		"description":   preview(perm.Description, 200),
 		"path":          perm.Path,
 		"risk":          perm.Risk,
 		"status":        firstNonEmpty(perm.Status, "pending"),

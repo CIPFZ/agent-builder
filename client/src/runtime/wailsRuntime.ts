@@ -91,10 +91,16 @@ export const wailsRuntime: AgentRuntime = {
     return response.capabilities
   },
 
-  async listEvents() {
+  async listEvents(after?: number) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.Events()
-    return response.events
+    const events = after && after > 0 ? response.events.filter((event) => event.sequence > after) : response.events
+    return {
+      events,
+      snapshot_required: false,
+      first_sequence: response.events[0]?.sequence,
+      last_sequence: response.events.at(-1)?.sequence,
+    }
   },
 
   async listMcpServers() {
