@@ -98,6 +98,23 @@ export type RuntimeToolCall = {
   error?: string
 }
 
+export type RuntimeTodo = {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed' | string
+  activeForm?: string
+}
+
+export type RuntimeTodoSummary = {
+  sessionId: string
+  turnId?: string
+  todos: RuntimeTodo[]
+  pending: number
+  inProgress: number
+  completed: number
+  total: number
+  updatedAt?: number
+}
+
 export type RuntimePermissionDecision = {
   permissionId: string
   action: 'allow' | 'allow_session' | 'deny'
@@ -357,6 +374,8 @@ export type AgentRuntime = {
   getAPIEndpoint: () => Promise<RuntimeAPIEndpoint>
   getTurn: (turnId: string) => Promise<RuntimeTurn>
   getToolCall: (toolCallId: string) => Promise<RuntimeToolCall>
+  getSessionTodos: (sessionId: string) => Promise<RuntimeTodoSummary>
+  getTurnTodos: (turnId: string) => Promise<RuntimeTodoSummary>
   getEventsEndpoint: () => Promise<RuntimeEventsEndpoint>
   discoverModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelDiscoveryResponse>
   addSkillPath: (path: string) => Promise<RuntimeSkill[]>

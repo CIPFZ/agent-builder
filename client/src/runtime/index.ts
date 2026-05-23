@@ -28,6 +28,8 @@ export type {
   RuntimeRecoveryStatus,
   RuntimeSession,
   RuntimeSkillCreateRequest,
+  RuntimeTodo,
+  RuntimeTodoSummary,
   RuntimeRequests,
   RuntimeEventStats,
   RuntimeSkill,

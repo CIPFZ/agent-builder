@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"charm.land/fantasy"
@@ -52,6 +53,34 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 		Name:         nonEmptyString(call.Name, toolInfo.Name),
 		Source:       schedulerSourceForToolName(nonEmptyString(call.Name, toolInfo.Name)),
 		InputSummary: call.Input,
+	}
+	decision, decisionErr := s.recorder.EvaluateToolCall(ctx, record)
+	if decisionErr != nil {
+		return fantasy.ToolResponse{}, decisionErr
+	}
+	if decision.Decision == string(permission.PolicyDeny) {
+		reason := nonEmptyString(decision.Reason, "Runtime policy denied tool call.")
+		result := SchedulerToolCallResult{
+			ToolCallID:          call.ID,
+			SessionID:           record.SessionID,
+			TurnID:              record.TurnID,
+			MessageID:           record.MessageID,
+			Name:                record.Name,
+			Source:              record.Source,
+			ModelVisibleContent: reason,
+			StructuredOutputSummary: fmt.Sprintf("policy=%s risk=%s mode=%s",
+				decision.Decision,
+				decision.Risk,
+				decision.Mode,
+			),
+			Error:   reason,
+			IsError: true,
+			Status:  "denied",
+		}
+		_ = s.recorder.ToolCallFailed(ctx, result)
+		resp := fantasy.NewTextErrorResponse(reason)
+		resp.StopTurn = true
+		return resp, nil
 	}
 	if record.ID != "" {
 		_ = s.recorder.ToolCallStarted(ctx, record)

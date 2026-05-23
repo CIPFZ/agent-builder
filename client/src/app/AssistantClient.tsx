@@ -62,6 +62,7 @@ export function AssistantClient() {
           modelSwitching={client.modelSwitching}
           runtimeStatus={client.runtimeStatus}
           sidebarCollapsed={client.sidebarCollapsed}
+          todoSummary={client.todoSummary}
           viewportRef={client.viewportRef}
           onCancelTurn={client.cancelTurn}
           onCopyMessage={client.copyMessage}

@@ -30,9 +30,11 @@ var Endpoints = []Endpoint{
 	{Method: MethodPost, Path: "/v1/sessions"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/messages"},
+	{Method: MethodGet, Path: "/v1/sessions/{session_id}/todos"},
 	{Method: MethodPost, Path: "/v1/sessions/{session_id}/turns"},
 	{Method: MethodGet, Path: "/v1/turns"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}"},
+	{Method: MethodGet, Path: "/v1/turns/{turn_id}/todos"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/tool-calls"},
 	{Method: MethodGet, Path: "/v1/tool-calls/{tool_call_id}"},
 	{Method: MethodPost, Path: "/v1/turns/{turn_id}/cancel"},
@@ -82,6 +84,7 @@ const (
 	EventPermissionRequested     = "permission.requested"
 	EventPermissionDecided       = "permission.decided"
 	EventPermissionPolicyApplied = "permission.policy.applied"
+	EventTodoUpdated             = "todo.updated"
 	EventCapabilityLoading       = "capability.loading"
 	EventCapabilityLoaded        = "capability.loaded"
 	EventCapabilityFailed        = "capability.failed"
@@ -125,6 +128,7 @@ var EventTypes = []string{
 	EventPermissionRequested,
 	EventPermissionDecided,
 	EventPermissionPolicyApplied,
+	EventTodoUpdated,
 	EventCapabilityLoading,
 	EventCapabilityLoaded,
 	EventCapabilityFailed,

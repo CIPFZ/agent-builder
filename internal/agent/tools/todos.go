@@ -4,8 +4,10 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"time"
 
 	"charm.land/fantasy"
+	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
 )
 
@@ -24,6 +26,20 @@ type TodoItem struct {
 	ActiveForm string `json:"active_form" description:"Present continuous form (e.g., 'Running tests')"`
 }
 
+type TodoUpdatedEvent struct {
+	SessionID     string         `json:"session_id"`
+	TurnID        string         `json:"turn_id,omitempty"`
+	ToolCallID    string         `json:"tool_call_id,omitempty"`
+	Todos         []session.Todo `json:"todos"`
+	Pending       int            `json:"pending"`
+	InProgress    int            `json:"in_progress"`
+	Completed     int            `json:"completed"`
+	Total         int            `json:"total"`
+	JustCompleted []string       `json:"just_completed,omitempty"`
+	JustStarted   string         `json:"just_started,omitempty"`
+	UpdatedAt     int64          `json:"updated_at"`
+}
+
 type TodosResponseMetadata struct {
 	IsNew         bool           `json:"is_new"`
 	Todos         []session.Todo `json:"todos"`
@@ -31,6 +47,12 @@ type TodosResponseMetadata struct {
 	JustStarted   string         `json:"just_started,omitempty"`
 	Completed     int            `json:"completed"`
 	Total         int            `json:"total"`
+}
+
+var todoUpdates = pubsub.NewBroker[TodoUpdatedEvent]()
+
+func SubscribeTodoUpdates(ctx context.Context) <-chan pubsub.Event[TodoUpdatedEvent] {
+	return todoUpdates.Subscribe(ctx)
 }
 
 func NewTodosTool(sessions session.Service) fantasy.AgentTool {
@@ -114,6 +136,20 @@ func NewTodosTool(sessions session.Service) fantasy.AgentTool {
 					inProgressCount++
 				}
 			}
+
+			todoUpdates.Publish(pubsub.UpdatedEvent, TodoUpdatedEvent{
+				SessionID:     sessionID,
+				TurnID:        GetTurnFromContext(ctx),
+				ToolCallID:    call.ID,
+				Todos:         todos,
+				Pending:       pendingCount,
+				InProgress:    inProgressCount,
+				Completed:     completedCount,
+				Total:         len(todos),
+				JustCompleted: justCompleted,
+				JustStarted:   justStarted,
+				UpdatedAt:     time.Now().UnixMilli(),
+			})
 
 			response += fmt.Sprintf("Status: %d pending, %d in progress, %d completed\n",
 				pendingCount, inProgressCount, completedCount)

@@ -22,6 +22,7 @@ import type {
   RuntimeSkillCreateRequest,
   RuntimeSkill,
   RuntimeStatus,
+  RuntimeTodoSummary,
   RuntimeToolCall,
   RuntimeTurn,
   RuntimeAPIEndpoint,
@@ -63,6 +64,7 @@ type WailsRuntimeBridge = {
   RenameSession: (request: { sessionId: string; title: string }) => Promise<{ sessions: RuntimeSession[] }>
   SelectSession: (sessionId: string) => Promise<RuntimeStatus>
   SessionMessages: (sessionId: string) => Promise<{ messages: RuntimeMessage[] }>
+  SessionTodos: (sessionId: string) => Promise<{ summary: RuntimeTodoSummary }>
   Sessions: () => Promise<{ sessions: RuntimeSession[] }>
   SetMCPServerEnabled: (request: { name: string; enabled: boolean }) => Promise<{ servers: RuntimeMcpServer[] }>
   SetMCPToolEnabled: (request: { server: string; tool: string; enabled: boolean }) => Promise<{ tools: RuntimeMcpTool[] }>
@@ -71,6 +73,7 @@ type WailsRuntimeBridge = {
   Status: () => Promise<RuntimeStatus>
   ToolCall: (toolCallId: string) => Promise<{ toolCall: RuntimeToolCall }>
   Turn: (turnId: string) => Promise<{ turn: RuntimeTurn }>
+  TurnTodos: (turnId: string) => Promise<{ summary: RuntimeTodoSummary }>
   Turns: (status: string) => Promise<{ turns: RuntimeTurn[] }>
   TurnToolCalls: (turnId: string) => Promise<{ toolCalls: RuntimeToolCall[] }>
   VerifyModelConfig: (request: RuntimeModelConfig) => Promise<RuntimeModelVerifyResponse>

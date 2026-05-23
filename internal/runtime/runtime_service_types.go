@@ -25,6 +25,8 @@ type RuntimeService interface {
 	Turns(context.Context, string) (RuntimeTurnsResponse, error)
 	ToolCall(context.Context, string) (RuntimeToolCallResponse, error)
 	TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error)
+	SessionTodos(context.Context, string) (RuntimeTodosResponse, error)
+	TurnTodos(context.Context, string) (RuntimeTodosResponse, error)
 	Sessions(context.Context) (RuntimeSessionsResponse, error)
 	Session(context.Context, string) (RuntimeSessionResponse, error)
 	SelectSession(context.Context, string) (RuntimeStatus, error)

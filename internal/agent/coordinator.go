@@ -109,6 +109,7 @@ type coordinator struct {
 }
 
 type SchedulerRecorder interface {
+	EvaluateToolCall(context.Context, SchedulerToolCall) (SchedulerToolPolicyDecision, error)
 	ToolCallStarted(context.Context, SchedulerToolCall) error
 	ToolCallOutput(context.Context, SchedulerToolCallResult) error
 	ToolCallCompleted(context.Context, SchedulerToolCallResult) error
@@ -140,6 +141,14 @@ type SchedulerToolCallResult struct {
 	Error                   string
 	IsError                 bool
 	Cancelled               bool
+	Status                  string
+}
+
+type SchedulerToolPolicyDecision struct {
+	Decision string
+	Risk     string
+	Reason   string
+	Mode     string
 }
 
 func NewCoordinator(

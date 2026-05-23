@@ -95,6 +95,27 @@ type RuntimeToolCallsResponse struct {
 	ToolCalls []RuntimeToolCall `json:"toolCalls"`
 }
 
+type RuntimeTodo struct {
+	Content    string `json:"content"`
+	Status     string `json:"status"`
+	ActiveForm string `json:"activeForm,omitempty"`
+}
+
+type RuntimeTodoSummary struct {
+	SessionID  string        `json:"sessionId"`
+	TurnID     string        `json:"turnId,omitempty"`
+	Todos      []RuntimeTodo `json:"todos"`
+	Pending    int           `json:"pending"`
+	InProgress int           `json:"inProgress"`
+	Completed  int           `json:"completed"`
+	Total      int           `json:"total"`
+	UpdatedAt  int64         `json:"updatedAt,omitempty"`
+}
+
+type RuntimeTodosResponse struct {
+	Summary RuntimeTodoSummary `json:"summary"`
+}
+
 type RuntimeMessage struct {
 	ID           string               `json:"id"`
 	SessionID    string               `json:"sessionId"`

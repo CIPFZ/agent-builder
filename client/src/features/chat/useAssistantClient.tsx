@@ -21,6 +21,7 @@ import {
   requestRuntimePermissions,
   requestRuntimePolicy,
   requestRuntimeRecoveryStatus,
+  requestRuntimeSessionTodos,
   requestRuntimeSessionAudit,
   requestRuntimeSessionMessages,
   requestRuntimeSessions,
@@ -51,6 +52,7 @@ import type {
   RuntimePermissionRequest,
   RuntimePolicy,
   RuntimePolicyMode,
+  RuntimeTodoSummary,
   RuntimeTurn,
   RuntimeSession,
   RuntimeSkill,
@@ -91,6 +93,7 @@ export function useAssistantClient() {
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsVerifying, setSettingsVerifying] = useState(false)
   const [policy, setPolicy] = useState<RuntimePolicy | null>(null)
+  const [todoSummary, setTodoSummary] = useState<RuntimeTodoSummary | null>(null)
   const [policySaving, setPolicySaving] = useState(false)
   const [modelSwitching, setModelSwitching] = useState(false)
   const [auditOpen, setAuditOpen] = useState(false)
@@ -163,6 +166,16 @@ export function useAssistantClient() {
     return nextPolicy
   }
 
+  const refreshTodos = async (sessionId = activeSessionIdRef.current) => {
+    if (!sessionId) {
+      setTodoSummary(null)
+      return null
+    }
+    const nextTodos = await requestRuntimeSessionTodos(sessionId)
+    setTodoSummary(nextTodos)
+    return nextTodos
+  }
+
   const refreshActiveTurns = async () => {
     const nextTurns = await requestRuntimeTurns('active')
     setActiveTurns(nextTurns)
@@ -233,6 +246,11 @@ export function useAssistantClient() {
     setMcpServers(runtimeMcpServers)
     setCapabilities(runtimeCapabilities)
     setPolicy(runtimePolicy)
+    if (nextStatus.sessionId) {
+      await refreshTodos(nextStatus.sessionId).catch(() => setTodoSummary(null))
+    } else {
+      setTodoSummary(null)
+    }
   }, [])
 
   const openAudit = () => {
@@ -308,6 +326,11 @@ export function useAssistantClient() {
         setMcpServers(runtimeMcpServers)
         setCapabilities(runtimeCapabilities)
         setPolicy(runtimePolicy)
+        if (nextStatus.sessionId) {
+          await refreshTodos(nextStatus.sessionId).catch(() => setTodoSummary(null))
+        } else {
+          setTodoSummary(null)
+        }
       })
       .catch(() => undefined)
     return () => {
@@ -333,6 +356,10 @@ export function useAssistantClient() {
     }
     if (event.type === 'permission.policy.applied') {
       refreshPolicy().catch(() => undefined)
+    }
+    if (event.type === 'todo.updated') {
+      refreshTodos(event.session_id || activeSessionIdRef.current).catch(() => undefined)
+      refreshAudit(event.turn_id).catch(() => undefined)
     }
     if (event.type.startsWith('turn.')) {
       refreshActiveTurns().catch(() => undefined)
@@ -366,6 +393,7 @@ export function useAssistantClient() {
       setMessages([])
       setPermissions([])
       setAuditEvents([])
+      setTodoSummary(null)
       const nextStatus = await refreshStatus().catch(() => undefined)
       await refreshSessions().catch(() => undefined)
       if (nextStatus?.sessionId) {
@@ -407,6 +435,7 @@ export function useAssistantClient() {
     if (!runtimeStatus?.sessionId && messages.length === 0) {
       setPermissions([])
       setAuditEvents([])
+      setTodoSummary(null)
       setActiveChatTitle('New chat')
       composerInputRef.current?.focus()
       return
@@ -419,6 +448,7 @@ export function useAssistantClient() {
         setPermissions([])
         setActiveTurns([])
         setAuditEvents([])
+        setTodoSummary(null)
         setActiveChatTitle('New chat')
         refreshSessions().catch(() => undefined)
         refreshRuntimeInventory().catch(() => undefined)
@@ -468,6 +498,7 @@ export function useAssistantClient() {
       activeSessionIdRef.current = sessionId
       let runtimeMessages = await loadMessagesForSession(sessionId)
       setMessages(runtimeMessages)
+      await refreshTodos(sessionId).catch(() => undefined)
       await refreshPermissions().catch(() => undefined)
       await refreshActiveTurns().catch(() => undefined)
       let nextStatus = await refreshStatus().catch(() => runtimeStatus)
@@ -488,6 +519,7 @@ export function useAssistantClient() {
       }
       runtimeMessages = await requestRuntimeSessionMessages(sessionId).catch(() => runtimeMessages)
       setMessages(runtimeMessages)
+      await refreshTodos(sessionId).catch(() => undefined)
       await refreshPermissions().catch(() => undefined)
       await refreshActiveTurns().catch(() => undefined)
       await refreshStatus().catch(() => undefined)
@@ -522,6 +554,7 @@ export function useAssistantClient() {
       setPermissions(runtimePermissions)
       setActiveTurns(runtimeActiveTurns)
       setAuditEvents(nextAudit)
+      await refreshTodos(sessionId).catch(() => setTodoSummary(null))
       await refreshSessions().catch(() => undefined)
       scrollToBottom()
     } catch (error) {
@@ -588,6 +621,7 @@ export function useAssistantClient() {
             setAuditEvents([])
             setPermissions([])
             setActiveTurns([])
+            setTodoSummary(null)
             setActiveChatTitle('New chat')
           }
         } catch (error) {
@@ -683,6 +717,7 @@ export function useAssistantClient() {
     permissions,
     policy,
     policySaving,
+    todoSummary,
     refreshAudit,
     refreshMcpTools,
     refreshRuntimeInventory,

@@ -460,6 +460,7 @@ func TestRuntimePolicyApplicationEventAndAudit(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go service.consumePermissionPolicyApplications(ctx, workspace.ID, permissions)
+	time.Sleep(10 * time.Millisecond)
 
 	granted, err := permissions.Request(context.Background(), permission.CreatePermissionRequest{
 		SessionID:   "session-1",
@@ -1489,6 +1490,9 @@ type recordingRuntimeService struct {
 	turnsStatus         string
 	toolCall            RuntimeToolCallResponse
 	toolCalls           RuntimeToolCallsResponse
+	todos               RuntimeTodosResponse
+	todoSession         string
+	todoTurn            string
 	policy              RuntimePolicyResponse
 	policyCalls         int
 	updatedPolicyMode   string
@@ -1544,6 +1548,16 @@ func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeTool
 
 func (s *recordingRuntimeService) TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error) {
 	return s.toolCalls, nil
+}
+
+func (s *recordingRuntimeService) SessionTodos(_ context.Context, sessionID string) (RuntimeTodosResponse, error) {
+	s.todoSession = sessionID
+	return s.todos, nil
+}
+
+func (s *recordingRuntimeService) TurnTodos(_ context.Context, turnID string) (RuntimeTodosResponse, error) {
+	s.todoTurn = turnID
+	return s.todos, nil
 }
 
 func (s *recordingRuntimeService) Sessions(context.Context) (RuntimeSessionsResponse, error) {

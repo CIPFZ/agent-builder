@@ -9,7 +9,7 @@ import type { MenuProps } from 'antd'
 import { AppstoreOutlined, AuditOutlined, CodeOutlined, DownOutlined, EditOutlined, MenuOutlined, SettingOutlined, StopOutlined, ToolOutlined } from '@ant-design/icons'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
 import type { ModelConfig } from '../../runtime/api'
-import type { RuntimeMessage, RuntimeSession, RuntimeStatus, RuntimeTurn } from '../../runtime'
+import type { RuntimeMessage, RuntimeSession, RuntimeStatus, RuntimeTodoSummary, RuntimeTurn } from '../../runtime'
 import { Composer } from './Composer'
 import { MessageItem } from './MessageItem'
 import { UsageReadout } from './UsageReadout'
@@ -47,6 +47,7 @@ type ChatWorkspaceProps = {
   modelSwitching: boolean
   runtimeStatus: RuntimeStatus | null
   sidebarCollapsed: boolean
+  todoSummary: RuntimeTodoSummary | null
   viewportRef: RefObject<HTMLDivElement | null>
   onCancelTurn: () => void
   onCopyMessage: (content: string) => void
@@ -74,6 +75,7 @@ export function ChatWorkspace({
   modelSwitching,
   runtimeStatus,
   sidebarCollapsed,
+  todoSummary,
   viewportRef,
   onCancelTurn,
   onCopyMessage,
@@ -93,6 +95,11 @@ export function ChatWorkspace({
             </Tooltip>
           ) : null}
           <Text strong>{activeSession?.title ?? activeChatTitle}</Text>
+          {todoSummary && todoSummary.total > 0 ? (
+            <Tag>
+              Plan {todoSummary.completed}/{todoSummary.total}
+            </Tag>
+          ) : null}
           <DownOutlined className="muted-icon" />
           <UsageReadout status={runtimeStatus} />
         </Space>
@@ -157,6 +164,24 @@ export function ChatWorkspace({
           </section>
         ) : (
           <section className="thread">
+            {todoSummary && todoSummary.total > 0 ? (
+              <div className="runtime-todo-panel">
+                <Space size={6} wrap>
+                  <Text strong>Plan</Text>
+                  <Tag>{todoSummary.pending} pending</Tag>
+                  <Tag color="processing">{todoSummary.inProgress} active</Tag>
+                  <Tag color="success">{todoSummary.completed} done</Tag>
+                </Space>
+                <div className="runtime-todo-list">
+                  {todoSummary.todos.slice(0, 6).map((todo) => (
+                    <div className="runtime-todo-row" key={`${todo.status}:${todo.content}`}>
+                      <Tag>{todo.status.replace('_', ' ')}</Tag>
+                      <Text>{todo.activeForm || todo.content}</Text>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {messages.map((chatMessage) => (
               <MessageItem chatMessage={chatMessage} key={chatMessage.id} onCopy={onCopyMessage} />
             ))}

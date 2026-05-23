@@ -91,6 +91,18 @@ export const wailsRuntime: AgentRuntime = {
     return response.toolCall
   },
 
+  async getSessionTodos(sessionId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.SessionTodos(sessionId)
+    return response.summary
+  },
+
+  async getTurnTodos(turnId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.TurnTodos(turnId)
+    return response.summary
+  },
+
   async getEventsEndpoint() {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.EventsEndpoint()

@@ -353,6 +353,49 @@ func TestRuntimeHTTPServerRoutesToolCallQueriesToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesTodoQueriesToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		todos: RuntimeTodosResponse{Summary: RuntimeTodoSummary{
+			SessionID: "session-1",
+			Todos: []RuntimeTodo{{
+				Content: "Inspect plan",
+				Status:  "in_progress",
+			}},
+			InProgress: 1,
+			Total:      1,
+		}},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/sessions/session-1/todos", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("session todos status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.todoSession != "session-1" {
+		t.Fatalf("todo session = %q, want session-1", service.todoSession)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/turns/turn-1/todos", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("turn todos status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.todoTurn != "turn-1" {
+		t.Fatalf("todo turn = %q, want turn-1", service.todoTurn)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesSessionManagementToRuntimeService(t *testing.T) {
 	t.Parallel()
 

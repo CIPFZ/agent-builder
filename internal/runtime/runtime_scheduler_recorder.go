@@ -5,12 +5,67 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/agent"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 	"github.com/charmbracelet/crush/internal/tools/scheduler"
 )
 
 type runtimeSchedulerRecorder struct {
 	service *runtimeService
+}
+
+func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call agent.SchedulerToolCall) (agent.SchedulerToolPolicyDecision, error) {
+	if r == nil || r.service == nil {
+		return agent.SchedulerToolPolicyDecision{}, nil
+	}
+	r.service.mu.Lock()
+	mode := permission.PolicyMode(r.service.policy.Mode)
+	r.service.mu.Unlock()
+	result := permission.NewPermissionPolicy(mode).Evaluate(scheduler.ToolCall{
+		ID:           call.ID,
+		SessionID:    call.SessionID,
+		TurnID:       call.TurnID,
+		MessageID:    call.MessageID,
+		Name:         call.Name,
+		Source:       scheduler.ToolSource(call.Source),
+		Status:       scheduler.ToolCallPending,
+		InputSummary: call.InputSummary,
+	})
+	r.service.storeRuntimeEvent(runtimeapi.Event{
+		ID:         newRuntimeEventID(),
+		Type:       runtimeapi.EventPermissionPolicyApplied,
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID:  call.SessionID,
+		TurnID:     call.TurnID,
+		MessageID:  call.MessageID,
+		ToolCallID: call.ID,
+		Payload: map[string]any{
+			"tool_name": call.Name,
+			"decision":  result.Decision,
+			"risk":      result.Risk,
+			"reason":    result.Reason,
+			"mode":      result.Mode,
+			"summary":   call.Name,
+		},
+	})
+	r.service.writeAudit(auditEntry{
+		RequestID:        call.TurnID,
+		Event:            "permission_policy_applied",
+		Timestamp:        time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID:        call.SessionID,
+		PermissionTool:   call.Name,
+		PermissionPolicy: string(result.Decision),
+		PermissionRisk:   string(result.Risk),
+		PermissionReason: result.Reason,
+		PolicyMode:       string(result.Mode),
+		ToolCallID:       call.ID,
+	})
+	return agent.SchedulerToolPolicyDecision{
+		Decision: string(result.Decision),
+		Risk:     string(result.Risk),
+		Reason:   result.Reason,
+		Mode:     string(result.Mode),
+	}, nil
 }
 
 func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call agent.SchedulerToolCall) error {
@@ -82,17 +137,25 @@ func (r *runtimeSchedulerRecorder) ToolCallCompleted(ctx context.Context, result
 }
 
 func (r *runtimeSchedulerRecorder) ToolCallFailed(ctx context.Context, result agent.SchedulerToolCallResult) error {
-	call, err := r.updateToolCall(ctx, result, scheduler.ToolCallFailed)
+	status := scheduler.ToolCallFailed
+	if result.Status == string(scheduler.ToolCallDenied) {
+		status = scheduler.ToolCallDenied
+	}
+	call, err := r.updateToolCall(ctx, result, status)
 	if err != nil {
 		return err
 	}
-	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallFailed, call, map[string]any{
+	payload := map[string]any{
 		"name":     call.Name,
 		"summary":  call.OutputSummary,
 		"status":   string(call.Status),
 		"is_error": true,
 		"error":    call.Error,
-	}))
+	}
+	if call.Status == scheduler.ToolCallDenied {
+		payload["denied"] = true
+	}
+	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallFailed, call, payload))
 	r.auditToolResult(call)
 	return nil
 }

@@ -58,3 +58,23 @@ func TestStaticPolicyModeMatrix(t *testing.T) {
 		t.Fatalf("ask read = %#v", got)
 	}
 }
+
+func TestClassifyRiskPlanModeBlockedTools(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]Risk{
+		"todos":       RiskWrite,
+		"job_kill":    RiskDestructive,
+		"download":    RiskNetwork,
+		"lsp_restart": RiskExecute,
+		"multiedit":   RiskWrite,
+	}
+	for name, want := range cases {
+		if got := ClassifyRisk(name, "{}"); got != want {
+			t.Fatalf("ClassifyRisk(%q) = %s, want %s", name, got, want)
+		}
+		if result := NewPermissionPolicy(PolicyModePlan).Evaluate(scheduler.ToolCall{Name: name}); result.Decision != PolicyDeny {
+			t.Fatalf("plan policy for %q = %#v, want deny", name, result)
+		}
+	}
+}

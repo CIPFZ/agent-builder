@@ -100,6 +100,14 @@ export async function requestRuntimePolicy() {
   return getAgentRuntime().getPolicy()
 }
 
+export async function requestRuntimeSessionTodos(sessionId: string) {
+  return getAgentRuntime().getSessionTodos(sessionId)
+}
+
+export async function requestRuntimeTurnTodos(turnId: string) {
+  return getAgentRuntime().getTurnTodos(turnId)
+}
+
 export async function updateRuntimePolicy(mode: RuntimePolicyMode) {
   return getAgentRuntime().updatePolicy(mode)
 }

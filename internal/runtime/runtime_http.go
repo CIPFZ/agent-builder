@@ -173,6 +173,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && sessionMessagesPathID(r.URL.Path) != "":
 		value, err := s.service.SessionMessages(r.Context(), sessionMessagesPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionTodosPathID(r.URL.Path) != "":
+		value, err := s.service.SessionTodos(r.Context(), sessionTodosPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && sessionTurnsPathID(r.URL.Path) != "":
 		var req RuntimeChatRequest
 		if !decodeRuntimeJSON(w, r, &req) {
@@ -193,6 +196,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnToolCallsPathID(r.URL.Path) != "":
 		value, err := s.service.TurnToolCalls(r.Context(), turnToolCallsPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && turnTodosPathID(r.URL.Path) != "":
+		value, err := s.service.TurnTodos(r.Context(), turnTodosPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnPathID(r.URL.Path) != "":
 		value, err := s.service.Turn(r.Context(), turnPathID(r.URL.Path))
@@ -432,6 +438,10 @@ func sessionMessagesPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/messages")
 }
 
+func sessionTodosPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/todos")
+}
+
 func sessionTurnsPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/turns")
 }
@@ -449,7 +459,7 @@ func turnCancelPathID(path string) string {
 }
 
 func turnPathID(path string) string {
-	if strings.HasSuffix(path, "/tool-calls") {
+	if strings.HasSuffix(path, "/tool-calls") || strings.HasSuffix(path, "/todos") {
 		return ""
 	}
 	id := strings.TrimPrefix(path, "/v1/turns/")
@@ -461,6 +471,10 @@ func turnPathID(path string) string {
 
 func turnToolCallsPathID(path string) string {
 	return trimPathID(path, "/v1/turns/", "/tool-calls")
+}
+
+func turnTodosPathID(path string) string {
+	return trimPathID(path, "/v1/turns/", "/todos")
 }
 
 func toolCallPathID(path string) string {

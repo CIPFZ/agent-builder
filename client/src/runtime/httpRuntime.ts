@@ -24,6 +24,7 @@ import type {
   RuntimeSkill,
   RuntimeSkillCreateRequest,
   RuntimeStatus,
+  RuntimeTodoSummary,
   RuntimeToolCall,
   RuntimeTurn,
 } from './types'
@@ -151,6 +152,14 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async getToolCall(toolCallId: string) {
       const response = await get<{ toolCall: RuntimeToolCall }>(`/v1/tool-calls/${encodePath(toolCallId)}`)
       return response.toolCall
+    },
+    async getSessionTodos(sessionId: string) {
+      const response = await get<{ summary: RuntimeTodoSummary }>(`/v1/sessions/${encodePath(sessionId)}/todos`)
+      return response.summary
+    },
+    async getTurnTodos(turnId: string) {
+      const response = await get<{ summary: RuntimeTodoSummary }>(`/v1/turns/${encodePath(turnId)}/todos`)
+      return response.summary
     },
     async listCapabilities() {
       const response = await get<{ capabilities: RuntimeCapability[] }>('/v1/capabilities')

@@ -370,6 +370,33 @@ button {
   padding: 56px 12px 230px;
 }
 
+.runtime-todo-panel {
+  margin-bottom: 24px;
+  padding: 12px 14px;
+  border: 1px solid #e4ded6;
+  border-radius: 8px;
+  background: #fffdf9;
+}
+
+.runtime-todo-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.runtime-todo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.runtime-todo-row .ant-typography {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .message-row {
   display: flex;
   gap: 16px;

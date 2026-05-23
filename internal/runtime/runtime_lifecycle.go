@@ -184,6 +184,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	go r.consumeRuntimeEvents(runtimeCtx, ws.ID)
 	go r.consumeDesktopPermissions(runtimeCtx, ws.ID, wsRuntime.Permissions)
 	go r.consumePermissionPolicyApplications(runtimeCtx, ws.ID, wsRuntime.Permissions)
+	go r.consumeTodoUpdates(runtimeCtx)
 
 	if err := r.runtime.UpdateAgent(runtimeCtx, ws.ID); err != nil {
 		return fmt.Errorf("failed to update Crush agent model: %w", err)
