@@ -18,12 +18,16 @@ func TestMemoryStoreLifecycle(t *testing.T) {
 		MessageID:    "message-1",
 		Name:         "bash",
 		Source:       ToolSourceShell,
+		JobID:        "ABC",
+		Command:      "pwd",
+		Risk:         "execute",
+		PolicyReason: "allowed",
 		InputSummary: `{"command":"pwd"}`,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if call.Status != ToolCallRunning || call.StartedAt.IsZero() {
+	if call.Status != ToolCallRunning || call.StartedAt.IsZero() || call.JobID != "ABC" || call.Command != "pwd" || call.Risk != "execute" {
 		t.Fatalf("created call = %#v", call)
 	}
 
@@ -39,11 +43,12 @@ func TestMemoryStoreLifecycle(t *testing.T) {
 		ToolCallID:    "call-1",
 		Status:        ToolCallCompleted,
 		OutputSummary: "ok",
+		ExitCode:      7,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if call.Status != ToolCallCompleted || call.OutputSummary != "ok" || call.FinishedAt.IsZero() {
+	if call.Status != ToolCallCompleted || call.OutputSummary != "ok" || call.ExitCode != 7 || call.FinishedAt.IsZero() {
 		t.Fatalf("completed call = %#v", call)
 	}
 

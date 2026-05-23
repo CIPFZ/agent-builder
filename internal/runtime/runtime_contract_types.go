@@ -75,6 +75,11 @@ type RuntimeToolCall struct {
 	Name          string `json:"name"`
 	Source        string `json:"source"`
 	CapabilityID  string `json:"capabilityId,omitempty"`
+	JobID         string `json:"jobId,omitempty"`
+	Command       string `json:"command,omitempty"`
+	Risk          string `json:"risk,omitempty"`
+	PolicyReason  string `json:"policyReason,omitempty"`
+	ExitCode      int    `json:"exitCode,omitempty"`
 	Status        string `json:"status"`
 	InputSummary  string `json:"inputSummary,omitempty"`
 	OutputSummary string `json:"outputSummary,omitempty"`

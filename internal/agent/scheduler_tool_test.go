@@ -10,10 +10,11 @@ import (
 )
 
 type recordingSchedulerRecorder struct {
-	decision agentPolicyDecision
-	started  bool
-	failed   SchedulerToolCallResult
-	gotCall  SchedulerToolCall
+	decision  agentPolicyDecision
+	started   bool
+	failed    SchedulerToolCallResult
+	completed SchedulerToolCallResult
+	gotCall   SchedulerToolCall
 }
 
 type agentPolicyDecision = SchedulerToolPolicyDecision
@@ -32,7 +33,8 @@ func (r *recordingSchedulerRecorder) ToolCallOutput(context.Context, SchedulerTo
 	return nil
 }
 
-func (r *recordingSchedulerRecorder) ToolCallCompleted(context.Context, SchedulerToolCallResult) error {
+func (r *recordingSchedulerRecorder) ToolCallCompleted(_ context.Context, result SchedulerToolCallResult) error {
+	r.completed = result
 	return nil
 }
 
@@ -105,5 +107,34 @@ func TestSchedulerToolPassesSourceToPolicyRecorder(t *testing.T) {
 	_, err := tool.Run(t.Context(), fantasy.ToolCall{ID: "tool-1", Name: "bash", Input: `{"command":"go test ./..."}`})
 	require.NoError(t, err)
 	require.Equal(t, "shell", recorder.gotCall.Source)
-	require.Equal(t, "builtin:bash", recorder.gotCall.CapabilityID)
+	require.Equal(t, "shell:bash", recorder.gotCall.CapabilityID)
+}
+
+func TestSchedulerToolPassesShellMetadata(t *testing.T) {
+	t.Parallel()
+
+	inner := &fakeTool{name: "bash", resp: fantasy.WithResponseMetadata(fantasy.NewTextResponse("ok"), map[string]any{
+		"shell_id":  "ABC",
+		"command":   "go test ./...",
+		"stdout":    "ok",
+		"stderr":    "",
+		"exit_code": 0,
+	})}
+	recorder := &recordingSchedulerRecorder{
+		decision: SchedulerToolPolicyDecision{
+			Decision: string(permission.PolicyAllow),
+			Risk:     string(permission.RiskExecute),
+			Reason:   "allowed",
+			Mode:     string(permission.PolicyModeAsk),
+		},
+	}
+	tool := newSchedulerTool(inner, recorder)
+
+	_, err := tool.Run(t.Context(), fantasy.ToolCall{ID: "tool-1", Name: "bash", Input: `{"command":"go test ./..."}`})
+	require.NoError(t, err)
+	require.Equal(t, "ABC", recorder.completed.JobID)
+	require.Equal(t, "go test ./...", recorder.completed.Command)
+	require.Equal(t, "execute", recorder.completed.Risk)
+	require.Equal(t, "allowed", recorder.completed.PolicyReason)
+	require.Equal(t, "ok", recorder.completed.Stdout)
 }

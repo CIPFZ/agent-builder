@@ -26,6 +26,10 @@ func (s *Scheduler) CreateCall(ctx context.Context, req ToolCallRequest) (ToolCa
 		Name:         req.Name,
 		Source:       req.Source,
 		CapabilityID: req.CapabilityID,
+		JobID:        req.JobID,
+		Command:      req.Command,
+		Risk:         req.Risk,
+		PolicyReason: req.PolicyReason,
 		Status:       ToolCallRunning,
 		InputSummary: req.InputSummary,
 		StartedAt:    s.now(),
@@ -49,6 +53,21 @@ func (s *Scheduler) CompleteCall(ctx context.Context, result ToolCallResult) (To
 	call.Status = result.Status
 	if call.Status == "" {
 		call.Status = ToolCallCompleted
+	}
+	if result.JobID != "" {
+		call.JobID = result.JobID
+	}
+	if result.Command != "" {
+		call.Command = result.Command
+	}
+	if result.Risk != "" {
+		call.Risk = result.Risk
+	}
+	if result.PolicyReason != "" {
+		call.PolicyReason = result.PolicyReason
+	}
+	if result.ExitCode != 0 {
+		call.ExitCode = result.ExitCode
 	}
 	call.OutputSummary = result.OutputSummary
 	call.ModelContent = result.ModelContent

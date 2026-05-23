@@ -39,7 +39,11 @@ type BashResponseMetadata struct {
 	StartTime        int64  `json:"start_time"`
 	EndTime          int64  `json:"end_time"`
 	Output           string `json:"output"`
+	Stdout           string `json:"stdout,omitempty"`
+	Stderr           string `json:"stderr,omitempty"`
+	ExitCode         int    `json:"exit_code,omitempty"`
 	Description      string `json:"description"`
+	Command          string `json:"command"`
 	WorkingDirectory string `json:"working_directory"`
 	Background       bool   `json:"background,omitempty"`
 	ShellID          string `json:"shell_id,omitempty"`
@@ -271,7 +275,11 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 						StartTime:        startTime.UnixMilli(),
 						EndTime:          time.Now().UnixMilli(),
 						Output:           stdout,
+						Stdout:           truncateOutput(stdout),
+						Stderr:           truncateOutput(stderr),
+						ExitCode:         exitCode,
 						Description:      params.Description,
+						Command:          params.Command,
 						Background:       params.RunInBackground,
 						WorkingDirectory: bgShell.WorkingDir,
 					}
@@ -287,6 +295,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 					StartTime:        startTime.UnixMilli(),
 					EndTime:          time.Now().UnixMilli(),
 					Description:      params.Description,
+					Command:          params.Command,
 					WorkingDirectory: bgShell.WorkingDir,
 					Background:       true,
 					ShellID:          bgShell.ID,
@@ -355,7 +364,11 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 					StartTime:        startTime.UnixMilli(),
 					EndTime:          time.Now().UnixMilli(),
 					Output:           stdout,
+					Stdout:           truncateOutput(stdout),
+					Stderr:           truncateOutput(stderr),
+					ExitCode:         exitCode,
 					Description:      params.Description,
+					Command:          params.Command,
 					Background:       params.RunInBackground,
 					WorkingDirectory: bgShell.WorkingDir,
 				}
@@ -371,6 +384,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 				StartTime:        startTime.UnixMilli(),
 				EndTime:          time.Now().UnixMilli(),
 				Description:      params.Description,
+				Command:          params.Command,
 				WorkingDirectory: bgShell.WorkingDir,
 				Background:       true,
 				ShellID:          bgShell.ID,

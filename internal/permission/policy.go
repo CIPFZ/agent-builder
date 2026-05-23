@@ -1,6 +1,8 @@
 package permission
 
 import (
+	"encoding/json"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/crush/internal/tools/scheduler"
@@ -99,9 +101,12 @@ func ClassifyRisk(toolName, inputSummary string) Risk {
 		return RiskNetwork
 	case strings.HasPrefix(name, "mcp_"):
 		return RiskNetwork
-	case name == "bash" || name == "shell" || name == "job" || strings.Contains(name, "lsp_restart"):
-		if strings.Contains(input, " rm ") || strings.Contains(input, " del ") || strings.Contains(input, "remove-item") || strings.Contains(input, "reset --hard") {
+	case name == "bash" || name == "shell" || name == "job" || name == "job_output" || strings.Contains(name, "lsp_restart"):
+		if ClassifyShellCommandRisk(inputSummary) == RiskDestructive {
 			return RiskDestructive
+		}
+		if name == "job_output" {
+			return RiskRead
 		}
 		return RiskExecute
 	case strings.Contains(name, "write") || strings.Contains(name, "edit"):
@@ -117,7 +122,13 @@ func ClassifyToolCallRisk(call scheduler.ToolCall) Risk {
 	source := strings.ToLower(strings.TrimSpace(string(call.Source)))
 	switch scheduler.ToolSource(source) {
 	case scheduler.ToolSourceShell:
-		if isDestructiveInput(call.InputSummary) {
+		if call.Name == "job_output" {
+			return RiskRead
+		}
+		if call.Name == "job_kill" {
+			return RiskDestructive
+		}
+		if ClassifyShellCommandRisk(call.InputSummary) == RiskDestructive {
 			return RiskDestructive
 		}
 		return RiskExecute
@@ -128,11 +139,49 @@ func ClassifyToolCallRisk(call scheduler.ToolCall) Risk {
 }
 
 func isDestructiveInput(inputSummary string) bool {
-	input := strings.ToLower(inputSummary)
-	return strings.Contains(input, " rm ") ||
-		strings.Contains(input, " del ") ||
-		strings.Contains(input, "remove-item") ||
-		strings.Contains(input, "reset --hard")
+	return ClassifyShellCommandRisk(inputSummary) == RiskDestructive
+}
+
+var destructiveShellPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(^|[;&|()\s])rm(\.exe)?(\s|$)`),
+	regexp.MustCompile(`(?i)(^|[;&|()\s])del(\.exe)?(\s|$)`),
+	regexp.MustCompile(`(?i)(^|[;&|()\s])remove-item(\s|$)`),
+	regexp.MustCompile(`(?i)(^|[;&|()\s])erase(\.exe)?(\s|$)`),
+	regexp.MustCompile(`(?i)\bgit\s+reset\s+--hard\b`),
+	regexp.MustCompile(`(?i)(^|[;&|()\s])(kill|killall|pkill|stop-process|taskkill)(\s|$)`),
+	regexp.MustCompile(`(?i)(^|[;&|()\s])(chmod|chown)(\s|$)`),
+	regexp.MustCompile(`(?i)(^|[;&|()\s])(rmdir|rd)(\s|$).*(\s|/|-)s\b`),
+	regexp.MustCompile(`(?i)\b(remove|delete)\b.*\b(recurse|recursive|-r|-rf|/s)\b`),
+	regexp.MustCompile(`(?i)(^|[^>])>[|]?\s*[^>\s]`),
+}
+
+// ClassifyShellCommandRisk is a conservative baseline classifier. It does not
+// parse Bash, cmd, or PowerShell; it only identifies common destructive shapes
+// before defaulting shell execution to execute risk.
+func ClassifyShellCommandRisk(inputSummary string) Risk {
+	command := extractShellCommand(inputSummary)
+	lower := strings.ToLower(command)
+	if strings.TrimSpace(lower) == "" {
+		return RiskExecute
+	}
+	for _, pattern := range destructiveShellPatterns {
+		if pattern.MatchString(lower) {
+			return RiskDestructive
+		}
+	}
+	return RiskExecute
+}
+
+func extractShellCommand(inputSummary string) string {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(inputSummary), &payload); err == nil {
+		for _, key := range []string{"command", "Command"} {
+			if value, ok := payload[key].(string); ok {
+				return value
+			}
+		}
+	}
+	return inputSummary
 }
 
 func policyToolCall(opts CreatePermissionRequest, risk Risk) scheduler.ToolCall {

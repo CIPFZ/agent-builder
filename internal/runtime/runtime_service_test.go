@@ -1738,6 +1738,79 @@ func TestRuntimeToolCallCarriesCapabilityID(t *testing.T) {
 	}
 }
 
+func TestRuntimeToolCallCarriesShellJobMetadata(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:           "tool-1",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		Name:         "bash",
+		Source:       scheduler.ToolSourceShell,
+		CapabilityID: "shell:bash",
+		JobID:        "ABC",
+		Command:      "go test ./...",
+		Risk:         "execute",
+		PolicyReason: "allowed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID:    "tool-1",
+		Status:        scheduler.ToolCallCompleted,
+		OutputSummary: "ok",
+		Stdout:        "ok",
+		ExitCode:      0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := service.ToolCall(context.Background(), "tool-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := resp.ToolCall
+	if call.Source != "shell" || call.CapabilityID != "shell:bash" || call.JobID != "ABC" || call.Command != "go test ./..." || call.Risk != "execute" || call.Stdout != "ok" {
+		t.Fatalf("tool call shell metadata = %#v", call)
+	}
+}
+
+func TestRuntimeToolCallRedactsShellSecrets(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:        "tool-1",
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+		Name:      "bash",
+		Source:    scheduler.ToolSourceShell,
+		Command:   `echo api_key=sk-secret`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID:    "tool-1",
+		Status:        scheduler.ToolCallCompleted,
+		OutputSummary: "Authorization: Bearer secret-token",
+		Stdout:        "token=secret-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := service.ToolCall(context.Background(), "tool-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(resp.ToolCall)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, "sk-secret") || strings.Contains(text, "secret-token") {
+		t.Fatalf("runtime tool call leaked shell secret: %s", text)
+	}
+}
+
 func TestRecordRuntimeEventConvertsSessionAndPermissionPayloads(t *testing.T) {
 	t.Parallel()
 

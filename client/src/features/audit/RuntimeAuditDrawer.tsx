@@ -47,12 +47,37 @@ export function RuntimeAuditDrawer({
               </Space>
               <Text type="secondary">{formatTime(event.created_at)}</Text>
             </div>
+            <AuditHighlights event={event} />
             <pre className="audit-payload">{JSON.stringify(event.payload, null, 2)}</pre>
           </article>
         ))}
       </div>
     </Drawer>
   )
+}
+
+function AuditHighlights({ event }: { event: RuntimeAuditEvent }) {
+  const toolCalls = Array.isArray(event.payload.tool_calls) ? event.payload.tool_calls : []
+  const firstTool = toolCalls[0] as Record<string, unknown> | undefined
+  const tags = [
+    stringValue(firstTool?.name),
+    stringValue(firstTool?.job_id) ? `job ${stringValue(firstTool?.job_id)}` : '',
+    stringValue(firstTool?.risk),
+    stringValue(event.payload.permission_risk),
+    stringValue(event.payload.permission_policy),
+  ].filter(Boolean)
+  if (tags.length === 0) return null
+  return (
+    <Space size={6} wrap>
+      {tags.map((tag) => (
+        <Tag key={tag}>{tag}</Tag>
+      ))}
+    </Space>
+  )
+}
+
+function stringValue(value: unknown) {
+  return typeof value === 'string' ? value : ''
 }
 
 function shortID(value: string) {

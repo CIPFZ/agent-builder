@@ -47,9 +47,10 @@ func (s runtimeSQLiteToolCallStore) Upsert(ctx context.Context, call scheduler.T
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO runtime_tool_calls (
     id, turn_id, session_id, message_id, name, source, capability_id, status,
+    job_id, command, risk, policy_reason, exit_code,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
     started_at, finished_at, error
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     turn_id = COALESCE(NULLIF(excluded.turn_id, ''), runtime_tool_calls.turn_id),
     session_id = COALESCE(NULLIF(excluded.session_id, ''), runtime_tool_calls.session_id),
@@ -57,6 +58,11 @@ ON CONFLICT(id) DO UPDATE SET
     name = COALESCE(NULLIF(excluded.name, ''), runtime_tool_calls.name),
     source = COALESCE(NULLIF(excluded.source, ''), runtime_tool_calls.source),
     capability_id = COALESCE(NULLIF(excluded.capability_id, ''), runtime_tool_calls.capability_id),
+    job_id = COALESCE(NULLIF(excluded.job_id, ''), runtime_tool_calls.job_id),
+    command = COALESCE(NULLIF(excluded.command, ''), runtime_tool_calls.command),
+    risk = COALESCE(NULLIF(excluded.risk, ''), runtime_tool_calls.risk),
+    policy_reason = COALESCE(NULLIF(excluded.policy_reason, ''), runtime_tool_calls.policy_reason),
+    exit_code = CASE WHEN excluded.exit_code != 0 THEN excluded.exit_code ELSE runtime_tool_calls.exit_code END,
     status = CASE
         WHEN runtime_tool_calls.status IN ('completed', 'failed', 'cancelled', 'denied')
              AND excluded.status IN ('pending', 'running', 'waiting_permission')
@@ -88,6 +94,11 @@ ON CONFLICT(id) DO UPDATE SET
 		string(call.Source),
 		nullableString(call.CapabilityID),
 		string(call.Status),
+		nullableString(call.JobID),
+		nullableString(call.Command),
+		nullableString(call.Risk),
+		nullableString(call.PolicyReason),
+		call.ExitCode,
 		nullableString(call.InputSummary),
 		nullableString(call.OutputSummary),
 		nullableString(call.ModelContent),
@@ -108,6 +119,7 @@ ON CONFLICT(id) DO UPDATE SET
 func (s runtimeSQLiteToolCallStore) Get(ctx context.Context, id string) (scheduler.ToolCall, error) {
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
+    job_id, command, risk, policy_reason, exit_code,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
     started_at, finished_at, error
 FROM runtime_tool_calls
@@ -122,6 +134,7 @@ WHERE id = ?`, strings.TrimSpace(id))
 func (s runtimeSQLiteToolCallStore) ListByTurn(ctx context.Context, turnID string) ([]scheduler.ToolCall, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
+    job_id, command, risk, policy_reason, exit_code,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
     started_at, finished_at, error
 FROM runtime_tool_calls
@@ -155,9 +168,9 @@ type runtimeToolCallScanner interface {
 
 func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, error) {
 	var call scheduler.ToolCall
-	var messageID, capabilityID, inputSummary, outputSummary, modelContent, structured, stdout, stderr, errText sql.NullString
+	var messageID, capabilityID, jobID, command, risk, policyReason, inputSummary, outputSummary, modelContent, structured, stdout, stderr, errText sql.NullString
 	var source, status string
-	var isError int
+	var isError, exitCode int
 	var startedAt int64
 	var finishedAt sql.NullInt64
 	if err := scanner.Scan(
@@ -169,6 +182,11 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 		&source,
 		&capabilityID,
 		&status,
+		&jobID,
+		&command,
+		&risk,
+		&policyReason,
+		&exitCode,
 		&inputSummary,
 		&outputSummary,
 		&modelContent,
@@ -186,6 +204,11 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 	call.Source = scheduler.ToolSource(source)
 	call.CapabilityID = capabilityID.String
 	call.Status = scheduler.ToolCallStatus(status)
+	call.JobID = jobID.String
+	call.Command = command.String
+	call.Risk = risk.String
+	call.PolicyReason = policyReason.String
+	call.ExitCode = exitCode
 	call.InputSummary = inputSummary.String
 	call.OutputSummary = outputSummary.String
 	call.ModelContent = modelContent.String

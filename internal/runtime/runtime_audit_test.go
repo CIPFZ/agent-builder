@@ -200,6 +200,38 @@ func TestAuditPayloadRedactsCapabilityLoadError(t *testing.T) {
 	}
 }
 
+func TestAuditPayloadRedactsShellPayloads(t *testing.T) {
+	t.Parallel()
+
+	payload, err := auditPayload(auditEntry{
+		Event: "tool_call_completed",
+		ToolCalls: []auditToolCall{
+			{
+				ID:      "tool-1",
+				Name:    "bash",
+				Command: `echo api_key=sk-secret`,
+				Output:  `Authorization: Bearer secret-token`,
+				JobID:   "ABC",
+				Risk:    "execute",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, "sk-secret") || strings.Contains(text, "secret-token") {
+		t.Fatalf("shell audit leaked secret: %s", text)
+	}
+	if !strings.Contains(text, "ABC") || !strings.Contains(text, "execute") {
+		t.Fatalf("shell audit metadata missing: %s", text)
+	}
+}
+
 func TestAuditPayloadIncludesMCPDecisionWithoutSecrets(t *testing.T) {
 	t.Parallel()
 

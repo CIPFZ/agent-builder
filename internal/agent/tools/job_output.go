@@ -27,6 +27,10 @@ type JobOutputResponseMetadata struct {
 	Command          string `json:"command"`
 	Description      string `json:"description"`
 	Done             bool   `json:"done"`
+	Status           string `json:"status"`
+	Stdout           string `json:"stdout,omitempty"`
+	Stderr           string `json:"stderr,omitempty"`
+	ExitCode         int    `json:"exit_code,omitempty"`
 	WorkingDirectory string `json:"working_directory"`
 }
 
@@ -60,10 +64,11 @@ func NewJobOutputTool() fantasy.AgentTool {
 			}
 
 			status := "running"
+			exitCode := 0
 			if done {
 				status = "completed"
 				if err != nil {
-					exitCode := shell.ExitCode(err)
+					exitCode = shell.ExitCode(err)
 					if exitCode != 0 {
 						outputParts = append(outputParts, fmt.Sprintf("Exit code %d", exitCode))
 					}
@@ -78,6 +83,10 @@ func NewJobOutputTool() fantasy.AgentTool {
 				Command:          bgShell.Command,
 				Description:      bgShell.Description,
 				Done:             done,
+				Status:           status,
+				Stdout:           TruncateOutput(stdout),
+				Stderr:           TruncateOutput(stderr),
+				ExitCode:         exitCode,
 				WorkingDirectory: bgShell.WorkingDir,
 			}
 

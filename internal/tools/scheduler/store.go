@@ -96,6 +96,21 @@ func mergeToolCall(existing, next ToolCall) ToolCall {
 	if next.Source == "" {
 		next.Source = existing.Source
 	}
+	if next.JobID == "" {
+		next.JobID = existing.JobID
+	}
+	if next.Command == "" {
+		next.Command = existing.Command
+	}
+	if next.Risk == "" {
+		next.Risk = existing.Risk
+	}
+	if next.PolicyReason == "" {
+		next.PolicyReason = existing.PolicyReason
+	}
+	if next.ExitCode == 0 {
+		next.ExitCode = existing.ExitCode
+	}
 	if next.Status == "" {
 		next.Status = existing.Status
 	}

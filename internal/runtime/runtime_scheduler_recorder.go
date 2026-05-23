@@ -161,6 +161,10 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		Name:         call.Name,
 		Source:       scheduler.ToolSource(call.Source),
 		CapabilityID: call.CapabilityID,
+		JobID:        call.JobID,
+		Command:      call.Command,
+		Risk:         call.Risk,
+		PolicyReason: call.PolicyReason,
 		InputSummary: preview(call.InputSummary, runtimePartPreviewLimit),
 	})
 	if err != nil {
@@ -171,6 +175,10 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		"source":        string(stored.Source),
 		"capability_id": stored.CapabilityID,
 		"input":         stored.InputSummary,
+		"job_id":        stored.JobID,
+		"command":       stored.Command,
+		"risk":          stored.Risk,
+		"policy_reason": stored.PolicyReason,
 		"status":        string(stored.Status),
 		"summary":       stored.Name,
 	}))
@@ -182,9 +190,12 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		ToolCallID:   stored.ID,
 		CapabilityID: stored.CapabilityID,
 		ToolCalls: []auditToolCall{{
-			ID:    stored.ID,
-			Name:  stored.Name,
-			Input: stored.InputSummary,
+			ID:      stored.ID,
+			Name:    stored.Name,
+			Input:   stored.InputSummary,
+			JobID:   stored.JobID,
+			Command: stored.Command,
+			Risk:    stored.Risk,
 		}},
 	})
 	return nil
@@ -198,6 +209,8 @@ func (r *runtimeSchedulerRecorder) ToolCallOutput(ctx context.Context, result ag
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallOutput, call, map[string]any{
 		"name":       call.Name,
 		"summary":    call.OutputSummary,
+		"job_id":     call.JobID,
+		"job_status": string(call.Status),
 		"is_error":   result.IsError,
 		"status":     string(call.Status),
 		"has_stdout": call.Stdout != "",
@@ -214,6 +227,7 @@ func (r *runtimeSchedulerRecorder) ToolCallCompleted(ctx context.Context, result
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallCompleted, call, map[string]any{
 		"name":    call.Name,
 		"summary": call.OutputSummary,
+		"job_id":  call.JobID,
 		"status":  string(call.Status),
 	}))
 	r.auditToolResult(call)
@@ -232,6 +246,7 @@ func (r *runtimeSchedulerRecorder) ToolCallFailed(ctx context.Context, result ag
 	payload := map[string]any{
 		"name":     call.Name,
 		"summary":  call.OutputSummary,
+		"job_id":   call.JobID,
 		"status":   string(call.Status),
 		"is_error": true,
 		"error":    call.Error,
@@ -252,6 +267,7 @@ func (r *runtimeSchedulerRecorder) ToolCallCancelled(ctx context.Context, result
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallCancelled, call, map[string]any{
 		"name":    call.Name,
 		"summary": call.OutputSummary,
+		"job_id":  call.JobID,
 		"status":  string(call.Status),
 		"error":   call.Error,
 	}))
@@ -272,11 +288,20 @@ func (r *runtimeSchedulerRecorder) updateToolCall(ctx context.Context, result ag
 			Name:         result.Name,
 			Source:       scheduler.ToolSource(result.Source),
 			CapabilityID: capabilityIDForToolName(result.Name),
+			JobID:        result.JobID,
+			Command:      result.Command,
+			Risk:         result.Risk,
+			PolicyReason: result.PolicyReason,
 		})
 	}
 	return r.service.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{
 		ToolCallID:    result.ToolCallID,
 		Status:        status,
+		JobID:         result.JobID,
+		Command:       result.Command,
+		Risk:          result.Risk,
+		PolicyReason:  result.PolicyReason,
+		ExitCode:      result.ExitCode,
 		OutputSummary: preview(firstNonEmpty(result.StructuredOutputSummary, result.ModelVisibleContent, result.Error), runtimePartPreviewLimit),
 		ModelContent:  preview(result.ModelVisibleContent, runtimePartPreviewLimit),
 		Structured:    preview(result.StructuredOutputSummary, runtimePartPreviewLimit),
@@ -299,13 +324,19 @@ func (r *runtimeSchedulerRecorder) auditToolResult(call scheduler.ToolCall) {
 		ToolCallID:   call.ID,
 		CapabilityID: call.CapabilityID,
 		ToolCalls: []auditToolCall{{
-			ID:      call.ID,
-			Name:    call.Name,
-			Input:   call.InputSummary,
-			Output:  call.OutputSummary,
-			IsError: call.IsError,
+			ID:       call.ID,
+			Name:     call.Name,
+			Input:    call.InputSummary,
+			Output:   call.OutputSummary,
+			JobID:    call.JobID,
+			Command:  call.Command,
+			Risk:     call.Risk,
+			ExitCode: call.ExitCode,
+			IsError:  call.IsError,
 		}},
-		Error: call.Error,
+		Error:            call.Error,
+		PermissionRisk:   call.Risk,
+		PermissionReason: call.PolicyReason,
 	})
 }
 

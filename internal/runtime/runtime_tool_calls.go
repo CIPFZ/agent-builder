@@ -127,6 +127,17 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 	if !call.FinishedAt.IsZero() {
 		finishedAt = call.FinishedAt.UnixMilli()
 	}
+	redacted := redactRuntimePayload(map[string]any{
+		"input":         call.InputSummary,
+		"output":        call.OutputSummary,
+		"model_content": call.ModelContent,
+		"structured":    call.Structured,
+		"stdout":        call.Stdout,
+		"stderr":        call.Stderr,
+		"error":         call.Error,
+		"command":       call.Command,
+		"policy_reason": call.PolicyReason,
+	})
 	return RuntimeToolCall{
 		ID:            call.ID,
 		SessionID:     call.SessionID,
@@ -135,24 +146,29 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		Name:          call.Name,
 		Source:        string(call.Source),
 		CapabilityID:  call.CapabilityID,
+		JobID:         call.JobID,
+		Command:       stringFromMap(redacted, "command"),
+		Risk:          call.Risk,
+		PolicyReason:  stringFromMap(redacted, "policy_reason"),
+		ExitCode:      call.ExitCode,
 		Status:        string(call.Status),
-		InputSummary:  call.InputSummary,
-		OutputSummary: call.OutputSummary,
-		ModelContent:  call.ModelContent,
-		Structured:    call.Structured,
-		Stdout:        call.Stdout,
-		Stderr:        call.Stderr,
+		InputSummary:  stringFromMap(redacted, "input"),
+		OutputSummary: stringFromMap(redacted, "output"),
+		ModelContent:  stringFromMap(redacted, "model_content"),
+		Structured:    stringFromMap(redacted, "structured"),
+		Stdout:        stringFromMap(redacted, "stdout"),
+		Stderr:        stringFromMap(redacted, "stderr"),
 		IsError:       call.IsError,
 		StartedAt:     call.StartedAt.UnixMilli(),
 		FinishedAt:    finishedAt,
-		Error:         call.Error,
+		Error:         stringFromMap(redacted, "error"),
 	}
 }
 
 func classifyToolSource(name string) scheduler.ToolSource {
 	toolName := strings.ToLower(strings.TrimSpace(name))
 	switch {
-	case toolName == "bash":
+	case toolName == "bash", toolName == "job_output", toolName == "job_kill":
 		return scheduler.ToolSourceShell
 	case strings.HasPrefix(toolName, "mcp_"):
 		return scheduler.ToolSourceMCP
@@ -182,6 +198,9 @@ func capabilityIDForToolName(name string) string {
 	}
 	if toolName == "" {
 		return ""
+	}
+	if lower == "bash" || lower == "job_output" || lower == "job_kill" {
+		return "shell:" + lower
 	}
 	return "builtin:" + toolName
 }

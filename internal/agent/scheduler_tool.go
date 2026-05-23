@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -68,6 +69,9 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 			MessageID:           record.MessageID,
 			Name:                record.Name,
 			Source:              record.Source,
+			Command:             shellCommandFromInput(call.Input),
+			Risk:                decision.Risk,
+			PolicyReason:        decision.Reason,
 			ModelVisibleContent: reason,
 			StructuredOutputSummary: fmt.Sprintf("policy=%s risk=%s mode=%s",
 				decision.Decision,
@@ -83,6 +87,9 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 		resp.StopTurn = true
 		return resp, nil
 	}
+	record.Command = shellCommandFromInput(call.Input)
+	record.Risk = decision.Risk
+	record.PolicyReason = decision.Reason
 	if record.ID != "" {
 		_ = s.recorder.ToolCallStarted(ctx, record)
 	}
@@ -91,6 +98,7 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 		ctx = permission.WithTurnID(ctx, record.TurnID)
 	}
 	resp, err := s.inner.Run(ctx, call)
+	metadata := schedulerResponseMetadata(resp.Metadata)
 	result := SchedulerToolCallResult{
 		ToolCallID:              call.ID,
 		SessionID:               record.SessionID,
@@ -98,8 +106,15 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 		MessageID:               record.MessageID,
 		Name:                    record.Name,
 		Source:                  record.Source,
+		JobID:                   metadata.JobID,
+		Command:                 nonEmptyString(metadata.Command, shellCommandFromInput(call.Input)),
+		Risk:                    decision.Risk,
+		PolicyReason:            decision.Reason,
+		ExitCode:                metadata.ExitCode,
 		ModelVisibleContent:     resp.Content,
 		StructuredOutputSummary: responseStructuredSummary(resp),
+		Stdout:                  metadata.Stdout,
+		Stderr:                  metadata.Stderr,
 		Error:                   responseError(resp, err),
 		IsError:                 resp.IsError || err != nil,
 		Cancelled:               errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled),
@@ -147,13 +162,16 @@ func schedulerCapabilityIDForToolName(name string) string {
 	if toolName == "" {
 		return ""
 	}
+	if lower == "bash" || lower == "job_output" || lower == "job_kill" {
+		return "shell:" + lower
+	}
 	return "builtin:" + toolName
 }
 
 func schedulerSourceForToolName(name string) string {
 	toolName := strings.ToLower(strings.TrimSpace(name))
 	switch {
-	case toolName == "bash":
+	case toolName == "bash", toolName == "job_output", toolName == "job_kill":
 		return "shell"
 	case strings.HasPrefix(toolName, "mcp_"):
 		return "mcp"
@@ -162,6 +180,48 @@ func schedulerSourceForToolName(name string) string {
 	default:
 		return "builtin"
 	}
+}
+
+type toolResponseMetadata struct {
+	JobID    string
+	Command  string
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
+
+func schedulerResponseMetadata(raw string) toolResponseMetadata {
+	if strings.TrimSpace(raw) == "" {
+		return toolResponseMetadata{}
+	}
+	var values map[string]any
+	if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		return toolResponseMetadata{}
+	}
+	meta := toolResponseMetadata{
+		JobID:   stringMetadata(values, "shell_id"),
+		Command: stringMetadata(values, "command"),
+		Stdout:  stringMetadata(values, "stdout"),
+		Stderr:  stringMetadata(values, "stderr"),
+	}
+	if exitCode, ok := values["exit_code"].(float64); ok {
+		meta.ExitCode = int(exitCode)
+	}
+	return meta
+}
+
+func stringMetadata(values map[string]any, key string) string {
+	value, _ := values[key].(string)
+	return value
+}
+
+func shellCommandFromInput(raw string) string {
+	var values map[string]any
+	if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		return ""
+	}
+	command, _ := values["command"].(string)
+	return command
 }
 
 func responseStructuredSummary(resp fantasy.ToolResponse) string {

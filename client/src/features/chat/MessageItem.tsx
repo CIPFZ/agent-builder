@@ -70,6 +70,10 @@ function ToolActivityItem({ part }: { part: RuntimeMessagePart }) {
   const isResult = part.type === 'tool_result'
   const hasPreview = Boolean((isResult ? part.content || part.data || part.metadata : part.input)?.trim())
   const preview = isResult ? part.content || part.data || part.metadata : part.input
+  const metadata = parseToolMetadata(part.metadata)
+  const shellStatus = typeof metadata.status === 'string' ? metadata.status : undefined
+  const shellId = typeof metadata.shell_id === 'string' ? metadata.shell_id : undefined
+  const command = typeof metadata.command === 'string' ? metadata.command : undefined
 
   return (
     <div className={part.isError ? 'tool-step error' : 'tool-step'}>
@@ -77,11 +81,23 @@ function ToolActivityItem({ part }: { part: RuntimeMessagePart }) {
         <Space size={8}>
           {part.isError ? <CloseCircleOutlined /> : isResult ? <CheckCircleOutlined /> : <ToolOutlined />}
           <Text strong>{part.name || 'tool'}</Text>
-          <Tag>{isResult ? (part.isError ? 'failed' : 'result') : part.finished ? 'called' : 'running'}</Tag>
+          <Tag>{shellStatus ?? (isResult ? (part.isError ? 'failed' : 'result') : part.finished ? 'called' : 'running')}</Tag>
+          {shellId ? <Tag>job {shellId}</Tag> : null}
         </Space>
         {part.toolCallId ? <Text type="secondary">{part.toolCallId}</Text> : null}
       </div>
+      {command ? <pre className="part-preview">{command}</pre> : null}
       {hasPreview ? <pre className="part-preview">{preview}</pre> : null}
     </div>
   )
+}
+
+function parseToolMetadata(value?: string): Record<string, unknown> {
+  if (!value) return {}
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
 }

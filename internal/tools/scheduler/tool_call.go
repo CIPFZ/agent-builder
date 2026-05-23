@@ -31,6 +31,11 @@ type ToolCall struct {
 	Name          string         `json:"name"`
 	Source        ToolSource     `json:"source"`
 	CapabilityID  string         `json:"capability_id,omitempty"`
+	JobID         string         `json:"job_id,omitempty"`
+	Command       string         `json:"command,omitempty"`
+	Risk          string         `json:"risk,omitempty"`
+	PolicyReason  string         `json:"policy_reason,omitempty"`
+	ExitCode      int            `json:"exit_code,omitempty"`
 	Status        ToolCallStatus `json:"status"`
 	InputSummary  string         `json:"input_summary,omitempty"`
 	OutputSummary string         `json:"output_summary,omitempty"`
@@ -52,12 +57,21 @@ type ToolCallRequest struct {
 	Name         string
 	Source       ToolSource
 	CapabilityID string
+	JobID        string
+	Command      string
+	Risk         string
+	PolicyReason string
 	InputSummary string
 }
 
 type ToolCallResult struct {
 	ToolCallID    string
 	Status        ToolCallStatus
+	JobID         string
+	Command       string
+	Risk          string
+	PolicyReason  string
+	ExitCode      int
 	OutputSummary string
 	ModelContent  string
 	Structured    string

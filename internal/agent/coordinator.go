@@ -125,6 +125,10 @@ type SchedulerToolCall struct {
 	Name         string
 	Source       string
 	CapabilityID string
+	JobID        string
+	Command      string
+	Risk         string
+	PolicyReason string
 	InputSummary string
 }
 
@@ -135,6 +139,11 @@ type SchedulerToolCallResult struct {
 	MessageID               string
 	Name                    string
 	Source                  string
+	JobID                   string
+	Command                 string
+	Risk                    string
+	PolicyReason            string
+	ExitCode                int
 	ModelVisibleContent     string
 	StructuredOutputSummary string
 	Stdout                  string

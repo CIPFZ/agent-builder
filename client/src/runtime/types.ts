@@ -78,6 +78,11 @@ export type RuntimeToolCall = {
   name: string
   source: 'builtin' | 'mcp' | 'shell' | 'unknown' | string
   capabilityId?: string
+  jobId?: string
+  command?: string
+  risk?: string
+  policyReason?: string
+  exitCode?: number
   status:
     | 'pending'
     | 'waiting_permission'
