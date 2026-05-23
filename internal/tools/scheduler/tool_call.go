@@ -33,6 +33,8 @@ type ToolCall struct {
 	Status        ToolCallStatus `json:"status"`
 	InputSummary  string         `json:"input_summary,omitempty"`
 	OutputSummary string         `json:"output_summary,omitempty"`
+	ModelContent  string         `json:"model_content,omitempty"`
+	Structured    string         `json:"structured,omitempty"`
 	Stdout        string         `json:"stdout,omitempty"`
 	Stderr        string         `json:"stderr,omitempty"`
 	IsError       bool           `json:"is_error,omitempty"`
@@ -55,6 +57,8 @@ type ToolCallResult struct {
 	ToolCallID    string
 	Status        ToolCallStatus
 	OutputSummary string
+	ModelContent  string
+	Structured    string
 	Stdout        string
 	Stderr        string
 	IsError       bool

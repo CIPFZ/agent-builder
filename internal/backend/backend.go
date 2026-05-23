@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"runtime"
 
+	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/app"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
@@ -37,10 +38,11 @@ type ShutdownFunc func()
 // Backend provides transport-agnostic business logic for the Crush
 // server. It manages workspaces and delegates to [app.App] services.
 type Backend struct {
-	workspaces *csync.Map[string, *Workspace]
-	cfg        *config.ConfigStore
-	ctx        context.Context
-	shutdownFn ShutdownFunc
+	workspaces        *csync.Map[string, *Workspace]
+	cfg               *config.ConfigStore
+	ctx               context.Context
+	shutdownFn        ShutdownFunc
+	schedulerRecorder agent.SchedulerRecorder
 }
 
 // Workspace represents a running [app.App] workspace with its
@@ -62,6 +64,12 @@ func New(ctx context.Context, cfg *config.ConfigStore, shutdownFn ShutdownFunc) 
 		ctx:        ctx,
 		shutdownFn: shutdownFn,
 	}
+}
+
+func NewWithSchedulerRecorder(ctx context.Context, cfg *config.ConfigStore, shutdownFn ShutdownFunc, recorder agent.SchedulerRecorder) *Backend {
+	b := New(ctx, cfg, shutdownFn)
+	b.schedulerRecorder = recorder
+	return b
 }
 
 // GetWorkspace retrieves a workspace by ID.
@@ -116,7 +124,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	allSkills, activeSkills, skillStates := discoverWorkspaceSkills(cfg)
 	skillsMgr := skills.NewManager(allSkills, activeSkills, skillStates)
 
-	appWorkspace, err := app.New(b.ctx, conn, cfg, skillsMgr)
+	appWorkspace, err := app.NewWithSchedulerRecorder(b.ctx, conn, cfg, skillsMgr, b.schedulerRecorder)
 	if err != nil {
 		return nil, proto.Workspace{}, fmt.Errorf("failed to create app workspace: %w", err)
 	}

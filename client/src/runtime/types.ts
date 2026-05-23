@@ -84,6 +84,8 @@ export type RuntimeToolCall = {
     | string
   inputSummary?: string
   outputSummary?: string
+  modelContent?: string
+  structuredOutput?: string
   stdout?: string
   stderr?: string
   isError?: boolean

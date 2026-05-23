@@ -69,6 +69,7 @@ var (
 
 type SessionAgentCall struct {
 	SessionID        string
+	TurnID           string
 	Prompt           string
 	ProviderOptions  fantasy.ProviderOptions
 	Attachments      []message.Attachment
@@ -237,6 +238,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 
 	// Add the session to the context.
 	ctx = context.WithValue(ctx, tools.SessionIDContextKey, call.SessionID)
+	if call.TurnID != "" {
+		ctx = context.WithValue(ctx, tools.TurnIDContextKey, call.TurnID)
+	}
 
 	genCtx, cancel := context.WithCancel(ctx)
 	a.activeRequests.Set(call.SessionID, cancel)

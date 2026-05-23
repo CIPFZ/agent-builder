@@ -73,7 +73,7 @@ var copilotResponsesModels = map[string]bool{
 type Coordinator interface {
 	// INFO: (kujtim) this is not used yet we will use this when we have multiple agents
 	// SetMainAgent(string)
-	Run(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error)
+	Run(ctx context.Context, sessionID, turnID, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error)
 	Cancel(sessionID string)
 	CancelAll()
 	IsSessionBusy(sessionID string) bool
@@ -104,7 +104,42 @@ type coordinator struct {
 	activeSkills []*skills.Skill // Post-filter: active skills only.
 	skillTracker *skills.Tracker
 
-	readyWg errgroup.Group
+	readyWg           errgroup.Group
+	schedulerRecorder SchedulerRecorder
+}
+
+type SchedulerRecorder interface {
+	ToolCallStarted(context.Context, SchedulerToolCall) error
+	ToolCallOutput(context.Context, SchedulerToolCallResult) error
+	ToolCallCompleted(context.Context, SchedulerToolCallResult) error
+	ToolCallFailed(context.Context, SchedulerToolCallResult) error
+	ToolCallCancelled(context.Context, SchedulerToolCallResult) error
+}
+
+type SchedulerToolCall struct {
+	ID           string
+	SessionID    string
+	TurnID       string
+	MessageID    string
+	Name         string
+	Source       string
+	InputSummary string
+}
+
+type SchedulerToolCallResult struct {
+	ToolCallID              string
+	SessionID               string
+	TurnID                  string
+	MessageID               string
+	Name                    string
+	Source                  string
+	ModelVisibleContent     string
+	StructuredOutputSummary string
+	Stdout                  string
+	Stderr                  string
+	Error                   string
+	IsError                 bool
+	Cancelled               bool
 }
 
 func NewCoordinator(
@@ -118,6 +153,7 @@ func NewCoordinator(
 	lspManager *lsp.Manager,
 	notify pubsub.Publisher[notify.Notification],
 	skillsMgr *skills.Manager,
+	schedulerRecorder ...SchedulerRecorder,
 ) (Coordinator, error) {
 	var allSkills, activeSkills []*skills.Skill
 	if skillsMgr != nil {
@@ -142,6 +178,9 @@ func NewCoordinator(
 		activeSkills: activeSkills,
 		skillTracker: skillTracker,
 	}
+	if len(schedulerRecorder) > 0 {
+		c.schedulerRecorder = schedulerRecorder[0]
+	}
 
 	agentCfg, ok := cfg.Config().Agents[config.AgentCoder]
 	if !ok {
@@ -164,7 +203,7 @@ func NewCoordinator(
 }
 
 // Run implements Coordinator.
-func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
+func (c *coordinator) Run(ctx context.Context, sessionID, turnID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
 	if err := c.readyWg.Wait(); err != nil {
 		return nil, err
 	}
@@ -207,6 +246,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 	run := func() (*fantasy.AgentResult, error) {
 		return c.currentAgent.Run(ctx, SessionAgentCall{
 			SessionID:        sessionID,
+			TurnID:           turnID,
 			Prompt:           prompt,
 			Attachments:      attachments,
 			MaxOutputTokens:  maxTokens,
@@ -568,6 +608,8 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	slices.SortFunc(filteredTools, func(a, b fantasy.AgentTool) int {
 		return strings.Compare(a.Info().Name, b.Info().Name)
 	})
+
+	filteredTools = wrapToolsWithSchedulerRecorder(filteredTools, c.schedulerRecorder, isSubAgent)
 
 	// Wrap tools with hook interception for the top-level agent only.
 	// Sub-agents (the `agent` task tool, `agentic_fetch`, etc.) run
@@ -1101,6 +1143,7 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	// Run the agent
 	result, err := params.Agent.Run(ctx, SessionAgentCall{
 		SessionID:        session.ID,
+		TurnID:           tools.GetTurnFromContext(ctx),
 		Prompt:           params.Prompt,
 		MaxOutputTokens:  maxTokens,
 		ProviderOptions:  getProviderOptions(model, providerCfg),

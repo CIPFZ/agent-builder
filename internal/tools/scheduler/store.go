@@ -77,6 +77,10 @@ func (s *MemoryStore) ListByTurn(_ context.Context, turnID string) ([]ToolCall, 
 }
 
 func mergeToolCall(existing, next ToolCall) ToolCall {
+	if isFinalToolCallStatus(existing.Status) && next.Status == ToolCallRunning {
+		next.Status = existing.Status
+		next.FinishedAt = existing.FinishedAt
+	}
 	if next.SessionID == "" {
 		next.SessionID = existing.SessionID
 	}
@@ -101,6 +105,12 @@ func mergeToolCall(existing, next ToolCall) ToolCall {
 	if next.OutputSummary == "" {
 		next.OutputSummary = existing.OutputSummary
 	}
+	if next.ModelContent == "" {
+		next.ModelContent = existing.ModelContent
+	}
+	if next.Structured == "" {
+		next.Structured = existing.Structured
+	}
 	if next.Stdout == "" {
 		next.Stdout = existing.Stdout
 	}
@@ -115,9 +125,20 @@ func mergeToolCall(existing, next ToolCall) ToolCall {
 	} else if next.StartedAt.IsZero() {
 		next.StartedAt = existing.StartedAt
 	}
-	if next.FinishedAt.IsZero() {
+	if !isFinalToolCallStatus(next.Status) {
+		next.FinishedAt = time.Time{}
+	} else if next.FinishedAt.IsZero() {
 		next.FinishedAt = existing.FinishedAt
 	}
 	next.IsError = next.IsError || existing.IsError
 	return next
+}
+
+func isFinalToolCallStatus(status ToolCallStatus) bool {
+	switch status {
+	case ToolCallCompleted, ToolCallFailed, ToolCallCancelled, ToolCallDenied:
+		return true
+	default:
+		return false
+	}
 }

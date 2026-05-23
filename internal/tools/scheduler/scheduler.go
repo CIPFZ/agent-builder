@@ -50,11 +50,15 @@ func (s *Scheduler) CompleteCall(ctx context.Context, result ToolCallResult) (To
 		call.Status = ToolCallCompleted
 	}
 	call.OutputSummary = result.OutputSummary
+	call.ModelContent = result.ModelContent
+	call.Structured = result.Structured
 	call.Stdout = result.Stdout
 	call.Stderr = result.Stderr
 	call.IsError = result.IsError
 	call.Error = result.Error
-	call.FinishedAt = s.now()
+	if isFinalToolCallStatus(call.Status) {
+		call.FinishedAt = s.now()
+	}
 	return s.store.Upsert(ctx, call)
 }
 

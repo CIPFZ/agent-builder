@@ -77,6 +77,8 @@ type RuntimeToolCall struct {
 	Status        string `json:"status"`
 	InputSummary  string `json:"inputSummary,omitempty"`
 	OutputSummary string `json:"outputSummary,omitempty"`
+	ModelContent  string `json:"modelContent,omitempty"`
+	Structured    string `json:"structuredOutput,omitempty"`
 	Stdout        string `json:"stdout,omitempty"`
 	Stderr        string `json:"stderr,omitempty"`
 	IsError       bool   `json:"isError,omitempty"`

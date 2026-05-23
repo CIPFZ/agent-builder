@@ -55,3 +55,70 @@ func TestMemoryStoreLifecycle(t *testing.T) {
 		t.Fatalf("calls = %#v", calls)
 	}
 }
+
+func TestCompleteCallRunningOutputDoesNotFinishCall(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := New(NewMemoryStore())
+
+	if _, err := s.CreateCall(ctx, ToolCallRequest{
+		ID:        "call-1",
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+		Name:      "bash",
+		Source:    ToolSourceShell,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	call, err := s.CompleteCall(ctx, ToolCallResult{
+		ToolCallID:    "call-1",
+		Status:        ToolCallRunning,
+		OutputSummary: "partial output",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.Status != ToolCallRunning || !call.FinishedAt.IsZero() {
+		t.Fatalf("call = %#v", call)
+	}
+}
+
+func TestMemoryStoreDoesNotDowngradeFinalState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := New(NewMemoryStore())
+
+	if _, err := s.CreateCall(ctx, ToolCallRequest{
+		ID:        "call-1",
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+		Name:      "bash",
+		Source:    ToolSourceShell,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CompleteCall(ctx, ToolCallResult{
+		ToolCallID:    "call-1",
+		Status:        ToolCallFailed,
+		OutputSummary: "failed",
+		Error:         "boom",
+		IsError:       true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	call, err := s.CreateCall(ctx, ToolCallRequest{
+		ID:        "call-1",
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+		Name:      "bash",
+		Source:    ToolSourceShell,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.Status != ToolCallFailed || call.OutputSummary != "failed" || call.Error != "boom" {
+		t.Fatalf("call = %#v", call)
+	}
+}

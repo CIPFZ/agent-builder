@@ -86,7 +86,7 @@ func (w *AppWorkspace) AgentRun(ctx context.Context, sessionID, prompt string, a
 	if w.app.AgentCoordinator == nil {
 		return errors.New("agent coordinator not initialized")
 	}
-	_, err := w.app.AgentCoordinator.Run(ctx, sessionID, prompt, attachments...)
+	_, err := w.app.AgentCoordinator.Run(ctx, sessionID, "", prompt, attachments...)
 	return err
 }
 

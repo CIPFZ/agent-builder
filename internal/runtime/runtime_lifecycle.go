@@ -139,7 +139,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	runtimeCtx, cancel := context.WithCancel(context.Background())
 	r.runtimeCtx = runtimeCtx
 	r.cancel = cancel
-	r.runtime = backend.New(runtimeCtx, store, nil)
+	r.runtime = backend.NewWithSchedulerRecorder(runtimeCtx, store, nil, &runtimeSchedulerRecorder{service: r})
 
 	wsRuntime, ws, err := r.runtime.CreateWorkspace(proto.Workspace{
 		Path:    workingDir,

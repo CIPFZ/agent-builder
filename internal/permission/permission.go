@@ -18,6 +18,16 @@ import (
 // pre-approved by a PreToolUse hook. The value is the tool call ID so an
 // approval can't be reused across calls that happen to share a context.
 type hookApprovalKey struct{}
+type turnIDContextKey struct{}
+
+func WithTurnID(ctx context.Context, turnID string) context.Context {
+	return context.WithValue(ctx, turnIDContextKey{}, turnID)
+}
+
+func turnIDFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(turnIDContextKey{}).(string)
+	return v
+}
 
 // WithHookApproval returns a context that marks the given tool call ID as
 // pre-approved by a hook. When the permission service sees a matching
@@ -175,6 +185,9 @@ func (s *permissionService) Deny(permission PermissionRequest) {
 }
 
 func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRequest) (bool, error) {
+	if opts.TurnID == "" {
+		opts.TurnID = turnIDFromContext(ctx)
+	}
 	if s.skip.Load() {
 		return true, nil
 	}

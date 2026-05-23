@@ -12,6 +12,7 @@ import (
 
 type (
 	sessionIDContextKey string
+	turnIDContextKey    string
 	messageIDContextKey string
 	supportsImagesKey   string
 	modelNameKey        string
@@ -20,6 +21,8 @@ type (
 const (
 	// SessionIDContextKey is the key for the session ID in the context.
 	SessionIDContextKey sessionIDContextKey = "session_id"
+	// TurnIDContextKey is the key for the runtime turn ID in the context.
+	TurnIDContextKey turnIDContextKey = "turn_id"
 	// MessageIDContextKey is the key for the message ID in the context.
 	MessageIDContextKey messageIDContextKey = "message_id"
 	// SupportsImagesContextKey is the key for the model's image support capability.
@@ -44,6 +47,11 @@ func getContextValue[T any](ctx context.Context, key any, defaultValue T) T {
 // GetSessionFromContext retrieves the session ID from the context.
 func GetSessionFromContext(ctx context.Context) string {
 	return getContextValue(ctx, SessionIDContextKey, "")
+}
+
+// GetTurnFromContext retrieves the runtime turn ID from the context.
+func GetTurnFromContext(ctx context.Context) string {
+	return getContextValue(ctx, TurnIDContextKey, "")
 }
 
 // GetMessageFromContext retrieves the message ID from the context.

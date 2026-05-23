@@ -23,6 +23,7 @@ import (
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/tools/scheduler"
 )
 
 func TestLocalModelConfigUsesDesktopConfigPath(t *testing.T) {
@@ -1066,6 +1067,51 @@ func TestRecordRuntimeEventEmitsTurnScopedToolEvents(t *testing.T) {
 	})
 	if len(service.events) != len(want)+1 {
 		t.Fatalf("duplicate tool events were emitted: %#v", service.events)
+	}
+}
+
+func TestRecordToolCallsBackfillDoesNotDowngradeSchedulerFinalState(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:           "tool-1",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		MessageID:    "message-1",
+		Name:         "bash",
+		Source:       scheduler.ToolSourceShell,
+		InputSummary: "scheduler input",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID:    "tool-1",
+		Status:        scheduler.ToolCallFailed,
+		OutputSummary: "scheduler failure",
+		IsError:       true,
+		Error:         "boom",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	msg := proto.Message{
+		ID:        "message-1",
+		SessionID: "session-1",
+		Role:      proto.Assistant,
+		Parts: []proto.ContentPart{
+			proto.ToolCall{ID: "tool-1", Name: "bash", Input: `{"command":"pwd"}`, Finished: false},
+			proto.ToolResult{ToolCallID: "tool-1", Name: "bash", Content: "message success"},
+		},
+	}
+	service.recordToolCallsFromMessage(context.Background(), msg, "turn-1", time.Now())
+
+	call, err := service.toolCalls.GetCall(context.Background(), "tool-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.Status != scheduler.ToolCallFailed || call.OutputSummary != "scheduler failure" || call.Error != "boom" {
+		t.Fatalf("backfill downgraded scheduler state: %#v", call)
 	}
 }
 

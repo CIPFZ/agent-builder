@@ -246,6 +246,37 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 	if _, err := r.turns.Upsert(ctx, turn); err != nil {
 		return RuntimeStatus{}, err
 	}
+	if r.toolCalls != nil {
+		calls, _ := r.toolCalls.ListCalls(ctx, turnID)
+		for _, call := range calls {
+			if isFinalToolCallStatus(string(call.Status)) {
+				continue
+			}
+			_ = r.toolCalls.CancelCall(ctx, call.ID)
+			cancelled, _ := r.toolCalls.GetCall(ctx, call.ID)
+			r.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallCancelled, cancelled, map[string]any{
+				"name":    cancelled.Name,
+				"summary": "turn cancelled",
+				"status":  string(cancelled.Status),
+			}))
+			r.writeAudit(auditEntry{
+				RequestID:   turnID,
+				Event:       "tool_call_cancelled",
+				Timestamp:   now.Format(time.RFC3339Nano),
+				WorkspaceID: wsID,
+				SessionID:   cancelled.SessionID,
+				ToolCallID:  cancelled.ID,
+				ToolCalls: []auditToolCall{{
+					ID:      cancelled.ID,
+					Name:    cancelled.Name,
+					Input:   cancelled.InputSummary,
+					Output:  "turn cancelled",
+					IsError: true,
+				}},
+				Error: "turn cancelled",
+			})
+		}
+	}
 	r.writeAudit(auditEntry{
 		RequestID:   turnID,
 		Event:       "cancel_requested",
@@ -269,6 +300,7 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID, prompt string, start time.Time, usageBefore RuntimeUsage, provider, model string) {
 	err := r.runtime.SendMessage(ctx, wsID, proto.AgentMessage{
 		SessionID: sessionID,
+		TurnID:    requestID,
 		Prompt:    prompt,
 	})
 	duration := time.Since(start)

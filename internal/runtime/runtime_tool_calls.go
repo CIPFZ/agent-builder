@@ -58,6 +58,9 @@ func (r *runtimeService) recordToolCallsFromMessage(ctx context.Context, msg pro
 		if call.ID == "" {
 			continue
 		}
+		if existing, err := r.toolCalls.GetCall(ctx, call.ID); err == nil && isFinalToolCallStatus(string(existing.Status)) {
+			continue
+		}
 		_, _ = r.toolCalls.CreateCall(ctx, scheduler.ToolCallRequest{
 			ID:           call.ID,
 			SessionID:    msg.SessionID,
@@ -83,6 +86,9 @@ func (r *runtimeService) recordToolCallsFromMessage(ctx context.Context, msg pro
 		if result.IsError {
 			status = scheduler.ToolCallFailed
 			errText = preview(firstNonEmpty(result.Content, result.Data), runtimePartPreviewLimit)
+		}
+		if existing, err := r.toolCalls.GetCall(ctx, result.ToolCallID); err == nil && isFinalToolCallStatus(string(existing.Status)) {
+			continue
 		}
 		_, err := r.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{
 			ToolCallID:    result.ToolCallID,
@@ -128,6 +134,8 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		Status:        string(call.Status),
 		InputSummary:  call.InputSummary,
 		OutputSummary: call.OutputSummary,
+		ModelContent:  call.ModelContent,
+		Structured:    call.Structured,
 		Stdout:        call.Stdout,
 		Stderr:        call.Stderr,
 		IsError:       call.IsError,

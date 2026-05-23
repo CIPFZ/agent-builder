@@ -62,3 +62,51 @@ func TestRuntimeSQLiteToolCallStoreIdempotentUpsert(t *testing.T) {
 		t.Fatalf("completed call = %#v", calls[0])
 	}
 }
+
+func TestRuntimeSQLiteToolCallStoreDoesNotDowngradeFinalState(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	sched := scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	if _, err := sched.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:        "tool-1",
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+		Name:      "bash",
+		Source:    scheduler.ToolSourceShell,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sched.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID:    "tool-1",
+		Status:        scheduler.ToolCallCompleted,
+		OutputSummary: "done",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sched.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:        "tool-1",
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+		Name:      "bash",
+		Source:    scheduler.ToolSourceShell,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	call, err := sched.GetCall(context.Background(), "tool-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.Status != scheduler.ToolCallCompleted || call.OutputSummary != "done" || call.FinishedAt.IsZero() {
+		t.Fatalf("call = %#v", call)
+	}
+}
