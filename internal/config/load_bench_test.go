@@ -25,9 +25,8 @@ func BenchmarkLoadFromConfigPaths(b *testing.B) {
 			}
 		},
 		"options": {
-			"tui": {
-				"theme": "dark"
-			}
+			"debug": true,
+			"progress": true
 		}
 	}`)
 
@@ -65,7 +64,7 @@ func BenchmarkLoadFromConfigPaths_MissingFiles(b *testing.B) {
 	tmpDir := b.TempDir()
 
 	existingConfig := filepath.Join(tmpDir, "exists.json")
-	content := []byte(`{"options": {"tui": {"theme": "dark"}}}`)
+	content := []byte(`{"options": {"debug": true, "progress": true}}`)
 	if err := os.WriteFile(existingConfig, content, 0o644); err != nil {
 		b.Fatal(err)
 	}
