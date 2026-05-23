@@ -60,7 +60,7 @@ The current codebase has enough runtime spine to move the roadmap forward.
 | Audit trail | Completed foundation | Append-only runtime audit events, turn audit summary, tool/permission linkage, inventory snapshot for skills/MCP. |
 | Session recovery foundation | Completed foundation | Recovery status exposes active turns, interrupted turns, pending permissions, last event sequence. |
 | Tool Scheduler integration | Completed P1 baseline | Agent tools are wrapped by `schedulerTool`; runtime recorder writes `tool.call.*` events, ToolCall records, and audit. |
-| PermissionPolicy baseline | Partial | `PolicyMode`, `Risk`, static policy, and risk classifier exist, but policy API, persisted mode, scoped rules, decision audit, headless behavior, and shell safety are not complete. |
+| PermissionPolicy baseline | Partial | `PolicyMode`, `Risk`, static policy, and risk classifier exist, but policy API, persisted mode, scoped rules, decision audit, headless behavior, and shell safety are not complete. Future model-assisted policy should be advisory only, after deterministic enforcement exists. |
 | Skills | Foundation | Discovery, config enable/disable, runtime panel, and prompt injection exist. Activation metadata, per-turn usage audit, and lazy skill loading are not complete. |
 | MCP | Foundation | Server/tool/resource/prompt APIs and panels exist. Full lifecycle, policy-controlled activation, resource/prompt loading audit, and lazy connection semantics remain. |
 | Context | Foundation | Prompt assembly, context paths, skills XML, and MCP instructions exist. Layered managed/user/project/local memory and read-file state are not complete. |
@@ -73,7 +73,7 @@ The remaining gaps are runtime governance gaps, not terminal UI gaps.
 
 | Area | Remaining Gap |
 | --- | --- |
-| PermissionPolicy / mode-aware policy | Need persisted policy mode, scoped allow/ask/deny rules, headless behavior, policy reason, risk tags, decision audit, and runtime API. |
+| PermissionPolicy / mode-aware + future model-assisted policy | Need persisted policy mode, scoped allow/ask/deny rules, headless behavior, policy reason, risk tags, decision audit, and runtime API. Claude Code also uses adaptive/model-assisted behavior, but Agent Builder should add that later as an advisory signal; final enforcement remains in Go runtime. |
 | Tool / Capability Lazy Loading | Need metadata-only startup, on-demand capability load, capability states, events, audit, and runtime-owned activation. |
 | Plan mode / todo | Need plan as runtime policy mode; todos should be recoverable turn/task state, not only tool output. |
 | Context / memory loading | Need layered instruction loading, source precedence, read-file state, compact boundaries, and context-source audit. |
@@ -339,6 +339,17 @@ What must wait for capability registry stability:
 | Acceptance | UI only submits decisions; runtime computes risk/reason; pending permissions recover; plan mode blocks mutating tools; headless ask behavior is explicit. |
 | Risks | Shell classification will be incomplete; default must fail conservative for unknown execute/destructive cases. |
 
+PermissionPolicy has two stages:
+
+1. Baseline deterministic policy. Runtime owns mode, risk, rule, decision,
+   audit, and API. It supports `ask`, `auto_read`, `plan`, and `deny_all`.
+   React does not infer risk. The model cannot approve its own tool use.
+2. Future adaptive/model-assisted policy. A model or classifier may provide
+   intent summaries, risk explanations, permission request wording, plan-exit
+   proposals, or advisory scores. These signals must never bypass runtime
+   enforcement. High-risk, destructive, secret, network, and execute actions
+   default to ask or deny unless deterministic policy explicitly allows them.
+
 ### Tool / Capability Lazy Loading
 
 | Field | Boundary |
@@ -553,6 +564,12 @@ The missing next layer is the runtime-owned contract:
 - explicit headless behavior,
 - conservative shell and mutating-tool classification,
 - React display of runtime-provided mode/risk/reason only.
+
+This first module is intentionally deterministic. It should create explicit
+extension points for a later policy advisor only if doing so is low-risk, but it
+must not call a model to self-approve tool execution. Model-assisted permission
+behavior belongs after audit, policy mode, risk classification, and recovery
+are reliable.
 
 Lazy Loading should be the next runtime module after this baseline, with
 capability registry state design allowed to proceed in parallel.
