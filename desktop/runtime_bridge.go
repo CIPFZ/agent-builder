@@ -28,6 +28,9 @@ type RuntimeMessagesResponse = runtime.RuntimeMessagesResponse
 type RuntimePermissionRequest = runtime.RuntimePermissionRequest
 type RuntimePermissionsResponse = runtime.RuntimePermissionsResponse
 type RuntimePermissionDecision = runtime.RuntimePermissionDecision
+type RuntimePolicy = runtime.RuntimePolicy
+type RuntimePolicyResponse = runtime.RuntimePolicyResponse
+type RuntimePolicyUpdateRequest = runtime.RuntimePolicyUpdateRequest
 type RuntimeRequests = runtime.RuntimeRequests
 type RuntimeUsage = runtime.RuntimeUsage
 type RuntimeEventStats = runtime.RuntimeEventStats
@@ -194,6 +197,18 @@ func (r *RuntimeBridge) Messages(ctx context.Context) (RuntimeMessagesResponse, 
 func (r *RuntimeBridge) Permissions(ctx context.Context) (RuntimePermissionsResponse, error) {
 
 	return r.service.Permissions(ctx)
+
+}
+
+func (r *RuntimeBridge) GetPolicy(ctx context.Context) (RuntimePolicyResponse, error) {
+
+	return r.service.GetPolicy(ctx)
+
+}
+
+func (r *RuntimeBridge) UpdatePolicy(ctx context.Context, req RuntimePolicyUpdateRequest) (RuntimePolicyResponse, error) {
+
+	return r.service.UpdatePolicy(ctx, req)
 
 }
 

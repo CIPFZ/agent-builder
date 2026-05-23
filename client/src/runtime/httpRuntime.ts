@@ -17,6 +17,8 @@ import type {
   RuntimeModelVerifyResponse,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
+  RuntimePolicy,
+  RuntimePolicyMode,
   RuntimeRecoveryStatus,
   RuntimeSession,
   RuntimeSkill,
@@ -129,6 +131,10 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
       const response = await get<{ config: RuntimeModelConfig }>('/v1/config/model')
       return response.config
     },
+    async getPolicy() {
+      const response = await get<{ policy: RuntimePolicy }>('/v1/policy')
+      return response.policy
+    },
     getRecoveryStatus() {
       return get<RuntimeRecoveryStatus>('/v1/recovery/status')
     },
@@ -224,6 +230,10 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async saveModelConfig(config: RuntimeModelConfig) {
       const response = await put<{ config: RuntimeModelConfig }>('/v1/config/model', config)
       return response.config
+    },
+    async updatePolicy(mode: RuntimePolicyMode) {
+      const response = await put<{ policy: RuntimePolicy }>('/v1/policy', { mode })
+      return response.policy
     },
     async saveMcpServer(config: RuntimeMcpServerConfig) {
       const response = await put<{ servers: RuntimeMcpServer[] }>(`/v1/mcp/servers/${encodePath(config.name)}`, config)

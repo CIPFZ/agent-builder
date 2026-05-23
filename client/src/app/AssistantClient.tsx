@@ -141,6 +141,9 @@ export function AssistantClient() {
         onClose={() => client.setSettingsOpen(false)}
         verifying={client.settingsVerifying}
         discovering={client.settingsDiscovering}
+        policy={client.policy}
+        policySaving={client.policySaving}
+        onPolicyModeChange={client.changePolicyMode}
         onSave={async (nextConfig) => {
           client.setSettingsSaving(true)
           try {

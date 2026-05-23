@@ -19,6 +19,7 @@ import {
   requestRuntimeMcpTools,
   requestRuntimeMessages,
   requestRuntimePermissions,
+  requestRuntimePolicy,
   requestRuntimeRecoveryStatus,
   requestRuntimeSessionAudit,
   requestRuntimeSessionMessages,
@@ -31,6 +32,7 @@ import {
   selectRuntimeSession,
   sendRuntimePrompt,
   startRuntimeChat,
+  updateRuntimePolicy,
 } from '../../runtime/api'
 import type { ModelConfig } from '../../runtime/api'
 import { isDefaultSessionTitle } from './chatUtils'
@@ -47,6 +49,8 @@ import type {
   RuntimeMessage,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
+  RuntimePolicy,
+  RuntimePolicyMode,
   RuntimeTurn,
   RuntimeSession,
   RuntimeSkill,
@@ -86,6 +90,8 @@ export function useAssistantClient() {
   const [settingsDiscovering, setSettingsDiscovering] = useState(false)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsVerifying, setSettingsVerifying] = useState(false)
+  const [policy, setPolicy] = useState<RuntimePolicy | null>(null)
+  const [policySaving, setPolicySaving] = useState(false)
   const [modelSwitching, setModelSwitching] = useState(false)
   const [auditOpen, setAuditOpen] = useState(false)
   const [activeView, setActiveView] = useState<RuntimeFeatureView | 'chat'>('chat')
@@ -151,6 +157,12 @@ export function useAssistantClient() {
     return nextPermissions
   }
 
+  const refreshPolicy = async () => {
+    const nextPolicy = await requestRuntimePolicy()
+    setPolicy(nextPolicy)
+    return nextPolicy
+  }
+
   const refreshActiveTurns = async () => {
     const nextTurns = await requestRuntimeTurns('active')
     setActiveTurns(nextTurns)
@@ -158,14 +170,16 @@ export function useAssistantClient() {
   }
 
   const refreshRuntimeInventory = async () => {
-    const [nextSkills, nextMcpServers, nextCapabilities] = await Promise.all([
+    const [nextSkills, nextMcpServers, nextCapabilities, nextPolicy] = await Promise.all([
       requestRuntimeSkills(),
       requestRuntimeMcpServers(),
       requestRuntimeCapabilities(),
+      requestRuntimePolicy(),
     ])
     setSkills(nextSkills)
     setMcpServers(nextMcpServers)
     setCapabilities(nextCapabilities)
+    setPolicy(nextPolicy)
   }
 
   const refreshMcpTools = async (server: string) => {
@@ -192,7 +206,7 @@ export function useAssistantClient() {
   }
 
   const refreshRuntimeSnapshot = useCallback(async () => {
-    const [nextStatus, recovery, runtimeSessions, runtimeEvents, runtimeSkills, runtimeMcpServers, runtimeCapabilities] =
+    const [nextStatus, recovery, runtimeSessions, runtimeEvents, runtimeSkills, runtimeMcpServers, runtimeCapabilities, runtimePolicy] =
       await Promise.all([
         requestRuntimeStatus(),
         requestRuntimeRecoveryStatus(),
@@ -201,6 +215,7 @@ export function useAssistantClient() {
         requestRuntimeSkills(),
         requestRuntimeMcpServers(),
         requestRuntimeCapabilities(),
+        requestRuntimePolicy(),
       ])
     const runtimeMessages = nextStatus.sessionId
       ? await requestRuntimeSessionMessages(nextStatus.sessionId)
@@ -217,6 +232,7 @@ export function useAssistantClient() {
     setSkills(runtimeSkills)
     setMcpServers(runtimeMcpServers)
     setCapabilities(runtimeCapabilities)
+    setPolicy(runtimePolicy)
   }, [])
 
   const openAudit = () => {
@@ -230,6 +246,7 @@ export function useAssistantClient() {
   }
 
   useEffect(() => {
+    refreshPolicy().catch(() => undefined)
     loadModelConfig()
       .then((savedConfig) => {
         setConfig((current) => ({ ...current, ...savedConfig }))
@@ -269,8 +286,9 @@ export function useAssistantClient() {
       requestRuntimeSkills(),
       requestRuntimeMcpServers(),
       requestRuntimeCapabilities(),
+      requestRuntimePolicy(),
     ])
-      .then(async ([nextStatus, recovery, runtimeSessions, runtimeSkills, runtimeMcpServers, runtimeCapabilities]) => {
+      .then(async ([nextStatus, recovery, runtimeSessions, runtimeSkills, runtimeMcpServers, runtimeCapabilities, runtimePolicy]) => {
         if (cancelled) return
         const runtimeMessages = nextStatus.sessionId
           ? await requestRuntimeSessionMessages(nextStatus.sessionId)
@@ -289,6 +307,7 @@ export function useAssistantClient() {
         setSkills(runtimeSkills)
         setMcpServers(runtimeMcpServers)
         setCapabilities(runtimeCapabilities)
+        setPolicy(runtimePolicy)
       })
       .catch(() => undefined)
     return () => {
@@ -311,6 +330,9 @@ export function useAssistantClient() {
       refreshPermissions().catch(() => undefined)
       refreshActiveTurns().catch(() => undefined)
       refreshStatus().catch(() => undefined)
+    }
+    if (event.type === 'permission.policy.applied') {
+      refreshPolicy().catch(() => undefined)
     }
     if (event.type.startsWith('turn.')) {
       refreshActiveTurns().catch(() => undefined)
@@ -597,6 +619,22 @@ export function useAssistantClient() {
     }
   }
 
+  const changePolicyMode = async (mode: RuntimePolicyMode) => {
+    setPolicySaving(true)
+    try {
+      const nextPolicy = await updateRuntimePolicy(mode)
+      setPolicy(nextPolicy)
+      message.success(`Policy mode set to ${nextPolicy.mode}`)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      setLastError(reason)
+      message.error(reason)
+      throw error
+    } finally {
+      setPolicySaving(false)
+    }
+  }
+
   const cancelTurn = async () => {
     try {
       const activeTurnId = runtimeStatus?.requests?.activeRequestId || activeTurns[0]?.id || [...events].reverse().find((event) => event.turn_id)?.turn_id
@@ -643,9 +681,12 @@ export function useAssistantClient() {
     openAudit,
     openRuntimeView,
     permissions,
+    policy,
+    policySaving,
     refreshAudit,
     refreshMcpTools,
     refreshRuntimeInventory,
+    changePolicyMode,
     renameSession,
     runtimeStatus,
     selectSession,

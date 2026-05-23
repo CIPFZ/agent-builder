@@ -15,6 +15,8 @@ import type {
   RuntimeModelVerifyResponse,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
+  RuntimePolicy,
+  RuntimePolicyMode,
   RuntimeRecoveryStatus,
   RuntimeSession,
   RuntimeSkillCreateRequest,
@@ -41,6 +43,7 @@ type WailsRuntimeBridge = {
   Events: () => Promise<RuntimeEventsResponse>
   EventsEndpoint: () => Promise<{ url: string }>
   GetModelConfig: () => Promise<{ config: RuntimeModelConfig }>
+  GetPolicy: () => Promise<{ policy: RuntimePolicy }>
   RecoveryStatus: () => Promise<RuntimeRecoveryStatus>
   MCPServers: () => Promise<{ servers: RuntimeMcpServer[] }>
   MCPResources: (server: string) => Promise<{ resources: RuntimeMcpResource[] }>
@@ -54,6 +57,7 @@ type WailsRuntimeBridge = {
   RefreshMCPServer: (server: string) => Promise<{ servers: RuntimeMcpServer[] }>
   RefreshSkills: () => Promise<{ skills: RuntimeSkill[] }>
   SaveModelConfig: (request: RuntimeModelConfig) => Promise<{ config: RuntimeModelConfig }>
+  UpdatePolicy: (request: { mode: RuntimePolicyMode }) => Promise<{ policy: RuntimePolicy }>
   SaveMCPServer: (request: RuntimeMcpServerConfig) => Promise<{ servers: RuntimeMcpServer[] }>
   RenameSession: (request: { sessionId: string; title: string }) => Promise<{ sessions: RuntimeSession[] }>
   SelectSession: (sessionId: string) => Promise<RuntimeStatus>

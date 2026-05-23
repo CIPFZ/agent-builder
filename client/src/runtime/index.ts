@@ -23,6 +23,8 @@ export type {
   RuntimeTurn,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
+  RuntimePolicy,
+  RuntimePolicyMode,
   RuntimeRecoveryStatus,
   RuntimeSession,
   RuntimeSkillCreateRequest,

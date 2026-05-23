@@ -44,8 +44,11 @@ export function PermissionReviewModal({
           <Space wrap>
             <Tag>{permission.toolName}</Tag>
             <Tag>{permission.action}</Tag>
+            {permission.risk ? <Tag>{permission.risk}</Tag> : null}
+            {permission.policyMode ? <Tag>{permission.policyMode}</Tag> : null}
             {permission.path ? <Tag>{permission.path}</Tag> : null}
           </Space>
+          {permission.reason || permission.policyReason ? <Paragraph type="secondary">{permission.reason || permission.policyReason}</Paragraph> : null}
           {permission.description ? <Paragraph>{permission.description}</Paragraph> : null}
           {permission.params ? <pre className="part-preview">{JSON.stringify(permission.params, null, 2)}</pre> : null}
         </div>

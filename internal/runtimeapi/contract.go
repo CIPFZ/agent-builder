@@ -38,6 +38,8 @@ var Endpoints = []Endpoint{
 	{Method: MethodPost, Path: "/v1/turns/{turn_id}/cancel"},
 	{Method: MethodGet, Path: "/v1/permissions"},
 	{Method: MethodPost, Path: "/v1/permissions/{permission_id}/decision"},
+	{Method: MethodGet, Path: "/v1/policy"},
+	{Method: MethodPut, Path: "/v1/policy"},
 	{Method: MethodGet, Path: "/v1/capabilities"},
 	{Method: MethodGet, Path: "/v1/skills"},
 	{Method: MethodPost, Path: "/v1/skills"},
@@ -78,6 +80,7 @@ const (
 	EventToolCallCancelled       = "tool.call.cancelled"
 	EventPermissionRequested     = "permission.requested"
 	EventPermissionDecided       = "permission.decided"
+	EventPermissionPolicyApplied = "permission.policy.applied"
 	EventSkillDiscoveryStarted   = "skill.discovery.started"
 	EventSkillDiscoveryCompleted = "skill.discovery.completed"
 	EventSkillDiscoveryFailed    = "skill.discovery.failed"
@@ -117,6 +120,7 @@ var EventTypes = []string{
 	EventToolCallCancelled,
 	EventPermissionRequested,
 	EventPermissionDecided,
+	EventPermissionPolicyApplied,
 	EventSkillDiscoveryStarted,
 	EventSkillDiscoveryCompleted,
 	EventSkillDiscoveryFailed,

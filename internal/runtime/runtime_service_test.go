@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
+	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/proto"
@@ -376,6 +377,140 @@ func TestRuntimeMCPServersFromConfigRedactsSecrets(t *testing.T) {
 	}
 	if server.Env["API_TOKEN"] != "[REDACTED]" || server.Env["MODE"] != "test" {
 		t.Fatalf("env redaction failed: %#v", server.Env)
+	}
+}
+
+func TestRuntimePolicyLoadSaveAndUpdate(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	service := newRuntimeService()
+
+	resp, err := service.GetPolicy(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Policy.Mode != "ask" {
+		t.Fatalf("default policy = %#v", resp.Policy)
+	}
+
+	updated, err := service.UpdatePolicy(context.Background(), RuntimePolicyUpdateRequest{Mode: "plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Policy.Mode != "plan" || updated.Policy.Description == "" {
+		t.Fatalf("updated policy = %#v", updated.Policy)
+	}
+
+	loaded, err := loadRuntimePolicy(desktopLayout{
+		ConfigDir:        filepath.Join(root, "config"),
+		DataDir:          filepath.Join(root, "data"),
+		LogsDir:          filepath.Join(root, "logs"),
+		PolicyConfigPath: filepath.Join(root, "config", "policy.json"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Mode != "plan" {
+		t.Fatalf("loaded policy = %#v", loaded)
+	}
+}
+
+func TestRuntimePolicyApplicationEventAndAudit(t *testing.T) {
+	t.Parallel()
+
+	dataDir := filepath.Join(t.TempDir(), "runtime-state")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	workingDir := t.TempDir()
+	cfg := config.NewRuntimeConfig(workingDir, dataDir, false)
+	cfg.Options.AutoLSP = ptr(false)
+	store := config.NewRuntimeStore(workingDir, cfg)
+	runtimeBackend := backend.New(context.Background(), store, nil)
+	_, workspace, err := runtimeBackend.CreateWorkspace(proto.Workspace{
+		Path:    workingDir,
+		DataDir: dataDir,
+		Config:  store.Config(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		runtimeBackend.DeleteWorkspace(workspace.ID)
+		_ = db.Release(dataDir)
+		_ = db.Release(dataDir)
+	})
+	service.runtime = runtimeBackend
+	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+
+	permissions := permission.NewPermissionService(t.TempDir(), false, nil)
+	permissions.SetPolicyMode(permission.PolicyModePlan)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go service.consumePermissionPolicyApplications(ctx, workspace.ID, permissions)
+
+	granted, err := permissions.Request(context.Background(), permission.CreatePermissionRequest{
+		SessionID:   "session-1",
+		TurnID:      "turn-1",
+		ToolCallID:  "tool-1",
+		ToolName:    "bash",
+		Action:      "execute",
+		Description: `{"command":"go test ./..."}`,
+		Path:        t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if granted {
+		t.Fatal("plan mode should deny execute tool calls")
+	}
+
+	var events []RuntimeEvent
+	for i := 0; i < 20; i++ {
+		history, _ := service.Events(context.Background())
+		events = history.Events
+		if slices.ContainsFunc(events, func(event RuntimeEvent) bool {
+			return event.Type == runtimeapi.EventPermissionPolicyApplied && event.ToolCallID == "tool-1"
+		}) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !slices.ContainsFunc(events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventPermissionPolicyApplied && event.ToolCallID == "tool-1" && event.Payload["mode"] == permission.PolicyModePlan
+	}) {
+		t.Fatalf("policy applied event missing from %#v", events)
+	}
+
+	var audit RuntimeAuditResponse
+	for i := 0; i < 20; i++ {
+		audit, err = newRuntimeAuditStore(conn).ListTurn(context.Background(), "turn-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slices.ContainsFunc(audit.Events, func(event RuntimeAuditEvent) bool {
+			return event.Type == "permission_policy_applied" && event.Payload["policy_mode"] == string(permission.PolicyModePlan)
+		}) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !slices.ContainsFunc(audit.Events, func(event RuntimeAuditEvent) bool {
+		return event.Type == "permission_policy_applied" && event.Payload["policy_mode"] == string(permission.PolicyModePlan)
+	}) {
+		t.Fatalf("policy audit missing from %#v", audit.Events)
 	}
 }
 
@@ -1241,6 +1376,9 @@ type recordingRuntimeService struct {
 	turnsStatus         string
 	toolCall            RuntimeToolCallResponse
 	toolCalls           RuntimeToolCallsResponse
+	policy              RuntimePolicyResponse
+	policyCalls         int
+	updatedPolicyMode   string
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -1332,6 +1470,16 @@ func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResp
 
 func (s *recordingRuntimeService) Permissions(context.Context) (RuntimePermissionsResponse, error) {
 	return RuntimePermissionsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) GetPolicy(context.Context) (RuntimePolicyResponse, error) {
+	s.policyCalls++
+	return s.policy, nil
+}
+
+func (s *recordingRuntimeService) UpdatePolicy(_ context.Context, req RuntimePolicyUpdateRequest) (RuntimePolicyResponse, error) {
+	s.updatedPolicyMode = req.Mode
+	return RuntimePolicyResponse{Policy: RuntimePolicy{Mode: req.Mode}}, nil
 }
 
 func (s *recordingRuntimeService) Events(context.Context, ...int64) (RuntimeEventsResponse, error) {

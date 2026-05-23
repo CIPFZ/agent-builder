@@ -63,6 +63,12 @@ export const wailsRuntime: AgentRuntime = {
     return response.config
   },
 
+  async getPolicy() {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.GetPolicy()
+    return response.policy
+  },
+
   async getRecoveryStatus() {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.RecoveryStatus()
@@ -189,6 +195,12 @@ export const wailsRuntime: AgentRuntime = {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.SaveModelConfig(config)
     return response.config
+  },
+
+  async updatePolicy(mode) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.UpdatePolicy({ mode })
+    return response.policy
   },
 
   async refreshMcpServer(server) {

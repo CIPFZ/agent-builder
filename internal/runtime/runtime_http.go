@@ -139,6 +139,16 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/permissions":
 		value, err := s.service.Permissions(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/policy":
+		value, err := s.service.GetPolicy(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPut && r.URL.Path == "/v1/policy":
+		var req RuntimePolicyUpdateRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.UpdatePolicy(r.Context(), req)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && permissionDecisionPath(r.URL.Path) != "":
 		permissionID := permissionDecisionPath(r.URL.Path)
 		var req RuntimePermissionDecision

@@ -64,20 +64,39 @@ type PermissionNotification struct {
 	Denied     bool   `json:"denied"`
 }
 
+type PolicyApplication struct {
+	SessionID   string         `json:"session_id"`
+	TurnID      string         `json:"turn_id"`
+	ToolCallID  string         `json:"tool_call_id"`
+	ToolName    string         `json:"tool_name"`
+	Action      string         `json:"action"`
+	Path        string         `json:"path"`
+	Target      string         `json:"target"`
+	Decision    PolicyDecision `json:"decision"`
+	Risk        Risk           `json:"risk"`
+	Reason      string         `json:"reason"`
+	Mode        PolicyMode     `json:"mode"`
+	AppliedAt   int64          `json:"applied_at"`
+	Description string         `json:"description,omitempty"`
+}
+
 type PermissionRequest struct {
-	ID          string `json:"id"`
-	SessionID   string `json:"session_id"`
-	TurnID      string `json:"turn_id"`
-	ToolCallID  string `json:"tool_call_id"`
-	ToolName    string `json:"tool_name"`
-	Description string `json:"description"`
-	Action      string `json:"action"`
-	Params      any    `json:"params"`
-	Path        string `json:"path"`
-	Risk        Risk   `json:"risk"`
-	Status      string `json:"status"`
-	CreatedAt   int64  `json:"created_at"`
-	DecidedAt   int64  `json:"decided_at,omitempty"`
+	ID           string `json:"id"`
+	SessionID    string `json:"session_id"`
+	TurnID       string `json:"turn_id"`
+	ToolCallID   string `json:"tool_call_id"`
+	ToolName     string `json:"tool_name"`
+	Description  string `json:"description"`
+	Action       string `json:"action"`
+	Params       any    `json:"params"`
+	Path         string `json:"path"`
+	Risk         Risk   `json:"risk"`
+	PolicyMode   string `json:"policy_mode,omitempty"`
+	PolicyReason string `json:"policy_reason,omitempty"`
+	Decision     string `json:"decision,omitempty"`
+	Status       string `json:"status"`
+	CreatedAt    int64  `json:"created_at"`
+	DecidedAt    int64  `json:"decided_at,omitempty"`
 }
 
 type Service interface {
@@ -89,6 +108,9 @@ type Service interface {
 	AutoApproveSession(sessionID string)
 	SetSkipRequests(skip bool)
 	SkipRequests() bool
+	SetPolicyMode(mode PolicyMode)
+	PolicyMode() PolicyMode
+	SubscribePolicyApplications(ctx context.Context) <-chan pubsub.Event[PolicyApplication]
 	SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[PermissionNotification]
 }
 
@@ -104,10 +126,12 @@ type permissionService struct {
 	*pubsub.Broker[PermissionRequest]
 
 	notificationBroker    *pubsub.Broker[PermissionNotification]
+	policyBroker          *pubsub.Broker[PolicyApplication]
 	workingDir            string
 	sessionPermissions    *csync.Map[PermissionKey, bool]
 	pendingRequests       *csync.Map[string, chan bool]
 	policy                PermissionPolicy
+	policyMode            atomic.Value
 	autoApproveSessions   map[string]bool
 	autoApproveSessionsMu sync.RWMutex
 	skip                  atomic.Bool
@@ -214,10 +238,17 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 	if risk == "" {
 		risk = ClassifyRisk(opts.ToolName, opts.Description)
 	}
+	policyResult := PolicyResult{
+		Decision: PolicyAsk,
+		Risk:     risk,
+		Reason:   "Ask mode requires approval for tool calls.",
+		Mode:     s.PolicyMode(),
+	}
 	if s.policy != nil {
-		result := s.policy.Evaluate(policyToolCall(opts, risk))
-		risk = result.Risk
-		switch result.Decision {
+		policyResult = s.policy.Evaluate(policyToolCall(opts, risk))
+		risk = policyResult.Risk
+		s.publishPolicyApplication(opts, policyResult)
+		switch policyResult.Decision {
 		case PolicyAllow:
 			s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
 				ToolCallID: opts.ToolCallID,
@@ -267,18 +298,21 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		dir = s.workingDir
 	}
 	permission := PermissionRequest{
-		ID:          uuid.New().String(),
-		Path:        dir,
-		SessionID:   opts.SessionID,
-		TurnID:      opts.TurnID,
-		ToolCallID:  opts.ToolCallID,
-		ToolName:    opts.ToolName,
-		Description: opts.Description,
-		Action:      opts.Action,
-		Params:      opts.Params,
-		Risk:        risk,
-		Status:      "pending",
-		CreatedAt:   time.Now().UnixMilli(),
+		ID:           uuid.New().String(),
+		Path:         dir,
+		SessionID:    opts.SessionID,
+		TurnID:       opts.TurnID,
+		ToolCallID:   opts.ToolCallID,
+		ToolName:     opts.ToolName,
+		Description:  opts.Description,
+		Action:       opts.Action,
+		Params:       opts.Params,
+		Risk:         risk,
+		PolicyMode:   string(s.PolicyMode()),
+		PolicyReason: policyResult.Reason,
+		Decision:     string(policyResult.Decision),
+		Status:       "pending",
+		CreatedAt:    time.Now().UnixMilli(),
 	}
 
 	if _, ok := s.sessionPermissions.Get(PermissionKey{
@@ -323,6 +357,10 @@ func (s *permissionService) SubscribeNotifications(ctx context.Context) <-chan p
 	return s.notificationBroker.Subscribe(ctx)
 }
 
+func (s *permissionService) SubscribePolicyApplications(ctx context.Context) <-chan pubsub.Event[PolicyApplication] {
+	return s.policyBroker.Subscribe(ctx)
+}
+
 func (s *permissionService) SetSkipRequests(skip bool) {
 	s.skip.Store(skip)
 }
@@ -331,17 +369,47 @@ func (s *permissionService) SkipRequests() bool {
 	return s.skip.Load()
 }
 
+func (s *permissionService) SetPolicyMode(mode PolicyMode) {
+	mode = NormalizePolicyMode(mode)
+	s.policy = NewPermissionPolicy(mode)
+	s.policyMode.Store(mode)
+}
+
+func (s *permissionService) PolicyMode() PolicyMode {
+	mode, _ := s.policyMode.Load().(PolicyMode)
+	return NormalizePolicyMode(mode)
+}
+
+func (s *permissionService) publishPolicyApplication(opts CreatePermissionRequest, result PolicyResult) {
+	s.policyBroker.Publish(pubsub.CreatedEvent, PolicyApplication{
+		SessionID:   opts.SessionID,
+		TurnID:      opts.TurnID,
+		ToolCallID:  opts.ToolCallID,
+		ToolName:    opts.ToolName,
+		Action:      opts.Action,
+		Path:        opts.Path,
+		Target:      opts.Path,
+		Decision:    result.Decision,
+		Risk:        result.Risk,
+		Reason:      result.Reason,
+		Mode:        result.Mode,
+		AppliedAt:   time.Now().UnixMilli(),
+		Description: opts.Description,
+	})
+}
+
 func NewPermissionService(workingDir string, skip bool, allowedTools []string) Service {
 	svc := &permissionService{
 		Broker:              pubsub.NewBroker[PermissionRequest](),
 		notificationBroker:  pubsub.NewBroker[PermissionNotification](),
+		policyBroker:        pubsub.NewBroker[PolicyApplication](),
 		workingDir:          workingDir,
 		sessionPermissions:  csync.NewMap[PermissionKey, bool](),
 		autoApproveSessions: make(map[string]bool),
-		policy:              NewPermissionPolicy(PolicyModeAsk),
 		allowedTools:        allowedTools,
 		pendingRequests:     csync.NewMap[string, chan bool](),
 	}
 	svc.skip.Store(skip)
+	svc.SetPolicyMode(PolicyModeAsk)
 	return svc
 }

@@ -61,6 +61,10 @@ export type RuntimePermissionRequest = {
   path?: string
   target?: string
   risk?: string
+  policyMode?: string
+  policyReason?: string
+  decision?: string
+  reason?: string
   status?: string
   createdAt: number
   decidedAt?: number
@@ -97,6 +101,15 @@ export type RuntimeToolCall = {
 export type RuntimePermissionDecision = {
   permissionId: string
   action: 'allow' | 'allow_session' | 'deny'
+}
+
+export type RuntimePolicyMode = 'ask' | 'auto_read' | 'plan' | 'deny_all' | string
+
+export type RuntimePolicy = {
+  mode: RuntimePolicyMode
+  modes: RuntimePolicyMode[]
+  description?: string
+  updatedAt?: number
 }
 
 export type RuntimeEvent = {
@@ -334,6 +347,7 @@ export type AgentRuntime = {
   chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
   deleteSession: (sessionId: string) => Promise<RuntimeSession[]>
   decidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
+  getPolicy: () => Promise<RuntimePolicy>
   getModelConfig: () => Promise<RuntimeModelConfig>
   getRecoveryStatus: () => Promise<RuntimeRecoveryStatus>
   getAPIEndpoint: () => Promise<RuntimeAPIEndpoint>
@@ -361,6 +375,7 @@ export type AgentRuntime = {
   refreshMcpServer: (server: string) => Promise<RuntimeMcpServer[]>
   refreshSkills: () => Promise<RuntimeSkill[]>
   saveModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelConfig>
+  updatePolicy: (mode: RuntimePolicyMode) => Promise<RuntimePolicy>
   saveMcpServer: (config: RuntimeMcpServerConfig) => Promise<RuntimeMcpServer[]>
   renameSession: (sessionId: string, title: string) => Promise<RuntimeSession[]>
   selectSession: (sessionId: string) => Promise<RuntimeStatus>

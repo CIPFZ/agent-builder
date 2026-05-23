@@ -230,6 +230,16 @@ func (m *mockViewPermissionService) SkipRequests() bool {
 	return false
 }
 
+func (m *mockViewPermissionService) SetPolicyMode(mode permission.PolicyMode) {}
+
+func (m *mockViewPermissionService) PolicyMode() permission.PolicyMode {
+	return permission.PolicyModeAsk
+}
+
+func (m *mockViewPermissionService) SubscribePolicyApplications(ctx context.Context) <-chan pubsub.Event[permission.PolicyApplication] {
+	return make(<-chan pubsub.Event[permission.PolicyApplication])
+}
+
 func (m *mockViewPermissionService) SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[permission.PermissionNotification] {
 	return make(<-chan pubsub.Event[permission.PermissionNotification])
 }

@@ -161,20 +161,24 @@ type RuntimeMessagesResponse struct {
 }
 
 type RuntimePermissionRequest struct {
-	ID          string `json:"id"`
-	SessionID   string `json:"sessionId"`
-	TurnID      string `json:"turnId,omitempty"`
-	ToolCallID  string `json:"toolCallId"`
-	ToolName    string `json:"toolName"`
-	Description string `json:"description,omitempty"`
-	Action      string `json:"action"`
-	Params      any    `json:"params,omitempty"`
-	Path        string `json:"path,omitempty"`
-	Target      string `json:"target,omitempty"`
-	Risk        string `json:"risk,omitempty"`
-	Status      string `json:"status,omitempty"`
-	CreatedAt   int64  `json:"createdAt"`
-	DecidedAt   int64  `json:"decidedAt,omitempty"`
+	ID           string `json:"id"`
+	SessionID    string `json:"sessionId"`
+	TurnID       string `json:"turnId,omitempty"`
+	ToolCallID   string `json:"toolCallId"`
+	ToolName     string `json:"toolName"`
+	Description  string `json:"description,omitempty"`
+	Action       string `json:"action"`
+	Params       any    `json:"params,omitempty"`
+	Path         string `json:"path,omitempty"`
+	Target       string `json:"target,omitempty"`
+	Risk         string `json:"risk,omitempty"`
+	PolicyMode   string `json:"policyMode,omitempty"`
+	PolicyReason string `json:"policyReason,omitempty"`
+	Decision     string `json:"decision,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	Status       string `json:"status,omitempty"`
+	CreatedAt    int64  `json:"createdAt"`
+	DecidedAt    int64  `json:"decidedAt,omitempty"`
 }
 
 type RuntimePermissionsResponse struct {
@@ -184,6 +188,21 @@ type RuntimePermissionsResponse struct {
 type RuntimePermissionDecision struct {
 	PermissionID string `json:"permissionId"`
 	Action       string `json:"action"`
+}
+
+type RuntimePolicy struct {
+	Mode        string   `json:"mode"`
+	Modes       []string `json:"modes"`
+	Description string   `json:"description,omitempty"`
+	UpdatedAt   int64    `json:"updatedAt,omitempty"`
+}
+
+type RuntimePolicyResponse struct {
+	Policy RuntimePolicy `json:"policy"`
+}
+
+type RuntimePolicyUpdateRequest struct {
+	Mode string `json:"mode"`
 }
 
 type RuntimeRequests struct {

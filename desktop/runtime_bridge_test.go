@@ -106,6 +106,14 @@ func (s *recordingRuntimeService) Permissions(context.Context) (RuntimePermissio
 	return RuntimePermissionsResponse{}, nil
 }
 
+func (s *recordingRuntimeService) GetPolicy(context.Context) (RuntimePolicyResponse, error) {
+	return RuntimePolicyResponse{}, nil
+}
+
+func (s *recordingRuntimeService) UpdatePolicy(context.Context, RuntimePolicyUpdateRequest) (RuntimePolicyResponse, error) {
+	return RuntimePolicyResponse{}, nil
+}
+
 func (s *recordingRuntimeService) Events(context.Context, ...int64) (RuntimeEventsResponse, error) {
 	return RuntimeEventsResponse{}, nil
 }

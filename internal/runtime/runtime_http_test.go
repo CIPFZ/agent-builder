@@ -116,6 +116,41 @@ func TestRuntimeHTTPServerRoutesRecoveryStatusToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesPolicyToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		policy: RuntimePolicyResponse{Policy: RuntimePolicy{Mode: "ask", Modes: []string{"ask", "auto_read", "plan", "deny_all"}}},
+	}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodGet, "/v1/policy", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("get status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.policyCalls != 1 {
+		t.Fatalf("policyCalls = %d, want 1", service.policyCalls)
+	}
+
+	req, err = http.NewRequest(http.MethodPut, "/v1/policy", strings.NewReader(`{"mode":"plan"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("put status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.updatedPolicyMode != "plan" {
+		t.Fatalf("updated policy mode = %q, want plan", service.updatedPolicyMode)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesModelVerifyToRuntimeService(t *testing.T) {
 	t.Parallel()
 

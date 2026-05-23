@@ -33,6 +33,8 @@ type RuntimeService interface {
 	SessionMessages(context.Context, string) (RuntimeMessagesResponse, error)
 	Messages(context.Context) (RuntimeMessagesResponse, error)
 	Permissions(context.Context) (RuntimePermissionsResponse, error)
+	GetPolicy(context.Context) (RuntimePolicyResponse, error)
+	UpdatePolicy(context.Context, RuntimePolicyUpdateRequest) (RuntimePolicyResponse, error)
 	Events(context.Context, ...int64) (RuntimeEventsResponse, error)
 	EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error)
 	SubscribeEvents(context.Context, ...int64) (<-chan RuntimeEvent, func())
@@ -75,6 +77,7 @@ type runtimeService struct {
 	turns             runtimeTurnStore
 	permissionStore   runtimePermissionStore
 	permissions       map[string]pendingRuntimePermission
+	policy            RuntimePolicy
 	recovery          runtimeRecoveryRecord
 	events            []RuntimeEvent
 	nextEventSequence int64

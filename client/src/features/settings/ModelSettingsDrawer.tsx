@@ -10,7 +10,7 @@ import Space from 'antd/es/space'
 import Tooltip from 'antd/es/tooltip'
 import Typography from 'antd/es/typography'
 import type { ModelConfig } from '../../runtime/api'
-import type { RuntimeModelDiscoveryResponse, RuntimeModelVerifyResponse } from '../../runtime'
+import type { RuntimeModelDiscoveryResponse, RuntimeModelVerifyResponse, RuntimePolicy, RuntimePolicyMode } from '../../runtime'
 
 const { Paragraph } = Typography
 
@@ -24,6 +24,9 @@ type ModelSettingsDrawerProps = {
   onDiscover: (config: ModelConfig) => Promise<RuntimeModelDiscoveryResponse>
   onSave: (config: ModelConfig) => Promise<void>
   onVerify: (config: ModelConfig) => Promise<RuntimeModelVerifyResponse>
+  policy?: RuntimePolicy | null
+  policySaving?: boolean
+  onPolicyModeChange?: (mode: RuntimePolicyMode) => Promise<void>
 }
 
 export function ModelSettingsDrawer({
@@ -36,6 +39,9 @@ export function ModelSettingsDrawer({
   onDiscover,
   onSave,
   onVerify,
+  policy,
+  policySaving = false,
+  onPolicyModeChange,
 }: ModelSettingsDrawerProps) {
   const [form] = Form.useForm<ModelConfig>()
   const [availableModels, setAvailableModels] = useState<string[]>([])
@@ -111,6 +117,20 @@ export function ModelSettingsDrawer({
       }
     >
       <Paragraph type="secondary">Saved to the desktop config directory beside the application.</Paragraph>
+      {policy ? (
+        <Space direction="vertical" size={4} style={{ width: '100%', marginBottom: 16 }}>
+          <Typography.Text strong>Permission policy</Typography.Text>
+          <Select
+            value={policy.mode}
+            options={policy.modes.map((mode) => ({ value: mode, label: mode }))}
+            loading={policySaving}
+            onChange={(mode: RuntimePolicyMode) => {
+              void onPolicyModeChange?.(mode)
+            }}
+          />
+          {policy.description ? <Paragraph type="secondary">{policy.description}</Paragraph> : null}
+        </Space>
+      ) : null}
       <Form
         form={form}
         layout="vertical"

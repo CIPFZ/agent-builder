@@ -81,6 +81,7 @@ func (r *runtimeService) restart() {
 	r.turns = runtimeTurnStore{}
 	r.permissionStore = runtimePermissionStore{}
 	r.permissions = make(map[string]pendingRuntimePermission)
+	r.policy = defaultRuntimePolicy()
 	r.recovery = runtimeRecoveryRecord{}
 	r.events = nil
 }
@@ -168,9 +169,20 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 		return err
 	}
 	wsRuntime.Cfg.SetupAgents()
+	policy, err := loadRuntimePolicy(layout)
+	if err != nil {
+		return err
+	}
+	policyMode, err := normalizeRuntimePolicyMode(policy.Mode)
+	if err != nil {
+		return err
+	}
+	wsRuntime.Permissions.SetPolicyMode(policyMode)
+	r.policy = policy
 	r.workspace = &ws
 	go r.consumeRuntimeEvents(runtimeCtx, ws.ID)
 	go r.consumeDesktopPermissions(runtimeCtx, ws.ID, wsRuntime.Permissions)
+	go r.consumePermissionPolicyApplications(runtimeCtx, ws.ID, wsRuntime.Permissions)
 
 	if err := r.runtime.UpdateAgent(runtimeCtx, ws.ID); err != nil {
 		return fmt.Errorf("failed to update Crush agent model: %w", err)

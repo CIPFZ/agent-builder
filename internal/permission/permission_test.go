@@ -112,6 +112,32 @@ func TestPermissionService_SkipMode(t *testing.T) {
 	}
 }
 
+func TestPermissionServicePolicyApplication(t *testing.T) {
+	t.Parallel()
+
+	service := NewPermissionService("/tmp", false, nil)
+	service.SetPolicyMode(PolicyModePlan)
+	applications := service.SubscribePolicyApplications(t.Context())
+
+	granted, err := service.Request(t.Context(), CreatePermissionRequest{
+		SessionID:   "session-1",
+		TurnID:      "turn-1",
+		ToolCallID:  "tool-1",
+		ToolName:    "bash",
+		Action:      "execute",
+		Description: `{"command":"go test ./..."}`,
+		Path:        "/tmp",
+	})
+	require.NoError(t, err)
+	assert.False(t, granted)
+
+	event := <-applications
+	assert.Equal(t, PolicyModePlan, event.Payload.Mode)
+	assert.Equal(t, PolicyDeny, event.Payload.Decision)
+	assert.Equal(t, RiskExecute, event.Payload.Risk)
+	assert.NotEmpty(t, event.Payload.Reason)
+}
+
 func TestPermissionService_HookApproval(t *testing.T) {
 	t.Parallel()
 

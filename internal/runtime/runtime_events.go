@@ -140,9 +140,65 @@ func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspac
 				PermissionTool:   perm.ToolName,
 				PermissionAction: perm.Action,
 				PermissionPath:   perm.Path,
-				PermissionPolicy: "ask",
+				PermissionPolicy: firstNonEmpty(perm.Decision, "ask"),
+				PermissionRisk:   string(perm.Risk),
+				PermissionReason: perm.PolicyReason,
+				PolicyMode:       perm.PolicyMode,
 				PermissionID:     perm.ID,
 				ToolCallID:       perm.ToolCallID,
+			})
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (r *runtimeService) consumePermissionPolicyApplications(ctx context.Context, workspaceID string, permissions permission.Service) {
+	events := permissions.SubscribePolicyApplications(ctx)
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			applied := event.Payload
+			if applied.TurnID == "" {
+				r.mu.Lock()
+				applied.TurnID = r.sessionTurns[applied.SessionID]
+				r.mu.Unlock()
+			}
+			r.storeRuntimeEvent(runtimeapi.Event{
+				ID:         newRuntimeEventID(),
+				Type:       runtimeapi.EventPermissionPolicyApplied,
+				CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+				SessionID:  applied.SessionID,
+				TurnID:     applied.TurnID,
+				ToolCallID: applied.ToolCallID,
+				Payload: map[string]any{
+					"tool_name": applied.ToolName,
+					"action":    applied.Action,
+					"path":      applied.Path,
+					"target":    applied.Target,
+					"decision":  applied.Decision,
+					"risk":      applied.Risk,
+					"reason":    applied.Reason,
+					"mode":      applied.Mode,
+				},
+			})
+			r.writeAudit(auditEntry{
+				RequestID:        applied.TurnID,
+				Event:            "permission_policy_applied",
+				Timestamp:        time.Now().Format(time.RFC3339Nano),
+				WorkspaceID:      workspaceID,
+				SessionID:        applied.SessionID,
+				PermissionTool:   applied.ToolName,
+				PermissionAction: applied.Action,
+				PermissionPath:   applied.Path,
+				PermissionPolicy: string(applied.Decision),
+				PermissionRisk:   string(applied.Risk),
+				PermissionReason: applied.Reason,
+				PolicyMode:       string(applied.Mode),
+				ToolCallID:       applied.ToolCallID,
 			})
 		case <-ctx.Done():
 			return
@@ -442,6 +498,9 @@ func newPermissionRuntimeEvent(createdAt time.Time, perm RuntimePermissionReques
 		"description":   preview(perm.Description, 200),
 		"path":          perm.Path,
 		"risk":          perm.Risk,
+		"reason":        firstNonEmpty(perm.Reason, perm.PolicyReason),
+		"mode":          perm.PolicyMode,
+		"decision":      firstNonEmpty(perm.Decision, "ask"),
 		"status":        firstNonEmpty(perm.Status, "pending"),
 		"summary":       perm.ToolName + ":" + perm.Action,
 	}

@@ -40,6 +40,9 @@ type auditEntry struct {
 	PermissionID          string             `json:"permission_id,omitempty"`
 	PermissionPath        string             `json:"permission_path,omitempty"`
 	PermissionPolicy      string             `json:"permission_policy,omitempty"`
+	PermissionRisk        string             `json:"permission_risk,omitempty"`
+	PermissionReason      string             `json:"permission_reason,omitempty"`
+	PolicyMode            string             `json:"policy_mode,omitempty"`
 	ToolCallID            string             `json:"tool_call_id,omitempty"`
 }
 

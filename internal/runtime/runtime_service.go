@@ -21,6 +21,7 @@ func newRuntimeService() *runtimeService {
 		toolCalls: scheduler.New(NewRuntimeToolCallStore()),
 
 		permissions: make(map[string]pendingRuntimePermission),
+		policy:      defaultRuntimePolicy(),
 
 		eventStream: newRuntimeSSEServer(),
 	}

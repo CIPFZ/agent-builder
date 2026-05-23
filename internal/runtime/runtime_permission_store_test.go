@@ -22,22 +22,28 @@ func TestRuntimePermissionStoreUpsertListAndMark(t *testing.T) {
 
 	store := newRuntimePermissionStore(conn)
 	perm, err := store.Upsert(context.Background(), RuntimePermissionRequest{
-		ID:         "perm-1",
-		SessionID:  "session-1",
-		TurnID:     "turn-1",
-		ToolCallID: "tool-1",
-		ToolName:   "bash",
-		Action:     "execute",
-		Params:     map[string]any{"command": "echo hi"},
-		Risk:       "execute",
-		Status:     permissionStatusPending,
-		CreatedAt:  1000,
+		ID:           "perm-1",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		ToolCallID:   "tool-1",
+		ToolName:     "bash",
+		Action:       "execute",
+		Params:       map[string]any{"command": "echo hi"},
+		Risk:         "execute",
+		PolicyMode:   "plan",
+		PolicyReason: "Plan mode blocks mutating, execute, network, destructive, or secret tool calls.",
+		Decision:     "deny",
+		Status:       permissionStatusPending,
+		CreatedAt:    1000,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if perm.ID != "perm-1" || perm.Status != permissionStatusPending || perm.Params == nil {
 		t.Fatalf("permission = %#v", perm)
+	}
+	if perm.PolicyMode != "plan" || perm.PolicyReason == "" || perm.Decision != "deny" {
+		t.Fatalf("permission policy fields = %#v", perm)
 	}
 
 	pending, err := store.List(context.Background(), permissionStatusPending)

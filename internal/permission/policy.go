@@ -42,6 +42,7 @@ type PolicyResult struct {
 	Decision PolicyDecision
 	Risk     Risk
 	Reason   string
+	Mode     PolicyMode
 }
 
 type StaticPolicy struct {
@@ -49,29 +50,36 @@ type StaticPolicy struct {
 }
 
 func NewPermissionPolicy(mode PolicyMode) StaticPolicy {
-	if mode == "" {
-		mode = PolicyModeAsk
+	return StaticPolicy{Mode: NormalizePolicyMode(mode)}
+}
+
+func NormalizePolicyMode(mode PolicyMode) PolicyMode {
+	switch mode {
+	case PolicyModeAsk, PolicyModeAutoRead, PolicyModePlan, PolicyModeDenyAll:
+		return mode
+	default:
+		return PolicyModeAsk
 	}
-	return StaticPolicy{Mode: mode}
 }
 
 func (p StaticPolicy) Evaluate(call scheduler.ToolCall) PolicyResult {
 	risk := ClassifyRisk(call.Name, call.InputSummary)
-	switch p.Mode {
+	mode := NormalizePolicyMode(p.Mode)
+	switch mode {
 	case PolicyModeDenyAll:
-		return PolicyResult{Decision: PolicyDeny, Risk: risk, Reason: "Policy mode denies all tool calls."}
+		return PolicyResult{Decision: PolicyDeny, Risk: risk, Reason: "Policy mode denies all tool calls.", Mode: mode}
 	case PolicyModePlan:
 		if risk == RiskRead {
-			return PolicyResult{Decision: PolicyAllow, Risk: risk, Reason: "Plan mode allows read-only tool calls."}
+			return PolicyResult{Decision: PolicyAllow, Risk: risk, Reason: "Plan mode allows read-only tool calls.", Mode: mode}
 		}
-		return PolicyResult{Decision: PolicyDeny, Risk: risk, Reason: "Plan mode blocks mutating tool calls."}
+		return PolicyResult{Decision: PolicyDeny, Risk: risk, Reason: "Plan mode blocks mutating, execute, network, destructive, or secret tool calls.", Mode: mode}
 	case PolicyModeAutoRead:
 		if risk == RiskRead {
-			return PolicyResult{Decision: PolicyAllow, Risk: risk, Reason: "Auto-read mode allows read-only tool calls."}
+			return PolicyResult{Decision: PolicyAllow, Risk: risk, Reason: "Auto-read mode allows read-only tool calls.", Mode: mode}
 		}
-		return PolicyResult{Decision: PolicyAsk, Risk: risk, Reason: "Auto-read mode asks before non-read tool calls."}
+		return PolicyResult{Decision: PolicyAsk, Risk: risk, Reason: "Auto-read mode asks before non-read tool calls.", Mode: mode}
 	default:
-		return PolicyResult{Decision: PolicyAsk, Risk: risk, Reason: "Ask mode requires approval."}
+		return PolicyResult{Decision: PolicyAsk, Risk: risk, Reason: "Ask mode requires approval for tool calls.", Mode: mode}
 	}
 }
 

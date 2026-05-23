@@ -1,5 +1,5 @@
 import { getAgentRuntime } from './index'
-import type { RuntimeMcpServerConfig, RuntimePermissionDecision, RuntimeSkillCreateRequest } from './types'
+import type { RuntimeMcpServerConfig, RuntimePermissionDecision, RuntimePolicyMode, RuntimeSkillCreateRequest } from './types'
 
 export type ModelConfig = {
   protocol: 'openai' | 'anthropic'
@@ -94,6 +94,14 @@ export async function requestRuntimeEventsEndpoint() {
 
 export async function requestRuntimePermissions() {
   return getAgentRuntime().listPermissions()
+}
+
+export async function requestRuntimePolicy() {
+  return getAgentRuntime().getPolicy()
+}
+
+export async function updateRuntimePolicy(mode: RuntimePolicyMode) {
+  return getAgentRuntime().updatePolicy(mode)
 }
 
 export async function requestRuntimeSkills() {
