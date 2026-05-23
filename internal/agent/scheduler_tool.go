@@ -97,6 +97,9 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 	if record.TurnID != "" {
 		ctx = permission.WithTurnID(ctx, record.TurnID)
 	}
+	if decision.Decision == string(permission.PolicyAllow) && call.ID != "" {
+		ctx = permission.WithHookApproval(ctx, call.ID)
+	}
 	resp, err := s.inner.Run(ctx, call)
 	metadata := schedulerResponseMetadata(resp.Metadata)
 	result := SchedulerToolCallResult{
@@ -111,6 +114,9 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 		Risk:                    decision.Risk,
 		PolicyReason:            decision.Reason,
 		ExitCode:                metadata.ExitCode,
+		JobStatus:               metadata.JobStatus,
+		JobStartedAt:            metadata.JobStartedAt,
+		JobFinishedAt:           metadata.JobFinishedAt,
 		ModelVisibleContent:     resp.Content,
 		StructuredOutputSummary: responseStructuredSummary(resp),
 		Stdout:                  metadata.Stdout,
@@ -183,11 +189,14 @@ func schedulerSourceForToolName(name string) string {
 }
 
 type toolResponseMetadata struct {
-	JobID    string
-	Command  string
-	Stdout   string
-	Stderr   string
-	ExitCode int
+	JobID         string
+	Command       string
+	Stdout        string
+	Stderr        string
+	ExitCode      int
+	JobStatus     string
+	JobStartedAt  int64
+	JobFinishedAt int64
 }
 
 func schedulerResponseMetadata(raw string) toolResponseMetadata {
@@ -207,12 +216,28 @@ func schedulerResponseMetadata(raw string) toolResponseMetadata {
 	if exitCode, ok := values["exit_code"].(float64); ok {
 		meta.ExitCode = int(exitCode)
 	}
+	meta.JobStatus = stringMetadata(values, "status")
+	if meta.JobStatus == "" {
+		if bg, ok := values["background"].(bool); ok && bg {
+			meta.JobStatus = "running"
+		}
+	}
+	meta.JobStartedAt = int64Metadata(values, "start_time")
+	meta.JobFinishedAt = int64Metadata(values, "end_time")
 	return meta
 }
 
 func stringMetadata(values map[string]any, key string) string {
 	value, _ := values[key].(string)
 	return value
+}
+
+func int64Metadata(values map[string]any, key string) int64 {
+	value, ok := values[key].(float64)
+	if !ok {
+		return 0
+	}
+	return int64(value)
 }
 
 func shellCommandFromInput(raw string) string {

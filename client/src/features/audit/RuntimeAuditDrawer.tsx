@@ -93,6 +93,7 @@ function AuditHighlights({ event }: { event: RuntimeAuditEvent }) {
   const tags = [
     stringValue(firstTool?.name),
     stringValue(firstTool?.job_id) ? `job ${stringValue(firstTool?.job_id)}` : '',
+    stringValue(firstTool?.status),
     stringValue(firstTool?.risk),
     stringValue(event.payload.permission_risk),
     stringValue(event.payload.permission_policy),

@@ -81,6 +81,7 @@ const (
 	EventToolCallCompleted       = "tool.call.completed"
 	EventToolCallFailed          = "tool.call.failed"
 	EventToolCallCancelled       = "tool.call.cancelled"
+	EventTaskProgress            = "task.progress"
 	EventPermissionRequested     = "permission.requested"
 	EventPermissionDecided       = "permission.decided"
 	EventPermissionPolicyApplied = "permission.policy.applied"
@@ -127,6 +128,7 @@ var EventTypes = []string{
 	EventToolCallCompleted,
 	EventToolCallFailed,
 	EventToolCallCancelled,
+	EventTaskProgress,
 	EventPermissionRequested,
 	EventPermissionDecided,
 	EventPermissionPolicyApplied,

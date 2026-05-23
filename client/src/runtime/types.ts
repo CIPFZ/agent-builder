@@ -83,6 +83,9 @@ export type RuntimeToolCall = {
   risk?: string
   policyReason?: string
   exitCode?: number
+  jobStatus?: string
+  jobStartedAt?: number
+  jobFinishedAt?: number
   status:
     | 'pending'
     | 'waiting_permission'

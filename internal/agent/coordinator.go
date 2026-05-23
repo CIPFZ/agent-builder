@@ -130,6 +130,8 @@ type SchedulerToolCall struct {
 	Command      string
 	Risk         string
 	PolicyReason string
+	JobStatus    string
+	JobStartedAt int64
 	InputSummary string
 }
 
@@ -145,6 +147,9 @@ type SchedulerToolCallResult struct {
 	Risk                    string
 	PolicyReason            string
 	ExitCode                int
+	JobStatus               string
+	JobStartedAt            int64
+	JobFinishedAt           int64
 	ModelVisibleContent     string
 	StructuredOutputSummary string
 	Stdout                  string

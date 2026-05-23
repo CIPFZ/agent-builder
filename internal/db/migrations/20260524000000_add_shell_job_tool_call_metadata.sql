@@ -14,6 +14,15 @@ ALTER TABLE runtime_tool_calls
 ALTER TABLE runtime_tool_calls
     ADD COLUMN exit_code INTEGER NOT NULL DEFAULT 0;
 
+ALTER TABLE runtime_tool_calls
+    ADD COLUMN job_status TEXT;
+
+ALTER TABLE runtime_tool_calls
+    ADD COLUMN job_started_at INTEGER;
+
+ALTER TABLE runtime_tool_calls
+    ADD COLUMN job_finished_at INTEGER;
+
 -- +goose Down
 CREATE TABLE runtime_tool_calls_old AS SELECT
     id, turn_id, session_id, message_id, name, source, capability_id, status,

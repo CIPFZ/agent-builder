@@ -1753,6 +1753,7 @@ func TestRuntimeToolCallCarriesShellJobMetadata(t *testing.T) {
 		Command:      "go test ./...",
 		Risk:         "execute",
 		PolicyReason: "allowed",
+		JobStatus:    "running",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1762,6 +1763,7 @@ func TestRuntimeToolCallCarriesShellJobMetadata(t *testing.T) {
 		OutputSummary: "ok",
 		Stdout:        "ok",
 		ExitCode:      0,
+		JobStatus:     "completed",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1770,7 +1772,7 @@ func TestRuntimeToolCallCarriesShellJobMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	call := resp.ToolCall
-	if call.Source != "shell" || call.CapabilityID != "shell:bash" || call.JobID != "ABC" || call.Command != "go test ./..." || call.Risk != "execute" || call.Stdout != "ok" {
+	if call.Source != "shell" || call.CapabilityID != "shell:bash" || call.JobID != "ABC" || call.Command != "go test ./..." || call.Risk != "execute" || call.Stdout != "ok" || call.JobStatus != "completed" {
 		t.Fatalf("tool call shell metadata = %#v", call)
 	}
 }
@@ -1808,6 +1810,116 @@ func TestRuntimeToolCallRedactsShellSecrets(t *testing.T) {
 	text := string(data)
 	if strings.Contains(text, "sk-secret") || strings.Contains(text, "secret-token") {
 		t.Fatalf("runtime tool call leaked shell secret: %s", text)
+	}
+}
+
+func TestRuntimeSchedulerDeniedShellRecordsFinalToolCall(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	service.policy = runtimePolicyFromMode(permission.PolicyModePlan, 0)
+	recorder := runtimeSchedulerRecorder{service: service}
+
+	decision, err := recorder.EvaluateToolCall(context.Background(), agent.SchedulerToolCall{
+		ID:           "tool-denied",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		Name:         "bash",
+		Source:       "shell",
+		CapabilityID: "shell:bash",
+		InputSummary: `{"command":"go test ./..."}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Decision != string(permission.PolicyDeny) || decision.Risk != string(permission.RiskExecute) {
+		t.Fatalf("decision = %#v", decision)
+	}
+	if err := recorder.ToolCallFailed(context.Background(), agent.SchedulerToolCallResult{
+		ToolCallID:              "tool-denied",
+		SessionID:               "session-1",
+		TurnID:                  "turn-1",
+		Name:                    "bash",
+		Source:                  "shell",
+		Command:                 "go test ./...",
+		Risk:                    decision.Risk,
+		PolicyReason:            decision.Reason,
+		StructuredOutputSummary: "policy=deny risk=execute mode=plan",
+		Error:                   decision.Reason,
+		IsError:                 true,
+		Status:                  string(scheduler.ToolCallDenied),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	call, err := service.toolCalls.GetCall(context.Background(), "tool-denied")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.Status != scheduler.ToolCallDenied || call.FinishedAt.IsZero() || !call.IsError {
+		t.Fatalf("denied tool call not final: %#v", call)
+	}
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventToolCallFailed && event.ToolCallID == "tool-denied" && event.Payload["denied"] == true
+	}) {
+		t.Fatalf("denied failed event missing: %#v", events.Events)
+	}
+}
+
+func TestRuntimeSchedulerBackgroundJobOutputEmitsTaskProgress(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	recorder := runtimeSchedulerRecorder{service: service}
+
+	if err := recorder.ToolCallStarted(context.Background(), agent.SchedulerToolCall{
+		ID:           "tool-job",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		Name:         "bash",
+		Source:       "shell",
+		CapabilityID: "shell:bash",
+		JobID:        "job-1",
+		Command:      "sleep 10",
+		Risk:         string(permission.RiskExecute),
+		JobStatus:    "running",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.ToolCallOutput(context.Background(), agent.SchedulerToolCallResult{
+		ToolCallID:              "tool-job",
+		SessionID:               "session-1",
+		TurnID:                  "turn-1",
+		Name:                    "bash",
+		Source:                  "shell",
+		JobID:                   "job-1",
+		Command:                 "sleep 10",
+		Risk:                    string(permission.RiskExecute),
+		JobStatus:               "running",
+		StructuredOutputSummary: `{"status":"running"}`,
+		Stdout:                  "partial",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventTaskProgress && event.ToolCallID == "tool-job" && event.Payload["job_id"] == "job-1"
+	}) {
+		t.Fatalf("task.progress event missing: %#v", events.Events)
+	}
+	call, err := service.ToolCall(context.Background(), "tool-job")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.ToolCall.JobID != "job-1" || call.ToolCall.JobStatus != "running" || call.ToolCall.Stdout != "partial" {
+		t.Fatalf("job metadata missing: %#v", call.ToolCall)
 	}
 }
 

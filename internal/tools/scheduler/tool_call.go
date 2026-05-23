@@ -36,6 +36,9 @@ type ToolCall struct {
 	Risk          string         `json:"risk,omitempty"`
 	PolicyReason  string         `json:"policy_reason,omitempty"`
 	ExitCode      int            `json:"exit_code,omitempty"`
+	JobStatus     string         `json:"job_status,omitempty"`
+	JobStartedAt  time.Time      `json:"job_started_at,omitempty"`
+	JobFinishedAt time.Time      `json:"job_finished_at,omitempty"`
 	Status        ToolCallStatus `json:"status"`
 	InputSummary  string         `json:"input_summary,omitempty"`
 	OutputSummary string         `json:"output_summary,omitempty"`
@@ -61,6 +64,8 @@ type ToolCallRequest struct {
 	Command      string
 	Risk         string
 	PolicyReason string
+	JobStatus    string
+	JobStartedAt time.Time
 	InputSummary string
 }
 
@@ -72,6 +77,9 @@ type ToolCallResult struct {
 	Risk          string
 	PolicyReason  string
 	ExitCode      int
+	JobStatus     string
+	JobStartedAt  time.Time
+	JobFinishedAt time.Time
 	OutputSummary string
 	ModelContent  string
 	Structured    string

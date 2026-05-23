@@ -70,6 +70,7 @@ func TestEventTypesFreezePhase2Schema(t *testing.T) {
 		EventTurnStarted,
 		EventMessageCreated,
 		EventToolCallStarted,
+		EventTaskProgress,
 		EventPermissionRequested,
 		EventPermissionPolicyApplied,
 		EventTodoUpdated,

@@ -74,6 +74,10 @@ function ToolActivityItem({ part }: { part: RuntimeMessagePart }) {
   const shellStatus = typeof metadata.status === 'string' ? metadata.status : undefined
   const shellId = typeof metadata.shell_id === 'string' ? metadata.shell_id : undefined
   const command = typeof metadata.command === 'string' ? metadata.command : undefined
+  const risk = typeof metadata.risk === 'string' ? metadata.risk : undefined
+  const reason = typeof metadata.policy_reason === 'string' ? metadata.policy_reason : undefined
+  const stdout = typeof metadata.stdout === 'string' ? metadata.stdout : undefined
+  const stderr = typeof metadata.stderr === 'string' ? metadata.stderr : undefined
 
   return (
     <div className={part.isError ? 'tool-step error' : 'tool-step'}>
@@ -83,11 +87,15 @@ function ToolActivityItem({ part }: { part: RuntimeMessagePart }) {
           <Text strong>{part.name || 'tool'}</Text>
           <Tag>{shellStatus ?? (isResult ? (part.isError ? 'failed' : 'result') : part.finished ? 'called' : 'running')}</Tag>
           {shellId ? <Tag>job {shellId}</Tag> : null}
+          {risk ? <Tag>{risk}</Tag> : null}
         </Space>
         {part.toolCallId ? <Text type="secondary">{part.toolCallId}</Text> : null}
       </div>
       {command ? <pre className="part-preview">{command}</pre> : null}
+      {reason ? <Text type="secondary">{reason}</Text> : null}
       {hasPreview ? <pre className="part-preview">{preview}</pre> : null}
+      {stdout ? <pre className="part-preview">stdout: {stdout}</pre> : null}
+      {stderr ? <pre className="part-preview">stderr: {stderr}</pre> : null}
     </div>
   )
 }

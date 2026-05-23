@@ -98,11 +98,25 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 		switch action {
 		case proto.PermissionDeny:
 			_, _ = r.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{
-				ToolCallID: pending.Permission.ToolCallID,
-				Status:     scheduler.ToolCallDenied,
-				IsError:    true,
-				Error:      "Permission denied.",
+				ToolCallID:    pending.Permission.ToolCallID,
+				Status:        scheduler.ToolCallDenied,
+				Risk:          pending.Permission.Risk,
+				PolicyReason:  firstNonEmpty(pending.Permission.Reason, pending.Permission.PolicyReason),
+				OutputSummary: "Permission denied.",
+				IsError:       true,
+				Error:         "Permission denied.",
 			})
+			if call, err := r.toolCalls.GetCall(ctx, pending.Permission.ToolCallID); err == nil {
+				r.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallFailed, call, map[string]any{
+					"name":     call.Name,
+					"summary":  "Permission denied.",
+					"status":   string(call.Status),
+					"denied":   true,
+					"risk":     call.Risk,
+					"reason":   call.PolicyReason,
+					"is_error": true,
+				}))
+			}
 		default:
 			if call, err := r.toolCalls.GetCall(ctx, pending.Permission.ToolCallID); err == nil && call.Status == scheduler.ToolCallWaitingPermission {
 				_, _ = r.toolCalls.CreateCall(ctx, scheduler.ToolCallRequest{

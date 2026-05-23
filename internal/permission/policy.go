@@ -151,7 +151,9 @@ var destructiveShellPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(^|[;&|()\s])(kill|killall|pkill|stop-process|taskkill)(\s|$)`),
 	regexp.MustCompile(`(?i)(^|[;&|()\s])(chmod|chown)(\s|$)`),
 	regexp.MustCompile(`(?i)(^|[;&|()\s])(rmdir|rd)(\s|$).*(\s|/|-)s\b`),
+	regexp.MustCompile(`(?i)(^|[;&|()\s])(rm|del|remove-item|erase|rmdir|rd)(\s|$).*\s(/s|-r|-rf|--recursive|--force)\b`),
 	regexp.MustCompile(`(?i)\b(remove|delete)\b.*\b(recurse|recursive|-r|-rf|/s)\b`),
+	regexp.MustCompile(`(?i)\b(clear-content|set-content|out-file)\b`),
 	regexp.MustCompile(`(?i)(^|[^>])>[|]?\s*[^>\s]`),
 }
 

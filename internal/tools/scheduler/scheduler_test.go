@@ -44,11 +44,12 @@ func TestMemoryStoreLifecycle(t *testing.T) {
 		Status:        ToolCallCompleted,
 		OutputSummary: "ok",
 		ExitCode:      7,
+		JobStatus:     "completed",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if call.Status != ToolCallCompleted || call.OutputSummary != "ok" || call.ExitCode != 7 || call.FinishedAt.IsZero() {
+	if call.Status != ToolCallCompleted || call.OutputSummary != "ok" || call.ExitCode != 7 || call.JobStatus != "completed" || call.FinishedAt.IsZero() {
 		t.Fatalf("completed call = %#v", call)
 	}
 

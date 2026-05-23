@@ -25,6 +25,9 @@ type JobKillResponseMetadata struct {
 	Command     string `json:"command"`
 	Description string `json:"description"`
 	Status      string `json:"status"`
+	Stdout      string `json:"stdout,omitempty"`
+	Stderr      string `json:"stderr,omitempty"`
+	ExitCode    int    `json:"exit_code,omitempty"`
 }
 
 func NewJobKillTool() fantasy.AgentTool {
@@ -54,6 +57,10 @@ func NewJobKillTool() fantasy.AgentTool {
 			if err != nil {
 				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
+			stdout, stderr, _, execErr := bgShell.GetOutput()
+			metadata.Stdout = TruncateOutput(stdout)
+			metadata.Stderr = TruncateOutput(stderr)
+			metadata.ExitCode = shell.ExitCode(execErr)
 
 			result := fmt.Sprintf("Background shell %s terminated successfully", params.ShellID)
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(result), metadata), nil

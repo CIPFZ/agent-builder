@@ -47,6 +47,7 @@ type BashResponseMetadata struct {
 	WorkingDirectory string `json:"working_directory"`
 	Background       bool   `json:"background,omitempty"`
 	ShellID          string `json:"shell_id,omitempty"`
+	Status           string `json:"status,omitempty"`
 }
 
 const (
@@ -282,6 +283,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 						Command:          params.Command,
 						Background:       params.RunInBackground,
 						WorkingDirectory: bgShell.WorkingDir,
+						Status:           shellStatus(done, execErr),
 					}
 					if stdout == "" {
 						return fantasy.WithResponseMetadata(fantasy.NewTextResponse(BashNoOutput), metadata), nil
@@ -299,6 +301,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 					WorkingDirectory: bgShell.WorkingDir,
 					Background:       true,
 					ShellID:          bgShell.ID,
+					Status:           "running",
 				}
 				response := fmt.Sprintf("Background shell started with ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)
 				return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
@@ -371,6 +374,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 					Command:          params.Command,
 					Background:       params.RunInBackground,
 					WorkingDirectory: bgShell.WorkingDir,
+					Status:           shellStatus(done, execErr),
 				}
 				if stdout == "" {
 					return fantasy.WithResponseMetadata(fantasy.NewTextResponse(BashNoOutput), metadata), nil
@@ -388,10 +392,24 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 				WorkingDirectory: bgShell.WorkingDir,
 				Background:       true,
 				ShellID:          bgShell.ID,
+				Status:           "running",
 			}
 			response := fmt.Sprintf("Command is taking longer than expected and has been moved to background.\n\nBackground shell ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
 		})
+}
+
+func shellStatus(done bool, execErr error) string {
+	if !done {
+		return "running"
+	}
+	if shell.IsInterrupt(execErr) {
+		return "cancelled"
+	}
+	if shell.ExitCode(execErr) != 0 {
+		return "failed"
+	}
+	return "completed"
 }
 
 // formatOutput formats the output of a completed command with error handling

@@ -165,6 +165,8 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		Command:      call.Command,
 		Risk:         call.Risk,
 		PolicyReason: call.PolicyReason,
+		JobStatus:    call.JobStatus,
+		JobStartedAt: timeFromMillis(call.JobStartedAt),
 		InputSummary: preview(call.InputSummary, runtimePartPreviewLimit),
 	})
 	if err != nil {
@@ -176,6 +178,7 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		"capability_id": stored.CapabilityID,
 		"input":         stored.InputSummary,
 		"job_id":        stored.JobID,
+		"job_status":    stored.JobStatus,
 		"command":       stored.Command,
 		"risk":          stored.Risk,
 		"policy_reason": stored.PolicyReason,
@@ -190,12 +193,14 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		ToolCallID:   stored.ID,
 		CapabilityID: stored.CapabilityID,
 		ToolCalls: []auditToolCall{{
-			ID:      stored.ID,
-			Name:    stored.Name,
-			Input:   stored.InputSummary,
-			JobID:   stored.JobID,
-			Command: stored.Command,
-			Risk:    stored.Risk,
+			ID:        stored.ID,
+			Name:      stored.Name,
+			Input:     stored.InputSummary,
+			JobID:     stored.JobID,
+			Command:   stored.Command,
+			Risk:      stored.Risk,
+			Status:    stored.JobStatus,
+			StartedAt: millisFromTime(stored.JobStartedAt),
 		}},
 	})
 	return nil
@@ -207,15 +212,27 @@ func (r *runtimeSchedulerRecorder) ToolCallOutput(ctx context.Context, result ag
 		return err
 	}
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallOutput, call, map[string]any{
-		"name":       call.Name,
-		"summary":    call.OutputSummary,
-		"job_id":     call.JobID,
-		"job_status": string(call.Status),
-		"is_error":   result.IsError,
-		"status":     string(call.Status),
-		"has_stdout": call.Stdout != "",
-		"has_stderr": call.Stderr != "",
+		"name":         call.Name,
+		"summary":      call.OutputSummary,
+		"job_id":       call.JobID,
+		"job_status":   call.JobStatus,
+		"shell_status": call.JobStatus,
+		"is_error":     result.IsError,
+		"status":       string(call.Status),
+		"has_stdout":   call.Stdout != "",
+		"has_stderr":   call.Stderr != "",
 	}))
+	if call.JobID != "" {
+		r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventTaskProgress, call, map[string]any{
+			"task_kind":  "background",
+			"job_id":     call.JobID,
+			"job_status": call.JobStatus,
+			"status":     string(call.Status),
+			"summary":    call.OutputSummary,
+			"has_stdout": call.Stdout != "",
+			"has_stderr": call.Stderr != "",
+		}))
+	}
 	return nil
 }
 
@@ -225,10 +242,11 @@ func (r *runtimeSchedulerRecorder) ToolCallCompleted(ctx context.Context, result
 		return err
 	}
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallCompleted, call, map[string]any{
-		"name":    call.Name,
-		"summary": call.OutputSummary,
-		"job_id":  call.JobID,
-		"status":  string(call.Status),
+		"name":       call.Name,
+		"summary":    call.OutputSummary,
+		"job_id":     call.JobID,
+		"job_status": call.JobStatus,
+		"status":     string(call.Status),
 	}))
 	r.auditToolResult(call)
 	return nil
@@ -244,12 +262,13 @@ func (r *runtimeSchedulerRecorder) ToolCallFailed(ctx context.Context, result ag
 		return err
 	}
 	payload := map[string]any{
-		"name":     call.Name,
-		"summary":  call.OutputSummary,
-		"job_id":   call.JobID,
-		"status":   string(call.Status),
-		"is_error": true,
-		"error":    call.Error,
+		"name":       call.Name,
+		"summary":    call.OutputSummary,
+		"job_id":     call.JobID,
+		"job_status": call.JobStatus,
+		"status":     string(call.Status),
+		"is_error":   true,
+		"error":      call.Error,
 	}
 	if call.Status == scheduler.ToolCallDenied {
 		payload["denied"] = true
@@ -265,11 +284,12 @@ func (r *runtimeSchedulerRecorder) ToolCallCancelled(ctx context.Context, result
 		return err
 	}
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallCancelled, call, map[string]any{
-		"name":    call.Name,
-		"summary": call.OutputSummary,
-		"job_id":  call.JobID,
-		"status":  string(call.Status),
-		"error":   call.Error,
+		"name":       call.Name,
+		"summary":    call.OutputSummary,
+		"job_id":     call.JobID,
+		"job_status": call.JobStatus,
+		"status":     string(call.Status),
+		"error":      call.Error,
 	}))
 	r.auditToolResult(call)
 	return nil
@@ -292,6 +312,8 @@ func (r *runtimeSchedulerRecorder) updateToolCall(ctx context.Context, result ag
 			Command:      result.Command,
 			Risk:         result.Risk,
 			PolicyReason: result.PolicyReason,
+			JobStatus:    result.JobStatus,
+			JobStartedAt: timeFromMillis(result.JobStartedAt),
 		})
 	}
 	return r.service.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{
@@ -302,6 +324,9 @@ func (r *runtimeSchedulerRecorder) updateToolCall(ctx context.Context, result ag
 		Risk:          result.Risk,
 		PolicyReason:  result.PolicyReason,
 		ExitCode:      result.ExitCode,
+		JobStatus:     result.JobStatus,
+		JobStartedAt:  timeFromMillis(result.JobStartedAt),
+		JobFinishedAt: timeFromMillis(result.JobFinishedAt),
 		OutputSummary: preview(firstNonEmpty(result.StructuredOutputSummary, result.ModelVisibleContent, result.Error), runtimePartPreviewLimit),
 		ModelContent:  preview(result.ModelVisibleContent, runtimePartPreviewLimit),
 		Structured:    preview(result.StructuredOutputSummary, runtimePartPreviewLimit),
@@ -324,20 +349,37 @@ func (r *runtimeSchedulerRecorder) auditToolResult(call scheduler.ToolCall) {
 		ToolCallID:   call.ID,
 		CapabilityID: call.CapabilityID,
 		ToolCalls: []auditToolCall{{
-			ID:       call.ID,
-			Name:     call.Name,
-			Input:    call.InputSummary,
-			Output:   call.OutputSummary,
-			JobID:    call.JobID,
-			Command:  call.Command,
-			Risk:     call.Risk,
-			ExitCode: call.ExitCode,
-			IsError:  call.IsError,
+			ID:         call.ID,
+			Name:       call.Name,
+			Input:      call.InputSummary,
+			Output:     call.OutputSummary,
+			JobID:      call.JobID,
+			Command:    call.Command,
+			Risk:       call.Risk,
+			ExitCode:   call.ExitCode,
+			IsError:    call.IsError,
+			Status:     call.JobStatus,
+			StartedAt:  millisFromTime(call.JobStartedAt),
+			FinishedAt: millisFromTime(call.JobFinishedAt),
 		}},
 		Error:            call.Error,
 		PermissionRisk:   call.Risk,
 		PermissionReason: call.PolicyReason,
 	})
+}
+
+func timeFromMillis(value int64) time.Time {
+	if value == 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(value).UTC()
+}
+
+func millisFromTime(value time.Time) int64 {
+	if value.IsZero() {
+		return 0
+	}
+	return value.UnixMilli()
 }
 
 func runtimeToolCallEvent(eventType string, call scheduler.ToolCall, payload map[string]any) RuntimeEvent {

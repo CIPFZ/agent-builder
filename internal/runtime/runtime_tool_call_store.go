@@ -44,13 +44,16 @@ func (s runtimeSQLiteToolCallStore) Upsert(ctx context.Context, call scheduler.T
 	if call.StartedAt.IsZero() {
 		call.StartedAt = time.Now().UTC()
 	}
+	if call.JobID != "" && call.JobStatus == "" {
+		call.JobStatus = string(call.Status)
+	}
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO runtime_tool_calls (
     id, turn_id, session_id, message_id, name, source, capability_id, status,
-    job_id, command, risk, policy_reason, exit_code,
+    job_id, command, risk, policy_reason, exit_code, job_status, job_started_at, job_finished_at,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
     started_at, finished_at, error
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     turn_id = COALESCE(NULLIF(excluded.turn_id, ''), runtime_tool_calls.turn_id),
     session_id = COALESCE(NULLIF(excluded.session_id, ''), runtime_tool_calls.session_id),
@@ -63,6 +66,9 @@ ON CONFLICT(id) DO UPDATE SET
     risk = COALESCE(NULLIF(excluded.risk, ''), runtime_tool_calls.risk),
     policy_reason = COALESCE(NULLIF(excluded.policy_reason, ''), runtime_tool_calls.policy_reason),
     exit_code = CASE WHEN excluded.exit_code != 0 THEN excluded.exit_code ELSE runtime_tool_calls.exit_code END,
+    job_status = COALESCE(NULLIF(excluded.job_status, ''), runtime_tool_calls.job_status),
+    job_started_at = COALESCE(excluded.job_started_at, runtime_tool_calls.job_started_at),
+    job_finished_at = COALESCE(excluded.job_finished_at, runtime_tool_calls.job_finished_at),
     status = CASE
         WHEN runtime_tool_calls.status IN ('completed', 'failed', 'cancelled', 'denied')
              AND excluded.status IN ('pending', 'running', 'waiting_permission')
@@ -99,6 +105,9 @@ ON CONFLICT(id) DO UPDATE SET
 		nullableString(call.Risk),
 		nullableString(call.PolicyReason),
 		call.ExitCode,
+		nullableString(call.JobStatus),
+		nullableTimeMillis(call.JobStartedAt),
+		nullableTimeMillis(call.JobFinishedAt),
 		nullableString(call.InputSummary),
 		nullableString(call.OutputSummary),
 		nullableString(call.ModelContent),
@@ -119,7 +128,7 @@ ON CONFLICT(id) DO UPDATE SET
 func (s runtimeSQLiteToolCallStore) Get(ctx context.Context, id string) (scheduler.ToolCall, error) {
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
-    job_id, command, risk, policy_reason, exit_code,
+    job_id, command, risk, policy_reason, exit_code, job_status, job_started_at, job_finished_at,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
     started_at, finished_at, error
 FROM runtime_tool_calls
@@ -134,7 +143,7 @@ WHERE id = ?`, strings.TrimSpace(id))
 func (s runtimeSQLiteToolCallStore) ListByTurn(ctx context.Context, turnID string) ([]scheduler.ToolCall, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
-    job_id, command, risk, policy_reason, exit_code,
+    job_id, command, risk, policy_reason, exit_code, job_status, job_started_at, job_finished_at,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
     started_at, finished_at, error
 FROM runtime_tool_calls
@@ -168,11 +177,11 @@ type runtimeToolCallScanner interface {
 
 func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, error) {
 	var call scheduler.ToolCall
-	var messageID, capabilityID, jobID, command, risk, policyReason, inputSummary, outputSummary, modelContent, structured, stdout, stderr, errText sql.NullString
+	var messageID, capabilityID, jobID, command, risk, policyReason, jobStatus, inputSummary, outputSummary, modelContent, structured, stdout, stderr, errText sql.NullString
 	var source, status string
 	var isError, exitCode int
 	var startedAt int64
-	var finishedAt sql.NullInt64
+	var jobStartedAt, jobFinishedAt, finishedAt sql.NullInt64
 	if err := scanner.Scan(
 		&call.ID,
 		&call.TurnID,
@@ -187,6 +196,9 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 		&risk,
 		&policyReason,
 		&exitCode,
+		&jobStatus,
+		&jobStartedAt,
+		&jobFinishedAt,
 		&inputSummary,
 		&outputSummary,
 		&modelContent,
@@ -209,6 +221,13 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 	call.Risk = risk.String
 	call.PolicyReason = policyReason.String
 	call.ExitCode = exitCode
+	call.JobStatus = jobStatus.String
+	if jobStartedAt.Valid {
+		call.JobStartedAt = time.UnixMilli(jobStartedAt.Int64).UTC()
+	}
+	if jobFinishedAt.Valid {
+		call.JobFinishedAt = time.UnixMilli(jobFinishedAt.Int64).UTC()
+	}
 	call.InputSummary = inputSummary.String
 	call.OutputSummary = outputSummary.String
 	call.ModelContent = modelContent.String

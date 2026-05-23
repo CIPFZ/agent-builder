@@ -127,6 +127,14 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 	if !call.FinishedAt.IsZero() {
 		finishedAt = call.FinishedAt.UnixMilli()
 	}
+	var jobStartedAt int64
+	if !call.JobStartedAt.IsZero() {
+		jobStartedAt = call.JobStartedAt.UnixMilli()
+	}
+	var jobFinishedAt int64
+	if !call.JobFinishedAt.IsZero() {
+		jobFinishedAt = call.JobFinishedAt.UnixMilli()
+	}
 	redacted := redactRuntimePayload(map[string]any{
 		"input":         call.InputSummary,
 		"output":        call.OutputSummary,
@@ -151,6 +159,9 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		Risk:          call.Risk,
 		PolicyReason:  stringFromMap(redacted, "policy_reason"),
 		ExitCode:      call.ExitCode,
+		JobStatus:     call.JobStatus,
+		JobStartedAt:  jobStartedAt,
+		JobFinishedAt: jobFinishedAt,
 		Status:        string(call.Status),
 		InputSummary:  stringFromMap(redacted, "input"),
 		OutputSummary: stringFromMap(redacted, "output"),

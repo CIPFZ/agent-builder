@@ -61,15 +61,18 @@ type auditEntry struct {
 }
 
 type auditToolCall struct {
-	ID       string `json:"id,omitempty"`
-	Name     string `json:"name"`
-	Input    string `json:"input,omitempty"`
-	Output   string `json:"output,omitempty"`
-	JobID    string `json:"job_id,omitempty"`
-	Command  string `json:"command,omitempty"`
-	Risk     string `json:"risk,omitempty"`
-	ExitCode int    `json:"exit_code,omitempty"`
-	IsError  bool   `json:"is_error,omitempty"`
+	ID         string `json:"id,omitempty"`
+	Name       string `json:"name"`
+	Input      string `json:"input,omitempty"`
+	Output     string `json:"output,omitempty"`
+	JobID      string `json:"job_id,omitempty"`
+	Command    string `json:"command,omitempty"`
+	Risk       string `json:"risk,omitempty"`
+	ExitCode   int    `json:"exit_code,omitempty"`
+	IsError    bool   `json:"is_error,omitempty"`
+	Status     string `json:"status,omitempty"`
+	StartedAt  int64  `json:"started_at,omitempty"`
+	FinishedAt int64  `json:"finished_at,omitempty"`
 }
 
 func (r *runtimeService) writeAudit(entry auditEntry) {

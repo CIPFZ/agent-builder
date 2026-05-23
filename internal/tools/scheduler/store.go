@@ -111,6 +111,15 @@ func mergeToolCall(existing, next ToolCall) ToolCall {
 	if next.ExitCode == 0 {
 		next.ExitCode = existing.ExitCode
 	}
+	if next.JobStatus == "" {
+		next.JobStatus = existing.JobStatus
+	}
+	if next.JobStartedAt.IsZero() {
+		next.JobStartedAt = existing.JobStartedAt
+	}
+	if next.JobFinishedAt.IsZero() {
+		next.JobFinishedAt = existing.JobFinishedAt
+	}
 	if next.Status == "" {
 		next.Status = existing.Status
 	}

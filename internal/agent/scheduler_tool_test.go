@@ -119,6 +119,7 @@ func TestSchedulerToolPassesShellMetadata(t *testing.T) {
 		"stdout":    "ok",
 		"stderr":    "",
 		"exit_code": 0,
+		"status":    "completed",
 	})}
 	recorder := &recordingSchedulerRecorder{
 		decision: SchedulerToolPolicyDecision{
@@ -137,4 +138,36 @@ func TestSchedulerToolPassesShellMetadata(t *testing.T) {
 	require.Equal(t, "execute", recorder.completed.Risk)
 	require.Equal(t, "allowed", recorder.completed.PolicyReason)
 	require.Equal(t, "ok", recorder.completed.Stdout)
+	require.Equal(t, "completed", recorder.completed.JobStatus)
+}
+
+func TestSchedulerToolStampsPolicyApprovalForInnerPermission(t *testing.T) {
+	t.Parallel()
+
+	inner := &fakeTool{name: "bash", resp: fantasy.NewTextResponse("ok")}
+	recorder := &recordingSchedulerRecorder{
+		decision: SchedulerToolPolicyDecision{
+			Decision: string(permission.PolicyAllow),
+			Risk:     string(permission.RiskExecute),
+			Mode:     string(permission.PolicyModeAutoRead),
+		},
+	}
+	tool := newSchedulerTool(inner, recorder)
+
+	_, err := tool.Run(t.Context(), fantasy.ToolCall{ID: "tool-1", Name: "bash", Input: `{"command":"go test ./..."}`})
+	require.NoError(t, err)
+
+	svc := permission.NewPermissionService(t.TempDir(), false, nil)
+	svc.SetPolicyMode(permission.PolicyModeAutoRead)
+	granted, err := svc.Request(inner.gotCtx, permission.CreatePermissionRequest{
+		SessionID:   "session-1",
+		ToolCallID:  "tool-1",
+		ToolName:    "bash",
+		Source:      "shell",
+		Action:      "execute",
+		Description: `{"command":"go test ./..."}`,
+		Path:        t.TempDir(),
+	})
+	require.NoError(t, err)
+	require.True(t, granted)
 }

@@ -126,10 +126,12 @@ func TestClassifyShellCommandRiskBaseline(t *testing.T) {
 		{`{"command":"rm -rf /tmp/build"}`, RiskDestructive},
 		{`{"command":"del /s build"}`, RiskDestructive},
 		{`{"command":"Remove-Item -Recurse .\\build"}`, RiskDestructive},
+		{`{"command":"Remove-Item .\\build -Recurse -Force"}`, RiskDestructive},
 		{`{"command":"git reset --hard HEAD"}`, RiskDestructive},
 		{`{"command":"Stop-Process -Id 1234"}`, RiskDestructive},
 		{`{"command":"kill 1234"}`, RiskDestructive},
 		{`{"command":"chmod -R 777 ."}`, RiskDestructive},
+		{`{"command":"Out-File result.txt"}`, RiskDestructive},
 		{`{"command":"echo secret > .env"}`, RiskDestructive},
 	}
 	for _, tt := range cases {
