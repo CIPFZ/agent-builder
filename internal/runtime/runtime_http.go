@@ -174,6 +174,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		value, err := s.service.Chat(r.Context(), req)
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/turns":
+		value, err := s.service.Turns(r.Context(), r.URL.Query().Get("status"))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnToolCallsPathID(r.URL.Path) != "":
 		value, err := s.service.TurnToolCalls(r.Context(), turnToolCallsPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)

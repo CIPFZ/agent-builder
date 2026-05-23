@@ -82,8 +82,20 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 			}
 		}
 	}
+	if pending.Permission.TurnID != "" {
+		if turn, err := r.turns.Get(ctx, pending.Permission.TurnID); err == nil && turn.Status == turnStatusWaitingPermission {
+			turn.Status = turnStatusRunning
+			if action == proto.PermissionDeny {
+				turn.Status = turnStatusFailed
+				turn.FinishedAt = time.Now().UnixMilli()
+				turn.Error = "permission denied"
+			}
+			_, _ = r.turns.Upsert(ctx, turn)
+		}
+	}
 
 	r.writeAudit(auditEntry{
+		RequestID:        pending.Permission.TurnID,
 		Event:            "permission_decided",
 		Timestamp:        time.Now().Format(time.RFC3339Nano),
 		WorkspaceID:      wsID,
@@ -99,7 +111,7 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 		Type:       runtimeapi.EventPermissionDecided,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
 		SessionID:  pending.Permission.SessionID,
-		TurnID:     r.activeTurnForSession(pending.Permission.SessionID),
+		TurnID:     firstNonEmpty(pending.Permission.TurnID, r.activeTurnForSession(pending.Permission.SessionID)),
 		ToolCallID: pending.Permission.ToolCallID,
 		Payload: map[string]any{
 			"permission_id": req.PermissionID,

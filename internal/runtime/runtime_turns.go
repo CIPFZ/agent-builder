@@ -83,6 +83,18 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 	}
 	r.sessionTurns[sessionID] = requestID
 	r.mu.Unlock()
+	if _, err := r.turns.Upsert(ctx, RuntimeTurn{
+		ID:            requestID,
+		SessionID:     sessionID,
+		Status:        turnStatusQueued,
+		Provider:      status.Provider,
+		Model:         status.Model,
+		PromptPreview: preview(prompt, auditPreviewLimit),
+		UsageBefore:   usageBefore,
+		StartedAt:     start.UnixMilli(),
+	}); err != nil {
+		return RuntimeChatResponse{}, err
+	}
 
 	skills, mcpServers, mcpTools := r.runtimeAuditInventory(ctx)
 
@@ -116,6 +128,18 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 			"usage_before":   usageBefore,
 		},
 	})
+	if _, err := r.turns.Upsert(ctx, RuntimeTurn{
+		ID:            requestID,
+		SessionID:     sessionID,
+		Status:        turnStatusRunning,
+		Provider:      status.Provider,
+		Model:         status.Model,
+		PromptPreview: preview(prompt, auditPreviewLimit),
+		UsageBefore:   usageBefore,
+		StartedAt:     start.UnixMilli(),
+	}); err != nil {
+		return RuntimeChatResponse{}, err
+	}
 
 	go r.runChat(runCtx, requestID, wsID, sessionID, prompt, start, usageBefore, status.Provider, status.Model)
 
@@ -136,44 +160,36 @@ func (r *runtimeService) Turn(ctx context.Context, turnID string) (RuntimeTurnRe
 	}
 
 	r.mu.Lock()
-	state, ok := r.requests[turnID]
 	wsID := r.workspace.ID
 	r.mu.Unlock()
-	if !ok {
-		return RuntimeTurnResponse{}, fmt.Errorf("turn %s was not found", turnID)
+	turn, err := r.turns.Get(ctx, turnID)
+	if err != nil {
+		return RuntimeTurnResponse{}, fmt.Errorf("turn %s was not found: %w", turnID, err)
 	}
-
-	turn := RuntimeTurn{
-		ID:              turnID,
-		SessionID:       state.SessionID,
-		Status:          runtimeTurnStatus(state),
-		StartedAt:       state.StartedAt,
-		FinishedAt:      state.FinishedAt,
-		Provider:        state.Provider,
-		Model:           state.Model,
-		PromptPreview:   state.PromptPreview,
-		UsageBefore:     state.UsageBefore,
-		UsageAfter:      state.UsageAfter,
-		UsageDelta:      state.UsageDelta,
-		LatestMessageID: state.LatestMessageID,
-		Error:           state.Error,
-	}
-	if turn.FinishedAt > 0 && turn.StartedAt > 0 {
-		turn.DurationMS = turn.FinishedAt - turn.StartedAt
-	}
-	if state.LatestMessageID != "" {
-		msgs, err := r.runtime.ListSessionMessages(ctx, wsID, state.SessionID)
+	if turn.LatestAssistantMessageID != "" {
+		msgs, err := r.runtime.ListSessionMessages(ctx, wsID, turn.SessionID)
 		if err != nil {
 			return RuntimeTurnResponse{}, fmt.Errorf("failed to read turn messages: %w", err)
 		}
 		for _, msg := range msgs {
-			if msg.ID == state.LatestMessageID {
+			if msg.ID == turn.LatestAssistantMessageID {
 				turn.LatestAssistant = toRuntimeMessage(toProtoMessage(msg))
 				break
 			}
 		}
 	}
 	return RuntimeTurnResponse{Turn: turn}, nil
+}
+
+func (r *runtimeService) Turns(ctx context.Context, status string) (RuntimeTurnsResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeTurnsResponse{}, err
+	}
+	turns, err := r.turns.List(ctx, status)
+	if err != nil {
+		return RuntimeTurnsResponse{}, err
+	}
+	return RuntimeTurnsResponse{Turns: turns}, nil
 }
 
 func (r *runtimeService) Cancel(ctx context.Context) (RuntimeStatus, error) {
@@ -201,14 +217,22 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 	wsID := r.workspace.ID
 	state, ok := r.requests[turnID]
 	r.mu.Unlock()
+	turn, err := r.turns.Get(ctx, turnID)
+	if err != nil {
+		return RuntimeStatus{}, fmt.Errorf("turn %s was not found: %w", turnID, err)
+	}
 	if !ok {
-		return RuntimeStatus{}, fmt.Errorf("turn %s was not found", turnID)
+		state = runtimeRequestState{SessionID: turn.SessionID}
 	}
 
 	if err := r.runtime.CancelSession(wsID, state.SessionID); err != nil {
 		return RuntimeStatus{}, fmt.Errorf("failed to cancel session: %w", err)
 	}
 	now := time.Now()
+	turn.Status = turnStatusCancelling
+	if _, err := r.turns.Upsert(ctx, turn); err != nil {
+		return RuntimeStatus{}, err
+	}
 	r.mu.Lock()
 	state.Cancelled = true
 	state.Status = "cancelled"
@@ -217,6 +241,11 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 	}
 	r.requests[turnID] = state
 	r.mu.Unlock()
+	turn.FinishedAt = now.UnixMilli()
+	turn.Status = turnStatusCancelled
+	if _, err := r.turns.Upsert(ctx, turn); err != nil {
+		return RuntimeStatus{}, err
+	}
 	r.writeAudit(auditEntry{
 		RequestID:   turnID,
 		Event:       "cancel_requested",
@@ -317,6 +346,28 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 		slog.Info("Desktop chat finished", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "provider", provider, "model", model, "duration", duration.String(), "content_len", entry.ResponseLength, "finish_reason", entry.FinishReason)
 	}
 	r.writeAudit(entry)
+	turnStatus := turnStatusCompleted
+	if entry.Event == "failed" {
+		turnStatus = turnStatusFailed
+	} else if entry.Event == "cancelled" {
+		turnStatus = turnStatusCancelled
+	}
+	_, _ = r.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:                       requestID,
+		SessionID:                sessionID,
+		Status:                   turnStatus,
+		LatestAssistantMessageID: entry.LatestAssistantID,
+		LatestMessageID:          entry.LatestAssistantID,
+		Provider:                 provider,
+		Model:                    model,
+		PromptPreview:            preview(prompt, auditPreviewLimit),
+		UsageBefore:              usageBefore,
+		UsageAfter:               usageAfter,
+		UsageDelta:               usageDelta,
+		StartedAt:                start.UnixMilli(),
+		FinishedAt:               time.Now().UnixMilli(),
+		Error:                    entry.Error,
+	})
 	r.storeRuntimeEvent(newUsageRuntimeEvent(time.Now(), requestID, sessionID, usageAfter, usageDelta))
 	r.storeRuntimeEvent(newTurnFinishedRuntimeEvent(time.Now(), requestID, sessionID, entry.Event, duration, provider, model, usageDelta, entry.Error))
 }

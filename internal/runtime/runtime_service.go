@@ -28,5 +28,4 @@ func newRuntimeService() *runtimeService {
 	service.httpAPI = newRuntimeHTTPServer(service)
 
 	return service
-
 }

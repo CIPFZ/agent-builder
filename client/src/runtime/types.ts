@@ -33,6 +33,8 @@ export type RuntimeTurn = {
   id: string
   sessionId: string
   status: string
+  userMessageId?: string
+  latestAssistantMessageId?: string
   startedAt: number
   finishedAt?: number
   durationMs?: number
@@ -332,6 +334,7 @@ export type AgentRuntime = {
   listPermissions: () => Promise<RuntimePermissionRequest[]>
   listSessions: () => Promise<RuntimeSession[]>
   listSkills: () => Promise<RuntimeSkill[]>
+  listTurns: (status?: string) => Promise<RuntimeTurn[]>
   listTurnToolCalls: (turnId: string) => Promise<RuntimeToolCall[]>
   createSkill: (request: RuntimeSkillCreateRequest) => Promise<RuntimeSkill[]>
   newChat: (title: string) => Promise<RuntimeStatus>

@@ -1150,6 +1150,8 @@ type recordingRuntimeService struct {
 	addedSkillPath   string
 	cancelledTurn    string
 	turn             RuntimeTurnResponse
+	turns            RuntimeTurnsResponse
+	turnsStatus      string
 	toolCall         RuntimeToolCallResponse
 	toolCalls        RuntimeToolCallsResponse
 }
@@ -1186,6 +1188,11 @@ func (s *recordingRuntimeService) Chat(context.Context, RuntimeChatRequest) (Run
 
 func (s *recordingRuntimeService) Turn(context.Context, string) (RuntimeTurnResponse, error) {
 	return s.turn, nil
+}
+
+func (s *recordingRuntimeService) Turns(_ context.Context, status string) (RuntimeTurnsResponse, error) {
+	s.turnsStatus = status
+	return s.turns, nil
 }
 
 func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeToolCallResponse, error) {

@@ -197,6 +197,11 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
       const response = await get<{ skills: RuntimeSkill[] }>('/v1/skills')
       return response.skills
     },
+    async listTurns(status?: string) {
+      const query = status ? `?status=${encodeURIComponent(status)}` : ''
+      const response = await get<{ turns: RuntimeTurn[] }>(`/v1/turns${query}`)
+      return response.turns
+    },
     newChat(title: string) {
       return post<RuntimeStatus>('/v1/sessions', { title })
     },

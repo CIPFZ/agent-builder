@@ -97,7 +97,7 @@ func (r *runtimeService) writeRuntimeAuditEvent(ctx context.Context, entry audit
 	event := RuntimeAuditEvent{
 		ID:        newRuntimeEventID(),
 		SessionID: entry.SessionID,
-		TurnID:    firstNonEmpty(entry.RequestID, entry.SessionID),
+		TurnID:    entry.RequestID,
 		Type:      entry.Event,
 		CreatedAt: firstNonEmpty(entry.Timestamp, time.Now().UTC().Format(time.RFC3339Nano)),
 		Payload:   payload,

@@ -40,25 +40,31 @@ type RuntimeChatResponse struct {
 }
 
 type RuntimeTurn struct {
-	ID              string         `json:"id"`
-	SessionID       string         `json:"sessionId"`
-	Status          string         `json:"status"`
-	StartedAt       int64          `json:"startedAt"`
-	FinishedAt      int64          `json:"finishedAt,omitempty"`
-	DurationMS      int64          `json:"durationMs,omitempty"`
-	Provider        string         `json:"provider,omitempty"`
-	Model           string         `json:"model,omitempty"`
-	PromptPreview   string         `json:"promptPreview,omitempty"`
-	UsageBefore     RuntimeUsage   `json:"usageBefore,omitempty"`
-	UsageAfter      RuntimeUsage   `json:"usageAfter,omitempty"`
-	UsageDelta      RuntimeUsage   `json:"usageDelta,omitempty"`
-	LatestMessageID string         `json:"latestMessageId,omitempty"`
-	LatestAssistant RuntimeMessage `json:"latestAssistant,omitempty"`
-	Error           string         `json:"error,omitempty"`
+	ID                       string         `json:"id"`
+	SessionID                string         `json:"sessionId"`
+	Status                   string         `json:"status"`
+	UserMessageID            string         `json:"userMessageId,omitempty"`
+	LatestAssistantMessageID string         `json:"latestAssistantMessageId,omitempty"`
+	StartedAt                int64          `json:"startedAt"`
+	FinishedAt               int64          `json:"finishedAt,omitempty"`
+	DurationMS               int64          `json:"durationMs,omitempty"`
+	Provider                 string         `json:"provider,omitempty"`
+	Model                    string         `json:"model,omitempty"`
+	PromptPreview            string         `json:"promptPreview,omitempty"`
+	UsageBefore              RuntimeUsage   `json:"usageBefore,omitempty"`
+	UsageAfter               RuntimeUsage   `json:"usageAfter,omitempty"`
+	UsageDelta               RuntimeUsage   `json:"usageDelta,omitempty"`
+	LatestMessageID          string         `json:"latestMessageId,omitempty"`
+	LatestAssistant          RuntimeMessage `json:"latestAssistant,omitempty"`
+	Error                    string         `json:"error,omitempty"`
 }
 
 type RuntimeTurnResponse struct {
 	Turn RuntimeTurn `json:"turn"`
+}
+
+type RuntimeTurnsResponse struct {
+	Turns []RuntimeTurn `json:"turns"`
 }
 
 type RuntimeToolCall struct {

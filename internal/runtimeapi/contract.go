@@ -30,6 +30,7 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/messages"},
 	{Method: MethodPost, Path: "/v1/sessions/{session_id}/turns"},
+	{Method: MethodGet, Path: "/v1/turns"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/tool-calls"},
 	{Method: MethodGet, Path: "/v1/tool-calls/{tool_call_id}"},
@@ -65,6 +66,7 @@ const (
 	EventTurnCompleted           = "turn.completed"
 	EventTurnFailed              = "turn.failed"
 	EventTurnCancelled           = "turn.cancelled"
+	EventTurnInterrupted         = "turn.interrupted"
 	EventMessageCreated          = "message.created"
 	EventMessageUpdated          = "message.updated"
 	EventMessageCompleted        = "message.completed"
@@ -102,6 +104,7 @@ var EventTypes = []string{
 	EventTurnCompleted,
 	EventTurnFailed,
 	EventTurnCancelled,
+	EventTurnInterrupted,
 	EventMessageCreated,
 	EventMessageUpdated,
 	EventMessageCompleted,

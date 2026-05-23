@@ -199,6 +199,34 @@ func TestRuntimeHTTPServerRoutesTurnGetAndCancelToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesTurnsQueryToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		turns: RuntimeTurnsResponse{Turns: []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "running"}}},
+	}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodGet, "/v1/turns?status=active", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	var turns RuntimeTurnsResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &turns); err != nil {
+		t.Fatal(err)
+	}
+	if len(turns.Turns) != 1 || turns.Turns[0].ID != "turn-1" {
+		t.Fatalf("turns = %#v", turns.Turns)
+	}
+	if service.turnsStatus != "active" {
+		t.Fatalf("turns status = %q, want active", service.turnsStatus)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesToolCallQueriesToRuntimeService(t *testing.T) {
 	t.Parallel()
 

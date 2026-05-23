@@ -90,6 +90,13 @@ func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspac
 					_, _ = r.toolCalls.MarkWaitingPermission(context.Background(), perm.ToolCallID)
 				}
 			}
+			if perm.TurnID != "" {
+				turn, err := r.turns.Get(context.Background(), perm.TurnID)
+				if err == nil {
+					turn.Status = turnStatusWaitingPermission
+					_, _ = r.turns.Upsert(context.Background(), turn)
+				}
+			}
 			r.permissions[perm.ID] = pendingRuntimePermission{
 				Permission: runtimePerm,
 				Raw:        perm,
@@ -104,6 +111,7 @@ func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspac
 
 			slog.Info("Desktop permission requested", "workspace_id", workspaceID, "session_id", perm.SessionID, "tool", perm.ToolName, "action", perm.Action, "path", perm.Path)
 			r.writeAudit(auditEntry{
+				RequestID:        perm.TurnID,
 				Event:            "permission_requested",
 				Timestamp:        time.Now().Format(time.RFC3339Nano),
 				WorkspaceID:      workspaceID,

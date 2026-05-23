@@ -163,6 +163,12 @@ export const wailsRuntime: AgentRuntime = {
     return response.skills
   },
 
+  async listTurns(status?: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.Turns(status ?? '')
+    return response.turns
+  },
+
   async newChat(title: string) {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.NewChat(title)

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,6 +16,10 @@ type runtimeToolCallStore = *scheduler.Scheduler
 
 func NewRuntimeToolCallStore() scheduler.Store {
 	return scheduler.NewMemoryStore()
+}
+
+func NewRuntimeToolCallStoreForDB(db *sql.DB) scheduler.Store {
+	return newRuntimeSQLiteToolCallStore(db)
 }
 
 func (r *runtimeService) ToolCall(ctx context.Context, toolCallID string) (RuntimeToolCallResponse, error) {

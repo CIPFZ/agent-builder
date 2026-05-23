@@ -58,6 +58,10 @@ func (s *recordingRuntimeService) Turn(context.Context, string) (RuntimeTurnResp
 	return RuntimeTurnResponse{}, nil
 }
 
+func (s *recordingRuntimeService) Turns(context.Context, string) (RuntimeTurnsResponse, error) {
+	return RuntimeTurnsResponse{}, nil
+}
+
 func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeToolCallResponse, error) {
 	return RuntimeToolCallResponse{}, nil
 }

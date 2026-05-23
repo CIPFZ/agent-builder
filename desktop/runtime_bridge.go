@@ -14,6 +14,7 @@ type RuntimeChatRequest = runtime.RuntimeChatRequest
 type RuntimeChatResponse = runtime.RuntimeChatResponse
 type RuntimeTurn = runtime.RuntimeTurn
 type RuntimeTurnResponse = runtime.RuntimeTurnResponse
+type RuntimeTurnsResponse = runtime.RuntimeTurnsResponse
 type RuntimeToolCall = runtime.RuntimeToolCall
 type RuntimeToolCallResponse = runtime.RuntimeToolCallResponse
 type RuntimeToolCallsResponse = runtime.RuntimeToolCallsResponse
@@ -120,6 +121,12 @@ func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (Runti
 func (r *RuntimeBridge) Turn(ctx context.Context, turnID string) (RuntimeTurnResponse, error) {
 
 	return r.service.Turn(ctx, turnID)
+
+}
+
+func (r *RuntimeBridge) Turns(ctx context.Context, status string) (RuntimeTurnsResponse, error) {
+
+	return r.service.Turns(ctx, status)
 
 }
 

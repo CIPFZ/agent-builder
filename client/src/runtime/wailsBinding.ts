@@ -64,6 +64,7 @@ type WailsRuntimeBridge = {
   Status: () => Promise<RuntimeStatus>
   ToolCall: (toolCallId: string) => Promise<{ toolCall: RuntimeToolCall }>
   Turn: (turnId: string) => Promise<{ turn: RuntimeTurn }>
+  Turns: (status: string) => Promise<{ turns: RuntimeTurn[] }>
   TurnToolCalls: (turnId: string) => Promise<{ toolCalls: RuntimeToolCall[] }>
   VerifyModelConfig: (request: RuntimeModelConfig) => Promise<RuntimeModelVerifyResponse>
 }

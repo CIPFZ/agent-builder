@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/db"
 	crushlog "github.com/charmbracelet/crush/internal/log"
 	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/charmbracelet/crush/internal/runtimeapi"
 	"github.com/charmbracelet/crush/internal/tools/scheduler"
 	"github.com/charmbracelet/crush/internal/version"
 )
@@ -75,7 +77,8 @@ func (r *runtimeService) restart() {
 	r.requests = make(map[string]runtimeRequestState)
 	r.sessionTurns = make(map[string]string)
 	r.toolEvents = make(map[string]runtimeToolEventState)
-	r.toolCalls = scheduler.New(NewRuntimeToolCallStore())
+	r.toolCalls = nil
+	r.turns = runtimeTurnStore{}
 	r.permissions = make(map[string]pendingRuntimePermission)
 	r.events = nil
 }
@@ -169,6 +172,46 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 
 	if err := r.runtime.UpdateAgent(runtimeCtx, ws.ID); err != nil {
 		return fmt.Errorf("failed to update Crush agent model: %w", err)
+	}
+
+	conn, err := db.Connect(ctx, wsRuntime.Cfg.Config().Options.DataDirectory)
+	if err != nil {
+		return fmt.Errorf("failed to connect runtime state store: %w", err)
+	}
+	r.turns = newRuntimeTurnStore(conn)
+	r.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	interrupted, err := r.turns.InterruptUnfinished(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to recover runtime turns: %w", err)
+	}
+	for _, turn := range interrupted {
+		r.storeRuntimeEvent(runtimeapi.Event{
+			ID:        newRuntimeEventID(),
+			Type:      runtimeapi.EventTurnInterrupted,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			SessionID: turn.SessionID,
+			TurnID:    turn.ID,
+			Payload: map[string]any{
+				"status": turnStatusInterrupted,
+				"error":  turn.Error,
+			},
+		})
+		_ = newRuntimeAuditStore(conn).Append(ctx, RuntimeAuditEvent{
+			ID:        newRuntimeEventID(),
+			SessionID: turn.SessionID,
+			TurnID:    turn.ID,
+			Type:      turnStatusInterrupted,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			Payload: map[string]any{
+				"request_id":   turn.ID,
+				"event":        turnStatusInterrupted,
+				"workspace_id": ws.ID,
+				"session_id":   turn.SessionID,
+				"provider":     turn.Provider,
+				"model":        turn.Model,
+				"error":        turn.Error,
+			},
+		})
 	}
 
 	last, listErr := r.runtime.ListSessions(ctx, ws.ID)

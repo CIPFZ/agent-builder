@@ -120,6 +120,10 @@ export async function requestRuntimeAudit(turnId: string) {
   return getAgentRuntime().auditTurn(turnId)
 }
 
+export async function requestRuntimeTurns(status?: string) {
+  return getAgentRuntime().listTurns(status)
+}
+
 export async function requestRuntimeSessionAudit(sessionId: string) {
   return getAgentRuntime().auditSession(sessionId)
 }
