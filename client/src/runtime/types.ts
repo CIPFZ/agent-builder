@@ -121,6 +121,15 @@ export type RuntimeEventsResponse = {
   last_sequence?: number
 }
 
+export type RuntimeRecoveryStatus = {
+  runtime_started_at: string
+  last_event_sequence: number
+  active_turns: RuntimeTurn[]
+  interrupted_turns: RuntimeTurn[]
+  pending_permissions: RuntimePermissionRequest[]
+  snapshot_required?: boolean
+}
+
 export type RuntimeAPIEndpoint = {
   url: string
   token: string
@@ -324,6 +333,7 @@ export type AgentRuntime = {
   deleteSession: (sessionId: string) => Promise<RuntimeSession[]>
   decidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>
   getModelConfig: () => Promise<RuntimeModelConfig>
+  getRecoveryStatus: () => Promise<RuntimeRecoveryStatus>
   getAPIEndpoint: () => Promise<RuntimeAPIEndpoint>
   getTurn: (turnId: string) => Promise<RuntimeTurn>
   getToolCall: (toolCallId: string) => Promise<RuntimeToolCall>

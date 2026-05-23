@@ -63,6 +63,11 @@ export const wailsRuntime: AgentRuntime = {
     return response.config
   },
 
+  async getRecoveryStatus() {
+    const bridge = await loadWailsRuntimeBridge()
+    return bridge.RecoveryStatus()
+  },
+
   async getAPIEndpoint() {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.APIEndpoint()

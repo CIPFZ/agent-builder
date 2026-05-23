@@ -106,6 +106,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/runtime/status":
 		value, err := s.service.Status(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/recovery/status":
+		value, err := s.service.RecoveryStatus(r.Context())
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/config/model":
 		value, err := s.service.GetModelConfig(r.Context())
 		writeRuntimeResult(w, value, err)

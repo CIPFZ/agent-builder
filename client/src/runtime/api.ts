@@ -68,6 +68,10 @@ export async function requestRuntimeStatus() {
   return getAgentRuntime().status()
 }
 
+export async function requestRuntimeRecoveryStatus() {
+  return getAgentRuntime().getRecoveryStatus()
+}
+
 export async function requestRuntimeMessages() {
   return getAgentRuntime().listMessages()
 }

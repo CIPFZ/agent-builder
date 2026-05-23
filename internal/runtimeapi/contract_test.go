@@ -11,6 +11,7 @@ func TestEndpointsFreezePhase2MinimalAPI(t *testing.T) {
 
 	expected := []Endpoint{
 		{Method: MethodGet, Path: "/v1/runtime/status"},
+		{Method: MethodGet, Path: "/v1/recovery/status"},
 		{Method: MethodGet, Path: "/v1/config/model"},
 		{Method: MethodPut, Path: "/v1/config/model"},
 		{Method: MethodPost, Path: "/v1/config/model/verify"},

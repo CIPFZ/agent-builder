@@ -29,6 +29,10 @@ func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error)
 	return RuntimeStatus{}, nil
 }
 
+func (s *recordingRuntimeService) RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error) {
+	return RuntimeRecoveryStatus{}, nil
+}
+
 func (s *recordingRuntimeService) Models(context.Context) (RuntimeModelsResponse, error) {
 	return RuntimeModelsResponse{}, nil
 }

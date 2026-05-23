@@ -9,7 +9,7 @@ import type { MenuProps } from 'antd'
 import { AppstoreOutlined, AuditOutlined, CodeOutlined, DownOutlined, EditOutlined, MenuOutlined, SettingOutlined, StopOutlined, ToolOutlined } from '@ant-design/icons'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
 import type { ModelConfig } from '../../runtime/api'
-import type { RuntimeMessage, RuntimeSession, RuntimeStatus } from '../../runtime'
+import type { RuntimeMessage, RuntimeSession, RuntimeStatus, RuntimeTurn } from '../../runtime'
 import { Composer } from './Composer'
 import { MessageItem } from './MessageItem'
 import { UsageReadout } from './UsageReadout'
@@ -33,6 +33,7 @@ function greeting() {
 type ChatWorkspaceProps = {
   activeChatTitle: string
   activeSession?: RuntimeSession
+  activeTurns: RuntimeTurn[]
   composerInputRef: RefObject<TextAreaRef | null>
   config: ModelConfig
   configLoaded: boolean
@@ -59,6 +60,7 @@ type ChatWorkspaceProps = {
 export function ChatWorkspace({
   activeChatTitle,
   activeSession,
+  activeTurns,
   composerInputRef,
   config,
   configLoaded,
@@ -95,7 +97,7 @@ export function ChatWorkspace({
           <UsageReadout status={runtimeStatus} />
         </Space>
         <Space size={4}>
-          {runtimeStatus?.busy || isSending ? (
+          {runtimeStatus?.busy || isSending || activeTurns.length > 0 ? (
             <Tooltip title="Cancel current run">
               <Button type="text" danger icon={<StopOutlined />} onClick={onCancelTurn} />
             </Tooltip>
@@ -151,6 +153,7 @@ export function ChatWorkspace({
               />
             ) : null}
             {lastError && isModelConfigured ? <Alert className="runtime-alert" type="error" showIcon message={lastError} /> : null}
+            {activeTurns.length > 0 ? <Alert className="runtime-alert" type="info" showIcon message={`Recovered ${activeTurns.length} active turn${activeTurns.length === 1 ? '' : 's'}.`} /> : null}
           </section>
         ) : (
           <section className="thread">

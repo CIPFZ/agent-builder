@@ -16,16 +16,22 @@ func (r *runtimeService) Permissions(ctx context.Context) (RuntimePermissionsRes
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimePermissionsResponse{}, err
 	}
+	if _, err := r.reconcilePendingPermissions(ctx); err != nil {
+		return RuntimePermissionsResponse{}, err
+	}
+	if r.permissionStore.db != nil {
+		permissions, err := r.permissionStore.List(ctx, permissionStatusPending)
+		if err != nil {
+			return RuntimePermissionsResponse{}, err
+		}
+		return RuntimePermissionsResponse{Permissions: permissions}, nil
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	permissions := make([]RuntimePermissionRequest, 0, len(r.permissions))
-	activeSession := r.sessionID
 	for _, pending := range r.permissions {
-		if activeSession != "" && pending.Permission.SessionID != activeSession {
-			continue
-		}
 		permissions = append(permissions, pending.Permission)
 	}
 	return RuntimePermissionsResponse{Permissions: permissions}, nil
@@ -45,6 +51,29 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 	wsID := r.workspace.ID
 	pending, ok := r.permissions[req.PermissionID]
 	r.mu.Unlock()
+	if !ok && r.permissionStore.db != nil {
+		if perm, err := r.permissionStore.Get(ctx, req.PermissionID); err == nil && perm.Status == permissionStatusPending {
+			pending = pendingRuntimePermission{
+				Permission: perm,
+				Raw: permission.PermissionRequest{
+					ID:          perm.ID,
+					SessionID:   perm.SessionID,
+					TurnID:      perm.TurnID,
+					ToolCallID:  perm.ToolCallID,
+					ToolName:    perm.ToolName,
+					Description: perm.Description,
+					Action:      perm.Action,
+					Params:      perm.Params,
+					Path:        perm.Path,
+					Risk:        permission.Risk(perm.Risk),
+					Status:      perm.Status,
+					CreatedAt:   perm.CreatedAt,
+					DecidedAt:   perm.DecidedAt,
+				},
+			}
+			ok = true
+		}
+	}
 	if !ok {
 		return RuntimeStatus{}, fmt.Errorf("permission request %s is not pending", req.PermissionID)
 	}
@@ -59,6 +88,9 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 	r.mu.Lock()
 	delete(r.permissions, req.PermissionID)
 	r.mu.Unlock()
+	if r.permissionStore.db != nil {
+		_, _ = r.permissionStore.Mark(ctx, req.PermissionID, permissionStatusForDecision(action), time.Now().UnixMilli())
+	}
 	if r.toolCalls != nil {
 		switch action {
 		case proto.PermissionDeny:
@@ -167,12 +199,67 @@ func toProtoPermissionRequest(perm permission.PermissionRequest) proto.Permissio
 func permissionStatusForDecision(action proto.PermissionAction) string {
 	switch action {
 	case proto.PermissionAllow:
-		return "allowed_once"
+		return permissionStatusAllowedOnce
 	case proto.PermissionAllowForSession:
-		return "allowed_session"
+		return permissionStatusAllowedSession
 	case proto.PermissionDeny:
-		return "denied"
+		return permissionStatusDenied
 	default:
 		return string(action)
+	}
+}
+
+func (r *runtimeService) reconcilePendingPermissions(ctx context.Context) ([]RuntimePermissionRequest, error) {
+	if r.permissionStore.db == nil {
+		return nil, nil
+	}
+	pending, err := r.permissionStore.List(ctx, permissionStatusPending)
+	if err != nil {
+		return nil, err
+	}
+	var expired []RuntimePermissionRequest
+	for _, perm := range pending {
+		status := ""
+		if perm.TurnID == "" {
+			status = permissionStatusExpired
+		} else if turn, err := r.turns.Get(ctx, perm.TurnID); err != nil || isFinalTurnStatus(turn.Status) {
+			status = permissionStatusExpired
+			if err == nil && turn.Status == turnStatusCancelled {
+				status = permissionStatusCancelled
+			}
+		}
+		if status == "" && perm.ToolCallID != "" && r.toolCalls != nil {
+			if call, err := r.toolCalls.GetCall(ctx, perm.ToolCallID); err == nil && isFinalToolCallStatus(string(call.Status)) {
+				status = permissionStatusExpired
+				if string(call.Status) == "cancelled" {
+					status = permissionStatusCancelled
+				}
+			}
+		}
+		if status == "" {
+			continue
+		}
+		marked, err := r.permissionStore.Mark(ctx, perm.ID, status, time.Now().UnixMilli())
+		if err != nil {
+			return nil, err
+		}
+		r.mu.Lock()
+		delete(r.permissions, perm.ID)
+		r.mu.Unlock()
+		expired = append(expired, marked)
+	}
+	return expired, nil
+}
+
+func (r *runtimeService) expireInvalidPendingPermissions(ctx context.Context) ([]RuntimePermissionRequest, error) {
+	return r.reconcilePendingPermissions(ctx)
+}
+
+func isFinalToolCallStatus(status string) bool {
+	switch status {
+	case "completed", "failed", "cancelled", "denied":
+		return true
+	default:
+		return false
 	}
 }

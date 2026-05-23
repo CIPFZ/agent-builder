@@ -14,6 +14,7 @@ import (
 // the local HTTP adapter.
 type RuntimeService interface {
 	Status(context.Context) (RuntimeStatus, error)
+	RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error)
 	Models(context.Context) (RuntimeModelsResponse, error)
 	GetModelConfig(context.Context) (RuntimeConfigResponse, error)
 	SaveModelConfig(context.Context, RuntimeModelConfig) (RuntimeConfigResponse, error)
@@ -72,7 +73,9 @@ type runtimeService struct {
 	toolEvents        map[string]runtimeToolEventState
 	toolCalls         runtimeToolCallStore
 	turns             runtimeTurnStore
+	permissionStore   runtimePermissionStore
 	permissions       map[string]pendingRuntimePermission
+	recovery          runtimeRecoveryRecord
 	events            []RuntimeEvent
 	nextEventSequence int64
 	eventStream       *runtimeSSEServer

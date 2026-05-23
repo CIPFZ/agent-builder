@@ -47,6 +47,7 @@ export function AssistantClient() {
         <ChatWorkspace
           activeChatTitle={client.activeChatTitle}
           activeSession={client.activeSession}
+          activeTurns={client.activeTurns}
           composerInputRef={client.composerInputRef}
           config={client.config}
           configLoaded={client.configLoaded}

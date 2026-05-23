@@ -71,6 +71,51 @@ func TestRuntimeHTTPServerRoutesStatusToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesRecoveryStatusToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		recoveryStatus: RuntimeRecoveryStatus{
+			RuntimeStartedAt:  "2026-05-23T00:00:00Z",
+			LastEventSequence: 7,
+			ActiveTurns:       []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "running"}},
+			InterruptedTurns:  []RuntimeTurn{{ID: "turn-2", SessionID: "session-1", Status: "interrupted"}},
+			PendingPermissions: []RuntimePermissionRequest{{
+				ID:         "perm-1",
+				SessionID:  "session-1",
+				TurnID:     "turn-1",
+				ToolCallID: "tool-1",
+				ToolName:   "bash",
+				Action:     "execute",
+				Risk:       "execute",
+				Status:     "pending",
+				CreatedAt:  1000,
+			}},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodGet, "/v1/recovery/status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.recoveryStatusCalls != 1 {
+		t.Fatalf("recoveryStatusCalls = %d, want 1", service.recoveryStatusCalls)
+	}
+	var recovery RuntimeRecoveryStatus
+	if err := json.Unmarshal(resp.body.Bytes(), &recovery); err != nil {
+		t.Fatal(err)
+	}
+	if recovery.LastEventSequence != 7 || len(recovery.ActiveTurns) != 1 || len(recovery.PendingPermissions) != 1 {
+		t.Fatalf("recovery = %#v", recovery)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesModelVerifyToRuntimeService(t *testing.T) {
 	t.Parallel()
 

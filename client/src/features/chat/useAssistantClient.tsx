@@ -19,11 +19,13 @@ import {
   requestRuntimeMcpTools,
   requestRuntimeMessages,
   requestRuntimePermissions,
+  requestRuntimeRecoveryStatus,
   requestRuntimeSessionAudit,
   requestRuntimeSessionMessages,
   requestRuntimeSessions,
   requestRuntimeSkills,
   requestRuntimeStatus,
+  requestRuntimeTurns,
   renameRuntimeSession,
   saveModelConfig,
   selectRuntimeSession,
@@ -45,6 +47,7 @@ import type {
   RuntimeMessage,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
+  RuntimeTurn,
   RuntimeSession,
   RuntimeSkill,
   RuntimeStatus,
@@ -67,6 +70,7 @@ export function useAssistantClient() {
   const { modal } = AntApp.useApp()
   const [messages, setMessages] = useState<RuntimeMessage[]>([])
   const [permissions, setPermissions] = useState<RuntimePermissionRequest[]>([])
+  const [activeTurns, setActiveTurns] = useState<RuntimeTurn[]>([])
   const [events, setEvents] = useState<RuntimeEvent[]>([])
   const [sessions, setSessions] = useState<RuntimeSession[]>([])
   const [skills, setSkills] = useState<RuntimeSkill[]>([])
@@ -147,6 +151,12 @@ export function useAssistantClient() {
     return nextPermissions
   }
 
+  const refreshActiveTurns = async () => {
+    const nextTurns = await requestRuntimeTurns('active')
+    setActiveTurns(nextTurns)
+    return nextTurns
+  }
+
   const refreshRuntimeInventory = async () => {
     const [nextSkills, nextMcpServers, nextCapabilities] = await Promise.all([
       requestRuntimeSkills(),
@@ -172,7 +182,7 @@ export function useAssistantClient() {
 
   const refreshAudit = async (turnId?: string) => {
     const activeID = activeSessionIdRef.current
-    const id = turnId || runtimeStatus?.requests?.activeRequestId || [...events].reverse().find((event) => event.turn_id)?.turn_id
+    const id = turnId || runtimeStatus?.requests?.activeRequestId || activeTurns[0]?.id || [...events].reverse().find((event) => event.turn_id)?.turn_id
     const nextAudit = id
       ? await requestRuntimeAudit(id)
       : activeID
@@ -182,11 +192,11 @@ export function useAssistantClient() {
   }
 
   const refreshRuntimeSnapshot = useCallback(async () => {
-    const [nextStatus, runtimeSessions, runtimePermissions, runtimeEvents, runtimeSkills, runtimeMcpServers, runtimeCapabilities] =
+    const [nextStatus, recovery, runtimeSessions, runtimeEvents, runtimeSkills, runtimeMcpServers, runtimeCapabilities] =
       await Promise.all([
         requestRuntimeStatus(),
+        requestRuntimeRecoveryStatus(),
         requestRuntimeSessions(),
-        requestRuntimePermissions(),
         requestRuntimeEvents(),
         requestRuntimeSkills(),
         requestRuntimeMcpServers(),
@@ -200,9 +210,10 @@ export function useAssistantClient() {
     setSessions(runtimeSessions)
     setActiveChatTitle(runtimeSessions.find((session) => session.active)?.title ?? 'New chat')
     setMessages(runtimeMessages)
-    setPermissions(runtimePermissions)
+    setPermissions(recovery.pending_permissions)
+    setActiveTurns(recovery.active_turns)
     setEvents(runtimeEvents.events)
-    lastEventSequenceRef.current = runtimeEvents.last_sequence ?? runtimeEvents.events.at(-1)?.sequence ?? 0
+    lastEventSequenceRef.current = recovery.last_event_sequence || runtimeEvents.last_sequence || runtimeEvents.events.at(-1)?.sequence || 0
     setSkills(runtimeSkills)
     setMcpServers(runtimeMcpServers)
     setCapabilities(runtimeCapabilities)
@@ -253,27 +264,28 @@ export function useAssistantClient() {
     let cancelled = false
     Promise.all([
       requestRuntimeStatus(),
+      requestRuntimeRecoveryStatus(),
       requestRuntimeSessions(),
-      requestRuntimePermissions(),
-      requestRuntimeEvents(),
       requestRuntimeSkills(),
       requestRuntimeMcpServers(),
       requestRuntimeCapabilities(),
     ])
-      .then(async ([nextStatus, runtimeSessions, runtimePermissions, runtimeEvents, runtimeSkills, runtimeMcpServers, runtimeCapabilities]) => {
+      .then(async ([nextStatus, recovery, runtimeSessions, runtimeSkills, runtimeMcpServers, runtimeCapabilities]) => {
         if (cancelled) return
         const runtimeMessages = nextStatus.sessionId
           ? await requestRuntimeSessionMessages(nextStatus.sessionId)
           : await requestRuntimeMessages()
+        const runtimeEvents = await requestRuntimeEvents()
         if (cancelled) return
         activeSessionIdRef.current = nextStatus.sessionId
         setRuntimeStatus(nextStatus)
         setSessions(runtimeSessions)
         setActiveChatTitle(runtimeSessions.find((session) => session.active)?.title ?? 'New chat')
         setMessages(runtimeMessages)
-        setPermissions(runtimePermissions)
+        setPermissions(recovery.pending_permissions)
+        setActiveTurns(recovery.active_turns)
         setEvents(runtimeEvents.events)
-        lastEventSequenceRef.current = runtimeEvents.last_sequence ?? runtimeEvents.events.at(-1)?.sequence ?? 0
+        lastEventSequenceRef.current = recovery.last_event_sequence || runtimeEvents.last_sequence || runtimeEvents.events.at(-1)?.sequence || 0
         setSkills(runtimeSkills)
         setMcpServers(runtimeMcpServers)
         setCapabilities(runtimeCapabilities)
@@ -297,6 +309,11 @@ export function useAssistantClient() {
     }
     if (event.type === 'permission.requested') {
       refreshPermissions().catch(() => undefined)
+      refreshActiveTurns().catch(() => undefined)
+      refreshStatus().catch(() => undefined)
+    }
+    if (event.type.startsWith('turn.')) {
+      refreshActiveTurns().catch(() => undefined)
       refreshStatus().catch(() => undefined)
     }
     if (event.type.startsWith('skill.') || event.type.startsWith('mcp.')) {
@@ -378,6 +395,7 @@ export function useAssistantClient() {
         setRuntimeStatus(nextStatus)
         setMessages([])
         setPermissions([])
+        setActiveTurns([])
         setAuditEvents([])
         setActiveChatTitle('New chat')
         refreshSessions().catch(() => undefined)
@@ -418,11 +436,18 @@ export function useAssistantClient() {
         throw new Error('Runtime did not create a session for this message.')
       }
       const activeTurnId = turn.turnId || turn.requestId
+      if (activeTurnId) {
+        setActiveTurns((current) => [
+          { id: activeTurnId, sessionId, status: 'running', startedAt: Date.now() },
+          ...current.filter((item) => item.id !== activeTurnId),
+        ])
+      }
       setRuntimeStatus(turn.status)
       activeSessionIdRef.current = sessionId
       let runtimeMessages = await loadMessagesForSession(sessionId)
       setMessages(runtimeMessages)
       await refreshPermissions().catch(() => undefined)
+      await refreshActiveTurns().catch(() => undefined)
       let nextStatus = await refreshStatus().catch(() => runtimeStatus)
       const started = Date.now()
       while (Date.now() - started < 30 * 60 * 1000) {
@@ -430,6 +455,7 @@ export function useAssistantClient() {
         runtimeMessages = await requestRuntimeSessionMessages(sessionId).catch(() => runtimeMessages)
         setMessages(runtimeMessages)
         await refreshPermissions().catch(() => undefined)
+        await refreshActiveTurns().catch(() => undefined)
         nextStatus = await refreshStatus().catch(() => nextStatus)
         scrollToBottom()
         const latestAssistant = [...runtimeMessages].reverse().find((chatMessage) => chatMessage.role === 'assistant')
@@ -441,6 +467,7 @@ export function useAssistantClient() {
       runtimeMessages = await requestRuntimeSessionMessages(sessionId).catch(() => runtimeMessages)
       setMessages(runtimeMessages)
       await refreshPermissions().catch(() => undefined)
+      await refreshActiveTurns().catch(() => undefined)
       await refreshStatus().catch(() => undefined)
       if (activeTurnId) {
         await refreshAudit(activeTurnId).catch(() => undefined)
@@ -463,13 +490,15 @@ export function useAssistantClient() {
       const nextStatus = await selectRuntimeSession(sessionId)
       activeSessionIdRef.current = nextStatus.sessionId
       setRuntimeStatus(nextStatus)
-      const [runtimeMessages, runtimePermissions, nextAudit] = await Promise.all([
+      const [runtimeMessages, runtimePermissions, runtimeActiveTurns, nextAudit] = await Promise.all([
         requestRuntimeSessionMessages(sessionId),
         requestRuntimePermissions(),
+        requestRuntimeTurns('active'),
         requestRuntimeSessionAudit(sessionId).catch(() => []),
       ])
       setMessages(runtimeMessages)
       setPermissions(runtimePermissions)
+      setActiveTurns(runtimeActiveTurns)
       setAuditEvents(nextAudit)
       await refreshSessions().catch(() => undefined)
       scrollToBottom()
@@ -536,6 +565,7 @@ export function useAssistantClient() {
             setMessages([])
             setAuditEvents([])
             setPermissions([])
+            setActiveTurns([])
             setActiveChatTitle('New chat')
           }
         } catch (error) {
@@ -558,6 +588,7 @@ export function useAssistantClient() {
       const nextStatus = await decideRuntimePermission({ permissionId, action })
       setRuntimeStatus(nextStatus)
       setPermissions((current) => current.filter((permission) => permission.id !== permissionId))
+      await refreshActiveTurns().catch(() => undefined)
       message.success(action === 'deny' ? 'Permission denied' : 'Permission granted')
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
@@ -568,12 +599,13 @@ export function useAssistantClient() {
 
   const cancelTurn = async () => {
     try {
-      const activeTurnId = runtimeStatus?.requests?.activeRequestId || [...events].reverse().find((event) => event.turn_id)?.turn_id
+      const activeTurnId = runtimeStatus?.requests?.activeRequestId || activeTurns[0]?.id || [...events].reverse().find((event) => event.turn_id)?.turn_id
       const nextStatus = activeTurnId ? await cancelRuntimeTurnById(activeTurnId) : await cancelRuntimeTurn()
       setRuntimeStatus(nextStatus)
       setIsSending(false)
       await refreshMessages().catch(() => undefined)
       await refreshPermissions().catch(() => undefined)
+      await refreshActiveTurns().catch(() => undefined)
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       setLastError(reason)
@@ -585,6 +617,7 @@ export function useAssistantClient() {
 		activeChatTitle,
     activeView,
 		activeSession,
+    activeTurns,
     auditOpen,
 		auditEvents,
 		capabilities,

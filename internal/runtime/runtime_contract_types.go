@@ -219,6 +219,15 @@ type RuntimeEventsEndpointResponse struct {
 	Token string `json:"token,omitempty"`
 }
 
+type RuntimeRecoveryStatus struct {
+	RuntimeStartedAt   string                     `json:"runtime_started_at"`
+	LastEventSequence  int64                      `json:"last_event_sequence"`
+	ActiveTurns        []RuntimeTurn              `json:"active_turns"`
+	InterruptedTurns   []RuntimeTurn              `json:"interrupted_turns"`
+	PendingPermissions []RuntimePermissionRequest `json:"pending_permissions"`
+	SnapshotRequired   bool                       `json:"snapshot_required,omitempty"`
+}
+
 type RuntimeAuditTurnSummary struct {
 	TurnID                   string            `json:"turn_id"`
 	SessionID                string            `json:"session_id,omitempty"`

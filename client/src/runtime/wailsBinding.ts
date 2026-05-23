@@ -15,6 +15,7 @@ import type {
   RuntimeModelVerifyResponse,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
+  RuntimeRecoveryStatus,
   RuntimeSession,
   RuntimeSkillCreateRequest,
   RuntimeSkill,
@@ -40,6 +41,7 @@ type WailsRuntimeBridge = {
   Events: () => Promise<RuntimeEventsResponse>
   EventsEndpoint: () => Promise<{ url: string }>
   GetModelConfig: () => Promise<{ config: RuntimeModelConfig }>
+  RecoveryStatus: () => Promise<RuntimeRecoveryStatus>
   MCPServers: () => Promise<{ servers: RuntimeMcpServer[] }>
   MCPResources: (server: string) => Promise<{ resources: RuntimeMcpResource[] }>
   MCPPrompts: (server: string) => Promise<{ prompts: RuntimeMcpPrompt[] }>

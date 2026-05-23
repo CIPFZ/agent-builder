@@ -17,6 +17,7 @@ import type {
   RuntimeModelVerifyResponse,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
+  RuntimeRecoveryStatus,
   RuntimeSession,
   RuntimeSkill,
   RuntimeSkillCreateRequest,
@@ -127,6 +128,9 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async getModelConfig() {
       const response = await get<{ config: RuntimeModelConfig }>('/v1/config/model')
       return response.config
+    },
+    getRecoveryStatus() {
+      return get<RuntimeRecoveryStatus>('/v1/recovery/status')
     },
     getAPIEndpoint() {
       return Promise.resolve({ url: trimBaseUrl(options.baseUrl), token: options.token })

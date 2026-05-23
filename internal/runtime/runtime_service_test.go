@@ -1170,34 +1170,41 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 }
 
 type recordingRuntimeService struct {
-	chatCalls        int
-	statusCalls      int
-	skillsCalls      int
-	mcpServerCalls   int
-	status           RuntimeStatus
-	skills           RuntimeSkillsResponse
-	mcpServers       RuntimeMCPServersResponse
-	capabilities     RuntimeCapabilitiesResponse
-	savedMCPServer   RuntimeMCPServerConfigRequest
-	toggledMCPServer RuntimeMCPServerToggleRequest
-	toggledMCPTool   RuntimeMCPToolToggleRequest
-	selectedSession  string
-	renamedSession   RuntimeSessionUpdateRequest
-	deletedSession   string
-	messageSession   string
-	createdSkill     RuntimeSkillCreateRequest
-	addedSkillPath   string
-	cancelledTurn    string
-	turn             RuntimeTurnResponse
-	turns            RuntimeTurnsResponse
-	turnsStatus      string
-	toolCall         RuntimeToolCallResponse
-	toolCalls        RuntimeToolCallsResponse
+	chatCalls           int
+	statusCalls         int
+	recoveryStatusCalls int
+	skillsCalls         int
+	mcpServerCalls      int
+	status              RuntimeStatus
+	recoveryStatus      RuntimeRecoveryStatus
+	skills              RuntimeSkillsResponse
+	mcpServers          RuntimeMCPServersResponse
+	capabilities        RuntimeCapabilitiesResponse
+	savedMCPServer      RuntimeMCPServerConfigRequest
+	toggledMCPServer    RuntimeMCPServerToggleRequest
+	toggledMCPTool      RuntimeMCPToolToggleRequest
+	selectedSession     string
+	renamedSession      RuntimeSessionUpdateRequest
+	deletedSession      string
+	messageSession      string
+	createdSkill        RuntimeSkillCreateRequest
+	addedSkillPath      string
+	cancelledTurn       string
+	turn                RuntimeTurnResponse
+	turns               RuntimeTurnsResponse
+	turnsStatus         string
+	toolCall            RuntimeToolCallResponse
+	toolCalls           RuntimeToolCallsResponse
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
 	s.statusCalls++
 	return s.status, nil
+}
+
+func (s *recordingRuntimeService) RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error) {
+	s.recoveryStatusCalls++
+	return s.recoveryStatus, nil
 }
 
 func (s *recordingRuntimeService) Models(context.Context) (RuntimeModelsResponse, error) {

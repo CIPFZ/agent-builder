@@ -119,10 +119,13 @@ func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspac
 				Permission: runtimePerm,
 				Raw:        perm,
 			}
+			if r.permissionStore.db != nil {
+				_, _ = r.permissionStore.Upsert(context.Background(), runtimePerm)
+			}
 			r.eventStats.permissionEvents++
 			r.eventStats.lastEventAt = now.UnixMilli()
 			runtimeEvent = newPermissionRuntimeEvent(now, runtimePerm)
-			runtimeEvent.TurnID = r.sessionTurns[perm.SessionID]
+			runtimeEvent.TurnID = firstNonEmpty(runtimeEvent.TurnID, r.sessionTurns[perm.SessionID])
 			runtimeEvent = r.appendRuntimeEventLocked(runtimeEvent)
 			r.mu.Unlock()
 			r.publishRuntimeEvent(runtimeEvent)

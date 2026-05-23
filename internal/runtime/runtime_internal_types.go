@@ -1,5 +1,7 @@
 package runtime
 
+import "time"
+
 type localModelConfigResult struct {
 	Applied      bool
 	Path         string
@@ -48,4 +50,10 @@ type runtimeEventStats struct {
 	otherEvents      int64
 	assistantEvents  int64
 	permissionEvents int64
+}
+
+type runtimeRecoveryRecord struct {
+	startedAt          time.Time
+	interruptedTurns   []RuntimeTurn
+	expiredPermissions []RuntimePermissionRequest
 }

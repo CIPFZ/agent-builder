@@ -79,7 +79,9 @@ func (r *runtimeService) restart() {
 	r.toolEvents = make(map[string]runtimeToolEventState)
 	r.toolCalls = nil
 	r.turns = runtimeTurnStore{}
+	r.permissionStore = runtimePermissionStore{}
 	r.permissions = make(map[string]pendingRuntimePermission)
+	r.recovery = runtimeRecoveryRecord{}
 	r.events = nil
 }
 
@@ -178,12 +180,25 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect runtime state store: %w", err)
 	}
+	startedAt := time.Now().UTC()
 	r.turns = newRuntimeTurnStore(conn)
 	r.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	r.permissionStore = newRuntimePermissionStore(conn)
 	interrupted, err := r.turns.InterruptUnfinished(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to recover runtime turns: %w", err)
 	}
+	expiredPermissions, err := r.expireInvalidPendingPermissions(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to recover runtime permissions: %w", err)
+	}
+	r.mu.Lock()
+	r.recovery = runtimeRecoveryRecord{
+		startedAt:          startedAt,
+		interruptedTurns:   append([]RuntimeTurn(nil), interrupted...),
+		expiredPermissions: append([]RuntimePermissionRequest(nil), expiredPermissions...),
+	}
+	r.mu.Unlock()
 	for _, turn := range interrupted {
 		r.storeRuntimeEvent(runtimeapi.Event{
 			ID:        newRuntimeEventID(),
@@ -210,6 +225,45 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 				"provider":     turn.Provider,
 				"model":        turn.Model,
 				"error":        turn.Error,
+			},
+		})
+	}
+	for _, perm := range expiredPermissions {
+		r.storeRuntimeEvent(runtimeapi.Event{
+			ID:         newRuntimeEventID(),
+			Type:       runtimeapi.EventPermissionDecided,
+			CreatedAt:  startedAt.Format(time.RFC3339Nano),
+			SessionID:  perm.SessionID,
+			TurnID:     perm.TurnID,
+			ToolCallID: perm.ToolCallID,
+			Payload: map[string]any{
+				"permission_id": perm.ID,
+				"tool_name":     perm.ToolName,
+				"action":        perm.Action,
+				"path":          perm.Path,
+				"risk":          perm.Risk,
+				"status":        perm.Status,
+			},
+		})
+		_ = newRuntimeAuditStore(conn).Append(ctx, RuntimeAuditEvent{
+			ID:           newRuntimeEventID(),
+			SessionID:    perm.SessionID,
+			TurnID:       perm.TurnID,
+			ToolCallID:   perm.ToolCallID,
+			PermissionID: perm.ID,
+			Type:         "permission_" + perm.Status,
+			CreatedAt:    startedAt.Format(time.RFC3339Nano),
+			Payload: map[string]any{
+				"permission_id": perm.ID,
+				"tool_name":     perm.ToolName,
+				"action":        perm.Action,
+				"path":          perm.Path,
+				"risk":          perm.Risk,
+				"status":        perm.Status,
+				"workspace_id":  ws.ID,
+				"session_id":    perm.SessionID,
+				"turn_id":       perm.TurnID,
+				"tool_call_id":  perm.ToolCallID,
 			},
 		})
 	}

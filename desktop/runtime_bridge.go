@@ -33,6 +33,7 @@ type RuntimeUsage = runtime.RuntimeUsage
 type RuntimeEventStats = runtime.RuntimeEventStats
 type RuntimeEventsResponse = runtime.RuntimeEventsResponse
 type RuntimeEventsEndpointResponse = runtime.RuntimeEventsEndpointResponse
+type RuntimeRecoveryStatus = runtime.RuntimeRecoveryStatus
 type RuntimeSkill = runtime.RuntimeSkill
 type RuntimeSkillsResponse = runtime.RuntimeSkillsResponse
 type RuntimeSkillCreateRequest = runtime.RuntimeSkillCreateRequest
@@ -79,6 +80,12 @@ func NewRuntimeBridge() *RuntimeBridge {
 func (r *RuntimeBridge) Status(ctx context.Context) (RuntimeStatus, error) {
 
 	return r.service.Status(ctx)
+
+}
+
+func (r *RuntimeBridge) RecoveryStatus(ctx context.Context) (RuntimeRecoveryStatus, error) {
+
+	return r.service.RecoveryStatus(ctx)
 
 }
 
