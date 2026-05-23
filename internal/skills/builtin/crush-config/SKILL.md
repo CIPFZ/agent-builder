@@ -189,11 +189,6 @@ reviewed.
     "skills_paths": ["./skills"],
     "disabled_tools": ["bash", "sourcegraph"],
     "disabled_skills": ["crush-config"],
-    "tui": {
-      "compact_mode": false,
-      "diff_mode": "unified",
-      "transparent": false
-    },
     "auto_lsp": true,
     "debug": false,
     "debug_lsp": false,
