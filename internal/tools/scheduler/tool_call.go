@@ -30,6 +30,7 @@ type ToolCall struct {
 	MessageID     string         `json:"message_id,omitempty"`
 	Name          string         `json:"name"`
 	Source        ToolSource     `json:"source"`
+	CapabilityID  string         `json:"capability_id,omitempty"`
 	Status        ToolCallStatus `json:"status"`
 	InputSummary  string         `json:"input_summary,omitempty"`
 	OutputSummary string         `json:"output_summary,omitempty"`
@@ -50,6 +51,7 @@ type ToolCallRequest struct {
 	MessageID    string
 	Name         string
 	Source       ToolSource
+	CapabilityID string
 	InputSummary string
 }
 

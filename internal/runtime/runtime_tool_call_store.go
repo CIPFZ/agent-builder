@@ -34,6 +34,10 @@ func (s runtimeSQLiteToolCallStore) Upsert(ctx context.Context, call scheduler.T
 	if call.Source == "" {
 		call.Source = scheduler.ToolSourceUnknown
 	}
+	call.CapabilityID = strings.TrimSpace(call.CapabilityID)
+	if call.CapabilityID == "" {
+		call.CapabilityID = capabilityIDForToolName(call.Name)
+	}
 	if call.Status == "" {
 		call.Status = scheduler.ToolCallPending
 	}
@@ -42,16 +46,17 @@ func (s runtimeSQLiteToolCallStore) Upsert(ctx context.Context, call scheduler.T
 	}
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO runtime_tool_calls (
-    id, turn_id, session_id, message_id, name, source, status,
+    id, turn_id, session_id, message_id, name, source, capability_id, status,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
     started_at, finished_at, error
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     turn_id = COALESCE(NULLIF(excluded.turn_id, ''), runtime_tool_calls.turn_id),
     session_id = COALESCE(NULLIF(excluded.session_id, ''), runtime_tool_calls.session_id),
     message_id = COALESCE(NULLIF(excluded.message_id, ''), runtime_tool_calls.message_id),
     name = COALESCE(NULLIF(excluded.name, ''), runtime_tool_calls.name),
     source = COALESCE(NULLIF(excluded.source, ''), runtime_tool_calls.source),
+    capability_id = COALESCE(NULLIF(excluded.capability_id, ''), runtime_tool_calls.capability_id),
     status = CASE
         WHEN runtime_tool_calls.status IN ('completed', 'failed', 'cancelled', 'denied')
              AND excluded.status IN ('pending', 'running', 'waiting_permission')
@@ -81,6 +86,7 @@ ON CONFLICT(id) DO UPDATE SET
 		nullableString(call.MessageID),
 		call.Name,
 		string(call.Source),
+		nullableString(call.CapabilityID),
 		string(call.Status),
 		nullableString(call.InputSummary),
 		nullableString(call.OutputSummary),
@@ -101,7 +107,7 @@ ON CONFLICT(id) DO UPDATE SET
 
 func (s runtimeSQLiteToolCallStore) Get(ctx context.Context, id string) (scheduler.ToolCall, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, turn_id, session_id, message_id, name, source, status,
+SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
     started_at, finished_at, error
 FROM runtime_tool_calls
@@ -115,7 +121,7 @@ WHERE id = ?`, strings.TrimSpace(id))
 
 func (s runtimeSQLiteToolCallStore) ListByTurn(ctx context.Context, turnID string) ([]scheduler.ToolCall, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, turn_id, session_id, message_id, name, source, status,
+SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
     started_at, finished_at, error
 FROM runtime_tool_calls
@@ -149,7 +155,7 @@ type runtimeToolCallScanner interface {
 
 func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, error) {
 	var call scheduler.ToolCall
-	var messageID, inputSummary, outputSummary, modelContent, structured, stdout, stderr, errText sql.NullString
+	var messageID, capabilityID, inputSummary, outputSummary, modelContent, structured, stdout, stderr, errText sql.NullString
 	var source, status string
 	var isError int
 	var startedAt int64
@@ -161,6 +167,7 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 		&messageID,
 		&call.Name,
 		&source,
+		&capabilityID,
 		&status,
 		&inputSummary,
 		&outputSummary,
@@ -177,6 +184,7 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 	}
 	call.MessageID = messageID.String
 	call.Source = scheduler.ToolSource(source)
+	call.CapabilityID = capabilityID.String
 	call.Status = scheduler.ToolCallStatus(status)
 	call.InputSummary = inputSummary.String
 	call.OutputSummary = outputSummary.String

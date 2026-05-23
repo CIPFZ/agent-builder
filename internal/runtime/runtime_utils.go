@@ -149,12 +149,12 @@ func redactRuntimeString(key, value string) string {
 		return "[REDACTED]"
 	}
 	lower := strings.ToLower(value)
-	for _, marker := range []string{`"api_key"`, `"apikey"`, `"authorization"`, `"password"`, `"secret"`, `"token"`, `"credential"`, `"access_key"`, `"private_key"`} {
+	for _, marker := range []string{`"api_key"`, `"apikey"`, `"authorization"`, `"password"`, `"secret"`, `"token"`, `"credential"`, `"access_key"`, `"private_key"`, "proxy-authorization"} {
 		if strings.Contains(lower, marker) {
 			return "[REDACTED]"
 		}
 	}
-	if strings.Contains(lower, "bearer ") || strings.Contains(lower, "api_key=") || strings.Contains(lower, "apikey=") || strings.Contains(lower, "token=") || strings.Contains(lower, "password=") || strings.Contains(lower, "secret=") {
+	if strings.Contains(lower, "bearer ") || strings.Contains(lower, "api_key=") || strings.Contains(lower, "apikey=") || strings.Contains(lower, "token=") || strings.Contains(lower, "password=") || strings.Contains(lower, "secret=") || strings.Contains(lower, "proxy-authorization") {
 		return "[REDACTED]"
 	}
 	if parsed, err := url.Parse(value); err == nil && parsed.User != nil {
@@ -166,7 +166,7 @@ func redactRuntimeString(key, value string) string {
 
 func isSensitiveKey(key string) bool {
 	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(key, "-", "_"), " ", "_"))
-	for _, marker := range []string{"api_key", "apikey", "authorization", "password", "passwd", "secret", "token", "credential", "access_key", "private_key"} {
+	for _, marker := range []string{"api_key", "apikey", "authorization", "password", "passwd", "secret", "token", "credential", "access_key", "private_key", "proxy"} {
 		if strings.Contains(normalized, marker) {
 			return true
 		}

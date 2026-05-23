@@ -14,6 +14,13 @@ import { linesToList, linesToMap, mapToLines } from '../capabilities/runtimePane
 
 const { Text } = Typography
 
+function mcpStateColor(state: string) {
+  if (state === 'connected') return 'green'
+  if (state === 'loading') return 'processing'
+  if (state === 'failed' || state === 'unavailable') return 'red'
+  return 'default'
+}
+
 export function RuntimeMcpPanel({
   servers,
   resourcesByServer,
@@ -39,7 +46,7 @@ export function RuntimeMcpPanel({
   const [form] = Form.useForm<RuntimeMcpServerConfig & { argsText?: string; envText?: string; headersText?: string }>()
 
   const openEditor = (server?: RuntimeMcpServer) => {
-    const next = server ?? ({ name: '', type: 'http', disabled: false, state: 'disabled', counts: { tools: 0, prompts: 0, resources: 0 } } as RuntimeMcpServer)
+    const next = server ?? ({ name: '', type: 'http', disabled: false, state: 'unloaded', counts: { tools: 0, prompts: 0, resources: 0 } } as RuntimeMcpServer)
     setEditing(next)
     form.setFieldsValue({
       name: next.name,
@@ -64,7 +71,7 @@ export function RuntimeMcpPanel({
       {servers.map((server) => (
         <div className="runtime-list-row" key={server.name}>
           <Space size={8}>
-            <Tag color={server.state === 'connected' ? 'green' : server.state === 'error' ? 'red' : 'default'}>{server.state}</Tag>
+            <Tag color={mcpStateColor(server.state)}>{server.state}</Tag>
             <Text strong>{server.name}</Text>
             <Tag>{server.type}</Tag>
             <Button size="small" onClick={() => onToggle(server.name, server.disabled)}>
@@ -81,7 +88,8 @@ export function RuntimeMcpPanel({
           <Text type="secondary">
             tools {server.counts.tools} / prompts {server.counts.prompts} / resources {server.counts.resources}
           </Text>
-          {server.error ? <Text type="danger">{server.error}</Text> : null}
+          {server.reason ? <Text type="secondary">{server.reason}</Text> : null}
+          {server.error || server.diagnostics ? <Text type="danger">{server.error || server.diagnostics}</Text> : null}
           {(toolsByServer[server.name] ?? []).map((tool) => (
             <div className="runtime-list-row compact" key={`${server.name}-${tool.name}`}>
               <Space size={8}>

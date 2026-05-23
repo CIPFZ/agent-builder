@@ -28,6 +28,7 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 		MessageID:    call.MessageID,
 		Name:         call.Name,
 		Source:       scheduler.ToolSource(call.Source),
+		CapabilityID: call.CapabilityID,
 		Status:       scheduler.ToolCallPending,
 		InputSummary: call.InputSummary,
 	})
@@ -40,12 +41,13 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 		MessageID:  call.MessageID,
 		ToolCallID: call.ID,
 		Payload: map[string]any{
-			"tool_name": call.Name,
-			"decision":  result.Decision,
-			"risk":      result.Risk,
-			"reason":    result.Reason,
-			"mode":      result.Mode,
-			"summary":   call.Name,
+			"tool_name":     call.Name,
+			"capability_id": call.CapabilityID,
+			"decision":      result.Decision,
+			"risk":          result.Risk,
+			"reason":        result.Reason,
+			"mode":          result.Mode,
+			"summary":       call.Name,
 		},
 	})
 	r.service.writeAudit(auditEntry{
@@ -59,6 +61,7 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 		PermissionReason: result.Reason,
 		PolicyMode:       string(result.Mode),
 		ToolCallID:       call.ID,
+		CapabilityID:     call.CapabilityID,
 	})
 	return agent.SchedulerToolPolicyDecision{
 		Decision: string(result.Decision),
@@ -79,24 +82,27 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		MessageID:    call.MessageID,
 		Name:         call.Name,
 		Source:       scheduler.ToolSource(call.Source),
+		CapabilityID: call.CapabilityID,
 		InputSummary: preview(call.InputSummary, runtimePartPreviewLimit),
 	})
 	if err != nil {
 		return err
 	}
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallStarted, stored, map[string]any{
-		"name":    stored.Name,
-		"source":  string(stored.Source),
-		"input":   stored.InputSummary,
-		"status":  string(stored.Status),
-		"summary": stored.Name,
+		"name":          stored.Name,
+		"source":        string(stored.Source),
+		"capability_id": stored.CapabilityID,
+		"input":         stored.InputSummary,
+		"status":        string(stored.Status),
+		"summary":       stored.Name,
 	}))
 	r.service.writeAudit(auditEntry{
-		RequestID:  stored.TurnID,
-		Event:      "tool_call_started",
-		Timestamp:  time.Now().UTC().Format(time.RFC3339Nano),
-		SessionID:  stored.SessionID,
-		ToolCallID: stored.ID,
+		RequestID:    stored.TurnID,
+		Event:        "tool_call_started",
+		Timestamp:    time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID:    stored.SessionID,
+		ToolCallID:   stored.ID,
+		CapabilityID: stored.CapabilityID,
 		ToolCalls: []auditToolCall{{
 			ID:    stored.ID,
 			Name:  stored.Name,
@@ -181,12 +187,13 @@ func (r *runtimeSchedulerRecorder) updateToolCall(ctx context.Context, result ag
 	}
 	if _, err := r.service.toolCalls.GetCall(ctx, result.ToolCallID); err != nil {
 		_, _ = r.service.toolCalls.CreateCall(ctx, scheduler.ToolCallRequest{
-			ID:        result.ToolCallID,
-			SessionID: result.SessionID,
-			TurnID:    result.TurnID,
-			MessageID: result.MessageID,
-			Name:      result.Name,
-			Source:    scheduler.ToolSource(result.Source),
+			ID:           result.ToolCallID,
+			SessionID:    result.SessionID,
+			TurnID:       result.TurnID,
+			MessageID:    result.MessageID,
+			Name:         result.Name,
+			Source:       scheduler.ToolSource(result.Source),
+			CapabilityID: capabilityIDForToolName(result.Name),
 		})
 	}
 	return r.service.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{
@@ -207,11 +214,12 @@ func (r *runtimeSchedulerRecorder) auditToolResult(call scheduler.ToolCall) {
 		return
 	}
 	r.service.writeAudit(auditEntry{
-		RequestID:  call.TurnID,
-		Event:      "tool_call_" + string(call.Status),
-		Timestamp:  time.Now().UTC().Format(time.RFC3339Nano),
-		SessionID:  call.SessionID,
-		ToolCallID: call.ID,
+		RequestID:    call.TurnID,
+		Event:        "tool_call_" + string(call.Status),
+		Timestamp:    time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID:    call.SessionID,
+		ToolCallID:   call.ID,
+		CapabilityID: call.CapabilityID,
 		ToolCalls: []auditToolCall{{
 			ID:      call.ID,
 			Name:    call.Name,
@@ -229,6 +237,9 @@ func runtimeToolCallEvent(eventType string, call scheduler.ToolCall, payload map
 	event.TurnID = call.TurnID
 	event.MessageID = call.MessageID
 	event.ToolCallID = call.ID
+	if call.CapabilityID != "" {
+		payload["capability_id"] = call.CapabilityID
+	}
 	event.Payload = payload
 	return event
 }

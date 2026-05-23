@@ -74,6 +74,7 @@ type RuntimeToolCall struct {
 	MessageID     string `json:"messageId,omitempty"`
 	Name          string `json:"name"`
 	Source        string `json:"source"`
+	CapabilityID  string `json:"capabilityId,omitempty"`
 	Status        string `json:"status"`
 	InputSummary  string `json:"inputSummary,omitempty"`
 	OutputSummary string `json:"outputSummary,omitempty"`
@@ -341,6 +342,8 @@ type RuntimeMCPServer struct {
 	Disabled      bool              `json:"disabled"`
 	State         string            `json:"state"`
 	Counts        RuntimeMCPCounts  `json:"counts"`
+	Diagnostics   string            `json:"diagnostics,omitempty"`
+	Reason        string            `json:"reason,omitempty"`
 	Error         string            `json:"error,omitempty"`
 	Env           map[string]string `json:"env,omitempty"`
 	Headers       map[string]string `json:"headers,omitempty"`

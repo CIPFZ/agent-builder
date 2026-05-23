@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/tools/scheduler"
 )
@@ -68,6 +69,7 @@ func (r *runtimeService) recordToolCallsFromMessage(ctx context.Context, msg pro
 			MessageID:    msg.ID,
 			Name:         call.Name,
 			Source:       classifyToolSource(call.Name),
+			CapabilityID: capabilityIDForToolName(call.Name),
 			InputSummary: preview(call.Input, runtimePartPreviewLimit),
 		})
 		if call.Finished {
@@ -101,12 +103,13 @@ func (r *runtimeService) recordToolCallsFromMessage(ctx context.Context, msg pro
 			continue
 		}
 		_, _ = r.toolCalls.CreateCall(ctx, scheduler.ToolCallRequest{
-			ID:        result.ToolCallID,
-			SessionID: msg.SessionID,
-			TurnID:    turnID,
-			MessageID: msg.ID,
-			Name:      result.Name,
-			Source:    classifyToolSource(result.Name),
+			ID:           result.ToolCallID,
+			SessionID:    msg.SessionID,
+			TurnID:       turnID,
+			MessageID:    msg.ID,
+			Name:         result.Name,
+			Source:       classifyToolSource(result.Name),
+			CapabilityID: capabilityIDForToolName(result.Name),
 		})
 		_, _ = r.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{
 			ToolCallID:    result.ToolCallID,
@@ -131,6 +134,7 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		MessageID:     call.MessageID,
 		Name:          call.Name,
 		Source:        string(call.Source),
+		CapabilityID:  call.CapabilityID,
 		Status:        string(call.Status),
 		InputSummary:  call.InputSummary,
 		OutputSummary: call.OutputSummary,
@@ -157,4 +161,27 @@ func classifyToolSource(name string) scheduler.ToolSource {
 	default:
 		return scheduler.ToolSourceBuiltin
 	}
+}
+
+func capabilityIDForToolName(name string) string {
+	toolName := strings.TrimSpace(name)
+	lower := strings.ToLower(toolName)
+	if strings.HasPrefix(lower, "mcp_") {
+		rest := toolName[len("mcp_"):]
+		var bestServer string
+		for server := range mcptools.Tools() {
+			prefix := server + "_"
+			if strings.HasPrefix(rest, prefix) && len(server) > len(bestServer) {
+				bestServer = server
+			}
+		}
+		if bestServer != "" {
+			return "mcp:" + bestServer + ":" + strings.TrimPrefix(rest, bestServer+"_")
+		}
+		return ""
+	}
+	if toolName == "" {
+		return ""
+	}
+	return "builtin:" + toolName
 }

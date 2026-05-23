@@ -124,6 +124,7 @@ type SchedulerToolCall struct {
 	MessageID    string
 	Name         string
 	Source       string
+	CapabilityID string
 	InputSummary string
 }
 

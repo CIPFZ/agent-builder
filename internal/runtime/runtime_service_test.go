@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
@@ -660,8 +661,8 @@ func TestRuntimeCapabilitiesIncludeToolsSkillsAndMCP(t *testing.T) {
 	if byID["mcp:docs:search_docs"].Kind != "mcp_tool" {
 		t.Fatalf("mcp tool capability missing: %#v", byID["mcp:docs:search_docs"])
 	}
-	if byID["mcp:docs:search_docs"].State != capabilityStateLoaded {
-		t.Fatalf("mcp tool should reflect discovered loaded metadata: %#v", byID["mcp:docs:search_docs"])
+	if byID["mcp:docs:search_docs"].State != capabilityStateUnloaded {
+		t.Fatalf("mcp tool should stay unloaded until refresh/load: %#v", byID["mcp:docs:search_docs"])
 	}
 	if byID["mcp_resource:docs:docs://intro"].Kind != "mcp_resource" {
 		t.Fatalf("mcp resource capability missing: %#v", byID["mcp_resource:docs:docs://intro"])
@@ -693,6 +694,58 @@ func TestRuntimeCapabilityStateNormalization(t *testing.T) {
 	})
 	if capability.State != capabilityStateFailed || capability.Error != "boom" || capability.Diagnostics != "failed" {
 		t.Fatalf("capability load record not applied: %#v", capability)
+	}
+}
+
+func TestRuntimeMCPServerStateNormalization(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		state mcptools.State
+		want  string
+	}{
+		{mcptools.StateDisabled, mcpServerStateDisabled},
+		{mcptools.StateStarting, mcpServerStateLoading},
+		{mcptools.StateConnected, mcpServerStateConnected},
+		{mcptools.StateError, mcpServerStateFailed},
+	}
+	for _, tc := range cases {
+		got, _ := normalizeMCPServerState(tc.state)
+		if got != tc.want {
+			t.Fatalf("normalizeMCPServerState(%v) = %q, want %q", tc.state, got, tc.want)
+		}
+	}
+}
+
+func TestRuntimeMCPConfigRedactionCoversSecrets(t *testing.T) {
+	t.Parallel()
+
+	store := config.NewTestStore(&config.Config{
+		MCP: config.MCPs{
+			"docs": {
+				Type:    config.MCPHttp,
+				URL:     "https://user:password@example.com/mcp?token=secret",
+				Command: "node --proxy-authorization secret",
+				Args:    []string{"--token=secret"},
+				Env:     map[string]string{"OPENAI_API_KEY": "sk-secret", "MODE": "test"},
+				Headers: map[string]string{"Authorization": "Bearer secret", "X-Team": "docs"},
+			},
+		},
+	})
+
+	resp := runtimeMCPServersFromConfig(store)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, leaked := range []string{"password", "token=secret", "sk-secret", "Bearer secret", "proxy-authorization secret", "--token=secret"} {
+		if strings.Contains(text, leaked) {
+			t.Fatalf("mcp server response leaked %q: %s", leaked, text)
+		}
+	}
+	if !strings.Contains(text, "X-Team") || !strings.Contains(text, "docs") {
+		t.Fatalf("non-secret metadata was over-redacted: %s", text)
 	}
 }
 
@@ -771,6 +824,43 @@ func TestRuntimeCapabilityRefreshRecordsFailedDiagnosticAndEvent(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("capability failed event missing: %#v", events.Events)
+	}
+}
+
+func TestRuntimeMCPRefreshDeniedRecordsEventsAndCapabilities(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	service.policy = runtimePolicyFromMode(permission.PolicyModeDenyAll, 0)
+	store := config.NewTestStore(&config.Config{
+		MCP: config.MCPs{
+			"docs": {Type: config.MCPHttp, URL: "https://example.com/mcp"},
+		},
+	})
+
+	if err := service.refreshMCPServerLifecycle(context.Background(), store, "workspace", "docs", "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var serverFailed bool
+	var capabilityFailed bool
+	for _, event := range events.Events {
+		switch event.Type {
+		case runtimeapi.EventMCPServerFailed:
+			serverFailed = event.Payload["name"] == "docs" && event.Payload["state"] == mcpServerStateFailed
+		case runtimeapi.EventCapabilityFailed:
+			capabilityFailed = strings.Contains(fmt.Sprint(event.Payload["capability_id"]), "mcp")
+		}
+	}
+	if !serverFailed {
+		t.Fatalf("mcp.server.failed event missing: %#v", events.Events)
+	}
+	if !capabilityFailed {
+		t.Fatalf("capability.failed event missing: %#v", events.Events)
 	}
 }
 
@@ -1360,6 +1450,29 @@ func TestRecordToolCallsBackfillDoesNotDowngradeSchedulerFinalState(t *testing.T
 	}
 	if call.Status != scheduler.ToolCallFailed || call.OutputSummary != "scheduler failure" || call.Error != "boom" {
 		t.Fatalf("backfill downgraded scheduler state: %#v", call)
+	}
+}
+
+func TestRuntimeToolCallCarriesCapabilityID(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:           "tool-1",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		Name:         "mcp_docs_search",
+		Source:       scheduler.ToolSourceMCP,
+		CapabilityID: "mcp:docs:search",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := service.ToolCall(context.Background(), "tool-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ToolCall.Source != "mcp" || resp.ToolCall.CapabilityID != "mcp:docs:search" {
+		t.Fatalf("tool call = %#v", resp.ToolCall)
 	}
 }
 

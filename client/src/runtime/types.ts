@@ -77,6 +77,7 @@ export type RuntimeToolCall = {
   messageId?: string
   name: string
   source: 'builtin' | 'mcp' | 'shell' | 'unknown' | string
+  capabilityId?: string
   status:
     | 'pending'
     | 'waiting_permission'
@@ -198,6 +199,8 @@ export type RuntimeMcpServer = {
     prompts: number
     resources: number
   }
+  diagnostics?: string
+  reason?: string
   error?: string
   env?: Record<string, string>
   headers?: Record<string, string>

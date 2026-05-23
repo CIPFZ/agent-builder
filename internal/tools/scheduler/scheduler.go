@@ -25,6 +25,7 @@ func (s *Scheduler) CreateCall(ctx context.Context, req ToolCallRequest) (ToolCa
 		MessageID:    req.MessageID,
 		Name:         req.Name,
 		Source:       req.Source,
+		CapabilityID: req.CapabilityID,
 		Status:       ToolCallRunning,
 		InputSummary: req.InputSummary,
 		StartedAt:    s.now(),

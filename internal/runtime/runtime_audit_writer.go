@@ -50,6 +50,13 @@ type auditEntry struct {
 	CapabilityState       string             `json:"capability_state,omitempty"`
 	CapabilityReason      string             `json:"capability_reason,omitempty"`
 	CapabilityError       string             `json:"capability_error,omitempty"`
+	MCPServer             string             `json:"mcp_server,omitempty"`
+	MCPName               string             `json:"mcp_name,omitempty"`
+	MCPKind               string             `json:"mcp_kind,omitempty"`
+	MCPStatus             string             `json:"mcp_status,omitempty"`
+	MCPDecision           string             `json:"mcp_decision,omitempty"`
+	MCPRisk               string             `json:"mcp_risk,omitempty"`
+	MCPReason             string             `json:"mcp_reason,omitempty"`
 }
 
 type auditToolCall struct {

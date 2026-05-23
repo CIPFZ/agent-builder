@@ -120,9 +120,12 @@ func (r *runtimeService) RefreshCapability(ctx context.Context, capabilityID str
 			loadErr = errors.New("mcp capability is missing server source")
 			break
 		}
-		r.runtime.RefreshMCPTools(ctx, wsID, server)
-		r.runtime.MCPRefreshPrompts(ctx, wsID, server)
-		r.runtime.MCPRefreshResources(ctx, wsID, server)
+		cfg, _, cfgErr := r.workspaceConfig(ctx)
+		if cfgErr != nil {
+			loadErr = cfgErr
+			break
+		}
+		loadErr = r.refreshMCPServerLifecycle(ctx, cfg, wsID, server, "capability_refresh")
 	default:
 		loadErr = fmt.Errorf("capability kind %s is not refreshable", before.Kind)
 	}
@@ -318,9 +321,9 @@ func runtimeCapabilities(
 			Name:        tool.Name,
 			Source:      tool.Server,
 			Enabled:     tool.Enabled,
-			Risk:        "external",
+			Risk:        "network",
 			Description: tool.Description,
-			State:       capabilityStateLoaded,
+			State:       capabilityStateUnloaded,
 		}
 		if !tool.Enabled {
 			capability.State = capabilityStateDisabled

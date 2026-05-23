@@ -171,3 +171,34 @@ func TestAuditPayloadRedactsCapabilityLoadError(t *testing.T) {
 		t.Fatalf("capability audit fields missing: %s", text)
 	}
 }
+
+func TestAuditPayloadIncludesMCPDecisionWithoutSecrets(t *testing.T) {
+	t.Parallel()
+
+	payload, err := auditPayload(auditEntry{
+		Event:        "mcp_server_refresh_failed",
+		CapabilityID: "mcp_server:docs",
+		MCPServer:    "docs",
+		MCPKind:      "server",
+		MCPStatus:    "failed",
+		MCPDecision:  "deny",
+		MCPRisk:      "network",
+		MCPReason:    "Authorization: Bearer secret-token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, "secret-token") || strings.Contains(text, "Bearer secret") {
+		t.Fatalf("mcp audit leaked secret: %s", text)
+	}
+	for _, want := range []string{"mcp_server_refresh_failed", "mcp_server:docs", "network", "deny"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("mcp audit missing %q: %s", want, text)
+		}
+	}
+}

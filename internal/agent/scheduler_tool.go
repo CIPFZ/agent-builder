@@ -52,6 +52,7 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 		MessageID:    tools.GetMessageFromContext(ctx),
 		Name:         nonEmptyString(call.Name, toolInfo.Name),
 		Source:       schedulerSourceForToolName(nonEmptyString(call.Name, toolInfo.Name)),
+		CapabilityID: schedulerCapabilityIDForAgentTool(s.inner, nonEmptyString(call.Name, toolInfo.Name)),
 		InputSummary: call.Input,
 	}
 	decision, decisionErr := s.recorder.EvaluateToolCall(ctx, record)
@@ -119,6 +120,34 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 		_ = s.recorder.ToolCallCompleted(ctx, result)
 	}
 	return resp, err
+}
+
+type mcpToolIdentity interface {
+	MCP() string
+	MCPToolName() string
+}
+
+func schedulerCapabilityIDForAgentTool(tool fantasy.AgentTool, fallbackName string) string {
+	if mcpTool, ok := tool.(mcpToolIdentity); ok {
+		server := strings.TrimSpace(mcpTool.MCP())
+		name := strings.TrimSpace(mcpTool.MCPToolName())
+		if server != "" && name != "" {
+			return "mcp:" + server + ":" + name
+		}
+	}
+	return schedulerCapabilityIDForToolName(fallbackName)
+}
+
+func schedulerCapabilityIDForToolName(name string) string {
+	toolName := strings.TrimSpace(name)
+	lower := strings.ToLower(toolName)
+	if strings.HasPrefix(lower, "mcp_") {
+		return ""
+	}
+	if toolName == "" {
+		return ""
+	}
+	return "builtin:" + toolName
 }
 
 func schedulerSourceForToolName(name string) string {
