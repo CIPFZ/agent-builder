@@ -96,6 +96,17 @@ func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspac
 			if perm.Risk == "" {
 				perm.Risk = permission.ClassifyRisk(perm.ToolName, perm.Description)
 			}
+			if perm.PolicyMode == "" && r.workspace != nil {
+				if ws, err := r.runtime.GetWorkspace(r.workspace.ID); err == nil {
+					perm.PolicyMode = string(ws.Permissions.PolicyMode())
+				}
+			}
+			if perm.PolicyReason == "" {
+				perm.PolicyReason = "Runtime policy requires approval for this tool call."
+			}
+			if perm.Decision == "" {
+				perm.Decision = "ask"
+			}
 			if perm.Status == "" {
 				perm.Status = "pending"
 			}

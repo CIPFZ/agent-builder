@@ -51,6 +51,7 @@ type CreatePermissionRequest struct {
 	TurnID      string `json:"turn_id"`
 	ToolCallID  string `json:"tool_call_id"`
 	ToolName    string `json:"tool_name"`
+	Source      string `json:"source"`
 	Description string `json:"description"`
 	Action      string `json:"action"`
 	Params      any    `json:"params"`
@@ -212,28 +213,6 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 	if opts.TurnID == "" {
 		opts.TurnID = turnIDFromContext(ctx)
 	}
-	if s.skip.Load() {
-		return true, nil
-	}
-
-	// Check if the tool/action combination is in the allowlist
-	commandKey := opts.ToolName + ":" + opts.Action
-	if slices.Contains(s.allowedTools, commandKey) || slices.Contains(s.allowedTools, opts.ToolName) {
-		return true, nil
-	}
-
-	// A PreToolUse hook that returned decision=allow stamps the context
-	// with the tool call ID. Treat that as a pre-approval and skip the
-	// prompt entirely. We still publish a granted notification so the UI
-	// and audit subscribers see the outcome.
-	if hookApproved(ctx, opts.ToolCallID) {
-		s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
-			ToolCallID: opts.ToolCallID,
-			Granted:    true,
-		})
-		return true, nil
-	}
-
 	risk := opts.Risk
 	if risk == "" {
 		risk = ClassifyRisk(opts.ToolName, opts.Description)
@@ -262,6 +241,28 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 			})
 			return false, nil
 		}
+	}
+
+	if s.skip.Load() {
+		return true, nil
+	}
+
+	// Check if the tool/action combination is in the allowlist. Deny decisions
+	// above still win, so deterministic policy modes cannot be bypassed.
+	commandKey := opts.ToolName + ":" + opts.Action
+	if slices.Contains(s.allowedTools, commandKey) || slices.Contains(s.allowedTools, opts.ToolName) {
+		return true, nil
+	}
+
+	// A PreToolUse hook that returned decision=allow stamps the context with the
+	// tool call ID. Treat that as an approval only after runtime policy has had
+	// the chance to deny the call.
+	if hookApproved(ctx, opts.ToolCallID) {
+		s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+			ToolCallID: opts.ToolCallID,
+			Granted:    true,
+		})
+		return true, nil
 	}
 
 	s.requestMu.Lock()

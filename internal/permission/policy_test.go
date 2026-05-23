@@ -78,3 +78,39 @@ func TestClassifyRiskPlanModeBlockedTools(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifyToolCallRiskUsesSource(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		call scheduler.ToolCall
+		want Risk
+	}{
+		{
+			name: "shell source is execute even for unknown name",
+			call: scheduler.ToolCall{Name: "run", Source: scheduler.ToolSourceShell, InputSummary: `{"command":"go test ./..."}`},
+			want: RiskExecute,
+		},
+		{
+			name: "shell destructive input is destructive",
+			call: scheduler.ToolCall{Name: "run", Source: scheduler.ToolSourceShell, InputSummary: `{"command":"git reset --hard"}`},
+			want: RiskDestructive,
+		},
+		{
+			name: "mcp source is network",
+			call: scheduler.ToolCall{Name: "search", Source: scheduler.ToolSourceMCP, InputSummary: `{}`},
+			want: RiskNetwork,
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ClassifyToolCallRisk(tt.call); got != tt.want {
+				t.Fatalf("ClassifyToolCallRisk = %s, want %s", got, tt.want)
+			}
+			if result := NewPermissionPolicy(PolicyModePlan).Evaluate(tt.call); result.Decision != PolicyDeny {
+				t.Fatalf("plan policy = %#v, want deny", result)
+			}
+		})
+	}
+}

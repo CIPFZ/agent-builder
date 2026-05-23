@@ -116,18 +116,28 @@ export type RuntimeTodoSummary = {
   updatedAt?: number
 }
 
+export type RuntimePermissionRisk = 'read' | 'write' | 'execute' | 'network' | 'secret' | 'destructive' | string
+
 export type RuntimePermissionDecision = {
   permissionId: string
   action: 'allow' | 'allow_session' | 'deny'
 }
 
-export type RuntimePolicyMode = 'ask' | 'auto_read' | 'plan' | 'deny_all' | string
+export type RuntimePolicyMode = 'ask' | 'auto_read' | 'plan' | 'deny_all'
+export type RuntimePolicyDecision = 'allow' | 'ask' | 'deny'
 
 export type RuntimePolicy = {
   mode: RuntimePolicyMode
   modes: RuntimePolicyMode[]
   description?: string
   updatedAt?: number
+}
+
+export type RuntimePolicyEvaluation = {
+  decision: RuntimePolicyDecision
+  risk: RuntimePermissionRisk
+  reason: string
+  mode: RuntimePolicyMode
 }
 
 export type RuntimeEvent = {

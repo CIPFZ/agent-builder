@@ -13,11 +13,13 @@ type recordingSchedulerRecorder struct {
 	decision agentPolicyDecision
 	started  bool
 	failed   SchedulerToolCallResult
+	gotCall  SchedulerToolCall
 }
 
 type agentPolicyDecision = SchedulerToolPolicyDecision
 
-func (r *recordingSchedulerRecorder) EvaluateToolCall(context.Context, SchedulerToolCall) (SchedulerToolPolicyDecision, error) {
+func (r *recordingSchedulerRecorder) EvaluateToolCall(_ context.Context, call SchedulerToolCall) (SchedulerToolPolicyDecision, error) {
+	r.gotCall = call
 	return SchedulerToolPolicyDecision(r.decision), nil
 }
 
@@ -85,4 +87,23 @@ func TestSchedulerToolAllowsReadTools(t *testing.T) {
 	require.Equal(t, "ok", resp.Content)
 	require.True(t, inner.called)
 	require.True(t, recorder.started)
+}
+
+func TestSchedulerToolPassesSourceToPolicyRecorder(t *testing.T) {
+	t.Parallel()
+
+	inner := &fakeTool{name: "bash", resp: fantasy.NewTextResponse("ok")}
+	recorder := &recordingSchedulerRecorder{
+		decision: SchedulerToolPolicyDecision{
+			Decision: string(permission.PolicyAllow),
+			Risk:     string(permission.RiskExecute),
+			Mode:     string(permission.PolicyModeAutoRead),
+		},
+	}
+	tool := newSchedulerTool(inner, recorder)
+
+	_, err := tool.Run(t.Context(), fantasy.ToolCall{ID: "tool-1", Name: "bash", Input: `{"command":"go test ./..."}`})
+	require.NoError(t, err)
+	require.Equal(t, "shell", recorder.gotCall.Source)
+	require.Equal(t, "builtin:bash", recorder.gotCall.CapabilityID)
 }

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/crush/internal/agent"
 	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
@@ -516,6 +517,125 @@ func TestRuntimePolicyApplicationEventAndAudit(t *testing.T) {
 		return event.Type == "permission_policy_applied" && event.Payload["policy_mode"] == string(permission.PolicyModePlan)
 	}) {
 		t.Fatalf("policy audit missing from %#v", audit.Events)
+	}
+}
+
+func TestRuntimeSchedulerAskCreatesRecoverablePermission(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "runtime-state")
+	t.Cleanup(db.ResetPool)
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	service.policy = runtimePolicyFromMode(permission.PolicyModeAutoRead, 0)
+	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	workingDir := t.TempDir()
+	cfg := config.NewRuntimeConfig(workingDir, dataDir, false)
+	cfg.Options.AutoLSP = ptr(false)
+	store := config.NewRuntimeStore(workingDir, cfg)
+	runtimeBackend := backend.New(context.Background(), store, nil)
+	_, workspace, err := runtimeBackend.CreateWorkspace(proto.Workspace{
+		Path:    workingDir,
+		DataDir: dataDir,
+		Config:  store.Config(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		runtimeBackend.DeleteWorkspace(workspace.ID)
+		_ = db.Release(dataDir)
+	})
+	service.runtime = runtimeBackend
+	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:        "turn-1",
+		SessionID: "session-1",
+		Status:    turnStatusRunning,
+		StartedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.Permissions.SetPolicyMode(permission.PolicyModeAutoRead)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go service.consumeDesktopPermissions(ctx, workspace.ID, ws.Permissions)
+	time.Sleep(10 * time.Millisecond)
+
+	recorder := runtimeSchedulerRecorder{service: service}
+	decisionCh := make(chan agent.SchedulerToolPolicyDecision, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		decision, err := recorder.EvaluateToolCall(context.Background(), agent.SchedulerToolCall{
+			ID:           "tool-ask",
+			SessionID:    "session-1",
+			TurnID:       "turn-1",
+			Name:         "bash",
+			Source:       "shell",
+			CapabilityID: "builtin:bash",
+			InputSummary: `{"command":"go test ./..."}`,
+		})
+		if err != nil {
+			errCh <- err
+			return
+		}
+		decisionCh <- decision
+	}()
+
+	var pending []RuntimePermissionRequest
+	for i := 0; i < 50; i++ {
+		resp, err := service.Permissions(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(resp.Permissions) > 0 {
+			pending = resp.Permissions
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending permissions = %#v", pending)
+	}
+	perm := pending[0]
+	if perm.ToolCallID != "tool-ask" || perm.TurnID != "turn-1" || perm.Risk != string(permission.RiskExecute) || perm.PolicyMode != string(permission.PolicyModeAutoRead) || perm.Decision != string(permission.PolicyAsk) {
+		t.Fatalf("permission metadata = %#v", perm)
+	}
+	if _, err := service.DecidePermission(context.Background(), RuntimePermissionDecision{PermissionID: perm.ID, Action: string(proto.PermissionAllow)}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	case decision := <-decisionCh:
+		if decision.Decision != string(permission.PolicyAllow) || decision.Risk != string(permission.RiskExecute) || decision.Mode != string(permission.PolicyModeAutoRead) {
+			t.Fatalf("decision = %#v", decision)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for policy ask decision")
+	}
+
+	after, err := service.Permissions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Permissions) != 0 {
+		t.Fatalf("permission should no longer be pending: %#v", after.Permissions)
 	}
 }
 

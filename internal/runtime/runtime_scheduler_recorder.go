@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/charmbracelet/crush/internal/agent"
@@ -20,18 +21,79 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 	}
 	r.service.mu.Lock()
 	mode := permission.PolicyMode(r.service.policy.Mode)
+	workspaceID := ""
+	if r.service.workspace != nil {
+		workspaceID = r.service.workspace.ID
+	}
+	runtimeBackend := r.service.runtime
 	r.service.mu.Unlock()
+	source := scheduler.ToolSource(call.Source)
+	if source == "" {
+		source = scheduler.ToolSourceUnknown
+	}
 	result := permission.NewPermissionPolicy(mode).Evaluate(scheduler.ToolCall{
 		ID:           call.ID,
 		SessionID:    call.SessionID,
 		TurnID:       call.TurnID,
 		MessageID:    call.MessageID,
 		Name:         call.Name,
-		Source:       scheduler.ToolSource(call.Source),
+		Source:       source,
 		CapabilityID: call.CapabilityID,
 		Status:       scheduler.ToolCallPending,
 		InputSummary: call.InputSummary,
 	})
+	if result.Decision != permission.PolicyAsk {
+		r.recordPolicyDecision(call, result)
+		return agent.SchedulerToolPolicyDecision{
+			Decision: string(result.Decision),
+			Risk:     string(result.Risk),
+			Reason:   result.Reason,
+			Mode:     string(result.Mode),
+		}, nil
+	}
+	if runtimeBackend == nil || workspaceID == "" {
+		return agent.SchedulerToolPolicyDecision{
+			Decision: string(permission.PolicyDeny),
+			Risk:     string(result.Risk),
+			Reason:   "Runtime policy requires approval, but no permission service is available.",
+			Mode:     string(result.Mode),
+		}, nil
+	}
+	granted, err := runtimeBackend.GetWorkspace(workspaceID)
+	if err != nil {
+		return agent.SchedulerToolPolicyDecision{}, err
+	}
+	allowed, err := granted.Permissions.Request(ctx, permission.CreatePermissionRequest{
+		SessionID:   call.SessionID,
+		TurnID:      call.TurnID,
+		ToolCallID:  call.ID,
+		ToolName:    call.Name,
+		Source:      call.Source,
+		Description: call.InputSummary,
+		Action:      policyActionForToolCall(call, result.Risk),
+		Path:        policyTargetForToolCall(call),
+		Risk:        result.Risk,
+	})
+	if err != nil {
+		return agent.SchedulerToolPolicyDecision{}, err
+	}
+	if !allowed {
+		return agent.SchedulerToolPolicyDecision{
+			Decision: string(permission.PolicyDeny),
+			Risk:     string(result.Risk),
+			Reason:   firstNonEmpty(result.Reason, "Permission denied."),
+			Mode:     string(result.Mode),
+		}, nil
+	}
+	return agent.SchedulerToolPolicyDecision{
+		Decision: string(permission.PolicyAllow),
+		Risk:     string(result.Risk),
+		Reason:   result.Reason,
+		Mode:     string(result.Mode),
+	}, nil
+}
+
+func (r *runtimeSchedulerRecorder) recordPolicyDecision(call agent.SchedulerToolCall, result permission.PolicyResult) {
 	r.service.storeRuntimeEvent(runtimeapi.Event{
 		ID:         newRuntimeEventID(),
 		Type:       runtimeapi.EventPermissionPolicyApplied,
@@ -56,6 +118,8 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 		Timestamp:        time.Now().UTC().Format(time.RFC3339Nano),
 		SessionID:        call.SessionID,
 		PermissionTool:   call.Name,
+		PermissionAction: policyActionForToolCall(call, result.Risk),
+		PermissionPath:   policyTargetForToolCall(call),
 		PermissionPolicy: string(result.Decision),
 		PermissionRisk:   string(result.Risk),
 		PermissionReason: result.Reason,
@@ -63,12 +127,26 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 		ToolCallID:       call.ID,
 		CapabilityID:     call.CapabilityID,
 	})
-	return agent.SchedulerToolPolicyDecision{
-		Decision: string(result.Decision),
-		Risk:     string(result.Risk),
-		Reason:   result.Reason,
-		Mode:     string(result.Mode),
-	}, nil
+}
+
+func policyActionForToolCall(call agent.SchedulerToolCall, risk permission.Risk) string {
+	if call.Source == string(scheduler.ToolSourceShell) {
+		return "execute"
+	}
+	if risk == permission.RiskRead {
+		return "read"
+	}
+	return string(risk)
+}
+
+func policyTargetForToolCall(call agent.SchedulerToolCall) string {
+	if call.CapabilityID != "" {
+		return call.CapabilityID
+	}
+	if call.Source != "" {
+		return fmt.Sprintf("%s:%s", call.Source, call.Name)
+	}
+	return call.Name
 }
 
 func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call agent.SchedulerToolCall) error {

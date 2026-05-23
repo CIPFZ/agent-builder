@@ -7,6 +7,7 @@ import Form from 'antd/es/form'
 import Input from 'antd/es/input'
 import Select from 'antd/es/select'
 import Space from 'antd/es/space'
+import Tag from 'antd/es/tag'
 import Tooltip from 'antd/es/tooltip'
 import Typography from 'antd/es/typography'
 import type { ModelConfig } from '../../runtime/api'
@@ -119,7 +120,10 @@ export function ModelSettingsDrawer({
       <Paragraph type="secondary">Saved to the desktop config directory beside the application.</Paragraph>
       {policy ? (
         <Space direction="vertical" size={4} style={{ width: '100%', marginBottom: 16 }}>
-          <Typography.Text strong>Permission policy</Typography.Text>
+          <Space>
+            <Typography.Text strong>Permission policy</Typography.Text>
+            <Tag>{policy.mode}</Tag>
+          </Space>
           <Select
             value={policy.mode}
             options={policy.modes.map((mode) => ({ value: mode, label: mode }))}

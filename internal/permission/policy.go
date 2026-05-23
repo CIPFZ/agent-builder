@@ -63,7 +63,7 @@ func NormalizePolicyMode(mode PolicyMode) PolicyMode {
 }
 
 func (p StaticPolicy) Evaluate(call scheduler.ToolCall) PolicyResult {
-	risk := ClassifyRisk(call.Name, call.InputSummary)
+	risk := ClassifyToolCallRisk(call)
 	mode := NormalizePolicyMode(p.Mode)
 	switch mode {
 	case PolicyModeDenyAll:
@@ -113,13 +113,35 @@ func ClassifyRisk(toolName, inputSummary string) Risk {
 	}
 }
 
+func ClassifyToolCallRisk(call scheduler.ToolCall) Risk {
+	source := strings.ToLower(strings.TrimSpace(string(call.Source)))
+	switch scheduler.ToolSource(source) {
+	case scheduler.ToolSourceShell:
+		if isDestructiveInput(call.InputSummary) {
+			return RiskDestructive
+		}
+		return RiskExecute
+	case scheduler.ToolSourceMCP:
+		return RiskNetwork
+	}
+	return ClassifyRisk(call.Name, call.InputSummary)
+}
+
+func isDestructiveInput(inputSummary string) bool {
+	input := strings.ToLower(inputSummary)
+	return strings.Contains(input, " rm ") ||
+		strings.Contains(input, " del ") ||
+		strings.Contains(input, "remove-item") ||
+		strings.Contains(input, "reset --hard")
+}
+
 func policyToolCall(opts CreatePermissionRequest, risk Risk) scheduler.ToolCall {
 	return scheduler.ToolCall{
 		ID:           opts.ToolCallID,
 		SessionID:    opts.SessionID,
 		TurnID:       opts.TurnID,
 		Name:         opts.ToolName,
-		Source:       scheduler.ToolSourceUnknown,
+		Source:       scheduler.ToolSource(opts.Source),
 		Status:       scheduler.ToolCallPending,
 		InputSummary: firstNonEmpty(opts.Description, opts.Action, string(risk)),
 	}

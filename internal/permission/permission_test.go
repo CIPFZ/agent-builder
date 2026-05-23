@@ -1,6 +1,7 @@
 package permission
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -136,6 +137,59 @@ func TestPermissionServicePolicyApplication(t *testing.T) {
 	assert.Equal(t, PolicyDeny, event.Payload.Decision)
 	assert.Equal(t, RiskExecute, event.Payload.Risk)
 	assert.NotEmpty(t, event.Payload.Reason)
+}
+
+func TestPermissionServicePolicyDenyPrecedesBypasses(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name         string
+		allowedTools []string
+		config       func(Service, *CreatePermissionRequest) context.Context
+	}{
+		{
+			name: "skip requests",
+			config: func(service Service, req *CreatePermissionRequest) context.Context {
+				service.SetSkipRequests(true)
+				return context.Background()
+			},
+		},
+		{
+			name:         "allowed tools",
+			allowedTools: []string{"bash"},
+			config: func(_ Service, req *CreatePermissionRequest) context.Context {
+				return context.Background()
+			},
+		},
+		{
+			name: "hook approval",
+			config: func(_ Service, req *CreatePermissionRequest) context.Context {
+				return WithHookApproval(context.Background(), req.ToolCallID)
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			service := NewPermissionService("/tmp", false, tt.allowedTools)
+			service.SetPolicyMode(PolicyModePlan)
+			req := CreatePermissionRequest{
+				SessionID:   "session-1",
+				TurnID:      "turn-1",
+				ToolCallID:  "tool-1",
+				ToolName:    "bash",
+				Source:      "shell",
+				Action:      "execute",
+				Description: `{"command":"go test ./..."}`,
+				Path:        "/tmp",
+			}
+			ctx := tt.config(service, &req)
+			granted, err := service.Request(ctx, req)
+			require.NoError(t, err)
+			assert.False(t, granted)
+		})
+	}
 }
 
 func TestPermissionService_HookApproval(t *testing.T) {
