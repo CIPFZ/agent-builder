@@ -93,6 +93,8 @@ const (
 	EventSkillDiscoveryFailed    = "skill.discovery.failed"
 	EventSkillEnabled            = "skill.enabled"
 	EventSkillDisabled           = "skill.disabled"
+	EventSkillActivated          = "skill.activated"
+	EventSkillActivationFailed   = "skill.activation.failed"
 	EventMCPServerStarting       = "mcp.server.starting"
 	EventMCPServerConnected      = "mcp.server.connected"
 	EventMCPServerFailed         = "mcp.server.failed"
@@ -137,6 +139,8 @@ var EventTypes = []string{
 	EventSkillDiscoveryFailed,
 	EventSkillEnabled,
 	EventSkillDisabled,
+	EventSkillActivated,
+	EventSkillActivationFailed,
 	EventMCPServerStarting,
 	EventMCPServerConnected,
 	EventMCPServerFailed,

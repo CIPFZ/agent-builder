@@ -189,6 +189,11 @@ func (r *runtimeService) refreshSkills(ctx context.Context, publish bool) (Runti
 	if err != nil {
 		return RuntimeSkillsResponse{}, err
 	}
+	if publish {
+		if err := r.runtime.RefreshWorkspaceSkills(ctx, wsID); err != nil {
+			return RuntimeSkillsResponse{}, err
+		}
+	}
 	resp := r.runtimeSkillsFromWorkspaceConfig(ws.Cfg, r.desktopSkillPaths()...)
 	if publish {
 		eventType := runtimeapi.EventSkillDiscoveryCompleted
@@ -204,6 +209,15 @@ func (r *runtimeService) refreshSkills(ctx context.Context, publish bool) (Runti
 			"skills": runtimeSkillEventSummaries(resp.Skills),
 		}
 		r.publishRuntimeEvent(event)
+		for _, skill := range resp.Skills {
+			if skill.State == capabilityStateFailed {
+				r.publishSkillActivationEvent(runtimeapi.EventSkillActivationFailed, skill, "", skill.Error)
+				continue
+			}
+			if skill.Activation.Included {
+				r.publishSkillActivationEvent(runtimeapi.EventSkillActivated, skill, skill.Activation.Reason, "")
+			}
+		}
 	}
 	return resp, nil
 }
@@ -390,6 +404,25 @@ func runtimeSkillEventSummaries(skills []RuntimeSkill) []map[string]any {
 		})
 	}
 	return result
+}
+
+func (r *runtimeService) publishSkillActivationEvent(eventType string, skill RuntimeSkill, reason, errText string) {
+	payload := map[string]any{
+		"name":          skill.Name,
+		"capability_id": firstNonEmpty(skill.CapabilityID, "skill:"+skill.Name),
+		"path":          skill.Path,
+		"state":         skill.State,
+		"reason":        firstNonEmpty(reason, skill.Reason),
+	}
+	if errText != "" {
+		payload["error"] = errText
+	}
+	r.storeRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      eventType,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Payload:   payload,
+	})
 }
 
 func (r *runtimeService) desktopSkillsDir() string {

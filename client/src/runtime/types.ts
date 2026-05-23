@@ -389,9 +389,35 @@ export type RuntimeAuditEvent = {
   id: string
   session_id?: string
   turn_id?: string
+  tool_call_id?: string
+  permission_id?: string
   type: string
   created_at: string
   payload: Record<string, unknown>
+}
+
+export type RuntimeSkillTurnItem = {
+  name: string
+  capability_id?: string
+  builtin: boolean
+  path?: string
+  skill_file_path?: string
+  state?: string
+  reason?: string
+  error?: string
+  allowed_tools?: string[]
+}
+
+export type RuntimeTurnSkillSummary = {
+  available_count: number
+  available?: RuntimeSkillTurnItem[]
+  activated?: RuntimeSkillTurnItem[]
+  excluded?: RuntimeSkillTurnItem[]
+  failed?: RuntimeSkillTurnItem[]
+  policy_mode?: string
+  policy_risk?: string
+  policy_reason?: string
+  source_paths?: string[]
 }
 
 export type AgentRuntime = {

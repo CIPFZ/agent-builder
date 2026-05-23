@@ -79,6 +79,18 @@ func (m *Manager) SetLatestStates(states []*SkillState) {
 	}
 }
 
+// SetDiscoverySnapshot replaces the runtime-owned skill inventory.
+func (m *Manager) SetDiscoverySnapshot(allSkills, activeSkills []*Skill, states []*SkillState) {
+	m.mu.Lock()
+	m.allSkills = allSkills
+	m.activeSkills = activeSkills
+	m.states = cloneStates(states)
+	m.mu.Unlock()
+	if m.globalMirror {
+		SetLatestStates(states)
+	}
+}
+
 // PublishStates updates the snapshot and publishes a discovery event.
 func (m *Manager) PublishStates(states []*SkillState) {
 	m.SetLatestStates(states)

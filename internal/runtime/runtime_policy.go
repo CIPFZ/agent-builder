@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
@@ -146,6 +147,9 @@ func (r *runtimeService) UpdatePolicy(ctx context.Context, req RuntimePolicyUpda
 	r.mu.Unlock()
 	if started {
 		if err := r.applyPolicyToWorkspace(ctx, mode); err != nil {
+			return RuntimePolicyResponse{}, err
+		}
+		if err := r.runtime.UpdateAgent(ctx, r.workspace.ID); err != nil && !errors.Is(err, backend.ErrAgentNotInitialized) {
 			return RuntimePolicyResponse{}, err
 		}
 	}

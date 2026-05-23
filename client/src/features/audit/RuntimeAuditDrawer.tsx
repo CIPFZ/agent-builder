@@ -5,7 +5,7 @@ import Space from 'antd/es/space'
 import Tag from 'antd/es/tag'
 import Typography from 'antd/es/typography'
 import { ReloadOutlined } from '@ant-design/icons'
-import type { RuntimeAuditEvent } from '../../runtime'
+import type { RuntimeAuditEvent, RuntimeSkillTurnItem, RuntimeTurnSkillSummary } from '../../runtime'
 
 const { Text } = Typography
 
@@ -48,12 +48,43 @@ export function RuntimeAuditDrawer({
               <Text type="secondary">{formatTime(event.created_at)}</Text>
             </div>
             <AuditHighlights event={event} />
+            <SkillSummary payload={event.payload} />
             <pre className="audit-payload">{JSON.stringify(event.payload, null, 2)}</pre>
           </article>
         ))}
       </div>
     </Drawer>
   )
+}
+
+function SkillSummary({ payload }: { payload: Record<string, unknown> }) {
+  const summary = parseSkillSummary(payload.skill_summary)
+  if (!summary) return null
+  return (
+    <div className="audit-skill-summary">
+      <Space size={6} wrap>
+        <Tag>skills {summary.available_count}</Tag>
+        {summary.activated?.length ? <Tag color="green">activated {summary.activated.length}</Tag> : null}
+        {summary.excluded?.length ? <Tag color="default">excluded {summary.excluded.length}</Tag> : null}
+        {summary.failed?.length ? <Tag color="red">failed {summary.failed.length}</Tag> : null}
+        {summary.policy_mode ? <Tag>{summary.policy_mode}</Tag> : null}
+      </Space>
+      {summary.activated?.length ? <Text type="secondary">Activated: {summary.activated.map((skill: RuntimeSkillTurnItem) => skill.name).join(', ')}</Text> : null}
+      {summary.excluded?.length ? (
+        <Text type="secondary">Excluded: {summary.excluded.map((skill: RuntimeSkillTurnItem) => `${skill.name}${skill.reason ? ` (${skill.reason})` : ''}`).join(', ')}</Text>
+      ) : null}
+      {summary.failed?.length ? (
+        <Text type="danger">Failed: {summary.failed.map((skill: RuntimeSkillTurnItem) => `${skill.name || skill.path}${skill.error ? ` (${skill.error})` : ''}`).join(', ')}</Text>
+      ) : null}
+    </div>
+  )
+}
+
+function parseSkillSummary(value: unknown): RuntimeTurnSkillSummary | null {
+  if (!value || typeof value !== 'object') return null
+  const summary = value as RuntimeTurnSkillSummary
+  if (typeof summary.available_count !== 'number') return null
+  return summary
 }
 
 function AuditHighlights({ event }: { event: RuntimeAuditEvent }) {

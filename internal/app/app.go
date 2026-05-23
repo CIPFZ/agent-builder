@@ -355,6 +355,13 @@ func (app *App) UpdateAgentModel(ctx context.Context) error {
 	return app.AgentCoordinator.UpdateModels(ctx)
 }
 
+func (app *App) RefreshSkills(ctx context.Context) error {
+	if app.AgentCoordinator == nil {
+		return nil
+	}
+	return app.AgentCoordinator.RefreshSkills(ctx)
+}
+
 // overrideModelsForNonInteractive parses the model strings and temporarily
 // overrides the model configurations, then rebuilds the agent.
 // Format: "model-name" (searches all providers) or "provider/model-name".

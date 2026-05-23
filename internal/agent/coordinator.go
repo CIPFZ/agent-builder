@@ -84,6 +84,7 @@ type Coordinator interface {
 	Summarize(context.Context, string) error
 	Model() Model
 	UpdateModels(ctx context.Context) error
+	RefreshSkills(ctx context.Context) error
 }
 
 type coordinator struct {
@@ -207,7 +208,7 @@ func NewCoordinator(
 	}
 
 	// TODO: make this dynamic when we support multiple agents
-	prompt, err := coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
+	prompt, err := coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()), prompt.WithSkills(c.promptSkills()))
 	if err != nil {
 		return nil, err
 	}
@@ -1027,7 +1028,35 @@ func (c *coordinator) UpdateModels(ctx context.Context) error {
 		return err
 	}
 	c.currentAgent.SetTools(tools)
+	systemPrompt, err := c.buildSystemPrompt(ctx, large)
+	if err != nil {
+		return err
+	}
+	c.currentAgent.SetSystemPrompt(systemPrompt)
 	return nil
+}
+
+func (c *coordinator) RefreshSkills(ctx context.Context) error {
+	allSkills, activeSkills := discoverSkills(c.cfg)
+	c.allSkills = allSkills
+	c.activeSkills = activeSkills
+	c.skillTracker = skills.NewTracker(activeSkills)
+	return c.UpdateModels(ctx)
+}
+
+func (c *coordinator) promptSkills() []*skills.Skill {
+	if c.permissions != nil && c.permissions.PolicyMode() == permission.PolicyModeDenyAll {
+		return nil
+	}
+	return c.activeSkills
+}
+
+func (c *coordinator) buildSystemPrompt(ctx context.Context, model Model) (string, error) {
+	p, err := coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()), prompt.WithSkills(c.promptSkills()))
+	if err != nil {
+		return "", err
+	}
+	return p.Build(ctx, model.Model.Provider(), model.Model.Model(), c.cfg)
 }
 
 func (c *coordinator) QueuedPrompts(sessionID string) int {

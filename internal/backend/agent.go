@@ -63,6 +63,19 @@ func (b *Backend) UpdateAgent(ctx context.Context, workspaceID string) error {
 	return ws.UpdateAgentModel(ctx)
 }
 
+func (b *Backend) RefreshWorkspaceSkills(ctx context.Context, workspaceID string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	allSkills, activeSkills, states := discoverWorkspaceSkills(ws.Cfg)
+	if ws.Skills != nil {
+		ws.Skills.SetDiscoverySnapshot(allSkills, activeSkills, states)
+		ws.Skills.PublishStates(states)
+	}
+	return ws.RefreshSkills(ctx)
+}
+
 // CancelSession cancels an ongoing agent operation for the given
 // session.
 func (b *Backend) CancelSession(workspaceID, sessionID string) error {
