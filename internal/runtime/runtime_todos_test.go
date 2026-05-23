@@ -1,9 +1,12 @@
 package runtime
 
 import (
+	"context"
 	"testing"
 
 	"github.com/charmbracelet/crush/internal/agent/tools"
+	"github.com/charmbracelet/crush/internal/db"
+	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/session"
 )
 
@@ -49,5 +52,61 @@ func TestRuntimeTodoUpdatedEvent(t *testing.T) {
 	}
 	if event.Payload["summary"] != "0 pending, 1 in progress, 0 completed" {
 		t.Fatalf("payload = %#v", event.Payload)
+	}
+}
+
+func TestRuntimeTurnTodosUsesSessionStateForRecovery(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	runtimeBackend, workspace := backendForSkillTest(t)
+	service.runtime = runtimeBackend
+	service.workspace = &proto.Workspace{ID: workspace.ID}
+	service.turns = newRuntimeTurnStore(conn)
+
+	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "Todo session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.Todos = []session.Todo{{
+		Content:    "Inspect plan mode",
+		Status:     session.TodoStatusInProgress,
+		ActiveForm: "Inspecting plan mode",
+	}}
+	if _, err := runtimeBackend.SaveSession(context.Background(), workspace.ID, sess); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:        "turn-1",
+		SessionID: sess.ID,
+		Status:    turnStatusCompleted,
+		StartedAt: 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	bySession, err := service.SessionTodos(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bySession.Summary.Total != 1 || bySession.Summary.InProgress != 1 {
+		t.Fatalf("session todos = %#v", bySession.Summary)
+	}
+
+	byTurn, err := service.TurnTodos(context.Background(), "turn-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byTurn.Summary.TurnID != "turn-1" || byTurn.Summary.SessionID != sess.ID || byTurn.Summary.Todos[0].ActiveForm != "Inspecting plan mode" {
+		t.Fatalf("turn todos = %#v", byTurn.Summary)
 	}
 }

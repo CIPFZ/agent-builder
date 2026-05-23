@@ -185,10 +185,21 @@ func (r *runtimeService) evaluateCapabilityLoadPolicy(capability RuntimeCapabili
 	return policy.Evaluate(scheduler.ToolCall{
 		ID:           capability.ID,
 		Name:         capability.Name,
-		Source:       scheduler.ToolSourceUnknown,
+		Source:       capabilityToolSource(capability),
 		Status:       scheduler.ToolCallPending,
 		InputSummary: capabilityPolicySummary(capability),
 	})
+}
+
+func capabilityToolSource(capability RuntimeCapability) scheduler.ToolSource {
+	switch capability.Kind {
+	case "mcp_tool", "mcp_resource", "mcp_prompt":
+		return scheduler.ToolSourceMCP
+	case "builtin_tool":
+		return classifyToolSource(capability.Name)
+	default:
+		return scheduler.ToolSourceUnknown
+	}
 }
 
 func capabilityPolicySummary(capability RuntimeCapability) string {

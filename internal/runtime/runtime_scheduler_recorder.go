@@ -358,7 +358,7 @@ func (r *runtimeSchedulerRecorder) auditToolResult(call scheduler.ToolCall) {
 			Risk:       call.Risk,
 			ExitCode:   call.ExitCode,
 			IsError:    call.IsError,
-			Status:     call.JobStatus,
+			Status:     firstNonEmpty(call.JobStatus, string(call.Status)),
 			StartedAt:  millisFromTime(call.JobStartedAt),
 			FinishedAt: millisFromTime(call.JobFinishedAt),
 		}},

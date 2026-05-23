@@ -71,6 +71,30 @@ func TestSchedulerToolDeniesBeforeInnerRun(t *testing.T) {
 	require.Equal(t, "tool-1", recorder.failed.ToolCallID)
 }
 
+func TestSchedulerToolDeniesTodosInPlanMode(t *testing.T) {
+	t.Parallel()
+
+	inner := &fakeTool{name: "todos"}
+	recorder := &recordingSchedulerRecorder{
+		decision: SchedulerToolPolicyDecision{
+			Decision: string(permission.PolicyDeny),
+			Risk:     string(permission.RiskWrite),
+			Reason:   "Plan mode blocks mutating, execute, network, destructive, or secret tool calls.",
+			Mode:     string(permission.PolicyModePlan),
+		},
+	}
+	tool := newSchedulerTool(inner, recorder)
+
+	resp, err := tool.Run(t.Context(), fantasy.ToolCall{ID: "tool-1", Name: "todos", Input: `{"todos":[]}`})
+	require.NoError(t, err)
+	require.True(t, resp.IsError)
+	require.True(t, resp.StopTurn)
+	require.False(t, inner.called)
+	require.Equal(t, "denied", recorder.failed.Status)
+	require.Equal(t, "write", recorder.failed.Risk)
+	require.Equal(t, "Plan mode blocks mutating, execute, network, destructive, or secret tool calls.", recorder.failed.PolicyReason)
+}
+
 func TestSchedulerToolAllowsReadTools(t *testing.T) {
 	t.Parallel()
 

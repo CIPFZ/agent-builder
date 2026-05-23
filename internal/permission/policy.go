@@ -93,6 +93,8 @@ func ClassifyRisk(toolName, inputSummary string) Risk {
 		return RiskSecret
 	case strings.Contains(input, "read mcp") || strings.Contains(input, "list mcp"):
 		return RiskRead
+	case isReadOnlyBuiltinTool(name):
+		return RiskRead
 	case name == "todos":
 		return RiskWrite
 	case name == "job_kill" || strings.Contains(name, "kill"):
@@ -114,7 +116,16 @@ func ClassifyRisk(toolName, inputSummary string) Risk {
 	case strings.Contains(name, "fetch") || strings.Contains(name, "download") || strings.Contains(name, "web"):
 		return RiskNetwork
 	default:
-		return RiskRead
+		return RiskExecute
+	}
+}
+
+func isReadOnlyBuiltinTool(name string) bool {
+	switch name {
+	case "view", "ls", "grep", "glob", "rg", "diagnostics", "references", "crush_info", "crush_logs", "job_output", "list_mcp_resources", "read_mcp_resource", "context_activation":
+		return true
+	default:
+		return false
 	}
 }
 
