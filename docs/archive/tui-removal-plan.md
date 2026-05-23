@@ -50,7 +50,7 @@ Existing docs already mark the TUI as legacy:
   `internal/cmd/`, and `internal/commands/` as legacy CLI/TUI surface.
 - `docs/desktop-runtime-boundary.md` defines Wails as an adapter and Go runtime
   as the source of truth.
-- `docs/project-structure-refactor-plan.md` and
+- `docs/archive/project-structure-refactor-plan.md` and
   `docs/client-first-runtime-refactor.md` identify `tea.Msg` as a runtime path
   leak that must be removed.
 
@@ -154,7 +154,7 @@ Recommended order:
 
    - `docs/legacy-crush-inventory.md`
    - `docs/client-first-runtime-refactor.md`
-   - `docs/project-structure-refactor-plan.md`
+   - `docs/archive/project-structure-refactor-plan.md`
    - `docs/desktop-runtime-boundary.md` if needed
 
    Move the wording from "legacy to remove later" to "removed; desktop client

@@ -25,11 +25,10 @@ Status labels:
 
 ## Summary
 
-The repository is still rooted in the original Crush CLI/TUI application while
-also carrying the Agent Builder desktop PoC. The highest-risk coupling is that
-the current desktop runtime implementation lives under
-`desktop/` and still consumes Bubble Tea `tea.Msg` events through
-`internal/backend` and `internal/ui` event shapes.
+The repository still carries Crush naming and compatibility stubs, but the
+active product path is no longer the original Crush CLI/TUI application. The
+highest-risk coupling is now that generic runtime implementation still lives
+under `desktop/` instead of `internal/runtime`.
 
 The immediate migration path should keep the existing working build intact,
 then narrow the product path around:
@@ -142,25 +141,28 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 
 | Path | Label | Reason | Next action |
 | --- | --- | --- | --- |
-| `docs/project-structure-refactor-plan.md` | keep | Source plan for this inventory. | Keep active. |
+| `docs/client-runtime-architecture-review.md` | keep | Current docs audit and client runtime architecture review. | Use as the current architecture entry point. |
 | `docs/legacy-crush-inventory.md` | keep | This Phase 1 inventory output. | Keep active and update as decisions change. |
-| `docs/architecture-decisions.md` | keep | Active architecture decision log. | Keep active. |
-| `docs/implementation-roadmap.md` | keep | Active Agent Builder roadmap. | Keep active, update after inventory decisions. |
+| `docs/architecture-decisions.md` | keep | Partially active architecture decision log; early SSH/mock decisions are historical. | Keep, but update or split historical ADRs later. |
+| `docs/archive/implementation-roadmap.md` | archive | Historical roadmap that still describes Phase 0/1 mock and TUI-preservation assumptions. | Do not use as the current execution roadmap. |
 | `docs/agentic-operations-client.md` | keep | Product/client concept document. | Keep active. |
 | `docs/client-architecture-and-core-flow.md` | keep | Active client/runtime architecture documentation. | Keep active. |
 | `docs/client-first-runtime-refactor.md` | keep | Active runtime refactor documentation. | Keep active. |
 | `docs/client-information-architecture.md` | keep | Active client IA documentation. | Keep active. |
 | `docs/client-state-recovery.md` | keep | Active client/runtime recovery notes. | Keep active. |
-| `docs/client-ui-plan.md` | keep | Active UI plan. | Keep active; revise paths after desktop flattening. |
+| `docs/archive/client-ui-plan.md` | archive | Historical UI/mock/SSH/DeepSeek plan. | Keep for background only. |
 | `docs/desktop-runtime-boundary.md` | keep | Active boundary doc for desktop runtime. | Keep active. |
 | `docs/desktop-runtime-root-cause-analysis.md` | archive | Historical root cause analysis for a fixed/diagnostic issue. | Phase 7 archived to `docs/archive/desktop-runtime-root-cause-analysis.md`. |
 | `docs/dev-baseline.md` | keep | Useful validation baseline. | Keep active. |
-| `docs/phase-1-acceptance-test.md` | keep | Current desktop smoke/acceptance procedure. | Keep active, update paths after flattening. |
+| `docs/archive/phase-1-acceptance-test.md` | archive | Historical Phase 1 desktop acceptance flow. | Use `desktop/scripts/phase2-smoke.ps1` for current smoke coverage. |
 | `docs/phase-1-runtime-baseline.md` | archive | Phase baseline snapshot. | Phase 7 archived to `docs/archive/phase-1-runtime-baseline.md`; active references were updated. |
 | `docs/phase-2-runtime-api-boundary.md` | keep | Active runtime API boundary design. | Keep active. |
 | `docs/permission-policy-model.md` | keep | Active design input for PermissionPolicy work. | Keep active. |
 | `docs/tool-scheduler-design.md` | keep | Active design input for scheduler work. | Keep active. |
 | `docs/turn-task-run-model.md` | keep | Active design input for turn/task model. | Keep active. |
+| `docs/archive/project-structure-refactor-plan.md` | archive | Historical structure cleanup plan now superseded by current review and inventory. | Keep for background only. |
+| `docs/archive/root-cleanup-review.md` | archive | Historical root cleanup review. | Keep for background only. |
+| `docs/archive/tui-removal-plan.md` | archive | Historical TUI removal execution plan; removal is complete. | Keep for background only. |
 | `docs/crush-claude-code-gap-analysis.md` | archive | Reference comparison, not an active product contract. | Phase 7 archived to `docs/archive/crush-claude-code-gap-analysis.md`; active references were updated. |
 | `docs/reference-analysis/` | archive | Comparative reference research. | Phase 7 archived to `docs/archive/reference-analysis/`. |
 | `docs/hooks/` | migrate | User-facing Crush hooks documentation. Hooks are still product-relevant but docs are Crush-branded. | Move/update to `docs/reference/hooks/` or rewrite as Agent Builder hook docs. |

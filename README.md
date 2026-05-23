@@ -51,12 +51,13 @@ task --list
 
 Start here:
 
+- `docs/client-runtime-architecture-review.md`
 - `docs/client-architecture-and-core-flow.md`
-- `docs/client-first-runtime-refactor.md`
-- `docs/project-structure-refactor-plan.md`
-- `docs/root-cleanup-review.md`
+- `docs/desktop-runtime-boundary.md`
+- `docs/phase-2-runtime-api-boundary.md`
 - `docs/tool-scheduler-design.md`
 - `docs/permission-policy-model.md`
+- `docs/turn-task-run-model.md`
 - `docs/client-state-recovery.md`
 
 ## Current Status
@@ -70,4 +71,3 @@ The current architecture target is:
 ```text
 React Client -> Runtime API + Event Stream -> Go Runtime -> Agent/Tools
 ```
-

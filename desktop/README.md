@@ -34,8 +34,9 @@ desktop/bin/logs/
 ```
 
 Model settings are saved by the Go runtime bridge to
-`bin/config/model.json`. See
-`../docs/phase-1-acceptance-test.md` for the local validation flow.
+`bin/config/model.json`. See `scripts/phase2-smoke.ps1` for the current
+packaged desktop smoke flow. The historical Phase 1 acceptance flow is archived
+at `../docs/archive/phase-1-acceptance-test.md`.
 
 Desktop-managed runtime settings live next to the executable:
 
