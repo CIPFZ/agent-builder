@@ -4,6 +4,7 @@ import {
   createRuntimeSkill,
   discoverModelConfig,
   refreshRuntimeMcpServer,
+  refreshRuntimeCapability,
   refreshRuntimeSkills,
   saveModelConfig,
   saveRuntimeMcpServer,
@@ -92,6 +93,11 @@ export function AssistantClient() {
             await client.refreshMcpTools(server).catch(() => undefined)
             await client.refreshRuntimeInventory()
             message.success('MCP server refreshed')
+          }}
+          onRefreshCapability={async (capabilityId) => {
+            const capability = await refreshRuntimeCapability(capabilityId)
+            await client.refreshRuntimeInventory()
+            message.success(`${capability.name || capability.id} ${capability.state}`)
           }}
           onRefreshSkills={async () => {
             const nextSkills = await refreshRuntimeSkills()

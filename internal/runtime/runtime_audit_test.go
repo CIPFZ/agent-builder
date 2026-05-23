@@ -143,3 +143,31 @@ func TestAuditPayloadIncludesRuntimeCapabilitySnapshot(t *testing.T) {
 		t.Fatalf("tool calls missing from payload: %#v", decoded.ToolCalls)
 	}
 }
+
+func TestAuditPayloadRedactsCapabilityLoadError(t *testing.T) {
+	t.Parallel()
+
+	payload, err := auditPayload(auditEntry{
+		Event:            "capability_failed",
+		CapabilityID:     "mcp:docs:search",
+		CapabilityKind:   "mcp_tool",
+		CapabilitySource: "docs",
+		CapabilityState:  "failed",
+		CapabilityReason: "refresh_failed",
+		CapabilityError:  "Authorization: Bearer secret-token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, "secret-token") || strings.Contains(text, "Bearer secret") {
+		t.Fatalf("capability audit leaked secret: %s", text)
+	}
+	if !strings.Contains(text, "capability_failed") || !strings.Contains(text, "mcp:docs:search") {
+		t.Fatalf("capability audit fields missing: %s", text)
+	}
+}

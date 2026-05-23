@@ -397,10 +397,18 @@ type RuntimeCapability struct {
 	Enabled     bool   `json:"enabled"`
 	Risk        string `json:"risk"`
 	Description string `json:"description,omitempty"`
+	State       string `json:"state"`
+	Diagnostics string `json:"diagnostics,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Reason      string `json:"reason,omitempty"`
 }
 
 type RuntimeCapabilitiesResponse struct {
 	Capabilities []RuntimeCapability `json:"capabilities"`
+}
+
+type RuntimeCapabilityResponse struct {
+	Capability RuntimeCapability `json:"capability"`
 }
 
 type RuntimeModelConfig struct {

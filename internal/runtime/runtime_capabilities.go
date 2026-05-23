@@ -2,10 +2,26 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/permission"
+	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/charmbracelet/crush/internal/tools/scheduler"
+)
+
+const (
+	capabilityStateUnavailable = "unavailable"
+	capabilityStateDisabled    = "disabled"
+	capabilityStateUnloaded    = "unloaded"
+	capabilityStateLoading     = "loading"
+	capabilityStateLoaded      = "loaded"
+	capabilityStateFailed      = "failed"
 )
 
 func (r *runtimeService) Capabilities(ctx context.Context) (RuntimeCapabilitiesResponse, error) {
@@ -17,7 +33,228 @@ func (r *runtimeService) Capabilities(ctx context.Context) (RuntimeCapabilitiesR
 	tools := runtimeMCPToolsFromConfig(cfg, "")
 	resources := runtimeMCPResources("")
 	prompts := runtimeMCPPrompts("")
-	return runtimeCapabilities(cfg, skills, tools, resources, prompts), nil
+
+	r.mu.Lock()
+	loads := cloneCapabilityLoadRecords(r.capabilityLoads)
+	r.mu.Unlock()
+	return runtimeCapabilities(cfg, skills, tools, resources, prompts, loads), nil
+}
+
+func (r *runtimeService) RefreshCapability(ctx context.Context, capabilityID string) (RuntimeCapabilityResponse, error) {
+	capabilityID = strings.TrimSpace(capabilityID)
+	if capabilityID == "" {
+		return RuntimeCapabilityResponse{}, errors.New("capability id is required")
+	}
+	_, wsID, err := r.workspaceConfig(ctx)
+	if err != nil {
+		return RuntimeCapabilityResponse{}, err
+	}
+	before, ok := r.findCapability(ctx, capabilityID)
+	if !ok {
+		failed := RuntimeCapability{
+			ID:          capabilityID,
+			Kind:        "unknown",
+			Name:        capabilityID,
+			Enabled:     false,
+			Risk:        "unknown",
+			State:       capabilityStateUnavailable,
+			Diagnostics: "Capability is not present in the current runtime inventory.",
+			Error:       "capability not found",
+			Reason:      "not_found",
+		}
+		r.recordCapabilityLoad(failed, capabilityStateFailed, "not_found", failed.Error, 0)
+		return RuntimeCapabilityResponse{Capability: failed}, nil
+	}
+	if !before.Enabled || before.State == capabilityStateDisabled {
+		disabled := before
+		disabled.State = capabilityStateDisabled
+		disabled.Reason = firstNonEmpty(disabled.Reason, "disabled")
+		disabled.Diagnostics = firstNonEmpty(disabled.Diagnostics, "Capability is disabled by runtime configuration.")
+		r.setCapabilityLoadRecord(disabled.ID, runtimeCapabilityLoadRecord{
+			State:       capabilityStateDisabled,
+			Diagnostics: disabled.Diagnostics,
+			Reason:      disabled.Reason,
+			UpdatedAt:   time.Now().UnixMilli(),
+		})
+		r.recordCapabilityLoad(disabled, capabilityStateDisabled, disabled.Reason, "", 0)
+		return RuntimeCapabilityResponse{Capability: disabled}, nil
+	}
+	if decision := r.evaluateCapabilityLoadPolicy(before); decision.Decision == permission.PolicyDeny {
+		denied := before
+		denied.State = capabilityStateFailed
+		denied.Reason = string(decision.Decision)
+		denied.Diagnostics = decision.Reason
+		denied.Error = decision.Reason
+		r.setCapabilityLoadRecord(denied.ID, runtimeCapabilityLoadRecord{
+			State:       capabilityStateFailed,
+			Diagnostics: denied.Diagnostics,
+			Error:       denied.Error,
+			Reason:      denied.Reason,
+			UpdatedAt:   time.Now().UnixMilli(),
+		})
+		r.recordCapabilityLoad(denied, capabilityStateFailed, denied.Reason, denied.Error, 0)
+		return RuntimeCapabilityResponse{Capability: denied}, nil
+	}
+
+	start := time.Now()
+	loading := before
+	loading.State = capabilityStateLoading
+	loading.Reason = "refresh_requested"
+	r.setCapabilityLoadRecord(loading.ID, runtimeCapabilityLoadRecord{
+		State:     capabilityStateLoading,
+		Reason:    loading.Reason,
+		UpdatedAt: start.UnixMilli(),
+	})
+	r.publishCapabilityEvent(runtimeapi.EventCapabilityLoading, loading, loading.Reason, "", 0)
+
+	var loadErr error
+	switch before.Kind {
+	case "builtin_tool":
+		// Builtin tools are registered with the runtime at startup; refresh only
+		// records the runtime-owned loaded state for client recovery.
+	case "skill":
+		_, loadErr = r.refreshSkills(ctx, true)
+	case "mcp_tool", "mcp_resource", "mcp_prompt":
+		server := before.Source
+		if server == "" {
+			loadErr = errors.New("mcp capability is missing server source")
+			break
+		}
+		r.runtime.RefreshMCPTools(ctx, wsID, server)
+		r.runtime.MCPRefreshPrompts(ctx, wsID, server)
+		r.runtime.MCPRefreshResources(ctx, wsID, server)
+	default:
+		loadErr = fmt.Errorf("capability kind %s is not refreshable", before.Kind)
+	}
+	duration := time.Since(start).Milliseconds()
+	if loadErr != nil {
+		failed := before
+		failed.State = capabilityStateFailed
+		failed.Reason = "refresh_failed"
+		failed.Error = loadErr.Error()
+		failed.Diagnostics = loadErr.Error()
+		r.setCapabilityLoadRecord(failed.ID, runtimeCapabilityLoadRecord{
+			State:       capabilityStateFailed,
+			Diagnostics: failed.Diagnostics,
+			Error:       failed.Error,
+			Reason:      failed.Reason,
+			UpdatedAt:   time.Now().UnixMilli(),
+		})
+		r.recordCapabilityLoad(failed, capabilityStateFailed, failed.Reason, failed.Error, duration)
+		return RuntimeCapabilityResponse{Capability: failed}, nil
+	}
+
+	after, ok := r.findCapability(ctx, capabilityID)
+	if !ok {
+		after = before
+	}
+	after.State = capabilityStateLoaded
+	after.Reason = "refresh_completed"
+	after.Diagnostics = ""
+	after.Error = ""
+	r.setCapabilityLoadRecord(after.ID, runtimeCapabilityLoadRecord{
+		State:     capabilityStateLoaded,
+		Reason:    after.Reason,
+		UpdatedAt: time.Now().UnixMilli(),
+	})
+	r.recordCapabilityLoad(after, capabilityStateLoaded, after.Reason, "", duration)
+	return RuntimeCapabilityResponse{Capability: after}, nil
+}
+
+func (r *runtimeService) findCapability(ctx context.Context, capabilityID string) (RuntimeCapability, bool) {
+	resp, err := r.Capabilities(ctx)
+	if err != nil {
+		return RuntimeCapability{}, false
+	}
+	for _, capability := range resp.Capabilities {
+		if capability.ID == capabilityID {
+			return capability, true
+		}
+	}
+	return RuntimeCapability{}, false
+}
+
+func (r *runtimeService) evaluateCapabilityLoadPolicy(capability RuntimeCapability) permission.PolicyResult {
+	r.mu.Lock()
+	mode := permission.PolicyMode(r.policy.Mode)
+	r.mu.Unlock()
+	policy := permission.NewPermissionPolicy(mode)
+	return policy.Evaluate(scheduler.ToolCall{
+		ID:           capability.ID,
+		Name:         capability.Name,
+		Source:       scheduler.ToolSourceUnknown,
+		Status:       scheduler.ToolCallPending,
+		InputSummary: capabilityPolicySummary(capability),
+	})
+}
+
+func capabilityPolicySummary(capability RuntimeCapability) string {
+	switch capability.Risk {
+	case "write":
+		return "write capability refresh"
+	case "execute":
+		return "execute capability refresh"
+	case "network", "external":
+		return "network capability refresh"
+	case "secret":
+		return "secret capability refresh"
+	case "destructive":
+		return "destructive capability refresh"
+	default:
+		return "read capability refresh"
+	}
+}
+
+func (r *runtimeService) setCapabilityLoadRecord(id string, record runtimeCapabilityLoadRecord) {
+	r.mu.Lock()
+	if r.capabilityLoads == nil {
+		r.capabilityLoads = make(map[string]runtimeCapabilityLoadRecord)
+	}
+	r.capabilityLoads[id] = record
+	r.mu.Unlock()
+}
+
+func (r *runtimeService) recordCapabilityLoad(capability RuntimeCapability, state, reason, errText string, durationMS int64) {
+	eventType := runtimeapi.EventCapabilityLoaded
+	if state == capabilityStateLoading {
+		eventType = runtimeapi.EventCapabilityLoading
+	} else if state == capabilityStateFailed || errText != "" {
+		eventType = runtimeapi.EventCapabilityFailed
+	}
+	r.publishCapabilityEvent(eventType, capability, reason, errText, durationMS)
+	r.writeAudit(auditEntry{
+		Event:            "capability_" + state,
+		Timestamp:        time.Now().Format(time.RFC3339Nano),
+		CapabilityID:     capability.ID,
+		CapabilityKind:   capability.Kind,
+		CapabilitySource: capability.Source,
+		CapabilityState:  state,
+		CapabilityReason: reason,
+		CapabilityError:  errText,
+		DurationMS:       durationMS,
+	})
+}
+
+func (r *runtimeService) publishCapabilityEvent(eventType string, capability RuntimeCapability, reason, errText string, durationMS int64) {
+	payload := map[string]any{
+		"capability_id": capability.ID,
+		"kind":          capability.Kind,
+		"source":        capability.Source,
+		"state":         capability.State,
+		"reason":        reason,
+	}
+	if errText != "" {
+		payload["error"] = errText
+	}
+	if durationMS > 0 {
+		payload["duration_ms"] = durationMS
+	}
+	r.storeRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      eventType,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Payload:   payload,
+	})
 }
 
 func runtimeCapabilities(
@@ -26,8 +263,13 @@ func runtimeCapabilities(
 	mcpTools RuntimeMCPToolsResponse,
 	mcpResources RuntimeMCPResourcesResponse,
 	mcpPrompts RuntimeMCPPromptsResponse,
+	loads ...map[string]runtimeCapabilityLoadRecord,
 ) RuntimeCapabilitiesResponse {
 	var capabilities []RuntimeCapability
+	loadRecords := map[string]runtimeCapabilityLoadRecord{}
+	if len(loads) > 0 {
+		loadRecords = loads[0]
+	}
 	disabledTools := map[string]bool{}
 	if store.Config().Options != nil {
 		for _, name := range store.Config().Options.DisabledTools {
@@ -36,10 +278,16 @@ func runtimeCapabilities(
 	}
 	for _, tool := range builtinToolCapabilities() {
 		tool.Enabled = !disabledTools[tool.Name]
-		capabilities = append(capabilities, tool)
+		tool.State = capabilityStateLoaded
+		if !tool.Enabled {
+			tool.State = capabilityStateDisabled
+			tool.Reason = "disabled_tool"
+			tool.Diagnostics = "Builtin tool is disabled by runtime configuration."
+		}
+		capabilities = append(capabilities, applyCapabilityLoadRecord(tool, loadRecords))
 	}
 	for _, skill := range skills.Skills {
-		capabilities = append(capabilities, RuntimeCapability{
+		capability := RuntimeCapability{
 			ID:          "skill:" + skill.Name,
 			Kind:        "skill",
 			Name:        skill.Name,
@@ -47,10 +295,24 @@ func runtimeCapabilities(
 			Enabled:     skill.Enabled,
 			Risk:        "context",
 			Description: skill.Description,
-		})
+			State:       capabilityStateUnloaded,
+		}
+		if !skill.Enabled {
+			capability.State = capabilityStateDisabled
+			capability.Reason = "disabled_skill"
+			capability.Diagnostics = "Skill is disabled by runtime configuration."
+		}
+		if skill.State == "error" {
+			capability.Enabled = false
+			capability.State = capabilityStateFailed
+			capability.Error = skill.Error
+			capability.Diagnostics = skill.Error
+			capability.Reason = "skill_diagnostic"
+		}
+		capabilities = append(capabilities, applyCapabilityLoadRecord(capability, loadRecords))
 	}
 	for _, tool := range mcpTools.Tools {
-		capabilities = append(capabilities, RuntimeCapability{
+		capability := RuntimeCapability{
 			ID:          "mcp:" + tool.Server + ":" + tool.Name,
 			Kind:        "mcp_tool",
 			Name:        tool.Name,
@@ -58,10 +320,17 @@ func runtimeCapabilities(
 			Enabled:     tool.Enabled,
 			Risk:        "external",
 			Description: tool.Description,
-		})
+			State:       capabilityStateLoaded,
+		}
+		if !tool.Enabled {
+			capability.State = capabilityStateDisabled
+			capability.Reason = "disabled_mcp_tool"
+			capability.Diagnostics = "MCP tool is disabled by runtime configuration."
+		}
+		capabilities = append(capabilities, applyCapabilityLoadRecord(capability, loadRecords))
 	}
 	for _, resource := range mcpResources.Resources {
-		capabilities = append(capabilities, RuntimeCapability{
+		capability := RuntimeCapability{
 			ID:          "mcp_resource:" + resource.Server + ":" + resource.URI,
 			Kind:        "mcp_resource",
 			Name:        firstNonEmpty(resource.Name, resource.URI),
@@ -69,10 +338,12 @@ func runtimeCapabilities(
 			Enabled:     true,
 			Risk:        "read",
 			Description: resource.Description,
-		})
+			State:       capabilityStateUnloaded,
+		}
+		capabilities = append(capabilities, applyCapabilityLoadRecord(capability, loadRecords))
 	}
 	for _, prompt := range mcpPrompts.Prompts {
-		capabilities = append(capabilities, RuntimeCapability{
+		capability := RuntimeCapability{
 			ID:          "mcp_prompt:" + prompt.Server + ":" + prompt.Name,
 			Kind:        "mcp_prompt",
 			Name:        prompt.Name,
@@ -80,7 +351,9 @@ func runtimeCapabilities(
 			Enabled:     true,
 			Risk:        "context",
 			Description: prompt.Description,
-		})
+			State:       capabilityStateUnloaded,
+		}
+		capabilities = append(capabilities, applyCapabilityLoadRecord(capability, loadRecords))
 	}
 	slices.SortStableFunc(capabilities, func(a, b RuntimeCapability) int {
 		if c := strings.Compare(a.Kind, b.Kind); c != 0 {
@@ -89,6 +362,65 @@ func runtimeCapabilities(
 		return strings.Compare(a.ID, b.ID)
 	})
 	return RuntimeCapabilitiesResponse{Capabilities: capabilities}
+}
+
+func applyCapabilityLoadRecord(capability RuntimeCapability, records map[string]runtimeCapabilityLoadRecord) RuntimeCapability {
+	if capability.State == "" {
+		capability.State = capabilityStateUnloaded
+	}
+	if !capability.Enabled {
+		capability.State = capabilityStateDisabled
+	}
+	record, ok := records[capability.ID]
+	if !ok || capability.State == capabilityStateDisabled {
+		return capability
+	}
+	if record.State != "" {
+		capability.State = normalizeCapabilityState(record.State, capability.Enabled)
+	}
+	capability.Diagnostics = firstNonEmpty(record.Diagnostics, capability.Diagnostics)
+	capability.Error = firstNonEmpty(record.Error, capability.Error)
+	capability.Reason = firstNonEmpty(record.Reason, capability.Reason)
+	return capability
+}
+
+func normalizeCapabilityState(state string, enabled bool) string {
+	if !enabled {
+		return capabilityStateDisabled
+	}
+	switch strings.TrimSpace(state) {
+	case capabilityStateUnavailable, capabilityStateUnloaded, capabilityStateLoading, capabilityStateLoaded, capabilityStateFailed:
+		return state
+	default:
+		return capabilityStateUnloaded
+	}
+}
+
+func cloneCapabilityLoadRecords(records map[string]runtimeCapabilityLoadRecord) map[string]runtimeCapabilityLoadRecord {
+	if len(records) == 0 {
+		return nil
+	}
+	result := make(map[string]runtimeCapabilityLoadRecord, len(records))
+	for key, value := range records {
+		result[key] = value
+	}
+	return result
+}
+
+func capabilityRefreshPathID(path string) string {
+	const prefix = "/v1/capabilities/"
+	const suffix = "/refresh"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return ""
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	if id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	if decoded, err := url.PathUnescape(id); err == nil {
+		return decoded
+	}
+	return id
 }
 
 func builtinToolCapabilities() []RuntimeCapability {

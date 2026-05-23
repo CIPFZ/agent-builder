@@ -338,7 +338,7 @@ export function useAssistantClient() {
       refreshActiveTurns().catch(() => undefined)
       refreshStatus().catch(() => undefined)
     }
-    if (event.type.startsWith('skill.') || event.type.startsWith('mcp.')) {
+    if (event.type.startsWith('skill.') || event.type.startsWith('mcp.') || event.type.startsWith('capability.')) {
       refreshRuntimeInventory().catch(() => undefined)
     }
     if (event.type === 'audit.recorded') {

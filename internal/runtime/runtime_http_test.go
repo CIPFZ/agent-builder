@@ -452,6 +452,33 @@ func TestRuntimeHTTPServerSmokeCoversSessionTurnAndInventory(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesCapabilityRefreshToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodPost, "/v1/capabilities/skill%3Acrush-config/refresh", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.refreshedCapability != "skill:crush-config" {
+		t.Fatalf("refreshed capability = %q", service.refreshedCapability)
+	}
+	var response RuntimeCapabilityResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Capability.State != "loaded" {
+		t.Fatalf("capability = %#v", response.Capability)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesSkillsToRuntimeService(t *testing.T) {
 	t.Parallel()
 

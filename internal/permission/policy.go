@@ -89,6 +89,8 @@ func ClassifyRisk(toolName, inputSummary string) Risk {
 	switch {
 	case strings.Contains(input, "token") || strings.Contains(input, "api_key") || strings.Contains(input, "secret"):
 		return RiskSecret
+	case strings.Contains(input, "network") || strings.Contains(input, "external"):
+		return RiskNetwork
 	case name == "bash" || name == "shell" || name == "job" || strings.Contains(name, "lsp_restart"):
 		if strings.Contains(input, " rm ") || strings.Contains(input, " del ") || strings.Contains(input, "remove-item") || strings.Contains(input, "reset --hard") {
 			return RiskDestructive

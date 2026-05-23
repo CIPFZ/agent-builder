@@ -647,17 +647,129 @@ func TestRuntimeCapabilitiesIncludeToolsSkillsAndMCP(t *testing.T) {
 	if byID["builtin:bash"].Enabled {
 		t.Fatalf("disabled builtin tool capability = %#v", byID["builtin:bash"])
 	}
+	if byID["builtin:bash"].State != capabilityStateDisabled {
+		t.Fatalf("disabled builtin state = %#v", byID["builtin:bash"])
+	}
 	if byID["skill:crush-config"].Enabled {
 		t.Fatalf("disabled skill capability = %#v", byID["skill:crush-config"])
+	}
+	if byID["skill:crush-config"].State != capabilityStateDisabled {
+		t.Fatalf("disabled skill state = %#v", byID["skill:crush-config"])
 	}
 	if byID["mcp:docs:search_docs"].Kind != "mcp_tool" {
 		t.Fatalf("mcp tool capability missing: %#v", byID["mcp:docs:search_docs"])
 	}
+	if byID["mcp:docs:search_docs"].State != capabilityStateLoaded {
+		t.Fatalf("mcp tool should reflect discovered loaded metadata: %#v", byID["mcp:docs:search_docs"])
+	}
 	if byID["mcp_resource:docs:docs://intro"].Kind != "mcp_resource" {
 		t.Fatalf("mcp resource capability missing: %#v", byID["mcp_resource:docs:docs://intro"])
 	}
+	if byID["mcp_resource:docs:docs://intro"].State != capabilityStateUnloaded {
+		t.Fatalf("mcp resource should be metadata-only unloaded: %#v", byID["mcp_resource:docs:docs://intro"])
+	}
 	if byID["mcp_prompt:docs:summarize"].Kind != "mcp_prompt" {
 		t.Fatalf("mcp prompt capability missing: %#v", byID["mcp_prompt:docs:summarize"])
+	}
+}
+
+func TestRuntimeCapabilityStateNormalization(t *testing.T) {
+	t.Parallel()
+
+	if got := normalizeCapabilityState("unknown", true); got != capabilityStateUnloaded {
+		t.Fatalf("unknown state = %q, want unloaded", got)
+	}
+	if got := normalizeCapabilityState(capabilityStateLoaded, false); got != capabilityStateDisabled {
+		t.Fatalf("disabled state = %q, want disabled", got)
+	}
+
+	capability := applyCapabilityLoadRecord(RuntimeCapability{
+		ID:      "skill:test",
+		Enabled: true,
+		State:   capabilityStateUnloaded,
+	}, map[string]runtimeCapabilityLoadRecord{
+		"skill:test": {State: capabilityStateFailed, Error: "boom", Diagnostics: "failed", Reason: "refresh_failed"},
+	})
+	if capability.State != capabilityStateFailed || capability.Error != "boom" || capability.Diagnostics != "failed" {
+		t.Fatalf("capability load record not applied: %#v", capability)
+	}
+}
+
+func TestRuntimeCapabilityPolicySummaryBlocksExternalInPlanMode(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	service.policy = runtimePolicyFromMode(permission.PolicyModePlan, 0)
+	decision := service.evaluateCapabilityLoadPolicy(RuntimeCapability{
+		ID:      "mcp:docs:search",
+		Kind:    "mcp_tool",
+		Name:    "search",
+		Enabled: true,
+		Risk:    "external",
+	})
+	if decision.Decision != permission.PolicyDeny || decision.Risk != permission.RiskNetwork {
+		t.Fatalf("external capability decision = %#v, want network deny", decision)
+	}
+}
+
+func TestRuntimeCapabilitiesAreMetadataOnlyForSkillsResourcesAndPrompts(t *testing.T) {
+	t.Parallel()
+
+	store := config.NewTestStore(&config.Config{})
+	resp := runtimeCapabilities(
+		store,
+		RuntimeSkillsResponse{Skills: []RuntimeSkill{{Name: "docs", Enabled: true, Builtin: true, State: "normal", Description: "heavy skill"}}},
+		RuntimeMCPToolsResponse{},
+		RuntimeMCPResourcesResponse{Resources: []RuntimeMCPResource{{Server: "docs", URI: "docs://intro", Description: "resource"}}},
+		RuntimeMCPPromptsResponse{Prompts: []RuntimeMCPPrompt{{Server: "docs", Name: "summarize", Description: "prompt"}}},
+	)
+
+	byID := make(map[string]RuntimeCapability)
+	for _, capability := range resp.Capabilities {
+		byID[capability.ID] = capability
+	}
+	for _, id := range []string{"skill:docs", "mcp_resource:docs:docs://intro", "mcp_prompt:docs:summarize"} {
+		if byID[id].State != capabilityStateUnloaded {
+			t.Fatalf("%s state = %#v, want unloaded metadata", id, byID[id])
+		}
+		if byID[id].Diagnostics != "" || byID[id].Error != "" {
+			t.Fatalf("%s should not include heavy diagnostics on clean metadata: %#v", id, byID[id])
+		}
+	}
+}
+
+func TestRuntimeCapabilityRefreshRecordsFailedDiagnosticAndEvent(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	capability := RuntimeCapability{
+		ID:      "mcp:docs:search",
+		Kind:    "mcp_tool",
+		Name:    "search",
+		Source:  "docs",
+		Enabled: true,
+		State:   capabilityStateFailed,
+		Reason:  "refresh_failed",
+		Error:   "Authorization: Bearer secret",
+	}
+
+	service.recordCapabilityLoad(capability, capabilityStateFailed, capability.Reason, capability.Error, 12)
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, event := range events.Events {
+		if event.Type == runtimeapi.EventCapabilityFailed && event.Payload["capability_id"] == "mcp:docs:search" {
+			found = true
+			if strings.Contains(fmt.Sprint(event.Payload["error"]), "secret") {
+				t.Fatalf("capability event leaked secret: %#v", event.Payload)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("capability failed event missing: %#v", events.Events)
 	}
 }
 
@@ -1361,6 +1473,7 @@ type recordingRuntimeService struct {
 	skills              RuntimeSkillsResponse
 	mcpServers          RuntimeMCPServersResponse
 	capabilities        RuntimeCapabilitiesResponse
+	refreshedCapability string
 	savedMCPServer      RuntimeMCPServerConfigRequest
 	toggledMCPServer    RuntimeMCPServerToggleRequest
 	toggledMCPTool      RuntimeMCPToolToggleRequest
@@ -1566,6 +1679,11 @@ func (s *recordingRuntimeService) MCPPrompts(context.Context, string) (RuntimeMC
 
 func (s *recordingRuntimeService) Capabilities(context.Context) (RuntimeCapabilitiesResponse, error) {
 	return s.capabilities, nil
+}
+
+func (s *recordingRuntimeService) RefreshCapability(_ context.Context, id string) (RuntimeCapabilityResponse, error) {
+	s.refreshedCapability = id
+	return RuntimeCapabilityResponse{Capability: RuntimeCapability{ID: id, Kind: "skill", Name: "crush-config", Enabled: true, State: "loaded"}}, nil
 }
 
 func (s *recordingRuntimeService) APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error) {

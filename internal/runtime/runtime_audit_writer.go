@@ -44,6 +44,12 @@ type auditEntry struct {
 	PermissionReason      string             `json:"permission_reason,omitempty"`
 	PolicyMode            string             `json:"policy_mode,omitempty"`
 	ToolCallID            string             `json:"tool_call_id,omitempty"`
+	CapabilityID          string             `json:"capability_id,omitempty"`
+	CapabilityKind        string             `json:"capability_kind,omitempty"`
+	CapabilitySource      string             `json:"capability_source,omitempty"`
+	CapabilityState       string             `json:"capability_state,omitempty"`
+	CapabilityReason      string             `json:"capability_reason,omitempty"`
+	CapabilityError       string             `json:"capability_error,omitempty"`
 }
 
 type auditToolCall struct {

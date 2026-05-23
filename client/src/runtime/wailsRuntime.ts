@@ -102,6 +102,12 @@ export const wailsRuntime: AgentRuntime = {
     return response.capabilities
   },
 
+  async refreshCapability(capabilityId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.RefreshCapability(capabilityId)
+    return response.capability
+  },
+
   async listEvents(after?: number) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.Events()

@@ -231,6 +231,10 @@ export type RuntimeCapability = {
   enabled: boolean
   risk: string
   description?: string
+  state: 'unavailable' | 'disabled' | 'unloaded' | 'loading' | 'loaded' | 'failed' | string
+  diagnostics?: string
+  error?: string
+  reason?: string
 }
 
 export type RuntimeMessage = {
@@ -357,6 +361,7 @@ export type AgentRuntime = {
   discoverModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelDiscoveryResponse>
   addSkillPath: (path: string) => Promise<RuntimeSkill[]>
   listCapabilities: () => Promise<RuntimeCapability[]>
+  refreshCapability: (capabilityId: string) => Promise<RuntimeCapability>
   listEvents: (after?: number) => Promise<RuntimeEventsResponse>
   listMcpServers: () => Promise<RuntimeMcpServer[]>
   listMcpResources: (server: string) => Promise<RuntimeMcpResource[]>

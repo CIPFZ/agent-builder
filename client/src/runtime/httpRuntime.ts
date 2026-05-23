@@ -156,6 +156,10 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
       const response = await get<{ capabilities: RuntimeCapability[] }>('/v1/capabilities')
       return response.capabilities
     },
+    async refreshCapability(capabilityId: string) {
+      const response = await post<{ capability: RuntimeCapability }>(`/v1/capabilities/${encodePath(capabilityId)}/refresh`)
+      return response.capability
+    },
     listEvents(after?: number) {
       const query = after && after > 0 ? `?after=${encodeURIComponent(String(after))}` : ''
       return get<RuntimeEventsResponse>(`/v1/events${query}`)

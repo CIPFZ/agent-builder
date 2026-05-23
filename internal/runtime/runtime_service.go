@@ -20,8 +20,9 @@ func newRuntimeService() *runtimeService {
 
 		toolCalls: scheduler.New(NewRuntimeToolCallStore()),
 
-		permissions: make(map[string]pendingRuntimePermission),
-		policy:      defaultRuntimePolicy(),
+		permissions:     make(map[string]pendingRuntimePermission),
+		policy:          defaultRuntimePolicy(),
+		capabilityLoads: make(map[string]runtimeCapabilityLoadRecord),
 
 		eventStream: newRuntimeSSEServer(),
 	}

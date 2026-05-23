@@ -128,6 +128,10 @@ export async function requestRuntimeCapabilities() {
   return getAgentRuntime().listCapabilities()
 }
 
+export async function refreshRuntimeCapability(capabilityId: string) {
+  return getAgentRuntime().refreshCapability(capabilityId)
+}
+
 export async function requestRuntimeAudit(turnId: string) {
   return getAgentRuntime().auditTurn(turnId)
 }

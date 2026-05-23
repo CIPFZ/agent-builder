@@ -34,6 +34,7 @@ type RuntimeFeatureWorkspaceProps = {
   onCreateSkill: (request: RuntimeSkillCreateRequest) => Promise<void>
   onEditMcpServer: (config: RuntimeMcpServerConfig) => Promise<void>
   onRefreshMcpServer: (server: string) => Promise<void>
+  onRefreshCapability: (capabilityId: string) => Promise<void>
   onRefreshSkills: () => Promise<void>
   onToggleMcpServer: (server: string, enabled: boolean) => Promise<void>
   onToggleMcpTool: (server: string, tool: string, enabled: boolean) => Promise<void>
@@ -72,6 +73,7 @@ export function RuntimeFeatureWorkspace({
   onAddSkillPath,
   onCreateSkill,
   onEditMcpServer,
+  onRefreshCapability,
   onRefreshMcpServer,
   onRefreshSkills,
   onToggleMcpServer,
@@ -100,7 +102,7 @@ export function RuntimeFeatureWorkspace({
         {view === 'skills' ? (
           <RuntimeSkillPanel skills={skills} onRefresh={onRefreshSkills} onCreate={onCreateSkill} onAddPath={onAddSkillPath} onToggle={onToggleSkill} />
         ) : null}
-        {view === 'plugins' ? <RuntimeCapabilityPanel capabilities={capabilities} /> : null}
+        {view === 'plugins' ? <RuntimeCapabilityPanel capabilities={capabilities} onRefresh={onRefreshCapability} /> : null}
         {view === 'mcp' ? (
           <RuntimeMcpPanel
             servers={mcpServers}

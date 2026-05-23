@@ -82,6 +82,7 @@ func (r *runtimeService) restart() {
 	r.permissionStore = runtimePermissionStore{}
 	r.permissions = make(map[string]pendingRuntimePermission)
 	r.policy = defaultRuntimePolicy()
+	r.capabilityLoads = make(map[string]runtimeCapabilityLoadRecord)
 	r.recovery = runtimeRecoveryRecord{}
 	r.events = nil
 }

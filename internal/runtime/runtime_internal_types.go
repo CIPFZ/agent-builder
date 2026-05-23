@@ -58,3 +58,11 @@ type runtimeRecoveryRecord struct {
 	interruptedTurns   []RuntimeTurn
 	expiredPermissions []RuntimePermissionRequest
 }
+
+type runtimeCapabilityLoadRecord struct {
+	State       string
+	Diagnostics string
+	Error       string
+	Reason      string
+	UpdatedAt   int64
+}
