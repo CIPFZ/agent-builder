@@ -78,6 +78,7 @@ func (r *runtimeService) restart() {
 	r.sessionTurns = make(map[string]string)
 	r.toolEvents = make(map[string]runtimeToolEventState)
 	r.toolCalls = nil
+	r.agentTasks = runtimeAgentTaskStore{}
 	r.turns = runtimeTurnStore{}
 	r.permissionStore = runtimePermissionStore{}
 	r.permissions = make(map[string]pendingRuntimePermission)
@@ -141,7 +142,8 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	runtimeCtx, cancel := context.WithCancel(context.Background())
 	r.runtimeCtx = runtimeCtx
 	r.cancel = cancel
-	r.runtime = backend.NewWithSchedulerRecorder(runtimeCtx, store, nil, &runtimeSchedulerRecorder{service: r})
+	recorder := &runtimeSchedulerRecorder{service: r}
+	r.runtime = backend.NewWithSchedulerRecorder(runtimeCtx, store, nil, recorder)
 
 	wsRuntime, ws, err := r.runtime.CreateWorkspace(proto.Workspace{
 		Path:    workingDir,
@@ -197,10 +199,15 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	startedAt := time.Now().UTC()
 	r.turns = newRuntimeTurnStore(conn)
 	r.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	r.agentTasks = newRuntimeAgentTaskStore(conn)
 	r.permissionStore = newRuntimePermissionStore(conn)
 	interrupted, err := r.turns.InterruptUnfinished(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to recover runtime turns: %w", err)
+	}
+	interruptedTasks, err := r.agentTasks.InterruptUnfinished(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to recover runtime agent tasks: %w", err)
 	}
 	expiredPermissions, err := r.expireInvalidPendingPermissions(ctx)
 	if err != nil {
@@ -210,6 +217,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	r.recovery = runtimeRecoveryRecord{
 		startedAt:          startedAt,
 		interruptedTurns:   append([]RuntimeTurn(nil), interrupted...),
+		interruptedTasks:   append([]RuntimeAgentTask(nil), interruptedTasks...),
 		expiredPermissions: append([]RuntimePermissionRequest(nil), expiredPermissions...),
 	}
 	r.mu.Unlock()
@@ -240,6 +248,35 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 				"model":        turn.Model,
 				"error":        turn.Error,
 			},
+		})
+	}
+	for _, task := range interruptedTasks {
+		r.storeRuntimeEvent(runtimeAgentTaskEvent(runtimeapi.EventTaskInterrupted, task))
+		_ = newRuntimeAuditStore(conn).Append(ctx, RuntimeAuditEvent{
+			ID:         newRuntimeEventID(),
+			SessionID:  task.ParentSessionID,
+			TurnID:     task.ParentTurnID,
+			ToolCallID: task.ParentToolCallID,
+			Type:       "task_interrupted",
+			CreatedAt:  startedAt.Format(time.RFC3339Nano),
+			Payload: redactRuntimePayload(map[string]any{
+				"event":               "task_interrupted",
+				"workspace_id":        ws.ID,
+				"task_id":             task.ID,
+				"parent_turn_id":      task.ParentTurnID,
+				"parent_session_id":   task.ParentSessionID,
+				"parent_tool_call_id": task.ParentToolCallID,
+				"child_session_id":    task.ChildSessionID,
+				"kind":                task.Kind,
+				"role":                task.Role,
+				"name":                task.Name,
+				"provider":            task.Provider,
+				"model":               task.Model,
+				"capability_scope":    task.CapabilityScope,
+				"allowed_tools":       task.AllowedTools,
+				"result_summary":      task.ResultSummary,
+				"error":               task.Error,
+			}),
 		})
 	}
 	for _, perm := range expiredPermissions {

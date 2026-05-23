@@ -4,6 +4,7 @@ import { wailsRuntime } from './wailsRuntime'
 
 export type {
   AgentRuntime,
+  RuntimeAgentTask,
   RuntimeAuditEvent,
   RuntimeChatRequest,
   RuntimeChatResponse,

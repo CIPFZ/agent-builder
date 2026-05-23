@@ -163,6 +163,9 @@ func (r *runtimeService) auditTurnSummary(ctx context.Context, turnID string, ev
 	if calls, err := r.TurnToolCalls(ctx, turnID); err == nil {
 		summary.ToolCalls = calls.ToolCalls
 	}
+	if tasks, err := r.TurnAgentTasks(ctx, turnID); err == nil {
+		summary.Tasks = tasks.Tasks
+	}
 	permissionIDs := make(map[string]struct{})
 	for _, event := range events {
 		if summary.SessionID == "" {

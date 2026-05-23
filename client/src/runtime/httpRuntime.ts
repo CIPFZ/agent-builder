@@ -1,6 +1,7 @@
 import type {
   AgentRuntime,
   RuntimeAuditEvent,
+  RuntimeAgentTask,
   RuntimeCapability,
   RuntimeChatRequest,
   RuntimeChatResponse,
@@ -153,6 +154,14 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
       const response = await get<{ toolCall: RuntimeToolCall }>(`/v1/tool-calls/${encodePath(toolCallId)}`)
       return response.toolCall
     },
+    async getAgentTask(taskId: string) {
+      const response = await get<{ task: RuntimeAgentTask }>(`/v1/tasks/${encodePath(taskId)}`)
+      return response.task
+    },
+    async cancelAgentTask(taskId: string) {
+      const response = await post<{ task: RuntimeAgentTask }>(`/v1/tasks/${encodePath(taskId)}/cancel`)
+      return response.task
+    },
     async getSessionTodos(sessionId: string) {
       const response = await get<{ summary: RuntimeTodoSummary }>(`/v1/sessions/${encodePath(sessionId)}/todos`)
       return response.summary
@@ -211,6 +220,10 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async listTurnToolCalls(turnId: string) {
       const response = await get<{ toolCalls: RuntimeToolCall[] }>(`/v1/turns/${encodePath(turnId)}/tool-calls`)
       return response.toolCalls
+    },
+    async listTurnAgentTasks(turnId: string) {
+      const response = await get<{ tasks: RuntimeAgentTask[] }>(`/v1/turns/${encodePath(turnId)}/tasks`)
+      return response.tasks
     },
     async listSessions() {
       const response = await get<{ sessions: RuntimeSession[] }>('/v1/sessions')

@@ -9,6 +9,7 @@ import (
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
 	"charm.land/fantasy/providers/bedrock"
+	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,6 +78,49 @@ func agentResultWithText(text string) *fantasy.AgentResult {
 			},
 		},
 	}
+}
+
+type recordingAgentTaskRecorder struct {
+	started   []AgentTaskRecord
+	progress  []AgentTaskRecord
+	completed []AgentTaskRecord
+	failed    []AgentTaskRecord
+}
+
+func (r *recordingAgentTaskRecorder) EvaluateToolCall(context.Context, SchedulerToolCall) (SchedulerToolPolicyDecision, error) {
+	return SchedulerToolPolicyDecision{Decision: "allow", Risk: "execute", Mode: "ask"}, nil
+}
+
+func (r *recordingAgentTaskRecorder) ToolCallStarted(context.Context, SchedulerToolCall) error {
+	return nil
+}
+func (r *recordingAgentTaskRecorder) ToolCallOutput(context.Context, SchedulerToolCallResult) error {
+	return nil
+}
+func (r *recordingAgentTaskRecorder) ToolCallCompleted(context.Context, SchedulerToolCallResult) error {
+	return nil
+}
+func (r *recordingAgentTaskRecorder) ToolCallFailed(context.Context, SchedulerToolCallResult) error {
+	return nil
+}
+func (r *recordingAgentTaskRecorder) ToolCallCancelled(context.Context, SchedulerToolCallResult) error {
+	return nil
+}
+func (r *recordingAgentTaskRecorder) AgentTaskStarted(_ context.Context, record AgentTaskRecord) error {
+	r.started = append(r.started, record)
+	return nil
+}
+func (r *recordingAgentTaskRecorder) AgentTaskProgress(_ context.Context, record AgentTaskRecord) error {
+	r.progress = append(r.progress, record)
+	return nil
+}
+func (r *recordingAgentTaskRecorder) AgentTaskCompleted(_ context.Context, record AgentTaskRecord) error {
+	r.completed = append(r.completed, record)
+	return nil
+}
+func (r *recordingAgentTaskRecorder) AgentTaskFailed(_ context.Context, record AgentTaskRecord) error {
+	r.failed = append(r.failed, record)
+	return nil
 }
 
 func TestRunSubAgent(t *testing.T) {
@@ -277,6 +321,97 @@ func TestRunSubAgent(t *testing.T) {
 		require.NoError(t, err)
 		assert.InDelta(t, 0.05, updated.Cost, 1e-9)
 	})
+
+	t.Run("records agent task lifecycle", func(t *testing.T) {
+		env := testEnv(t)
+		coord := newTestCoordinator(t, env, providerID, providerCfg)
+		recorder := &recordingAgentTaskRecorder{}
+		coord.schedulerRecorder = recorder
+		coord.agentTaskRecorder = recorder
+
+		parentSession, err := env.sessions.Create(t.Context(), "Parent")
+		require.NoError(t, err)
+
+		agent := newMockAgent(providerID, 4096, func(_ context.Context, call SessionAgentCall) (*fantasy.AgentResult, error) {
+			assert.Equal(t, "turn-1", call.TurnID)
+			return agentResultWithText("ok"), nil
+		})
+		ctx := context.WithValue(t.Context(), tools.TurnIDContextKey, "turn-1")
+
+		_, err = coord.runSubAgent(ctx, subAgentParams{
+			Agent:          agent,
+			SessionID:      parentSession.ID,
+			AgentMessageID: "msg-1",
+			ToolCallID:     "call-1",
+			Prompt:         "test prompt",
+			SessionTitle:   "Task",
+			Kind:           "subagent",
+			Name:           "agent",
+			AllowedTools:   []string{"view"},
+		})
+		require.NoError(t, err)
+		require.Len(t, recorder.started, 1)
+		require.Len(t, recorder.completed, 1)
+		assert.Equal(t, "task_call-1", recorder.started[0].ID)
+		assert.Equal(t, parentSession.ID, recorder.started[0].ParentSessionID)
+		assert.Equal(t, "turn-1", recorder.started[0].ParentTurnID)
+		assert.Equal(t, "call-1", recorder.started[0].ParentToolCallID)
+		assert.NotEmpty(t, recorder.started[0].ChildSessionID)
+		assert.Equal(t, "ok", recorder.completed[0].ResultSummary)
+	})
+
+	t.Run("policy denial blocks child session", func(t *testing.T) {
+		env := testEnv(t)
+		coord := newTestCoordinator(t, env, providerID, providerCfg)
+		coord.schedulerRecorder = denyingSchedulerRecorder{}
+
+		parentSession, err := env.sessions.Create(t.Context(), "Parent")
+		require.NoError(t, err)
+		agent := newMockAgent(providerID, 4096, func(context.Context, SessionAgentCall) (*fantasy.AgentResult, error) {
+			t.Fatal("agent should not run")
+			return nil, nil
+		})
+
+		resp, err := coord.runSubAgent(t.Context(), subAgentParams{
+			Agent:          agent,
+			SessionID:      parentSession.ID,
+			AgentMessageID: "msg-1",
+			ToolCallID:     "call-1",
+			Prompt:         "test",
+			SessionTitle:   "Task",
+			Name:           "agent",
+		})
+		require.NoError(t, err)
+		assert.True(t, resp.IsError)
+		children, err := env.sessions.List(t.Context())
+		require.NoError(t, err)
+		count := 0
+		for _, child := range children {
+			if child.ParentSessionID == parentSession.ID {
+				count++
+			}
+		}
+		assert.Zero(t, count)
+	})
+}
+
+type denyingSchedulerRecorder struct{}
+
+func (denyingSchedulerRecorder) EvaluateToolCall(context.Context, SchedulerToolCall) (SchedulerToolPolicyDecision, error) {
+	return SchedulerToolPolicyDecision{Decision: "deny", Risk: "execute", Reason: "blocked", Mode: "plan"}, nil
+}
+func (denyingSchedulerRecorder) ToolCallStarted(context.Context, SchedulerToolCall) error { return nil }
+func (denyingSchedulerRecorder) ToolCallOutput(context.Context, SchedulerToolCallResult) error {
+	return nil
+}
+func (denyingSchedulerRecorder) ToolCallCompleted(context.Context, SchedulerToolCallResult) error {
+	return nil
+}
+func (denyingSchedulerRecorder) ToolCallFailed(context.Context, SchedulerToolCallResult) error {
+	return nil
+}
+func (denyingSchedulerRecorder) ToolCallCancelled(context.Context, SchedulerToolCallResult) error {
+	return nil
 }
 
 func TestUpdateParentSessionCost(t *testing.T) {

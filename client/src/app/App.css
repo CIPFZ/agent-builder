@@ -397,6 +397,35 @@ button {
   white-space: nowrap;
 }
 
+.runtime-task-panel {
+  margin-bottom: 24px;
+  padding: 12px 14px;
+  border: 1px solid #e1d9cf;
+  border-radius: 8px;
+  background: #fffdf9;
+}
+
+.runtime-task-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.runtime-task-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.runtime-task-row .ant-typography {
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .message-row {
   display: flex;
   gap: 16px;

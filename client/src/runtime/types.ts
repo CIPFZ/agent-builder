@@ -107,6 +107,34 @@ export type RuntimeToolCall = {
   error?: string
 }
 
+export type RuntimeAgentTask = {
+  id: string
+  parentTurnId?: string
+  parentSessionId: string
+  parentToolCallId?: string
+  childSessionId?: string
+  title: string
+  kind: 'subagent' | 'agentic_fetch' | 'background' | string
+  role?: string
+  name?: string
+  promptSummary?: string
+  model?: string
+  provider?: string
+  allowedTools?: string[]
+  capabilityScope?: string[]
+  cwd?: string
+  worktree?: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | string
+  progress: number
+  resultSummary?: string
+  artifactRefs?: string[]
+  startedAt: number
+  updatedAt: number
+  finishedAt?: number
+  error?: string
+  cancellationDetail?: string
+}
+
 export type RuntimeTodo = {
   content: string
   status: 'pending' | 'in_progress' | 'completed' | string
@@ -177,6 +205,7 @@ export type RuntimeRecoveryStatus = {
   last_event_sequence: number
   active_turns: RuntimeTurn[]
   interrupted_turns: RuntimeTurn[]
+  interrupted_tasks?: RuntimeAgentTask[]
   pending_permissions: RuntimePermissionRequest[]
   snapshot_required?: boolean
 }
@@ -437,6 +466,8 @@ export type AgentRuntime = {
   getAPIEndpoint: () => Promise<RuntimeAPIEndpoint>
   getTurn: (turnId: string) => Promise<RuntimeTurn>
   getToolCall: (toolCallId: string) => Promise<RuntimeToolCall>
+  getAgentTask: (taskId: string) => Promise<RuntimeAgentTask>
+  cancelAgentTask: (taskId: string) => Promise<RuntimeAgentTask>
   getSessionTodos: (sessionId: string) => Promise<RuntimeTodoSummary>
   getTurnTodos: (turnId: string) => Promise<RuntimeTodoSummary>
   getEventsEndpoint: () => Promise<RuntimeEventsEndpoint>
@@ -457,6 +488,7 @@ export type AgentRuntime = {
   listSkills: () => Promise<RuntimeSkill[]>
   listTurns: (status?: string) => Promise<RuntimeTurn[]>
   listTurnToolCalls: (turnId: string) => Promise<RuntimeToolCall[]>
+  listTurnAgentTasks: (turnId: string) => Promise<RuntimeAgentTask[]>
   createSkill: (request: RuntimeSkillCreateRequest) => Promise<RuntimeSkill[]>
   newChat: (title: string) => Promise<RuntimeStatus>
   refreshMcpServer: (server: string) => Promise<RuntimeMcpServer[]>

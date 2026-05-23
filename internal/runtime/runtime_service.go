@@ -20,6 +20,8 @@ func newRuntimeService() *runtimeService {
 
 		toolCalls: scheduler.New(NewRuntimeToolCallStore()),
 
+		agentTasks: runtimeAgentTaskStore{},
+
 		permissions:     make(map[string]pendingRuntimePermission),
 		policy:          defaultRuntimePolicy(),
 		capabilityLoads: make(map[string]runtimeCapabilityLoadRecord),

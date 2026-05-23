@@ -108,6 +108,14 @@ export async function requestRuntimeTurnTodos(turnId: string) {
   return getAgentRuntime().getTurnTodos(turnId)
 }
 
+export async function requestRuntimeTurnTasks(turnId: string) {
+  return getAgentRuntime().listTurnAgentTasks(turnId)
+}
+
+export async function cancelRuntimeAgentTask(taskId: string) {
+  return getAgentRuntime().cancelAgentTask(taskId)
+}
+
 export async function updateRuntimePolicy(mode: RuntimePolicyMode) {
   return getAgentRuntime().updatePolicy(mode)
 }

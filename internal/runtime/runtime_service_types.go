@@ -25,6 +25,9 @@ type RuntimeService interface {
 	Turns(context.Context, string) (RuntimeTurnsResponse, error)
 	ToolCall(context.Context, string) (RuntimeToolCallResponse, error)
 	TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error)
+	AgentTask(context.Context, string) (RuntimeAgentTaskResponse, error)
+	TurnAgentTasks(context.Context, string) (RuntimeAgentTasksResponse, error)
+	CancelAgentTask(context.Context, string) (RuntimeAgentTaskResponse, error)
 	SessionTodos(context.Context, string) (RuntimeTodosResponse, error)
 	TurnTodos(context.Context, string) (RuntimeTodosResponse, error)
 	Sessions(context.Context) (RuntimeSessionsResponse, error)
@@ -77,6 +80,7 @@ type runtimeService struct {
 	sessionTurns      map[string]string
 	toolEvents        map[string]runtimeToolEventState
 	toolCalls         runtimeToolCallStore
+	agentTasks        runtimeAgentTaskStore
 	turns             runtimeTurnStore
 	permissionStore   runtimePermissionStore
 	permissions       map[string]pendingRuntimePermission

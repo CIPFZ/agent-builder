@@ -97,6 +97,8 @@ func ClassifyRisk(toolName, inputSummary string) Risk {
 		return RiskRead
 	case name == "todos":
 		return RiskWrite
+	case name == "agent" || name == "agentic_fetch":
+		return RiskExecute
 	case name == "job_kill" || strings.Contains(name, "kill"):
 		return RiskDestructive
 	case strings.Contains(input, "network") || strings.Contains(input, "external"):

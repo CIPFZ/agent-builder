@@ -56,6 +56,7 @@ type runtimeEventStats struct {
 type runtimeRecoveryRecord struct {
 	startedAt          time.Time
 	interruptedTurns   []RuntimeTurn
+	interruptedTasks   []RuntimeAgentTask
 	expiredPermissions []RuntimePermissionRequest
 }
 

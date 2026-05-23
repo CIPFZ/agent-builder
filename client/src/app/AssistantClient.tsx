@@ -49,6 +49,7 @@ export function AssistantClient() {
           activeChatTitle={client.activeChatTitle}
           activeSession={client.activeSession}
           activeTurns={client.activeTurns}
+          agentTasks={client.agentTasks}
           composerInputRef={client.composerInputRef}
           config={client.config}
           configLoaded={client.configLoaded}
@@ -64,6 +65,7 @@ export function AssistantClient() {
           sidebarCollapsed={client.sidebarCollapsed}
           todoSummary={client.todoSummary}
           viewportRef={client.viewportRef}
+          onCancelAgentTask={client.cancelAgentTask}
           onCancelTurn={client.cancelTurn}
           onCopyMessage={client.copyMessage}
           onOpenAudit={client.openAudit}

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
@@ -107,6 +108,7 @@ type coordinator struct {
 
 	readyWg           errgroup.Group
 	schedulerRecorder SchedulerRecorder
+	agentTaskRecorder AgentTaskRecorder
 }
 
 type SchedulerRecorder interface {
@@ -167,6 +169,39 @@ type SchedulerToolPolicyDecision struct {
 	Mode     string
 }
 
+type AgentTaskRecorder interface {
+	AgentTaskStarted(context.Context, AgentTaskRecord) error
+	AgentTaskProgress(context.Context, AgentTaskRecord) error
+	AgentTaskCompleted(context.Context, AgentTaskRecord) error
+	AgentTaskFailed(context.Context, AgentTaskRecord) error
+}
+
+type AgentTaskRecord struct {
+	ID               string
+	ParentTurnID     string
+	ParentSessionID  string
+	ParentToolCallID string
+	ChildSessionID   string
+	Title            string
+	Kind             string
+	Role             string
+	Name             string
+	PromptSummary    string
+	Model            string
+	Provider         string
+	AllowedTools     []string
+	CapabilityScope  []string
+	CWD              string
+	Worktree         string
+	Status           string
+	Progress         int
+	ResultSummary    string
+	ArtifactRefs     []string
+	StartedAt        int64
+	FinishedAt       int64
+	Error            string
+}
+
 func NewCoordinator(
 	ctx context.Context,
 	cfg *config.ConfigStore,
@@ -205,6 +240,9 @@ func NewCoordinator(
 	}
 	if len(schedulerRecorder) > 0 {
 		c.schedulerRecorder = schedulerRecorder[0]
+		if taskRecorder, ok := schedulerRecorder[0].(AgentTaskRecorder); ok {
+			c.agentTaskRecorder = taskRecorder
+		}
 	}
 
 	agentCfg, ok := cfg.Config().Agents[config.AgentCoder]
@@ -1154,12 +1192,17 @@ func (c *coordinator) refreshApiKeyTemplate(ctx context.Context, providerCfg con
 
 // subAgentParams holds the parameters for running a sub-agent.
 type subAgentParams struct {
-	Agent          SessionAgent
-	SessionID      string
-	AgentMessageID string
-	ToolCallID     string
-	Prompt         string
-	SessionTitle   string
+	Agent           SessionAgent
+	SessionID       string
+	AgentMessageID  string
+	ToolCallID      string
+	Prompt          string
+	SessionTitle    string
+	Kind            string
+	Role            string
+	Name            string
+	AllowedTools    []string
+	CapabilityScope []string
 	// SessionSetup is an optional callback invoked after session creation
 	// but before agent execution, for custom session configuration.
 	SessionSetup func(sessionID string)
@@ -1169,6 +1212,15 @@ type subAgentParams struct {
 // It creates a sub-session, runs the agent with the given prompt, and propagates
 // the cost to the parent session.
 func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (fantasy.ToolResponse, error) {
+	taskID := c.agentTaskID(params)
+	startedAt := time.Now().UnixMilli()
+	parentTurnID := tools.GetTurnFromContext(ctx)
+	if parentTurnID == "" {
+		parentTurnID = params.SessionID
+	}
+	if decisionResp, denied, err := c.evaluateSubAgentPolicy(ctx, params, parentTurnID); err != nil || denied {
+		return decisionResp, err
+	}
 	// Create sub-session
 	agentToolSessionID := c.sessions.CreateAgentToolSessionID(params.AgentMessageID, params.ToolCallID)
 	session, err := c.sessions.CreateTaskSession(ctx, agentToolSessionID, params.SessionID, params.SessionTitle)
@@ -1192,6 +1244,12 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	if !ok {
 		return fantasy.ToolResponse{}, errModelProviderNotConfigured
 	}
+	taskRecord := c.agentTaskRecord(params, taskID, parentTurnID, session.ID, model, startedAt)
+	if c.agentTaskRecorder != nil {
+		_ = c.agentTaskRecorder.AgentTaskStarted(ctx, taskRecord)
+		taskRecord.Progress = 10
+		_ = c.agentTaskRecorder.AgentTaskProgress(ctx, taskRecord)
+	}
 
 	// Run the agent
 	result, err := params.Agent.Run(ctx, SessionAgentCall{
@@ -1208,15 +1266,129 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 		NonInteractive:   true,
 	})
 	if err != nil {
+		if c.agentTaskRecorder != nil {
+			taskRecord.Status = "failed"
+			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+				taskRecord.Status = "cancelled"
+			}
+			taskRecord.Progress = 100
+			taskRecord.FinishedAt = time.Now().UnixMilli()
+			taskRecord.Error = err.Error()
+			_ = c.agentTaskRecorder.AgentTaskFailed(ctx, taskRecord)
+		}
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("Failed to generate response: %s", err)), nil
 	}
 
 	// Update parent session cost
 	if err := c.updateParentSessionCost(ctx, session.ID, params.SessionID); err != nil {
+		if c.agentTaskRecorder != nil {
+			taskRecord.Status = "failed"
+			taskRecord.Progress = 100
+			taskRecord.FinishedAt = time.Now().UnixMilli()
+			taskRecord.Error = err.Error()
+			_ = c.agentTaskRecorder.AgentTaskFailed(ctx, taskRecord)
+		}
 		return fantasy.ToolResponse{}, err
 	}
 
-	return fantasy.NewTextResponse(result.Response.Content.Text()), nil
+	content := result.Response.Content.Text()
+	if c.agentTaskRecorder != nil {
+		taskRecord.Status = "completed"
+		taskRecord.Progress = 100
+		taskRecord.FinishedAt = time.Now().UnixMilli()
+		taskRecord.ResultSummary = content
+		_ = c.agentTaskRecorder.AgentTaskCompleted(ctx, taskRecord)
+	}
+
+	return fantasy.NewTextResponse(content), nil
+}
+
+func (c *coordinator) evaluateSubAgentPolicy(ctx context.Context, params subAgentParams, parentTurnID string) (fantasy.ToolResponse, bool, error) {
+	if c.schedulerRecorder == nil {
+		return fantasy.ToolResponse{}, false, nil
+	}
+	if permission.HasHookApproval(ctx, params.ToolCallID) {
+		return fantasy.ToolResponse{}, false, nil
+	}
+	name := params.Name
+	if name == "" {
+		name = AgentToolName
+	}
+	decision, err := c.schedulerRecorder.EvaluateToolCall(ctx, SchedulerToolCall{
+		ID:           params.ToolCallID,
+		SessionID:    params.SessionID,
+		TurnID:       parentTurnID,
+		MessageID:    params.AgentMessageID,
+		Name:         name,
+		Source:       "builtin",
+		CapabilityID: "builtin:" + name,
+		InputSummary: params.Prompt,
+	})
+	if err != nil {
+		return fantasy.ToolResponse{}, false, err
+	}
+	if decision.Decision != string(permission.PolicyDeny) {
+		return fantasy.ToolResponse{}, false, nil
+	}
+	reason := nonEmptyString(decision.Reason, "Runtime policy denied agent task.")
+	if params.ToolCallID != "" {
+		_ = c.schedulerRecorder.ToolCallFailed(ctx, SchedulerToolCallResult{
+			ToolCallID:              params.ToolCallID,
+			SessionID:               params.SessionID,
+			TurnID:                  parentTurnID,
+			MessageID:               params.AgentMessageID,
+			Name:                    name,
+			Source:                  "builtin",
+			Risk:                    decision.Risk,
+			PolicyReason:            decision.Reason,
+			ModelVisibleContent:     reason,
+			StructuredOutputSummary: fmt.Sprintf("policy=%s risk=%s mode=%s", decision.Decision, decision.Risk, decision.Mode),
+			Error:                   reason,
+			IsError:                 true,
+			Status:                  "denied",
+		})
+	}
+	resp := fantasy.NewTextErrorResponse(reason)
+	resp.StopTurn = true
+	return resp, true, nil
+}
+
+func (c *coordinator) agentTaskID(params subAgentParams) string {
+	if params.ToolCallID != "" {
+		return "task_" + params.ToolCallID
+	}
+	return "task_" + params.AgentMessageID
+}
+
+func (c *coordinator) agentTaskRecord(params subAgentParams, taskID, parentTurnID, childSessionID string, model Model, startedAt int64) AgentTaskRecord {
+	kind := params.Kind
+	if kind == "" {
+		kind = "subagent"
+	}
+	name := params.Name
+	if name == "" {
+		name = params.SessionTitle
+	}
+	return AgentTaskRecord{
+		ID:               taskID,
+		ParentTurnID:     parentTurnID,
+		ParentSessionID:  params.SessionID,
+		ParentToolCallID: params.ToolCallID,
+		ChildSessionID:   childSessionID,
+		Title:            params.SessionTitle,
+		Kind:             kind,
+		Role:             params.Role,
+		Name:             name,
+		PromptSummary:    params.Prompt,
+		Model:            model.ModelCfg.Model,
+		Provider:         model.ModelCfg.Provider,
+		AllowedTools:     append([]string(nil), params.AllowedTools...),
+		CapabilityScope:  append([]string(nil), params.CapabilityScope...),
+		CWD:              c.cfg.WorkingDir(),
+		Status:           "running",
+		Progress:         0,
+		StartedAt:        startedAt,
+	}
 }
 
 // updateParentSessionCost accumulates the cost from a child session to its parent session.

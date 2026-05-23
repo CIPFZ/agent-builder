@@ -48,12 +48,28 @@ export function RuntimeAuditDrawer({
               <Text type="secondary">{formatTime(event.created_at)}</Text>
             </div>
             <AuditHighlights event={event} />
+            <TaskSummary payload={event.payload} />
             <SkillSummary payload={event.payload} />
             <pre className="audit-payload">{JSON.stringify(event.payload, null, 2)}</pre>
           </article>
         ))}
       </div>
     </Drawer>
+  )
+}
+
+function TaskSummary({ payload }: { payload: Record<string, unknown> }) {
+  const task = payload.agent_task
+  if (!task || typeof task !== 'object') return null
+  const value = task as Record<string, unknown>
+  return (
+    <Space size={6} wrap>
+      <Tag color="purple">{stringValue(value.kind) || 'task'}</Tag>
+      {stringValue(value.status) ? <Tag>{stringValue(value.status)}</Tag> : null}
+      {stringValue(value.childSessionId) ? <Text type="secondary">child {shortID(stringValue(value.childSessionId))}</Text> : null}
+      {stringValue(value.resultSummary) ? <Text type="secondary">{stringValue(value.resultSummary)}</Text> : null}
+      {stringValue(value.error) ? <Text type="danger">{stringValue(value.error)}</Text> : null}
+    </Space>
   )
 }
 

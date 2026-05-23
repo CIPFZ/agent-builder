@@ -197,6 +197,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && turnToolCallsPathID(r.URL.Path) != "":
 		value, err := s.service.TurnToolCalls(r.Context(), turnToolCallsPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && turnTasksPathID(r.URL.Path) != "":
+		value, err := s.service.TurnAgentTasks(r.Context(), turnTasksPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnTodosPathID(r.URL.Path) != "":
 		value, err := s.service.TurnTodos(r.Context(), turnTodosPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -205,6 +208,12 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && toolCallPathID(r.URL.Path) != "":
 		value, err := s.service.ToolCall(r.Context(), toolCallPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && taskCancelPathID(r.URL.Path) != "":
+		value, err := s.service.CancelAgentTask(r.Context(), taskCancelPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && taskPathID(r.URL.Path) != "":
+		value, err := s.service.AgentTask(r.Context(), taskPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPut && sessionPathID(r.URL.Path) != "":
 		var req RuntimeSessionUpdateRequest
@@ -473,12 +482,28 @@ func turnToolCallsPathID(path string) string {
 	return trimPathID(path, "/v1/turns/", "/tool-calls")
 }
 
+func turnTasksPathID(path string) string {
+	return trimPathID(path, "/v1/turns/", "/tasks")
+}
+
 func turnTodosPathID(path string) string {
 	return trimPathID(path, "/v1/turns/", "/todos")
 }
 
 func toolCallPathID(path string) string {
 	id := strings.TrimPrefix(path, "/v1/tool-calls/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func taskCancelPathID(path string) string {
+	return trimPathID(path, "/v1/tasks/", "/cancel")
+}
+
+func taskPathID(path string) string {
+	id := strings.TrimPrefix(path, "/v1/tasks/")
 	if id == path || id == "" || strings.Contains(id, "/") {
 		return ""
 	}

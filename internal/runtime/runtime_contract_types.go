@@ -104,6 +104,42 @@ type RuntimeToolCallsResponse struct {
 	ToolCalls []RuntimeToolCall `json:"toolCalls"`
 }
 
+type RuntimeAgentTask struct {
+	ID                 string   `json:"id"`
+	ParentTurnID       string   `json:"parentTurnId,omitempty"`
+	ParentSessionID    string   `json:"parentSessionId"`
+	ParentToolCallID   string   `json:"parentToolCallId,omitempty"`
+	ChildSessionID     string   `json:"childSessionId,omitempty"`
+	Title              string   `json:"title"`
+	Kind               string   `json:"kind"`
+	Role               string   `json:"role,omitempty"`
+	Name               string   `json:"name,omitempty"`
+	PromptSummary      string   `json:"promptSummary,omitempty"`
+	Model              string   `json:"model,omitempty"`
+	Provider           string   `json:"provider,omitempty"`
+	AllowedTools       []string `json:"allowedTools,omitempty"`
+	CapabilityScope    []string `json:"capabilityScope,omitempty"`
+	CWD                string   `json:"cwd,omitempty"`
+	Worktree           string   `json:"worktree,omitempty"`
+	Status             string   `json:"status"`
+	Progress           int      `json:"progress"`
+	ResultSummary      string   `json:"resultSummary,omitempty"`
+	ArtifactRefs       []string `json:"artifactRefs,omitempty"`
+	StartedAt          int64    `json:"startedAt"`
+	UpdatedAt          int64    `json:"updatedAt"`
+	FinishedAt         int64    `json:"finishedAt,omitempty"`
+	Error              string   `json:"error,omitempty"`
+	CancellationDetail string   `json:"cancellationDetail,omitempty"`
+}
+
+type RuntimeAgentTaskResponse struct {
+	Task RuntimeAgentTask `json:"task"`
+}
+
+type RuntimeAgentTasksResponse struct {
+	Tasks []RuntimeAgentTask `json:"tasks"`
+}
+
 type RuntimeTodo struct {
 	Content    string `json:"content"`
 	Status     string `json:"status"`
@@ -275,6 +311,7 @@ type RuntimeRecoveryStatus struct {
 	LastEventSequence  int64                      `json:"last_event_sequence"`
 	ActiveTurns        []RuntimeTurn              `json:"active_turns"`
 	InterruptedTurns   []RuntimeTurn              `json:"interrupted_turns"`
+	InterruptedTasks   []RuntimeAgentTask         `json:"interrupted_tasks,omitempty"`
 	PendingPermissions []RuntimePermissionRequest `json:"pending_permissions"`
 	SnapshotRequired   bool                       `json:"snapshot_required,omitempty"`
 }
@@ -291,6 +328,7 @@ type RuntimeAuditTurnSummary struct {
 	FinalStatus              string                   `json:"final_status,omitempty"`
 	LatestAssistantMessageID string                   `json:"latest_assistant_id,omitempty"`
 	ToolCalls                []RuntimeToolCall        `json:"tool_calls,omitempty"`
+	Tasks                    []RuntimeAgentTask       `json:"tasks,omitempty"`
 	Permissions              []map[string]any         `json:"permissions,omitempty"`
 	Skills                   *RuntimeTurnSkillSummary `json:"skills,omitempty"`
 	Errors                   []string                 `json:"errors,omitempty"`

@@ -36,14 +36,18 @@ func WithHookApproval(ctx context.Context, toolCallID string) context.Context {
 	return context.WithValue(ctx, hookApprovalKey{}, toolCallID)
 }
 
-// hookApproved reports whether the context carries a hook approval for the
+// HasHookApproval reports whether the context carries a hook approval for the
 // given tool call ID.
-func hookApproved(ctx context.Context, toolCallID string) bool {
+func HasHookApproval(ctx context.Context, toolCallID string) bool {
 	if toolCallID == "" {
 		return false
 	}
 	v, _ := ctx.Value(hookApprovalKey{}).(string)
 	return v == toolCallID
+}
+
+func hookApproved(ctx context.Context, toolCallID string) bool {
+	return HasHookApproval(ctx, toolCallID)
 }
 
 type CreatePermissionRequest struct {

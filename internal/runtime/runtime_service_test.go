@@ -1923,6 +1923,147 @@ func TestRuntimeSchedulerBackgroundJobOutputEmitsTaskProgress(t *testing.T) {
 	}
 }
 
+func TestRuntimeAgentTaskRecorderEmitsEventsAndAudit(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	t.Cleanup(db.ResetPool)
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+	workingDir := t.TempDir()
+	cfg := config.NewRuntimeConfig(workingDir, dataDir, false)
+	cfg.Options.AutoLSP = ptr(false)
+	store := config.NewRuntimeStore(workingDir, cfg)
+	runtimeBackend := backend.New(context.Background(), store, nil)
+	_, workspace, err := runtimeBackend.CreateWorkspace(proto.Workspace{
+		Path:    workingDir,
+		DataDir: dataDir,
+		Config:  store.Config(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		runtimeBackend.DeleteWorkspace(workspace.ID)
+		_ = db.Release(dataDir)
+	})
+	service.runtime = runtimeBackend
+	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+
+	recorder := runtimeSchedulerRecorder{service: service}
+	record := agent.AgentTaskRecord{
+		ID:               "task-1",
+		ParentTurnID:     "turn-1",
+		ParentSessionID:  "session-parent",
+		ParentToolCallID: "tool-1",
+		ChildSessionID:   "session-child",
+		Title:            "Fetch Analysis",
+		Kind:             agentTaskKindAgenticFetch,
+		Role:             "fetch",
+		Name:             "agentic_fetch",
+		PromptSummary:    "fetch prompt with secret token=abc",
+		Provider:         "openai",
+		Model:            "gpt-test",
+		AllowedTools:     []string{"web_fetch"},
+		CapabilityScope:  []string{"network"},
+		Progress:         10,
+	}
+	if err := recorder.AgentTaskStarted(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	record.ResultSummary = "done"
+	if err := recorder.AgentTaskCompleted(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+
+	task, err := service.AgentTask(context.Background(), "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Task.Status != agentTaskStatusCompleted || task.Task.ParentToolCallID != "tool-1" || task.Task.ChildSessionID != "session-child" {
+		t.Fatalf("task = %#v", task.Task)
+	}
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventTaskStarted && event.Payload["task_id"] == "task-1" && event.ToolCallID == "tool-1"
+	}) {
+		t.Fatalf("task.started event missing: %#v", events.Events)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventTaskCompleted && event.Payload["status"] == agentTaskStatusCompleted
+	}) {
+		t.Fatalf("task.completed event missing: %#v", events.Events)
+	}
+	audit, err := newRuntimeAuditStore(conn).ListTurn(context.Background(), "turn-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(audit.Events, func(event RuntimeAuditEvent) bool {
+		return event.Type == "task_completed" && event.ToolCallID == "tool-1" && event.Payload["agent_task"] != nil
+	}) {
+		t.Fatalf("task audit missing: %#v", audit.Events)
+	}
+	summary := service.auditTurnSummary(context.Background(), "turn-1", audit.Events)
+	if len(summary.Tasks) != 1 || summary.Tasks[0].ID != "task-1" {
+		t.Fatalf("audit summary tasks = %#v", summary.Tasks)
+	}
+}
+
+func TestRuntimeCancelAgentTaskMarksFinalAndAuditsLimitation(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+	if _, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:               "task-1",
+		ParentTurnID:     "turn-1",
+		ParentSessionID:  "session-parent",
+		ParentToolCallID: "tool-1",
+		ChildSessionID:   "session-child",
+		Title:            "Agent",
+		Kind:             agentTaskKindSubagent,
+		Status:           agentTaskStatusRunning,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := service.CancelAgentTask(context.Background(), "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Task.Status != agentTaskStatusCancelled || resp.Task.FinishedAt == 0 {
+		t.Fatalf("cancelled task = %#v", resp.Task)
+	}
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventTaskCancelled && event.Payload["task_id"] == "task-1"
+	}) {
+		t.Fatalf("task.cancelled missing: %#v", events.Events)
+	}
+}
+
 func TestRecordRuntimeEventConvertsSessionAndPermissionPayloads(t *testing.T) {
 	t.Parallel()
 
@@ -2050,6 +2191,9 @@ type recordingRuntimeService struct {
 	turnsStatus         string
 	toolCall            RuntimeToolCallResponse
 	toolCalls           RuntimeToolCallsResponse
+	agentTask           RuntimeAgentTaskResponse
+	agentTasks          RuntimeAgentTasksResponse
+	cancelledTask       string
 	todos               RuntimeTodosResponse
 	todoSession         string
 	todoTurn            string
@@ -2108,6 +2252,19 @@ func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeTool
 
 func (s *recordingRuntimeService) TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error) {
 	return s.toolCalls, nil
+}
+
+func (s *recordingRuntimeService) AgentTask(context.Context, string) (RuntimeAgentTaskResponse, error) {
+	return s.agentTask, nil
+}
+
+func (s *recordingRuntimeService) TurnAgentTasks(context.Context, string) (RuntimeAgentTasksResponse, error) {
+	return s.agentTasks, nil
+}
+
+func (s *recordingRuntimeService) CancelAgentTask(_ context.Context, taskID string) (RuntimeAgentTaskResponse, error) {
+	s.cancelledTask = taskID
+	return s.agentTask, nil
 }
 
 func (s *recordingRuntimeService) SessionTodos(_ context.Context, sessionID string) (RuntimeTodosResponse, error) {

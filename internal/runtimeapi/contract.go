@@ -36,7 +36,10 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/todos"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/tool-calls"},
+	{Method: MethodGet, Path: "/v1/turns/{turn_id}/tasks"},
 	{Method: MethodGet, Path: "/v1/tool-calls/{tool_call_id}"},
+	{Method: MethodGet, Path: "/v1/tasks/{task_id}"},
+	{Method: MethodPost, Path: "/v1/tasks/{task_id}/cancel"},
 	{Method: MethodPost, Path: "/v1/turns/{turn_id}/cancel"},
 	{Method: MethodGet, Path: "/v1/permissions"},
 	{Method: MethodPost, Path: "/v1/permissions/{permission_id}/decision"},
@@ -81,7 +84,12 @@ const (
 	EventToolCallCompleted       = "tool.call.completed"
 	EventToolCallFailed          = "tool.call.failed"
 	EventToolCallCancelled       = "tool.call.cancelled"
+	EventTaskStarted             = "task.started"
 	EventTaskProgress            = "task.progress"
+	EventTaskCompleted           = "task.completed"
+	EventTaskFailed              = "task.failed"
+	EventTaskCancelled           = "task.cancelled"
+	EventTaskInterrupted         = "task.interrupted"
 	EventPermissionRequested     = "permission.requested"
 	EventPermissionDecided       = "permission.decided"
 	EventPermissionPolicyApplied = "permission.policy.applied"
@@ -128,7 +136,12 @@ var EventTypes = []string{
 	EventToolCallCompleted,
 	EventToolCallFailed,
 	EventToolCallCancelled,
+	EventTaskStarted,
 	EventTaskProgress,
+	EventTaskCompleted,
+	EventTaskFailed,
+	EventTaskCancelled,
+	EventTaskInterrupted,
 	EventPermissionRequested,
 	EventPermissionDecided,
 	EventPermissionPolicyApplied,

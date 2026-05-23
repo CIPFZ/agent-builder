@@ -3,6 +3,7 @@ import AntApp from 'antd/es/app'
 import type { MenuProps } from 'antd'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
 import {
+  cancelRuntimeAgentTask,
   cancelRuntimeTurn,
   cancelRuntimeTurnById,
   deleteRuntimeSession,
@@ -27,6 +28,7 @@ import {
   requestRuntimeSessions,
   requestRuntimeSkills,
   requestRuntimeStatus,
+  requestRuntimeTurnTasks,
   requestRuntimeTurns,
   renameRuntimeSession,
   saveModelConfig,
@@ -40,6 +42,7 @@ import { isDefaultSessionTitle } from './chatUtils'
 import type { RuntimeFeatureView } from '../capabilities/RuntimeFeatureWorkspace'
 import { useRuntimeEventSubscription } from '../../runtime/useRuntimeEventSubscription'
 import type {
+  RuntimeAgentTask,
   RuntimeAuditEvent,
   RuntimeCapability,
   RuntimeEvent,
@@ -77,6 +80,7 @@ export function useAssistantClient() {
   const [messages, setMessages] = useState<RuntimeMessage[]>([])
   const [permissions, setPermissions] = useState<RuntimePermissionRequest[]>([])
   const [activeTurns, setActiveTurns] = useState<RuntimeTurn[]>([])
+  const [agentTasks, setAgentTasks] = useState<RuntimeAgentTask[]>([])
   const [events, setEvents] = useState<RuntimeEvent[]>([])
   const [sessions, setSessions] = useState<RuntimeSession[]>([])
   const [skills, setSkills] = useState<RuntimeSkill[]>([])
@@ -179,7 +183,20 @@ export function useAssistantClient() {
   const refreshActiveTurns = async () => {
     const nextTurns = await requestRuntimeTurns('active')
     setActiveTurns(nextTurns)
+    const taskGroups = await Promise.all(nextTurns.map((turn) => requestRuntimeTurnTasks(turn.id).catch(() => [])))
+    setAgentTasks(taskGroups.flat())
     return nextTurns
+  }
+
+  const refreshTasksForTurn = async (turnId?: string) => {
+    if (!turnId) return []
+    const nextTasks = await requestRuntimeTurnTasks(turnId)
+    setAgentTasks((current) => {
+      const byID = new Map(current.map((task) => [task.id, task]))
+      for (const task of nextTasks) byID.set(task.id, task)
+      return Array.from(byID.values()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    })
+    return nextTasks
   }
 
   const refreshRuntimeInventory = async () => {
@@ -240,6 +257,7 @@ export function useAssistantClient() {
     setMessages(runtimeMessages)
     setPermissions(recovery.pending_permissions)
     setActiveTurns(recovery.active_turns)
+    setAgentTasks([...(recovery.interrupted_tasks ?? [])])
     setEvents(runtimeEvents.events)
     lastEventSequenceRef.current = recovery.last_event_sequence || runtimeEvents.last_sequence || runtimeEvents.events.at(-1)?.sequence || 0
     setSkills(runtimeSkills)
@@ -320,6 +338,7 @@ export function useAssistantClient() {
         setMessages(runtimeMessages)
         setPermissions(recovery.pending_permissions)
         setActiveTurns(recovery.active_turns)
+        setAgentTasks([...(recovery.interrupted_tasks ?? [])])
         setEvents(runtimeEvents.events)
         lastEventSequenceRef.current = recovery.last_event_sequence || runtimeEvents.last_sequence || runtimeEvents.events.at(-1)?.sequence || 0
         setSkills(runtimeSkills)
@@ -364,6 +383,10 @@ export function useAssistantClient() {
     if (event.type.startsWith('turn.')) {
       refreshActiveTurns().catch(() => undefined)
       refreshStatus().catch(() => undefined)
+    }
+    if (event.type.startsWith('task.')) {
+      refreshTasksForTurn(event.turn_id).catch(() => undefined)
+      refreshAudit(event.turn_id).catch(() => undefined)
     }
     if (event.type.startsWith('skill.') || event.type.startsWith('mcp.') || event.type.startsWith('capability.')) {
       refreshRuntimeInventory().catch(() => undefined)
@@ -447,6 +470,7 @@ export function useAssistantClient() {
         setMessages([])
         setPermissions([])
         setActiveTurns([])
+        setAgentTasks([])
         setAuditEvents([])
         setTodoSummary(null)
         setActiveChatTitle('New chat')
@@ -501,6 +525,9 @@ export function useAssistantClient() {
       await refreshTodos(sessionId).catch(() => undefined)
       await refreshPermissions().catch(() => undefined)
       await refreshActiveTurns().catch(() => undefined)
+      if (activeTurnId) {
+        await refreshTasksForTurn(activeTurnId).catch(() => undefined)
+      }
       let nextStatus = await refreshStatus().catch(() => runtimeStatus)
       const started = Date.now()
       while (Date.now() - started < 30 * 60 * 1000) {
@@ -553,6 +580,8 @@ export function useAssistantClient() {
       setMessages(runtimeMessages)
       setPermissions(runtimePermissions)
       setActiveTurns(runtimeActiveTurns)
+      const taskGroups = await Promise.all(runtimeActiveTurns.map((turn) => requestRuntimeTurnTasks(turn.id).catch(() => [])))
+      setAgentTasks(taskGroups.flat())
       setAuditEvents(nextAudit)
       await refreshTodos(sessionId).catch(() => setTodoSummary(null))
       await refreshSessions().catch(() => undefined)
@@ -621,6 +650,7 @@ export function useAssistantClient() {
             setAuditEvents([])
             setPermissions([])
             setActiveTurns([])
+            setAgentTasks([])
             setTodoSummary(null)
             setActiveChatTitle('New chat')
           }
@@ -685,14 +715,32 @@ export function useAssistantClient() {
     }
   }
 
-	return {
-		activeChatTitle,
+  const cancelAgentTask = async (taskId: string) => {
+    try {
+      const task = await cancelRuntimeAgentTask(taskId)
+      setAgentTasks((current) => current.map((item) => (item.id === task.id ? task : item)))
+      if (task.parentTurnId) {
+        await refreshTasksForTurn(task.parentTurnId).catch(() => undefined)
+        await refreshAudit(task.parentTurnId).catch(() => undefined)
+      }
+      message.success('Task cancellation requested')
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      setLastError(reason)
+      message.error(reason)
+    }
+  }
+
+  return {
+    activeChatTitle,
     activeView,
-		activeSession,
+    activeSession,
     activeTurns,
+    agentTasks,
     auditOpen,
-		auditEvents,
-		capabilities,
+    auditEvents,
+    capabilities,
+    cancelAgentTask,
     cancelTurn,
     config,
     configLoaded,
@@ -709,9 +757,9 @@ export function useAssistantClient() {
     mcpServers,
     mcpToolsByServer,
     modelItems,
-		modelSwitching,
-		events,
-		messages,
+    modelSwitching,
+    events,
+    messages,
     openAudit,
     openRuntimeView,
     permissions,
@@ -727,12 +775,12 @@ export function useAssistantClient() {
     selectSession,
     sendMessage,
     sessions,
-		setConfig,
-		setInput,
-		setLastError,
-		setMcpServers,
-		setMcpToolsByServer,
-		setModels,
+    setConfig,
+    setInput,
+    setLastError,
+    setMcpServers,
+    setMcpToolsByServer,
+    setModels,
     setActiveView,
     setAuditOpen,
     setSettingsDiscovering,

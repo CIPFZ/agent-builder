@@ -9,7 +9,7 @@ import type { MenuProps } from 'antd'
 import { AppstoreOutlined, AuditOutlined, CodeOutlined, DownOutlined, EditOutlined, MenuOutlined, SettingOutlined, StopOutlined, ToolOutlined } from '@ant-design/icons'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
 import type { ModelConfig } from '../../runtime/api'
-import type { RuntimeMessage, RuntimeSession, RuntimeStatus, RuntimeTodoSummary, RuntimeTurn } from '../../runtime'
+import type { RuntimeAgentTask, RuntimeMessage, RuntimeSession, RuntimeStatus, RuntimeTodoSummary, RuntimeTurn } from '../../runtime'
 import { Composer } from './Composer'
 import { MessageItem } from './MessageItem'
 import { UsageReadout } from './UsageReadout'
@@ -34,6 +34,7 @@ type ChatWorkspaceProps = {
   activeChatTitle: string
   activeSession?: RuntimeSession
   activeTurns: RuntimeTurn[]
+  agentTasks: RuntimeAgentTask[]
   composerInputRef: RefObject<TextAreaRef | null>
   config: ModelConfig
   configLoaded: boolean
@@ -49,6 +50,7 @@ type ChatWorkspaceProps = {
   sidebarCollapsed: boolean
   todoSummary: RuntimeTodoSummary | null
   viewportRef: RefObject<HTMLDivElement | null>
+  onCancelAgentTask: (taskId: string) => void
   onCancelTurn: () => void
   onCopyMessage: (content: string) => void
   onOpenAudit: () => void
@@ -62,6 +64,7 @@ export function ChatWorkspace({
   activeChatTitle,
   activeSession,
   activeTurns,
+  agentTasks,
   composerInputRef,
   config,
   configLoaded,
@@ -77,6 +80,7 @@ export function ChatWorkspace({
   sidebarCollapsed,
   todoSummary,
   viewportRef,
+  onCancelAgentTask,
   onCancelTurn,
   onCopyMessage,
   onOpenAudit,
@@ -182,6 +186,7 @@ export function ChatWorkspace({
                 </div>
               </div>
             ) : null}
+            {agentTasks.length > 0 ? <AgentTaskPanel tasks={agentTasks} onCancel={onCancelAgentTask} /> : null}
             {messages.map((chatMessage) => (
               <MessageItem chatMessage={chatMessage} key={chatMessage.id} onCopy={onCopyMessage} />
             ))}
@@ -208,4 +213,46 @@ export function ChatWorkspace({
       ) : null}
     </main>
   )
+}
+
+function AgentTaskPanel({ tasks, onCancel }: { tasks: RuntimeAgentTask[]; onCancel: (taskId: string) => void }) {
+  return (
+    <div className="runtime-task-panel">
+      <Space size={6} wrap>
+        <Text strong>Child Tasks</Text>
+        <Tag>{tasks.length}</Tag>
+      </Space>
+      <div className="runtime-task-list">
+        {tasks.map((task) => (
+          <div className="runtime-task-row" key={task.id}>
+            <Space size={6} wrap>
+              <Tag color={taskStatusColor(task.status)}>{task.status}</Tag>
+              <Text>{task.title || task.name || task.kind}</Text>
+              {task.childSessionId ? <Text type="secondary">child {shortID(task.childSessionId)}</Text> : null}
+            </Space>
+            <Space size={6}>
+              {task.resultSummary ? <Text type="secondary">{task.resultSummary}</Text> : null}
+              {task.error ? <Text type="danger">{task.error}</Text> : null}
+              {task.status === 'running' || task.status === 'queued' ? (
+                <Tooltip title="Cancel task">
+                  <Button size="small" danger type="text" icon={<StopOutlined />} onClick={() => onCancel(task.id)} />
+                </Tooltip>
+              ) : null}
+            </Space>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function taskStatusColor(status: string) {
+  if (status === 'completed') return 'success'
+  if (status === 'failed' || status === 'interrupted') return 'error'
+  if (status === 'cancelled') return 'default'
+  return 'processing'
+}
+
+function shortID(value: string) {
+  return value.length > 10 ? `${value.slice(0, 10)}...` : value
 }
