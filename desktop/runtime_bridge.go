@@ -15,6 +15,7 @@ type RuntimeChatResponse = runtime.RuntimeChatResponse
 type RuntimeTurn = runtime.RuntimeTurn
 type RuntimeTurnResponse = runtime.RuntimeTurnResponse
 type RuntimeTurnsResponse = runtime.RuntimeTurnsResponse
+type RuntimeTodosResponse = runtime.RuntimeTodosResponse
 type RuntimeToolCall = runtime.RuntimeToolCall
 type RuntimeToolCallResponse = runtime.RuntimeToolCallResponse
 type RuntimeToolCallsResponse = runtime.RuntimeToolCallsResponse
@@ -56,6 +57,7 @@ type RuntimeMCPPrompt = runtime.RuntimeMCPPrompt
 type RuntimeMCPPromptsResponse = runtime.RuntimeMCPPromptsResponse
 type RuntimeCapability = runtime.RuntimeCapability
 type RuntimeCapabilitiesResponse = runtime.RuntimeCapabilitiesResponse
+type RuntimeCapabilityResponse = runtime.RuntimeCapabilityResponse
 type RuntimeModelConfig = runtime.RuntimeModelConfig
 type RuntimeModelVerifyResponse = runtime.RuntimeModelVerifyResponse
 type RuntimeModelDiscoveryResponse = runtime.RuntimeModelDiscoveryResponse
@@ -317,6 +319,12 @@ func (r *RuntimeBridge) MCPPrompts(ctx context.Context, name string) (RuntimeMCP
 func (r *RuntimeBridge) Capabilities(ctx context.Context) (RuntimeCapabilitiesResponse, error) {
 
 	return r.service.Capabilities(ctx)
+
+}
+
+func (r *RuntimeBridge) RefreshCapability(ctx context.Context, capabilityID string) (RuntimeCapabilityResponse, error) {
+
+	return r.service.RefreshCapability(ctx, capabilityID)
 
 }
 

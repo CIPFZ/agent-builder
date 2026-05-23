@@ -420,7 +420,7 @@ func capabilityRefreshPathID(path string) string {
 		return ""
 	}
 	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
-	if id == "" || strings.Contains(id, "/") {
+	if id == "" {
 		return ""
 	}
 	if decoded, err := url.PathUnescape(id); err == nil {

@@ -522,6 +522,26 @@ func TestRuntimeHTTPServerRoutesCapabilityRefreshToRuntimeService(t *testing.T) 
 	}
 }
 
+func TestRuntimeHTTPServerRoutesCapabilityRefreshWithEncodedSlashID(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodPost, "/v1/capabilities/mcp_resource%3Adocs%3Adocs%3A%2F%2Fintro/refresh", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.refreshedCapability != "mcp_resource:docs:docs://intro" {
+		t.Fatalf("refreshed capability = %q", service.refreshedCapability)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesSkillsToRuntimeService(t *testing.T) {
 	t.Parallel()
 

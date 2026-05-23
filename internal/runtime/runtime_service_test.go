@@ -820,6 +820,15 @@ func TestRuntimeCapabilityStateNormalization(t *testing.T) {
 	}
 }
 
+func TestCapabilityRefreshPathIDAllowsEncodedSlashIDs(t *testing.T) {
+	t.Parallel()
+
+	id := capabilityRefreshPathID("/v1/capabilities/mcp_resource%3Adocs%3Adocs%3A%2F%2Fintro/refresh")
+	if id != "mcp_resource:docs:docs://intro" {
+		t.Fatalf("capability refresh path id = %q", id)
+	}
+}
+
 func TestRuntimeMCPServerStateNormalization(t *testing.T) {
 	t.Parallel()
 

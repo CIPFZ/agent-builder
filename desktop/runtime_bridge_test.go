@@ -21,8 +21,27 @@ func TestRuntimeBridgeDelegatesToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsCapabilityRefresh(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	bridge := &RuntimeBridge{service: service}
+
+	resp, err := bridge.RefreshCapability(context.Background(), "skill:docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.refreshedCapability != "skill:docs" {
+		t.Fatalf("refreshed capability = %q", service.refreshedCapability)
+	}
+	if resp.Capability.ID != "skill:docs" || resp.Capability.State != "loaded" {
+		t.Fatalf("response = %#v", resp)
+	}
+}
+
 type recordingRuntimeService struct {
-	chatCalls int
+	chatCalls           int
+	refreshedCapability string
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -72,6 +91,14 @@ func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeTool
 
 func (s *recordingRuntimeService) TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error) {
 	return RuntimeToolCallsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SessionTodos(context.Context, string) (RuntimeTodosResponse, error) {
+	return RuntimeTodosResponse{}, nil
+}
+
+func (s *recordingRuntimeService) TurnTodos(context.Context, string) (RuntimeTodosResponse, error) {
+	return RuntimeTodosResponse{}, nil
 }
 
 func (s *recordingRuntimeService) Sessions(context.Context) (RuntimeSessionsResponse, error) {
@@ -191,6 +218,11 @@ func (s *recordingRuntimeService) MCPPrompts(context.Context, string) (RuntimeMC
 
 func (s *recordingRuntimeService) Capabilities(context.Context) (RuntimeCapabilitiesResponse, error) {
 	return RuntimeCapabilitiesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) RefreshCapability(_ context.Context, id string) (RuntimeCapabilityResponse, error) {
+	s.refreshedCapability = id
+	return RuntimeCapabilityResponse{Capability: RuntimeCapability{ID: id, Kind: "skill", Name: "docs", Enabled: true, State: "loaded"}}, nil
 }
 
 func (s *recordingRuntimeService) APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error) {
