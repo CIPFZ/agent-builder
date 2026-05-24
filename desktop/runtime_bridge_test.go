@@ -54,10 +54,29 @@ func TestRuntimeBridgeForwardsToolSearch(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsReplayExport(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	bridge := &RuntimeBridge{service: service}
+
+	resp, err := bridge.ReplayExport(context.Background(), RuntimeReplayExportRequest{TurnID: "turn-1", After: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.replayExportRequest.TurnID != "turn-1" || service.replayExportRequest.After != 3 {
+		t.Fatalf("replay export request = %#v", service.replayExportRequest)
+	}
+	if resp.TurnID != "turn-1" || !resp.Summary.Redacted {
+		t.Fatalf("replay export response = %#v", resp)
+	}
+}
+
 type recordingRuntimeService struct {
 	chatCalls           int
 	refreshedCapability string
 	toolSearchQuery     string
+	replayExportRequest runtime.RuntimeReplayExportRequest
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -198,6 +217,11 @@ func (s *recordingRuntimeService) AuditTurn(context.Context, string) (RuntimeAud
 
 func (s *recordingRuntimeService) AuditSession(context.Context, string) (RuntimeAuditResponse, error) {
 	return RuntimeAuditResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ReplayExport(_ context.Context, req runtime.RuntimeReplayExportRequest) (runtime.RuntimeReplayExportResponse, error) {
+	s.replayExportRequest = req
+	return runtime.RuntimeReplayExportResponse{TurnID: req.TurnID, Summary: runtime.RuntimeReplayExportSummary{Redacted: true}}, nil
 }
 
 func (s *recordingRuntimeService) Skills(context.Context) (RuntimeSkillsResponse, error) {

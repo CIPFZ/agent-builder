@@ -2261,6 +2261,8 @@ type recordingRuntimeService struct {
 	toolCall             RuntimeToolCallResponse
 	toolCalls            RuntimeToolCallsResponse
 	compactBoundaries    RuntimeCompactBoundariesResponse
+	replayExport         RuntimeReplayExportResponse
+	replayExportRequest  RuntimeReplayExportRequest
 	agentTask            RuntimeAgentTaskResponse
 	agentTasks           RuntimeAgentTasksResponse
 	cancelledTask        string
@@ -2429,6 +2431,11 @@ func (s *recordingRuntimeService) AuditTurn(context.Context, string) (RuntimeAud
 
 func (s *recordingRuntimeService) AuditSession(context.Context, string) (RuntimeAuditResponse, error) {
 	return RuntimeAuditResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ReplayExport(_ context.Context, req RuntimeReplayExportRequest) (RuntimeReplayExportResponse, error) {
+	s.replayExportRequest = req
+	return s.replayExport, nil
 }
 
 func (s *recordingRuntimeService) Skills(context.Context) (RuntimeSkillsResponse, error) {

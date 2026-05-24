@@ -831,6 +831,40 @@ func TestRuntimeHTTPServerRoutesEventsAfterCursor(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesReplayExportToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		replayExport: RuntimeReplayExportResponse{
+			TurnID:      "turn-1",
+			GeneratedAt: "2026-05-24T00:00:00Z",
+			Source:      "test",
+			Summary:     RuntimeReplayExportSummary{Redacted: true},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodGet, "/v1/replay/export?turn_id=turn-1&session_id=session-1&after=7", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.replayExportRequest.TurnID != "turn-1" || service.replayExportRequest.SessionID != "session-1" || service.replayExportRequest.After != 7 {
+		t.Fatalf("replay export request = %#v", service.replayExportRequest)
+	}
+	var replay RuntimeReplayExportResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &replay); err != nil {
+		t.Fatal(err)
+	}
+	if replay.TurnID != "turn-1" || !replay.Summary.Redacted {
+		t.Fatalf("replay export = %#v", replay)
+	}
+}
+
 type httpRecorder struct {
 	header http.Header
 	status int

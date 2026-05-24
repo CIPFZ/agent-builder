@@ -45,6 +45,9 @@ type RuntimeUsage = runtime.RuntimeUsage
 type RuntimeEventStats = runtime.RuntimeEventStats
 type RuntimeEventsResponse = runtime.RuntimeEventsResponse
 type RuntimeEventsEndpointResponse = runtime.RuntimeEventsEndpointResponse
+type RuntimeReplayExportRequest = runtime.RuntimeReplayExportRequest
+type RuntimeReplayExportResponse = runtime.RuntimeReplayExportResponse
+type RuntimeReplayExportSummary = runtime.RuntimeReplayExportSummary
 type RuntimeRecoveryStatus = runtime.RuntimeRecoveryStatus
 type RuntimeSkill = runtime.RuntimeSkill
 type RuntimeSkillsResponse = runtime.RuntimeSkillsResponse
@@ -280,6 +283,12 @@ func (r *RuntimeBridge) AuditTurn(ctx context.Context, turnID string) (RuntimeAu
 func (r *RuntimeBridge) AuditSession(ctx context.Context, sessionID string) (RuntimeAuditResponse, error) {
 
 	return r.service.AuditSession(ctx, sessionID)
+
+}
+
+func (r *RuntimeBridge) ReplayExport(ctx context.Context, req RuntimeReplayExportRequest) (RuntimeReplayExportResponse, error) {
+
+	return r.service.ReplayExport(ctx, req)
 
 }
 

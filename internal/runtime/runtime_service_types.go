@@ -47,6 +47,7 @@ type RuntimeService interface {
 	SubscribeEvents(context.Context, ...int64) (<-chan RuntimeEvent, func())
 	AuditTurn(context.Context, string) (RuntimeAuditResponse, error)
 	AuditSession(context.Context, string) (RuntimeAuditResponse, error)
+	ReplayExport(context.Context, RuntimeReplayExportRequest) (RuntimeReplayExportResponse, error)
 	Skills(context.Context) (RuntimeSkillsResponse, error)
 	RefreshSkills(context.Context) (RuntimeSkillsResponse, error)
 	CreateSkill(context.Context, RuntimeSkillCreateRequest) (RuntimeSkillsResponse, error)

@@ -20,6 +20,11 @@ export const wailsRuntime: AgentRuntime = {
     return response.events
   },
 
+  async exportReplay(request) {
+    const bridge = await loadWailsRuntimeBridge()
+    return bridge.ReplayExport(request)
+  },
+
   async cancel() {
     const bridge = await loadWailsRuntimeBridge()
     return bridge.Cancel()

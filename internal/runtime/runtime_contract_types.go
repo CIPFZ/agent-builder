@@ -358,6 +358,88 @@ type RuntimeEventsResponse struct {
 	LastSequence     int64          `json:"last_sequence,omitempty"`
 }
 
+type RuntimeReplayExportRequest struct {
+	SessionID string `json:"sessionId,omitempty"`
+	TurnID    string `json:"turnId,omitempty"`
+	After     int64  `json:"after,omitempty"`
+}
+
+type RuntimeReplayExportResponse struct {
+	SessionID        string                     `json:"sessionId,omitempty"`
+	TurnID           string                     `json:"turnId,omitempty"`
+	GeneratedAt      string                     `json:"generatedAt"`
+	Source           string                     `json:"source"`
+	SnapshotRequired bool                       `json:"snapshotRequired,omitempty"`
+	FirstSequence    int64                      `json:"firstSequence,omitempty"`
+	LastSequence     int64                      `json:"lastSequence,omitempty"`
+	Events           []RuntimeEvent             `json:"events"`
+	Audit            []RuntimeAuditEvent        `json:"audit"`
+	Summary          RuntimeReplayExportSummary `json:"summary"`
+}
+
+type RuntimeReplayExportSummary struct {
+	CompactBoundaries []RuntimeCompactBoundary      `json:"compactBoundaries,omitempty"`
+	Budget            *RuntimeBudgetReport          `json:"budget,omitempty"`
+	ToolSearches      []RuntimeReplayToolSearch     `json:"toolSearches,omitempty"`
+	ToolDiscovery     RuntimeReplayToolDiscovery    `json:"toolDiscovery,omitempty"`
+	PolicyDecisions   []RuntimeReplayPolicyDecision `json:"policyDecisions,omitempty"`
+	PermissionEvents  []RuntimeReplayPermission     `json:"permissionEvents,omitempty"`
+	ToolCalls         []RuntimeToolCall             `json:"toolCalls,omitempty"`
+	Recovery          RuntimeReplayRecovery         `json:"recovery,omitempty"`
+	EventCounts       map[string]int                `json:"eventCounts,omitempty"`
+	AuditCounts       map[string]int                `json:"auditCounts,omitempty"`
+	Redacted          bool                          `json:"redacted"`
+}
+
+type RuntimeReplayToolSearch struct {
+	Query        string                        `json:"query,omitempty"`
+	Selected     []string                      `json:"selected,omitempty"`
+	OmittedCount int                           `json:"omittedCount,omitempty"`
+	BudgetImpact RuntimeToolSchemaBudgetImpact `json:"budgetImpact,omitempty"`
+	Guardrail    string                        `json:"guardrail,omitempty"`
+}
+
+type RuntimeReplayToolDiscovery struct {
+	Selected []string `json:"selected,omitempty"`
+	Omitted  []string `json:"omitted,omitempty"`
+	Denied   []string `json:"denied,omitempty"`
+}
+
+type RuntimeReplayPolicyDecision struct {
+	ToolCallID        string `json:"toolCallId,omitempty"`
+	ToolName          string `json:"toolName,omitempty"`
+	Decision          string `json:"decision,omitempty"`
+	Risk              string `json:"risk,omitempty"`
+	Reason            string `json:"reason,omitempty"`
+	Mode              string `json:"mode,omitempty"`
+	Profile           string `json:"profile,omitempty"`
+	MatchedRuleID     string `json:"matchedRuleId,omitempty"`
+	MatchedRuleSource string `json:"matchedRuleSource,omitempty"`
+	ScopeKind         string `json:"scopeKind,omitempty"`
+	ScopeValue        string `json:"scopeValue,omitempty"`
+	ShellRisk         string `json:"shellRisk,omitempty"`
+	ShellReason       string `json:"shellReason,omitempty"`
+}
+
+type RuntimeReplayPermission struct {
+	PermissionID string `json:"permissionId,omitempty"`
+	ToolCallID   string `json:"toolCallId,omitempty"`
+	ToolName     string `json:"toolName,omitempty"`
+	Action       string `json:"action,omitempty"`
+	Decision     string `json:"decision,omitempty"`
+	Status       string `json:"status,omitempty"`
+	Risk         string `json:"risk,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+}
+
+type RuntimeReplayRecovery struct {
+	SnapshotRequired   bool  `json:"snapshotRequired,omitempty"`
+	PendingPermissions int   `json:"pendingPermissions,omitempty"`
+	ActiveTurns        int   `json:"activeTurns,omitempty"`
+	InterruptedTurns   int   `json:"interruptedTurns,omitempty"`
+	LastEventSequence  int64 `json:"lastEventSequence,omitempty"`
+}
+
 type RuntimeCompactBoundary struct {
 	ID             string                      `json:"id"`
 	SessionID      string                      `json:"sessionId"`

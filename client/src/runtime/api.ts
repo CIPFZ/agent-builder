@@ -180,6 +180,10 @@ export async function requestRuntimeSessionAudit(sessionId: string) {
   return getAgentRuntime().auditSession(sessionId)
 }
 
+export async function requestRuntimeReplayExport(request: import('./types').RuntimeReplayExportRequest) {
+  return getAgentRuntime().exportReplay(request)
+}
+
 export async function decideRuntimePermission(request: RuntimePermissionDecision) {
   return getAgentRuntime().decidePermission(request)
 }

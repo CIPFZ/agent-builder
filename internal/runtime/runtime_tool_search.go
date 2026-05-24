@@ -420,7 +420,7 @@ func (r *runtimeService) recordToolSearch(req RuntimeToolSearchRequest, resp Run
 	for _, result := range resp.Results {
 		selected = append(selected, result.Name)
 	}
-	r.storeRuntimeEvent(runtimeapi.Event{ID: newRuntimeEventID(), Type: runtimeapi.EventToolSearchPerformed, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), SessionID: req.SessionID, TurnID: req.TurnID, Payload: map[string]any{"query": req.Query, "selected": selected, "omitted_count": len(resp.Omitted), "budget_impact": resp.BudgetImpact, "summary": fmt.Sprintf("%d matches", len(resp.Results))}})
+	r.storeRuntimeEvent(runtimeapi.Event{ID: newRuntimeEventID(), Type: runtimeapi.EventToolSearchPerformed, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), SessionID: req.SessionID, TurnID: req.TurnID, Payload: map[string]any{"query": req.Query, "selected": selected, "omitted": resp.Omitted, "omitted_count": len(resp.Omitted), "budget_impact": resp.BudgetImpact, "summary": fmt.Sprintf("%d matches", len(resp.Results))}})
 	r.writeAudit(auditEntry{RequestID: req.TurnID, Event: "tool_search_performed", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), SessionID: req.SessionID, Extra: map[string]any{"query": req.Query, "selected": selected, "omitted": resp.Omitted, "budget_impact": resp.BudgetImpact}})
 }
 

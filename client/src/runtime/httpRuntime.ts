@@ -22,6 +22,8 @@ import type {
   RuntimePermissionRequest,
   RuntimePolicy,
   RuntimePolicyMode,
+  RuntimeReplayExportRequest,
+  RuntimeReplayExportResponse,
   RuntimeRecoveryStatus,
   RuntimeSession,
   RuntimeSkill,
@@ -96,6 +98,14 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async auditTurn(turnId: string) {
       const response = await get<{ events: RuntimeAuditEvent[] }>(`/v1/audit/turns/${encodePath(turnId)}`)
       return response.events
+    },
+    exportReplay(request: RuntimeReplayExportRequest) {
+      const params = new URLSearchParams()
+      if (request.sessionId) params.set('session_id', request.sessionId)
+      if (request.turnId) params.set('turn_id', request.turnId)
+      if (request.after && request.after > 0) params.set('after', String(request.after))
+      const query = params.toString()
+      return get<RuntimeReplayExportResponse>(`/v1/replay/export${query ? `?${query}` : ''}`)
     },
     async cancel() {
       const status = await get<RuntimeStatus>('/v1/runtime/status')

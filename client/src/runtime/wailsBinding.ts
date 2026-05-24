@@ -20,6 +20,8 @@ import type {
   RuntimePermissionRequest,
   RuntimePolicy,
   RuntimePolicyMode,
+  RuntimeReplayExportRequest,
+  RuntimeReplayExportResponse,
   RuntimeRecoveryStatus,
   RuntimeSession,
   RuntimeSkillCreateRequest,
@@ -39,6 +41,7 @@ type WailsRuntimeBridge = {
   APIEndpoint: () => Promise<RuntimeAPIEndpoint>
   AuditSession: (sessionId: string) => Promise<{ events: RuntimeAuditEvent[] }>
   AuditTurn: (turnId: string) => Promise<{ events: RuntimeAuditEvent[] }>
+  ReplayExport: (request: RuntimeReplayExportRequest) => Promise<RuntimeReplayExportResponse>
   Cancel: () => Promise<RuntimeStatus>
   CancelTurn: (turnId: string) => Promise<RuntimeStatus>
   Capabilities: () => Promise<{ capabilities: RuntimeCapability[] }>

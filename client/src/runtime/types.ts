@@ -255,6 +255,88 @@ export type RuntimeEventsResponse = {
   last_sequence?: number
 }
 
+export type RuntimeReplayExportRequest = {
+  sessionId?: string
+  turnId?: string
+  after?: number
+}
+
+export type RuntimeReplayToolSearch = {
+  query?: string
+  selected?: string[]
+  omittedCount?: number
+  budgetImpact?: RuntimeToolSchemaBudgetImpact
+  guardrail?: string
+}
+
+export type RuntimeReplayToolDiscovery = {
+  selected?: string[]
+  omitted?: string[]
+  denied?: string[]
+}
+
+export type RuntimeReplayPolicyDecision = {
+  toolCallId?: string
+  toolName?: string
+  decision?: string
+  risk?: string
+  reason?: string
+  mode?: string
+  profile?: string
+  matchedRuleId?: string
+  matchedRuleSource?: string
+  scopeKind?: string
+  scopeValue?: string
+  shellRisk?: string
+  shellReason?: string
+}
+
+export type RuntimeReplayPermission = {
+  permissionId?: string
+  toolCallId?: string
+  toolName?: string
+  action?: string
+  decision?: string
+  status?: string
+  risk?: string
+  reason?: string
+}
+
+export type RuntimeReplayRecovery = {
+  snapshotRequired?: boolean
+  pendingPermissions?: number
+  activeTurns?: number
+  interruptedTurns?: number
+  lastEventSequence?: number
+}
+
+export type RuntimeReplayExportSummary = {
+  compactBoundaries?: RuntimeCompactBoundary[]
+  budget?: RuntimeBudgetReport
+  toolSearches?: RuntimeReplayToolSearch[]
+  toolDiscovery?: RuntimeReplayToolDiscovery
+  policyDecisions?: RuntimeReplayPolicyDecision[]
+  permissionEvents?: RuntimeReplayPermission[]
+  toolCalls?: RuntimeToolCall[]
+  recovery?: RuntimeReplayRecovery
+  eventCounts?: Record<string, number>
+  auditCounts?: Record<string, number>
+  redacted: boolean
+}
+
+export type RuntimeReplayExportResponse = {
+  sessionId?: string
+  turnId?: string
+  generatedAt: string
+  source: string
+  snapshotRequired?: boolean
+  firstSequence?: number
+  lastSequence?: number
+  events: RuntimeEvent[]
+  audit: RuntimeAuditEvent[]
+  summary: RuntimeReplayExportSummary
+}
+
 export type RuntimeRecoveryStatus = {
   runtime_started_at: string
   last_event_sequence: number
@@ -643,6 +725,7 @@ export type RuntimeTurnContextSummary = {
 export type AgentRuntime = {
   auditSession: (sessionId: string) => Promise<RuntimeAuditEvent[]>
   auditTurn: (turnId: string) => Promise<RuntimeAuditEvent[]>
+  exportReplay: (request: RuntimeReplayExportRequest) => Promise<RuntimeReplayExportResponse>
   cancel: () => Promise<RuntimeStatus>
   cancelTurn: (turnId: string) => Promise<RuntimeStatus>
   chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
