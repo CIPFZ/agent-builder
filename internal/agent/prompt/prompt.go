@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"text/template"
 	"time"
@@ -44,6 +45,53 @@ type PromptDat struct {
 type ContextFile struct {
 	Path    string
 	Content string
+}
+
+type ContextSourceKind string
+
+const (
+	ContextSourceManaged   ContextSourceKind = "managed"
+	ContextSourceUser      ContextSourceKind = "user"
+	ContextSourceProject   ContextSourceKind = "project"
+	ContextSourceLocal     ContextSourceKind = "local"
+	ContextSourceSkill     ContextSourceKind = "skill"
+	ContextSourceMCP       ContextSourceKind = "mcp"
+	ContextSourceFile      ContextSourceKind = "file"
+	ContextSourceGenerated ContextSourceKind = "generated"
+)
+
+type ContextSourceState string
+
+const (
+	ContextStateUnavailable ContextSourceState = "unavailable"
+	ContextStateDisabled    ContextSourceState = "disabled"
+	ContextStateUnloaded    ContextSourceState = "unloaded"
+	ContextStateLoading     ContextSourceState = "loading"
+	ContextStateLoaded      ContextSourceState = "loaded"
+	ContextStateFailed      ContextSourceState = "failed"
+)
+
+type ContextSource struct {
+	ID             string
+	Kind           ContextSourceKind
+	Name           string
+	Path           string
+	URI            string
+	Scope          string
+	Enabled        bool
+	State          ContextSourceState
+	Reason         string
+	Diagnostics    string
+	Error          string
+	ContentSummary string
+	TokenEstimate  int
+	LoadedAt       time.Time
+	Content        string
+}
+
+type ContextLoadResult struct {
+	Sources      []ContextSource
+	ContextFiles []ContextFile
 }
 
 type Option func(*Prompt)
@@ -112,34 +160,6 @@ func processFile(filePath string) *ContextFile {
 	}
 }
 
-func processContextPath(p string, store *config.ConfigStore) []ContextFile {
-	var contexts []ContextFile
-	fullPath := filepathext.SmartJoin(store.WorkingDir(), p)
-	info, err := os.Stat(fullPath)
-	if err != nil {
-		return contexts
-	}
-	if info.IsDir() {
-		filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if !d.IsDir() {
-				if result := processFile(path); result != nil {
-					contexts = append(contexts, *result)
-				}
-			}
-			return nil
-		})
-	} else {
-		result := processFile(fullPath)
-		if result != nil {
-			contexts = append(contexts, *result)
-		}
-	}
-	return contexts
-}
-
 // expandPath expands ~ and environment variables in file paths
 func expandPath(path string, store *config.ConfigStore) string {
 	path = home.Long(path)
@@ -153,27 +173,320 @@ func expandPath(path string, store *config.ConfigStore) string {
 	return path
 }
 
+func LoadContextSources(ctx context.Context, store *config.ConfigStore, activeSkills []*skills.Skill, mcpInstructions []string) ContextLoadResult {
+	var result ContextLoadResult
+	if store == nil || store.Config() == nil || store.Config().Options == nil {
+		return result
+	}
+	result.Sources = append(result.Sources, managedContextSource())
+	seen := map[string]struct{}{
+		result.Sources[0].ID: {},
+	}
+	for _, pth := range orderedContextPaths(store.Config().Options.ContextPaths) {
+		for _, source := range loadContextPath(ctx, pth, store) {
+			key := strings.ToLower(source.ID)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			result.Sources = append(result.Sources, source)
+		}
+	}
+	if len(activeSkills) > 0 {
+		xml := skills.ToPromptXML(activeSkills)
+		result.Sources = append(result.Sources, ContextSource{
+			ID:             "skill:available",
+			Kind:           ContextSourceSkill,
+			Name:           "Available skills",
+			URI:            "crush://skills",
+			Scope:          "runtime",
+			Enabled:        true,
+			State:          ContextStateLoaded,
+			Reason:         "runtime_selected",
+			ContentSummary: fmt.Sprintf("%d active skill sources available", len(activeSkills)),
+			TokenEstimate:  skills.ApproxTokenCount(xml),
+			LoadedAt:       time.Now().UTC(),
+			Content:        xml,
+		})
+	}
+	for i, instruction := range mcpInstructions {
+		if strings.TrimSpace(instruction) == "" {
+			continue
+		}
+		result.Sources = append(result.Sources, ContextSource{
+			ID:             fmt.Sprintf("mcp:instructions:%d", i+1),
+			Kind:           ContextSourceMCP,
+			Name:           "MCP instructions",
+			URI:            fmt.Sprintf("mcp://instructions/%d", i+1),
+			Scope:          "runtime",
+			Enabled:        true,
+			State:          ContextStateLoaded,
+			Reason:         "server_instructions",
+			ContentSummary: summarizeContent(instruction),
+			TokenEstimate:  skills.ApproxTokenCount(instruction),
+			LoadedAt:       time.Now().UTC(),
+			Content:        instruction,
+		})
+	}
+	for _, source := range result.Sources {
+		if source.Kind == ContextSourceProject || source.Kind == ContextSourceLocal || source.Kind == ContextSourceUser || source.Kind == ContextSourceFile {
+			if source.State == ContextStateLoaded {
+				result.ContextFiles = append(result.ContextFiles, ContextFile{Path: source.Path, Content: source.Content})
+			}
+		}
+	}
+	return result
+}
+
+func managedContextSource() ContextSource {
+	return ContextSource{
+		ID:             "managed:coder",
+		Kind:           ContextSourceManaged,
+		Name:           "Coder system defaults",
+		Scope:          "runtime",
+		Enabled:        true,
+		State:          ContextStateLoaded,
+		Reason:         "embedded_template",
+		ContentSummary: "Embedded coder system prompt defaults.",
+		LoadedAt:       time.Now().UTC(),
+	}
+}
+
+func orderedContextPaths(paths []string) []string {
+	ordered := make([]string, 0, len(paths))
+	add := func(match func(string) bool) {
+		for _, p := range paths {
+			p = strings.TrimSpace(p)
+			if p == "" || slices.Contains(ordered, p) || !match(filepath.ToSlash(p)) {
+				continue
+			}
+			ordered = append(ordered, p)
+		}
+	}
+	add(func(p string) bool { return isUserContextPath(p) })
+	add(func(p string) bool { return isProjectInstructionPath(p) && !isLocalInstructionPath(p) })
+	add(func(p string) bool { return isLocalInstructionPath(p) })
+	add(func(p string) bool {
+		return !isUserContextPath(p) && !isProjectInstructionPath(p) && !isLocalInstructionPath(p)
+	})
+	return ordered
+}
+
+func loadContextPath(ctx context.Context, configured string, store *config.ConfigStore) []ContextSource {
+	expanded := expandPath(configured, store)
+	fullPath := filepathext.SmartJoin(store.WorkingDir(), expanded)
+	abs, err := filepath.Abs(fullPath)
+	if err != nil {
+		return []ContextSource{unavailableContextSource(configured, "", classifyContextKind(configured), "path_invalid", err.Error())}
+	}
+	if !pathAllowed(store.WorkingDir(), configured, abs) {
+		return []ContextSource{unavailableContextSource(configured, abs, classifyContextKind(configured), "outside_workspace", "context path is outside the workspace")}
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		state := ContextStateUnavailable
+		reason := "missing"
+		diagnostics := "context path does not exist"
+		if !os.IsNotExist(err) {
+			state = ContextStateFailed
+			reason = "stat_failed"
+			diagnostics = err.Error()
+		}
+		return []ContextSource{{
+			ID:          contextSourceID(configured, abs),
+			Kind:        classifyContextKind(configured),
+			Name:        contextSourceName(configured),
+			Path:        filepath.ToSlash(abs),
+			Scope:       contextSourceScope(configured),
+			Enabled:     true,
+			State:       state,
+			Reason:      reason,
+			Diagnostics: diagnostics,
+			Error:       errorForState(state, diagnostics),
+		}}
+	}
+	if !info.IsDir() {
+		return []ContextSource{loadContextFile(ctx, configured, abs, classifyContextKind(configured))}
+	}
+	var sources []ContextSource
+	walkErr := filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			sources = append(sources, unavailableContextSource(configured, path, ContextSourceFile, "walk_failed", err.Error()))
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		sources = append(sources, loadContextFile(ctx, configured, path, ContextSourceFile))
+		return nil
+	})
+	if walkErr != nil && ctx.Err() == nil {
+		sources = append(sources, unavailableContextSource(configured, abs, ContextSourceFile, "walk_failed", walkErr.Error()))
+	}
+	if len(sources) == 0 {
+		return []ContextSource{{
+			ID:             contextSourceID(configured, abs),
+			Kind:           ContextSourceFile,
+			Name:           contextSourceName(configured),
+			Path:           filepath.ToSlash(abs),
+			Scope:          contextSourceScope(configured),
+			Enabled:        true,
+			State:          ContextStateUnavailable,
+			Reason:         "empty_directory",
+			Diagnostics:    "context directory contains no files",
+			ContentSummary: "No context files were loaded.",
+		}}
+	}
+	return sources
+}
+
+func loadContextFile(_ context.Context, configured, abs string, kind ContextSourceKind) ContextSource {
+	source := ContextSource{
+		ID:      contextSourceID(configured, abs),
+		Kind:    kind,
+		Name:    contextSourceName(abs),
+		Path:    filepath.ToSlash(abs),
+		Scope:   contextSourceScope(configured),
+		Enabled: true,
+		State:   ContextStateLoading,
+		Reason:  "runtime_context_load",
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		source.State = ContextStateFailed
+		source.Reason = "read_failed"
+		source.Diagnostics = err.Error()
+		source.Error = err.Error()
+		return source
+	}
+	content := string(data)
+	source.State = ContextStateLoaded
+	source.Content = content
+	source.ContentSummary = summarizeContent(content)
+	source.TokenEstimate = skills.ApproxTokenCount(content)
+	source.LoadedAt = time.Now().UTC()
+	return source
+}
+
+func unavailableContextSource(configured, path string, kind ContextSourceKind, reason, diagnostics string) ContextSource {
+	return ContextSource{
+		ID:          contextSourceID(configured, path),
+		Kind:        kind,
+		Name:        contextSourceName(configured),
+		Path:        filepath.ToSlash(path),
+		Scope:       contextSourceScope(configured),
+		Enabled:     true,
+		State:       ContextStateUnavailable,
+		Reason:      reason,
+		Diagnostics: diagnostics,
+	}
+}
+
+func pathAllowed(workingDir, configured, abs string) bool {
+	if isUserContextPath(configured) {
+		return true
+	}
+	workspaceAbs, err := filepath.Abs(workingDir)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(workspaceAbs, abs)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (!strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." && !filepath.IsAbs(rel))
+}
+
+func classifyContextKind(path string) ContextSourceKind {
+	slash := filepath.ToSlash(path)
+	switch {
+	case isUserContextPath(slash):
+		return ContextSourceUser
+	case isLocalInstructionPath(slash):
+		return ContextSourceLocal
+	case isProjectInstructionPath(slash):
+		return ContextSourceProject
+	default:
+		return ContextSourceFile
+	}
+}
+
+func isUserContextPath(path string) bool {
+	return strings.HasPrefix(path, "~/") || strings.HasPrefix(path, "$")
+}
+
+func isProjectInstructionPath(path string) bool {
+	base := strings.ToLower(filepath.Base(filepath.ToSlash(path)))
+	return base == "agents.md" || base == "claude.md" || strings.HasPrefix(strings.ToLower(filepath.ToSlash(path)), ".agents/rules/")
+}
+
+func isLocalInstructionPath(path string) bool {
+	base := strings.ToLower(filepath.Base(filepath.ToSlash(path)))
+	return base == "agents.local.md" || base == "claude.local.md"
+}
+
+func contextSourceScope(path string) string {
+	switch {
+	case isUserContextPath(path):
+		return "user"
+	case isLocalInstructionPath(path):
+		return "local"
+	case isProjectInstructionPath(path):
+		return "project"
+	default:
+		return "workspace"
+	}
+}
+
+func contextSourceName(path string) string {
+	base := filepath.Base(filepath.ToSlash(path))
+	if base == "." || base == string(filepath.Separator) || base == "" {
+		return path
+	}
+	return base
+}
+
+func contextSourceID(configured, abs string) string {
+	key := filepath.ToSlash(abs)
+	if key == "" {
+		key = configured
+	}
+	return string(classifyContextKind(configured)) + ":" + strings.ToLower(key)
+}
+
+func summarizeContent(content string) string {
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	if strings.TrimSpace(normalized) == "" {
+		return fmt.Sprintf("Empty context source (%d bytes).", len(content))
+	}
+	lineCount := strings.Count(normalized, "\n")
+	if !strings.HasSuffix(normalized, "\n") {
+		lineCount++
+	}
+	return fmt.Sprintf("Context source loaded (%d bytes, %d lines).", len(content), lineCount)
+}
+
+func errorForState(state ContextSourceState, diagnostics string) string {
+	if state == ContextStateFailed {
+		return diagnostics
+	}
+	return ""
+}
+
 func (p *Prompt) promptData(ctx context.Context, provider, model string, store *config.ConfigStore) (PromptDat, error) {
 	workingDir := cmp.Or(p.workingDir, store.WorkingDir())
 	platform := cmp.Or(p.platform, runtime.GOOS)
-
-	files := map[string][]ContextFile{}
-
 	cfg := store.Config()
-	for _, pth := range cfg.Options.ContextPaths {
-		expanded := expandPath(pth, store)
-		pathKey := strings.ToLower(expanded)
-		if _, ok := files[pathKey]; ok {
-			continue
-		}
-		content := processContextPath(expanded, store)
-		files[pathKey] = content
-	}
 
 	var availSkillXML string
 	if len(p.skills) > 0 {
 		availSkillXML = skills.ToPromptXML(p.skills)
 	}
+	contextLoad := LoadContextSources(ctx, store, nil, nil)
 
 	isGit := isGitRepo(store.WorkingDir())
 	data := PromptDat{
@@ -194,9 +507,7 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 		}
 	}
 
-	for _, contextFiles := range files {
-		data.ContextFiles = append(data.ContextFiles, contextFiles...)
-	}
+	data.ContextFiles = append(data.ContextFiles, contextLoad.ContextFiles...)
 	return data, nil
 }
 

@@ -98,23 +98,29 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 
 	skills, mcpServers, mcpTools := r.runtimeAuditInventory(ctx)
 	skillSummary := runtimeTurnSkillSummary(skills, string(r.currentPolicyMode()))
+	contextResp, contextErr := r.ContextSources(ctx)
+	if contextErr != nil {
+		slog.Debug("Runtime context source inventory unavailable", "error", contextErr)
+	}
+	contextSummary := r.recordTurnContextSources(sessionID, requestID, contextResp.Sources)
 
 	slog.Info("Desktop chat queued", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "prompt_len", len(prompt))
 	r.writeAudit(auditEntry{
-		RequestID:     requestID,
-		Event:         "started",
-		Timestamp:     start.Format(time.RFC3339Nano),
-		WorkspaceID:   wsID,
-		SessionID:     sessionID,
-		Provider:      status.Provider,
-		Model:         status.Model,
-		PromptLength:  len(prompt),
-		PromptPreview: preview(prompt, auditPreviewLimit),
-		UsageBefore:   &usageBefore,
-		Skills:        skills,
-		SkillSummary:  &skillSummary,
-		MCPServers:    mcpServers,
-		MCPTools:      mcpTools,
+		RequestID:      requestID,
+		Event:          "started",
+		Timestamp:      start.Format(time.RFC3339Nano),
+		WorkspaceID:    wsID,
+		SessionID:      sessionID,
+		Provider:       status.Provider,
+		Model:          status.Model,
+		PromptLength:   len(prompt),
+		PromptPreview:  preview(prompt, auditPreviewLimit),
+		UsageBefore:    &usageBefore,
+		Skills:         skills,
+		SkillSummary:   &skillSummary,
+		ContextSummary: &contextSummary,
+		MCPServers:     mcpServers,
+		MCPTools:       mcpTools,
 	})
 	r.storeRuntimeEvent(runtimeapi.Event{
 		ID:        newRuntimeEventID(),

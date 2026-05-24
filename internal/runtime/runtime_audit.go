@@ -215,6 +215,9 @@ func mergeAuditSummaryPayload(summary *RuntimeAuditTurnSummary, payload map[stri
 	if skillSummary, ok := payload["skill_summary"].(map[string]any); ok && summary.Skills == nil {
 		summary.Skills = runtimeTurnSkillSummaryFromPayload(skillSummary)
 	}
+	if contextSummary, ok := payload["context_summary"].(map[string]any); ok && summary.Context == nil {
+		summary.Context = runtimeTurnContextSummaryFromPayload(contextSummary)
+	}
 	if summary.FinalStatus == "" {
 		switch stringFromMap(payload, "event") {
 		case "finished":
@@ -225,6 +228,50 @@ func mergeAuditSummaryPayload(summary *RuntimeAuditTurnSummary, payload map[stri
 			summary.FinalStatus = turnStatusCancelled
 		}
 	}
+}
+
+func runtimeTurnContextSummaryFromPayload(payload map[string]any) *RuntimeTurnContextSummary {
+	summary := &RuntimeTurnContextSummary{
+		AvailableCount: intFromMap(payload, "available_count"),
+		TokenEstimate:  intFromMap(payload, "token_estimate"),
+	}
+	summary.Available = runtimeContextSourcesFromMap(payload, "available")
+	summary.Loaded = runtimeContextSourcesFromMap(payload, "loaded")
+	summary.Injected = runtimeContextSourcesFromMap(payload, "injected")
+	summary.Skipped = runtimeContextSourcesFromMap(payload, "skipped")
+	summary.Failed = runtimeContextSourcesFromMap(payload, "failed")
+	return summary
+}
+
+func runtimeContextSourcesFromMap(payload map[string]any, key string) []RuntimeContextSource {
+	raw, ok := payload[key].([]any)
+	if !ok {
+		return nil
+	}
+	items := make([]RuntimeContextSource, 0, len(raw))
+	for _, value := range raw {
+		itemMap, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		items = append(items, RuntimeContextSource{
+			ID:             stringFromMap(itemMap, "id"),
+			Kind:           stringFromMap(itemMap, "kind"),
+			Name:           stringFromMap(itemMap, "name"),
+			Path:           stringFromMap(itemMap, "path"),
+			URI:            stringFromMap(itemMap, "uri"),
+			Scope:          stringFromMap(itemMap, "scope"),
+			Enabled:        boolFromMap(itemMap, "enabled"),
+			State:          stringFromMap(itemMap, "state"),
+			Reason:         stringFromMap(itemMap, "reason"),
+			Diagnostics:    stringFromMap(itemMap, "diagnostics"),
+			Error:          stringFromMap(itemMap, "error"),
+			ContentSummary: stringFromMap(itemMap, "content_summary"),
+			TokenEstimate:  intFromMap(itemMap, "token_estimate"),
+			LoadedAt:       stringFromMap(itemMap, "loaded_at"),
+		})
+	}
+	return items
 }
 
 func runtimeTurnSkillSummaryFromPayload(payload map[string]any) *RuntimeTurnSkillSummary {

@@ -25,6 +25,14 @@ export function RuntimeCapabilityPanel({
   if (capabilities.length === 0) return <Text type="secondary">No capabilities available.</Text>
   return (
     <div className="runtime-list">
+      <div className="runtime-list-row compact">
+        <Space size={8}>
+          <Tag>context</Tag>
+          <Text strong>Instruction sources</Text>
+          <Tag color="gold">metadata</Tag>
+        </Space>
+        <Text type="secondary">Context source inventory is runtime-owned and visible in audit events.</Text>
+      </div>
       {capabilities.slice(0, 18).map((capability) => (
         <div className="runtime-list-row compact" key={capability.id}>
           <Space size={8}>

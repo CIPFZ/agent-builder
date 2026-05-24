@@ -2,6 +2,7 @@ import type {
   RuntimeChatRequest,
   RuntimeChatResponse,
   RuntimeCapability,
+  RuntimeContextSource,
   RuntimeAgentTask,
   RuntimeAuditEvent,
   RuntimeMcpServerConfig,
@@ -38,6 +39,7 @@ type WailsRuntimeBridge = {
   Cancel: () => Promise<RuntimeStatus>
   CancelTurn: (turnId: string) => Promise<RuntimeStatus>
   Capabilities: () => Promise<{ capabilities: RuntimeCapability[] }>
+  ContextSources: () => Promise<{ sources: RuntimeContextSource[] }>
   RefreshCapability: (capabilityId: string) => Promise<{ capability: RuntimeCapability }>
   Chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
   CreateSkill: (request: RuntimeSkillCreateRequest) => Promise<{ skills: RuntimeSkill[] }>

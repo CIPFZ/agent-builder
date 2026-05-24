@@ -3,6 +3,7 @@ import type {
   RuntimeAuditEvent,
   RuntimeAgentTask,
   RuntimeCapability,
+  RuntimeContextSource,
   RuntimeChatRequest,
   RuntimeChatResponse,
   RuntimeEventsResponse,
@@ -177,6 +178,10 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async refreshCapability(capabilityId: string) {
       const response = await post<{ capability: RuntimeCapability }>(`/v1/capabilities/${encodePath(capabilityId)}/refresh`)
       return response.capability
+    },
+    async listContextSources() {
+      const response = await get<{ sources: RuntimeContextSource[] }>('/v1/context/sources')
+      return response.sources
     },
     listEvents(after?: number) {
       const query = after && after > 0 ? `?after=${encodeURIComponent(String(after))}` : ''

@@ -132,6 +132,12 @@ export const wailsRuntime: AgentRuntime = {
     return response.capability
   },
 
+  async listContextSources() {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.ContextSources()
+    return response.sources
+  },
+
   async listEvents(after?: number) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.Events()

@@ -324,6 +324,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && capabilityRefreshPathID(r.URL.Path) != "":
 		value, err := s.service.RefreshCapability(r.Context(), capabilityRefreshPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/context/sources":
+		value, err := s.service.ContextSources(r.Context())
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/audit/turns/"):
 		value, err := s.service.AuditTurn(r.Context(), strings.TrimPrefix(r.URL.Path, "/v1/audit/turns/"))
 		writeRuntimeResult(w, value, err)

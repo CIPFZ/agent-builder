@@ -317,25 +317,57 @@ type RuntimeRecoveryStatus struct {
 }
 
 type RuntimeAuditTurnSummary struct {
-	TurnID                   string                   `json:"turn_id"`
-	SessionID                string                   `json:"session_id,omitempty"`
-	Provider                 string                   `json:"provider,omitempty"`
-	Model                    string                   `json:"model,omitempty"`
-	PromptPreview            string                   `json:"prompt_preview,omitempty"`
-	UsageBefore              RuntimeUsage             `json:"usage_before,omitempty"`
-	UsageAfter               RuntimeUsage             `json:"usage_after,omitempty"`
-	UsageDelta               RuntimeUsage             `json:"usage_delta,omitempty"`
-	FinalStatus              string                   `json:"final_status,omitempty"`
-	LatestAssistantMessageID string                   `json:"latest_assistant_id,omitempty"`
-	ToolCalls                []RuntimeToolCall        `json:"tool_calls,omitempty"`
-	Tasks                    []RuntimeAgentTask       `json:"tasks,omitempty"`
-	Permissions              []map[string]any         `json:"permissions,omitempty"`
-	Skills                   *RuntimeTurnSkillSummary `json:"skills,omitempty"`
-	Errors                   []string                 `json:"errors,omitempty"`
-	StartedAt                int64                    `json:"started_at,omitempty"`
-	FinishedAt               int64                    `json:"finished_at,omitempty"`
-	CreatedAt                string                   `json:"created_at,omitempty"`
-	UpdatedAt                string                   `json:"updated_at,omitempty"`
+	TurnID                   string                     `json:"turn_id"`
+	SessionID                string                     `json:"session_id,omitempty"`
+	Provider                 string                     `json:"provider,omitempty"`
+	Model                    string                     `json:"model,omitempty"`
+	PromptPreview            string                     `json:"prompt_preview,omitempty"`
+	UsageBefore              RuntimeUsage               `json:"usage_before,omitempty"`
+	UsageAfter               RuntimeUsage               `json:"usage_after,omitempty"`
+	UsageDelta               RuntimeUsage               `json:"usage_delta,omitempty"`
+	FinalStatus              string                     `json:"final_status,omitempty"`
+	LatestAssistantMessageID string                     `json:"latest_assistant_id,omitempty"`
+	ToolCalls                []RuntimeToolCall          `json:"tool_calls,omitempty"`
+	Tasks                    []RuntimeAgentTask         `json:"tasks,omitempty"`
+	Permissions              []map[string]any           `json:"permissions,omitempty"`
+	Skills                   *RuntimeTurnSkillSummary   `json:"skills,omitempty"`
+	Context                  *RuntimeTurnContextSummary `json:"context,omitempty"`
+	Errors                   []string                   `json:"errors,omitempty"`
+	StartedAt                int64                      `json:"started_at,omitempty"`
+	FinishedAt               int64                      `json:"finished_at,omitempty"`
+	CreatedAt                string                     `json:"created_at,omitempty"`
+	UpdatedAt                string                     `json:"updated_at,omitempty"`
+}
+
+type RuntimeContextSource struct {
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	Name           string `json:"name"`
+	Path           string `json:"path,omitempty"`
+	URI            string `json:"uri,omitempty"`
+	Scope          string `json:"scope,omitempty"`
+	Enabled        bool   `json:"enabled"`
+	State          string `json:"state"`
+	Reason         string `json:"reason,omitempty"`
+	Diagnostics    string `json:"diagnostics,omitempty"`
+	Error          string `json:"error,omitempty"`
+	ContentSummary string `json:"content_summary,omitempty"`
+	TokenEstimate  int    `json:"token_estimate,omitempty"`
+	LoadedAt       string `json:"loaded_at,omitempty"`
+}
+
+type RuntimeContextSourcesResponse struct {
+	Sources []RuntimeContextSource `json:"sources"`
+}
+
+type RuntimeTurnContextSummary struct {
+	AvailableCount int                    `json:"available_count"`
+	Available      []RuntimeContextSource `json:"available,omitempty"`
+	Loaded         []RuntimeContextSource `json:"loaded,omitempty"`
+	Injected       []RuntimeContextSource `json:"injected,omitempty"`
+	Skipped        []RuntimeContextSource `json:"skipped,omitempty"`
+	Failed         []RuntimeContextSource `json:"failed,omitempty"`
+	TokenEstimate  int                    `json:"token_estimate,omitempty"`
 }
 
 type RuntimeAuditResponse struct {

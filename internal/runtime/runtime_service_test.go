@@ -2175,6 +2175,7 @@ type recordingRuntimeService struct {
 	skills              RuntimeSkillsResponse
 	mcpServers          RuntimeMCPServersResponse
 	capabilities        RuntimeCapabilitiesResponse
+	contextSources      RuntimeContextSourcesResponse
 	refreshedCapability string
 	savedMCPServer      RuntimeMCPServerConfigRequest
 	toggledMCPServer    RuntimeMCPServerToggleRequest
@@ -2415,6 +2416,10 @@ func (s *recordingRuntimeService) Capabilities(context.Context) (RuntimeCapabili
 func (s *recordingRuntimeService) RefreshCapability(_ context.Context, id string) (RuntimeCapabilityResponse, error) {
 	s.refreshedCapability = id
 	return RuntimeCapabilityResponse{Capability: RuntimeCapability{ID: id, Kind: "skill", Name: "crush-config", Enabled: true, State: "loaded"}}, nil
+}
+
+func (s *recordingRuntimeService) ContextSources(context.Context) (RuntimeContextSourcesResponse, error) {
+	return s.contextSources, nil
 }
 
 func (s *recordingRuntimeService) APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error) {

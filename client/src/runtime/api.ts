@@ -144,6 +144,10 @@ export async function requestRuntimeCapabilities() {
   return getAgentRuntime().listCapabilities()
 }
 
+export async function requestRuntimeContextSources() {
+  return getAgentRuntime().listContextSources()
+}
+
 export async function refreshRuntimeCapability(capabilityId: string) {
   return getAgentRuntime().refreshCapability(capabilityId)
 }

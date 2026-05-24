@@ -47,6 +47,7 @@ var Endpoints = []Endpoint{
 	{Method: MethodPut, Path: "/v1/policy"},
 	{Method: MethodGet, Path: "/v1/capabilities"},
 	{Method: MethodPost, Path: "/v1/capabilities/{capability_id}/refresh"},
+	{Method: MethodGet, Path: "/v1/context/sources"},
 	{Method: MethodGet, Path: "/v1/skills"},
 	{Method: MethodPost, Path: "/v1/skills"},
 	{Method: MethodPost, Path: "/v1/skills/refresh"},
@@ -97,6 +98,9 @@ const (
 	EventCapabilityLoading       = "capability.loading"
 	EventCapabilityLoaded        = "capability.loaded"
 	EventCapabilityFailed        = "capability.failed"
+	EventContextLoading          = "context.loading"
+	EventContextLoaded           = "context.loaded"
+	EventContextFailed           = "context.failed"
 	EventSkillDiscoveryStarted   = "skill.discovery.started"
 	EventSkillDiscoveryCompleted = "skill.discovery.completed"
 	EventSkillDiscoveryFailed    = "skill.discovery.failed"
@@ -149,6 +153,9 @@ var EventTypes = []string{
 	EventCapabilityLoading,
 	EventCapabilityLoaded,
 	EventCapabilityFailed,
+	EventContextLoading,
+	EventContextLoaded,
+	EventContextFailed,
 	EventSkillDiscoveryStarted,
 	EventSkillDiscoveryCompleted,
 	EventSkillDiscoveryFailed,

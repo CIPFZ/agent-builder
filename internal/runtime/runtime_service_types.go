@@ -60,6 +60,7 @@ type RuntimeService interface {
 	MCPPrompts(context.Context, string) (RuntimeMCPPromptsResponse, error)
 	Capabilities(context.Context) (RuntimeCapabilitiesResponse, error)
 	RefreshCapability(context.Context, string) (RuntimeCapabilityResponse, error)
+	ContextSources(context.Context) (RuntimeContextSourcesResponse, error)
 	APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error)
 	DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error)
 	Cancel(context.Context) (RuntimeStatus, error)

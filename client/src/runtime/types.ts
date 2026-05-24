@@ -320,6 +320,23 @@ export type RuntimeCapability = {
   reason?: string
 }
 
+export type RuntimeContextSource = {
+  id: string
+  kind: 'managed' | 'user' | 'project' | 'local' | 'skill' | 'mcp' | 'file' | 'generated' | string
+  name: string
+  path?: string
+  uri?: string
+  scope?: string
+  enabled: boolean
+  state: 'unavailable' | 'disabled' | 'unloaded' | 'loading' | 'loaded' | 'failed' | string
+  reason?: string
+  diagnostics?: string
+  error?: string
+  content_summary?: string
+  token_estimate?: number
+  loaded_at?: string
+}
+
 export type RuntimeMessage = {
   id: string
   sessionId: string
@@ -452,6 +469,16 @@ export type RuntimeTurnSkillSummary = {
   source_paths?: string[]
 }
 
+export type RuntimeTurnContextSummary = {
+  available_count: number
+  available?: RuntimeContextSource[]
+  loaded?: RuntimeContextSource[]
+  injected?: RuntimeContextSource[]
+  skipped?: RuntimeContextSource[]
+  failed?: RuntimeContextSource[]
+  token_estimate?: number
+}
+
 export type AgentRuntime = {
   auditSession: (sessionId: string) => Promise<RuntimeAuditEvent[]>
   auditTurn: (turnId: string) => Promise<RuntimeAuditEvent[]>
@@ -475,6 +502,7 @@ export type AgentRuntime = {
   addSkillPath: (path: string) => Promise<RuntimeSkill[]>
   listCapabilities: () => Promise<RuntimeCapability[]>
   refreshCapability: (capabilityId: string) => Promise<RuntimeCapability>
+  listContextSources: () => Promise<RuntimeContextSource[]>
   listEvents: (after?: number) => Promise<RuntimeEventsResponse>
   listMcpServers: () => Promise<RuntimeMcpServer[]>
   listMcpResources: (server: string) => Promise<RuntimeMcpResource[]>

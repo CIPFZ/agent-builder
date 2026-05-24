@@ -29,6 +29,7 @@ var defaultContextPaths = []string{
 	".github/copilot-instructions.md",
 	".cursorrules",
 	".cursor/rules/",
+	".agents/rules/",
 	"CLAUDE.md",
 	"CLAUDE.local.md",
 	"GEMINI.md",
@@ -40,6 +41,7 @@ var defaultContextPaths = []string{
 	"CRUSH.md",
 	"CRUSH.local.md",
 	"AGENTS.md",
+	"AGENTS.local.md",
 	"agents.md",
 	"Agents.md",
 }

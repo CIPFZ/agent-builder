@@ -5,7 +5,7 @@ import Space from 'antd/es/space'
 import Tag from 'antd/es/tag'
 import Typography from 'antd/es/typography'
 import { ReloadOutlined } from '@ant-design/icons'
-import type { RuntimeAuditEvent, RuntimeSkillTurnItem, RuntimeTurnSkillSummary } from '../../runtime'
+import type { RuntimeAuditEvent, RuntimeContextSource, RuntimeSkillTurnItem, RuntimeTurnContextSummary, RuntimeTurnSkillSummary } from '../../runtime'
 
 const { Text } = Typography
 
@@ -50,11 +50,35 @@ export function RuntimeAuditDrawer({
             <AuditHighlights event={event} />
             <TaskSummary payload={event.payload} />
             <SkillSummary payload={event.payload} />
+            <ContextSummary payload={event.payload} />
             <pre className="audit-payload">{JSON.stringify(event.payload, null, 2)}</pre>
           </article>
         ))}
       </div>
     </Drawer>
+  )
+}
+
+function ContextSummary({ payload }: { payload: Record<string, unknown> }) {
+  const summary = parseContextSummary(payload.context_summary)
+  if (!summary) return null
+  return (
+    <div className="audit-skill-summary">
+      <Space size={6} wrap>
+        <Tag>context {summary.available_count}</Tag>
+        {summary.injected?.length ? <Tag color="green">injected {summary.injected.length}</Tag> : null}
+        {summary.skipped?.length ? <Tag color="default">skipped {summary.skipped.length}</Tag> : null}
+        {summary.failed?.length ? <Tag color="red">failed {summary.failed.length}</Tag> : null}
+        {summary.token_estimate ? <Tag>{summary.token_estimate} tok</Tag> : null}
+      </Space>
+      {summary.injected?.length ? <Text type="secondary">Injected: {summary.injected.map((source: RuntimeContextSource) => source.name).join(', ')}</Text> : null}
+      {summary.skipped?.length ? (
+        <Text type="secondary">Skipped: {summary.skipped.map((source: RuntimeContextSource) => `${source.name}${source.reason ? ` (${source.reason})` : ''}`).join(', ')}</Text>
+      ) : null}
+      {summary.failed?.length ? (
+        <Text type="danger">Failed: {summary.failed.map((source: RuntimeContextSource) => `${source.name}${source.error ? ` (${source.error})` : ''}`).join(', ')}</Text>
+      ) : null}
+    </div>
   )
 }
 
@@ -99,6 +123,13 @@ function SkillSummary({ payload }: { payload: Record<string, unknown> }) {
 function parseSkillSummary(value: unknown): RuntimeTurnSkillSummary | null {
   if (!value || typeof value !== 'object') return null
   const summary = value as RuntimeTurnSkillSummary
+  if (typeof summary.available_count !== 'number') return null
+  return summary
+}
+
+function parseContextSummary(value: unknown): RuntimeTurnContextSummary | null {
+  if (!value || typeof value !== 'object') return null
+  const summary = value as RuntimeTurnContextSummary
   if (typeof summary.available_count !== 'number') return null
   return summary
 }

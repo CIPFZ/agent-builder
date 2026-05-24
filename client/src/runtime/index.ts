@@ -9,6 +9,7 @@ export type {
   RuntimeChatRequest,
   RuntimeChatResponse,
   RuntimeCapability,
+  RuntimeContextSource,
   RuntimeMessage,
   RuntimeMessagePart,
   RuntimeMcpServerConfig,
@@ -37,6 +38,7 @@ export type {
   RuntimeSkillTurnItem,
   RuntimeStatus,
   RuntimeTurnSkillSummary,
+  RuntimeTurnContextSummary,
   RuntimeUsage,
 } from './types'
 
