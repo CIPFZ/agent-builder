@@ -1,347 +1,296 @@
 # Claude Code Alignment Next Roadmap
 
 This roadmap supersedes the previous post-scheduler plan. It is based on the
-current Agent Builder runtime on `main` and the full runtime parity audit in:
+current Agent Builder runtime on `main` and the latest parity audit:
 
 - [`docs/claude-code-runtime-parity-audit.md`](./claude-code-runtime-parity-audit.md)
+- [`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md)
 
-Hard constraints:
+Related boundary references:
 
-- Do not modify `charm.land/fantasy`; it remains the provider/model/tool
+- [`docs/claude-code-alignment-module-priority.md`](./claude-code-alignment-module-priority.md)
+- [`docs/client-runtime-architecture-review.md`](./client-runtime-architecture-review.md)
+- [`docs/turn-task-run-model.md`](./turn-task-run-model.md)
+- [`docs/tool-scheduler-design.md`](./tool-scheduler-design.md)
+- [`docs/permission-policy-model.md`](./permission-policy-model.md)
+- [`docs/client-state-recovery.md`](./client-state-recovery.md)
+- [`docs/archive/phase-2-runtime-api-boundary.md`](./archive/phase-2-runtime-api-boundary.md)
+- [`docs/client-architecture-and-core-flow.md`](./client-architecture-and-core-flow.md)
+
+## Fixed Principles
+
+- Do not modify `charm.land/fantasy`. Fantasy remains the provider/model/tool
   protocol abstraction.
-- Do not recreate provider clients, model streaming, or model-facing tool
-  protocol outside fantasy.
+- Do not recreate provider clients, provider streaming, model-facing message
+  formats, or tool-call protocol outside fantasy.
+- Provider/model configuration belongs in Agent Builder as a policy/config layer
+  above fantasy, not as a second provider abstraction.
 - Go runtime is the source of truth for sessions, turns, tools, permissions,
   capabilities, events, audit, recovery, tasks, and context.
-- React is presentation and local UI state only.
+- React is presentation and local UI state only. It must not own business state.
 - Wails and HTTP are adapters, not business boundaries.
-- Do not restore TUI/CLI as the main product path.
-- Model-assisted permission is advisory only. The model must never approve its
-  own high-risk action.
+- Do not restore TUI/CLI as the product main path.
+- Compact is a runtime lifecycle, not a UI operation.
+- Tool search and deadlock avoidance are scheduler/runtime responsibilities,
+  not React responsibilities.
+- Agent communication and coordinator behavior are runtime primitives, not UI
+  event stitching.
+- Model-assisted permission can only be advisory. The model must never approve
+  its own high-risk action.
 
 ## Current Baseline
 
-The codebase is now past the older "PermissionPolicy is next" state. The
-baseline has these implemented foundations:
+The current baseline is ahead of the older "PermissionPolicy is next" state:
 
 | Area | Status | Evidence |
 | --- | --- | --- |
-| Durable turn lifecycle | Implemented foundation | `internal/runtime/runtime_turns.go`, `runtime_turn_store.go` |
-| Durable ToolCall lifecycle | Implemented foundation | `internal/tools/scheduler/*`, `internal/agent/scheduler_tool.go`, `runtime_tool_call_store.go` |
-| Runtime event cursor | Implemented foundation | `runtime_events.go`, `runtime_sse.go`, `client/src/runtime/types.ts` |
-| Runtime audit | Implemented foundation | `runtime_audit.go`, `runtime_audit_writer.go` |
-| Session recovery | Implemented foundation | `runtime_recovery.go`, `GET /v1/recovery/status` |
+| Durable turn lifecycle | Completed foundation | `internal/runtime/runtime_turns.go`, `runtime_turn_store.go` |
+| Durable ToolCall lifecycle | Completed foundation | `internal/tools/scheduler/*`, `internal/agent/scheduler_tool.go`, `runtime_tool_call_store.go` |
+| Runtime event cursor | Completed foundation | `runtime_events.go`, `runtime_sse.go`, `client/src/runtime/types.ts` |
+| Runtime audit | Completed foundation | `runtime_audit.go`, `runtime_audit_writer.go` |
+| Session recovery | Completed foundation | `runtime_recovery.go`, `GET /v1/recovery/status` |
 | PermissionPolicy baseline | Partial foundation | `internal/permission/policy.go`, `runtime_policy.go`, `runtime_permission_store.go` |
 | Plan mode | Partial foundation | `PolicyModePlan` blocks non-read tool calls |
 | Capability states/refresh | Partial foundation | `runtime_capabilities.go`, `capability.loading/loaded/failed` |
 | Context source audit | Partial foundation | `internal/agent/prompt/prompt.go`, `runtime_context.go` |
 | Skills/MCP panels and APIs | Partial foundation | `runtime_skills.go`, `runtime_mcp.go`, React feature panels |
 | AgentTask persistence | Partial foundation | `runtime_agent_tasks.go`, `runtime_agent_task_store.go` |
+| Provider/model config | Partial foundation | `runtime_model*.go`, `ModelSettingsDrawer.tsx` |
 | React runtime surfaces | Partial foundation | `client/src/runtime/*`, `features/chat`, `features/audit`, `features/permissions` |
 
-The foundation is useful but incomplete. The next work should focus on runtime
-governance and long-session behavior, not on restoring CLI/TUI or rebuilding
-provider layers.
+The next phase should govern long-running execution. It should not rebuild the
+runtime spine, restore terminal UI, or create a second provider layer.
 
-## Key Parity Conclusion
+## Reordered Priority
 
-Agent Builder has a credible runtime spine. Claude Code is still ahead in:
+This order intentionally does not follow the older roadmap inertia. It is ranked
+by Claude Code runtime gap size, current Agent Builder foundations, dependency
+weight, and blast radius.
 
-- compact and prompt budget lifecycle,
-- tool search/discovery and lazy tool exposure,
-- scoped policy rules and shell safety,
-- agent coordinator/communication and task roles,
-- worktree/sandbox/remote isolation,
-- scenario/eval harnesses and replayable diagnostics.
-
-Therefore the next implementation batch should move from "create runtime
-objects" to "govern long-running execution."
-
-## Reordered Priority Map
-
-| Priority | Module | Status | Depends on |
+| Phase | Module | Status | Why this position |
 | --- | --- | --- | --- |
-| P0 | Runtime spine: Turn, ToolCall, Event, Audit, Recovery | Done foundation | Maintain |
-| P0 | Deterministic PermissionPolicy baseline | Partial foundation | Scheduler/audit |
-| P0 | Capability registry states and refresh | Partial foundation | Runtime API |
-| P1 | Compact lifecycle foundation | Next | Context sources, read-file state, audit |
-| P1 | Micro compact for tool outputs | Next | Compact boundary, ToolCall output normalization |
-| P1 | Prompt/tool budget accounting | Next | Context sources, capability registry |
-| P1 | Tool search / capability discovery | Next | Capability registry, prompt budget |
-| P1 | Scoped policy rules | Next | Permission baseline, scheduler |
-| P1 | Shell policy hardening | Next | Scoped policy rules |
-| P1 | AgentTask scope and role definitions | Next | AgentTask store, scoped policy |
-| P2 | Parent/child agent messaging | After task scopes | AgentTask roles |
-| P2 | MCP/skills scoped activation | After policy scopes | Capability registry |
-| P2 | Background job entity and output/artifact refs | After scheduler hardening | ToolCall/task stores |
-| P2 | Full compact and post-compact reinjection | After micro compact | Context/read-file state |
-| P2 | Worktree isolation | After task scopes + shell policy | AgentTask cwd/worktree fields |
-| P2 | React compact/task/policy diagnostics | After APIs | Runtime DTOs |
-| P3 | Session memory compact and auto compact | Later | Full compact and prompt budget |
-| P3 | Sandbox and remote runtime | Later | Isolation API and shell policy |
-| P3 | Capability package/plugin governance | Later | Registry, scopes, skills/MCP lifecycle |
-| P3 | Observability/eval harness | Parallel after scenarios | Stable audit/events |
+| P0 | Runtime spine: Turn, ToolCall, Event, Audit, Recovery | Completed | Already present; keep stable while adding lifecycle modules. |
+| P0 | Deterministic PermissionPolicy baseline | Partial completed | Existing ask/auto_read/plan/deny_all modes are enough for compact and budget foundations. |
+| P0 | Capability registry states and refresh | Partial completed | Existing inventory is enough to start budget/search metadata. |
+| P1 Next | Compact / context budget lifecycle foundation | Next | Largest missing runtime primitive; unlocks long sessions, prompt budget, auto compact, replay, and safer AgentTasks. |
+| P1 Parallel | Tool search / discovery / deadlock avoidance | Parallel after compact boundary starts | Needed before plugin/tool surface growth; depends on capability metadata and budget accounting. |
+| P1 Parallel | Scoped policy rules and shell safety | Parallel after compact boundary starts | Needed to enforce tools/MCP/skills/subagents/cwd/shell deterministically. |
+| P1 Parallel | Observability / evals / replay harness | Parallel safety net | Should begin early as a local scenario harness for compact, policy, tool, MCP, and recovery regressions. |
+| P2 | AgentTask scope, role definitions, parent/child messaging | Blocked by policy scopes and budget | AgentTask records exist, but safe subagents need scope enforcement and compact-aware transcripts. |
+| P2 | Provider/model configuration on fantasy | Later P2 | Useful product policy layer, but not blocking long-session governance and must stay above fantasy. |
+| P2 | MCP/skills scoped activation enforcement | Blocked by policy scopes and tool search | Metadata exists; enforcement needs scopes and discovery budget. |
+| P2 | Worktree isolation | Blocked by task scopes and shell policy | CWD/worktree fields exist, but lifecycle and cleanup need policy and task boundaries. |
+| P2 | React diagnostics/audit deepening | After runtime APIs | React should expose compact/task/policy diagnostics only after runtime contracts exist. |
+| P3 Later | Capability package / plugin governance | Later | Requires registry, scopes, skills/MCP lifecycle, and trust state; marketplace-first is not needed. |
+| P3 Later | Adaptive/model-assisted permission advisor | Later advisory only | Useful after deterministic scopes and evals; cannot approve actions. |
+| P3 Later | Advanced context/memory lifecycle beyond baseline | Later | Session memory compact, memory taxonomy, and advanced reinjection follow baseline compact. |
+| P3 Later | Sandbox / remote isolation | Later | Depends on shell policy, worktree API, and local isolation semantics. |
+| Not needed | TUI/CLI UI, slash-command UI, provider rewrites, marketplace-first distribution | Not needed | Excluded product surfaces or duplicate abstractions. |
 
-## Recommended Next Modules
+## First Recommended Implementation Module
 
-### 1. Compact Lifecycle Foundation
+Implement `Compact / context budget lifecycle foundation` next.
 
-Goal: introduce compact as a runtime primitive, split into separate lifecycle
-stages instead of a single summary command.
+Start with durable compact boundaries and budget accounting, then add micro
+compact. Do not begin with full summarization or auto compact. The first pass
+should prove the runtime can record a compact boundary, preserve message and
+ToolCall invariants, emit compact events/audit, and expose budget diagnostics.
 
-Required split:
+Why compact now:
 
-- micro compact,
-- full compact,
-- session memory compact,
-- auto compact trigger,
-- post-compact reinjection.
+- The runtime already has turns, ToolCalls, audit, recovery, context source
+  audit, read-file state, and AgentTask persistence as foundations.
+- Claude Code's largest remaining runtime advantage is long-session context
+  economy: micro compact, full compact, session-memory compact, auto triggers,
+  and post-compact reinjection.
+- Tool search needs budget data to decide when to keep tool schemas out of the
+  prompt.
+- AgentTask communication needs compact-aware parent/child transcripts before
+  long-running subagents become reliable.
+- Recovery and replay need compact boundaries to explain why transcript content
+  was summarized, replaced, or reinjected.
 
-Initial acceptance:
+Why not the other candidates first:
 
-- compact boundary record exists,
-- compact events and audit records exist,
-- ToolCall/message references survive compaction,
-- no React-owned compact state,
-- no provider/fantasy changes.
+- Tool search is high priority, but without budget accounting it cannot explain
+  prompt pressure or prove selection savings.
+- Agent coordinator/communication is important, but it increases context volume
+  and recursion risk before compact and scoped policy are ready.
+- Provider/model configuration is already a partial foundation on fantasy; more
+  product policy there does not close the largest runtime parity gap.
+- Worktree/sandbox/remote isolation needs shell policy and AgentTask scope first.
+- Observability/evals should start in parallel, but it validates primitives; it
+  does not replace the missing compact primitive.
+- Capability package/plugin governance should wait until tool search and scoped
+  policy can handle larger capability surfaces.
+- Adaptive/model-assisted permission advisor must wait for deterministic scopes
+  and policy eval fixtures because it is advisory only.
 
-### 2. Micro Compact For Tool Outputs
+## Candidate Comparison
 
-Goal: reduce context pressure deterministically before full summarization.
-
-Initial acceptance:
-
-- old/high-cost tool outputs can be replaced by summaries or refs,
-- tool-use/tool-result invariants are preserved,
-- full output remains available through runtime/audit refs where appropriate,
-- compact decisions are auditable.
-
-### 3. Tool Search And Prompt Budget
-
-Goal: avoid exposing every tool, MCP tool, skill, and plugin candidate in every
-turn.
-
-Initial acceptance:
-
-- capability metadata includes model-facing searchable descriptions,
-- runtime can select/discover tools on demand,
-- prompt budget reports messages, context sources, tool schemas, skills, MCP,
-  and tool outputs,
-- selection and omission are audited.
-
-### 4. Scoped Policy Rules And Shell Safety
-
-Goal: evolve the deterministic policy baseline into a scoped rule engine.
-
-Scope:
-
-- tool and capability IDs,
-- MCP server/tool/resource/prompt,
-- skill activation,
-- subagent/task scope,
-- cwd/path,
-- shell command prefix or regex,
-- headless behavior.
-
-Model-assisted policy remains future-only and advisory. It may summarize
-intent, explain risk, or suggest a decision, but Go runtime policy enforces the
-final allow/ask/deny decision.
-
-### 5. AgentTask Scope, Roles, And Communication
-
-Goal: turn the current AgentTask persistence foundation into managed subagent
-runtime work.
-
-Initial acceptance:
-
-- agent definitions/roles are runtime objects,
-- allowed tools/model/cwd/capability scope are enforced,
-- parent/child messaging is structured,
-- task result and artifact refs are durable,
-- cancellation and interrupted recovery are auditable.
-
-### 6. Scenario/Eval Harness
-
-Goal: make runtime regressions visible before broadening the capability surface.
-
-Scenarios:
-
-- plan mode blocks writes and shell,
-- auto_read allows reads and asks on writes,
-- shell destructive commands are denied or ask,
-- MCP refresh and disabled tools are audited,
-- skill allowed_tools metadata does not grant permission,
-- AgentTask cancellation and recovery,
-- event cursor snapshot-required behavior,
-- compact boundary and micro compact invariants.
+| Candidate | Priority | Decision |
+| --- | --- | --- |
+| Compact / context budget lifecycle | P1 Next | First module. Add boundary, budget, events, audit, micro compact, then full/auto/reinjection. |
+| Tool search / discovery / deadlock avoidance | P1 Parallel | Start after compact boundary and budget DTOs are drafted; keep in scheduler/runtime. |
+| Agent coordinator / agent communication | P2 | Wait for compact, policy scopes, and task role enforcement. |
+| Provider/model configuration on fantasy | P2 | Keep above fantasy; add health/capability diagnostics later. |
+| Worktree/sandbox/remote isolation | P2/P3 | Worktree P2 after task scopes/shell policy; sandbox/remote P3. |
+| Observability/evals/replay | P1 Parallel | Start as scenario harness while P1 modules land. |
+| Capability package/plugin governance | P3 | Local governance later; marketplace-first not needed. |
+| Adaptive/model-assisted permission advisor | P3 | Advisory only after deterministic scopes and evals. |
 
 ## Dependency Graph
 
 ```mermaid
 graph TD
-  SP["Done: Runtime spine"] --> CB["Compact boundary"]
-  SP --> PS["Scoped policy rules"]
-  SP --> TS["Tool search"]
-  SP --> AT["AgentTask scopes"]
-  SP --> EV["Scenario/eval harness"]
+  SP["Completed: Runtime spine"] --> CB["Next P1: Compact boundary"]
+  SP --> PS["Parallel P1: Scoped policy"]
+  SP --> EV["Parallel P1: Scenario eval/replay"]
+  SP --> TS["Parallel P1: Tool search"]
 
-  CTX["Partial: Context sources + read-file state"] --> CB
-  TC["Done: ToolCall summaries"] --> MC["Micro compact"]
+  CTX["Completed/Partial: Context sources + read-file state"] --> CB
+  AUD["Completed: Audit + event cursor"] --> CB
+  TC["Completed: ToolCall store/output summaries"] --> MC["Next P1: Micro compact"]
+  CB --> BUD["Next P1: Context + prompt/tool budget"]
   CB --> MC
-  MC --> PB["Prompt/tool budget"]
-  CB --> FC["Full compact"]
-  PB --> AC["Auto compact trigger"]
-  FC --> SM["Session memory compact"]
-  FC --> RI["Post-compact reinjection"]
-  CTX --> RI
+  BUD --> TS
+  BUD --> AC["Later P2: Auto compact trigger"]
+  CB --> FC["Later P2: Full compact"]
+  FC --> RI["Later P2: Post-compact reinjection"]
+  FC --> SM["Later P3: Session memory compact"]
 
-  CAP["Partial: Capability registry"] --> TS
+  CAP["Completed/Partial: Capability registry"] --> TS
   CAP --> PS
-  PS --> SH["Shell safety hardening"]
-  PS --> AT
-  PS --> MS["MCP/skills scoped activation"]
-  TS --> PB
+  PS --> SH["Parallel P1: Shell safety hardening"]
+  PS --> MS["P2: MCP/skills scoped activation"]
+  PS --> AT["P2: AgentTask scopes/roles"]
+  TS --> DL["Parallel P1: Deadlock/recursion limits"]
 
-  AT --> PCM["Parent/child messaging"]
-  AT --> ISO["CWD/worktree isolation"]
-  SH --> ISO
-  PCM --> COORD["Coordinator communication"]
+  AT --> MSG["P2: Parent/child messaging"]
+  MSG --> COORD["P2: Coordinator communication"]
+  AT --> WT["P2: Worktree isolation"]
+  SH --> WT
+  WT --> SB["Later P3: Sandbox/remote runtime"]
 
-  MS --> PKG["Capability package governance"]
-  ISO --> SB["Sandbox/remote runtime"]
-  EV --> OBS["Local observability"]
+  MS --> PKG["Later P3: Capability package/plugin governance"]
+  PS --> ADV["Later P3: Model-assisted permission advisor"]
+  EV --> DIAG["P2: React diagnostics/audit deepening"]
   CB --> EV
   PS --> EV
+  TS --> EV
   AT --> EV
+
+  TUI["Not needed: TUI/CLI UI"]:::notneeded
+  MARKET["Not needed now: marketplace-first plugins"]:::notneeded
+  FANTASY["Not needed: modify fantasy/provider rewrite"]:::notneeded
+
+  classDef notneeded fill:#eee,stroke:#999,color:#555;
 ```
 
-## Module Boundaries
+## Module Boundary Index
 
-### Compact
+Detailed implementation boundaries, API/event schema notes, data-model impact,
+test requirements, risks, dependencies, and acceptance criteria are in
+[`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md).
 
-| Field | Boundary |
-| --- | --- |
-| Goal | Runtime-owned compact boundaries, summaries, replacement records, and reinjection. |
-| Non-goals | Provider rewrite, React-owned summaries, remote memory service. |
-| Go packages | Future `internal/runtime/runtime_compact*.go`, `internal/agent/prompt`, `internal/message`, `internal/db`. |
-| React packages | Read-only timeline/audit rendering after API exists. |
-| Events | `compact.boundary`, `compact.micro`, `compact.full`, `compact.failed`, future exact names to add to `internal/runtimeapi`. |
-| Tests | Boundary store tests, message invariant tests, audit redaction tests. |
+The implementation plan covers:
 
-### Tool Search / Budget
-
-| Field | Boundary |
-| --- | --- |
-| Goal | Runtime-mediated discovery of tools/capabilities and prompt budget accounting. |
-| Non-goals | Marketplace, React-selected tools, model self-approval. |
-| Go packages | `internal/runtime/runtime_capabilities.go`, future budget/search files, `internal/permission`. |
-| React packages | Capability diagnostics only. |
-| Tests | Selection/audit tests, budget accounting tests, policy-denied search tests. |
-
-### Scoped Policy
-
-| Field | Boundary |
-| --- | --- |
-| Goal | Deterministic scoped rules for tools, commands, MCP, skills, subagents, cwd, and headless profiles. |
-| Non-goals | Enterprise RBAC, model-approved permissions, full OS sandbox. |
-| Go packages | `internal/permission`, `internal/runtime/runtime_policy.go`, scheduler recorder. |
-| React packages | Policy diagnostics/rule editor later. |
-| Tests | Policy regression table tests and runtime scenario tests. |
-
-### AgentTask Scope / Communication
-
-| Field | Boundary |
-| --- | --- |
-| Goal | Managed subagent roles, enforced scopes, structured parent/child messaging, durable outputs. |
-| Non-goals | Swarm product UI, marketplace agents, remote fleet. |
-| Go packages | `internal/agent/agent_tool.go`, `internal/runtime/runtime_agent_tasks.go`, future role registry. |
-| React packages | Task panel and timeline rendering only. |
-| Tests | Scope enforcement, cancellation, child session linkage, result/artifact audit. |
-
-### Isolation
-
-| Field | Boundary |
-| --- | --- |
-| Goal | Keep cwd override, worktree, sandbox, and remote runtime separate in API and audit. |
-| Non-goals | First-pass cross-platform sandbox parity. |
-| Go packages | Future runtime isolation package, `internal/permission`, scheduler, AgentTask. |
-| Tests | Path safety, cleanup/preserve behavior, policy enforcement, cancellation. |
-
-## Product Coupling To Exclude
-
-Do not bring these Claude Code surfaces into Agent Builder:
-
-- terminal UI / Ink components,
-- terminal keybindings and Vim input state,
-- slash command UI,
-- CLI argument UX,
-- subscription/product-specific Anthropic UI,
-- first-party GrowthBook/Datadog/Anthropic telemetry sinks,
-- Claude.ai OAuth and pass/subscription flows,
-- marketplace-first plugin install flows.
-
-Borrow only runtime semantics: state machines, policy shapes, compact
-lifecycle, task protocol, extension governance, audit discipline, and recovery
-semantics.
+- Compact / context budget lifecycle.
+- Tool search / discovery / deadlock avoidance.
+- Agent coordinator / agent communication.
+- Provider/model configuration on fantasy.
+- Worktree/sandbox/remote isolation.
+- Observability / evals / replay.
+- Capability package / plugin governance.
+- Adaptive/model-assisted permission advisor.
+- Advanced context/memory lifecycle beyond baseline.
+- React diagnostics/audit deepening.
 
 ## Commit-by-Commit Phase Plan
 
 Recommended future implementation commits:
 
 1. `runtime: record compact boundaries`
-   - Store compact boundary metadata, events, and audit.
+   - Scope: compact DTO/store, event names, audit records, read APIs.
+   - Main tests: compact store tests, event/audit redaction tests, no-op
+     boundary recovery tests.
 
-2. `runtime: add micro compact output replacement`
-   - Replace old tool outputs with summaries/refs while preserving protocol
-     invariants.
+2. `runtime: add context and prompt budget accounting`
+   - Scope: count context sources, messages, tool schemas, skills, MCP, and
+     tool outputs.
+   - Main tests: deterministic budget table tests and turn audit summaries.
 
-3. `runtime: add prompt and tool budget accounting`
-   - Count context, messages, tool schemas, skills, MCP, and tool outputs.
+3. `runtime: add micro compact output replacement`
+   - Scope: replace old high-cost tool outputs with summaries/refs while
+     preserving model protocol invariants.
+   - Main tests: ToolCall/message invariant tests and compact audit tests.
 
-4. `runtime: add tool search capability metadata`
-   - Expose model-facing searchable tool descriptions and audit selection.
+4. `runtime: expose tool search metadata`
+   - Scope: searchable tool/capability descriptions, discovery API/tool shape,
+     selection audit.
+   - Main tests: budget-driven omission/selection tests and policy-denied search
+     tests.
 
-5. `runtime: add scoped permission rules`
-   - Deterministic rules for tools, MCP, skills, subagents, cwd, and shell
-     prefixes/regex.
+5. `runtime: add scheduler deadlock limits`
+   - Scope: recursion, nested tool, agent recursion, and concurrency guardrails.
+   - Main tests: scheduler scenario tests for recursion and cancellation.
 
-6. `runtime: harden shell policy classification`
-   - Move beyond regex-only destructive detection for common Bash/PowerShell
-     shapes.
+6. `runtime: add scoped permission rules`
+   - Scope: deterministic rules for tool, MCP, skill, subagent, cwd, and shell
+     prefix/regex.
+   - Main tests: policy table tests and runtime permission scenarios.
 
-7. `runtime: enforce agent task scopes`
-   - Enforce model/tool/cwd/capability scope on child sessions.
+7. `runtime: harden shell policy classification`
+   - Scope: Bash/PowerShell high-risk parsing beyond regex-only destructive
+     detection.
+   - Main tests: shell read/write/destructive regression fixtures.
 
-8. `runtime: add parent child agent messaging`
-   - Structured task progress/result/artifact protocol.
+8. `runtime: enforce agent task scopes`
+   - Scope: role definitions and model/tool/cwd/capability scope enforcement on
+     child sessions.
+   - Main tests: scope denial, cancellation, child session linkage, task audit.
 
-9. `runtime: add full compact and reinjection`
-   - Summary generation path, compact boundary replay, read-file/context
-     reinjection.
+9. `runtime: add parent child agent messaging`
+   - Scope: structured progress/result/artifact protocol and parent
+     notification channel.
+   - Main tests: parent/child transcript and artifact reference scenarios.
 
-10. `runtime: add scenario eval harness`
-    - Golden local scenarios for policy, compact, MCP, skills, tasks, recovery,
-      and audit.
+10. `runtime: add scenario eval replay harness`
+    - Scope: local golden scenarios for compact, policy, MCP, skills, tasks,
+      recovery, and audit replay.
+    - Main tests: fixture runner in CI-friendly unit/integration form.
 
-11. `runtime: add worktree isolation`
-    - Explicit worktree lifecycle with audit and cleanup/preserve behavior.
+Follow-up after these commits:
 
-12. `runtime: add local capability package governance`
-    - Local/managed package manifest and trust state. No marketplace first.
+- `runtime: add full compact and reinjection`
+- `runtime: add worktree isolation`
+- `runtime: add auto compact trigger`
+- `runtime: add local capability package governance`
+- `runtime: add advisory permission advisor`
 
-## First Recommended Implementation Module
+## Not Needed / Later
 
-Implement `Compact lifecycle foundation` next.
+Not needed:
 
-Reason:
+- Terminal UI / Ink components.
+- Keybindings, Vim input state, terminal layout, slash-command UI.
+- CLI argument UX as a product flow.
+- Subscription, pass, Claude.ai OAuth, provider-specific growth/product UI.
+- First-party analytics sinks and GrowthBook rollout semantics.
+- Marketplace-first plugin installation.
+- Modifying fantasy or recreating provider abstractions.
 
-- The runtime spine, scheduler, policy baseline, context source audit, and
-  AgentTask persistence are now present.
-- Claude Code's largest remaining runtime advantage is context economy:
-  micro compact, full compact, session memory compact, auto compact, and
-  post-compact reinjection.
-- Tool search, prompt budget, and long-running AgentTasks all depend on a
-  compact boundary model.
+Later/P3:
 
-The first compact pass should be conservative: add durable boundary records,
-events, audit, and tests before changing model-loop behavior.
+- Session memory compact beyond baseline full compact.
+- Advanced memory taxonomy and managed memory compaction.
+- Sandbox and remote runtime after local worktree/shell policy.
+- Plugin package trust/signing after scoped policy and capability governance.
+- Model-assisted permission advisor after deterministic policy scopes and evals.
+
+## Roadmap Conclusion
+
+The next phase should begin with compact/context budget because it is the
+highest-leverage missing runtime lifecycle. It fits the current Go runtime
+foundation, avoids React ownership of business state, and unlocks tool search,
+long-running AgentTasks, replay diagnostics, and later auto compact.

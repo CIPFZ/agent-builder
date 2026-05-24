@@ -3,6 +3,8 @@
 This document is a short pointer to the current Claude Code alignment plan.
 The detailed roadmap is maintained in
 [`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md),
+the commit-ready implementation boundaries are maintained in
+[`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md),
 and the current full parity source is
 [`docs/claude-code-runtime-parity-audit.md`](./claude-code-runtime-parity-audit.md).
 
@@ -83,7 +85,8 @@ capability registry metadata, scoped policy, and model-facing tool search.
 ## Roadmap Pointer
 
 Use [`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md)
-for the next session. It contains:
+and [`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md)
+for the next session. Together they contain:
 
 - completed capability baseline,
 - remaining Claude Code gaps,
