@@ -120,6 +120,9 @@ export type RuntimeToolCall = {
   structuredOutput?: string
   stdout?: string
   stderr?: string
+  outputRefs?: string[]
+  artifactRefs?: string[]
+  diffRefs?: string[]
   isError?: boolean
   compacted?: boolean
   compactRef?: string
@@ -129,6 +132,42 @@ export type RuntimeToolCall = {
   startedAt: number
   finishedAt?: number
   error?: string
+}
+
+export type RuntimeRef = {
+  id: string
+  uri: string
+  sessionId: string
+  turnId?: string
+  toolCallId?: string
+  taskId?: string
+  kind: string
+  mediaType?: string
+  contentType?: string
+  sizeBytes: number
+  estimatedTokens: number
+  preview?: string
+  summary?: string
+  storageKind: string
+  storagePath?: string
+  redactionStatus: string
+  createdAt: number
+  canReadContent: boolean
+}
+
+export type RuntimeRefsResponse = {
+  refs: RuntimeRef[]
+}
+
+export type RuntimeRefResponse = {
+  ref: RuntimeRef
+}
+
+export type RuntimeRefContentResponse = {
+  ref: RuntimeRef
+  content?: string
+  redacted?: boolean
+  truncated?: boolean
 }
 
 export type RuntimeAgentTask = {
@@ -445,6 +484,10 @@ export type RuntimeReplayExportSummary = {
   agentTaskMessages?: RuntimeAgentTaskMessage[]
   agentTaskResults?: RuntimeAgentTaskResult[]
   agentTaskArtifacts?: string[]
+  outputRefs?: RuntimeRef[]
+  artifactRefs?: RuntimeRef[]
+  compactOutputRefs?: RuntimeRef[]
+  taskArtifactRefs?: RuntimeRef[]
   policyDecisions?: RuntimeReplayPolicyDecision[]
   permissionEvents?: RuntimeReplayPermission[]
   toolCalls?: RuntimeToolCall[]
@@ -891,6 +934,8 @@ export type AgentRuntime = {
   exitWorktree: (worktreeId: string, request?: RuntimeWorktreeActionRequest) => Promise<RuntimeWorktree>
   cleanupWorktree: (worktreeId: string, request?: RuntimeWorktreeActionRequest) => Promise<RuntimeWorktree>
   getToolCall: (toolCallId: string) => Promise<RuntimeToolCall>
+  getRef: (refId: string) => Promise<RuntimeRef>
+  readRefContent: (refId: string) => Promise<RuntimeRefContentResponse>
   getAgentTask: (taskId: string) => Promise<RuntimeAgentTask>
   getAgentTaskEffectiveScope: (taskId: string) => Promise<RuntimeEffectiveScope>
   cancelAgentTask: (taskId: string) => Promise<RuntimeAgentTask>
@@ -920,6 +965,13 @@ export type AgentRuntime = {
   listSkills: () => Promise<RuntimeSkill[]>
   listTurns: (status?: string) => Promise<RuntimeTurn[]>
   listTurnToolCalls: (turnId: string) => Promise<RuntimeToolCall[]>
+  listRefs: (request?: {
+    sessionId?: string
+    turnId?: string
+    toolCallId?: string
+    taskId?: string
+    kind?: string
+  }) => Promise<RuntimeRef[]>
   listTurnAgentTasks: (turnId: string) => Promise<RuntimeAgentTask[]>
   createSkill: (request: RuntimeSkillCreateRequest) => Promise<RuntimeSkill[]>
   newChat: (title: string) => Promise<RuntimeStatus>

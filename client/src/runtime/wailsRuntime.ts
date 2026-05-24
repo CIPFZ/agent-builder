@@ -144,6 +144,17 @@ export const wailsRuntime: AgentRuntime = {
     return response.toolCall
   },
 
+  async getRef(refId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.Ref(refId)
+    return response.ref
+  },
+
+  async readRefContent(refId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    return bridge.ReadRefContent(refId)
+  },
+
   async getAgentTask(taskId: string) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.AgentTask(taskId)
@@ -290,6 +301,12 @@ export const wailsRuntime: AgentRuntime = {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.TurnToolCalls(turnId)
     return response.toolCalls
+  },
+
+  async listRefs(request = {}) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.Refs(request)
+    return response.refs
   },
 
   async listTurnAgentTasks(turnId: string) {

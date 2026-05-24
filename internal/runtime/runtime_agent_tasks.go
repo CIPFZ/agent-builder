@@ -102,7 +102,9 @@ func (r *runtimeSchedulerRecorder) AgentTaskStarted(ctx context.Context, task ag
 	if r == nil || r.service == nil {
 		return nil
 	}
-	stored, err := r.service.agentTasks.Upsert(ctx, runtimeAgentTaskFromRecord(task, agentTaskStatusRunning))
+	record := runtimeAgentTaskFromRecord(task, agentTaskStatusRunning)
+	record.ArtifactRefs = r.service.ensureTaskArtifactRefs(ctx, record, record.ArtifactRefs)
+	stored, err := r.service.agentTasks.Upsert(ctx, record)
 	if err != nil {
 		return err
 	}
@@ -149,6 +151,7 @@ func (r *runtimeSchedulerRecorder) AgentTaskCompleted(ctx context.Context, task 
 		return nil
 	}
 	record := runtimeAgentTaskFromRecord(task, agentTaskStatusCompleted)
+	record.ArtifactRefs = r.service.ensureTaskArtifactRefs(ctx, record, record.ArtifactRefs)
 	record.Progress = 100
 	if record.FinishedAt == 0 {
 		record.FinishedAt = time.Now().UnixMilli()
@@ -192,6 +195,7 @@ func (r *runtimeSchedulerRecorder) AgentTaskFailed(ctx context.Context, task age
 		status = agentTaskStatusCancelled
 	}
 	record := runtimeAgentTaskFromRecord(task, status)
+	record.ArtifactRefs = r.service.ensureTaskArtifactRefs(ctx, record, record.ArtifactRefs)
 	record.Progress = 100
 	if record.FinishedAt == 0 {
 		record.FinishedAt = time.Now().UnixMilli()
@@ -278,15 +282,20 @@ func (r *runtimeService) agentTaskMessages(ctx context.Context, taskID string) (
 }
 
 func (r *runtimeService) createAgentTaskMessage(ctx context.Context, task RuntimeAgentTask, msg RuntimeAgentTaskMessage) (RuntimeAgentTaskMessage, error) {
-	db, err := r.workspaceDB(ctx)
-	if err != nil {
-		return RuntimeAgentTaskMessage{}, err
+	db := r.turns.db
+	if db == nil {
+		var err error
+		db, err = r.workspaceDB(ctx)
+		if err != nil {
+			return RuntimeAgentTaskMessage{}, err
+		}
 	}
 	msg.TaskID = task.ID
 	msg.ParentTurnID = firstNonEmpty(msg.ParentTurnID, task.ParentTurnID)
 	msg.ParentSessionID = firstNonEmpty(msg.ParentSessionID, task.ParentSessionID)
 	msg.ChildSessionID = firstNonEmpty(msg.ChildSessionID, task.ChildSessionID)
 	msg.ContentSummary = preview(msg.ContentSummary, runtimePartPreviewLimit)
+	msg.ArtifactRefs = r.ensureTaskArtifactRefs(ctx, task, msg.ArtifactRefs)
 	msg.Payload = redactRuntimePayload(msg.Payload)
 	stored, err := newRuntimeAgentTaskMessageStore(db).Create(ctx, msg)
 	if err != nil {
@@ -313,6 +322,40 @@ func (r *runtimeService) createAgentTaskMessage(ctx context.Context, task Runtim
 	return stored, nil
 }
 
+func (r *runtimeService) ensureTaskArtifactRefs(ctx context.Context, task RuntimeAgentTask, refs []string) []string {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(refs))
+	for _, value := range refs {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if strings.HasPrefix(value, "runtime://refs/") {
+			out = appendUniqueStrings(out, value)
+			continue
+		}
+		ref, err := r.createRuntimeRef(ctx, runtimeRefCreateRequest{
+			SessionID:   task.ParentSessionID,
+			TurnID:      task.ParentTurnID,
+			ToolCallID:  task.ParentToolCallID,
+			TaskID:      task.ID,
+			Kind:        runtimeRefKindTaskArtifact,
+			MediaType:   "text/plain",
+			ContentType: "task_artifact_ref",
+			Payload:     []byte(value),
+			Summary:     value,
+		})
+		if err != nil {
+			out = appendUniqueStrings(out, value)
+			continue
+		}
+		out = appendUniqueStrings(out, ref.URI)
+	}
+	return out
+}
+
 func (r *runtimeService) agentTaskResult(ctx context.Context, taskID string) (RuntimeAgentTaskResult, error) {
 	db, err := r.workspaceDB(ctx)
 	if err != nil {
@@ -322,15 +365,20 @@ func (r *runtimeService) agentTaskResult(ctx context.Context, taskID string) (Ru
 }
 
 func (r *runtimeService) upsertAgentTaskResult(ctx context.Context, result RuntimeAgentTaskResult) (RuntimeAgentTaskResult, error) {
-	db, err := r.workspaceDB(ctx)
-	if err != nil {
-		return RuntimeAgentTaskResult{}, err
+	db := r.turns.db
+	if db == nil {
+		var err error
+		db, err = r.workspaceDB(ctx)
+		if err != nil {
+			return RuntimeAgentTaskResult{}, err
+		}
 	}
+	task, _ := r.agentTasks.Get(ctx, result.TaskID)
+	result.ArtifactRefs = r.ensureTaskArtifactRefs(ctx, task, result.ArtifactRefs)
 	stored, err := newRuntimeAgentTaskResultStore(db).Upsert(ctx, result)
 	if err != nil {
 		return RuntimeAgentTaskResult{}, err
 	}
-	task, _ := r.agentTasks.Get(ctx, stored.TaskID)
 	r.storeRuntimeEvent(runtimeAgentTaskResultEvent(stored, task))
 	if len(stored.ArtifactRefs) > 0 {
 		r.storeRuntimeEvent(runtimeapi.Event{
@@ -341,9 +389,10 @@ func (r *runtimeService) upsertAgentTaskResult(ctx context.Context, result Runti
 			TurnID:     task.ParentTurnID,
 			ToolCallID: task.ParentToolCallID,
 			Payload: map[string]any{
-				"task_id":       stored.TaskID,
-				"artifact_refs": stored.ArtifactRefs,
-				"summary":       fmt.Sprintf("%d artifact refs", len(stored.ArtifactRefs)),
+				"task_id":            stored.TaskID,
+				"artifact_refs":      stored.ArtifactRefs,
+				"artifact_ref_count": len(stored.ArtifactRefs),
+				"summary":            fmt.Sprintf("%d artifact refs", len(stored.ArtifactRefs)),
 			},
 		})
 	}
@@ -442,14 +491,15 @@ func runtimeAgentTaskMessageEvent(msg RuntimeAgentTaskMessage) RuntimeEvent {
 	event.TurnID = msg.ParentTurnID
 	event.ToolCallID = msg.RelatedToolCallID
 	event.Payload = map[string]any{
-		"message_id":       msg.ID,
-		"task_id":          msg.TaskID,
-		"direction":        msg.Direction,
-		"kind":             msg.Kind,
-		"status":           msg.Status,
-		"child_session_id": msg.ChildSessionID,
-		"summary":          msg.ContentSummary,
-		"artifact_refs":    msg.ArtifactRefs,
+		"message_id":         msg.ID,
+		"task_id":            msg.TaskID,
+		"direction":          msg.Direction,
+		"kind":               msg.Kind,
+		"status":             msg.Status,
+		"child_session_id":   msg.ChildSessionID,
+		"summary":            msg.ContentSummary,
+		"artifact_refs":      msg.ArtifactRefs,
+		"artifact_ref_count": len(msg.ArtifactRefs),
 	}
 	return event
 }
@@ -460,10 +510,11 @@ func runtimeAgentTaskArtifactEvent(msg RuntimeAgentTaskMessage) RuntimeEvent {
 	event.TurnID = msg.ParentTurnID
 	event.ToolCallID = msg.RelatedToolCallID
 	event.Payload = map[string]any{
-		"message_id":    msg.ID,
-		"task_id":       msg.TaskID,
-		"artifact_refs": msg.ArtifactRefs,
-		"summary":       msg.ContentSummary,
+		"message_id":         msg.ID,
+		"task_id":            msg.TaskID,
+		"artifact_refs":      msg.ArtifactRefs,
+		"artifact_ref_count": len(msg.ArtifactRefs),
+		"summary":            msg.ContentSummary,
 	}
 	return event
 }

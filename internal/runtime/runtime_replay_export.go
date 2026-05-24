@@ -46,6 +46,7 @@ func (r *runtimeService) replayExportTurn(ctx context.Context, req RuntimeReplay
 		Audit:            audit.Events,
 	}
 	resp.Summary = buildRuntimeReplaySummary(audit.Summary, filtered, audit.Events)
+	r.attachRuntimeReplayRefs(ctx, &resp.Summary, RuntimeRefListRequest{SessionID: sessionID, TurnID: req.TurnID})
 	resp.Summary.Recovery.SnapshotRequired = events.SnapshotRequired || resp.Summary.Recovery.SnapshotRequired
 	resp.Summary.Recovery.LastEventSequence = events.LastSequence
 	return resp, nil
@@ -75,9 +76,38 @@ func (r *runtimeService) replayExportSession(ctx context.Context, req RuntimeRep
 		Audit:            audit.Events,
 	}
 	resp.Summary = buildRuntimeReplaySummary(RuntimeAuditTurnSummary{}, filtered, audit.Events)
+	r.attachRuntimeReplayRefs(ctx, &resp.Summary, RuntimeRefListRequest{SessionID: req.SessionID})
 	resp.Summary.Recovery.SnapshotRequired = events.SnapshotRequired || resp.Summary.Recovery.SnapshotRequired
 	resp.Summary.Recovery.LastEventSequence = events.LastSequence
 	return resp, nil
+}
+
+func (r *runtimeService) attachRuntimeReplayRefs(ctx context.Context, summary *RuntimeReplayExportSummary, req RuntimeRefListRequest) {
+	if summary == nil {
+		return
+	}
+	store, err := r.ensureRuntimeRefStore(ctx)
+	if err != nil {
+		return
+	}
+	refs, err := store.List(ctx, req)
+	if err != nil {
+		return
+	}
+	for _, ref := range refs {
+		switch ref.Kind {
+		case runtimeRefKindArtifact:
+			summary.ArtifactRefs = appendRuntimeReplayRef(summary.ArtifactRefs, ref)
+		case runtimeRefKindTaskArtifact:
+			summary.ArtifactRefs = appendRuntimeReplayRef(summary.ArtifactRefs, ref)
+			summary.TaskArtifactRefs = appendRuntimeReplayRef(summary.TaskArtifactRefs, ref)
+		case runtimeRefKindCompactOriginalOutput:
+			summary.OutputRefs = appendRuntimeReplayRef(summary.OutputRefs, ref)
+			summary.CompactOutputRefs = appendRuntimeReplayRef(summary.CompactOutputRefs, ref)
+		default:
+			summary.OutputRefs = appendRuntimeReplayRef(summary.OutputRefs, ref)
+		}
+	}
 }
 
 func (r *runtimeService) replayEventsTurn(ctx context.Context, turnID string, after int64) (RuntimeEventsResponse, string, error) {
@@ -193,6 +223,20 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 		case runtimeapi.EventTaskArtifactCreated:
 			summary.AgentTaskMessages = append(summary.AgentTaskMessages, runtimeReplayTaskMessageFromEvent(event))
 			summary.AgentTaskArtifacts = appendUniqueStrings(summary.AgentTaskArtifacts, stringSliceFromMap(event.Payload, "artifact_refs")...)
+		case runtimeapi.EventOutputRefCreated, runtimeapi.EventToolOutputRefCreated:
+			if ref := runtimeRefFromReplayPayload(event.Payload); ref.ID != "" {
+				summary.OutputRefs = appendRuntimeReplayRef(summary.OutputRefs, ref)
+				if ref.Kind == runtimeRefKindCompactOriginalOutput {
+					summary.CompactOutputRefs = appendRuntimeReplayRef(summary.CompactOutputRefs, ref)
+				}
+			}
+		case runtimeapi.EventArtifactRefCreated:
+			if ref := runtimeRefFromReplayPayload(event.Payload); ref.ID != "" {
+				summary.ArtifactRefs = appendRuntimeReplayRef(summary.ArtifactRefs, ref)
+				if ref.Kind == runtimeRefKindTaskArtifact {
+					summary.TaskArtifactRefs = appendRuntimeReplayRef(summary.TaskArtifactRefs, ref)
+				}
+			}
 		case runtimeapi.EventTaskResultUpdated:
 			summary.AgentTaskResults = append(summary.AgentTaskResults, runtimeReplayTaskResultFromEvent(event))
 		case runtimeapi.EventBudgetUpdated:
@@ -241,6 +285,11 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 		case runtimeapi.EventCompactBoundaryRecorded, runtimeapi.EventCompactMicroCompleted, runtimeapi.EventCompactFullCompleted, runtimeapi.EventCompactFailed:
 			if boundary := runtimeReplayCompactBoundaryFromEvent(event); boundary.ID != "" {
 				summary.CompactBoundaries = appendRuntimeReplayCompactBoundary(summary.CompactBoundaries, boundary)
+			}
+		case runtimeapi.EventCompactOutputPreserved:
+			if ref := runtimeRefFromReplayPayload(event.Payload); ref.ID != "" {
+				summary.OutputRefs = appendRuntimeReplayRef(summary.OutputRefs, ref)
+				summary.CompactOutputRefs = appendRuntimeReplayRef(summary.CompactOutputRefs, ref)
 			}
 		case runtimeapi.EventContextReinjected, runtimeapi.EventContextSourceSkipped, runtimeapi.EventContextSourceFailed:
 			attachRuntimeReplayReinjectedRef(&summary, event)
@@ -386,6 +435,39 @@ func appendRuntimeReplayWorktree(items []RuntimeWorktree, wt RuntimeWorktree) []
 		}
 	}
 	return append(items, wt)
+}
+
+func appendRuntimeReplayRef(items []RuntimeRef, ref RuntimeRef) []RuntimeRef {
+	for i := range items {
+		if items[i].ID == ref.ID {
+			items[i] = ref
+			return items
+		}
+	}
+	return append(items, ref)
+}
+
+func runtimeRefFromReplayPayload(payload map[string]any) RuntimeRef {
+	ref := RuntimeRef{
+		ID:              stringFromMap(payload, "id"),
+		URI:             stringFromMap(payload, "uri"),
+		SessionID:       stringFromMap(payload, "session_id"),
+		TurnID:          stringFromMap(payload, "turn_id"),
+		ToolCallID:      stringFromMap(payload, "tool_call_id"),
+		TaskID:          stringFromMap(payload, "task_id"),
+		Kind:            stringFromMap(payload, "kind"),
+		MediaType:       stringFromMap(payload, "media_type"),
+		ContentType:     stringFromMap(payload, "content_type"),
+		SizeBytes:       int64(intFromMap(payload, "size_bytes")),
+		EstimatedTokens: intFromMap(payload, "estimated_tokens"),
+		Preview:         stringFromMap(payload, "preview"),
+		Summary:         stringFromMap(payload, "summary"),
+		StorageKind:     stringFromMap(payload, "storage_kind"),
+		RedactionStatus: stringFromMap(payload, "redaction_status"),
+		CreatedAt:       int64(intFromMap(payload, "created_at")),
+	}
+	ref.CanReadContent = ref.RedactionStatus == runtimeRefRedactionSafe
+	return ref
 }
 
 func runtimeReplayTaskMessageFromEvent(event RuntimeEvent) RuntimeAgentTaskMessage {

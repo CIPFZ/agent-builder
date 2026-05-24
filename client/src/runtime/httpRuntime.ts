@@ -25,6 +25,8 @@ import type {
   RuntimePermissionRequest,
   RuntimePolicy,
   RuntimePolicyMode,
+  RuntimeRef,
+  RuntimeRefContentResponse,
   RuntimeReplayExportRequest,
   RuntimeReplayExportResponse,
   RuntimeRecoveryStatus,
@@ -207,6 +209,13 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
       const response = await get<{ toolCall: RuntimeToolCall }>(`/v1/tool-calls/${encodePath(toolCallId)}`)
       return response.toolCall
     },
+    async getRef(refId: string) {
+      const response = await get<{ ref: RuntimeRef }>(`/v1/refs/${encodePath(refId)}`)
+      return response.ref
+    },
+    readRefContent(refId: string) {
+      return get<RuntimeRefContentResponse>(`/v1/refs/${encodePath(refId)}/content`)
+    },
     async getAgentTask(taskId: string) {
       const response = await get<{ task: RuntimeAgentTask }>(`/v1/tasks/${encodePath(taskId)}`)
       return response.task
@@ -300,6 +309,24 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async listTurnToolCalls(turnId: string) {
       const response = await get<{ toolCalls: RuntimeToolCall[] }>(`/v1/turns/${encodePath(turnId)}/tool-calls`)
       return response.toolCalls
+    },
+    async listRefs(request = {}) {
+      const params = new URLSearchParams()
+      const req = request as {
+        sessionId?: string
+        turnId?: string
+        toolCallId?: string
+        taskId?: string
+        kind?: string
+      }
+      if (req.sessionId) params.set('session_id', req.sessionId)
+      if (req.turnId) params.set('turn_id', req.turnId)
+      if (req.toolCallId) params.set('tool_call_id', req.toolCallId)
+      if (req.taskId) params.set('task_id', req.taskId)
+      if (req.kind) params.set('kind', req.kind)
+      const query = params.toString()
+      const response = await get<{ refs: RuntimeRef[] }>(`/v1/refs${query ? `?${query}` : ''}`)
+      return response.refs
     },
     async listTurnAgentTasks(turnId: string) {
       const response = await get<{ tasks: RuntimeAgentTask[] }>(`/v1/turns/${encodePath(turnId)}/tasks`)

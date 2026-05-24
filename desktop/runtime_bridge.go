@@ -19,6 +19,11 @@ type RuntimeTodosResponse = runtime.RuntimeTodosResponse
 type RuntimeToolCall = runtime.RuntimeToolCall
 type RuntimeToolCallResponse = runtime.RuntimeToolCallResponse
 type RuntimeToolCallsResponse = runtime.RuntimeToolCallsResponse
+type RuntimeRef = runtime.RuntimeRef
+type RuntimeRefListRequest = runtime.RuntimeRefListRequest
+type RuntimeRefResponse = runtime.RuntimeRefResponse
+type RuntimeRefsResponse = runtime.RuntimeRefsResponse
+type RuntimeRefContentResponse = runtime.RuntimeRefContentResponse
 type RuntimeCompactBoundary = runtime.RuntimeCompactBoundary
 type RuntimeCompactBoundariesResponse = runtime.RuntimeCompactBoundariesResponse
 type RuntimeCompactToolCallRef = runtime.RuntimeCompactToolCallRef
@@ -185,6 +190,24 @@ func (r *RuntimeBridge) ToolCall(ctx context.Context, toolCallID string) (Runtim
 func (r *RuntimeBridge) TurnToolCalls(ctx context.Context, turnID string) (RuntimeToolCallsResponse, error) {
 
 	return r.service.TurnToolCalls(ctx, turnID)
+
+}
+
+func (r *RuntimeBridge) Refs(ctx context.Context, req RuntimeRefListRequest) (RuntimeRefsResponse, error) {
+
+	return r.service.Refs(ctx, req)
+
+}
+
+func (r *RuntimeBridge) Ref(ctx context.Context, refID string) (RuntimeRefResponse, error) {
+
+	return r.service.Ref(ctx, refID)
+
+}
+
+func (r *RuntimeBridge) ReadRefContent(ctx context.Context, refID string) (RuntimeRefContentResponse, error) {
+
+	return r.service.ReadRefContent(ctx, refID)
 
 }
 

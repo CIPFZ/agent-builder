@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/crush/internal/agent"
@@ -547,15 +548,18 @@ func (r *runtimeSchedulerRecorder) ToolCallOutput(ctx context.Context, result ag
 		return err
 	}
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallOutput, call, map[string]any{
-		"name":         call.Name,
-		"summary":      call.OutputSummary,
-		"job_id":       call.JobID,
-		"job_status":   call.JobStatus,
-		"shell_status": call.JobStatus,
-		"is_error":     result.IsError,
-		"status":       string(call.Status),
-		"has_stdout":   call.Stdout != "",
-		"has_stderr":   call.Stderr != "",
+		"name":          call.Name,
+		"summary":       call.OutputSummary,
+		"output_refs":   call.OutputRefs,
+		"artifact_refs": call.ArtifactRefs,
+		"diff_refs":     call.DiffRefs,
+		"job_id":        call.JobID,
+		"job_status":    call.JobStatus,
+		"shell_status":  call.JobStatus,
+		"is_error":      result.IsError,
+		"status":        string(call.Status),
+		"has_stdout":    call.Stdout != "",
+		"has_stderr":    call.Stderr != "",
 	}))
 	if call.JobID != "" {
 		r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventTaskProgress, call, map[string]any{
@@ -578,11 +582,14 @@ func (r *runtimeSchedulerRecorder) ToolCallCompleted(ctx context.Context, result
 		return err
 	}
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallCompleted, call, map[string]any{
-		"name":       call.Name,
-		"summary":    call.OutputSummary,
-		"job_id":     call.JobID,
-		"job_status": call.JobStatus,
-		"status":     string(call.Status),
+		"name":          call.Name,
+		"summary":       call.OutputSummary,
+		"output_refs":   call.OutputRefs,
+		"artifact_refs": call.ArtifactRefs,
+		"diff_refs":     call.DiffRefs,
+		"job_id":        call.JobID,
+		"job_status":    call.JobStatus,
+		"status":        string(call.Status),
 	}))
 	r.auditToolResult(call)
 	return nil
@@ -599,13 +606,16 @@ func (r *runtimeSchedulerRecorder) ToolCallFailed(ctx context.Context, result ag
 		return err
 	}
 	payload := map[string]any{
-		"name":       call.Name,
-		"summary":    call.OutputSummary,
-		"job_id":     call.JobID,
-		"job_status": call.JobStatus,
-		"status":     string(call.Status),
-		"is_error":   true,
-		"error":      call.Error,
+		"name":          call.Name,
+		"summary":       call.OutputSummary,
+		"output_refs":   call.OutputRefs,
+		"artifact_refs": call.ArtifactRefs,
+		"diff_refs":     call.DiffRefs,
+		"job_id":        call.JobID,
+		"job_status":    call.JobStatus,
+		"status":        string(call.Status),
+		"is_error":      true,
+		"error":         call.Error,
 	}
 	if call.Status == scheduler.ToolCallDenied {
 		payload["denied"] = true
@@ -622,12 +632,15 @@ func (r *runtimeSchedulerRecorder) ToolCallCancelled(ctx context.Context, result
 		return err
 	}
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallCancelled, call, map[string]any{
-		"name":       call.Name,
-		"summary":    call.OutputSummary,
-		"job_id":     call.JobID,
-		"job_status": call.JobStatus,
-		"status":     string(call.Status),
-		"error":      call.Error,
+		"name":          call.Name,
+		"summary":       call.OutputSummary,
+		"output_refs":   call.OutputRefs,
+		"artifact_refs": call.ArtifactRefs,
+		"diff_refs":     call.DiffRefs,
+		"job_id":        call.JobID,
+		"job_status":    call.JobStatus,
+		"status":        string(call.Status),
+		"error":         call.Error,
 	}))
 	r.auditToolResult(call)
 	return nil
@@ -665,6 +678,7 @@ func (r *runtimeSchedulerRecorder) updateToolCall(ctx context.Context, result ag
 			JobStartedAt:         timeFromMillis(result.JobStartedAt),
 		})
 	}
+	refs := r.createToolOutputRefs(ctx, result)
 	return r.service.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{
 		ToolCallID:           result.ToolCallID,
 		Status:               status,
@@ -692,9 +706,86 @@ func (r *runtimeSchedulerRecorder) updateToolCall(ctx context.Context, result ag
 		Structured:           preview(result.StructuredOutputSummary, runtimePartPreviewLimit),
 		Stdout:               preview(result.Stdout, runtimePartPreviewLimit),
 		Stderr:               preview(result.Stderr, runtimePartPreviewLimit),
+		OutputRefs:           refs.OutputRefs,
+		ArtifactRefs:         refs.ArtifactRefs,
+		DiffRefs:             refs.DiffRefs,
 		IsError:              result.IsError || status == scheduler.ToolCallFailed || status == scheduler.ToolCallCancelled,
 		Error:                preview(result.Error, runtimePartPreviewLimit),
 	})
+}
+
+type runtimeToolOutputRefs struct {
+	OutputRefs   []string
+	ArtifactRefs []string
+	DiffRefs     []string
+}
+
+func (r *runtimeSchedulerRecorder) createToolOutputRefs(ctx context.Context, result agent.SchedulerToolCallResult) runtimeToolOutputRefs {
+	var refs runtimeToolOutputRefs
+	if r == nil || r.service == nil {
+		return refs
+	}
+	sessionID := result.SessionID
+	turnID := result.TurnID
+	if sessionID == "" || turnID == "" {
+		if existing, err := r.service.toolCalls.GetCall(ctx, result.ToolCallID); err == nil {
+			sessionID = firstNonEmpty(sessionID, existing.SessionID)
+			turnID = firstNonEmpty(turnID, existing.TurnID)
+		}
+	}
+	add := func(kind, mediaType, contentType, payload, summary string) {
+		if strings.TrimSpace(payload) == "" {
+			return
+		}
+		ref, err := r.service.createRuntimeRef(ctx, runtimeRefCreateRequest{
+			SessionID:   sessionID,
+			TurnID:      turnID,
+			ToolCallID:  result.ToolCallID,
+			Kind:        kind,
+			MediaType:   mediaType,
+			ContentType: contentType,
+			Payload:     []byte(payload),
+			Summary:     summary,
+		})
+		if err != nil {
+			return
+		}
+		switch kind {
+		case runtimeRefKindArtifact:
+			refs.ArtifactRefs = append(refs.ArtifactRefs, ref.URI)
+		case runtimeRefKindDiff:
+			refs.DiffRefs = append(refs.DiffRefs, ref.URI)
+		default:
+			refs.OutputRefs = append(refs.OutputRefs, ref.URI)
+		}
+	}
+	outputKind := runtimeRefKindOutput
+	if result.Source == string(scheduler.ToolSourceShell) || strings.EqualFold(result.Name, "bash") || strings.EqualFold(result.Name, "job_output") {
+		outputKind = runtimeRefKindShellJobOutput
+	}
+	add(outputKind, "text/plain", "model_content", result.ModelVisibleContent, "model-visible tool output")
+	if strings.TrimSpace(result.Stdout) != "" {
+		add(outputKind, "text/plain", "stdout", result.Stdout, "tool stdout")
+	}
+	if strings.TrimSpace(result.Stderr) != "" {
+		add(outputKind, "text/plain", "stderr", result.Stderr, "tool stderr")
+	}
+	if strings.TrimSpace(result.StructuredOutputSummary) != "" {
+		kind := runtimeRefKindArtifact
+		if looksLikeDiff(result.StructuredOutputSummary) {
+			kind = runtimeRefKindDiff
+		}
+		add(kind, "application/json", "structured_output", result.StructuredOutputSummary, "structured tool output")
+	}
+	if result.IsError && strings.TrimSpace(result.Error) != "" {
+		add(outputKind, "text/plain", "error", result.Error, "tool error output")
+	}
+	return refs
+}
+
+func looksLikeDiff(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return strings.Contains(trimmed, "\n@@ ") || strings.HasPrefix(trimmed, "diff --git") || strings.Contains(strings.ToLower(trimmed), `"diff"`)
 }
 
 func (r *runtimeSchedulerRecorder) auditToolResult(call scheduler.ToolCall) {
@@ -713,6 +804,9 @@ func (r *runtimeSchedulerRecorder) auditToolResult(call scheduler.ToolCall) {
 			Name:                 call.Name,
 			Input:                call.InputSummary,
 			Output:               call.OutputSummary,
+			OutputRefs:           call.OutputRefs,
+			ArtifactRefs:         call.ArtifactRefs,
+			DiffRefs:             call.DiffRefs,
 			JobID:                call.JobID,
 			Command:              call.Command,
 			Risk:                 call.Risk,

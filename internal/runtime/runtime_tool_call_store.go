@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -54,9 +55,10 @@ INSERT INTO runtime_tool_calls (
     policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
     shell_risk, shell_reason, exit_code, job_status, job_started_at, job_finished_at,
 	input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+	output_refs_json, artifact_refs_json, diff_refs_json,
 	compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     turn_id = COALESCE(NULLIF(excluded.turn_id, ''), runtime_tool_calls.turn_id),
     session_id = COALESCE(NULLIF(excluded.session_id, ''), runtime_tool_calls.session_id),
@@ -95,6 +97,9 @@ ON CONFLICT(id) DO UPDATE SET
     structured_output = COALESCE(NULLIF(excluded.structured_output, ''), runtime_tool_calls.structured_output),
     stdout = COALESCE(NULLIF(excluded.stdout, ''), runtime_tool_calls.stdout),
     stderr = COALESCE(NULLIF(excluded.stderr, ''), runtime_tool_calls.stderr),
+    output_refs_json = COALESCE(NULLIF(excluded.output_refs_json, ''), runtime_tool_calls.output_refs_json),
+    artifact_refs_json = COALESCE(NULLIF(excluded.artifact_refs_json, ''), runtime_tool_calls.artifact_refs_json),
+    diff_refs_json = COALESCE(NULLIF(excluded.diff_refs_json, ''), runtime_tool_calls.diff_refs_json),
     is_error = CASE WHEN excluded.is_error != 0 THEN excluded.is_error ELSE runtime_tool_calls.is_error END,
     compacted = CASE WHEN excluded.compacted != 0 THEN excluded.compacted ELSE runtime_tool_calls.compacted END,
     compact_ref = COALESCE(NULLIF(excluded.compact_ref, ''), runtime_tool_calls.compact_ref),
@@ -145,6 +150,9 @@ ON CONFLICT(id) DO UPDATE SET
 		nullableString(call.Stdout),
 		nullableString(call.Stderr),
 		boolInt(call.IsError),
+		nullableString(encodeRuntimeStringRefs(call.OutputRefs)),
+		nullableString(encodeRuntimeStringRefs(call.ArtifactRefs)),
+		nullableString(encodeRuntimeStringRefs(call.DiffRefs)),
 		boolInt(call.Compacted),
 		nullableString(call.CompactRef),
 		nullableString(call.CompactBoundaryID),
@@ -167,6 +175,7 @@ SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
     policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
     shell_risk, shell_reason, exit_code, job_status, job_started_at, job_finished_at,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+    output_refs_json, artifact_refs_json, diff_refs_json,
     compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
 FROM runtime_tool_calls
@@ -185,6 +194,7 @@ SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
     policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
     shell_risk, shell_reason, exit_code, job_status, job_started_at, job_finished_at,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+    output_refs_json, artifact_refs_json, diff_refs_json,
     compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
 FROM runtime_tool_calls
@@ -218,7 +228,7 @@ type runtimeToolCallScanner interface {
 
 func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, error) {
 	var call scheduler.ToolCall
-	var messageID, capabilityID, jobID, command, risk, policyReason, policyMode, policyProfile, policyHeadlessReason, policyRuleID, policyRuleSource, policyScopeKind, policyScopeValue, policyTargetSummary, shellRisk, shellReason, jobStatus, inputSummary, outputSummary, modelContent, structured, stdout, stderr, compactRef, compactBoundaryID, errText sql.NullString
+	var messageID, capabilityID, jobID, command, risk, policyReason, policyMode, policyProfile, policyHeadlessReason, policyRuleID, policyRuleSource, policyScopeKind, policyScopeValue, policyTargetSummary, shellRisk, shellReason, jobStatus, inputSummary, outputSummary, modelContent, structured, stdout, stderr, outputRefsJSON, artifactRefsJSON, diffRefsJSON, compactRef, compactBoundaryID, errText sql.NullString
 	var source, status string
 	var isError, compacted, policyHeadless, exitCode, compactOriginalEstimatedTokens int
 	var startedAt int64
@@ -258,6 +268,9 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 		&stdout,
 		&stderr,
 		&isError,
+		&outputRefsJSON,
+		&artifactRefsJSON,
+		&diffRefsJSON,
 		&compacted,
 		&compactRef,
 		&compactBoundaryID,
@@ -302,6 +315,9 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 	call.Structured = structured.String
 	call.Stdout = stdout.String
 	call.Stderr = stderr.String
+	call.OutputRefs = decodeRuntimeStringRefs(outputRefsJSON.String)
+	call.ArtifactRefs = decodeRuntimeStringRefs(artifactRefsJSON.String)
+	call.DiffRefs = decodeRuntimeStringRefs(diffRefsJSON.String)
 	call.IsError = isError != 0
 	call.Compacted = compacted != 0
 	call.CompactRef = compactRef.String
@@ -316,6 +332,28 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 	}
 	call.Error = errText.String
 	return call, nil
+}
+
+func encodeRuntimeStringRefs(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func decodeRuntimeStringRefs(data string) []string {
+	if strings.TrimSpace(data) == "" {
+		return nil
+	}
+	var values []string
+	if err := json.Unmarshal([]byte(data), &values); err != nil {
+		return nil
+	}
+	return values
 }
 
 func boolInt(value bool) int {

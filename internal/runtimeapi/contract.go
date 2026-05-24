@@ -39,6 +39,9 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/compact"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/tasks"},
 	{Method: MethodGet, Path: "/v1/tool-calls/{tool_call_id}"},
+	{Method: MethodGet, Path: "/v1/refs"},
+	{Method: MethodGet, Path: "/v1/refs/{ref_id}"},
+	{Method: MethodGet, Path: "/v1/refs/{ref_id}/content"},
 	{Method: MethodGet, Path: "/v1/tasks/{task_id}"},
 	{Method: MethodPost, Path: "/v1/tasks/{task_id}/cancel"},
 	{Method: MethodGet, Path: "/v1/tasks/{task_id}/effective-scope"},
@@ -92,6 +95,9 @@ const (
 	EventMessageCompleted           = "message.completed"
 	EventToolCallStarted            = "tool.call.started"
 	EventToolCallOutput             = "tool.call.output"
+	EventOutputRefCreated           = "output.ref.created"
+	EventArtifactRefCreated         = "artifact.ref.created"
+	EventToolOutputRefCreated       = "tool.output.ref.created"
 	EventToolCallCompleted          = "tool.call.completed"
 	EventToolCallFailed             = "tool.call.failed"
 	EventToolCallCancelled          = "tool.call.cancelled"
@@ -139,6 +145,7 @@ const (
 	EventCompactMicroCompleted      = "compact.micro.completed"
 	EventCompactFullCompleted       = "compact.full.completed"
 	EventCompactFailed              = "compact.failed"
+	EventCompactOutputPreserved     = "compact.output.preserved"
 	EventSkillDiscoveryStarted      = "skill.discovery.started"
 	EventSkillDiscoveryCompleted    = "skill.discovery.completed"
 	EventSkillDiscoveryFailed       = "skill.discovery.failed"
@@ -183,6 +190,9 @@ var EventTypes = []string{
 	EventMessageCompleted,
 	EventToolCallStarted,
 	EventToolCallOutput,
+	EventOutputRefCreated,
+	EventArtifactRefCreated,
+	EventToolOutputRefCreated,
 	EventToolCallCompleted,
 	EventToolCallFailed,
 	EventToolCallCancelled,
@@ -230,6 +240,7 @@ var EventTypes = []string{
 	EventCompactMicroCompleted,
 	EventCompactFullCompleted,
 	EventCompactFailed,
+	EventCompactOutputPreserved,
 	EventSkillDiscoveryStarted,
 	EventSkillDiscoveryCompleted,
 	EventSkillDiscoveryFailed,

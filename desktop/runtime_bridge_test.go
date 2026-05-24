@@ -128,6 +128,18 @@ func (s *recordingRuntimeService) TurnToolCalls(context.Context, string) (Runtim
 	return RuntimeToolCallsResponse{}, nil
 }
 
+func (s *recordingRuntimeService) Refs(context.Context, RuntimeRefListRequest) (RuntimeRefsResponse, error) {
+	return RuntimeRefsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) Ref(context.Context, string) (RuntimeRefResponse, error) {
+	return RuntimeRefResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ReadRefContent(context.Context, string) (RuntimeRefContentResponse, error) {
+	return RuntimeRefContentResponse{}, nil
+}
+
 func (s *recordingRuntimeService) TurnCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error) {
 	return RuntimeCompactBoundariesResponse{}, nil
 }

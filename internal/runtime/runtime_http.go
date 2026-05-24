@@ -194,6 +194,21 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/turns":
 		value, err := s.service.Turns(r.Context(), r.URL.Query().Get("status"))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/refs":
+		value, err := s.service.Refs(r.Context(), RuntimeRefListRequest{
+			SessionID:  r.URL.Query().Get("session_id"),
+			TurnID:     r.URL.Query().Get("turn_id"),
+			ToolCallID: r.URL.Query().Get("tool_call_id"),
+			TaskID:     r.URL.Query().Get("task_id"),
+			Kind:       r.URL.Query().Get("kind"),
+		})
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && refContentPathID(r.URL.Path) != "":
+		value, err := s.service.ReadRefContent(r.Context(), refContentPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && refPathID(r.URL.Path) != "":
+		value, err := s.service.Ref(r.Context(), refPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnToolCallsPathID(r.URL.Path) != "":
 		value, err := s.service.TurnToolCalls(r.Context(), turnToolCallsPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -584,6 +599,21 @@ func turnTodosPathID(path string) string {
 
 func toolCallPathID(path string) string {
 	id := strings.TrimPrefix(path, "/v1/tool-calls/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func refContentPathID(path string) string {
+	return trimPathID(path, "/v1/refs/", "/content")
+}
+
+func refPathID(path string) string {
+	if strings.HasSuffix(path, "/content") {
+		return ""
+	}
+	id := strings.TrimPrefix(path, "/v1/refs/")
 	if id == path || id == "" || strings.Contains(id, "/") {
 		return ""
 	}

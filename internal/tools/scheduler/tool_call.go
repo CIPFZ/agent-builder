@@ -57,6 +57,9 @@ type ToolCall struct {
 	Structured                     string         `json:"structured,omitempty"`
 	Stdout                         string         `json:"stdout,omitempty"`
 	Stderr                         string         `json:"stderr,omitempty"`
+	OutputRefs                     []string       `json:"output_refs,omitempty"`
+	ArtifactRefs                   []string       `json:"artifact_refs,omitempty"`
+	DiffRefs                       []string       `json:"diff_refs,omitempty"`
 	IsError                        bool           `json:"is_error,omitempty"`
 	Compacted                      bool           `json:"compacted,omitempty"`
 	CompactRef                     string         `json:"compact_ref,omitempty"`
@@ -123,6 +126,9 @@ type ToolCallResult struct {
 	Structured           string
 	Stdout               string
 	Stderr               string
+	OutputRefs           []string
+	ArtifactRefs         []string
+	DiffRefs             []string
 	IsError              bool
 	Error                string
 }

@@ -141,6 +141,9 @@ func mergeToolCall(existing, next ToolCall) ToolCall {
 	if next.Stderr == "" {
 		next.Stderr = existing.Stderr
 	}
+	next.OutputRefs = mergeStringRefs(existing.OutputRefs, next.OutputRefs)
+	next.ArtifactRefs = mergeStringRefs(existing.ArtifactRefs, next.ArtifactRefs)
+	next.DiffRefs = mergeStringRefs(existing.DiffRefs, next.DiffRefs)
 	if next.Error == "" {
 		next.Error = existing.Error
 	}
@@ -171,6 +174,22 @@ func mergeToolCall(existing, next ToolCall) ToolCall {
 	}
 	next.IsError = next.IsError || existing.IsError
 	return next
+}
+
+func mergeStringRefs(existing, next []string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(next))
+	out := make([]string, 0, len(existing)+len(next))
+	for _, value := range append(existing, next...) {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func isFinalToolCallStatus(status ToolCallStatus) bool {

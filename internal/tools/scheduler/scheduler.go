@@ -131,6 +131,9 @@ func (s *Scheduler) CompleteCall(ctx context.Context, result ToolCallResult) (To
 	call.Structured = result.Structured
 	call.Stdout = result.Stdout
 	call.Stderr = result.Stderr
+	call.OutputRefs = mergeStringRefs(call.OutputRefs, result.OutputRefs)
+	call.ArtifactRefs = mergeStringRefs(call.ArtifactRefs, result.ArtifactRefs)
+	call.DiffRefs = mergeStringRefs(call.DiffRefs, result.DiffRefs)
 	call.IsError = result.IsError
 	call.Error = result.Error
 	if isFinalToolCallStatus(call.Status) {

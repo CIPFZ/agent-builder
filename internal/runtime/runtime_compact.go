@@ -439,7 +439,29 @@ func (r *runtimeService) maybeMicroCompactToolOutputs(ctx context.Context, sessi
 		if tokens < microCompactMinOutputTokens {
 			continue
 		}
-		ref := fmt.Sprintf("runtime://tool-calls/%s/output", call.ID)
+		ref := firstNonEmpty(call.CompactRef, "runtime://tool-calls/"+call.ID+"/output")
+		if storedRef, err := r.createRuntimeRef(ctx, runtimeRefCreateRequest{
+			SessionID:   sessionID,
+			TurnID:      turnID,
+			ToolCallID:  call.ID,
+			Kind:        runtimeRefKindCompactOriginalOutput,
+			MediaType:   "text/plain",
+			ContentType: "compact_original_output",
+			Payload:     []byte(original),
+			Summary:     "original tool output preserved before micro compact",
+		}); err == nil {
+			ref = storedRef.URI
+			call.OutputRefs = appendUniqueStrings(call.OutputRefs, storedRef.URI)
+			r.storeRuntimeEvent(runtimeapi.Event{
+				ID:         newRuntimeEventID(),
+				Type:       runtimeapi.EventCompactOutputPreserved,
+				CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+				SessionID:  sessionID,
+				TurnID:     turnID,
+				ToolCallID: call.ID,
+				Payload:    runtimeRefEventPayload(storedRef),
+			})
+		}
 		call.Compacted = true
 		call.CompactRef = ref
 		call.CompactBoundaryID = newCompactBoundaryID("micro", turnID)

@@ -1,0 +1,209 @@
+package runtime
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/crush/internal/agent"
+	"github.com/charmbracelet/crush/internal/db"
+	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/charmbracelet/crush/internal/tools/scheduler"
+)
+
+func TestRuntimeRefStoreCreateGetListPersistence(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	conn, err := db.Connect(ctx, dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Release(dataDir) })
+	store := newRuntimeRefStore(conn, dataDir)
+
+	output, err := store.Create(ctx, runtimeRefCreateRequest{
+		SessionID: "session-1", TurnID: "turn-1", ToolCallID: "tool-1",
+		Kind: runtimeRefKindOutput, MediaType: "text/plain", ContentType: "stdout",
+		Payload: []byte("hello"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := store.Create(ctx, runtimeRefCreateRequest{
+		SessionID: "session-1", TurnID: "turn-1", TaskID: "task-1",
+		Kind: runtimeRefKindArtifact, MediaType: "application/json", ContentType: "structured_output",
+		Payload: []byte(`{"ok":true}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := newRuntimeRefStore(conn, dataDir)
+	got, err := restarted.Get(ctx, output.URI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != output.ID || got.URI != output.URI || got.StorageKind != runtimeRefStorageInline {
+		t.Fatalf("output ref = %#v", got)
+	}
+	artifacts, err := restarted.List(ctx, RuntimeRefListRequest{SessionID: "session-1", Kind: runtimeRefKindArtifact})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 || artifacts[0].ID != artifact.ID {
+		t.Fatalf("artifact refs = %#v", artifacts)
+	}
+}
+
+func TestRuntimeRefStoreRejectsTraversalAndRedactsUnsafeRead(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	conn, err := db.Connect(ctx, dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Release(dataDir) })
+	store := newRuntimeRefStore(conn, dataDir)
+	if _, err := store.Create(ctx, runtimeRefCreateRequest{
+		SessionID: "session-1", Kind: runtimeRefKindOutput, StoragePath: "../escape.txt", Payload: []byte("bad"),
+	}); err == nil {
+		t.Fatal("expected traversal storage path to be rejected")
+	}
+	ref, err := store.Create(ctx, runtimeRefCreateRequest{
+		SessionID: "session-1", Kind: runtimeRefKindOutput, Payload: []byte("Authorization: Bearer secret-token"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.RedactionStatus != runtimeRefRedactionUnsafe || strings.Contains(ref.Preview, "secret-token") {
+		t.Fatalf("unsafe ref not redacted: %#v", ref)
+	}
+	content, err := store.ReadContent(ctx, ref.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !content.Redacted || strings.Contains(content.Content, "secret-token") {
+		t.Fatalf("unsafe content leaked: %#v", content)
+	}
+}
+
+func TestRuntimeRecorderLargeStdoutCreatesRefAndPreservesModelResult(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	service := newTestRuntimeServiceWithRefs(t)
+	rec := &runtimeSchedulerRecorder{service: service}
+	if err := rec.ToolCallStarted(ctx, agent.SchedulerToolCall{
+		ID: "tool-1", SessionID: "session-1", TurnID: "turn-1", Name: "bash", Source: string(scheduler.ToolSourceShell),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stdout := strings.Repeat("line\n", 2000)
+	if err := rec.ToolCallCompleted(ctx, agent.SchedulerToolCallResult{
+		ToolCallID: "tool-1", SessionID: "session-1", TurnID: "turn-1", Name: "bash", Source: string(scheduler.ToolSourceShell), Stdout: stdout, ModelVisibleContent: stdout,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	call, err := service.toolCalls.GetCall(ctx, "tool-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(call.OutputRefs) == 0 || call.Stdout == "" || len(call.Stdout) >= len(stdout) {
+		t.Fatalf("call refs/preview = %#v", call)
+	}
+	refs, err := service.refs.List(ctx, RuntimeRefListRequest{ToolCallID: "tool-1", Kind: runtimeRefKindShellJobOutput})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) == 0 || refs[0].SizeBytes <= int64(len(call.Stdout)) {
+		t.Fatalf("refs = %#v call stdout len=%d", refs, len(call.Stdout))
+	}
+	content, err := service.refs.ReadContent(ctx, refs[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content.Content != stdout {
+		t.Fatalf("stored content len = %d, want %d", len(content.Content), len(stdout))
+	}
+}
+
+func TestRuntimeRefsCompactTaskReplayAndEvents(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	service := newTestRuntimeServiceWithRefs(t)
+	for i := 0; i < 4; i++ {
+		id := "tool-" + string(rune('1'+i))
+		if _, err := service.toolCalls.CreateCall(ctx, scheduler.ToolCallRequest{ID: id, SessionID: "session-1", TurnID: "turn-1", Name: "bash", Source: scheduler.ToolSourceShell}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{ToolCallID: id, Status: scheduler.ToolCallCompleted, ModelContent: strings.Repeat("large output ", 80)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := RuntimeBudgetReport{SessionID: "session-1", TurnID: "turn-1", ToolOutputs: RuntimeBudgetBucket{EstimatedTokens: 1000}, TotalEstimatedTokens: 1200}
+	_, boundary := service.maybeMicroCompactToolOutputs(ctx, "session-1", "turn-1", before)
+	if boundary == nil || len(boundary.ToolCallRefs) == 0 {
+		t.Fatal("expected compact boundary with preserved refs")
+	}
+	call, err := service.toolCalls.GetCall(ctx, "tool-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(call.CompactRef, "runtime://refs/") || len(call.OutputRefs) == 0 {
+		t.Fatalf("compacted call = %#v", call)
+	}
+	task := RuntimeAgentTask{ID: "task-1", ParentSessionID: "session-1", ParentTurnID: "turn-1", ParentToolCallID: "tool-task", Title: "Task", Name: "agent", Status: agentTaskStatusCompleted}
+	task.ArtifactRefs = service.ensureTaskArtifactRefs(ctx, task, []string{"artifact:file:result.txt"})
+	if _, err := service.agentTasks.Upsert(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := service.createAgentTaskMessage(ctx, task, RuntimeAgentTaskMessage{Kind: taskMessageKindArtifact, Direction: taskMessageDirectionChildToParent, ContentSummary: "artifact", ArtifactRefs: task.ArtifactRefs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msg.ArtifactRefs) != 1 || !strings.HasPrefix(msg.ArtifactRefs[0], "runtime://refs/") {
+		t.Fatalf("task message refs = %#v", msg.ArtifactRefs)
+	}
+	replay, err := service.ReplayExport(ctx, RuntimeReplayExportRequest{SessionID: "session-1", TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replay.Summary.CompactOutputRefs) == 0 || len(replay.Summary.TaskArtifactRefs) == 0 {
+		t.Fatalf("replay refs missing: %#v", replay.Summary)
+	}
+	replayJSON, err := json.Marshal(replay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(replayJSON), "inlinePayload") {
+		t.Fatalf("replay leaked inline payload field: %#v", replay.Summary)
+	}
+	var artifactEvent RuntimeEvent
+	for _, event := range replay.Events {
+		if event.Type == runtimeapi.EventTaskArtifactCreated {
+			artifactEvent = event
+		}
+	}
+	if artifactEvent.ID == "" || len(stringSliceFromMap(artifactEvent.Payload, "artifact_refs")) == 0 || stringFromMap(artifactEvent.Payload, "artifact:file") != "" {
+		t.Fatalf("artifact event = %#v", artifactEvent)
+	}
+}
+
+func newTestRuntimeServiceWithRefs(t *testing.T) *runtimeService {
+	t.Helper()
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Release(dataDir) })
+	service := newRuntimeService()
+	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.refs = newRuntimeRefStore(conn, dataDir)
+	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+	return service
+}

@@ -68,48 +68,96 @@ type RuntimeTurnsResponse struct {
 }
 
 type RuntimeToolCall struct {
-	ID                             string `json:"id"`
-	SessionID                      string `json:"sessionId"`
-	TurnID                         string `json:"turnId"`
-	MessageID                      string `json:"messageId,omitempty"`
-	Name                           string `json:"name"`
-	Source                         string `json:"source"`
-	CapabilityID                   string `json:"capabilityId,omitempty"`
-	JobID                          string `json:"jobId,omitempty"`
-	Command                        string `json:"command,omitempty"`
-	Risk                           string `json:"risk,omitempty"`
-	PolicyReason                   string `json:"policyReason,omitempty"`
-	PolicyMode                     string `json:"policyMode,omitempty"`
-	PolicyProfile                  string `json:"policyProfile,omitempty"`
-	PolicyHeadless                 bool   `json:"policyHeadless,omitempty"`
-	PolicyHeadlessReason           string `json:"policyHeadlessReason,omitempty"`
-	PolicyRuleID                   string `json:"policyRuleId,omitempty"`
-	PolicyRuleSource               string `json:"policyRuleSource,omitempty"`
-	PolicyScopeKind                string `json:"policyScopeKind,omitempty"`
-	PolicyScopeValue               string `json:"policyScopeValue,omitempty"`
-	PolicyTargetSummary            string `json:"policyTargetSummary,omitempty"`
-	ShellRisk                      string `json:"shellRisk,omitempty"`
-	ShellReason                    string `json:"shellReason,omitempty"`
-	ExitCode                       int    `json:"exitCode,omitempty"`
-	JobStatus                      string `json:"jobStatus,omitempty"`
-	JobStartedAt                   int64  `json:"jobStartedAt,omitempty"`
-	JobFinishedAt                  int64  `json:"jobFinishedAt,omitempty"`
-	Status                         string `json:"status"`
-	InputSummary                   string `json:"inputSummary,omitempty"`
-	OutputSummary                  string `json:"outputSummary,omitempty"`
-	ModelContent                   string `json:"modelContent,omitempty"`
-	Structured                     string `json:"structuredOutput,omitempty"`
-	Stdout                         string `json:"stdout,omitempty"`
-	Stderr                         string `json:"stderr,omitempty"`
-	IsError                        bool   `json:"isError,omitempty"`
-	Compacted                      bool   `json:"compacted,omitempty"`
-	CompactRef                     string `json:"compactRef,omitempty"`
-	CompactBoundaryID              string `json:"compactBoundaryId,omitempty"`
-	CompactOriginalEstimatedTokens int    `json:"compactOriginalEstimatedTokens,omitempty"`
-	CompactedAt                    int64  `json:"compactedAt,omitempty"`
-	StartedAt                      int64  `json:"startedAt"`
-	FinishedAt                     int64  `json:"finishedAt,omitempty"`
-	Error                          string `json:"error,omitempty"`
+	ID                             string   `json:"id"`
+	SessionID                      string   `json:"sessionId"`
+	TurnID                         string   `json:"turnId"`
+	MessageID                      string   `json:"messageId,omitempty"`
+	Name                           string   `json:"name"`
+	Source                         string   `json:"source"`
+	CapabilityID                   string   `json:"capabilityId,omitempty"`
+	JobID                          string   `json:"jobId,omitempty"`
+	Command                        string   `json:"command,omitempty"`
+	Risk                           string   `json:"risk,omitempty"`
+	PolicyReason                   string   `json:"policyReason,omitempty"`
+	PolicyMode                     string   `json:"policyMode,omitempty"`
+	PolicyProfile                  string   `json:"policyProfile,omitempty"`
+	PolicyHeadless                 bool     `json:"policyHeadless,omitempty"`
+	PolicyHeadlessReason           string   `json:"policyHeadlessReason,omitempty"`
+	PolicyRuleID                   string   `json:"policyRuleId,omitempty"`
+	PolicyRuleSource               string   `json:"policyRuleSource,omitempty"`
+	PolicyScopeKind                string   `json:"policyScopeKind,omitempty"`
+	PolicyScopeValue               string   `json:"policyScopeValue,omitempty"`
+	PolicyTargetSummary            string   `json:"policyTargetSummary,omitempty"`
+	ShellRisk                      string   `json:"shellRisk,omitempty"`
+	ShellReason                    string   `json:"shellReason,omitempty"`
+	ExitCode                       int      `json:"exitCode,omitempty"`
+	JobStatus                      string   `json:"jobStatus,omitempty"`
+	JobStartedAt                   int64    `json:"jobStartedAt,omitempty"`
+	JobFinishedAt                  int64    `json:"jobFinishedAt,omitempty"`
+	Status                         string   `json:"status"`
+	InputSummary                   string   `json:"inputSummary,omitempty"`
+	OutputSummary                  string   `json:"outputSummary,omitempty"`
+	ModelContent                   string   `json:"modelContent,omitempty"`
+	Structured                     string   `json:"structuredOutput,omitempty"`
+	Stdout                         string   `json:"stdout,omitempty"`
+	Stderr                         string   `json:"stderr,omitempty"`
+	OutputRefs                     []string `json:"outputRefs,omitempty"`
+	ArtifactRefs                   []string `json:"artifactRefs,omitempty"`
+	DiffRefs                       []string `json:"diffRefs,omitempty"`
+	IsError                        bool     `json:"isError,omitempty"`
+	Compacted                      bool     `json:"compacted,omitempty"`
+	CompactRef                     string   `json:"compactRef,omitempty"`
+	CompactBoundaryID              string   `json:"compactBoundaryId,omitempty"`
+	CompactOriginalEstimatedTokens int      `json:"compactOriginalEstimatedTokens,omitempty"`
+	CompactedAt                    int64    `json:"compactedAt,omitempty"`
+	StartedAt                      int64    `json:"startedAt"`
+	FinishedAt                     int64    `json:"finishedAt,omitempty"`
+	Error                          string   `json:"error,omitempty"`
+}
+
+type RuntimeRef struct {
+	ID              string `json:"id"`
+	URI             string `json:"uri"`
+	SessionID       string `json:"sessionId"`
+	TurnID          string `json:"turnId,omitempty"`
+	ToolCallID      string `json:"toolCallId,omitempty"`
+	TaskID          string `json:"taskId,omitempty"`
+	Kind            string `json:"kind"`
+	MediaType       string `json:"mediaType,omitempty"`
+	ContentType     string `json:"contentType,omitempty"`
+	SizeBytes       int64  `json:"sizeBytes"`
+	EstimatedTokens int    `json:"estimatedTokens"`
+	Preview         string `json:"preview,omitempty"`
+	Summary         string `json:"summary,omitempty"`
+	StorageKind     string `json:"storageKind"`
+	StoragePath     string `json:"storagePath,omitempty"`
+	InlinePayload   string `json:"-"`
+	RedactionStatus string `json:"redactionStatus"`
+	CreatedAt       int64  `json:"createdAt"`
+	CanReadContent  bool   `json:"canReadContent"`
+}
+
+type RuntimeRefListRequest struct {
+	SessionID  string `json:"sessionId,omitempty"`
+	TurnID     string `json:"turnId,omitempty"`
+	ToolCallID string `json:"toolCallId,omitempty"`
+	TaskID     string `json:"taskId,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+}
+
+type RuntimeRefResponse struct {
+	Ref RuntimeRef `json:"ref"`
+}
+
+type RuntimeRefsResponse struct {
+	Refs []RuntimeRef `json:"refs"`
+}
+
+type RuntimeRefContentResponse struct {
+	Ref       RuntimeRef `json:"ref"`
+	Content   string     `json:"content,omitempty"`
+	Redacted  bool       `json:"redacted,omitempty"`
+	Truncated bool       `json:"truncated,omitempty"`
 }
 
 type RuntimeToolCallResponse struct {
@@ -544,6 +592,10 @@ type RuntimeReplayExportSummary struct {
 	AgentTaskMessages  []RuntimeAgentTaskMessage     `json:"agentTaskMessages,omitempty"`
 	AgentTaskResults   []RuntimeAgentTaskResult      `json:"agentTaskResults,omitempty"`
 	AgentTaskArtifacts []string                      `json:"agentTaskArtifacts,omitempty"`
+	OutputRefs         []RuntimeRef                  `json:"outputRefs,omitempty"`
+	ArtifactRefs       []RuntimeRef                  `json:"artifactRefs,omitempty"`
+	CompactOutputRefs  []RuntimeRef                  `json:"compactOutputRefs,omitempty"`
+	TaskArtifactRefs   []RuntimeRef                  `json:"taskArtifactRefs,omitempty"`
 	PolicyDecisions    []RuntimeReplayPolicyDecision `json:"policyDecisions,omitempty"`
 	PermissionEvents   []RuntimeReplayPermission     `json:"permissionEvents,omitempty"`
 	ToolCalls          []RuntimeToolCall             `json:"toolCalls,omitempty"`

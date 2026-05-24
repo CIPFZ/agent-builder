@@ -2681,6 +2681,9 @@ type recordingRuntimeService struct {
 	turnsStatus          string
 	toolCall             RuntimeToolCallResponse
 	toolCalls            RuntimeToolCallsResponse
+	ref                  RuntimeRefResponse
+	refs                 RuntimeRefsResponse
+	refContent           RuntimeRefContentResponse
 	compactBoundaries    RuntimeCompactBoundariesResponse
 	worktrees            RuntimeWorktreesResponse
 	worktree             RuntimeWorktreeResponse
@@ -2758,6 +2761,18 @@ func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeTool
 
 func (s *recordingRuntimeService) TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error) {
 	return s.toolCalls, nil
+}
+
+func (s *recordingRuntimeService) Refs(context.Context, RuntimeRefListRequest) (RuntimeRefsResponse, error) {
+	return s.refs, nil
+}
+
+func (s *recordingRuntimeService) Ref(context.Context, string) (RuntimeRefResponse, error) {
+	return s.ref, nil
+}
+
+func (s *recordingRuntimeService) ReadRefContent(context.Context, string) (RuntimeRefContentResponse, error) {
+	return s.refContent, nil
 }
 
 func (s *recordingRuntimeService) TurnCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error) {

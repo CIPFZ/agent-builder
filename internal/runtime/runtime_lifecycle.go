@@ -78,6 +78,7 @@ func (r *runtimeService) restart() {
 	r.sessionTurns = make(map[string]string)
 	r.toolEvents = make(map[string]runtimeToolEventState)
 	r.toolCalls = nil
+	r.refs = runtimeRefStore{}
 	r.compactBoundaries = runtimeCompactBoundaryStore{}
 	r.worktrees = runtimeWorktreeStore{}
 	r.agentTasks = runtimeAgentTaskStore{}
@@ -202,6 +203,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	startedAt := time.Now().UTC()
 	r.turns = newRuntimeTurnStore(conn)
 	r.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	r.refs = newRuntimeRefStore(conn, wsRuntime.Cfg.Config().Options.DataDirectory)
 	r.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
 	r.worktrees = newRuntimeWorktreeStore(conn)
 	r.agentTasks = newRuntimeAgentTaskStore(conn)

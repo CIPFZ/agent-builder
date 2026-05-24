@@ -25,6 +25,9 @@ type RuntimeService interface {
 	Turns(context.Context, string) (RuntimeTurnsResponse, error)
 	ToolCall(context.Context, string) (RuntimeToolCallResponse, error)
 	TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error)
+	Refs(context.Context, RuntimeRefListRequest) (RuntimeRefsResponse, error)
+	Ref(context.Context, string) (RuntimeRefResponse, error)
+	ReadRefContent(context.Context, string) (RuntimeRefContentResponse, error)
 	TurnCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error)
 	SessionCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error)
 	Worktrees(context.Context) (RuntimeWorktreesResponse, error)
@@ -97,6 +100,7 @@ type runtimeService struct {
 	sessionTurns      map[string]string
 	toolEvents        map[string]runtimeToolEventState
 	toolCalls         runtimeToolCallStore
+	refs              runtimeRefStore
 	compactBoundaries runtimeCompactBoundaryStore
 	worktrees         runtimeWorktreeStore
 	agentTasks        runtimeAgentTaskStore

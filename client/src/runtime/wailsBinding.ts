@@ -23,6 +23,8 @@ import type {
   RuntimePermissionRequest,
   RuntimePolicy,
   RuntimePolicyMode,
+  RuntimeRef,
+  RuntimeRefContentResponse,
   RuntimeReplayExportRequest,
   RuntimeReplayExportResponse,
   RuntimeRecoveryStatus,
@@ -96,6 +98,9 @@ type WailsRuntimeBridge = {
   Skills: () => Promise<{ skills: RuntimeSkill[] }>
   Status: () => Promise<RuntimeStatus>
   ToolCall: (toolCallId: string) => Promise<{ toolCall: RuntimeToolCall }>
+  Ref: (refId: string) => Promise<{ ref: RuntimeRef }>
+  Refs: (request: { sessionId?: string; turnId?: string; toolCallId?: string; taskId?: string; kind?: string }) => Promise<{ refs: RuntimeRef[] }>
+  ReadRefContent: (refId: string) => Promise<RuntimeRefContentResponse>
   AgentTask: (taskId: string) => Promise<{ task: RuntimeAgentTask }>
   TaskEffectiveScope: (taskId: string) => Promise<{ scope: RuntimeEffectiveScope }>
   CancelAgentTask: (taskId: string) => Promise<{ task: RuntimeAgentTask }>
