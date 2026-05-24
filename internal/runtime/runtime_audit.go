@@ -165,6 +165,14 @@ func (r *runtimeService) auditTurnSummary(ctx context.Context, turnID string, ev
 	}
 	if tasks, err := r.TurnAgentTasks(ctx, turnID); err == nil {
 		summary.Tasks = tasks.Tasks
+		for _, task := range tasks.Tasks {
+			if messages, err := r.agentTaskMessages(ctx, task.ID); err == nil {
+				summary.TaskMessages = append(summary.TaskMessages, messages...)
+			}
+			if result, err := r.agentTaskResult(ctx, task.ID); err == nil && result.TaskID != "" {
+				summary.TaskResults = append(summary.TaskResults, result)
+			}
+		}
 	}
 	if compact, err := r.TurnCompactBoundaries(ctx, turnID); err == nil {
 		summary.Compact = compact.Boundaries

@@ -112,6 +112,23 @@ func (r *runtimeService) SelectToolsForTurn(ctx context.Context, req agent.Sched
 		if tool.Name == "" {
 			continue
 		}
+		if task, ok := r.agentTaskForChildSession(ctx, req.SessionID); ok {
+			call := agent.SchedulerToolCall{
+				SessionID:    req.SessionID,
+				TurnID:       req.TurnID,
+				Name:         tool.Name,
+				Source:       tool.Source,
+				CapabilityID: tool.CapabilityID,
+				InputSummary: tool.SchemaSummary,
+			}
+			if reason := r.agentTaskScopeViolation(task, call); reason != "" {
+				omitted = append(omitted, tool.Name)
+				omittedBucket.Count++
+				omittedBucket.EstimatedTokens += tool.EstimatedTokens
+				r.recordAgentTaskScope(ctx, task, false, reason)
+				continue
+			}
+		}
 		isSelected := tool.Base
 		if _, ok := selectedSet[tool.Name]; ok {
 			isSelected = true
@@ -180,7 +197,7 @@ func (r *runtimeService) searchTools(ctx context.Context, req RuntimeToolSearchR
 	if err != nil {
 		return RuntimeToolSearchResponse{}, err
 	}
-	results, omitted := r.filterAndScoreToolSearch(query, caps.Capabilities, maxResults)
+	results, omitted := r.filterAndScoreToolSearchScoped(ctx, req, query, caps.Capabilities, maxResults)
 	selectedNames := make([]string, 0, len(results))
 	for _, result := range results {
 		selectedNames = append(selectedNames, result.Name)
@@ -195,6 +212,34 @@ func (r *runtimeService) searchTools(ctx context.Context, req RuntimeToolSearchR
 	}
 	r.recordToolSearch(req, resp)
 	return resp, nil
+}
+
+func (r *runtimeService) filterAndScoreToolSearchScoped(ctx context.Context, req RuntimeToolSearchRequest, query string, capabilities []RuntimeCapability, maxResults int) ([]RuntimeToolSearchResult, []RuntimeToolSearchOmission) {
+	task, scoped := r.agentTaskForChildSession(ctx, req.SessionID)
+	if !scoped {
+		return r.filterAndScoreToolSearch(query, capabilities, maxResults)
+	}
+	var scopedCaps []RuntimeCapability
+	var omitted []RuntimeToolSearchOmission
+	for _, cap := range capabilities {
+		call := agent.SchedulerToolCall{
+			SessionID:    req.SessionID,
+			TurnID:       req.TurnID,
+			Name:         cap.Name,
+			Source:       string(capabilityToolSource(cap)),
+			CapabilityID: cap.ID,
+			InputSummary: cap.SearchText,
+		}
+		if reason := r.agentTaskScopeViolation(task, call); reason != "" {
+			omitted = append(omitted, toolSearchOmission(finalizeRuntimeCapabilityMetadata(cap), "task_scope_denied"))
+			r.recordAgentTaskScope(ctx, task, false, reason)
+			continue
+		}
+		scopedCaps = append(scopedCaps, cap)
+	}
+	results, rest := r.filterAndScoreToolSearch(query, scopedCaps, maxResults)
+	omitted = append(omitted, rest...)
+	return results, omitted
 }
 
 func (r *runtimeService) filterAndScoreToolSearch(query string, capabilities []RuntimeCapability, maxResults int) ([]RuntimeToolSearchResult, []RuntimeToolSearchOmission) {

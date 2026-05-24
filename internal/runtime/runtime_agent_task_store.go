@@ -173,6 +173,10 @@ func (s runtimeAgentTaskStore) ListByTurn(ctx context.Context, turnID string) ([
 	return s.list(ctx, `parent_turn_id = ?`, strings.TrimSpace(turnID))
 }
 
+func (s runtimeAgentTaskStore) ListByChildSession(ctx context.Context, childSessionID string) ([]RuntimeAgentTask, error) {
+	return s.list(ctx, `child_session_id = ?`, strings.TrimSpace(childSessionID))
+}
+
 func (s runtimeAgentTaskStore) ListByStatus(ctx context.Context, status string) ([]RuntimeAgentTask, error) {
 	status = strings.TrimSpace(status)
 	if status == "active" {
@@ -308,6 +312,26 @@ func decodeStringSlice(data string) []string {
 		return nil
 	}
 	var values []string
+	_ = json.Unmarshal([]byte(data), &values)
+	return values
+}
+
+func encodeStringMap(values map[string]string) (any, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode string map: %w", err)
+	}
+	return string(data), nil
+}
+
+func decodeStringMap(data string) map[string]string {
+	if strings.TrimSpace(data) == "" {
+		return nil
+	}
+	values := map[string]string{}
 	_ = json.Unmarshal([]byte(data), &values)
 	return values
 }

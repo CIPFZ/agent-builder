@@ -565,6 +565,49 @@ func TestRuntimeHTTPServerRoutesToolSearchToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesAgentTaskMessagingToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		agentRoles: RuntimeAgentRolesResponse{Roles: []RuntimeAgentRoleDefinition{{ID: "task", Name: "task"}}},
+		agentTaskMessages: RuntimeAgentTaskMessagesResponse{Messages: []RuntimeAgentTaskMessage{{
+			ID: "msg-1", TaskID: "task-1", Direction: taskMessageDirectionChildToParent, Kind: taskMessageKindProgress, Status: taskMessageStatusCreated, CreatedAt: 1,
+		}}},
+		agentTaskResult: RuntimeAgentTaskResultResponse{Result: RuntimeAgentTaskResult{TaskID: "task-1", Status: agentTaskStatusCompleted, Summary: "done"}},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/agent-roles", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("roles status = %d body = %s", resp.status, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/tasks/task-1/messages", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || !strings.Contains(resp.body.String(), "msg-1") {
+		t.Fatalf("messages status = %d body = %s", resp.status, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/tasks/task-1/result", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || !strings.Contains(resp.body.String(), "done") {
+		t.Fatalf("result status = %d body = %s", resp.status, resp.body.String())
+	}
+}
+
 func TestRuntimeHTTPServerRoutesSkillsToRuntimeService(t *testing.T) {
 	t.Parallel()
 

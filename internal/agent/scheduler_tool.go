@@ -24,7 +24,8 @@ func newSchedulerTool(inner fantasy.AgentTool, recorder SchedulerRecorder) *sche
 }
 
 func wrapToolsWithSchedulerRecorder(agentTools []fantasy.AgentTool, recorder SchedulerRecorder, isSubAgent bool) []fantasy.AgentTool {
-	if recorder == nil || isSubAgent {
+	_ = isSubAgent
+	if recorder == nil {
 		return agentTools
 	}
 	out := make([]fantasy.AgentTool, len(agentTools))

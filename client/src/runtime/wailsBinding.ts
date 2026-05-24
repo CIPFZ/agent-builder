@@ -5,6 +5,9 @@ import type {
   RuntimeCompactBoundary,
   RuntimeContextSource,
   RuntimeAgentTask,
+  RuntimeAgentRoleDefinition,
+  RuntimeAgentTaskMessage,
+  RuntimeAgentTaskResult,
   RuntimeAuditEvent,
   RuntimeMcpServerConfig,
   RuntimeMcpPrompt,
@@ -85,6 +88,10 @@ type WailsRuntimeBridge = {
   ToolCall: (toolCallId: string) => Promise<{ toolCall: RuntimeToolCall }>
   AgentTask: (taskId: string) => Promise<{ task: RuntimeAgentTask }>
   CancelAgentTask: (taskId: string) => Promise<{ task: RuntimeAgentTask }>
+  AgentRoles: () => Promise<{ roles: RuntimeAgentRoleDefinition[] }>
+  AgentRole: (roleId: string) => Promise<{ role: RuntimeAgentRoleDefinition }>
+  AgentTaskMessages: (taskId: string) => Promise<{ messages: RuntimeAgentTaskMessage[] }>
+  AgentTaskResult: (taskId: string) => Promise<{ result: RuntimeAgentTaskResult }>
   Turn: (turnId: string) => Promise<{ turn: RuntimeTurn }>
   TurnCompactBoundaries: (turnId: string) => Promise<{ boundaries: RuntimeCompactBoundary[] }>
   TurnTodos: (turnId: string) => Promise<{ summary: RuntimeTodoSummary }>

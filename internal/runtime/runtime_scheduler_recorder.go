@@ -30,6 +30,9 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 	if source == "" {
 		source = scheduler.ToolSourceUnknown
 	}
+	if decision, denied := r.evaluateAgentTaskScope(ctx, call); denied {
+		return decision, nil
+	}
 	policy := runtimePermissionPolicy(r.service.policy)
 	result := policy.Evaluate(scheduler.ToolCall{
 		ID:           call.ID,
@@ -139,6 +142,33 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 		ShellRisk:      string(result.Shell.Risk),
 		ShellReason:    result.Shell.Reason,
 	}, nil
+}
+
+func (r *runtimeSchedulerRecorder) evaluateAgentTaskScope(ctx context.Context, call agent.SchedulerToolCall) (agent.SchedulerToolPolicyDecision, bool) {
+	task, ok := r.service.agentTaskForChildSession(ctx, call.SessionID)
+	if !ok {
+		return agent.SchedulerToolPolicyDecision{}, false
+	}
+	reason := r.service.agentTaskScopeViolation(task, call)
+	if reason == "" {
+		r.service.recordAgentTaskScope(ctx, task, true, "task scope allowed tool call")
+		return agent.SchedulerToolPolicyDecision{}, false
+	}
+	r.service.recordAgentTaskScope(ctx, task, false, reason)
+	result := SchedulerToolPolicyDecisionFromScopeDeny(reason)
+	result.Risk = "execute"
+	result.Mode = r.service.policy.Mode
+	result.Profile = r.service.policy.Profile
+	result.RuleScopeKind = "task_scope"
+	result.RuleScopeValue = task.ID
+	return result, true
+}
+
+func SchedulerToolPolicyDecisionFromScopeDeny(reason string) agent.SchedulerToolPolicyDecision {
+	return agent.SchedulerToolPolicyDecision{
+		Decision: string(permission.PolicyDeny),
+		Reason:   reason,
+	}
 }
 
 func (r *runtimeSchedulerRecorder) recordPolicyDecision(call agent.SchedulerToolCall, result permission.PolicyResult) {

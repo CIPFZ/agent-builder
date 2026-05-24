@@ -169,9 +169,12 @@ export function AgentTaskTimelineItem({
       <Space size={6} wrap>
         {task.role ? <Tag>{task.role}</Tag> : null}
         {task.model ? <Tag>{task.model}</Tag> : null}
+        {task.allowedTools?.length ? <Tag>{task.allowedTools.length} tools</Tag> : null}
+        {task.capabilityScope?.length ? <Tag>{task.capabilityScope.join(', ')}</Tag> : null}
         {task.cwd ? <Text type="secondary">{task.cwd}</Text> : null}
       </Space>
-      {task.resultSummary ? <Text type="secondary">{task.resultSummary}</Text> : null}
+      {task.result?.summary || task.resultSummary ? <Text type="secondary">{task.result?.summary || task.resultSummary}</Text> : null}
+      {task.result?.artifactRefs?.length ? <Text type="secondary">{task.result.artifactRefs.length} artifact refs</Text> : null}
       {task.error ? <Text type="danger">{task.error}</Text> : null}
     </div>
   )

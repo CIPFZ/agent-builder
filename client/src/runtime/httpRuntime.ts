@@ -1,6 +1,9 @@
 import type {
   AgentRuntime,
   RuntimeAuditEvent,
+  RuntimeAgentRoleDefinition,
+  RuntimeAgentTaskMessage,
+  RuntimeAgentTaskResult,
   RuntimeAgentTask,
   RuntimeCapability,
   RuntimeContextSource,
@@ -183,6 +186,22 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async cancelAgentTask(taskId: string) {
       const response = await post<{ task: RuntimeAgentTask }>(`/v1/tasks/${encodePath(taskId)}/cancel`)
       return response.task
+    },
+    async listAgentRoles() {
+      const response = await get<{ roles: RuntimeAgentRoleDefinition[] }>('/v1/agent-roles')
+      return response.roles
+    },
+    async getAgentRole(roleId: string) {
+      const response = await get<{ role: RuntimeAgentRoleDefinition }>(`/v1/agent-roles/${encodePath(roleId)}`)
+      return response.role
+    },
+    async listAgentTaskMessages(taskId: string) {
+      const response = await get<{ messages: RuntimeAgentTaskMessage[] }>(`/v1/tasks/${encodePath(taskId)}/messages`)
+      return response.messages
+    },
+    async getAgentTaskResult(taskId: string) {
+      const response = await get<{ result: RuntimeAgentTaskResult }>(`/v1/tasks/${encodePath(taskId)}/result`)
+      return response.result
     },
     async getSessionTodos(sessionId: string) {
       const response = await get<{ summary: RuntimeTodoSummary }>(`/v1/sessions/${encodePath(sessionId)}/todos`)

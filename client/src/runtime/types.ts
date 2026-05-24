@@ -153,6 +153,59 @@ export type RuntimeAgentTask = {
   finishedAt?: number
   error?: string
   cancellationDetail?: string
+  result?: RuntimeAgentTaskResult
+}
+
+export type RuntimeAgentRoleDefinition = {
+  id: string
+  name: string
+  title?: string
+  description?: string
+  promptSummary?: string
+  allowedTools?: string[]
+  capabilityScope?: string[]
+  model?: string
+  provider?: string
+  cwd?: string
+  worktree?: string
+  risk?: string
+  policyMetadata?: Record<string, string>
+  source?: string
+  createdAt?: number
+  updatedAt?: number
+}
+
+export type RuntimeAgentTaskMessage = {
+  id: string
+  taskId: string
+  parentTaskId?: string
+  parentTurnId?: string
+  parentSessionId?: string
+  childSessionId?: string
+  direction: 'parent_to_child' | 'child_to_parent' | string
+  kind: 'instruction' | 'control' | 'progress' | 'result' | 'artifact' | string
+  status: string
+  contentSummary?: string
+  payload?: Record<string, unknown>
+  relatedToolCallId?: string
+  relatedMessageId?: string
+  artifactRefs?: string[]
+  createdAt: number
+  deliveredAt?: number
+}
+
+export type RuntimeAgentTaskResult = {
+  taskId: string
+  status: string
+  summary?: string
+  errorDetail?: string
+  cancellationDetail?: string
+  artifactRefs?: string[]
+  relatedMessageRefs?: string[]
+  relatedToolCallRefs?: string[]
+  compactBoundaryRefs?: string[]
+  createdAt: number
+  updatedAt: number
 }
 
 export type RuntimeTodo = {
@@ -315,6 +368,8 @@ export type RuntimeReplayExportSummary = {
   budget?: RuntimeBudgetReport
   toolSearches?: RuntimeReplayToolSearch[]
   toolDiscovery?: RuntimeReplayToolDiscovery
+  agentTaskMessages?: RuntimeAgentTaskMessage[]
+  agentTaskResults?: RuntimeAgentTaskResult[]
   policyDecisions?: RuntimeReplayPolicyDecision[]
   permissionEvents?: RuntimeReplayPermission[]
   toolCalls?: RuntimeToolCall[]
@@ -741,6 +796,10 @@ export type AgentRuntime = {
   getToolCall: (toolCallId: string) => Promise<RuntimeToolCall>
   getAgentTask: (taskId: string) => Promise<RuntimeAgentTask>
   cancelAgentTask: (taskId: string) => Promise<RuntimeAgentTask>
+  listAgentRoles: () => Promise<RuntimeAgentRoleDefinition[]>
+  getAgentRole: (roleId: string) => Promise<RuntimeAgentRoleDefinition>
+  listAgentTaskMessages: (taskId: string) => Promise<RuntimeAgentTaskMessage[]>
+  getAgentTaskResult: (taskId: string) => Promise<RuntimeAgentTaskResult>
   getSessionTodos: (sessionId: string) => Promise<RuntimeTodoSummary>
   getTurnTodos: (turnId: string) => Promise<RuntimeTodoSummary>
   getEventsEndpoint: () => Promise<RuntimeEventsEndpoint>

@@ -119,39 +119,124 @@ type RuntimeToolCallsResponse struct {
 }
 
 type RuntimeAgentTask struct {
-	ID                 string   `json:"id"`
-	ParentTurnID       string   `json:"parentTurnId,omitempty"`
-	ParentSessionID    string   `json:"parentSessionId"`
-	ParentToolCallID   string   `json:"parentToolCallId,omitempty"`
-	ChildSessionID     string   `json:"childSessionId,omitempty"`
-	Title              string   `json:"title"`
-	Kind               string   `json:"kind"`
-	Role               string   `json:"role,omitempty"`
-	Name               string   `json:"name,omitempty"`
-	PromptSummary      string   `json:"promptSummary,omitempty"`
-	Model              string   `json:"model,omitempty"`
-	Provider           string   `json:"provider,omitempty"`
-	AllowedTools       []string `json:"allowedTools,omitempty"`
-	CapabilityScope    []string `json:"capabilityScope,omitempty"`
-	CWD                string   `json:"cwd,omitempty"`
-	Worktree           string   `json:"worktree,omitempty"`
-	Status             string   `json:"status"`
-	Progress           int      `json:"progress"`
-	ResultSummary      string   `json:"resultSummary,omitempty"`
-	ArtifactRefs       []string `json:"artifactRefs,omitempty"`
-	StartedAt          int64    `json:"startedAt"`
-	UpdatedAt          int64    `json:"updatedAt"`
-	FinishedAt         int64    `json:"finishedAt,omitempty"`
-	Error              string   `json:"error,omitempty"`
-	CancellationDetail string   `json:"cancellationDetail,omitempty"`
+	ID                 string                  `json:"id"`
+	ParentTurnID       string                  `json:"parentTurnId,omitempty"`
+	ParentSessionID    string                  `json:"parentSessionId"`
+	ParentToolCallID   string                  `json:"parentToolCallId,omitempty"`
+	ChildSessionID     string                  `json:"childSessionId,omitempty"`
+	Title              string                  `json:"title"`
+	Kind               string                  `json:"kind"`
+	Role               string                  `json:"role,omitempty"`
+	Name               string                  `json:"name,omitempty"`
+	PromptSummary      string                  `json:"promptSummary,omitempty"`
+	Model              string                  `json:"model,omitempty"`
+	Provider           string                  `json:"provider,omitempty"`
+	AllowedTools       []string                `json:"allowedTools,omitempty"`
+	CapabilityScope    []string                `json:"capabilityScope,omitempty"`
+	CWD                string                  `json:"cwd,omitempty"`
+	Worktree           string                  `json:"worktree,omitempty"`
+	Status             string                  `json:"status"`
+	Progress           int                     `json:"progress"`
+	ResultSummary      string                  `json:"resultSummary,omitempty"`
+	ArtifactRefs       []string                `json:"artifactRefs,omitempty"`
+	StartedAt          int64                   `json:"startedAt"`
+	UpdatedAt          int64                   `json:"updatedAt"`
+	FinishedAt         int64                   `json:"finishedAt,omitempty"`
+	Error              string                  `json:"error,omitempty"`
+	CancellationDetail string                  `json:"cancellationDetail,omitempty"`
+	Result             *RuntimeAgentTaskResult `json:"result,omitempty"`
 }
 
 type RuntimeAgentTaskResponse struct {
-	Task RuntimeAgentTask `json:"task"`
+	Task     RuntimeAgentTask          `json:"task"`
+	Messages []RuntimeAgentTaskMessage `json:"messages,omitempty"`
+	Result   *RuntimeAgentTaskResult   `json:"result,omitempty"`
 }
 
 type RuntimeAgentTasksResponse struct {
 	Tasks []RuntimeAgentTask `json:"tasks"`
+}
+
+type RuntimeAgentRoleDefinition struct {
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Title           string            `json:"title,omitempty"`
+	Description     string            `json:"description,omitempty"`
+	PromptSummary   string            `json:"promptSummary,omitempty"`
+	AllowedTools    []string          `json:"allowedTools,omitempty"`
+	CapabilityScope []string          `json:"capabilityScope,omitempty"`
+	Model           string            `json:"model,omitempty"`
+	Provider        string            `json:"provider,omitempty"`
+	CWD             string            `json:"cwd,omitempty"`
+	Worktree        string            `json:"worktree,omitempty"`
+	Risk            string            `json:"risk,omitempty"`
+	PolicyMetadata  map[string]string `json:"policyMetadata,omitempty"`
+	Source          string            `json:"source,omitempty"`
+	CreatedAt       int64             `json:"createdAt,omitempty"`
+	UpdatedAt       int64             `json:"updatedAt,omitempty"`
+}
+
+type RuntimeAgentRolesResponse struct {
+	Roles []RuntimeAgentRoleDefinition `json:"roles"`
+}
+
+type RuntimeAgentRoleResponse struct {
+	Role RuntimeAgentRoleDefinition `json:"role"`
+}
+
+type RuntimeAgentTaskMessage struct {
+	ID                string         `json:"id"`
+	TaskID            string         `json:"taskId"`
+	ParentTaskID      string         `json:"parentTaskId,omitempty"`
+	ParentTurnID      string         `json:"parentTurnId,omitempty"`
+	ParentSessionID   string         `json:"parentSessionId,omitempty"`
+	ChildSessionID    string         `json:"childSessionId,omitempty"`
+	Direction         string         `json:"direction"`
+	Kind              string         `json:"kind"`
+	Status            string         `json:"status"`
+	ContentSummary    string         `json:"contentSummary,omitempty"`
+	Payload           map[string]any `json:"payload,omitempty"`
+	RelatedToolCallID string         `json:"relatedToolCallId,omitempty"`
+	RelatedMessageID  string         `json:"relatedMessageId,omitempty"`
+	ArtifactRefs      []string       `json:"artifactRefs,omitempty"`
+	CreatedAt         int64          `json:"createdAt"`
+	DeliveredAt       int64          `json:"deliveredAt,omitempty"`
+}
+
+type RuntimeAgentTaskMessagesResponse struct {
+	Messages []RuntimeAgentTaskMessage `json:"messages"`
+}
+
+type RuntimeAgentTaskMessageCreateRequest struct {
+	Direction         string         `json:"direction"`
+	Kind              string         `json:"kind"`
+	ContentSummary    string         `json:"contentSummary,omitempty"`
+	Payload           map[string]any `json:"payload,omitempty"`
+	RelatedToolCallID string         `json:"relatedToolCallId,omitempty"`
+	RelatedMessageID  string         `json:"relatedMessageId,omitempty"`
+	ArtifactRefs      []string       `json:"artifactRefs,omitempty"`
+}
+
+type RuntimeAgentTaskMessageResponse struct {
+	Message RuntimeAgentTaskMessage `json:"message"`
+}
+
+type RuntimeAgentTaskResult struct {
+	TaskID              string   `json:"taskId"`
+	Status              string   `json:"status"`
+	Summary             string   `json:"summary,omitempty"`
+	ErrorDetail         string   `json:"errorDetail,omitempty"`
+	CancellationDetail  string   `json:"cancellationDetail,omitempty"`
+	ArtifactRefs        []string `json:"artifactRefs,omitempty"`
+	RelatedMessageRefs  []string `json:"relatedMessageRefs,omitempty"`
+	RelatedToolCallRefs []string `json:"relatedToolCallRefs,omitempty"`
+	CompactBoundaryRefs []string `json:"compactBoundaryRefs,omitempty"`
+	CreatedAt           int64    `json:"createdAt"`
+	UpdatedAt           int64    `json:"updatedAt"`
+}
+
+type RuntimeAgentTaskResultResponse struct {
+	Result RuntimeAgentTaskResult `json:"result"`
 }
 
 type RuntimeTodo struct {
@@ -382,6 +467,8 @@ type RuntimeReplayExportSummary struct {
 	Budget            *RuntimeBudgetReport          `json:"budget,omitempty"`
 	ToolSearches      []RuntimeReplayToolSearch     `json:"toolSearches,omitempty"`
 	ToolDiscovery     RuntimeReplayToolDiscovery    `json:"toolDiscovery,omitempty"`
+	AgentTaskMessages []RuntimeAgentTaskMessage     `json:"agentTaskMessages,omitempty"`
+	AgentTaskResults  []RuntimeAgentTaskResult      `json:"agentTaskResults,omitempty"`
 	PolicyDecisions   []RuntimeReplayPolicyDecision `json:"policyDecisions,omitempty"`
 	PermissionEvents  []RuntimeReplayPermission     `json:"permissionEvents,omitempty"`
 	ToolCalls         []RuntimeToolCall             `json:"toolCalls,omitempty"`
@@ -523,6 +610,8 @@ type RuntimeAuditTurnSummary struct {
 	LatestAssistantMessageID string                     `json:"latest_assistant_id,omitempty"`
 	ToolCalls                []RuntimeToolCall          `json:"tool_calls,omitempty"`
 	Tasks                    []RuntimeAgentTask         `json:"tasks,omitempty"`
+	TaskMessages             []RuntimeAgentTaskMessage  `json:"task_messages,omitempty"`
+	TaskResults              []RuntimeAgentTaskResult   `json:"task_results,omitempty"`
 	Permissions              []map[string]any           `json:"permissions,omitempty"`
 	Skills                   *RuntimeTurnSkillSummary   `json:"skills,omitempty"`
 	Context                  *RuntimeTurnContextSummary `json:"context,omitempty"`

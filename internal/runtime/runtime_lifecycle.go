@@ -203,6 +203,9 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	r.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
 	r.agentTasks = newRuntimeAgentTaskStore(conn)
 	r.permissionStore = newRuntimePermissionStore(conn)
+	if err := r.ensureAgentRolesLoaded(ctx); err != nil {
+		return fmt.Errorf("failed to load runtime agent roles: %w", err)
+	}
 	interrupted, err := r.turns.InterruptUnfinished(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to recover runtime turns: %w", err)

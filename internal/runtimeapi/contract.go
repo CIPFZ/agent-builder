@@ -98,6 +98,12 @@ const (
 	EventTaskFailed                 = "task.failed"
 	EventTaskCancelled              = "task.cancelled"
 	EventTaskInterrupted            = "task.interrupted"
+	EventTaskRoleLoaded             = "task.role.loaded"
+	EventTaskScopeApplied           = "task.scope.applied"
+	EventTaskScopeDenied            = "task.scope.denied"
+	EventTaskMessageCreated         = "task.message.created"
+	EventTaskResultUpdated          = "task.result.updated"
+	EventTaskArtifactCreated        = "task.artifact.created"
 	EventPermissionRequested        = "permission.requested"
 	EventPermissionDecided          = "permission.decided"
 	EventPermissionPolicyApplied    = "permission.policy.applied"
@@ -166,6 +172,12 @@ var EventTypes = []string{
 	EventTaskFailed,
 	EventTaskCancelled,
 	EventTaskInterrupted,
+	EventTaskRoleLoaded,
+	EventTaskScopeApplied,
+	EventTaskScopeDenied,
+	EventTaskMessageCreated,
+	EventTaskResultUpdated,
+	EventTaskArtifactCreated,
 	EventPermissionRequested,
 	EventPermissionDecided,
 	EventPermissionPolicyApplied,

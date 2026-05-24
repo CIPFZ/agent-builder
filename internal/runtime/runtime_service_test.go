@@ -2265,6 +2265,11 @@ type recordingRuntimeService struct {
 	replayExportRequest  RuntimeReplayExportRequest
 	agentTask            RuntimeAgentTaskResponse
 	agentTasks           RuntimeAgentTasksResponse
+	agentRoles           RuntimeAgentRolesResponse
+	agentRole            RuntimeAgentRoleResponse
+	agentTaskMessages    RuntimeAgentTaskMessagesResponse
+	agentTaskMessage     RuntimeAgentTaskMessageResponse
+	agentTaskResult      RuntimeAgentTaskResultResponse
 	cancelledTask        string
 	todos                RuntimeTodosResponse
 	todoSession          string
@@ -2347,6 +2352,26 @@ func (s *recordingRuntimeService) TurnAgentTasks(context.Context, string) (Runti
 func (s *recordingRuntimeService) CancelAgentTask(_ context.Context, taskID string) (RuntimeAgentTaskResponse, error) {
 	s.cancelledTask = taskID
 	return s.agentTask, nil
+}
+
+func (s *recordingRuntimeService) AgentRoles(context.Context) (RuntimeAgentRolesResponse, error) {
+	return s.agentRoles, nil
+}
+
+func (s *recordingRuntimeService) AgentRole(context.Context, string) (RuntimeAgentRoleResponse, error) {
+	return s.agentRole, nil
+}
+
+func (s *recordingRuntimeService) AgentTaskMessages(context.Context, string) (RuntimeAgentTaskMessagesResponse, error) {
+	return s.agentTaskMessages, nil
+}
+
+func (s *recordingRuntimeService) CreateAgentTaskMessage(context.Context, string, RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error) {
+	return s.agentTaskMessage, nil
+}
+
+func (s *recordingRuntimeService) AgentTaskResult(context.Context, string) (RuntimeAgentTaskResultResponse, error) {
+	return s.agentTaskResult, nil
 }
 
 func (s *recordingRuntimeService) SessionTodos(_ context.Context, sessionID string) (RuntimeTodosResponse, error) {

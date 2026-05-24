@@ -27,6 +27,15 @@ type RuntimeBudgetBucket = runtime.RuntimeBudgetBucket
 type RuntimeAgentTask = runtime.RuntimeAgentTask
 type RuntimeAgentTaskResponse = runtime.RuntimeAgentTaskResponse
 type RuntimeAgentTasksResponse = runtime.RuntimeAgentTasksResponse
+type RuntimeAgentRoleDefinition = runtime.RuntimeAgentRoleDefinition
+type RuntimeAgentRolesResponse = runtime.RuntimeAgentRolesResponse
+type RuntimeAgentRoleResponse = runtime.RuntimeAgentRoleResponse
+type RuntimeAgentTaskMessage = runtime.RuntimeAgentTaskMessage
+type RuntimeAgentTaskMessagesResponse = runtime.RuntimeAgentTaskMessagesResponse
+type RuntimeAgentTaskMessageCreateRequest = runtime.RuntimeAgentTaskMessageCreateRequest
+type RuntimeAgentTaskMessageResponse = runtime.RuntimeAgentTaskMessageResponse
+type RuntimeAgentTaskResult = runtime.RuntimeAgentTaskResult
+type RuntimeAgentTaskResultResponse = runtime.RuntimeAgentTaskResultResponse
 type RuntimeMessage = runtime.RuntimeMessage
 type RuntimeMessagePart = runtime.RuntimeMessagePart
 type RuntimeSession = runtime.RuntimeSession
@@ -200,6 +209,26 @@ func (r *RuntimeBridge) CancelAgentTask(ctx context.Context, taskID string) (Run
 
 	return r.service.CancelAgentTask(ctx, taskID)
 
+}
+
+func (r *RuntimeBridge) AgentRoles(ctx context.Context) (RuntimeAgentRolesResponse, error) {
+	return r.service.AgentRoles(ctx)
+}
+
+func (r *RuntimeBridge) AgentRole(ctx context.Context, roleID string) (RuntimeAgentRoleResponse, error) {
+	return r.service.AgentRole(ctx, roleID)
+}
+
+func (r *RuntimeBridge) AgentTaskMessages(ctx context.Context, taskID string) (RuntimeAgentTaskMessagesResponse, error) {
+	return r.service.AgentTaskMessages(ctx, taskID)
+}
+
+func (r *RuntimeBridge) CreateAgentTaskMessage(ctx context.Context, taskID string, req RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error) {
+	return r.service.CreateAgentTaskMessage(ctx, taskID, req)
+}
+
+func (r *RuntimeBridge) AgentTaskResult(ctx context.Context, taskID string) (RuntimeAgentTaskResultResponse, error) {
+	return r.service.AgentTaskResult(ctx, taskID)
 }
 
 func (r *RuntimeBridge) Sessions(ctx context.Context) (RuntimeSessionsResponse, error) {

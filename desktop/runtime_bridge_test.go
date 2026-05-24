@@ -148,6 +148,26 @@ func (s *recordingRuntimeService) CancelAgentTask(context.Context, string) (Runt
 	return RuntimeAgentTaskResponse{}, nil
 }
 
+func (s *recordingRuntimeService) AgentRoles(context.Context) (RuntimeAgentRolesResponse, error) {
+	return RuntimeAgentRolesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) AgentRole(context.Context, string) (RuntimeAgentRoleResponse, error) {
+	return RuntimeAgentRoleResponse{}, nil
+}
+
+func (s *recordingRuntimeService) AgentTaskMessages(context.Context, string) (RuntimeAgentTaskMessagesResponse, error) {
+	return RuntimeAgentTaskMessagesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) CreateAgentTaskMessage(context.Context, string, RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error) {
+	return RuntimeAgentTaskMessageResponse{}, nil
+}
+
+func (s *recordingRuntimeService) AgentTaskResult(context.Context, string) (RuntimeAgentTaskResultResponse, error) {
+	return RuntimeAgentTaskResultResponse{}, nil
+}
+
 func (s *recordingRuntimeService) SessionTodos(context.Context, string) (RuntimeTodosResponse, error) {
 	return RuntimeTodosResponse{}, nil
 }

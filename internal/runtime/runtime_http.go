@@ -215,8 +215,27 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && taskCancelPathID(r.URL.Path) != "":
 		value, err := s.service.CancelAgentTask(r.Context(), taskCancelPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && taskMessagesPathID(r.URL.Path) != "":
+		value, err := s.service.AgentTaskMessages(r.Context(), taskMessagesPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && taskMessagesPathID(r.URL.Path) != "":
+		var req RuntimeAgentTaskMessageCreateRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.CreateAgentTaskMessage(r.Context(), taskMessagesPathID(r.URL.Path), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && taskResultPathID(r.URL.Path) != "":
+		value, err := s.service.AgentTaskResult(r.Context(), taskResultPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && taskPathID(r.URL.Path) != "":
 		value, err := s.service.AgentTask(r.Context(), taskPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/agent-roles":
+		value, err := s.service.AgentRoles(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && agentRolePathID(r.URL.Path) != "":
+		value, err := s.service.AgentRole(r.Context(), agentRolePathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPut && sessionPathID(r.URL.Path) != "":
 		var req RuntimeSessionUpdateRequest
@@ -538,8 +557,27 @@ func taskCancelPathID(path string) string {
 	return trimPathID(path, "/v1/tasks/", "/cancel")
 }
 
+func taskMessagesPathID(path string) string {
+	return trimPathID(path, "/v1/tasks/", "/messages")
+}
+
+func taskResultPathID(path string) string {
+	return trimPathID(path, "/v1/tasks/", "/result")
+}
+
 func taskPathID(path string) string {
+	if strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/result") || strings.HasSuffix(path, "/cancel") {
+		return ""
+	}
 	id := strings.TrimPrefix(path, "/v1/tasks/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func agentRolePathID(path string) string {
+	id := strings.TrimPrefix(path, "/v1/agent-roles/")
 	if id == path || id == "" || strings.Contains(id, "/") {
 		return ""
 	}

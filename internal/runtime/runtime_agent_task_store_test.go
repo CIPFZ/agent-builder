@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/db"
 )
 
@@ -72,5 +73,109 @@ func TestRuntimeAgentTaskStoreUpsertListGetAndInterrupt(t *testing.T) {
 	}
 	if stored.Status != agentTaskStatusInterrupted || stored.FinishedAt == 0 || stored.Progress != 100 {
 		t.Fatalf("stored = %#v", stored)
+	}
+}
+
+func TestRuntimeAgentTaskRoleMessageResultStores(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	roleStore := newRuntimeAgentRoleStore(conn)
+	role, err := roleStore.Upsert(context.Background(), RuntimeAgentRoleDefinition{
+		ID:              "reviewer",
+		Name:            "reviewer",
+		Title:           "Reviewer",
+		Description:     "Reviews scoped changes.",
+		PromptSummary:   "Review only.",
+		AllowedTools:    []string{"view", "grep", "view"},
+		CapabilityScope: []string{"read"},
+		Model:           "small",
+		Risk:            "read",
+		PolicyMetadata:  map[string]string{"source": "test"},
+		Source:          "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(role.AllowedTools) != 2 || role.PolicyMetadata["source"] != "test" {
+		t.Fatalf("role = %#v", role)
+	}
+	roles, err := roleStore.List(context.Background())
+	if err != nil || len(roles) != 1 {
+		t.Fatalf("roles=%#v err=%v", roles, err)
+	}
+
+	messageStore := newRuntimeAgentTaskMessageStore(conn)
+	msg, err := messageStore.Create(context.Background(), RuntimeAgentTaskMessage{
+		TaskID:          "task-1",
+		ParentTurnID:    "turn-1",
+		ParentSessionID: "parent",
+		ChildSessionID:  "child",
+		Direction:       taskMessageDirectionChildToParent,
+		Kind:            taskMessageKindResult,
+		ContentSummary:  "done",
+		Payload:         map[string]any{"ok": true},
+		ArtifactRefs:    []string{"artifact:file:test.txt"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.ID == "" || msg.Payload["ok"] != true {
+		t.Fatalf("msg=%#v", msg)
+	}
+	messages, err := messageStore.ListByTask(context.Background(), "task-1")
+	if err != nil || len(messages) != 1 || messages[0].ArtifactRefs[0] != "artifact:file:test.txt" {
+		t.Fatalf("messages=%#v err=%v", messages, err)
+	}
+
+	resultStore := newRuntimeAgentTaskResultStore(conn)
+	result, err := resultStore.Upsert(context.Background(), RuntimeAgentTaskResult{
+		TaskID:              "task-1",
+		Status:              agentTaskStatusCompleted,
+		Summary:             "done",
+		ArtifactRefs:        []string{"artifact:file:test.txt"},
+		RelatedMessageRefs:  []string{msg.ID},
+		RelatedToolCallRefs: []string{"tool-1"},
+		CompactBoundaryRefs: []string{"compact-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != agentTaskStatusCompleted || result.RelatedMessageRefs[0] != msg.ID || result.CompactBoundaryRefs[0] != "compact-1" {
+		t.Fatalf("result=%#v", result)
+	}
+}
+
+func TestRuntimeAgentTaskScopeViolationFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	service := &runtimeService{}
+	task := RuntimeAgentTask{
+		ID:              "task-1",
+		Status:          agentTaskStatusRunning,
+		AllowedTools:    []string{"view"},
+		CapabilityScope: []string{"read"},
+		CWD:             "C:/work/project",
+	}
+	if reason := service.agentTaskScopeViolation(task, agent.SchedulerToolCall{Name: "write", Source: "builtin", CapabilityID: "builtin:write"}); reason == "" {
+		t.Fatal("write should be denied by allowed_tools")
+	}
+	if reason := service.agentTaskScopeViolation(task, agent.SchedulerToolCall{Name: "view", Source: "builtin", CapabilityID: "builtin:view", InputSummary: `{"cwd":"C:/work/other"}`}); reason == "" {
+		t.Fatal("out-of-scope cwd should be denied")
+	}
+	if reason := service.agentTaskScopeViolation(task, agent.SchedulerToolCall{Name: "view", Source: "builtin", CapabilityID: "builtin:view", InputSummary: `{"cwd":"C:/work/project/sub"}`}); reason != "" {
+		t.Fatalf("view under cwd should be allowed: %s", reason)
+	}
+	task.Status = agentTaskStatusCancelled
+	if reason := service.agentTaskScopeViolation(task, agent.SchedulerToolCall{Name: "view", Source: "builtin", CapabilityID: "builtin:view"}); reason == "" {
+		t.Fatal("final task should be denied")
 	}
 }

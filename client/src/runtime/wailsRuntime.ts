@@ -120,6 +120,30 @@ export const wailsRuntime: AgentRuntime = {
     return response.task
   },
 
+  async listAgentRoles() {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.AgentRoles()
+    return response.roles
+  },
+
+  async getAgentRole(roleId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.AgentRole(roleId)
+    return response.role
+  },
+
+  async listAgentTaskMessages(taskId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.AgentTaskMessages(taskId)
+    return response.messages
+  },
+
+  async getAgentTaskResult(taskId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.AgentTaskResult(taskId)
+    return response.result
+  },
+
   async getSessionTodos(sessionId: string) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.SessionTodos(sessionId)

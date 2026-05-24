@@ -128,6 +128,18 @@ export async function cancelRuntimeAgentTask(taskId: string) {
   return getAgentRuntime().cancelAgentTask(taskId)
 }
 
+export async function requestRuntimeAgentRoles() {
+  return getAgentRuntime().listAgentRoles()
+}
+
+export async function requestRuntimeAgentTaskMessages(taskId: string) {
+  return getAgentRuntime().listAgentTaskMessages(taskId)
+}
+
+export async function requestRuntimeAgentTaskResult(taskId: string) {
+  return getAgentRuntime().getAgentTaskResult(taskId)
+}
+
 export async function updateRuntimePolicy(mode: RuntimePolicyMode, rules?: RuntimePolicyRule[], profile?: string) {
   return getAgentRuntime().updatePolicy(mode, rules, profile)
 }

@@ -131,6 +131,10 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			summary.ToolDiscovery.Selected = appendUniqueStrings(summary.ToolDiscovery.Selected, stringSliceFromMap(event.Payload, "selected")...)
 		case runtimeapi.EventToolDiscoveryOmitted:
 			summary.ToolDiscovery.Omitted = appendUniqueStrings(summary.ToolDiscovery.Omitted, stringSliceFromMap(event.Payload, "omitted")...)
+		case runtimeapi.EventTaskMessageCreated:
+			summary.AgentTaskMessages = append(summary.AgentTaskMessages, runtimeReplayTaskMessageFromEvent(event))
+		case runtimeapi.EventTaskResultUpdated:
+			summary.AgentTaskResults = append(summary.AgentTaskResults, runtimeReplayTaskResultFromEvent(event))
 		case runtimeapi.EventPermissionPolicyApplied, runtimeapi.EventPolicyRuleMatched, runtimeapi.EventPolicyRuleDenied, runtimeapi.EventPolicyRuleAsk:
 			summary.PolicyDecisions = append(summary.PolicyDecisions, runtimeReplayPolicyFromEvent(event))
 		case runtimeapi.EventPermissionRequested, runtimeapi.EventPermissionDecided:
@@ -155,9 +159,93 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			summary.PolicyDecisions = append(summary.PolicyDecisions, runtimeReplayPolicyFromAudit(audit))
 		case "permission_requested":
 			summary.PermissionEvents = append(summary.PermissionEvents, runtimeReplayPermissionFromAudit(audit))
+		case "task_message_created", "task_artifact_created":
+			if msg := runtimeReplayTaskMessageFromAudit(audit); msg.ID != "" {
+				summary.AgentTaskMessages = append(summary.AgentTaskMessages, msg)
+			}
+		case "task_result_updated":
+			if result := runtimeReplayTaskResultFromAudit(audit); result.TaskID != "" {
+				summary.AgentTaskResults = append(summary.AgentTaskResults, result)
+			}
 		}
 	}
 	return summary
+}
+
+func runtimeReplayTaskMessageFromEvent(event RuntimeEvent) RuntimeAgentTaskMessage {
+	return RuntimeAgentTaskMessage{
+		ID:                stringFromMap(event.Payload, "message_id"),
+		TaskID:            stringFromMap(event.Payload, "task_id"),
+		ParentTurnID:      event.TurnID,
+		ParentSessionID:   event.SessionID,
+		ChildSessionID:    stringFromMap(event.Payload, "child_session_id"),
+		Direction:         stringFromMap(event.Payload, "direction"),
+		Kind:              stringFromMap(event.Payload, "kind"),
+		Status:            stringFromMap(event.Payload, "status"),
+		ContentSummary:    stringFromMap(event.Payload, "summary"),
+		RelatedToolCallID: event.ToolCallID,
+		ArtifactRefs:      stringSliceFromMap(event.Payload, "artifact_refs"),
+	}
+}
+
+func runtimeReplayTaskResultFromEvent(event RuntimeEvent) RuntimeAgentTaskResult {
+	return RuntimeAgentTaskResult{
+		TaskID:              stringFromMap(event.Payload, "task_id"),
+		Status:              stringFromMap(event.Payload, "status"),
+		Summary:             stringFromMap(event.Payload, "summary"),
+		ErrorDetail:         stringFromMap(event.Payload, "error_detail"),
+		CancellationDetail:  stringFromMap(event.Payload, "cancellation_detail"),
+		ArtifactRefs:        stringSliceFromMap(event.Payload, "artifact_refs"),
+		RelatedMessageRefs:  stringSliceFromMap(event.Payload, "related_message_refs"),
+		RelatedToolCallRefs: stringSliceFromMap(event.Payload, "related_tool_refs"),
+		CompactBoundaryRefs: stringSliceFromMap(event.Payload, "compact_boundary_refs"),
+	}
+}
+
+func runtimeReplayTaskMessageFromAudit(event RuntimeAuditEvent) RuntimeAgentTaskMessage {
+	extra := asMap(event.Payload["extra"])
+	return runtimeAgentTaskMessageFromPayload(asMap(extra["task_message"]))
+}
+
+func runtimeReplayTaskResultFromAudit(event RuntimeAuditEvent) RuntimeAgentTaskResult {
+	extra := asMap(event.Payload["extra"])
+	return runtimeAgentTaskResultFromPayload(asMap(extra["task_result"]))
+}
+
+func runtimeAgentTaskMessageFromPayload(payload map[string]any) RuntimeAgentTaskMessage {
+	return RuntimeAgentTaskMessage{
+		ID:                stringFromMap(payload, "id"),
+		TaskID:            stringFromMap(payload, "taskId"),
+		ParentTaskID:      stringFromMap(payload, "parentTaskId"),
+		ParentTurnID:      stringFromMap(payload, "parentTurnId"),
+		ParentSessionID:   stringFromMap(payload, "parentSessionId"),
+		ChildSessionID:    stringFromMap(payload, "childSessionId"),
+		Direction:         stringFromMap(payload, "direction"),
+		Kind:              stringFromMap(payload, "kind"),
+		Status:            stringFromMap(payload, "status"),
+		ContentSummary:    stringFromMap(payload, "contentSummary"),
+		RelatedToolCallID: stringFromMap(payload, "relatedToolCallId"),
+		RelatedMessageID:  stringFromMap(payload, "relatedMessageId"),
+		ArtifactRefs:      stringSliceFromMap(payload, "artifactRefs"),
+		CreatedAt:         int64(intFromMap(payload, "createdAt")),
+		DeliveredAt:       int64(intFromMap(payload, "deliveredAt")),
+	}
+}
+
+func runtimeAgentTaskResultFromPayload(payload map[string]any) RuntimeAgentTaskResult {
+	return RuntimeAgentTaskResult{
+		TaskID:              stringFromMap(payload, "taskId"),
+		Status:              stringFromMap(payload, "status"),
+		Summary:             stringFromMap(payload, "summary"),
+		ErrorDetail:         stringFromMap(payload, "errorDetail"),
+		CancellationDetail:  stringFromMap(payload, "cancellationDetail"),
+		ArtifactRefs:        stringSliceFromMap(payload, "artifactRefs"),
+		RelatedMessageRefs:  stringSliceFromMap(payload, "relatedMessageRefs"),
+		RelatedToolCallRefs: stringSliceFromMap(payload, "relatedToolCallRefs"),
+		CompactBoundaryRefs: stringSliceFromMap(payload, "compactBoundaryRefs"),
+		CreatedAt:           int64(intFromMap(payload, "createdAt")),
+		UpdatedAt:           int64(intFromMap(payload, "updatedAt")),
+	}
 }
 
 func runtimeReplayToolSearchFromEvent(event RuntimeEvent) RuntimeReplayToolSearch {
