@@ -10,6 +10,9 @@ import type {
   RuntimeAgentTaskResult,
   RuntimeAuditEvent,
   RuntimeMcpServerConfig,
+  RuntimeMcpRequest,
+  RuntimeMcpRequestDecision,
+  RuntimeMcpRequestListRequest,
   RuntimeMcpPrompt,
   RuntimeMcpResource,
   RuntimeMcpTool,
@@ -67,6 +70,10 @@ type WailsRuntimeBridge = {
   GetPolicy: () => Promise<{ policy: RuntimePolicy }>
   RecoveryStatus: () => Promise<RuntimeRecoveryStatus>
   MCPServers: () => Promise<{ servers: RuntimeMcpServer[] }>
+  MCPRequests: (request: RuntimeMcpRequestListRequest) => Promise<{ requests: RuntimeMcpRequest[] }>
+  MCPRequest: (requestId: string) => Promise<{ request: RuntimeMcpRequest }>
+  DecideMCPRequest: (request: RuntimeMcpRequestDecision) => Promise<{ request: RuntimeMcpRequest }>
+  RetryMCPServer: (server: string) => Promise<{ servers: RuntimeMcpServer[] }>
   MCPResources: (server: string) => Promise<{ resources: RuntimeMcpResource[] }>
   MCPPrompts: (server: string) => Promise<{ prompts: RuntimeMcpPrompt[] }>
   MCPTools: (server: string) => Promise<{ tools: RuntimeMcpTool[] }>

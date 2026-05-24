@@ -270,6 +270,8 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			summary.MCP.Loaded = appendUniqueStrings(summary.MCP.Loaded, runtimeReplayLifecycleName(event))
 		case runtimeapi.EventMCPServerFailed, runtimeapi.EventMCPServerLazyFailed:
 			summary.MCP.Failed = appendUniqueStrings(summary.MCP.Failed, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventMCPServerBlocked:
+			summary.MCP.Failed = appendUniqueStrings(summary.MCP.Failed, runtimeReplayLifecycleName(event))
 		case runtimeapi.EventMCPServerDisabled:
 			summary.MCP.Disabled = appendUniqueStrings(summary.MCP.Disabled, runtimeReplayLifecycleName(event))
 		case runtimeapi.EventMCPToolsUpdated, runtimeapi.EventMCPResourcesUpdated, runtimeapi.EventMCPPromptsUpdated:
@@ -278,6 +280,13 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			summary.MCP.Allowed = appendUniqueStrings(summary.MCP.Allowed, runtimeReplayLifecycleName(event))
 		case runtimeapi.EventMCPCapabilityDenied:
 			summary.MCP.Denied = appendUniqueStrings(summary.MCP.Denied, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventMCPAuthRequested, runtimeapi.EventMCPAuthCompleted, runtimeapi.EventMCPAuthDenied, runtimeapi.EventMCPAuthFailed,
+			runtimeapi.EventMCPElicitationRequested, runtimeapi.EventMCPElicitationCompleted, runtimeapi.EventMCPElicitationDenied, runtimeapi.EventMCPElicitationFailed:
+			req := runtimeReplayMCPRequestFromEvent(event)
+			summary.MCPRequests = appendRuntimeReplayMCPRequest(summary.MCPRequests, req)
+			if req.Status == mcpRequestStatusPending {
+				summary.Recovery.PendingMCPRequests++
+			}
 		case runtimeapi.EventPermissionPolicyApplied, runtimeapi.EventPolicyRuleMatched, runtimeapi.EventPolicyRuleDenied, runtimeapi.EventPolicyRuleAsk:
 			summary.PolicyDecisions = append(summary.PolicyDecisions, runtimeReplayPolicyFromEvent(event))
 		case runtimeapi.EventPermissionRequested, runtimeapi.EventPermissionDecided:
@@ -325,6 +334,10 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			summary.PolicyDecisions = append(summary.PolicyDecisions, runtimeReplayPolicyFromAudit(audit))
 		case "permission_requested":
 			summary.PermissionEvents = append(summary.PermissionEvents, runtimeReplayPermissionFromAudit(audit))
+		case "mcp_auth_pending", "mcp_auth_completed", "mcp_auth_denied", "mcp_auth_failed", "mcp_auth_cancelled", "mcp_elicitation_pending", "mcp_elicitation_completed", "mcp_elicitation_denied", "mcp_elicitation_failed", "mcp_elicitation_cancelled":
+			if req := runtimeReplayMCPRequestFromAudit(audit); req.RequestID != "" {
+				summary.MCPRequests = appendRuntimeReplayMCPRequest(summary.MCPRequests, req)
+			}
 		case "task_message_created", "task_artifact_created":
 			if msg := runtimeReplayTaskMessageFromAudit(audit); msg.ID != "" {
 				summary.AgentTaskMessages = append(summary.AgentTaskMessages, msg)
@@ -349,6 +362,19 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 		}
 	}
 	return summary
+}
+
+func appendRuntimeReplayMCPRequest(items []RuntimeReplayMCPRequest, req RuntimeReplayMCPRequest) []RuntimeReplayMCPRequest {
+	if req.RequestID == "" {
+		return items
+	}
+	for i := range items {
+		if items[i].RequestID == req.RequestID {
+			items[i] = req
+			return items
+		}
+	}
+	return append(items, req)
 }
 
 func runtimeReplayLifecycleName(event RuntimeEvent) string {
@@ -619,6 +645,45 @@ func runtimeReplayPermissionFromAudit(event RuntimeAuditEvent) RuntimeReplayPerm
 		Decision:     stringFromMap(event.Payload, "permission_policy"),
 		Risk:         stringFromMap(event.Payload, "permission_risk"),
 		Reason:       stringFromMap(event.Payload, "permission_reason"),
+	}
+}
+
+func runtimeReplayMCPRequestFromEvent(event RuntimeEvent) RuntimeReplayMCPRequest {
+	return RuntimeReplayMCPRequest{
+		RequestID:      stringFromMap(event.Payload, "request_id"),
+		Kind:           stringFromMap(event.Payload, "kind"),
+		Server:         stringFromMap(event.Payload, "server"),
+		CapabilityID:   stringFromMap(event.Payload, "capability_id"),
+		SessionID:      firstNonEmpty(event.SessionID, stringFromMap(event.Payload, "session_id")),
+		TurnID:         firstNonEmpty(event.TurnID, stringFromMap(event.Payload, "turn_id")),
+		Status:         stringFromMap(event.Payload, "status"),
+		Decision:       stringFromMap(event.Payload, "decision"),
+		Error:          stringFromMap(event.Payload, "error"),
+		PolicyDecision: stringFromMap(event.Payload, "policy_decision"),
+		PolicyMode:     stringFromMap(event.Payload, "policy_mode"),
+		PolicyProfile:  stringFromMap(event.Payload, "policy_profile"),
+		PolicyReason:   stringFromMap(event.Payload, "policy_reason"),
+		Redacted:       boolFromMap(event.Payload, "redacted"),
+	}
+}
+
+func runtimeReplayMCPRequestFromAudit(event RuntimeAuditEvent) RuntimeReplayMCPRequest {
+	extra := asMap(event.Payload["extra"])
+	req := asMap(extra["mcp_request"])
+	return RuntimeReplayMCPRequest{
+		RequestID:      stringFromMap(req, "request_id"),
+		Kind:           stringFromMap(req, "kind"),
+		Server:         firstNonEmpty(stringFromMap(req, "server"), stringFromMap(event.Payload, "mcp_server")),
+		CapabilityID:   firstNonEmpty(stringFromMap(req, "capability_id"), stringFromMap(event.Payload, "capability_id")),
+		SessionID:      firstNonEmpty(event.SessionID, stringFromMap(req, "session_id")),
+		TurnID:         firstNonEmpty(event.TurnID, stringFromMap(req, "turn_id")),
+		Status:         firstNonEmpty(stringFromMap(req, "status"), stringFromMap(event.Payload, "mcp_status")),
+		Error:          firstNonEmpty(stringFromMap(req, "error"), stringFromMap(event.Payload, "capability_error")),
+		PolicyDecision: firstNonEmpty(stringFromMap(req, "policy_decision"), stringFromMap(event.Payload, "mcp_decision")),
+		PolicyMode:     firstNonEmpty(stringFromMap(req, "policy_mode"), stringFromMap(event.Payload, "policy_mode")),
+		PolicyProfile:  firstNonEmpty(stringFromMap(req, "policy_profile"), stringFromMap(event.Payload, "policy_profile")),
+		PolicyReason:   firstNonEmpty(stringFromMap(req, "policy_reason"), stringFromMap(event.Payload, "mcp_reason")),
+		Redacted:       true,
 	}
 }
 

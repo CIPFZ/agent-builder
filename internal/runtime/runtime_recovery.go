@@ -46,6 +46,13 @@ func (r *runtimeService) RecoveryStatus(ctx context.Context) (RuntimeRecoverySta
 	if err != nil {
 		return RuntimeRecoveryStatus{}, err
 	}
+	var pendingMCPRequests []RuntimeMCPRequest
+	if r.mcpRequestStore.db != nil {
+		pendingMCPRequests, err = r.mcpRequestStore.List(ctx, RuntimeMCPRequestListRequest{Status: mcpRequestStatusPending})
+		if err != nil {
+			return RuntimeRecoveryStatus{}, err
+		}
+	}
 	r.mu.Lock()
 	startedAt := r.recovery.startedAt
 	interruptedTurns := append([]RuntimeTurn(nil), r.recovery.interruptedTurns...)
@@ -67,6 +74,7 @@ func (r *runtimeService) RecoveryStatus(ctx context.Context) (RuntimeRecoverySta
 		CompactBoundaries:  compact,
 		Worktrees:          recoveredWorktrees,
 		PendingPermissions: pendingPermissions,
+		PendingMCPRequests: pendingMCPRequests,
 		SnapshotRequired:   snapshotRequired,
 	}, nil
 }

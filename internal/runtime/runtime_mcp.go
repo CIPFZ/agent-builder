@@ -127,6 +127,24 @@ func (r *runtimeService) refreshMCPServerLifecycle(ctx context.Context, cfg *con
 		r.writeMCPAudit("server_refresh_disabled", name, "", "server", "disabled", decision, "", 0)
 		return nil
 	}
+	if pending, ok := r.hasBlockingMCPRequest(ctx, name); ok {
+		diagnostic := "MCP server refresh is blocked by pending " + pending.Kind + " request " + pending.ID
+		r.publishMCPServerEvent(runtimeapi.EventMCPServerBlocked, name, mcpServerStateFailed, diagnostic, pending.Kind+"_pending")
+		r.writeMCPAudit("server_refresh_blocked", name, "", "server", "blocked", decision, diagnostic, 0)
+		r.recordMCPServerCapabilitiesBlocked(name, diagnostic, pending.Kind+"_pending")
+		return nil
+	}
+	if decision.Decision == permission.PolicyAsk {
+		req, err := r.createMCPAuthRequest(ctx, name, stableMCPCapabilityID(name, "server", ""), "Runtime policy requires user approval before starting MCP server authentication or remote connection.", decision)
+		if err != nil {
+			return err
+		}
+		diagnostic := "MCP server refresh is blocked by " + req.Kind + " request " + req.ID
+		r.publishMCPServerEvent(runtimeapi.EventMCPServerBlocked, name, mcpServerStateFailed, diagnostic, req.Status)
+		r.writeMCPAudit("server_refresh_blocked", name, "", "server", "blocked", decision, diagnostic, 0)
+		r.recordMCPServerCapabilitiesBlocked(name, diagnostic, "auth_"+req.Status)
+		return nil
+	}
 
 	start := time.Now()
 	startEvent := runtimeapi.EventMCPServerStarting
@@ -141,6 +159,28 @@ func (r *runtimeService) refreshMCPServerLifecycle(ctx context.Context, cfg *con
 		failEvent := runtimeapi.EventMCPServerFailed
 		if reason == "capability_refresh" {
 			failEvent = runtimeapi.EventMCPServerLazyFailed
+		}
+		if isMCPAuthRequiredError(err) {
+			req, reqErr := r.createMCPAuthRequest(ctx, name, stableMCPCapabilityID(name, "server", ""), "MCP server reported that authentication is required before refresh can continue.", decision)
+			if reqErr != nil {
+				return reqErr
+			}
+			diagnostic := "MCP server refresh is blocked by auth request " + req.ID
+			r.publishMCPServerEvent(runtimeapi.EventMCPServerBlocked, name, mcpServerStateFailed, diagnostic, "auth_required")
+			r.writeMCPAudit("server_refresh_auth_required", name, "", "server", "blocked", decision, diagnostic, duration)
+			r.recordMCPServerCapabilitiesBlocked(name, diagnostic, "auth_required")
+			return nil
+		}
+		if isMCPElicitationRequiredError(err) {
+			req, reqErr := r.createMCPElicitationRequest(ctx, name, stableMCPCapabilityID(name, "server", ""), "MCP server requires runtime input before refresh can continue.", "MCP server reported that elicitation is required before refresh can continue.", decision)
+			if reqErr != nil {
+				return reqErr
+			}
+			diagnostic := "MCP server refresh is blocked by elicitation request " + req.ID
+			r.publishMCPServerEvent(runtimeapi.EventMCPServerBlocked, name, mcpServerStateFailed, diagnostic, "elicitation_required")
+			r.writeMCPAudit("server_refresh_elicitation_required", name, "", "server", "blocked", decision, diagnostic, duration)
+			r.recordMCPServerCapabilitiesBlocked(name, diagnostic, "elicitation_required")
+			return nil
 		}
 		r.publishMCPServerEvent(failEvent, name, mcpServerStateFailed, err.Error(), "connect_failed")
 		r.writeMCPAudit("server_refresh_failed", name, "", "server", "failed", decision, err.Error(), duration)
@@ -280,6 +320,38 @@ func (r *runtimeService) recordMCPServerCapabilitiesFailed(server, errText strin
 			UpdatedAt:   time.Now().UnixMilli(),
 		})
 		r.recordCapabilityLoad(capability, capabilityStateFailed, capability.Reason, errText, durationMS)
+	}
+}
+
+func (r *runtimeService) recordMCPServerCapabilitiesBlocked(server, diagnostic, reason string) {
+	capabilities := r.mcpCapabilitiesForServer(server)
+	if len(capabilities) == 0 {
+		capabilities = []RuntimeCapability{{
+			ID:      "mcp_server:" + server,
+			Kind:    "mcp_server",
+			Name:    server,
+			Source:  server,
+			Enabled: true,
+			Risk:    "network",
+			State:   capabilityStateFailed,
+		}}
+	}
+	for _, capability := range capabilities {
+		if !capability.Enabled {
+			continue
+		}
+		capability.State = capabilityStateFailed
+		capability.Error = diagnostic
+		capability.Diagnostics = diagnostic
+		capability.Reason = reason
+		r.setCapabilityLoadRecord(capability.ID, runtimeCapabilityLoadRecord{
+			State:       capabilityStateFailed,
+			Diagnostics: capability.Diagnostics,
+			Error:       capability.Error,
+			Reason:      capability.Reason,
+			UpdatedAt:   time.Now().UnixMilli(),
+		})
+		r.recordCapabilityLoad(capability, capabilityStateFailed, capability.Reason, diagnostic, 0)
 	}
 }
 
@@ -814,6 +886,32 @@ func shouldRedact(key, value string) bool {
 	normalized := strings.ToLower(strings.ReplaceAll(key+" "+value, "-", "_"))
 	for _, marker := range []string{"authorization", "api_key", "apikey", "token", "secret", "password", "credential", "access_key", "private_key", "proxy", "bearer "} {
 		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isMCPAuthRequiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	for _, marker := range []string{"auth required", "authentication required", "authorization required", "oauth required", "unauthorized", "401"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func isMCPElicitationRequiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	for _, marker := range []string{"elicitation required", "user input required", "ask user", "requires input", "request for input"} {
+		if strings.Contains(text, marker) {
 			return true
 		}
 	}

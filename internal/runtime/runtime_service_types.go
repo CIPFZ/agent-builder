@@ -76,6 +76,10 @@ type RuntimeService interface {
 	MCPTools(context.Context, string) (RuntimeMCPToolsResponse, error)
 	MCPResources(context.Context, string) (RuntimeMCPResourcesResponse, error)
 	MCPPrompts(context.Context, string) (RuntimeMCPPromptsResponse, error)
+	MCPRequests(context.Context, RuntimeMCPRequestListRequest) (RuntimeMCPRequestsResponse, error)
+	MCPRequest(context.Context, string) (RuntimeMCPRequestResponse, error)
+	DecideMCPRequest(context.Context, RuntimeMCPRequestDecision) (RuntimeMCPRequestResponse, error)
+	RetryMCPServer(context.Context, string) (RuntimeMCPServersResponse, error)
 	Capabilities(context.Context) (RuntimeCapabilitiesResponse, error)
 	RefreshCapability(context.Context, string) (RuntimeCapabilityResponse, error)
 	SearchTools(context.Context, RuntimeToolSearchRequest) (RuntimeToolSearchResponse, error)
@@ -107,6 +111,7 @@ type runtimeService struct {
 	turns             runtimeTurnStore
 	eventStore        runtimeEventStore
 	permissionStore   runtimePermissionStore
+	mcpRequestStore   runtimeMCPRequestStore
 	permissions       map[string]pendingRuntimePermission
 	policy            RuntimePolicy
 	capabilityLoads   map[string]runtimeCapabilityLoadRecord

@@ -392,6 +392,27 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/mcp/servers/") && strings.HasSuffix(r.URL.Path, "/prompts"):
 		value, err := s.service.MCPPrompts(r.Context(), trimPathID(r.URL.Path, "/v1/mcp/servers/", "/prompts"))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/mcp/requests":
+		value, err := s.service.MCPRequests(r.Context(), RuntimeMCPRequestListRequest{
+			Kind:   r.URL.Query().Get("kind"),
+			Status: r.URL.Query().Get("status"),
+			Server: r.URL.Query().Get("server"),
+		})
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && mcpRequestPathID(r.URL.Path) != "":
+		value, err := s.service.MCPRequest(r.Context(), mcpRequestPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && mcpRequestDecisionPathID(r.URL.Path) != "":
+		var req RuntimeMCPRequestDecision
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		req.RequestID = mcpRequestDecisionPathID(r.URL.Path)
+		value, err := s.service.DecideMCPRequest(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/mcp/servers/") && strings.HasSuffix(r.URL.Path, "/retry"):
+		value, err := s.service.RetryMCPServer(r.Context(), trimPathID(r.URL.Path, "/v1/mcp/servers/", "/retry"))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/capabilities":
 		value, err := s.service.Capabilities(r.Context())
 		writeRuntimeResult(w, value, err)
@@ -540,6 +561,21 @@ func decodeRuntimeJSON(w http.ResponseWriter, r *http.Request, target any) bool 
 
 func permissionDecisionPath(path string) string {
 	return trimPathID(path, "/v1/permissions/", "/decision")
+}
+
+func mcpRequestDecisionPathID(path string) string {
+	return trimPathID(path, "/v1/mcp/requests/", "/decision")
+}
+
+func mcpRequestPathID(path string) string {
+	if strings.HasSuffix(path, "/decision") {
+		return ""
+	}
+	id := strings.TrimPrefix(path, "/v1/mcp/requests/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
 }
 
 func sessionMessagesPathID(path string) string {

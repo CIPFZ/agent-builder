@@ -72,6 +72,10 @@ var Endpoints = []Endpoint{
 	{Method: MethodPost, Path: "/v1/mcp/servers/{server_name}/tools/{tool_name}/enabled"},
 	{Method: MethodGet, Path: "/v1/mcp/servers/{server_name}/resources"},
 	{Method: MethodGet, Path: "/v1/mcp/servers/{server_name}/prompts"},
+	{Method: MethodGet, Path: "/v1/mcp/requests"},
+	{Method: MethodGet, Path: "/v1/mcp/requests/{request_id}"},
+	{Method: MethodPost, Path: "/v1/mcp/requests/{request_id}/decision"},
+	{Method: MethodPost, Path: "/v1/mcp/servers/{server_name}/retry"},
 	{Method: MethodGet, Path: "/v1/audit/turns/{turn_id}"},
 	{Method: MethodGet, Path: "/v1/audit/sessions/{session_id}"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/compact"},
@@ -164,10 +168,19 @@ const (
 	EventMCPServerStarting          = "mcp.server.starting"
 	EventMCPServerConnected         = "mcp.server.connected"
 	EventMCPServerFailed            = "mcp.server.failed"
+	EventMCPServerBlocked           = "mcp.server.blocked"
 	EventMCPServerDisabled          = "mcp.server.disabled"
 	EventMCPToolsUpdated            = "mcp.tools.updated"
 	EventMCPResourcesUpdated        = "mcp.resources.updated"
 	EventMCPPromptsUpdated          = "mcp.prompts.updated"
+	EventMCPAuthRequested           = "mcp.auth.requested"
+	EventMCPAuthCompleted           = "mcp.auth.completed"
+	EventMCPAuthDenied              = "mcp.auth.denied"
+	EventMCPAuthFailed              = "mcp.auth.failed"
+	EventMCPElicitationRequested    = "mcp.elicitation.requested"
+	EventMCPElicitationCompleted    = "mcp.elicitation.completed"
+	EventMCPElicitationDenied       = "mcp.elicitation.denied"
+	EventMCPElicitationFailed       = "mcp.elicitation.failed"
 	EventUsageUpdated               = "usage.updated"
 	EventAuditRecorded              = "audit.recorded"
 	EventSnapshotRequired           = "snapshot_required"
@@ -259,10 +272,19 @@ var EventTypes = []string{
 	EventMCPServerStarting,
 	EventMCPServerConnected,
 	EventMCPServerFailed,
+	EventMCPServerBlocked,
 	EventMCPServerDisabled,
 	EventMCPToolsUpdated,
 	EventMCPResourcesUpdated,
 	EventMCPPromptsUpdated,
+	EventMCPAuthRequested,
+	EventMCPAuthCompleted,
+	EventMCPAuthDenied,
+	EventMCPAuthFailed,
+	EventMCPElicitationRequested,
+	EventMCPElicitationCompleted,
+	EventMCPElicitationDenied,
+	EventMCPElicitationFailed,
 	EventUsageUpdated,
 	EventAuditRecorded,
 	EventSnapshotRequired,

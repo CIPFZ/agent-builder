@@ -255,6 +255,24 @@ export const wailsRuntime: AgentRuntime = {
     return response.servers
   },
 
+  async listMcpRequests(request = {}) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.MCPRequests(request)
+    return response.requests
+  },
+
+  async getMcpRequest(requestId) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.MCPRequest(requestId)
+    return response.request
+  },
+
+  async decideMcpRequest(request) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.DecideMCPRequest(request)
+    return response.request
+  },
+
   async listMcpResources(server) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.MCPResources(server)
@@ -353,6 +371,12 @@ export const wailsRuntime: AgentRuntime = {
   async refreshMcpServer(server) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.RefreshMCPServer(server)
+    return response.servers
+  },
+
+  async retryMcpServer(server) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.RetryMCPServer(server)
     return response.servers
   },
 

@@ -479,6 +479,58 @@ type RuntimePermissionDecision struct {
 	Action       string `json:"action"`
 }
 
+type RuntimeMCPRequest struct {
+	ID                   string `json:"id"`
+	Kind                 string `json:"kind"`
+	Server               string `json:"server"`
+	CapabilityID         string `json:"capabilityId,omitempty"`
+	SessionID            string `json:"sessionId,omitempty"`
+	TurnID               string `json:"turnId,omitempty"`
+	Status               string `json:"status"`
+	Prompt               string `json:"prompt,omitempty"`
+	Description          string `json:"description,omitempty"`
+	ResponseSummary      string `json:"responseSummary,omitempty"`
+	PolicyMode           string `json:"policyMode,omitempty"`
+	PolicyProfile        string `json:"policyProfile,omitempty"`
+	PolicyDecision       string `json:"policyDecision,omitempty"`
+	PolicyReason         string `json:"policyReason,omitempty"`
+	PolicyRisk           string `json:"policyRisk,omitempty"`
+	PolicyRuleID         string `json:"policyRuleId,omitempty"`
+	PolicyRuleSource     string `json:"policyRuleSource,omitempty"`
+	PolicyScopeKind      string `json:"policyScopeKind,omitempty"`
+	PolicyScopeValue     string `json:"policyScopeValue,omitempty"`
+	PolicyTargetSummary  string `json:"policyTargetSummary,omitempty"`
+	PolicyHeadless       bool   `json:"policyHeadless,omitempty"`
+	PolicyHeadlessReason string `json:"policyHeadlessReason,omitempty"`
+	CreatedAt            int64  `json:"createdAt"`
+	UpdatedAt            int64  `json:"updatedAt"`
+	ExpiresAt            int64  `json:"expiresAt,omitempty"`
+	CompletedAt          int64  `json:"completedAt,omitempty"`
+	Error                string `json:"error,omitempty"`
+	Redacted             bool   `json:"redacted"`
+}
+
+type RuntimeMCPRequestsResponse struct {
+	Requests []RuntimeMCPRequest `json:"requests"`
+}
+
+type RuntimeMCPRequestResponse struct {
+	Request RuntimeMCPRequest `json:"request"`
+}
+
+type RuntimeMCPRequestListRequest struct {
+	Kind   string `json:"kind,omitempty"`
+	Status string `json:"status,omitempty"`
+	Server string `json:"server,omitempty"`
+}
+
+type RuntimeMCPRequestDecision struct {
+	RequestID       string `json:"requestId"`
+	Action          string `json:"action"`
+	ResponseSummary string `json:"responseSummary,omitempty"`
+	Error           string `json:"error,omitempty"`
+}
+
 type RuntimePolicy struct {
 	Mode        string                    `json:"mode"`
 	Modes       []string                  `json:"modes"`
@@ -589,6 +641,7 @@ type RuntimeReplayExportSummary struct {
 	Capabilities       RuntimeReplayLifecycle        `json:"capabilities,omitempty"`
 	Skills             RuntimeReplayLifecycle        `json:"skills,omitempty"`
 	MCP                RuntimeReplayLifecycle        `json:"mcp,omitempty"`
+	MCPRequests        []RuntimeReplayMCPRequest     `json:"mcpRequests,omitempty"`
 	AgentTaskMessages  []RuntimeAgentTaskMessage     `json:"agentTaskMessages,omitempty"`
 	AgentTaskResults   []RuntimeAgentTaskResult      `json:"agentTaskResults,omitempty"`
 	AgentTaskArtifacts []string                      `json:"agentTaskArtifacts,omitempty"`
@@ -661,9 +714,27 @@ type RuntimeReplayPermission struct {
 	Reason       string `json:"reason,omitempty"`
 }
 
+type RuntimeReplayMCPRequest struct {
+	RequestID      string `json:"requestId,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+	Server         string `json:"server,omitempty"`
+	CapabilityID   string `json:"capabilityId,omitempty"`
+	SessionID      string `json:"sessionId,omitempty"`
+	TurnID         string `json:"turnId,omitempty"`
+	Status         string `json:"status,omitempty"`
+	Decision       string `json:"decision,omitempty"`
+	Error          string `json:"error,omitempty"`
+	PolicyDecision string `json:"policyDecision,omitempty"`
+	PolicyMode     string `json:"policyMode,omitempty"`
+	PolicyProfile  string `json:"policyProfile,omitempty"`
+	PolicyReason   string `json:"policyReason,omitempty"`
+	Redacted       bool   `json:"redacted"`
+}
+
 type RuntimeReplayRecovery struct {
 	SnapshotRequired   bool  `json:"snapshotRequired,omitempty"`
 	PendingPermissions int   `json:"pendingPermissions,omitempty"`
+	PendingMCPRequests int   `json:"pendingMcpRequests,omitempty"`
 	ActiveTurns        int   `json:"activeTurns,omitempty"`
 	InterruptedTurns   int   `json:"interruptedTurns,omitempty"`
 	LastEventSequence  int64 `json:"lastEventSequence,omitempty"`
@@ -752,6 +823,7 @@ type RuntimeRecoveryStatus struct {
 	CompactBoundaries  []RuntimeCompactBoundary   `json:"compact_boundaries,omitempty"`
 	Worktrees          []RuntimeWorktree          `json:"worktrees,omitempty"`
 	PendingPermissions []RuntimePermissionRequest `json:"pending_permissions"`
+	PendingMCPRequests []RuntimeMCPRequest        `json:"pending_mcp_requests,omitempty"`
 	SnapshotRequired   bool                       `json:"snapshot_required,omitempty"`
 }
 

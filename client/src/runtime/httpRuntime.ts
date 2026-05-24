@@ -21,6 +21,9 @@ import type {
   RuntimeModel,
   RuntimeModelConfig,
   RuntimeModelVerifyResponse,
+  RuntimeMcpRequest,
+  RuntimeMcpRequestDecision,
+  RuntimeMcpRequestListRequest,
   RuntimePermissionDecision,
   RuntimePermissionRequest,
   RuntimePolicy,
@@ -275,6 +278,23 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
       const response = await get<{ servers: RuntimeMcpServer[] }>('/v1/mcp/servers')
       return response.servers
     },
+    async listMcpRequests(request: RuntimeMcpRequestListRequest = {}) {
+      const params = new URLSearchParams()
+      if (request.kind) params.set('kind', request.kind)
+      if (request.status) params.set('status', request.status)
+      if (request.server) params.set('server', request.server)
+      const query = params.toString()
+      const response = await get<{ requests: RuntimeMcpRequest[] }>(`/v1/mcp/requests${query ? `?${query}` : ''}`)
+      return response.requests
+    },
+    async getMcpRequest(requestId: string) {
+      const response = await get<{ request: RuntimeMcpRequest }>(`/v1/mcp/requests/${encodePath(requestId)}`)
+      return response.request
+    },
+    async decideMcpRequest(request: RuntimeMcpRequestDecision) {
+      const response = await post<{ request: RuntimeMcpRequest }>(`/v1/mcp/requests/${encodePath(request.requestId)}/decision`, request)
+      return response.request
+    },
     async listMcpResources(server: string) {
       const response = await get<{ resources: RuntimeMcpResource[] }>(`/v1/mcp/servers/${encodePath(server)}/resources`)
       return response.resources
@@ -350,6 +370,10 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     },
     async refreshMcpServer(server: string) {
       const response = await post<{ servers: RuntimeMcpServer[] }>(`/v1/mcp/servers/${encodePath(server)}/refresh`)
+      return response.servers
+    },
+    async retryMcpServer(server: string) {
+      const response = await post<{ servers: RuntimeMcpServer[] }>(`/v1/mcp/servers/${encodePath(server)}/retry`)
       return response.servers
     },
     async refreshSkills() {

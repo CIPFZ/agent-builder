@@ -2662,6 +2662,9 @@ type recordingRuntimeService struct {
 	recoveryStatus       RuntimeRecoveryStatus
 	skills               RuntimeSkillsResponse
 	mcpServers           RuntimeMCPServersResponse
+	mcpRequests          RuntimeMCPRequestsResponse
+	mcpRequest           RuntimeMCPRequestResponse
+	mcpRequestDecision   RuntimeMCPRequestDecision
 	capabilities         RuntimeCapabilitiesResponse
 	contextSources       RuntimeContextSourcesResponse
 	refreshedCapability  string
@@ -2997,6 +3000,23 @@ func (s *recordingRuntimeService) MCPResources(context.Context, string) (Runtime
 
 func (s *recordingRuntimeService) MCPPrompts(context.Context, string) (RuntimeMCPPromptsResponse, error) {
 	return RuntimeMCPPromptsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) MCPRequests(context.Context, RuntimeMCPRequestListRequest) (RuntimeMCPRequestsResponse, error) {
+	return s.mcpRequests, nil
+}
+
+func (s *recordingRuntimeService) MCPRequest(context.Context, string) (RuntimeMCPRequestResponse, error) {
+	return s.mcpRequest, nil
+}
+
+func (s *recordingRuntimeService) DecideMCPRequest(_ context.Context, req RuntimeMCPRequestDecision) (RuntimeMCPRequestResponse, error) {
+	s.mcpRequestDecision = req
+	return s.mcpRequest, nil
+}
+
+func (s *recordingRuntimeService) RetryMCPServer(context.Context, string) (RuntimeMCPServersResponse, error) {
+	return s.mcpServers, nil
 }
 
 func (s *recordingRuntimeService) Capabilities(context.Context) (RuntimeCapabilitiesResponse, error) {

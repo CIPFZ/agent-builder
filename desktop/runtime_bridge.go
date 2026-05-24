@@ -87,6 +87,11 @@ type RuntimeMCPResource = runtime.RuntimeMCPResource
 type RuntimeMCPResourcesResponse = runtime.RuntimeMCPResourcesResponse
 type RuntimeMCPPrompt = runtime.RuntimeMCPPrompt
 type RuntimeMCPPromptsResponse = runtime.RuntimeMCPPromptsResponse
+type RuntimeMCPRequest = runtime.RuntimeMCPRequest
+type RuntimeMCPRequestsResponse = runtime.RuntimeMCPRequestsResponse
+type RuntimeMCPRequestResponse = runtime.RuntimeMCPRequestResponse
+type RuntimeMCPRequestListRequest = runtime.RuntimeMCPRequestListRequest
+type RuntimeMCPRequestDecision = runtime.RuntimeMCPRequestDecision
 type RuntimeCapability = runtime.RuntimeCapability
 type RuntimeCapabilitiesResponse = runtime.RuntimeCapabilitiesResponse
 type RuntimeCapabilityResponse = runtime.RuntimeCapabilityResponse
@@ -469,6 +474,22 @@ func (r *RuntimeBridge) MCPPrompts(ctx context.Context, name string) (RuntimeMCP
 
 	return r.service.MCPPrompts(ctx, name)
 
+}
+
+func (r *RuntimeBridge) MCPRequests(ctx context.Context, req RuntimeMCPRequestListRequest) (RuntimeMCPRequestsResponse, error) {
+	return r.service.MCPRequests(ctx, req)
+}
+
+func (r *RuntimeBridge) MCPRequest(ctx context.Context, requestID string) (RuntimeMCPRequestResponse, error) {
+	return r.service.MCPRequest(ctx, requestID)
+}
+
+func (r *RuntimeBridge) DecideMCPRequest(ctx context.Context, req RuntimeMCPRequestDecision) (RuntimeMCPRequestResponse, error) {
+	return r.service.DecideMCPRequest(ctx, req)
+}
+
+func (r *RuntimeBridge) RetryMCPServer(ctx context.Context, name string) (RuntimeMCPServersResponse, error) {
+	return r.service.RetryMCPServer(ctx, name)
 }
 
 func (r *RuntimeBridge) Capabilities(ctx context.Context) (RuntimeCapabilitiesResponse, error) {

@@ -72,11 +72,30 @@ func TestRuntimeBridgeForwardsReplayExport(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsMCPRequestDecision(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	bridge := &RuntimeBridge{service: service}
+
+	resp, err := bridge.DecideMCPRequest(context.Background(), RuntimeMCPRequestDecision{RequestID: "mcp-req-1", Action: "approve"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.mcpRequestDecision.RequestID != "mcp-req-1" || service.mcpRequestDecision.Action != "approve" {
+		t.Fatalf("mcp decision = %#v", service.mcpRequestDecision)
+	}
+	if resp.Request.ID != "mcp-req-1" || resp.Request.Status != "completed" {
+		t.Fatalf("response = %#v", resp)
+	}
+}
+
 type recordingRuntimeService struct {
 	chatCalls           int
 	refreshedCapability string
 	toolSearchQuery     string
 	replayExportRequest runtime.RuntimeReplayExportRequest
+	mcpRequestDecision  runtime.RuntimeMCPRequestDecision
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -334,6 +353,23 @@ func (s *recordingRuntimeService) MCPResources(context.Context, string) (Runtime
 
 func (s *recordingRuntimeService) MCPPrompts(context.Context, string) (RuntimeMCPPromptsResponse, error) {
 	return RuntimeMCPPromptsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) MCPRequests(context.Context, RuntimeMCPRequestListRequest) (RuntimeMCPRequestsResponse, error) {
+	return RuntimeMCPRequestsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) MCPRequest(context.Context, string) (RuntimeMCPRequestResponse, error) {
+	return RuntimeMCPRequestResponse{}, nil
+}
+
+func (s *recordingRuntimeService) DecideMCPRequest(_ context.Context, req RuntimeMCPRequestDecision) (RuntimeMCPRequestResponse, error) {
+	s.mcpRequestDecision = req
+	return RuntimeMCPRequestResponse{Request: RuntimeMCPRequest{ID: req.RequestID, Status: "completed", Redacted: true}}, nil
+}
+
+func (s *recordingRuntimeService) RetryMCPServer(context.Context, string) (RuntimeMCPServersResponse, error) {
+	return RuntimeMCPServersResponse{}, nil
 }
 
 func (s *recordingRuntimeService) Capabilities(context.Context) (RuntimeCapabilitiesResponse, error) {

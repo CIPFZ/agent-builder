@@ -329,6 +329,64 @@ export type RuntimePermissionDecision = {
   action: 'allow' | 'allow_session' | 'deny'
 }
 
+export type RuntimeMcpRequestKind = 'auth' | 'elicitation' | string
+export type RuntimeMcpRequestStatus =
+  | 'none'
+  | 'not_required'
+  | 'required'
+  | 'pending'
+  | 'approved'
+  | 'completed'
+  | 'denied'
+  | 'failed'
+  | 'expired'
+  | 'cancelled'
+  | string
+
+export type RuntimeMcpRequest = {
+  id: string
+  kind: RuntimeMcpRequestKind
+  server: string
+  capabilityId?: string
+  sessionId?: string
+  turnId?: string
+  status: RuntimeMcpRequestStatus
+  prompt?: string
+  description?: string
+  responseSummary?: string
+  policyMode?: string
+  policyProfile?: string
+  policyDecision?: string
+  policyReason?: string
+  policyRisk?: string
+  policyRuleId?: string
+  policyRuleSource?: string
+  policyScopeKind?: string
+  policyScopeValue?: string
+  policyTargetSummary?: string
+  policyHeadless?: boolean
+  policyHeadlessReason?: string
+  createdAt: number
+  updatedAt: number
+  expiresAt?: number
+  completedAt?: number
+  error?: string
+  redacted: boolean
+}
+
+export type RuntimeMcpRequestListRequest = {
+  kind?: RuntimeMcpRequestKind
+  status?: RuntimeMcpRequestStatus
+  server?: string
+}
+
+export type RuntimeMcpRequestDecision = {
+  requestId: string
+  action: 'approve' | 'complete' | 'answer' | 'submit' | 'deny' | 'cancel' | 'fail' | string
+  responseSummary?: string
+  error?: string
+}
+
 export type RuntimePolicyMode = 'ask' | 'auto_read' | 'plan' | 'deny_all'
 export type RuntimePolicyDecision = 'allow' | 'ask' | 'deny'
 
@@ -464,9 +522,27 @@ export type RuntimeReplayPermission = {
   reason?: string
 }
 
+export type RuntimeReplayMcpRequest = {
+  requestId?: string
+  kind?: string
+  server?: string
+  capabilityId?: string
+  sessionId?: string
+  turnId?: string
+  status?: string
+  decision?: string
+  error?: string
+  policyDecision?: string
+  policyMode?: string
+  policyProfile?: string
+  policyReason?: string
+  redacted: boolean
+}
+
 export type RuntimeReplayRecovery = {
   snapshotRequired?: boolean
   pendingPermissions?: number
+  pendingMcpRequests?: number
   activeTurns?: number
   interruptedTurns?: number
   lastEventSequence?: number
@@ -481,6 +557,7 @@ export type RuntimeReplayExportSummary = {
   capabilities?: RuntimeReplayLifecycle
   skills?: RuntimeReplayLifecycle
   mcp?: RuntimeReplayLifecycle
+  mcpRequests?: RuntimeReplayMcpRequest[]
   agentTaskMessages?: RuntimeAgentTaskMessage[]
   agentTaskResults?: RuntimeAgentTaskResult[]
   agentTaskArtifacts?: string[]
@@ -519,6 +596,7 @@ export type RuntimeRecoveryStatus = {
   compact_boundaries?: RuntimeCompactBoundary[]
   worktrees?: RuntimeWorktree[]
   pending_permissions: RuntimePermissionRequest[]
+  pending_mcp_requests?: RuntimeMcpRequest[]
   snapshot_required?: boolean
 }
 
@@ -954,6 +1032,9 @@ export type AgentRuntime = {
   listContextSources: () => Promise<RuntimeContextSource[]>
   listEvents: (after?: number) => Promise<RuntimeEventsResponse>
   listMcpServers: () => Promise<RuntimeMcpServer[]>
+  listMcpRequests: (request?: RuntimeMcpRequestListRequest) => Promise<RuntimeMcpRequest[]>
+  getMcpRequest: (requestId: string) => Promise<RuntimeMcpRequest>
+  decideMcpRequest: (request: RuntimeMcpRequestDecision) => Promise<RuntimeMcpRequest>
   listMcpResources: (server: string) => Promise<RuntimeMcpResource[]>
   listMcpPrompts: (server: string) => Promise<RuntimeMcpPrompt[]>
   listMcpTools: (server: string) => Promise<RuntimeMcpTool[]>
@@ -976,6 +1057,7 @@ export type AgentRuntime = {
   createSkill: (request: RuntimeSkillCreateRequest) => Promise<RuntimeSkill[]>
   newChat: (title: string) => Promise<RuntimeStatus>
   refreshMcpServer: (server: string) => Promise<RuntimeMcpServer[]>
+  retryMcpServer: (server: string) => Promise<RuntimeMcpServer[]>
   refreshSkills: () => Promise<RuntimeSkill[]>
   saveModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelConfig>
   updatePolicy: (mode: RuntimePolicyMode, rules?: RuntimePolicyRule[], profile?: string) => Promise<RuntimePolicy>

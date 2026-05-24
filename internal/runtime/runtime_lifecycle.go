@@ -85,6 +85,7 @@ func (r *runtimeService) restart() {
 	r.turns = runtimeTurnStore{}
 	r.eventStore = runtimeEventStore{}
 	r.permissionStore = runtimePermissionStore{}
+	r.mcpRequestStore = runtimeMCPRequestStore{}
 	r.permissions = make(map[string]pendingRuntimePermission)
 	r.policy = defaultRuntimePolicy()
 	r.capabilityLoads = make(map[string]runtimeCapabilityLoadRecord)
@@ -209,6 +210,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	r.agentTasks = newRuntimeAgentTaskStore(conn)
 	r.eventStore = newRuntimeEventStore(conn)
 	r.permissionStore = newRuntimePermissionStore(conn)
+	r.mcpRequestStore = newRuntimeMCPRequestStore(conn)
 	if maxSequence, err := r.eventStore.MaxSequence(ctx); err != nil {
 		return fmt.Errorf("failed to recover runtime event sequence: %w", err)
 	} else if maxSequence > r.nextEventSequence {

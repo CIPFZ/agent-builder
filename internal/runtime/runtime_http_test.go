@@ -116,6 +116,57 @@ func TestRuntimeHTTPServerRoutesRecoveryStatusToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesMCPRequestsToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		mcpRequests: RuntimeMCPRequestsResponse{Requests: []RuntimeMCPRequest{{
+			ID:       "mcp-req-1",
+			Kind:     "auth",
+			Server:   "docs",
+			Status:   "pending",
+			Redacted: true,
+		}}},
+		mcpRequest: RuntimeMCPRequestResponse{Request: RuntimeMCPRequest{
+			ID:       "mcp-req-1",
+			Kind:     "auth",
+			Server:   "docs",
+			Status:   "completed",
+			Redacted: true,
+		}},
+	}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodGet, "/v1/mcp/requests?kind=auth&status=pending&server=docs", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("list status = %d body = %s", resp.status, resp.body.String())
+	}
+	var list RuntimeMCPRequestsResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Requests) != 1 || list.Requests[0].ID != "mcp-req-1" {
+		t.Fatalf("list = %#v", list)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, "/v1/mcp/requests/mcp-req-1/decision", strings.NewReader(`{"action":"approve","responseSummary":"approved"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("decision status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.mcpRequestDecision.RequestID != "mcp-req-1" || service.mcpRequestDecision.Action != "approve" {
+		t.Fatalf("decision = %#v", service.mcpRequestDecision)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesPolicyToRuntimeService(t *testing.T) {
 	t.Parallel()
 
