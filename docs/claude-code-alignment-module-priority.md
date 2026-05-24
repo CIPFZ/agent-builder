@@ -5,6 +5,8 @@ The detailed roadmap is maintained in
 [`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md),
 the commit-ready implementation boundaries are maintained in
 [`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md),
+the React product UI plan is maintained in
+[`docs/claude-client-inspired-ui-plan.md`](./claude-client-inspired-ui-plan.md),
 and the current full parity source is
 [`docs/claude-code-runtime-parity-audit.md`](./claude-code-runtime-parity-audit.md).
 
@@ -39,9 +41,24 @@ React is a thin client surface. It must not become the business state source.
 Go runtime is the source of truth. Wails is an adapter. CLI/TUI compatibility is
 legacy and must not be restored as the product main path.
 
-## Recommended Next Module
+## Recommended Next Modules
 
-The next implementation module should be:
+The next product implementation module should be:
+
+```text
+Claude-client-inspired React shell / information architecture
+```
+
+Reason: the current runtime foundation is strong enough for a better
+conversation-first desktop client without inventing business facts in React.
+The client should reference the Claude web/desktop chat client for product
+experience and layout, while Claude Code remains the runtime primitive
+reference. The UI plan must not copy Claude branding, logos, trademarks, or
+proprietary visual assets, and it must mark missing compact, artifact,
+task-messaging, scoped-policy, worktree, replay, and tool-search surfaces as
+`Blocked by runtime API`.
+
+The next runtime implementation module should be:
 
 ```text
 Compact lifecycle foundation
@@ -84,11 +101,13 @@ capability registry metadata, scoped policy, and model-facing tool search.
 
 ## Roadmap Pointer
 
-Use [`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md)
-and [`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md)
+Use [`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md),
+[`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md),
+and [`docs/claude-client-inspired-ui-plan.md`](./claude-client-inspired-ui-plan.md)
 for the next session. Together they contain:
 
 - completed capability baseline,
+- Claude-client-inspired React shell planning,
 - remaining Claude Code gaps,
 - compact/tool search/policy/task priority order,
 - P0/P1/P2/P3 priority map,

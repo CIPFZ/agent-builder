@@ -5,6 +5,7 @@ current Agent Builder runtime on `main` and the latest parity audit:
 
 - [`docs/claude-code-runtime-parity-audit.md`](./claude-code-runtime-parity-audit.md)
 - [`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md)
+- [`docs/claude-client-inspired-ui-plan.md`](./claude-client-inspired-ui-plan.md)
 
 Related boundary references:
 
@@ -16,6 +17,7 @@ Related boundary references:
 - [`docs/client-state-recovery.md`](./client-state-recovery.md)
 - [`docs/archive/phase-2-runtime-api-boundary.md`](./archive/phase-2-runtime-api-boundary.md)
 - [`docs/client-architecture-and-core-flow.md`](./client-architecture-and-core-flow.md)
+- [`docs/client-information-architecture.md`](./client-information-architecture.md)
 
 ## Fixed Principles
 
@@ -37,6 +39,13 @@ Related boundary references:
   event stitching.
 - Model-assisted permission can only be advisory. The model must never approve
   its own high-risk action.
+- Claude Code remains the runtime primitive reference. The React client should
+  reference Claude's web/desktop chat client product experience, not Claude
+  Code CLI/TUI.
+- Claude-client-inspired UI means information architecture, layout,
+  interaction flow, status presentation, and detail surfaces. It must not copy
+  Claude branding, logos, trademarks, proprietary visual assets, or product
+  surfaces.
 
 ## Current Baseline
 
@@ -72,7 +81,8 @@ weight, and blast radius.
 | P0 | Runtime spine: Turn, ToolCall, Event, Audit, Recovery | Completed | Already present; keep stable while adding lifecycle modules. |
 | P0 | Deterministic PermissionPolicy baseline | Partial completed | Existing ask/auto_read/plan/deny_all modes are enough for compact and budget foundations. |
 | P0 | Capability registry states and refresh | Partial completed | Existing inventory is enough to start budget/search metadata. |
-| P1 Next | Compact / context budget lifecycle foundation | Next | Largest missing runtime primitive; unlocks long sessions, prompt budget, auto compact, replay, and safer AgentTasks. |
+| P1 Next | Claude-client-inspired React shell / information architecture | Next | Existing sessions, messages, turns, permissions, settings, skills, MCP, capabilities, audit, and recovery APIs are enough to align the core product shell without inventing runtime facts. |
+| P1 Parallel | Compact / context budget lifecycle foundation | Runtime parallel | Largest missing runtime primitive; unlocks long sessions, prompt budget, auto compact, replay, and safer AgentTasks. |
 | P1 Parallel | Tool search / discovery / deadlock avoidance | Parallel after compact boundary starts | Needed before plugin/tool surface growth; depends on capability metadata and budget accounting. |
 | P1 Parallel | Scoped policy rules and shell safety | Parallel after compact boundary starts | Needed to enforce tools/MCP/skills/subagents/cwd/shell deterministically. |
 | P1 Parallel | Observability / evals / replay harness | Parallel safety net | Should begin early as a local scenario harness for compact, policy, tool, MCP, and recovery regressions. |
@@ -89,14 +99,67 @@ weight, and blast radius.
 
 ## First Recommended Implementation Module
 
-Implement `Compact / context budget lifecycle foundation` next.
+Implement `Claude-client-inspired React shell / information architecture` next,
+while starting `Compact / context budget lifecycle foundation` as the first
+runtime parallel track.
+
+The product reason is simple: Agent Builder already has enough runtime API to
+support a conversation-first desktop client that feels like a modern Claude
+web/desktop client rather than a terminal tool. The runtime reason is equally
+strict: the UI can only render facts that already come from Go. Any UI surface
+that needs missing compact, task messaging, policy-scope, worktree, replay, or
+artifact APIs must be marked `Blocked by runtime API`.
+
+Existing runtime API enough for the first UI shell:
+
+- Sessions and active session messages.
+- Turn creation, active turn status, cancellation, and recovery status.
+- Permission list and decision submission.
+- Runtime model settings and policy mode.
+- Skills, MCP servers/resources/prompts/tools, and capability inventory.
+- AgentTask summaries and cancellation.
+- Audit by turn/session.
+- SSE/event subscription with refresh-from-API behavior.
+
+Blocked UI capabilities:
+
+- Compact/context budget warnings and compact boundary history.
+- Tool search/discovery selection details and scheduler deadlock diagnostics.
+- Structured parent/child agent communication, task messages, and task
+  artifacts.
+- Durable artifact/detail drawer beyond current tool/task summaries.
+- Scoped policy rule editor and policy precedence diagnostics.
+- Worktree/sandbox/remote isolation controls and cleanup states.
+- Replay/export views beyond current audit/event foundations.
+
+First UI implementation boundary:
+
+- First screen: conversation-first chat workspace, not settings or a marketing
+  page.
+- Navigation: left session/project/sidebar with search/new/resume and runtime
+  feature entries for capabilities, skills, MCP, diagnostics, and settings.
+- Center: chat timeline with message, turn, tool, permission, task, plan/todo,
+  recovery, and status presentation from runtime DTOs.
+- Composer: attachment/model/status affordances shaped like a desktop chat
+  client; attachments and unavailable actions stay disabled or hidden until
+  runtime APIs exist.
+- Right drawer/panel: reusable detail surface for audit, tool/task details,
+  artifacts, model/settings, MCP/skills/capability diagnostics, and permission
+  review. Missing data is displayed as blocked, not fabricated.
+- Settings: provider/model/policy configuration over fantasy; no provider
+  rewrite and no fantasy changes.
+
+Detailed UI planning is in
+[`docs/claude-client-inspired-ui-plan.md`](./claude-client-inspired-ui-plan.md).
+
+## First Runtime Module
 
 Start with durable compact boundaries and budget accounting, then add micro
 compact. Do not begin with full summarization or auto compact. The first pass
 should prove the runtime can record a compact boundary, preserve message and
 ToolCall invariants, emit compact events/audit, and expose budget diagnostics.
 
-Why compact now:
+Why compact remains the first runtime module:
 
 - The runtime already has turns, ToolCalls, audit, recovery, context source
   audit, read-file state, and AgentTask persistence as foundations.
@@ -110,7 +173,7 @@ Why compact now:
 - Recovery and replay need compact boundaries to explain why transcript content
   was summarized, replaced, or reinjected.
 
-Why not the other candidates first:
+Why not the other runtime candidates first:
 
 - Tool search is high priority, but without budget accounting it cannot explain
   prompt pressure or prove selection savings.
@@ -126,11 +189,22 @@ Why not the other candidates first:
 - Adaptive/model-assisted permission advisor must wait for deterministic scopes
   and policy eval fixtures because it is advisory only.
 
+Why UI shell can move first:
+
+- It is mostly presentation, information architecture, and interaction flow over
+  existing runtime facts.
+- It clarifies which runtime APIs are actually blocking the Claude-client-style
+  product experience.
+- It does not increase runtime autonomy or permission risk.
+- It gives compact, policy, tool search, and AgentTask work explicit client
+  surfaces to target.
+
 ## Candidate Comparison
 
 | Candidate | Priority | Decision |
 | --- | --- | --- |
-| Compact / context budget lifecycle | P1 Next | First module. Add boundary, budget, events, audit, micro compact, then full/auto/reinjection. |
+| Claude-client-inspired React shell / information architecture | P1 Next | First product module. Align shell, sidebar, timeline, composer, drawers, settings, and recovery surfaces with Claude-client-style chat UX using existing runtime APIs only. |
+| Compact / context budget lifecycle | P1 Parallel runtime | First runtime module. Add boundary, budget, events, audit, micro compact, then full/auto/reinjection. |
 | Tool search / discovery / deadlock avoidance | P1 Parallel | Start after compact boundary and budget DTOs are drafted; keep in scheduler/runtime. |
 | Agent coordinator / agent communication | P2 | Wait for compact, policy scopes, and task role enforcement. |
 | Provider/model configuration on fantasy | P2 | Keep above fantasy; add health/capability diagnostics later. |
@@ -143,13 +217,19 @@ Why not the other candidates first:
 
 ```mermaid
 graph TD
-  SP["Completed: Runtime spine"] --> CB["Next P1: Compact boundary"]
+  SP["Completed: Runtime spine"] --> UI["Next P1: Claude-client-inspired React shell"]
+  SP --> CB["Parallel P1 runtime: Compact boundary"]
   SP --> PS["Parallel P1: Scoped policy"]
   SP --> EV["Parallel P1: Scenario eval/replay"]
   SP --> TS["Parallel P1: Tool search"]
+  BASEUI["Completed/Partial: current chat, settings, permissions, audit, skills, MCP panels"] --> UI
 
   CTX["Completed/Partial: Context sources + read-file state"] --> CB
   AUD["Completed: Audit + event cursor"] --> CB
+  AUD --> UI
+  CAP --> UI
+  PS --> UI
+  UI --> UIDETAIL["Parallel: detail drawers/panels"]
   TC["Completed: ToolCall store/output summaries"] --> MC["Next P1: Micro compact"]
   CB --> BUD["Next P1: Context + prompt/tool budget"]
   CB --> MC
@@ -175,6 +255,9 @@ graph TD
   MS --> PKG["Later P3: Capability package/plugin governance"]
   PS --> ADV["Later P3: Model-assisted permission advisor"]
   EV --> DIAG["P2: React diagnostics/audit deepening"]
+  CB --> UICB["Blocked UI: budget/compact warnings"]
+  TS --> UITS["Blocked UI: tool search details"]
+  AT --> UITASK["Blocked UI: task communication panel"]
   CB --> EV
   PS --> EV
   TS --> EV
@@ -192,9 +275,12 @@ graph TD
 Detailed implementation boundaries, API/event schema notes, data-model impact,
 test requirements, risks, dependencies, and acceptance criteria are in
 [`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md).
+Claude-client-inspired React IA and UI boundaries are in
+[`docs/claude-client-inspired-ui-plan.md`](./claude-client-inspired-ui-plan.md).
 
 The implementation plan covers:
 
+- Claude-client-inspired React shell and blocked-by-runtime UI surfaces.
 - Compact / context budget lifecycle.
 - Tool search / discovery / deadlock avoidance.
 - Agent coordinator / agent communication.
@@ -210,50 +296,54 @@ The implementation plan covers:
 
 Recommended future implementation commits:
 
-1. `runtime: record compact boundaries`
+1. `client: align shell with Claude-client-style chat IA`
+   - Scope: app shell, sidebar/session/project navigation, chat timeline
+     grouping, composer affordance layout, drawer routing, settings entry
+     points. Consume existing runtime DTOs only.
+   - Main tests: client build/type checks and smoke checks for session load,
+     send/cancel, permission review, settings, capabilities, and audit drawer.
+
+2. `runtime: record compact boundaries`
    - Scope: compact DTO/store, event names, audit records, read APIs.
    - Main tests: compact store tests, event/audit redaction tests, no-op
      boundary recovery tests.
 
-2. `runtime: add context and prompt budget accounting`
+3. `runtime: add context and prompt budget accounting`
    - Scope: count context sources, messages, tool schemas, skills, MCP, and
      tool outputs.
    - Main tests: deterministic budget table tests and turn audit summaries.
 
-3. `runtime: add micro compact output replacement`
+4. `runtime: add micro compact output replacement`
    - Scope: replace old high-cost tool outputs with summaries/refs while
      preserving model protocol invariants.
    - Main tests: ToolCall/message invariant tests and compact audit tests.
 
-4. `runtime: expose tool search metadata`
+5. `runtime: expose tool search metadata`
    - Scope: searchable tool/capability descriptions, discovery API/tool shape,
      selection audit.
    - Main tests: budget-driven omission/selection tests and policy-denied search
      tests.
 
-5. `runtime: add scheduler deadlock limits`
+6. `runtime: add scheduler deadlock limits`
    - Scope: recursion, nested tool, agent recursion, and concurrency guardrails.
    - Main tests: scheduler scenario tests for recursion and cancellation.
 
-6. `runtime: add scoped permission rules`
+7. `runtime: add scoped permission rules`
    - Scope: deterministic rules for tool, MCP, skill, subagent, cwd, and shell
      prefix/regex.
    - Main tests: policy table tests and runtime permission scenarios.
 
-7. `runtime: harden shell policy classification`
+8. `runtime: harden shell policy classification`
    - Scope: Bash/PowerShell high-risk parsing beyond regex-only destructive
      detection.
    - Main tests: shell read/write/destructive regression fixtures.
 
-8. `runtime: enforce agent task scopes`
-   - Scope: role definitions and model/tool/cwd/capability scope enforcement on
-     child sessions.
-   - Main tests: scope denial, cancellation, child session linkage, task audit.
-
-9. `runtime: add parent child agent messaging`
-   - Scope: structured progress/result/artifact protocol and parent
-     notification channel.
-   - Main tests: parent/child transcript and artifact reference scenarios.
+9. `runtime: enforce agent task scopes and messaging`
+   - Scope: role definitions, model/tool/cwd/capability scope enforcement,
+     structured progress/result/artifact protocol, and parent notification
+     channel.
+   - Main tests: scope denial, cancellation, child session linkage, task audit,
+     parent/child transcript, and artifact reference scenarios.
 
 10. `runtime: add scenario eval replay harness`
     - Scope: local golden scenarios for compact, policy, MCP, skills, tasks,
@@ -267,6 +357,7 @@ Follow-up after these commits:
 - `runtime: add auto compact trigger`
 - `runtime: add local capability package governance`
 - `runtime: add advisory permission advisor`
+- `client: expose compact and task diagnostics from runtime APIs`
 
 ## Not Needed / Later
 

@@ -9,6 +9,7 @@ Primary inputs:
 
 - [`docs/claude-code-runtime-parity-audit.md`](./claude-code-runtime-parity-audit.md)
 - [`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md)
+- [`docs/claude-client-inspired-ui-plan.md`](./claude-client-inspired-ui-plan.md)
 - [`docs/client-runtime-architecture-review.md`](./client-runtime-architecture-review.md)
 - [`docs/turn-task-run-model.md`](./turn-task-run-model.md)
 - [`docs/tool-scheduler-design.md`](./tool-scheduler-design.md)
@@ -29,10 +30,31 @@ Primary inputs:
 - Agent communication/coordinator is a runtime primitive.
 - Provider/model config is a product policy/config layer above fantasy.
 - Model-assisted permission is advisory only and cannot approve actions.
+- Claude Code is the runtime primitive reference. Claude web/desktop client is
+  the React UI/product-experience reference.
+- Claude-client-inspired UI must not copy Claude branding, logos, trademarks,
+  proprietary assets, or product-specific visual identity.
+- UI features missing runtime APIs must be marked `Blocked by runtime API`
+  instead of being invented in React.
 
 ## First Module To Implement
 
-Next module: `Compact / context budget lifecycle foundation`.
+Next product module: `Claude-client-inspired React shell / information
+architecture`.
+
+First product commit:
+
+```text
+client: align shell with Claude-client-style chat IA
+```
+
+This commit should not implement new runtime behavior. It should update the
+React shell, navigation hierarchy, timeline composition, composer affordances,
+and drawer/panel routing around existing runtime DTOs. Missing compact,
+artifact, task messaging, scoped policy, worktree, replay, and tool search APIs
+should be visible as blocked surfaces, not frontend-generated facts.
+
+First runtime module: `Compact / context budget lifecycle foundation`.
 
 The first implementation commit should be:
 
@@ -47,25 +69,50 @@ auto compact, and reinjection.
 
 ### Why This Beats Other Candidates
 
-Compact/context budget is the missing lifecycle that makes every long-running
-runtime feature safer. Tool search needs budget numbers, subagents need
-compact-aware transcripts, recovery needs compact boundaries, and evals need
-observable compact events. Starting with coordinator, plugin governance, or
-worktree isolation first would add more runtime volume and risk before context
-governance exists.
+The UI shell beats other product candidates because the current runtime already
+supports sessions, messages, turns, permissions, model settings, skills, MCP,
+capabilities, AgentTask summaries, audit, and recovery. The shell can improve
+the core product without inventing runtime facts.
+
+Compact/context budget beats other runtime candidates because it is the missing
+lifecycle that makes every long-running runtime feature safer. Tool search
+needs budget numbers, subagents need compact-aware transcripts, recovery needs
+compact boundaries, and evals need observable compact events. Starting with
+coordinator, plugin governance, or worktree isolation first would add more
+runtime volume and risk before context governance exists.
 
 ## Phase Map
 
 | Phase | Status | Modules |
 | --- | --- | --- |
 | P0 | Completed foundation | Runtime spine, event cursor, audit, recovery, ToolCall store, PermissionPolicy baseline, capability inventory. |
-| P1 Next | Immediate | Compact boundary, context/prompt budget, micro compact. |
-| P1 Parallel | Parallel | Tool search/discovery/deadlock avoidance, scoped policy/shell safety, scenario eval/replay harness. |
+| P1 Next | Immediate product | Claude-client-inspired React shell / information architecture over existing runtime APIs. |
+| P1 Parallel runtime | Immediate runtime | Compact boundary, context/prompt budget, micro compact. |
+| P1 Parallel | Parallel runtime | Tool search/discovery/deadlock avoidance, scoped policy/shell safety, scenario eval/replay harness. |
 | P2 | Blocked by P1 | AgentTask roles/communication, MCP/skills scoped activation, provider/model policy diagnostics, worktree isolation, React diagnostics. |
 | P3 Later | Later | Plugin governance, advisory permission advisor, advanced memory lifecycle, sandbox/remote runtime. |
 | Not needed | Excluded | TUI/CLI UI, slash-command UI, fantasy/provider rewrite, marketplace-first distribution. |
 
 ## Module Boundaries
+
+### Claude-Client-Inspired React Shell / Information Architecture
+
+| Field | Plan |
+| --- | --- |
+| Goal | Align the React client with a Claude-client-style conversation-first desktop chat experience: left session/project/runtime navigation, central chat timeline, fixed composer, and right detail drawers. |
+| Non-goals | No Go runtime behavior, no React-owned runtime state, no Claude branding clone, no terminal UI, no Ink/keybinding/slash-command UI. |
+| Go packages | None required for first pass; consumes existing `internal/runtime` APIs. |
+| React packages | `client/src/app/AssistantClient.tsx`, `client/src/app/App.css`, `client/src/features/chat/*`, `client/src/features/permissions/*`, `client/src/features/audit/*`, `client/src/features/settings/*`, `client/src/features/capabilities/*`, `client/src/runtime/*` for DTO consumption only. |
+| Runtime API / event schema | Existing sessions/messages/turns/permissions/model/skills/MCP/capabilities/tasks/audit/recovery/events APIs. Missing surfaces must be marked `Blocked by runtime API`. |
+| Data model changes | None. TypeScript DTO changes only if they mirror existing Go runtime contracts. |
+| Tests | `cd client && npm run build`; smoke for session load, send/cancel, permission review, model settings, capabilities/skills/MCP, audit drawer, recovery reload. |
+| Acceptance | First screen is chat; sidebar handles session/runtime navigation; timeline and drawers use runtime facts; composer does not assemble prompts; unsupported compact/artifact/task-message/worktree/replay/scoped-policy views are blocked states. |
+| Risks | Letting React reducers become truth, implying unsupported APIs exist, copying Claude visual identity rather than layout/product patterns. |
+| Blocked by | Not blocked for shell; specific advanced surfaces are blocked by compact, artifact, task messaging, policy scope, isolation, and replay APIs. |
+| Unlocks | Clear product surface for compact warnings, task panels, artifact drawers, policy diagnostics, and replay views. |
+
+Detailed UI module boundaries are maintained in
+[`docs/claude-client-inspired-ui-plan.md`](./claude-client-inspired-ui-plan.md).
 
 ### Compact / Context Budget Lifecycle
 
@@ -237,44 +284,214 @@ Implementation split:
 | Blocked by | Runtime APIs for compact, task communication, policy scopes, replay. |
 | Unlocks | Usable product diagnostics and audit review. |
 
+### Claude-Client-Inspired Session / Sidebar / Project Navigation
+
+| Field | Plan |
+| --- | --- |
+| Goal | Provide left navigation for new/resume/search sessions and runtime feature entries, with project grouping only when runtime owns project metadata. |
+| Non-goals | No local-only project truth, no terminal command launcher. |
+| Go packages | Existing session APIs; future project/workspace API if added. |
+| React packages | `client/src/features/chat/ChatSidebar.tsx`, `useAssistantClient.tsx`. |
+| Runtime API / event schema | Existing sessions; future project events if runtime adds them. |
+| Data model changes | None now. |
+| Tests | Session select/create/resume states and no-session/model-not-configured states. |
+| Acceptance | Navigation reloads from runtime sessions and does not fabricate project hierarchy. |
+| Risks | Overloading sidebar with advanced diagnostics. |
+| Blocked by / Unlocks | Project grouping blocked by runtime project/workspace contract. |
+
+### Claude-Client-Inspired Chat Timeline
+
+| Field | Plan |
+| --- | --- |
+| Goal | Show runtime messages, turn status, tool cards, permission cards, task summaries, plan/todo state, recovery notices, and audit links as one readable timeline. |
+| Non-goals | No message parsing to infer business state, no CLI transcript mimic. |
+| Go packages | Existing message/turn/tool/permission/task/audit APIs. |
+| React packages | `ChatWorkspace.tsx`, `TimelineItems.tsx`, `MessageItem.tsx`, `chatTimeline.ts`. |
+| Runtime API / event schema | Existing `message.*`, `turn.*`, `tool.call.*`, `permission.*`, `task.*`, `audit.recorded`; future compact/budget events. |
+| Data model changes | None in UI. |
+| Tests | Timeline ordering, event refresh from API, reload reconstruction. |
+| Acceptance | Timeline can be rebuilt from runtime APIs; blocked details stay explicit. |
+| Risks | Duplicate/noisy audit cards, stale event-derived state. |
+| Blocked by / Unlocks | Compact warnings, artifacts, task messages blocked by runtime APIs. |
+
+### Claude-Client-Inspired Composer
+
+| Field | Plan |
+| --- | --- |
+| Goal | Provide bottom composer with draft text, submit/cancel, model/status affordance, attachment entry point, and clear disabled states. |
+| Non-goals | No slash command UI, no frontend prompt assembly, no frontend attachment ingestion before runtime support. |
+| Go packages | Existing turn creation/cancel; future attachment/source APIs. |
+| React packages | `Composer.tsx`, `ChatWorkspace.tsx`. |
+| Runtime API / event schema | Existing send/cancel; future attachment/source events. |
+| Data model changes | None. |
+| Tests | Send/cancel disabled states and model-not-configured behavior. |
+| Acceptance | Composer submits a runtime turn and does not create assistant/tool state locally. |
+| Risks | Implying unsupported attachment behavior. |
+| Blocked by / Unlocks | Attachments blocked by runtime attachment/source API. |
+
+### Claude-Client-Inspired Permission Review
+
+| Field | Plan |
+| --- | --- |
+| Goal | Present runtime permission requests in a focused modal/drawer with risk, target, policy reason, redacted input summary, and decisions. |
+| Non-goals | No UI risk classification, no model self-approval, no secret display. |
+| Go packages | `internal/permission`, `internal/runtime/runtime_permissions.go`, `runtime_policy.go`. |
+| React packages | `PermissionReviewModal.tsx`, timeline permission cards. |
+| Runtime API / event schema | Existing permission APIs/events; future scoped rule/advisor fields. |
+| Data model changes | None now. |
+| Tests | Pending permission recovery, decision submit, redacted display. |
+| Acceptance | Decisions are posted to runtime; UI never evaluates allow/deny. |
+| Risks | Advisory text being mistaken for approval authority. |
+| Blocked by / Unlocks | Rule editor/advisor blocked by runtime policy APIs. |
+
+### Claude-Client-Inspired Tool Cards / Progress / Detail
+
+| Field | Plan |
+| --- | --- |
+| Goal | Render tool status, source, capability, progress/error, short output, and detail entry points as structured timeline cards and drawers. |
+| Non-goals | No direct tool execution from React, no output mutation. |
+| Go packages | Existing scheduler/ToolCall store; future output/artifact refs. |
+| React packages | `TimelineItems.tsx`, future detail drawer. |
+| Runtime API / event schema | Existing `tool.call.*`; future output refs, `scheduler.deadlock.prevented`. |
+| Data model changes | None in UI. |
+| Tests | Tool card statuses and open detail/audit actions. |
+| Acceptance | Tool cards read runtime summaries; full output/artifact detail waits for APIs. |
+| Risks | Leaking raw output or crowding timeline. |
+| Blocked by / Unlocks | Full detail blocked by durable output/artifact refs. |
+
+### Claude-Client-Inspired Task / Subagent Panel
+
+| Field | Plan |
+| --- | --- |
+| Goal | Show task/subagent progress, cancellation, parent/child state, and later messages/artifacts in a side panel. |
+| Non-goals | No UI-built agent messaging, no coordinator UI before runtime semantics. |
+| Go packages | `runtime_agent_tasks.go`; future role/message/artifact APIs. |
+| React packages | Timeline task item and future task panel. |
+| Runtime API / event schema | Existing task summary/cancel; future `task.message.created`, `task.result.updated`, `task.artifact.created`. |
+| Data model changes | None in UI. |
+| Tests | Task status/cancel/recovery. |
+| Acceptance | Panel reflects runtime task state only. |
+| Risks | Presenting child sessions as independent facts without runtime links. |
+| Blocked by / Unlocks | Full panel blocked by AgentTask communication APIs. |
+
+### Claude-Client-Inspired Artifact / Detail Drawer
+
+| Field | Plan |
+| --- | --- |
+| Goal | Provide a reusable right drawer for artifacts, diffs, tool output refs, task outputs, compact summaries, and source details. |
+| Non-goals | No artifact inference from message text, no Claude artifact clone. |
+| Go packages | Future artifact/output ref APIs. |
+| React packages | New detail drawer routing, likely alongside audit/settings drawers. |
+| Runtime API / event schema | Future artifact/output/compact summary refs. |
+| Data model changes | None in UI. |
+| Tests | Drawer routing and blocked state first. |
+| Acceptance | Drawer shows runtime-backed refs or blocked-by-runtime state. |
+| Risks | Fake artifacts and stale local file assumptions. |
+| Blocked by / Unlocks | Blocked by artifact/output ref APIs. |
+
+### Claude-Client-Inspired Settings / Model / Provider Config
+
+| Field | Plan |
+| --- | --- |
+| Goal | Keep provider/model/policy configuration accessible in a drawer, secondary to chat, and always above fantasy. |
+| Non-goals | No provider implementation rewrite, no fantasy changes. |
+| Go packages | `runtime_model*.go`, config, policy. |
+| React packages | `ModelSettingsDrawer.tsx`. |
+| Runtime API / event schema | Existing config/policy; future model health/capability diagnostics. |
+| Data model changes | Future model capability cache only if runtime owns it. |
+| Tests | Save/verify/redaction/policy mode display. |
+| Acceptance | Secrets redacted; config persists in runtime. |
+| Risks | Duplicating fantasy provider semantics. |
+| Blocked by / Unlocks | Health/capability display partly blocked by diagnostics APIs. |
+
+### Claude-Client-Inspired MCP / Skills / Capability Diagnostics
+
+| Field | Plan |
+| --- | --- |
+| Goal | Provide discoverable diagnostics/management surfaces for skills, MCP, and capabilities without displacing chat. |
+| Non-goals | No marketplace-first plugins, no frontend prompt injection. |
+| Go packages | Existing skills/MCP/capabilities; future scoped activation/package governance. |
+| React packages | `RuntimeFeatureWorkspace.tsx`, `RuntimeSkillPanel.tsx`, `RuntimeMcpPanel.tsx`, `RuntimeCapabilityPanel.tsx`. |
+| Runtime API / event schema | Existing capability/skill/MCP APIs/events; future package/scoped policy events. |
+| Data model changes | None now. |
+| Tests | Refresh/toggle/add/edit flows and redaction display. |
+| Acceptance | Panels show runtime inventory and diagnostics only. |
+| Risks | Treating enablement as permission grant. |
+| Blocked by / Unlocks | Package governance and scoped activation blocked by runtime APIs. |
+
+### Claude-Client-Inspired Audit / Debug Drawer
+
+| Field | Plan |
+| --- | --- |
+| Goal | Make audit/debug a contextual right drawer for turns, tools, permissions, tasks, and diagnostics. |
+| Non-goals | No frontend console as audit, no replay fabrication. |
+| Go packages | Existing audit; future replay/export. |
+| React packages | `RuntimeAuditDrawer.tsx`. |
+| Runtime API / event schema | Existing audit APIs; future replay/export APIs. |
+| Data model changes | None in UI. |
+| Tests | Audit refresh by turn/session and redacted display. |
+| Acceptance | Drawer reads runtime records and can be reconstructed after reload. |
+| Risks | Raw JSON overload without grouping. |
+| Blocked by / Unlocks | Replay/export blocked by persisted event APIs. |
+
+### Session Resume / Recovery UI
+
+| Field | Plan |
+| --- | --- |
+| Goal | Surface loading, model-not-configured, runtime-unavailable, no-session, active, waiting-permission, interrupted, and recovered states clearly. |
+| Non-goals | No frontend continuation logic, no event-only reconstruction. |
+| Go packages | `runtime_recovery.go`, turns, permissions, tasks; future compact-aware recovery. |
+| React packages | `useAssistantClient.tsx`, `ChatWorkspace.tsx`, timeline notices. |
+| Runtime API / event schema | `/v1/recovery/status`, active turns, pending permissions, events; future compact reinjection events. |
+| Data model changes | None in UI. |
+| Tests | Startup recovery, pending permission after reload, interrupted task display. |
+| Acceptance | UI reloads the same facts from runtime and does not clear pending/interrupted state locally. |
+| Risks | Hiding interrupted state or treating polling as truth. |
+| Blocked by / Unlocks | Compact-aware recovery blocked by compact/reinjection APIs. |
+
 ## Commit Plan
 
-1. `runtime: record compact boundaries`
+1. `client: align shell with Claude-client-style chat IA`
+   - Scope: shell layout, sidebar/session navigation, central timeline,
+     composer affordance layout, drawer routing, settings/audit/permission
+     entry points, blocked-by-runtime placeholders.
+   - Tests: client build/type checks and smoke for session load, send/cancel,
+     permission review, settings, capabilities, audit, recovery reload.
+
+2. `runtime: record compact boundaries`
    - Scope: compact boundary DTO/store/events/audit/read APIs.
    - Tests: compact store, audit redaction, event cursor, recovery no-op.
 
-2. `runtime: add context and prompt budget accounting`
+3. `runtime: add context and prompt budget accounting`
    - Scope: budget data for context sources, messages, tool schemas, skills,
      MCP, tool outputs.
    - Tests: budget table tests, audit summary tests.
 
-3. `runtime: add micro compact output replacement`
+4. `runtime: add micro compact output replacement`
    - Scope: deterministic old/high-cost tool output replacement with refs.
    - Tests: ToolCall/message invariants, output ref preservation, audit.
 
-4. `runtime: expose tool search metadata`
+5. `runtime: expose tool search metadata`
    - Scope: capability metadata, discovery/search path, selected-tool audit.
    - Tests: search selection, disabled capability exclusion, policy denied.
 
-5. `runtime: add scheduler deadlock limits`
+6. `runtime: add scheduler deadlock limits`
    - Scope: recursion, nested tools, agent recursion, concurrency policy.
    - Tests: scheduler deadlock and cancellation scenarios.
 
-6. `runtime: add scoped permission rules`
+7. `runtime: add scoped permission rules`
    - Scope: deterministic tool/MCP/skill/subagent/cwd/shell rule matcher.
    - Tests: policy tables and runtime scenarios.
 
-7. `runtime: harden shell policy classification`
+8. `runtime: harden shell policy classification`
    - Scope: Bash/PowerShell destructive/read-only parsing improvements.
    - Tests: shell command fixture pack.
 
-8. `runtime: enforce agent task scopes`
-   - Scope: role definitions and allowed tools/model/cwd/capability scopes.
-   - Tests: scope enforcement, child session linkage, cancellation/recovery.
-
-9. `runtime: add parent child agent messaging`
-   - Scope: message/result/artifact protocol for task communication.
-   - Tests: parent/child transcript, artifact refs, task notifications.
+9. `runtime: enforce agent task scopes and messaging`
+   - Scope: role definitions, allowed tools/model/cwd/capability scopes, and
+     message/result/artifact protocol for task communication.
+   - Tests: scope enforcement, child session linkage, cancellation/recovery,
+     parent/child transcript, artifact refs, task notifications.
 
 10. `runtime: add scenario eval replay harness`
     - Scope: local golden scenario runner and redacted audit/export fixtures.
@@ -283,9 +500,12 @@ Implementation split:
 ## Acceptance Checklist For This Planning Phase
 
 - Roadmap points to this implementation plan.
+- Roadmap points to the Claude-client-inspired UI plan.
 - Every referenced docs path exists.
-- Priority order starts with compact/context budget and explains why.
-- All required candidate modules are covered with boundaries.
+- Priority order starts with Claude-client-inspired React shell as the product
+  module and compact/context budget as the first runtime module, with both
+  explained.
+- All required runtime and React/UI modules are covered with boundaries.
 - Not-needed and later/P3 surfaces are explicit.
 - Mermaid graph exists in the roadmap.
 - Future commits have scope and main tests.
