@@ -39,9 +39,25 @@ func TestRuntimeBridgeForwardsCapabilityRefresh(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsToolSearch(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	bridge := &RuntimeBridge{service: service}
+
+	resp, err := bridge.SearchTools(context.Background(), RuntimeToolSearchRequest{Query: "docs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.toolSearchQuery != "docs" || resp.Query != "docs" {
+		t.Fatalf("tool search forwarding failed: query=%q resp=%#v", service.toolSearchQuery, resp)
+	}
+}
+
 type recordingRuntimeService struct {
 	chatCalls           int
 	refreshedCapability string
+	toolSearchQuery     string
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -243,6 +259,11 @@ func (s *recordingRuntimeService) Capabilities(context.Context) (RuntimeCapabili
 func (s *recordingRuntimeService) RefreshCapability(_ context.Context, id string) (RuntimeCapabilityResponse, error) {
 	s.refreshedCapability = id
 	return RuntimeCapabilityResponse{Capability: RuntimeCapability{ID: id, Kind: "skill", Name: "docs", Enabled: true, State: "loaded"}}, nil
+}
+
+func (s *recordingRuntimeService) SearchTools(_ context.Context, req RuntimeToolSearchRequest) (RuntimeToolSearchResponse, error) {
+	s.toolSearchQuery = req.Query
+	return RuntimeToolSearchResponse{Query: req.Query}, nil
 }
 
 func (s *recordingRuntimeService) ContextSources(context.Context) (RuntimeContextSourcesResponse, error) {

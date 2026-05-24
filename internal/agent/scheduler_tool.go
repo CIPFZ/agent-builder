@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -162,6 +164,9 @@ func schedulerCapabilityIDForAgentTool(tool fantasy.AgentTool, fallbackName stri
 func schedulerCapabilityIDForToolName(name string) string {
 	toolName := strings.TrimSpace(name)
 	lower := strings.ToLower(toolName)
+	if lower == ToolSearchToolName {
+		return "builtin:" + ToolSearchToolName
+	}
 	if strings.HasPrefix(lower, "mcp_") {
 		return ""
 	}
@@ -177,6 +182,8 @@ func schedulerCapabilityIDForToolName(name string) string {
 func schedulerSourceForToolName(name string) string {
 	toolName := strings.ToLower(strings.TrimSpace(name))
 	switch {
+	case toolName == ToolSearchToolName:
+		return "builtin"
 	case toolName == "bash", toolName == "job_output", toolName == "job_kill":
 		return "shell"
 	case strings.HasPrefix(toolName, "mcp_"):
@@ -186,6 +193,46 @@ func schedulerSourceForToolName(name string) string {
 	default:
 		return "builtin"
 	}
+}
+
+func isBaseRuntimeTool(name string) bool {
+	switch strings.TrimSpace(name) {
+	case ToolSearchToolName, "bash", "view", "edit", "write", "multiedit", "grep", "glob", "ls", "todos":
+		return true
+	default:
+		return false
+	}
+}
+
+func schedulerToolInfoEstimatedTokens(info fantasy.ToolInfo) int {
+	data, _ := json.Marshal(map[string]any{
+		"name":        info.Name,
+		"description": info.Description,
+		"parameters":  info.Parameters,
+		"required":    info.Required,
+	})
+	chars := len(data)
+	if chars == 0 {
+		return 0
+	}
+	return (chars + 3) / 4
+}
+
+func schedulerSchemaSummary(info fantasy.ToolInfo) string {
+	if len(info.Required) == 0 {
+		return "no required fields"
+	}
+	return "required: " + strings.Join(info.Required, ",")
+}
+
+func schedulerSchemaDigest(info fantasy.ToolInfo) string {
+	data, _ := json.Marshal(map[string]any{
+		"name":       info.Name,
+		"parameters": info.Parameters,
+		"required":   info.Required,
+	})
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:8])
 }
 
 type toolResponseMetadata struct {

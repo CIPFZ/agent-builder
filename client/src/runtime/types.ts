@@ -232,6 +232,8 @@ export type RuntimeBudgetReport = {
   skills: RuntimeBudgetBucket
   mcp: RuntimeBudgetBucket
   toolOutputs: RuntimeBudgetBucket
+  selectedToolSchemas: RuntimeBudgetBucket
+  omittedToolSchemas: RuntimeBudgetBucket
   totalEstimatedTokens: number
   updatedAt: number
 }
@@ -376,6 +378,57 @@ export type RuntimeCapability = {
   diagnostics?: string
   error?: string
   reason?: string
+  capabilityId?: string
+  schemaDigest?: string
+  schemaSummary?: string
+  searchText?: string
+}
+
+export type RuntimeToolSearchRequest = {
+  query: string
+  maxResults?: number
+  turnId?: string
+  sessionId?: string
+  source?: string
+}
+
+export type RuntimeToolSearchResult = {
+  id: string
+  kind: string
+  name: string
+  source?: string
+  description?: string
+  risk?: string
+  capabilityId?: string
+  schemaDigest?: string
+  schemaSummary?: string
+  state?: string
+  score?: number
+}
+
+export type RuntimeToolSearchOmission = {
+  id: string
+  kind?: string
+  name?: string
+  source?: string
+  reason: string
+  risk?: string
+  state?: string
+}
+
+export type RuntimeToolSchemaBudgetImpact = {
+  selected: RuntimeBudgetBucket
+  omitted: RuntimeBudgetBucket
+}
+
+export type RuntimeToolSearchResponse = {
+  query: string
+  results: RuntimeToolSearchResult[]
+  omitted?: RuntimeToolSearchOmission[]
+  total: number
+  budgetImpact: RuntimeToolSchemaBudgetImpact
+  guardrail?: string
+  guardrailError?: string
 }
 
 export type RuntimeContextSource = {
@@ -561,6 +614,7 @@ export type AgentRuntime = {
   discoverModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelDiscoveryResponse>
   addSkillPath: (path: string) => Promise<RuntimeSkill[]>
   listCapabilities: () => Promise<RuntimeCapability[]>
+  searchTools: (request: RuntimeToolSearchRequest) => Promise<RuntimeToolSearchResponse>
   refreshCapability: (capabilityId: string) => Promise<RuntimeCapability>
   listContextSources: () => Promise<RuntimeContextSource[]>
   listEvents: (after?: number) => Promise<RuntimeEventsResponse>

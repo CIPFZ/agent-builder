@@ -62,6 +62,7 @@ type RuntimeService interface {
 	MCPPrompts(context.Context, string) (RuntimeMCPPromptsResponse, error)
 	Capabilities(context.Context) (RuntimeCapabilitiesResponse, error)
 	RefreshCapability(context.Context, string) (RuntimeCapabilityResponse, error)
+	SearchTools(context.Context, RuntimeToolSearchRequest) (RuntimeToolSearchResponse, error)
 	ContextSources(context.Context) (RuntimeContextSourcesResponse, error)
 	APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error)
 	DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error)
@@ -90,6 +91,7 @@ type runtimeService struct {
 	permissions       map[string]pendingRuntimePermission
 	policy            RuntimePolicy
 	capabilityLoads   map[string]runtimeCapabilityLoadRecord
+	toolDiscovery     runtimeToolDiscoveryState
 	recovery          runtimeRecoveryRecord
 	events            []RuntimeEvent
 	nextEventSequence int64

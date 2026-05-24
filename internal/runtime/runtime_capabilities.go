@@ -2,6 +2,9 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -311,6 +314,7 @@ func runtimeCapabilities(
 			Description: skill.Description,
 			State:       capabilityStateUnloaded,
 		}
+		capability.SchemaSummary = schemaSummaryForSkill(skill)
 		if !skill.Enabled {
 			capability.State = capabilityStateDisabled
 			capability.Reason = firstNonEmpty(skill.Reason, "disabled_skill")
@@ -339,6 +343,8 @@ func runtimeCapabilities(
 			Description: tool.Description,
 			State:       capabilityStateUnloaded,
 		}
+		capability.SchemaSummary = schemaSummaryForValue(tool.InputSchema)
+		capability.SchemaDigest = schemaDigestForValue(tool.InputSchema)
 		if !tool.Enabled {
 			capability.State = capabilityStateDisabled
 			capability.Reason = "disabled_mcp_tool"
@@ -357,6 +363,7 @@ func runtimeCapabilities(
 			Description: resource.Description,
 			State:       capabilityStateUnloaded,
 		}
+		capability.SchemaSummary = "uri"
 		capabilities = append(capabilities, applyCapabilityLoadRecord(capability, loadRecords))
 	}
 	for _, prompt := range mcpPrompts.Prompts {
@@ -370,6 +377,7 @@ func runtimeCapabilities(
 			Description: prompt.Description,
 			State:       capabilityStateUnloaded,
 		}
+		capability.SchemaSummary = "prompt"
 		capabilities = append(capabilities, applyCapabilityLoadRecord(capability, loadRecords))
 	}
 	slices.SortStableFunc(capabilities, func(a, b RuntimeCapability) int {
@@ -382,6 +390,7 @@ func runtimeCapabilities(
 }
 
 func applyCapabilityLoadRecord(capability RuntimeCapability, records map[string]runtimeCapabilityLoadRecord) RuntimeCapability {
+	capability = finalizeRuntimeCapabilityMetadata(capability)
 	if capability.State == "" {
 		capability.State = capabilityStateUnloaded
 	}
@@ -399,6 +408,117 @@ func applyCapabilityLoadRecord(capability RuntimeCapability, records map[string]
 	capability.Error = firstNonEmpty(record.Error, capability.Error)
 	capability.Reason = firstNonEmpty(record.Reason, capability.Reason)
 	return capability
+}
+
+func finalizeRuntimeCapabilityMetadata(capability RuntimeCapability) RuntimeCapability {
+	if capability.CapabilityID == "" {
+		capability.CapabilityID = capability.ID
+	}
+	if capability.SchemaSummary == "" {
+		capability.SchemaSummary = schemaSummaryForCapability(capability)
+	}
+	if capability.SchemaDigest == "" {
+		capability.SchemaDigest = schemaDigestForValue(map[string]any{
+			"id":      capability.ID,
+			"kind":    capability.Kind,
+			"name":    capability.Name,
+			"source":  capability.Source,
+			"summary": capability.SchemaSummary,
+		})
+	}
+	if capability.SearchText == "" {
+		capability.SearchText = strings.TrimSpace(strings.Join([]string{
+			capability.ID,
+			capability.Kind,
+			capability.Name,
+			capability.Source,
+			capability.Description,
+			capability.Risk,
+			capability.SchemaSummary,
+		}, " "))
+	}
+	return capability
+}
+
+func schemaSummaryForCapability(capability RuntimeCapability) string {
+	switch capability.Kind {
+	case "builtin_tool":
+		return builtinToolSchemaSummary(capability.Name)
+	case "skill":
+		return "skill instructions"
+	case "mcp_tool":
+		return "mcp input schema"
+	case "mcp_resource":
+		return "uri"
+	case "mcp_prompt":
+		return "prompt"
+	default:
+		return "metadata"
+	}
+}
+
+func builtinToolSchemaSummary(name string) string {
+	switch strings.TrimSpace(name) {
+	case "bash":
+		return "command, description, timeout, background"
+	case "download":
+		return "url, file_path"
+	case "edit":
+		return "file_path, old_string, new_string, replace_all"
+	case "multiedit":
+		return "file_path, edits"
+	case "fetch", "web_fetch":
+		return "url, prompt"
+	case "glob":
+		return "pattern, path"
+	case "grep":
+		return "pattern, path, include"
+	case "ls":
+		return "path, ignore"
+	case "view":
+		return "file_path, offset, limit"
+	case "write":
+		return "file_path, content"
+	case "todos":
+		return "todos"
+	case "job_output":
+		return "job_id"
+	case "job_kill":
+		return "job_id"
+	case "list_mcp_resources":
+		return "server"
+	case "read_mcp_resource":
+		return "server, uri"
+	default:
+		return "tool input schema"
+	}
+}
+
+func schemaSummaryForSkill(skill RuntimeSkill) string {
+	if len(skill.AllowedTools) == 0 {
+		return "skill instructions"
+	}
+	return "skill instructions; allowed_tools=" + strings.Join(skill.AllowedTools, ",")
+}
+
+func schemaSummaryForValue(value any) string {
+	if value == nil {
+		return ""
+	}
+	data, err := json.Marshal(redactRuntimeValue(value))
+	if err != nil {
+		return "schema"
+	}
+	return preview(string(data), 240)
+}
+
+func schemaDigestForValue(value any) string {
+	data, err := json.Marshal(redactRuntimeValue(value))
+	if err != nil {
+		data = []byte(fmt.Sprint(value))
+	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:8])
 }
 
 func normalizeCapabilityState(state string, enabled bool) string {
@@ -443,6 +563,7 @@ func capabilityRefreshPathID(path string) string {
 func builtinToolCapabilities() []RuntimeCapability {
 	return []RuntimeCapability{
 		{ID: "builtin:bash", Kind: "builtin_tool", Name: "bash", Enabled: true, Risk: "write", Description: "Run shell commands."},
+		{ID: "builtin:tool_search", Kind: "builtin_tool", Name: "tool_search", Enabled: true, Risk: "read", Description: "Search and select deferred runtime tools."},
 		{ID: "builtin:crush_info", Kind: "builtin_tool", Name: "crush_info", Enabled: true, Risk: "read", Description: "Inspect runtime configuration."},
 		{ID: "builtin:crush_logs", Kind: "builtin_tool", Name: "crush_logs", Enabled: true, Risk: "read", Description: "Inspect runtime logs."},
 		{ID: "builtin:diagnostics", Kind: "builtin_tool", Name: "diagnostics", Enabled: true, Risk: "read", Description: "Read LSP diagnostics."},

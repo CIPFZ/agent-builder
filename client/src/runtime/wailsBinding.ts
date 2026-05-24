@@ -27,6 +27,8 @@ import type {
   RuntimeStatus,
   RuntimeTodoSummary,
   RuntimeToolCall,
+  RuntimeToolSearchRequest,
+  RuntimeToolSearchResponse,
   RuntimeTurn,
   RuntimeAPIEndpoint,
   RuntimeEventsResponse,
@@ -42,6 +44,7 @@ type WailsRuntimeBridge = {
   Capabilities: () => Promise<{ capabilities: RuntimeCapability[] }>
   ContextSources: () => Promise<{ sources: RuntimeContextSource[] }>
   RefreshCapability: (capabilityId: string) => Promise<{ capability: RuntimeCapability }>
+  SearchTools: (request: RuntimeToolSearchRequest) => Promise<RuntimeToolSearchResponse>
   Chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>
   CreateSkill: (request: RuntimeSkillCreateRequest) => Promise<{ skills: RuntimeSkill[] }>
   DecidePermission: (request: RuntimePermissionDecision) => Promise<RuntimeStatus>

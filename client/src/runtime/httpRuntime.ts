@@ -29,6 +29,8 @@ import type {
   RuntimeStatus,
   RuntimeTodoSummary,
   RuntimeToolCall,
+  RuntimeToolSearchRequest,
+  RuntimeToolSearchResponse,
   RuntimeTurn,
 } from './types'
 
@@ -183,6 +185,9 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async listCapabilities() {
       const response = await get<{ capabilities: RuntimeCapability[] }>('/v1/capabilities')
       return response.capabilities
+    },
+    searchTools(request: RuntimeToolSearchRequest) {
+      return post<RuntimeToolSearchResponse>('/v1/tools/search', request)
     },
     async refreshCapability(capabilityId: string) {
       const response = await post<{ capability: RuntimeCapability }>(`/v1/capabilities/${encodePath(capabilityId)}/refresh`)

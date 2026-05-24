@@ -542,6 +542,26 @@ func TestRuntimeHTTPServerRoutesCapabilityRefreshWithEncodedSlashID(t *testing.T
 	}
 }
 
+func TestRuntimeHTTPServerRoutesToolSearchToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodPost, "/v1/tools/search", strings.NewReader(`{"query":"docs","maxResults":2}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.toolSearchQuery != "docs" {
+		t.Fatalf("tool search query = %q", service.toolSearchQuery)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesSkillsToRuntimeService(t *testing.T) {
 	t.Parallel()
 

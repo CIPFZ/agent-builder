@@ -108,6 +108,7 @@ type coordinator struct {
 
 	readyWg           errgroup.Group
 	schedulerRecorder SchedulerRecorder
+	discoveryRecorder ToolDiscoveryRecorder
 	agentTaskRecorder AgentTaskRecorder
 }
 
@@ -118,6 +119,11 @@ type SchedulerRecorder interface {
 	ToolCallCompleted(context.Context, SchedulerToolCallResult) error
 	ToolCallFailed(context.Context, SchedulerToolCallResult) error
 	ToolCallCancelled(context.Context, SchedulerToolCallResult) error
+}
+
+type ToolDiscoveryRecorder interface {
+	SelectToolsForTurn(context.Context, SchedulerToolDisclosureRequest) (SchedulerToolDisclosureResult, error)
+	SearchToolsForAgent(context.Context, SchedulerToolSearchRequest) (SchedulerToolSearchResult, error)
 }
 
 type SchedulerToolCall struct {
@@ -167,6 +173,44 @@ type SchedulerToolPolicyDecision struct {
 	Risk     string
 	Reason   string
 	Mode     string
+}
+
+type SchedulerToolMetadata struct {
+	Name            string
+	Source          string
+	CapabilityID    string
+	Description     string
+	SchemaSummary   string
+	SchemaDigest    string
+	EstimatedTokens int
+	Base            bool
+}
+
+type SchedulerToolDisclosureRequest struct {
+	SessionID string
+	TurnID    string
+	MessageID string
+	Tools     []SchedulerToolMetadata
+}
+
+type SchedulerToolDisclosureResult struct {
+	Selected []string
+	Omitted  []string
+}
+
+type SchedulerToolSearchRequest struct {
+	Query      string
+	MaxResults int
+	SessionID  string
+	TurnID     string
+	ToolCallID string
+}
+
+type SchedulerToolSearchResult struct {
+	Query   string
+	Matches []string
+	Total   int
+	Message string
 }
 
 type AgentTaskRecorder interface {
@@ -240,6 +284,9 @@ func NewCoordinator(
 	}
 	if len(schedulerRecorder) > 0 {
 		c.schedulerRecorder = schedulerRecorder[0]
+		if discoveryRecorder, ok := schedulerRecorder[0].(ToolDiscoveryRecorder); ok {
+			c.discoveryRecorder = discoveryRecorder
+		}
 		if taskRecorder, ok := schedulerRecorder[0].(AgentTaskRecorder); ok {
 			c.agentTaskRecorder = taskRecorder
 		}
@@ -637,10 +684,13 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 			tools.NewReadMCPResourceTool(c.cfg, c.permissions),
 		)
 	}
+	if c.discoveryRecorder != nil && !isSubAgent {
+		allTools = append(allTools, newToolSearchTool(c.discoveryRecorder))
+	}
 
 	var filteredTools []fantasy.AgentTool
 	for _, tool := range allTools {
-		if slices.Contains(agent.AllowedTools, tool.Info().Name) {
+		if tool.Info().Name == ToolSearchToolName || slices.Contains(agent.AllowedTools, tool.Info().Name) {
 			filteredTools = append(filteredTools, tool)
 		}
 	}

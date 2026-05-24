@@ -164,6 +164,10 @@ export async function refreshRuntimeCapability(capabilityId: string) {
   return getAgentRuntime().refreshCapability(capabilityId)
 }
 
+export async function searchRuntimeTools(request: import('./types').RuntimeToolSearchRequest) {
+  return getAgentRuntime().searchTools(request)
+}
+
 export async function requestRuntimeAudit(turnId: string) {
   return getAgentRuntime().auditTurn(turnId)
 }

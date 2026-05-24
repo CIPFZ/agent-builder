@@ -796,6 +796,12 @@ func TestRuntimeCapabilitiesIncludeToolsSkillsAndMCP(t *testing.T) {
 	if byID["mcp_prompt:docs:summarize"].Kind != "mcp_prompt" {
 		t.Fatalf("mcp prompt capability missing: %#v", byID["mcp_prompt:docs:summarize"])
 	}
+	if byID["mcp:docs:search_docs"].CapabilityID == "" || byID["mcp:docs:search_docs"].SchemaDigest == "" || byID["mcp:docs:search_docs"].SchemaSummary == "" {
+		t.Fatalf("search metadata missing: %#v", byID["mcp:docs:search_docs"])
+	}
+	if strings.Contains(fmt.Sprint(byID["mcp:docs:search_docs"]), "Authorization") {
+		t.Fatalf("search metadata leaked raw config: %#v", byID["mcp:docs:search_docs"])
+	}
 }
 
 func TestRuntimeCapabilityStateNormalization(t *testing.T) {
@@ -895,6 +901,73 @@ func TestRuntimeCapabilityPolicySummaryBlocksExternalInPlanMode(t *testing.T) {
 	})
 	if decision.Decision != permission.PolicyDeny || decision.Risk != permission.RiskNetwork {
 		t.Fatalf("external capability decision = %#v, want network deny", decision)
+	}
+}
+
+func TestRuntimeToolSearchFiltersDisabledDeniedAndAudits(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	service.policy = runtimePolicyFromMode(permission.PolicyModePlan, 0)
+	store := config.NewTestStore(&config.Config{
+		Options: &config.Options{DisabledTools: []string{"write"}},
+	})
+	service.runtime = nil
+	service.workspace = nil
+
+	resp := runtimeCapabilities(
+		store,
+		RuntimeSkillsResponse{Skills: []RuntimeSkill{{Name: "docs", Enabled: true, Builtin: true, State: "normal", Description: "read docs"}}},
+		RuntimeMCPToolsResponse{Tools: []RuntimeMCPTool{{Server: "docs", Name: "search_docs", Description: "search docs", Enabled: true}}},
+		RuntimeMCPResourcesResponse{},
+		RuntimeMCPPromptsResponse{},
+	)
+	results, omitted := service.filterAndScoreToolSearch("docs", resp.Capabilities, 10)
+	if !slices.ContainsFunc(results, func(result RuntimeToolSearchResult) bool {
+		return result.Name == "docs"
+	}) {
+		t.Fatalf("skill search result missing: %#v", results)
+	}
+	if slices.ContainsFunc(results, func(result RuntimeToolSearchResult) bool {
+		return result.Name == "search_docs"
+	}) {
+		t.Fatalf("plan mode exposed policy-denied mcp tool: %#v", results)
+	}
+	if !slices.ContainsFunc(omitted, func(item RuntimeToolSearchOmission) bool {
+		return item.Name == "search_docs" && item.Reason == "policy_denied"
+	}) {
+		t.Fatalf("policy-denied omission missing: %#v", omitted)
+	}
+	if !slices.ContainsFunc(omitted, func(item RuntimeToolSearchOmission) bool {
+		return item.Name == "write" && item.Reason == "disabled_tool"
+	}) {
+		t.Fatalf("disabled omission missing: %#v", omitted)
+	}
+}
+
+func TestRuntimeToolSearchRepeatGuardrailEmitsEvent(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	for i := 0; i < maxConsecutiveSameToolSearches; i++ {
+		blocked, reason := service.preventRepeatedToolSearch("turn-1", "docs")
+		if blocked {
+			t.Fatalf("search %d blocked early: %s", i, reason)
+		}
+	}
+	blocked, reason := service.preventRepeatedToolSearch("turn-1", "docs")
+	if !blocked || reason != "repeat_search" {
+		t.Fatalf("repeat guard = %v %q", blocked, reason)
+	}
+	service.recordDeadlockPrevented("session-1", "turn-1", "tool-1", reason, "repeat")
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventSchedulerDeadlockPrevented && event.Payload["reason"] == reason
+	}) {
+		t.Fatalf("deadlock event missing: %#v", events.Events)
 	}
 }
 
@@ -2177,6 +2250,7 @@ type recordingRuntimeService struct {
 	capabilities        RuntimeCapabilitiesResponse
 	contextSources      RuntimeContextSourcesResponse
 	refreshedCapability string
+	toolSearchQuery     string
 	savedMCPServer      RuntimeMCPServerConfigRequest
 	toggledMCPServer    RuntimeMCPServerToggleRequest
 	toggledMCPTool      RuntimeMCPToolToggleRequest
@@ -2425,6 +2499,11 @@ func (s *recordingRuntimeService) Capabilities(context.Context) (RuntimeCapabili
 func (s *recordingRuntimeService) RefreshCapability(_ context.Context, id string) (RuntimeCapabilityResponse, error) {
 	s.refreshedCapability = id
 	return RuntimeCapabilityResponse{Capability: RuntimeCapability{ID: id, Kind: "skill", Name: "crush-config", Enabled: true, State: "loaded"}}, nil
+}
+
+func (s *recordingRuntimeService) SearchTools(_ context.Context, req RuntimeToolSearchRequest) (RuntimeToolSearchResponse, error) {
+	s.toolSearchQuery = req.Query
+	return RuntimeToolSearchResponse{Query: req.Query}, nil
 }
 
 func (s *recordingRuntimeService) ContextSources(context.Context) (RuntimeContextSourcesResponse, error) {

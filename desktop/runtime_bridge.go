@@ -66,6 +66,11 @@ type RuntimeMCPPromptsResponse = runtime.RuntimeMCPPromptsResponse
 type RuntimeCapability = runtime.RuntimeCapability
 type RuntimeCapabilitiesResponse = runtime.RuntimeCapabilitiesResponse
 type RuntimeCapabilityResponse = runtime.RuntimeCapabilityResponse
+type RuntimeToolSearchRequest = runtime.RuntimeToolSearchRequest
+type RuntimeToolSearchResponse = runtime.RuntimeToolSearchResponse
+type RuntimeToolSearchResult = runtime.RuntimeToolSearchResult
+type RuntimeToolSearchOmission = runtime.RuntimeToolSearchOmission
+type RuntimeToolSchemaBudgetImpact = runtime.RuntimeToolSchemaBudgetImpact
 type RuntimeContextSource = runtime.RuntimeContextSource
 type RuntimeContextSourcesResponse = runtime.RuntimeContextSourcesResponse
 type RuntimeModelConfig = runtime.RuntimeModelConfig
@@ -365,6 +370,12 @@ func (r *RuntimeBridge) Capabilities(ctx context.Context) (RuntimeCapabilitiesRe
 func (r *RuntimeBridge) RefreshCapability(ctx context.Context, capabilityID string) (RuntimeCapabilityResponse, error) {
 
 	return r.service.RefreshCapability(ctx, capabilityID)
+
+}
+
+func (r *RuntimeBridge) SearchTools(ctx context.Context, req RuntimeToolSearchRequest) (RuntimeToolSearchResponse, error) {
+
+	return r.service.SearchTools(ctx, req)
 
 }
 

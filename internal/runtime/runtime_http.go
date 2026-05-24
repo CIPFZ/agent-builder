@@ -327,6 +327,13 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && capabilityRefreshPathID(r.URL.Path) != "":
 		value, err := s.service.RefreshCapability(r.Context(), capabilityRefreshPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/tools/search":
+		var req RuntimeToolSearchRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.SearchTools(r.Context(), req)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/context/sources":
 		value, err := s.service.ContextSources(r.Context())
 		writeRuntimeResult(w, value, err)

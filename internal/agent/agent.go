@@ -280,6 +280,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 
 			// Use latest tools (updated by SetTools when MCP tools change).
 			prepared.Tools = a.tools.Copy()
+			if discoveryRecorder, ok := unwrapToolDiscoveryRecorder(prepared.Tools); ok {
+				prepared.Tools = selectToolsForPreparedStep(callContext, prepared.Tools, discoveryRecorder, call.SessionID, call.TurnID)
+			}
 
 			queuedCalls, _ := a.messageQueue.Get(call.SessionID)
 			a.messageQueue.Del(call.SessionID)
@@ -626,6 +629,60 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	firstQueuedMessage := queuedMessages[0]
 	a.messageQueue.Set(call.SessionID, queuedMessages[1:])
 	return a.Run(ctx, firstQueuedMessage)
+}
+
+func unwrapToolDiscoveryRecorder(agentTools []fantasy.AgentTool) (ToolDiscoveryRecorder, bool) {
+	for _, tool := range agentTools {
+		if searchTool, ok := tool.(*toolSearchTool); ok && searchTool.recorder != nil {
+			return searchTool.recorder, true
+		}
+		if scheduled, ok := tool.(*schedulerTool); ok {
+			if searchTool, ok := scheduled.inner.(*toolSearchTool); ok && searchTool.recorder != nil {
+				return searchTool.recorder, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func selectToolsForPreparedStep(ctx context.Context, agentTools []fantasy.AgentTool, recorder ToolDiscoveryRecorder, sessionID, turnID string) []fantasy.AgentTool {
+	metadata := make([]SchedulerToolMetadata, 0, len(agentTools))
+	for _, tool := range agentTools {
+		info := tool.Info()
+		name := strings.TrimSpace(info.Name)
+		if name == "" {
+			continue
+		}
+		metadata = append(metadata, SchedulerToolMetadata{
+			Name:            name,
+			Source:          schedulerSourceForToolName(name),
+			CapabilityID:    schedulerCapabilityIDForAgentTool(tool, name),
+			Description:     info.Description,
+			SchemaSummary:   schedulerSchemaSummary(info),
+			SchemaDigest:    schedulerSchemaDigest(info),
+			EstimatedTokens: schedulerToolInfoEstimatedTokens(info),
+			Base:            isBaseRuntimeTool(name),
+		})
+	}
+	result, err := recorder.SelectToolsForTurn(ctx, SchedulerToolDisclosureRequest{
+		SessionID: sessionID,
+		TurnID:    turnID,
+		Tools:     metadata,
+	})
+	if err != nil || len(result.Selected) == 0 {
+		return agentTools
+	}
+	selected := make(map[string]struct{}, len(result.Selected))
+	for _, name := range result.Selected {
+		selected[name] = struct{}{}
+	}
+	out := make([]fantasy.AgentTool, 0, len(result.Selected))
+	for _, tool := range agentTools {
+		if _, ok := selected[tool.Info().Name]; ok {
+			out = append(out, tool)
+		}
+	}
+	return out
 }
 
 func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fantasy.ProviderOptions) error {

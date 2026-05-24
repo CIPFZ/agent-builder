@@ -44,6 +44,12 @@ export function RuntimeCapabilityPanel({
             <Button size="small" icon={<ReloadOutlined />} disabled={!capability.enabled || capability.state === 'loading'} onClick={() => onRefresh(capability.id)} />
           </Space>
           {capability.source ? <Text type="secondary">{capability.source}</Text> : null}
+          {capability.schemaSummary || capability.schemaDigest ? (
+            <Text type="secondary">
+              {capability.schemaSummary}
+              {capability.schemaDigest ? ` (${capability.schemaDigest})` : ''}
+            </Text>
+          ) : null}
           {capability.error || capability.diagnostics || capability.reason ? (
             <Text type={capability.error ? 'danger' : 'secondary'}>{capability.error || capability.diagnostics || capability.reason}</Text>
           ) : null}

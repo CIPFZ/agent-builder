@@ -350,6 +350,8 @@ type RuntimeBudgetReport struct {
 	Skills               RuntimeBudgetBucket `json:"skills"`
 	MCP                  RuntimeBudgetBucket `json:"mcp"`
 	ToolOutputs          RuntimeBudgetBucket `json:"toolOutputs"`
+	SelectedToolSchemas  RuntimeBudgetBucket `json:"selectedToolSchemas"`
+	OmittedToolSchemas   RuntimeBudgetBucket `json:"omittedToolSchemas"`
 	TotalEstimatedTokens int                 `json:"totalEstimatedTokens"`
 	UpdatedAt            int64               `json:"updatedAt"`
 }
@@ -593,17 +595,21 @@ type RuntimeMCPPromptsResponse struct {
 }
 
 type RuntimeCapability struct {
-	ID          string `json:"id"`
-	Kind        string `json:"kind"`
-	Name        string `json:"name"`
-	Source      string `json:"source,omitempty"`
-	Enabled     bool   `json:"enabled"`
-	Risk        string `json:"risk"`
-	Description string `json:"description,omitempty"`
-	State       string `json:"state"`
-	Diagnostics string `json:"diagnostics,omitempty"`
-	Error       string `json:"error,omitempty"`
-	Reason      string `json:"reason,omitempty"`
+	ID            string `json:"id"`
+	Kind          string `json:"kind"`
+	Name          string `json:"name"`
+	Source        string `json:"source,omitempty"`
+	Enabled       bool   `json:"enabled"`
+	Risk          string `json:"risk"`
+	Description   string `json:"description,omitempty"`
+	State         string `json:"state"`
+	Diagnostics   string `json:"diagnostics,omitempty"`
+	Error         string `json:"error,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	CapabilityID  string `json:"capabilityId,omitempty"`
+	SchemaDigest  string `json:"schemaDigest,omitempty"`
+	SchemaSummary string `json:"schemaSummary,omitempty"`
+	SearchText    string `json:"searchText,omitempty"`
 }
 
 type RuntimeCapabilitiesResponse struct {
@@ -612,6 +618,53 @@ type RuntimeCapabilitiesResponse struct {
 
 type RuntimeCapabilityResponse struct {
 	Capability RuntimeCapability `json:"capability"`
+}
+
+type RuntimeToolSearchRequest struct {
+	Query      string `json:"query"`
+	MaxResults int    `json:"maxResults,omitempty"`
+	TurnID     string `json:"turnId,omitempty"`
+	SessionID  string `json:"sessionId,omitempty"`
+	Source     string `json:"source,omitempty"`
+}
+
+type RuntimeToolSearchResult struct {
+	ID            string `json:"id"`
+	Kind          string `json:"kind"`
+	Name          string `json:"name"`
+	Source        string `json:"source,omitempty"`
+	Description   string `json:"description,omitempty"`
+	Risk          string `json:"risk,omitempty"`
+	CapabilityID  string `json:"capabilityId,omitempty"`
+	SchemaDigest  string `json:"schemaDigest,omitempty"`
+	SchemaSummary string `json:"schemaSummary,omitempty"`
+	State         string `json:"state,omitempty"`
+	Score         int    `json:"score,omitempty"`
+}
+
+type RuntimeToolSearchOmission struct {
+	ID     string `json:"id"`
+	Kind   string `json:"kind,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Source string `json:"source,omitempty"`
+	Reason string `json:"reason"`
+	Risk   string `json:"risk,omitempty"`
+	State  string `json:"state,omitempty"`
+}
+
+type RuntimeToolSchemaBudgetImpact struct {
+	Selected RuntimeBudgetBucket `json:"selected"`
+	Omitted  RuntimeBudgetBucket `json:"omitted"`
+}
+
+type RuntimeToolSearchResponse struct {
+	Query          string                        `json:"query"`
+	Results        []RuntimeToolSearchResult     `json:"results"`
+	Omitted        []RuntimeToolSearchOmission   `json:"omitted,omitempty"`
+	Total          int                           `json:"total"`
+	BudgetImpact   RuntimeToolSchemaBudgetImpact `json:"budgetImpact"`
+	Guardrail      string                        `json:"guardrail,omitempty"`
+	GuardrailError string                        `json:"guardrailError,omitempty"`
 }
 
 type RuntimeModelConfig struct {

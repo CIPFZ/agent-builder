@@ -138,6 +138,11 @@ export const wailsRuntime: AgentRuntime = {
     return response.capabilities
   },
 
+  async searchTools(request) {
+    const bridge = await loadWailsRuntimeBridge()
+    return bridge.SearchTools(request)
+  },
+
   async refreshCapability(capabilityId: string) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.RefreshCapability(capabilityId)

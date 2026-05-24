@@ -43,6 +43,17 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 		InputSummary: call.InputSummary,
 	})
 	if result.Decision != permission.PolicyAsk {
+		if result.Decision == permission.PolicyAllow {
+			if blocked, reason := r.service.incrementRunningToolGuard(call); blocked {
+				r.service.recordDeadlockPrevented(call.SessionID, call.TurnID, call.ID, reason, "concurrent runtime tool limit reached")
+				return agent.SchedulerToolPolicyDecision{
+					Decision: string(permission.PolicyDeny),
+					Risk:     string(result.Risk),
+					Reason:   "Scheduler blocked tool call to avoid deadlock: " + reason,
+					Mode:     string(result.Mode),
+				}, nil
+			}
+		}
 		r.recordPolicyDecision(call, result)
 		return agent.SchedulerToolPolicyDecision{
 			Decision: string(result.Decision),
@@ -82,6 +93,15 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 			Decision: string(permission.PolicyDeny),
 			Risk:     string(result.Risk),
 			Reason:   firstNonEmpty(result.Reason, "Permission denied."),
+			Mode:     string(result.Mode),
+		}, nil
+	}
+	if blocked, reason := r.service.incrementRunningToolGuard(call); blocked {
+		r.service.recordDeadlockPrevented(call.SessionID, call.TurnID, call.ID, reason, "concurrent runtime tool limit reached")
+		return agent.SchedulerToolPolicyDecision{
+			Decision: string(permission.PolicyDeny),
+			Risk:     string(result.Risk),
+			Reason:   "Scheduler blocked tool call to avoid deadlock: " + reason,
 			Mode:     string(result.Mode),
 		}, nil
 	}
@@ -237,6 +257,7 @@ func (r *runtimeSchedulerRecorder) ToolCallOutput(ctx context.Context, result ag
 }
 
 func (r *runtimeSchedulerRecorder) ToolCallCompleted(ctx context.Context, result agent.SchedulerToolCallResult) error {
+	defer r.service.decrementRunningToolGuard(result.TurnID)
 	call, err := r.updateToolCall(ctx, result, scheduler.ToolCallCompleted)
 	if err != nil {
 		return err
@@ -253,6 +274,7 @@ func (r *runtimeSchedulerRecorder) ToolCallCompleted(ctx context.Context, result
 }
 
 func (r *runtimeSchedulerRecorder) ToolCallFailed(ctx context.Context, result agent.SchedulerToolCallResult) error {
+	defer r.service.decrementRunningToolGuard(result.TurnID)
 	status := scheduler.ToolCallFailed
 	if result.Status == string(scheduler.ToolCallDenied) {
 		status = scheduler.ToolCallDenied
@@ -279,6 +301,7 @@ func (r *runtimeSchedulerRecorder) ToolCallFailed(ctx context.Context, result ag
 }
 
 func (r *runtimeSchedulerRecorder) ToolCallCancelled(ctx context.Context, result agent.SchedulerToolCallResult) error {
+	defer r.service.decrementRunningToolGuard(result.TurnID)
 	call, err := r.updateToolCall(ctx, result, scheduler.ToolCallCancelled)
 	if err != nil {
 		return err

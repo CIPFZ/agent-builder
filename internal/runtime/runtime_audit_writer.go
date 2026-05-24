@@ -62,6 +62,7 @@ type auditEntry struct {
 	MCPRisk               string                     `json:"mcp_risk,omitempty"`
 	MCPReason             string                     `json:"mcp_reason,omitempty"`
 	AgentTask             *RuntimeAgentTask          `json:"agent_task,omitempty"`
+	Extra                 map[string]any             `json:"extra,omitempty"`
 }
 
 type auditToolCall struct {

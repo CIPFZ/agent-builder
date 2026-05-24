@@ -26,6 +26,7 @@ func newRuntimeService() *runtimeService {
 		permissions:     make(map[string]pendingRuntimePermission),
 		policy:          defaultRuntimePolicy(),
 		capabilityLoads: make(map[string]runtimeCapabilityLoadRecord),
+		toolDiscovery:   newRuntimeToolDiscoveryState(),
 
 		eventStream: newRuntimeSSEServer(),
 	}

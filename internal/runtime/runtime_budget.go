@@ -73,7 +73,8 @@ func (r *runtimeService) computeRuntimeBudget(ctx context.Context, sessionID, tu
 		report.ToolSchemas.EstimatedTokens +
 		report.Skills.EstimatedTokens +
 		report.MCP.EstimatedTokens +
-		report.ToolOutputs.EstimatedTokens
+		report.ToolOutputs.EstimatedTokens +
+		report.SelectedToolSchemas.EstimatedTokens
 	return report
 }
 
@@ -93,6 +94,8 @@ func (r *runtimeService) publishBudgetUpdated(sessionID, turnID string, budget R
 			"skills":                 budget.Skills,
 			"mcp":                    budget.MCP,
 			"tool_outputs":           budget.ToolOutputs,
+			"selected_tool_schemas":  budget.SelectedToolSchemas,
+			"omitted_tool_schemas":   budget.OmittedToolSchemas,
 			"summary":                fmt.Sprintf("%d estimated tokens", budget.TotalEstimatedTokens),
 		},
 	})
@@ -127,6 +130,8 @@ func runtimeBudgetReportFromPayload(payload map[string]any) *RuntimeBudgetReport
 	report.Skills = runtimeBudgetBucketFromPayload(payload, "skills")
 	report.MCP = runtimeBudgetBucketFromPayload(payload, "mcp")
 	report.ToolOutputs = runtimeBudgetBucketFromPayload(payload, "toolOutputs")
+	report.SelectedToolSchemas = runtimeBudgetBucketFromPayload(payload, "selectedToolSchemas")
+	report.OmittedToolSchemas = runtimeBudgetBucketFromPayload(payload, "omittedToolSchemas")
 	return report
 }
 
