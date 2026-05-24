@@ -1,116 +1,80 @@
 # Claude Code Alignment Module Priority
 
-This document is a short pointer to the current Claude Code alignment plan.
-The detailed roadmap is maintained in
-[`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md),
-the commit-ready implementation boundaries are maintained in
-[`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md),
-the React product UI plan is maintained in
-[`docs/claude-client-inspired-ui-plan.md`](./claude-client-inspired-ui-plan.md),
-and the current full parity source is
-[`docs/claude-code-runtime-parity-audit.md`](./claude-code-runtime-parity-audit.md).
+Status: refreshed on 2026-05-24 after the full runtime parity re-audit.
 
-Status: updated after the 2026-05-24 runtime parity audit. Older wording that
-made PermissionPolicy the next implementation module is superseded.
+Use these docs for the next session:
+
+- [`docs/claude-code-full-parity-review.md`](./claude-code-full-parity-review.md)
+- [`docs/claude-code-runtime-parity-audit.md`](./claude-code-runtime-parity-audit.md)
+- [`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md)
+- [`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md)
+
+Older wording that made either PermissionPolicy or React shell the next main
+module is superseded. Current code already contains foundations for scoped
+policy, compact boundary/micro compact, tool search, AgentTask messages/results,
+worktree lifecycle, replay export, and scenario tests. The next priority is
+runtime hardening.
 
 ## Current Baseline
 
-The current `main` baseline has moved beyond the older P0/P1 planning state:
-
 | Area | Status | Evidence |
 | --- | --- | --- |
-| Durable Turn lifecycle | Completed foundation | `internal/runtime/runtime_turns.go`, `runtime_turn_store.go`, `runtime_turn_store_test.go` |
-| Durable ToolCall lifecycle | Completed foundation | `internal/runtime/runtime_tool_calls.go`, `runtime_tool_call_store.go`, `internal/tools/scheduler` |
-| Runtime event cursor | Completed foundation | `internal/runtime/runtime_events.go`, `runtime_sse.go`, `client/src/runtime/types.ts` |
-| Runtime audit trail | Completed foundation | `internal/runtime/runtime_audit*.go`, `runtime_audit_test.go` |
-| Session recovery foundation | Completed foundation | `internal/runtime/runtime_recovery.go`, `client/src/runtime/types.ts` |
-| Tool Scheduler integration | Completed P1 baseline | `internal/agent/scheduler_tool.go`, `internal/runtime/runtime_scheduler_recorder.go` |
-| PermissionPolicy | Partial foundation | `internal/permission/policy.go` and `/v1/policy` exist with `ask`, `auto_read`, `plan`, and `deny_all`; scoped rules, shell hardening, headless profiles, and advisory-only model assistance remain future work |
-| Context source audit | Partial foundation | `internal/runtime/runtime_context.go`, `internal/agent/prompt`, context source events/audit |
-| Skills/MCP/capability inventory | Partial foundation | runtime panels, APIs, capability states, and refresh events exist; scoped activation/lazy enforcement remain future work |
-| AgentTask persistence | Partial foundation | `internal/runtime/runtime_agent_tasks.go`, task store/events/API exist; roles, scoped enforcement, communication, and artifacts remain partial |
-| React runtime UI | Partial foundation | React consumes runtime DTOs; compact/task/policy diagnostics and richer replay views remain future work |
+| Runtime spine | Completed foundation | `internal/runtime/runtime_turns.go`, `runtime_tool_call_store.go`, `runtime_events.go`, `runtime_audit.go`, `runtime_recovery.go` |
+| Tool scheduler | Completed foundation | `internal/tools/scheduler/*`, `internal/agent/scheduler_tool.go`, `runtime_scheduler_recorder.go` |
+| Permission policy | Partial implemented | `internal/permission/policy.go`, `internal/runtime/runtime_policy.go` |
+| Compact and budget | Partial implemented | `internal/runtime/runtime_compact*.go`, `runtime_budget.go` |
+| Tool search | Partial implemented | `internal/agent/tool_search.go`, `internal/runtime/runtime_tool_search.go` |
+| MCP/skills/capabilities | Partial implemented | `internal/runtime/runtime_mcp*.go`, `runtime_skills.go`, `runtime_skill_activation.go`, `runtime_capabilities.go` |
+| AgentTask/coordinator base | Partial implemented | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go`, `internal/agent/coordinator.go` |
+| Worktree | Partial implemented | `internal/runtime/runtime_worktrees.go`, `runtime_worktree_store.go` |
+| Replay/eval harness | Partial implemented | `internal/runtime/runtime_replay_export.go`, `runtime_scenario_harness_test.go` |
+| React runtime client | Partial diagnostics | `client/src/runtime/*`, `client/src/features/*` |
 
-`charm.land/fantasy` remains the provider/model/tool protocol abstraction. Do
-not modify fantasy or recreate provider clients, model-facing message formats,
-tool-call protocol, or stream handling as part of Agent Builder roadmap work.
-Agent Builder owns runtime orchestration above fantasy: turns, tool calls,
-permission policy, capability inventory, audit, recovery, and client API.
-
-React is a thin client surface. It must not become the business state source.
-Go runtime is the source of truth. Wails is an adapter. CLI/TUI compatibility is
-legacy and must not be restored as the product main path.
-
-## Recommended Next Modules
-
-The next product implementation module should be:
+## Recommended Next Module
 
 ```text
-Claude-client-inspired React shell / information architecture
+runtime: full compact and post-compact reinjection
 ```
 
-Reason: the current runtime foundation is strong enough for a better
-conversation-first desktop client without inventing business facts in React.
-The client should reference the Claude web/desktop chat client for product
-experience and layout, while Claude Code remains the runtime primitive
-reference. The UI plan must not copy Claude branding, logos, trademarks, or
-proprietary visual assets, and it must mark missing compact, artifact,
-task-messaging, scoped-policy, worktree, replay, and tool-search surfaces as
-`Blocked by runtime API`.
+This is first because current code has compact boundaries, budget reporting, and
+micro compact but still lacks Claude Code's full compact lifecycle:
 
-The next runtime implementation module should be:
-
-```text
-Compact lifecycle foundation
-```
-
-Reason: Tool Scheduler integration, runtime turns, audit, recovery, policy
-baseline, capability inventory, context source audit, and AgentTask persistence
-are now present as foundations. The largest Claude Code parity gap is
-long-session governance:
-
-- micro compact,
-- full compact,
-- session memory compact,
+- full compact summaries,
 - auto compact trigger,
-- post-compact reinjection,
-- prompt/tool budget accounting.
+- session memory compact,
+- post-compact cleanup/reinjection,
+- compact-aware recovery,
+- broader compact replay/eval coverage.
 
-Compact should start as a conservative runtime primitive: durable compact
-boundary records, events, audit, and tests before changing model-loop behavior.
+React/page work should wait because compact, replay, task mailbox, artifact, and
+policy diagnostics must render runtime state. The client must not infer compact
+or task truth from messages.
 
-## Other P1 Modules
+## Next Priority Order
 
-These remain high priority after or alongside the compact boundary:
+1. Full compact and post-compact reinjection.
+2. Persisted event replay and expanded scenario harness.
+3. Tool discovery guardrails and scheduler recursion/concurrency hardening.
+4. Policy profiles, headless semantics, and shell parser hardening.
+5. AgentTask coordinator mailbox and task-tool parity.
+6. Output/artifact refs and durable background job entity.
+7. MCP auth/elicitation lifecycle.
+8. Worktree task/cwd cleanup hardening.
+9. React compact/replay/task/policy diagnostics after runtime APIs.
+10. Sandbox/remote runtime.
+11. Capability package/plugin governance.
+12. Advisory permission advisor.
 
-- Tool search and prompt/tool budget.
-- Scoped policy rules and shell safety hardening.
-- AgentTask scope, role definitions, and parent/child messaging.
-- Scenario/eval harnesses for policy, tools, MCP, skills, tasks, compact, and
-  recovery.
+## Not Needed
 
-Claude Code's permission system includes more adaptive/model-assisted behavior
-than original Crush. Agent Builder should model that as a later advisor layer:
-the model or classifier may summarize intent, explain risk, or propose leaving
-plan mode, but final `allow`/`ask`/`deny` decisions must remain enforced by Go
-runtime policy. The baseline implementation must not let the model approve its
-own high-risk tool use.
-
-Tool/capability lazy exposure should now be handled through the combination of
-capability registry metadata, scoped policy, and model-facing tool search.
-
-## Roadmap Pointer
-
-Use [`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md),
-[`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md),
-and [`docs/claude-client-inspired-ui-plan.md`](./claude-client-inspired-ui-plan.md)
-for the next session. Together they contain:
-
-- completed capability baseline,
-- Claude-client-inspired React shell planning,
-- remaining Claude Code gaps,
-- compact/tool search/policy/task priority order,
-- P0/P1/P2/P3 priority map,
-- module boundaries and acceptance criteria,
-- dependency graph,
-- commit-by-commit implementation sequence.
+- Terminal UI / Ink / terminal layout.
+- Keybindings / Vim input state.
+- Slash command UI.
+- CLI argument UX.
+- Anthropic subscription/pass/growth surfaces.
+- Claude.ai OAuth/product login surfaces.
+- First-party telemetry sinks / GrowthBook / Datadog.
+- Marketplace-first plugin browsing/install.
+- Provider/model protocol rewrite.
+- Changes to `charm.land/fantasy`.
+- TUI/CLI main-path restoration.
