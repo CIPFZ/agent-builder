@@ -1,11 +1,13 @@
 # Claude Code Alignment Module Priority
 
-This document is the short entry point for the next Agent Builder planning
-phase. The detailed roadmap is now maintained in
-[`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md).
+This document is a short pointer to the current Claude Code alignment plan.
+The detailed roadmap is maintained in
+[`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md),
+and the current full parity source is
+[`docs/claude-code-runtime-parity-audit.md`](./claude-code-runtime-parity-audit.md).
 
-This session is docs-only. Do not modify Go or React product code when updating
-this plan.
+Status: updated after the 2026-05-24 runtime parity audit. Older wording that
+made PermissionPolicy the next implementation module is superseded.
 
 ## Current Baseline
 
@@ -19,9 +21,11 @@ The current `main` baseline has moved beyond the older P0/P1 planning state:
 | Runtime audit trail | Completed foundation | `internal/runtime/runtime_audit*.go`, `runtime_audit_test.go` |
 | Session recovery foundation | Completed foundation | `internal/runtime/runtime_recovery.go`, `client/src/runtime/types.ts` |
 | Tool Scheduler integration | Completed P1 baseline | `internal/agent/scheduler_tool.go`, `internal/runtime/runtime_scheduler_recorder.go` |
-| PermissionPolicy | Next | `internal/permission/policy.go` exists, but mode/rule/audit/API semantics are still minimal; the next pass is deterministic runtime enforcement, with model-assisted policy reserved for a later advisory layer |
-| Skills/MCP/capability inventory | Parallel foundation | runtime panels and APIs exist; activation/lazy loading remain future work |
-| React runtime UI | Parallel foundation | React consumes runtime DTOs, but tool cards/timeline/policy UI need deeper runtime objects |
+| PermissionPolicy | Partial foundation | `internal/permission/policy.go` and `/v1/policy` exist with `ask`, `auto_read`, `plan`, and `deny_all`; scoped rules, shell hardening, headless profiles, and advisory-only model assistance remain future work |
+| Context source audit | Partial foundation | `internal/runtime/runtime_context.go`, `internal/agent/prompt`, context source events/audit |
+| Skills/MCP/capability inventory | Partial foundation | runtime panels, APIs, capability states, and refresh events exist; scoped activation/lazy enforcement remain future work |
+| AgentTask persistence | Partial foundation | `internal/runtime/runtime_agent_tasks.go`, task store/events/API exist; roles, scoped enforcement, communication, and artifacts remain partial |
+| React runtime UI | Partial foundation | React consumes runtime DTOs; compact/task/policy diagnostics and richer replay views remain future work |
 
 `charm.land/fantasy` remains the provider/model/tool protocol abstraction. Do
 not modify fantasy or recreate provider clients, model-facing message formats,
@@ -38,18 +42,33 @@ legacy and must not be restored as the product main path.
 The next implementation module should be:
 
 ```text
-PermissionPolicy baseline
+Compact lifecycle foundation
 ```
 
-Reason: Tool Scheduler integration is now present, and the next set of modules
-all need a single runtime policy boundary before they can be implemented safely:
+Reason: Tool Scheduler integration, runtime turns, audit, recovery, policy
+baseline, capability inventory, context source audit, and AgentTask persistence
+are now present as foundations. The largest Claude Code parity gap is
+long-session governance:
 
-- Tool / Capability Lazy Loading must ask policy before activating executable,
-  MCP, skill, or subagent capabilities.
-- Plan mode is a permission mode, not a React label.
-- Shell/background job safety needs mode-aware allow/ask/deny decisions.
-- MCP and skills activation need policy-controlled capability visibility.
-- Subagent / AgentTask needs scoped tools, model, cwd, and capability rules.
+- micro compact,
+- full compact,
+- session memory compact,
+- auto compact trigger,
+- post-compact reinjection,
+- prompt/tool budget accounting.
+
+Compact should start as a conservative runtime primitive: durable compact
+boundary records, events, audit, and tests before changing model-loop behavior.
+
+## Other P1 Modules
+
+These remain high priority after or alongside the compact boundary:
+
+- Tool search and prompt/tool budget.
+- Scoped policy rules and shell safety hardening.
+- AgentTask scope, role definitions, and parent/child messaging.
+- Scenario/eval harnesses for policy, tools, MCP, skills, tasks, compact, and
+  recovery.
 
 Claude Code's permission system includes more adaptive/model-assisted behavior
 than original Crush. Agent Builder should model that as a later advisor layer:
@@ -58,9 +77,8 @@ plan mode, but final `allow`/`ask`/`deny` decisions must remain enforced by Go
 runtime policy. The baseline implementation must not let the model approve its
 own high-risk tool use.
 
-Lazy Loading should follow the PermissionPolicy baseline. It can start in
-parallel as a design-only capability registry refinement, but executable lazy
-activation should wait until policy decisions are stable.
+Tool/capability lazy exposure should now be handled through the combination of
+capability registry metadata, scoped policy, and model-facing tool search.
 
 ## Roadmap Pointer
 
@@ -69,7 +87,7 @@ for the next session. It contains:
 
 - completed capability baseline,
 - remaining Claude Code gaps,
-- Tool / Capability Lazy Loading design,
+- compact/tool search/policy/task priority order,
 - P0/P1/P2/P3 priority map,
 - module boundaries and acceptance criteria,
 - dependency graph,

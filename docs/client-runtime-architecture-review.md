@@ -5,6 +5,14 @@ Claude Code QueryEngine 语义对齐的汇总入口。结论基于当前仓库�
 TUI/CLI 主路径已经移除或降级，React/Wails 桌面客户端是产品界面，Go
 runtime 是事实来源。
 
+Status update, 2026-05-24: this review remains useful for architecture
+boundaries, but its original P0/P1/P2 gap list has been overtaken by the
+runtime implementation on `main`. For current Claude Code parity and execution
+order, use:
+
+- `docs/claude-code-runtime-parity-audit.md`
+- `docs/claude-code-alignment-next-roadmap.md`
+
 ## 结论摘要
 
 Agent Builder 不应继续沿用 Crush 的 TUI/CLI 产品形态，也不应复制 Claude
@@ -31,16 +39,19 @@ state recovery、task/subagent、capability inventory 和客户端可恢复状�
 | 文档 | 状态 | 说明 |
 | --- | --- | --- |
 | `docs/client-runtime-architecture-review.md` | active | 本文，作为当前总览入口。 |
+| `docs/claude-code-runtime-parity-audit.md` | active | 当前 Agent Builder runtime 与 Claude Code runtime 的全量 parity 审计。 |
+| `docs/claude-code-alignment-next-roadmap.md` | active | 当前下一阶段执行路线；已取代旧 P0/P1 scheduler-first 计划。 |
+| `docs/claude-code-alignment-module-priority.md` | active pointer | 短入口，指向最新 audit/roadmap。 |
 | `docs/client-architecture-and-core-flow.md` | active | 客户端主架构和核心流程；方向正确。 |
 | `docs/desktop-runtime-boundary.md` | active | 明确 React thin UI、Wails adapter、Go runtime source of truth。 |
-| `docs/phase-2-runtime-api-boundary.md` | active | Phase 2 runtime API、SSE、skills、MCP、audit baseline。 |
+| `docs/archive/phase-2-runtime-api-boundary.md` | historical baseline | Phase 2 runtime API、SSE、skills、MCP、audit baseline；大部分已实现，不能再作为当前 execution plan。 |
 | `docs/turn-task-run-model.md` | active | Turn/Task/Run 数据模型边界。 |
 | `docs/tool-scheduler-design.md` | active | Tool Scheduler 目标职责和生命周期。 |
 | `docs/permission-policy-model.md` | active | Permission/Policy 模型升级方向。 |
 | `docs/client-state-recovery.md` | active | API-as-truth、event cursor、active turn 恢复。 |
 | `docs/client-information-architecture.md` | active | 客户端信息架构，conversation-first。 |
 | `docs/legacy-crush-inventory.md` | active reference | 清理结果和遗留 surface 说明，需局部更新旧 wording。 |
-| `docs/dev-baseline.md` | active reference | 本机 baseline 记录；不再是执行路线入口。 |
+| `docs/archive/dev-baseline.md` | historical reference | 本机 baseline 记录；不再是执行路线入口。 |
 | `docs/architecture-decisions.md` | partial active | ADR-004 到 ADR-008 仍有效；ADR-001 和旧 next steps 已过期。 |
 
 ### Archived Historical Docs
@@ -171,75 +182,82 @@ orchestration。映射关系如下：
 | recovery/resume | SQLite sessions/messages + orphan repair | turn/tool/permission/audit store and interrupted recovery scan。 |
 | audit/telemetry | logs, session usage, desktop audit bridge | append-only runtime audit store as product contract。 |
 
-## 当前差距
+## Runtime 差距状态
 
-### P0 Gap: Runtime Spine
+The original gap list below described the path before the current
+`internal/runtime` spine landed. It is retained as historical context, not as
+the current execution order. Current status is summarized in
+`docs/claude-code-runtime-parity-audit.md`.
 
-当前仍以 `SessionAgent.Run` 为中心，`requestID` 作为 turn id 过渡使用。
-需要建立一条稳定主链：
+### Historical P0 Gap: Runtime Spine
+
+Resolved as a foundation. Runtime turns, tool calls, events, audit, recovery,
+capability inventory, policy baseline, and AgentTask records now exist under
+`internal/runtime` and related packages. The stable main chain is:
 
 ```text
 Turn -> ToolCall -> PermissionRequest -> Event -> Audit
 ```
 
-验收重点：
+Remaining work is hardening, not creating the spine:
 
-- turn 可查询、可取消、可恢复。
-- tool call 不再只能从 message parts 反推。
-- permission request 绑定 turn/tool call。
-- audit 能按 turn 聚合。
+- Full resume/continuation beyond interrupted marking.
+- Richer replay/debug event persistence.
+- Compact boundary and prompt budget integration.
 
-### P1 Gap: Tool Scheduler
+### Historical P1 Gap: Tool Scheduler
 
-当前工具执行由 fantasy 调用具体 `AgentTool.Run`，工具内部处理 permission、
-输出和 metadata。需要 runtime scheduler 统一：
+Implemented as a foundation through `internal/tools/scheduler`,
+`internal/agent/scheduler_tool.go`, and
+`internal/runtime/runtime_scheduler_recorder.go`. Remaining scheduler work:
 
-- input validation
-- risk/capability classification
-- permission policy evaluation
-- execution state
-- cancellation
-- output normalization
-- diff/artifact references
-- audit/event emission
+- tool search/discovery,
+- explicit deadlock and recursion limits,
+- per-source concurrency policy,
+- durable output/artifact refs,
+- richer result normalization.
 
-### P2 Gap: Permission Policy
+### Historical P2 Gap: Permission Policy
 
-当前 permission service 是 approval 基础，不是完整 policy engine。缺口：
+Implemented as a partial foundation. `ask`, `auto_read`, `plan`, and
+`deny_all` modes exist, and plan mode blocks non-read tool calls through
+runtime policy. Remaining work:
 
-- mode：plan/default/auto_read/trusted/headless/bypass
-- allow/ask/deny rules
-- risk tags：read/write/execute/network/secret/destructive
-- command/path/resource matching
-- decision audit and expiration
-- secret redaction
-- headless fail-closed behavior
+- scoped policy rules for tool/MCP/skill/subagent/cwd/shell,
+- richer Bash/PowerShell safety,
+- explicit headless profiles,
+- policy regression scenarios,
+- model-assisted advisor as advisory-only, never self-approval.
 
-### P3 Gap: Recovery
+### Historical P3 Gap: Recovery
 
-当前客户端已能启动拉取 status/sessions/messages/permissions/events，但缺少：
+Implemented as a foundation. Event cursors, recovery status, interrupted turns,
+pending permissions, and startup recovery paths exist. Remaining work:
 
-- event sequence/cursor
-- active turn API
-- persisted pending permission status
-- runtime restart scan
-- interrupted turn marking
-- snapshot-required reconnect behavior
+- persisted event replay/export beyond bounded runtime memory,
+- richer audit diagnostics,
+- compact-aware recovery and reinjection.
 
-### P4 Gap: Context, Memory, Subagent
+### Current P1 Gap: Context, Memory, Compact, Subagent
 
-后续需要吸收 QueryEngine 的 runtime 语义，而不是 terminal UI：
+The largest current gaps are the long-session primitives identified in the
+2026-05-24 parity audit:
 
-- layered instructions：managed/user/project/local
-- AGENTS.md / CLAUDE.md / rules loading
-- read-file state and context compaction
-- subagent as persisted task
-- background tasks and output artifacts
-- worktree/cwd/remote isolation semantics
+- compact lifecycle: micro, full, session memory, auto trigger, reinjection,
+- prompt/tool budget and model-facing tool search,
+- scoped policy/shell safety,
+- AgentTask roles, scopes, parent/child communication, artifacts,
+- worktree/sandbox/remote isolation,
+- local scenario/eval harnesses.
 
-## 推荐改造路线
+## Historical Route And Current Route
 
-### Phase 1: Freeze Runtime Contract
+The phase route below is historical. It explains why the runtime boundary was
+built, but the current implementation roadmap has moved to compact/tool
+governance and is maintained in
+`docs/claude-code-alignment-next-roadmap.md`.
+
+### Historical Phase 1: Freeze Runtime Contract
 
 范围：
 
@@ -253,7 +271,7 @@ Turn -> ToolCall -> PermissionRequest -> Event -> Audit
 - docs 不再把 Phase 1 mock/TUI 保留作为当前路线。
 - runtime API/event schema 有单一入口。
 
-### Phase 2: Durable Turn Store
+### Historical Phase 2: Durable Turn Store
 
 范围：
 
@@ -268,7 +286,7 @@ Turn -> ToolCall -> PermissionRequest -> Event -> Audit
 - 客户端刷新后能恢复 active/waiting/cancelled/completed turn。
 - audit 能按 turn 查询最小信息。
 
-### Phase 3: Runtime Event Bus and Cursor
+### Historical Phase 3: Runtime Event Bus and Cursor
 
 范围：
 
@@ -282,7 +300,7 @@ Turn -> ToolCall -> PermissionRequest -> Event -> Audit
 - SSE 断线重连不会丢关键 permission/tool/turn 状态。
 - React 不依赖轮询作为主机制。
 
-### Phase 4: Tool Scheduler
+### Historical Phase 4: Tool Scheduler
 
 范围：
 
@@ -297,7 +315,7 @@ Turn -> ToolCall -> PermissionRequest -> Event -> Audit
 - tool events 不再完全依赖 message part 反推。
 - permission 和 audit 关联 tool_call_id。
 
-### Phase 5: PermissionPolicy
+### Historical Phase 5: PermissionPolicy
 
 范围：
 
@@ -312,7 +330,7 @@ Turn -> ToolCall -> PermissionRequest -> Event -> Audit
 - pending permission 可恢复、可过期、可审计。
 - plan/read-only mode 能阻止写入/执行类 tool。
 
-### Phase 6: RuntimeService Migration
+### Historical Phase 6: RuntimeService Migration
 
 范围：
 
@@ -325,7 +343,7 @@ Turn -> ToolCall -> PermissionRequest -> Event -> Audit
 - desktop 不拥有业务 runtime。
 - HTTP smoke tests 和 Wails client 使用同一 service。
 
-### Phase 7: Task/Subagent and Context
+### Historical Phase 7: Task/Subagent and Context
 
 范围：
 
@@ -351,15 +369,15 @@ Turn -> ToolCall -> PermissionRequest -> Event -> Audit
 - Archive 文档仍包含旧 TUI/Phase 1 wording；引用时必须看当前 review 和
   active docs。
 
-## 当前推荐优先级
+## Current Recommended Priority
 
-1. 文档入口和 active/archive 状态收敛。
-2. Durable Turn model。
-3. Runtime event sequence/cursor。
-4. Tool Scheduler wrapper。
-5. PermissionPolicy mode/risk/audit。
-6. RuntimeService 迁移到 `internal/runtime`。
-7. AgentTask/subagent persistence。
-8. Context/memory lifecycle。
-9. Worktree/isolation。
-10. Capability package/plugin governance。
+1. Compact lifecycle foundation.
+2. Micro compact for tool outputs.
+3. Prompt/tool budget accounting.
+4. Tool search / capability discovery.
+5. Scoped policy rules and shell safety.
+6. AgentTask scope, role definitions, and parent/child messaging.
+7. MCP/skills scoped activation.
+8. Background job entity and output/artifact refs.
+9. Worktree isolation.
+10. Scenario/eval harnesses and replay diagnostics.

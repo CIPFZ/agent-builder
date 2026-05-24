@@ -1,5 +1,10 @@
 # Development Baseline
 
+Status: historical local baseline. This file records the 2026-05-16 pre-refactor
+environment and should not be used as the current build/test status. For
+current verification, run the commands in `AGENTS.md` and inspect the latest
+implementation summary or CI results.
+
 Baseline date: 2026-05-16.
 
 This document records the current local build, run, and test status before
@@ -256,11 +261,14 @@ This is a baseline environment issue, not a result of runtime/client changes.
 
 ## Recommended Next Step
 
-Do not change Crush runtime yet. The next implementation step can proceed in
-parallel with baseline follow-up:
+Historical recommendation from the baseline date:
 
 1. Keep this baseline as the pre-change reference.
 2. Create the first `client/` React prototype for the SSH troubleshooting
    assistant using mock events.
 3. Separately decide whether to install/fix WSL bash or document Windows shell
    test limitations before relying on `go test ./...` as a required gate.
+
+Current direction has superseded this: the product path is the Go runtime plus
+React/Wails client, with compact/tool-budget/policy/task governance as the next
+runtime roadmap.

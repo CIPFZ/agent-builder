@@ -4,7 +4,7 @@
 
 - `docs/archive/crush-claude-code-gap-analysis.md`
 - `docs/client-first-runtime-refactor.md`
-- `docs/phase-2-runtime-api-boundary.md`
+- `docs/archive/phase-2-runtime-api-boundary.md`
 
 当前目标不是把 Crush 包一层桌面壳，也不是复刻 Claude Code 的 CLI/TUI，而是做一个 Codex 形态的桌面客户端：
 

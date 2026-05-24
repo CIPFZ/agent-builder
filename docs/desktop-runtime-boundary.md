@@ -1,8 +1,13 @@
 # Desktop Runtime Boundary
 
+Status: architecture boundary baseline. The Phase 1.5 wording is historical,
+but the core decision remains active: React is presentation, Wails is an
+adapter, and Go runtime owns product state. For current implementation priority,
+use `docs/claude-code-alignment-next-roadmap.md`.
+
 This document records the Phase 1.5 architecture boundary for the desktop
-client. The active Phase 1 baseline is also summarized in
-`docs/archive/phase-1-runtime-baseline.md`.
+client. The Phase 1 baseline is summarized in
+`docs/archive/phase-1-runtime-baseline.md` as historical context.
 
 ## Decision
 
@@ -56,7 +61,7 @@ Current implementation follows this boundary:
   operation. Bypass can exist later as an explicit policy mode, but the default
   Phase 1 behavior is ask/allow/deny.
 
-## Phase 1 Delta
+## Historical Phase 1 Delta
 
 Earlier planning documents described Phase 1 as a pure UI/mock prototype. That
 is no longer the active baseline. The accepted Phase 1 foundation is:

@@ -1,10 +1,22 @@
 # Phase 2 Runtime API Boundary
 
-This document is the active Phase 2 plan. Phase 1 proved that the desktop
-client can talk to the real Crush runtime through Wails commands and a local
-SSE event stream. Phase 2 turns that working bridge into a stable runtime API
-boundary and a usable assistant client baseline that can support the desktop
-client, future Web clients, headless clients, skills, and MCP.
+Status: historical design baseline. Phase 2's runtime API, SSE, model config,
+skills, MCP, capability, audit, recovery, and thin-client direction are now
+substantially implemented under `internal/runtime` and `client/src/runtime`.
+This document remains useful for API intent and boundary rationale, but it is
+not the current execution roadmap.
+
+Use these current docs for planning:
+
+- `docs/claude-code-runtime-parity-audit.md`
+- `docs/claude-code-alignment-next-roadmap.md`
+- `docs/client-runtime-architecture-review.md`
+
+The original Phase 2 plan follows. Phase 1 proved that the desktop client can
+talk to the real Crush runtime through Wails commands and a local SSE event
+stream. Phase 2 turned that working bridge into a stable runtime API boundary
+and a usable assistant client baseline that can support the desktop client,
+future Web clients, headless clients, skills, and MCP.
 
 ## Goal
 
@@ -492,9 +504,9 @@ runtime_audit_events
 This table is intentionally small. It prepares the ground for the later
 operation/run model without forcing Phase 2 to implement full operations.
 
-## Non-goals
+## Non-goals And Current Follow-Up
 
-Phase 2 should not include:
+Phase 2 did not include, and the current roadmap still treats as later work:
 
 - Full operation/run workflow.
 - SSH troubleshooting MVP.
@@ -506,7 +518,8 @@ Phase 2 should not include:
 - Multi-tenant enterprise RBAC.
 - Remote multi-user runtime.
 
-These are later phases. Phase 2 only prepares the runtime boundary they need.
+The current immediate follow-up is compact/tool-budget/policy/task governance,
+not SSH MVP, marketplace, or remote runtime.
 
 ## Phase 2 Engineering Decisions
 
@@ -526,7 +539,10 @@ The following decisions are fixed for Phase 2:
 - Skill enable/disable is project-level through `options.disabled_skills`.
 - Session-level capability filtering is reserved for the later policy phase.
 
-## Execution Policy
+## Historical Execution Policy
+
+This section is retained as historical phase guidance. Current implementation
+order is maintained in `docs/claude-code-alignment-next-roadmap.md`.
 
 Phase 2 implementation should be driven to completion without requiring the
 user to watch the machine continuously.
@@ -553,7 +569,7 @@ Pause for user confirmation only when:
   seam can cover the behavior.
 - The implementation would require changing the agreed Phase 2 scope.
 
-## Implementation Order
+## Historical Implementation Order
 
 1. Document and freeze the Phase 2 API and event schema.
 2. Extract current Wails runtime operations behind a transport-neutral Go
@@ -574,9 +590,13 @@ Each implementation step must have a matching automated verification path.
 Examples include Go unit tests, API smoke tests, frontend lint/build tests,
 Playwright desktop or browser checks, and packaged-app smoke scripts.
 
-## Phase 2 Acceptance
+## Phase 2 Acceptance Snapshot
 
-Phase 2 is complete when:
+Phase 2 acceptance has mostly become the runtime foundation now present in
+`internal/runtime`. Remaining or superseded items should be evaluated through
+the parity audit instead of this checklist.
+
+Phase 2 was originally considered complete when:
 
 - A client can create and read a session through the runtime API.
 - A client can send one user turn and cancel it.
@@ -593,4 +613,5 @@ Phase 2 is complete when:
 - A packaged desktop build can be manually tested on the local machine.
 - Each completed implementation stage has automated tests or smoke tests
   recorded in the final summary for that stage.
-- The existing TUI is not broken.
+- The existing TUI is not broken. This criterion is obsolete: the TUI main path
+  has been removed/degraded and should not be restored as the product path.

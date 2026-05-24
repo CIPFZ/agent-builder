@@ -331,7 +331,15 @@ Desktop -> Runtime API/Event Stream -> RuntimeService
 
 ## 建议的裁剪策略
 
-### 第一阶段：隔离
+Status update: the original isolation/replacement/deletion plan below has
+mostly been executed for the TUI/CLI main path. `internal/ui/` and
+`internal/commands/` are gone, `internal/cmd/` is a minimal compatibility stub,
+and runtime/client work now happens through Go runtime APIs and React. The
+remaining work is not TUI isolation; it is runtime governance: compact,
+tool-budget/search, scoped policy, AgentTask communication, isolation, and
+scenario/eval coverage.
+
+### Historical 第一阶段：隔离
 
 不立刻删除 TUI/CLI，先建立边界：
 
@@ -341,7 +349,7 @@ Desktop -> Runtime API/Event Stream -> RuntimeService
 - RuntimeService 暴露所有客户端需要的状态。
 - React 不构造 user/assistant/tool message，只展示 runtime 返回的数据。
 
-### 第二阶段：替换
+### Historical 第二阶段：替换
 
 把核心能力从 CLI/TUI 形态迁移到 runtime API：
 
@@ -351,7 +359,7 @@ Desktop -> Runtime API/Event Stream -> RuntimeService
 - TUI session picker -> sessions API + sidebar。
 - TUI diff view -> tool call diff payload + React diff viewer。
 
-### 第三阶段：删除或降级
+### Historical 第三阶段：删除或降级
 
 当桌面客户端主路径稳定后：
 
@@ -483,17 +491,19 @@ desktop -> same API
 本文与现有文档关系：
 
 - `desktop-runtime-boundary.md` 已说明 React 是薄展示层。
-- `phase-2-runtime-api-boundary.md` 已说明 HTTP/SSE 是长期边界。
+- `docs/archive/phase-2-runtime-api-boundary.md` 已说明 HTTP/SSE 是长期边界。
 - `docs/archive/crush-claude-code-gap-analysis.md` 已说明 Crush 与 Claude Code 的能力差距。
 - 本文进一步明确：CLI/TUI 适配不是 Agent Builder 的产品主路径，应隔离并逐步从 runtime core 中剥离。
 
 ## 最小下一步
 
-建议下一步优先做三件事：
+Historical next steps from the earlier refactor plan:
 
 1. 将 runtime event 从 `tea.Msg` 依赖中剥离，建立 runtime-native event bus。
 2. 将 `desktop/runtime_service` 的通用部分迁移规划到 `internal/runtime`。
 3. 定义 client-first `Turn` / `ToolCall` / `PermissionRequest` API，并让 React 只消费这些结构。
 
-完成这三步后，Agent Builder 才会真正从“Crush 的桌面包装”转向“客户端优先的 agent runtime 产品”。
+These are now foundations. Use
+`docs/claude-code-alignment-next-roadmap.md` for the current next
+implementation module.
 

@@ -51,14 +51,21 @@ task --list
 
 Start here:
 
+- `docs/README.md`
+- `docs/claude-code-runtime-parity-audit.md`
+- `docs/claude-code-alignment-next-roadmap.md`
 - `docs/client-runtime-architecture-review.md`
 - `docs/client-architecture-and-core-flow.md`
 - `docs/desktop-runtime-boundary.md`
-- `docs/phase-2-runtime-api-boundary.md`
 - `docs/tool-scheduler-design.md`
 - `docs/permission-policy-model.md`
 - `docs/turn-task-run-model.md`
 - `docs/client-state-recovery.md`
+
+Historical baselines that are still useful for context:
+
+- `docs/archive/phase-2-runtime-api-boundary.md`
+- `docs/archive/dev-baseline.md`
 
 ## Current Status
 

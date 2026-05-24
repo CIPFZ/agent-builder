@@ -141,8 +141,11 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 
 | Path | Label | Reason | Next action |
 | --- | --- | --- | --- |
-| `docs/client-runtime-architecture-review.md` | keep | Current docs audit and client runtime architecture review. | Use as the current architecture entry point. |
-| `docs/legacy-crush-inventory.md` | keep | This Phase 1 inventory output. | Keep active and update as decisions change. |
+| `docs/claude-code-runtime-parity-audit.md` | keep | Current full runtime parity audit against local Claude Code. | Use as the source of truth for runtime parity. |
+| `docs/claude-code-alignment-next-roadmap.md` | keep | Current next implementation roadmap. | Use as the execution entry point. |
+| `docs/claude-code-alignment-module-priority.md` | keep | Short pointer to the current roadmap/audit. | Keep as a concise entry only. |
+| `docs/client-runtime-architecture-review.md` | keep | Architecture boundary review; older gap list is now marked historical. | Keep as architecture entry, not execution order. |
+| `docs/legacy-crush-inventory.md` | keep | Historical inventory plus current legacy status notes. | Keep as reference and update only when legacy surfaces change. |
 | `docs/architecture-decisions.md` | keep | Partially active architecture decision log; early SSH/mock decisions are historical. | Keep, but update or split historical ADRs later. |
 | `docs/archive/implementation-roadmap.md` | archive | Historical roadmap that still describes Phase 0/1 mock and TUI-preservation assumptions. | Do not use as the current execution roadmap. |
 | `docs/agentic-operations-client.md` | keep | Product/client concept document. | Keep active. |
@@ -153,13 +156,13 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 | `docs/archive/client-ui-plan.md` | archive | Historical UI/mock/SSH/DeepSeek plan. | Keep for background only. |
 | `docs/desktop-runtime-boundary.md` | keep | Active boundary doc for desktop runtime. | Keep active. |
 | `docs/desktop-runtime-root-cause-analysis.md` | archive | Historical root cause analysis for a fixed/diagnostic issue. | Phase 7 archived to `docs/archive/desktop-runtime-root-cause-analysis.md`. |
-| `docs/dev-baseline.md` | keep | Useful validation baseline. | Keep active. |
+| `docs/archive/dev-baseline.md` | archive/reference | Historical local validation baseline. | Keep as reference only. |
 | `docs/archive/phase-1-acceptance-test.md` | archive | Historical Phase 1 desktop acceptance flow. | Use `desktop/scripts/phase2-smoke.ps1` for current smoke coverage. |
 | `docs/phase-1-runtime-baseline.md` | archive | Phase baseline snapshot. | Phase 7 archived to `docs/archive/phase-1-runtime-baseline.md`; active references were updated. |
-| `docs/phase-2-runtime-api-boundary.md` | keep | Active runtime API boundary design. | Keep active. |
-| `docs/permission-policy-model.md` | keep | Active design input for PermissionPolicy work. | Keep active. |
-| `docs/tool-scheduler-design.md` | keep | Active design input for scheduler work. | Keep active. |
-| `docs/turn-task-run-model.md` | keep | Active design input for turn/task model. | Keep active. |
+| `docs/archive/phase-2-runtime-api-boundary.md` | archive/reference | Historical API boundary baseline; much of it is implemented. | Keep as reference, not current roadmap. |
+| `docs/permission-policy-model.md` | keep | Partially implemented policy design baseline. | Keep active for scoped policy work. |
+| `docs/tool-scheduler-design.md` | keep | Partially implemented scheduler design baseline. | Keep active for tool search/output/concurrency work. |
+| `docs/turn-task-run-model.md` | keep | Partially implemented turn/task model baseline. | Keep active for AgentTask and future Run work. |
 | `docs/archive/project-structure-refactor-plan.md` | archive | Historical structure cleanup plan now superseded by current review and inventory. | Keep for background only. |
 | `docs/archive/root-cleanup-review.md` | archive | Historical root cleanup review. | Keep for background only. |
 | `docs/archive/tui-removal-plan.md` | archive | Historical TUI removal execution plan; removal is complete. | Keep for background only. |

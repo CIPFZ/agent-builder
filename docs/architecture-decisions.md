@@ -2,7 +2,16 @@
 
 本文记录当前已经明确的关键架构与产品决策，作为后续实现时的基线。
 
-## ADR-001: MVP 选择 SSH 排障助手
+Status update, 2026-05-24:
+
+- ADR-004 through ADR-008 remain useful architecture decisions.
+- ADR-001 through ADR-003 are historical startup decisions. The current product
+  path is no longer an SSH troubleshooting mock MVP or pre-refactor baseline
+  exercise.
+- Current runtime priorities are maintained in
+  `docs/claude-code-alignment-next-roadmap.md`.
+
+## Historical ADR-001: MVP 选择 SSH 排障助手
 
 ### 决策
 
@@ -48,7 +57,7 @@
 - 不做多 agent teams。
 - 不做生产级 sandbox。
 
-## ADR-002: 前端目录放在本仓库
+## Historical ADR-002: 前端目录放在本仓库
 
 ### 决策
 
@@ -75,7 +84,7 @@ client/shared/
 - 方便 Wails desktop shell 后续复用同一套 React UI。
 - 目录名 `client` 比 `frontend` 更贴近最终多客户端形态。
 
-## ADR-003: 先做本机 Crush Baseline
+## Historical ADR-003: 先做本机 Crush Baseline
 
 ### 决策
 
@@ -89,7 +98,7 @@ client/shared/
 结果记录到：
 
 ```text
-docs/dev-baseline.md
+docs/archive/dev-baseline.md
 ```
 
 ### 原因
@@ -316,11 +325,20 @@ Run
 
 ## 当前结论
 
-下一步执行顺序：
+Historical startup conclusion:
 
-1. 做 Crush baseline，形成 `docs/dev-baseline.md`。
+1. 做 Crush baseline，形成 `docs/archive/dev-baseline.md`。
 2. 创建 `client/`，做 SSH 排障助手的 mock UI。
 3. 用 HTTP JSON API + SSE 作为第一版 runtime/client 协议。
 4. 第一版 plugin/capability 以 skill + script + MCP 为主。
 5. 权限先实现 plan/default/accept_edits/bypass_permissions/headless 的概念。
 6. Web 控制台不做，但协议和 UI 架构要能复用。
+
+Current conclusion:
+
+1. Keep Go runtime as source of truth and React as presentation/client state.
+2. Do not restore CLI/TUI as the product main path.
+3. Keep provider/model/tool protocol ownership in `charm.land/fantasy`.
+4. Implement compact lifecycle foundation next.
+5. Then harden tool search/budget, scoped policy, AgentTask communication, and
+   scenario/eval coverage.

@@ -39,7 +39,7 @@ Agent Builder documents:
 - `docs/permission-policy-model.md`
 - `docs/turn-task-run-model.md`
 - `docs/client-state-recovery.md`
-- `docs/phase-2-runtime-api-boundary.md`
+- `docs/archive/phase-2-runtime-api-boundary.md`
 
 Agent Builder code:
 
@@ -438,4 +438,3 @@ The largest parity gap is no longer the basic runtime boundary. The largest
 gap is long-session governance: compact, prompt budget, tool search,
 scoped policy, agent communication, isolation, and eval-driven regression
 coverage. Those should be the next roadmap center.
-

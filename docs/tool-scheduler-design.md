@@ -1,19 +1,31 @@
 # Tool Scheduler 设计
 
+Status: partially implemented design baseline. The foundation exists in
+`internal/tools/scheduler`, `internal/agent/scheduler_tool.go`, and
+`internal/runtime/runtime_scheduler_recorder.go`. This document still describes
+the intended scheduler semantics, but it should not be read as entirely
+unimplemented.
+
+Current remaining gaps are tracked in:
+
+- `docs/claude-code-runtime-parity-audit.md`
+- `docs/claude-code-alignment-next-roadmap.md`
+
 Tool Scheduler 是客户端化 runtime 的关键模块。它把模型产生的工具调用变成可审批、可取消、可审计、可恢复、可展示的 runtime 对象。
 
-## 当前问题
+## Historical Problem Statement
 
-Crush 当前工具执行更多隐藏在 agent loop 和 tool implementation 中。桌面客户端目前通过 message part 观察 tool call，再转换成 runtime event。
+Earlier Crush tool execution hid most lifecycle state in the agent loop and
+tool implementation, while the desktop client observed message parts and
+converted them into runtime events. The scheduler foundation now records
+ToolCall lifecycle, policy decisions, events, and audit. The remaining problems
+are narrower:
 
-这会带来问题：
-
-- UI 很难知道工具生命周期的准确状态。
-- permission 和 tool call 的关系不够稳定。
-- tool output 缺少统一结构。
-- diff、artifact、stdout、stderr 难以统一展示。
-- 取消和恢复只能依赖 session 或 agent loop。
-- audit 需要从 message 里反推工具历史。
+- tool search/discovery is missing,
+- explicit deadlock/recursion/concurrency policy is incomplete,
+- large output refs and artifact/diff refs are still partial,
+- result normalization needs stronger model-visible vs UI-visible boundaries,
+- scheduler scenario tests need to cover MCP, skills, shell, and subagents.
 
 ## 目标职责
 
@@ -186,10 +198,14 @@ POST /v1/tool-calls/{tool_call_id}/cancel
 
 ## 迁移步骤
 
+Historical checklist status:
+
+1-5 are implemented as foundations. Step 6 is partially implemented in React
+timeline/tool surfaces and still needs richer detail/replay/diagnostic views.
+
 1. 定义 `ToolCall` runtime struct 和 contract。
 2. 从 `runtime_events.go` 的 message part 反推逻辑中提取 tool call normalization。
 3. 在 agent tool execution 前后插入 scheduler hooks。
 4. 把 permission request 与 tool call id、turn id 绑定。
 5. 将 audit tool calls 从 message 扫描迁移到 scheduler store。
 6. 客户端 tool card 改读 ToolCall API。
-

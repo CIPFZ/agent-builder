@@ -1,17 +1,35 @@
 # 客户端状态恢复机制
 
+Status: partially implemented design baseline. Runtime event sequence/cursor,
+recovery status, turn/tool/permission persistence, startup recovery, and client
+event subscription foundations now exist. This document still defines the
+recovery model, but the open issues below are narrower than the original list.
+
+Current remaining gaps are tracked in:
+
+- `docs/claude-code-runtime-parity-audit.md`
+- `docs/claude-code-alignment-next-roadmap.md`
+
 客户端化产品必须能从 runtime 恢复状态。React 内存状态不能成为核心业务状态来源。
 
 ## 需要解决的问题
 
-当前客户端已经在启动时拉取 status、sessions、messages、permissions、events、skills、MCP、capabilities，并通过 SSE 订阅事件。但仍有几个缺口：
+当前客户端已经在启动时拉取 status、sessions、messages、permissions、
+events、skills、MCP、capabilities，并通过 SSE 订阅事件。已实现基础：
 
-- SSE 没有明确 cursor。
-- active turn 主要依赖内存状态。
-- pending permission 需要可恢复。
-- 客户端刷新后应恢复 tool call 和 audit 详情。
-- runtime 异常退出后未完成 turn 需要标记。
-- 发送消息流程仍有轮询兜底。
+- event sequence/cursor,
+- `/v1/recovery/status`,
+- turn/tool/permission/audit persistence foundations,
+- interrupted turn/task marking,
+- pending permission recovery,
+- snapshot-required recovery behavior.
+
+仍有缺口：
+
+- long-term persisted event replay/export,
+- compact-aware recovery and post-compact reinjection,
+- richer task/tool/audit diagnostics after refresh,
+- reducing any remaining polling assumptions to short fallback only.
 
 ## 恢复原则
 
@@ -145,6 +163,11 @@ snapshot_required
 
 ## 迁移步骤
 
+Historical checklist status:
+
+1-6 are implemented as foundations. Step 7 remains a cleanup goal: polling may
+exist only as a fallback and should not be the source of truth.
+
 1. 给 runtime event 增加 sequence。
 2. 事件内存 ring buffer 保留 sequence 范围。
 3. active turn 从内存 map 迁移到 turn store。
@@ -152,4 +175,3 @@ snapshot_required
 5. 客户端启动时增加 active turn 恢复。
 6. SSE hook 支持 reconnect + cursor。
 7. 去掉发送消息流程里的长期轮询依赖，只保留短周期兜底。
-

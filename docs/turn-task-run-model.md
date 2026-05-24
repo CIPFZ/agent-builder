@@ -1,5 +1,15 @@
 # Turn / Task / Run 数据模型
 
+Status: partially implemented design baseline. Runtime turns, ToolCalls,
+permissions, audit, recovery, and `RuntimeAgentTask` persistence now exist as
+foundations. This document remains useful for object semantics, but several
+items below are now implemented rather than future-only.
+
+Current remaining gaps are tracked in:
+
+- `docs/claude-code-runtime-parity-audit.md`
+- `docs/claude-code-alignment-next-roadmap.md`
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
@@ -24,7 +34,10 @@
 
 ## 初始阶段的边界
 
-Phase 2 先把 `Turn` 做成一等对象。`Task` 和 `Run` 可以先保留模型定义，不急于完整实现。
+`Turn` and `ToolCall` are now runtime objects. `AgentTask` persistence also
+exists as a foundation for subagent/background work. `Run` remains a future
+business-operation abstraction and should not be implemented before compact,
+scoped policy, tool budget/search, and AgentTask communication are stable.
 
 ```text
 Session
@@ -249,10 +262,15 @@ message 仍可保留现有 Crush 存储，但 turn/tool/permission/audit 应有 
 
 ## 迁移步骤
 
+Historical checklist status:
+
+1-5 are implemented as foundations. Step 6 is mostly complete through runtime
+turn/recovery APIs, with remaining work around richer task/compact/replay
+diagnostics.
+
 1. 保留当前 `requestID == turnID` 过渡行为。
 2. 新增 runtime turn store，Chat 创建 turn 时写入。
 3. `runtime_events.go` 记录 message/tool/permission 时附带 turn id。
 4. `GET /v1/turns/{turn_id}` 从 turn store 读取，而不是只读内存 `requests`。
 5. ToolCall 从 message part 反推逐步改为 ToolScheduler 写入。
 6. 客户端 active turn 状态从 `RuntimeStatus.requests` 迁移到 turn API。
-

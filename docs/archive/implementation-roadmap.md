@@ -47,7 +47,7 @@ Phase 9: Enterprise Hardening
 
 ### 交付物
 
-- `docs/dev-baseline.md`。
+- `docs/archive/dev-baseline.md`。
 - 当前构建、运行、测试结果记录。
 - 已知问题列表。
 
