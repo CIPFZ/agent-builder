@@ -26,21 +26,28 @@ const (
 )
 
 type runtimeToolDiscoveryState struct {
-	SelectedByTurn  map[string]map[string]struct{}
-	SearchesByTurn  map[string]int
-	LastQueryByTurn map[string]string
-	RepeatByTurn    map[string]int
-	RunningByTurn   map[string]int
+	SelectedByTurn   map[string]map[string]struct{}
+	DisclosureByTurn map[string]runtimeToolDisclosureBudget
+	SearchesByTurn   map[string]int
+	LastQueryByTurn  map[string]string
+	RepeatByTurn     map[string]int
+	RunningByTurn    map[string]int
 }
 
 func newRuntimeToolDiscoveryState() runtimeToolDiscoveryState {
 	return runtimeToolDiscoveryState{
-		SelectedByTurn:  make(map[string]map[string]struct{}),
-		SearchesByTurn:  make(map[string]int),
-		LastQueryByTurn: make(map[string]string),
-		RepeatByTurn:    make(map[string]int),
-		RunningByTurn:   make(map[string]int),
+		SelectedByTurn:   make(map[string]map[string]struct{}),
+		DisclosureByTurn: make(map[string]runtimeToolDisclosureBudget),
+		SearchesByTurn:   make(map[string]int),
+		LastQueryByTurn:  make(map[string]string),
+		RepeatByTurn:     make(map[string]int),
+		RunningByTurn:    make(map[string]int),
 	}
+}
+
+type runtimeToolDisclosureBudget struct {
+	Selected RuntimeBudgetBucket
+	Omitted  RuntimeBudgetBucket
 }
 
 func (r *runtimeService) SearchTools(ctx context.Context, req RuntimeToolSearchRequest) (RuntimeToolSearchResponse, error) {
@@ -121,8 +128,30 @@ func (r *runtimeService) SelectToolsForTurn(ctx context.Context, req agent.Sched
 	}
 	slices.Sort(selected)
 	slices.Sort(omitted)
+	r.rememberToolDisclosureBudget(turnID, selectedBucket, omittedBucket)
 	r.recordToolDisclosure(ctx, req.SessionID, req.TurnID, selected, omitted, selectedBucket, omittedBucket)
 	return agent.SchedulerToolDisclosureResult{Selected: selected, Omitted: omitted}, nil
+}
+
+func (r *runtimeService) rememberToolDisclosureBudget(turnID string, selected, omitted RuntimeBudgetBucket) {
+	if turnID == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.toolDiscovery.DisclosureByTurn[turnID] = runtimeToolDisclosureBudget{
+		Selected: selected,
+		Omitted:  omitted,
+	}
+}
+
+func (r *runtimeService) toolDisclosureBudget(turnID string) runtimeToolDisclosureBudget {
+	if turnID == "" {
+		return runtimeToolDisclosureBudget{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.toolDiscovery.DisclosureByTurn[turnID]
 }
 
 func (r *runtimeService) searchTools(ctx context.Context, req RuntimeToolSearchRequest) (RuntimeToolSearchResponse, error) {

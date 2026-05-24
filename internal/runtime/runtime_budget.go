@@ -67,6 +67,9 @@ func (r *runtimeService) computeRuntimeBudget(ctx context.Context, sessionID, tu
 			report.ToolSchemas.EstimatedTokens += estimateRuntimeTokens(cap.Name + " " + cap.Description)
 		}
 	}
+	disclosure := r.toolDisclosureBudget(turnID)
+	report.SelectedToolSchemas = disclosure.Selected
+	report.OmittedToolSchemas = disclosure.Omitted
 	report.TotalEstimatedTokens = report.InputBudget.EstimatedTokens +
 		report.Messages.EstimatedTokens +
 		report.ContextSources.EstimatedTokens +

@@ -670,7 +670,7 @@ func selectToolsForPreparedStep(ctx context.Context, agentTools []fantasy.AgentT
 		Tools:     metadata,
 	})
 	if err != nil || len(result.Selected) == 0 {
-		return agentTools
+		return baseToolsForPreparedStep(agentTools)
 	}
 	selected := make(map[string]struct{}, len(result.Selected))
 	for _, name := range result.Selected {
@@ -679,6 +679,16 @@ func selectToolsForPreparedStep(ctx context.Context, agentTools []fantasy.AgentT
 	out := make([]fantasy.AgentTool, 0, len(result.Selected))
 	for _, tool := range agentTools {
 		if _, ok := selected[tool.Info().Name]; ok {
+			out = append(out, tool)
+		}
+	}
+	return out
+}
+
+func baseToolsForPreparedStep(agentTools []fantasy.AgentTool) []fantasy.AgentTool {
+	out := make([]fantasy.AgentTool, 0, len(agentTools))
+	for _, tool := range agentTools {
+		if isBaseRuntimeTool(tool.Info().Name) {
 			out = append(out, tool)
 		}
 	}

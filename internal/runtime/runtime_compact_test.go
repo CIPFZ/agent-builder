@@ -72,6 +72,7 @@ func TestRuntimeBudgetAccountingIsDeterministic(t *testing.T) {
 	t.Parallel()
 
 	service := newRuntimeService()
+	service.rememberToolDisclosureBudget("turn-1", RuntimeBudgetBucket{Count: 2, EstimatedTokens: 12}, RuntimeBudgetBucket{Count: 3, EstimatedTokens: 30})
 	report := service.computeRuntimeBudget(context.Background(), "session-1", "turn-1", "test-model", 16, &RuntimeTurnContextSummary{
 		AvailableCount: 2,
 		TokenEstimate:  7,
@@ -82,7 +83,13 @@ func TestRuntimeBudgetAccountingIsDeterministic(t *testing.T) {
 	if report.ContextSources.Count != 2 || report.ContextSources.EstimatedTokens != 7 {
 		t.Fatalf("context budget = %#v", report.ContextSources)
 	}
-	if report.TotalEstimatedTokens < 11 {
+	if report.SelectedToolSchemas.Count != 2 || report.SelectedToolSchemas.EstimatedTokens != 12 {
+		t.Fatalf("selected tool schema budget = %#v", report.SelectedToolSchemas)
+	}
+	if report.OmittedToolSchemas.Count != 3 || report.OmittedToolSchemas.EstimatedTokens != 30 {
+		t.Fatalf("omitted tool schema budget = %#v", report.OmittedToolSchemas)
+	}
+	if report.TotalEstimatedTokens < 23 {
 		t.Fatalf("total budget = %#v", report)
 	}
 }
