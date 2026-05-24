@@ -529,20 +529,34 @@ type RuntimeReplayExportResponse struct {
 }
 
 type RuntimeReplayExportSummary struct {
-	CompactBoundaries []RuntimeCompactBoundary      `json:"compactBoundaries,omitempty"`
-	Budget            *RuntimeBudgetReport          `json:"budget,omitempty"`
-	Worktrees         []RuntimeWorktree             `json:"worktrees,omitempty"`
-	ToolSearches      []RuntimeReplayToolSearch     `json:"toolSearches,omitempty"`
-	ToolDiscovery     RuntimeReplayToolDiscovery    `json:"toolDiscovery,omitempty"`
-	AgentTaskMessages []RuntimeAgentTaskMessage     `json:"agentTaskMessages,omitempty"`
-	AgentTaskResults  []RuntimeAgentTaskResult      `json:"agentTaskResults,omitempty"`
-	PolicyDecisions   []RuntimeReplayPolicyDecision `json:"policyDecisions,omitempty"`
-	PermissionEvents  []RuntimeReplayPermission     `json:"permissionEvents,omitempty"`
-	ToolCalls         []RuntimeToolCall             `json:"toolCalls,omitempty"`
-	Recovery          RuntimeReplayRecovery         `json:"recovery,omitempty"`
-	EventCounts       map[string]int                `json:"eventCounts,omitempty"`
-	AuditCounts       map[string]int                `json:"auditCounts,omitempty"`
-	Redacted          bool                          `json:"redacted"`
+	CompactBoundaries  []RuntimeCompactBoundary      `json:"compactBoundaries,omitempty"`
+	Budget             *RuntimeBudgetReport          `json:"budget,omitempty"`
+	Worktrees          []RuntimeWorktree             `json:"worktrees,omitempty"`
+	ToolSearches       []RuntimeReplayToolSearch     `json:"toolSearches,omitempty"`
+	ToolDiscovery      RuntimeReplayToolDiscovery    `json:"toolDiscovery,omitempty"`
+	Capabilities       RuntimeReplayLifecycle        `json:"capabilities,omitempty"`
+	Skills             RuntimeReplayLifecycle        `json:"skills,omitempty"`
+	MCP                RuntimeReplayLifecycle        `json:"mcp,omitempty"`
+	AgentTaskMessages  []RuntimeAgentTaskMessage     `json:"agentTaskMessages,omitempty"`
+	AgentTaskResults   []RuntimeAgentTaskResult      `json:"agentTaskResults,omitempty"`
+	AgentTaskArtifacts []string                      `json:"agentTaskArtifacts,omitempty"`
+	PolicyDecisions    []RuntimeReplayPolicyDecision `json:"policyDecisions,omitempty"`
+	PermissionEvents   []RuntimeReplayPermission     `json:"permissionEvents,omitempty"`
+	ToolCalls          []RuntimeToolCall             `json:"toolCalls,omitempty"`
+	Recovery           RuntimeReplayRecovery         `json:"recovery,omitempty"`
+	EventCounts        map[string]int                `json:"eventCounts,omitempty"`
+	AuditCounts        map[string]int                `json:"auditCounts,omitempty"`
+	Redacted           bool                          `json:"redacted"`
+}
+
+type RuntimeReplayLifecycle struct {
+	Started  []string `json:"started,omitempty"`
+	Allowed  []string `json:"allowed,omitempty"`
+	Denied   []string `json:"denied,omitempty"`
+	Loaded   []string `json:"loaded,omitempty"`
+	Failed   []string `json:"failed,omitempty"`
+	Disabled []string `json:"disabled,omitempty"`
+	Updated  []string `json:"updated,omitempty"`
 }
 
 type RuntimeReplayToolSearch struct {

@@ -82,6 +82,7 @@ func (r *runtimeService) restart() {
 	r.worktrees = runtimeWorktreeStore{}
 	r.agentTasks = runtimeAgentTaskStore{}
 	r.turns = runtimeTurnStore{}
+	r.eventStore = runtimeEventStore{}
 	r.permissionStore = runtimePermissionStore{}
 	r.permissions = make(map[string]pendingRuntimePermission)
 	r.policy = defaultRuntimePolicy()
@@ -204,7 +205,13 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	r.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
 	r.worktrees = newRuntimeWorktreeStore(conn)
 	r.agentTasks = newRuntimeAgentTaskStore(conn)
+	r.eventStore = newRuntimeEventStore(conn)
 	r.permissionStore = newRuntimePermissionStore(conn)
+	if maxSequence, err := r.eventStore.MaxSequence(ctx); err != nil {
+		return fmt.Errorf("failed to recover runtime event sequence: %w", err)
+	} else if maxSequence > r.nextEventSequence {
+		r.nextEventSequence = maxSequence
+	}
 	if err := r.ensureAgentRolesLoaded(ctx); err != nil {
 		return fmt.Errorf("failed to load runtime agent roles: %w", err)
 	}

@@ -101,6 +101,7 @@ type runtimeService struct {
 	worktrees         runtimeWorktreeStore
 	agentTasks        runtimeAgentTaskStore
 	turns             runtimeTurnStore
+	eventStore        runtimeEventStore
 	permissionStore   runtimePermissionStore
 	permissions       map[string]pendingRuntimePermission
 	policy            RuntimePolicy

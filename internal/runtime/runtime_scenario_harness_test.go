@@ -40,6 +40,7 @@ func newRuntimeScenarioHarness(t *testing.T) *runtimeScenarioHarness {
 	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
 	service.worktrees = newRuntimeWorktreeStore(conn)
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
 	service.policy = defaultRuntimePolicy()
 	return &runtimeScenarioHarness{t: t, ctx: context.Background(), service: service, connDir: dataDir}
 }
@@ -315,6 +316,59 @@ func TestRuntimeScenarioHarnessCompactBudgetRecoveryGolden(t *testing.T) {
 	}
 	if len(replay.Summary.CompactBoundaries) < 2 || replay.Summary.Budget == nil {
 		t.Fatalf("compact replay missing budget/boundaries: %#v", replay.Summary)
+	}
+	if replay.Source != "runtime_audit_events+runtime_events" {
+		t.Fatalf("replay source = %q, want persisted runtime_events", replay.Source)
+	}
+	if len(replay.Events) <= runtimeEventLimit {
+		t.Fatalf("persisted replay did not survive event buffer rollover: got %d events", len(replay.Events))
+	}
+}
+
+func TestRuntimeScenarioHarnessPersistedReplaySurvivesRestart(t *testing.T) {
+	t.Parallel()
+
+	h := newRuntimeScenarioHarness(t)
+	h.seedTurn("session-restart", "turn-restart")
+	h.service.storeRuntimeEvent(runtimeapi.Event{
+		Type:      runtimeapi.EventToolSearchPerformed,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID: "session-restart",
+		TurnID:    "turn-restart",
+		Payload:   map[string]any{"query": "view", "selected": []string{"view"}, "omitted_count": 0, "summary": "1 matches"},
+	})
+	firstMax := h.service.nextEventSequence
+	if firstMax == 0 {
+		t.Fatal("expected runtime sequence to advance")
+	}
+
+	restarted := newRuntimeService()
+	restarted.turns = newRuntimeTurnStore(h.service.turns.db)
+	restarted.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(h.service.turns.db))
+	restarted.permissionStore = newRuntimePermissionStore(h.service.turns.db)
+	restarted.compactBoundaries = newRuntimeCompactBoundaryStore(h.service.turns.db)
+	restarted.worktrees = newRuntimeWorktreeStore(h.service.turns.db)
+	restarted.agentTasks = newRuntimeAgentTaskStore(h.service.turns.db)
+	restarted.eventStore = newRuntimeEventStore(h.service.turns.db)
+	maxSequence, err := restarted.eventStore.MaxSequence(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.nextEventSequence = maxSequence
+
+	replay, err := restarted.ReplayExport(h.ctx, RuntimeReplayExportRequest{TurnID: "turn-restart"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.Source != "runtime_audit_events+runtime_events" {
+		t.Fatalf("replay source = %q", replay.Source)
+	}
+	if replay.LastSequence != firstMax || len(replay.Events) != 1 || replay.Events[0].Type != runtimeapi.EventToolSearchPerformed {
+		t.Fatalf("restart replay = %#v", replay)
+	}
+	next := restarted.storeRuntimeEvent(runtimeapi.Event{Type: "scenario.after_restart", SessionID: "session-restart", TurnID: "turn-restart"})
+	if next.Sequence != firstMax+1 {
+		t.Fatalf("next sequence after restart = %d, want %d", next.Sequence, firstMax+1)
 	}
 }
 

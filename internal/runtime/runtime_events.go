@@ -376,6 +376,11 @@ func (r *runtimeService) appendRuntimeEventLocked(event RuntimeEvent) RuntimeEve
 	if len(r.events) > runtimeEventLimit {
 		r.events = r.events[len(r.events)-runtimeEventLimit:]
 	}
+	if r.eventStore.db != nil {
+		if err := r.eventStore.Append(context.Background(), event); err != nil {
+			slog.Error("Failed to persist runtime event", "event_id", event.ID, "sequence", event.Sequence, "type", event.Type, "error", err)
+		}
+	}
 	return event
 }
 

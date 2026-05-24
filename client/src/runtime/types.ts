@@ -382,6 +382,16 @@ export type RuntimeReplayToolDiscovery = {
   denied?: string[]
 }
 
+export type RuntimeReplayLifecycle = {
+  started?: string[]
+  allowed?: string[]
+  denied?: string[]
+  loaded?: string[]
+  failed?: string[]
+  disabled?: string[]
+  updated?: string[]
+}
+
 export type RuntimeReplayPolicyDecision = {
   toolCallId?: string
   toolName?: string
@@ -423,8 +433,12 @@ export type RuntimeReplayExportSummary = {
   worktrees?: RuntimeWorktree[]
   toolSearches?: RuntimeReplayToolSearch[]
   toolDiscovery?: RuntimeReplayToolDiscovery
+  capabilities?: RuntimeReplayLifecycle
+  skills?: RuntimeReplayLifecycle
+  mcp?: RuntimeReplayLifecycle
   agentTaskMessages?: RuntimeAgentTaskMessage[]
   agentTaskResults?: RuntimeAgentTaskResult[]
+  agentTaskArtifacts?: string[]
   policyDecisions?: RuntimeReplayPolicyDecision[]
   permissionEvents?: RuntimeReplayPermission[]
   toolCalls?: RuntimeToolCall[]

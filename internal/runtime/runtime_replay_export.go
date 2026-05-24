@@ -22,11 +22,14 @@ func (r *runtimeService) replayExportTurn(ctx context.Context, req RuntimeReplay
 	if err != nil {
 		return RuntimeReplayExportResponse{}, err
 	}
-	events, err := r.Events(ctx, req.After)
+	events, source, err := r.replayEventsTurn(ctx, req.TurnID, req.After)
 	if err != nil {
 		return RuntimeReplayExportResponse{}, err
 	}
-	filtered := filterReplayEvents(events.Events, req.SessionID, req.TurnID)
+	filtered := events.Events
+	if req.SessionID != "" {
+		filtered = filterReplayEvents(filtered, req.SessionID, req.TurnID)
+	}
 	sessionID := req.SessionID
 	if sessionID == "" {
 		sessionID = audit.Summary.SessionID
@@ -35,7 +38,7 @@ func (r *runtimeService) replayExportTurn(ctx context.Context, req RuntimeReplay
 		SessionID:        sessionID,
 		TurnID:           req.TurnID,
 		GeneratedAt:      time.Now().UTC().Format(time.RFC3339Nano),
-		Source:           "runtime_audit_events+runtime_event_buffer",
+		Source:           "runtime_audit_events+" + source,
 		SnapshotRequired: events.SnapshotRequired,
 		FirstSequence:    events.FirstSequence,
 		LastSequence:     events.LastSequence,
@@ -53,15 +56,18 @@ func (r *runtimeService) replayExportSession(ctx context.Context, req RuntimeRep
 	if err != nil {
 		return RuntimeReplayExportResponse{}, err
 	}
-	events, err := r.Events(ctx, req.After)
+	events, source, err := r.replayEventsSession(ctx, req.SessionID, req.After)
 	if err != nil {
 		return RuntimeReplayExportResponse{}, err
 	}
-	filtered := filterReplayEvents(events.Events, req.SessionID, "")
+	filtered := events.Events
+	if req.SessionID != "" {
+		filtered = filterReplayEvents(filtered, req.SessionID, "")
+	}
 	resp := RuntimeReplayExportResponse{
 		SessionID:        req.SessionID,
 		GeneratedAt:      time.Now().UTC().Format(time.RFC3339Nano),
-		Source:           "runtime_audit_events+runtime_event_buffer",
+		Source:           "runtime_audit_events+" + source,
 		SnapshotRequired: events.SnapshotRequired,
 		FirstSequence:    events.FirstSequence,
 		LastSequence:     events.LastSequence,
@@ -72,6 +78,46 @@ func (r *runtimeService) replayExportSession(ctx context.Context, req RuntimeRep
 	resp.Summary.Recovery.SnapshotRequired = events.SnapshotRequired || resp.Summary.Recovery.SnapshotRequired
 	resp.Summary.Recovery.LastEventSequence = events.LastSequence
 	return resp, nil
+}
+
+func (r *runtimeService) replayEventsTurn(ctx context.Context, turnID string, after int64) (RuntimeEventsResponse, string, error) {
+	if r.eventStore.db != nil {
+		events, err := r.eventStore.ListTurn(ctx, turnID, after)
+		if err != nil {
+			return RuntimeEventsResponse{}, "", err
+		}
+		return events, "runtime_events", nil
+	}
+	events, err := r.Events(ctx, after)
+	if err != nil {
+		return RuntimeEventsResponse{}, "", err
+	}
+	events.Events = filterReplayEvents(events.Events, "", turnID)
+	return events, "runtime_event_buffer", nil
+}
+
+func (r *runtimeService) replayEventsSession(ctx context.Context, sessionID string, after int64) (RuntimeEventsResponse, string, error) {
+	if r.eventStore.db != nil {
+		var (
+			events RuntimeEventsResponse
+			err    error
+		)
+		if sessionID == "" {
+			events, err = r.eventStore.List(ctx, after)
+		} else {
+			events, err = r.eventStore.ListSession(ctx, sessionID, after)
+		}
+		if err != nil {
+			return RuntimeEventsResponse{}, "", err
+		}
+		return events, "runtime_events", nil
+	}
+	events, err := r.Events(ctx, after)
+	if err != nil {
+		return RuntimeEventsResponse{}, "", err
+	}
+	events.Events = filterReplayEvents(events.Events, sessionID, "")
+	return events, "runtime_event_buffer", nil
 }
 
 func (r *runtimeService) replayAuditTurn(ctx context.Context, turnID string) (RuntimeAuditResponse, error) {
@@ -134,12 +180,50 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			summary.ToolDiscovery.Omitted = appendUniqueStrings(summary.ToolDiscovery.Omitted, stringSliceFromMap(event.Payload, "omitted")...)
 		case runtimeapi.EventTaskMessageCreated:
 			summary.AgentTaskMessages = append(summary.AgentTaskMessages, runtimeReplayTaskMessageFromEvent(event))
+		case runtimeapi.EventTaskArtifactCreated:
+			summary.AgentTaskMessages = append(summary.AgentTaskMessages, runtimeReplayTaskMessageFromEvent(event))
+			summary.AgentTaskArtifacts = appendUniqueStrings(summary.AgentTaskArtifacts, stringSliceFromMap(event.Payload, "artifact_refs")...)
 		case runtimeapi.EventTaskResultUpdated:
 			summary.AgentTaskResults = append(summary.AgentTaskResults, runtimeReplayTaskResultFromEvent(event))
+		case runtimeapi.EventBudgetUpdated:
+			summary.Budget = runtimeBudgetReportFromPayload(event.Payload)
 		case runtimeapi.EventWorktreeCreated, runtimeapi.EventWorktreeEntered, runtimeapi.EventWorktreeExited, runtimeapi.EventWorktreeCleaned, runtimeapi.EventWorktreeCleanupFailed, runtimeapi.EventWorktreePolicyDenied:
 			if wt := runtimeWorktreeFromPayload(event.Payload); wt.ID != "" {
 				summary.Worktrees = appendRuntimeReplayWorktree(summary.Worktrees, wt)
 			}
+		case runtimeapi.EventCapabilityLoading:
+			summary.Capabilities.Started = appendUniqueStrings(summary.Capabilities.Started, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventCapabilityLoaded:
+			summary.Capabilities.Loaded = appendUniqueStrings(summary.Capabilities.Loaded, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventCapabilityFailed:
+			summary.Capabilities.Failed = appendUniqueStrings(summary.Capabilities.Failed, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventSkillDiscoveryStarted, runtimeapi.EventSkillActivated, runtimeapi.EventSkillActivationAllowed, runtimeapi.EventSkillContextInjected:
+			summary.Skills.Started = appendUniqueStrings(summary.Skills.Started, runtimeReplayLifecycleName(event))
+			if event.Type == runtimeapi.EventSkillActivationAllowed {
+				summary.Skills.Allowed = appendUniqueStrings(summary.Skills.Allowed, runtimeReplayLifecycleName(event))
+			}
+		case runtimeapi.EventSkillDiscoveryCompleted:
+			summary.Skills.Loaded = appendUniqueStrings(summary.Skills.Loaded, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventSkillDiscoveryFailed, runtimeapi.EventSkillActivationFailed:
+			summary.Skills.Failed = appendUniqueStrings(summary.Skills.Failed, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventSkillDisabled, runtimeapi.EventSkillContextOmitted:
+			summary.Skills.Disabled = appendUniqueStrings(summary.Skills.Disabled, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventSkillActivationDenied:
+			summary.Skills.Denied = appendUniqueStrings(summary.Skills.Denied, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventMCPServerStarting, runtimeapi.EventMCPServerLazyStarted:
+			summary.MCP.Started = appendUniqueStrings(summary.MCP.Started, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventMCPServerConnected:
+			summary.MCP.Loaded = appendUniqueStrings(summary.MCP.Loaded, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventMCPServerFailed, runtimeapi.EventMCPServerLazyFailed:
+			summary.MCP.Failed = appendUniqueStrings(summary.MCP.Failed, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventMCPServerDisabled:
+			summary.MCP.Disabled = appendUniqueStrings(summary.MCP.Disabled, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventMCPToolsUpdated, runtimeapi.EventMCPResourcesUpdated, runtimeapi.EventMCPPromptsUpdated:
+			summary.MCP.Updated = appendUniqueStrings(summary.MCP.Updated, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventMCPCapabilityAllowed:
+			summary.MCP.Allowed = appendUniqueStrings(summary.MCP.Allowed, runtimeReplayLifecycleName(event))
+		case runtimeapi.EventMCPCapabilityDenied:
+			summary.MCP.Denied = appendUniqueStrings(summary.MCP.Denied, runtimeReplayLifecycleName(event))
 		case runtimeapi.EventPermissionPolicyApplied, runtimeapi.EventPolicyRuleMatched, runtimeapi.EventPolicyRuleDenied, runtimeapi.EventPolicyRuleAsk:
 			summary.PolicyDecisions = append(summary.PolicyDecisions, runtimeReplayPolicyFromEvent(event))
 		case runtimeapi.EventPermissionRequested, runtimeapi.EventPermissionDecided:
@@ -194,6 +278,15 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 		}
 	}
 	return summary
+}
+
+func runtimeReplayLifecycleName(event RuntimeEvent) string {
+	for _, key := range []string{"capability_id", "capabilityId", "server", "name", "skill", "id", "summary"} {
+		if value := stringFromMap(event.Payload, key); value != "" {
+			return value
+		}
+	}
+	return event.Type
 }
 
 func appendRuntimeReplayCompactBoundary(items []RuntimeCompactBoundary, boundary RuntimeCompactBoundary) []RuntimeCompactBoundary {
