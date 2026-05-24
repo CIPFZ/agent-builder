@@ -51,9 +51,10 @@ func (s runtimeSQLiteToolCallStore) Upsert(ctx context.Context, call scheduler.T
 INSERT INTO runtime_tool_calls (
     id, turn_id, session_id, message_id, name, source, capability_id, status,
     job_id, command, risk, policy_reason, exit_code, job_status, job_started_at, job_finished_at,
-    input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+	input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+	compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     turn_id = COALESCE(NULLIF(excluded.turn_id, ''), runtime_tool_calls.turn_id),
     session_id = COALESCE(NULLIF(excluded.session_id, ''), runtime_tool_calls.session_id),
@@ -82,6 +83,11 @@ ON CONFLICT(id) DO UPDATE SET
     stdout = COALESCE(NULLIF(excluded.stdout, ''), runtime_tool_calls.stdout),
     stderr = COALESCE(NULLIF(excluded.stderr, ''), runtime_tool_calls.stderr),
     is_error = CASE WHEN excluded.is_error != 0 THEN excluded.is_error ELSE runtime_tool_calls.is_error END,
+    compacted = CASE WHEN excluded.compacted != 0 THEN excluded.compacted ELSE runtime_tool_calls.compacted END,
+    compact_ref = COALESCE(NULLIF(excluded.compact_ref, ''), runtime_tool_calls.compact_ref),
+    compact_boundary_id = COALESCE(NULLIF(excluded.compact_boundary_id, ''), runtime_tool_calls.compact_boundary_id),
+    compact_original_estimated_tokens = CASE WHEN excluded.compact_original_estimated_tokens != 0 THEN excluded.compact_original_estimated_tokens ELSE runtime_tool_calls.compact_original_estimated_tokens END,
+    compacted_at = COALESCE(excluded.compacted_at, runtime_tool_calls.compacted_at),
     started_at = runtime_tool_calls.started_at,
     finished_at = CASE
         WHEN runtime_tool_calls.status IN ('completed', 'failed', 'cancelled', 'denied')
@@ -115,6 +121,11 @@ ON CONFLICT(id) DO UPDATE SET
 		nullableString(call.Stdout),
 		nullableString(call.Stderr),
 		boolInt(call.IsError),
+		boolInt(call.Compacted),
+		nullableString(call.CompactRef),
+		nullableString(call.CompactBoundaryID),
+		call.CompactOriginalEstimatedTokens,
+		nullableTimeMillis(call.CompactedAt),
 		call.StartedAt.UnixMilli(),
 		nullableTimeMillis(call.FinishedAt),
 		nullableString(call.Error),
@@ -130,6 +141,7 @@ func (s runtimeSQLiteToolCallStore) Get(ctx context.Context, id string) (schedul
 SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
     job_id, command, risk, policy_reason, exit_code, job_status, job_started_at, job_finished_at,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+    compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
 FROM runtime_tool_calls
 WHERE id = ?`, strings.TrimSpace(id))
@@ -145,6 +157,7 @@ func (s runtimeSQLiteToolCallStore) ListByTurn(ctx context.Context, turnID strin
 SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
     job_id, command, risk, policy_reason, exit_code, job_status, job_started_at, job_finished_at,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+    compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
 FROM runtime_tool_calls
 WHERE turn_id = ?
@@ -177,11 +190,11 @@ type runtimeToolCallScanner interface {
 
 func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, error) {
 	var call scheduler.ToolCall
-	var messageID, capabilityID, jobID, command, risk, policyReason, jobStatus, inputSummary, outputSummary, modelContent, structured, stdout, stderr, errText sql.NullString
+	var messageID, capabilityID, jobID, command, risk, policyReason, jobStatus, inputSummary, outputSummary, modelContent, structured, stdout, stderr, compactRef, compactBoundaryID, errText sql.NullString
 	var source, status string
-	var isError, exitCode int
+	var isError, compacted, exitCode, compactOriginalEstimatedTokens int
 	var startedAt int64
-	var jobStartedAt, jobFinishedAt, finishedAt sql.NullInt64
+	var jobStartedAt, jobFinishedAt, compactedAt, finishedAt sql.NullInt64
 	if err := scanner.Scan(
 		&call.ID,
 		&call.TurnID,
@@ -206,6 +219,11 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 		&stdout,
 		&stderr,
 		&isError,
+		&compacted,
+		&compactRef,
+		&compactBoundaryID,
+		&compactOriginalEstimatedTokens,
+		&compactedAt,
 		&startedAt,
 		&finishedAt,
 		&errText,
@@ -235,6 +253,13 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 	call.Stdout = stdout.String
 	call.Stderr = stderr.String
 	call.IsError = isError != 0
+	call.Compacted = compacted != 0
+	call.CompactRef = compactRef.String
+	call.CompactBoundaryID = compactBoundaryID.String
+	call.CompactOriginalEstimatedTokens = compactOriginalEstimatedTokens
+	if compactedAt.Valid {
+		call.CompactedAt = time.UnixMilli(compactedAt.Int64).UTC()
+	}
 	call.StartedAt = time.UnixMilli(startedAt).UTC()
 	if finishedAt.Valid {
 		call.FinishedAt = time.UnixMilli(finishedAt.Int64).UTC()

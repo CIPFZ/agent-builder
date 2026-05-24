@@ -36,6 +36,7 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/todos"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/tool-calls"},
+	{Method: MethodGet, Path: "/v1/turns/{turn_id}/compact"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/tasks"},
 	{Method: MethodGet, Path: "/v1/tool-calls/{tool_call_id}"},
 	{Method: MethodGet, Path: "/v1/tasks/{task_id}"},
@@ -62,6 +63,7 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/mcp/servers/{server_name}/prompts"},
 	{Method: MethodGet, Path: "/v1/audit/turns/{turn_id}"},
 	{Method: MethodGet, Path: "/v1/audit/sessions/{session_id}"},
+	{Method: MethodGet, Path: "/v1/sessions/{session_id}/compact"},
 	{Method: MethodGet, Path: "/v1/events"},
 }
 
@@ -101,6 +103,11 @@ const (
 	EventContextLoading          = "context.loading"
 	EventContextLoaded           = "context.loaded"
 	EventContextFailed           = "context.failed"
+	EventBudgetUpdated           = "budget.updated"
+	EventCompactBoundaryRecorded = "compact.boundary.recorded"
+	EventCompactMicroCompleted   = "compact.micro.completed"
+	EventCompactFullCompleted    = "compact.full.completed"
+	EventCompactFailed           = "compact.failed"
 	EventSkillDiscoveryStarted   = "skill.discovery.started"
 	EventSkillDiscoveryCompleted = "skill.discovery.completed"
 	EventSkillDiscoveryFailed    = "skill.discovery.failed"
@@ -156,6 +163,11 @@ var EventTypes = []string{
 	EventContextLoading,
 	EventContextLoaded,
 	EventContextFailed,
+	EventBudgetUpdated,
+	EventCompactBoundaryRecorded,
+	EventCompactMicroCompleted,
+	EventCompactFullCompleted,
+	EventCompactFailed,
 	EventSkillDiscoveryStarted,
 	EventSkillDiscoveryCompleted,
 	EventSkillDiscoveryFailed,

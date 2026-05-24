@@ -6,6 +6,7 @@ import type {
   RuntimeContextSource,
   RuntimeChatRequest,
   RuntimeChatResponse,
+  RuntimeCompactBoundary,
   RuntimeEventsResponse,
   RuntimeEventsEndpoint,
   RuntimeMcpPrompt,
@@ -150,6 +151,14 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async getTurn(turnId: string) {
       const response = await get<{ turn: RuntimeTurn }>(`/v1/turns/${encodePath(turnId)}`)
       return response.turn
+    },
+    async listTurnCompactBoundaries(turnId: string) {
+      const response = await get<{ boundaries: RuntimeCompactBoundary[] }>(`/v1/turns/${encodePath(turnId)}/compact`)
+      return response.boundaries
+    },
+    async listSessionCompactBoundaries(sessionId: string) {
+      const response = await get<{ boundaries: RuntimeCompactBoundary[] }>(`/v1/sessions/${encodePath(sessionId)}/compact`)
+      return response.boundaries
     },
     async getToolCall(toolCallId: string) {
       const response = await get<{ toolCall: RuntimeToolCall }>(`/v1/tool-calls/${encodePath(toolCallId)}`)

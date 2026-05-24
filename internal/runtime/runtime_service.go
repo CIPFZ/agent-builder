@@ -18,7 +18,8 @@ func newRuntimeService() *runtimeService {
 
 		toolEvents: make(map[string]runtimeToolEventState),
 
-		toolCalls: scheduler.New(NewRuntimeToolCallStore()),
+		toolCalls:         scheduler.New(NewRuntimeToolCallStore()),
+		compactBoundaries: runtimeCompactBoundaryStore{},
 
 		agentTasks: runtimeAgentTaskStore{},
 

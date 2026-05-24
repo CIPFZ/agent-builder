@@ -26,6 +26,7 @@ func TestEndpointsFreezePhase2MinimalAPI(t *testing.T) {
 		{Method: MethodGet, Path: "/v1/turns/{turn_id}"},
 		{Method: MethodGet, Path: "/v1/turns/{turn_id}/todos"},
 		{Method: MethodGet, Path: "/v1/turns/{turn_id}/tool-calls"},
+		{Method: MethodGet, Path: "/v1/turns/{turn_id}/compact"},
 		{Method: MethodGet, Path: "/v1/turns/{turn_id}/tasks"},
 		{Method: MethodGet, Path: "/v1/tool-calls/{tool_call_id}"},
 		{Method: MethodGet, Path: "/v1/tasks/{task_id}"},
@@ -52,6 +53,7 @@ func TestEndpointsFreezePhase2MinimalAPI(t *testing.T) {
 		{Method: MethodGet, Path: "/v1/mcp/servers/{server_name}/prompts"},
 		{Method: MethodGet, Path: "/v1/audit/turns/{turn_id}"},
 		{Method: MethodGet, Path: "/v1/audit/sessions/{session_id}"},
+		{Method: MethodGet, Path: "/v1/sessions/{session_id}/compact"},
 		{Method: MethodGet, Path: "/v1/events"},
 	}
 
@@ -81,6 +83,9 @@ func TestEventTypesFreezePhase2Schema(t *testing.T) {
 		EventCapabilityLoading,
 		EventCapabilityLoaded,
 		EventCapabilityFailed,
+		EventBudgetUpdated,
+		EventCompactBoundaryRecorded,
+		EventCompactMicroCompleted,
 		EventSkillDiscoveryCompleted,
 		EventMCPServerConnected,
 		EventUsageUpdated,

@@ -144,6 +144,21 @@ func mergeToolCall(existing, next ToolCall) ToolCall {
 	if next.Error == "" {
 		next.Error = existing.Error
 	}
+	if !next.Compacted {
+		next.Compacted = existing.Compacted
+	}
+	if next.CompactRef == "" {
+		next.CompactRef = existing.CompactRef
+	}
+	if next.CompactBoundaryID == "" {
+		next.CompactBoundaryID = existing.CompactBoundaryID
+	}
+	if next.CompactOriginalEstimatedTokens == 0 {
+		next.CompactOriginalEstimatedTokens = existing.CompactOriginalEstimatedTokens
+	}
+	if next.CompactedAt.IsZero() {
+		next.CompactedAt = existing.CompactedAt
+	}
 	if !existing.StartedAt.IsZero() {
 		next.StartedAt = existing.StartedAt
 	} else if next.StartedAt.IsZero() {

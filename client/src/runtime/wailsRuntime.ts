@@ -85,6 +85,18 @@ export const wailsRuntime: AgentRuntime = {
     return response.turn
   },
 
+  async listTurnCompactBoundaries(turnId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.TurnCompactBoundaries(turnId)
+    return response.boundaries
+  },
+
+  async listSessionCompactBoundaries(sessionId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.SessionCompactBoundaries(sessionId)
+    return response.boundaries
+  },
+
   async getToolCall(toolCallId: string) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.ToolCall(toolCallId)

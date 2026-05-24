@@ -103,6 +103,9 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		slog.Debug("Runtime context source inventory unavailable", "error", contextErr)
 	}
 	contextSummary := r.recordTurnContextSources(sessionID, requestID, contextResp.Sources)
+	budget := r.computeRuntimeBudget(ctx, sessionID, requestID, status.Model, len(prompt), &contextSummary)
+	r.publishBudgetUpdated(sessionID, requestID, budget)
+	r.recordTurnBudgetBoundary(ctx, sessionID, requestID, budget)
 
 	slog.Info("Desktop chat queued", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "prompt_len", len(prompt))
 	r.writeAudit(auditEntry{
@@ -119,6 +122,7 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		Skills:         skills,
 		SkillSummary:   &skillSummary,
 		ContextSummary: &contextSummary,
+		Budget:         &budget,
 		MCPServers:     mcpServers,
 		MCPTools:       mcpTools,
 	})
@@ -373,6 +377,13 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 		slog.Warn("Desktop chat tool audit unavailable", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "error", toolErr)
 	} else {
 		entry.ToolCalls = toolCalls
+	}
+	budgetBeforeCompact := r.computeRuntimeBudget(context.Background(), sessionID, requestID, model, len(prompt), nil)
+	budgetAfterCompact, compactBoundary := r.maybeMicroCompactToolOutputs(context.Background(), sessionID, requestID, budgetBeforeCompact)
+	r.publishBudgetUpdated(sessionID, requestID, budgetAfterCompact)
+	entry.Budget = &budgetAfterCompact
+	if compactBoundary != nil {
+		entry.CompactBoundary = compactBoundary
 	}
 	if err != nil && !stateCancelled(r, requestID) {
 		entry.Event = "failed"

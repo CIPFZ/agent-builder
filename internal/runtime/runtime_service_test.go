@@ -2192,6 +2192,7 @@ type recordingRuntimeService struct {
 	turnsStatus         string
 	toolCall            RuntimeToolCallResponse
 	toolCalls           RuntimeToolCallsResponse
+	compactBoundaries   RuntimeCompactBoundariesResponse
 	agentTask           RuntimeAgentTaskResponse
 	agentTasks          RuntimeAgentTasksResponse
 	cancelledTask       string
@@ -2253,6 +2254,14 @@ func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeTool
 
 func (s *recordingRuntimeService) TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error) {
 	return s.toolCalls, nil
+}
+
+func (s *recordingRuntimeService) TurnCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error) {
+	return s.compactBoundaries, nil
+}
+
+func (s *recordingRuntimeService) SessionCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error) {
+	return s.compactBoundaries, nil
 }
 
 func (s *recordingRuntimeService) AgentTask(context.Context, string) (RuntimeAgentTaskResponse, error) {

@@ -2,6 +2,7 @@ import type {
   RuntimeChatRequest,
   RuntimeChatResponse,
   RuntimeCapability,
+  RuntimeCompactBoundary,
   RuntimeContextSource,
   RuntimeAgentTask,
   RuntimeAuditEvent,
@@ -67,6 +68,7 @@ type WailsRuntimeBridge = {
   RenameSession: (request: { sessionId: string; title: string }) => Promise<{ sessions: RuntimeSession[] }>
   SelectSession: (sessionId: string) => Promise<RuntimeStatus>
   SessionMessages: (sessionId: string) => Promise<{ messages: RuntimeMessage[] }>
+  SessionCompactBoundaries: (sessionId: string) => Promise<{ boundaries: RuntimeCompactBoundary[] }>
   SessionTodos: (sessionId: string) => Promise<{ summary: RuntimeTodoSummary }>
   Sessions: () => Promise<{ sessions: RuntimeSession[] }>
   SetMCPServerEnabled: (request: { name: string; enabled: boolean }) => Promise<{ servers: RuntimeMcpServer[] }>
@@ -78,6 +80,7 @@ type WailsRuntimeBridge = {
   AgentTask: (taskId: string) => Promise<{ task: RuntimeAgentTask }>
   CancelAgentTask: (taskId: string) => Promise<{ task: RuntimeAgentTask }>
   Turn: (turnId: string) => Promise<{ turn: RuntimeTurn }>
+  TurnCompactBoundaries: (turnId: string) => Promise<{ boundaries: RuntimeCompactBoundary[] }>
   TurnTodos: (turnId: string) => Promise<{ summary: RuntimeTodoSummary }>
   Turns: (status: string) => Promise<{ turns: RuntimeTurn[] }>
   TurnToolCalls: (turnId: string) => Promise<{ toolCalls: RuntimeToolCall[] }>

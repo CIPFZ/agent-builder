@@ -166,6 +166,21 @@ func (r *runtimeService) auditTurnSummary(ctx context.Context, turnID string, ev
 	if tasks, err := r.TurnAgentTasks(ctx, turnID); err == nil {
 		summary.Tasks = tasks.Tasks
 	}
+	if compact, err := r.TurnCompactBoundaries(ctx, turnID); err == nil {
+		summary.Compact = compact.Boundaries
+		if len(compact.Boundaries) > 0 && summary.Budget == nil {
+			for i := len(compact.Boundaries) - 1; i >= 0; i-- {
+				if compact.Boundaries[i].BudgetAfter != nil {
+					summary.Budget = compact.Boundaries[i].BudgetAfter
+					break
+				}
+				if compact.Boundaries[i].BudgetBefore != nil {
+					summary.Budget = compact.Boundaries[i].BudgetBefore
+					break
+				}
+			}
+		}
+	}
 	permissionIDs := make(map[string]struct{})
 	for _, event := range events {
 		if summary.SessionID == "" {
@@ -217,6 +232,16 @@ func mergeAuditSummaryPayload(summary *RuntimeAuditTurnSummary, payload map[stri
 	}
 	if contextSummary, ok := payload["context_summary"].(map[string]any); ok && summary.Context == nil {
 		summary.Context = runtimeTurnContextSummaryFromPayload(contextSummary)
+	}
+	if budget, ok := payload["budget"].(map[string]any); ok && summary.Budget == nil {
+		summary.Budget = runtimeBudgetReportFromPayload(budget)
+	}
+	if compactBoundary, ok := payload["compact_boundary"].(map[string]any); ok {
+		if boundary := runtimeCompactBoundaryFromPayload(compactBoundary); boundary.ID != "" {
+			if !slices.ContainsFunc(summary.Compact, func(existing RuntimeCompactBoundary) bool { return existing.ID == boundary.ID }) {
+				summary.Compact = append(summary.Compact, boundary)
+			}
+		}
 	}
 	if summary.FinalStatus == "" {
 		switch stringFromMap(payload, "event") {

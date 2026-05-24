@@ -135,6 +135,10 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 	if !call.JobFinishedAt.IsZero() {
 		jobFinishedAt = call.JobFinishedAt.UnixMilli()
 	}
+	var compactedAt int64
+	if !call.CompactedAt.IsZero() {
+		compactedAt = call.CompactedAt.UnixMilli()
+	}
 	redacted := redactRuntimePayload(map[string]any{
 		"input":         call.InputSummary,
 		"output":        call.OutputSummary,
@@ -147,32 +151,37 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		"policy_reason": call.PolicyReason,
 	})
 	return RuntimeToolCall{
-		ID:            call.ID,
-		SessionID:     call.SessionID,
-		TurnID:        call.TurnID,
-		MessageID:     call.MessageID,
-		Name:          call.Name,
-		Source:        string(call.Source),
-		CapabilityID:  call.CapabilityID,
-		JobID:         call.JobID,
-		Command:       stringFromMap(redacted, "command"),
-		Risk:          call.Risk,
-		PolicyReason:  stringFromMap(redacted, "policy_reason"),
-		ExitCode:      call.ExitCode,
-		JobStatus:     call.JobStatus,
-		JobStartedAt:  jobStartedAt,
-		JobFinishedAt: jobFinishedAt,
-		Status:        string(call.Status),
-		InputSummary:  stringFromMap(redacted, "input"),
-		OutputSummary: stringFromMap(redacted, "output"),
-		ModelContent:  stringFromMap(redacted, "model_content"),
-		Structured:    stringFromMap(redacted, "structured"),
-		Stdout:        stringFromMap(redacted, "stdout"),
-		Stderr:        stringFromMap(redacted, "stderr"),
-		IsError:       call.IsError,
-		StartedAt:     call.StartedAt.UnixMilli(),
-		FinishedAt:    finishedAt,
-		Error:         stringFromMap(redacted, "error"),
+		ID:                             call.ID,
+		SessionID:                      call.SessionID,
+		TurnID:                         call.TurnID,
+		MessageID:                      call.MessageID,
+		Name:                           call.Name,
+		Source:                         string(call.Source),
+		CapabilityID:                   call.CapabilityID,
+		JobID:                          call.JobID,
+		Command:                        stringFromMap(redacted, "command"),
+		Risk:                           call.Risk,
+		PolicyReason:                   stringFromMap(redacted, "policy_reason"),
+		ExitCode:                       call.ExitCode,
+		JobStatus:                      call.JobStatus,
+		JobStartedAt:                   jobStartedAt,
+		JobFinishedAt:                  jobFinishedAt,
+		Status:                         string(call.Status),
+		InputSummary:                   stringFromMap(redacted, "input"),
+		OutputSummary:                  stringFromMap(redacted, "output"),
+		ModelContent:                   stringFromMap(redacted, "model_content"),
+		Structured:                     stringFromMap(redacted, "structured"),
+		Stdout:                         stringFromMap(redacted, "stdout"),
+		Stderr:                         stringFromMap(redacted, "stderr"),
+		IsError:                        call.IsError,
+		Compacted:                      call.Compacted,
+		CompactRef:                     call.CompactRef,
+		CompactBoundaryID:              call.CompactBoundaryID,
+		CompactOriginalEstimatedTokens: call.CompactOriginalEstimatedTokens,
+		CompactedAt:                    compactedAt,
+		StartedAt:                      call.StartedAt.UnixMilli(),
+		FinishedAt:                     finishedAt,
+		Error:                          stringFromMap(redacted, "error"),
 	}
 }
 

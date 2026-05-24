@@ -116,6 +116,14 @@ export async function requestRuntimeTurnToolCalls(turnId: string) {
   return getAgentRuntime().listTurnToolCalls(turnId)
 }
 
+export async function requestRuntimeTurnCompactBoundaries(turnId: string) {
+  return getAgentRuntime().listTurnCompactBoundaries(turnId)
+}
+
+export async function requestRuntimeSessionCompactBoundaries(sessionId: string) {
+  return getAgentRuntime().listSessionCompactBoundaries(sessionId)
+}
+
 export async function cancelRuntimeAgentTask(taskId: string) {
   return getAgentRuntime().cancelAgentTask(taskId)
 }

@@ -102,6 +102,11 @@ export type RuntimeToolCall = {
   stdout?: string
   stderr?: string
   isError?: boolean
+  compacted?: boolean
+  compactRef?: string
+  compactBoundaryId?: string
+  compactOriginalEstimatedTokens?: number
+  compactedAt?: number
   startedAt: number
   finishedAt?: number
   error?: string
@@ -208,6 +213,59 @@ export type RuntimeRecoveryStatus = {
   interrupted_tasks?: RuntimeAgentTask[]
   pending_permissions: RuntimePermissionRequest[]
   snapshot_required?: boolean
+}
+
+export type RuntimeBudgetBucket = {
+  count: number
+  estimatedTokens: number
+}
+
+export type RuntimeBudgetReport = {
+  sessionId?: string
+  turnId?: string
+  model?: string
+  contextWindow?: number
+  inputBudget: RuntimeBudgetBucket
+  messages: RuntimeBudgetBucket
+  contextSources: RuntimeBudgetBucket
+  toolSchemas: RuntimeBudgetBucket
+  skills: RuntimeBudgetBucket
+  mcp: RuntimeBudgetBucket
+  toolOutputs: RuntimeBudgetBucket
+  totalEstimatedTokens: number
+  updatedAt: number
+}
+
+export type RuntimeCompactToolCallRef = {
+  toolCallId: string
+  name?: string
+  ref?: string
+  estimatedTokens?: number
+  replacement?: string
+  preserved?: boolean
+  reason?: string
+}
+
+export type RuntimeCompactBoundary = {
+  id: string
+  sessionId: string
+  turnId?: string
+  kind: 'boundary' | 'micro' | 'full' | 'session_memory' | 'auto' | string
+  trigger: string
+  status: 'recorded' | 'completed' | 'skipped' | 'failed' | string
+  budgetBefore?: RuntimeBudgetReport
+  budgetAfter?: RuntimeBudgetReport
+  summaryRef?: string
+  messageRefs?: string[]
+  toolCallRefs?: RuntimeCompactToolCallRef[]
+  reinjectedRefs?: string[]
+  error?: string
+  createdAt: number
+  completedAt?: number
+}
+
+export type RuntimeCompactBoundariesResponse = {
+  boundaries: RuntimeCompactBoundary[]
 }
 
 export type RuntimeAPIEndpoint = {
@@ -492,6 +550,8 @@ export type AgentRuntime = {
   getRecoveryStatus: () => Promise<RuntimeRecoveryStatus>
   getAPIEndpoint: () => Promise<RuntimeAPIEndpoint>
   getTurn: (turnId: string) => Promise<RuntimeTurn>
+  listTurnCompactBoundaries: (turnId: string) => Promise<RuntimeCompactBoundary[]>
+  listSessionCompactBoundaries: (sessionId: string) => Promise<RuntimeCompactBoundary[]>
   getToolCall: (toolCallId: string) => Promise<RuntimeToolCall>
   getAgentTask: (taskId: string) => Promise<RuntimeAgentTask>
   cancelAgentTask: (taskId: string) => Promise<RuntimeAgentTask>

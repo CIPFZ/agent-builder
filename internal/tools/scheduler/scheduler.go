@@ -99,6 +99,10 @@ func (s *Scheduler) GetCall(ctx context.Context, id string) (ToolCall, error) {
 	return s.store.Get(ctx, id)
 }
 
+func (s *Scheduler) UpdateCall(ctx context.Context, call ToolCall) (ToolCall, error) {
+	return s.store.Upsert(ctx, call)
+}
+
 func (s *Scheduler) ListCalls(ctx context.Context, turnID string) ([]ToolCall, error) {
 	return s.store.ListByTurn(ctx, turnID)
 }

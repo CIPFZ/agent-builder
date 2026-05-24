@@ -19,6 +19,14 @@ type RuntimeTodosResponse = runtime.RuntimeTodosResponse
 type RuntimeToolCall = runtime.RuntimeToolCall
 type RuntimeToolCallResponse = runtime.RuntimeToolCallResponse
 type RuntimeToolCallsResponse = runtime.RuntimeToolCallsResponse
+type RuntimeCompactBoundary = runtime.RuntimeCompactBoundary
+type RuntimeCompactBoundariesResponse = runtime.RuntimeCompactBoundariesResponse
+type RuntimeCompactToolCallRef = runtime.RuntimeCompactToolCallRef
+type RuntimeBudgetReport = runtime.RuntimeBudgetReport
+type RuntimeBudgetBucket = runtime.RuntimeBudgetBucket
+type RuntimeAgentTask = runtime.RuntimeAgentTask
+type RuntimeAgentTaskResponse = runtime.RuntimeAgentTaskResponse
+type RuntimeAgentTasksResponse = runtime.RuntimeAgentTasksResponse
 type RuntimeMessage = runtime.RuntimeMessage
 type RuntimeMessagePart = runtime.RuntimeMessagePart
 type RuntimeSession = runtime.RuntimeSession
@@ -58,6 +66,8 @@ type RuntimeMCPPromptsResponse = runtime.RuntimeMCPPromptsResponse
 type RuntimeCapability = runtime.RuntimeCapability
 type RuntimeCapabilitiesResponse = runtime.RuntimeCapabilitiesResponse
 type RuntimeCapabilityResponse = runtime.RuntimeCapabilityResponse
+type RuntimeContextSource = runtime.RuntimeContextSource
+type RuntimeContextSourcesResponse = runtime.RuntimeContextSourcesResponse
 type RuntimeModelConfig = runtime.RuntimeModelConfig
 type RuntimeModelVerifyResponse = runtime.RuntimeModelVerifyResponse
 type RuntimeModelDiscoveryResponse = runtime.RuntimeModelDiscoveryResponse
@@ -151,6 +161,36 @@ func (r *RuntimeBridge) ToolCall(ctx context.Context, toolCallID string) (Runtim
 func (r *RuntimeBridge) TurnToolCalls(ctx context.Context, turnID string) (RuntimeToolCallsResponse, error) {
 
 	return r.service.TurnToolCalls(ctx, turnID)
+
+}
+
+func (r *RuntimeBridge) TurnCompactBoundaries(ctx context.Context, turnID string) (RuntimeCompactBoundariesResponse, error) {
+
+	return r.service.TurnCompactBoundaries(ctx, turnID)
+
+}
+
+func (r *RuntimeBridge) SessionCompactBoundaries(ctx context.Context, sessionID string) (RuntimeCompactBoundariesResponse, error) {
+
+	return r.service.SessionCompactBoundaries(ctx, sessionID)
+
+}
+
+func (r *RuntimeBridge) AgentTask(ctx context.Context, taskID string) (RuntimeAgentTaskResponse, error) {
+
+	return r.service.AgentTask(ctx, taskID)
+
+}
+
+func (r *RuntimeBridge) TurnAgentTasks(ctx context.Context, turnID string) (RuntimeAgentTasksResponse, error) {
+
+	return r.service.TurnAgentTasks(ctx, turnID)
+
+}
+
+func (r *RuntimeBridge) CancelAgentTask(ctx context.Context, taskID string) (RuntimeAgentTaskResponse, error) {
+
+	return r.service.CancelAgentTask(ctx, taskID)
 
 }
 
@@ -325,6 +365,12 @@ func (r *RuntimeBridge) Capabilities(ctx context.Context) (RuntimeCapabilitiesRe
 func (r *RuntimeBridge) RefreshCapability(ctx context.Context, capabilityID string) (RuntimeCapabilityResponse, error) {
 
 	return r.service.RefreshCapability(ctx, capabilityID)
+
+}
+
+func (r *RuntimeBridge) ContextSources(ctx context.Context) (RuntimeContextSourcesResponse, error) {
+
+	return r.service.ContextSources(ctx)
 
 }
 

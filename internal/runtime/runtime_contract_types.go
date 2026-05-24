@@ -68,32 +68,37 @@ type RuntimeTurnsResponse struct {
 }
 
 type RuntimeToolCall struct {
-	ID            string `json:"id"`
-	SessionID     string `json:"sessionId"`
-	TurnID        string `json:"turnId"`
-	MessageID     string `json:"messageId,omitempty"`
-	Name          string `json:"name"`
-	Source        string `json:"source"`
-	CapabilityID  string `json:"capabilityId,omitempty"`
-	JobID         string `json:"jobId,omitempty"`
-	Command       string `json:"command,omitempty"`
-	Risk          string `json:"risk,omitempty"`
-	PolicyReason  string `json:"policyReason,omitempty"`
-	ExitCode      int    `json:"exitCode,omitempty"`
-	JobStatus     string `json:"jobStatus,omitempty"`
-	JobStartedAt  int64  `json:"jobStartedAt,omitempty"`
-	JobFinishedAt int64  `json:"jobFinishedAt,omitempty"`
-	Status        string `json:"status"`
-	InputSummary  string `json:"inputSummary,omitempty"`
-	OutputSummary string `json:"outputSummary,omitempty"`
-	ModelContent  string `json:"modelContent,omitempty"`
-	Structured    string `json:"structuredOutput,omitempty"`
-	Stdout        string `json:"stdout,omitempty"`
-	Stderr        string `json:"stderr,omitempty"`
-	IsError       bool   `json:"isError,omitempty"`
-	StartedAt     int64  `json:"startedAt"`
-	FinishedAt    int64  `json:"finishedAt,omitempty"`
-	Error         string `json:"error,omitempty"`
+	ID                             string `json:"id"`
+	SessionID                      string `json:"sessionId"`
+	TurnID                         string `json:"turnId"`
+	MessageID                      string `json:"messageId,omitempty"`
+	Name                           string `json:"name"`
+	Source                         string `json:"source"`
+	CapabilityID                   string `json:"capabilityId,omitempty"`
+	JobID                          string `json:"jobId,omitempty"`
+	Command                        string `json:"command,omitempty"`
+	Risk                           string `json:"risk,omitempty"`
+	PolicyReason                   string `json:"policyReason,omitempty"`
+	ExitCode                       int    `json:"exitCode,omitempty"`
+	JobStatus                      string `json:"jobStatus,omitempty"`
+	JobStartedAt                   int64  `json:"jobStartedAt,omitempty"`
+	JobFinishedAt                  int64  `json:"jobFinishedAt,omitempty"`
+	Status                         string `json:"status"`
+	InputSummary                   string `json:"inputSummary,omitempty"`
+	OutputSummary                  string `json:"outputSummary,omitempty"`
+	ModelContent                   string `json:"modelContent,omitempty"`
+	Structured                     string `json:"structuredOutput,omitempty"`
+	Stdout                         string `json:"stdout,omitempty"`
+	Stderr                         string `json:"stderr,omitempty"`
+	IsError                        bool   `json:"isError,omitempty"`
+	Compacted                      bool   `json:"compacted,omitempty"`
+	CompactRef                     string `json:"compactRef,omitempty"`
+	CompactBoundaryID              string `json:"compactBoundaryId,omitempty"`
+	CompactOriginalEstimatedTokens int    `json:"compactOriginalEstimatedTokens,omitempty"`
+	CompactedAt                    int64  `json:"compactedAt,omitempty"`
+	StartedAt                      int64  `json:"startedAt"`
+	FinishedAt                     int64  `json:"finishedAt,omitempty"`
+	Error                          string `json:"error,omitempty"`
 }
 
 type RuntimeToolCallResponse struct {
@@ -301,6 +306,59 @@ type RuntimeEventsResponse struct {
 	LastSequence     int64          `json:"last_sequence,omitempty"`
 }
 
+type RuntimeCompactBoundary struct {
+	ID             string                      `json:"id"`
+	SessionID      string                      `json:"sessionId"`
+	TurnID         string                      `json:"turnId,omitempty"`
+	Kind           string                      `json:"kind"`
+	Trigger        string                      `json:"trigger"`
+	Status         string                      `json:"status"`
+	BudgetBefore   *RuntimeBudgetReport        `json:"budgetBefore,omitempty"`
+	BudgetAfter    *RuntimeBudgetReport        `json:"budgetAfter,omitempty"`
+	SummaryRef     string                      `json:"summaryRef,omitempty"`
+	MessageRefs    []string                    `json:"messageRefs,omitempty"`
+	ToolCallRefs   []RuntimeCompactToolCallRef `json:"toolCallRefs,omitempty"`
+	ReinjectedRefs []string                    `json:"reinjectedRefs,omitempty"`
+	Error          string                      `json:"error,omitempty"`
+	CreatedAt      int64                       `json:"createdAt"`
+	CompletedAt    int64                       `json:"completedAt,omitempty"`
+}
+
+type RuntimeCompactToolCallRef struct {
+	ToolCallID      string `json:"toolCallId"`
+	Name            string `json:"name,omitempty"`
+	Ref             string `json:"ref,omitempty"`
+	EstimatedTokens int    `json:"estimatedTokens,omitempty"`
+	Replacement     string `json:"replacement,omitempty"`
+	Preserved       bool   `json:"preserved,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+}
+
+type RuntimeCompactBoundariesResponse struct {
+	Boundaries []RuntimeCompactBoundary `json:"boundaries"`
+}
+
+type RuntimeBudgetReport struct {
+	SessionID            string              `json:"sessionId,omitempty"`
+	TurnID               string              `json:"turnId,omitempty"`
+	Model                string              `json:"model,omitempty"`
+	ContextWindow        int                 `json:"contextWindow,omitempty"`
+	InputBudget          RuntimeBudgetBucket `json:"inputBudget"`
+	Messages             RuntimeBudgetBucket `json:"messages"`
+	ContextSources       RuntimeBudgetBucket `json:"contextSources"`
+	ToolSchemas          RuntimeBudgetBucket `json:"toolSchemas"`
+	Skills               RuntimeBudgetBucket `json:"skills"`
+	MCP                  RuntimeBudgetBucket `json:"mcp"`
+	ToolOutputs          RuntimeBudgetBucket `json:"toolOutputs"`
+	TotalEstimatedTokens int                 `json:"totalEstimatedTokens"`
+	UpdatedAt            int64               `json:"updatedAt"`
+}
+
+type RuntimeBudgetBucket struct {
+	Count           int `json:"count"`
+	EstimatedTokens int `json:"estimatedTokens"`
+}
+
 type RuntimeEventsEndpointResponse struct {
 	URL   string `json:"url"`
 	Token string `json:"token,omitempty"`
@@ -332,6 +390,8 @@ type RuntimeAuditTurnSummary struct {
 	Permissions              []map[string]any           `json:"permissions,omitempty"`
 	Skills                   *RuntimeTurnSkillSummary   `json:"skills,omitempty"`
 	Context                  *RuntimeTurnContextSummary `json:"context,omitempty"`
+	Budget                   *RuntimeBudgetReport       `json:"budget,omitempty"`
+	Compact                  []RuntimeCompactBoundary   `json:"compact,omitempty"`
 	Errors                   []string                   `json:"errors,omitempty"`
 	StartedAt                int64                      `json:"started_at,omitempty"`
 	FinishedAt               int64                      `json:"finished_at,omitempty"`

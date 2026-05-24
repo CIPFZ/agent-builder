@@ -197,6 +197,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && turnToolCallsPathID(r.URL.Path) != "":
 		value, err := s.service.TurnToolCalls(r.Context(), turnToolCallsPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && turnCompactPathID(r.URL.Path) != "":
+		value, err := s.service.TurnCompactBoundaries(r.Context(), turnCompactPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnTasksPathID(r.URL.Path) != "":
 		value, err := s.service.TurnAgentTasks(r.Context(), turnTasksPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -332,6 +335,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/audit/sessions/"):
 		value, err := s.service.AuditSession(r.Context(), strings.TrimPrefix(r.URL.Path, "/v1/audit/sessions/"))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionCompactPathID(r.URL.Path) != "":
+		value, err := s.service.SessionCompactBoundaries(r.Context(), sessionCompactPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	default:
 		http.NotFound(w, r)
@@ -471,7 +477,7 @@ func turnCancelPathID(path string) string {
 }
 
 func turnPathID(path string) string {
-	if strings.HasSuffix(path, "/tool-calls") || strings.HasSuffix(path, "/todos") {
+	if strings.HasSuffix(path, "/tool-calls") || strings.HasSuffix(path, "/todos") || strings.HasSuffix(path, "/compact") {
 		return ""
 	}
 	id := strings.TrimPrefix(path, "/v1/turns/")
@@ -483,6 +489,14 @@ func turnPathID(path string) string {
 
 func turnToolCallsPathID(path string) string {
 	return trimPathID(path, "/v1/turns/", "/tool-calls")
+}
+
+func turnCompactPathID(path string) string {
+	return trimPathID(path, "/v1/turns/", "/compact")
+}
+
+func sessionCompactPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/compact")
 }
 
 func turnTasksPathID(path string) string {

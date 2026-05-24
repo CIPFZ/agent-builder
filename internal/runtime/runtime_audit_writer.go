@@ -31,6 +31,8 @@ type auditEntry struct {
 	Skills                []RuntimeSkill             `json:"skills,omitempty"`
 	SkillSummary          *RuntimeTurnSkillSummary   `json:"skill_summary,omitempty"`
 	ContextSummary        *RuntimeTurnContextSummary `json:"context_summary,omitempty"`
+	Budget                *RuntimeBudgetReport       `json:"budget,omitempty"`
+	CompactBoundary       *RuntimeCompactBoundary    `json:"compact_boundary,omitempty"`
 	MCPServers            []RuntimeMCPServer         `json:"mcp_servers,omitempty"`
 	MCPTools              []RuntimeMCPTool           `json:"mcp_tools,omitempty"`
 	ToolCalls             []auditToolCall            `json:"tool_calls,omitempty"`

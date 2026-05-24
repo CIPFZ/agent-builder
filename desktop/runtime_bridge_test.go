@@ -93,6 +93,26 @@ func (s *recordingRuntimeService) TurnToolCalls(context.Context, string) (Runtim
 	return RuntimeToolCallsResponse{}, nil
 }
 
+func (s *recordingRuntimeService) TurnCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error) {
+	return RuntimeCompactBoundariesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SessionCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error) {
+	return RuntimeCompactBoundariesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) AgentTask(context.Context, string) (RuntimeAgentTaskResponse, error) {
+	return RuntimeAgentTaskResponse{}, nil
+}
+
+func (s *recordingRuntimeService) TurnAgentTasks(context.Context, string) (RuntimeAgentTasksResponse, error) {
+	return RuntimeAgentTasksResponse{}, nil
+}
+
+func (s *recordingRuntimeService) CancelAgentTask(context.Context, string) (RuntimeAgentTaskResponse, error) {
+	return RuntimeAgentTaskResponse{}, nil
+}
+
 func (s *recordingRuntimeService) SessionTodos(context.Context, string) (RuntimeTodosResponse, error) {
 	return RuntimeTodosResponse{}, nil
 }
@@ -223,6 +243,10 @@ func (s *recordingRuntimeService) Capabilities(context.Context) (RuntimeCapabili
 func (s *recordingRuntimeService) RefreshCapability(_ context.Context, id string) (RuntimeCapabilityResponse, error) {
 	s.refreshedCapability = id
 	return RuntimeCapabilityResponse{Capability: RuntimeCapability{ID: id, Kind: "skill", Name: "docs", Enabled: true, State: "loaded"}}, nil
+}
+
+func (s *recordingRuntimeService) ContextSources(context.Context) (RuntimeContextSourcesResponse, error) {
+	return RuntimeContextSourcesResponse{}, nil
 }
 
 func (s *recordingRuntimeService) APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error) {
