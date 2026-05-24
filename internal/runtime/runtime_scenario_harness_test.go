@@ -228,7 +228,10 @@ func TestRuntimeScenarioHarnessToolDiscoveryMCPAndSkillGolden(t *testing.T) {
 		Total:        len(results),
 		BudgetImpact: toolSearchBudgetImpact(results, omitted),
 	})
-	h.service.recordToolDisclosure(h.ctx, "session-discovery", "turn-discovery", []string{"view"}, []string{"write", "search"}, RuntimeBudgetBucket{Count: 1, EstimatedTokens: 8}, RuntimeBudgetBucket{Count: 2, EstimatedTokens: 20})
+	h.service.recordToolDisclosure(h.ctx, "session-discovery", "turn-discovery", []string{"view"}, []RuntimeToolSearchOmission{
+		{Name: "write", Reason: toolDiscoveryReasonDeferred},
+		{Name: "search", Reason: toolDiscoveryReasonDeferred},
+	}, RuntimeBudgetBucket{Count: 1, EstimatedTokens: 8}, RuntimeBudgetBucket{Count: 2, EstimatedTokens: 20})
 
 	replay := h.replay("turn-discovery")
 	if !slices.Contains(replay.Summary.ToolDiscovery.Selected, "view") || !slices.Contains(replay.Summary.ToolDiscovery.Omitted, "write") {
@@ -236,6 +239,9 @@ func TestRuntimeScenarioHarnessToolDiscoveryMCPAndSkillGolden(t *testing.T) {
 	}
 	if !slices.Contains(replay.Summary.ToolDiscovery.Denied, "write") {
 		t.Fatalf("denied tool discovery replay = %#v", replay.Summary.ToolDiscovery)
+	}
+	if replay.Summary.ToolDiscovery.BudgetImpact.Omitted.Count == 0 {
+		t.Fatalf("tool discovery budget impact missing: %#v", replay.Summary.ToolDiscovery)
 	}
 	if !slices.ContainsFunc(results, func(result RuntimeToolSearchResult) bool { return result.ID == "skill:writer" }) {
 		t.Fatalf("skill allowed_tools metadata should not deny discovery by itself: %#v", results)

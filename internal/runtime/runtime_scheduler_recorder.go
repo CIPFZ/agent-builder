@@ -103,6 +103,18 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 	if source == "" {
 		source = scheduler.ToolSourceUnknown
 	}
+	if call.Name == agent.ToolSearchToolName {
+		if blocked, reason := r.service.preventNestedToolSearch(ctx, call); blocked {
+			r.service.recordDeadlockPrevented(call.SessionID, call.TurnID, call.ID, reason, "nested tool discovery is not allowed")
+			return agent.SchedulerToolPolicyDecision{
+				Decision: string(permission.PolicyDeny),
+				Risk:     string(permission.RiskRead),
+				Reason:   "Scheduler blocked tool search recursion: " + reason,
+				Mode:     r.service.policy.Mode,
+				Profile:  r.service.policy.Profile,
+			}, nil
+		}
+	}
 	if decision, denied := r.evaluateAgentTaskScope(ctx, call); denied {
 		return decision, nil
 	}

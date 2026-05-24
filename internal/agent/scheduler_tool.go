@@ -112,7 +112,30 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 	record.ShellRisk = decision.ShellRisk
 	record.ShellReason = decision.ShellReason
 	if record.ID != "" {
-		_ = s.recorder.ToolCallStarted(ctx, record)
+		if err := s.recorder.ToolCallStarted(ctx, record); err != nil {
+			_ = s.recorder.ToolCallFailed(ctx, SchedulerToolCallResult{
+				ToolCallID:          call.ID,
+				SessionID:           record.SessionID,
+				TurnID:              record.TurnID,
+				MessageID:           record.MessageID,
+				Name:                record.Name,
+				Source:              record.Source,
+				Risk:                decision.Risk,
+				PolicyReason:        decision.Reason,
+				PolicyMode:          decision.Mode,
+				PolicyProfile:       decision.Profile,
+				PolicyRuleID:        decision.RuleID,
+				PolicyRuleSource:    decision.RuleSource,
+				PolicyScopeKind:     decision.RuleScopeKind,
+				PolicyScopeValue:    decision.RuleScopeValue,
+				PolicyTargetSummary: decision.TargetSummary,
+				ShellRisk:           decision.ShellRisk,
+				ShellReason:         decision.ShellReason,
+				Error:               err.Error(),
+				IsError:             true,
+			})
+			return fantasy.NewTextErrorResponse(err.Error()), nil
+		}
 	}
 
 	if record.TurnID != "" {
@@ -160,15 +183,23 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 	}
 
 	if resp.Content != "" || result.StructuredOutputSummary != "" || result.Error != "" {
-		_ = s.recorder.ToolCallOutput(ctx, result)
+		if outputErr := s.recorder.ToolCallOutput(ctx, result); outputErr != nil && err == nil {
+			err = outputErr
+			result.Error = outputErr.Error()
+			result.IsError = true
+		}
 	}
+	var recordErr error
 	switch {
 	case result.Cancelled:
-		_ = s.recorder.ToolCallCancelled(ctx, result)
+		recordErr = s.recorder.ToolCallCancelled(ctx, result)
 	case result.IsError:
-		_ = s.recorder.ToolCallFailed(ctx, result)
+		recordErr = s.recorder.ToolCallFailed(ctx, result)
 	default:
-		_ = s.recorder.ToolCallCompleted(ctx, result)
+		recordErr = s.recorder.ToolCallCompleted(ctx, result)
+	}
+	if err == nil && recordErr != nil {
+		return resp, recordErr
 	}
 	return resp, err
 }

@@ -167,17 +167,27 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 		summary.EventCounts[event.Type]++
 		switch event.Type {
 		case runtimeapi.EventToolSearchPerformed:
-			summary.ToolSearches = append(summary.ToolSearches, runtimeReplayToolSearchFromEvent(event))
+			search := runtimeReplayToolSearchFromEvent(event)
+			summary.ToolSearches = append(summary.ToolSearches, search)
+			if search.Guardrail != "" {
+				summary.ToolDiscovery.GuardrailReasons = appendUniqueStrings(summary.ToolDiscovery.GuardrailReasons, search.Guardrail)
+			}
 			for _, omission := range asSlice(event.Payload["omitted"]) {
 				item := asMap(omission)
 				if stringFromMap(item, "reason") == "policy_denied" {
 					summary.ToolDiscovery.Denied = appendUniqueStrings(summary.ToolDiscovery.Denied, stringFromMap(item, "name"))
 				}
 			}
+			summary.ToolDiscovery.BudgetImpact = mergeToolSchemaBudgetImpact(summary.ToolDiscovery.BudgetImpact, search.BudgetImpact)
 		case runtimeapi.EventToolDiscoverySelected:
 			summary.ToolDiscovery.Selected = appendUniqueStrings(summary.ToolDiscovery.Selected, stringSliceFromMap(event.Payload, "selected")...)
+			summary.ToolDiscovery.BudgetImpact = mergeToolSchemaBudgetImpact(summary.ToolDiscovery.BudgetImpact, runtimeToolSchemaBudgetImpactFromPayload(event.Payload["budget"]))
 		case runtimeapi.EventToolDiscoveryOmitted:
 			summary.ToolDiscovery.Omitted = appendUniqueStrings(summary.ToolDiscovery.Omitted, stringSliceFromMap(event.Payload, "omitted")...)
+			summary.ToolDiscovery.GuardrailReasons = appendUniqueStrings(summary.ToolDiscovery.GuardrailReasons, stringFromMap(event.Payload, "reason"))
+			summary.ToolDiscovery.BudgetImpact = mergeToolSchemaBudgetImpact(summary.ToolDiscovery.BudgetImpact, RuntimeToolSchemaBudgetImpact{Omitted: replayBudgetBucketFromPayload(event.Payload["budget"])})
+		case runtimeapi.EventSchedulerDeadlockPrevented:
+			summary.ToolDiscovery.GuardrailReasons = appendUniqueStrings(summary.ToolDiscovery.GuardrailReasons, stringFromMap(event.Payload, "reason"))
 		case runtimeapi.EventTaskMessageCreated:
 			summary.AgentTaskMessages = append(summary.AgentTaskMessages, runtimeReplayTaskMessageFromEvent(event))
 		case runtimeapi.EventTaskArtifactCreated:
@@ -244,12 +254,24 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 		case "tool_search_performed":
 			selected := stringSliceFromMap(asMap(audit.Payload["extra"]), "selected")
 			summary.ToolDiscovery.Selected = appendUniqueStrings(summary.ToolDiscovery.Selected, selected...)
+			extra := asMap(audit.Payload["extra"])
+			summary.ToolDiscovery.GuardrailReasons = appendUniqueStrings(summary.ToolDiscovery.GuardrailReasons, stringFromMap(extra, "guardrail"))
+			summary.ToolDiscovery.BudgetImpact = mergeToolSchemaBudgetImpact(summary.ToolDiscovery.BudgetImpact, runtimeToolSchemaBudgetImpactFromPayload(extra["budget_impact"]))
 			for _, omission := range asSlice(asMap(audit.Payload["extra"])["omitted"]) {
 				item := asMap(omission)
 				if stringFromMap(item, "reason") == "policy_denied" {
 					summary.ToolDiscovery.Denied = appendUniqueStrings(summary.ToolDiscovery.Denied, stringFromMap(item, "name"))
 				}
 			}
+		case "tool_discovery_selected":
+			extra := asMap(audit.Payload["extra"])
+			summary.ToolDiscovery.Selected = appendUniqueStrings(summary.ToolDiscovery.Selected, stringSliceFromMap(extra, "selected")...)
+			summary.ToolDiscovery.Omitted = appendUniqueStrings(summary.ToolDiscovery.Omitted, stringSliceFromMap(extra, "omitted_names")...)
+			summary.ToolDiscovery.GuardrailReasons = appendUniqueStrings(summary.ToolDiscovery.GuardrailReasons, stringFromMap(extra, "reason"))
+			summary.ToolDiscovery.BudgetImpact = mergeToolSchemaBudgetImpact(summary.ToolDiscovery.BudgetImpact, runtimeToolSchemaBudgetImpactFromPayload(extra["budget"]))
+		case "scheduler_deadlock_prevented":
+			extra := asMap(audit.Payload["extra"])
+			summary.ToolDiscovery.GuardrailReasons = appendUniqueStrings(summary.ToolDiscovery.GuardrailReasons, stringFromMap(extra, "reason"))
 		case "permission_policy_applied":
 			summary.PolicyDecisions = append(summary.PolicyDecisions, runtimeReplayPolicyFromAudit(audit))
 		case "permission_requested":
@@ -449,6 +471,7 @@ func runtimeReplayToolSearchFromEvent(event RuntimeEvent) RuntimeReplayToolSearc
 		OmittedCount: intFromMap(event.Payload, "omitted_count"),
 		BudgetImpact: runtimeToolSchemaBudgetImpactFromPayload(event.Payload["budget_impact"]),
 		Guardrail:    stringFromMap(event.Payload, "guardrail"),
+		Reason:       firstNonEmpty(stringFromMap(event.Payload, "guardrail_error"), stringFromMap(event.Payload, "max_results_reason")),
 	}
 }
 
@@ -519,6 +542,14 @@ func runtimeToolSchemaBudgetImpactFromPayload(value any) RuntimeToolSchemaBudget
 		Selected: replayBudgetBucketFromPayload(payload["selected"]),
 		Omitted:  replayBudgetBucketFromPayload(payload["omitted"]),
 	}
+}
+
+func mergeToolSchemaBudgetImpact(base, next RuntimeToolSchemaBudgetImpact) RuntimeToolSchemaBudgetImpact {
+	base.Selected.Count += next.Selected.Count
+	base.Selected.EstimatedTokens += next.Selected.EstimatedTokens
+	base.Omitted.Count += next.Omitted.Count
+	base.Omitted.EstimatedTokens += next.Omitted.EstimatedTokens
+	return base
 }
 
 func replayBudgetBucketFromPayload(value any) RuntimeBudgetBucket {

@@ -965,6 +965,168 @@ func TestRuntimeToolSearchRepeatGuardrailEmitsEvent(t *testing.T) {
 	}
 }
 
+func TestRuntimeToolSearchMaxSearchesGuardrailEmitsReplayFact(t *testing.T) {
+	t.Parallel()
+
+	h := newRuntimeScenarioHarness(t)
+	h.seedTurn("session-search-max", "turn-search-max")
+	for i := 0; i < maxToolSearchesPerTurn; i++ {
+		blocked, reason := h.service.preventRepeatedToolSearch("turn-search-max", "docs"+string(rune('a'+i)))
+		if blocked {
+			t.Fatalf("search %d blocked early: %s", i, reason)
+		}
+	}
+	blocked, reason := h.service.preventRepeatedToolSearch("turn-search-max", "overflow")
+	if !blocked || reason != "max_searches_per_turn" {
+		t.Fatalf("max search guard = %v %q", blocked, reason)
+	}
+	h.service.recordDeadlockPrevented("session-search-max", "turn-search-max", "tool-search", reason, "max searches")
+	replay := h.replay("turn-search-max")
+	if !slices.Contains(replay.Summary.ToolDiscovery.GuardrailReasons, "max_searches_per_turn") {
+		t.Fatalf("guardrail replay missing: %#v", replay.Summary.ToolDiscovery)
+	}
+}
+
+func TestRuntimeToolSearchGuardrailRecordsSearchAndDeadlockReplay(t *testing.T) {
+	t.Parallel()
+
+	h := newRuntimeScenarioHarness(t)
+	h.seedTurn("session-repeat", "turn-repeat")
+	for i := 0; i < maxConsecutiveSameToolSearches; i++ {
+		blocked, reason := h.service.preventRepeatedToolSearch("turn-repeat", "docs")
+		if blocked {
+			t.Fatalf("search %d blocked early: %s", i, reason)
+		}
+	}
+	resp, err := h.service.searchTools(h.ctx, RuntimeToolSearchRequest{
+		Query:      "docs",
+		SessionID:  "session-repeat",
+		TurnID:     "turn-repeat",
+		ToolCallID: "tool-search",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Guardrail != "repeat_search" {
+		t.Fatalf("guardrail response = %#v", resp)
+	}
+	replay := h.replay("turn-repeat")
+	if !slices.ContainsFunc(replay.Summary.ToolSearches, func(item RuntimeReplayToolSearch) bool {
+		return item.Query == "docs" && item.Guardrail == "repeat_search"
+	}) {
+		t.Fatalf("tool search guardrail replay missing: %#v", replay.Summary.ToolSearches)
+	}
+	if replay.Summary.EventCounts[runtimeapi.EventSchedulerDeadlockPrevented] == 0 {
+		t.Fatalf("deadlock event count missing: %#v", replay.Summary.EventCounts)
+	}
+}
+
+func TestRuntimeToolSearchRecursionGuardAndUnavailableOmissions(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	caps := []RuntimeCapability{
+		{ID: "builtin:tool_search", Kind: "builtin_tool", Name: agent.ToolSearchToolName, Enabled: true, Risk: "read", Description: "Search tools.", State: capabilityStateLoaded},
+		{ID: "builtin:failed", Kind: "builtin_tool", Name: "failed", Enabled: true, Risk: "read", Description: "failed tool.", State: capabilityStateFailed, Reason: "load_failed"},
+		{ID: "builtin:unavailable", Kind: "builtin_tool", Name: "unavailable", Enabled: true, Risk: "read", Description: "unavailable tool.", State: capabilityStateUnavailable, Reason: "server_missing"},
+	}
+	results, omitted := service.filterAndScoreToolSearch("select:tool_search,failed,unavailable", caps, 10)
+	if len(results) != 0 {
+		t.Fatalf("guarded capabilities leaked into search: %#v", results)
+	}
+	for id, reason := range map[string]string{"builtin:tool_search": "recursion_guard", "builtin:failed": "load_failed", "builtin:unavailable": "server_missing"} {
+		if !slices.ContainsFunc(omitted, func(item RuntimeToolSearchOmission) bool {
+			return item.ID == id && item.Reason == reason
+		}) {
+			t.Fatalf("missing omission %s=%s in %#v", id, reason, omitted)
+		}
+	}
+}
+
+func TestRuntimeSchedulerRunningToolGuardCleanup(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		finish   func(context.Context, runtimeSchedulerRecorder, agent.SchedulerToolCallResult) error
+		expected scheduler.ToolCallStatus
+	}{
+		{
+			name: "success",
+			finish: func(ctx context.Context, recorder runtimeSchedulerRecorder, result agent.SchedulerToolCallResult) error {
+				return recorder.ToolCallCompleted(ctx, result)
+			},
+			expected: scheduler.ToolCallCompleted,
+		},
+		{
+			name: "failure",
+			finish: func(ctx context.Context, recorder runtimeSchedulerRecorder, result agent.SchedulerToolCallResult) error {
+				result.IsError = true
+				result.Error = "boom"
+				return recorder.ToolCallFailed(ctx, result)
+			},
+			expected: scheduler.ToolCallFailed,
+		},
+		{
+			name: "cancel",
+			finish: func(ctx context.Context, recorder runtimeSchedulerRecorder, result agent.SchedulerToolCallResult) error {
+				result.Cancelled = true
+				return recorder.ToolCallCancelled(ctx, result)
+			},
+			expected: scheduler.ToolCallCancelled,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			service := newRuntimeService()
+			service.policy = runtimePolicyFromMode(permission.PolicyModeAutoRead, 0)
+			recorder := runtimeSchedulerRecorder{service: service}
+			call := agent.SchedulerToolCall{
+				ID:           "tool-" + tc.name,
+				SessionID:    "session-" + tc.name,
+				TurnID:       "turn-" + tc.name,
+				Name:         "view",
+				Source:       "builtin",
+				CapabilityID: "builtin:view",
+				InputSummary: `{"file_path":"README.md"}`,
+			}
+			decision, err := recorder.EvaluateToolCall(context.Background(), call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decision.Decision != string(permission.PolicyAllow) {
+				t.Fatalf("decision = %#v", decision)
+			}
+			if service.toolDiscovery.RunningByTurn[call.TurnID] != 1 {
+				t.Fatalf("running count after allow = %d", service.toolDiscovery.RunningByTurn[call.TurnID])
+			}
+			if err := recorder.ToolCallStarted(context.Background(), call); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.finish(context.Background(), recorder, agent.SchedulerToolCallResult{
+				ToolCallID:          call.ID,
+				SessionID:           call.SessionID,
+				TurnID:              call.TurnID,
+				Name:                call.Name,
+				Source:              call.Source,
+				ModelVisibleContent: "done",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if service.toolDiscovery.RunningByTurn[call.TurnID] != 0 {
+				t.Fatalf("running count leaked = %d", service.toolDiscovery.RunningByTurn[call.TurnID])
+			}
+			stored, err := service.toolCalls.GetCall(context.Background(), call.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored.Status != tc.expected {
+				t.Fatalf("stored status = %s, want %s", stored.Status, tc.expected)
+			}
+		})
+	}
+}
+
 func TestRuntimeCapabilitiesAreMetadataOnlyForSkillsResourcesAndPrompts(t *testing.T) {
 	t.Parallel()
 

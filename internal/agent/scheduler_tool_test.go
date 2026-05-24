@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"charm.land/fantasy"
@@ -10,11 +11,14 @@ import (
 )
 
 type recordingSchedulerRecorder struct {
-	decision  agentPolicyDecision
-	started   bool
-	failed    SchedulerToolCallResult
-	completed SchedulerToolCallResult
-	gotCall   SchedulerToolCall
+	decision    agentPolicyDecision
+	started     bool
+	startErr    error
+	failErr     error
+	completeErr error
+	failed      SchedulerToolCallResult
+	completed   SchedulerToolCallResult
+	gotCall     SchedulerToolCall
 }
 
 type agentPolicyDecision = SchedulerToolPolicyDecision
@@ -26,7 +30,7 @@ func (r *recordingSchedulerRecorder) EvaluateToolCall(_ context.Context, call Sc
 
 func (r *recordingSchedulerRecorder) ToolCallStarted(context.Context, SchedulerToolCall) error {
 	r.started = true
-	return nil
+	return r.startErr
 }
 
 func (r *recordingSchedulerRecorder) ToolCallOutput(context.Context, SchedulerToolCallResult) error {
@@ -35,12 +39,12 @@ func (r *recordingSchedulerRecorder) ToolCallOutput(context.Context, SchedulerTo
 
 func (r *recordingSchedulerRecorder) ToolCallCompleted(_ context.Context, result SchedulerToolCallResult) error {
 	r.completed = result
-	return nil
+	return r.completeErr
 }
 
 func (r *recordingSchedulerRecorder) ToolCallFailed(_ context.Context, result SchedulerToolCallResult) error {
 	r.failed = result
-	return nil
+	return r.failErr
 }
 
 func (r *recordingSchedulerRecorder) ToolCallCancelled(context.Context, SchedulerToolCallResult) error {
@@ -194,4 +198,44 @@ func TestSchedulerToolStampsPolicyApprovalForInnerPermission(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, granted)
+}
+
+func TestSchedulerToolCleansUpWhenStartRecordingFails(t *testing.T) {
+	t.Parallel()
+
+	inner := &fakeTool{name: "view", resp: fantasy.NewTextResponse("ok")}
+	recorder := &recordingSchedulerRecorder{
+		decision: SchedulerToolPolicyDecision{
+			Decision: string(permission.PolicyAllow),
+			Risk:     string(permission.RiskRead),
+			Mode:     string(permission.PolicyModeAutoRead),
+		},
+		startErr: errors.New("store unavailable"),
+	}
+	tool := newSchedulerTool(inner, recorder)
+
+	resp, err := tool.Run(t.Context(), fantasy.ToolCall{ID: "tool-1", Name: "view", Input: "{}"})
+	require.NoError(t, err)
+	require.True(t, resp.IsError)
+	require.False(t, inner.called)
+	require.Equal(t, "store unavailable", recorder.failed.Error)
+}
+
+func TestSchedulerToolReturnsFinalRecorderError(t *testing.T) {
+	t.Parallel()
+
+	inner := &fakeTool{name: "view", resp: fantasy.NewTextResponse("ok")}
+	recorder := &recordingSchedulerRecorder{
+		decision: SchedulerToolPolicyDecision{
+			Decision: string(permission.PolicyAllow),
+			Risk:     string(permission.RiskRead),
+			Mode:     string(permission.PolicyModeAutoRead),
+		},
+		completeErr: errors.New("complete failed"),
+	}
+	tool := newSchedulerTool(inner, recorder)
+
+	_, err := tool.Run(t.Context(), fantasy.ToolCall{ID: "tool-1", Name: "view", Input: "{}"})
+	require.EqualError(t, err, "complete failed")
+	require.Equal(t, "ok", recorder.completed.ModelVisibleContent)
 }

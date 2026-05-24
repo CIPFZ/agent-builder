@@ -565,12 +565,15 @@ type RuntimeReplayToolSearch struct {
 	OmittedCount int                           `json:"omittedCount,omitempty"`
 	BudgetImpact RuntimeToolSchemaBudgetImpact `json:"budgetImpact,omitempty"`
 	Guardrail    string                        `json:"guardrail,omitempty"`
+	Reason       string                        `json:"reason,omitempty"`
 }
 
 type RuntimeReplayToolDiscovery struct {
-	Selected []string `json:"selected,omitempty"`
-	Omitted  []string `json:"omitted,omitempty"`
-	Denied   []string `json:"denied,omitempty"`
+	Selected         []string                      `json:"selected,omitempty"`
+	Omitted          []string                      `json:"omitted,omitempty"`
+	Denied           []string                      `json:"denied,omitempty"`
+	GuardrailReasons []string                      `json:"guardrailReasons,omitempty"`
+	BudgetImpact     RuntimeToolSchemaBudgetImpact `json:"budgetImpact,omitempty"`
 }
 
 type RuntimeReplayPolicyDecision struct {
@@ -946,6 +949,7 @@ type RuntimeToolSearchRequest struct {
 	MaxResults int    `json:"maxResults,omitempty"`
 	TurnID     string `json:"turnId,omitempty"`
 	SessionID  string `json:"sessionId,omitempty"`
+	ToolCallID string `json:"toolCallId,omitempty"`
 	Source     string `json:"source,omitempty"`
 }
 
@@ -979,13 +983,15 @@ type RuntimeToolSchemaBudgetImpact struct {
 }
 
 type RuntimeToolSearchResponse struct {
-	Query          string                        `json:"query"`
-	Results        []RuntimeToolSearchResult     `json:"results"`
-	Omitted        []RuntimeToolSearchOmission   `json:"omitted,omitempty"`
-	Total          int                           `json:"total"`
-	BudgetImpact   RuntimeToolSchemaBudgetImpact `json:"budgetImpact"`
-	Guardrail      string                        `json:"guardrail,omitempty"`
-	GuardrailError string                        `json:"guardrailError,omitempty"`
+	Query            string                        `json:"query"`
+	Results          []RuntimeToolSearchResult     `json:"results"`
+	Omitted          []RuntimeToolSearchOmission   `json:"omitted,omitempty"`
+	Total            int                           `json:"total"`
+	BudgetImpact     RuntimeToolSchemaBudgetImpact `json:"budgetImpact"`
+	Guardrail        string                        `json:"guardrail,omitempty"`
+	GuardrailError   string                        `json:"guardrailError,omitempty"`
+	MaxResults       int                           `json:"maxResults,omitempty"`
+	MaxResultsReason string                        `json:"maxResultsReason,omitempty"`
 }
 
 type RuntimeModelConfig struct {

@@ -22,6 +22,7 @@ const (
 	maxRuntimeConcurrentToolCalls  = 10
 	toolDiscoveryReasonBase        = "base_tool"
 	toolDiscoveryReasonDeferred    = "deferred_until_search"
+	toolDiscoveryReasonBudget      = "schema_budget"
 )
 
 type runtimeToolDiscoveryState struct {
@@ -59,6 +60,7 @@ func (r *runtimeService) SearchToolsForAgent(ctx context.Context, req agent.Sche
 		MaxResults: req.MaxResults,
 		SessionID:  req.SessionID,
 		TurnID:     req.TurnID,
+		ToolCallID: req.ToolCallID,
 		Source:     "agent_tool",
 	})
 	if err != nil {
@@ -104,7 +106,7 @@ func (r *runtimeService) SelectToolsForTurn(ctx context.Context, req agent.Sched
 	r.mu.Unlock()
 
 	var selected []string
-	var omitted []string
+	var omitted []RuntimeToolSearchOmission
 	var selectedBucket RuntimeBudgetBucket
 	var omittedBucket RuntimeBudgetBucket
 	for _, tool := range req.Tools {
@@ -121,7 +123,7 @@ func (r *runtimeService) SelectToolsForTurn(ctx context.Context, req agent.Sched
 				InputSummary: tool.SchemaSummary,
 			}
 			if reason := r.agentTaskScopeViolation(task, call); reason != "" {
-				omitted = append(omitted, tool.Name)
+				omitted = append(omitted, toolDisclosureOmission(tool, "task_scope_denied"))
 				omittedBucket.Count++
 				omittedBucket.EstimatedTokens += tool.EstimatedTokens
 				r.recordAgentTaskScope(ctx, task, false, reason)
@@ -138,15 +140,21 @@ func (r *runtimeService) SelectToolsForTurn(ctx context.Context, req agent.Sched
 			selectedBucket.EstimatedTokens += tool.EstimatedTokens
 			continue
 		}
-		omitted = append(omitted, tool.Name)
+		omitted = append(omitted, toolDisclosureOmission(tool, toolDiscoveryReasonDeferred))
 		omittedBucket.Count++
 		omittedBucket.EstimatedTokens += tool.EstimatedTokens
 	}
 	slices.Sort(selected)
-	slices.Sort(omitted)
+	sort.SliceStable(omitted, func(i, j int) bool {
+		return omitted[i].Name < omitted[j].Name
+	})
 	r.rememberToolDisclosureBudget(turnID, selectedBucket, omittedBucket)
 	r.recordToolDisclosure(ctx, req.SessionID, req.TurnID, selected, omitted, selectedBucket, omittedBucket)
-	return agent.SchedulerToolDisclosureResult{Selected: selected, Omitted: omitted}, nil
+	omittedNames := make([]string, 0, len(omitted))
+	for _, item := range omitted {
+		omittedNames = append(omittedNames, item.Name)
+	}
+	return agent.SchedulerToolDisclosureResult{Selected: selected, Omitted: omittedNames}, nil
 }
 
 func (r *runtimeService) rememberToolDisclosureBudget(turnID string, selected, omitted RuntimeBudgetBucket) {
@@ -176,20 +184,25 @@ func (r *runtimeService) searchTools(ctx context.Context, req RuntimeToolSearchR
 		return RuntimeToolSearchResponse{}, errors.New("query is required")
 	}
 	maxResults := req.MaxResults
+	maxResultsReason := ""
 	if maxResults <= 0 {
 		maxResults = defaultToolSearchMaxResults
+		maxResultsReason = "max_results_defaulted"
 	}
 	if maxResults > maxToolSearchResults {
 		maxResults = maxToolSearchResults
+		maxResultsReason = "max_results_clamped"
 	}
 	if ctx.Err() != nil {
 		resp := RuntimeToolSearchResponse{Query: query, Guardrail: "cancelled", GuardrailError: "tool search cancelled"}
-		r.recordDeadlockPrevented(req.SessionID, req.TurnID, "", "tool_search_cancelled", resp.GuardrailError)
+		r.recordToolSearch(req, resp)
+		r.recordDeadlockPrevented(req.SessionID, req.TurnID, req.ToolCallID, "tool_search_cancelled", resp.GuardrailError)
 		return resp, ctx.Err()
 	}
 	if blocked, reason := r.preventRepeatedToolSearch(req.TurnID, query); blocked {
 		resp := RuntimeToolSearchResponse{Query: query, Guardrail: reason, GuardrailError: "tool search guardrail blocked repeated search"}
-		r.recordDeadlockPrevented(req.SessionID, req.TurnID, "", reason, resp.GuardrailError)
+		r.recordToolSearch(req, resp)
+		r.recordDeadlockPrevented(req.SessionID, req.TurnID, req.ToolCallID, reason, resp.GuardrailError)
 		return resp, nil
 	}
 	caps, err := r.Capabilities(ctx)
@@ -208,6 +221,10 @@ func (r *runtimeService) searchTools(ctx context.Context, req RuntimeToolSearchR
 		Omitted:      omitted,
 		Total:        len(results),
 		BudgetImpact: toolSearchBudgetImpact(results, omitted),
+	}
+	if maxResultsReason != "" {
+		resp.MaxResults = maxResults
+		resp.MaxResultsReason = maxResultsReason
 	}
 	r.recordToolSearch(req, resp)
 	return resp, nil
@@ -413,8 +430,21 @@ func (r *runtimeService) preventRepeatedToolSearch(turnID, query string) (bool, 
 	return false, ""
 }
 
+func (r *runtimeService) preventNestedToolSearch(ctx context.Context, call agent.SchedulerToolCall) (bool, string) {
+	if call.Name != agent.ToolSearchToolName {
+		return false, ""
+	}
+	if task, ok := r.agentTaskForChildSession(ctx, call.SessionID); ok && len(task.AllowedTools) > 0 && !matchesRuntimeScopeValue(task.AllowedTools, agent.ToolSearchToolName, "*") {
+		return true, "task_scope_denied_tool_search"
+	}
+	if strings.Contains(strings.ToLower(call.InputSummary), "tool_search") {
+		return true, "tool_search_recursion"
+	}
+	return false, ""
+}
+
 func (r *runtimeService) incrementRunningToolGuard(call agent.SchedulerToolCall) (bool, string) {
-	if call.TurnID == "" {
+	if call.TurnID == "" || call.ID == "" {
 		return false, ""
 	}
 	r.mu.Lock()
@@ -437,21 +467,40 @@ func (r *runtimeService) decrementRunningToolGuard(turnID string) {
 	}
 }
 
-func (r *runtimeService) recordToolDisclosure(ctx context.Context, sessionID, turnID string, selected, omitted []string, selectedBudget, omittedBudget RuntimeBudgetBucket) {
+func toolDisclosureOmission(tool agent.SchedulerToolMetadata, reason string) RuntimeToolSearchOmission {
+	return RuntimeToolSearchOmission{
+		ID:     firstNonEmpty(tool.CapabilityID, tool.Source+":"+tool.Name),
+		Kind:   "tool_schema",
+		Name:   tool.Name,
+		Source: tool.Source,
+		Reason: reason,
+		State:  "omitted",
+	}
+}
+
+func (r *runtimeService) recordToolDisclosure(ctx context.Context, sessionID, turnID string, selected []string, omitted []RuntimeToolSearchOmission, selectedBudget, omittedBudget RuntimeBudgetBucket) {
+	omittedNames := make([]string, 0, len(omitted))
+	omittedReasons := make(map[string]string, len(omitted))
+	for _, item := range omitted {
+		omittedNames = append(omittedNames, item.Name)
+		omittedReasons[item.Name] = item.Reason
+	}
 	payload := map[string]any{
-		"selected": selected,
-		"omitted":  omitted,
+		"selected":  selected,
+		"omitted":   omittedNames,
+		"omissions": omitted,
 		"budget": map[string]any{
 			"selected": selectedBudget,
 			"omitted":  omittedBudget,
 		},
+		"reason":  toolDiscoveryReasonBudget,
 		"summary": fmt.Sprintf("%d selected, %d omitted tool schemas", len(selected), len(omitted)),
 	}
 	r.storeRuntimeEvent(runtimeapi.Event{ID: newRuntimeEventID(), Type: runtimeapi.EventToolDiscoverySelected, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), SessionID: sessionID, TurnID: turnID, Payload: payload})
 	if len(omitted) > 0 {
-		r.storeRuntimeEvent(runtimeapi.Event{ID: newRuntimeEventID(), Type: runtimeapi.EventToolDiscoveryOmitted, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), SessionID: sessionID, TurnID: turnID, Payload: map[string]any{"omitted": omitted, "reason": toolDiscoveryReasonDeferred, "budget": omittedBudget, "summary": fmt.Sprintf("%d omitted tool schemas", len(omitted))}})
+		r.storeRuntimeEvent(runtimeapi.Event{ID: newRuntimeEventID(), Type: runtimeapi.EventToolDiscoveryOmitted, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), SessionID: sessionID, TurnID: turnID, Payload: map[string]any{"omitted": omittedNames, "omissions": omitted, "reasons": omittedReasons, "reason": toolDiscoveryReasonDeferred, "budget": omittedBudget, "summary": fmt.Sprintf("%d omitted tool schemas", len(omitted))}})
 	}
-	r.writeAudit(auditEntry{RequestID: turnID, Event: "tool_discovery_selected", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), SessionID: sessionID, Extra: map[string]any{"selected": selected, "omitted": omitted, "budget": payload["budget"]}})
+	r.writeAudit(auditEntry{RequestID: turnID, Event: "tool_discovery_selected", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), SessionID: sessionID, Extra: map[string]any{"selected": selected, "omitted": omitted, "omitted_names": omittedNames, "budget": payload["budget"], "reason": toolDiscoveryReasonBudget}})
 }
 
 func (r *runtimeService) recordToolSearch(req RuntimeToolSearchRequest, resp RuntimeToolSearchResponse) {
@@ -459,8 +508,17 @@ func (r *runtimeService) recordToolSearch(req RuntimeToolSearchRequest, resp Run
 	for _, result := range resp.Results {
 		selected = append(selected, result.Name)
 	}
-	r.storeRuntimeEvent(runtimeapi.Event{ID: newRuntimeEventID(), Type: runtimeapi.EventToolSearchPerformed, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), SessionID: req.SessionID, TurnID: req.TurnID, Payload: map[string]any{"query": req.Query, "selected": selected, "omitted": resp.Omitted, "omitted_count": len(resp.Omitted), "budget_impact": resp.BudgetImpact, "summary": fmt.Sprintf("%d matches", len(resp.Results))}})
-	r.writeAudit(auditEntry{RequestID: req.TurnID, Event: "tool_search_performed", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), SessionID: req.SessionID, Extra: map[string]any{"query": req.Query, "selected": selected, "omitted": resp.Omitted, "budget_impact": resp.BudgetImpact}})
+	payload := map[string]any{"query": req.Query, "selected": selected, "omitted": resp.Omitted, "omitted_count": len(resp.Omitted), "budget_impact": resp.BudgetImpact, "summary": fmt.Sprintf("%d matches", len(resp.Results))}
+	if resp.Guardrail != "" {
+		payload["guardrail"] = resp.Guardrail
+		payload["guardrail_error"] = resp.GuardrailError
+	}
+	if resp.MaxResultsReason != "" {
+		payload["max_results"] = resp.MaxResults
+		payload["max_results_reason"] = resp.MaxResultsReason
+	}
+	r.storeRuntimeEvent(runtimeapi.Event{ID: newRuntimeEventID(), Type: runtimeapi.EventToolSearchPerformed, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), SessionID: req.SessionID, TurnID: req.TurnID, ToolCallID: req.ToolCallID, Payload: payload})
+	r.writeAudit(auditEntry{RequestID: req.TurnID, Event: "tool_search_performed", Timestamp: time.Now().UTC().Format(time.RFC3339Nano), SessionID: req.SessionID, Extra: payload})
 }
 
 func (r *runtimeService) recordDeadlockPrevented(sessionID, turnID, toolCallID, reason, detail string) {
