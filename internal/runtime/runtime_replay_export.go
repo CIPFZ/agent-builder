@@ -144,6 +144,12 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			summary.PolicyDecisions = append(summary.PolicyDecisions, runtimeReplayPolicyFromEvent(event))
 		case runtimeapi.EventPermissionRequested, runtimeapi.EventPermissionDecided:
 			summary.PermissionEvents = append(summary.PermissionEvents, runtimeReplayPermissionFromEvent(event))
+		case runtimeapi.EventCompactBoundaryRecorded, runtimeapi.EventCompactMicroCompleted, runtimeapi.EventCompactFullCompleted, runtimeapi.EventCompactFailed:
+			if boundary := runtimeReplayCompactBoundaryFromEvent(event); boundary.ID != "" {
+				summary.CompactBoundaries = appendRuntimeReplayCompactBoundary(summary.CompactBoundaries, boundary)
+			}
+		case runtimeapi.EventContextReinjected, runtimeapi.EventContextSourceSkipped, runtimeapi.EventContextSourceFailed:
+			attachRuntimeReplayReinjectedRef(&summary, event)
 		case runtimeapi.EventSnapshotRequired:
 			summary.Recovery.SnapshotRequired = true
 		}
@@ -176,9 +182,85 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			if wt := runtimeWorktreeFromPayload(asMap(asMap(audit.Payload["extra"])["worktree"])); wt.ID != "" {
 				summary.Worktrees = appendRuntimeReplayWorktree(summary.Worktrees, wt)
 			}
+		case "compact_full_completed", "compact_full_failed", "compact_micro_completed", "compact_micro_failed", "compact_boundary_recorded", "compact_full_recorded":
+			if boundary := runtimeCompactBoundaryFromPayload(asMap(audit.Payload["compact_boundary"])); boundary.ID != "" {
+				summary.CompactBoundaries = appendRuntimeReplayCompactBoundary(summary.CompactBoundaries, boundary)
+			}
+		case "context_reinjected", "context_source_skipped", "context_source_failed":
+			if ref := runtimeReinjectedRefFromPayload(asMap(asMap(audit.Payload["extra"])["reinjected_ref"])); ref.ID != "" {
+				boundaryID := stringFromMap(asMap(audit.Payload["extra"]), "compact_id")
+				attachRuntimeReplayReinjectedRefToBoundary(&summary, boundaryID, ref)
+			}
 		}
 	}
 	return summary
+}
+
+func appendRuntimeReplayCompactBoundary(items []RuntimeCompactBoundary, boundary RuntimeCompactBoundary) []RuntimeCompactBoundary {
+	for i := range items {
+		if items[i].ID == boundary.ID {
+			if len(boundary.ReinjectedRefs) == 0 && len(items[i].ReinjectedRefs) > 0 {
+				boundary.ReinjectedRefs = items[i].ReinjectedRefs
+			}
+			items[i] = boundary
+			return items
+		}
+	}
+	return append(items, boundary)
+}
+
+func runtimeReplayCompactBoundaryFromEvent(event RuntimeEvent) RuntimeCompactBoundary {
+	boundary := RuntimeCompactBoundary{
+		ID:         stringFromMap(event.Payload, "compact_id"),
+		SessionID:  event.SessionID,
+		TurnID:     event.TurnID,
+		Kind:       stringFromMap(event.Payload, "kind"),
+		Trigger:    stringFromMap(event.Payload, "trigger"),
+		Status:     stringFromMap(event.Payload, "status"),
+		SummaryRef: stringFromMap(event.Payload, "summary_ref"),
+		Error:      stringFromMap(event.Payload, "error"),
+	}
+	return boundary
+}
+
+func attachRuntimeReplayReinjectedRef(summary *RuntimeReplayExportSummary, event RuntimeEvent) {
+	ref := RuntimeReinjectedRef{
+		ID:             stringFromMap(event.Payload, "source_id"),
+		Kind:           stringFromMap(event.Payload, "kind"),
+		Name:           stringFromMap(event.Payload, "name"),
+		Path:           stringFromMap(event.Payload, "path"),
+		URI:            stringFromMap(event.Payload, "uri"),
+		Ref:            stringFromMap(event.Payload, "ref"),
+		Status:         stringFromMap(event.Payload, "status"),
+		Reason:         stringFromMap(event.Payload, "reason"),
+		Error:          stringFromMap(event.Payload, "error"),
+		ContentSummary: stringFromMap(event.Payload, "content_summary"),
+		TokenEstimate:  intFromMap(event.Payload, "token_estimate"),
+	}
+	attachRuntimeReplayReinjectedRefToBoundary(summary, stringFromMap(event.Payload, "compact_id"), ref)
+}
+
+func attachRuntimeReplayReinjectedRefToBoundary(summary *RuntimeReplayExportSummary, boundaryID string, ref RuntimeReinjectedRef) {
+	if ref.ID == "" {
+		return
+	}
+	for i := range summary.CompactBoundaries {
+		if summary.CompactBoundaries[i].ID == boundaryID {
+			for _, existing := range summary.CompactBoundaries[i].ReinjectedRefs {
+				if existing.ID == ref.ID && existing.Status == ref.Status {
+					return
+				}
+			}
+			summary.CompactBoundaries[i].ReinjectedRefs = append(summary.CompactBoundaries[i].ReinjectedRefs, ref)
+			return
+		}
+	}
+	summary.CompactBoundaries = append(summary.CompactBoundaries, RuntimeCompactBoundary{
+		ID:             boundaryID,
+		Kind:           compactKindFull,
+		Status:         compactStatusRecorded,
+		ReinjectedRefs: []RuntimeReinjectedRef{ref},
+	})
 }
 
 func appendRuntimeReplayWorktree(items []RuntimeWorktree, wt RuntimeWorktree) []RuntimeWorktree {

@@ -56,6 +56,45 @@ func TestRuntimeContextEventsAndAuditSummary(t *testing.T) {
 	}
 }
 
+func TestPostCompactReinjectionRecordsSkippedAndFailedContextSources(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	sources := []RuntimeContextSource{
+		{ID: "project:/work/AGENTS.md", Kind: "project", Name: "AGENTS.md", Path: "/work/AGENTS.md", Enabled: true, State: "loaded", TokenEstimate: 4},
+		{ID: "local:/work/AGENTS.local.md", Kind: "local", Name: "AGENTS.local.md", Path: "/work/AGENTS.local.md", Enabled: true, State: "unavailable", Reason: "missing"},
+		{ID: "file:/work/broken.md", Kind: "file", Name: "broken.md", Path: "/work/broken.md", Enabled: true, State: "failed", Error: "Authorization: Bearer secret"},
+	}
+	for _, source := range sources {
+		ref := reinjectedRefFromContextSource(source)
+		switch source.State {
+		case "loaded":
+			ref.Status = compactStatusCompleted
+			service.publishReinjectionEvent(runtimeapi.EventContextReinjected, "session-1", "turn-1", "compact-full", ref)
+		case "failed":
+			ref.Status = compactStatusFailed
+			ref.Error = source.Error
+			service.publishReinjectionEvent(runtimeapi.EventContextSourceFailed, "session-1", "turn-1", "compact-full", ref)
+		default:
+			ref.Status = compactStatusSkipped
+			ref.Reason = source.Reason
+			service.publishReinjectionEvent(runtimeapi.EventContextSourceSkipped, "session-1", "turn-1", "compact-full", ref)
+		}
+	}
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool { return event.Type == runtimeapi.EventContextSourceSkipped }) {
+		t.Fatalf("context.source.skipped missing: %#v", events.Events)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventContextSourceFailed && event.Payload["error"] == "[REDACTED]"
+	}) {
+		t.Fatalf("context.source.failed redaction missing: %#v", events.Events)
+	}
+}
+
 func TestContextSourceAuditDoesNotIncludeRawContent(t *testing.T) {
 	t.Parallel()
 

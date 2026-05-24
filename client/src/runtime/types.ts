@@ -453,6 +453,7 @@ export type RuntimeRecoveryStatus = {
   active_turns: RuntimeTurn[]
   interrupted_turns: RuntimeTurn[]
   interrupted_tasks?: RuntimeAgentTask[]
+  compact_boundaries?: RuntimeCompactBoundary[]
   worktrees?: RuntimeWorktree[]
   pending_permissions: RuntimePermissionRequest[]
   snapshot_required?: boolean
@@ -491,6 +492,20 @@ export type RuntimeCompactToolCallRef = {
   reason?: string
 }
 
+export type RuntimeReinjectedRef = {
+  id: string
+  kind: string
+  name?: string
+  path?: string
+  uri?: string
+  ref?: string
+  status: 'recorded' | 'completed' | 'skipped' | 'failed' | string
+  reason?: string
+  error?: string
+  contentSummary?: string
+  tokenEstimate?: number
+}
+
 export type RuntimeCompactBoundary = {
   id: string
   sessionId: string
@@ -503,7 +518,7 @@ export type RuntimeCompactBoundary = {
   summaryRef?: string
   messageRefs?: string[]
   toolCallRefs?: RuntimeCompactToolCallRef[]
-  reinjectedRefs?: string[]
+  reinjectedRefs?: RuntimeReinjectedRef[]
   error?: string
   createdAt: number
   completedAt?: number

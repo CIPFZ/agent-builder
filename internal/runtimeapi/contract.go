@@ -131,6 +131,9 @@ const (
 	EventContextLoading             = "context.loading"
 	EventContextLoaded              = "context.loaded"
 	EventContextFailed              = "context.failed"
+	EventContextReinjected          = "context.reinjected"
+	EventContextSourceSkipped       = "context.source.skipped"
+	EventContextSourceFailed        = "context.source.failed"
 	EventBudgetUpdated              = "budget.updated"
 	EventCompactBoundaryRecorded    = "compact.boundary.recorded"
 	EventCompactMicroCompleted      = "compact.micro.completed"
@@ -219,6 +222,9 @@ var EventTypes = []string{
 	EventContextLoading,
 	EventContextLoaded,
 	EventContextFailed,
+	EventContextReinjected,
+	EventContextSourceSkipped,
+	EventContextSourceFailed,
 	EventBudgetUpdated,
 	EventCompactBoundaryRecorded,
 	EventCompactMicroCompleted,

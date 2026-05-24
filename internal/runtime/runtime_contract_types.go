@@ -606,7 +606,7 @@ type RuntimeCompactBoundary struct {
 	SummaryRef     string                      `json:"summaryRef,omitempty"`
 	MessageRefs    []string                    `json:"messageRefs,omitempty"`
 	ToolCallRefs   []RuntimeCompactToolCallRef `json:"toolCallRefs,omitempty"`
-	ReinjectedRefs []string                    `json:"reinjectedRefs,omitempty"`
+	ReinjectedRefs []RuntimeReinjectedRef      `json:"reinjectedRefs,omitempty"`
 	Error          string                      `json:"error,omitempty"`
 	CreatedAt      int64                       `json:"createdAt"`
 	CompletedAt    int64                       `json:"completedAt,omitempty"`
@@ -620,6 +620,20 @@ type RuntimeCompactToolCallRef struct {
 	Replacement     string `json:"replacement,omitempty"`
 	Preserved       bool   `json:"preserved,omitempty"`
 	Reason          string `json:"reason,omitempty"`
+}
+
+type RuntimeReinjectedRef struct {
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	Name           string `json:"name,omitempty"`
+	Path           string `json:"path,omitempty"`
+	URI            string `json:"uri,omitempty"`
+	Ref            string `json:"ref,omitempty"`
+	Status         string `json:"status"`
+	Reason         string `json:"reason,omitempty"`
+	Error          string `json:"error,omitempty"`
+	ContentSummary string `json:"contentSummary,omitempty"`
+	TokenEstimate  int    `json:"tokenEstimate,omitempty"`
 }
 
 type RuntimeCompactBoundariesResponse struct {
@@ -660,6 +674,7 @@ type RuntimeRecoveryStatus struct {
 	ActiveTurns        []RuntimeTurn              `json:"active_turns"`
 	InterruptedTurns   []RuntimeTurn              `json:"interrupted_turns"`
 	InterruptedTasks   []RuntimeAgentTask         `json:"interrupted_tasks,omitempty"`
+	CompactBoundaries  []RuntimeCompactBoundary   `json:"compact_boundaries,omitempty"`
 	Worktrees          []RuntimeWorktree          `json:"worktrees,omitempty"`
 	PendingPermissions []RuntimePermissionRequest `json:"pending_permissions"`
 	SnapshotRequired   bool                       `json:"snapshot_required,omitempty"`

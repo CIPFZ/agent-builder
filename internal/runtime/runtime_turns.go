@@ -381,9 +381,12 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 	}
 	budgetBeforeCompact := r.computeRuntimeBudget(context.Background(), sessionID, requestID, model, len(prompt), nil)
 	budgetAfterCompact, compactBoundary := r.maybeMicroCompactToolOutputs(context.Background(), sessionID, requestID, budgetBeforeCompact)
+	budgetAfterCompact, fullCompactBoundary := r.maybeFullCompact(context.Background(), sessionID, requestID, model, prompt, budgetAfterCompact)
 	r.publishBudgetUpdated(sessionID, requestID, budgetAfterCompact)
 	entry.Budget = &budgetAfterCompact
-	if compactBoundary != nil {
+	if fullCompactBoundary != nil {
+		entry.CompactBoundary = fullCompactBoundary
+	} else if compactBoundary != nil {
 		entry.CompactBoundary = compactBoundary
 	}
 	if err != nil && !stateCancelled(r, requestID) {

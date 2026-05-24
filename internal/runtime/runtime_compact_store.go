@@ -240,6 +240,28 @@ func unmarshalJSON(raw string, target any) error {
 	if strings.TrimSpace(raw) == "" {
 		return nil
 	}
+	if refs, ok := target.(*[]RuntimeReinjectedRef); ok {
+		if err := json.Unmarshal([]byte(raw), refs); err == nil {
+			return nil
+		}
+		var legacy []string
+		if err := json.Unmarshal([]byte(raw), &legacy); err != nil {
+			return fmt.Errorf("failed to decode compact JSON: %w", err)
+		}
+		for _, ref := range legacy {
+			if strings.TrimSpace(ref) == "" {
+				continue
+			}
+			*refs = append(*refs, RuntimeReinjectedRef{
+				ID:     ref,
+				Kind:   "legacy",
+				Ref:    ref,
+				Status: compactStatusCompleted,
+				Reason: "legacy_reinjected_ref",
+			})
+		}
+		return nil
+	}
 	if err := json.Unmarshal([]byte(raw), target); err != nil {
 		return fmt.Errorf("failed to decode compact JSON: %w", err)
 	}

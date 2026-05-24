@@ -57,16 +57,41 @@ func (r *runtimeService) RecoveryStatus(ctx context.Context) (RuntimeRecoverySta
 	if startedAt.IsZero() {
 		startedAt = time.Now().UTC()
 	}
+	compact := r.recoveryCompactBoundaries(ctx, activeTurns, interruptedTurns)
 	return RuntimeRecoveryStatus{
 		RuntimeStartedAt:   startedAt.UTC().Format(time.RFC3339Nano),
 		LastEventSequence:  lastSequence,
 		ActiveTurns:        activeTurns,
 		InterruptedTurns:   interruptedTurns,
 		InterruptedTasks:   interruptedTasks,
+		CompactBoundaries:  compact,
 		Worktrees:          recoveredWorktrees,
 		PendingPermissions: pendingPermissions,
 		SnapshotRequired:   snapshotRequired,
 	}, nil
+}
+
+func (r *runtimeService) recoveryCompactBoundaries(ctx context.Context, activeTurns, interruptedTurns []RuntimeTurn) []RuntimeCompactBoundary {
+	if r.compactBoundaries.db == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []RuntimeCompactBoundary
+	for _, turn := range append(append([]RuntimeTurn{}, activeTurns...), interruptedTurns...) {
+		if turn.ID == "" {
+			continue
+		}
+		if _, ok := seen[turn.ID]; ok {
+			continue
+		}
+		seen[turn.ID] = struct{}{}
+		boundaries, err := r.compactBoundaries.ListByTurn(ctx, turn.ID)
+		if err != nil {
+			continue
+		}
+		out = append(out, boundaries...)
+	}
+	return out
 }
 
 func (r *runtimeService) recoverWorktrees(ctx context.Context) ([]RuntimeWorktree, error) {

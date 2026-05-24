@@ -20,7 +20,20 @@ func runtimeCompactBoundaryFromPayload(payload map[string]any) RuntimeCompactBou
 		boundary.BudgetAfter = runtimeBudgetReportFromPayload(after)
 	}
 	boundary.MessageRefs = stringSliceFromMap(payload, "messageRefs")
-	boundary.ReinjectedRefs = stringSliceFromMap(payload, "reinjectedRefs")
+	for _, raw := range asSlice(payload["reinjectedRefs"]) {
+		switch item := raw.(type) {
+		case string:
+			boundary.ReinjectedRefs = append(boundary.ReinjectedRefs, RuntimeReinjectedRef{
+				ID:     item,
+				Kind:   "legacy",
+				Ref:    item,
+				Status: compactStatusCompleted,
+				Reason: "legacy_reinjected_ref",
+			})
+		case map[string]any:
+			boundary.ReinjectedRefs = append(boundary.ReinjectedRefs, runtimeReinjectedRefFromPayload(item))
+		}
+	}
 	rawRefs, ok := payload["toolCallRefs"].([]any)
 	if ok {
 		for _, raw := range rawRefs {
@@ -40,4 +53,20 @@ func runtimeCompactBoundaryFromPayload(payload map[string]any) RuntimeCompactBou
 		}
 	}
 	return boundary
+}
+
+func runtimeReinjectedRefFromPayload(payload map[string]any) RuntimeReinjectedRef {
+	return RuntimeReinjectedRef{
+		ID:             stringFromMap(payload, "id"),
+		Kind:           stringFromMap(payload, "kind"),
+		Name:           stringFromMap(payload, "name"),
+		Path:           stringFromMap(payload, "path"),
+		URI:            stringFromMap(payload, "uri"),
+		Ref:            stringFromMap(payload, "ref"),
+		Status:         stringFromMap(payload, "status"),
+		Reason:         stringFromMap(payload, "reason"),
+		Error:          stringFromMap(payload, "error"),
+		ContentSummary: stringFromMap(payload, "contentSummary"),
+		TokenEstimate:  intFromMap(payload, "tokenEstimate"),
+	}
 }
