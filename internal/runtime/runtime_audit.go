@@ -174,6 +174,11 @@ func (r *runtimeService) auditTurnSummary(ctx context.Context, turnID string, ev
 			}
 		}
 	}
+	if r.worktrees.db != nil {
+		if worktrees, err := r.worktrees.ListByTurn(ctx, turnID); err == nil {
+			summary.Worktrees = worktrees
+		}
+	}
 	if compact, err := r.TurnCompactBoundaries(ctx, turnID); err == nil {
 		summary.Compact = compact.Boundaries
 		if len(compact.Boundaries) > 0 && summary.Budget == nil {
@@ -248,6 +253,13 @@ func mergeAuditSummaryPayload(summary *RuntimeAuditTurnSummary, payload map[stri
 		if boundary := runtimeCompactBoundaryFromPayload(compactBoundary); boundary.ID != "" {
 			if !slices.ContainsFunc(summary.Compact, func(existing RuntimeCompactBoundary) bool { return existing.ID == boundary.ID }) {
 				summary.Compact = append(summary.Compact, boundary)
+			}
+		}
+	}
+	if extra, ok := payload["extra"].(map[string]any); ok {
+		if wt := runtimeWorktreeFromPayload(asMap(extra["worktree"])); wt.ID != "" {
+			if !slices.ContainsFunc(summary.Worktrees, func(existing RuntimeWorktree) bool { return existing.ID == wt.ID }) {
+				summary.Worktrees = append(summary.Worktrees, wt)
 			}
 		}
 	}

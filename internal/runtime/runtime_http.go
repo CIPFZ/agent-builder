@@ -200,6 +200,40 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && turnCompactPathID(r.URL.Path) != "":
 		value, err := s.service.TurnCompactBoundaries(r.Context(), turnCompactPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/worktrees":
+		value, err := s.service.Worktrees(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/worktrees":
+		var req RuntimeWorktreeCreateRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.CreateWorktree(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && worktreeEnterPathID(r.URL.Path) != "":
+		var req RuntimeWorktreeActionRequest
+		if r.Body != nil && r.ContentLength != 0 && !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.EnterWorktree(r.Context(), worktreeEnterPathID(r.URL.Path), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && worktreeExitPathID(r.URL.Path) != "":
+		var req RuntimeWorktreeActionRequest
+		if r.Body != nil && r.ContentLength != 0 && !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.ExitWorktree(r.Context(), worktreeExitPathID(r.URL.Path), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && worktreeCleanupPathID(r.URL.Path) != "":
+		var req RuntimeWorktreeActionRequest
+		if r.Body != nil && r.ContentLength != 0 && !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.CleanupWorktree(r.Context(), worktreeCleanupPathID(r.URL.Path), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && worktreePathID(r.URL.Path) != "":
+		value, err := s.service.Worktree(r.Context(), worktreePathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnTasksPathID(r.URL.Path) != "":
 		value, err := s.service.TurnAgentTasks(r.Context(), turnTasksPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -227,6 +261,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && taskResultPathID(r.URL.Path) != "":
 		value, err := s.service.AgentTaskResult(r.Context(), taskResultPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && taskEffectiveScopePathID(r.URL.Path) != "":
+		value, err := s.service.TaskEffectiveScope(r.Context(), taskEffectiveScopePathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && taskPathID(r.URL.Path) != "":
 		value, err := s.service.AgentTask(r.Context(), taskPathID(r.URL.Path))
@@ -565,11 +602,38 @@ func taskResultPathID(path string) string {
 	return trimPathID(path, "/v1/tasks/", "/result")
 }
 
+func taskEffectiveScopePathID(path string) string {
+	return trimPathID(path, "/v1/tasks/", "/effective-scope")
+}
+
 func taskPathID(path string) string {
-	if strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/result") || strings.HasSuffix(path, "/cancel") {
+	if strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/result") || strings.HasSuffix(path, "/cancel") || strings.HasSuffix(path, "/effective-scope") {
 		return ""
 	}
 	id := strings.TrimPrefix(path, "/v1/tasks/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func worktreeEnterPathID(path string) string {
+	return trimPathID(path, "/v1/worktrees/", "/enter")
+}
+
+func worktreeExitPathID(path string) string {
+	return trimPathID(path, "/v1/worktrees/", "/exit")
+}
+
+func worktreeCleanupPathID(path string) string {
+	return trimPathID(path, "/v1/worktrees/", "/cleanup")
+}
+
+func worktreePathID(path string) string {
+	if strings.HasSuffix(path, "/enter") || strings.HasSuffix(path, "/exit") || strings.HasSuffix(path, "/cleanup") {
+		return ""
+	}
+	id := strings.TrimPrefix(path, "/v1/worktrees/")
 	if id == path || id == "" || strings.Contains(id, "/") {
 		return ""
 	}

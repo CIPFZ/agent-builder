@@ -136,8 +136,36 @@ func (s *recordingRuntimeService) SessionCompactBoundaries(context.Context, stri
 	return RuntimeCompactBoundariesResponse{}, nil
 }
 
+func (s *recordingRuntimeService) Worktrees(context.Context) (RuntimeWorktreesResponse, error) {
+	return RuntimeWorktreesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) Worktree(context.Context, string) (RuntimeWorktreeResponse, error) {
+	return RuntimeWorktreeResponse{}, nil
+}
+
+func (s *recordingRuntimeService) CreateWorktree(context.Context, RuntimeWorktreeCreateRequest) (RuntimeWorktreeResponse, error) {
+	return RuntimeWorktreeResponse{}, nil
+}
+
+func (s *recordingRuntimeService) EnterWorktree(context.Context, string, RuntimeWorktreeActionRequest) (RuntimeWorktreeResponse, error) {
+	return RuntimeWorktreeResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ExitWorktree(context.Context, string, RuntimeWorktreeActionRequest) (RuntimeWorktreeResponse, error) {
+	return RuntimeWorktreeResponse{}, nil
+}
+
+func (s *recordingRuntimeService) CleanupWorktree(context.Context, string, RuntimeWorktreeActionRequest) (RuntimeWorktreeResponse, error) {
+	return RuntimeWorktreeResponse{}, nil
+}
+
 func (s *recordingRuntimeService) AgentTask(context.Context, string) (RuntimeAgentTaskResponse, error) {
 	return RuntimeAgentTaskResponse{}, nil
+}
+
+func (s *recordingRuntimeService) TaskEffectiveScope(context.Context, string) (RuntimeEffectiveScopeResponse, error) {
+	return RuntimeEffectiveScopeResponse{}, nil
 }
 
 func (s *recordingRuntimeService) TurnAgentTasks(context.Context, string) (RuntimeAgentTasksResponse, error) {

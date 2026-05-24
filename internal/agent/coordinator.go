@@ -1339,7 +1339,7 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	if !ok {
 		return fantasy.ToolResponse{}, errModelProviderNotConfigured
 	}
-	taskRecord := c.agentTaskRecord(params, taskID, parentTurnID, session.ID, model, startedAt)
+	taskRecord := c.agentTaskRecord(ctx, params, taskID, parentTurnID, session.ID, model, startedAt)
 	if c.agentTaskRecorder != nil {
 		_ = c.agentTaskRecorder.AgentTaskStarted(ctx, taskRecord)
 		taskRecord.Progress = 10
@@ -1347,7 +1347,14 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	}
 
 	// Run the agent
-	result, err := params.Agent.Run(ctx, SessionAgentCall{
+	runCtx := ctx
+	if taskRecord.Worktree != "" {
+		runCtx = context.WithValue(runCtx, tools.WorktreePathContextKey, taskRecord.Worktree)
+		runCtx = context.WithValue(runCtx, tools.EffectiveCWDContextKey, taskRecord.Worktree)
+	} else if taskRecord.CWD != "" {
+		runCtx = context.WithValue(runCtx, tools.EffectiveCWDContextKey, taskRecord.CWD)
+	}
+	result, err := params.Agent.Run(runCtx, SessionAgentCall{
 		SessionID:        session.ID,
 		TurnID:           tools.GetTurnFromContext(ctx),
 		Prompt:           params.Prompt,
@@ -1455,7 +1462,7 @@ func (c *coordinator) agentTaskID(params subAgentParams) string {
 	return "task_" + params.AgentMessageID
 }
 
-func (c *coordinator) agentTaskRecord(params subAgentParams, taskID, parentTurnID, childSessionID string, model Model, startedAt int64) AgentTaskRecord {
+func (c *coordinator) agentTaskRecord(ctx context.Context, params subAgentParams, taskID, parentTurnID, childSessionID string, model Model, startedAt int64) AgentTaskRecord {
 	kind := params.Kind
 	if kind == "" {
 		kind = "subagent"
@@ -1480,6 +1487,7 @@ func (c *coordinator) agentTaskRecord(params subAgentParams, taskID, parentTurnI
 		AllowedTools:     append([]string(nil), params.AllowedTools...),
 		CapabilityScope:  append([]string(nil), params.CapabilityScope...),
 		CWD:              c.cfg.WorkingDir(),
+		Worktree:         tools.GetWorktreePathFromContext(ctx),
 		Status:           "running",
 		Progress:         0,
 		StartedAt:        startedAt,

@@ -41,7 +41,14 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/tool-calls/{tool_call_id}"},
 	{Method: MethodGet, Path: "/v1/tasks/{task_id}"},
 	{Method: MethodPost, Path: "/v1/tasks/{task_id}/cancel"},
+	{Method: MethodGet, Path: "/v1/tasks/{task_id}/effective-scope"},
 	{Method: MethodPost, Path: "/v1/turns/{turn_id}/cancel"},
+	{Method: MethodGet, Path: "/v1/worktrees"},
+	{Method: MethodPost, Path: "/v1/worktrees"},
+	{Method: MethodGet, Path: "/v1/worktrees/{worktree_id}"},
+	{Method: MethodPost, Path: "/v1/worktrees/{worktree_id}/enter"},
+	{Method: MethodPost, Path: "/v1/worktrees/{worktree_id}/exit"},
+	{Method: MethodPost, Path: "/v1/worktrees/{worktree_id}/cleanup"},
 	{Method: MethodGet, Path: "/v1/permissions"},
 	{Method: MethodPost, Path: "/v1/permissions/{permission_id}/decision"},
 	{Method: MethodGet, Path: "/v1/policy"},
@@ -104,6 +111,12 @@ const (
 	EventTaskMessageCreated         = "task.message.created"
 	EventTaskResultUpdated          = "task.result.updated"
 	EventTaskArtifactCreated        = "task.artifact.created"
+	EventWorktreeCreated            = "worktree.created"
+	EventWorktreeEntered            = "worktree.entered"
+	EventWorktreeExited             = "worktree.exited"
+	EventWorktreeCleaned            = "worktree.cleaned"
+	EventWorktreeCleanupFailed      = "worktree.cleanup_failed"
+	EventWorktreePolicyDenied       = "worktree.policy_denied"
 	EventPermissionRequested        = "permission.requested"
 	EventPermissionDecided          = "permission.decided"
 	EventPermissionPolicyApplied    = "permission.policy.applied"
@@ -186,6 +199,12 @@ var EventTypes = []string{
 	EventTaskMessageCreated,
 	EventTaskResultUpdated,
 	EventTaskArtifactCreated,
+	EventWorktreeCreated,
+	EventWorktreeEntered,
+	EventWorktreeExited,
+	EventWorktreeCleaned,
+	EventWorktreeCleanupFailed,
+	EventWorktreePolicyDenied,
 	EventPermissionRequested,
 	EventPermissionDecided,
 	EventPermissionPolicyApplied,

@@ -109,11 +109,13 @@ func NewViewTool(
 				return resp, err
 			}
 
+			effectiveDir := effectiveWorkingDir(ctx, workingDir)
+
 			// Handle relative paths
-			filePath := filepathext.SmartJoin(workingDir, params.FilePath)
+			filePath := filepathext.SmartJoin(effectiveDir, params.FilePath)
 
 			// Check if file is outside working directory and request permission if needed
-			absWorkingDir, err := filepath.Abs(workingDir)
+			absWorkingDir, err := filepath.Abs(effectiveDir)
 			if err != nil {
 				return fantasy.ToolResponse{}, fmt.Errorf("error resolving working directory: %w", err)
 			}

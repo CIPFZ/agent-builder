@@ -79,6 +79,7 @@ func (r *runtimeService) restart() {
 	r.toolEvents = make(map[string]runtimeToolEventState)
 	r.toolCalls = nil
 	r.compactBoundaries = runtimeCompactBoundaryStore{}
+	r.worktrees = runtimeWorktreeStore{}
 	r.agentTasks = runtimeAgentTaskStore{}
 	r.turns = runtimeTurnStore{}
 	r.permissionStore = runtimePermissionStore{}
@@ -201,6 +202,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	r.turns = newRuntimeTurnStore(conn)
 	r.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	r.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
+	r.worktrees = newRuntimeWorktreeStore(conn)
 	r.agentTasks = newRuntimeAgentTaskStore(conn)
 	r.permissionStore = newRuntimePermissionStore(conn)
 	if err := r.ensureAgentRolesLoaded(ctx); err != nil {
@@ -214,6 +216,10 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to recover runtime agent tasks: %w", err)
 	}
+	recoveredWorktrees, err := r.recoverWorktrees(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to recover runtime worktrees: %w", err)
+	}
 	expiredPermissions, err := r.expireInvalidPendingPermissions(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to recover runtime permissions: %w", err)
@@ -223,6 +229,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 		startedAt:          startedAt,
 		interruptedTurns:   append([]RuntimeTurn(nil), interrupted...),
 		interruptedTasks:   append([]RuntimeAgentTask(nil), interruptedTasks...),
+		worktrees:          append([]RuntimeWorktree(nil), recoveredWorktrees...),
 		expiredPermissions: append([]RuntimePermissionRequest(nil), expiredPermissions...),
 	}
 	r.mu.Unlock()
@@ -283,6 +290,15 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 				"error":               task.Error,
 			}),
 		})
+	}
+	for _, wt := range recoveredWorktrees {
+		eventType := runtimeapi.EventWorktreeExited
+		auditType := "worktree_recovered"
+		if wt.Status == worktreeStatusMissing {
+			eventType = runtimeapi.EventWorktreePolicyDenied
+			auditType = "worktree_missing_path"
+		}
+		r.recordWorktreeEvent(ctx, eventType, auditType, wt, wt.Error)
 	}
 	for _, perm := range expiredPermissions {
 		r.storeRuntimeEvent(runtimeapi.Event{

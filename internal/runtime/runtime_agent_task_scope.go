@@ -105,7 +105,7 @@ func isReadOnlyTaskTool(name string) bool {
 }
 
 func extractCWDFromToolInput(input string) string {
-	for _, key := range []string{`"cwd"`, `"working_dir"`, `"workdir"`} {
+	for _, key := range []string{`"effective_cwd"`, `"cwd"`, `"working_dir"`, `"workdir"`} {
 		idx := strings.Index(input, key)
 		if idx < 0 {
 			continue

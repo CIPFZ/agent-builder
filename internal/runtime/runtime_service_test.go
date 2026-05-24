@@ -2458,6 +2458,12 @@ type recordingRuntimeService struct {
 	toolCall             RuntimeToolCallResponse
 	toolCalls            RuntimeToolCallsResponse
 	compactBoundaries    RuntimeCompactBoundariesResponse
+	worktrees            RuntimeWorktreesResponse
+	worktree             RuntimeWorktreeResponse
+	worktreeCreate       RuntimeWorktreeCreateRequest
+	worktreeAction       RuntimeWorktreeActionRequest
+	worktreeActionID     string
+	effectiveScope       RuntimeEffectiveScopeResponse
 	replayExport         RuntimeReplayExportResponse
 	replayExportRequest  RuntimeReplayExportRequest
 	agentTask            RuntimeAgentTaskResponse
@@ -2538,8 +2544,43 @@ func (s *recordingRuntimeService) SessionCompactBoundaries(context.Context, stri
 	return s.compactBoundaries, nil
 }
 
+func (s *recordingRuntimeService) Worktrees(context.Context) (RuntimeWorktreesResponse, error) {
+	return s.worktrees, nil
+}
+
+func (s *recordingRuntimeService) Worktree(context.Context, string) (RuntimeWorktreeResponse, error) {
+	return s.worktree, nil
+}
+
+func (s *recordingRuntimeService) CreateWorktree(_ context.Context, req RuntimeWorktreeCreateRequest) (RuntimeWorktreeResponse, error) {
+	s.worktreeCreate = req
+	return s.worktree, nil
+}
+
+func (s *recordingRuntimeService) EnterWorktree(_ context.Context, id string, req RuntimeWorktreeActionRequest) (RuntimeWorktreeResponse, error) {
+	s.worktreeActionID = id
+	s.worktreeAction = req
+	return s.worktree, nil
+}
+
+func (s *recordingRuntimeService) ExitWorktree(_ context.Context, id string, req RuntimeWorktreeActionRequest) (RuntimeWorktreeResponse, error) {
+	s.worktreeActionID = id
+	s.worktreeAction = req
+	return s.worktree, nil
+}
+
+func (s *recordingRuntimeService) CleanupWorktree(_ context.Context, id string, req RuntimeWorktreeActionRequest) (RuntimeWorktreeResponse, error) {
+	s.worktreeActionID = id
+	s.worktreeAction = req
+	return s.worktree, nil
+}
+
 func (s *recordingRuntimeService) AgentTask(context.Context, string) (RuntimeAgentTaskResponse, error) {
 	return s.agentTask, nil
+}
+
+func (s *recordingRuntimeService) TaskEffectiveScope(context.Context, string) (RuntimeEffectiveScopeResponse, error) {
+	return s.effectiveScope, nil
 }
 
 func (s *recordingRuntimeService) TurnAgentTasks(context.Context, string) (RuntimeAgentTasksResponse, error) {

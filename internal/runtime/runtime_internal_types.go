@@ -57,6 +57,7 @@ type runtimeRecoveryRecord struct {
 	startedAt          time.Time
 	interruptedTurns   []RuntimeTurn
 	interruptedTasks   []RuntimeAgentTask
+	worktrees          []RuntimeWorktree
 	expiredPermissions []RuntimePermissionRequest
 }
 

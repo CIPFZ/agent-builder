@@ -16,6 +16,8 @@ type (
 	messageIDContextKey string
 	supportsImagesKey   string
 	modelNameKey        string
+	effectiveCWDKey     string
+	worktreePathKey     string
 )
 
 const (
@@ -29,6 +31,10 @@ const (
 	SupportsImagesContextKey supportsImagesKey = "supports_images"
 	// ModelNameContextKey is the key for the model name in the context.
 	ModelNameContextKey modelNameKey = "model_name"
+	// EffectiveCWDContextKey is the runtime-scoped cwd for a task/session.
+	EffectiveCWDContextKey effectiveCWDKey = "effective_cwd"
+	// WorktreePathContextKey is the runtime-scoped worktree path for a task/session.
+	WorktreePathContextKey worktreePathKey = "worktree_path"
 )
 
 // getContextValue is a generic helper that retrieves a typed value from context.
@@ -67,6 +73,21 @@ func GetSupportsImagesFromContext(ctx context.Context) bool {
 // GetModelNameFromContext retrieves the model name from the context.
 func GetModelNameFromContext(ctx context.Context) string {
 	return getContextValue(ctx, ModelNameContextKey, "")
+}
+
+func GetEffectiveCWDFromContext(ctx context.Context) string {
+	return getContextValue(ctx, EffectiveCWDContextKey, "")
+}
+
+func GetWorktreePathFromContext(ctx context.Context) string {
+	return getContextValue(ctx, WorktreePathContextKey, "")
+}
+
+func effectiveWorkingDir(ctx context.Context, fallback string) string {
+	if cwd := GetEffectiveCWDFromContext(ctx); cwd != "" {
+		return cwd
+	}
+	return fallback
 }
 
 // NewPermissionDeniedResponse returns a tool response indicating the user

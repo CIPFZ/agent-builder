@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -37,6 +38,8 @@ func newRuntimeScenarioHarness(t *testing.T) *runtimeScenarioHarness {
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.permissionStore = newRuntimePermissionStore(conn)
 	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
+	service.worktrees = newRuntimeWorktreeStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	service.policy = defaultRuntimePolicy()
 	return &runtimeScenarioHarness{t: t, ctx: context.Background(), service: service, connDir: dataDir}
 }
@@ -362,6 +365,68 @@ func TestRuntimeScenarioHarnessCancellationExitsWaitingAndLoopStates(t *testing.
 		t.Fatalf("waiting tool not cancelled: %#v", call)
 	}
 	h.assertEventType(runtimeapi.EventTurnCancelled)
+}
+
+func TestRuntimeScenarioHarnessWorktreeReplayAndScopeGolden(t *testing.T) {
+	t.Parallel()
+
+	h := newRuntimeScenarioHarness(t)
+	h.seedTurn("session-worktree", "turn-worktree")
+	task := RuntimeAgentTask{
+		ID:              "task-worktree",
+		ParentTurnID:    "turn-worktree",
+		ParentSessionID: "session-worktree",
+		ChildSessionID:  "child-worktree",
+		Title:           "Isolated work",
+		Kind:            agentTaskKindSubagent,
+		CWD:             filepath.Join(h.connDir, "repo"),
+		Status:          agentTaskStatusRunning,
+		StartedAt:       time.Now().UnixMilli(),
+	}
+	if _, err := h.service.agentTasks.Upsert(h.ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	wt := RuntimeWorktree{
+		ID:             "wt-worktree",
+		SessionID:      "session-worktree",
+		TurnID:         "turn-worktree",
+		TaskID:         "task-worktree",
+		BaseRepoPath:   task.CWD,
+		WorktreePath:   filepath.Join(task.CWD, ".agent-builder", "worktrees", "wt-worktree"),
+		Branch:         "agent-builder-wt-worktree",
+		Ref:            "HEAD",
+		Status:         worktreeStatusEntered,
+		PreservePolicy: worktreePreserveOnFailure,
+		CleanupPolicy:  worktreeCleanupManual,
+		Owner:          "runtime",
+	}
+	if _, err := h.service.worktrees.Upsert(h.ctx, wt); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.service.applyWorktreeToTask(h.ctx, wt); err != nil {
+		t.Fatal(err)
+	}
+	h.service.recordWorktreeEvent(h.ctx, runtimeapi.EventWorktreeCreated, "worktree_created", wt, "")
+	h.service.recordWorktreeEvent(h.ctx, runtimeapi.EventWorktreeEntered, "worktree_entered", wt, "")
+
+	updated, err := h.service.agentTasks.Get(h.ctx, "task-worktree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inside := agent.SchedulerToolCall{Name: "view", Source: "builtin", CapabilityID: "builtin:view", InputSummary: `{"effective_cwd":"` + filepath.ToSlash(filepath.Join(wt.WorktreePath, "pkg")) + `"}`}
+	if reason := h.service.agentTaskScopeViolation(updated, inside); reason != "" {
+		t.Fatalf("inside worktree denied: %s", reason)
+	}
+	outside := agent.SchedulerToolCall{Name: "view", Source: "builtin", CapabilityID: "builtin:view", InputSummary: `{"effective_cwd":"` + filepath.ToSlash(filepath.Join(task.CWD, "pkg")) + `"}`}
+	if reason := h.service.agentTaskScopeViolation(updated, outside); reason == "" {
+		t.Fatal("outside worktree should be denied")
+	}
+	replay := h.replay("turn-worktree")
+	if !slices.ContainsFunc(replay.Summary.Worktrees, func(item RuntimeWorktree) bool {
+		return item.ID == wt.ID && item.Status == worktreeStatusEntered
+	}) {
+		t.Fatalf("worktree replay missing: %#v", replay.Summary.Worktrees)
+	}
 }
 
 func TestRuntimeReplayExportRedactsSecretLikePayloads(t *testing.T) {

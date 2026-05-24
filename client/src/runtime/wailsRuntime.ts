@@ -102,6 +102,42 @@ export const wailsRuntime: AgentRuntime = {
     return response.boundaries
   },
 
+  async listWorktrees() {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.Worktrees()
+    return response.worktrees
+  },
+
+  async getWorktree(worktreeId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.Worktree(worktreeId)
+    return response.worktree
+  },
+
+  async createWorktree(request) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.CreateWorktree(request)
+    return response.worktree
+  },
+
+  async enterWorktree(worktreeId, request = {}) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.EnterWorktree(worktreeId, request)
+    return response.worktree
+  },
+
+  async exitWorktree(worktreeId, request = {}) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.ExitWorktree(worktreeId, request)
+    return response.worktree
+  },
+
+  async cleanupWorktree(worktreeId, request = {}) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.CleanupWorktree(worktreeId, request)
+    return response.worktree
+  },
+
   async getToolCall(toolCallId: string) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.ToolCall(toolCallId)
@@ -112,6 +148,12 @@ export const wailsRuntime: AgentRuntime = {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.AgentTask(taskId)
     return response.task
+  },
+
+  async getAgentTaskEffectiveScope(taskId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.TaskEffectiveScope(taskId)
+    return response.scope
   },
 
   async cancelAgentTask(taskId: string) {

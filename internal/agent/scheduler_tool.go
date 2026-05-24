@@ -57,7 +57,7 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 		Name:         nonEmptyString(call.Name, toolInfo.Name),
 		Source:       schedulerSourceForToolName(nonEmptyString(call.Name, toolInfo.Name)),
 		CapabilityID: schedulerCapabilityIDForAgentTool(s.inner, nonEmptyString(call.Name, toolInfo.Name)),
-		InputSummary: call.Input,
+		InputSummary: schedulerInputSummaryWithScope(ctx, call.Input),
 	}
 	decision, decisionErr := s.recorder.EvaluateToolCall(ctx, record)
 	if decisionErr != nil {
@@ -322,6 +322,32 @@ func shellCommandFromInput(raw string) string {
 	}
 	command, _ := values["command"].(string)
 	return command
+}
+
+func schedulerInputSummaryWithScope(ctx context.Context, raw string) string {
+	cwd := tools.GetEffectiveCWDFromContext(ctx)
+	worktree := tools.GetWorktreePathFromContext(ctx)
+	if cwd == "" && worktree == "" {
+		return raw
+	}
+	var values map[string]any
+	if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		values = map[string]any{"input": raw}
+	}
+	if cwd != "" {
+		if _, exists := values["working_dir"]; !exists {
+			values["working_dir"] = cwd
+		}
+		values["effective_cwd"] = cwd
+	}
+	if worktree != "" {
+		values["worktree"] = worktree
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return raw
+	}
+	return string(data)
 }
 
 func responseStructuredSummary(resp fantasy.ToolResponse) string {

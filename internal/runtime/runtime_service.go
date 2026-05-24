@@ -20,6 +20,7 @@ func newRuntimeService() *runtimeService {
 
 		toolCalls:         scheduler.New(NewRuntimeToolCallStore()),
 		compactBoundaries: runtimeCompactBoundaryStore{},
+		worktrees:         runtimeWorktreeStore{},
 
 		agentTasks: runtimeAgentTaskStore{},
 

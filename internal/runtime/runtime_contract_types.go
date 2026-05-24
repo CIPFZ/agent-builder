@@ -157,6 +157,72 @@ type RuntimeAgentTasksResponse struct {
 	Tasks []RuntimeAgentTask `json:"tasks"`
 }
 
+type RuntimeWorktree struct {
+	ID             string            `json:"id"`
+	SessionID      string            `json:"sessionId"`
+	TurnID         string            `json:"turnId,omitempty"`
+	TaskID         string            `json:"taskId,omitempty"`
+	BaseRepoPath   string            `json:"baseRepoPath"`
+	WorktreePath   string            `json:"worktreePath"`
+	Branch         string            `json:"branch"`
+	Ref            string            `json:"ref,omitempty"`
+	Status         string            `json:"status"`
+	PreservePolicy string            `json:"preservePolicy"`
+	CleanupPolicy  string            `json:"cleanupPolicy"`
+	CreatedAt      int64             `json:"createdAt"`
+	EnteredAt      int64             `json:"enteredAt,omitempty"`
+	ExitedAt       int64             `json:"exitedAt,omitempty"`
+	CleanedAt      int64             `json:"cleanedAt,omitempty"`
+	UpdatedAt      int64             `json:"updatedAt"`
+	Error          string            `json:"error,omitempty"`
+	Owner          string            `json:"owner,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+}
+
+type RuntimeWorktreesResponse struct {
+	Worktrees []RuntimeWorktree `json:"worktrees"`
+}
+
+type RuntimeWorktreeResponse struct {
+	Worktree RuntimeWorktree `json:"worktree"`
+}
+
+type RuntimeWorktreeCreateRequest struct {
+	SessionID      string `json:"sessionId,omitempty"`
+	TurnID         string `json:"turnId,omitempty"`
+	TaskID         string `json:"taskId,omitempty"`
+	BaseRepoPath   string `json:"baseRepoPath,omitempty"`
+	Branch         string `json:"branch,omitempty"`
+	Ref            string `json:"ref,omitempty"`
+	Name           string `json:"name,omitempty"`
+	PreservePolicy string `json:"preservePolicy,omitempty"`
+	CleanupPolicy  string `json:"cleanupPolicy,omitempty"`
+}
+
+type RuntimeWorktreeActionRequest struct {
+	SessionID      string `json:"sessionId,omitempty"`
+	TurnID         string `json:"turnId,omitempty"`
+	TaskID         string `json:"taskId,omitempty"`
+	PreservePolicy string `json:"preservePolicy,omitempty"`
+}
+
+type RuntimeEffectiveScope struct {
+	SessionID    string           `json:"sessionId,omitempty"`
+	TurnID       string           `json:"turnId,omitempty"`
+	TaskID       string           `json:"taskId,omitempty"`
+	BaseCWD      string           `json:"baseCwd,omitempty"`
+	EffectiveCWD string           `json:"effectiveCwd,omitempty"`
+	WorktreeID   string           `json:"worktreeId,omitempty"`
+	WorktreePath string           `json:"worktreePath,omitempty"`
+	Worktree     *RuntimeWorktree `json:"worktree,omitempty"`
+	Sandbox      string           `json:"sandbox,omitempty"`
+	Remote       string           `json:"remote,omitempty"`
+}
+
+type RuntimeEffectiveScopeResponse struct {
+	Scope RuntimeEffectiveScope `json:"scope"`
+}
+
 type RuntimeAgentRoleDefinition struct {
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
@@ -465,6 +531,7 @@ type RuntimeReplayExportResponse struct {
 type RuntimeReplayExportSummary struct {
 	CompactBoundaries []RuntimeCompactBoundary      `json:"compactBoundaries,omitempty"`
 	Budget            *RuntimeBudgetReport          `json:"budget,omitempty"`
+	Worktrees         []RuntimeWorktree             `json:"worktrees,omitempty"`
 	ToolSearches      []RuntimeReplayToolSearch     `json:"toolSearches,omitempty"`
 	ToolDiscovery     RuntimeReplayToolDiscovery    `json:"toolDiscovery,omitempty"`
 	AgentTaskMessages []RuntimeAgentTaskMessage     `json:"agentTaskMessages,omitempty"`
@@ -593,6 +660,7 @@ type RuntimeRecoveryStatus struct {
 	ActiveTurns        []RuntimeTurn              `json:"active_turns"`
 	InterruptedTurns   []RuntimeTurn              `json:"interrupted_turns"`
 	InterruptedTasks   []RuntimeAgentTask         `json:"interrupted_tasks,omitempty"`
+	Worktrees          []RuntimeWorktree          `json:"worktrees,omitempty"`
 	PendingPermissions []RuntimePermissionRequest `json:"pending_permissions"`
 	SnapshotRequired   bool                       `json:"snapshot_required,omitempty"`
 }
@@ -610,6 +678,7 @@ type RuntimeAuditTurnSummary struct {
 	LatestAssistantMessageID string                     `json:"latest_assistant_id,omitempty"`
 	ToolCalls                []RuntimeToolCall          `json:"tool_calls,omitempty"`
 	Tasks                    []RuntimeAgentTask         `json:"tasks,omitempty"`
+	Worktrees                []RuntimeWorktree          `json:"worktrees,omitempty"`
 	TaskMessages             []RuntimeAgentTaskMessage  `json:"task_messages,omitempty"`
 	TaskResults              []RuntimeAgentTaskResult   `json:"task_results,omitempty"`
 	Permissions              []map[string]any           `json:"permissions,omitempty"`

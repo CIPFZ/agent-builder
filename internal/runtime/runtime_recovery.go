@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"os"
 	"time"
 
 	"github.com/charmbracelet/crush/internal/runtimeapi"
@@ -49,6 +50,7 @@ func (r *runtimeService) RecoveryStatus(ctx context.Context) (RuntimeRecoverySta
 	startedAt := r.recovery.startedAt
 	interruptedTurns := append([]RuntimeTurn(nil), r.recovery.interruptedTurns...)
 	interruptedTasks := append([]RuntimeAgentTask(nil), r.recovery.interruptedTasks...)
+	recoveredWorktrees := append([]RuntimeWorktree(nil), r.recovery.worktrees...)
 	lastSequence := r.nextEventSequence
 	snapshotRequired := len(r.events) > 0 && r.events[0].Sequence > 1
 	r.mu.Unlock()
@@ -61,7 +63,42 @@ func (r *runtimeService) RecoveryStatus(ctx context.Context) (RuntimeRecoverySta
 		ActiveTurns:        activeTurns,
 		InterruptedTurns:   interruptedTurns,
 		InterruptedTasks:   interruptedTasks,
+		Worktrees:          recoveredWorktrees,
 		PendingPermissions: pendingPermissions,
 		SnapshotRequired:   snapshotRequired,
 	}, nil
+}
+
+func (r *runtimeService) recoverWorktrees(ctx context.Context) ([]RuntimeWorktree, error) {
+	if r.worktrees.db == nil {
+		return nil, nil
+	}
+	active, err := r.worktrees.ListActive(ctx)
+	if err != nil {
+		return nil, err
+	}
+	recovered := make([]RuntimeWorktree, 0, len(active))
+	for _, wt := range active {
+		if wt.WorktreePath != "" {
+			if _, statErr := os.Stat(wt.WorktreePath); os.IsNotExist(statErr) {
+				wt.Status = worktreeStatusMissing
+				wt.Error = "worktree path is missing during recovery"
+			}
+		}
+		if wt.Status != worktreeStatusMissing {
+			if shouldPreserveWorktree(wt, "runtime restarted") {
+				wt.Status = worktreeStatusPreserved
+				wt.Error = firstNonEmpty(wt.Error, "runtime restarted; worktree preserved")
+			} else {
+				wt.Status = worktreeStatusCleanupPending
+				wt.Error = firstNonEmpty(wt.Error, "runtime restarted; cleanup pending")
+			}
+		}
+		stored, err := r.worktrees.Upsert(ctx, wt)
+		if err != nil {
+			return nil, err
+		}
+		recovered = append(recovered, stored)
+	}
+	return recovered, nil
 }

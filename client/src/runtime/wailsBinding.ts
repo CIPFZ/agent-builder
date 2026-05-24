@@ -37,6 +37,10 @@ import type {
   RuntimeTurn,
   RuntimeAPIEndpoint,
   RuntimeEventsResponse,
+  RuntimeEffectiveScope,
+  RuntimeWorktree,
+  RuntimeWorktreeActionRequest,
+  RuntimeWorktreeCreateRequest,
 } from './types'
 
 type WailsRuntimeBridge = {
@@ -78,6 +82,12 @@ type WailsRuntimeBridge = {
   SelectSession: (sessionId: string) => Promise<RuntimeStatus>
   SessionMessages: (sessionId: string) => Promise<{ messages: RuntimeMessage[] }>
   SessionCompactBoundaries: (sessionId: string) => Promise<{ boundaries: RuntimeCompactBoundary[] }>
+  Worktrees: () => Promise<{ worktrees: RuntimeWorktree[] }>
+  Worktree: (worktreeId: string) => Promise<{ worktree: RuntimeWorktree }>
+  CreateWorktree: (request: RuntimeWorktreeCreateRequest) => Promise<{ worktree: RuntimeWorktree }>
+  EnterWorktree: (worktreeId: string, request: RuntimeWorktreeActionRequest) => Promise<{ worktree: RuntimeWorktree }>
+  ExitWorktree: (worktreeId: string, request: RuntimeWorktreeActionRequest) => Promise<{ worktree: RuntimeWorktree }>
+  CleanupWorktree: (worktreeId: string, request: RuntimeWorktreeActionRequest) => Promise<{ worktree: RuntimeWorktree }>
   SessionTodos: (sessionId: string) => Promise<{ summary: RuntimeTodoSummary }>
   Sessions: () => Promise<{ sessions: RuntimeSession[] }>
   SetMCPServerEnabled: (request: { name: string; enabled: boolean }) => Promise<{ servers: RuntimeMcpServer[] }>
@@ -87,6 +97,7 @@ type WailsRuntimeBridge = {
   Status: () => Promise<RuntimeStatus>
   ToolCall: (toolCallId: string) => Promise<{ toolCall: RuntimeToolCall }>
   AgentTask: (taskId: string) => Promise<{ task: RuntimeAgentTask }>
+  TaskEffectiveScope: (taskId: string) => Promise<{ scope: RuntimeEffectiveScope }>
   CancelAgentTask: (taskId: string) => Promise<{ task: RuntimeAgentTask }>
   AgentRoles: () => Promise<{ roles: RuntimeAgentRoleDefinition[] }>
   AgentRole: (roleId: string) => Promise<{ role: RuntimeAgentRoleDefinition }>

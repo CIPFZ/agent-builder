@@ -156,6 +156,60 @@ export type RuntimeAgentTask = {
   result?: RuntimeAgentTaskResult
 }
 
+export type RuntimeWorktree = {
+  id: string
+  sessionId: string
+  turnId?: string
+  taskId?: string
+  baseRepoPath: string
+  worktreePath: string
+  branch: string
+  ref?: string
+  status: string
+  preservePolicy: string
+  cleanupPolicy: string
+  createdAt: number
+  enteredAt?: number
+  exitedAt?: number
+  cleanedAt?: number
+  updatedAt: number
+  error?: string
+  owner?: string
+  metadata?: Record<string, string>
+}
+
+export type RuntimeWorktreeCreateRequest = {
+  sessionId?: string
+  turnId?: string
+  taskId?: string
+  baseRepoPath?: string
+  branch?: string
+  ref?: string
+  name?: string
+  preservePolicy?: string
+  cleanupPolicy?: string
+}
+
+export type RuntimeWorktreeActionRequest = {
+  sessionId?: string
+  turnId?: string
+  taskId?: string
+  preservePolicy?: string
+}
+
+export type RuntimeEffectiveScope = {
+  sessionId?: string
+  turnId?: string
+  taskId?: string
+  baseCwd?: string
+  effectiveCwd?: string
+  worktreeId?: string
+  worktreePath?: string
+  worktree?: RuntimeWorktree
+  sandbox?: string
+  remote?: string
+}
+
 export type RuntimeAgentRoleDefinition = {
   id: string
   name: string
@@ -366,6 +420,7 @@ export type RuntimeReplayRecovery = {
 export type RuntimeReplayExportSummary = {
   compactBoundaries?: RuntimeCompactBoundary[]
   budget?: RuntimeBudgetReport
+  worktrees?: RuntimeWorktree[]
   toolSearches?: RuntimeReplayToolSearch[]
   toolDiscovery?: RuntimeReplayToolDiscovery
   agentTaskMessages?: RuntimeAgentTaskMessage[]
@@ -398,6 +453,7 @@ export type RuntimeRecoveryStatus = {
   active_turns: RuntimeTurn[]
   interrupted_turns: RuntimeTurn[]
   interrupted_tasks?: RuntimeAgentTask[]
+  worktrees?: RuntimeWorktree[]
   pending_permissions: RuntimePermissionRequest[]
   snapshot_required?: boolean
 }
@@ -793,8 +849,15 @@ export type AgentRuntime = {
   getTurn: (turnId: string) => Promise<RuntimeTurn>
   listTurnCompactBoundaries: (turnId: string) => Promise<RuntimeCompactBoundary[]>
   listSessionCompactBoundaries: (sessionId: string) => Promise<RuntimeCompactBoundary[]>
+  listWorktrees: () => Promise<RuntimeWorktree[]>
+  getWorktree: (worktreeId: string) => Promise<RuntimeWorktree>
+  createWorktree: (request: RuntimeWorktreeCreateRequest) => Promise<RuntimeWorktree>
+  enterWorktree: (worktreeId: string, request?: RuntimeWorktreeActionRequest) => Promise<RuntimeWorktree>
+  exitWorktree: (worktreeId: string, request?: RuntimeWorktreeActionRequest) => Promise<RuntimeWorktree>
+  cleanupWorktree: (worktreeId: string, request?: RuntimeWorktreeActionRequest) => Promise<RuntimeWorktree>
   getToolCall: (toolCallId: string) => Promise<RuntimeToolCall>
   getAgentTask: (taskId: string) => Promise<RuntimeAgentTask>
+  getAgentTaskEffectiveScope: (taskId: string) => Promise<RuntimeEffectiveScope>
   cancelAgentTask: (taskId: string) => Promise<RuntimeAgentTask>
   listAgentRoles: () => Promise<RuntimeAgentRoleDefinition[]>
   getAgentRole: (roleId: string) => Promise<RuntimeAgentRoleDefinition>

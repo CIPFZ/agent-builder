@@ -37,6 +37,10 @@ import type {
   RuntimeToolSearchRequest,
   RuntimeToolSearchResponse,
   RuntimeTurn,
+  RuntimeEffectiveScope,
+  RuntimeWorktree,
+  RuntimeWorktreeActionRequest,
+  RuntimeWorktreeCreateRequest,
 } from './types'
 
 type RuntimeHTTPOptions = {
@@ -175,6 +179,30 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
       const response = await get<{ boundaries: RuntimeCompactBoundary[] }>(`/v1/sessions/${encodePath(sessionId)}/compact`)
       return response.boundaries
     },
+    async listWorktrees() {
+      const response = await get<{ worktrees: RuntimeWorktree[] }>('/v1/worktrees')
+      return response.worktrees
+    },
+    async getWorktree(worktreeId: string) {
+      const response = await get<{ worktree: RuntimeWorktree }>(`/v1/worktrees/${encodePath(worktreeId)}`)
+      return response.worktree
+    },
+    async createWorktree(request: RuntimeWorktreeCreateRequest) {
+      const response = await post<{ worktree: RuntimeWorktree }>('/v1/worktrees', request)
+      return response.worktree
+    },
+    async enterWorktree(worktreeId: string, request: RuntimeWorktreeActionRequest = {}) {
+      const response = await post<{ worktree: RuntimeWorktree }>(`/v1/worktrees/${encodePath(worktreeId)}/enter`, request)
+      return response.worktree
+    },
+    async exitWorktree(worktreeId: string, request: RuntimeWorktreeActionRequest = {}) {
+      const response = await post<{ worktree: RuntimeWorktree }>(`/v1/worktrees/${encodePath(worktreeId)}/exit`, request)
+      return response.worktree
+    },
+    async cleanupWorktree(worktreeId: string, request: RuntimeWorktreeActionRequest = {}) {
+      const response = await post<{ worktree: RuntimeWorktree }>(`/v1/worktrees/${encodePath(worktreeId)}/cleanup`, request)
+      return response.worktree
+    },
     async getToolCall(toolCallId: string) {
       const response = await get<{ toolCall: RuntimeToolCall }>(`/v1/tool-calls/${encodePath(toolCallId)}`)
       return response.toolCall
@@ -182,6 +210,10 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async getAgentTask(taskId: string) {
       const response = await get<{ task: RuntimeAgentTask }>(`/v1/tasks/${encodePath(taskId)}`)
       return response.task
+    },
+    async getAgentTaskEffectiveScope(taskId: string) {
+      const response = await get<{ scope: RuntimeEffectiveScope }>(`/v1/tasks/${encodePath(taskId)}/effective-scope`)
+      return response.scope
     },
     async cancelAgentTask(taskId: string) {
       const response = await post<{ task: RuntimeAgentTask }>(`/v1/tasks/${encodePath(taskId)}/cancel`)

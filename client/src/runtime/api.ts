@@ -1,5 +1,5 @@
 import { getAgentRuntime } from './index'
-import type { RuntimeMcpServerConfig, RuntimePermissionDecision, RuntimePolicyMode, RuntimePolicyRule, RuntimeSkillCreateRequest } from './types'
+import type { RuntimeMcpServerConfig, RuntimePermissionDecision, RuntimePolicyMode, RuntimePolicyRule, RuntimeSkillCreateRequest, RuntimeWorktreeActionRequest, RuntimeWorktreeCreateRequest } from './types'
 
 export type ModelConfig = {
   protocol: 'openai' | 'anthropic'
@@ -124,6 +124,30 @@ export async function requestRuntimeSessionCompactBoundaries(sessionId: string) 
   return getAgentRuntime().listSessionCompactBoundaries(sessionId)
 }
 
+export async function requestRuntimeWorktrees() {
+  return getAgentRuntime().listWorktrees()
+}
+
+export async function requestRuntimeWorktree(worktreeId: string) {
+  return getAgentRuntime().getWorktree(worktreeId)
+}
+
+export async function createRuntimeWorktree(request: RuntimeWorktreeCreateRequest) {
+  return getAgentRuntime().createWorktree(request)
+}
+
+export async function enterRuntimeWorktree(worktreeId: string, request?: RuntimeWorktreeActionRequest) {
+  return getAgentRuntime().enterWorktree(worktreeId, request)
+}
+
+export async function exitRuntimeWorktree(worktreeId: string, request?: RuntimeWorktreeActionRequest) {
+  return getAgentRuntime().exitWorktree(worktreeId, request)
+}
+
+export async function cleanupRuntimeWorktree(worktreeId: string, request?: RuntimeWorktreeActionRequest) {
+  return getAgentRuntime().cleanupWorktree(worktreeId, request)
+}
+
 export async function cancelRuntimeAgentTask(taskId: string) {
   return getAgentRuntime().cancelAgentTask(taskId)
 }
@@ -138,6 +162,10 @@ export async function requestRuntimeAgentTaskMessages(taskId: string) {
 
 export async function requestRuntimeAgentTaskResult(taskId: string) {
   return getAgentRuntime().getAgentTaskResult(taskId)
+}
+
+export async function requestRuntimeAgentTaskEffectiveScope(taskId: string) {
+  return getAgentRuntime().getAgentTaskEffectiveScope(taskId)
 }
 
 export async function updateRuntimePolicy(mode: RuntimePolicyMode, rules?: RuntimePolicyRule[], profile?: string) {

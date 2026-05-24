@@ -111,6 +111,7 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 	summary := RuntimeReplayExportSummary{
 		CompactBoundaries: auditSummary.Compact,
 		Budget:            auditSummary.Budget,
+		Worktrees:         auditSummary.Worktrees,
 		ToolCalls:         auditSummary.ToolCalls,
 		EventCounts:       map[string]int{},
 		AuditCounts:       map[string]int{},
@@ -135,6 +136,10 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			summary.AgentTaskMessages = append(summary.AgentTaskMessages, runtimeReplayTaskMessageFromEvent(event))
 		case runtimeapi.EventTaskResultUpdated:
 			summary.AgentTaskResults = append(summary.AgentTaskResults, runtimeReplayTaskResultFromEvent(event))
+		case runtimeapi.EventWorktreeCreated, runtimeapi.EventWorktreeEntered, runtimeapi.EventWorktreeExited, runtimeapi.EventWorktreeCleaned, runtimeapi.EventWorktreeCleanupFailed, runtimeapi.EventWorktreePolicyDenied:
+			if wt := runtimeWorktreeFromPayload(event.Payload); wt.ID != "" {
+				summary.Worktrees = appendRuntimeReplayWorktree(summary.Worktrees, wt)
+			}
 		case runtimeapi.EventPermissionPolicyApplied, runtimeapi.EventPolicyRuleMatched, runtimeapi.EventPolicyRuleDenied, runtimeapi.EventPolicyRuleAsk:
 			summary.PolicyDecisions = append(summary.PolicyDecisions, runtimeReplayPolicyFromEvent(event))
 		case runtimeapi.EventPermissionRequested, runtimeapi.EventPermissionDecided:
@@ -167,9 +172,23 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			if result := runtimeReplayTaskResultFromAudit(audit); result.TaskID != "" {
 				summary.AgentTaskResults = append(summary.AgentTaskResults, result)
 			}
+		case "worktree_created", "worktree_entered", "worktree_exited", "worktree_cleaned", "worktree_cleanup_failed", "worktree_policy_denied", "worktree_recovered", "worktree_missing_path", "worktree_preserved":
+			if wt := runtimeWorktreeFromPayload(asMap(asMap(audit.Payload["extra"])["worktree"])); wt.ID != "" {
+				summary.Worktrees = appendRuntimeReplayWorktree(summary.Worktrees, wt)
+			}
 		}
 	}
 	return summary
+}
+
+func appendRuntimeReplayWorktree(items []RuntimeWorktree, wt RuntimeWorktree) []RuntimeWorktree {
+	for i := range items {
+		if items[i].ID == wt.ID {
+			items[i] = wt
+			return items
+		}
+	}
+	return append(items, wt)
 }
 
 func runtimeReplayTaskMessageFromEvent(event RuntimeEvent) RuntimeAgentTaskMessage {

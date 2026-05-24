@@ -24,6 +24,13 @@ type RuntimeCompactBoundariesResponse = runtime.RuntimeCompactBoundariesResponse
 type RuntimeCompactToolCallRef = runtime.RuntimeCompactToolCallRef
 type RuntimeBudgetReport = runtime.RuntimeBudgetReport
 type RuntimeBudgetBucket = runtime.RuntimeBudgetBucket
+type RuntimeWorktree = runtime.RuntimeWorktree
+type RuntimeWorktreesResponse = runtime.RuntimeWorktreesResponse
+type RuntimeWorktreeResponse = runtime.RuntimeWorktreeResponse
+type RuntimeWorktreeCreateRequest = runtime.RuntimeWorktreeCreateRequest
+type RuntimeWorktreeActionRequest = runtime.RuntimeWorktreeActionRequest
+type RuntimeEffectiveScope = runtime.RuntimeEffectiveScope
+type RuntimeEffectiveScopeResponse = runtime.RuntimeEffectiveScopeResponse
 type RuntimeAgentTask = runtime.RuntimeAgentTask
 type RuntimeAgentTaskResponse = runtime.RuntimeAgentTaskResponse
 type RuntimeAgentTasksResponse = runtime.RuntimeAgentTasksResponse
@@ -193,9 +200,51 @@ func (r *RuntimeBridge) SessionCompactBoundaries(ctx context.Context, sessionID 
 
 }
 
+func (r *RuntimeBridge) Worktrees(ctx context.Context) (RuntimeWorktreesResponse, error) {
+
+	return r.service.Worktrees(ctx)
+
+}
+
+func (r *RuntimeBridge) Worktree(ctx context.Context, worktreeID string) (RuntimeWorktreeResponse, error) {
+
+	return r.service.Worktree(ctx, worktreeID)
+
+}
+
+func (r *RuntimeBridge) CreateWorktree(ctx context.Context, req RuntimeWorktreeCreateRequest) (RuntimeWorktreeResponse, error) {
+
+	return r.service.CreateWorktree(ctx, req)
+
+}
+
+func (r *RuntimeBridge) EnterWorktree(ctx context.Context, worktreeID string, req RuntimeWorktreeActionRequest) (RuntimeWorktreeResponse, error) {
+
+	return r.service.EnterWorktree(ctx, worktreeID, req)
+
+}
+
+func (r *RuntimeBridge) ExitWorktree(ctx context.Context, worktreeID string, req RuntimeWorktreeActionRequest) (RuntimeWorktreeResponse, error) {
+
+	return r.service.ExitWorktree(ctx, worktreeID, req)
+
+}
+
+func (r *RuntimeBridge) CleanupWorktree(ctx context.Context, worktreeID string, req RuntimeWorktreeActionRequest) (RuntimeWorktreeResponse, error) {
+
+	return r.service.CleanupWorktree(ctx, worktreeID, req)
+
+}
+
 func (r *RuntimeBridge) AgentTask(ctx context.Context, taskID string) (RuntimeAgentTaskResponse, error) {
 
 	return r.service.AgentTask(ctx, taskID)
+
+}
+
+func (r *RuntimeBridge) TaskEffectiveScope(ctx context.Context, taskID string) (RuntimeEffectiveScopeResponse, error) {
+
+	return r.service.TaskEffectiveScope(ctx, taskID)
 
 }
 

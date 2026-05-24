@@ -63,7 +63,8 @@ func NewWriteTool(
 				return fantasy.ToolResponse{}, fmt.Errorf("session_id is required")
 			}
 
-			filePath := filepathext.SmartJoin(workingDir, params.FilePath)
+			effectiveDir := effectiveWorkingDir(ctx, workingDir)
+			filePath := filepathext.SmartJoin(effectiveDir, params.FilePath)
 
 			fileInfo, err := os.Stat(filePath)
 			if err == nil {
@@ -102,13 +103,13 @@ func NewWriteTool(
 			diff, additions, removals := diff.GenerateDiff(
 				oldContent,
 				params.Content,
-				strings.TrimPrefix(filePath, workingDir),
+				strings.TrimPrefix(filePath, effectiveDir),
 			)
 
 			p, err := permissions.Request(ctx,
 				permission.CreatePermissionRequest{
 					SessionID:   sessionID,
-					Path:        fsext.PathOrPrefix(filePath, workingDir),
+					Path:        fsext.PathOrPrefix(filePath, effectiveDir),
 					ToolCallID:  call.ID,
 					ToolName:    WriteToolName,
 					Action:      "write",

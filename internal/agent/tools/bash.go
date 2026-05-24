@@ -205,7 +205,8 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 			}
 
 			// Determine working directory
-			execWorkingDir := cmp.Or(params.WorkingDir, workingDir)
+			defaultWorkingDir := effectiveWorkingDir(ctx, workingDir)
+			execWorkingDir := cmp.Or(params.WorkingDir, defaultWorkingDir)
 
 			isSafeReadOnly := false
 			cmdLower := strings.ToLower(params.Command)
