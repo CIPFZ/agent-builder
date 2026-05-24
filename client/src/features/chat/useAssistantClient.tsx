@@ -27,6 +27,7 @@ import {
   requestRuntimeSessionMessages,
   requestRuntimeSessions,
   requestRuntimeSkills,
+  requestRuntimeTurnToolCalls,
   requestRuntimeStatus,
   requestRuntimeTurnTasks,
   requestRuntimeTurns,
@@ -56,6 +57,7 @@ import type {
   RuntimePolicy,
   RuntimePolicyMode,
   RuntimeTodoSummary,
+  RuntimeToolCall,
   RuntimeTurn,
   RuntimeSession,
   RuntimeSkill,
@@ -80,6 +82,8 @@ export function useAssistantClient() {
   const [messages, setMessages] = useState<RuntimeMessage[]>([])
   const [permissions, setPermissions] = useState<RuntimePermissionRequest[]>([])
   const [activeTurns, setActiveTurns] = useState<RuntimeTurn[]>([])
+  const [turns, setTurns] = useState<RuntimeTurn[]>([])
+  const [toolCalls, setToolCalls] = useState<RuntimeToolCall[]>([])
   const [agentTasks, setAgentTasks] = useState<RuntimeAgentTask[]>([])
   const [events, setEvents] = useState<RuntimeEvent[]>([])
   const [sessions, setSessions] = useState<RuntimeSession[]>([])
@@ -183,19 +187,41 @@ export function useAssistantClient() {
   const refreshActiveTurns = async () => {
     const nextTurns = await requestRuntimeTurns('active')
     setActiveTurns(nextTurns)
-    const taskGroups = await Promise.all(nextTurns.map((turn) => requestRuntimeTurnTasks(turn.id).catch(() => [])))
+    setTurns((current) => mergeById(current, nextTurns, (turn) => turn.id))
+    const [taskGroups, toolGroups] = await Promise.all([
+      Promise.all(nextTurns.map((turn) => requestRuntimeTurnTasks(turn.id).catch(() => []))),
+      Promise.all(nextTurns.map((turn) => requestRuntimeTurnToolCalls(turn.id).catch(() => []))),
+    ])
     setAgentTasks(taskGroups.flat())
+    setToolCalls((current) => mergeById(current, toolGroups.flat(), (toolCall) => toolCall.id))
     return nextTurns
+  }
+
+  const refreshTurnRuntimeObjects = async (turnIds: string[]) => {
+    const ids = Array.from(new Set(turnIds.filter(Boolean)))
+    if (ids.length === 0) return
+    const [toolGroups, taskGroups, auditGroups] = await Promise.all([
+      Promise.all(ids.map((turnId) => requestRuntimeTurnToolCalls(turnId).catch(() => []))),
+      Promise.all(ids.map((turnId) => requestRuntimeTurnTasks(turnId).catch(() => []))),
+      Promise.all(ids.map((turnId) => requestRuntimeAudit(turnId).catch(() => []))),
+    ])
+    setToolCalls((current) => mergeById(current, toolGroups.flat(), (toolCall) => toolCall.id))
+    setAgentTasks((current) => mergeById(current, taskGroups.flat(), (task) => task.id))
+    setAuditEvents((current) => mergeById(current, auditGroups.flat(), (event) => event.id))
   }
 
   const refreshTasksForTurn = async (turnId?: string) => {
     if (!turnId) return []
-    const nextTasks = await requestRuntimeTurnTasks(turnId)
+    const [nextTasks, nextToolCalls] = await Promise.all([
+      requestRuntimeTurnTasks(turnId),
+      requestRuntimeTurnToolCalls(turnId).catch(() => []),
+    ])
     setAgentTasks((current) => {
       const byID = new Map(current.map((task) => [task.id, task]))
       for (const task of nextTasks) byID.set(task.id, task)
       return Array.from(byID.values()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     })
+    setToolCalls((current) => mergeById(current, nextToolCalls, (toolCall) => toolCall.id))
     return nextTasks
   }
 
@@ -257,6 +283,7 @@ export function useAssistantClient() {
     setMessages(runtimeMessages)
     setPermissions(recovery.pending_permissions)
     setActiveTurns(recovery.active_turns)
+    setTurns([...recovery.active_turns, ...recovery.interrupted_turns])
     setAgentTasks([...(recovery.interrupted_tasks ?? [])])
     setEvents(runtimeEvents.events)
     lastEventSequenceRef.current = recovery.last_event_sequence || runtimeEvents.last_sequence || runtimeEvents.events.at(-1)?.sequence || 0
@@ -264,6 +291,7 @@ export function useAssistantClient() {
     setMcpServers(runtimeMcpServers)
     setCapabilities(runtimeCapabilities)
     setPolicy(runtimePolicy)
+    await refreshTurnRuntimeObjects([...recovery.active_turns, ...recovery.interrupted_turns].map((turn) => turn.id))
     if (nextStatus.sessionId) {
       await refreshTodos(nextStatus.sessionId).catch(() => setTodoSummary(null))
     } else {
@@ -271,9 +299,9 @@ export function useAssistantClient() {
     }
   }, [])
 
-  const openAudit = () => {
+  const openAudit = (turnId?: string) => {
     setAuditOpen(true)
-    refreshAudit().catch(() => undefined)
+    refreshAudit(turnId).catch(() => undefined)
   }
 
   const openRuntimeView = (view: RuntimeFeatureView) => {
@@ -338,6 +366,7 @@ export function useAssistantClient() {
         setMessages(runtimeMessages)
         setPermissions(recovery.pending_permissions)
         setActiveTurns(recovery.active_turns)
+        setTurns([...recovery.active_turns, ...recovery.interrupted_turns])
         setAgentTasks([...(recovery.interrupted_tasks ?? [])])
         setEvents(runtimeEvents.events)
         lastEventSequenceRef.current = recovery.last_event_sequence || runtimeEvents.last_sequence || runtimeEvents.events.at(-1)?.sequence || 0
@@ -345,6 +374,7 @@ export function useAssistantClient() {
         setMcpServers(runtimeMcpServers)
         setCapabilities(runtimeCapabilities)
         setPolicy(runtimePolicy)
+        await refreshTurnRuntimeObjects([...recovery.active_turns, ...recovery.interrupted_turns].map((turn) => turn.id))
         if (nextStatus.sessionId) {
           await refreshTodos(nextStatus.sessionId).catch(() => setTodoSummary(null))
         } else {
@@ -364,6 +394,9 @@ export function useAssistantClient() {
       refreshMessages().catch(() => undefined)
       refreshStatus().catch(() => undefined)
       refreshSessions().catch(() => undefined)
+    }
+    if (event.turn_id && (event.type.startsWith('tool.call.') || event.type.startsWith('permission.') || event.type.startsWith('turn.'))) {
+      refreshTurnRuntimeObjects([event.turn_id]).catch(() => undefined)
     }
     if (event.type === 'session.created' || event.type === 'session.updated' || event.type === 'session.deleted') {
       refreshSessions().catch(() => undefined)
@@ -417,6 +450,8 @@ export function useAssistantClient() {
       setPermissions([])
       setAuditEvents([])
       setTodoSummary(null)
+      setTurns([])
+      setToolCalls([])
       const nextStatus = await refreshStatus().catch(() => undefined)
       await refreshSessions().catch(() => undefined)
       if (nextStatus?.sessionId) {
@@ -472,6 +507,8 @@ export function useAssistantClient() {
         setActiveTurns([])
         setAgentTasks([])
         setAuditEvents([])
+        setTurns([])
+        setToolCalls([])
         setTodoSummary(null)
         setActiveChatTitle('New chat')
         refreshSessions().catch(() => undefined)
@@ -517,6 +554,7 @@ export function useAssistantClient() {
           { id: activeTurnId, sessionId, status: 'running', startedAt: Date.now() },
           ...current.filter((item) => item.id !== activeTurnId),
         ])
+        setTurns((current) => mergeById(current, [{ id: activeTurnId, sessionId, status: 'running', startedAt: Date.now() }], (turn) => turn.id))
       }
       setRuntimeStatus(turn.status)
       activeSessionIdRef.current = sessionId
@@ -527,6 +565,7 @@ export function useAssistantClient() {
       await refreshActiveTurns().catch(() => undefined)
       if (activeTurnId) {
         await refreshTasksForTurn(activeTurnId).catch(() => undefined)
+        await refreshTurnRuntimeObjects([activeTurnId]).catch(() => undefined)
       }
       let nextStatus = await refreshStatus().catch(() => runtimeStatus)
       const started = Date.now()
@@ -552,6 +591,7 @@ export function useAssistantClient() {
       await refreshStatus().catch(() => undefined)
       if (activeTurnId) {
         await refreshAudit(activeTurnId).catch(() => undefined)
+        await refreshTurnRuntimeObjects([activeTurnId]).catch(() => undefined)
       }
       await refreshSessions().catch(() => undefined)
     } catch (error) {
@@ -580,9 +620,11 @@ export function useAssistantClient() {
       setMessages(runtimeMessages)
       setPermissions(runtimePermissions)
       setActiveTurns(runtimeActiveTurns)
+      setTurns(runtimeActiveTurns)
       const taskGroups = await Promise.all(runtimeActiveTurns.map((turn) => requestRuntimeTurnTasks(turn.id).catch(() => [])))
       setAgentTasks(taskGroups.flat())
       setAuditEvents(nextAudit)
+      await refreshTurnRuntimeObjects(runtimeActiveTurns.map((turn) => turn.id))
       await refreshTodos(sessionId).catch(() => setTodoSummary(null))
       await refreshSessions().catch(() => undefined)
       scrollToBottom()
@@ -651,6 +693,8 @@ export function useAssistantClient() {
             setPermissions([])
             setActiveTurns([])
             setAgentTasks([])
+            setTurns([])
+            setToolCalls([])
             setTodoSummary(null)
             setActiveChatTitle('New chat')
           }
@@ -766,6 +810,8 @@ export function useAssistantClient() {
     policy,
     policySaving,
     todoSummary,
+    toolCalls,
+    turns,
     refreshAudit,
     refreshMcpTools,
     refreshRuntimeInventory,
@@ -799,4 +845,13 @@ export function useAssistantClient() {
     viewportRef,
     composerInputRef,
   }
+}
+
+function mergeById<T>(current: T[], next: T[], idOf: (item: T) => string) {
+  const byID = new Map(current.map((item) => [idOf(item), item]))
+  for (const item of next) {
+    const id = idOf(item)
+    if (id) byID.set(id, item)
+  }
+  return Array.from(byID.values())
 }

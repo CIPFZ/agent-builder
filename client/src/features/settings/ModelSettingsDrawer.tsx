@@ -75,7 +75,7 @@ export function ModelSettingsDrawer({
     <Drawer
       title="Model settings"
       placement="right"
-      size={420}
+      styles={{ wrapper: { width: 420 } }}
       open={open}
       onClose={onClose}
       afterOpenChange={(visible) => {

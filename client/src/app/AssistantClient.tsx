@@ -50,6 +50,7 @@ export function AssistantClient() {
           activeSession={client.activeSession}
           activeTurns={client.activeTurns}
           agentTasks={client.agentTasks}
+          auditEvents={client.auditEvents}
           composerInputRef={client.composerInputRef}
           config={client.config}
           configLoaded={client.configLoaded}
@@ -63,11 +64,15 @@ export function AssistantClient() {
           modelSwitching={client.modelSwitching}
           runtimeStatus={client.runtimeStatus}
           sidebarCollapsed={client.sidebarCollapsed}
+          permissions={client.permissions}
           todoSummary={client.todoSummary}
+          toolCalls={client.toolCalls}
+          turns={client.turns}
           viewportRef={client.viewportRef}
           onCancelAgentTask={client.cancelAgentTask}
           onCancelTurn={client.cancelTurn}
           onCopyMessage={client.copyMessage}
+          onDecidePermission={client.decidePermission}
           onOpenAudit={client.openAudit}
           onOpenSettings={() => client.setSettingsOpen(true)}
           onSendMessage={client.sendMessage}

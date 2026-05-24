@@ -9,10 +9,23 @@ import type { MenuProps } from 'antd'
 import { AppstoreOutlined, AuditOutlined, CodeOutlined, DownOutlined, EditOutlined, MenuOutlined, SettingOutlined, StopOutlined, ToolOutlined } from '@ant-design/icons'
 import type { TextAreaRef } from 'antd/es/input/TextArea'
 import type { ModelConfig } from '../../runtime/api'
-import type { RuntimeAgentTask, RuntimeMessage, RuntimeSession, RuntimeStatus, RuntimeTodoSummary, RuntimeTurn } from '../../runtime'
+import type {
+  RuntimeAgentTask,
+  RuntimeAuditEvent,
+  RuntimeMessage,
+  RuntimePermissionDecision,
+  RuntimePermissionRequest,
+  RuntimeSession,
+  RuntimeStatus,
+  RuntimeTodoSummary,
+  RuntimeToolCall,
+  RuntimeTurn,
+} from '../../runtime'
 import { Composer } from './Composer'
 import { MessageItem } from './MessageItem'
 import { UsageReadout } from './UsageReadout'
+import { buildChatTimelineItems } from './chatTimeline'
+import { AgentTaskTimelineItem, AuditTimelineItem, PermissionTimelineItem, ToolCallCard, TurnTimelineItem } from './TimelineItems'
 
 const { Text, Title } = Typography
 
@@ -35,6 +48,7 @@ type ChatWorkspaceProps = {
   activeSession?: RuntimeSession
   activeTurns: RuntimeTurn[]
   agentTasks: RuntimeAgentTask[]
+  auditEvents: RuntimeAuditEvent[]
   composerInputRef: RefObject<TextAreaRef | null>
   config: ModelConfig
   configLoaded: boolean
@@ -48,12 +62,16 @@ type ChatWorkspaceProps = {
   modelSwitching: boolean
   runtimeStatus: RuntimeStatus | null
   sidebarCollapsed: boolean
+  permissions: RuntimePermissionRequest[]
   todoSummary: RuntimeTodoSummary | null
+  toolCalls: RuntimeToolCall[]
+  turns: RuntimeTurn[]
   viewportRef: RefObject<HTMLDivElement | null>
   onCancelAgentTask: (taskId: string) => void
   onCancelTurn: () => void
   onCopyMessage: (content: string) => void
-  onOpenAudit: () => void
+  onDecidePermission: (permissionId: string, action: RuntimePermissionDecision['action']) => Promise<void>
+  onOpenAudit: (turnId?: string) => void
   onOpenSettings: () => void
   onSendMessage: (text?: string) => void
   onSetInput: (value: string) => void
@@ -65,6 +83,7 @@ export function ChatWorkspace({
   activeSession,
   activeTurns,
   agentTasks,
+  auditEvents,
   composerInputRef,
   config,
   configLoaded,
@@ -78,17 +97,30 @@ export function ChatWorkspace({
   modelSwitching,
   runtimeStatus,
   sidebarCollapsed,
+  permissions,
   todoSummary,
+  toolCalls,
+  turns,
   viewportRef,
   onCancelAgentTask,
   onCancelTurn,
   onCopyMessage,
+  onDecidePermission,
   onOpenAudit,
   onOpenSettings,
   onSendMessage,
   onSetInput,
   onToggleSidebar,
 }: ChatWorkspaceProps) {
+  const timelineItems = buildChatTimelineItems({
+    auditEvents,
+    messages,
+    permissions,
+    tasks: agentTasks,
+    toolCalls,
+    turns,
+  })
+
   return (
     <main className="chat-main">
       <header className="chat-header">
@@ -114,7 +146,7 @@ export function ChatWorkspace({
             </Tooltip>
           ) : null}
           <Tooltip title="Audit">
-            <Button type="text" icon={<AuditOutlined />} onClick={onOpenAudit} />
+            <Button type="text" icon={<AuditOutlined />} onClick={() => onOpenAudit()} />
           </Tooltip>
           <Tooltip title="Model settings">
             <Button type="text" icon={<SettingOutlined />} onClick={onOpenSettings} />
@@ -154,7 +186,7 @@ export function ChatWorkspace({
                 className="runtime-alert"
                 type="warning"
                 showIcon
-                message="Model configuration required"
+                title="Model configuration required"
                 description="Open model settings and save protocol, URL, API key, and model before chatting."
                 action={
                   <Button size="small" type="primary" onClick={onOpenSettings}>
@@ -163,8 +195,8 @@ export function ChatWorkspace({
                 }
               />
             ) : null}
-            {lastError && isModelConfigured ? <Alert className="runtime-alert" type="error" showIcon message={lastError} /> : null}
-            {activeTurns.length > 0 ? <Alert className="runtime-alert" type="info" showIcon message={`Recovered ${activeTurns.length} active turn${activeTurns.length === 1 ? '' : 's'}.`} /> : null}
+            {lastError && isModelConfigured ? <Alert className="runtime-alert" type="error" showIcon title={lastError} /> : null}
+            {activeTurns.length > 0 ? <Alert className="runtime-alert" type="info" showIcon title={`Recovered ${activeTurns.length} active turn${activeTurns.length === 1 ? '' : 's'}.`} /> : null}
           </section>
         ) : (
           <section className="thread">
@@ -186,10 +218,16 @@ export function ChatWorkspace({
                 </div>
               </div>
             ) : null}
-            {agentTasks.length > 0 ? <AgentTaskPanel tasks={agentTasks} onCancel={onCancelAgentTask} /> : null}
-            {messages.map((chatMessage) => (
-              <MessageItem chatMessage={chatMessage} key={chatMessage.id} onCopy={onCopyMessage} />
-            ))}
+            {timelineItems.map((item) => {
+              if (item.kind === 'turn') return <TurnTimelineItem key={item.id} turn={item.turn} onOpenAudit={onOpenAudit} />
+              if (item.kind === 'message') return <MessageItem chatMessage={item.message} key={item.id} onCopy={onCopyMessage} />
+              if (item.kind === 'tool') return <ToolCallCard key={item.id} toolCall={item.toolCall} onOpenAudit={onOpenAudit} />
+              if (item.kind === 'permission') {
+                return <PermissionTimelineItem key={item.id} permission={item.permission} onDecide={onDecidePermission} />
+              }
+              if (item.kind === 'task') return <AgentTaskTimelineItem key={item.id} task={item.task} onCancel={onCancelAgentTask} />
+              return <AuditTimelineItem key={item.id} event={item.event} onOpenAudit={onOpenAudit} />
+            })}
           </section>
         )}
       </div>
@@ -207,52 +245,10 @@ export function ChatWorkspace({
             onOpenSettings={onOpenSettings}
             onSend={() => onSendMessage()}
           />
-          {lastError ? <Alert className="dock-alert" type="error" showIcon message={lastError} /> : null}
+          {lastError ? <Alert className="dock-alert" type="error" showIcon title={lastError} /> : null}
           <Text className="disclaimer">Agent Builder can make mistakes. Check important operations before execution.</Text>
         </div>
       ) : null}
     </main>
   )
-}
-
-function AgentTaskPanel({ tasks, onCancel }: { tasks: RuntimeAgentTask[]; onCancel: (taskId: string) => void }) {
-  return (
-    <div className="runtime-task-panel">
-      <Space size={6} wrap>
-        <Text strong>Child Tasks</Text>
-        <Tag>{tasks.length}</Tag>
-      </Space>
-      <div className="runtime-task-list">
-        {tasks.map((task) => (
-          <div className="runtime-task-row" key={task.id}>
-            <Space size={6} wrap>
-              <Tag color={taskStatusColor(task.status)}>{task.status}</Tag>
-              <Text>{task.title || task.name || task.kind}</Text>
-              {task.childSessionId ? <Text type="secondary">child {shortID(task.childSessionId)}</Text> : null}
-            </Space>
-            <Space size={6}>
-              {task.resultSummary ? <Text type="secondary">{task.resultSummary}</Text> : null}
-              {task.error ? <Text type="danger">{task.error}</Text> : null}
-              {task.status === 'running' || task.status === 'queued' ? (
-                <Tooltip title="Cancel task">
-                  <Button size="small" danger type="text" icon={<StopOutlined />} onClick={() => onCancel(task.id)} />
-                </Tooltip>
-              ) : null}
-            </Space>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function taskStatusColor(status: string) {
-  if (status === 'completed') return 'success'
-  if (status === 'failed' || status === 'interrupted') return 'error'
-  if (status === 'cancelled') return 'default'
-  return 'processing'
-}
-
-function shortID(value: string) {
-  return value.length > 10 ? `${value.slice(0, 10)}...` : value
 }

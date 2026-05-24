@@ -112,6 +112,10 @@ export async function requestRuntimeTurnTasks(turnId: string) {
   return getAgentRuntime().listTurnAgentTasks(turnId)
 }
 
+export async function requestRuntimeTurnToolCalls(turnId: string) {
+  return getAgentRuntime().listTurnToolCalls(turnId)
+}
+
 export async function cancelRuntimeAgentTask(taskId: string) {
   return getAgentRuntime().cancelAgentTask(taskId)
 }

@@ -26,7 +26,7 @@ export function RuntimeAuditDrawer({
     <Drawer
       title="Audit"
       placement="right"
-      width={560}
+      styles={{ wrapper: { width: 560 } }}
       open={open}
       onClose={onClose}
       extra={

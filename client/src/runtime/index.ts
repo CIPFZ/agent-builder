@@ -37,6 +37,7 @@ export type {
   RuntimeSkill,
   RuntimeSkillTurnItem,
   RuntimeStatus,
+  RuntimeToolCall,
   RuntimeTurnSkillSummary,
   RuntimeTurnContextSummary,
   RuntimeUsage,

@@ -14,14 +14,14 @@ export function PermissionReviewModal({
   permissions: RuntimePermissionRequest[]
   onDecide: (permissionId: string, action: RuntimePermissionDecision['action']) => Promise<void>
 }) {
-  const permission = permissions[0]
+  const permission = permissions.find((item) => !item.status || item.status === 'pending')
 
   return (
     <Modal
       title="Tool permission"
       open={Boolean(permission)}
       closable={false}
-      maskClosable={false}
+      mask={{ closable: false }}
       footer={
         permission
           ? [

@@ -2,7 +2,7 @@
 import Space from 'antd/es/space'
 import Tag from 'antd/es/tag'
 import Typography from 'antd/es/typography'
-import { BulbOutlined, CheckCircleOutlined, CloseCircleOutlined, CopyOutlined, ReloadOutlined, ToolOutlined, UserOutlined } from '@ant-design/icons'
+import { BulbOutlined, CopyOutlined, ReloadOutlined, ToolOutlined, UserOutlined } from '@ant-design/icons'
 import type { RuntimeMessage, RuntimeMessagePart } from '../../runtime'
 import { hasAssistantText, messageReasoningParts, messageToolParts } from './chatUtils'
 
@@ -25,7 +25,7 @@ export function MessageItem({ chatMessage, onCopy }: { chatMessage: RuntimeMessa
       )}
       <div className="message-body">
         {reasoningParts.length > 0 ? <ReasoningPanel parts={reasoningParts} /> : null}
-        {toolParts.length > 0 ? <ToolActivity parts={toolParts} /> : null}
+        {toolParts.length > 0 ? <MessagePartFallback parts={toolParts} /> : null}
         {showText ? <div className="message-bubble">{chatMessage.content}</div> : null}
         {hasAssistantText(chatMessage) ? (
           <Space className="message-actions" size={8}>
@@ -56,56 +56,31 @@ function ReasoningPanel({ parts }: { parts: RuntimeMessagePart[] }) {
   )
 }
 
-function ToolActivity({ parts }: { parts: RuntimeMessagePart[] }) {
+function MessagePartFallback({ parts }: { parts: RuntimeMessagePart[] }) {
   return (
     <div className="tool-activity">
       {parts.map((part, index) => (
-        <ToolActivityItem key={`${part.toolCallId ?? part.name ?? index}-${part.type}-${index}`} part={part} />
+        <MessagePartFallbackItem key={`${part.toolCallId ?? part.name ?? index}-${part.type}-${index}`} part={part} />
       ))}
     </div>
   )
 }
 
-function ToolActivityItem({ part }: { part: RuntimeMessagePart }) {
-  const isResult = part.type === 'tool_result'
-  const hasPreview = Boolean((isResult ? part.content || part.data || part.metadata : part.input)?.trim())
-  const preview = isResult ? part.content || part.data || part.metadata : part.input
-  const metadata = parseToolMetadata(part.metadata)
-  const shellStatus = typeof metadata.status === 'string' ? metadata.status : undefined
-  const shellId = typeof metadata.shell_id === 'string' ? metadata.shell_id : undefined
-  const command = typeof metadata.command === 'string' ? metadata.command : undefined
-  const risk = typeof metadata.risk === 'string' ? metadata.risk : undefined
-  const reason = typeof metadata.policy_reason === 'string' ? metadata.policy_reason : undefined
-  const stdout = typeof metadata.stdout === 'string' ? metadata.stdout : undefined
-  const stderr = typeof metadata.stderr === 'string' ? metadata.stderr : undefined
+function MessagePartFallbackItem({ part }: { part: RuntimeMessagePart }) {
+  const preview = part.type === 'tool_result' ? part.content || part.data : part.input
+  const hasPreview = Boolean(preview?.trim())
 
   return (
-    <div className={part.isError ? 'tool-step error' : 'tool-step'}>
+    <div className="tool-step">
       <div className="tool-step-header">
         <Space size={8}>
-          {part.isError ? <CloseCircleOutlined /> : isResult ? <CheckCircleOutlined /> : <ToolOutlined />}
+          <ToolOutlined />
           <Text strong>{part.name || 'tool'}</Text>
-          <Tag>{shellStatus ?? (isResult ? (part.isError ? 'failed' : 'result') : part.finished ? 'called' : 'running')}</Tag>
-          {shellId ? <Tag>job {shellId}</Tag> : null}
-          {risk ? <Tag>{risk}</Tag> : null}
+          <Tag>{part.type.replace('_', ' ')}</Tag>
         </Space>
         {part.toolCallId ? <Text type="secondary">{part.toolCallId}</Text> : null}
       </div>
-      {command ? <pre className="part-preview">{command}</pre> : null}
-      {reason ? <Text type="secondary">{reason}</Text> : null}
       {hasPreview ? <pre className="part-preview">{preview}</pre> : null}
-      {stdout ? <pre className="part-preview">stdout: {stdout}</pre> : null}
-      {stderr ? <pre className="part-preview">stderr: {stderr}</pre> : null}
     </div>
   )
-}
-
-function parseToolMetadata(value?: string): Record<string, unknown> {
-  if (!value) return {}
-  try {
-    const parsed = JSON.parse(value) as unknown
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
-  } catch {
-    return {}
-  }
 }
