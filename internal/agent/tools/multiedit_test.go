@@ -35,6 +35,8 @@ func (m *mockPermissionService) SkipRequests() bool {
 }
 
 func (m *mockPermissionService) SetPolicyMode(mode permission.PolicyMode) {}
+func (m *mockPermissionService) SetPolicy(policy permission.PermissionPolicy, mode permission.PolicyMode) {
+}
 
 func (m *mockPermissionService) PolicyMode() permission.PolicyMode {
 	return permission.PolicyModeAsk

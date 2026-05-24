@@ -54,8 +54,10 @@ func (s runtimePermissionStore) Upsert(ctx context.Context, perm RuntimePermissi
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO runtime_permission_requests (
     id, session_id, turn_id, tool_call_id, tool_name, description, action,
-    params_json, path, target, risk, policy_mode, policy_reason, decision, status, created_at, decided_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    params_json, path, target, risk, policy_mode, policy_reason, policy_profile,
+    policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value,
+    policy_target_summary, decision, status, created_at, decided_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     session_id = COALESCE(NULLIF(excluded.session_id, ''), runtime_permission_requests.session_id),
     turn_id = COALESCE(NULLIF(excluded.turn_id, ''), runtime_permission_requests.turn_id),
@@ -69,6 +71,12 @@ ON CONFLICT(id) DO UPDATE SET
     risk = COALESCE(NULLIF(excluded.risk, ''), runtime_permission_requests.risk),
     policy_mode = COALESCE(NULLIF(excluded.policy_mode, ''), runtime_permission_requests.policy_mode),
     policy_reason = COALESCE(NULLIF(excluded.policy_reason, ''), runtime_permission_requests.policy_reason),
+    policy_profile = COALESCE(NULLIF(excluded.policy_profile, ''), runtime_permission_requests.policy_profile),
+    policy_rule_id = COALESCE(NULLIF(excluded.policy_rule_id, ''), runtime_permission_requests.policy_rule_id),
+    policy_rule_source = COALESCE(NULLIF(excluded.policy_rule_source, ''), runtime_permission_requests.policy_rule_source),
+    policy_scope_kind = COALESCE(NULLIF(excluded.policy_scope_kind, ''), runtime_permission_requests.policy_scope_kind),
+    policy_scope_value = COALESCE(NULLIF(excluded.policy_scope_value, ''), runtime_permission_requests.policy_scope_value),
+    policy_target_summary = COALESCE(NULLIF(excluded.policy_target_summary, ''), runtime_permission_requests.policy_target_summary),
     decision = COALESCE(NULLIF(excluded.decision, ''), runtime_permission_requests.decision),
     status = excluded.status,
     created_at = runtime_permission_requests.created_at,
@@ -86,6 +94,12 @@ ON CONFLICT(id) DO UPDATE SET
 		nullableString(perm.Risk),
 		nullableString(perm.PolicyMode),
 		nullableString(firstNonEmpty(perm.PolicyReason, perm.Reason)),
+		nullableString(perm.PolicyProfile),
+		nullableString(perm.PolicyRuleID),
+		nullableString(perm.PolicyRuleSource),
+		nullableString(perm.PolicyScopeKind),
+		nullableString(perm.PolicyScopeValue),
+		nullableString(perm.PolicyTargetSummary),
 		nullableString(perm.Decision),
 		perm.Status,
 		perm.CreatedAt,
@@ -103,7 +117,9 @@ func (s runtimePermissionStore) Get(ctx context.Context, id string) (RuntimePerm
 	}
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, session_id, turn_id, tool_call_id, tool_name, description, action,
-    params_json, path, target, risk, policy_mode, policy_reason, decision, status, created_at, decided_at
+    params_json, path, target, risk, policy_mode, policy_reason, policy_profile,
+    policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value,
+    policy_target_summary, decision, status, created_at, decided_at
 FROM runtime_permission_requests
 WHERE id = ?`, strings.TrimSpace(id))
 	perm, err := scanRuntimePermission(row)
@@ -120,7 +136,9 @@ func (s runtimePermissionStore) List(ctx context.Context, status string) ([]Runt
 	status = strings.TrimSpace(status)
 	query := `
 SELECT id, session_id, turn_id, tool_call_id, tool_name, description, action,
-    params_json, path, target, risk, policy_mode, policy_reason, decision, status, created_at, decided_at
+    params_json, path, target, risk, policy_mode, policy_reason, policy_profile,
+    policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value,
+    policy_target_summary, decision, status, created_at, decided_at
 FROM runtime_permission_requests`
 	var args []any
 	if status != "" {
@@ -167,7 +185,7 @@ type runtimePermissionScanner interface {
 
 func scanRuntimePermission(scanner runtimePermissionScanner) (RuntimePermissionRequest, error) {
 	var perm RuntimePermissionRequest
-	var turnID, toolCallID, description, paramsJSON, path, target, risk, policyMode, policyReason, decision sql.NullString
+	var turnID, toolCallID, description, paramsJSON, path, target, risk, policyMode, policyReason, policyProfile, policyRuleID, policyRuleSource, policyScopeKind, policyScopeValue, policyTargetSummary, decision sql.NullString
 	var decidedAt sql.NullInt64
 	if err := scanner.Scan(
 		&perm.ID,
@@ -183,6 +201,12 @@ func scanRuntimePermission(scanner runtimePermissionScanner) (RuntimePermissionR
 		&risk,
 		&policyMode,
 		&policyReason,
+		&policyProfile,
+		&policyRuleID,
+		&policyRuleSource,
+		&policyScopeKind,
+		&policyScopeValue,
+		&policyTargetSummary,
 		&decision,
 		&perm.Status,
 		&perm.CreatedAt,
@@ -200,6 +224,12 @@ func scanRuntimePermission(scanner runtimePermissionScanner) (RuntimePermissionR
 	perm.PolicyMode = policyMode.String
 	perm.PolicyReason = policyReason.String
 	perm.Reason = policyReason.String
+	perm.PolicyProfile = policyProfile.String
+	perm.PolicyRuleID = policyRuleID.String
+	perm.PolicyRuleSource = policyRuleSource.String
+	perm.PolicyScopeKind = policyScopeKind.String
+	perm.PolicyScopeValue = policyScopeValue.String
+	perm.PolicyTargetSummary = policyTargetSummary.String
 	perm.Decision = decision.String
 	if decidedAt.Valid {
 		perm.DecidedAt = decidedAt.Int64

@@ -74,6 +74,15 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 			Command:             shellCommandFromInput(call.Input),
 			Risk:                decision.Risk,
 			PolicyReason:        decision.Reason,
+			PolicyMode:          decision.Mode,
+			PolicyProfile:       decision.Profile,
+			PolicyRuleID:        decision.RuleID,
+			PolicyRuleSource:    decision.RuleSource,
+			PolicyScopeKind:     decision.RuleScopeKind,
+			PolicyScopeValue:    decision.RuleScopeValue,
+			PolicyTargetSummary: decision.TargetSummary,
+			ShellRisk:           decision.ShellRisk,
+			ShellReason:         decision.ShellReason,
 			ModelVisibleContent: reason,
 			StructuredOutputSummary: fmt.Sprintf("policy=%s risk=%s mode=%s",
 				decision.Decision,
@@ -92,6 +101,15 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 	record.Command = shellCommandFromInput(call.Input)
 	record.Risk = decision.Risk
 	record.PolicyReason = decision.Reason
+	record.PolicyMode = decision.Mode
+	record.PolicyProfile = decision.Profile
+	record.PolicyRuleID = decision.RuleID
+	record.PolicyRuleSource = decision.RuleSource
+	record.PolicyScopeKind = decision.RuleScopeKind
+	record.PolicyScopeValue = decision.RuleScopeValue
+	record.PolicyTargetSummary = decision.TargetSummary
+	record.ShellRisk = decision.ShellRisk
+	record.ShellReason = decision.ShellReason
 	if record.ID != "" {
 		_ = s.recorder.ToolCallStarted(ctx, record)
 	}
@@ -115,6 +133,15 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 		Command:                 nonEmptyString(metadata.Command, shellCommandFromInput(call.Input)),
 		Risk:                    decision.Risk,
 		PolicyReason:            decision.Reason,
+		PolicyMode:              decision.Mode,
+		PolicyProfile:           decision.Profile,
+		PolicyRuleID:            decision.RuleID,
+		PolicyRuleSource:        decision.RuleSource,
+		PolicyScopeKind:         decision.RuleScopeKind,
+		PolicyScopeValue:        decision.RuleScopeValue,
+		PolicyTargetSummary:     decision.TargetSummary,
+		ShellRisk:               decision.ShellRisk,
+		ShellReason:             decision.ShellReason,
 		ExitCode:                metadata.ExitCode,
 		JobStatus:               metadata.JobStatus,
 		JobStartedAt:            metadata.JobStartedAt,

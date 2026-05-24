@@ -276,8 +276,8 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
       const response = await put<{ config: RuntimeModelConfig }>('/v1/config/model', config)
       return response.config
     },
-    async updatePolicy(mode: RuntimePolicyMode) {
-      const response = await put<{ policy: RuntimePolicy }>('/v1/policy', { mode })
+    async updatePolicy(mode: RuntimePolicyMode, rules, profile) {
+      const response = await put<{ policy: RuntimePolicy }>('/v1/policy', { mode, rules, profile })
       return response.policy
     },
     async saveMcpServer(config: RuntimeMcpServerConfig) {

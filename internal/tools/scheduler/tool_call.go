@@ -35,6 +35,15 @@ type ToolCall struct {
 	Command                        string         `json:"command,omitempty"`
 	Risk                           string         `json:"risk,omitempty"`
 	PolicyReason                   string         `json:"policy_reason,omitempty"`
+	PolicyMode                     string         `json:"policy_mode,omitempty"`
+	PolicyProfile                  string         `json:"policy_profile,omitempty"`
+	PolicyRuleID                   string         `json:"policy_rule_id,omitempty"`
+	PolicyRuleSource               string         `json:"policy_rule_source,omitempty"`
+	PolicyScopeKind                string         `json:"policy_scope_kind,omitempty"`
+	PolicyScopeValue               string         `json:"policy_scope_value,omitempty"`
+	PolicyTargetSummary            string         `json:"policy_target_summary,omitempty"`
+	ShellRisk                      string         `json:"shell_risk,omitempty"`
+	ShellReason                    string         `json:"shell_reason,omitempty"`
 	ExitCode                       int            `json:"exit_code,omitempty"`
 	JobStatus                      string         `json:"job_status,omitempty"`
 	JobStartedAt                   time.Time      `json:"job_started_at,omitempty"`
@@ -58,38 +67,56 @@ type ToolCall struct {
 }
 
 type ToolCallRequest struct {
-	ID           string
-	SessionID    string
-	TurnID       string
-	MessageID    string
-	Name         string
-	Source       ToolSource
-	CapabilityID string
-	JobID        string
-	Command      string
-	Risk         string
-	PolicyReason string
-	JobStatus    string
-	JobStartedAt time.Time
-	InputSummary string
+	ID                  string
+	SessionID           string
+	TurnID              string
+	MessageID           string
+	Name                string
+	Source              ToolSource
+	CapabilityID        string
+	JobID               string
+	Command             string
+	Risk                string
+	PolicyReason        string
+	PolicyMode          string
+	PolicyProfile       string
+	PolicyRuleID        string
+	PolicyRuleSource    string
+	PolicyScopeKind     string
+	PolicyScopeValue    string
+	PolicyTargetSummary string
+	ShellRisk           string
+	ShellReason         string
+	JobStatus           string
+	JobStartedAt        time.Time
+	InputSummary        string
 }
 
 type ToolCallResult struct {
-	ToolCallID    string
-	Status        ToolCallStatus
-	JobID         string
-	Command       string
-	Risk          string
-	PolicyReason  string
-	ExitCode      int
-	JobStatus     string
-	JobStartedAt  time.Time
-	JobFinishedAt time.Time
-	OutputSummary string
-	ModelContent  string
-	Structured    string
-	Stdout        string
-	Stderr        string
-	IsError       bool
-	Error         string
+	ToolCallID          string
+	Status              ToolCallStatus
+	JobID               string
+	Command             string
+	Risk                string
+	PolicyReason        string
+	PolicyMode          string
+	PolicyProfile       string
+	PolicyRuleID        string
+	PolicyRuleSource    string
+	PolicyScopeKind     string
+	PolicyScopeValue    string
+	PolicyTargetSummary string
+	ShellRisk           string
+	ShellReason         string
+	ExitCode            int
+	JobStatus           string
+	JobStartedAt        time.Time
+	JobFinishedAt       time.Time
+	OutputSummary       string
+	ModelContent        string
+	Structured          string
+	Stdout              string
+	Stderr              string
+	IsError             bool
+	Error               string
 }

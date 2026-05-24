@@ -181,7 +181,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	wsRuntime.Permissions.SetPolicyMode(policyMode)
+	wsRuntime.Permissions.SetPolicy(runtimePermissionPolicy(policy), policyMode)
 	r.policy = policy
 	r.workspace = &ws
 	go r.consumeRuntimeEvents(runtimeCtx, ws.ID)

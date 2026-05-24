@@ -22,19 +22,25 @@ func TestRuntimePermissionStoreUpsertListAndMark(t *testing.T) {
 
 	store := newRuntimePermissionStore(conn)
 	perm, err := store.Upsert(context.Background(), RuntimePermissionRequest{
-		ID:           "perm-1",
-		SessionID:    "session-1",
-		TurnID:       "turn-1",
-		ToolCallID:   "tool-1",
-		ToolName:     "bash",
-		Action:       "execute",
-		Params:       map[string]any{"command": "echo hi"},
-		Risk:         "execute",
-		PolicyMode:   "plan",
-		PolicyReason: "Plan mode blocks mutating, execute, network, destructive, or secret tool calls.",
-		Decision:     "deny",
-		Status:       permissionStatusPending,
-		CreatedAt:    1000,
+		ID:                  "perm-1",
+		SessionID:           "session-1",
+		TurnID:              "turn-1",
+		ToolCallID:          "tool-1",
+		ToolName:            "bash",
+		Action:              "execute",
+		Params:              map[string]any{"command": "echo hi"},
+		Risk:                "execute",
+		PolicyMode:          "plan",
+		PolicyReason:        "Plan mode blocks mutating, execute, network, destructive, or secret tool calls.",
+		PolicyProfile:       "default",
+		PolicyRuleID:        "deny-bash",
+		PolicyRuleSource:    "test",
+		PolicyScopeKind:     "builtin_tool",
+		PolicyScopeValue:    "bash",
+		PolicyTargetSummary: "builtin:bash",
+		Decision:            "deny",
+		Status:              permissionStatusPending,
+		CreatedAt:           1000,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -44,6 +50,9 @@ func TestRuntimePermissionStoreUpsertListAndMark(t *testing.T) {
 	}
 	if perm.PolicyMode != "plan" || perm.PolicyReason == "" || perm.Decision != "deny" {
 		t.Fatalf("permission policy fields = %#v", perm)
+	}
+	if perm.PolicyRuleID != "deny-bash" || perm.PolicyScopeKind != "builtin_tool" || perm.PolicyTargetSummary != "builtin:bash" {
+		t.Fatalf("permission policy rule fields = %#v", perm)
 	}
 
 	pending, err := store.List(context.Background(), permissionStatusPending)

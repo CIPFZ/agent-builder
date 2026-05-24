@@ -231,6 +231,8 @@ func (m *mockViewPermissionService) SkipRequests() bool {
 }
 
 func (m *mockViewPermissionService) SetPolicyMode(mode permission.PolicyMode) {}
+func (m *mockViewPermissionService) SetPolicy(policy permission.PermissionPolicy, mode permission.PolicyMode) {
+}
 
 func (m *mockViewPermissionService) PolicyMode() permission.PolicyMode {
 	return permission.PolicyModeAsk

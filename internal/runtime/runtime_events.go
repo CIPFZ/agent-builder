@@ -143,20 +143,26 @@ func (r *runtimeService) consumeDesktopPermissions(ctx context.Context, workspac
 
 			slog.Info("Desktop permission requested", "workspace_id", workspaceID, "session_id", perm.SessionID, "tool", perm.ToolName, "action", perm.Action, "path", perm.Path)
 			r.writeAudit(auditEntry{
-				RequestID:        perm.TurnID,
-				Event:            "permission_requested",
-				Timestamp:        time.Now().Format(time.RFC3339Nano),
-				WorkspaceID:      workspaceID,
-				SessionID:        perm.SessionID,
-				PermissionTool:   perm.ToolName,
-				PermissionAction: perm.Action,
-				PermissionPath:   perm.Path,
-				PermissionPolicy: firstNonEmpty(perm.Decision, "ask"),
-				PermissionRisk:   string(perm.Risk),
-				PermissionReason: perm.PolicyReason,
-				PolicyMode:       perm.PolicyMode,
-				PermissionID:     perm.ID,
-				ToolCallID:       perm.ToolCallID,
+				RequestID:           perm.TurnID,
+				Event:               "permission_requested",
+				Timestamp:           time.Now().Format(time.RFC3339Nano),
+				WorkspaceID:         workspaceID,
+				SessionID:           perm.SessionID,
+				PermissionTool:      perm.ToolName,
+				PermissionAction:    perm.Action,
+				PermissionPath:      perm.Path,
+				PermissionPolicy:    firstNonEmpty(perm.Decision, "ask"),
+				PermissionRisk:      string(perm.Risk),
+				PermissionReason:    perm.PolicyReason,
+				PolicyMode:          perm.PolicyMode,
+				PolicyProfile:       perm.PolicyProfile,
+				PolicyRuleID:        perm.RuleID,
+				PolicyRuleSource:    perm.RuleSource,
+				PolicyScopeKind:     perm.ScopeKind,
+				PolicyScopeValue:    perm.ScopeValue,
+				PolicyTargetSummary: perm.TargetSummary,
+				PermissionID:        perm.ID,
+				ToolCallID:          perm.ToolCallID,
 			})
 		case <-ctx.Done():
 			return
@@ -186,30 +192,90 @@ func (r *runtimeService) consumePermissionPolicyApplications(ctx context.Context
 				TurnID:     applied.TurnID,
 				ToolCallID: applied.ToolCallID,
 				Payload: map[string]any{
-					"tool_name": applied.ToolName,
-					"action":    applied.Action,
-					"path":      applied.Path,
-					"target":    applied.Target,
-					"decision":  applied.Decision,
-					"risk":      applied.Risk,
-					"reason":    applied.Reason,
-					"mode":      applied.Mode,
+					"tool_name":           applied.ToolName,
+					"action":              applied.Action,
+					"path":                applied.Path,
+					"target":              applied.Target,
+					"decision":            applied.Decision,
+					"risk":                applied.Risk,
+					"reason":              applied.Reason,
+					"mode":                applied.Mode,
+					"profile":             applied.Profile,
+					"matched_rule_id":     applied.RuleID,
+					"matched_rule_source": applied.RuleSource,
+					"scope_kind":          applied.RuleScopeKind,
+					"scope_value":         applied.RuleScopeValue,
+					"target_summary":      applied.TargetSummary,
+					"shell_risk":          applied.ShellRisk,
+					"shell_reason":        applied.ShellReason,
 				},
 			})
+			if applied.RuleID != "" {
+				eventType := runtimeapi.EventPolicyRuleMatched
+				if applied.Decision == permission.PolicyDeny {
+					eventType = runtimeapi.EventPolicyRuleDenied
+				} else if applied.Decision == permission.PolicyAsk {
+					eventType = runtimeapi.EventPolicyRuleAsk
+				}
+				r.storeRuntimeEvent(runtimeapi.Event{
+					ID:         newRuntimeEventID(),
+					Type:       eventType,
+					CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+					SessionID:  applied.SessionID,
+					TurnID:     applied.TurnID,
+					ToolCallID: applied.ToolCallID,
+					Payload: map[string]any{
+						"rule_id":     applied.RuleID,
+						"source":      applied.RuleSource,
+						"scope_kind":  applied.RuleScopeKind,
+						"scope_value": applied.RuleScopeValue,
+						"decision":    applied.Decision,
+						"risk":        applied.Risk,
+						"reason":      applied.Reason,
+						"mode":        applied.Mode,
+						"profile":     applied.Profile,
+					},
+				})
+			}
+			if applied.ShellReason != "" {
+				r.storeRuntimeEvent(runtimeapi.Event{
+					ID:         newRuntimeEventID(),
+					Type:       runtimeapi.EventShellPolicyClassified,
+					CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+					SessionID:  applied.SessionID,
+					TurnID:     applied.TurnID,
+					ToolCallID: applied.ToolCallID,
+					Payload: map[string]any{
+						"risk":           applied.ShellRisk,
+						"reason":         applied.ShellReason,
+						"target_summary": applied.TargetSummary,
+						"decision":       applied.Decision,
+						"mode":           applied.Mode,
+					},
+				})
+			}
 			r.writeAudit(auditEntry{
-				RequestID:        applied.TurnID,
-				Event:            "permission_policy_applied",
-				Timestamp:        time.Now().Format(time.RFC3339Nano),
-				WorkspaceID:      workspaceID,
-				SessionID:        applied.SessionID,
-				PermissionTool:   applied.ToolName,
-				PermissionAction: applied.Action,
-				PermissionPath:   applied.Path,
-				PermissionPolicy: string(applied.Decision),
-				PermissionRisk:   string(applied.Risk),
-				PermissionReason: applied.Reason,
-				PolicyMode:       string(applied.Mode),
-				ToolCallID:       applied.ToolCallID,
+				RequestID:           applied.TurnID,
+				Event:               "permission_policy_applied",
+				Timestamp:           time.Now().Format(time.RFC3339Nano),
+				WorkspaceID:         workspaceID,
+				SessionID:           applied.SessionID,
+				PermissionTool:      applied.ToolName,
+				PermissionAction:    applied.Action,
+				PermissionPath:      applied.Path,
+				PermissionPolicy:    string(applied.Decision),
+				PermissionRisk:      string(applied.Risk),
+				PermissionReason:    applied.Reason,
+				PolicyMode:          string(applied.Mode),
+				PolicyProfile:       applied.Profile,
+				PolicyRuleID:        applied.RuleID,
+				PolicyRuleSource:    applied.RuleSource,
+				PolicyScopeKind:     applied.RuleScopeKind,
+				PolicyScopeValue:    applied.RuleScopeValue,
+				PolicyTargetSummary: applied.TargetSummary,
+				ShellRisk:           string(applied.ShellRisk),
+				ShellReason:         applied.ShellReason,
+				ToolCallID:          applied.ToolCallID,
 			})
 		case <-ctx.Done():
 			return
@@ -503,17 +569,23 @@ func newPermissionRuntimeEvent(createdAt time.Time, perm RuntimePermissionReques
 	event.ToolCallID = perm.ToolCallID
 	event.TurnID = perm.TurnID
 	event.Payload = map[string]any{
-		"permission_id": perm.ID,
-		"tool_name":     perm.ToolName,
-		"action":        perm.Action,
-		"description":   preview(perm.Description, 200),
-		"path":          perm.Path,
-		"risk":          perm.Risk,
-		"reason":        firstNonEmpty(perm.Reason, perm.PolicyReason),
-		"mode":          perm.PolicyMode,
-		"decision":      firstNonEmpty(perm.Decision, "ask"),
-		"status":        firstNonEmpty(perm.Status, "pending"),
-		"summary":       perm.ToolName + ":" + perm.Action,
+		"permission_id":       perm.ID,
+		"tool_name":           perm.ToolName,
+		"action":              perm.Action,
+		"description":         preview(perm.Description, 200),
+		"path":                perm.Path,
+		"risk":                perm.Risk,
+		"reason":              firstNonEmpty(perm.Reason, perm.PolicyReason),
+		"mode":                perm.PolicyMode,
+		"profile":             perm.PolicyProfile,
+		"matched_rule_id":     perm.PolicyRuleID,
+		"matched_rule_source": perm.PolicyRuleSource,
+		"scope_kind":          perm.PolicyScopeKind,
+		"scope_value":         perm.PolicyScopeValue,
+		"target_summary":      perm.PolicyTargetSummary,
+		"decision":            firstNonEmpty(perm.Decision, "ask"),
+		"status":              firstNonEmpty(perm.Status, "pending"),
+		"summary":             perm.ToolName + ":" + perm.Action,
 	}
 	return event
 }

@@ -70,38 +70,52 @@ type PermissionNotification struct {
 }
 
 type PolicyApplication struct {
-	SessionID   string         `json:"session_id"`
-	TurnID      string         `json:"turn_id"`
-	ToolCallID  string         `json:"tool_call_id"`
-	ToolName    string         `json:"tool_name"`
-	Action      string         `json:"action"`
-	Path        string         `json:"path"`
-	Target      string         `json:"target"`
-	Decision    PolicyDecision `json:"decision"`
-	Risk        Risk           `json:"risk"`
-	Reason      string         `json:"reason"`
-	Mode        PolicyMode     `json:"mode"`
-	AppliedAt   int64          `json:"applied_at"`
-	Description string         `json:"description,omitempty"`
+	SessionID      string         `json:"session_id"`
+	TurnID         string         `json:"turn_id"`
+	ToolCallID     string         `json:"tool_call_id"`
+	ToolName       string         `json:"tool_name"`
+	Action         string         `json:"action"`
+	Path           string         `json:"path"`
+	Target         string         `json:"target"`
+	Decision       PolicyDecision `json:"decision"`
+	Risk           Risk           `json:"risk"`
+	Reason         string         `json:"reason"`
+	Mode           PolicyMode     `json:"mode"`
+	Profile        string         `json:"profile,omitempty"`
+	RuleID         string         `json:"rule_id,omitempty"`
+	RuleSource     string         `json:"rule_source,omitempty"`
+	RuleScopeKind  string         `json:"rule_scope_kind,omitempty"`
+	RuleScopeValue string         `json:"rule_scope_value,omitempty"`
+	ShellRisk      Risk           `json:"shell_risk,omitempty"`
+	ShellReason    string         `json:"shell_reason,omitempty"`
+	TargetSummary  string         `json:"target_summary,omitempty"`
+	AppliedAt      int64          `json:"applied_at"`
+	Description    string         `json:"description,omitempty"`
 }
 
 type PermissionRequest struct {
-	ID           string `json:"id"`
-	SessionID    string `json:"session_id"`
-	TurnID       string `json:"turn_id"`
-	ToolCallID   string `json:"tool_call_id"`
-	ToolName     string `json:"tool_name"`
-	Description  string `json:"description"`
-	Action       string `json:"action"`
-	Params       any    `json:"params"`
-	Path         string `json:"path"`
-	Risk         Risk   `json:"risk"`
-	PolicyMode   string `json:"policy_mode,omitempty"`
-	PolicyReason string `json:"policy_reason,omitempty"`
-	Decision     string `json:"decision,omitempty"`
-	Status       string `json:"status"`
-	CreatedAt    int64  `json:"created_at"`
-	DecidedAt    int64  `json:"decided_at,omitempty"`
+	ID            string `json:"id"`
+	SessionID     string `json:"session_id"`
+	TurnID        string `json:"turn_id"`
+	ToolCallID    string `json:"tool_call_id"`
+	ToolName      string `json:"tool_name"`
+	Description   string `json:"description"`
+	Action        string `json:"action"`
+	Params        any    `json:"params"`
+	Path          string `json:"path"`
+	Risk          Risk   `json:"risk"`
+	PolicyMode    string `json:"policy_mode,omitempty"`
+	PolicyReason  string `json:"policy_reason,omitempty"`
+	PolicyProfile string `json:"policy_profile,omitempty"`
+	RuleID        string `json:"rule_id,omitempty"`
+	RuleSource    string `json:"rule_source,omitempty"`
+	ScopeKind     string `json:"scope_kind,omitempty"`
+	ScopeValue    string `json:"scope_value,omitempty"`
+	TargetSummary string `json:"target_summary,omitempty"`
+	Decision      string `json:"decision,omitempty"`
+	Status        string `json:"status"`
+	CreatedAt     int64  `json:"created_at"`
+	DecidedAt     int64  `json:"decided_at,omitempty"`
 }
 
 type Service interface {
@@ -114,6 +128,7 @@ type Service interface {
 	SetSkipRequests(skip bool)
 	SkipRequests() bool
 	SetPolicyMode(mode PolicyMode)
+	SetPolicy(policy PermissionPolicy, mode PolicyMode)
 	PolicyMode() PolicyMode
 	SubscribePolicyApplications(ctx context.Context) <-chan pubsub.Event[PolicyApplication]
 	SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[PermissionNotification]
@@ -303,21 +318,27 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		dir = s.workingDir
 	}
 	permission := PermissionRequest{
-		ID:           uuid.New().String(),
-		Path:         dir,
-		SessionID:    opts.SessionID,
-		TurnID:       opts.TurnID,
-		ToolCallID:   opts.ToolCallID,
-		ToolName:     opts.ToolName,
-		Description:  opts.Description,
-		Action:       opts.Action,
-		Params:       opts.Params,
-		Risk:         risk,
-		PolicyMode:   string(s.PolicyMode()),
-		PolicyReason: policyResult.Reason,
-		Decision:     string(policyResult.Decision),
-		Status:       "pending",
-		CreatedAt:    time.Now().UnixMilli(),
+		ID:            uuid.New().String(),
+		Path:          dir,
+		SessionID:     opts.SessionID,
+		TurnID:        opts.TurnID,
+		ToolCallID:    opts.ToolCallID,
+		ToolName:      opts.ToolName,
+		Description:   opts.Description,
+		Action:        opts.Action,
+		Params:        opts.Params,
+		Risk:          risk,
+		PolicyMode:    string(s.PolicyMode()),
+		PolicyReason:  policyResult.Reason,
+		PolicyProfile: policyResult.Profile,
+		RuleID:        policyResult.RuleID,
+		RuleSource:    policyResult.RuleSource,
+		ScopeKind:     policyResult.RuleScopeKind,
+		ScopeValue:    policyResult.RuleScopeValue,
+		TargetSummary: firstNonEmpty(policyResult.TargetSummary, opts.Path),
+		Decision:      string(policyResult.Decision),
+		Status:        "pending",
+		CreatedAt:     time.Now().UnixMilli(),
 	}
 
 	if _, ok := s.sessionPermissions.Get(PermissionKey{
@@ -380,6 +401,15 @@ func (s *permissionService) SetPolicyMode(mode PolicyMode) {
 	s.policyMode.Store(mode)
 }
 
+func (s *permissionService) SetPolicy(policy PermissionPolicy, mode PolicyMode) {
+	mode = NormalizePolicyMode(mode)
+	if policy == nil {
+		policy = NewPermissionPolicy(mode)
+	}
+	s.policy = policy
+	s.policyMode.Store(mode)
+}
+
 func (s *permissionService) PolicyMode() PolicyMode {
 	mode, _ := s.policyMode.Load().(PolicyMode)
 	return NormalizePolicyMode(mode)
@@ -387,19 +417,27 @@ func (s *permissionService) PolicyMode() PolicyMode {
 
 func (s *permissionService) publishPolicyApplication(opts CreatePermissionRequest, result PolicyResult) {
 	s.policyBroker.Publish(pubsub.CreatedEvent, PolicyApplication{
-		SessionID:   opts.SessionID,
-		TurnID:      opts.TurnID,
-		ToolCallID:  opts.ToolCallID,
-		ToolName:    opts.ToolName,
-		Action:      opts.Action,
-		Path:        opts.Path,
-		Target:      opts.Path,
-		Decision:    result.Decision,
-		Risk:        result.Risk,
-		Reason:      result.Reason,
-		Mode:        result.Mode,
-		AppliedAt:   time.Now().UnixMilli(),
-		Description: opts.Description,
+		SessionID:      opts.SessionID,
+		TurnID:         opts.TurnID,
+		ToolCallID:     opts.ToolCallID,
+		ToolName:       opts.ToolName,
+		Action:         opts.Action,
+		Path:           opts.Path,
+		Target:         opts.Path,
+		Decision:       result.Decision,
+		Risk:           result.Risk,
+		Reason:         result.Reason,
+		Mode:           result.Mode,
+		Profile:        result.Profile,
+		RuleID:         result.RuleID,
+		RuleSource:     result.RuleSource,
+		RuleScopeKind:  result.RuleScopeKind,
+		RuleScopeValue: result.RuleScopeValue,
+		ShellRisk:      result.Shell.Risk,
+		ShellReason:    result.Shell.Reason,
+		TargetSummary:  firstNonEmpty(result.TargetSummary, opts.Path),
+		AppliedAt:      time.Now().UnixMilli(),
+		Description:    opts.Description,
 	})
 }
 

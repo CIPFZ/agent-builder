@@ -137,7 +137,7 @@ func TestRuntimeHTTPServerRoutesPolicyToRuntimeService(t *testing.T) {
 		t.Fatalf("policyCalls = %d, want 1", service.policyCalls)
 	}
 
-	req, err = http.NewRequest(http.MethodPut, "/v1/policy", strings.NewReader(`{"mode":"plan"}`))
+	req, err = http.NewRequest(http.MethodPut, "/v1/policy", strings.NewReader(`{"mode":"plan","profile":"default","rules":[{"id":"deny-bash","decision":"deny","builtinTool":"bash","source":"test"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,6 +148,9 @@ func TestRuntimeHTTPServerRoutesPolicyToRuntimeService(t *testing.T) {
 	}
 	if service.updatedPolicyMode != "plan" {
 		t.Fatalf("updated policy mode = %q, want plan", service.updatedPolicyMode)
+	}
+	if service.updatedPolicyProfile != "default" || len(service.updatedPolicyRules) != 1 || service.updatedPolicyRules[0].ID != "deny-bash" {
+		t.Fatalf("updated policy rules/profile = %#v %q", service.updatedPolicyRules, service.updatedPolicyProfile)
 	}
 }
 

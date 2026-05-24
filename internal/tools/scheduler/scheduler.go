@@ -19,22 +19,31 @@ func New(store Store) *Scheduler {
 
 func (s *Scheduler) CreateCall(ctx context.Context, req ToolCallRequest) (ToolCall, error) {
 	return s.store.Upsert(ctx, ToolCall{
-		ID:           req.ID,
-		SessionID:    req.SessionID,
-		TurnID:       req.TurnID,
-		MessageID:    req.MessageID,
-		Name:         req.Name,
-		Source:       req.Source,
-		CapabilityID: req.CapabilityID,
-		JobID:        req.JobID,
-		Command:      req.Command,
-		Risk:         req.Risk,
-		PolicyReason: req.PolicyReason,
-		JobStatus:    req.JobStatus,
-		JobStartedAt: req.JobStartedAt,
-		Status:       ToolCallRunning,
-		InputSummary: req.InputSummary,
-		StartedAt:    s.now(),
+		ID:                  req.ID,
+		SessionID:           req.SessionID,
+		TurnID:              req.TurnID,
+		MessageID:           req.MessageID,
+		Name:                req.Name,
+		Source:              req.Source,
+		CapabilityID:        req.CapabilityID,
+		JobID:               req.JobID,
+		Command:             req.Command,
+		Risk:                req.Risk,
+		PolicyReason:        req.PolicyReason,
+		PolicyMode:          req.PolicyMode,
+		PolicyProfile:       req.PolicyProfile,
+		PolicyRuleID:        req.PolicyRuleID,
+		PolicyRuleSource:    req.PolicyRuleSource,
+		PolicyScopeKind:     req.PolicyScopeKind,
+		PolicyScopeValue:    req.PolicyScopeValue,
+		PolicyTargetSummary: req.PolicyTargetSummary,
+		ShellRisk:           req.ShellRisk,
+		ShellReason:         req.ShellReason,
+		JobStatus:           req.JobStatus,
+		JobStartedAt:        req.JobStartedAt,
+		Status:              ToolCallRunning,
+		InputSummary:        req.InputSummary,
+		StartedAt:           s.now(),
 	})
 }
 
@@ -67,6 +76,33 @@ func (s *Scheduler) CompleteCall(ctx context.Context, result ToolCallResult) (To
 	}
 	if result.PolicyReason != "" {
 		call.PolicyReason = result.PolicyReason
+	}
+	if result.PolicyMode != "" {
+		call.PolicyMode = result.PolicyMode
+	}
+	if result.PolicyProfile != "" {
+		call.PolicyProfile = result.PolicyProfile
+	}
+	if result.PolicyRuleID != "" {
+		call.PolicyRuleID = result.PolicyRuleID
+	}
+	if result.PolicyRuleSource != "" {
+		call.PolicyRuleSource = result.PolicyRuleSource
+	}
+	if result.PolicyScopeKind != "" {
+		call.PolicyScopeKind = result.PolicyScopeKind
+	}
+	if result.PolicyScopeValue != "" {
+		call.PolicyScopeValue = result.PolicyScopeValue
+	}
+	if result.PolicyTargetSummary != "" {
+		call.PolicyTargetSummary = result.PolicyTargetSummary
+	}
+	if result.ShellRisk != "" {
+		call.ShellRisk = result.ShellRisk
+	}
+	if result.ShellReason != "" {
+		call.ShellReason = result.ShellReason
 	}
 	if result.ExitCode != 0 {
 		call.ExitCode = result.ExitCode

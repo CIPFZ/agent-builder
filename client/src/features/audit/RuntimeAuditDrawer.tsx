@@ -144,6 +144,9 @@ function AuditHighlights({ event }: { event: RuntimeAuditEvent }) {
     stringValue(firstTool?.risk),
     stringValue(event.payload.permission_risk),
     stringValue(event.payload.permission_policy),
+    stringValue(event.payload.policy_rule_id),
+    stringValue(event.payload.policy_scope_kind),
+    stringValue(event.payload.shell_risk),
   ].filter(Boolean)
   if (tags.length === 0) return null
   return (

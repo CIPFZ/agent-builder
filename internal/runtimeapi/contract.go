@@ -101,6 +101,10 @@ const (
 	EventPermissionRequested        = "permission.requested"
 	EventPermissionDecided          = "permission.decided"
 	EventPermissionPolicyApplied    = "permission.policy.applied"
+	EventPolicyRuleMatched          = "policy.rule.matched"
+	EventPolicyRuleDenied           = "policy.rule.denied"
+	EventPolicyRuleAsk              = "policy.rule.ask"
+	EventShellPolicyClassified      = "shell.policy.classified"
 	EventTodoUpdated                = "todo.updated"
 	EventCapabilityLoading          = "capability.loading"
 	EventCapabilityLoaded           = "capability.loaded"
@@ -165,6 +169,10 @@ var EventTypes = []string{
 	EventPermissionRequested,
 	EventPermissionDecided,
 	EventPermissionPolicyApplied,
+	EventPolicyRuleMatched,
+	EventPolicyRuleDenied,
+	EventPolicyRuleAsk,
+	EventShellPolicyClassified,
 	EventTodoUpdated,
 	EventCapabilityLoading,
 	EventCapabilityLoaded,

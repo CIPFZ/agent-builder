@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,14 +23,17 @@ var runtimePolicyModes = []string{
 }
 
 type runtimePolicyFile struct {
-	Mode      string `json:"mode"`
-	UpdatedAt int64  `json:"updatedAt,omitempty"`
+	Mode      string              `json:"mode"`
+	Profile   string              `json:"profile,omitempty"`
+	Rules     []RuntimePolicyRule `json:"rules,omitempty"`
+	UpdatedAt int64               `json:"updatedAt,omitempty"`
 }
 
 func defaultRuntimePolicy() RuntimePolicy {
 	return RuntimePolicy{
 		Mode:        string(permission.PolicyModeAsk),
 		Modes:       append([]string(nil), runtimePolicyModes...),
+		Profile:     "default",
 		Description: runtimePolicyDescription(permission.PolicyModeAsk),
 	}
 }
@@ -56,10 +60,21 @@ func runtimePolicyDescription(mode permission.PolicyMode) string {
 }
 
 func runtimePolicyFromMode(mode permission.PolicyMode, updatedAt int64) RuntimePolicy {
+	return runtimePolicyFromParts(mode, "default", nil, updatedAt)
+}
+
+func runtimePolicyFromParts(mode permission.PolicyMode, profile string, rules []RuntimePolicyRule, updatedAt int64) RuntimePolicy {
 	mode = permission.NormalizePolicyMode(mode)
+	if strings.TrimSpace(profile) == "" {
+		profile = "default"
+	}
+	normalizedRules, diagnostics := normalizeRuntimePolicyRules(rules)
 	return RuntimePolicy{
 		Mode:        string(mode),
 		Modes:       append([]string(nil), runtimePolicyModes...),
+		Profile:     profile,
+		Rules:       normalizedRules,
+		Diagnostics: diagnostics,
 		Description: runtimePolicyDescription(mode),
 		UpdatedAt:   updatedAt,
 	}
@@ -81,7 +96,7 @@ func loadRuntimePolicy(layout desktopLayout) (RuntimePolicy, error) {
 	if err != nil {
 		return RuntimePolicy{}, err
 	}
-	return runtimePolicyFromMode(mode, file.UpdatedAt), nil
+	return runtimePolicyFromParts(mode, file.Profile, file.Rules, file.UpdatedAt), nil
 }
 
 func saveRuntimePolicy(layout desktopLayout, policy RuntimePolicy) error {
@@ -90,6 +105,8 @@ func saveRuntimePolicy(layout desktopLayout, policy RuntimePolicy) error {
 	}
 	data, err := json.MarshalIndent(runtimePolicyFile{
 		Mode:      policy.Mode,
+		Profile:   policy.Profile,
+		Rules:     policy.Rules,
 		UpdatedAt: policy.UpdatedAt,
 	}, "", "  ")
 	if err != nil {
@@ -102,7 +119,112 @@ func saveRuntimePolicy(layout desktopLayout, policy RuntimePolicy) error {
 	return nil
 }
 
-func (r *runtimeService) applyPolicyToWorkspace(ctx context.Context, mode permission.PolicyMode) error {
+func runtimePermissionPolicy(policy RuntimePolicy) permission.PermissionPolicy {
+	return permission.NewScopedPermissionPolicy(permission.PolicyMode(policy.Mode), policy.Profile, permissionRulesFromRuntime(policy.Rules))
+}
+
+func permissionRulesFromRuntime(rules []RuntimePolicyRule) []permission.PolicyRule {
+	out := make([]permission.PolicyRule, 0, len(rules))
+	for _, rule := range rules {
+		out = append(out, permission.PolicyRule{
+			ID:            rule.ID,
+			Decision:      permission.PolicyDecision(rule.Decision),
+			Source:        rule.Source,
+			Reason:        rule.Reason,
+			Tool:          rule.Tool,
+			CapabilityID:  rule.CapabilityID,
+			BuiltinTool:   rule.BuiltinTool,
+			MCPServer:     rule.MCPServer,
+			MCPTool:       rule.MCPTool,
+			MCPResource:   rule.MCPResource,
+			MCPPrompt:     rule.MCPPrompt,
+			Skill:         rule.Skill,
+			Subagent:      rule.Subagent,
+			TaskScope:     rule.TaskScope,
+			CWDPrefix:     rule.CWDPrefix,
+			PathPrefix:    rule.PathPrefix,
+			ShellPrefix:   rule.ShellPrefix,
+			ShellRegex:    rule.ShellRegex,
+			PolicyMode:    permission.PolicyMode(rule.PolicyMode),
+			PolicyProfile: rule.PolicyProfile,
+			ScopeKind:     rule.ScopeKind,
+			ScopeValue:    rule.ScopeValue,
+			Precedence:    rule.Precedence,
+		})
+	}
+	return out
+}
+
+func normalizeRuntimePolicyRules(rules []RuntimePolicyRule) ([]RuntimePolicyRule, []RuntimePolicyDiagnostic) {
+	permissionRules := permission.NormalizePolicyRules(permissionRulesFromRuntime(rules))
+	validByID := map[string]permission.PolicyRule{}
+	for _, rule := range permissionRules {
+		validByID[rule.ID] = rule
+	}
+	out := make([]RuntimePolicyRule, 0, len(permissionRules))
+	var diagnostics []RuntimePolicyDiagnostic
+	seen := map[string]struct{}{}
+	for _, raw := range rules {
+		id := strings.TrimSpace(raw.ID)
+		if id == "" {
+			diagnostics = append(diagnostics, RuntimePolicyDiagnostic{Level: "error", Reason: "policy rule id is required"})
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			diagnostics = append(diagnostics, RuntimePolicyDiagnostic{RuleID: id, Level: "error", Reason: "duplicate policy rule id"})
+			continue
+		}
+		seen[id] = struct{}{}
+		rule, ok := validByID[id]
+		if !ok {
+			diagnostics = append(diagnostics, RuntimePolicyDiagnostic{RuleID: id, Level: "error", Reason: "policy rule decision or scope is invalid"})
+			continue
+		}
+		if rule.ShellRegex != "" {
+			if _, err := regexp.Compile(rule.ShellRegex); err != nil {
+				diagnostics = append(diagnostics, RuntimePolicyDiagnostic{RuleID: id, Level: "error", Reason: "invalid shell regex: " + err.Error()})
+				continue
+			}
+		}
+		out = append(out, RuntimePolicyRule{
+			ID:            rule.ID,
+			Decision:      string(rule.Decision),
+			Source:        rule.Source,
+			Reason:        rule.Reason,
+			Tool:          rule.Tool,
+			CapabilityID:  rule.CapabilityID,
+			BuiltinTool:   rule.BuiltinTool,
+			MCPServer:     rule.MCPServer,
+			MCPTool:       rule.MCPTool,
+			MCPResource:   rule.MCPResource,
+			MCPPrompt:     rule.MCPPrompt,
+			Skill:         rule.Skill,
+			Subagent:      rule.Subagent,
+			TaskScope:     rule.TaskScope,
+			CWDPrefix:     rule.CWDPrefix,
+			PathPrefix:    rule.PathPrefix,
+			ShellPrefix:   rule.ShellPrefix,
+			ShellRegex:    rule.ShellRegex,
+			PolicyMode:    string(rule.PolicyMode),
+			PolicyProfile: rule.PolicyProfile,
+			ScopeKind:     rule.ScopeKind,
+			ScopeValue:    rule.ScopeValue,
+			Precedence:    rule.Precedence,
+		})
+	}
+	return out, diagnostics
+}
+
+func hasRuntimePolicyErrors(diagnostics []RuntimePolicyDiagnostic) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Level == "error" {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *runtimeService) applyPolicyToWorkspace(ctx context.Context, policy RuntimePolicy) error {
 	if r.runtime == nil || r.workspace == nil {
 		return nil
 	}
@@ -110,7 +232,8 @@ func (r *runtimeService) applyPolicyToWorkspace(ctx context.Context, mode permis
 	if err != nil {
 		return err
 	}
-	ws.Permissions.SetPolicyMode(mode)
+	mode := permission.PolicyMode(policy.Mode)
+	ws.Permissions.SetPolicy(runtimePermissionPolicy(policy), mode)
 	return nil
 }
 
@@ -134,10 +257,25 @@ func (r *runtimeService) UpdatePolicy(ctx context.Context, req RuntimePolicyUpda
 	if err != nil {
 		return RuntimePolicyResponse{}, err
 	}
-	updated := runtimePolicyFromMode(mode, time.Now().UnixMilli())
 	layout, err := resolveDesktopLayout()
 	if err != nil {
 		return RuntimePolicyResponse{}, err
+	}
+	current, err := loadRuntimePolicy(layout)
+	if err != nil {
+		return RuntimePolicyResponse{}, err
+	}
+	rules := req.Rules
+	if rules == nil {
+		rules = current.Rules
+	}
+	profile := req.Profile
+	if strings.TrimSpace(profile) == "" {
+		profile = current.Profile
+	}
+	updated := runtimePolicyFromParts(mode, profile, rules, time.Now().UnixMilli())
+	if hasRuntimePolicyErrors(updated.Diagnostics) {
+		return RuntimePolicyResponse{}, fmt.Errorf("invalid policy rules")
 	}
 	if err := saveRuntimePolicy(layout, updated); err != nil {
 		return RuntimePolicyResponse{}, err
@@ -146,7 +284,7 @@ func (r *runtimeService) UpdatePolicy(ctx context.Context, req RuntimePolicyUpda
 	started := r.runtime != nil && r.workspace != nil
 	r.mu.Unlock()
 	if started {
-		if err := r.applyPolicyToWorkspace(ctx, mode); err != nil {
+		if err := r.applyPolicyToWorkspace(ctx, updated); err != nil {
 			return RuntimePolicyResponse{}, err
 		}
 		if err := r.runtime.UpdateAgent(ctx, r.workspace.ID); err != nil && !errors.Is(err, backend.ErrAgentNotInitialized) {

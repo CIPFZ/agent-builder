@@ -1,6 +1,7 @@
 package permission
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/crush/internal/tools/scheduler"
@@ -184,5 +185,108 @@ func TestJobToolsRisk(t *testing.T) {
 	}
 	if result := NewPermissionPolicy(PolicyModePlan).Evaluate(scheduler.ToolCall{Name: "job_kill", Source: scheduler.ToolSourceShell}); result.Decision != PolicyDeny {
 		t.Fatalf("plan job_kill = %#v, want deny", result)
+	}
+}
+
+func TestScopedPolicyRulePrecedenceAndDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	policy := NewScopedPermissionPolicy(PolicyModeAutoRead, "default", []PolicyRule{
+		{ID: "allow-read", Decision: PolicyAllow, BuiltinTool: "view", Source: "user", Reason: "view allowed"},
+		{ID: "deny-cap", Decision: PolicyDeny, CapabilityID: "builtin:view", Source: "workspace", Reason: "capability denied"},
+	})
+	result := policy.Evaluate(scheduler.ToolCall{Name: "view", Source: scheduler.ToolSourceBuiltin, CapabilityID: "builtin:view"})
+	if result.Decision != PolicyDeny {
+		t.Fatalf("decision = %#v, want deny by higher-precedence deny rule", result)
+	}
+	if result.RuleID != "deny-cap" || result.RuleSource != "workspace" || result.RuleScopeKind != "capability" || result.RuleScopeValue != "builtin:view" {
+		t.Fatalf("matched rule diagnostics = %#v", result)
+	}
+	if result.Mode != PolicyModeAutoRead || result.TargetSummary != "builtin:view" {
+		t.Fatalf("mode/target diagnostics = %#v", result)
+	}
+}
+
+func TestScopedPolicyRulesOverrideModeBaseline(t *testing.T) {
+	t.Parallel()
+
+	planAllow := NewScopedPermissionPolicy(PolicyModePlan, "", []PolicyRule{
+		{ID: "allow-grep", Decision: PolicyAllow, ShellPrefix: "grep ", Reason: "grep command allowed in plan"},
+	})
+	result := planAllow.Evaluate(scheduler.ToolCall{Name: "bash", Source: scheduler.ToolSourceShell, InputSummary: `{"command":"grep -R TODO ."}`})
+	if result.Decision != PolicyAllow || result.RuleID != "allow-grep" {
+		t.Fatalf("scoped allow in plan = %#v", result)
+	}
+
+	askDeny := NewScopedPermissionPolicy(PolicyModeAsk, "", []PolicyRule{
+		{ID: "deny-secret-path", Decision: PolicyDeny, PathPrefix: "C:\\repo\\.env", Reason: "secret path blocked"},
+	})
+	result = askDeny.Evaluate(scheduler.ToolCall{Name: "view", Source: scheduler.ToolSourceBuiltin, InputSummary: `{"file_path":"C:\\repo\\.env\\prod"}`})
+	if result.Decision != PolicyDeny || result.RuleID != "deny-secret-path" {
+		t.Fatalf("path deny in ask = %#v", result)
+	}
+}
+
+func TestScopedPolicyMCPAndSkillScopes(t *testing.T) {
+	t.Parallel()
+
+	policy := NewScopedPermissionPolicy(PolicyModeAutoRead, "", []PolicyRule{
+		{ID: "ask-mcp-tool", Decision: PolicyAsk, MCPServer: "github", MCPTool: "create_issue", Source: "project"},
+		{ID: "deny-skill", Decision: PolicyDeny, Skill: "deployment", Source: "managed"},
+	})
+	mcp := policy.Evaluate(scheduler.ToolCall{Name: "create_issue", Source: scheduler.ToolSourceMCP, CapabilityID: "mcp:github:create_issue"})
+	if mcp.Decision != PolicyAsk || mcp.RuleID != "ask-mcp-tool" || mcp.RuleScopeKind != "mcp_tool" {
+		t.Fatalf("mcp scoped result = %#v", mcp)
+	}
+	skill := policy.Evaluate(scheduler.ToolCall{Name: "deployment", Source: scheduler.ToolSourceUnknown, CapabilityID: "skill:deployment"})
+	if skill.Decision != PolicyDeny || skill.RuleID != "deny-skill" || skill.RuleScopeKind != "skill" {
+		t.Fatalf("skill scoped result = %#v", skill)
+	}
+}
+
+func TestClassifyShellCommandRiskHardening(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		command string
+		reason  string
+	}{
+		{"bash recursive", `{"command":"rm -r build"}`, "recursive delete"},
+		{"bash forced", `{"command":"rm -f build.log"}`, "forced delete"},
+		{"bash checkout", `{"command":"git checkout -- ."}`, "git checkout"},
+		{"bash clean", `{"command":"git clean -fdx"}`, "git clean"},
+		{"cmd rmdir", `{"command":"cmd /c rmdir /s /q build"}`, "cmd delete"},
+		{"cmd del", `{"command":"del /s /q build\\*"}`, "cmd delete"},
+		{"powershell remove", `{"command":"Remove-Item .\\build -Recurse -Force"}`, "PowerShell recursive forced delete"},
+		{"process kill", `{"command":"taskkill /F /PID 123"}`, "process termination"},
+		{"redirection", `{"Command":"echo token > .env"}`, "redirection overwrite"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ClassifyShellCommand(tt.command)
+			if result.Risk != RiskDestructive {
+				t.Fatalf("risk = %#v, want destructive", result)
+			}
+			if !strings.Contains(result.Reason, tt.reason) {
+				t.Fatalf("reason = %q, want contains %q", result.Reason, tt.reason)
+			}
+			if result.TargetSummary == "" {
+				t.Fatalf("target summary missing: %#v", result)
+			}
+		})
+	}
+}
+
+func TestClassifyShellCommandReadOnlyAndAmbiguous(t *testing.T) {
+	t.Parallel()
+
+	readOnly := ClassifyShellCommand(`{"command":"git status --short"}`)
+	if readOnly.Risk != RiskExecute {
+		t.Fatalf("git status risk = %#v, want execute", readOnly)
+	}
+	ambiguous := ClassifyShellCommand(`{"command":"$cmd"}`)
+	if ambiguous.Risk != RiskExecute || ambiguous.Reason == "" {
+		t.Fatalf("ambiguous command = %#v, want execute with reason", ambiguous)
 	}
 }

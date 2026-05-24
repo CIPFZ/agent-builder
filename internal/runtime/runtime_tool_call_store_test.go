@@ -22,13 +22,21 @@ func TestRuntimeSQLiteToolCallStoreIdempotentUpsert(t *testing.T) {
 
 	sched := scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	if _, err := sched.CreateCall(context.Background(), scheduler.ToolCallRequest{
-		ID:           "tool-1",
-		SessionID:    "session-1",
-		TurnID:       "turn-1",
-		MessageID:    "message-1",
-		Name:         "bash",
-		Source:       scheduler.ToolSourceShell,
-		InputSummary: "pwd",
+		ID:                  "tool-1",
+		SessionID:           "session-1",
+		TurnID:              "turn-1",
+		MessageID:           "message-1",
+		Name:                "bash",
+		Source:              scheduler.ToolSourceShell,
+		Risk:                "destructive",
+		PolicyMode:          "ask",
+		PolicyRuleID:        "deny-rm",
+		PolicyScopeKind:     "shell_prefix",
+		PolicyScopeValue:    "rm ",
+		PolicyTargetSummary: "rm build",
+		ShellRisk:           "destructive",
+		ShellReason:         "Shell policy detected recursive delete.",
+		InputSummary:        "pwd",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -60,6 +68,9 @@ func TestRuntimeSQLiteToolCallStoreIdempotentUpsert(t *testing.T) {
 	}
 	if calls[0].OutputSummary != "C:/work" || calls[0].FinishedAt.IsZero() {
 		t.Fatalf("completed call = %#v", calls[0])
+	}
+	if calls[0].PolicyRuleID != "deny-rm" || calls[0].PolicyScopeKind != "shell_prefix" || calls[0].ShellRisk != "destructive" {
+		t.Fatalf("policy diagnostics not persisted: %#v", calls[0])
 	}
 }
 

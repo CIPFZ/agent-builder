@@ -50,11 +50,13 @@ func (s runtimeSQLiteToolCallStore) Upsert(ctx context.Context, call scheduler.T
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO runtime_tool_calls (
     id, turn_id, session_id, message_id, name, source, capability_id, status,
-    job_id, command, risk, policy_reason, exit_code, job_status, job_started_at, job_finished_at,
+    job_id, command, risk, policy_reason, policy_mode, policy_profile, policy_rule_id,
+    policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
+    shell_risk, shell_reason, exit_code, job_status, job_started_at, job_finished_at,
 	input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
 	compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     turn_id = COALESCE(NULLIF(excluded.turn_id, ''), runtime_tool_calls.turn_id),
     session_id = COALESCE(NULLIF(excluded.session_id, ''), runtime_tool_calls.session_id),
@@ -66,6 +68,15 @@ ON CONFLICT(id) DO UPDATE SET
     command = COALESCE(NULLIF(excluded.command, ''), runtime_tool_calls.command),
     risk = COALESCE(NULLIF(excluded.risk, ''), runtime_tool_calls.risk),
     policy_reason = COALESCE(NULLIF(excluded.policy_reason, ''), runtime_tool_calls.policy_reason),
+    policy_mode = COALESCE(NULLIF(excluded.policy_mode, ''), runtime_tool_calls.policy_mode),
+    policy_profile = COALESCE(NULLIF(excluded.policy_profile, ''), runtime_tool_calls.policy_profile),
+    policy_rule_id = COALESCE(NULLIF(excluded.policy_rule_id, ''), runtime_tool_calls.policy_rule_id),
+    policy_rule_source = COALESCE(NULLIF(excluded.policy_rule_source, ''), runtime_tool_calls.policy_rule_source),
+    policy_scope_kind = COALESCE(NULLIF(excluded.policy_scope_kind, ''), runtime_tool_calls.policy_scope_kind),
+    policy_scope_value = COALESCE(NULLIF(excluded.policy_scope_value, ''), runtime_tool_calls.policy_scope_value),
+    policy_target_summary = COALESCE(NULLIF(excluded.policy_target_summary, ''), runtime_tool_calls.policy_target_summary),
+    shell_risk = COALESCE(NULLIF(excluded.shell_risk, ''), runtime_tool_calls.shell_risk),
+    shell_reason = COALESCE(NULLIF(excluded.shell_reason, ''), runtime_tool_calls.shell_reason),
     exit_code = CASE WHEN excluded.exit_code != 0 THEN excluded.exit_code ELSE runtime_tool_calls.exit_code END,
     job_status = COALESCE(NULLIF(excluded.job_status, ''), runtime_tool_calls.job_status),
     job_started_at = COALESCE(excluded.job_started_at, runtime_tool_calls.job_started_at),
@@ -110,6 +121,15 @@ ON CONFLICT(id) DO UPDATE SET
 		nullableString(call.Command),
 		nullableString(call.Risk),
 		nullableString(call.PolicyReason),
+		nullableString(call.PolicyMode),
+		nullableString(call.PolicyProfile),
+		nullableString(call.PolicyRuleID),
+		nullableString(call.PolicyRuleSource),
+		nullableString(call.PolicyScopeKind),
+		nullableString(call.PolicyScopeValue),
+		nullableString(call.PolicyTargetSummary),
+		nullableString(call.ShellRisk),
+		nullableString(call.ShellReason),
 		call.ExitCode,
 		nullableString(call.JobStatus),
 		nullableTimeMillis(call.JobStartedAt),
@@ -139,7 +159,9 @@ ON CONFLICT(id) DO UPDATE SET
 func (s runtimeSQLiteToolCallStore) Get(ctx context.Context, id string) (scheduler.ToolCall, error) {
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
-    job_id, command, risk, policy_reason, exit_code, job_status, job_started_at, job_finished_at,
+    job_id, command, risk, policy_reason, policy_mode, policy_profile, policy_rule_id,
+    policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
+    shell_risk, shell_reason, exit_code, job_status, job_started_at, job_finished_at,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
     compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
@@ -155,7 +177,9 @@ WHERE id = ?`, strings.TrimSpace(id))
 func (s runtimeSQLiteToolCallStore) ListByTurn(ctx context.Context, turnID string) ([]scheduler.ToolCall, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
-    job_id, command, risk, policy_reason, exit_code, job_status, job_started_at, job_finished_at,
+    job_id, command, risk, policy_reason, policy_mode, policy_profile, policy_rule_id,
+    policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
+    shell_risk, shell_reason, exit_code, job_status, job_started_at, job_finished_at,
     input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
     compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
     started_at, finished_at, error
@@ -190,7 +214,7 @@ type runtimeToolCallScanner interface {
 
 func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, error) {
 	var call scheduler.ToolCall
-	var messageID, capabilityID, jobID, command, risk, policyReason, jobStatus, inputSummary, outputSummary, modelContent, structured, stdout, stderr, compactRef, compactBoundaryID, errText sql.NullString
+	var messageID, capabilityID, jobID, command, risk, policyReason, policyMode, policyProfile, policyRuleID, policyRuleSource, policyScopeKind, policyScopeValue, policyTargetSummary, shellRisk, shellReason, jobStatus, inputSummary, outputSummary, modelContent, structured, stdout, stderr, compactRef, compactBoundaryID, errText sql.NullString
 	var source, status string
 	var isError, compacted, exitCode, compactOriginalEstimatedTokens int
 	var startedAt int64
@@ -208,6 +232,15 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 		&command,
 		&risk,
 		&policyReason,
+		&policyMode,
+		&policyProfile,
+		&policyRuleID,
+		&policyRuleSource,
+		&policyScopeKind,
+		&policyScopeValue,
+		&policyTargetSummary,
+		&shellRisk,
+		&shellReason,
 		&exitCode,
 		&jobStatus,
 		&jobStartedAt,
@@ -238,6 +271,15 @@ func scanRuntimeToolCall(scanner runtimeToolCallScanner) (scheduler.ToolCall, er
 	call.Command = command.String
 	call.Risk = risk.String
 	call.PolicyReason = policyReason.String
+	call.PolicyMode = policyMode.String
+	call.PolicyProfile = policyProfile.String
+	call.PolicyRuleID = policyRuleID.String
+	call.PolicyRuleSource = policyRuleSource.String
+	call.PolicyScopeKind = policyScopeKind.String
+	call.PolicyScopeValue = policyScopeValue.String
+	call.PolicyTargetSummary = policyTargetSummary.String
+	call.ShellRisk = shellRisk.String
+	call.ShellReason = shellReason.String
 	call.ExitCode = exitCode
 	call.JobStatus = jobStatus.String
 	if jobStartedAt.Valid {

@@ -152,13 +152,14 @@ func (r *runtimeService) refreshMCPServerLifecycle(ctx context.Context, cfg *con
 }
 
 func (r *runtimeService) evaluateMCPPolicy(server, name, kind, action string, fallbackRisk permission.Risk) permission.PolicyResult {
-	mode := r.currentPolicyMode()
-	policy := permission.NewPermissionPolicy(mode)
+	r.mu.Lock()
+	policy := r.policy
+	r.mu.Unlock()
 	input := string(fallbackRisk) + " mcp " + kind + " " + action
 	if fallbackRisk == permission.RiskRead {
 		input = "read mcp " + kind + " " + action
 	}
-	result := policy.Evaluate(scheduler.ToolCall{
+	result := runtimePermissionPolicy(policy).Evaluate(scheduler.ToolCall{
 		ID:           stableMCPCapabilityID(server, kind, name),
 		Name:         firstNonEmpty(name, server),
 		Source:       scheduler.ToolSourceMCP,
@@ -219,23 +220,29 @@ func (r *runtimeService) publishMCPUpdatedEvents(name string) {
 func (r *runtimeService) writeMCPAudit(event, server, name, kind, status string, decision permission.PolicyResult, errText string, durationMS int64) {
 	errText = redactRuntimeString("error", errText)
 	r.writeAudit(auditEntry{
-		Event:            "mcp_" + event,
-		Timestamp:        time.Now().UTC().Format(time.RFC3339Nano),
-		CapabilityID:     stableMCPCapabilityID(server, kind, name),
-		CapabilityKind:   "mcp_" + kind,
-		CapabilitySource: server,
-		CapabilityState:  status,
-		CapabilityReason: decision.Reason,
-		CapabilityError:  errText,
-		DurationMS:       durationMS,
-		MCPServer:        server,
-		MCPName:          name,
-		MCPKind:          kind,
-		MCPStatus:        status,
-		MCPDecision:      string(decision.Decision),
-		MCPRisk:          string(decision.Risk),
-		MCPReason:        decision.Reason,
-		PolicyMode:       string(decision.Mode),
+		Event:               "mcp_" + event,
+		Timestamp:           time.Now().UTC().Format(time.RFC3339Nano),
+		CapabilityID:        stableMCPCapabilityID(server, kind, name),
+		CapabilityKind:      "mcp_" + kind,
+		CapabilitySource:    server,
+		CapabilityState:     status,
+		CapabilityReason:    decision.Reason,
+		CapabilityError:     errText,
+		DurationMS:          durationMS,
+		MCPServer:           server,
+		MCPName:             name,
+		MCPKind:             kind,
+		MCPStatus:           status,
+		MCPDecision:         string(decision.Decision),
+		MCPRisk:             string(decision.Risk),
+		MCPReason:           decision.Reason,
+		PolicyMode:          string(decision.Mode),
+		PolicyProfile:       decision.Profile,
+		PolicyRuleID:        decision.RuleID,
+		PolicyRuleSource:    decision.RuleSource,
+		PolicyScopeKind:     decision.RuleScopeKind,
+		PolicyScopeValue:    decision.RuleScopeValue,
+		PolicyTargetSummary: decision.TargetSummary,
 	})
 }
 

@@ -256,9 +256,9 @@ export const wailsRuntime: AgentRuntime = {
     return response.config
   },
 
-  async updatePolicy(mode) {
+  async updatePolicy(mode, rules, profile) {
     const bridge = await loadWailsRuntimeBridge()
-    const response = await bridge.UpdatePolicy({ mode })
+    const response = await bridge.UpdatePolicy({ mode, rules, profile })
     return response.policy
   },
 

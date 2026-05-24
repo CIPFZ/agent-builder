@@ -182,13 +182,13 @@ func (r *runtimeService) findCapability(ctx context.Context, capabilityID string
 
 func (r *runtimeService) evaluateCapabilityLoadPolicy(capability RuntimeCapability) permission.PolicyResult {
 	r.mu.Lock()
-	mode := permission.PolicyMode(r.policy.Mode)
+	policy := r.policy
 	r.mu.Unlock()
-	policy := permission.NewPermissionPolicy(mode)
-	return policy.Evaluate(scheduler.ToolCall{
+	return runtimePermissionPolicy(policy).Evaluate(scheduler.ToolCall{
 		ID:           capability.ID,
 		Name:         capability.Name,
 		Source:       capabilityToolSource(capability),
+		CapabilityID: capability.ID,
 		Status:       scheduler.ToolCallPending,
 		InputSummary: capabilityPolicySummary(capability),
 	})

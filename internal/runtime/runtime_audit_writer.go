@@ -47,6 +47,14 @@ type auditEntry struct {
 	PermissionRisk        string                     `json:"permission_risk,omitempty"`
 	PermissionReason      string                     `json:"permission_reason,omitempty"`
 	PolicyMode            string                     `json:"policy_mode,omitempty"`
+	PolicyProfile         string                     `json:"policy_profile,omitempty"`
+	PolicyRuleID          string                     `json:"policy_rule_id,omitempty"`
+	PolicyRuleSource      string                     `json:"policy_rule_source,omitempty"`
+	PolicyScopeKind       string                     `json:"policy_scope_kind,omitempty"`
+	PolicyScopeValue      string                     `json:"policy_scope_value,omitempty"`
+	PolicyTargetSummary   string                     `json:"policy_target_summary,omitempty"`
+	ShellRisk             string                     `json:"shell_risk,omitempty"`
+	ShellReason           string                     `json:"shell_reason,omitempty"`
 	ToolCallID            string                     `json:"tool_call_id,omitempty"`
 	CapabilityID          string                     `json:"capability_id,omitempty"`
 	CapabilityKind        string                     `json:"capability_kind,omitempty"`
@@ -66,18 +74,24 @@ type auditEntry struct {
 }
 
 type auditToolCall struct {
-	ID         string `json:"id,omitempty"`
-	Name       string `json:"name"`
-	Input      string `json:"input,omitempty"`
-	Output     string `json:"output,omitempty"`
-	JobID      string `json:"job_id,omitempty"`
-	Command    string `json:"command,omitempty"`
-	Risk       string `json:"risk,omitempty"`
-	ExitCode   int    `json:"exit_code,omitempty"`
-	IsError    bool   `json:"is_error,omitempty"`
-	Status     string `json:"status,omitempty"`
-	StartedAt  int64  `json:"started_at,omitempty"`
-	FinishedAt int64  `json:"finished_at,omitempty"`
+	ID               string `json:"id,omitempty"`
+	Name             string `json:"name"`
+	Input            string `json:"input,omitempty"`
+	Output           string `json:"output,omitempty"`
+	JobID            string `json:"job_id,omitempty"`
+	Command          string `json:"command,omitempty"`
+	Risk             string `json:"risk,omitempty"`
+	PolicyMode       string `json:"policy_mode,omitempty"`
+	PolicyRuleID     string `json:"policy_rule_id,omitempty"`
+	PolicyScopeKind  string `json:"policy_scope_kind,omitempty"`
+	PolicyScopeValue string `json:"policy_scope_value,omitempty"`
+	ShellRisk        string `json:"shell_risk,omitempty"`
+	ShellReason      string `json:"shell_reason,omitempty"`
+	ExitCode         int    `json:"exit_code,omitempty"`
+	IsError          bool   `json:"is_error,omitempty"`
+	Status           string `json:"status,omitempty"`
+	StartedAt        int64  `json:"started_at,omitempty"`
+	FinishedAt       int64  `json:"finished_at,omitempty"`
 }
 
 func (r *runtimeService) writeAudit(entry auditEntry) {

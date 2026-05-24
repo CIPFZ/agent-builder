@@ -36,6 +36,8 @@ func (m *mockBashPermissionService) SkipRequests() bool {
 }
 
 func (m *mockBashPermissionService) SetPolicyMode(mode permission.PolicyMode) {}
+func (m *mockBashPermissionService) SetPolicy(policy permission.PermissionPolicy, mode permission.PolicyMode) {
+}
 
 func (m *mockBashPermissionService) PolicyMode() permission.PolicyMode {
 	return permission.PolicyModeAsk
@@ -115,6 +117,8 @@ func (m *recordingPermissionService) SkipRequests() bool {
 }
 
 func (m *recordingPermissionService) SetPolicyMode(mode permission.PolicyMode) {}
+func (m *recordingPermissionService) SetPolicy(policy permission.PermissionPolicy, mode permission.PolicyMode) {
+}
 
 func (m *recordingPermissionService) PolicyMode() permission.PolicyMode {
 	return permission.PolicyModeAsk

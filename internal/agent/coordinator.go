@@ -127,20 +127,29 @@ type ToolDiscoveryRecorder interface {
 }
 
 type SchedulerToolCall struct {
-	ID           string
-	SessionID    string
-	TurnID       string
-	MessageID    string
-	Name         string
-	Source       string
-	CapabilityID string
-	JobID        string
-	Command      string
-	Risk         string
-	PolicyReason string
-	JobStatus    string
-	JobStartedAt int64
-	InputSummary string
+	ID                  string
+	SessionID           string
+	TurnID              string
+	MessageID           string
+	Name                string
+	Source              string
+	CapabilityID        string
+	JobID               string
+	Command             string
+	Risk                string
+	PolicyReason        string
+	PolicyMode          string
+	PolicyProfile       string
+	PolicyRuleID        string
+	PolicyRuleSource    string
+	PolicyScopeKind     string
+	PolicyScopeValue    string
+	PolicyTargetSummary string
+	ShellRisk           string
+	ShellReason         string
+	JobStatus           string
+	JobStartedAt        int64
+	InputSummary        string
 }
 
 type SchedulerToolCallResult struct {
@@ -154,6 +163,15 @@ type SchedulerToolCallResult struct {
 	Command                 string
 	Risk                    string
 	PolicyReason            string
+	PolicyMode              string
+	PolicyProfile           string
+	PolicyRuleID            string
+	PolicyRuleSource        string
+	PolicyScopeKind         string
+	PolicyScopeValue        string
+	PolicyTargetSummary     string
+	ShellRisk               string
+	ShellReason             string
 	ExitCode                int
 	JobStatus               string
 	JobStartedAt            int64
@@ -169,10 +187,18 @@ type SchedulerToolCallResult struct {
 }
 
 type SchedulerToolPolicyDecision struct {
-	Decision string
-	Risk     string
-	Reason   string
-	Mode     string
+	Decision       string
+	Risk           string
+	Reason         string
+	Mode           string
+	Profile        string
+	RuleID         string
+	RuleSource     string
+	RuleScopeKind  string
+	RuleScopeValue string
+	TargetSummary  string
+	ShellRisk      string
+	ShellReason    string
 }
 
 type SchedulerToolMetadata struct {

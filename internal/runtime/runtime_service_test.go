@@ -421,8 +421,6 @@ func TestRuntimePolicyLoadSaveAndUpdate(t *testing.T) {
 }
 
 func TestRuntimePolicyApplicationEventAndAudit(t *testing.T) {
-	t.Parallel()
-
 	dataDir := filepath.Join(t.TempDir(), "runtime-state")
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -431,10 +429,6 @@ func TestRuntimePolicyApplicationEventAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		_ = db.Release(dataDir)
-	})
-
 	service := newRuntimeService()
 	service.turns = newRuntimeTurnStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
@@ -452,18 +446,18 @@ func TestRuntimePolicyApplicationEventAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		runtimeBackend.DeleteWorkspace(workspace.ID)
-		_ = db.Release(dataDir)
-		_ = db.Release(dataDir)
-	})
 	service.runtime = runtimeBackend
 	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
 
 	permissions := permission.NewPermissionService(t.TempDir(), false, nil)
 	permissions.SetPolicyMode(permission.PolicyModePlan)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	t.Cleanup(func() {
+		cancel()
+		runtimeBackend.DeleteWorkspace(workspace.ID)
+		_ = conn.Close()
+		_ = db.Release(dataDir)
+	})
 	go service.consumePermissionPolicyApplications(ctx, workspace.ID, permissions)
 	time.Sleep(10 * time.Millisecond)
 
@@ -2238,44 +2232,46 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 }
 
 type recordingRuntimeService struct {
-	chatCalls           int
-	statusCalls         int
-	recoveryStatusCalls int
-	skillsCalls         int
-	mcpServerCalls      int
-	status              RuntimeStatus
-	recoveryStatus      RuntimeRecoveryStatus
-	skills              RuntimeSkillsResponse
-	mcpServers          RuntimeMCPServersResponse
-	capabilities        RuntimeCapabilitiesResponse
-	contextSources      RuntimeContextSourcesResponse
-	refreshedCapability string
-	toolSearchQuery     string
-	savedMCPServer      RuntimeMCPServerConfigRequest
-	toggledMCPServer    RuntimeMCPServerToggleRequest
-	toggledMCPTool      RuntimeMCPToolToggleRequest
-	selectedSession     string
-	renamedSession      RuntimeSessionUpdateRequest
-	deletedSession      string
-	messageSession      string
-	createdSkill        RuntimeSkillCreateRequest
-	addedSkillPath      string
-	cancelledTurn       string
-	turn                RuntimeTurnResponse
-	turns               RuntimeTurnsResponse
-	turnsStatus         string
-	toolCall            RuntimeToolCallResponse
-	toolCalls           RuntimeToolCallsResponse
-	compactBoundaries   RuntimeCompactBoundariesResponse
-	agentTask           RuntimeAgentTaskResponse
-	agentTasks          RuntimeAgentTasksResponse
-	cancelledTask       string
-	todos               RuntimeTodosResponse
-	todoSession         string
-	todoTurn            string
-	policy              RuntimePolicyResponse
-	policyCalls         int
-	updatedPolicyMode   string
+	chatCalls            int
+	statusCalls          int
+	recoveryStatusCalls  int
+	skillsCalls          int
+	mcpServerCalls       int
+	status               RuntimeStatus
+	recoveryStatus       RuntimeRecoveryStatus
+	skills               RuntimeSkillsResponse
+	mcpServers           RuntimeMCPServersResponse
+	capabilities         RuntimeCapabilitiesResponse
+	contextSources       RuntimeContextSourcesResponse
+	refreshedCapability  string
+	toolSearchQuery      string
+	savedMCPServer       RuntimeMCPServerConfigRequest
+	toggledMCPServer     RuntimeMCPServerToggleRequest
+	toggledMCPTool       RuntimeMCPToolToggleRequest
+	selectedSession      string
+	renamedSession       RuntimeSessionUpdateRequest
+	deletedSession       string
+	messageSession       string
+	createdSkill         RuntimeSkillCreateRequest
+	addedSkillPath       string
+	cancelledTurn        string
+	turn                 RuntimeTurnResponse
+	turns                RuntimeTurnsResponse
+	turnsStatus          string
+	toolCall             RuntimeToolCallResponse
+	toolCalls            RuntimeToolCallsResponse
+	compactBoundaries    RuntimeCompactBoundariesResponse
+	agentTask            RuntimeAgentTaskResponse
+	agentTasks           RuntimeAgentTasksResponse
+	cancelledTask        string
+	todos                RuntimeTodosResponse
+	todoSession          string
+	todoTurn             string
+	policy               RuntimePolicyResponse
+	policyCalls          int
+	updatedPolicyMode    string
+	updatedPolicyRules   []RuntimePolicyRule
+	updatedPolicyProfile string
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -2407,7 +2403,9 @@ func (s *recordingRuntimeService) GetPolicy(context.Context) (RuntimePolicyRespo
 
 func (s *recordingRuntimeService) UpdatePolicy(_ context.Context, req RuntimePolicyUpdateRequest) (RuntimePolicyResponse, error) {
 	s.updatedPolicyMode = req.Mode
-	return RuntimePolicyResponse{Policy: RuntimePolicy{Mode: req.Mode}}, nil
+	s.updatedPolicyRules = req.Rules
+	s.updatedPolicyProfile = req.Profile
+	return RuntimePolicyResponse{Policy: RuntimePolicy{Mode: req.Mode, Rules: req.Rules, Profile: req.Profile}}, nil
 }
 
 func (s *recordingRuntimeService) Events(context.Context, ...int64) (RuntimeEventsResponse, error) {

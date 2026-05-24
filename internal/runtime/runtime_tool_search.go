@@ -257,9 +257,9 @@ func (r *runtimeService) evaluateCapabilitySearchPolicy(capability RuntimeCapabi
 		return permission.PolicyResult{Decision: permission.PolicyAllow, Risk: permission.RiskRead, Reason: "Discovery exposes metadata only.", Mode: permission.PolicyMode(r.policy.Mode)}
 	}
 	r.mu.Lock()
-	mode := permission.PolicyMode(r.policy.Mode)
+	policy := r.policy
 	r.mu.Unlock()
-	return permission.NewPermissionPolicy(mode).Evaluate(scheduler.ToolCall{
+	return runtimePermissionPolicy(policy).Evaluate(scheduler.ToolCall{
 		ID:           capability.ID,
 		Name:         capability.Name,
 		Source:       capabilityToolSource(capability),

@@ -79,6 +79,15 @@ type RuntimeToolCall struct {
 	Command                        string `json:"command,omitempty"`
 	Risk                           string `json:"risk,omitempty"`
 	PolicyReason                   string `json:"policyReason,omitempty"`
+	PolicyMode                     string `json:"policyMode,omitempty"`
+	PolicyProfile                  string `json:"policyProfile,omitempty"`
+	PolicyRuleID                   string `json:"policyRuleId,omitempty"`
+	PolicyRuleSource               string `json:"policyRuleSource,omitempty"`
+	PolicyScopeKind                string `json:"policyScopeKind,omitempty"`
+	PolicyScopeValue               string `json:"policyScopeValue,omitempty"`
+	PolicyTargetSummary            string `json:"policyTargetSummary,omitempty"`
+	ShellRisk                      string `json:"shellRisk,omitempty"`
+	ShellReason                    string `json:"shellReason,omitempty"`
 	ExitCode                       int    `json:"exitCode,omitempty"`
 	JobStatus                      string `json:"jobStatus,omitempty"`
 	JobStartedAt                   int64  `json:"jobStartedAt,omitempty"`
@@ -232,24 +241,30 @@ type RuntimeMessagesResponse struct {
 }
 
 type RuntimePermissionRequest struct {
-	ID           string `json:"id"`
-	SessionID    string `json:"sessionId"`
-	TurnID       string `json:"turnId,omitempty"`
-	ToolCallID   string `json:"toolCallId"`
-	ToolName     string `json:"toolName"`
-	Description  string `json:"description,omitempty"`
-	Action       string `json:"action"`
-	Params       any    `json:"params,omitempty"`
-	Path         string `json:"path,omitempty"`
-	Target       string `json:"target,omitempty"`
-	Risk         string `json:"risk,omitempty"`
-	PolicyMode   string `json:"policyMode,omitempty"`
-	PolicyReason string `json:"policyReason,omitempty"`
-	Decision     string `json:"decision,omitempty"`
-	Reason       string `json:"reason,omitempty"`
-	Status       string `json:"status,omitempty"`
-	CreatedAt    int64  `json:"createdAt"`
-	DecidedAt    int64  `json:"decidedAt,omitempty"`
+	ID                  string `json:"id"`
+	SessionID           string `json:"sessionId"`
+	TurnID              string `json:"turnId,omitempty"`
+	ToolCallID          string `json:"toolCallId"`
+	ToolName            string `json:"toolName"`
+	Description         string `json:"description,omitempty"`
+	Action              string `json:"action"`
+	Params              any    `json:"params,omitempty"`
+	Path                string `json:"path,omitempty"`
+	Target              string `json:"target,omitempty"`
+	Risk                string `json:"risk,omitempty"`
+	PolicyMode          string `json:"policyMode,omitempty"`
+	PolicyReason        string `json:"policyReason,omitempty"`
+	PolicyProfile       string `json:"policyProfile,omitempty"`
+	PolicyRuleID        string `json:"policyRuleId,omitempty"`
+	PolicyRuleSource    string `json:"policyRuleSource,omitempty"`
+	PolicyScopeKind     string `json:"policyScopeKind,omitempty"`
+	PolicyScopeValue    string `json:"policyScopeValue,omitempty"`
+	PolicyTargetSummary string `json:"policyTargetSummary,omitempty"`
+	Decision            string `json:"decision,omitempty"`
+	Reason              string `json:"reason,omitempty"`
+	Status              string `json:"status,omitempty"`
+	CreatedAt           int64  `json:"createdAt"`
+	DecidedAt           int64  `json:"decidedAt,omitempty"`
 }
 
 type RuntimePermissionsResponse struct {
@@ -262,10 +277,13 @@ type RuntimePermissionDecision struct {
 }
 
 type RuntimePolicy struct {
-	Mode        string   `json:"mode"`
-	Modes       []string `json:"modes"`
-	Description string   `json:"description,omitempty"`
-	UpdatedAt   int64    `json:"updatedAt,omitempty"`
+	Mode        string                    `json:"mode"`
+	Modes       []string                  `json:"modes"`
+	Profile     string                    `json:"profile,omitempty"`
+	Rules       []RuntimePolicyRule       `json:"rules,omitempty"`
+	Diagnostics []RuntimePolicyDiagnostic `json:"diagnostics,omitempty"`
+	Description string                    `json:"description,omitempty"`
+	UpdatedAt   int64                     `json:"updatedAt,omitempty"`
 }
 
 type RuntimePolicyResponse struct {
@@ -273,7 +291,41 @@ type RuntimePolicyResponse struct {
 }
 
 type RuntimePolicyUpdateRequest struct {
-	Mode string `json:"mode"`
+	Mode    string              `json:"mode"`
+	Profile string              `json:"profile,omitempty"`
+	Rules   []RuntimePolicyRule `json:"rules,omitempty"`
+}
+
+type RuntimePolicyRule struct {
+	ID            string `json:"id"`
+	Decision      string `json:"decision"`
+	Source        string `json:"source,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	Tool          string `json:"tool,omitempty"`
+	CapabilityID  string `json:"capabilityId,omitempty"`
+	BuiltinTool   string `json:"builtinTool,omitempty"`
+	MCPServer     string `json:"mcpServer,omitempty"`
+	MCPTool       string `json:"mcpTool,omitempty"`
+	MCPResource   string `json:"mcpResource,omitempty"`
+	MCPPrompt     string `json:"mcpPrompt,omitempty"`
+	Skill         string `json:"skill,omitempty"`
+	Subagent      string `json:"subagent,omitempty"`
+	TaskScope     string `json:"taskScope,omitempty"`
+	CWDPrefix     string `json:"cwdPrefix,omitempty"`
+	PathPrefix    string `json:"pathPrefix,omitempty"`
+	ShellPrefix   string `json:"shellPrefix,omitempty"`
+	ShellRegex    string `json:"shellRegex,omitempty"`
+	PolicyMode    string `json:"policyMode,omitempty"`
+	PolicyProfile string `json:"policyProfile,omitempty"`
+	ScopeKind     string `json:"scopeKind,omitempty"`
+	ScopeValue    string `json:"scopeValue,omitempty"`
+	Precedence    int    `json:"precedence,omitempty"`
+}
+
+type RuntimePolicyDiagnostic struct {
+	RuleID string `json:"ruleId,omitempty"`
+	Level  string `json:"level"`
+	Reason string `json:"reason"`
 }
 
 type RuntimeRequests struct {

@@ -63,6 +63,12 @@ export type RuntimePermissionRequest = {
   risk?: string
   policyMode?: string
   policyReason?: string
+  policyProfile?: string
+  policyRuleId?: string
+  policyRuleSource?: string
+  policyScopeKind?: string
+  policyScopeValue?: string
+  policyTargetSummary?: string
   decision?: string
   reason?: string
   status?: string
@@ -82,6 +88,15 @@ export type RuntimeToolCall = {
   command?: string
   risk?: string
   policyReason?: string
+  policyMode?: string
+  policyProfile?: string
+  policyRuleId?: string
+  policyRuleSource?: string
+  policyScopeKind?: string
+  policyScopeValue?: string
+  policyTargetSummary?: string
+  shellRisk?: string
+  shellReason?: string
   exitCode?: number
   jobStatus?: string
   jobStartedAt?: number
@@ -170,8 +185,43 @@ export type RuntimePolicyDecision = 'allow' | 'ask' | 'deny'
 export type RuntimePolicy = {
   mode: RuntimePolicyMode
   modes: RuntimePolicyMode[]
+  profile?: string
+  rules?: RuntimePolicyRule[]
+  diagnostics?: RuntimePolicyDiagnostic[]
   description?: string
   updatedAt?: number
+}
+
+export type RuntimePolicyRule = {
+  id: string
+  decision: RuntimePolicyDecision
+  source?: string
+  reason?: string
+  tool?: string
+  capabilityId?: string
+  builtinTool?: string
+  mcpServer?: string
+  mcpTool?: string
+  mcpResource?: string
+  mcpPrompt?: string
+  skill?: string
+  subagent?: string
+  taskScope?: string
+  cwdPrefix?: string
+  pathPrefix?: string
+  shellPrefix?: string
+  shellRegex?: string
+  policyMode?: RuntimePolicyMode
+  policyProfile?: string
+  scopeKind?: string
+  scopeValue?: string
+  precedence?: number
+}
+
+export type RuntimePolicyDiagnostic = {
+  ruleId?: string
+  level: 'error' | 'warning' | 'info' | string
+  reason: string
 }
 
 export type RuntimePolicyEvaluation = {
@@ -636,7 +686,7 @@ export type AgentRuntime = {
   refreshMcpServer: (server: string) => Promise<RuntimeMcpServer[]>
   refreshSkills: () => Promise<RuntimeSkill[]>
   saveModelConfig: (config: RuntimeModelConfig) => Promise<RuntimeModelConfig>
-  updatePolicy: (mode: RuntimePolicyMode) => Promise<RuntimePolicy>
+  updatePolicy: (mode: RuntimePolicyMode, rules?: RuntimePolicyRule[], profile?: string) => Promise<RuntimePolicy>
   saveMcpServer: (config: RuntimeMcpServerConfig) => Promise<RuntimeMcpServer[]>
   renameSession: (sessionId: string, title: string) => Promise<RuntimeSession[]>
   selectSession: (sessionId: string) => Promise<RuntimeStatus>
