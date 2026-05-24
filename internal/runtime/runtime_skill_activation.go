@@ -1,6 +1,15 @@
 package runtime
 
-import "slices"
+import (
+	"slices"
+	"time"
+
+	"github.com/charmbracelet/crush/internal/runtimeapi"
+)
+
+func nowRFC3339Nano() string {
+	return time.Now().UTC().Format(time.RFC3339Nano)
+}
 
 func runtimeTurnSkillSummary(skills []RuntimeSkill, policyMode string) RuntimeTurnSkillSummary {
 	summary := RuntimeTurnSkillSummary{
@@ -28,7 +37,7 @@ func runtimeTurnSkillSummary(skills []RuntimeSkill, policyMode string) RuntimeTu
 			summary.Failed = append(summary.Failed, item)
 			continue
 		}
-		if !skill.Enabled || skill.State == capabilityStateDisabled {
+		if !skill.Enabled || skill.State == capabilityStateDisabled || (skill.Activation.Available && !skill.Activation.Included) {
 			if item.Reason == "" {
 				item.Reason = "excluded by disabled config"
 			}
@@ -43,4 +52,97 @@ func runtimeTurnSkillSummary(skills []RuntimeSkill, policyMode string) RuntimeTu
 		summary.Activated = append(summary.Activated, item)
 	}
 	return summary
+}
+
+func (r *runtimeService) recordTurnSkillActivation(sessionID, turnID string, summary RuntimeTurnSkillSummary) {
+	for _, item := range summary.Activated {
+		r.storeRuntimeEvent(runtimeapi.Event{
+			ID:        newRuntimeEventID(),
+			Type:      runtimeapi.EventSkillActivationAllowed,
+			CreatedAt: nowRFC3339Nano(),
+			SessionID: sessionID,
+			TurnID:    turnID,
+			Payload: map[string]any{
+				"name":          item.Name,
+				"capability_id": item.CapabilityID,
+				"state":         item.State,
+				"reason":        firstNonEmpty(item.Reason, "runtime activation allowed"),
+				"allowed_tools": item.AllowedTools,
+				"summary":       item.Name,
+			},
+		})
+		r.storeRuntimeEvent(runtimeapi.Event{
+			ID:        newRuntimeEventID(),
+			Type:      runtimeapi.EventSkillContextInjected,
+			CreatedAt: nowRFC3339Nano(),
+			SessionID: sessionID,
+			TurnID:    turnID,
+			Payload: map[string]any{
+				"name":          item.Name,
+				"capability_id": item.CapabilityID,
+				"reason":        firstNonEmpty(item.Reason, "runtime context injected"),
+				"summary":       item.Name,
+			},
+		})
+		r.writeAudit(auditEntry{
+			RequestID:        turnID,
+			Event:            "skill_activation_allowed",
+			Timestamp:        nowRFC3339Nano(),
+			SessionID:        sessionID,
+			CapabilityID:     item.CapabilityID,
+			CapabilityKind:   "skill",
+			CapabilitySource: item.Path,
+			CapabilityState:  item.State,
+			CapabilityReason: item.Reason,
+			Extra: map[string]any{
+				"name":          item.Name,
+				"allowed_tools": item.AllowedTools,
+			},
+		})
+	}
+	for _, item := range summary.Excluded {
+		r.storeRuntimeEvent(runtimeapi.Event{
+			ID:        newRuntimeEventID(),
+			Type:      runtimeapi.EventSkillActivationDenied,
+			CreatedAt: nowRFC3339Nano(),
+			SessionID: sessionID,
+			TurnID:    turnID,
+			Payload: map[string]any{
+				"name":          item.Name,
+				"capability_id": item.CapabilityID,
+				"state":         item.State,
+				"reason":        firstNonEmpty(item.Reason, "skill activation excluded"),
+				"allowed_tools": item.AllowedTools,
+				"summary":       item.Name,
+			},
+		})
+		r.storeRuntimeEvent(runtimeapi.Event{
+			ID:        newRuntimeEventID(),
+			Type:      runtimeapi.EventSkillContextOmitted,
+			CreatedAt: nowRFC3339Nano(),
+			SessionID: sessionID,
+			TurnID:    turnID,
+			Payload: map[string]any{
+				"name":          item.Name,
+				"capability_id": item.CapabilityID,
+				"reason":        firstNonEmpty(item.Reason, "skill context omitted"),
+				"summary":       item.Name,
+			},
+		})
+		r.writeAudit(auditEntry{
+			RequestID:        turnID,
+			Event:            "skill_activation_denied",
+			Timestamp:        nowRFC3339Nano(),
+			SessionID:        sessionID,
+			CapabilityID:     item.CapabilityID,
+			CapabilityKind:   "skill",
+			CapabilitySource: item.Path,
+			CapabilityState:  item.State,
+			CapabilityReason: item.Reason,
+			Extra: map[string]any{
+				"name":          item.Name,
+				"allowed_tools": item.AllowedTools,
+			},
+		})
+	}
 }

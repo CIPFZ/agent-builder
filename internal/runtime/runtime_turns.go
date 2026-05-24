@@ -98,6 +98,7 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 
 	skills, mcpServers, mcpTools := r.runtimeAuditInventory(ctx)
 	skillSummary := runtimeTurnSkillSummary(skills, string(r.currentPolicyMode()))
+	r.recordTurnSkillActivation(sessionID, requestID, skillSummary)
 	contextResp, contextErr := r.ContextSources(ctx)
 	if contextErr != nil {
 		slog.Debug("Runtime context source inventory unavailable", "error", contextErr)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/crush/internal/agent/prompt"
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
@@ -17,7 +18,7 @@ func (r *runtimeService) ContextSources(ctx context.Context) (RuntimeContextSour
 	load := prompt.LoadContextSources(ctx, cfg, nil, nil)
 	sources := runtimeContextSources(load.Sources)
 	sources = append(sources, runtimeSkillContextSources(r.runtimeSkillsFromWorkspaceConfig(cfg, r.desktopSkillPaths()...).Skills)...)
-	sources = append(sources, runtimeMCPContextSources()...)
+	sources = append(sources, r.runtimeMCPContextSources()...)
 	return RuntimeContextSourcesResponse{Sources: sources}, nil
 }
 
@@ -59,21 +60,33 @@ func runtimeSkillContextSources(skills []RuntimeSkill) []RuntimeContextSource {
 	return sources
 }
 
-func runtimeMCPContextSources() []RuntimeContextSource {
+func (r *runtimeService) runtimeMCPContextSources() []RuntimeContextSource {
 	var sources []RuntimeContextSource
 	for _, server := range mcp.GetStates() {
 		state := capabilityStateUnloaded
 		reason := "server_unloaded"
+		enabled := true
 		if server.State == mcp.StateConnected {
 			state = capabilityStateLoaded
 			reason = "server_connected"
 		} else if server.State == mcp.StateError {
 			state = capabilityStateFailed
 			reason = "server_failed"
+		} else if server.State == mcp.StateDisabled {
+			state = capabilityStateDisabled
+			reason = "server_disabled"
+			enabled = false
 		}
 		errText := ""
 		if server.Error != nil {
 			errText = server.Error.Error()
+		}
+		decision := r.evaluateMCPPolicy(server.Name, "", "server", "context", permission.RiskRead)
+		if decision.Decision == permission.PolicyDeny {
+			state = capabilityStateDisabled
+			reason = "policy_denied"
+			enabled = false
+			errText = decision.Reason
 		}
 		sources = append(sources, RuntimeContextSource{
 			ID:             "mcp:" + server.Name + ":instructions",
@@ -81,7 +94,7 @@ func runtimeMCPContextSources() []RuntimeContextSource {
 			Name:           server.Name,
 			URI:            "mcp://" + server.Name + "/instructions",
 			Scope:          "runtime",
-			Enabled:        true,
+			Enabled:        enabled,
 			State:          state,
 			Reason:         reason,
 			Error:          errText,

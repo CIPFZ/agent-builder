@@ -1063,6 +1063,129 @@ func TestRuntimeMCPRefreshDeniedRecordsEventsAndCapabilities(t *testing.T) {
 	}
 }
 
+func TestRuntimeMCPResourceAndPromptInventoryFiltersPolicyDenied(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	service.policy = runtimePolicyFromParts(permission.PolicyModeAutoRead, "test", []RuntimePolicyRule{
+		{ID: "deny-resource", Decision: string(permission.PolicyDeny), MCPResource: "docs://secret", Reason: "resource denied"},
+		{ID: "deny-prompt", Decision: string(permission.PolicyDeny), MCPPrompt: "summarize", Reason: "prompt denied"},
+	}, 0)
+
+	resources := service.filterMCPResourcesByPolicy(RuntimeMCPResourcesResponse{Resources: []RuntimeMCPResource{
+		{Server: "docs", URI: "docs://intro"},
+		{Server: "docs", URI: "docs://secret"},
+	}})
+	if len(resources.Resources) != 1 || resources.Resources[0].URI != "docs://intro" {
+		t.Fatalf("resource policy filter = %#v", resources.Resources)
+	}
+	prompts := service.filterMCPPromptsByPolicy(RuntimeMCPPromptsResponse{Prompts: []RuntimeMCPPrompt{
+		{Server: "docs", Name: "summarize"},
+		{Server: "docs", Name: "draft"},
+	}})
+	if len(prompts.Prompts) != 1 || prompts.Prompts[0].Name != "draft" {
+		t.Fatalf("prompt policy filter = %#v", prompts.Prompts)
+	}
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventMCPCapabilityDenied && event.Payload["name"] == "docs://secret"
+	}) {
+		t.Fatalf("mcp capability denied event missing: %#v", events.Events)
+	}
+}
+
+func TestRuntimeMCPCapabilityAllowedAppliesAgentTaskScope(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+	service := newRuntimeService()
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+	if _, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:              "task-1",
+		ParentSessionID: "session-parent",
+		ParentTurnID:    "turn-parent",
+		ChildSessionID:  "session-child",
+		Status:          agentTaskStatusRunning,
+		AllowedTools:    []string{"safe_tool"},
+		CapabilityScope: []string{"mcp:docs:safe_tool"},
+		StartedAt:       time.Now().UnixMilli(),
+		UpdatedAt:       time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	recorder := runtimeSchedulerRecorder{service: service}
+
+	allowed := recorder.CapabilityAllowed(context.Background(), agent.SchedulerToolMetadata{
+		SessionID:    "session-child",
+		TurnID:       "turn-child",
+		Name:         "safe_tool",
+		Source:       "mcp",
+		CapabilityID: "mcp:docs:safe_tool",
+		Description:  "safe",
+	})
+	if !allowed {
+		t.Fatal("expected scoped mcp tool to be exposed")
+	}
+	denied := recorder.CapabilityAllowed(context.Background(), agent.SchedulerToolMetadata{
+		SessionID:    "session-child",
+		TurnID:       "turn-child",
+		Name:         "secret_tool",
+		Source:       "mcp",
+		CapabilityID: "mcp:docs:secret_tool",
+		Description:  "secret",
+	})
+	if denied {
+		t.Fatal("expected agent task scope to hide denied mcp tool")
+	}
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventMCPCapabilityDenied && event.Payload["scope"] == "agent_task"
+	}) {
+		t.Fatalf("agent task scoped mcp denial event missing: %#v", events.Events)
+	}
+}
+
+func TestRuntimeMCPLazyLifecycleEventsAreRedacted(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	service.publishMCPServerEvent(runtimeapi.EventMCPServerLazyStarted, "docs", mcpServerStateLoading, "", "capability_refresh")
+	service.publishMCPServerEvent(runtimeapi.EventMCPServerLazyFailed, "docs", mcpServerStateFailed, "Authorization: Bearer secret", "connect_failed")
+
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var started, failed bool
+	for _, event := range events.Events {
+		switch event.Type {
+		case runtimeapi.EventMCPServerLazyStarted:
+			started = true
+		case runtimeapi.EventMCPServerLazyFailed:
+			failed = true
+			if strings.Contains(fmt.Sprint(event.Payload["error"]), "secret") {
+				t.Fatalf("lazy failure leaked secret: %#v", event.Payload)
+			}
+		}
+	}
+	if !started || !failed {
+		t.Fatalf("lazy lifecycle events missing: %#v", events.Events)
+	}
+}
+
 func TestRuntimeSkillsFromConfigIncludesInvalidSkillDiagnostics(t *testing.T) {
 	t.Parallel()
 
@@ -1217,6 +1340,80 @@ Should not be activated when deny_all is active.
 		return
 	}
 	t.Fatalf("policy skill missing from %#v", resp.Skills)
+}
+
+func TestRuntimeSkillAllowedToolsDoesNotGrantPermission(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "writer-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
+name: writer-skill
+description: Writer skill.
+allowed_tools:
+  - write
+---
+
+Use write when policy allows it.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := config.NewTestStore(&config.Config{
+		Options: &config.Options{SkillsPaths: []string{root}},
+	})
+
+	resp := runtimeSkillsFromConfigWithPolicy(store, permission.PolicyModeAutoRead)
+	var found RuntimeSkill
+	for _, skill := range resp.Skills {
+		if skill.Name == "writer-skill" {
+			found = skill
+			break
+		}
+	}
+	if found.Name == "" || !found.Enabled || !slices.Contains(found.AllowedTools, "write") {
+		t.Fatalf("skill metadata missing: %#v", found)
+	}
+	policy := permission.NewScopedPermissionPolicy(permission.PolicyModeAutoRead, "test", nil)
+	decision := policy.Evaluate(scheduler.ToolCall{
+		Name:         "write",
+		Source:       scheduler.ToolSourceBuiltin,
+		CapabilityID: "builtin:write",
+		InputSummary: `{"file_path":"out.txt"}`,
+	})
+	if decision.Decision == permission.PolicyAllow {
+		t.Fatalf("skill allowed_tools must not grant write permission: %#v", decision)
+	}
+}
+
+func TestRuntimeToolSearchFiltersPolicyDeniedSkillsResourcesAndPrompts(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	service.policy = runtimePolicyFromParts(permission.PolicyModeAutoRead, "test", []RuntimePolicyRule{
+		{ID: "deny-skill", Decision: string(permission.PolicyDeny), Skill: "deploy", Reason: "skill denied"},
+		{ID: "deny-resource", Decision: string(permission.PolicyDeny), MCPResource: "docs://secret", Reason: "resource denied"},
+		{ID: "deny-prompt", Decision: string(permission.PolicyDeny), MCPPrompt: "summarize", Reason: "prompt denied"},
+	}, 0)
+	caps := []RuntimeCapability{
+		{ID: "skill:deploy", Kind: "skill", Name: "deploy", Enabled: true, Risk: "context", Description: "deploy docs", State: capabilityStateUnloaded},
+		{ID: "mcp_resource:docs:docs://secret", Kind: "mcp_resource", Name: "docs://secret", Source: "docs", Enabled: true, Risk: "read", Description: "secret docs", State: capabilityStateUnloaded},
+		{ID: "mcp_prompt:docs:summarize", Kind: "mcp_prompt", Name: "summarize", Source: "docs", Enabled: true, Risk: "context", Description: "summary prompt", State: capabilityStateUnloaded},
+	}
+
+	results, omitted := service.filterAndScoreToolSearch("select:deploy,docs://secret,summarize", caps, 10)
+	if len(results) != 0 {
+		t.Fatalf("policy denied metadata capabilities leaked into search: %#v", results)
+	}
+	for _, id := range []string{"skill:deploy", "mcp_resource:docs:docs://secret", "mcp_prompt:docs:summarize"} {
+		if !slices.ContainsFunc(omitted, func(item RuntimeToolSearchOmission) bool {
+			return item.ID == id && item.Reason == "policy_denied"
+		}) {
+			t.Fatalf("missing policy denied omission for %s: %#v", id, omitted)
+		}
+	}
 }
 
 func TestRuntimeSkillsFromConfigIncludesDesktopManagedPath(t *testing.T) {

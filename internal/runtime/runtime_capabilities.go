@@ -40,7 +40,10 @@ func (r *runtimeService) Capabilities(ctx context.Context) (RuntimeCapabilitiesR
 	r.mu.Lock()
 	loads := cloneCapabilityLoadRecords(r.capabilityLoads)
 	r.mu.Unlock()
-	return runtimeCapabilities(cfg, skills, tools, resources, prompts, loads), nil
+	r.mu.Lock()
+	policy := r.policy
+	r.mu.Unlock()
+	return runtimeCapabilities(cfg, skills, tools, resources, prompts, loads, policy), nil
 }
 
 func (r *runtimeService) RefreshCapability(ctx context.Context, capabilityID string) (RuntimeCapabilityResponse, error) {
@@ -184,14 +187,24 @@ func (r *runtimeService) evaluateCapabilityLoadPolicy(capability RuntimeCapabili
 	r.mu.Lock()
 	policy := r.policy
 	r.mu.Unlock()
-	return runtimePermissionPolicy(policy).Evaluate(scheduler.ToolCall{
+	return evaluateRuntimeCapabilityPolicy(policy, capability)
+}
+
+func evaluateRuntimeCapabilityPolicy(policy RuntimePolicy, capability RuntimeCapability) permission.PolicyResult {
+	capability = finalizeRuntimeCapabilityMetadata(capability)
+	return runtimePermissionPolicy(policy).Evaluate(runtimeCapabilityPolicyCall(capability))
+}
+
+func runtimeCapabilityPolicyCall(capability RuntimeCapability) scheduler.ToolCall {
+	capability = finalizeRuntimeCapabilityMetadata(capability)
+	return scheduler.ToolCall{
 		ID:           capability.ID,
 		Name:         capability.Name,
 		Source:       capabilityToolSource(capability),
 		CapabilityID: capability.ID,
 		Status:       scheduler.ToolCallPending,
 		InputSummary: capabilityPolicySummary(capability),
-	})
+	}
 }
 
 func capabilityToolSource(capability RuntimeCapability) scheduler.ToolSource {
@@ -206,6 +219,14 @@ func capabilityToolSource(capability RuntimeCapability) scheduler.ToolSource {
 }
 
 func capabilityPolicySummary(capability RuntimeCapability) string {
+	switch capability.Kind {
+	case "skill":
+		return "read skill capability " + capability.Name
+	case "mcp_resource":
+		return "read mcp resource " + capability.Name
+	case "mcp_prompt":
+		return "read mcp prompt " + capability.Name
+	}
 	switch capability.Risk {
 	case "write":
 		return "write capability refresh"
@@ -280,12 +301,18 @@ func runtimeCapabilities(
 	mcpTools RuntimeMCPToolsResponse,
 	mcpResources RuntimeMCPResourcesResponse,
 	mcpPrompts RuntimeMCPPromptsResponse,
-	loads ...map[string]runtimeCapabilityLoadRecord,
+	args ...any,
 ) RuntimeCapabilitiesResponse {
 	var capabilities []RuntimeCapability
 	loadRecords := map[string]runtimeCapabilityLoadRecord{}
-	if len(loads) > 0 {
-		loadRecords = loads[0]
+	policy := defaultRuntimePolicy()
+	for _, arg := range args {
+		switch value := arg.(type) {
+		case map[string]runtimeCapabilityLoadRecord:
+			loadRecords = value
+		case RuntimePolicy:
+			policy = value
+		}
 	}
 	disabledTools := map[string]bool{}
 	if store.Config().Options != nil {
@@ -330,6 +357,13 @@ func runtimeCapabilities(
 			capability.Diagnostics = firstNonEmpty(skill.Diagnostics, skill.Error)
 			capability.Reason = firstNonEmpty(skill.Reason, "skill_diagnostic")
 		}
+		decision := evaluateRuntimeCapabilityPolicy(policy, capability)
+		if capability.Enabled && decision.Decision == permission.PolicyDeny {
+			capability.Enabled = false
+			capability.State = capabilityStateDisabled
+			capability.Reason = "policy_denied"
+			capability.Diagnostics = decision.Reason
+		}
 		capabilities = append(capabilities, applyCapabilityLoadRecord(capability, loadRecords))
 	}
 	for _, tool := range mcpTools.Tools {
@@ -350,6 +384,13 @@ func runtimeCapabilities(
 			capability.Reason = "disabled_mcp_tool"
 			capability.Diagnostics = "MCP tool is disabled by runtime configuration."
 		}
+		decision := evaluateRuntimeCapabilityPolicy(policy, capability)
+		if capability.Enabled && decision.Decision == permission.PolicyDeny {
+			capability.Enabled = false
+			capability.State = capabilityStateDisabled
+			capability.Reason = "policy_denied"
+			capability.Diagnostics = decision.Reason
+		}
 		capabilities = append(capabilities, applyCapabilityLoadRecord(capability, loadRecords))
 	}
 	for _, resource := range mcpResources.Resources {
@@ -364,6 +405,13 @@ func runtimeCapabilities(
 			State:       capabilityStateUnloaded,
 		}
 		capability.SchemaSummary = "uri"
+		decision := evaluateRuntimeCapabilityPolicy(policy, capability)
+		if decision.Decision == permission.PolicyDeny {
+			capability.Enabled = false
+			capability.State = capabilityStateDisabled
+			capability.Reason = "policy_denied"
+			capability.Diagnostics = decision.Reason
+		}
 		capabilities = append(capabilities, applyCapabilityLoadRecord(capability, loadRecords))
 	}
 	for _, prompt := range mcpPrompts.Prompts {
@@ -378,6 +426,13 @@ func runtimeCapabilities(
 			State:       capabilityStateUnloaded,
 		}
 		capability.SchemaSummary = "prompt"
+		decision := evaluateRuntimeCapabilityPolicy(policy, capability)
+		if decision.Decision == permission.PolicyDeny {
+			capability.Enabled = false
+			capability.State = capabilityStateDisabled
+			capability.Reason = "policy_denied"
+			capability.Diagnostics = decision.Reason
+		}
 		capabilities = append(capabilities, applyCapabilityLoadRecord(capability, loadRecords))
 	}
 	slices.SortStableFunc(capabilities, func(a, b RuntimeCapability) int {

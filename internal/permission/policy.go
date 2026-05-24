@@ -248,7 +248,7 @@ func ClassifyRisk(toolName, inputSummary string) Risk {
 	switch {
 	case strings.Contains(input, "token") || strings.Contains(input, "api_key") || strings.Contains(input, "secret"):
 		return RiskSecret
-	case strings.Contains(input, "read mcp") || strings.Contains(input, "list mcp"):
+	case strings.Contains(input, "read mcp") || strings.Contains(input, "list mcp") || strings.Contains(input, "read skill") || strings.Contains(input, "skill activation"):
 		return RiskRead
 	case isReadOnlyBuiltinTool(name):
 		return RiskRead

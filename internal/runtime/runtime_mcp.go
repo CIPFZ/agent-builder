@@ -29,7 +29,7 @@ func (r *runtimeService) MCPServers(ctx context.Context) (RuntimeMCPServersRespo
 	if err != nil {
 		return RuntimeMCPServersResponse{}, err
 	}
-	return runtimeMCPServersFromConfig(cfg), nil
+	return r.runtimeMCPServersFromConfig(cfg), nil
 }
 
 func (r *runtimeService) SaveMCPServer(ctx context.Context, req RuntimeMCPServerConfigRequest) (RuntimeMCPServersResponse, error) {
@@ -55,7 +55,7 @@ func (r *runtimeService) SaveMCPServer(ctx context.Context, req RuntimeMCPServer
 	} else {
 		r.publishMCPServerEvent(runtimeapi.EventMCPServerDisabled, name, mcpServerStateDisabled, "", "disabled")
 	}
-	return runtimeMCPServersFromConfig(cfg), nil
+	return r.runtimeMCPServersFromConfig(cfg), nil
 }
 
 func (r *runtimeService) SetMCPServerEnabled(ctx context.Context, req RuntimeMCPServerToggleRequest) (RuntimeMCPServersResponse, error) {
@@ -90,7 +90,7 @@ func (r *runtimeService) SetMCPServerEnabled(ctx context.Context, req RuntimeMCP
 			Mode:     r.currentPolicyMode(),
 		}, "", 0)
 	}
-	return runtimeMCPServersFromConfig(cfg), nil
+	return r.runtimeMCPServersFromConfig(cfg), nil
 }
 
 func (r *runtimeService) RefreshMCPServer(ctx context.Context, name string) (RuntimeMCPServersResponse, error) {
@@ -106,7 +106,7 @@ func (r *runtimeService) RefreshMCPServer(ctx context.Context, name string) (Run
 		return RuntimeMCPServersResponse{}, fmt.Errorf("mcp server %s is not configured", name)
 	}
 	r.refreshMCPServerLifecycle(ctx, cfg, wsID, name, "server_refresh")
-	return runtimeMCPServersFromConfig(cfg), nil
+	return r.runtimeMCPServersFromConfig(cfg), nil
 }
 
 func (r *runtimeService) refreshMCPServerLifecycle(ctx context.Context, cfg *config.ConfigStore, _ string, name, reason string) error {
@@ -129,12 +129,20 @@ func (r *runtimeService) refreshMCPServerLifecycle(ctx context.Context, cfg *con
 	}
 
 	start := time.Now()
-	r.publishMCPServerEvent(runtimeapi.EventMCPServerStarting, name, mcpServerStateLoading, "", reason)
+	startEvent := runtimeapi.EventMCPServerStarting
+	if reason == "capability_refresh" {
+		startEvent = runtimeapi.EventMCPServerLazyStarted
+	}
+	r.publishMCPServerEvent(startEvent, name, mcpServerStateLoading, "", reason)
 	r.writeMCPAudit("server_refresh_started", name, "", "server", "loading", decision, "", 0)
 
 	if err := mcptools.InitializeSingle(ctx, name, cfg); err != nil {
 		duration := time.Since(start).Milliseconds()
-		r.publishMCPServerEvent(runtimeapi.EventMCPServerFailed, name, mcpServerStateFailed, err.Error(), "connect_failed")
+		failEvent := runtimeapi.EventMCPServerFailed
+		if reason == "capability_refresh" {
+			failEvent = runtimeapi.EventMCPServerLazyFailed
+		}
+		r.publishMCPServerEvent(failEvent, name, mcpServerStateFailed, err.Error(), "connect_failed")
 		r.writeMCPAudit("server_refresh_failed", name, "", "server", "failed", decision, err.Error(), duration)
 		r.recordMCPServerCapabilitiesFailed(name, err.Error(), duration)
 		return nil
@@ -319,6 +327,7 @@ func (r *runtimeService) mcpCapabilitiesForServer(server string) []RuntimeCapabi
 		runtimeMCPToolsFromConfig(cfg, server),
 		runtimeMCPResources(server),
 		runtimeMCPPrompts(server),
+		r.policy,
 	)
 	var capabilities []RuntimeCapability
 	for _, capability := range resp.Capabilities {
@@ -395,7 +404,7 @@ func (r *runtimeService) SetMCPToolEnabled(ctx context.Context, req RuntimeMCPTo
 			"enabled": req.Enabled,
 		},
 	})
-	return runtimeMCPToolsFromConfig(cfg, server), nil
+	return r.filterMCPToolsByPolicy(runtimeMCPToolsFromConfig(cfg, server)), nil
 }
 
 func (r *runtimeService) MCPTools(ctx context.Context, name string) (RuntimeMCPToolsResponse, error) {
@@ -407,7 +416,7 @@ func (r *runtimeService) MCPTools(ctx context.Context, name string) (RuntimeMCPT
 	if denied := r.mcpReadPolicyDenied(name, "tools"); denied != nil {
 		return RuntimeMCPToolsResponse{}, denied
 	}
-	return runtimeMCPToolsFromConfig(cfg, name), nil
+	return r.filterMCPToolsByPolicy(runtimeMCPToolsFromConfig(cfg, name)), nil
 }
 
 func (r *runtimeService) MCPResources(ctx context.Context, name string) (RuntimeMCPResourcesResponse, error) {
@@ -418,7 +427,7 @@ func (r *runtimeService) MCPResources(ctx context.Context, name string) (Runtime
 	if denied := r.mcpReadPolicyDenied(name, "resources"); denied != nil {
 		return RuntimeMCPResourcesResponse{}, denied
 	}
-	return runtimeMCPResources(name), nil
+	return r.filterMCPResourcesByPolicy(runtimeMCPResources(name)), nil
 }
 
 func (r *runtimeService) MCPPrompts(ctx context.Context, name string) (RuntimeMCPPromptsResponse, error) {
@@ -429,7 +438,72 @@ func (r *runtimeService) MCPPrompts(ctx context.Context, name string) (RuntimeMC
 	if denied := r.mcpReadPolicyDenied(name, "prompts"); denied != nil {
 		return RuntimeMCPPromptsResponse{}, denied
 	}
-	return runtimeMCPPrompts(name), nil
+	return r.filterMCPPromptsByPolicy(runtimeMCPPrompts(name)), nil
+}
+
+func (r *runtimeService) filterMCPToolsByPolicy(resp RuntimeMCPToolsResponse) RuntimeMCPToolsResponse {
+	out := make([]RuntimeMCPTool, 0, len(resp.Tools))
+	for _, tool := range resp.Tools {
+		decision := r.evaluateMCPPolicy(tool.Server, tool.Name, "tool", "inventory", permission.RiskNetwork)
+		r.recordMCPCapabilityDecision(tool.Server, tool.Name, "tool", decision)
+		if decision.Decision == permission.PolicyDeny {
+			continue
+		}
+		out = append(out, tool)
+	}
+	resp.Tools = out
+	return resp
+}
+
+func (r *runtimeService) filterMCPResourcesByPolicy(resp RuntimeMCPResourcesResponse) RuntimeMCPResourcesResponse {
+	out := make([]RuntimeMCPResource, 0, len(resp.Resources))
+	for _, resource := range resp.Resources {
+		decision := r.evaluateMCPPolicy(resource.Server, resource.URI, "resource", "inventory", permission.RiskRead)
+		r.recordMCPCapabilityDecision(resource.Server, resource.URI, "resource", decision)
+		if decision.Decision == permission.PolicyDeny {
+			continue
+		}
+		out = append(out, resource)
+	}
+	resp.Resources = out
+	return resp
+}
+
+func (r *runtimeService) filterMCPPromptsByPolicy(resp RuntimeMCPPromptsResponse) RuntimeMCPPromptsResponse {
+	out := make([]RuntimeMCPPrompt, 0, len(resp.Prompts))
+	for _, prompt := range resp.Prompts {
+		decision := r.evaluateMCPPolicy(prompt.Server, prompt.Name, "prompt", "inventory", permission.RiskRead)
+		r.recordMCPCapabilityDecision(prompt.Server, prompt.Name, "prompt", decision)
+		if decision.Decision == permission.PolicyDeny {
+			continue
+		}
+		out = append(out, prompt)
+	}
+	resp.Prompts = out
+	return resp
+}
+
+func (r *runtimeService) recordMCPCapabilityDecision(server, name, kind string, decision permission.PolicyResult) {
+	eventType := runtimeapi.EventMCPCapabilityAllowed
+	if decision.Decision == permission.PolicyDeny {
+		eventType = runtimeapi.EventMCPCapabilityDenied
+	}
+	r.storeRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      eventType,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Payload: map[string]any{
+			"server":        server,
+			"name":          name,
+			"kind":          kind,
+			"capability_id": stableMCPCapabilityID(server, kind, name),
+			"decision":      decision.Decision,
+			"risk":          decision.Risk,
+			"reason":        decision.Reason,
+			"mode":          decision.Mode,
+			"summary":       firstNonEmpty(name, server),
+		},
+	})
 }
 
 func (r *runtimeService) mcpReadPolicyDenied(server, kind string) error {
@@ -457,7 +531,17 @@ func (r *runtimeService) saveDesktopMCPServers(update func(config.MCPs)) error {
 	return saveDesktopMCPConfig(layout, desktopCfg)
 }
 
+func (r *runtimeService) runtimeMCPServersFromConfig(store *config.ConfigStore) RuntimeMCPServersResponse {
+	return runtimeMCPServersFromConfigWithPolicy(store, func(server string) permission.PolicyResult {
+		return r.evaluateMCPPolicy(server, "", "server", "inventory", permission.RiskRead)
+	})
+}
+
 func runtimeMCPServersFromConfig(store *config.ConfigStore) RuntimeMCPServersResponse {
+	return runtimeMCPServersFromConfigWithPolicy(store, nil)
+}
+
+func runtimeMCPServersFromConfigWithPolicy(store *config.ConfigStore, evaluate func(string) permission.PolicyResult) RuntimeMCPServersResponse {
 	states := mcptools.GetStates()
 	servers := make([]RuntimeMCPServer, 0, len(store.Config().MCP))
 	for _, item := range store.Config().MCP.Sorted() {
@@ -470,7 +554,18 @@ func runtimeMCPServersFromConfig(store *config.ConfigStore) RuntimeMCPServersRes
 		if !cfg.Disabled {
 			state = mcpServerStateUnloaded
 			reason = "metadata_known"
-			if info, ok := states[item.Name]; ok {
+			policyDenied := false
+			if evaluate != nil {
+				decision := evaluate(item.Name)
+				if decision.Decision == permission.PolicyDeny {
+					state = mcpServerStateDisabled
+					reason = "policy_denied"
+					diagnostics = decision.Reason
+					errorText = decision.Reason
+					policyDenied = true
+				}
+			}
+			if info, ok := states[item.Name]; ok && !policyDenied {
 				state, reason = normalizeMCPServerState(info.State)
 				counts = RuntimeMCPCounts{
 					Tools:     info.Counts.Tools,

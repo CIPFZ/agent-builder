@@ -14,7 +14,6 @@ import (
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 	"github.com/charmbracelet/crush/internal/skills"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
 )
 
 func (r *runtimeService) Skills(ctx context.Context) (RuntimeSkillsResponse, error) {
@@ -269,7 +268,7 @@ func runtimeSkillsFromConfigWithPolicy(store *config.ConfigStore, policyMode per
 		disabledSet[name] = true
 	}
 
-	policy := permission.NewPermissionPolicy(policyMode)
+	policy := runtimePolicyFromMode(policyMode, 0)
 	result := make([]RuntimeSkill, 0, len(states))
 	for _, state := range states {
 		runtimeSkill := RuntimeSkill{
@@ -325,12 +324,15 @@ func runtimeSkillsFromConfigWithPolicy(store *config.ConfigStore, policyMode per
 			runtimeSkill.CapabilityID = "skill:" + runtimeSkill.Name
 		}
 		if runtimeSkill.State == capabilityStateUnloaded && runtimeSkill.Enabled {
-			decision := policy.Evaluate(scheduler.ToolCall{
-				ID:           runtimeSkill.CapabilityID,
-				Name:         "context_activation",
-				Source:       scheduler.ToolSourceUnknown,
-				Status:       scheduler.ToolCallPending,
-				InputSummary: runtimeSkillPolicySummary(runtimeSkill),
+			decision := evaluateRuntimeCapabilityPolicy(policy, RuntimeCapability{
+				ID:          runtimeSkill.CapabilityID,
+				Kind:        "skill",
+				Name:        runtimeSkill.Name,
+				Source:      runtimeSkill.Path,
+				Enabled:     runtimeSkill.Enabled,
+				Risk:        "context",
+				Description: runtimeSkill.Description,
+				State:       runtimeSkill.State,
 			})
 			runtimeSkill.PolicyMode = string(decision.Mode)
 			runtimeSkill.PolicyRisk = string(decision.Risk)

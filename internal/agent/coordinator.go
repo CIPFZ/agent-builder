@@ -106,10 +106,11 @@ type coordinator struct {
 	activeSkills []*skills.Skill // Post-filter: active skills only.
 	skillTracker *skills.Tracker
 
-	readyWg           errgroup.Group
-	schedulerRecorder SchedulerRecorder
-	discoveryRecorder ToolDiscoveryRecorder
-	agentTaskRecorder AgentTaskRecorder
+	readyWg            errgroup.Group
+	schedulerRecorder  SchedulerRecorder
+	discoveryRecorder  ToolDiscoveryRecorder
+	capabilityRecorder CapabilityScopeRecorder
+	agentTaskRecorder  AgentTaskRecorder
 }
 
 type SchedulerRecorder interface {
@@ -210,6 +211,8 @@ type SchedulerToolMetadata struct {
 	SchemaDigest    string
 	EstimatedTokens int
 	Base            bool
+	SessionID       string
+	TurnID          string
 }
 
 type SchedulerToolDisclosureRequest struct {
@@ -237,6 +240,10 @@ type SchedulerToolSearchResult struct {
 	Matches []string
 	Total   int
 	Message string
+}
+
+type CapabilityScopeRecorder interface {
+	CapabilityAllowed(context.Context, SchedulerToolMetadata) bool
 }
 
 type AgentTaskRecorder interface {
@@ -312,6 +319,9 @@ func NewCoordinator(
 		c.schedulerRecorder = schedulerRecorder[0]
 		if discoveryRecorder, ok := schedulerRecorder[0].(ToolDiscoveryRecorder); ok {
 			c.discoveryRecorder = discoveryRecorder
+		}
+		if capabilityRecorder, ok := schedulerRecorder[0].(CapabilityScopeRecorder); ok {
+			c.capabilityRecorder = capabilityRecorder
 		}
 		if taskRecorder, ok := schedulerRecorder[0].(AgentTaskRecorder); ok {
 			c.agentTaskRecorder = taskRecorder
@@ -722,6 +732,15 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	}
 
 	for _, tool := range tools.GetMCPTools(c.permissions, c.cfg, c.cfg.WorkingDir()) {
+		metadata := SchedulerToolMetadata{
+			Name:         tool.Name(),
+			Source:       "mcp",
+			CapabilityID: "mcp:" + tool.MCP() + ":" + tool.MCPToolName(),
+			Description:  tool.Info().Description,
+		}
+		if c.capabilityRecorder != nil && !c.capabilityRecorder.CapabilityAllowed(ctx, metadata) {
+			continue
+		}
 		if agent.AllowedMCP == nil {
 			// No MCP restrictions
 			filteredTools = append(filteredTools, tool)

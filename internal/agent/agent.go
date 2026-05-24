@@ -662,6 +662,8 @@ func selectToolsForPreparedStep(ctx context.Context, agentTools []fantasy.AgentT
 			SchemaDigest:    schedulerSchemaDigest(info),
 			EstimatedTokens: schedulerToolInfoEstimatedTokens(info),
 			Base:            isBaseRuntimeTool(name),
+			SessionID:       sessionID,
+			TurnID:          turnID,
 		})
 	}
 	result, err := recorder.SelectToolsForTurn(ctx, SchedulerToolDisclosureRequest{

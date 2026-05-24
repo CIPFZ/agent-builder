@@ -15,6 +15,79 @@ type runtimeSchedulerRecorder struct {
 	service *runtimeService
 }
 
+func (r *runtimeSchedulerRecorder) CapabilityAllowed(ctx context.Context, metadata agent.SchedulerToolMetadata) bool {
+	if r == nil || r.service == nil {
+		return true
+	}
+	capability := RuntimeCapability{
+		ID:          metadata.CapabilityID,
+		Kind:        "builtin_tool",
+		Name:        metadata.Name,
+		Source:      metadata.Source,
+		Enabled:     true,
+		Risk:        "read",
+		Description: metadata.Description,
+		State:       capabilityStateLoaded,
+	}
+	if metadata.Source == string(scheduler.ToolSourceMCP) {
+		capability.Kind = "mcp_tool"
+		capability.Risk = "network"
+		if capability.ID == "" {
+			capability.ID = capabilityIDForToolName(metadata.Name)
+		}
+	}
+	if metadata.Source == string(scheduler.ToolSourceShell) {
+		capability.Kind = "builtin_tool"
+		capability.Risk = "execute"
+	}
+	if task, ok := r.service.agentTaskForChildSession(ctx, metadata.SessionID); ok {
+		call := agent.SchedulerToolCall{
+			SessionID:    metadata.SessionID,
+			TurnID:       metadata.TurnID,
+			Name:         metadata.Name,
+			Source:       metadata.Source,
+			CapabilityID: capability.ID,
+			Risk:         capability.Risk,
+			InputSummary: metadata.SchemaSummary,
+		}
+		if reason := r.service.agentTaskScopeViolation(task, call); reason != "" {
+			r.service.recordAgentTaskScope(ctx, task, false, reason)
+			r.service.storeRuntimeEvent(runtimeapi.Event{
+				ID:        newRuntimeEventID(),
+				Type:      runtimeapi.EventMCPCapabilityDenied,
+				CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+				Payload: map[string]any{
+					"capability_id": capability.ID,
+					"name":          capability.Name,
+					"kind":          capability.Kind,
+					"reason":        reason,
+					"scope":         "agent_task",
+					"summary":       capability.Name,
+				},
+			})
+			return false
+		}
+		r.service.recordAgentTaskScope(ctx, task, true, "task scope allowed capability")
+	}
+	decision := r.service.evaluateCapabilitySearchPolicy(capability)
+	if decision.Decision == permission.PolicyDeny {
+		r.service.storeRuntimeEvent(runtimeapi.Event{
+			ID:        newRuntimeEventID(),
+			Type:      runtimeapi.EventMCPCapabilityDenied,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			Payload: map[string]any{
+				"capability_id": capability.ID,
+				"name":          capability.Name,
+				"kind":          capability.Kind,
+				"reason":        decision.Reason,
+				"summary":       capability.Name,
+			},
+		})
+		return false
+	}
+	return true
+}
+
 func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call agent.SchedulerToolCall) (agent.SchedulerToolPolicyDecision, error) {
 	if r == nil || r.service == nil {
 		return agent.SchedulerToolPolicyDecision{}, nil

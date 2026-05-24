@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
 )
 
 const (
@@ -298,20 +297,15 @@ func (r *runtimeService) filterAndScoreToolSearch(query string, capabilities []R
 }
 
 func (r *runtimeService) evaluateCapabilitySearchPolicy(capability RuntimeCapability) permission.PolicyResult {
-	if capability.Kind == "skill" || capability.Kind == "mcp_prompt" {
-		return permission.PolicyResult{Decision: permission.PolicyAllow, Risk: permission.RiskRead, Reason: "Discovery exposes metadata only.", Mode: permission.PolicyMode(r.policy.Mode)}
-	}
 	r.mu.Lock()
 	policy := r.policy
 	r.mu.Unlock()
-	return runtimePermissionPolicy(policy).Evaluate(scheduler.ToolCall{
-		ID:           capability.ID,
-		Name:         capability.Name,
-		Source:       capabilityToolSource(capability),
-		CapabilityID: capability.ID,
-		Status:       scheduler.ToolCallPending,
-		InputSummary: capabilityPolicySummary(capability),
-	})
+	result := evaluateRuntimeCapabilityPolicy(policy, capability)
+	if result.Decision == permission.PolicyAsk && (capability.Kind == "skill" || capability.Kind == "mcp_prompt" || capability.Kind == "mcp_resource") {
+		result.Decision = permission.PolicyAllow
+		result.Reason = firstNonEmpty(result.Reason, "Discovery exposes metadata only.")
+	}
+	return result
 }
 
 func parseToolSelectQuery(query string) map[string]struct{} {

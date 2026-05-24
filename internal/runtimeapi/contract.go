@@ -130,6 +130,14 @@ const (
 	EventSkillDisabled              = "skill.disabled"
 	EventSkillActivated             = "skill.activated"
 	EventSkillActivationFailed      = "skill.activation.failed"
+	EventSkillActivationAllowed     = "skill.activation.allowed"
+	EventSkillActivationDenied      = "skill.activation.denied"
+	EventSkillContextInjected       = "skill.context.injected"
+	EventSkillContextOmitted        = "skill.context.omitted"
+	EventMCPCapabilityAllowed       = "mcp.capability.allowed"
+	EventMCPCapabilityDenied        = "mcp.capability.denied"
+	EventMCPServerLazyStarted       = "mcp.server.lazy_started"
+	EventMCPServerLazyFailed        = "mcp.server.lazy_failed"
 	EventMCPServerStarting          = "mcp.server.starting"
 	EventMCPServerConnected         = "mcp.server.connected"
 	EventMCPServerFailed            = "mcp.server.failed"
@@ -204,6 +212,14 @@ var EventTypes = []string{
 	EventSkillDisabled,
 	EventSkillActivated,
 	EventSkillActivationFailed,
+	EventSkillActivationAllowed,
+	EventSkillActivationDenied,
+	EventSkillContextInjected,
+	EventSkillContextOmitted,
+	EventMCPCapabilityAllowed,
+	EventMCPCapabilityDenied,
+	EventMCPServerLazyStarted,
+	EventMCPServerLazyFailed,
 	EventMCPServerStarting,
 	EventMCPServerConnected,
 	EventMCPServerFailed,
