@@ -39,6 +39,15 @@ const (
 	PolicyDeny  PolicyDecision = "deny"
 )
 
+type PolicyProfile string
+
+const (
+	PolicyProfileDefault  PolicyProfile = "default"
+	PolicyProfileHeadless PolicyProfile = "headless"
+	PolicyProfileTask     PolicyProfile = "task"
+	PolicyProfileRecovery PolicyProfile = "recovery"
+)
+
 type PermissionPolicy interface {
 	Evaluate(scheduler.ToolCall) PolicyResult
 }
@@ -82,6 +91,8 @@ type PolicyResult struct {
 	Reason         string
 	Mode           PolicyMode
 	Profile        string
+	Headless       bool
+	HeadlessReason string
 	RuleID         string
 	RuleSource     string
 	RuleDecision   PolicyDecision
@@ -104,7 +115,7 @@ func NewPermissionPolicy(mode PolicyMode) StaticPolicy {
 func NewScopedPermissionPolicy(mode PolicyMode, profile string, rules []PolicyRule) StaticPolicy {
 	return StaticPolicy{
 		Mode:    NormalizePolicyMode(mode),
-		Profile: strings.TrimSpace(profile),
+		Profile: NormalizePolicyProfile(profile),
 		Rules:   NormalizePolicyRules(rules),
 	}
 }
@@ -118,9 +129,35 @@ func NormalizePolicyMode(mode PolicyMode) PolicyMode {
 	}
 }
 
+func NormalizePolicyProfile(profile string) string {
+	normalized := strings.ToLower(strings.TrimSpace(profile))
+	switch normalized {
+	case "", "default", "interactive":
+		return string(PolicyProfileDefault)
+	case "headless", "non_interactive", "non-interactive", "background":
+		return string(PolicyProfileHeadless)
+	case "task", "subagent", "task/subagent", "agent_task", "agent-task":
+		return string(PolicyProfileTask)
+	case "recovery", "replay", "replay-safe", "replay_safe":
+		return string(PolicyProfileRecovery)
+	default:
+		return strings.TrimSpace(profile)
+	}
+}
+
+func IsHeadlessPolicyProfile(profile string) bool {
+	switch NormalizePolicyProfile(profile) {
+	case string(PolicyProfileHeadless), string(PolicyProfileTask), string(PolicyProfileRecovery):
+		return true
+	default:
+		return false
+	}
+}
+
 func (p StaticPolicy) Evaluate(call scheduler.ToolCall) PolicyResult {
 	risk := ClassifyToolCallRisk(call)
 	mode := NormalizePolicyMode(p.Mode)
+	profile := NormalizePolicyProfile(p.Profile)
 	target := TargetSummaryForToolCall(call)
 	shell := ShellClassification{}
 	if isShellToolCall(call) {
@@ -132,7 +169,7 @@ func (p StaticPolicy) Evaluate(call scheduler.ToolCall) PolicyResult {
 	base := p.evaluateBaseline(mode, risk)
 	base.TargetSummary = target
 	base.Shell = shell
-	base.Profile = p.Profile
+	base.Profile = profile
 	if rule, matched := p.matchRule(call, mode); matched {
 		base.Decision = normalizePolicyDecision(rule.Decision, base.Decision)
 		base.RuleID = rule.ID
@@ -144,9 +181,29 @@ func (p StaticPolicy) Evaluate(call scheduler.ToolCall) PolicyResult {
 		} else {
 			base.Reason = fmt.Sprintf("Scoped policy rule %s matched %s %s.", rule.ID, base.RuleScopeKind, base.RuleScopeValue)
 		}
-		return base
+		return applyProfileSemantics(base)
 	}
-	return base
+	return applyProfileSemantics(base)
+}
+
+func applyProfileSemantics(result PolicyResult) PolicyResult {
+	result.Profile = NormalizePolicyProfile(result.Profile)
+	if !IsHeadlessPolicyProfile(result.Profile) {
+		return result
+	}
+	result.Headless = true
+	if result.HeadlessReason == "" {
+		result.HeadlessReason = fmt.Sprintf("Policy profile %s is non-interactive; ask decisions fail closed.", result.Profile)
+	}
+	if result.Decision == PolicyAsk {
+		result.Decision = PolicyDeny
+		if result.Reason == "" {
+			result.Reason = result.HeadlessReason
+		} else {
+			result.Reason = result.Reason + " " + result.HeadlessReason
+		}
+	}
+	return result
 }
 
 func (p StaticPolicy) evaluateBaseline(mode PolicyMode, risk Risk) PolicyResult {
@@ -182,7 +239,7 @@ func (p StaticPolicy) matchRule(call scheduler.ToolCall, mode PolicyMode) (Polic
 		if rule.PolicyMode != "" && NormalizePolicyMode(rule.PolicyMode) != mode {
 			continue
 		}
-		if rule.PolicyProfile != "" && !strings.EqualFold(rule.PolicyProfile, p.Profile) {
+		if rule.PolicyProfile != "" && !strings.EqualFold(NormalizePolicyProfile(rule.PolicyProfile), NormalizePolicyProfile(p.Profile)) {
 			continue
 		}
 		if policyRuleMatches(rule, call) {
@@ -222,7 +279,9 @@ func NormalizePolicyRules(rules []PolicyRule) []PolicyRule {
 		if strings.TrimSpace(string(rule.PolicyMode)) != "" {
 			rule.PolicyMode = NormalizePolicyMode(rule.PolicyMode)
 		}
-		rule.PolicyProfile = strings.TrimSpace(rule.PolicyProfile)
+		if strings.TrimSpace(rule.PolicyProfile) != "" {
+			rule.PolicyProfile = NormalizePolicyProfile(rule.PolicyProfile)
+		}
 		rule.ScopeKind = strings.TrimSpace(rule.ScopeKind)
 		rule.ScopeValue = strings.TrimSpace(rule.ScopeValue)
 		if rule.Precedence == 0 {
@@ -661,6 +720,15 @@ func classifyTokenizedCommand(tokens []string, statement string) (string, string
 	}
 	switch cmd {
 	case "rm":
+		if hasPowerShellFlag(lowerTokens, "recurse") && hasPowerShellFlag(lowerTokens, "force") {
+			return "Shell policy detected PowerShell recursive forced delete.", commandTargetSummary(cmd, tokens)
+		}
+		if hasPowerShellFlag(lowerTokens, "recurse") {
+			return "Shell policy detected PowerShell recursive delete.", commandTargetSummary(cmd, tokens)
+		}
+		if hasPowerShellFlag(lowerTokens, "force") {
+			return "Shell policy detected PowerShell forced delete.", commandTargetSummary(cmd, tokens)
+		}
 		if hasShortFlag(lowerTokens, "r") && hasShortFlag(lowerTokens, "f") {
 			return "Shell policy detected recursive forced delete.", commandTargetSummary("rm", tokens)
 		}
@@ -671,6 +739,15 @@ func classifyTokenizedCommand(tokens []string, statement string) (string, string
 			return "Shell policy detected forced delete.", commandTargetSummary("rm", tokens)
 		}
 	case "del", "erase":
+		if hasPowerShellFlag(lowerTokens, "recurse") && hasPowerShellFlag(lowerTokens, "force") {
+			return "Shell policy detected PowerShell recursive forced delete.", commandTargetSummary(cmd, tokens)
+		}
+		if hasPowerShellFlag(lowerTokens, "recurse") {
+			return "Shell policy detected PowerShell recursive delete.", commandTargetSummary(cmd, tokens)
+		}
+		if hasPowerShellFlag(lowerTokens, "force") {
+			return "Shell policy detected PowerShell forced delete.", commandTargetSummary(cmd, tokens)
+		}
 		if hasSlashFlag(lowerTokens, "/s") || hasSlashFlag(lowerTokens, "/q") || hasSlashFlag(lowerTokens, "/f") {
 			return "Shell policy detected cmd delete with dangerous flags.", commandTargetSummary(cmd, tokens)
 		}
@@ -705,7 +782,7 @@ func classifyTokenizedCommand(tokens []string, statement string) (string, string
 		return "Shell policy detected process termination.", commandTargetSummary(cmd, tokens)
 	case "chmod", "chown":
 		return "Shell policy detected ownership or permission change.", commandTargetSummary(cmd, tokens)
-	case "clear-content", "set-content", "out-file":
+	case "clear-content", "set-content", "out-file", "sc":
 		return "Shell policy detected content overwrite command.", commandTargetSummary(cmd, tokens)
 	}
 	if redirectsOverwrite(statement) {
@@ -727,6 +804,8 @@ var fallbackDestructiveShellPatterns = []struct {
 	{regexp.MustCompile(`(?i)(^|[;&|()\s])(remove-item|rm|ri)\s+[^;&|]*(?:-recurse|-force)\b`), "Shell policy detected PowerShell destructive delete."},
 	{regexp.MustCompile(`(?i)(^|[;&|()\s])(del|erase|rmdir|rd)(\.exe)?\s+[^;&|]*(/s|/q|/f)\b`), "Shell policy detected cmd delete with dangerous flags."},
 	{regexp.MustCompile(`(?i)\b(clear-content|set-content|out-file)\b`), "Shell policy detected content overwrite command."},
+	{regexp.MustCompile(`(?i)(^|[;&|()\s])remove-item\s+[^;&|]*(?:-literalpath|-path)\s+["']?[^;&|]+["']?[^;&|]*(?:-recurse|-force)\b`), "Shell policy detected PowerShell destructive delete."},
+	{regexp.MustCompile(`(?i)(^|[;&|()\s])git\s+clean\s+[^;&|]*-[a-z]*f[a-z]*`), "Shell policy detected git clean forced delete."},
 }
 
 func classifyPatternFallback(command string) (string, string) {

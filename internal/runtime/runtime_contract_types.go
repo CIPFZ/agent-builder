@@ -81,6 +81,8 @@ type RuntimeToolCall struct {
 	PolicyReason                   string `json:"policyReason,omitempty"`
 	PolicyMode                     string `json:"policyMode,omitempty"`
 	PolicyProfile                  string `json:"policyProfile,omitempty"`
+	PolicyHeadless                 bool   `json:"policyHeadless,omitempty"`
+	PolicyHeadlessReason           string `json:"policyHeadlessReason,omitempty"`
 	PolicyRuleID                   string `json:"policyRuleId,omitempty"`
 	PolicyRuleSource               string `json:"policyRuleSource,omitempty"`
 	PolicyScopeKind                string `json:"policyScopeKind,omitempty"`
@@ -392,30 +394,32 @@ type RuntimeMessagesResponse struct {
 }
 
 type RuntimePermissionRequest struct {
-	ID                  string `json:"id"`
-	SessionID           string `json:"sessionId"`
-	TurnID              string `json:"turnId,omitempty"`
-	ToolCallID          string `json:"toolCallId"`
-	ToolName            string `json:"toolName"`
-	Description         string `json:"description,omitempty"`
-	Action              string `json:"action"`
-	Params              any    `json:"params,omitempty"`
-	Path                string `json:"path,omitempty"`
-	Target              string `json:"target,omitempty"`
-	Risk                string `json:"risk,omitempty"`
-	PolicyMode          string `json:"policyMode,omitempty"`
-	PolicyReason        string `json:"policyReason,omitempty"`
-	PolicyProfile       string `json:"policyProfile,omitempty"`
-	PolicyRuleID        string `json:"policyRuleId,omitempty"`
-	PolicyRuleSource    string `json:"policyRuleSource,omitempty"`
-	PolicyScopeKind     string `json:"policyScopeKind,omitempty"`
-	PolicyScopeValue    string `json:"policyScopeValue,omitempty"`
-	PolicyTargetSummary string `json:"policyTargetSummary,omitempty"`
-	Decision            string `json:"decision,omitempty"`
-	Reason              string `json:"reason,omitempty"`
-	Status              string `json:"status,omitempty"`
-	CreatedAt           int64  `json:"createdAt"`
-	DecidedAt           int64  `json:"decidedAt,omitempty"`
+	ID                   string `json:"id"`
+	SessionID            string `json:"sessionId"`
+	TurnID               string `json:"turnId,omitempty"`
+	ToolCallID           string `json:"toolCallId"`
+	ToolName             string `json:"toolName"`
+	Description          string `json:"description,omitempty"`
+	Action               string `json:"action"`
+	Params               any    `json:"params,omitempty"`
+	Path                 string `json:"path,omitempty"`
+	Target               string `json:"target,omitempty"`
+	Risk                 string `json:"risk,omitempty"`
+	PolicyMode           string `json:"policyMode,omitempty"`
+	PolicyReason         string `json:"policyReason,omitempty"`
+	PolicyProfile        string `json:"policyProfile,omitempty"`
+	PolicyHeadless       bool   `json:"policyHeadless,omitempty"`
+	PolicyHeadlessReason string `json:"policyHeadlessReason,omitempty"`
+	PolicyRuleID         string `json:"policyRuleId,omitempty"`
+	PolicyRuleSource     string `json:"policyRuleSource,omitempty"`
+	PolicyScopeKind      string `json:"policyScopeKind,omitempty"`
+	PolicyScopeValue     string `json:"policyScopeValue,omitempty"`
+	PolicyTargetSummary  string `json:"policyTargetSummary,omitempty"`
+	Decision             string `json:"decision,omitempty"`
+	Reason               string `json:"reason,omitempty"`
+	Status               string `json:"status,omitempty"`
+	CreatedAt            int64  `json:"createdAt"`
+	DecidedAt            int64  `json:"decidedAt,omitempty"`
 }
 
 type RuntimePermissionsResponse struct {
@@ -590,6 +594,8 @@ type RuntimeReplayPolicyDecision struct {
 	ScopeValue        string `json:"scopeValue,omitempty"`
 	ShellRisk         string `json:"shellRisk,omitempty"`
 	ShellReason       string `json:"shellReason,omitempty"`
+	Headless          bool   `json:"headless,omitempty"`
+	HeadlessReason    string `json:"headlessReason,omitempty"`
 }
 
 type RuntimeReplayPermission struct {

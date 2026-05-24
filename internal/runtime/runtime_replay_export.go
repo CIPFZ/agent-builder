@@ -490,6 +490,8 @@ func runtimeReplayPolicyFromEvent(event RuntimeEvent) RuntimeReplayPolicyDecisio
 		ScopeValue:        stringFromMap(event.Payload, "scope_value"),
 		ShellRisk:         stringFromMap(event.Payload, "shell_risk"),
 		ShellReason:       stringFromMap(event.Payload, "shell_reason"),
+		Headless:          boolFromMap(event.Payload, "headless"),
+		HeadlessReason:    stringFromMap(event.Payload, "headless_reason"),
 	}
 }
 
@@ -508,6 +510,8 @@ func runtimeReplayPolicyFromAudit(event RuntimeAuditEvent) RuntimeReplayPolicyDe
 		ScopeValue:        stringFromMap(event.Payload, "policy_scope_value"),
 		ShellRisk:         stringFromMap(event.Payload, "shell_risk"),
 		ShellReason:       stringFromMap(event.Payload, "shell_reason"),
+		Headless:          boolFromMap(event.Payload, "policy_headless"),
+		HeadlessReason:    firstNonEmpty(stringFromMap(event.Payload, "policy_headless_reason"), stringFromMap(asMap(event.Payload["extra"]), "headless_reason")),
 	}
 }
 

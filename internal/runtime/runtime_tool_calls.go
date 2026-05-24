@@ -140,17 +140,18 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		compactedAt = call.CompactedAt.UnixMilli()
 	}
 	redacted := redactRuntimePayload(map[string]any{
-		"input":                 call.InputSummary,
-		"output":                call.OutputSummary,
-		"model_content":         call.ModelContent,
-		"structured":            call.Structured,
-		"stdout":                call.Stdout,
-		"stderr":                call.Stderr,
-		"error":                 call.Error,
-		"command":               call.Command,
-		"policy_reason":         call.PolicyReason,
-		"policy_target_summary": call.PolicyTargetSummary,
-		"shell_reason":          call.ShellReason,
+		"input":                  call.InputSummary,
+		"output":                 call.OutputSummary,
+		"model_content":          call.ModelContent,
+		"structured":             call.Structured,
+		"stdout":                 call.Stdout,
+		"stderr":                 call.Stderr,
+		"error":                  call.Error,
+		"command":                call.Command,
+		"policy_reason":          call.PolicyReason,
+		"policy_target_summary":  call.PolicyTargetSummary,
+		"policy_headless_reason": call.PolicyHeadlessReason,
+		"shell_reason":           call.ShellReason,
 	})
 	return RuntimeToolCall{
 		ID:                             call.ID,
@@ -166,6 +167,8 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		PolicyReason:                   stringFromMap(redacted, "policy_reason"),
 		PolicyMode:                     call.PolicyMode,
 		PolicyProfile:                  call.PolicyProfile,
+		PolicyHeadless:                 call.PolicyHeadless,
+		PolicyHeadlessReason:           stringFromMap(redacted, "policy_headless_reason"),
 		PolicyRuleID:                   call.PolicyRuleID,
 		PolicyRuleSource:               call.PolicyRuleSource,
 		PolicyScopeKind:                call.PolicyScopeKind,

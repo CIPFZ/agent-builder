@@ -135,7 +135,7 @@ func TestRuntimeScenarioHarnessPolicyToolShellGolden(t *testing.T) {
 				}}, agent.SchedulerToolCall{
 					ID: "tool-ask", SessionID: "session-auto", TurnID: "turn-auto", Name: "bash", Source: string(scheduler.ToolSourceShell), CapabilityID: "builtin:bash", InputSummary: `{"command":"go test ./..."}`,
 				})
-				if ask.Decision != string(permission.PolicyDeny) || !strings.Contains(ask.Reason, "requires approval") {
+				if ask.Decision != string(permission.PolicyDeny) || !strings.Contains(ask.Reason, "requires approval") || !ask.Headless {
 					t.Fatalf("headless ask decision should fail closed without permission service: %#v", ask)
 				}
 				deny := h.evaluatePolicy(permission.PolicyModeAutoRead, []RuntimePolicyRule{{
@@ -150,6 +150,11 @@ func TestRuntimeScenarioHarnessPolicyToolShellGolden(t *testing.T) {
 			verify: func(t *testing.T, replay RuntimeReplayExportResponse) {
 				if !hasReplayPolicy(replay, "tool-read", permission.PolicyAllow, permission.PolicyModeAutoRead) || !hasReplayPolicy(replay, "tool-deny", permission.PolicyDeny, permission.PolicyModeAutoRead) {
 					t.Fatalf("missing auto-read replay: %#v", replay.Summary.PolicyDecisions)
+				}
+				if !slices.ContainsFunc(replay.Summary.PolicyDecisions, func(item RuntimeReplayPolicyDecision) bool {
+					return item.ToolCallID == "tool-ask" && item.Headless && item.HeadlessReason != "" && item.ShellReason != ""
+				}) {
+					t.Fatalf("missing headless ask replay: %#v", replay.Summary.PolicyDecisions)
 				}
 			},
 		},

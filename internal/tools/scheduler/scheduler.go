@@ -19,31 +19,33 @@ func New(store Store) *Scheduler {
 
 func (s *Scheduler) CreateCall(ctx context.Context, req ToolCallRequest) (ToolCall, error) {
 	return s.store.Upsert(ctx, ToolCall{
-		ID:                  req.ID,
-		SessionID:           req.SessionID,
-		TurnID:              req.TurnID,
-		MessageID:           req.MessageID,
-		Name:                req.Name,
-		Source:              req.Source,
-		CapabilityID:        req.CapabilityID,
-		JobID:               req.JobID,
-		Command:             req.Command,
-		Risk:                req.Risk,
-		PolicyReason:        req.PolicyReason,
-		PolicyMode:          req.PolicyMode,
-		PolicyProfile:       req.PolicyProfile,
-		PolicyRuleID:        req.PolicyRuleID,
-		PolicyRuleSource:    req.PolicyRuleSource,
-		PolicyScopeKind:     req.PolicyScopeKind,
-		PolicyScopeValue:    req.PolicyScopeValue,
-		PolicyTargetSummary: req.PolicyTargetSummary,
-		ShellRisk:           req.ShellRisk,
-		ShellReason:         req.ShellReason,
-		JobStatus:           req.JobStatus,
-		JobStartedAt:        req.JobStartedAt,
-		Status:              ToolCallRunning,
-		InputSummary:        req.InputSummary,
-		StartedAt:           s.now(),
+		ID:                   req.ID,
+		SessionID:            req.SessionID,
+		TurnID:               req.TurnID,
+		MessageID:            req.MessageID,
+		Name:                 req.Name,
+		Source:               req.Source,
+		CapabilityID:         req.CapabilityID,
+		JobID:                req.JobID,
+		Command:              req.Command,
+		Risk:                 req.Risk,
+		PolicyReason:         req.PolicyReason,
+		PolicyMode:           req.PolicyMode,
+		PolicyProfile:        req.PolicyProfile,
+		PolicyHeadless:       req.PolicyHeadless,
+		PolicyHeadlessReason: req.PolicyHeadlessReason,
+		PolicyRuleID:         req.PolicyRuleID,
+		PolicyRuleSource:     req.PolicyRuleSource,
+		PolicyScopeKind:      req.PolicyScopeKind,
+		PolicyScopeValue:     req.PolicyScopeValue,
+		PolicyTargetSummary:  req.PolicyTargetSummary,
+		ShellRisk:            req.ShellRisk,
+		ShellReason:          req.ShellReason,
+		JobStatus:            req.JobStatus,
+		JobStartedAt:         req.JobStartedAt,
+		Status:               ToolCallRunning,
+		InputSummary:         req.InputSummary,
+		StartedAt:            s.now(),
 	})
 }
 
@@ -82,6 +84,12 @@ func (s *Scheduler) CompleteCall(ctx context.Context, result ToolCallResult) (To
 	}
 	if result.PolicyProfile != "" {
 		call.PolicyProfile = result.PolicyProfile
+	}
+	if result.PolicyHeadless {
+		call.PolicyHeadless = result.PolicyHeadless
+	}
+	if result.PolicyHeadlessReason != "" {
+		call.PolicyHeadlessReason = result.PolicyHeadlessReason
 	}
 	if result.PolicyRuleID != "" {
 		call.PolicyRuleID = result.PolicyRuleID

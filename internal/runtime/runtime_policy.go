@@ -33,7 +33,7 @@ func defaultRuntimePolicy() RuntimePolicy {
 	return RuntimePolicy{
 		Mode:        string(permission.PolicyModeAsk),
 		Modes:       append([]string(nil), runtimePolicyModes...),
-		Profile:     "default",
+		Profile:     string(permission.PolicyProfileDefault),
 		Description: runtimePolicyDescription(permission.PolicyModeAsk),
 	}
 }
@@ -65,9 +65,7 @@ func runtimePolicyFromMode(mode permission.PolicyMode, updatedAt int64) RuntimeP
 
 func runtimePolicyFromParts(mode permission.PolicyMode, profile string, rules []RuntimePolicyRule, updatedAt int64) RuntimePolicy {
 	mode = permission.NormalizePolicyMode(mode)
-	if strings.TrimSpace(profile) == "" {
-		profile = "default"
-	}
+	profile = permission.NormalizePolicyProfile(profile)
 	normalizedRules, diagnostics := normalizeRuntimePolicyRules(rules)
 	return RuntimePolicy{
 		Mode:        string(mode),

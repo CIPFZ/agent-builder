@@ -55,9 +55,9 @@ func (s runtimePermissionStore) Upsert(ctx context.Context, perm RuntimePermissi
 INSERT INTO runtime_permission_requests (
     id, session_id, turn_id, tool_call_id, tool_name, description, action,
     params_json, path, target, risk, policy_mode, policy_reason, policy_profile,
-    policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value,
+    policy_headless, policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value,
     policy_target_summary, decision, status, created_at, decided_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     session_id = COALESCE(NULLIF(excluded.session_id, ''), runtime_permission_requests.session_id),
     turn_id = COALESCE(NULLIF(excluded.turn_id, ''), runtime_permission_requests.turn_id),
@@ -72,6 +72,8 @@ ON CONFLICT(id) DO UPDATE SET
     policy_mode = COALESCE(NULLIF(excluded.policy_mode, ''), runtime_permission_requests.policy_mode),
     policy_reason = COALESCE(NULLIF(excluded.policy_reason, ''), runtime_permission_requests.policy_reason),
     policy_profile = COALESCE(NULLIF(excluded.policy_profile, ''), runtime_permission_requests.policy_profile),
+    policy_headless = CASE WHEN excluded.policy_headless != 0 THEN excluded.policy_headless ELSE runtime_permission_requests.policy_headless END,
+    policy_headless_reason = COALESCE(NULLIF(excluded.policy_headless_reason, ''), runtime_permission_requests.policy_headless_reason),
     policy_rule_id = COALESCE(NULLIF(excluded.policy_rule_id, ''), runtime_permission_requests.policy_rule_id),
     policy_rule_source = COALESCE(NULLIF(excluded.policy_rule_source, ''), runtime_permission_requests.policy_rule_source),
     policy_scope_kind = COALESCE(NULLIF(excluded.policy_scope_kind, ''), runtime_permission_requests.policy_scope_kind),
@@ -95,6 +97,8 @@ ON CONFLICT(id) DO UPDATE SET
 		nullableString(perm.PolicyMode),
 		nullableString(firstNonEmpty(perm.PolicyReason, perm.Reason)),
 		nullableString(perm.PolicyProfile),
+		boolInt(perm.PolicyHeadless),
+		nullableString(perm.PolicyHeadlessReason),
 		nullableString(perm.PolicyRuleID),
 		nullableString(perm.PolicyRuleSource),
 		nullableString(perm.PolicyScopeKind),
@@ -118,7 +122,7 @@ func (s runtimePermissionStore) Get(ctx context.Context, id string) (RuntimePerm
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, session_id, turn_id, tool_call_id, tool_name, description, action,
     params_json, path, target, risk, policy_mode, policy_reason, policy_profile,
-    policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value,
+    policy_headless, policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value,
     policy_target_summary, decision, status, created_at, decided_at
 FROM runtime_permission_requests
 WHERE id = ?`, strings.TrimSpace(id))
@@ -137,7 +141,7 @@ func (s runtimePermissionStore) List(ctx context.Context, status string) ([]Runt
 	query := `
 SELECT id, session_id, turn_id, tool_call_id, tool_name, description, action,
     params_json, path, target, risk, policy_mode, policy_reason, policy_profile,
-    policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value,
+    policy_headless, policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value,
     policy_target_summary, decision, status, created_at, decided_at
 FROM runtime_permission_requests`
 	var args []any
@@ -185,7 +189,8 @@ type runtimePermissionScanner interface {
 
 func scanRuntimePermission(scanner runtimePermissionScanner) (RuntimePermissionRequest, error) {
 	var perm RuntimePermissionRequest
-	var turnID, toolCallID, description, paramsJSON, path, target, risk, policyMode, policyReason, policyProfile, policyRuleID, policyRuleSource, policyScopeKind, policyScopeValue, policyTargetSummary, decision sql.NullString
+	var turnID, toolCallID, description, paramsJSON, path, target, risk, policyMode, policyReason, policyProfile, policyHeadlessReason, policyRuleID, policyRuleSource, policyScopeKind, policyScopeValue, policyTargetSummary, decision sql.NullString
+	var policyHeadless int
 	var decidedAt sql.NullInt64
 	if err := scanner.Scan(
 		&perm.ID,
@@ -202,6 +207,8 @@ func scanRuntimePermission(scanner runtimePermissionScanner) (RuntimePermissionR
 		&policyMode,
 		&policyReason,
 		&policyProfile,
+		&policyHeadless,
+		&policyHeadlessReason,
 		&policyRuleID,
 		&policyRuleSource,
 		&policyScopeKind,
@@ -225,6 +232,8 @@ func scanRuntimePermission(scanner runtimePermissionScanner) (RuntimePermissionR
 	perm.PolicyReason = policyReason.String
 	perm.Reason = policyReason.String
 	perm.PolicyProfile = policyProfile.String
+	perm.PolicyHeadless = policyHeadless != 0
+	perm.PolicyHeadlessReason = policyHeadlessReason.String
 	perm.PolicyRuleID = policyRuleID.String
 	perm.PolicyRuleSource = policyRuleSource.String
 	perm.PolicyScopeKind = policyScopeKind.String

@@ -64,6 +64,8 @@ export type RuntimePermissionRequest = {
   policyMode?: string
   policyReason?: string
   policyProfile?: string
+  policyHeadless?: boolean
+  policyHeadlessReason?: string
   policyRuleId?: string
   policyRuleSource?: string
   policyScopeKind?: string
@@ -90,6 +92,8 @@ export type RuntimeToolCall = {
   policyReason?: string
   policyMode?: string
   policyProfile?: string
+  policyHeadless?: boolean
+  policyHeadlessReason?: string
   policyRuleId?: string
   policyRuleSource?: string
   policyScopeKind?: string
@@ -406,6 +410,8 @@ export type RuntimeReplayPolicyDecision = {
   scopeValue?: string
   shellRisk?: string
   shellReason?: string
+  headless?: boolean
+  headlessReason?: string
 }
 
 export type RuntimeReplayPermission = {

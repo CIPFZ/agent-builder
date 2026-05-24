@@ -609,6 +609,9 @@ func TestRuntimeSchedulerAskCreatesRecoverablePermission(t *testing.T) {
 	if perm.ToolCallID != "tool-ask" || perm.TurnID != "turn-1" || perm.Risk != string(permission.RiskExecute) || perm.PolicyMode != string(permission.PolicyModeAutoRead) || perm.Decision != string(permission.PolicyAsk) {
 		t.Fatalf("permission metadata = %#v", perm)
 	}
+	if perm.PolicyProfile != string(permission.PolicyProfileDefault) || perm.PolicyHeadless {
+		t.Fatalf("interactive permission profile = %#v", perm)
+	}
 	if _, err := service.DecidePermission(context.Background(), RuntimePermissionDecision{PermissionID: perm.ID, Action: string(proto.PermissionAllow)}); err != nil {
 		t.Fatal(err)
 	}
@@ -630,6 +633,65 @@ func TestRuntimeSchedulerAskCreatesRecoverablePermission(t *testing.T) {
 	}
 	if len(after.Permissions) != 0 {
 		t.Fatalf("permission should no longer be pending: %#v", after.Permissions)
+	}
+}
+
+func TestRuntimeSchedulerHeadlessAskFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	h := newRuntimeScenarioHarness(t)
+	h.seedTurn("session-headless", "turn-headless")
+	h.service.policy = runtimePolicyFromParts(permission.PolicyModeAutoRead, "headless", nil, time.Now().UnixMilli())
+	recorder := runtimeSchedulerRecorder{service: h.service}
+	decision, err := recorder.EvaluateToolCall(h.ctx, agent.SchedulerToolCall{
+		ID:           "tool-headless",
+		SessionID:    "session-headless",
+		TurnID:       "turn-headless",
+		Name:         "bash",
+		Source:       string(scheduler.ToolSourceShell),
+		CapabilityID: "builtin:bash",
+		InputSummary: `{"command":"go test ./..."}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Decision != string(permission.PolicyDeny) || decision.Profile != string(permission.PolicyProfileHeadless) || !decision.Headless {
+		t.Fatalf("headless decision = %#v", decision)
+	}
+	replay := h.replay("turn-headless")
+	if !slices.ContainsFunc(replay.Summary.PolicyDecisions, func(item RuntimeReplayPolicyDecision) bool {
+		return item.ToolCallID == "tool-headless" && item.Headless && item.HeadlessReason != "" && item.Profile == string(permission.PolicyProfileHeadless)
+	}) {
+		t.Fatalf("headless replay = %#v", replay.Summary.PolicyDecisions)
+	}
+	h.assertEventType(runtimeapi.EventSchedulerDeadlockPrevented)
+}
+
+func TestRuntimeSchedulerHeadlessDeterministicAllowAndDeny(t *testing.T) {
+	t.Parallel()
+
+	h := newRuntimeScenarioHarness(t)
+	h.seedTurn("session-headless", "turn-headless")
+	allow := h.evaluatePolicy(permission.PolicyModeAutoRead, []RuntimePolicyRule{{
+		ID: "allow-read-headless", Decision: string(permission.PolicyAllow), Source: "test", BuiltinTool: "view",
+	}}, agent.SchedulerToolCall{
+		ID: "tool-read", SessionID: "session-headless", TurnID: "turn-headless", Name: "view", Source: string(scheduler.ToolSourceBuiltin), CapabilityID: "builtin:view", InputSummary: `{"file_path":"README.md"}`,
+	})
+	if allow.Decision != string(permission.PolicyAllow) || allow.Profile != "scenario" {
+		t.Fatalf("headless deterministic allow = %#v", allow)
+	}
+	h.service.policy = runtimePolicyFromParts(permission.PolicyModeAutoRead, "headless", []RuntimePolicyRule{{
+		ID: "deny-write-headless", Decision: string(permission.PolicyDeny), Source: "test", BuiltinTool: "write",
+	}}, time.Now().UnixMilli())
+	recorder := runtimeSchedulerRecorder{service: h.service}
+	deny, err := recorder.EvaluateToolCall(h.ctx, agent.SchedulerToolCall{
+		ID: "tool-write", SessionID: "session-headless", TurnID: "turn-headless", Name: "write", Source: string(scheduler.ToolSourceBuiltin), CapabilityID: "builtin:write", InputSummary: `{"file_path":"x","content":"y"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deny.Decision != string(permission.PolicyDeny) || deny.RuleID != "deny-write-headless" || !deny.Headless {
+		t.Fatalf("headless deterministic deny = %#v", deny)
 	}
 }
 

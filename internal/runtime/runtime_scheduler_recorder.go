@@ -118,7 +118,8 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 	if decision, denied := r.evaluateAgentTaskScope(ctx, call); denied {
 		return decision, nil
 	}
-	policy := runtimePermissionPolicy(r.service.policy)
+	policyConfig := r.service.effectivePolicyForToolCall(ctx, call)
+	policy := runtimePermissionPolicy(policyConfig)
 	result := policy.Evaluate(scheduler.ToolCall{
 		ID:           call.ID,
 		SessionID:    call.SessionID,
@@ -132,6 +133,9 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 		InputSummary: call.InputSummary,
 	})
 	if result.Decision != permission.PolicyAsk {
+		if result.Headless && result.HeadlessReason != "" {
+			r.service.recordDeadlockPrevented(call.SessionID, call.TurnID, call.ID, "headless_permission_ask_fail_closed", result.HeadlessReason)
+		}
 		if result.Decision == permission.PolicyAllow {
 			if blocked, reason := r.service.incrementRunningToolGuard(call); blocked {
 				r.service.recordDeadlockPrevented(call.SessionID, call.TurnID, call.ID, reason, "concurrent runtime tool limit reached")
@@ -158,15 +162,53 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 			TargetSummary:  result.TargetSummary,
 			ShellRisk:      string(result.Shell.Risk),
 			ShellReason:    result.Shell.Reason,
+			Headless:       result.Headless,
+			HeadlessReason: result.HeadlessReason,
+		}, nil
+	}
+	if result.Decision == permission.PolicyAsk && result.Headless {
+		r.service.recordDeadlockPrevented(call.SessionID, call.TurnID, call.ID, "headless_permission_ask_fail_closed", result.HeadlessReason)
+		result.Decision = permission.PolicyDeny
+		r.recordPolicyDecision(call, result)
+		return agent.SchedulerToolPolicyDecision{
+			Decision:       string(permission.PolicyDeny),
+			Risk:           string(result.Risk),
+			Reason:         result.Reason,
+			Mode:           string(result.Mode),
+			Profile:        result.Profile,
+			RuleID:         result.RuleID,
+			RuleSource:     result.RuleSource,
+			RuleScopeKind:  result.RuleScopeKind,
+			RuleScopeValue: result.RuleScopeValue,
+			TargetSummary:  result.TargetSummary,
+			ShellRisk:      string(result.Shell.Risk),
+			ShellReason:    result.Shell.Reason,
+			Headless:       result.Headless,
+			HeadlessReason: result.HeadlessReason,
 		}, nil
 	}
 	if runtimeBackend == nil || workspaceID == "" {
+		result.Decision = permission.PolicyDeny
+		result.Headless = true
+		result.HeadlessReason = "Runtime policy requires approval, but no interactive permission service is available."
+		result.Reason = firstNonEmpty(result.Reason, "Runtime policy requires approval.") + " " + result.HeadlessReason
+		r.service.recordDeadlockPrevented(call.SessionID, call.TurnID, call.ID, "permission_service_unavailable", result.HeadlessReason)
+		r.recordPolicyDecision(call, result)
 		return agent.SchedulerToolPolicyDecision{
-			Decision: string(permission.PolicyDeny),
-			Risk:     string(result.Risk),
-			Reason:   "Runtime policy requires approval, but no permission service is available.",
-			Mode:     string(result.Mode),
-			Profile:  result.Profile,
+			Decision:       string(permission.PolicyDeny),
+			Risk:           string(result.Risk),
+			Reason:         result.Reason,
+			Mode:           string(result.Mode),
+			Profile:        result.Profile,
+			RuleID:         result.RuleID,
+			RuleSource:     result.RuleSource,
+			RuleScopeKind:  result.RuleScopeKind,
+			RuleScopeValue: result.RuleScopeValue,
+			TargetSummary:  result.TargetSummary,
+			ShellRisk:      string(result.Shell.Risk),
+			ShellReason:    result.Shell.Reason,
+			Headless:       result.Headless,
+			HeadlessReason: result.HeadlessReason,
 		}, nil
 	}
 	granted, err := runtimeBackend.GetWorkspace(workspaceID)
@@ -201,6 +243,8 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 			TargetSummary:  result.TargetSummary,
 			ShellRisk:      string(result.Shell.Risk),
 			ShellReason:    result.Shell.Reason,
+			Headless:       result.Headless,
+			HeadlessReason: result.HeadlessReason,
 		}, nil
 	}
 	if blocked, reason := r.service.incrementRunningToolGuard(call); blocked {
@@ -226,7 +270,21 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 		TargetSummary:  result.TargetSummary,
 		ShellRisk:      string(result.Shell.Risk),
 		ShellReason:    result.Shell.Reason,
+		Headless:       result.Headless,
+		HeadlessReason: result.HeadlessReason,
 	}, nil
+}
+
+func (r *runtimeService) effectivePolicyForToolCall(ctx context.Context, call agent.SchedulerToolCall) RuntimePolicy {
+	r.mu.Lock()
+	policy := r.policy
+	r.mu.Unlock()
+	if _, ok := r.agentTaskForChildSession(ctx, call.SessionID); ok {
+		policy.Profile = string(permission.PolicyProfileTask)
+		return policy
+	}
+	policy.Profile = permission.NormalizePolicyProfile(policy.Profile)
+	return policy
 }
 
 func (r *runtimeSchedulerRecorder) evaluateAgentTaskScope(ctx context.Context, call agent.SchedulerToolCall) (agent.SchedulerToolPolicyDecision, bool) {
@@ -243,9 +301,11 @@ func (r *runtimeSchedulerRecorder) evaluateAgentTaskScope(ctx context.Context, c
 	result := SchedulerToolPolicyDecisionFromScopeDeny(reason)
 	result.Risk = "execute"
 	result.Mode = r.service.policy.Mode
-	result.Profile = r.service.policy.Profile
+	result.Profile = string(permission.PolicyProfileTask)
 	result.RuleScopeKind = "task_scope"
 	result.RuleScopeValue = task.ID
+	result.Headless = true
+	result.HeadlessReason = "AgentTask child sessions use the non-interactive task policy profile."
 	return result, true
 }
 
@@ -273,6 +333,8 @@ func (r *runtimeSchedulerRecorder) recordPolicyDecision(call agent.SchedulerTool
 			"reason":              result.Reason,
 			"mode":                result.Mode,
 			"profile":             result.Profile,
+			"headless":            result.Headless,
+			"headless_reason":     result.HeadlessReason,
 			"matched_rule_id":     result.RuleID,
 			"matched_rule_source": result.RuleSource,
 			"scope_kind":          result.RuleScopeKind,
@@ -285,18 +347,24 @@ func (r *runtimeSchedulerRecorder) recordPolicyDecision(call agent.SchedulerTool
 	})
 	r.recordPolicyDiagnosticsEvents(call, result)
 	r.service.writeAudit(auditEntry{
-		RequestID:           call.TurnID,
-		Event:               "permission_policy_applied",
-		Timestamp:           time.Now().UTC().Format(time.RFC3339Nano),
-		SessionID:           call.SessionID,
-		PermissionTool:      call.Name,
-		PermissionAction:    policyActionForToolCall(call, result.Risk),
-		PermissionPath:      policyTargetForToolCall(call),
-		PermissionPolicy:    string(result.Decision),
-		PermissionRisk:      string(result.Risk),
-		PermissionReason:    result.Reason,
-		PolicyMode:          string(result.Mode),
-		PolicyProfile:       result.Profile,
+		RequestID:            call.TurnID,
+		Event:                "permission_policy_applied",
+		Timestamp:            time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID:            call.SessionID,
+		PermissionTool:       call.Name,
+		PermissionAction:     policyActionForToolCall(call, result.Risk),
+		PermissionPath:       policyTargetForToolCall(call),
+		PermissionPolicy:     string(result.Decision),
+		PermissionRisk:       string(result.Risk),
+		PermissionReason:     result.Reason,
+		PolicyMode:           string(result.Mode),
+		PolicyProfile:        result.Profile,
+		PolicyHeadless:       result.Headless,
+		PolicyHeadlessReason: result.HeadlessReason,
+		Extra: map[string]any{
+			"headless":        result.Headless,
+			"headless_reason": result.HeadlessReason,
+		},
 		PolicyRuleID:        result.RuleID,
 		PolicyRuleSource:    result.RuleSource,
 		PolicyScopeKind:     result.RuleScopeKind,
@@ -326,15 +394,17 @@ func (r *runtimeSchedulerRecorder) recordPolicyDiagnosticsEvents(call agent.Sche
 			MessageID:  call.MessageID,
 			ToolCallID: call.ID,
 			Payload: map[string]any{
-				"rule_id":     result.RuleID,
-				"source":      result.RuleSource,
-				"scope_kind":  result.RuleScopeKind,
-				"scope_value": result.RuleScopeValue,
-				"decision":    result.Decision,
-				"risk":        result.Risk,
-				"reason":      result.Reason,
-				"mode":        result.Mode,
-				"profile":     result.Profile,
+				"rule_id":         result.RuleID,
+				"source":          result.RuleSource,
+				"scope_kind":      result.RuleScopeKind,
+				"scope_value":     result.RuleScopeValue,
+				"decision":        result.Decision,
+				"risk":            result.Risk,
+				"reason":          result.Reason,
+				"mode":            result.Mode,
+				"profile":         result.Profile,
+				"headless":        result.Headless,
+				"headless_reason": result.HeadlessReason,
 			},
 		})
 	}
@@ -348,12 +418,15 @@ func (r *runtimeSchedulerRecorder) recordPolicyDiagnosticsEvents(call agent.Sche
 			MessageID:  call.MessageID,
 			ToolCallID: call.ID,
 			Payload: map[string]any{
-				"risk":           result.Shell.Risk,
-				"reason":         result.Shell.Reason,
-				"target_summary": result.Shell.TargetSummary,
-				"shell":          result.Shell.Shell,
-				"decision":       result.Decision,
-				"mode":           result.Mode,
+				"risk":            result.Shell.Risk,
+				"reason":          result.Shell.Reason,
+				"target_summary":  result.Shell.TargetSummary,
+				"shell":           result.Shell.Shell,
+				"decision":        result.Decision,
+				"mode":            result.Mode,
+				"profile":         result.Profile,
+				"headless":        result.Headless,
+				"headless_reason": result.HeadlessReason,
 			},
 		})
 	}
@@ -384,29 +457,31 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		return nil
 	}
 	stored, err := r.service.toolCalls.CreateCall(ctx, scheduler.ToolCallRequest{
-		ID:                  call.ID,
-		SessionID:           call.SessionID,
-		TurnID:              call.TurnID,
-		MessageID:           call.MessageID,
-		Name:                call.Name,
-		Source:              scheduler.ToolSource(call.Source),
-		CapabilityID:        call.CapabilityID,
-		JobID:               call.JobID,
-		Command:             call.Command,
-		Risk:                call.Risk,
-		PolicyReason:        call.PolicyReason,
-		PolicyMode:          call.PolicyMode,
-		PolicyProfile:       call.PolicyProfile,
-		PolicyRuleID:        call.PolicyRuleID,
-		PolicyRuleSource:    call.PolicyRuleSource,
-		PolicyScopeKind:     call.PolicyScopeKind,
-		PolicyScopeValue:    call.PolicyScopeValue,
-		PolicyTargetSummary: call.PolicyTargetSummary,
-		ShellRisk:           call.ShellRisk,
-		ShellReason:         call.ShellReason,
-		JobStatus:           call.JobStatus,
-		JobStartedAt:        timeFromMillis(call.JobStartedAt),
-		InputSummary:        preview(call.InputSummary, runtimePartPreviewLimit),
+		ID:                   call.ID,
+		SessionID:            call.SessionID,
+		TurnID:               call.TurnID,
+		MessageID:            call.MessageID,
+		Name:                 call.Name,
+		Source:               scheduler.ToolSource(call.Source),
+		CapabilityID:         call.CapabilityID,
+		JobID:                call.JobID,
+		Command:              call.Command,
+		Risk:                 call.Risk,
+		PolicyReason:         call.PolicyReason,
+		PolicyMode:           call.PolicyMode,
+		PolicyProfile:        call.PolicyProfile,
+		PolicyRuleID:         call.PolicyRuleID,
+		PolicyRuleSource:     call.PolicyRuleSource,
+		PolicyScopeKind:      call.PolicyScopeKind,
+		PolicyScopeValue:     call.PolicyScopeValue,
+		PolicyTargetSummary:  call.PolicyTargetSummary,
+		ShellRisk:            call.ShellRisk,
+		ShellReason:          call.ShellReason,
+		PolicyHeadless:       call.PolicyHeadless,
+		PolicyHeadlessReason: call.PolicyHeadlessReason,
+		JobStatus:            call.JobStatus,
+		JobStartedAt:         timeFromMillis(call.JobStartedAt),
+		InputSummary:         preview(call.InputSummary, runtimePartPreviewLimit),
 	})
 	if err != nil {
 		return err
@@ -429,6 +504,8 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		"target_summary":      stored.PolicyTargetSummary,
 		"shell_risk":          stored.ShellRisk,
 		"shell_reason":        stored.ShellReason,
+		"headless":            stored.PolicyHeadless,
+		"headless_reason":     stored.PolicyHeadlessReason,
 		"status":              string(stored.Status),
 		"summary":             stored.Name,
 	}))
@@ -440,20 +517,25 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		ToolCallID:   stored.ID,
 		CapabilityID: stored.CapabilityID,
 		ToolCalls: []auditToolCall{{
-			ID:               stored.ID,
-			Name:             stored.Name,
-			Input:            stored.InputSummary,
-			JobID:            stored.JobID,
-			Command:          stored.Command,
-			Risk:             stored.Risk,
-			PolicyMode:       stored.PolicyMode,
-			PolicyRuleID:     stored.PolicyRuleID,
-			PolicyScopeKind:  stored.PolicyScopeKind,
-			PolicyScopeValue: stored.PolicyScopeValue,
-			ShellRisk:        stored.ShellRisk,
-			ShellReason:      stored.ShellReason,
-			Status:           stored.JobStatus,
-			StartedAt:        millisFromTime(stored.JobStartedAt),
+			ID:                   stored.ID,
+			Name:                 stored.Name,
+			Input:                stored.InputSummary,
+			JobID:                stored.JobID,
+			Command:              stored.Command,
+			Risk:                 stored.Risk,
+			PolicyMode:           stored.PolicyMode,
+			PolicyProfile:        stored.PolicyProfile,
+			PolicyHeadless:       stored.PolicyHeadless,
+			PolicyHeadlessReason: stored.PolicyHeadlessReason,
+			PolicyRuleID:         stored.PolicyRuleID,
+			PolicyScopeKind:      stored.PolicyScopeKind,
+			PolicyScopeValue:     stored.PolicyScopeValue,
+			ShellRisk:            stored.ShellRisk,
+			ShellReason:          stored.ShellReason,
+			Headless:             stored.PolicyHeadless,
+			HeadlessReason:       stored.PolicyHeadlessReason,
+			Status:               stored.JobStatus,
+			StartedAt:            millisFromTime(stored.JobStartedAt),
 		}},
 	})
 	return nil
@@ -557,57 +639,61 @@ func (r *runtimeSchedulerRecorder) updateToolCall(ctx context.Context, result ag
 	}
 	if _, err := r.service.toolCalls.GetCall(ctx, result.ToolCallID); err != nil {
 		_, _ = r.service.toolCalls.CreateCall(ctx, scheduler.ToolCallRequest{
-			ID:                  result.ToolCallID,
-			SessionID:           result.SessionID,
-			TurnID:              result.TurnID,
-			MessageID:           result.MessageID,
-			Name:                result.Name,
-			Source:              scheduler.ToolSource(result.Source),
-			CapabilityID:        capabilityIDForToolName(result.Name),
-			JobID:               result.JobID,
-			Command:             result.Command,
-			Risk:                result.Risk,
-			PolicyReason:        result.PolicyReason,
-			PolicyMode:          result.PolicyMode,
-			PolicyProfile:       result.PolicyProfile,
-			PolicyRuleID:        result.PolicyRuleID,
-			PolicyRuleSource:    result.PolicyRuleSource,
-			PolicyScopeKind:     result.PolicyScopeKind,
-			PolicyScopeValue:    result.PolicyScopeValue,
-			PolicyTargetSummary: result.PolicyTargetSummary,
-			ShellRisk:           result.ShellRisk,
-			ShellReason:         result.ShellReason,
-			JobStatus:           result.JobStatus,
-			JobStartedAt:        timeFromMillis(result.JobStartedAt),
+			ID:                   result.ToolCallID,
+			SessionID:            result.SessionID,
+			TurnID:               result.TurnID,
+			MessageID:            result.MessageID,
+			Name:                 result.Name,
+			Source:               scheduler.ToolSource(result.Source),
+			CapabilityID:         capabilityIDForToolName(result.Name),
+			JobID:                result.JobID,
+			Command:              result.Command,
+			Risk:                 result.Risk,
+			PolicyReason:         result.PolicyReason,
+			PolicyMode:           result.PolicyMode,
+			PolicyProfile:        result.PolicyProfile,
+			PolicyRuleID:         result.PolicyRuleID,
+			PolicyRuleSource:     result.PolicyRuleSource,
+			PolicyScopeKind:      result.PolicyScopeKind,
+			PolicyScopeValue:     result.PolicyScopeValue,
+			PolicyTargetSummary:  result.PolicyTargetSummary,
+			ShellRisk:            result.ShellRisk,
+			ShellReason:          result.ShellReason,
+			PolicyHeadless:       result.PolicyHeadless,
+			PolicyHeadlessReason: result.PolicyHeadlessReason,
+			JobStatus:            result.JobStatus,
+			JobStartedAt:         timeFromMillis(result.JobStartedAt),
 		})
 	}
 	return r.service.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{
-		ToolCallID:          result.ToolCallID,
-		Status:              status,
-		JobID:               result.JobID,
-		Command:             result.Command,
-		Risk:                result.Risk,
-		PolicyReason:        result.PolicyReason,
-		PolicyMode:          result.PolicyMode,
-		PolicyProfile:       result.PolicyProfile,
-		PolicyRuleID:        result.PolicyRuleID,
-		PolicyRuleSource:    result.PolicyRuleSource,
-		PolicyScopeKind:     result.PolicyScopeKind,
-		PolicyScopeValue:    result.PolicyScopeValue,
-		PolicyTargetSummary: result.PolicyTargetSummary,
-		ShellRisk:           result.ShellRisk,
-		ShellReason:         result.ShellReason,
-		ExitCode:            result.ExitCode,
-		JobStatus:           result.JobStatus,
-		JobStartedAt:        timeFromMillis(result.JobStartedAt),
-		JobFinishedAt:       timeFromMillis(result.JobFinishedAt),
-		OutputSummary:       preview(firstNonEmpty(result.StructuredOutputSummary, result.ModelVisibleContent, result.Error), runtimePartPreviewLimit),
-		ModelContent:        preview(result.ModelVisibleContent, runtimePartPreviewLimit),
-		Structured:          preview(result.StructuredOutputSummary, runtimePartPreviewLimit),
-		Stdout:              preview(result.Stdout, runtimePartPreviewLimit),
-		Stderr:              preview(result.Stderr, runtimePartPreviewLimit),
-		IsError:             result.IsError || status == scheduler.ToolCallFailed || status == scheduler.ToolCallCancelled,
-		Error:               preview(result.Error, runtimePartPreviewLimit),
+		ToolCallID:           result.ToolCallID,
+		Status:               status,
+		JobID:                result.JobID,
+		Command:              result.Command,
+		Risk:                 result.Risk,
+		PolicyReason:         result.PolicyReason,
+		PolicyMode:           result.PolicyMode,
+		PolicyProfile:        result.PolicyProfile,
+		PolicyRuleID:         result.PolicyRuleID,
+		PolicyRuleSource:     result.PolicyRuleSource,
+		PolicyScopeKind:      result.PolicyScopeKind,
+		PolicyScopeValue:     result.PolicyScopeValue,
+		PolicyTargetSummary:  result.PolicyTargetSummary,
+		ShellRisk:            result.ShellRisk,
+		ShellReason:          result.ShellReason,
+		PolicyHeadless:       result.PolicyHeadless,
+		PolicyHeadlessReason: result.PolicyHeadlessReason,
+		ExitCode:             result.ExitCode,
+		JobStatus:            result.JobStatus,
+		JobStartedAt:         timeFromMillis(result.JobStartedAt),
+		JobFinishedAt:        timeFromMillis(result.JobFinishedAt),
+		OutputSummary:        preview(firstNonEmpty(result.StructuredOutputSummary, result.ModelVisibleContent, result.Error), runtimePartPreviewLimit),
+		ModelContent:         preview(result.ModelVisibleContent, runtimePartPreviewLimit),
+		Structured:           preview(result.StructuredOutputSummary, runtimePartPreviewLimit),
+		Stdout:               preview(result.Stdout, runtimePartPreviewLimit),
+		Stderr:               preview(result.Stderr, runtimePartPreviewLimit),
+		IsError:              result.IsError || status == scheduler.ToolCallFailed || status == scheduler.ToolCallCancelled,
+		Error:                preview(result.Error, runtimePartPreviewLimit),
 	})
 }
 
@@ -623,37 +709,44 @@ func (r *runtimeSchedulerRecorder) auditToolResult(call scheduler.ToolCall) {
 		ToolCallID:   call.ID,
 		CapabilityID: call.CapabilityID,
 		ToolCalls: []auditToolCall{{
-			ID:               call.ID,
-			Name:             call.Name,
-			Input:            call.InputSummary,
-			Output:           call.OutputSummary,
-			JobID:            call.JobID,
-			Command:          call.Command,
-			Risk:             call.Risk,
-			PolicyMode:       call.PolicyMode,
-			PolicyRuleID:     call.PolicyRuleID,
-			PolicyScopeKind:  call.PolicyScopeKind,
-			PolicyScopeValue: call.PolicyScopeValue,
-			ShellRisk:        call.ShellRisk,
-			ShellReason:      call.ShellReason,
-			ExitCode:         call.ExitCode,
-			IsError:          call.IsError,
-			Status:           firstNonEmpty(call.JobStatus, string(call.Status)),
-			StartedAt:        millisFromTime(call.JobStartedAt),
-			FinishedAt:       millisFromTime(call.JobFinishedAt),
+			ID:                   call.ID,
+			Name:                 call.Name,
+			Input:                call.InputSummary,
+			Output:               call.OutputSummary,
+			JobID:                call.JobID,
+			Command:              call.Command,
+			Risk:                 call.Risk,
+			PolicyMode:           call.PolicyMode,
+			PolicyProfile:        call.PolicyProfile,
+			PolicyHeadless:       call.PolicyHeadless,
+			PolicyHeadlessReason: call.PolicyHeadlessReason,
+			PolicyRuleID:         call.PolicyRuleID,
+			PolicyScopeKind:      call.PolicyScopeKind,
+			PolicyScopeValue:     call.PolicyScopeValue,
+			ShellRisk:            call.ShellRisk,
+			ShellReason:          call.ShellReason,
+			Headless:             call.PolicyHeadless,
+			HeadlessReason:       call.PolicyHeadlessReason,
+			ExitCode:             call.ExitCode,
+			IsError:              call.IsError,
+			Status:               firstNonEmpty(call.JobStatus, string(call.Status)),
+			StartedAt:            millisFromTime(call.JobStartedAt),
+			FinishedAt:           millisFromTime(call.JobFinishedAt),
 		}},
-		Error:               call.Error,
-		PermissionRisk:      call.Risk,
-		PermissionReason:    call.PolicyReason,
-		PolicyMode:          call.PolicyMode,
-		PolicyProfile:       call.PolicyProfile,
-		PolicyRuleID:        call.PolicyRuleID,
-		PolicyRuleSource:    call.PolicyRuleSource,
-		PolicyScopeKind:     call.PolicyScopeKind,
-		PolicyScopeValue:    call.PolicyScopeValue,
-		PolicyTargetSummary: call.PolicyTargetSummary,
-		ShellRisk:           call.ShellRisk,
-		ShellReason:         call.ShellReason,
+		Error:                call.Error,
+		PermissionRisk:       call.Risk,
+		PermissionReason:     call.PolicyReason,
+		PolicyMode:           call.PolicyMode,
+		PolicyProfile:        call.PolicyProfile,
+		PolicyHeadless:       call.PolicyHeadless,
+		PolicyHeadlessReason: call.PolicyHeadlessReason,
+		PolicyRuleID:         call.PolicyRuleID,
+		PolicyRuleSource:     call.PolicyRuleSource,
+		PolicyScopeKind:      call.PolicyScopeKind,
+		PolicyScopeValue:     call.PolicyScopeValue,
+		PolicyTargetSummary:  call.PolicyTargetSummary,
+		ShellRisk:            call.ShellRisk,
+		ShellReason:          call.ShellReason,
 	})
 }
 

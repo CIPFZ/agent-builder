@@ -244,6 +244,51 @@ func TestScopedPolicyMCPAndSkillScopes(t *testing.T) {
 	}
 }
 
+func TestPolicyProfilesHeadlessAskFailClosed(t *testing.T) {
+	t.Parallel()
+
+	call := scheduler.ToolCall{Name: "bash", Source: scheduler.ToolSourceShell, InputSummary: `{"command":"go test ./..."}`}
+	headless := NewScopedPermissionPolicy(PolicyModeAutoRead, "headless", nil).Evaluate(call)
+	if headless.Decision != PolicyDeny || !headless.Headless || headless.Profile != string(PolicyProfileHeadless) {
+		t.Fatalf("headless ask = %#v, want deny/headless", headless)
+	}
+	if !strings.Contains(headless.Reason, "fail closed") {
+		t.Fatalf("headless reason = %q", headless.Reason)
+	}
+
+	task := NewScopedPermissionPolicy(PolicyModeAutoRead, "subagent", []PolicyRule{
+		{ID: "allow-tests", Decision: PolicyAllow, PolicyProfile: "task", ShellPrefix: "go test", Source: "task-profile"},
+	}).Evaluate(call)
+	if task.Decision != PolicyAllow || !task.Headless || task.Profile != string(PolicyProfileTask) || task.RuleID != "allow-tests" {
+		t.Fatalf("task deterministic allow = %#v", task)
+	}
+
+	deny := NewScopedPermissionPolicy(PolicyModeAutoRead, "replay-safe", []PolicyRule{
+		{ID: "deny-shell", Decision: PolicyDeny, PolicyProfile: "recovery", ShellPrefix: "go test", Source: "replay"},
+	}).Evaluate(call)
+	if deny.Decision != PolicyDeny || !deny.Headless || deny.Profile != string(PolicyProfileRecovery) || deny.RuleID != "deny-shell" {
+		t.Fatalf("recovery deterministic deny = %#v", deny)
+	}
+}
+
+func TestScopedPolicyPrecedenceAndPathShellRules(t *testing.T) {
+	t.Parallel()
+
+	policy := NewScopedPermissionPolicy(PolicyModeAutoRead, "default", []PolicyRule{
+		{ID: "allow-cwd", Decision: PolicyAllow, CWDPrefix: `C:\repo`, Source: "workspace"},
+		{ID: "ask-path", Decision: PolicyAsk, PathPrefix: `C:\repo\protected`, Source: "project"},
+		{ID: "deny-shell-regex", Decision: PolicyDeny, ShellRegex: `(?i)^git\s+reset`, Source: "user"},
+	})
+	path := policy.Evaluate(scheduler.ToolCall{Name: "view", Source: scheduler.ToolSourceBuiltin, InputSummary: `{"file_path":"C:\\repo\\protected\\secret.txt","working_dir":"C:\\repo"}`})
+	if path.Decision != PolicyAsk || path.RuleID != "ask-path" || path.RuleScopeKind != "path_prefix" {
+		t.Fatalf("path precedence = %#v, want ask path rule before cwd allow", path)
+	}
+	shell := policy.Evaluate(scheduler.ToolCall{Name: "bash", Source: scheduler.ToolSourceShell, InputSummary: `{"command":"git reset --hard HEAD"}`})
+	if shell.Decision != PolicyDeny || shell.RuleID != "deny-shell-regex" || shell.RuleScopeKind != "shell_regex" {
+		t.Fatalf("shell regex rule = %#v", shell)
+	}
+}
+
 func TestClassifyShellCommandRiskHardening(t *testing.T) {
 	t.Parallel()
 
@@ -255,11 +300,19 @@ func TestClassifyShellCommandRiskHardening(t *testing.T) {
 		{"bash recursive", `{"command":"rm -r build"}`, "recursive delete"},
 		{"bash forced", `{"command":"rm -f build.log"}`, "forced delete"},
 		{"bash checkout", `{"command":"git checkout -- ."}`, "git checkout"},
+		{"bash restore", `{"command":"git restore --source HEAD -- ."}`, "git restore"},
 		{"bash clean", `{"command":"git clean -fdx"}`, "git clean"},
+		{"compound newline", "{\"command\":\"echo ok\\nrm -rf build\"}", "recursive forced delete"},
+		{"compound pipe", `{"command":"echo ok | taskkill /PID 123 /F"}`, "process termination"},
 		{"cmd rmdir", `{"command":"cmd /c rmdir /s /q build"}`, "cmd delete"},
 		{"cmd del", `{"command":"del /s /q build\\*"}`, "cmd delete"},
 		{"powershell remove", `{"command":"Remove-Item .\\build -Recurse -Force"}`, "PowerShell recursive forced delete"},
+		{"powershell alias rm", `{"command":"rm .\\build -Recurse -Force"}`, "PowerShell recursive forced delete"},
+		{"powershell alias del", `{"command":"del .\\build -Recurse"}`, "PowerShell recursive delete"},
+		{"powershell literal path", `{"command":"Remove-Item -LiteralPath '.\\build folder' -Force"}`, "PowerShell forced delete"},
 		{"process kill", `{"command":"taskkill /F /PID 123"}`, "process termination"},
+		{"chmod", `{"command":"chmod 600 secret.txt"}`, "ownership or permission change"},
+		{"chown", `{"command":"chown me file.txt"}`, "ownership or permission change"},
 		{"redirection", `{"Command":"echo token > .env"}`, "redirection overwrite"},
 	}
 	for _, tt := range cases {

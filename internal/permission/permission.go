@@ -82,6 +82,8 @@ type PolicyApplication struct {
 	Reason         string         `json:"reason"`
 	Mode           PolicyMode     `json:"mode"`
 	Profile        string         `json:"profile,omitempty"`
+	Headless       bool           `json:"headless,omitempty"`
+	HeadlessReason string         `json:"headless_reason,omitempty"`
 	RuleID         string         `json:"rule_id,omitempty"`
 	RuleSource     string         `json:"rule_source,omitempty"`
 	RuleScopeKind  string         `json:"rule_scope_kind,omitempty"`
@@ -94,28 +96,30 @@ type PolicyApplication struct {
 }
 
 type PermissionRequest struct {
-	ID            string `json:"id"`
-	SessionID     string `json:"session_id"`
-	TurnID        string `json:"turn_id"`
-	ToolCallID    string `json:"tool_call_id"`
-	ToolName      string `json:"tool_name"`
-	Description   string `json:"description"`
-	Action        string `json:"action"`
-	Params        any    `json:"params"`
-	Path          string `json:"path"`
-	Risk          Risk   `json:"risk"`
-	PolicyMode    string `json:"policy_mode,omitempty"`
-	PolicyReason  string `json:"policy_reason,omitempty"`
-	PolicyProfile string `json:"policy_profile,omitempty"`
-	RuleID        string `json:"rule_id,omitempty"`
-	RuleSource    string `json:"rule_source,omitempty"`
-	ScopeKind     string `json:"scope_kind,omitempty"`
-	ScopeValue    string `json:"scope_value,omitempty"`
-	TargetSummary string `json:"target_summary,omitempty"`
-	Decision      string `json:"decision,omitempty"`
-	Status        string `json:"status"`
-	CreatedAt     int64  `json:"created_at"`
-	DecidedAt     int64  `json:"decided_at,omitempty"`
+	ID             string `json:"id"`
+	SessionID      string `json:"session_id"`
+	TurnID         string `json:"turn_id"`
+	ToolCallID     string `json:"tool_call_id"`
+	ToolName       string `json:"tool_name"`
+	Description    string `json:"description"`
+	Action         string `json:"action"`
+	Params         any    `json:"params"`
+	Path           string `json:"path"`
+	Risk           Risk   `json:"risk"`
+	PolicyMode     string `json:"policy_mode,omitempty"`
+	PolicyReason   string `json:"policy_reason,omitempty"`
+	PolicyProfile  string `json:"policy_profile,omitempty"`
+	Headless       bool   `json:"headless,omitempty"`
+	HeadlessReason string `json:"headless_reason,omitempty"`
+	RuleID         string `json:"rule_id,omitempty"`
+	RuleSource     string `json:"rule_source,omitempty"`
+	ScopeKind      string `json:"scope_kind,omitempty"`
+	ScopeValue     string `json:"scope_value,omitempty"`
+	TargetSummary  string `json:"target_summary,omitempty"`
+	Decision       string `json:"decision,omitempty"`
+	Status         string `json:"status"`
+	CreatedAt      int64  `json:"created_at"`
+	DecidedAt      int64  `json:"decided_at,omitempty"`
 }
 
 type Service interface {
@@ -318,27 +322,29 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		dir = s.workingDir
 	}
 	permission := PermissionRequest{
-		ID:            uuid.New().String(),
-		Path:          dir,
-		SessionID:     opts.SessionID,
-		TurnID:        opts.TurnID,
-		ToolCallID:    opts.ToolCallID,
-		ToolName:      opts.ToolName,
-		Description:   opts.Description,
-		Action:        opts.Action,
-		Params:        opts.Params,
-		Risk:          risk,
-		PolicyMode:    string(s.PolicyMode()),
-		PolicyReason:  policyResult.Reason,
-		PolicyProfile: policyResult.Profile,
-		RuleID:        policyResult.RuleID,
-		RuleSource:    policyResult.RuleSource,
-		ScopeKind:     policyResult.RuleScopeKind,
-		ScopeValue:    policyResult.RuleScopeValue,
-		TargetSummary: firstNonEmpty(policyResult.TargetSummary, opts.Path),
-		Decision:      string(policyResult.Decision),
-		Status:        "pending",
-		CreatedAt:     time.Now().UnixMilli(),
+		ID:             uuid.New().String(),
+		Path:           dir,
+		SessionID:      opts.SessionID,
+		TurnID:         opts.TurnID,
+		ToolCallID:     opts.ToolCallID,
+		ToolName:       opts.ToolName,
+		Description:    opts.Description,
+		Action:         opts.Action,
+		Params:         opts.Params,
+		Risk:           risk,
+		PolicyMode:     string(s.PolicyMode()),
+		PolicyReason:   policyResult.Reason,
+		PolicyProfile:  policyResult.Profile,
+		Headless:       policyResult.Headless,
+		HeadlessReason: policyResult.HeadlessReason,
+		RuleID:         policyResult.RuleID,
+		RuleSource:     policyResult.RuleSource,
+		ScopeKind:      policyResult.RuleScopeKind,
+		ScopeValue:     policyResult.RuleScopeValue,
+		TargetSummary:  firstNonEmpty(policyResult.TargetSummary, opts.Path),
+		Decision:       string(policyResult.Decision),
+		Status:         "pending",
+		CreatedAt:      time.Now().UnixMilli(),
 	}
 
 	if _, ok := s.sessionPermissions.Get(PermissionKey{
@@ -429,6 +435,8 @@ func (s *permissionService) publishPolicyApplication(opts CreatePermissionReques
 		Reason:         result.Reason,
 		Mode:           result.Mode,
 		Profile:        result.Profile,
+		Headless:       result.Headless,
+		HeadlessReason: result.HeadlessReason,
 		RuleID:         result.RuleID,
 		RuleSource:     result.RuleSource,
 		RuleScopeKind:  result.RuleScopeKind,
