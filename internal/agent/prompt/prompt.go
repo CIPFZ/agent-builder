@@ -253,23 +253,51 @@ func managedContextSource() ContextSource {
 }
 
 func orderedContextPaths(paths []string) []string {
-	ordered := make([]string, 0, len(paths))
-	add := func(match func(string) bool) {
-		for _, p := range paths {
-			p = strings.TrimSpace(p)
-			if p == "" || slices.Contains(ordered, p) || !match(filepath.ToSlash(p)) {
-				continue
-			}
-			ordered = append(ordered, p)
+	unique := make([]string, 0, len(paths))
+	seen := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
 		}
+		key := strings.ToLower(filepath.ToSlash(p))
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, p)
 	}
-	add(func(p string) bool { return isUserContextPath(p) })
-	add(func(p string) bool { return isProjectInstructionPath(p) && !isLocalInstructionPath(p) })
-	add(func(p string) bool { return isLocalInstructionPath(p) })
-	add(func(p string) bool {
-		return !isUserContextPath(p) && !isProjectInstructionPath(p) && !isLocalInstructionPath(p)
+
+	slices.SortStableFunc(unique, func(a, b string) int {
+		aSlash := filepath.ToSlash(a)
+		bSlash := filepath.ToSlash(b)
+		if cmp := cmp.Compare(contextPathPriority(aSlash), contextPathPriority(bSlash)); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(strings.ToLower(aSlash), strings.ToLower(bSlash))
 	})
-	return ordered
+	return unique
+}
+
+func contextPathPriority(path string) int {
+	switch {
+	case isUserContextPath(path):
+		return 0
+	case isProjectInstructionFile(path, "agents.md"):
+		return 10
+	case isProjectInstructionFile(path, "claude.md"):
+		return 20
+	case isProjectInstructionPath(path) && !isLocalInstructionPath(path):
+		return 30
+	case isLocalInstructionPath(path):
+		return 40
+	default:
+		return 50
+	}
+}
+
+func isProjectInstructionFile(path, name string) bool {
+	return strings.EqualFold(filepath.Base(filepath.ToSlash(path)), name)
 }
 
 func loadContextPath(ctx context.Context, configured string, store *config.ConfigStore) []ContextSource {
