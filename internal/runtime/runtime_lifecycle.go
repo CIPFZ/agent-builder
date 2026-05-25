@@ -303,12 +303,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 		})
 	}
 	for _, wt := range recoveredWorktrees {
-		eventType := runtimeapi.EventWorktreeExited
-		auditType := "worktree_recovered"
-		if wt.Status == worktreeStatusMissing {
-			eventType = runtimeapi.EventWorktreePolicyDenied
-			auditType = "worktree_missing_path"
-		}
+		eventType, auditType := worktreeRecoveryEventForStatus(wt.Status)
 		r.recordWorktreeEvent(ctx, eventType, auditType, wt, wt.Error)
 	}
 	for _, perm := range expiredPermissions {

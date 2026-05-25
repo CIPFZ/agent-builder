@@ -127,6 +127,9 @@ const (
 	EventWorktreeCleaned            = "worktree.cleaned"
 	EventWorktreeCleanupFailed      = "worktree.cleanup_failed"
 	EventWorktreePolicyDenied       = "worktree.policy_denied"
+	EventWorktreeRecovered          = "worktree.recovered"
+	EventWorktreeMissingPath        = "worktree.missing_path"
+	EventWorktreePreserved          = "worktree.preserved"
 	EventPermissionRequested        = "permission.requested"
 	EventPermissionDecided          = "permission.decided"
 	EventPermissionPolicyApplied    = "permission.policy.applied"
@@ -231,6 +234,9 @@ var EventTypes = []string{
 	EventWorktreeCleaned,
 	EventWorktreeCleanupFailed,
 	EventWorktreePolicyDenied,
+	EventWorktreeRecovered,
+	EventWorktreeMissingPath,
+	EventWorktreePreserved,
 	EventPermissionRequested,
 	EventPermissionDecided,
 	EventPermissionPolicyApplied,

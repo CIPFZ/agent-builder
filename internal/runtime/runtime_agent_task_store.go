@@ -188,6 +188,27 @@ func (s runtimeAgentTaskStore) ListByStatus(ctx context.Context, status string) 
 	return s.list(ctx, `status = ?`, status)
 }
 
+func (s runtimeAgentTaskStore) SetWorktree(ctx context.Context, taskID, worktree string) (RuntimeAgentTask, error) {
+	if s.db == nil {
+		return RuntimeAgentTask{}, errors.New("runtime agent task database is not available")
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return RuntimeAgentTask{}, errors.New("agent task id is required")
+	}
+	var value any
+	if strings.TrimSpace(worktree) != "" {
+		value = strings.TrimSpace(worktree)
+	}
+	if _, err := s.db.ExecContext(ctx, `
+UPDATE runtime_agent_tasks
+SET worktree = ?, updated_at = ?
+WHERE id = ?`, value, time.Now().UnixMilli(), taskID); err != nil {
+		return RuntimeAgentTask{}, fmt.Errorf("failed to update runtime agent task worktree: %w", err)
+	}
+	return s.Get(ctx, taskID)
+}
+
 func (s runtimeAgentTaskStore) InterruptUnfinished(ctx context.Context) ([]RuntimeAgentTask, error) {
 	active, err := s.ListByStatus(ctx, "active")
 	if err != nil {

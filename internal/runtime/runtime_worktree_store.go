@@ -15,7 +15,9 @@ const (
 	worktreeStatusEntered        = "entered"
 	worktreeStatusExited         = "exited"
 	worktreeStatusCleanupPending = "cleanup_pending"
+	worktreeStatusCleaning       = "cleaning"
 	worktreeStatusCleaned        = "cleaned"
+	worktreeStatusCleanupFailed  = "cleanup_failed"
 	worktreeStatusPreserved      = "preserved"
 	worktreeStatusInterrupted    = "interrupted"
 	worktreeStatusMissing        = "missing_path"
@@ -161,7 +163,27 @@ func (s runtimeWorktreeStore) ListByTask(ctx context.Context, taskID string) ([]
 }
 
 func (s runtimeWorktreeStore) ListActive(ctx context.Context) ([]RuntimeWorktree, error) {
-	return s.list(ctx, `status IN (?, ?, ?)`, worktreeStatusCreated, worktreeStatusEntered, worktreeStatusCleanupPending)
+	return s.list(ctx, `status IN (?, ?, ?, ?, ?, ?)`,
+		worktreeStatusCreated,
+		worktreeStatusEntered,
+		worktreeStatusExited,
+		worktreeStatusCleanupPending,
+		worktreeStatusCleaning,
+		worktreeStatusCleanupFailed,
+	)
+}
+
+func (s runtimeWorktreeStore) ListRecoverable(ctx context.Context) ([]RuntimeWorktree, error) {
+	return s.list(ctx, `status IN (?, ?, ?, ?, ?, ?, ?, ?)`,
+		worktreeStatusCreated,
+		worktreeStatusEntered,
+		worktreeStatusExited,
+		worktreeStatusCleanupPending,
+		worktreeStatusCleaning,
+		worktreeStatusCleanupFailed,
+		worktreeStatusPreserved,
+		worktreeStatusError,
+	)
 }
 
 func (s runtimeWorktreeStore) list(ctx context.Context, where string, args ...any) ([]RuntimeWorktree, error) {

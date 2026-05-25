@@ -14,7 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/charmbracelet/crush/internal/tools/scheduler"
 )
 
 var validRuntimeWorktreeSegment = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
@@ -42,7 +44,7 @@ func (r *runtimeService) Worktree(ctx context.Context, id string) (RuntimeWorktr
 }
 
 func (r *runtimeService) CreateWorktree(ctx context.Context, req RuntimeWorktreeCreateRequest) (RuntimeWorktreeResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorktreeRuntimeReady(ctx); err != nil {
 		return RuntimeWorktreeResponse{}, err
 	}
 	req = normalizeRuntimeWorktreeCreateRequest(req)
@@ -82,6 +84,13 @@ func (r *runtimeService) CreateWorktree(ctx context.Context, req RuntimeWorktree
 			"root": root,
 		},
 	}
+	if result, denied := r.evaluateWorktreePolicy(ctx, "create", wt); denied {
+		wt.Status = worktreeStatusError
+		wt.Error = result.Reason
+		stored, _ := r.worktrees.Upsert(ctx, wt)
+		r.recordWorktreePolicyDenied(ctx, firstNonEmptyWorktree(stored, wt), result.Reason)
+		return RuntimeWorktreeResponse{}, errors.New(result.Reason)
+	}
 	if err := createGitWorktree(ctx, wt); err != nil {
 		wt.Status = worktreeStatusError
 		wt.Error = err.Error()
@@ -98,7 +107,7 @@ func (r *runtimeService) CreateWorktree(ctx context.Context, req RuntimeWorktree
 }
 
 func (r *runtimeService) EnterWorktree(ctx context.Context, id string, req RuntimeWorktreeActionRequest) (RuntimeWorktreeResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorktreeRuntimeReady(ctx); err != nil {
 		return RuntimeWorktreeResponse{}, err
 	}
 	wt, err := r.worktrees.Get(ctx, strings.TrimSpace(id))
@@ -109,11 +118,19 @@ func (r *runtimeService) EnterWorktree(ctx context.Context, id string, req Runti
 		r.recordWorktreePolicyDenied(ctx, wt, err.Error())
 		return RuntimeWorktreeResponse{}, err
 	}
-	if _, err := os.Stat(wt.WorktreePath); err != nil {
+	if result, denied := r.evaluateWorktreePolicy(ctx, "enter", wt); denied {
+		r.recordWorktreePolicyDenied(ctx, wt, result.Reason)
+		return RuntimeWorktreeResponse{}, errors.New(result.Reason)
+	}
+	if err := validateRecoverableWorktree(ctx, wt); err != nil {
 		wt.Status = worktreeStatusMissing
-		wt.Error = "worktree path is missing"
+		if !errors.Is(err, os.ErrNotExist) {
+			wt.Status = worktreeStatusError
+		}
+		wt.Error = err.Error()
 		stored, _ := r.worktrees.Upsert(ctx, wt)
-		r.recordWorktreeEvent(ctx, runtimeapi.EventWorktreePolicyDenied, "worktree_policy_denied", firstNonEmptyWorktree(stored, wt), wt.Error)
+		eventType, auditType := worktreeRecoveryEventForStatus(wt.Status)
+		r.recordWorktreeEvent(ctx, eventType, auditType, firstNonEmptyWorktree(stored, wt), wt.Error)
 		return RuntimeWorktreeResponse{}, errors.New(wt.Error)
 	}
 	now := time.Now().UnixMilli()
@@ -134,7 +151,7 @@ func (r *runtimeService) EnterWorktree(ctx context.Context, id string, req Runti
 }
 
 func (r *runtimeService) ExitWorktree(ctx context.Context, id string, req RuntimeWorktreeActionRequest) (RuntimeWorktreeResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorktreeRuntimeReady(ctx); err != nil {
 		return RuntimeWorktreeResponse{}, err
 	}
 	wt, err := r.worktrees.Get(ctx, strings.TrimSpace(id))
@@ -144,6 +161,10 @@ func (r *runtimeService) ExitWorktree(ctx context.Context, id string, req Runtim
 	if err := r.validateWorktreeOwnership(wt); err != nil {
 		r.recordWorktreePolicyDenied(ctx, wt, err.Error())
 		return RuntimeWorktreeResponse{}, err
+	}
+	if result, denied := r.evaluateWorktreePolicy(ctx, "exit", wt); denied {
+		r.recordWorktreePolicyDenied(ctx, wt, result.Reason)
+		return RuntimeWorktreeResponse{}, errors.New(result.Reason)
 	}
 	wt.ExitedAt = time.Now().UnixMilli()
 	if req.PreservePolicy != "" {
@@ -169,7 +190,7 @@ func (r *runtimeService) ExitWorktree(ctx context.Context, id string, req Runtim
 }
 
 func (r *runtimeService) CleanupWorktree(ctx context.Context, id string, _ RuntimeWorktreeActionRequest) (RuntimeWorktreeResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorktreeRuntimeReady(ctx); err != nil {
 		return RuntimeWorktreeResponse{}, err
 	}
 	wt, err := r.worktrees.Get(ctx, strings.TrimSpace(id))
@@ -180,17 +201,33 @@ func (r *runtimeService) CleanupWorktree(ctx context.Context, id string, _ Runti
 		r.recordWorktreePolicyDenied(ctx, wt, err.Error())
 		return RuntimeWorktreeResponse{}, err
 	}
+	if result, denied := r.evaluateWorktreePolicy(ctx, "cleanup", wt); denied {
+		r.recordWorktreePolicyDenied(ctx, wt, result.Reason)
+		return RuntimeWorktreeResponse{}, errors.New(result.Reason)
+	}
 	if shouldPreserveWorktree(wt, "") {
 		wt.Status = worktreeStatusPreserved
 		stored, upsertErr := r.worktrees.Upsert(ctx, wt)
 		if upsertErr != nil {
 			return RuntimeWorktreeResponse{}, upsertErr
 		}
-		r.recordWorktreeEvent(ctx, runtimeapi.EventWorktreeExited, "worktree_preserved", stored, "preserve policy retained worktree")
+		r.recordWorktreeEvent(ctx, runtimeapi.EventWorktreePreserved, "worktree_preserved", stored, "preserve policy retained worktree")
 		return RuntimeWorktreeResponse{Worktree: stored}, nil
 	}
+	wt.Status = worktreeStatusCleaning
+	wt.Error = ""
+	if stored, err := r.worktrees.Upsert(ctx, wt); err == nil {
+		wt = stored
+	}
 	if err := removeGitWorktree(ctx, wt); err != nil {
-		wt.Status = worktreeStatusCleanupPending
+		if errors.Is(err, errRuntimeWorktreeMissingPath) {
+			wt.Status = worktreeStatusMissing
+			wt.Error = err.Error()
+			stored, _ := r.worktrees.Upsert(ctx, wt)
+			r.recordWorktreeEvent(ctx, runtimeapi.EventWorktreeMissingPath, "worktree_missing_path", firstNonEmptyWorktree(stored, wt), wt.Error)
+			return RuntimeWorktreeResponse{}, err
+		}
+		wt.Status = worktreeStatusCleanupFailed
 		wt.Error = err.Error()
 		stored, _ := r.worktrees.Upsert(ctx, wt)
 		r.recordWorktreeEvent(ctx, runtimeapi.EventWorktreeCleanupFailed, "worktree_cleanup_failed", firstNonEmptyWorktree(stored, wt), err.Error())
@@ -208,7 +245,7 @@ func (r *runtimeService) CleanupWorktree(ctx context.Context, id string, _ Runti
 }
 
 func (r *runtimeService) TaskEffectiveScope(ctx context.Context, taskID string) (RuntimeEffectiveScopeResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorktreeRuntimeReady(ctx); err != nil {
 		return RuntimeEffectiveScopeResponse{}, err
 	}
 	task, err := r.agentTasks.Get(ctx, strings.TrimSpace(taskID))
@@ -217,6 +254,13 @@ func (r *runtimeService) TaskEffectiveScope(ctx context.Context, taskID string) 
 	}
 	scope := r.effectiveScopeForTask(ctx, task)
 	return RuntimeEffectiveScopeResponse{Scope: scope}, nil
+}
+
+func (r *runtimeService) ensureWorktreeRuntimeReady(ctx context.Context) error {
+	if r.worktrees.db != nil {
+		return nil
+	}
+	return r.ensureStarted(ctx)
 }
 
 func (r *runtimeService) effectiveScopeForTask(ctx context.Context, task RuntimeAgentTask) RuntimeEffectiveScope {
@@ -374,23 +418,73 @@ func createGitWorktree(ctx context.Context, wt RuntimeWorktree) error {
 }
 
 func removeGitWorktree(ctx context.Context, wt RuntimeWorktree) error {
-	root := runtimeWorktreeRoot(wt.BaseRepoPath)
-	if err := pathInsideRuntimeWorktreeRoot(root, wt.WorktreePath); err != nil {
+	if err := validateRuntimeOwnedWorktreeForCleanup(ctx, wt); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return err
-	}
-	if _, err := os.Stat(wt.WorktreePath); os.IsNotExist(err) {
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("failed to inspect worktree path before cleanup: %w", err)
-	}
-	if _, err := runGit(ctx, wt.WorktreePath, "rev-parse", "--is-inside-work-tree"); err != nil {
-		return fmt.Errorf("cleanup refused because path is not a git worktree: %w", err)
 	}
 	if _, err := runGit(ctx, wt.BaseRepoPath, "worktree", "remove", "--force", wt.WorktreePath); err != nil {
 		return fmt.Errorf("failed to remove git worktree: %w", err)
 	}
 	_, _ = runGit(ctx, wt.BaseRepoPath, "worktree", "prune")
 	return nil
+}
+
+func validateRuntimeOwnedWorktreeForCleanup(ctx context.Context, wt RuntimeWorktree) error {
+	root := runtimeWorktreeRoot(wt.BaseRepoPath)
+	if err := pathInsideRuntimeWorktreeRoot(root, wt.WorktreePath); err != nil {
+		return err
+	}
+	if wt.Owner != "" && wt.Owner != "runtime" {
+		return fmt.Errorf("worktree %s is not runtime-owned", wt.ID)
+	}
+	if err := requireGitRepo(ctx, wt.BaseRepoPath); err != nil {
+		return fmt.Errorf("cleanup refused because base repo is unavailable: %w", err)
+	}
+	if _, err := os.Stat(wt.WorktreePath); os.IsNotExist(err) {
+		return errRuntimeWorktreeMissingPath
+	} else if err != nil {
+		return fmt.Errorf("failed to inspect worktree path before cleanup: %w", err)
+	}
+	if _, err := runGit(ctx, wt.WorktreePath, "rev-parse", "--is-inside-work-tree"); err != nil {
+		return fmt.Errorf("cleanup refused because path is not a git worktree: %w", err)
+	}
+	return nil
+}
+
+func validateRecoverableWorktree(ctx context.Context, wt RuntimeWorktree) error {
+	if err := validateRuntimeOwnedWorktreeForCleanup(ctx, wt); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return os.ErrNotExist
+		}
+		return err
+	}
+	return nil
+}
+
+func (r *runtimeService) markWorktreeCleanupFailure(ctx context.Context, wt RuntimeWorktree, err error) (RuntimeWorktreeResponse, error) {
+	if err == nil {
+		return RuntimeWorktreeResponse{}, nil
+	}
+	if errors.Is(err, errRuntimeWorktreeMissingPath) {
+		wt.Status = worktreeStatusMissing
+	} else {
+		wt.Status = worktreeStatusCleanupFailed
+	}
+	wt.Error = err.Error()
+	stored, _ := r.worktrees.Upsert(ctx, wt)
+	eventType, auditType := worktreeRecoveryEventForStatus(stored.Status)
+	if stored.Status == worktreeStatusCleanupFailed {
+		eventType = runtimeapi.EventWorktreeCleanupFailed
+		auditType = "worktree_cleanup_failed"
+	}
+	if stored.Status == worktreeStatusMissing {
+		eventType = runtimeapi.EventWorktreeMissingPath
+		auditType = "worktree_missing_path"
+	}
+	r.recordWorktreeEvent(ctx, eventType, auditType, firstNonEmptyWorktree(stored, wt), wt.Error)
+	return RuntimeWorktreeResponse{}, err
 }
 
 func runGit(ctx context.Context, dir string, args ...string) (string, error) {
@@ -419,6 +513,118 @@ func (r *runtimeService) validateWorktreeOwnership(wt RuntimeWorktree) error {
 	return pathInsideRuntimeWorktreeRoot(root, wt.WorktreePath)
 }
 
+func (r *runtimeService) evaluateWorktreePolicy(_ context.Context, action string, wt RuntimeWorktree) (permission.PolicyResult, bool) {
+	r.mu.Lock()
+	policyConfig := r.policy
+	r.mu.Unlock()
+	policy := runtimePermissionPolicy(policyConfig)
+	result := policy.Evaluate(scheduler.ToolCall{
+		ID:           "worktree:" + wt.ID + ":" + action,
+		SessionID:    wt.SessionID,
+		TurnID:       wt.TurnID,
+		Name:         "worktree_" + action,
+		Source:       scheduler.ToolSourceBuiltin,
+		CapabilityID: "builtin:worktree_" + action,
+		InputSummary: worktreePolicyInput(action, wt),
+	})
+	result.TargetSummary = firstNonEmpty(result.TargetSummary, wt.WorktreePath)
+	if result.Reason == "" {
+		result.Reason = "Runtime worktree " + action + " policy decision."
+	}
+	r.recordWorktreePolicyDecision(action, wt, result)
+	if result.Decision == permission.PolicyDeny {
+		return result, true
+	}
+	if result.Decision == permission.PolicyAsk && result.Headless {
+		result.Decision = permission.PolicyDeny
+		if result.HeadlessReason == "" {
+			result.HeadlessReason = "Worktree action requires approval in a non-interactive runtime policy profile."
+		}
+		result.Reason = strings.TrimSpace(result.Reason + " " + result.HeadlessReason)
+		r.recordWorktreePolicyDecision(action, wt, result)
+		return result, true
+	}
+	return result, false
+}
+
+func worktreePolicyInput(action string, wt RuntimeWorktree) string {
+	return fmt.Sprintf(`{"action":%q,"path":%q,"cwd":%q,"working_dir":%q,"base_repo_path":%q,"task_id":%q}`,
+		action,
+		wt.WorktreePath,
+		wt.WorktreePath,
+		wt.WorktreePath,
+		wt.BaseRepoPath,
+		wt.TaskID,
+	)
+}
+
+func (r *runtimeService) recordWorktreePolicyDecision(action string, wt RuntimeWorktree, result permission.PolicyResult) {
+	call := RuntimeEvent{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventPermissionPolicyApplied,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID: wt.SessionID,
+		TurnID:    wt.TurnID,
+		Payload: map[string]any{
+			"tool_name":           "worktree_" + action,
+			"capability_id":       "builtin:worktree_" + action,
+			"decision":            result.Decision,
+			"risk":                result.Risk,
+			"reason":              result.Reason,
+			"mode":                result.Mode,
+			"profile":             result.Profile,
+			"headless":            result.Headless,
+			"headless_reason":     result.HeadlessReason,
+			"matched_rule_id":     result.RuleID,
+			"matched_rule_source": result.RuleSource,
+			"scope_kind":          result.RuleScopeKind,
+			"scope_value":         result.RuleScopeValue,
+			"target_summary":      result.TargetSummary,
+			"worktree_id":         wt.ID,
+			"summary":             "worktree " + action + " policy " + string(result.Decision),
+		},
+	}
+	r.storeRuntimeEvent(call)
+	if r.canWriteWorktreeAudit() {
+		r.writeAudit(auditEntry{
+			RequestID:            wt.TurnID,
+			Event:                "permission_policy_applied",
+			Timestamp:            time.Now().UTC().Format(time.RFC3339Nano),
+			SessionID:            wt.SessionID,
+			PermissionTool:       "worktree_" + action,
+			PermissionAction:     action,
+			PermissionPath:       wt.WorktreePath,
+			PermissionPolicy:     string(result.Decision),
+			PermissionRisk:       string(result.Risk),
+			PermissionReason:     result.Reason,
+			PolicyMode:           string(result.Mode),
+			PolicyProfile:        result.Profile,
+			PolicyHeadless:       result.Headless,
+			PolicyHeadlessReason: result.HeadlessReason,
+			PolicyRuleID:         result.RuleID,
+			PolicyRuleSource:     result.RuleSource,
+			PolicyScopeKind:      result.RuleScopeKind,
+			PolicyScopeValue:     result.RuleScopeValue,
+			PolicyTargetSummary:  result.TargetSummary,
+			CapabilityID:         "builtin:worktree_" + action,
+			AgentTask:            worktreeAuditTask(wt),
+			Extra: map[string]any{
+				"worktree":        wt,
+				"headless":        result.Headless,
+				"headless_reason": result.HeadlessReason,
+			},
+		})
+	}
+}
+
+func (r *runtimeService) canWriteWorktreeAudit() bool {
+	if r == nil || r.runtime == nil || r.workspace == nil {
+		return false
+	}
+	_, err := r.runtime.GetWorkspace(r.workspace.ID)
+	return err == nil
+}
+
 func shouldPreserveWorktree(wt RuntimeWorktree, failure string) bool {
 	switch wt.PreservePolicy {
 	case worktreePreserveAlways, worktreePreserveOnExit:
@@ -430,14 +636,18 @@ func shouldPreserveWorktree(wt RuntimeWorktree, failure string) bool {
 	}
 }
 
+var errRuntimeWorktreeMissingPath = errors.New("worktree path is missing")
+
 func (r *runtimeService) applyWorktreeToTask(ctx context.Context, wt RuntimeWorktree) error {
 	task, err := r.agentTasks.Get(ctx, wt.TaskID)
 	if err != nil {
 		return err
 	}
-	task.Worktree = wt.WorktreePath
 	task.CWD = firstNonEmpty(task.CWD, wt.BaseRepoPath)
-	_, err = r.agentTasks.Upsert(ctx, task)
+	if _, err := r.agentTasks.Upsert(ctx, task); err != nil {
+		return err
+	}
+	_, err = r.agentTasks.SetWorktree(ctx, wt.TaskID, wt.WorktreePath)
 	return err
 }
 
@@ -447,10 +657,10 @@ func (r *runtimeService) clearWorktreeFromTask(ctx context.Context, wt RuntimeWo
 		return err
 	}
 	if task.Worktree == wt.WorktreePath {
-		task.Worktree = ""
+		_, err = r.agentTasks.SetWorktree(ctx, wt.TaskID, "")
+		return err
 	}
-	_, err = r.agentTasks.Upsert(ctx, task)
-	return err
+	return nil
 }
 
 func (r *runtimeService) recordWorktreePolicyDenied(ctx context.Context, wt RuntimeWorktree, reason string) {
@@ -483,6 +693,7 @@ func (r *runtimeService) recordWorktreeEvent(_ context.Context, eventType, audit
 }
 
 func runtimeWorktreeEventPayload(wt RuntimeWorktree) map[string]any {
+	pathSummary := pathSafeSummary(wt.WorktreePath)
 	return map[string]any{
 		"id":              wt.ID,
 		"session_id":      wt.SessionID,
@@ -501,8 +712,16 @@ func runtimeWorktreeEventPayload(wt RuntimeWorktree) map[string]any {
 		"cleaned_at":      wt.CleanedAt,
 		"updated_at":      wt.UpdatedAt,
 		"owner":           wt.Owner,
-		"summary":         wt.Status + " " + wt.WorktreePath,
+		"path_summary":    pathSummary,
+		"summary":         wt.Status + " " + pathSummary,
 	}
+}
+
+func pathSafeSummary(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	return filepath.Clean(path)
 }
 
 func worktreeAuditTask(wt RuntimeWorktree) *RuntimeAgentTask {

@@ -241,7 +241,7 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			summary.AgentTaskResults = append(summary.AgentTaskResults, runtimeReplayTaskResultFromEvent(event))
 		case runtimeapi.EventBudgetUpdated:
 			summary.Budget = runtimeBudgetReportFromPayload(event.Payload)
-		case runtimeapi.EventWorktreeCreated, runtimeapi.EventWorktreeEntered, runtimeapi.EventWorktreeExited, runtimeapi.EventWorktreeCleaned, runtimeapi.EventWorktreeCleanupFailed, runtimeapi.EventWorktreePolicyDenied:
+		case runtimeapi.EventWorktreeCreated, runtimeapi.EventWorktreeEntered, runtimeapi.EventWorktreeExited, runtimeapi.EventWorktreeCleaned, runtimeapi.EventWorktreeCleanupFailed, runtimeapi.EventWorktreePolicyDenied, runtimeapi.EventWorktreeRecovered, runtimeapi.EventWorktreeMissingPath, runtimeapi.EventWorktreePreserved:
 			if wt := runtimeWorktreeFromPayload(event.Payload); wt.ID != "" {
 				summary.Worktrees = appendRuntimeReplayWorktree(summary.Worktrees, wt)
 			}
@@ -346,7 +346,7 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			if result := runtimeReplayTaskResultFromAudit(audit); result.TaskID != "" {
 				summary.AgentTaskResults = append(summary.AgentTaskResults, result)
 			}
-		case "worktree_created", "worktree_entered", "worktree_exited", "worktree_cleaned", "worktree_cleanup_failed", "worktree_policy_denied", "worktree_recovered", "worktree_missing_path", "worktree_preserved":
+		case "worktree_created", "worktree_entered", "worktree_exited", "worktree_cleaned", "worktree_cleanup_failed", "worktree_policy_denied", "worktree_recovered", "worktree_missing_path", "worktree_preserved", "worktree_recovery_error":
 			if wt := runtimeWorktreeFromPayload(asMap(asMap(audit.Payload["extra"])["worktree"])); wt.ID != "" {
 				summary.Worktrees = appendRuntimeReplayWorktree(summary.Worktrees, wt)
 			}

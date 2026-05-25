@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"os"
 	"time"
 
@@ -106,32 +107,119 @@ func (r *runtimeService) recoverWorktrees(ctx context.Context) ([]RuntimeWorktre
 	if r.worktrees.db == nil {
 		return nil, nil
 	}
-	active, err := r.worktrees.ListActive(ctx)
+	active, err := r.worktrees.ListRecoverable(ctx)
 	if err != nil {
 		return nil, err
 	}
 	recovered := make([]RuntimeWorktree, 0, len(active))
 	for _, wt := range active {
-		if wt.WorktreePath != "" {
-			if _, statErr := os.Stat(wt.WorktreePath); os.IsNotExist(statErr) {
-				wt.Status = worktreeStatusMissing
-				wt.Error = "worktree path is missing during recovery"
-			}
-		}
-		if wt.Status != worktreeStatusMissing {
-			if shouldPreserveWorktree(wt, "runtime restarted") {
-				wt.Status = worktreeStatusPreserved
-				wt.Error = firstNonEmpty(wt.Error, "runtime restarted; worktree preserved")
-			} else {
-				wt.Status = worktreeStatusCleanupPending
-				wt.Error = firstNonEmpty(wt.Error, "runtime restarted; cleanup pending")
-			}
-		}
+		wt = r.recoverWorktreeRecord(ctx, wt)
 		stored, err := r.worktrees.Upsert(ctx, wt)
 		if err != nil {
 			return nil, err
 		}
+		if stored.TaskID != "" && stored.Status != worktreeStatusEntered {
+			_ = r.clearWorktreeFromTask(ctx, stored)
+		}
 		recovered = append(recovered, stored)
 	}
 	return recovered, nil
+}
+
+func (r *runtimeService) recoverWorktreeRecord(ctx context.Context, wt RuntimeWorktree) RuntimeWorktree {
+	wt.PreservePolicy = normalizeWorktreePreservePolicy(wt.PreservePolicy)
+	wt.CleanupPolicy = normalizeWorktreeCleanupPolicy(wt.CleanupPolicy)
+	if wt.Owner == "" {
+		wt.Owner = "runtime"
+	}
+	if _, err := os.Stat(wt.WorktreePath); errors.Is(err, os.ErrNotExist) {
+		wt.Status = worktreeStatusMissing
+		wt.Error = "worktree path is missing during recovery"
+		return wt
+	} else if err != nil {
+		wt.Status = worktreeStatusError
+		wt.Error = "failed to inspect worktree path during recovery: " + err.Error()
+		return wt
+	}
+	if err := validateRecoverableWorktree(ctx, wt); err != nil {
+		wt.Status = worktreeStatusError
+		wt.Error = "worktree recovery safety check failed: " + err.Error()
+		return wt
+	}
+	switch wt.Status {
+	case worktreeStatusPreserved:
+		wt.Error = firstNonEmpty(wt.Error, "runtime restarted; worktree remains preserved")
+		return wt
+	case worktreeStatusCleanupPending, worktreeStatusCleaning, worktreeStatusCleanupFailed:
+		return r.recoverCleanupPendingWorktree(ctx, wt)
+	case worktreeStatusError:
+		if shouldPreserveWorktree(wt, "runtime restarted") {
+			wt.Status = worktreeStatusPreserved
+			wt.Error = firstNonEmpty(wt.Error, "runtime restarted; error worktree preserved")
+			return wt
+		}
+		wt.Status = worktreeStatusCleanupPending
+		wt.Error = firstNonEmpty(wt.Error, "runtime restarted; error worktree cleanup pending")
+		if wt.CleanupPolicy == worktreeCleanupExit {
+			return r.recoverCleanupPendingWorktree(ctx, wt)
+		}
+		return wt
+	default:
+		if shouldPreserveWorktree(wt, "runtime restarted") {
+			wt.Status = worktreeStatusPreserved
+			wt.Error = firstNonEmpty(wt.Error, "runtime restarted; worktree preserved")
+			return wt
+		}
+		wt.Status = worktreeStatusCleanupPending
+		wt.Error = firstNonEmpty(wt.Error, "runtime restarted; cleanup pending")
+		if wt.CleanupPolicy == worktreeCleanupExit {
+			return r.recoverCleanupPendingWorktree(ctx, wt)
+		}
+		return wt
+	}
+}
+
+func (r *runtimeService) recoverCleanupPendingWorktree(ctx context.Context, wt RuntimeWorktree) RuntimeWorktree {
+	if shouldPreserveWorktree(wt, "runtime restarted") {
+		wt.Status = worktreeStatusPreserved
+		wt.Error = firstNonEmpty(wt.Error, "runtime restarted; cleanup skipped by preserve policy")
+		return wt
+	}
+	if wt.CleanupPolicy != worktreeCleanupExit {
+		wt.Status = worktreeStatusCleanupPending
+		wt.Error = firstNonEmpty(wt.Error, "runtime restarted; cleanup remains pending")
+		return wt
+	}
+	wt.Status = worktreeStatusCleaning
+	if err := removeGitWorktree(ctx, wt); err != nil {
+		if errors.Is(err, errRuntimeWorktreeMissingPath) {
+			wt.Status = worktreeStatusMissing
+			wt.Error = "recovery cleanup skipped because worktree path is missing"
+			return wt
+		}
+		wt.Status = worktreeStatusCleanupFailed
+		wt.Error = "recovery cleanup failed: " + err.Error()
+		return wt
+	}
+	wt.Status = worktreeStatusCleaned
+	wt.CleanedAt = time.Now().UnixMilli()
+	wt.Error = ""
+	return wt
+}
+
+func worktreeRecoveryEventForStatus(status string) (string, string) {
+	switch status {
+	case worktreeStatusMissing:
+		return runtimeapi.EventWorktreeMissingPath, "worktree_missing_path"
+	case worktreeStatusCleaned:
+		return runtimeapi.EventWorktreeCleaned, "worktree_cleaned"
+	case worktreeStatusCleanupFailed:
+		return runtimeapi.EventWorktreeCleanupFailed, "worktree_cleanup_failed"
+	case worktreeStatusPreserved:
+		return runtimeapi.EventWorktreePreserved, "worktree_preserved"
+	case worktreeStatusError:
+		return runtimeapi.EventWorktreePolicyDenied, "worktree_recovery_error"
+	default:
+		return runtimeapi.EventWorktreeRecovered, "worktree_recovered"
+	}
 }
