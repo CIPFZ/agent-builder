@@ -34,7 +34,7 @@ type compiledHook struct {
 
 // Runner executes hook commands and aggregates their results.
 type Runner struct {
-	hooks      []compiledHook
+	hooks      map[string][]compiledHook
 	cwd        string
 	projectDir string
 }
@@ -48,25 +48,33 @@ type Runner struct {
 // than treated as match-everything. ValidateHooks is expected to have
 // caught syntax errors earlier, so this is defense in depth.
 func NewRunner(hooks []config.HookConfig, cwd, projectDir string) *Runner {
-	compiled := make([]compiledHook, 0, len(hooks))
-	for _, h := range hooks {
-		ch := compiledHook{cfg: h}
-		if h.Matcher != "" {
-			re, err := regexp.Compile(h.Matcher)
-			if err != nil {
-				slog.Warn("Hook matcher failed to compile; skipping hook",
-					"matcher", h.Matcher,
-					"command", h.Command,
-					"error", err,
-				)
-				continue
+	return NewRunnerForEvents(map[string][]config.HookConfig{EventPreToolUse: hooks}, cwd, projectDir)
+}
+
+func NewRunnerForEvents(configs map[string][]config.HookConfig, cwd, projectDir string) *Runner {
+	compiledByEvent := make(map[string][]compiledHook, len(configs))
+	for event, hooks := range configs {
+		compiled := make([]compiledHook, 0, len(hooks))
+		for _, h := range hooks {
+			ch := compiledHook{cfg: h}
+			if h.Matcher != "" {
+				re, err := regexp.Compile(h.Matcher)
+				if err != nil {
+					slog.Warn("Hook matcher failed to compile; skipping hook",
+						"matcher", h.Matcher,
+						"command", h.Command,
+						"error", err,
+					)
+					continue
+				}
+				ch.matcher = re
 			}
-			ch.matcher = re
+			compiled = append(compiled, ch)
 		}
-		compiled = append(compiled, ch)
+		compiledByEvent[event] = compiled
 	}
 	return &Runner{
-		hooks:      compiled,
+		hooks:      compiledByEvent,
 		cwd:        cwd,
 		projectDir: projectDir,
 	}
@@ -77,17 +85,33 @@ func NewRunner(hooks []config.HookConfig, cwd, projectDir string) *Runner {
 // omitted. Intended for diagnostics; callers should not rely on ordering
 // or identity beyond that.
 func (r *Runner) Hooks() []config.HookConfig {
-	out := make([]config.HookConfig, len(r.hooks))
-	for i, h := range r.hooks {
+	out := make([]config.HookConfig, len(r.hooks[EventPreToolUse]))
+	for i, h := range r.hooks[EventPreToolUse] {
 		out[i] = h.cfg
 	}
 	return out
 }
 
+func (r *Runner) HooksByEvent() map[string][]config.HookConfig {
+	out := make(map[string][]config.HookConfig, len(r.hooks))
+	for event, hooks := range r.hooks {
+		items := make([]config.HookConfig, len(hooks))
+		for i, h := range hooks {
+			items[i] = h.cfg
+		}
+		out[event] = items
+	}
+	return out
+}
+
+func (r *Runner) HasMatchingHooks(eventName, toolName string) bool {
+	return len(r.matchingHooks(eventName, toolName)) > 0
+}
+
 // Run executes all matching hooks for the given event and tool, returning
 // an aggregated result.
-func (r *Runner) Run(ctx context.Context, eventName, sessionID, toolName, toolInputJSON string) (AggregateResult, error) {
-	matching := r.matchingHooks(toolName)
+func (r *Runner) Run(ctx context.Context, eventName, sessionID, toolName, toolInputJSON string, toolOutputJSON ...string) (AggregateResult, error) {
+	matching := r.matchingHooks(eventName, toolName)
 	if len(matching) == 0 {
 		return AggregateResult{Decision: DecisionNone}, nil
 	}
@@ -104,7 +128,7 @@ func (r *Runner) Run(ctx context.Context, eventName, sessionID, toolName, toolIn
 	}
 
 	envVars := BuildEnv(eventName, toolName, sessionID, r.cwd, r.projectDir, toolInputJSON)
-	payload := BuildPayload(eventName, sessionID, r.cwd, toolName, toolInputJSON)
+	payload := BuildPayload(eventName, sessionID, r.cwd, toolName, toolInputJSON, toolOutputJSON...)
 
 	results := make([]HookResult, len(deduped))
 	var wg sync.WaitGroup
@@ -141,9 +165,9 @@ func (r *Runner) Run(ctx context.Context, eventName, sessionID, toolName, toolIn
 
 // matchingHooks returns hooks whose matcher matches the tool name (or has
 // no matcher, which matches everything).
-func (r *Runner) matchingHooks(toolName string) []config.HookConfig {
+func (r *Runner) matchingHooks(eventName, toolName string) []config.HookConfig {
 	var matched []config.HookConfig
-	for _, h := range r.hooks {
+	for _, h := range r.hooks[eventName] {
 		if h.matcher == nil || h.matcher.MatchString(toolName) {
 			matched = append(matched, h.cfg)
 		}

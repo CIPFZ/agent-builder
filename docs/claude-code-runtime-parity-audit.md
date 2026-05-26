@@ -1,6 +1,6 @@
 # Claude Code Runtime Parity Audit
 
-Status: refreshed on 2026-05-24 from current `main` code and the local Claude
+Status: refreshed on 2026-05-26 from current `main` code and the local Claude
 Code source snapshot at `C:\Users\ytq\work\ai\myclaw\claude-code`.
 
 This audit is now a short current-state entry point. The full module-by-module
@@ -20,8 +20,8 @@ implementation batch are maintained in:
 - React is display, input, diagnostics, and product workflow only.
 - Wails and HTTP are adapters.
 - `charm.land/fantasy` remains the provider/model/tool protocol abstraction.
-- Compact, tool discovery, policy, AgentTask, MCP/skills, worktree, audit, and
-  replay are runtime primitives.
+- Compact, tool discovery, policy, AgentTask, MCP/skills, worktree, hooks,
+  audit, and replay are runtime primitives.
 - Model-assisted permission can only be advisory and cannot approve its own
   high-risk tool use.
 - Coordinator and agent communication are runtime primitives, not UI event
@@ -88,20 +88,20 @@ Claude Code runtime reference:
 | Query engine / turn lifecycle | Completed foundation | `internal/runtime/runtime_turns.go`, `runtime_turn_store.go`, `runtime_service.go`, `internal/agent/agent.go` | Claude Code `QueryEngine.ts` has mature abort/continuation/headless projections. Agent Builder still needs stronger continuation after interruption. |
 | Tool protocol / scheduler / normalization | Completed foundation | `internal/tools/scheduler/*`, `internal/agent/scheduler_tool.go`, `internal/runtime/runtime_scheduler_recorder.go`, `runtime_tool_call_store.go` | Output refs/artifacts are partial; model-visible vs UI-visible output policy needs hardening. |
 | Tool search / discovery / deadlock avoidance | Partial implemented | `internal/agent/tool_search.go`, `internal/runtime/runtime_tool_search.go`, `internal/agent/loop_detection.go` | Runtime search, disclosure budget, repeated-search and concurrency guardrails exist. Needs broader scenario coverage and richer per-source recursion policy. |
-| Compact / context budget lifecycle | Partial implemented | `internal/runtime/runtime_compact*.go`, `runtime_budget.go`, migration `20260524020000_add_runtime_compact_boundaries.sql` | Boundary, budget, and micro compact exist. Full compact, auto trigger, session memory compact, and post-compact reinjection remain missing. |
-| Context / memory / AGENTS / read-file state | Partial | `internal/agent/prompt/prompt.go`, `internal/runtime/runtime_context.go`, `internal/db/read_files.sql.go` | Context audit exists. Claude Code `utils/claudemd.ts` has deeper CLAUDE.md include/frontmatter/rules/memdir/read-file reinjection semantics. |
-| Permission policy / plan / scoped rules / shell safety | Partial implemented | `internal/permission/policy.go`, `internal/runtime/runtime_policy.go`, `runtime_permission_store.go` | Scoped rules and shell destructive detection now exist. Still lacks full Bash/PowerShell parser parity, trusted/headless profiles, and complete plan-exit lifecycle. |
+| Compact / context budget lifecycle | Implemented foundation | `internal/runtime/runtime_compact*.go`, `runtime_budget.go`, migration `20260524020000_add_runtime_compact_boundaries.sql` | Boundary, budget, compact summaries, replay/recovery refs, and post-compact reinjection exist. Remaining work is broader fixture coverage and product diagnostics. |
+| Context / memory / AGENTS / read-file state | Implemented foundation | `internal/agent/prompt/prompt.go`, `internal/runtime/runtime_context.go`, `internal/db/read_files.sql.go` | AGENTS/CLAUDE loading, context audit, read-file state, and compact reinjection exist. Remaining work is broader Claude Code memory taxonomy and diagnostics. |
+| Permission policy / plan / scoped rules / shell safety | Implemented foundation | `internal/permission/policy.go`, `internal/runtime/runtime_policy.go`, `runtime_permission_store.go` | Scoped rules, profiles, headless fail-closed semantics, scheduler integration, and shell/sandbox policy metadata exist. Remaining work is broader shell parser parity fixtures and later advisory explanations. |
 | Model-assisted permission advisor | Missing | No advisor runtime package or events | Must remain later and advisory-only after deterministic scopes and evals are stable. |
-| MCP lifecycle / resources / prompts / auth / elicitation | Partial implemented | `internal/runtime/runtime_mcp*.go`, `internal/agent/tools/mcp/*`, `internal/agent/tools/list_mcp_resources.go`, `read_mcp_resource.go` | Server/tool/resource/prompt APIs, lazy refresh, policy filtering, redaction exist. OAuth/auth and elicitation parity are missing. |
+| MCP lifecycle / resources / prompts / auth / elicitation | Implemented foundation | `internal/runtime/runtime_mcp*.go`, `internal/agent/tools/mcp/*`, `internal/agent/tools/list_mcp_resources.go`, `read_mcp_resource.go` | Server/tool/resource/prompt APIs, lazy refresh, policy filtering, auth/elicitation lifecycle records, and redaction exist. Remaining work is broader protocol/provider fixture coverage. |
 | Skills / allowed tools / activation / plugin metadata | Partial implemented | `internal/skills/*`, `internal/runtime/runtime_skills.go`, `runtime_skill_activation.go`, `runtime_capabilities.go` | Skill metadata and allowed_tools hints are preserved; allowed_tools does not grant permissions. Plugin package governance is still missing. |
 | AgentTask / subagent roles / parent-child messaging | Partial implemented | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go`, `internal/agent/agent_tool.go` | Task store, roles, scope checks, messages, results, artifacts refs exist. True SendMessage/coordinator mailbox and mature task tools remain incomplete. |
-| Worktree / cwd isolation / sandbox / remote | Partial implemented | `internal/runtime/runtime_worktrees.go`, `runtime_worktree_store.go`, `runtime_agent_task_scope.go` | Git worktree lifecycle exists. OS sandbox and remote runtime remain later. |
-| Audit / replay / eval harness / observability | Partial implemented | `internal/runtime/runtime_audit*.go`, `runtime_replay_export.go`, `runtime_scenario_harness_test.go` | Local replay/export and scenario harness exist. Needs durable persisted event log and broader fixture packs. |
+| Worktree / cwd isolation / sandbox / remote | Implemented foundation | `internal/runtime/runtime_worktrees.go`, `runtime_worktree_store.go`, `runtime_agent_task_scope.go`, sandbox runtime records | Git worktree lifecycle, recovery/cleanup, task cwd scope, and sandbox execution boundary records exist. Remote runtime remains later. |
+| Audit / replay / eval harness / observability | Implemented foundation | `internal/runtime/runtime_audit*.go`, `runtime_replay_export.go`, `runtime_scenario_harness_test.go` | Persisted replay events, replay export, audit summaries, and scenario harness exist. Remaining work is broader fixture packs. |
 | Provider/model configuration on fantasy | Partial | `internal/runtime/runtime_model*.go`, `client/src/features/settings/ModelSettingsDrawer.tsx` | Correctly stays above fantasy. Needs health/capability diagnostics and per-mode model policy. |
 | React runtime boundary / diagnostics / recovery | Partial | `client/src/runtime/*`, `client/src/features/*`, `internal/runtime/runtime_http.go`, `runtime_sse.go`, `runtime_recovery.go` | React consumes runtime APIs. It should wait for runtime APIs before compact/task/replay/policy diagnostics deepen. |
-| Data model / migrations / persistence / recovery | Partial implemented | `internal/db/migrations/20260523*.sql`, `202605240*.sql`, `internal/runtime/*_store.go` | Turns, tool calls, permissions, compact, AgentTask, worktree, audit exist. Persisted event replay remains bounded/incomplete. |
-| Hooks integration | Partial | `internal/hooks/*`, `internal/agent/hooked_tool.go`, `internal/runtime/runtime_scheduler_recorder.go` | Hooks exist around tools. Need clearer runtime hook lifecycle events and precedence with policy. |
-| Background jobs / shell jobs / artifacts / output refs | Partial | `internal/agent/tools/bash.go`, `job_output.go`, `job_kill.go`, scheduler shell metadata, migration `20260524000000_add_shell_job_tool_call_metadata.sql` | Job output/kill and metadata exist. Durable job entity and artifact/output ref store remain partial. |
+| Data model / migrations / persistence / recovery | Implemented foundation | `internal/db/migrations/20260523*.sql`, `202605240*.sql`, `20260524100000_add_runtime_hook_executions.sql`, `internal/runtime/*_store.go` | Turns, tool calls, permissions, compact, AgentTask, worktree, hooks, audit, refs, and replay events are persisted and recoverable. |
+| Hooks integration | Implemented foundation | `internal/hooks/*`, `internal/agent/hooked_tool.go`, `internal/runtime/runtime_hooks.go`, `runtime_scheduler_recorder.go` | Hooks are runtime-owned lifecycle records for pre-tool, post-tool, and post-error paths. Policy remains final authority; hook allow cannot bypass deny/ask/headless/scope/sandbox/MCP gates. |
+| Background jobs / shell jobs / artifacts / output refs | Implemented foundation | `internal/agent/tools/bash.go`, `job_output.go`, `job_kill.go`, scheduler shell metadata, `internal/runtime/runtime_refs.go` | Job output/kill, output refs, artifact refs, replay summaries, and redaction exist. Remaining work is richer artifact diagnostics. |
 
 ## Current Overall Judgment
 
@@ -110,14 +110,11 @@ ToolCalls, permissions, policy modes and scoped rules, context audit, compact
 boundaries and micro compact, tool search/discovery, AgentTask records with
 messages/results, worktree lifecycle, audit, replay export, and scenario tests.
 
-The real gap has moved to hardening and completeness:
+The real gap has moved to fixture breadth and product diagnostics:
 
-- full compact and reinjection,
-- persisted event replay and broader eval fixtures,
+- broader eval fixtures,
 - mature AgentTask/coordinator messaging,
-- output/artifact ref storage,
-- MCP auth/elicitation,
-- richer shell parser/sandbox/remote isolation,
+- richer shell parser coverage and remote isolation later,
 - product diagnostics after runtime APIs are stable.
 
 ## Explicit Not Needed
@@ -140,10 +137,6 @@ These Claude Code surfaces remain excluded:
 
 Runtime blockers:
 
-- Full compact and post-compact reinjection are missing. Risk: long sessions
-  lose context governance and cannot explain summarized/reinjected state.
-- Persisted event replay is incomplete. Risk: bounded event buffers limit
-  recovery/debuggability after long runtimes.
 - AgentTask parent/child messaging is not yet a complete coordinator mailbox.
   Risk: multi-agent work can be recorded but not fully orchestrated.
 
@@ -151,11 +144,10 @@ Runtime hardening:
 
 - Tool search and scheduler guardrails need more scenario coverage and
   per-source recursion/concurrency policy.
-- Scoped policy needs fuller profile/headless semantics and richer shell parser
-  parity.
-- MCP needs auth/elicitation lifecycle.
-- Worktree needs tighter task integration and later sandbox/remote separation.
-- Artifact/output refs need a durable store.
+- Shell parser parity needs broader Bash/PowerShell/cmd fixtures.
+- Hooks, MCP, worktree, sandbox, refs, replay, and compact should keep gaining
+  scenario coverage as product diagnostics are added.
+- Remote runtime remains a later product optimization.
 
 Page/React diagnostics later:
 
@@ -177,20 +169,19 @@ Not needed:
 
 ## Next Priority
 
-First recommended runtime module:
+First recommended runtime module after hook lifecycle hardening:
 
 ```text
-runtime: full compact and post-compact reinjection
+runtime: broaden scenario fixtures and diagnostics DTO coverage
 ```
 
 Why first:
 
-- Compact boundary, budget, and micro compact already exist, so this builds on
-  current code rather than starting a new surface.
-- It is a dependency for reliable long sessions, AgentTask transcripts, replay,
-  tool discovery pressure, and later React compact diagnostics.
-- Page work should stay behind runtime because React must render compact facts,
-  not invent or infer them from messages.
+- Core Claude Code runtime primitives now exist as Go-owned records.
+- The remaining risk is regression across cross-cutting boundaries: hooks,
+  policy, headless, AgentTask scope, MCP auth/elicitation, sandbox/worktree,
+  compact/replay, and refs.
+- React work should still remain read-only diagnostics over runtime APIs.
 
 See the detailed scope in
 [`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md).

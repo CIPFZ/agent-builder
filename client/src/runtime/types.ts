@@ -134,6 +134,67 @@ export type RuntimeToolCall = {
   error?: string
 }
 
+export type RuntimeHook = {
+  id: string
+  name: string
+  source: string
+  event: string
+  matcher?: string
+  enabled: boolean
+  status: string
+  diagnostics?: string
+  reason?: string
+  timeout?: number
+}
+
+export type RuntimeHookExecution = {
+  id: string
+  hookId: string
+  hookName?: string
+  hookSource?: string
+  event: string
+  status: string
+  sessionId?: string
+  turnId?: string
+  toolCallId?: string
+  taskId?: string
+  capabilityId?: string
+  mcpServer?: string
+  skill?: string
+  contextRef?: string
+  policyMode?: string
+  policyProfile?: string
+  policyRule?: string
+  policyDecision?: string
+  policyReason?: string
+  headless?: boolean
+  headlessReason?: string
+  sandboxDecisionId?: string
+  sandboxStatus?: string
+  scopeKind?: string
+  scopeValue?: string
+  reason?: string
+  error?: string
+  inputSummary?: string
+  outputSummary?: string
+  contextSummary?: string
+  inputRewritten?: boolean
+  contextInjected?: boolean
+  redacted: boolean
+  startedAt: number
+  completedAt?: number
+  durationMs?: number
+}
+
+export type RuntimeHookExecutionListRequest = {
+  sessionId?: string
+  turnId?: string
+  toolCallId?: string
+  taskId?: string
+  event?: string
+  status?: string
+}
+
 export type RuntimeRef = {
   id: string
   uri: string
@@ -566,6 +627,7 @@ export type RuntimeReplayExportSummary = {
   compactOutputRefs?: RuntimeRef[]
   taskArtifactRefs?: RuntimeRef[]
   policyDecisions?: RuntimeReplayPolicyDecision[]
+  hooks?: RuntimeHookExecution[]
   permissionEvents?: RuntimeReplayPermission[]
   readFiles?: RuntimeReadFileState[]
   toolCalls?: RuntimeToolCall[]
@@ -596,6 +658,7 @@ export type RuntimeRecoveryStatus = {
   interrupted_tasks?: RuntimeAgentTask[]
   compact_boundaries?: RuntimeCompactBoundary[]
   worktrees?: RuntimeWorktree[]
+  hook_executions?: RuntimeHookExecution[]
   pending_permissions: RuntimePermissionRequest[]
   pending_mcp_requests?: RuntimeMcpRequest[]
   snapshot_required?: boolean
@@ -1028,6 +1091,9 @@ export type AgentRuntime = {
   getRecoveryStatus: () => Promise<RuntimeRecoveryStatus>
   getAPIEndpoint: () => Promise<RuntimeAPIEndpoint>
   getTurn: (turnId: string) => Promise<RuntimeTurn>
+  listHooks: () => Promise<RuntimeHook[]>
+  listHookExecutions: (request?: RuntimeHookExecutionListRequest) => Promise<RuntimeHookExecution[]>
+  getHookExecution: (executionId: string) => Promise<RuntimeHookExecution>
   listTurnCompactBoundaries: (turnId: string) => Promise<RuntimeCompactBoundary[]>
   listSessionCompactBoundaries: (sessionId: string) => Promise<RuntimeCompactBoundary[]>
   listWorktrees: () => Promise<RuntimeWorktree[]>

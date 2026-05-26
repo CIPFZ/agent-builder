@@ -177,6 +177,80 @@ type RuntimeToolCallsResponse struct {
 	ToolCalls []RuntimeToolCall `json:"toolCalls"`
 }
 
+type RuntimeHook struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Source      string `json:"source"`
+	Event       string `json:"event"`
+	Matcher     string `json:"matcher,omitempty"`
+	Enabled     bool   `json:"enabled"`
+	Status      string `json:"status"`
+	Diagnostics string `json:"diagnostics,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	Timeout     int    `json:"timeout,omitempty"`
+}
+
+type RuntimeHookExecution struct {
+	ID                string `json:"id"`
+	HookID            string `json:"hookId"`
+	HookName          string `json:"hookName,omitempty"`
+	HookSource        string `json:"hookSource,omitempty"`
+	Event             string `json:"event"`
+	Status            string `json:"status"`
+	SessionID         string `json:"sessionId,omitempty"`
+	TurnID            string `json:"turnId,omitempty"`
+	ToolCallID        string `json:"toolCallId,omitempty"`
+	TaskID            string `json:"taskId,omitempty"`
+	CapabilityID      string `json:"capabilityId,omitempty"`
+	MCPServer         string `json:"mcpServer,omitempty"`
+	Skill             string `json:"skill,omitempty"`
+	ContextRef        string `json:"contextRef,omitempty"`
+	PolicyMode        string `json:"policyMode,omitempty"`
+	PolicyProfile     string `json:"policyProfile,omitempty"`
+	PolicyRule        string `json:"policyRule,omitempty"`
+	PolicyDecision    string `json:"policyDecision,omitempty"`
+	PolicyReason      string `json:"policyReason,omitempty"`
+	Headless          bool   `json:"headless,omitempty"`
+	HeadlessReason    string `json:"headlessReason,omitempty"`
+	SandboxDecisionID string `json:"sandboxDecisionId,omitempty"`
+	SandboxStatus     string `json:"sandboxStatus,omitempty"`
+	ScopeKind         string `json:"scopeKind,omitempty"`
+	ScopeValue        string `json:"scopeValue,omitempty"`
+	Reason            string `json:"reason,omitempty"`
+	Error             string `json:"error,omitempty"`
+	InputSummary      string `json:"inputSummary,omitempty"`
+	OutputSummary     string `json:"outputSummary,omitempty"`
+	ContextSummary    string `json:"contextSummary,omitempty"`
+	InputRewritten    bool   `json:"inputRewritten,omitempty"`
+	ContextInjected   bool   `json:"contextInjected,omitempty"`
+	Redacted          bool   `json:"redacted"`
+	StartedAt         int64  `json:"startedAt"`
+	CompletedAt       int64  `json:"completedAt,omitempty"`
+	DurationMS        int64  `json:"durationMs,omitempty"`
+}
+
+type RuntimeHooksResponse struct {
+	Hooks       []RuntimeHook `json:"hooks"`
+	Diagnostics []string      `json:"diagnostics,omitempty"`
+}
+
+type RuntimeHookExecutionsRequest struct {
+	SessionID  string `json:"sessionId,omitempty"`
+	TurnID     string `json:"turnId,omitempty"`
+	ToolCallID string `json:"toolCallId,omitempty"`
+	TaskID     string `json:"taskId,omitempty"`
+	Event      string `json:"event,omitempty"`
+	Status     string `json:"status,omitempty"`
+}
+
+type RuntimeHookExecutionResponse struct {
+	Execution RuntimeHookExecution `json:"execution"`
+}
+
+type RuntimeHookExecutionsResponse struct {
+	Executions []RuntimeHookExecution `json:"executions"`
+}
+
 type RuntimeAgentTask struct {
 	ID                 string                  `json:"id"`
 	ParentTurnID       string                  `json:"parentTurnId,omitempty"`
@@ -701,6 +775,7 @@ type RuntimeReplayExportSummary struct {
 	TaskArtifactRefs   []RuntimeRef                  `json:"taskArtifactRefs,omitempty"`
 	PolicyDecisions    []RuntimeReplayPolicyDecision `json:"policyDecisions,omitempty"`
 	SandboxDecisions   []RuntimeSandboxDecision      `json:"sandboxDecisions,omitempty"`
+	Hooks              []RuntimeHookExecution        `json:"hooks,omitempty"`
 	PermissionEvents   []RuntimeReplayPermission     `json:"permissionEvents,omitempty"`
 	ReadFiles          []RuntimeReadFileState        `json:"readFiles,omitempty"`
 	ToolCalls          []RuntimeToolCall             `json:"toolCalls,omitempty"`
@@ -874,6 +949,7 @@ type RuntimeRecoveryStatus struct {
 	InterruptedTasks   []RuntimeAgentTask         `json:"interrupted_tasks,omitempty"`
 	CompactBoundaries  []RuntimeCompactBoundary   `json:"compact_boundaries,omitempty"`
 	Worktrees          []RuntimeWorktree          `json:"worktrees,omitempty"`
+	HookExecutions     []RuntimeHookExecution     `json:"hook_executions,omitempty"`
 	PendingPermissions []RuntimePermissionRequest `json:"pending_permissions"`
 	PendingMCPRequests []RuntimeMCPRequest        `json:"pending_mcp_requests,omitempty"`
 	SnapshotRequired   bool                       `json:"snapshot_required,omitempty"`
@@ -894,6 +970,7 @@ type RuntimeAuditTurnSummary struct {
 	Tasks                    []RuntimeAgentTask         `json:"tasks,omitempty"`
 	Worktrees                []RuntimeWorktree          `json:"worktrees,omitempty"`
 	SandboxDecisions         []RuntimeSandboxDecision   `json:"sandbox_decisions,omitempty"`
+	Hooks                    []RuntimeHookExecution     `json:"hooks,omitempty"`
 	TaskMessages             []RuntimeAgentTaskMessage  `json:"task_messages,omitempty"`
 	TaskResults              []RuntimeAgentTaskResult   `json:"task_results,omitempty"`
 	Permissions              []map[string]any           `json:"permissions,omitempty"`

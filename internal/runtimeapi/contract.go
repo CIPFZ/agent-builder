@@ -37,6 +37,9 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/todos"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/tool-calls"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/compact"},
+	{Method: MethodGet, Path: "/v1/hooks"},
+	{Method: MethodGet, Path: "/v1/hook-executions"},
+	{Method: MethodGet, Path: "/v1/hook-executions/{execution_id}"},
 	{Method: MethodGet, Path: "/v1/sandbox/decisions"},
 	{Method: MethodGet, Path: "/v1/sandbox/decisions/{decision_id}"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/tasks"},
@@ -140,6 +143,15 @@ const (
 	EventPolicyRuleDenied           = "policy.rule.denied"
 	EventPolicyRuleAsk              = "policy.rule.ask"
 	EventShellPolicyClassified      = "shell.policy.classified"
+	EventHookDiscovered             = "hook.discovered"
+	EventHookConfigured             = "hook.configured"
+	EventHookExecutionStarted       = "hook.execution.started"
+	EventHookExecutionCompleted     = "hook.execution.completed"
+	EventHookExecutionSkipped       = "hook.execution.skipped"
+	EventHookExecutionBlocked       = "hook.execution.blocked"
+	EventHookExecutionFailed        = "hook.execution.failed"
+	EventHookContextInjected        = "hook.context.injected"
+	EventHookInputRewritten         = "hook.input.rewritten"
 	EventSandboxDecisionRecorded    = "sandbox.decision.recorded"
 	EventSandboxApplied             = "sandbox.applied"
 	EventSandboxUnavailable         = "sandbox.unavailable"
@@ -258,6 +270,15 @@ var EventTypes = []string{
 	EventPolicyRuleDenied,
 	EventPolicyRuleAsk,
 	EventShellPolicyClassified,
+	EventHookDiscovered,
+	EventHookConfigured,
+	EventHookExecutionStarted,
+	EventHookExecutionCompleted,
+	EventHookExecutionSkipped,
+	EventHookExecutionBlocked,
+	EventHookExecutionFailed,
+	EventHookContextInjected,
+	EventHookInputRewritten,
 	EventSandboxDecisionRecorded,
 	EventSandboxApplied,
 	EventSandboxUnavailable,

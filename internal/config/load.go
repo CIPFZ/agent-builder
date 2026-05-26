@@ -980,6 +980,10 @@ func normalizeHookEvent(name string) string {
 	switch strings.ToLower(strings.ReplaceAll(name, "_", "")) {
 	case "pretooluse":
 		return "PreToolUse"
+	case "posttooluse":
+		return "PostToolUse"
+	case "posttoolusefailure":
+		return "PostToolUseFailure"
 	default:
 		return name
 	}
@@ -1001,6 +1005,11 @@ func (c *Config) ValidateHooks() error {
 	}
 
 	for event, eventHooks := range c.Hooks {
+		switch event {
+		case "PreToolUse", "PostToolUse", "PostToolUseFailure":
+		default:
+			return fmt.Errorf("hook %s: unknown event", event)
+		}
 		for i, h := range eventHooks {
 			if h.Command == "" {
 				return fmt.Errorf("hook %s[%d]: command is required", event, i)

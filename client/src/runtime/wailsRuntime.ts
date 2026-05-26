@@ -327,6 +327,24 @@ export const wailsRuntime: AgentRuntime = {
     return response.toolCalls
   },
 
+  async listHooks() {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.Hooks()
+    return response.hooks
+  },
+
+  async listHookExecutions(request = {}) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.HookExecutions(request)
+    return response.executions
+  },
+
+  async getHookExecution(executionId: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.HookExecution(executionId)
+    return response.execution
+  },
+
   async listRefs(request = {}) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.Refs(request)

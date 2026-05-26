@@ -19,6 +19,12 @@ type RuntimeTodosResponse = runtime.RuntimeTodosResponse
 type RuntimeToolCall = runtime.RuntimeToolCall
 type RuntimeToolCallResponse = runtime.RuntimeToolCallResponse
 type RuntimeToolCallsResponse = runtime.RuntimeToolCallsResponse
+type RuntimeHook = runtime.RuntimeHook
+type RuntimeHooksResponse = runtime.RuntimeHooksResponse
+type RuntimeHookExecution = runtime.RuntimeHookExecution
+type RuntimeHookExecutionsRequest = runtime.RuntimeHookExecutionsRequest
+type RuntimeHookExecutionsResponse = runtime.RuntimeHookExecutionsResponse
+type RuntimeHookExecutionResponse = runtime.RuntimeHookExecutionResponse
 type RuntimeRef = runtime.RuntimeRef
 type RuntimeRefListRequest = runtime.RuntimeRefListRequest
 type RuntimeRefResponse = runtime.RuntimeRefResponse
@@ -197,6 +203,24 @@ func (r *RuntimeBridge) ToolCall(ctx context.Context, toolCallID string) (Runtim
 func (r *RuntimeBridge) TurnToolCalls(ctx context.Context, turnID string) (RuntimeToolCallsResponse, error) {
 
 	return r.service.TurnToolCalls(ctx, turnID)
+
+}
+
+func (r *RuntimeBridge) Hooks(ctx context.Context) (RuntimeHooksResponse, error) {
+
+	return r.service.Hooks(ctx)
+
+}
+
+func (r *RuntimeBridge) HookExecutions(ctx context.Context, req RuntimeHookExecutionsRequest) (RuntimeHookExecutionsResponse, error) {
+
+	return r.service.HookExecutions(ctx, req)
+
+}
+
+func (r *RuntimeBridge) HookExecution(ctx context.Context, executionID string) (RuntimeHookExecutionResponse, error) {
+
+	return r.service.HookExecution(ctx, executionID)
 
 }
 

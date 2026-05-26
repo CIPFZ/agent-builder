@@ -116,6 +116,18 @@ export async function requestRuntimeTurnToolCalls(turnId: string) {
   return getAgentRuntime().listTurnToolCalls(turnId)
 }
 
+export async function requestRuntimeHooks() {
+  return getAgentRuntime().listHooks()
+}
+
+export async function requestRuntimeHookExecutions(request?: import('./types').RuntimeHookExecutionListRequest) {
+  return getAgentRuntime().listHookExecutions(request)
+}
+
+export async function requestRuntimeHookExecution(executionId: string) {
+  return getAgentRuntime().getHookExecution(executionId)
+}
+
 export async function requestRuntimeTurnCompactBoundaries(turnId: string) {
   return getAgentRuntime().listTurnCompactBoundaries(turnId)
 }

@@ -226,6 +226,22 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && turnCompactPathID(r.URL.Path) != "":
 		value, err := s.service.TurnCompactBoundaries(r.Context(), turnCompactPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/hooks":
+		value, err := s.service.Hooks(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/hook-executions":
+		value, err := s.service.HookExecutions(r.Context(), RuntimeHookExecutionsRequest{
+			SessionID:  r.URL.Query().Get("session_id"),
+			TurnID:     r.URL.Query().Get("turn_id"),
+			ToolCallID: r.URL.Query().Get("tool_call_id"),
+			TaskID:     r.URL.Query().Get("task_id"),
+			Event:      r.URL.Query().Get("event"),
+			Status:     r.URL.Query().Get("status"),
+		})
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && hookExecutionPathID(r.URL.Path) != "":
+		value, err := s.service.HookExecution(r.Context(), hookExecutionPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/worktrees":
 		value, err := s.service.Worktrees(r.Context())
 		writeRuntimeResult(w, value, err)
@@ -649,6 +665,14 @@ func turnTodosPathID(path string) string {
 
 func toolCallPathID(path string) string {
 	id := strings.TrimPrefix(path, "/v1/tool-calls/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func hookExecutionPathID(path string) string {
+	id := strings.TrimPrefix(path, "/v1/hook-executions/")
 	if id == path || id == "" || strings.Contains(id, "/") {
 		return ""
 	}

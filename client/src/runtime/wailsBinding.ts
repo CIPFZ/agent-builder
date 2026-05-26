@@ -44,6 +44,9 @@ import type {
   RuntimeAPIEndpoint,
   RuntimeEventsResponse,
   RuntimeEffectiveScope,
+  RuntimeHook,
+  RuntimeHookExecution,
+  RuntimeHookExecutionListRequest,
   RuntimeWorktree,
   RuntimeWorktreeActionRequest,
   RuntimeWorktreeCreateRequest,
@@ -70,6 +73,9 @@ type WailsRuntimeBridge = {
   EventsEndpoint: () => Promise<{ url: string }>
   GetModelConfig: () => Promise<{ config: RuntimeModelConfig }>
   GetPolicy: () => Promise<{ policy: RuntimePolicy }>
+  Hooks: () => Promise<{ hooks: RuntimeHook[] }>
+  HookExecutions: (request: RuntimeHookExecutionListRequest) => Promise<{ executions: RuntimeHookExecution[] }>
+  HookExecution: (executionId: string) => Promise<{ execution: RuntimeHookExecution }>
   RecoveryStatus: () => Promise<RuntimeRecoveryStatus>
   MCPServers: () => Promise<{ servers: RuntimeMcpServer[] }>
   MCPRequests: (request: RuntimeMcpRequestListRequest) => Promise<{ requests: RuntimeMcpRequest[] }>

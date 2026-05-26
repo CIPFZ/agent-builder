@@ -407,6 +407,93 @@ func TestRuntimeHTTPServerRoutesToolCallQueriesToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesHookQueriesToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		hooks: RuntimeHooksResponse{Hooks: []RuntimeHook{{
+			ID:      "hook-1",
+			Name:    "bash",
+			Source:  "config",
+			Event:   "PreToolUse",
+			Enabled: true,
+			Status:  "enabled",
+		}}},
+		hookExecution: RuntimeHookExecutionResponse{Execution: RuntimeHookExecution{
+			ID:         "hook-exec-1",
+			HookID:     "hook-1",
+			Event:      "PreToolUse",
+			Status:     "completed",
+			SessionID:  "session-1",
+			TurnID:     "turn-1",
+			ToolCallID: "tool-1",
+			Redacted:   true,
+		}},
+		hookExecutions: RuntimeHookExecutionsResponse{Executions: []RuntimeHookExecution{{
+			ID:         "hook-exec-1",
+			HookID:     "hook-1",
+			Event:      "PreToolUse",
+			Status:     "completed",
+			SessionID:  "session-1",
+			TurnID:     "turn-1",
+			ToolCallID: "tool-1",
+			Redacted:   true,
+		}}},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/hooks", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("hooks status = %d body = %s", resp.status, resp.body.String())
+	}
+	var hooksResp RuntimeHooksResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &hooksResp); err != nil {
+		t.Fatal(err)
+	}
+	if len(hooksResp.Hooks) != 1 || hooksResp.Hooks[0].ID != "hook-1" {
+		t.Fatalf("hooks = %#v", hooksResp.Hooks)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/hook-executions?session_id=session-1&turn_id=turn-1&tool_call_id=tool-1&event=PreToolUse&status=completed", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("hook executions status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.hookExecutionsReq.SessionID != "session-1" ||
+		service.hookExecutionsReq.TurnID != "turn-1" ||
+		service.hookExecutionsReq.ToolCallID != "tool-1" ||
+		service.hookExecutionsReq.Event != "PreToolUse" ||
+		service.hookExecutionsReq.Status != "completed" {
+		t.Fatalf("hook execution request = %#v", service.hookExecutionsReq)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/hook-executions/hook-exec-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("hook execution status = %d body = %s", resp.status, resp.body.String())
+	}
+	var detail RuntimeHookExecutionResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Execution.ID != "hook-exec-1" || !detail.Execution.Redacted {
+		t.Fatalf("hook execution = %#v", detail.Execution)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesTodoQueriesToRuntimeService(t *testing.T) {
 	t.Parallel()
 

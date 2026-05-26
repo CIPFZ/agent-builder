@@ -1,7 +1,7 @@
 # Claude Code Alignment Next Roadmap
 
-Status: refreshed on 2026-05-24 after a full runtime parity re-audit against
-current Agent Builder `main` and the local Claude Code source snapshot.
+Status: refreshed on 2026-05-26 after hook lifecycle hardening against current
+Agent Builder `main` and the local Claude Code source snapshot.
 
 Primary reference:
 
@@ -28,8 +28,8 @@ Supporting docs:
 - Wails and HTTP are adapters.
 - `charm.land/fantasy` is the provider/model/tool protocol abstraction and must
   not be rewritten.
-- Compact, tool discovery, policy, AgentTask, MCP/skills, worktree, audit, and
-  replay are runtime primitives.
+- Compact, tool discovery, policy, AgentTask, MCP/skills, worktree, hooks,
+  audit, and replay are runtime primitives.
 - Model-assisted permission is advisory-only and cannot self-approve high-risk
   tool use.
 - Coordinator/agent communication is a runtime primitive, not UI event
@@ -39,21 +39,22 @@ Supporting docs:
 ## Current Baseline
 
 The current code is ahead of the older roadmap. Several items previously listed
-as missing are now partial runtime foundations.
+as missing are now runtime foundations.
 
 | Area | Status | Evidence |
 | --- | --- | --- |
 | Runtime spine: turns, ToolCalls, events, audit, recovery | Completed foundation | `internal/runtime/runtime_turns.go`, `runtime_tool_call_store.go`, `runtime_events.go`, `runtime_audit.go`, `runtime_recovery.go` |
 | Tool scheduler integration | Completed foundation | `internal/tools/scheduler/*`, `internal/agent/scheduler_tool.go`, `runtime_scheduler_recorder.go` |
-| Permission policy with scoped rules and shell safety | Partial implemented | `internal/permission/policy.go`, `internal/runtime/runtime_policy.go` |
-| Compact boundary, budget, micro compact | Partial implemented | `internal/runtime/runtime_compact*.go`, `runtime_budget.go` |
-| Tool search/discovery and guardrails | Partial implemented | `internal/agent/tool_search.go`, `internal/runtime/runtime_tool_search.go`, `internal/agent/loop_detection.go` |
-| Capability registry and lazy refresh state | Partial implemented | `internal/runtime/runtime_capabilities.go` |
-| MCP lifecycle and policy filtering | Partial implemented | `internal/runtime/runtime_mcp*.go`, `internal/agent/tools/mcp/*` |
-| Skills activation metadata | Partial implemented | `internal/skills/*`, `internal/runtime/runtime_skill_activation.go` |
-| AgentTask roles, scopes, messages, results | Partial implemented | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go` |
-| Worktree lifecycle | Partial implemented | `internal/runtime/runtime_worktrees.go`, `runtime_worktree_store.go` |
-| Replay export and scenario harness | Partial implemented | `internal/runtime/runtime_replay_export.go`, `runtime_scenario_harness_test.go` |
+| Permission policy with scoped rules and shell safety | Implemented foundation | `internal/permission/policy.go`, `internal/runtime/runtime_policy.go` |
+| Compact boundary, budget, reinjection | Implemented foundation | `internal/runtime/runtime_compact*.go`, `runtime_budget.go` |
+| Tool search/discovery and guardrails | Implemented foundation | `internal/agent/tool_search.go`, `internal/runtime/runtime_tool_search.go`, `internal/agent/loop_detection.go` |
+| Capability registry and lazy refresh state | Implemented foundation | `internal/runtime/runtime_capabilities.go` |
+| MCP lifecycle, auth/elicitation, policy filtering | Implemented foundation | `internal/runtime/runtime_mcp*.go`, `internal/agent/tools/mcp/*` |
+| Skills activation metadata | Implemented foundation | `internal/skills/*`, `internal/runtime/runtime_skill_activation.go` |
+| AgentTask roles, scopes, messages, results | Implemented foundation | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go` |
+| Worktree lifecycle and sandbox records | Implemented foundation | `internal/runtime/runtime_worktrees.go`, `runtime_worktree_store.go` |
+| Hooks lifecycle | Implemented foundation | `internal/hooks/*`, `internal/agent/hooked_tool.go`, `internal/runtime/runtime_hooks.go` |
+| Replay export and scenario harness | Implemented foundation | `internal/runtime/runtime_replay_export.go`, `runtime_scenario_harness_test.go` |
 | React runtime boundary | Partial | `client/src/runtime/*`, `client/src/features/*` |
 
 ## Reordered Roadmap
@@ -66,15 +67,10 @@ diagnostics should follow runtime APIs.
 | P0 Completed | Runtime spine: Turn, ToolCall, Event, Audit, Recovery | Completed | Stable foundation already present. |
 | P0 Completed | Tool scheduler baseline | Completed | Scheduler records lifecycle, policy, events, audit. |
 | P0 Completed | Deterministic policy baseline | Completed foundation | Modes and scoped rules exist. |
-| P1 Next | Full compact and post-compact reinjection | Next runtime | Builds on existing boundary/budget/micro compact; unlocks long sessions and compact-aware recovery. |
-| P1 Next | Persisted event replay and expanded scenario harness | Next runtime | Current replay mixes audit store with bounded event buffer; needs durable event source and more fixtures. |
-| P1 Parallel | Tool discovery hardening and scheduler guardrails | Parallel runtime | Tool search exists; needs stronger per-source recursion/concurrency/deadlock policy. |
-| P1 Parallel | Policy profiles/headless semantics and shell parser hardening | Parallel runtime | Scoped rules exist; production safety needs profiles and fuller Bash/PowerShell coverage. |
-| P2 | AgentTask coordinator mailbox and task tools | Blocked by compact/replay/policy hardening | Messages/results exist, but full SendMessage/coordinator semantics need stable transcript and policy boundaries. |
-| P2 | Output/artifact ref store and background job entity | Blocked by compact/replay | ToolCall output compaction exists, but artifacts/jobs need durable refs. |
-| P2 | MCP auth/elicitation lifecycle | Runtime after policy hardening | MCP inventory/lifecycle exists; auth and elicitation are missing. |
-| P2 | Worktree integration hardening | After AgentTask/policy hardening | Worktree lifecycle exists; needs deeper task/cwd/shell integration. |
-| P2 Later | React compact/task/policy/replay diagnostics | After runtime APIs | React should expose runtime facts only. |
+| P1 Next | Broaden scenario fixtures and diagnostics DTO coverage | Next runtime | Cross-boundary primitives exist; regression coverage should expand before product UI depends on them. |
+| P1 Parallel | Shell parser fixture expansion | Parallel runtime | Deterministic policy exists; Bash/PowerShell/cmd coverage should keep growing. |
+| P2 | AgentTask coordinator mailbox and task tools | Runtime follow-up | Messages/results exist, but full SendMessage/coordinator semantics need more orchestration semantics. |
+| P2 Later | React compact/task/policy/replay/hook diagnostics | After runtime APIs | React should expose runtime facts only. |
 | P3 Later | Sandbox and remote runtime | Later | Depends on shell policy, worktree, task scope. |
 | P3 Later | Capability package/plugin governance | Later | Needs stable registry, tool search, scoped policy, MCP/skills lifecycle. |
 | P3 Later | Advisory permission advisor | Later | Must wait for deterministic scopes and evals. |
@@ -84,40 +80,21 @@ diagnostics should follow runtime APIs.
 
 ```mermaid
 graph TD
-  SP["Completed: runtime spine"] --> FC["Next: full compact"]
-  SP --> EV["Next: persisted event replay"]
-  SP --> TG["Parallel: tool guardrails"]
-  SP --> PH["Parallel: policy profiles + shell parser"]
+  SP["Completed: runtime spine"] --> FX["Next: broader scenarios"]
+  SP --> DIAGDTO["Next: diagnostics DTO mirror"]
 
-  CB["Partial: compact boundary + budget + micro compact"] --> FC
-  CTX["Partial: context source audit + read-file state"] --> RI["Post-compact reinjection"]
-  FC --> RI
-  FC --> AC["Later: auto compact trigger"]
-  FC --> SM["Later: session memory compact"]
+  HOOK["Implemented: hooks lifecycle"] --> FX
+  POL["Implemented: policy/headless"] --> FX
+  MCP["Implemented: MCP auth/elicitation"] --> FX
+  WT["Implemented: worktree/sandbox boundary"] --> FX
+  CTX["Implemented: context + compact reinjection"] --> FX
+  REF["Implemented: output/artifact refs"] --> FX
 
-  TS["Partial: tool search"] --> TG
-  CAP["Partial: capability registry"] --> TG
-  PH --> TG
-  TG --> ART["P2: output/artifact refs"]
+  AT["Implemented foundation: AgentTask records/messages/results"] --> MB["P2: coordinator mailbox"]
+  FX --> MB
 
-  AT["Partial: AgentTask roles/scopes/messages/results"] --> MB["P2: coordinator mailbox"]
-  FC --> MB
-  PH --> MB
-  EV --> MB
-
-  WT["Partial: worktree lifecycle"] --> WTH["P2: worktree/task hardening"]
-  PH --> WTH
-  MB --> WTH
-  WTH --> SB["P3: sandbox/remote runtime"]
-
-  MCP["Partial: MCP lifecycle"] --> AUTH["P2: MCP auth/elicitation"]
-  PH --> AUTH
-
-  EV --> DIAG["P2: React diagnostics"]
-  FC --> DIAG
+  DIAGDTO --> DIAG["P2: React diagnostics"]
   MB --> DIAG
-  AUTH --> DIAG
-  ART --> DIAG
 
   CAP --> PKG["P3: package/plugin governance"]
   PH --> ADV["P3: advisory permission advisor"]
@@ -132,18 +109,15 @@ graph TD
 ## First Recommended Module
 
 ```text
-runtime: full compact and post-compact reinjection
+runtime: broaden scenario fixtures and diagnostics DTO coverage
 ```
 
 This is the best next module because:
 
-- current code already has compact boundaries, budget reports, and micro compact;
-- Claude Code still has a deeper compact lifecycle in `src/services/compact/*`;
-- long-session reliability depends on compact-aware context, replay, and
-  reinjection;
-- AgentTask/coordinator work will increase transcript volume and should wait
-  for compact hardening;
-- React compact diagnostics should render runtime compact state, not infer it.
+- core runtime primitives now exist as Go-owned records and APIs;
+- hooks, policy/headless, MCP, sandbox/worktree, compact/replay, and refs are
+  cross-cutting enough that fixture breadth matters more than another UI pass;
+- React diagnostics should render runtime state, not infer it.
 
 ## Page / React Deferral
 

@@ -32,6 +32,9 @@ type RuntimeService interface {
 	ReadRefContent(context.Context, string) (RuntimeRefContentResponse, error)
 	TurnCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error)
 	SessionCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error)
+	Hooks(context.Context) (RuntimeHooksResponse, error)
+	HookExecutions(context.Context, RuntimeHookExecutionsRequest) (RuntimeHookExecutionsResponse, error)
+	HookExecution(context.Context, string) (RuntimeHookExecutionResponse, error)
 	Worktrees(context.Context) (RuntimeWorktreesResponse, error)
 	Worktree(context.Context, string) (RuntimeWorktreeResponse, error)
 	CreateWorktree(context.Context, RuntimeWorktreeCreateRequest) (RuntimeWorktreeResponse, error)
@@ -111,6 +114,7 @@ type runtimeService struct {
 	compactBoundaries runtimeCompactBoundaryStore
 	worktrees         runtimeWorktreeStore
 	sandboxDecisions  runtimeSandboxDecisionStore
+	hookExecutions    runtimeHookExecutionStore
 	agentTasks        runtimeAgentTaskStore
 	turns             runtimeTurnStore
 	eventStore        runtimeEventStore

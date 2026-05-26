@@ -1,6 +1,6 @@
 # Claude Code Alignment Module Priority
 
-Status: refreshed on 2026-05-24 after the full runtime parity re-audit.
+Status: refreshed on 2026-05-26 after hook lifecycle hardening.
 
 Use these docs for the next session:
 
@@ -9,11 +9,13 @@ Use these docs for the next session:
 - [`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md)
 - [`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md)
 
-Older wording that made either PermissionPolicy or React shell the next main
-module is superseded. Current code already contains foundations for scoped
-policy, compact boundary/micro compact, tool search, AgentTask messages/results,
-worktree lifecycle, replay export, and scenario tests. The next priority is
-runtime hardening.
+Older wording that made PermissionPolicy, compact, replay, MCP auth, worktree,
+or React shell the next main module is superseded. Current code already contains
+runtime foundations for scoped policy/headless, compact/reinjection, persisted
+replay events, tool discovery, AgentTask messages/results, output/artifact refs,
+MCP auth/elicitation, worktree recovery/cleanup, sandbox records, context
+loading, hooks lifecycle records, and scenario tests. The next priority remains
+runtime fixture breadth and read-only diagnostics contracts.
 
 ## Current Baseline
 
@@ -21,49 +23,38 @@ runtime hardening.
 | --- | --- | --- |
 | Runtime spine | Completed foundation | `internal/runtime/runtime_turns.go`, `runtime_tool_call_store.go`, `runtime_events.go`, `runtime_audit.go`, `runtime_recovery.go` |
 | Tool scheduler | Completed foundation | `internal/tools/scheduler/*`, `internal/agent/scheduler_tool.go`, `runtime_scheduler_recorder.go` |
-| Permission policy | Partial implemented | `internal/permission/policy.go`, `internal/runtime/runtime_policy.go` |
-| Compact and budget | Partial implemented | `internal/runtime/runtime_compact*.go`, `runtime_budget.go` |
-| Tool search | Partial implemented | `internal/agent/tool_search.go`, `internal/runtime/runtime_tool_search.go` |
-| MCP/skills/capabilities | Partial implemented | `internal/runtime/runtime_mcp*.go`, `runtime_skills.go`, `runtime_skill_activation.go`, `runtime_capabilities.go` |
-| AgentTask/coordinator base | Partial implemented | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go`, `internal/agent/coordinator.go` |
-| Worktree | Partial implemented | `internal/runtime/runtime_worktrees.go`, `runtime_worktree_store.go` |
-| Replay/eval harness | Partial implemented | `internal/runtime/runtime_replay_export.go`, `runtime_scenario_harness_test.go` |
+| Permission policy | Implemented foundation | `internal/permission/policy.go`, `internal/runtime/runtime_policy.go` |
+| Compact and budget | Implemented foundation | `internal/runtime/runtime_compact*.go`, `runtime_budget.go` |
+| Tool search | Implemented foundation | `internal/agent/tool_search.go`, `internal/runtime/runtime_tool_search.go` |
+| MCP/skills/capabilities | Implemented foundation | `internal/runtime/runtime_mcp*.go`, `runtime_skills.go`, `runtime_skill_activation.go`, `runtime_capabilities.go` |
+| AgentTask/coordinator base | Implemented foundation | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go`, `internal/agent/coordinator.go` |
+| Worktree/sandbox | Implemented foundation | `internal/runtime/runtime_worktrees.go`, `runtime_worktree_store.go`, sandbox execution records |
+| Hooks lifecycle | Implemented foundation | `internal/hooks/*`, `internal/agent/hooked_tool.go`, `internal/runtime/runtime_hooks.go` |
+| Replay/eval harness | Implemented foundation | `internal/runtime/runtime_replay_export.go`, `runtime_scenario_harness_test.go` |
 | React runtime client | Partial diagnostics | `client/src/runtime/*`, `client/src/features/*` |
 
 ## Recommended Next Module
 
 ```text
-runtime: full compact and post-compact reinjection
+runtime: broaden scenario fixtures and diagnostics DTO coverage
 ```
 
-This is first because current code has compact boundaries, budget reporting, and
-micro compact but still lacks Claude Code's full compact lifecycle:
-
-- full compact summaries,
-- auto compact trigger,
-- session memory compact,
-- post-compact cleanup/reinjection,
-- compact-aware recovery,
-- broader compact replay/eval coverage.
-
-React/page work should wait because compact, replay, task mailbox, artifact, and
-policy diagnostics must render runtime state. The client must not infer compact
-or task truth from messages.
+This is first because the core runtime primitive sequence is now in place. The
+remaining highest-value work is proving boundary combinations with fixtures and
+mirroring read-only DTOs for diagnostics. React/page work should still wait
+unless it mirrors runtime contracts; the client must not infer hook, compact,
+policy, task, artifact, or worktree truth from messages.
 
 ## Next Priority Order
 
-1. Full compact and post-compact reinjection.
-2. Persisted event replay and expanded scenario harness.
-3. Tool discovery guardrails and scheduler recursion/concurrency hardening.
-4. Policy profiles, headless semantics, and shell parser hardening.
-5. AgentTask coordinator mailbox and task-tool parity.
-6. Output/artifact refs and durable background job entity.
-7. MCP auth/elicitation lifecycle.
-8. Worktree task/cwd cleanup hardening.
-9. React compact/replay/task/policy diagnostics after runtime APIs.
-10. Sandbox/remote runtime.
-11. Capability package/plugin governance.
-12. Advisory permission advisor.
+1. Broaden scenario fixtures across hooks, policy/headless, MCP, AgentTask
+   scope, sandbox/worktree, compact/replay, and refs.
+2. React diagnostics DTO/API mirror only where runtime contracts already exist.
+3. AgentTask coordinator mailbox and task-tool parity.
+4. Shell parser fixture expansion for Bash/PowerShell/cmd.
+5. Capability package/plugin governance.
+6. Sandbox/remote runtime.
+7. Advisory permission advisor.
 
 ## Not Needed
 

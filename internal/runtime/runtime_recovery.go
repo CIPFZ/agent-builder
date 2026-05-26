@@ -59,6 +59,7 @@ func (r *runtimeService) RecoveryStatus(ctx context.Context) (RuntimeRecoverySta
 	interruptedTurns := append([]RuntimeTurn(nil), r.recovery.interruptedTurns...)
 	interruptedTasks := append([]RuntimeAgentTask(nil), r.recovery.interruptedTasks...)
 	recoveredWorktrees := append([]RuntimeWorktree(nil), r.recovery.worktrees...)
+	interruptedHooks := append([]RuntimeHookExecution(nil), r.recovery.interruptedHooks...)
 	lastSequence := r.nextEventSequence
 	snapshotRequired := len(r.events) > 0 && r.events[0].Sequence > 1
 	r.mu.Unlock()
@@ -74,6 +75,7 @@ func (r *runtimeService) RecoveryStatus(ctx context.Context) (RuntimeRecoverySta
 		InterruptedTasks:   interruptedTasks,
 		CompactBoundaries:  compact,
 		Worktrees:          recoveredWorktrees,
+		HookExecutions:     interruptedHooks,
 		PendingPermissions: pendingPermissions,
 		PendingMCPRequests: pendingMCPRequests,
 		SnapshotRequired:   snapshotRequired,

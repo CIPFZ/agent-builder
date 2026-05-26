@@ -25,7 +25,9 @@ Current remaining gaps are tracked in:
 - risk classification for read/write/execute/network/secret/destructive
 - policy reason, decision, risk, and policy mode recorded on permission/tool
   lifecycle
-- hook pre-approval
+- scheduler-owned policy approval stamping; hook `allow` is advisory and does
+  not bypass deterministic policy, headless fail-closed, scope, sandbox, or MCP
+  gates
 - pubsub notification
 - `/v1/policy`
 

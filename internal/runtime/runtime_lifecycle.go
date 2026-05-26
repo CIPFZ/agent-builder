@@ -82,6 +82,7 @@ func (r *runtimeService) restart() {
 	r.compactBoundaries = runtimeCompactBoundaryStore{}
 	r.worktrees = runtimeWorktreeStore{}
 	r.agentTasks = runtimeAgentTaskStore{}
+	r.hookExecutions = runtimeHookExecutionStore{}
 	r.turns = runtimeTurnStore{}
 	r.eventStore = runtimeEventStore{}
 	r.permissionStore = runtimePermissionStore{}
@@ -208,6 +209,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	r.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
 	r.worktrees = newRuntimeWorktreeStore(conn)
 	r.agentTasks = newRuntimeAgentTaskStore(conn)
+	r.hookExecutions = newRuntimeHookExecutionStore(conn)
 	r.eventStore = newRuntimeEventStore(conn)
 	r.permissionStore = newRuntimePermissionStore(conn)
 	r.mcpRequestStore = newRuntimeMCPRequestStore(conn)
@@ -227,6 +229,10 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to recover runtime agent tasks: %w", err)
 	}
+	interruptedHooks, err := r.hookExecutions.InterruptRunning(ctx, startedAt.UnixMilli())
+	if err != nil {
+		return fmt.Errorf("failed to recover runtime hook executions: %w", err)
+	}
 	recoveredWorktrees, err := r.recoverWorktrees(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to recover runtime worktrees: %w", err)
@@ -241,6 +247,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 		interruptedTurns:   append([]RuntimeTurn(nil), interrupted...),
 		interruptedTasks:   append([]RuntimeAgentTask(nil), interruptedTasks...),
 		worktrees:          append([]RuntimeWorktree(nil), recoveredWorktrees...),
+		interruptedHooks:   append([]RuntimeHookExecution(nil), interruptedHooks...),
 		expiredPermissions: append([]RuntimePermissionRequest(nil), expiredPermissions...),
 	}
 	r.mu.Unlock()
@@ -301,6 +308,10 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 				"error":               task.Error,
 			}),
 		})
+	}
+	for _, hook := range interruptedHooks {
+		r.recordHookExecutionEvent(runtimeapi.EventHookExecutionFailed, hook)
+		r.auditHookExecution(ctx, hook, "hook_execution_interrupted")
 	}
 	for _, wt := range recoveredWorktrees {
 		eventType, auditType := worktreeRecoveryEventForStatus(wt.Status)

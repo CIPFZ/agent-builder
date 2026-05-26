@@ -184,6 +184,11 @@ func (r *runtimeService) auditTurnSummary(ctx context.Context, turnID string, ev
 			summary.SandboxDecisions = decisions
 		}
 	}
+	if r.hookExecutions.db != nil {
+		if hooks, err := r.hookExecutions.List(ctx, RuntimeHookExecutionsRequest{TurnID: turnID}); err == nil {
+			summary.Hooks = hooks
+		}
+	}
 	if compact, err := r.TurnCompactBoundaries(ctx, turnID); err == nil {
 		summary.Compact = compact.Boundaries
 		if len(compact.Boundaries) > 0 && summary.Budget == nil {

@@ -122,6 +122,17 @@ type SchedulerRecorder interface {
 	ToolCallCancelled(context.Context, SchedulerToolCallResult) error
 }
 
+type RuntimeHookRecorder interface {
+	HooksDiscovered(context.Context, []RuntimeHookConfig) error
+	HookExecutionStarted(context.Context, RuntimeHookExecution) error
+	HookExecutionCompleted(context.Context, RuntimeHookExecution) error
+	HookExecutionSkipped(context.Context, RuntimeHookExecution) error
+	HookExecutionBlocked(context.Context, RuntimeHookExecution) error
+	HookExecutionFailed(context.Context, RuntimeHookExecution) error
+	HookContextInjected(context.Context, RuntimeHookExecution) error
+	HookInputRewritten(context.Context, RuntimeHookExecution) error
+}
+
 type ToolDiscoveryRecorder interface {
 	SelectToolsForTurn(context.Context, SchedulerToolDisclosureRequest) (SchedulerToolDisclosureResult, error)
 	SearchToolsForAgent(context.Context, SchedulerToolSearchRequest) (SchedulerToolSearchResult, error)
@@ -201,6 +212,54 @@ type SchedulerToolCallResult struct {
 	IsError                 bool
 	Cancelled               bool
 	Status                  string
+}
+
+type RuntimeHookConfig struct {
+	ID      string
+	Name    string
+	Source  string
+	Event   string
+	Matcher string
+	Enabled bool
+	Timeout int
+}
+
+type RuntimeHookExecution struct {
+	ID                string
+	HookID            string
+	HookName          string
+	HookSource        string
+	Event             string
+	Status            string
+	SessionID         string
+	TurnID            string
+	ToolCallID        string
+	TaskID            string
+	CapabilityID      string
+	MCPServer         string
+	Skill             string
+	ContextRef        string
+	PolicyMode        string
+	PolicyProfile     string
+	PolicyRule        string
+	PolicyDecision    string
+	PolicyReason      string
+	Headless          bool
+	HeadlessReason    string
+	SandboxDecisionID string
+	SandboxStatus     string
+	ScopeKind         string
+	ScopeValue        string
+	Reason            string
+	Error             string
+	InputSummary      string
+	OutputSummary     string
+	ContextSummary    string
+	InputRewritten    bool
+	ContextInjected   bool
+	StartedAt         int64
+	CompletedAt       int64
+	DurationMS        int64
 }
 
 type SchedulerToolPolicyDecision struct {
@@ -707,10 +766,10 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 
 	logFile := filepath.Join(c.cfg.Config().Options.DataDirectory, "logs", "crush.log")
 
-	// Build hook runner if PreToolUse hooks are configured.
+	// Build hook runner if runtime hooks are configured.
 	var hookRunner *hooks.Runner
-	if preToolHooks := c.cfg.Config().Hooks[hooks.EventPreToolUse]; len(preToolHooks) > 0 {
-		hookRunner = hooks.NewRunner(preToolHooks, c.cfg.WorkingDir(), c.cfg.WorkingDir())
+	if len(c.cfg.Config().Hooks) > 0 {
+		hookRunner = hooks.NewRunnerForEvents(c.cfg.Config().Hooks, c.cfg.WorkingDir(), c.cfg.WorkingDir())
 	}
 
 	allTools = append(allTools,
@@ -798,7 +857,12 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	// without hook interception to avoid firing the user's hook N times
 	// per delegated turn. The top-level invocation of the sub-agent tool
 	// itself is still wrapped from the coder's side.
-	filteredTools = wrapToolsWithHooks(filteredTools, hookRunner, isSubAgent)
+	if hookRunner != nil && c.schedulerRecorder != nil && !isSubAgent {
+		if hookRecorder, ok := c.schedulerRecorder.(RuntimeHookRecorder); ok {
+			_ = hookRecorder.HooksDiscovered(ctx, hookConfigsForRuntime(hookRunner))
+		}
+	}
+	filteredTools = wrapToolsWithHooks(filteredTools, hookRunner, c.schedulerRecorder, isSubAgent)
 
 	return filteredTools, nil
 }

@@ -23,6 +23,7 @@ func newRuntimeService() *runtimeService {
 		compactBoundaries: runtimeCompactBoundaryStore{},
 		worktrees:         runtimeWorktreeStore{},
 		sandboxDecisions:  runtimeSandboxDecisionStore{},
+		hookExecutions:    runtimeHookExecutionStore{},
 
 		agentTasks: runtimeAgentTaskStore{},
 

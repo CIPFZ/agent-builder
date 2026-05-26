@@ -293,6 +293,10 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			if decision := runtimeSandboxDecisionFromPayload(event.Payload); decision.ID != "" {
 				summary.SandboxDecisions = appendRuntimeReplaySandboxDecision(summary.SandboxDecisions, decision)
 			}
+		case runtimeapi.EventHookExecutionStarted, runtimeapi.EventHookExecutionCompleted, runtimeapi.EventHookExecutionSkipped, runtimeapi.EventHookExecutionBlocked, runtimeapi.EventHookExecutionFailed, runtimeapi.EventHookContextInjected, runtimeapi.EventHookInputRewritten:
+			if hook := runtimeHookExecutionFromPayload(event.Payload); hook.ID != "" {
+				summary.Hooks = appendRuntimeReplayHookExecution(summary.Hooks, hook)
+			}
 		case runtimeapi.EventPermissionRequested, runtimeapi.EventPermissionDecided:
 			summary.PermissionEvents = append(summary.PermissionEvents, runtimeReplayPermissionFromEvent(event))
 		case runtimeapi.EventCompactBoundaryRecorded, runtimeapi.EventCompactMicroCompleted, runtimeapi.EventCompactFullCompleted, runtimeapi.EventCompactFailed:
@@ -342,6 +346,10 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			if decision := runtimeSandboxDecisionFromAudit(audit); decision.ID != "" {
 				summary.SandboxDecisions = appendRuntimeReplaySandboxDecision(summary.SandboxDecisions, decision)
 			}
+		case "hook_execution_started", "hook_execution_completed", "hook_execution_skipped", "hook_execution_blocked", "hook_execution_failed", "hook_execution_interrupted", "hook_context_injected", "hook_input_rewritten":
+			if hook := runtimeHookExecutionFromAudit(audit); hook.ID != "" {
+				summary.Hooks = appendRuntimeReplayHookExecution(summary.Hooks, hook)
+			}
 		case "permission_requested":
 			summary.PermissionEvents = append(summary.PermissionEvents, runtimeReplayPermissionFromAudit(audit))
 		case "mcp_auth_pending", "mcp_auth_completed", "mcp_auth_denied", "mcp_auth_failed", "mcp_auth_cancelled", "mcp_elicitation_pending", "mcp_elicitation_completed", "mcp_elicitation_denied", "mcp_elicitation_failed", "mcp_elicitation_cancelled":
@@ -372,6 +380,25 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 		}
 	}
 	return summary
+}
+
+func appendRuntimeReplayHookExecution(items []RuntimeHookExecution, hook RuntimeHookExecution) []RuntimeHookExecution {
+	if hook.ID == "" {
+		return items
+	}
+	for i := range items {
+		if items[i].ID == hook.ID {
+			if hook.CompletedAt == 0 && items[i].CompletedAt > 0 {
+				hook.CompletedAt = items[i].CompletedAt
+			}
+			if hook.Status == "" {
+				hook.Status = items[i].Status
+			}
+			items[i] = hook
+			return items
+		}
+	}
+	return append(items, hook)
 }
 
 func appendRuntimeReplayReadFile(items []RuntimeReadFileState, file RuntimeReadFileState) []RuntimeReadFileState {

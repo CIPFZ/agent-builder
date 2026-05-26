@@ -12,6 +12,9 @@ import type {
   RuntimeCompactBoundary,
   RuntimeEventsResponse,
   RuntimeEventsEndpoint,
+  RuntimeHook,
+  RuntimeHookExecution,
+  RuntimeHookExecutionListRequest,
   RuntimeMcpPrompt,
   RuntimeMcpResource,
   RuntimeMcpServer,
@@ -335,6 +338,26 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async listTurnToolCalls(turnId: string) {
       const response = await get<{ toolCalls: RuntimeToolCall[] }>(`/v1/turns/${encodePath(turnId)}/tool-calls`)
       return response.toolCalls
+    },
+    async listHooks() {
+      const response = await get<{ hooks: RuntimeHook[] }>('/v1/hooks')
+      return response.hooks
+    },
+    async listHookExecutions(request: RuntimeHookExecutionListRequest = {}) {
+      const params = new URLSearchParams()
+      if (request.sessionId) params.set('session_id', request.sessionId)
+      if (request.turnId) params.set('turn_id', request.turnId)
+      if (request.toolCallId) params.set('tool_call_id', request.toolCallId)
+      if (request.taskId) params.set('task_id', request.taskId)
+      if (request.event) params.set('event', request.event)
+      if (request.status) params.set('status', request.status)
+      const query = params.toString()
+      const response = await get<{ executions: RuntimeHookExecution[] }>(`/v1/hook-executions${query ? `?${query}` : ''}`)
+      return response.executions
+    },
+    async getHookExecution(executionId: string) {
+      const response = await get<{ execution: RuntimeHookExecution }>(`/v1/hook-executions/${encodePath(executionId)}`)
+      return response.execution
     },
     async listRefs(request = {}) {
       const params = new URLSearchParams()
