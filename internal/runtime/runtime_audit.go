@@ -179,6 +179,11 @@ func (r *runtimeService) auditTurnSummary(ctx context.Context, turnID string, ev
 			summary.Worktrees = worktrees
 		}
 	}
+	if store, err := r.ensureSandboxDecisionStore(ctx); err == nil {
+		if decisions, err := store.List(ctx, RuntimeSandboxDecisionListRequest{TurnID: turnID}); err == nil {
+			summary.SandboxDecisions = decisions
+		}
+	}
 	if compact, err := r.TurnCompactBoundaries(ctx, turnID); err == nil {
 		summary.Compact = compact.Boundaries
 		if len(compact.Boundaries) > 0 && summary.Budget == nil {

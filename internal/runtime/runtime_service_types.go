@@ -25,6 +25,8 @@ type RuntimeService interface {
 	Turns(context.Context, string) (RuntimeTurnsResponse, error)
 	ToolCall(context.Context, string) (RuntimeToolCallResponse, error)
 	TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error)
+	SandboxDecisions(context.Context, RuntimeSandboxDecisionListRequest) (RuntimeSandboxDecisionsResponse, error)
+	SandboxDecision(context.Context, string) (RuntimeSandboxDecisionResponse, error)
 	Refs(context.Context, RuntimeRefListRequest) (RuntimeRefsResponse, error)
 	Ref(context.Context, string) (RuntimeRefResponse, error)
 	ReadRefContent(context.Context, string) (RuntimeRefContentResponse, error)
@@ -107,6 +109,7 @@ type runtimeService struct {
 	refs              runtimeRefStore
 	compactBoundaries runtimeCompactBoundaryStore
 	worktrees         runtimeWorktreeStore
+	sandboxDecisions  runtimeSandboxDecisionStore
 	agentTasks        runtimeAgentTaskStore
 	turns             runtimeTurnStore
 	eventStore        runtimeEventStore

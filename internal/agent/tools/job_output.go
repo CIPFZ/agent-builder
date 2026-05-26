@@ -32,6 +32,11 @@ type JobOutputResponseMetadata struct {
 	Stderr           string `json:"stderr,omitempty"`
 	ExitCode         int    `json:"exit_code,omitempty"`
 	WorkingDirectory string `json:"working_directory"`
+	SandboxMode      string `json:"sandbox_mode,omitempty"`
+	SandboxStatus    string `json:"sandbox_status,omitempty"`
+	SandboxExecutor  string `json:"sandbox_executor,omitempty"`
+	SandboxReason    string `json:"sandbox_reason,omitempty"`
+	SandboxError     string `json:"sandbox_error,omitempty"`
 }
 
 func NewJobOutputTool() fantasy.AgentTool {
@@ -88,6 +93,13 @@ func NewJobOutputTool() fantasy.AgentTool {
 				Stderr:           TruncateOutput(stderr),
 				ExitCode:         exitCode,
 				WorkingDirectory: bgShell.WorkingDir,
+			}
+			if meta, ok := SandboxMetadataFromContext(ctx); ok {
+				metadata.SandboxMode = meta.Mode
+				metadata.SandboxStatus = meta.Status
+				metadata.SandboxExecutor = meta.Executor
+				metadata.SandboxReason = meta.Reason
+				metadata.SandboxError = meta.Error
 			}
 
 			if output == "" {

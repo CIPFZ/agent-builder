@@ -90,6 +90,12 @@ type RuntimeToolCall struct {
 	PolicyTargetSummary            string   `json:"policyTargetSummary,omitempty"`
 	ShellRisk                      string   `json:"shellRisk,omitempty"`
 	ShellReason                    string   `json:"shellReason,omitempty"`
+	SandboxDecisionID              string   `json:"sandboxDecisionId,omitempty"`
+	SandboxMode                    string   `json:"sandboxMode,omitempty"`
+	SandboxStatus                  string   `json:"sandboxStatus,omitempty"`
+	SandboxExecutor                string   `json:"sandboxExecutor,omitempty"`
+	SandboxReason                  string   `json:"sandboxReason,omitempty"`
+	SandboxError                   string   `json:"sandboxError,omitempty"`
 	ExitCode                       int      `json:"exitCode,omitempty"`
 	JobStatus                      string   `json:"jobStatus,omitempty"`
 	JobStartedAt                   int64    `json:"jobStartedAt,omitempty"`
@@ -116,25 +122,28 @@ type RuntimeToolCall struct {
 }
 
 type RuntimeRef struct {
-	ID              string `json:"id"`
-	URI             string `json:"uri"`
-	SessionID       string `json:"sessionId"`
-	TurnID          string `json:"turnId,omitempty"`
-	ToolCallID      string `json:"toolCallId,omitempty"`
-	TaskID          string `json:"taskId,omitempty"`
-	Kind            string `json:"kind"`
-	MediaType       string `json:"mediaType,omitempty"`
-	ContentType     string `json:"contentType,omitempty"`
-	SizeBytes       int64  `json:"sizeBytes"`
-	EstimatedTokens int    `json:"estimatedTokens"`
-	Preview         string `json:"preview,omitempty"`
-	Summary         string `json:"summary,omitempty"`
-	StorageKind     string `json:"storageKind"`
-	StoragePath     string `json:"storagePath,omitempty"`
-	InlinePayload   string `json:"-"`
-	RedactionStatus string `json:"redactionStatus"`
-	CreatedAt       int64  `json:"createdAt"`
-	CanReadContent  bool   `json:"canReadContent"`
+	ID                string `json:"id"`
+	URI               string `json:"uri"`
+	SessionID         string `json:"sessionId"`
+	TurnID            string `json:"turnId,omitempty"`
+	ToolCallID        string `json:"toolCallId,omitempty"`
+	TaskID            string `json:"taskId,omitempty"`
+	Kind              string `json:"kind"`
+	MediaType         string `json:"mediaType,omitempty"`
+	ContentType       string `json:"contentType,omitempty"`
+	SizeBytes         int64  `json:"sizeBytes"`
+	EstimatedTokens   int    `json:"estimatedTokens"`
+	Preview           string `json:"preview,omitempty"`
+	Summary           string `json:"summary,omitempty"`
+	StorageKind       string `json:"storageKind"`
+	StoragePath       string `json:"storagePath,omitempty"`
+	InlinePayload     string `json:"-"`
+	RedactionStatus   string `json:"redactionStatus"`
+	SandboxDecisionID string `json:"sandboxDecisionId,omitempty"`
+	SandboxMode       string `json:"sandboxMode,omitempty"`
+	SandboxStatus     string `json:"sandboxStatus,omitempty"`
+	CreatedAt         int64  `json:"createdAt"`
+	CanReadContent    bool   `json:"canReadContent"`
 }
 
 type RuntimeRefListRequest struct {
@@ -267,6 +276,47 @@ type RuntimeEffectiveScope struct {
 	Worktree     *RuntimeWorktree `json:"worktree,omitempty"`
 	Sandbox      string           `json:"sandbox,omitempty"`
 	Remote       string           `json:"remote,omitempty"`
+}
+
+type RuntimeSandboxDecision struct {
+	ID             string   `json:"id"`
+	SessionID      string   `json:"sessionId"`
+	TurnID         string   `json:"turnId,omitempty"`
+	ToolCallID     string   `json:"toolCallId,omitempty"`
+	TaskID         string   `json:"taskId,omitempty"`
+	Mode           string   `json:"mode"`
+	Status         string   `json:"status"`
+	Executor       string   `json:"executor,omitempty"`
+	CWD            string   `json:"cwd,omitempty"`
+	WorktreeID     string   `json:"worktreeId,omitempty"`
+	WorktreePath   string   `json:"worktreePath,omitempty"`
+	CommandSummary string   `json:"commandSummary,omitempty"`
+	PolicyMode     string   `json:"policyMode,omitempty"`
+	PolicyProfile  string   `json:"policyProfile,omitempty"`
+	PolicyRule     string   `json:"policyRule,omitempty"`
+	Reason         string   `json:"reason,omitempty"`
+	Error          string   `json:"error,omitempty"`
+	AllowedPaths   []string `json:"allowedPaths,omitempty"`
+	DeniedPaths    []string `json:"deniedPaths,omitempty"`
+	NetworkAllowed bool     `json:"networkAllowed,omitempty"`
+	NetworkReason  string   `json:"networkReason,omitempty"`
+	CreatedAt      int64    `json:"createdAt"`
+	CompletedAt    int64    `json:"completedAt,omitempty"`
+}
+
+type RuntimeSandboxDecisionListRequest struct {
+	SessionID  string `json:"sessionId,omitempty"`
+	TurnID     string `json:"turnId,omitempty"`
+	ToolCallID string `json:"toolCallId,omitempty"`
+	TaskID     string `json:"taskId,omitempty"`
+}
+
+type RuntimeSandboxDecisionResponse struct {
+	Decision RuntimeSandboxDecision `json:"decision"`
+}
+
+type RuntimeSandboxDecisionsResponse struct {
+	Decisions []RuntimeSandboxDecision `json:"decisions"`
 }
 
 type RuntimeEffectiveScopeResponse struct {
@@ -650,6 +700,7 @@ type RuntimeReplayExportSummary struct {
 	CompactOutputRefs  []RuntimeRef                  `json:"compactOutputRefs,omitempty"`
 	TaskArtifactRefs   []RuntimeRef                  `json:"taskArtifactRefs,omitempty"`
 	PolicyDecisions    []RuntimeReplayPolicyDecision `json:"policyDecisions,omitempty"`
+	SandboxDecisions   []RuntimeSandboxDecision      `json:"sandboxDecisions,omitempty"`
 	PermissionEvents   []RuntimeReplayPermission     `json:"permissionEvents,omitempty"`
 	ToolCalls          []RuntimeToolCall             `json:"toolCalls,omitempty"`
 	Recovery           RuntimeReplayRecovery         `json:"recovery,omitempty"`
@@ -841,6 +892,7 @@ type RuntimeAuditTurnSummary struct {
 	ToolCalls                []RuntimeToolCall          `json:"tool_calls,omitempty"`
 	Tasks                    []RuntimeAgentTask         `json:"tasks,omitempty"`
 	Worktrees                []RuntimeWorktree          `json:"worktrees,omitempty"`
+	SandboxDecisions         []RuntimeSandboxDecision   `json:"sandbox_decisions,omitempty"`
 	TaskMessages             []RuntimeAgentTaskMessage  `json:"task_messages,omitempty"`
 	TaskResults              []RuntimeAgentTaskResult   `json:"task_results,omitempty"`
 	Permissions              []map[string]any           `json:"permissions,omitempty"`

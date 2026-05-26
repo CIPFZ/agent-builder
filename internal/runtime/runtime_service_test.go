@@ -2684,6 +2684,8 @@ type recordingRuntimeService struct {
 	turnsStatus          string
 	toolCall             RuntimeToolCallResponse
 	toolCalls            RuntimeToolCallsResponse
+	sandboxDecision      RuntimeSandboxDecisionResponse
+	sandboxDecisions     RuntimeSandboxDecisionsResponse
 	ref                  RuntimeRefResponse
 	refs                 RuntimeRefsResponse
 	refContent           RuntimeRefContentResponse
@@ -2764,6 +2766,14 @@ func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeTool
 
 func (s *recordingRuntimeService) TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error) {
 	return s.toolCalls, nil
+}
+
+func (s *recordingRuntimeService) SandboxDecision(context.Context, string) (RuntimeSandboxDecisionResponse, error) {
+	return s.sandboxDecision, nil
+}
+
+func (s *recordingRuntimeService) SandboxDecisions(context.Context, RuntimeSandboxDecisionListRequest) (RuntimeSandboxDecisionsResponse, error) {
+	return s.sandboxDecisions, nil
 }
 
 func (s *recordingRuntimeService) Refs(context.Context, RuntimeRefListRequest) (RuntimeRefsResponse, error) {

@@ -37,6 +37,8 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/todos"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/tool-calls"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/compact"},
+	{Method: MethodGet, Path: "/v1/sandbox/decisions"},
+	{Method: MethodGet, Path: "/v1/sandbox/decisions/{decision_id}"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/tasks"},
 	{Method: MethodGet, Path: "/v1/tool-calls/{tool_call_id}"},
 	{Method: MethodGet, Path: "/v1/refs"},
@@ -137,6 +139,11 @@ const (
 	EventPolicyRuleDenied           = "policy.rule.denied"
 	EventPolicyRuleAsk              = "policy.rule.ask"
 	EventShellPolicyClassified      = "shell.policy.classified"
+	EventSandboxDecisionRecorded    = "sandbox.decision.recorded"
+	EventSandboxApplied             = "sandbox.applied"
+	EventSandboxUnavailable         = "sandbox.unavailable"
+	EventSandboxDenied              = "sandbox.denied"
+	EventSandboxFailed              = "sandbox.failed"
 	EventTodoUpdated                = "todo.updated"
 	EventCapabilityLoading          = "capability.loading"
 	EventCapabilityLoaded           = "capability.loaded"
@@ -244,6 +251,11 @@ var EventTypes = []string{
 	EventPolicyRuleDenied,
 	EventPolicyRuleAsk,
 	EventShellPolicyClassified,
+	EventSandboxDecisionRecorded,
+	EventSandboxApplied,
+	EventSandboxUnavailable,
+	EventSandboxDenied,
+	EventSandboxFailed,
 	EventTodoUpdated,
 	EventCapabilityLoading,
 	EventCapabilityLoaded,

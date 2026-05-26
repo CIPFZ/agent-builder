@@ -48,6 +48,11 @@ type BashResponseMetadata struct {
 	Background       bool   `json:"background,omitempty"`
 	ShellID          string `json:"shell_id,omitempty"`
 	Status           string `json:"status,omitempty"`
+	SandboxMode      string `json:"sandbox_mode,omitempty"`
+	SandboxStatus    string `json:"sandbox_status,omitempty"`
+	SandboxExecutor  string `json:"sandbox_executor,omitempty"`
+	SandboxReason    string `json:"sandbox_reason,omitempty"`
+	SandboxError     string `json:"sandbox_error,omitempty"`
 }
 
 const (
@@ -286,6 +291,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 						WorkingDirectory: bgShell.WorkingDir,
 						Status:           shellStatus(done, execErr),
 					}
+					metadata.applySandbox(ctx)
 					if stdout == "" {
 						return fantasy.WithResponseMetadata(fantasy.NewTextResponse(BashNoOutput), metadata), nil
 					}
@@ -304,6 +310,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 					ShellID:          bgShell.ID,
 					Status:           "running",
 				}
+				metadata.applySandbox(ctx)
 				response := fmt.Sprintf("Background shell started with ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)
 				return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
 			}
@@ -377,6 +384,7 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 					WorkingDirectory: bgShell.WorkingDir,
 					Status:           shellStatus(done, execErr),
 				}
+				metadata.applySandbox(ctx)
 				if stdout == "" {
 					return fantasy.WithResponseMetadata(fantasy.NewTextResponse(BashNoOutput), metadata), nil
 				}
@@ -395,9 +403,22 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 				ShellID:          bgShell.ID,
 				Status:           "running",
 			}
+			metadata.applySandbox(ctx)
 			response := fmt.Sprintf("Command is taking longer than expected and has been moved to background.\n\nBackground shell ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
 		})
+}
+
+func (m *BashResponseMetadata) applySandbox(ctx context.Context) {
+	meta, ok := SandboxMetadataFromContext(ctx)
+	if !ok {
+		return
+	}
+	m.SandboxMode = meta.Mode
+	m.SandboxStatus = meta.Status
+	m.SandboxExecutor = meta.Executor
+	m.SandboxReason = meta.Reason
+	m.SandboxError = meta.Error
 }
 
 func shellStatus(done bool, execErr error) string {

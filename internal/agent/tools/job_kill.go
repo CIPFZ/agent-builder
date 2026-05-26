@@ -21,13 +21,18 @@ type JobKillParams struct {
 }
 
 type JobKillResponseMetadata struct {
-	ShellID     string `json:"shell_id"`
-	Command     string `json:"command"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-	Stdout      string `json:"stdout,omitempty"`
-	Stderr      string `json:"stderr,omitempty"`
-	ExitCode    int    `json:"exit_code,omitempty"`
+	ShellID         string `json:"shell_id"`
+	Command         string `json:"command"`
+	Description     string `json:"description"`
+	Status          string `json:"status"`
+	Stdout          string `json:"stdout,omitempty"`
+	Stderr          string `json:"stderr,omitempty"`
+	ExitCode        int    `json:"exit_code,omitempty"`
+	SandboxMode     string `json:"sandbox_mode,omitempty"`
+	SandboxStatus   string `json:"sandbox_status,omitempty"`
+	SandboxExecutor string `json:"sandbox_executor,omitempty"`
+	SandboxReason   string `json:"sandbox_reason,omitempty"`
+	SandboxError    string `json:"sandbox_error,omitempty"`
 }
 
 func NewJobKillTool() fantasy.AgentTool {
@@ -51,6 +56,13 @@ func NewJobKillTool() fantasy.AgentTool {
 				Command:     bgShell.Command,
 				Description: bgShell.Description,
 				Status:      "cancelled",
+			}
+			if meta, ok := SandboxMetadataFromContext(ctx); ok {
+				metadata.SandboxMode = meta.Mode
+				metadata.SandboxStatus = meta.Status
+				metadata.SandboxExecutor = meta.Executor
+				metadata.SandboxReason = meta.Reason
+				metadata.SandboxError = meta.Error
 			}
 
 			err := bgManager.Kill(params.ShellID)

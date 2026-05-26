@@ -57,6 +57,12 @@ type auditEntry struct {
 	PolicyTargetSummary   string                     `json:"policy_target_summary,omitempty"`
 	ShellRisk             string                     `json:"shell_risk,omitempty"`
 	ShellReason           string                     `json:"shell_reason,omitempty"`
+	SandboxDecisionID     string                     `json:"sandbox_decision_id,omitempty"`
+	SandboxMode           string                     `json:"sandbox_mode,omitempty"`
+	SandboxStatus         string                     `json:"sandbox_status,omitempty"`
+	SandboxExecutor       string                     `json:"sandbox_executor,omitempty"`
+	SandboxReason         string                     `json:"sandbox_reason,omitempty"`
+	SandboxError          string                     `json:"sandbox_error,omitempty"`
 	ToolCallID            string                     `json:"tool_call_id,omitempty"`
 	CapabilityID          string                     `json:"capability_id,omitempty"`
 	CapabilityKind        string                     `json:"capability_kind,omitempty"`
@@ -97,6 +103,12 @@ type auditToolCall struct {
 	PolicyScopeValue     string   `json:"policy_scope_value,omitempty"`
 	ShellRisk            string   `json:"shell_risk,omitempty"`
 	ShellReason          string   `json:"shell_reason,omitempty"`
+	SandboxDecisionID    string   `json:"sandbox_decision_id,omitempty"`
+	SandboxMode          string   `json:"sandbox_mode,omitempty"`
+	SandboxStatus        string   `json:"sandbox_status,omitempty"`
+	SandboxExecutor      string   `json:"sandbox_executor,omitempty"`
+	SandboxReason        string   `json:"sandbox_reason,omitempty"`
+	SandboxError         string   `json:"sandbox_error,omitempty"`
 	ExitCode             int      `json:"exit_code,omitempty"`
 	IsError              bool     `json:"is_error,omitempty"`
 	Status               string   `json:"status,omitempty"`

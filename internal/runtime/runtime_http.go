@@ -203,6 +203,17 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Kind:       r.URL.Query().Get("kind"),
 		})
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/sandbox/decisions":
+		value, err := s.service.SandboxDecisions(r.Context(), RuntimeSandboxDecisionListRequest{
+			SessionID:  r.URL.Query().Get("session_id"),
+			TurnID:     r.URL.Query().Get("turn_id"),
+			ToolCallID: r.URL.Query().Get("tool_call_id"),
+			TaskID:     r.URL.Query().Get("task_id"),
+		})
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sandboxDecisionPathID(r.URL.Path) != "":
+		value, err := s.service.SandboxDecision(r.Context(), sandboxDecisionPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && refContentPathID(r.URL.Path) != "":
 		value, err := s.service.ReadRefContent(r.Context(), refContentPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -643,6 +654,14 @@ func toolCallPathID(path string) string {
 
 func refContentPathID(path string) string {
 	return trimPathID(path, "/v1/refs/", "/content")
+}
+
+func sandboxDecisionPathID(path string) string {
+	id := strings.TrimPrefix(path, "/v1/sandbox/decisions/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
 }
 
 func refPathID(path string) string {

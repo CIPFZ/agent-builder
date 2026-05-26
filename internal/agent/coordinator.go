@@ -148,6 +148,12 @@ type SchedulerToolCall struct {
 	PolicyTargetSummary  string
 	ShellRisk            string
 	ShellReason          string
+	SandboxDecisionID    string
+	SandboxMode          string
+	SandboxStatus        string
+	SandboxExecutor      string
+	SandboxReason        string
+	SandboxError         string
 	PolicyHeadless       bool
 	PolicyHeadlessReason string
 	JobStatus            string
@@ -175,6 +181,12 @@ type SchedulerToolCallResult struct {
 	PolicyTargetSummary     string
 	ShellRisk               string
 	ShellReason             string
+	SandboxDecisionID       string
+	SandboxMode             string
+	SandboxStatus           string
+	SandboxExecutor         string
+	SandboxReason           string
+	SandboxError            string
 	PolicyHeadless          bool
 	PolicyHeadlessReason    string
 	ExitCode                int
@@ -192,20 +204,26 @@ type SchedulerToolCallResult struct {
 }
 
 type SchedulerToolPolicyDecision struct {
-	Decision       string
-	Risk           string
-	Reason         string
-	Mode           string
-	Profile        string
-	RuleID         string
-	RuleSource     string
-	RuleScopeKind  string
-	RuleScopeValue string
-	TargetSummary  string
-	ShellRisk      string
-	ShellReason    string
-	Headless       bool
-	HeadlessReason string
+	Decision          string
+	Risk              string
+	Reason            string
+	Mode              string
+	Profile           string
+	RuleID            string
+	RuleSource        string
+	RuleScopeKind     string
+	RuleScopeValue    string
+	TargetSummary     string
+	ShellRisk         string
+	ShellReason       string
+	SandboxDecisionID string
+	SandboxMode       string
+	SandboxStatus     string
+	SandboxExecutor   string
+	SandboxReason     string
+	SandboxError      string
+	Headless          bool
+	HeadlessReason    string
 }
 
 type SchedulerToolMetadata struct {

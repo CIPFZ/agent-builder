@@ -108,6 +108,57 @@ func mergeToolCall(existing, next ToolCall) ToolCall {
 	if next.PolicyReason == "" {
 		next.PolicyReason = existing.PolicyReason
 	}
+	if next.PolicyMode == "" {
+		next.PolicyMode = existing.PolicyMode
+	}
+	if next.PolicyProfile == "" {
+		next.PolicyProfile = existing.PolicyProfile
+	}
+	if !next.PolicyHeadless {
+		next.PolicyHeadless = existing.PolicyHeadless
+	}
+	if next.PolicyHeadlessReason == "" {
+		next.PolicyHeadlessReason = existing.PolicyHeadlessReason
+	}
+	if next.PolicyRuleID == "" {
+		next.PolicyRuleID = existing.PolicyRuleID
+	}
+	if next.PolicyRuleSource == "" {
+		next.PolicyRuleSource = existing.PolicyRuleSource
+	}
+	if next.PolicyScopeKind == "" {
+		next.PolicyScopeKind = existing.PolicyScopeKind
+	}
+	if next.PolicyScopeValue == "" {
+		next.PolicyScopeValue = existing.PolicyScopeValue
+	}
+	if next.PolicyTargetSummary == "" {
+		next.PolicyTargetSummary = existing.PolicyTargetSummary
+	}
+	if next.ShellRisk == "" {
+		next.ShellRisk = existing.ShellRisk
+	}
+	if next.ShellReason == "" {
+		next.ShellReason = existing.ShellReason
+	}
+	if next.SandboxDecisionID == "" {
+		next.SandboxDecisionID = existing.SandboxDecisionID
+	}
+	if next.SandboxMode == "" {
+		next.SandboxMode = existing.SandboxMode
+	}
+	if next.SandboxStatus == "" {
+		next.SandboxStatus = existing.SandboxStatus
+	}
+	if next.SandboxExecutor == "" {
+		next.SandboxExecutor = existing.SandboxExecutor
+	}
+	if next.SandboxReason == "" {
+		next.SandboxReason = existing.SandboxReason
+	}
+	if next.SandboxError == "" {
+		next.SandboxError = existing.SandboxError
+	}
 	if next.ExitCode == 0 {
 		next.ExitCode = existing.ExitCode
 	}

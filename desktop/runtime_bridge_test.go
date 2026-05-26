@@ -147,6 +147,14 @@ func (s *recordingRuntimeService) TurnToolCalls(context.Context, string) (Runtim
 	return RuntimeToolCallsResponse{}, nil
 }
 
+func (s *recordingRuntimeService) SandboxDecisions(context.Context, runtime.RuntimeSandboxDecisionListRequest) (runtime.RuntimeSandboxDecisionsResponse, error) {
+	return runtime.RuntimeSandboxDecisionsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SandboxDecision(context.Context, string) (runtime.RuntimeSandboxDecisionResponse, error) {
+	return runtime.RuntimeSandboxDecisionResponse{}, nil
+}
+
 func (s *recordingRuntimeService) Refs(context.Context, RuntimeRefListRequest) (RuntimeRefsResponse, error) {
 	return RuntimeRefsResponse{}, nil
 }

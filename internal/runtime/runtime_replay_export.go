@@ -289,6 +289,10 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			}
 		case runtimeapi.EventPermissionPolicyApplied, runtimeapi.EventPolicyRuleMatched, runtimeapi.EventPolicyRuleDenied, runtimeapi.EventPolicyRuleAsk:
 			summary.PolicyDecisions = append(summary.PolicyDecisions, runtimeReplayPolicyFromEvent(event))
+		case runtimeapi.EventSandboxDecisionRecorded, runtimeapi.EventSandboxApplied, runtimeapi.EventSandboxUnavailable, runtimeapi.EventSandboxDenied, runtimeapi.EventSandboxFailed:
+			if decision := runtimeSandboxDecisionFromPayload(event.Payload); decision.ID != "" {
+				summary.SandboxDecisions = appendRuntimeReplaySandboxDecision(summary.SandboxDecisions, decision)
+			}
 		case runtimeapi.EventPermissionRequested, runtimeapi.EventPermissionDecided:
 			summary.PermissionEvents = append(summary.PermissionEvents, runtimeReplayPermissionFromEvent(event))
 		case runtimeapi.EventCompactBoundaryRecorded, runtimeapi.EventCompactMicroCompleted, runtimeapi.EventCompactFullCompleted, runtimeapi.EventCompactFailed:
@@ -332,6 +336,10 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			summary.ToolDiscovery.GuardrailReasons = appendUniqueStrings(summary.ToolDiscovery.GuardrailReasons, stringFromMap(extra, "reason"))
 		case "permission_policy_applied":
 			summary.PolicyDecisions = append(summary.PolicyDecisions, runtimeReplayPolicyFromAudit(audit))
+		case "sandbox_decision_recorded":
+			if decision := runtimeSandboxDecisionFromAudit(audit); decision.ID != "" {
+				summary.SandboxDecisions = appendRuntimeReplaySandboxDecision(summary.SandboxDecisions, decision)
+			}
 		case "permission_requested":
 			summary.PermissionEvents = append(summary.PermissionEvents, runtimeReplayPermissionFromAudit(audit))
 		case "mcp_auth_pending", "mcp_auth_completed", "mcp_auth_denied", "mcp_auth_failed", "mcp_auth_cancelled", "mcp_elicitation_pending", "mcp_elicitation_completed", "mcp_elicitation_denied", "mcp_elicitation_failed", "mcp_elicitation_cancelled":
@@ -375,6 +383,19 @@ func appendRuntimeReplayMCPRequest(items []RuntimeReplayMCPRequest, req RuntimeR
 		}
 	}
 	return append(items, req)
+}
+
+func appendRuntimeReplaySandboxDecision(items []RuntimeSandboxDecision, decision RuntimeSandboxDecision) []RuntimeSandboxDecision {
+	if decision.ID == "" {
+		return items
+	}
+	for i := range items {
+		if items[i].ID == decision.ID {
+			items[i] = decision
+			return items
+		}
+	}
+	return append(items, decision)
 }
 
 func runtimeReplayLifecycleName(event RuntimeEvent) string {
@@ -475,22 +496,25 @@ func appendRuntimeReplayRef(items []RuntimeRef, ref RuntimeRef) []RuntimeRef {
 
 func runtimeRefFromReplayPayload(payload map[string]any) RuntimeRef {
 	ref := RuntimeRef{
-		ID:              stringFromMap(payload, "id"),
-		URI:             stringFromMap(payload, "uri"),
-		SessionID:       stringFromMap(payload, "session_id"),
-		TurnID:          stringFromMap(payload, "turn_id"),
-		ToolCallID:      stringFromMap(payload, "tool_call_id"),
-		TaskID:          stringFromMap(payload, "task_id"),
-		Kind:            stringFromMap(payload, "kind"),
-		MediaType:       stringFromMap(payload, "media_type"),
-		ContentType:     stringFromMap(payload, "content_type"),
-		SizeBytes:       int64(intFromMap(payload, "size_bytes")),
-		EstimatedTokens: intFromMap(payload, "estimated_tokens"),
-		Preview:         stringFromMap(payload, "preview"),
-		Summary:         stringFromMap(payload, "summary"),
-		StorageKind:     stringFromMap(payload, "storage_kind"),
-		RedactionStatus: stringFromMap(payload, "redaction_status"),
-		CreatedAt:       int64(intFromMap(payload, "created_at")),
+		ID:                stringFromMap(payload, "id"),
+		URI:               stringFromMap(payload, "uri"),
+		SessionID:         stringFromMap(payload, "session_id"),
+		TurnID:            stringFromMap(payload, "turn_id"),
+		ToolCallID:        stringFromMap(payload, "tool_call_id"),
+		TaskID:            stringFromMap(payload, "task_id"),
+		SandboxDecisionID: stringFromMap(payload, "sandbox_decision_id"),
+		SandboxMode:       stringFromMap(payload, "sandbox_mode"),
+		SandboxStatus:     stringFromMap(payload, "sandbox_status"),
+		Kind:              stringFromMap(payload, "kind"),
+		MediaType:         stringFromMap(payload, "media_type"),
+		ContentType:       stringFromMap(payload, "content_type"),
+		SizeBytes:         int64(intFromMap(payload, "size_bytes")),
+		EstimatedTokens:   intFromMap(payload, "estimated_tokens"),
+		Preview:           stringFromMap(payload, "preview"),
+		Summary:           stringFromMap(payload, "summary"),
+		StorageKind:       stringFromMap(payload, "storage_kind"),
+		RedactionStatus:   stringFromMap(payload, "redaction_status"),
+		CreatedAt:         int64(intFromMap(payload, "created_at")),
 	}
 	ref.CanReadContent = ref.RedactionStatus == runtimeRefRedactionSafe
 	return ref

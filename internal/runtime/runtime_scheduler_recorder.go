@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/agent"
+	agenttools "github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 	"github.com/charmbracelet/crush/internal/tools/scheduler"
@@ -138,6 +139,30 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 			r.service.recordDeadlockPrevented(call.SessionID, call.TurnID, call.ID, "headless_permission_ask_fail_closed", result.HeadlessReason)
 		}
 		if result.Decision == permission.PolicyAllow {
+			sandboxDecision, sandboxDenied, err := r.evaluateSandboxDecision(ctx, call, result)
+			if err != nil {
+				return agent.SchedulerToolPolicyDecision{}, err
+			}
+			if sandboxDenied {
+				r.recordPolicyDecision(call, result)
+				return sandboxDeniedPolicyDecision(agent.SchedulerToolPolicyDecision{
+					Risk:           string(result.Risk),
+					Mode:           string(result.Mode),
+					Profile:        result.Profile,
+					RuleID:         result.RuleID,
+					RuleSource:     result.RuleSource,
+					RuleScopeKind:  result.RuleScopeKind,
+					RuleScopeValue: result.RuleScopeValue,
+					TargetSummary:  result.TargetSummary,
+					ShellRisk:      string(result.Shell.Risk),
+					ShellReason:    result.Shell.Reason,
+					Headless:       result.Headless,
+					HeadlessReason: result.HeadlessReason,
+				}, sandboxDecision), nil
+			}
+			if sandboxDecision.ID != "" {
+				ctx = agenttools.WithSandboxMetadata(ctx, sandboxMetadata(sandboxDecision))
+			}
 			if blocked, reason := r.service.incrementRunningToolGuard(call); blocked {
 				r.service.recordDeadlockPrevented(call.SessionID, call.TurnID, call.ID, reason, "concurrent runtime tool limit reached")
 				return agent.SchedulerToolPolicyDecision{
@@ -150,7 +175,7 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 			}
 		}
 		r.recordPolicyDecision(call, result)
-		return agent.SchedulerToolPolicyDecision{
+		decision := agent.SchedulerToolPolicyDecision{
 			Decision:       string(result.Decision),
 			Risk:           string(result.Risk),
 			Reason:         result.Reason,
@@ -165,7 +190,16 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 			ShellReason:    result.Shell.Reason,
 			Headless:       result.Headless,
 			HeadlessReason: result.HeadlessReason,
-		}, nil
+		}
+		if meta, ok := agenttools.SandboxMetadataFromContext(ctx); ok && meta.DecisionID != "" {
+			decision.SandboxDecisionID = meta.DecisionID
+			decision.SandboxMode = meta.Mode
+			decision.SandboxStatus = meta.Status
+			decision.SandboxExecutor = meta.Executor
+			decision.SandboxReason = meta.Reason
+			decision.SandboxError = meta.Error
+		}
+		return decision, nil
 	}
 	if result.Decision == permission.PolicyAsk && result.Headless {
 		r.service.recordDeadlockPrevented(call.SessionID, call.TurnID, call.ID, "headless_permission_ask_fail_closed", result.HeadlessReason)
@@ -248,6 +282,27 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 			HeadlessReason: result.HeadlessReason,
 		}, nil
 	}
+	result.Decision = permission.PolicyAllow
+	sandboxDecision, sandboxDenied, err := r.evaluateSandboxDecision(ctx, call, result)
+	if err != nil {
+		return agent.SchedulerToolPolicyDecision{}, err
+	}
+	if sandboxDenied {
+		return sandboxDeniedPolicyDecision(agent.SchedulerToolPolicyDecision{
+			Risk:           string(result.Risk),
+			Mode:           string(result.Mode),
+			Profile:        result.Profile,
+			RuleID:         result.RuleID,
+			RuleSource:     result.RuleSource,
+			RuleScopeKind:  result.RuleScopeKind,
+			RuleScopeValue: result.RuleScopeValue,
+			TargetSummary:  result.TargetSummary,
+			ShellRisk:      string(result.Shell.Risk),
+			ShellReason:    result.Shell.Reason,
+			Headless:       result.Headless,
+			HeadlessReason: result.HeadlessReason,
+		}, sandboxDecision), nil
+	}
 	if blocked, reason := r.service.incrementRunningToolGuard(call); blocked {
 		r.service.recordDeadlockPrevented(call.SessionID, call.TurnID, call.ID, reason, "concurrent runtime tool limit reached")
 		return agent.SchedulerToolPolicyDecision{
@@ -258,7 +313,7 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 			Profile:  result.Profile,
 		}, nil
 	}
-	return agent.SchedulerToolPolicyDecision{
+	decision := agent.SchedulerToolPolicyDecision{
 		Decision:       string(permission.PolicyAllow),
 		Risk:           string(result.Risk),
 		Reason:         result.Reason,
@@ -273,7 +328,11 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 		ShellReason:    result.Shell.Reason,
 		Headless:       result.Headless,
 		HeadlessReason: result.HeadlessReason,
-	}, nil
+	}
+	if sandboxDecision.ID != "" {
+		decision = applySandboxToDecision(decision, sandboxDecision)
+	}
+	return decision, nil
 }
 
 func (r *runtimeService) effectivePolicyForToolCall(ctx context.Context, call agent.SchedulerToolCall) RuntimePolicy {
@@ -478,6 +537,12 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		PolicyTargetSummary:  call.PolicyTargetSummary,
 		ShellRisk:            call.ShellRisk,
 		ShellReason:          call.ShellReason,
+		SandboxDecisionID:    call.SandboxDecisionID,
+		SandboxMode:          call.SandboxMode,
+		SandboxStatus:        call.SandboxStatus,
+		SandboxExecutor:      call.SandboxExecutor,
+		SandboxReason:        call.SandboxReason,
+		SandboxError:         call.SandboxError,
 		PolicyHeadless:       call.PolicyHeadless,
 		PolicyHeadlessReason: call.PolicyHeadlessReason,
 		JobStatus:            call.JobStatus,
@@ -505,6 +570,12 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 		"target_summary":      stored.PolicyTargetSummary,
 		"shell_risk":          stored.ShellRisk,
 		"shell_reason":        stored.ShellReason,
+		"sandbox_decision_id": stored.SandboxDecisionID,
+		"sandbox_mode":        stored.SandboxMode,
+		"sandbox_status":      stored.SandboxStatus,
+		"sandbox_executor":    stored.SandboxExecutor,
+		"sandbox_reason":      stored.SandboxReason,
+		"sandbox_error":       stored.SandboxError,
 		"headless":            stored.PolicyHeadless,
 		"headless_reason":     stored.PolicyHeadlessReason,
 		"status":              string(stored.Status),
@@ -533,6 +604,12 @@ func (r *runtimeSchedulerRecorder) ToolCallStarted(ctx context.Context, call age
 			PolicyScopeValue:     stored.PolicyScopeValue,
 			ShellRisk:            stored.ShellRisk,
 			ShellReason:          stored.ShellReason,
+			SandboxDecisionID:    stored.SandboxDecisionID,
+			SandboxMode:          stored.SandboxMode,
+			SandboxStatus:        stored.SandboxStatus,
+			SandboxExecutor:      stored.SandboxExecutor,
+			SandboxReason:        stored.SandboxReason,
+			SandboxError:         stored.SandboxError,
 			Headless:             stored.PolicyHeadless,
 			HeadlessReason:       stored.PolicyHeadlessReason,
 			Status:               stored.JobStatus,
@@ -548,28 +625,34 @@ func (r *runtimeSchedulerRecorder) ToolCallOutput(ctx context.Context, result ag
 		return err
 	}
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallOutput, call, map[string]any{
-		"name":          call.Name,
-		"summary":       call.OutputSummary,
-		"output_refs":   call.OutputRefs,
-		"artifact_refs": call.ArtifactRefs,
-		"diff_refs":     call.DiffRefs,
-		"job_id":        call.JobID,
-		"job_status":    call.JobStatus,
-		"shell_status":  call.JobStatus,
-		"is_error":      result.IsError,
-		"status":        string(call.Status),
-		"has_stdout":    call.Stdout != "",
-		"has_stderr":    call.Stderr != "",
+		"name":                call.Name,
+		"summary":             call.OutputSummary,
+		"output_refs":         call.OutputRefs,
+		"artifact_refs":       call.ArtifactRefs,
+		"diff_refs":           call.DiffRefs,
+		"job_id":              call.JobID,
+		"job_status":          call.JobStatus,
+		"shell_status":        call.JobStatus,
+		"sandbox_decision_id": call.SandboxDecisionID,
+		"sandbox_mode":        call.SandboxMode,
+		"sandbox_status":      call.SandboxStatus,
+		"is_error":            result.IsError,
+		"status":              string(call.Status),
+		"has_stdout":          call.Stdout != "",
+		"has_stderr":          call.Stderr != "",
 	}))
 	if call.JobID != "" {
 		r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventTaskProgress, call, map[string]any{
-			"task_kind":  "background",
-			"job_id":     call.JobID,
-			"job_status": call.JobStatus,
-			"status":     string(call.Status),
-			"summary":    call.OutputSummary,
-			"has_stdout": call.Stdout != "",
-			"has_stderr": call.Stderr != "",
+			"task_kind":           "background",
+			"job_id":              call.JobID,
+			"job_status":          call.JobStatus,
+			"status":              string(call.Status),
+			"summary":             call.OutputSummary,
+			"sandbox_decision_id": call.SandboxDecisionID,
+			"sandbox_mode":        call.SandboxMode,
+			"sandbox_status":      call.SandboxStatus,
+			"has_stdout":          call.Stdout != "",
+			"has_stderr":          call.Stderr != "",
 		}))
 	}
 	return nil
@@ -582,14 +665,17 @@ func (r *runtimeSchedulerRecorder) ToolCallCompleted(ctx context.Context, result
 		return err
 	}
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallCompleted, call, map[string]any{
-		"name":          call.Name,
-		"summary":       call.OutputSummary,
-		"output_refs":   call.OutputRefs,
-		"artifact_refs": call.ArtifactRefs,
-		"diff_refs":     call.DiffRefs,
-		"job_id":        call.JobID,
-		"job_status":    call.JobStatus,
-		"status":        string(call.Status),
+		"name":                call.Name,
+		"summary":             call.OutputSummary,
+		"output_refs":         call.OutputRefs,
+		"artifact_refs":       call.ArtifactRefs,
+		"diff_refs":           call.DiffRefs,
+		"job_id":              call.JobID,
+		"job_status":          call.JobStatus,
+		"status":              string(call.Status),
+		"sandbox_decision_id": call.SandboxDecisionID,
+		"sandbox_mode":        call.SandboxMode,
+		"sandbox_status":      call.SandboxStatus,
 	}))
 	r.auditToolResult(call)
 	return nil
@@ -606,16 +692,19 @@ func (r *runtimeSchedulerRecorder) ToolCallFailed(ctx context.Context, result ag
 		return err
 	}
 	payload := map[string]any{
-		"name":          call.Name,
-		"summary":       call.OutputSummary,
-		"output_refs":   call.OutputRefs,
-		"artifact_refs": call.ArtifactRefs,
-		"diff_refs":     call.DiffRefs,
-		"job_id":        call.JobID,
-		"job_status":    call.JobStatus,
-		"status":        string(call.Status),
-		"is_error":      true,
-		"error":         call.Error,
+		"name":                call.Name,
+		"summary":             call.OutputSummary,
+		"output_refs":         call.OutputRefs,
+		"artifact_refs":       call.ArtifactRefs,
+		"diff_refs":           call.DiffRefs,
+		"job_id":              call.JobID,
+		"job_status":          call.JobStatus,
+		"status":              string(call.Status),
+		"is_error":            true,
+		"error":               call.Error,
+		"sandbox_decision_id": call.SandboxDecisionID,
+		"sandbox_mode":        call.SandboxMode,
+		"sandbox_status":      call.SandboxStatus,
 	}
 	if call.Status == scheduler.ToolCallDenied {
 		payload["denied"] = true
@@ -632,15 +721,18 @@ func (r *runtimeSchedulerRecorder) ToolCallCancelled(ctx context.Context, result
 		return err
 	}
 	r.service.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallCancelled, call, map[string]any{
-		"name":          call.Name,
-		"summary":       call.OutputSummary,
-		"output_refs":   call.OutputRefs,
-		"artifact_refs": call.ArtifactRefs,
-		"diff_refs":     call.DiffRefs,
-		"job_id":        call.JobID,
-		"job_status":    call.JobStatus,
-		"status":        string(call.Status),
-		"error":         call.Error,
+		"name":                call.Name,
+		"summary":             call.OutputSummary,
+		"output_refs":         call.OutputRefs,
+		"artifact_refs":       call.ArtifactRefs,
+		"diff_refs":           call.DiffRefs,
+		"job_id":              call.JobID,
+		"job_status":          call.JobStatus,
+		"status":              string(call.Status),
+		"error":               call.Error,
+		"sandbox_decision_id": call.SandboxDecisionID,
+		"sandbox_mode":        call.SandboxMode,
+		"sandbox_status":      call.SandboxStatus,
 	}))
 	r.auditToolResult(call)
 	return nil
@@ -672,6 +764,12 @@ func (r *runtimeSchedulerRecorder) updateToolCall(ctx context.Context, result ag
 			PolicyTargetSummary:  result.PolicyTargetSummary,
 			ShellRisk:            result.ShellRisk,
 			ShellReason:          result.ShellReason,
+			SandboxDecisionID:    result.SandboxDecisionID,
+			SandboxMode:          result.SandboxMode,
+			SandboxStatus:        result.SandboxStatus,
+			SandboxExecutor:      result.SandboxExecutor,
+			SandboxReason:        result.SandboxReason,
+			SandboxError:         result.SandboxError,
 			PolicyHeadless:       result.PolicyHeadless,
 			PolicyHeadlessReason: result.PolicyHeadlessReason,
 			JobStatus:            result.JobStatus,
@@ -695,6 +793,12 @@ func (r *runtimeSchedulerRecorder) updateToolCall(ctx context.Context, result ag
 		PolicyTargetSummary:  result.PolicyTargetSummary,
 		ShellRisk:            result.ShellRisk,
 		ShellReason:          result.ShellReason,
+		SandboxDecisionID:    result.SandboxDecisionID,
+		SandboxMode:          result.SandboxMode,
+		SandboxStatus:        result.SandboxStatus,
+		SandboxExecutor:      result.SandboxExecutor,
+		SandboxReason:        result.SandboxReason,
+		SandboxError:         result.SandboxError,
 		PolicyHeadless:       result.PolicyHeadless,
 		PolicyHeadlessReason: result.PolicyHeadlessReason,
 		ExitCode:             result.ExitCode,
@@ -738,14 +842,17 @@ func (r *runtimeSchedulerRecorder) createToolOutputRefs(ctx context.Context, res
 			return
 		}
 		ref, err := r.service.createRuntimeRef(ctx, runtimeRefCreateRequest{
-			SessionID:   sessionID,
-			TurnID:      turnID,
-			ToolCallID:  result.ToolCallID,
-			Kind:        kind,
-			MediaType:   mediaType,
-			ContentType: contentType,
-			Payload:     []byte(payload),
-			Summary:     summary,
+			SessionID:         sessionID,
+			TurnID:            turnID,
+			ToolCallID:        result.ToolCallID,
+			SandboxDecisionID: result.SandboxDecisionID,
+			SandboxMode:       result.SandboxMode,
+			SandboxStatus:     result.SandboxStatus,
+			Kind:              kind,
+			MediaType:         mediaType,
+			ContentType:       contentType,
+			Payload:           []byte(payload),
+			Summary:           summary,
 		})
 		if err != nil {
 			return
@@ -819,6 +926,12 @@ func (r *runtimeSchedulerRecorder) auditToolResult(call scheduler.ToolCall) {
 			PolicyScopeValue:     call.PolicyScopeValue,
 			ShellRisk:            call.ShellRisk,
 			ShellReason:          call.ShellReason,
+			SandboxDecisionID:    call.SandboxDecisionID,
+			SandboxMode:          call.SandboxMode,
+			SandboxStatus:        call.SandboxStatus,
+			SandboxExecutor:      call.SandboxExecutor,
+			SandboxReason:        call.SandboxReason,
+			SandboxError:         call.SandboxError,
 			Headless:             call.PolicyHeadless,
 			HeadlessReason:       call.PolicyHeadlessReason,
 			ExitCode:             call.ExitCode,
@@ -841,6 +954,12 @@ func (r *runtimeSchedulerRecorder) auditToolResult(call scheduler.ToolCall) {
 		PolicyTargetSummary:  call.PolicyTargetSummary,
 		ShellRisk:            call.ShellRisk,
 		ShellReason:          call.ShellReason,
+		SandboxDecisionID:    call.SandboxDecisionID,
+		SandboxMode:          call.SandboxMode,
+		SandboxStatus:        call.SandboxStatus,
+		SandboxExecutor:      call.SandboxExecutor,
+		SandboxReason:        call.SandboxReason,
+		SandboxError:         call.SandboxError,
 	})
 }
 

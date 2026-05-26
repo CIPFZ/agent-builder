@@ -41,6 +41,12 @@ func (s *Scheduler) CreateCall(ctx context.Context, req ToolCallRequest) (ToolCa
 		PolicyTargetSummary:  req.PolicyTargetSummary,
 		ShellRisk:            req.ShellRisk,
 		ShellReason:          req.ShellReason,
+		SandboxDecisionID:    req.SandboxDecisionID,
+		SandboxMode:          req.SandboxMode,
+		SandboxStatus:        req.SandboxStatus,
+		SandboxExecutor:      req.SandboxExecutor,
+		SandboxReason:        req.SandboxReason,
+		SandboxError:         req.SandboxError,
 		JobStatus:            req.JobStatus,
 		JobStartedAt:         req.JobStartedAt,
 		Status:               ToolCallRunning,
@@ -111,6 +117,24 @@ func (s *Scheduler) CompleteCall(ctx context.Context, result ToolCallResult) (To
 	}
 	if result.ShellReason != "" {
 		call.ShellReason = result.ShellReason
+	}
+	if result.SandboxDecisionID != "" {
+		call.SandboxDecisionID = result.SandboxDecisionID
+	}
+	if result.SandboxMode != "" {
+		call.SandboxMode = result.SandboxMode
+	}
+	if result.SandboxStatus != "" {
+		call.SandboxStatus = result.SandboxStatus
+	}
+	if result.SandboxExecutor != "" {
+		call.SandboxExecutor = result.SandboxExecutor
+	}
+	if result.SandboxReason != "" {
+		call.SandboxReason = result.SandboxReason
+	}
+	if result.SandboxError != "" {
+		call.SandboxError = result.SandboxError
 	}
 	if result.ExitCode != 0 {
 		call.ExitCode = result.ExitCode

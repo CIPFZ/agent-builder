@@ -39,19 +39,22 @@ type runtimeRefStore struct {
 }
 
 type runtimeRefCreateRequest struct {
-	ID          string
-	SessionID   string
-	TurnID      string
-	ToolCallID  string
-	TaskID      string
-	Kind        string
-	MediaType   string
-	ContentType string
-	Payload     []byte
-	Summary     string
-	StorageKind string
-	StoragePath string
-	CreatedAt   time.Time
+	ID                string
+	SessionID         string
+	TurnID            string
+	ToolCallID        string
+	TaskID            string
+	SandboxDecisionID string
+	SandboxMode       string
+	SandboxStatus     string
+	Kind              string
+	MediaType         string
+	ContentType       string
+	Payload           []byte
+	Summary           string
+	StorageKind       string
+	StoragePath       string
+	CreatedAt         time.Time
 }
 
 func newRuntimeRefStore(db *sql.DB, dataDir string) runtimeRefStore {
@@ -83,23 +86,26 @@ func (s runtimeRefStore) Create(ctx context.Context, req runtimeRefCreateRequest
 		redactionStatus = runtimeRefRedactionUnsafe
 	}
 	ref := RuntimeRef{
-		ID:              req.ID,
-		URI:             "runtime://refs/" + req.ID,
-		SessionID:       req.SessionID,
-		TurnID:          strings.TrimSpace(req.TurnID),
-		ToolCallID:      strings.TrimSpace(req.ToolCallID),
-		TaskID:          strings.TrimSpace(req.TaskID),
-		Kind:            req.Kind,
-		MediaType:       firstNonEmpty(req.MediaType, "text/plain"),
-		ContentType:     firstNonEmpty(req.ContentType, req.MediaType, "text/plain"),
-		SizeBytes:       int64(len(req.Payload)),
-		EstimatedTokens: estimateRuntimeTokens(string(req.Payload)),
-		Preview:         preview(redactedPayload, runtimePartPreviewLimit),
-		Summary:         preview(redactRuntimeString("summary", firstNonEmpty(req.Summary, redactedPayload)), auditPreviewLimit),
-		StorageKind:     runtimeRefStorageInline,
-		RedactionStatus: redactionStatus,
-		CreatedAt:       req.CreatedAt.UnixMilli(),
-		CanReadContent:  redactionStatus == runtimeRefRedactionSafe,
+		ID:                req.ID,
+		URI:               "runtime://refs/" + req.ID,
+		SessionID:         req.SessionID,
+		TurnID:            strings.TrimSpace(req.TurnID),
+		ToolCallID:        strings.TrimSpace(req.ToolCallID),
+		TaskID:            strings.TrimSpace(req.TaskID),
+		SandboxDecisionID: strings.TrimSpace(req.SandboxDecisionID),
+		SandboxMode:       strings.TrimSpace(req.SandboxMode),
+		SandboxStatus:     strings.TrimSpace(req.SandboxStatus),
+		Kind:              req.Kind,
+		MediaType:         firstNonEmpty(req.MediaType, "text/plain"),
+		ContentType:       firstNonEmpty(req.ContentType, req.MediaType, "text/plain"),
+		SizeBytes:         int64(len(req.Payload)),
+		EstimatedTokens:   estimateRuntimeTokens(string(req.Payload)),
+		Preview:           preview(redactedPayload, runtimePartPreviewLimit),
+		Summary:           preview(redactRuntimeString("summary", firstNonEmpty(req.Summary, redactedPayload)), auditPreviewLimit),
+		StorageKind:       runtimeRefStorageInline,
+		RedactionStatus:   redactionStatus,
+		CreatedAt:         req.CreatedAt.UnixMilli(),
+		CanReadContent:    redactionStatus == runtimeRefRedactionSafe,
 	}
 	if req.StoragePath != "" {
 		ref.StorageKind = firstNonEmpty(req.StorageKind, runtimeRefStorageFile)
@@ -127,16 +133,20 @@ func (s runtimeRefStore) Create(ctx context.Context, req runtimeRefCreateRequest
 	}
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO runtime_refs (
-    id, uri, session_id, turn_id, tool_call_id, task_id, kind, media_type,
+    id, uri, session_id, turn_id, tool_call_id, task_id, sandbox_decision_id,
+    sandbox_mode, sandbox_status, kind, media_type,
     content_type, size_bytes, estimated_tokens, preview, summary,
     storage_kind, storage_path, inline_payload, redaction_status, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     uri = excluded.uri,
     session_id = excluded.session_id,
     turn_id = excluded.turn_id,
     tool_call_id = excluded.tool_call_id,
     task_id = excluded.task_id,
+    sandbox_decision_id = excluded.sandbox_decision_id,
+    sandbox_mode = excluded.sandbox_mode,
+    sandbox_status = excluded.sandbox_status,
     kind = excluded.kind,
     media_type = excluded.media_type,
     content_type = excluded.content_type,
@@ -155,6 +165,9 @@ ON CONFLICT(id) DO UPDATE SET
 		nullableString(ref.TurnID),
 		nullableString(ref.ToolCallID),
 		nullableString(ref.TaskID),
+		nullableString(ref.SandboxDecisionID),
+		nullableString(ref.SandboxMode),
+		nullableString(ref.SandboxStatus),
 		ref.Kind,
 		nullableString(ref.MediaType),
 		nullableString(ref.ContentType),
@@ -180,7 +193,8 @@ func (s runtimeRefStore) Get(ctx context.Context, idOrURI string) (RuntimeRef, e
 	}
 	idOrURI = normalizeRuntimeRefID(idOrURI)
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, uri, session_id, turn_id, tool_call_id, task_id, kind, media_type,
+SELECT id, uri, session_id, turn_id, tool_call_id, task_id, sandbox_decision_id,
+    sandbox_mode, sandbox_status, kind, media_type,
     content_type, size_bytes, estimated_tokens, preview, summary,
     storage_kind, storage_path, inline_payload, redaction_status, created_at
 FROM runtime_refs
@@ -200,7 +214,8 @@ func (s runtimeRefStore) List(ctx context.Context, req RuntimeRefListRequest) ([
 		return nil, errors.New("runtime ref database is not available")
 	}
 	query := `
-SELECT id, uri, session_id, turn_id, tool_call_id, task_id, kind, media_type,
+SELECT id, uri, session_id, turn_id, tool_call_id, task_id, sandbox_decision_id,
+    sandbox_mode, sandbox_status, kind, media_type,
     content_type, size_bytes, estimated_tokens, preview, summary,
     storage_kind, storage_path, inline_payload, redaction_status, created_at
 FROM runtime_refs`
@@ -284,7 +299,8 @@ func (s runtimeRefStore) ReadContent(ctx context.Context, idOrURI string) (Runti
 func (s runtimeRefStore) getWithPayload(ctx context.Context, idOrURI string) (RuntimeRef, error) {
 	idOrURI = normalizeRuntimeRefID(idOrURI)
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, uri, session_id, turn_id, tool_call_id, task_id, kind, media_type,
+SELECT id, uri, session_id, turn_id, tool_call_id, task_id, sandbox_decision_id,
+    sandbox_mode, sandbox_status, kind, media_type,
     content_type, size_bytes, estimated_tokens, preview, summary,
     storage_kind, storage_path, inline_payload, redaction_status, created_at
 FROM runtime_refs
@@ -338,7 +354,7 @@ type runtimeRefScanner interface {
 
 func scanRuntimeRef(scanner runtimeRefScanner) (RuntimeRef, error) {
 	var ref RuntimeRef
-	var turnID, toolCallID, taskID, mediaType, contentType, previewText, summary, storagePath, inlinePayload sql.NullString
+	var turnID, toolCallID, taskID, sandboxDecisionID, sandboxMode, sandboxStatus, mediaType, contentType, previewText, summary, storagePath, inlinePayload sql.NullString
 	if err := scanner.Scan(
 		&ref.ID,
 		&ref.URI,
@@ -346,6 +362,9 @@ func scanRuntimeRef(scanner runtimeRefScanner) (RuntimeRef, error) {
 		&turnID,
 		&toolCallID,
 		&taskID,
+		&sandboxDecisionID,
+		&sandboxMode,
+		&sandboxStatus,
 		&ref.Kind,
 		&mediaType,
 		&contentType,
@@ -364,6 +383,9 @@ func scanRuntimeRef(scanner runtimeRefScanner) (RuntimeRef, error) {
 	ref.TurnID = turnID.String
 	ref.ToolCallID = toolCallID.String
 	ref.TaskID = taskID.String
+	ref.SandboxDecisionID = sandboxDecisionID.String
+	ref.SandboxMode = sandboxMode.String
+	ref.SandboxStatus = sandboxStatus.String
 	ref.MediaType = mediaType.String
 	ref.ContentType = contentType.String
 	ref.Preview = previewText.String
@@ -452,22 +474,25 @@ func (r *runtimeService) publishRuntimeRefCreated(ref RuntimeRef) {
 
 func runtimeRefEventPayload(ref RuntimeRef) map[string]any {
 	return map[string]any{
-		"id":               ref.ID,
-		"uri":              ref.URI,
-		"session_id":       ref.SessionID,
-		"turn_id":          ref.TurnID,
-		"tool_call_id":     ref.ToolCallID,
-		"task_id":          ref.TaskID,
-		"kind":             ref.Kind,
-		"media_type":       ref.MediaType,
-		"content_type":     ref.ContentType,
-		"size_bytes":       ref.SizeBytes,
-		"estimated_tokens": ref.EstimatedTokens,
-		"preview":          ref.Preview,
-		"summary":          ref.Summary,
-		"storage_kind":     ref.StorageKind,
-		"redaction_status": ref.RedactionStatus,
-		"created_at":       ref.CreatedAt,
+		"id":                  ref.ID,
+		"uri":                 ref.URI,
+		"session_id":          ref.SessionID,
+		"turn_id":             ref.TurnID,
+		"tool_call_id":        ref.ToolCallID,
+		"task_id":             ref.TaskID,
+		"sandbox_decision_id": ref.SandboxDecisionID,
+		"sandbox_mode":        ref.SandboxMode,
+		"sandbox_status":      ref.SandboxStatus,
+		"kind":                ref.Kind,
+		"media_type":          ref.MediaType,
+		"content_type":        ref.ContentType,
+		"size_bytes":          ref.SizeBytes,
+		"estimated_tokens":    ref.EstimatedTokens,
+		"preview":             ref.Preview,
+		"summary":             ref.Summary,
+		"storage_kind":        ref.StorageKind,
+		"redaction_status":    ref.RedactionStatus,
+		"created_at":          ref.CreatedAt,
 	}
 }
 

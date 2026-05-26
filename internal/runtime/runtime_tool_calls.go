@@ -152,6 +152,8 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		"policy_target_summary":  call.PolicyTargetSummary,
 		"policy_headless_reason": call.PolicyHeadlessReason,
 		"shell_reason":           call.ShellReason,
+		"sandbox_reason":         call.SandboxReason,
+		"sandbox_error":          call.SandboxError,
 	})
 	return RuntimeToolCall{
 		ID:                             call.ID,
@@ -176,6 +178,12 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		PolicyTargetSummary:            stringFromMap(redacted, "policy_target_summary"),
 		ShellRisk:                      call.ShellRisk,
 		ShellReason:                    stringFromMap(redacted, "shell_reason"),
+		SandboxDecisionID:              call.SandboxDecisionID,
+		SandboxMode:                    call.SandboxMode,
+		SandboxStatus:                  call.SandboxStatus,
+		SandboxExecutor:                call.SandboxExecutor,
+		SandboxReason:                  stringFromMap(redacted, "sandbox_reason"),
+		SandboxError:                   stringFromMap(redacted, "sandbox_error"),
 		ExitCode:                       call.ExitCode,
 		JobStatus:                      call.JobStatus,
 		JobStartedAt:                   jobStartedAt,

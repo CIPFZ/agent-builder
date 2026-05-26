@@ -46,6 +46,12 @@ type ToolCall struct {
 	PolicyTargetSummary            string         `json:"policy_target_summary,omitempty"`
 	ShellRisk                      string         `json:"shell_risk,omitempty"`
 	ShellReason                    string         `json:"shell_reason,omitempty"`
+	SandboxDecisionID              string         `json:"sandbox_decision_id,omitempty"`
+	SandboxMode                    string         `json:"sandbox_mode,omitempty"`
+	SandboxStatus                  string         `json:"sandbox_status,omitempty"`
+	SandboxExecutor                string         `json:"sandbox_executor,omitempty"`
+	SandboxReason                  string         `json:"sandbox_reason,omitempty"`
+	SandboxError                   string         `json:"sandbox_error,omitempty"`
 	ExitCode                       int            `json:"exit_code,omitempty"`
 	JobStatus                      string         `json:"job_status,omitempty"`
 	JobStartedAt                   time.Time      `json:"job_started_at,omitempty"`
@@ -94,6 +100,12 @@ type ToolCallRequest struct {
 	PolicyTargetSummary  string
 	ShellRisk            string
 	ShellReason          string
+	SandboxDecisionID    string
+	SandboxMode          string
+	SandboxStatus        string
+	SandboxExecutor      string
+	SandboxReason        string
+	SandboxError         string
 	JobStatus            string
 	JobStartedAt         time.Time
 	InputSummary         string
@@ -117,6 +129,12 @@ type ToolCallResult struct {
 	PolicyTargetSummary  string
 	ShellRisk            string
 	ShellReason          string
+	SandboxDecisionID    string
+	SandboxMode          string
+	SandboxStatus        string
+	SandboxExecutor      string
+	SandboxReason        string
+	SandboxError         string
 	ExitCode             int
 	JobStatus            string
 	JobStartedAt         time.Time

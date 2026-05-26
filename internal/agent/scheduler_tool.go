@@ -84,6 +84,12 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 			PolicyTargetSummary:  decision.TargetSummary,
 			ShellRisk:            decision.ShellRisk,
 			ShellReason:          decision.ShellReason,
+			SandboxDecisionID:    decision.SandboxDecisionID,
+			SandboxMode:          decision.SandboxMode,
+			SandboxStatus:        decision.SandboxStatus,
+			SandboxExecutor:      decision.SandboxExecutor,
+			SandboxReason:        decision.SandboxReason,
+			SandboxError:         decision.SandboxError,
 			PolicyHeadless:       decision.Headless,
 			PolicyHeadlessReason: decision.HeadlessReason,
 			ModelVisibleContent:  reason,
@@ -113,6 +119,12 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 	record.PolicyTargetSummary = decision.TargetSummary
 	record.ShellRisk = decision.ShellRisk
 	record.ShellReason = decision.ShellReason
+	record.SandboxDecisionID = decision.SandboxDecisionID
+	record.SandboxMode = decision.SandboxMode
+	record.SandboxStatus = decision.SandboxStatus
+	record.SandboxExecutor = decision.SandboxExecutor
+	record.SandboxReason = decision.SandboxReason
+	record.SandboxError = decision.SandboxError
 	record.PolicyHeadless = decision.Headless
 	record.PolicyHeadlessReason = decision.HeadlessReason
 	if record.ID != "" {
@@ -135,6 +147,12 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 				PolicyTargetSummary:  decision.TargetSummary,
 				ShellRisk:            decision.ShellRisk,
 				ShellReason:          decision.ShellReason,
+				SandboxDecisionID:    decision.SandboxDecisionID,
+				SandboxMode:          decision.SandboxMode,
+				SandboxStatus:        decision.SandboxStatus,
+				SandboxExecutor:      decision.SandboxExecutor,
+				SandboxReason:        decision.SandboxReason,
+				SandboxError:         decision.SandboxError,
 				PolicyHeadless:       decision.Headless,
 				PolicyHeadlessReason: decision.HeadlessReason,
 				Error:                err.Error(),
@@ -149,6 +167,16 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 	}
 	if decision.Decision == string(permission.PolicyAllow) && call.ID != "" {
 		ctx = permission.WithHookApproval(ctx, call.ID)
+	}
+	if decision.SandboxDecisionID != "" {
+		ctx = tools.WithSandboxMetadata(ctx, tools.SandboxContextMetadata{
+			DecisionID: decision.SandboxDecisionID,
+			Mode:       decision.SandboxMode,
+			Status:     decision.SandboxStatus,
+			Executor:   decision.SandboxExecutor,
+			Reason:     decision.SandboxReason,
+			Error:      decision.SandboxError,
+		})
 	}
 	resp, err := s.inner.Run(ctx, call)
 	metadata := schedulerResponseMetadata(resp.Metadata)
@@ -172,6 +200,12 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 		PolicyTargetSummary:     decision.TargetSummary,
 		ShellRisk:               decision.ShellRisk,
 		ShellReason:             decision.ShellReason,
+		SandboxDecisionID:       decision.SandboxDecisionID,
+		SandboxMode:             nonEmptyString(metadata.SandboxMode, decision.SandboxMode),
+		SandboxStatus:           nonEmptyString(metadata.SandboxStatus, decision.SandboxStatus),
+		SandboxExecutor:         nonEmptyString(metadata.SandboxExecutor, decision.SandboxExecutor),
+		SandboxReason:           nonEmptyString(metadata.SandboxReason, decision.SandboxReason),
+		SandboxError:            nonEmptyString(metadata.SandboxError, decision.SandboxError),
 		PolicyHeadless:          decision.Headless,
 		PolicyHeadlessReason:    decision.HeadlessReason,
 		ExitCode:                metadata.ExitCode,
@@ -303,14 +337,19 @@ func schedulerSchemaDigest(info fantasy.ToolInfo) string {
 }
 
 type toolResponseMetadata struct {
-	JobID         string
-	Command       string
-	Stdout        string
-	Stderr        string
-	ExitCode      int
-	JobStatus     string
-	JobStartedAt  int64
-	JobFinishedAt int64
+	JobID           string
+	Command         string
+	Stdout          string
+	Stderr          string
+	ExitCode        int
+	JobStatus       string
+	JobStartedAt    int64
+	JobFinishedAt   int64
+	SandboxMode     string
+	SandboxStatus   string
+	SandboxExecutor string
+	SandboxReason   string
+	SandboxError    string
 }
 
 func schedulerResponseMetadata(raw string) toolResponseMetadata {
@@ -322,10 +361,15 @@ func schedulerResponseMetadata(raw string) toolResponseMetadata {
 		return toolResponseMetadata{}
 	}
 	meta := toolResponseMetadata{
-		JobID:   stringMetadata(values, "shell_id"),
-		Command: stringMetadata(values, "command"),
-		Stdout:  stringMetadata(values, "stdout"),
-		Stderr:  stringMetadata(values, "stderr"),
+		JobID:           stringMetadata(values, "shell_id"),
+		Command:         stringMetadata(values, "command"),
+		Stdout:          stringMetadata(values, "stdout"),
+		Stderr:          stringMetadata(values, "stderr"),
+		SandboxMode:     stringMetadata(values, "sandbox_mode"),
+		SandboxStatus:   stringMetadata(values, "sandbox_status"),
+		SandboxExecutor: stringMetadata(values, "sandbox_executor"),
+		SandboxReason:   stringMetadata(values, "sandbox_reason"),
+		SandboxError:    stringMetadata(values, "sandbox_error"),
 	}
 	if exitCode, ok := values["exit_code"].(float64); ok {
 		meta.ExitCode = int(exitCode)
