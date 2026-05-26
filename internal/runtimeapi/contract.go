@@ -62,6 +62,7 @@ var Endpoints = []Endpoint{
 	{Method: MethodPost, Path: "/v1/capabilities/{capability_id}/refresh"},
 	{Method: MethodPost, Path: "/v1/tools/search"},
 	{Method: MethodGet, Path: "/v1/context/sources"},
+	{Method: MethodGet, Path: "/v1/read-files"},
 	{Method: MethodGet, Path: "/v1/skills"},
 	{Method: MethodPost, Path: "/v1/skills"},
 	{Method: MethodPost, Path: "/v1/skills/refresh"},
@@ -149,11 +150,17 @@ const (
 	EventCapabilityLoaded           = "capability.loaded"
 	EventCapabilityFailed           = "capability.failed"
 	EventContextLoading             = "context.loading"
+	EventContextSourceDiscovered    = "context.source.discovered"
+	EventContextSourceLoaded        = "context.source.loaded"
+	EventContextSourceInjected      = "context.source.injected"
 	EventContextLoaded              = "context.loaded"
 	EventContextFailed              = "context.failed"
 	EventContextReinjected          = "context.reinjected"
 	EventContextSourceSkipped       = "context.source.skipped"
 	EventContextSourceFailed        = "context.source.failed"
+	EventReadFileRecorded           = "read_file.recorded"
+	EventReadFileStale              = "read_file.stale"
+	EventReadFileMissing            = "read_file.missing"
 	EventBudgetUpdated              = "budget.updated"
 	EventCompactBoundaryRecorded    = "compact.boundary.recorded"
 	EventCompactMicroCompleted      = "compact.micro.completed"
@@ -261,11 +268,17 @@ var EventTypes = []string{
 	EventCapabilityLoaded,
 	EventCapabilityFailed,
 	EventContextLoading,
+	EventContextSourceDiscovered,
+	EventContextSourceLoaded,
+	EventContextSourceInjected,
 	EventContextLoaded,
 	EventContextFailed,
 	EventContextReinjected,
 	EventContextSourceSkipped,
 	EventContextSourceFailed,
+	EventReadFileRecorded,
+	EventReadFileStale,
+	EventReadFileMissing,
 	EventBudgetUpdated,
 	EventCompactBoundaryRecorded,
 	EventCompactMicroCompleted,

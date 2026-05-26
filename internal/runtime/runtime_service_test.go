@@ -3047,6 +3047,10 @@ func (s *recordingRuntimeService) ContextSources(context.Context) (RuntimeContex
 	return s.contextSources, nil
 }
 
+func (s *recordingRuntimeService) ReadFiles(context.Context, string) (RuntimeReadFilesResponse, error) {
+	return RuntimeReadFilesResponse{}, nil
+}
+
 func (s *recordingRuntimeService) APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error) {
 	return RuntimeAPIEndpointResponse{URL: "http://127.0.0.1:1", Token: "token"}, nil
 }

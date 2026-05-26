@@ -237,6 +237,12 @@ export const wailsRuntime: AgentRuntime = {
     return response.sources
   },
 
+  async listReadFiles(sessionId?: string) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.ReadFiles(sessionId ?? '')
+    return response.files
+  },
+
   async listEvents(after?: number) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.Events()

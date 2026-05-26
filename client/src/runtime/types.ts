@@ -567,6 +567,7 @@ export type RuntimeReplayExportSummary = {
   taskArtifactRefs?: RuntimeRef[]
   policyDecisions?: RuntimeReplayPolicyDecision[]
   permissionEvents?: RuntimeReplayPermission[]
+  readFiles?: RuntimeReadFileState[]
   toolCalls?: RuntimeToolCall[]
   recovery?: RuntimeReplayRecovery
   eventCounts?: Record<string, number>
@@ -832,7 +833,7 @@ export type RuntimeToolSearchResponse = {
 
 export type RuntimeContextSource = {
   id: string
-  kind: 'managed' | 'user' | 'project' | 'local' | 'skill' | 'mcp' | 'file' | 'generated' | string
+  kind: 'managed_instructions' | 'user_memory' | 'project_agents' | 'project_claude' | 'dot_claude' | 'claude_rule' | 'local_memory' | 'skill_context' | 'mcp_resource_context' | 'context_file' | 'read_file_state' | 'compact_reinjected_context' | string
   name: string
   path?: string
   uri?: string
@@ -845,6 +846,30 @@ export type RuntimeContextSource = {
   content_summary?: string
   token_estimate?: number
   loaded_at?: string
+  provenance?: string
+  parent_id?: string
+  rule_globs?: string[]
+  size_bytes?: number
+  mtime_unix?: number
+  content_hash?: string
+}
+
+export type RuntimeReadFileState = {
+  sessionId: string
+  turnId?: string
+  toolCallId?: string
+  path: string
+  readAt: number
+  sizeBytes?: number
+  contentHash?: string
+  mtimeUnix?: number
+  offset?: number
+  limit?: number
+  partial?: boolean
+  tokenEstimate?: number
+  state: 'recorded' | 'stale' | 'missing' | string
+  reason?: string
+  diagnostics?: string
 }
 
 export type RuntimeMessage = {
@@ -1030,6 +1055,7 @@ export type AgentRuntime = {
   searchTools: (request: RuntimeToolSearchRequest) => Promise<RuntimeToolSearchResponse>
   refreshCapability: (capabilityId: string) => Promise<RuntimeCapability>
   listContextSources: () => Promise<RuntimeContextSource[]>
+  listReadFiles: (sessionId?: string) => Promise<RuntimeReadFileState[]>
   listEvents: (after?: number) => Promise<RuntimeEventsResponse>
   listMcpServers: () => Promise<RuntimeMcpServer[]>
   listMcpRequests: (request?: RuntimeMcpRequestListRequest) => Promise<RuntimeMcpRequest[]>

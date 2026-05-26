@@ -30,6 +30,7 @@ import type {
   RuntimePolicyMode,
   RuntimeRef,
   RuntimeRefContentResponse,
+  RuntimeReadFileState,
   RuntimeReplayExportRequest,
   RuntimeReplayExportResponse,
   RuntimeRecoveryStatus,
@@ -269,6 +270,11 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
     async listContextSources() {
       const response = await get<{ sources: RuntimeContextSource[] }>('/v1/context/sources')
       return response.sources
+    },
+    async listReadFiles(sessionId?: string) {
+      const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''
+      const response = await get<{ files: RuntimeReadFileState[] }>(`/v1/read-files${query}`)
+      return response.files
     },
     listEvents(after?: number) {
       const query = after && after > 0 ? `?after=${encodeURIComponent(String(after))}` : ''

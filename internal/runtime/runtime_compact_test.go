@@ -103,7 +103,7 @@ func TestRuntimeFullCompactCompletedPathReinjectsContextAndReadFiles(t *testing.
 		t.Fatal(err)
 	}
 	queries := db.New(conn)
-	if err := queries.RecordFileRead(context.Background(), db.RecordFileReadParams{SessionID: sess.ID, Path: "main.go"}); err != nil {
+	if err := queries.RecordFileRead(context.Background(), db.RecordFileReadParams{SessionID: sess.ID, TurnID: "turn-read", ToolCallID: "tool-read", Path: "main.go", SizeBytes: 13, MtimeUnix: mustStat(t, readPath).ModTime().Unix(), TokenEstimate: 3, State: "recorded", Reason: "view_tool"}); err != nil {
 		t.Fatal(err)
 	}
 	before := RuntimeBudgetReport{
@@ -142,6 +142,62 @@ func TestRuntimeFullCompactCompletedPathReinjectsContextAndReadFiles(t *testing.
 		return event.Type == runtimeapi.EventContextReinjected && event.Payload["compact_id"] == boundary.ID
 	}) {
 		t.Fatalf("context.reinjected missing: %#v", events.Events)
+	}
+}
+
+func TestRuntimeReadFilesReportsStaleAndCompactSkipsStaleReadFile(t *testing.T) {
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.ResetPool() })
+
+	service := newRuntimeService()
+	workspace := t.TempDir()
+	readPath := filepath.Join(workspace, "main.go")
+	writeRuntimeFile(t, readPath, "package main\n")
+	serviceWithWorkspace(t, service, workspace, dataDir)
+	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
+	sess, err := service.runtime.CreateSession(context.Background(), service.workspace.ID, "Read stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := mustStat(t, readPath)
+	if err := db.New(conn).RecordFileRead(context.Background(), db.RecordFileReadParams{
+		SessionID:     sess.ID,
+		TurnID:        "turn-read",
+		ToolCallID:    "tool-read",
+		Path:          "main.go",
+		SizeBytes:     info.Size(),
+		MtimeUnix:     info.ModTime().Unix() - 10,
+		TokenEstimate: 3,
+		Partial:       1,
+		State:         "recorded",
+		Reason:        "view_tool",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := service.ReadFiles(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files.Files) != 1 || files.Files[0].State != "stale" || !files.Files[0].Partial {
+		t.Fatalf("read files = %#v", files.Files)
+	}
+	refs := service.reinjectReadFiles(context.Background(), sess.ID, "turn-full", "compact-full")
+	if !slices.ContainsFunc(refs, func(ref RuntimeReinjectedRef) bool {
+		return ref.Kind == "read_file" && ref.Status == compactStatusSkipped && ref.Reason == "read_file_stale_mtime"
+	}) {
+		t.Fatalf("stale read-file reinjection missing: %#v", refs)
+	}
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool { return event.Type == runtimeapi.EventReadFileStale }) {
+		t.Fatalf("read_file.stale missing: %#v", events.Events)
 	}
 }
 

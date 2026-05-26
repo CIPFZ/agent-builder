@@ -200,6 +200,10 @@ export async function requestRuntimeContextSources() {
   return getAgentRuntime().listContextSources()
 }
 
+export async function requestRuntimeReadFiles(sessionId?: string) {
+  return getAgentRuntime().listReadFiles(sessionId)
+}
+
 export async function refreshRuntimeCapability(capabilityId: string) {
   return getAgentRuntime().refreshCapability(capabilityId)
 }

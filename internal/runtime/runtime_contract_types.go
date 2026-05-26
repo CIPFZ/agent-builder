@@ -702,6 +702,7 @@ type RuntimeReplayExportSummary struct {
 	PolicyDecisions    []RuntimeReplayPolicyDecision `json:"policyDecisions,omitempty"`
 	SandboxDecisions   []RuntimeSandboxDecision      `json:"sandboxDecisions,omitempty"`
 	PermissionEvents   []RuntimeReplayPermission     `json:"permissionEvents,omitempty"`
+	ReadFiles          []RuntimeReadFileState        `json:"readFiles,omitempty"`
 	ToolCalls          []RuntimeToolCall             `json:"toolCalls,omitempty"`
 	Recovery           RuntimeReplayRecovery         `json:"recovery,omitempty"`
 	EventCounts        map[string]int                `json:"eventCounts,omitempty"`
@@ -908,24 +909,52 @@ type RuntimeAuditTurnSummary struct {
 }
 
 type RuntimeContextSource struct {
-	ID             string `json:"id"`
-	Kind           string `json:"kind"`
-	Name           string `json:"name"`
-	Path           string `json:"path,omitempty"`
-	URI            string `json:"uri,omitempty"`
-	Scope          string `json:"scope,omitempty"`
-	Enabled        bool   `json:"enabled"`
-	State          string `json:"state"`
-	Reason         string `json:"reason,omitempty"`
-	Diagnostics    string `json:"diagnostics,omitempty"`
-	Error          string `json:"error,omitempty"`
-	ContentSummary string `json:"content_summary,omitempty"`
-	TokenEstimate  int    `json:"token_estimate,omitempty"`
-	LoadedAt       string `json:"loaded_at,omitempty"`
+	ID             string   `json:"id"`
+	Kind           string   `json:"kind"`
+	Name           string   `json:"name"`
+	Path           string   `json:"path,omitempty"`
+	URI            string   `json:"uri,omitempty"`
+	Scope          string   `json:"scope,omitempty"`
+	Enabled        bool     `json:"enabled"`
+	State          string   `json:"state"`
+	Reason         string   `json:"reason,omitempty"`
+	Diagnostics    string   `json:"diagnostics,omitempty"`
+	Error          string   `json:"error,omitempty"`
+	ContentSummary string   `json:"content_summary,omitempty"`
+	TokenEstimate  int      `json:"token_estimate,omitempty"`
+	LoadedAt       string   `json:"loaded_at,omitempty"`
+	Provenance     string   `json:"provenance,omitempty"`
+	ParentID       string   `json:"parent_id,omitempty"`
+	RuleGlobs      []string `json:"rule_globs,omitempty"`
+	SizeBytes      int64    `json:"size_bytes,omitempty"`
+	MTimeUnix      int64    `json:"mtime_unix,omitempty"`
+	ContentHash    string   `json:"content_hash,omitempty"`
 }
 
 type RuntimeContextSourcesResponse struct {
 	Sources []RuntimeContextSource `json:"sources"`
+}
+
+type RuntimeReadFileState struct {
+	SessionID     string `json:"sessionId"`
+	TurnID        string `json:"turnId,omitempty"`
+	ToolCallID    string `json:"toolCallId,omitempty"`
+	Path          string `json:"path"`
+	ReadAt        int64  `json:"readAt"`
+	SizeBytes     int64  `json:"sizeBytes,omitempty"`
+	ContentHash   string `json:"contentHash,omitempty"`
+	MTimeUnix     int64  `json:"mtimeUnix,omitempty"`
+	Offset        int64  `json:"offset,omitempty"`
+	Limit         int64  `json:"limit,omitempty"`
+	Partial       bool   `json:"partial,omitempty"`
+	TokenEstimate int    `json:"tokenEstimate,omitempty"`
+	State         string `json:"state"`
+	Reason        string `json:"reason,omitempty"`
+	Diagnostics   string `json:"diagnostics,omitempty"`
+}
+
+type RuntimeReadFilesResponse struct {
+	Files []RuntimeReadFileState `json:"files"`
 }
 
 type RuntimeTurnContextSummary struct {

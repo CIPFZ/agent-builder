@@ -32,9 +32,20 @@ type Message struct {
 }
 
 type ReadFile struct {
-	SessionID string `json:"session_id"`
-	Path      string `json:"path"`
-	ReadAt    int64  `json:"read_at"`
+	SessionID     string `json:"session_id"`
+	Path          string `json:"path"`
+	ReadAt        int64  `json:"read_at"`
+	TurnID        string `json:"turn_id"`
+	ToolCallID    string `json:"tool_call_id"`
+	SizeBytes     int64  `json:"size_bytes"`
+	ContentHash   string `json:"content_hash"`
+	MtimeUnix     int64  `json:"mtime_unix"`
+	Offset        int64  `json:"offset"`
+	ReadLimit     int64  `json:"read_limit"`
+	Partial       int64  `json:"partial"`
+	TokenEstimate int64  `json:"token_estimate"`
+	State         string `json:"state"`
+	Reason        string `json:"reason"`
 }
 
 type Session struct {

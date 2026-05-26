@@ -102,6 +102,8 @@ type RuntimeToolSearchOmission = runtime.RuntimeToolSearchOmission
 type RuntimeToolSchemaBudgetImpact = runtime.RuntimeToolSchemaBudgetImpact
 type RuntimeContextSource = runtime.RuntimeContextSource
 type RuntimeContextSourcesResponse = runtime.RuntimeContextSourcesResponse
+type RuntimeReadFileState = runtime.RuntimeReadFileState
+type RuntimeReadFilesResponse = runtime.RuntimeReadFilesResponse
 type RuntimeModelConfig = runtime.RuntimeModelConfig
 type RuntimeModelVerifyResponse = runtime.RuntimeModelVerifyResponse
 type RuntimeModelDiscoveryResponse = runtime.RuntimeModelDiscoveryResponse
@@ -513,6 +515,12 @@ func (r *RuntimeBridge) SearchTools(ctx context.Context, req RuntimeToolSearchRe
 func (r *RuntimeBridge) ContextSources(ctx context.Context) (RuntimeContextSourcesResponse, error) {
 
 	return r.service.ContextSources(ctx)
+
+}
+
+func (r *RuntimeBridge) ReadFiles(ctx context.Context, sessionID string) (RuntimeReadFilesResponse, error) {
+
+	return r.service.ReadFiles(ctx, sessionID)
 
 }
 

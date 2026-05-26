@@ -13,6 +13,7 @@ export type {
   RuntimeChatResponse,
   RuntimeCapability,
   RuntimeContextSource,
+  RuntimeReadFileState,
   RuntimeMessage,
   RuntimeMessagePart,
   RuntimeMcpServerConfig,

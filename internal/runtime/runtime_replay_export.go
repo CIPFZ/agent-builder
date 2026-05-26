@@ -306,6 +306,8 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			}
 		case runtimeapi.EventContextReinjected, runtimeapi.EventContextSourceSkipped, runtimeapi.EventContextSourceFailed:
 			attachRuntimeReplayReinjectedRef(&summary, event)
+		case runtimeapi.EventReadFileStale, runtimeapi.EventReadFileMissing, runtimeapi.EventReadFileRecorded:
+			summary.ReadFiles = appendRuntimeReplayReadFile(summary.ReadFiles, runtimeReplayReadFileFromEvent(event))
 		case runtimeapi.EventSnapshotRequired:
 			summary.Recovery.SnapshotRequired = true
 		}
@@ -370,6 +372,34 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 		}
 	}
 	return summary
+}
+
+func appendRuntimeReplayReadFile(items []RuntimeReadFileState, file RuntimeReadFileState) []RuntimeReadFileState {
+	if file.Path == "" {
+		return items
+	}
+	for i := range items {
+		if items[i].Path == file.Path && items[i].SessionID == file.SessionID {
+			items[i] = file
+			return items
+		}
+	}
+	return append(items, file)
+}
+
+func runtimeReplayReadFileFromEvent(event RuntimeEvent) RuntimeReadFileState {
+	return RuntimeReadFileState{
+		SessionID:     event.SessionID,
+		TurnID:        firstNonEmpty(event.TurnID, stringFromMap(event.Payload, "turn_id")),
+		ToolCallID:    firstNonEmpty(event.ToolCallID, stringFromMap(event.Payload, "tool_call_id")),
+		Path:          stringFromMap(event.Payload, "path"),
+		ReadAt:        int64(intFromMap(event.Payload, "read_at")),
+		Partial:       boolFromMap(event.Payload, "partial"),
+		TokenEstimate: intFromMap(event.Payload, "token_estimate"),
+		State:         strings.TrimPrefix(event.Type, "read_file."),
+		Reason:        stringFromMap(event.Payload, "reason"),
+		Diagnostics:   stringFromMap(event.Payload, "diagnostics"),
+	}
 }
 
 func appendRuntimeReplayMCPRequest(items []RuntimeReplayMCPRequest, req RuntimeReplayMCPRequest) []RuntimeReplayMCPRequest {

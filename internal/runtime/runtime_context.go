@@ -2,10 +2,15 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/charmbracelet/crush/internal/agent/prompt"
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
+	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
@@ -124,6 +129,12 @@ func runtimeContextSource(source prompt.ContextSource) RuntimeContextSource {
 		ContentSummary: source.ContentSummary,
 		TokenEstimate:  source.TokenEstimate,
 		LoadedAt:       loadedAt,
+		Provenance:     source.Provenance,
+		ParentID:       source.ParentID,
+		RuleGlobs:      source.RuleGlobs,
+		SizeBytes:      source.SizeBytes,
+		MTimeUnix:      source.MTimeUnix,
+		ContentHash:    source.ContentHash,
 	}
 }
 
@@ -156,19 +167,23 @@ func (r *runtimeService) recordTurnContextSources(sessionID, turnID string, sour
 }
 
 func (r *runtimeService) publishContextEvent(sessionID, turnID string, source RuntimeContextSource, durationMS int64) {
-	eventType := runtimeapi.EventContextLoaded
+	eventType := runtimeapi.EventContextSourceLoaded
 	if source.State == capabilityStateLoading {
 		eventType = runtimeapi.EventContextLoading
 	} else if source.State == capabilityStateFailed || source.Error != "" {
 		eventType = runtimeapi.EventContextFailed
 	}
 	payload := map[string]any{
-		"source_id": source.ID,
-		"kind":      source.Kind,
-		"path":      source.Path,
-		"uri":       source.URI,
-		"state":     source.State,
-		"reason":    source.Reason,
+		"source_id":      source.ID,
+		"kind":           source.Kind,
+		"path":           source.Path,
+		"uri":            source.URI,
+		"state":          source.State,
+		"reason":         source.Reason,
+		"provenance":     source.Provenance,
+		"parent_id":      source.ParentID,
+		"token_estimate": source.TokenEstimate,
+		"content_hash":   source.ContentHash,
 	}
 	if source.Error != "" {
 		payload["error"] = source.Error
@@ -184,4 +199,82 @@ func (r *runtimeService) publishContextEvent(sessionID, turnID string, source Ru
 		TurnID:    turnID,
 		Payload:   payload,
 	})
+	if source.State == capabilityStateLoaded {
+		injected := payload
+		r.storeRuntimeEvent(runtimeapi.Event{
+			ID:        newRuntimeEventID(),
+			Type:      runtimeapi.EventContextSourceInjected,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			SessionID: sessionID,
+			TurnID:    turnID,
+			Payload:   injected,
+		})
+	}
+}
+
+func (r *runtimeService) ReadFiles(ctx context.Context, sessionID string) (RuntimeReadFilesResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeReadFilesResponse{}, err
+	}
+	sessionID = firstNonEmpty(sessionID, r.sessionID)
+	conn := r.turns.db
+	if conn == nil {
+		var err error
+		conn, err = r.workspaceDB(ctx)
+		if err != nil {
+			return RuntimeReadFilesResponse{}, err
+		}
+	}
+	files, err := db.New(conn).ListSessionReadFiles(ctx, sessionID)
+	if err != nil {
+		return RuntimeReadFilesResponse{}, err
+	}
+	out := make([]RuntimeReadFileState, 0, len(files))
+	for _, file := range files {
+		state := runtimeReadFileStateFromDB(r, file)
+		out = append(out, state)
+	}
+	return RuntimeReadFilesResponse{Files: out}, nil
+}
+
+func runtimeReadFileStateFromDB(r *runtimeService, file db.ReadFile) RuntimeReadFileState {
+	path := r.resolveReadFilePath(file.Path)
+	state := firstNonEmpty(file.State, "recorded")
+	reason := file.Reason
+	diagnostics := ""
+	if info, err := os.Stat(path); err != nil {
+		state = "missing"
+		reason = "read_file_missing"
+		diagnostics = err.Error()
+	} else if file.MtimeUnix > 0 && info.ModTime().Unix() != file.MtimeUnix {
+		state = "stale"
+		reason = "mtime_changed"
+		diagnostics = "file modification time changed since last read"
+	} else if file.ContentHash != "" {
+		if data, err := os.ReadFile(path); err == nil {
+			sum := sha256.Sum256(data)
+			if "sha256:"+hex.EncodeToString(sum[:]) != file.ContentHash {
+				state = "stale"
+				reason = "hash_changed"
+				diagnostics = "file content hash changed since last read"
+			}
+		}
+	}
+	return RuntimeReadFileState{
+		SessionID:     file.SessionID,
+		TurnID:        file.TurnID,
+		ToolCallID:    file.ToolCallID,
+		Path:          filepath.ToSlash(path),
+		ReadAt:        file.ReadAt,
+		SizeBytes:     file.SizeBytes,
+		ContentHash:   file.ContentHash,
+		MTimeUnix:     file.MtimeUnix,
+		Offset:        file.Offset,
+		Limit:         file.ReadLimit,
+		Partial:       file.Partial != 0,
+		TokenEstimate: int(file.TokenEstimate),
+		State:         state,
+		Reason:        reason,
+		Diagnostics:   diagnostics,
+	}
 }

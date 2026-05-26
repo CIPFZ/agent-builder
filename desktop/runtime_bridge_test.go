@@ -398,6 +398,10 @@ func (s *recordingRuntimeService) ContextSources(context.Context) (RuntimeContex
 	return RuntimeContextSourcesResponse{}, nil
 }
 
+func (s *recordingRuntimeService) ReadFiles(context.Context, string) (RuntimeReadFilesResponse, error) {
+	return RuntimeReadFilesResponse{}, nil
+}
+
 func (s *recordingRuntimeService) APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error) {
 	return RuntimeAPIEndpointResponse{}, nil
 }

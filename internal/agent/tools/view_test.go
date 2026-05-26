@@ -248,7 +248,8 @@ func (m *mockViewPermissionService) SubscribeNotifications(ctx context.Context) 
 
 type mockFileTracker struct{}
 
-func (m mockFileTracker) RecordRead(ctx context.Context, sessionID, path string) {}
+func (m mockFileTracker) RecordRead(ctx context.Context, sessionID, path string)           {}
+func (m mockFileTracker) RecordReadState(ctx context.Context, state filetracker.ReadState) {}
 
 func (m mockFileTracker) LastReadTime(ctx context.Context, sessionID, path string) time.Time {
 	return time.Time{}

@@ -271,7 +271,10 @@ func (r *runtimeService) reinjectReadFiles(ctx context.Context, sessionID, turnI
 			Path:   filepath.ToSlash(path),
 			Ref:    "runtime://sessions/" + sessionID + "/read-files/" + filepath.ToSlash(rf.Path),
 			Status: compactStatusCompleted,
-			Reason: "recent_read_file",
+			Reason: firstNonEmpty(rf.Reason, "recent_read_file"),
+		}
+		if rf.TokenEstimate > 0 {
+			ref.TokenEstimate = int(rf.TokenEstimate)
 		}
 		if i >= postCompactMaxReadFiles {
 			ref.Status = compactStatusSkipped
@@ -286,10 +289,23 @@ func (r *runtimeService) reinjectReadFiles(ctx context.Context, sessionID, turnI
 			ref.Reason = "read_file_missing_or_unreadable"
 			ref.Error = statErr.Error()
 			r.publishReinjectionEvent(runtimeapi.EventContextSourceFailed, sessionID, turnID, boundaryID, ref)
+			r.publishReadFileDiagnosticEvent(runtimeapi.EventReadFileMissing, sessionID, turnID, rf, path, statErr.Error())
 			refs = append(refs, ref)
 			continue
 		}
-		tokens := estimateRuntimeTokens(strings.Repeat("x", int(minInt64(info.Size(), int64(postCompactMaxTokensPerReadFile*4)))))
+		if rf.MtimeUnix > 0 && rf.MtimeUnix != info.ModTime().Unix() {
+			ref.Status = compactStatusSkipped
+			ref.Reason = "read_file_stale_mtime"
+			ref.Error = "file modification time changed since last read"
+			r.publishReinjectionEvent(runtimeapi.EventContextSourceSkipped, sessionID, turnID, boundaryID, ref)
+			r.publishReadFileDiagnosticEvent(runtimeapi.EventReadFileStale, sessionID, turnID, rf, path, ref.Error)
+			refs = append(refs, ref)
+			continue
+		}
+		tokens := int(rf.TokenEstimate)
+		if tokens <= 0 {
+			tokens = estimateRuntimeTokens(strings.Repeat("x", int(minInt64(info.Size(), int64(postCompactMaxTokensPerReadFile*4)))))
+		}
 		if usedTokens+tokens > postCompactReadFileTokenBudget {
 			ref.Status = compactStatusSkipped
 			ref.Reason = "post_compact_read_file_token_budget"
@@ -298,12 +314,34 @@ func (r *runtimeService) reinjectReadFiles(ctx context.Context, sessionID, turnI
 			continue
 		}
 		ref.TokenEstimate = tokens
-		ref.ContentSummary = fmt.Sprintf("Read-file state restored (%d bytes).", info.Size())
+		ref.ContentSummary = fmt.Sprintf("Read-file state restored (%d bytes, partial=%t).", info.Size(), rf.Partial != 0)
 		usedTokens += tokens
 		r.publishReinjectionEvent(runtimeapi.EventContextReinjected, sessionID, turnID, boundaryID, ref)
 		refs = append(refs, ref)
 	}
 	return refs
+}
+
+func (r *runtimeService) publishReadFileDiagnosticEvent(eventType, sessionID, turnID string, rf db.ReadFile, path, diagnostics string) {
+	payload := map[string]any{
+		"path":           filepath.ToSlash(path),
+		"read_at":        rf.ReadAt,
+		"turn_id":        rf.TurnID,
+		"tool_call_id":   rf.ToolCallID,
+		"partial":        rf.Partial != 0,
+		"token_estimate": rf.TokenEstimate,
+		"reason":         rf.Reason,
+		"diagnostics":    diagnostics,
+	}
+	r.storeRuntimeEvent(runtimeapi.Event{
+		ID:         newRuntimeEventID(),
+		Type:       eventType,
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID:  sessionID,
+		TurnID:     turnID,
+		ToolCallID: rf.ToolCallID,
+		Payload:    payload,
+	})
 }
 
 func (r *runtimeService) resolveReadFilePath(path string) string {

@@ -86,6 +86,7 @@ type RuntimeService interface {
 	RefreshCapability(context.Context, string) (RuntimeCapabilityResponse, error)
 	SearchTools(context.Context, RuntimeToolSearchRequest) (RuntimeToolSearchResponse, error)
 	ContextSources(context.Context) (RuntimeContextSourcesResponse, error)
+	ReadFiles(context.Context, string) (RuntimeReadFilesResponse, error)
 	APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error)
 	DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error)
 	Cancel(context.Context) (RuntimeStatus, error)

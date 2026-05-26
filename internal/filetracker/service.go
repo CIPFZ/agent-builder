@@ -3,6 +3,8 @@ package filetracker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
@@ -16,6 +18,7 @@ import (
 type Service interface {
 	// RecordRead records when a file was read.
 	RecordRead(ctx context.Context, sessionID, path string)
+	RecordReadState(ctx context.Context, state ReadState)
 
 	// LastReadTime returns when a file was last read.
 	// Returns zero time if never read.
@@ -23,6 +26,19 @@ type Service interface {
 
 	// ListReadFiles returns the paths of all files read in a session.
 	ListReadFiles(ctx context.Context, sessionID string) ([]string, error)
+}
+
+type ReadState struct {
+	SessionID     string
+	TurnID        string
+	ToolCallID    string
+	Path          string
+	Offset        int
+	Limit         int
+	Partial       bool
+	TokenEstimate int
+	State         string
+	Reason        string
 }
 
 type service struct {
@@ -36,12 +52,33 @@ func NewService(q *db.Queries) Service {
 
 // RecordRead records when a file was read.
 func (s *service) RecordRead(ctx context.Context, sessionID, path string) {
-	if err := s.q.RecordFileRead(ctx, db.RecordFileReadParams{
-		SessionID: sessionID,
-		Path:      relpath(path),
-	}); err != nil {
-		slog.Error("Error recording file read", "error", err, "file", path)
+	s.RecordReadState(ctx, ReadState{SessionID: sessionID, Path: path, State: "recorded"})
+}
+
+func (s *service) RecordReadState(ctx context.Context, state ReadState) {
+	if state.State == "" {
+		state.State = "recorded"
 	}
+	meta := fileReadMetadata(state.Path)
+	if err := s.q.RecordFileRead(ctx, db.RecordFileReadParams{
+		SessionID:     state.SessionID,
+		Path:          relpath(state.Path),
+		TurnID:        state.TurnID,
+		ToolCallID:    state.ToolCallID,
+		SizeBytes:     meta.size,
+		ContentHash:   meta.hash,
+		MtimeUnix:     meta.mtime,
+		Offset:        int64(state.Offset),
+		ReadLimit:     int64(state.Limit),
+		Partial:       boolInt64(state.Partial),
+		TokenEstimate: int64(state.TokenEstimate),
+		State:         state.State,
+		Reason:        state.Reason,
+	}); err != nil {
+		slog.Error("Error recording file read", "error", err, "file", state.Path)
+	}
+	// Runtime event/audit publication is owned by the runtime scheduler layer;
+	// this store records only durable read-file state.
 }
 
 // LastReadTime returns when a file was last read.
@@ -56,6 +93,36 @@ func (s *service) LastReadTime(ctx context.Context, sessionID, path string) time
 	}
 
 	return time.Unix(readFile.ReadAt, 0)
+}
+
+type fileMetadata struct {
+	size  int64
+	hash  string
+	mtime int64
+}
+
+func fileReadMetadata(path string) fileMetadata {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return fileMetadata{}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fileMetadata{size: info.Size(), mtime: info.ModTime().Unix()}
+	}
+	sum := sha256.Sum256(data)
+	return fileMetadata{
+		size:  info.Size(),
+		hash:  "sha256:" + hex.EncodeToString(sum[:]),
+		mtime: info.ModTime().Unix(),
+	}
+}
+
+func boolInt64(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func relpath(path string) string {

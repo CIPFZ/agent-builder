@@ -4,6 +4,7 @@ import type {
   RuntimeCapability,
   RuntimeCompactBoundary,
   RuntimeContextSource,
+  RuntimeReadFileState,
   RuntimeAgentTask,
   RuntimeAgentRoleDefinition,
   RuntimeAgentTaskMessage,
@@ -58,6 +59,7 @@ type WailsRuntimeBridge = {
   CancelTurn: (turnId: string) => Promise<RuntimeStatus>
   Capabilities: () => Promise<{ capabilities: RuntimeCapability[] }>
   ContextSources: () => Promise<{ sources: RuntimeContextSource[] }>
+  ReadFiles: (sessionId: string) => Promise<{ files: RuntimeReadFileState[] }>
   RefreshCapability: (capabilityId: string) => Promise<{ capability: RuntimeCapability }>
   SearchTools: (request: RuntimeToolSearchRequest) => Promise<RuntimeToolSearchResponse>
   Chat: (request: RuntimeChatRequest) => Promise<RuntimeChatResponse>

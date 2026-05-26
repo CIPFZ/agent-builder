@@ -36,7 +36,7 @@ func TestRuntimeContextEventsAndAuditSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
-		return event.Type == runtimeapi.EventContextLoaded && event.TurnID == "turn-1" && event.Payload["source_id"] == "project:/work/AGENTS.md"
+		return event.Type == runtimeapi.EventContextSourceLoaded && event.TurnID == "turn-1" && event.Payload["source_id"] == "project:/work/AGENTS.md"
 	}) {
 		t.Fatalf("context loaded event missing: %#v", events.Events)
 	}
@@ -189,4 +189,13 @@ func writeRuntimeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func mustStat(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info
 }

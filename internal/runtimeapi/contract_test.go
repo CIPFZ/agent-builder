@@ -52,6 +52,7 @@ func TestEndpointsFreezePhase2MinimalAPI(t *testing.T) {
 		{Method: MethodPost, Path: "/v1/capabilities/{capability_id}/refresh"},
 		{Method: MethodPost, Path: "/v1/tools/search"},
 		{Method: MethodGet, Path: "/v1/context/sources"},
+		{Method: MethodGet, Path: "/v1/read-files"},
 		{Method: MethodGet, Path: "/v1/skills"},
 		{Method: MethodPost, Path: "/v1/skills"},
 		{Method: MethodPost, Path: "/v1/skills/refresh"},

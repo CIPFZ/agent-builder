@@ -440,6 +440,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/context/sources":
 		value, err := s.service.ContextSources(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/read-files":
+		value, err := s.service.ReadFiles(r.Context(), r.URL.Query().Get("session_id"))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/audit/turns/"):
 		value, err := s.service.AuditTurn(r.Context(), strings.TrimPrefix(r.URL.Path, "/v1/audit/turns/"))
 		writeRuntimeResult(w, value, err)

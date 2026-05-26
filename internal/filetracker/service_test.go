@@ -2,6 +2,8 @@ package filetracker
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -113,4 +115,37 @@ func TestService_RecordRead_DifferentPaths(t *testing.T) {
 
 	lastRead2 := env.svc.LastReadTime(env.ctx, sessionID, path2)
 	require.True(t, lastRead2.IsZero(), "path2 should not be recorded")
+}
+
+func TestService_RecordReadStateRecordsMetadata(t *testing.T) {
+	env := setupTest(t)
+
+	sessionID := "test-session-metadata"
+	env.createSession(t, sessionID)
+	path := filepath.Join(t.TempDir(), "file.go")
+	require.NoError(t, os.WriteFile(path, []byte("package main\n"), 0o644))
+
+	env.svc.RecordReadState(env.ctx, ReadState{
+		SessionID:     sessionID,
+		TurnID:        "turn-1",
+		ToolCallID:    "tool-1",
+		Path:          path,
+		Offset:        10,
+		Limit:         20,
+		Partial:       true,
+		TokenEstimate: 3,
+		State:         "recorded",
+		Reason:        "view_tool",
+	})
+
+	read, err := env.q.GetFileRead(env.ctx, db.GetFileReadParams{SessionID: sessionID, Path: relpath(path)})
+	require.NoError(t, err)
+	require.Equal(t, "turn-1", read.TurnID)
+	require.Equal(t, "tool-1", read.ToolCallID)
+	require.Equal(t, int64(10), read.Offset)
+	require.Equal(t, int64(20), read.ReadLimit)
+	require.Equal(t, int64(1), read.Partial)
+	require.Equal(t, int64(3), read.TokenEstimate)
+	require.NotEmpty(t, read.ContentHash)
+	require.Greater(t, read.SizeBytes, int64(0))
 }

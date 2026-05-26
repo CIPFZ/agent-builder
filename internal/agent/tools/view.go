@@ -90,7 +90,7 @@ func (e contentTooLargeError) Error() string {
 func NewViewTool(
 	lspManager *lsp.Manager,
 	permissions permission.Service,
-	filetracker filetracker.Service,
+	fileTracker filetracker.Service,
 	skillTracker *skills.Tracker,
 	workingDir string,
 	skillsPaths ...string,
@@ -257,7 +257,18 @@ func NewViewTool(
 			}
 			output += "\n</file>\n"
 			output += getDiagnostics(filePath, lspManager)
-			filetracker.RecordRead(ctx, sessionID, filePath)
+			fileTracker.RecordReadState(ctx, filetracker.ReadState{
+				SessionID:     sessionID,
+				TurnID:        GetTurnFromContext(ctx),
+				ToolCallID:    call.ID,
+				Path:          filePath,
+				Offset:        params.Offset,
+				Limit:         params.Limit,
+				Partial:       hasMore || params.Offset > 0,
+				TokenEstimate: skills.ApproxTokenCount(content),
+				State:         "recorded",
+				Reason:        "view_tool",
+			})
 
 			meta := ViewResponseMetadata{
 				FilePath: filePath,

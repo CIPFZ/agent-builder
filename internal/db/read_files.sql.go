@@ -10,7 +10,7 @@ import (
 )
 
 const getFileRead = `-- name: GetFileRead :one
-SELECT session_id, path, read_at FROM read_files
+SELECT session_id, path, read_at, turn_id, tool_call_id, size_bytes, content_hash, mtime_unix, offset, read_limit, partial, token_estimate, state, reason FROM read_files
 WHERE session_id = ? AND path = ? LIMIT 1
 `
 
@@ -22,12 +22,12 @@ type GetFileReadParams struct {
 func (q *Queries) GetFileRead(ctx context.Context, arg GetFileReadParams) (ReadFile, error) {
 	row := q.queryRow(ctx, q.getFileReadStmt, getFileRead, arg.SessionID, arg.Path)
 	var i ReadFile
-	err := row.Scan(&i.SessionID, &i.Path, &i.ReadAt)
+	err := row.Scan(&i.SessionID, &i.Path, &i.ReadAt, &i.TurnID, &i.ToolCallID, &i.SizeBytes, &i.ContentHash, &i.MtimeUnix, &i.Offset, &i.ReadLimit, &i.Partial, &i.TokenEstimate, &i.State, &i.Reason)
 	return i, err
 }
 
 const listSessionReadFiles = `-- name: ListSessionReadFiles :many
-SELECT session_id, path, read_at FROM read_files
+SELECT session_id, path, read_at, turn_id, tool_call_id, size_bytes, content_hash, mtime_unix, offset, read_limit, partial, token_estimate, state, reason FROM read_files
 WHERE session_id = ?
 ORDER BY read_at DESC
 `
@@ -41,7 +41,7 @@ func (q *Queries) ListSessionReadFiles(ctx context.Context, sessionID string) ([
 	items := []ReadFile{}
 	for rows.Next() {
 		var i ReadFile
-		if err := rows.Scan(&i.SessionID, &i.Path, &i.ReadAt); err != nil {
+		if err := rows.Scan(&i.SessionID, &i.Path, &i.ReadAt, &i.TurnID, &i.ToolCallID, &i.SizeBytes, &i.ContentHash, &i.MtimeUnix, &i.Offset, &i.ReadLimit, &i.Partial, &i.TokenEstimate, &i.State, &i.Reason); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -59,21 +59,65 @@ const recordFileRead = `-- name: RecordFileRead :exec
 INSERT INTO read_files (
     session_id,
     path,
-    read_at
+    read_at,
+    turn_id,
+    tool_call_id,
+    size_bytes,
+    content_hash,
+    mtime_unix,
+    offset,
+    read_limit,
+    partial,
+    token_estimate,
+    state,
+    reason
 ) VALUES (
     ?,
     ?,
-    strftime('%s', 'now')
+    strftime('%s', 'now'),
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?,
+    ?
 ) ON CONFLICT(path, session_id) DO UPDATE SET
-    read_at = excluded.read_at
+    read_at = excluded.read_at,
+    turn_id = excluded.turn_id,
+    tool_call_id = excluded.tool_call_id,
+    size_bytes = excluded.size_bytes,
+    content_hash = excluded.content_hash,
+    mtime_unix = excluded.mtime_unix,
+    offset = excluded.offset,
+    read_limit = excluded.read_limit,
+    partial = excluded.partial,
+    token_estimate = excluded.token_estimate,
+    state = excluded.state,
+    reason = excluded.reason
 `
 
 type RecordFileReadParams struct {
-	SessionID string `json:"session_id"`
-	Path      string `json:"path"`
+	SessionID     string `json:"session_id"`
+	Path          string `json:"path"`
+	TurnID        string `json:"turn_id"`
+	ToolCallID    string `json:"tool_call_id"`
+	SizeBytes     int64  `json:"size_bytes"`
+	ContentHash   string `json:"content_hash"`
+	MtimeUnix     int64  `json:"mtime_unix"`
+	Offset        int64  `json:"offset"`
+	ReadLimit     int64  `json:"read_limit"`
+	Partial       int64  `json:"partial"`
+	TokenEstimate int64  `json:"token_estimate"`
+	State         string `json:"state"`
+	Reason        string `json:"reason"`
 }
 
 func (q *Queries) RecordFileRead(ctx context.Context, arg RecordFileReadParams) error {
-	_, err := q.exec(ctx, q.recordFileReadStmt, recordFileRead, arg.SessionID, arg.Path)
+	_, err := q.exec(ctx, q.recordFileReadStmt, recordFileRead, arg.SessionID, arg.Path, arg.TurnID, arg.ToolCallID, arg.SizeBytes, arg.ContentHash, arg.MtimeUnix, arg.Offset, arg.ReadLimit, arg.Partial, arg.TokenEstimate, arg.State, arg.Reason)
 	return err
 }
