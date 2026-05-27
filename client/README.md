@@ -1,23 +1,14 @@
-# Agentic Operations Client Prototype
+# Agent Builder Client
 
-This is the Phase 1 UI prototype for the Crush-based agentic operations client.
+This directory contains the React client for Agent Builder. The next frontend
+phase is a clean runtime-first rewrite backed by the Go runtime and rendered
+with Ant Design plus Ant Design X.
 
-The prototype does not connect to the Crush runtime, SSH targets, or MCP servers
-yet. Chat uses the configured LLM proxy.
+The active technical plan is:
 
-## Scope
-
-The current screen is intentionally chat-first:
-
-- Claude Desktop inspired left rail and centered chat surface;
-- model picker in the composer;
-- model settings drawer for protocol, URL, API key, and advanced proxy;
-- real chat requests through the local DeepSeek/OpenAI-compatible proxy;
-- operations workspace entry kept as a secondary surface for later SSH/SOP work.
-
-The previous SSH troubleshooting dashboard is no longer the first screen. That
-flow will return behind the Operations entry after the basic chat and model
-configuration experience is accepted.
+```text
+../docs/frontend-runtime-ui-technical-plan.md
+```
 
 ## Stack
 
@@ -26,6 +17,24 @@ configuration experience is accepted.
 - Vite
 - Ant Design
 - Ant Design X
+- TanStack Query
+- Zustand, for UI state only
+- CSS Modules plus Ant Design theme tokens
+
+## Runtime Boundary
+
+The Go runtime is the source of truth for sessions, turns, messages, tool
+calls, permissions, agent tasks, worktrees, MCP, skills, refs, audit, recovery,
+model config, policy, and budget/context state.
+
+React owns only UI state such as selected panels, drawers, filters, unsaved
+form drafts, and composer draft text before submit.
+
+Ant Design X is used for AI interaction primitives such as conversations,
+bubbles, sender/composer, prompts, thinking, attachments, markdown, code, and
+diagrams. Runtime-specific features such as tool calls, permissions, subagent
+tasks, worktrees, diffs, audit, and recovery are mapped into custom Agent
+Builder components built on Ant Design and Ant Design X.
 
 ## Commands
 
@@ -41,54 +50,6 @@ Run the development server:
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-Run the archived local report proxy:
-
-```bash
-npm run dev:api
-```
-
-Local DeepSeek configuration:
-
-```powershell
-Copy-Item ..\docs\archive\client-server-demo\deepseek.config.example.json ..\docs\archive\client-server-demo\deepseek.local.json
-```
-
-Edit `..\docs\archive\client-server-demo\deepseek.local.json`:
-
-```json
-{
-  "protocol": "openai",
-  "url": "https://api.deepseek.com",
-  "apiKey": "your-key",
-  "models": ["deepseek-v4-flash"],
-  "proxy": "",
-  "port": 4177
-}
-```
-
-Then start the proxy:
-
-```powershell
-npm run dev:api
-```
-
-`docs/archive/client-server-demo/deepseek.local.json` is ignored by Git.
-`protocol` can be `openai` or `anthropic`. For DeepSeek, use:
-
-- OpenAI-compatible: `protocol=openai`, `url=https://api.deepseek.com`
-- Anthropic-compatible: `protocol=anthropic`,
-  `url=https://api.deepseek.com/anthropic`
-
-Environment variables can still override the file when needed:
-`DEEPSEEK_CONFIG`, `DEEPSEEK_PROTOCOL`, `DEEPSEEK_API_KEY`,
-`DEEPSEEK_API_BASE`, `DEEPSEEK_PROXY`, and `DEEPSEEK_PROXY_PORT`.
-
-`proxy` is reserved for the advanced connection setting. The current Node proxy
-records the value and warns if it is set, but does not route `fetch` through it
-yet.
-
-If no key is configured, chat requests fail with a clear configuration error.
-
 Build:
 
 ```bash
@@ -101,9 +62,3 @@ Lint:
 npm run lint
 ```
 
-## Next Steps
-
-- Persist connection settings locally.
-- Move the proxy into the Go runtime provider layer.
-- Add streaming responses.
-- Reintroduce SSH/SOP as a secondary Operations workflow after chat acceptance.

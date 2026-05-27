@@ -33,6 +33,11 @@ internal/adapters/           Wails/HTTP/CLI/TUI adapters
 - CLI/TUI compatibility is legacy and should stay out of the main product path.
 - Tool calls, permissions, sessions, turns, and audit data must remain
   structured and recoverable.
+- The frontend rewrite uses Ant Design and Ant Design X as the primary UI
+  foundations. See `docs/frontend-runtime-ui-technical-plan.md`.
+- Claude Desktop and similar clients may guide information architecture, but
+  the product must not copy proprietary branding, assets, exact styling, copy,
+  or visual identity.
 
 ## Build / Test / Lint Commands
 
@@ -46,4 +51,7 @@ internal/adapters/           Wails/HTTP/CLI/TUI adapters
 - Keep edits focused on the current refactor boundary.
 - Preserve existing tests when moving packages.
 - Do not introduce new module splits unless required by a cleanup phase.
-
+- For new frontend work, map Go runtime DTOs into UI view models instead of
+  making React or Ant Design X hooks the runtime state source.
+- Use Ant Design theme tokens and scoped CSS Modules for new UI surfaces; avoid
+  expanding global CSS as the main styling mechanism.
