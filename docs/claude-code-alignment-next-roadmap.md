@@ -1,156 +1,127 @@
 # Claude Code Alignment Next Roadmap
 
-Status: refreshed on 2026-05-27 after AgentTask/coordinator communication
-completion against current Agent Builder `main` and the local Claude Code
-source snapshot.
+Status: refreshed on 2026-05-27 from current `main`.
 
-Primary reference:
+Agent Builder baseline: `d51590b76a680e683b9d5335797c7076c16a5b05`
+
+Primary audit reference:
+
+- [`docs/claude-code-runtime-parity-closure-review.md`](./claude-code-runtime-parity-closure-review.md)
+
+Supporting summaries:
 
 - [`docs/claude-code-full-parity-review.md`](./claude-code-full-parity-review.md)
-
-Supporting docs:
-
 - [`docs/claude-code-runtime-parity-audit.md`](./claude-code-runtime-parity-audit.md)
 - [`docs/claude-code-next-implementation-plan.md`](./claude-code-next-implementation-plan.md)
 - [`docs/claude-code-alignment-module-priority.md`](./claude-code-alignment-module-priority.md)
-- [`docs/client-runtime-architecture-review.md`](./client-runtime-architecture-review.md)
-- [`docs/turn-task-run-model.md`](./turn-task-run-model.md)
-- [`docs/tool-scheduler-design.md`](./tool-scheduler-design.md)
-- [`docs/permission-policy-model.md`](./permission-policy-model.md)
-- [`docs/client-state-recovery.md`](./client-state-recovery.md)
-- [`docs/archive/phase-2-runtime-api-boundary.md`](./archive/phase-2-runtime-api-boundary.md)
-- [`docs/client-architecture-and-core-flow.md`](./client-architecture-and-core-flow.md)
-
-## Fixed Principles
-
-- Runtime first, then pages.
-- Go runtime is the source of truth.
-- React is presentation, input, diagnostics, and product workflow only.
-- Wails and HTTP are adapters.
-- `charm.land/fantasy` is the provider/model/tool protocol abstraction and must
-  not be rewritten.
-- Compact, tool discovery, policy, AgentTask, MCP/skills, worktree, hooks,
-  audit, and replay are runtime primitives.
-- Model-assisted permission is advisory-only and cannot self-approve high-risk
-  tool use.
-- Coordinator/agent communication is a runtime primitive, not UI event
-  stitching.
-- Provider/model config belongs above fantasy as product policy/config.
 
 ## Current Baseline
 
-The current code is ahead of the older roadmap. Several items previously listed
-as missing are now runtime foundations.
+Older roadmap conclusions are superseded. Current `main` includes runtime
+foundations for compact/reinjection, persisted replay, tool discovery
+guardrails, policy profiles/headless semantics, output/artifact refs, MCP
+auth/elicitation, worktree recovery, sandbox boundary records,
+context/memory/read-file loading hardening, hooks lifecycle/policy integration,
+and local AgentTask/coordinator communication.
 
 | Area | Status | Evidence |
 | --- | --- | --- |
-| Runtime spine: turns, ToolCalls, events, audit, recovery | Completed foundation | `internal/runtime/runtime_turns.go`, `runtime_tool_call_store.go`, `runtime_events.go`, `runtime_audit.go`, `runtime_recovery.go` |
-| Tool scheduler integration | Completed foundation | `internal/tools/scheduler/*`, `internal/agent/scheduler_tool.go`, `runtime_scheduler_recorder.go` |
-| Permission policy with scoped rules and shell safety | Implemented foundation | `internal/permission/policy.go`, `internal/runtime/runtime_policy.go` |
-| Compact boundary, budget, reinjection | Implemented foundation | `internal/runtime/runtime_compact*.go`, `runtime_budget.go` |
-| Tool search/discovery and guardrails | Implemented foundation | `internal/agent/tool_search.go`, `internal/runtime/runtime_tool_search.go`, `internal/agent/loop_detection.go` |
-| Capability registry and lazy refresh state | Implemented foundation | `internal/runtime/runtime_capabilities.go` |
-| MCP lifecycle, auth/elicitation, policy filtering | Implemented foundation | `internal/runtime/runtime_mcp*.go`, `internal/agent/tools/mcp/*` |
-| Skills activation metadata | Implemented foundation | `internal/skills/*`, `internal/runtime/runtime_skill_activation.go` |
-| AgentTask roles, scopes, messages, results, follow-up, stop, output | Completed local runtime primitive | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_task_tools.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go`, `internal/agent/task_tools.go`, `internal/agent/coordinator.go` |
-| Worktree lifecycle and sandbox records | Implemented foundation | `internal/runtime/runtime_worktrees.go`, `runtime_worktree_store.go` |
-| Hooks lifecycle | Implemented foundation | `internal/hooks/*`, `internal/agent/hooked_tool.go`, `internal/runtime/runtime_hooks.go` |
-| Replay export and scenario harness | Implemented foundation | `internal/runtime/runtime_replay_export.go`, `runtime_scenario_harness_test.go` |
-| React runtime boundary | Partial | `client/src/runtime/*`, `client/src/features/*` |
+| Runtime spine: turns, ToolCalls, events, audit, recovery | Completed | `internal/runtime/runtime_turns.go`; `internal/runtime/runtime_tool_call_store.go`; `internal/runtime/runtime_event_store.go`; `internal/runtime/runtime_audit.go`; `internal/runtime/runtime_recovery.go` |
+| Tool scheduler integration | Completed | `internal/tools/scheduler/`; `internal/agent/scheduler_tool.go`; `internal/runtime/runtime_scheduler_recorder.go` |
+| Permission policy profiles, headless, scoped rules | Completed | `internal/permission/policy.go`; `internal/runtime/runtime_policy.go`; `internal/runtime/runtime_permissions.go` |
+| Compact, budget, reinjection | Completed | `internal/runtime/runtime_compact.go`; `internal/runtime/runtime_compact_store.go`; `internal/runtime/runtime_budget.go`; `internal/runtime/runtime_context.go` |
+| Tool discovery/search guardrails | Completed | `internal/agent/tool_search.go`; `internal/runtime/runtime_tool_search.go`; `internal/runtime/runtime_capabilities.go` |
+| MCP lifecycle, auth, elicitation | Completed | `internal/runtime/runtime_mcp.go`; `internal/runtime/runtime_mcp_requests.go`; `internal/agent/tools/mcp/` |
+| Skills activation metadata | Partial | `internal/skills/`; `internal/runtime/runtime_skills.go`; `internal/runtime/runtime_skill_activation.go` |
+| AgentTask/coordinator local communication | Completed | `internal/runtime/runtime_agent_tasks.go`; `internal/runtime/runtime_agent_task_tools.go`; `internal/runtime/runtime_agent_task_comm_store.go`; `internal/agent/task_tools.go`; `internal/agent/coordinator.go` |
+| Worktree recovery and sandbox boundary | Partial hardening | `internal/runtime/runtime_worktrees.go`; `internal/runtime/runtime_worktree_store.go`; `internal/runtime/runtime_sandbox.go` |
+| Hooks lifecycle and policy integration | Completed core | `internal/hooks/`; `internal/agent/hooked_tool.go`; `internal/runtime/runtime_hooks.go` |
+| Replay export and scenario harness | Completed foundation | `internal/runtime/runtime_replay_export.go`; `internal/runtime/runtime_scenario_harness_test.go` |
+| React runtime boundary | Partial diagnostics | `client/src/runtime/types.ts`; `client/src/features/`; `desktop/` |
 
 ## Reordered Roadmap
 
-The next phase is runtime parity stabilization/re-audit, not a React shell-first
-phase. React diagnostics should follow stable runtime APIs.
-
-| Priority | Module | Status | Why |
+| Bucket | Module | Status | Why |
 | --- | --- | --- | --- |
-| P0 Completed | Runtime spine: Turn, ToolCall, Event, Audit, Recovery | Completed | Stable foundation already present. |
-| P0 Completed | Tool scheduler baseline | Completed | Scheduler records lifecycle, policy, events, audit. |
-| P0 Completed | Deterministic policy baseline | Completed foundation | Modes and scoped rules exist. |
-| P1 Next | Runtime parity stabilization and re-audit | Next runtime | Cross-boundary primitives exist, including AgentTask communication; regression coverage should expand before product UI depends on them. |
-| P1 Parallel | Shell parser fixture expansion | Parallel runtime | Deterministic policy exists; Bash/PowerShell/cmd coverage should keep growing. |
-| P2 | React compact/task/policy/replay/hook diagnostics | After stabilization | React should expose runtime facts only. |
-| P3 Later | Sandbox and remote runtime | Later | Depends on shell policy, worktree, task scope. |
-| P3 Later | Capability package/plugin governance | Later | Needs stable registry, tool search, scoped policy, MCP/skills lifecycle. |
-| P3 Later | Advisory permission advisor | Later | Must wait for deterministic scopes and evals. |
-| Not needed | TUI/CLI UI, slash UI, provider rewrite, marketplace-first | Not needed | Explicitly excluded. |
+| Completed | Runtime spine, stores, events, audit, replay, recovery | Closed | Runtime facts are durable and replayable. |
+| Completed | Scheduler, ToolCall normalization, output/artifact refs | Closed | Runtime records tool lifecycle and references. |
+| Completed | Deterministic policy profiles, headless, scoped rules | Closed | Runtime can fail closed and explain decisions. |
+| Completed | Compact, budget, reinjection | Closed | Boundaries and reinjected refs are persisted and replayed. |
+| Completed | MCP auth/elicitation and capability discovery | Closed foundation | Lifecycle and request state are runtime-owned. |
+| Completed | Hooks lifecycle core | Closed foundation | Runtime owns pre/post/failure hooks with audit/replay/recovery. |
+| Completed | Local AgentTask/coordinator communication | Closed foundation | Runtime owns task tools, messages, delivery, stop, output, refs, replay, and recovery. |
+| Next | Runtime parity closure stabilization and scenario coverage | Next | Cross-boundary fixture proof is the closure gate. |
+| Parallel | Shell parser fixture expansion and diagnostics DTO checks | Parallel | Hardens deterministic policy and adapter contracts. |
+| Blocked | React deep diagnostics | Blocked by closure confidence | React must render runtime-owned facts only. |
+| Later | Advisory permission advisor, plugin governance, advanced memory, OS sandbox executor maturity | P3/hardening | Product or hardening work after closure. |
+| Later | Remote runtime, remote agents, SSH/cloud teammate | P3/product optimization | No current local runtime dependency. |
+| Not needed | TUI/CLI UI, slash UI, keybindings, provider rewrite, marketplace-first, product telemetry/growth | Excluded | Not part of desktop runtime parity. |
 
 ## Dependency Graph
 
 ```mermaid
 graph TD
-  SP["Completed: runtime spine"] --> FX["Next: runtime parity stabilization/re-audit"]
-  SP --> DIAGDTO["Next: diagnostics DTO mirror"]
+  SP["Completed: runtime spine, stores, events, audit, recovery"] --> GATE["Next: parity closure stabilization and scenario coverage"]
+  SCH["Completed: scheduler and ToolCall normalization"] --> GATE
+  POL["Completed: policy profiles, headless, scoped rules"] --> GATE
+  CAP["Completed: capability registry and tool discovery"] --> GATE
+  CMP["Completed: compact, budget, reinjection, refs"] --> GATE
+  MCP["Completed: MCP auth and elicitation"] --> GATE
+  HK["Completed core: hooks lifecycle"] --> GATE
+  TASK["Completed local: AgentTask/coordinator communication"] --> GATE
+  WT["Completed foundation: worktree recovery and sandbox boundary"] --> GATE
 
-  HOOK["Implemented: hooks lifecycle"] --> FX
-  POL["Implemented: policy/headless"] --> FX
-  MCP["Implemented: MCP auth/elicitation"] --> FX
-  WT["Implemented: worktree/sandbox boundary"] --> FX
-  CTX["Implemented: context + compact reinjection"] --> FX
-  REF["Implemented: output/artifact refs"] --> FX
+  GATE --> API["Stable runtime diagnostics APIs"]
+  API --> REACT["Later: React diagnostics as runtime consumer"]
+  GATE --> HARD["Parallel: shell/parser, replay, migration fixtures"]
+  HARD --> API
 
-  AT["Completed: AgentTask communication"] --> FX
+  API --> ADV["P3: advisory permission explanations"]
+  API --> PLUG["P3: plugin/package governance"]
+  API --> REMOTE["P3: remote runtime/SSH/cloud teammate"]
+  API --> SANDBOX["P3: OS sandbox executor maturity"]
 
-  DIAGDTO --> DIAG["P2: React diagnostics"]
-  AT --> DIAG
+  EX["Not needed: TUI/CLI/slash/keybindings/product growth/provider rewrite"]:::notneeded
 
-  CAP --> PKG["P3: package/plugin governance"]
-  PH --> ADV["P3: advisory permission advisor"]
-
-  TUI["Not needed: terminal UI/CLI main path"]:::notneeded
-  FANTASY["Not needed: fantasy/provider rewrite"]:::notneeded
-  MARKET["Not needed: marketplace-first install"]:::notneeded
-
-  classDef notneeded fill:#eee,stroke:#999,color:#555;
+  classDef notneeded fill:#eeeeee,stroke:#999999,color:#555555;
 ```
 
 ## First Recommended Module
 
 ```text
-runtime: parity stabilization and re-audit
+runtime: run parity closure stabilization and scenario coverage
 ```
 
-This is the best next module because:
+This remains first because there is no core runtime blocker left, but the
+implemented primitives cross authority boundaries. Closure scenarios should
+prove that hooks cannot bypass deterministic deny/headless/scope/sandbox/MCP
+gates, AgentTask communication remains ordered and recoverable, compact/replay
+preserves refs, and restart recovery explains state from persisted data.
 
-- core runtime primitives now exist as Go-owned records and APIs, including
-  AgentTask/coordinator communication;
-- hooks, policy/headless, MCP, sandbox/worktree, compact/replay, and refs are
-  cross-cutting enough that fixture breadth matters more than another UI pass;
-- React diagnostics should render runtime state, not infer it.
+React diagnostics can start only after this closure gate or when scoped to
+read-only DTO mirroring over already stable runtime APIs.
 
-## Page / React Deferral
+## Later And Not Needed
 
-React/page work is not the next priority. The current client can consume runtime
-DTOs, but compact, replay, task mailbox, artifact refs, and policy diagnostics
-need runtime-owned APIs first. Page work can proceed only as diagnostics over
-existing APIs:
+P3/product later:
 
-- compact panels after full compact/reinjection APIs,
-- replay views after persisted event replay,
-- task mailbox UI over runtime mailbox APIs,
-- artifact drawer after durable output/artifact refs,
-- policy rule editor after profile/headless semantics.
-
-## Not Needed / Later
+- remote runtime, remote agent, SSH/cloud teammate;
+- advisory permission advisor;
+- signed/local plugin package governance;
+- advanced memory taxonomy and session memory compact;
+- provider/model health dashboards over fantasy;
+- OS sandbox executor maturity.
 
 Not needed:
 
-- Claude Code terminal UI / Ink / terminal layout,
-- keybindings / Vim input state,
-- slash command UI,
-- CLI argument UX,
-- Anthropic subscription/pass/growth surfaces,
-- Claude.ai OAuth/product login surfaces,
-- first-party telemetry sinks / GrowthBook / Datadog,
-- marketplace-first plugin browsing/install,
-- provider/model protocol rewrite,
+- terminal UI / Ink / terminal layout;
+- keybindings / Vim input state;
+- slash command UI;
+- CLI argument UX;
+- Anthropic subscription/pass/product growth surfaces;
+- Claude.ai OAuth/product login surfaces;
+- first-party telemetry sinks / GrowthBook / Datadog;
+- marketplace-first plugin browsing/install;
+- provider/model protocol rewrite;
+- changes to `charm.land/fantasy`;
 - TUI/CLI main-path restoration.
-
-Later/P3:
-
-- model-assisted permission advisor,
-- sandbox/remote runtime,
-- local/signed plugin package governance,
-- advanced memory taxonomy and session memory compact,
-- provider/model health dashboards over fantasy.
