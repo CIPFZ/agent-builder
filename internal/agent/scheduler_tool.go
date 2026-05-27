@@ -274,6 +274,9 @@ func schedulerCapabilityIDForToolName(name string) string {
 	if toolName == "" {
 		return ""
 	}
+	if strings.HasPrefix(lower, "task_") {
+		return "builtin:" + lower
+	}
 	if lower == "bash" || lower == "job_output" || lower == "job_kill" {
 		return "shell:" + lower
 	}

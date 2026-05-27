@@ -63,6 +63,11 @@ func (r *runtimeService) RecoveryStatus(ctx context.Context) (RuntimeRecoverySta
 	lastSequence := r.nextEventSequence
 	snapshotRequired := len(r.events) > 0 && r.events[0].Sequence > 1
 	r.mu.Unlock()
+	if r.agentTasks.db != nil && len(interruptedTasks) == 0 {
+		if tasks, err := r.agentTasks.ListByStatus(ctx, agentTaskStatusInterrupted); err == nil {
+			interruptedTasks = tasks
+		}
+	}
 	if startedAt.IsZero() {
 		startedAt = time.Now().UTC()
 	}

@@ -393,6 +393,49 @@ func TestRunSubAgent(t *testing.T) {
 		}
 		assert.Zero(t, count)
 	})
+
+	t.Run("send to active child session routes to child agent", func(t *testing.T) {
+		env := testEnv(t)
+		coord := newTestCoordinator(t, env, providerID, providerCfg)
+		coord.childAgents = make(map[string]SessionAgent)
+
+		parentSession, err := env.sessions.Create(t.Context(), "Parent")
+		require.NoError(t, err)
+
+		ready := make(chan string, 1)
+		release := make(chan struct{})
+		var followUpPrompt string
+		var followUpTurn string
+		childAgent := newMockAgent(providerID, 4096, func(ctx context.Context, call SessionAgentCall) (*fantasy.AgentResult, error) {
+			if call.Prompt == "initial" {
+				ready <- call.SessionID
+				<-release
+				return agentResultWithText("initial done"), nil
+			}
+			followUpPrompt = call.Prompt
+			followUpTurn = call.TurnID
+			return agentResultWithText("follow-up done"), nil
+		})
+
+		done := make(chan error, 1)
+		go func() {
+			_, runErr := coord.runSubAgent(t.Context(), subAgentParams{
+				Agent:          childAgent,
+				SessionID:      parentSession.ID,
+				AgentMessageID: "msg-1",
+				ToolCallID:     "call-1",
+				Prompt:         "initial",
+				SessionTitle:   "Task",
+			})
+			done <- runErr
+		}()
+		childSessionID := <-ready
+		require.NoError(t, coord.SendToSession(t.Context(), childSessionID, "turn-follow", "follow up"))
+		close(release)
+		require.NoError(t, <-done)
+		assert.Equal(t, "follow up", followUpPrompt)
+		assert.Equal(t, "turn-follow", followUpTurn)
+	})
 }
 
 type denyingSchedulerRecorder struct{}

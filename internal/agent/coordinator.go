@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
@@ -76,6 +77,7 @@ type Coordinator interface {
 	// SetMainAgent(string)
 	Run(ctx context.Context, sessionID, turnID, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error)
 	Cancel(sessionID string)
+	SendToSession(ctx context.Context, sessionID, turnID, prompt string) error
 	CancelAll()
 	IsSessionBusy(sessionID string) bool
 	IsBusy() bool
@@ -111,6 +113,8 @@ type coordinator struct {
 	discoveryRecorder  ToolDiscoveryRecorder
 	capabilityRecorder CapabilityScopeRecorder
 	agentTaskRecorder  AgentTaskRecorder
+	childAgentsMu      sync.RWMutex
+	childAgents        map[string]SessionAgent
 }
 
 type SchedulerRecorder interface {
@@ -336,6 +340,119 @@ type AgentTaskRecorder interface {
 	AgentTaskFailed(context.Context, AgentTaskRecord) error
 }
 
+type AgentTaskToolRuntime interface {
+	ListAgentTasksForTool(context.Context, AgentTaskToolListRequest) (AgentTaskToolListResponse, error)
+	GetAgentTaskForTool(context.Context, AgentTaskToolGetRequest) (AgentTaskToolGetResponse, error)
+	SendAgentTaskMessageForTool(context.Context, AgentTaskToolSendMessageRequest) (AgentTaskToolSendMessageResponse, error)
+	StopAgentTaskForTool(context.Context, AgentTaskToolStopRequest) (AgentTaskToolStopResponse, error)
+	GetAgentTaskOutputForTool(context.Context, AgentTaskToolOutputRequest) (AgentTaskToolOutputResponse, error)
+}
+
+type AgentTaskToolListRequest struct {
+	SessionID string
+	TurnID    string
+}
+
+type AgentTaskToolListResponse struct {
+	Tasks []AgentTaskToolTask `json:"tasks"`
+}
+
+type AgentTaskToolGetRequest struct {
+	TaskID string
+}
+
+type AgentTaskToolGetResponse struct {
+	Task     AgentTaskToolTask      `json:"task"`
+	Messages []AgentTaskToolMessage `json:"messages,omitempty"`
+	Result   *AgentTaskToolResult   `json:"result,omitempty"`
+}
+
+type AgentTaskToolSendMessageRequest struct {
+	TaskID          string
+	Message         string
+	Summary         string
+	RelatedToolCall string
+	TurnID          string
+	SessionID       string
+}
+
+type AgentTaskToolSendMessageResponse struct {
+	Success bool                 `json:"success"`
+	Message string               `json:"message"`
+	TaskID  string               `json:"task_id"`
+	Status  string               `json:"status"`
+	Record  AgentTaskToolMessage `json:"record"`
+}
+
+type AgentTaskToolStopRequest struct {
+	TaskID          string
+	Reason          string
+	RelatedToolCall string
+}
+
+type AgentTaskToolStopResponse struct {
+	Success bool              `json:"success"`
+	Message string            `json:"message"`
+	Task    AgentTaskToolTask `json:"task"`
+}
+
+type AgentTaskToolOutputRequest struct {
+	TaskID string
+}
+
+type AgentTaskToolOutputResponse struct {
+	TaskID       string                 `json:"task_id"`
+	Status       string                 `json:"status"`
+	Summary      string                 `json:"summary,omitempty"`
+	Error        string                 `json:"error,omitempty"`
+	Artifacts    []string               `json:"artifact_refs,omitempty"`
+	OutputRefs   []string               `json:"output_refs,omitempty"`
+	Messages     []AgentTaskToolMessage `json:"messages,omitempty"`
+	CompactRefs  []string               `json:"compact_boundary_refs,omitempty"`
+	ToolCallRefs []string               `json:"related_tool_call_refs,omitempty"`
+}
+
+type AgentTaskToolTask struct {
+	ID             string   `json:"id"`
+	Title          string   `json:"title"`
+	Kind           string   `json:"kind"`
+	Role           string   `json:"role,omitempty"`
+	Name           string   `json:"name,omitempty"`
+	Status         string   `json:"status"`
+	Progress       int      `json:"progress"`
+	ParentTurnID   string   `json:"parent_turn_id,omitempty"`
+	ChildSessionID string   `json:"child_session_id,omitempty"`
+	Summary        string   `json:"summary,omitempty"`
+	Error          string   `json:"error,omitempty"`
+	ArtifactRefs   []string `json:"artifact_refs,omitempty"`
+}
+
+type AgentTaskToolMessage struct {
+	ID          string   `json:"id"`
+	TaskID      string   `json:"task_id"`
+	Direction   string   `json:"direction"`
+	Kind        string   `json:"kind"`
+	Status      string   `json:"status"`
+	Sequence    int64    `json:"sequence,omitempty"`
+	Summary     string   `json:"summary,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	Artifacts   []string `json:"artifact_refs,omitempty"`
+	CreatedAt   int64    `json:"created_at,omitempty"`
+	DeliveredAt int64    `json:"delivered_at,omitempty"`
+	ProcessedAt int64    `json:"processed_at,omitempty"`
+}
+
+type AgentTaskToolResult struct {
+	TaskID       string   `json:"task_id"`
+	Status       string   `json:"status"`
+	Summary      string   `json:"summary,omitempty"`
+	Error        string   `json:"error,omitempty"`
+	Artifacts    []string `json:"artifact_refs,omitempty"`
+	MessageRefs  []string `json:"related_message_refs,omitempty"`
+	ToolCallRefs []string `json:"related_tool_call_refs,omitempty"`
+	CompactRefs  []string `json:"compact_boundary_refs,omitempty"`
+}
+
 type AgentTaskRecord struct {
 	ID               string
 	ParentTurnID     string
@@ -394,6 +511,7 @@ func NewCoordinator(
 		lspManager:   lspManager,
 		notify:       notify,
 		agents:       make(map[string]SessionAgent),
+		childAgents:  make(map[string]SessionAgent),
 		allSkills:    allSkills,
 		activeSkills: activeSkills,
 		skillTracker: skillTracker,
@@ -755,6 +873,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		}
 		allTools = append(allTools, agenticFetchTool)
 	}
+	allTools = append(allTools, c.taskRuntimeTools()...)
 
 	// Get the model name for the agent
 	modelID := ""
@@ -1213,10 +1332,73 @@ func isExactoSupported(modelID string) bool {
 }
 
 func (c *coordinator) Cancel(sessionID string) {
+	if c.cancelChildAgent(sessionID) {
+		return
+	}
 	c.currentAgent.Cancel(sessionID)
 }
 
+func (c *coordinator) SendToSession(ctx context.Context, sessionID, turnID, prompt string) error {
+	c.childAgentsMu.RLock()
+	child := c.childAgents[sessionID]
+	c.childAgentsMu.RUnlock()
+	if child == nil {
+		if c.currentAgent == nil {
+			return errCoderAgentNotConfigured
+		}
+		_, err := c.currentAgent.Run(ctx, SessionAgentCall{
+			SessionID: sessionID,
+			TurnID:    turnID,
+			Prompt:    prompt,
+		})
+		return err
+	}
+	model := child.Model()
+	maxTokens := model.CatwalkCfg.DefaultMaxTokens
+	if model.ModelCfg.MaxTokens != 0 {
+		maxTokens = model.ModelCfg.MaxTokens
+	}
+	providerCfg, ok := c.cfg.Config().Providers.Get(model.ModelCfg.Provider)
+	if !ok {
+		return errModelProviderNotConfigured
+	}
+	_, err := child.Run(ctx, SessionAgentCall{
+		SessionID:        sessionID,
+		TurnID:           turnID,
+		Prompt:           prompt,
+		MaxOutputTokens:  maxTokens,
+		ProviderOptions:  getProviderOptions(model, providerCfg),
+		Temperature:      model.ModelCfg.Temperature,
+		TopP:             model.ModelCfg.TopP,
+		TopK:             model.ModelCfg.TopK,
+		FrequencyPenalty: model.ModelCfg.FrequencyPenalty,
+		PresencePenalty:  model.ModelCfg.PresencePenalty,
+		NonInteractive:   true,
+	})
+	return err
+}
+
+func (c *coordinator) cancelChildAgent(sessionID string) bool {
+	c.childAgentsMu.RLock()
+	child := c.childAgents[sessionID]
+	c.childAgentsMu.RUnlock()
+	if child == nil {
+		return false
+	}
+	child.Cancel(sessionID)
+	return true
+}
+
 func (c *coordinator) CancelAll() {
+	c.childAgentsMu.RLock()
+	children := make([]SessionAgent, 0, len(c.childAgents))
+	for _, child := range c.childAgents {
+		children = append(children, child)
+	}
+	c.childAgentsMu.RUnlock()
+	for _, child := range children {
+		child.CancelAll()
+	}
 	c.currentAgent.CancelAll()
 }
 
@@ -1415,6 +1597,17 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	if params.SessionSetup != nil {
 		params.SessionSetup(session.ID)
 	}
+	c.childAgentsMu.Lock()
+	if c.childAgents == nil {
+		c.childAgents = make(map[string]SessionAgent)
+	}
+	c.childAgents[session.ID] = params.Agent
+	c.childAgentsMu.Unlock()
+	defer func() {
+		c.childAgentsMu.Lock()
+		delete(c.childAgents, session.ID)
+		c.childAgentsMu.Unlock()
+	}()
 
 	// Get model configuration
 	model := params.Agent.Model()

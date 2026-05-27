@@ -191,6 +191,12 @@ export const wailsRuntime: AgentRuntime = {
     return response.messages
   },
 
+  async sendAgentTaskFollowUp(taskId: string, request) {
+    const bridge = await loadWailsRuntimeBridge()
+    const response = await bridge.AgentTaskFollowUp(taskId, request)
+    return response.message
+  },
+
   async getAgentTaskResult(taskId: string) {
     const bridge = await loadWailsRuntimeBridge()
     const response = await bridge.AgentTaskResult(taskId)

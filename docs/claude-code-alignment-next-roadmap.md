@@ -1,7 +1,8 @@
 # Claude Code Alignment Next Roadmap
 
-Status: refreshed on 2026-05-26 after hook lifecycle hardening against current
-Agent Builder `main` and the local Claude Code source snapshot.
+Status: refreshed on 2026-05-27 after AgentTask/coordinator communication
+completion against current Agent Builder `main` and the local Claude Code
+source snapshot.
 
 Primary reference:
 
@@ -51,7 +52,7 @@ as missing are now runtime foundations.
 | Capability registry and lazy refresh state | Implemented foundation | `internal/runtime/runtime_capabilities.go` |
 | MCP lifecycle, auth/elicitation, policy filtering | Implemented foundation | `internal/runtime/runtime_mcp*.go`, `internal/agent/tools/mcp/*` |
 | Skills activation metadata | Implemented foundation | `internal/skills/*`, `internal/runtime/runtime_skill_activation.go` |
-| AgentTask roles, scopes, messages, results | Implemented foundation | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go` |
+| AgentTask roles, scopes, messages, results, follow-up, stop, output | Completed local runtime primitive | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_task_tools.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go`, `internal/agent/task_tools.go`, `internal/agent/coordinator.go` |
 | Worktree lifecycle and sandbox records | Implemented foundation | `internal/runtime/runtime_worktrees.go`, `runtime_worktree_store.go` |
 | Hooks lifecycle | Implemented foundation | `internal/hooks/*`, `internal/agent/hooked_tool.go`, `internal/runtime/runtime_hooks.go` |
 | Replay export and scenario harness | Implemented foundation | `internal/runtime/runtime_replay_export.go`, `runtime_scenario_harness_test.go` |
@@ -59,18 +60,17 @@ as missing are now runtime foundations.
 
 ## Reordered Roadmap
 
-The next phase is runtime hardening, not a React shell-first phase. React
-diagnostics should follow runtime APIs.
+The next phase is runtime parity stabilization/re-audit, not a React shell-first
+phase. React diagnostics should follow stable runtime APIs.
 
 | Priority | Module | Status | Why |
 | --- | --- | --- | --- |
 | P0 Completed | Runtime spine: Turn, ToolCall, Event, Audit, Recovery | Completed | Stable foundation already present. |
 | P0 Completed | Tool scheduler baseline | Completed | Scheduler records lifecycle, policy, events, audit. |
 | P0 Completed | Deterministic policy baseline | Completed foundation | Modes and scoped rules exist. |
-| P1 Next | Broaden scenario fixtures and diagnostics DTO coverage | Next runtime | Cross-boundary primitives exist; regression coverage should expand before product UI depends on them. |
+| P1 Next | Runtime parity stabilization and re-audit | Next runtime | Cross-boundary primitives exist, including AgentTask communication; regression coverage should expand before product UI depends on them. |
 | P1 Parallel | Shell parser fixture expansion | Parallel runtime | Deterministic policy exists; Bash/PowerShell/cmd coverage should keep growing. |
-| P2 | AgentTask coordinator mailbox and task tools | Runtime follow-up | Messages/results exist, but full SendMessage/coordinator semantics need more orchestration semantics. |
-| P2 Later | React compact/task/policy/replay/hook diagnostics | After runtime APIs | React should expose runtime facts only. |
+| P2 | React compact/task/policy/replay/hook diagnostics | After stabilization | React should expose runtime facts only. |
 | P3 Later | Sandbox and remote runtime | Later | Depends on shell policy, worktree, task scope. |
 | P3 Later | Capability package/plugin governance | Later | Needs stable registry, tool search, scoped policy, MCP/skills lifecycle. |
 | P3 Later | Advisory permission advisor | Later | Must wait for deterministic scopes and evals. |
@@ -80,7 +80,7 @@ diagnostics should follow runtime APIs.
 
 ```mermaid
 graph TD
-  SP["Completed: runtime spine"] --> FX["Next: broader scenarios"]
+  SP["Completed: runtime spine"] --> FX["Next: runtime parity stabilization/re-audit"]
   SP --> DIAGDTO["Next: diagnostics DTO mirror"]
 
   HOOK["Implemented: hooks lifecycle"] --> FX
@@ -90,11 +90,10 @@ graph TD
   CTX["Implemented: context + compact reinjection"] --> FX
   REF["Implemented: output/artifact refs"] --> FX
 
-  AT["Implemented foundation: AgentTask records/messages/results"] --> MB["P2: coordinator mailbox"]
-  FX --> MB
+  AT["Completed: AgentTask communication"] --> FX
 
   DIAGDTO --> DIAG["P2: React diagnostics"]
-  MB --> DIAG
+  AT --> DIAG
 
   CAP --> PKG["P3: package/plugin governance"]
   PH --> ADV["P3: advisory permission advisor"]
@@ -109,12 +108,13 @@ graph TD
 ## First Recommended Module
 
 ```text
-runtime: broaden scenario fixtures and diagnostics DTO coverage
+runtime: parity stabilization and re-audit
 ```
 
 This is the best next module because:
 
-- core runtime primitives now exist as Go-owned records and APIs;
+- core runtime primitives now exist as Go-owned records and APIs, including
+  AgentTask/coordinator communication;
 - hooks, policy/headless, MCP, sandbox/worktree, compact/replay, and refs are
   cross-cutting enough that fixture breadth matters more than another UI pass;
 - React diagnostics should render runtime state, not infer it.
@@ -128,7 +128,7 @@ existing APIs:
 
 - compact panels after full compact/reinjection APIs,
 - replay views after persisted event replay,
-- task mailbox UI after runtime mailbox semantics,
+- task mailbox UI over runtime mailbox APIs,
 - artifact drawer after durable output/artifact refs,
 - policy rule editor after profile/headless semantics.
 

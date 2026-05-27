@@ -1,6 +1,6 @@
 # Claude Code Full Parity Review
 
-Date: 2026-05-26
+Date: 2026-05-27
 
 Scope: full runtime parity re-audit of Agent Builder current `main` against the
 local Claude Code source snapshot at
@@ -21,7 +21,8 @@ spine exists and several former gaps are now runtime foundations:
 - compact boundary, budget, and reinjection,
 - tool search/discovery,
 - scoped policy rules, headless semantics, and shell destructive classification,
-- AgentTask roles/scopes/messages/results,
+- AgentTask roles/scopes/messages/results plus parent-child/coordinator
+  follow-up, stop, output, replay, recovery, and model-facing task tools,
 - worktree lifecycle and sandbox boundary records,
 - hooks lifecycle records,
 - MCP auth/elicitation records,
@@ -29,18 +30,20 @@ spine exists and several former gaps are now runtime foundations:
 - replay export,
 - scenario harness coverage.
 
-The remaining parity work is no longer "create the runtime boundary." It is
-hardening scenario coverage so React can later expose runtime-owned diagnostics:
+The remaining parity work is no longer "create the runtime boundary" or
+"complete AgentTask communication." It is stabilization and re-audit over the
+runtime primitives that now exist, followed by React diagnostics over stable
+runtime APIs:
 
-- broader scenario/eval fixtures,
-- coordinator mailbox semantics,
+- broader scenario/eval fixtures and runtime parity re-audit,
 - richer shell parser fixtures,
-- sandbox/remote later.
+- React diagnostics over runtime APIs,
+- remote runtime later.
 
 First recommended module:
 
 ```text
-runtime: broaden scenario fixtures and diagnostics DTO coverage
+runtime: parity stabilization and re-audit
 ```
 
 Runtime remains prior to page work because React must display runtime facts. It
@@ -112,7 +115,7 @@ Claude Code runtime reference sampled:
 | Model-assisted permission advisor | Missing | No advisor package/events | Claude Code permission classifier/adaptive behavior in permission utilities | Later only. Must remain advisory and never approve high-risk actions. |
 | MCP lifecycle / resources / prompts / tools / auth / elicitation | Implemented foundation | `internal/runtime/runtime_mcp.go`, `runtime_mcp_config.go`, `internal/agent/tools/mcp/*`, `list_mcp_resources.go`, `read_mcp_resource.go` | `src/services/mcp/*`, `src/tools/MCPTool/*`, `McpAuthTool`, list/read resource tools | Server/tool/resource/prompt APIs, policy filtering, lazy refresh, auth/elicitation lifecycle records, and redaction exist. Remaining work is broader protocol fixtures. |
 | Skills / allowed tools / activation / plugin metadata | Partial implemented | `internal/skills/*`, `internal/runtime/runtime_skills.go`, `runtime_skill_activation.go`, `runtime_capabilities.go` | `src/skills/*`, `src/utils/plugins/*` | Skill metadata and allowed_tools hints are preserved. Plugin/package governance is missing; marketplace-first is not needed. |
-| AgentTask / subagent roles / parent-child messaging / coordinator | Partial implemented | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go`, `internal/agent/agent_tool.go`, `internal/agent/coordinator.go` | `src/tools/AgentTool/*`, `src/tools/Task*Tool/*`, `src/tools/SendMessageTool/*`, `src/tasks/*`, `src/coordinator/*` | AgentTask store, roles, scope, messages/results exist. Full mailbox, SendMessage, teammate/coordinator semantics remain incomplete. |
+| AgentTask / subagent roles / parent-child messaging / coordinator | Completed local runtime primitive | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_task_tools.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go`, `internal/agent/agent_tool.go`, `internal/agent/task_tools.go`, `internal/agent/coordinator.go` | `src/tools/AgentTool/*`, `src/tools/Task*Tool/*`, `src/tools/SendMessageTool/*`, `src/tasks/*`, `src/coordinator/*` | Local parent-child/coordinator communication is runtime-owned and durable: message sequence, created/delivered/processed/rejected states, follow-up delivery to child sessions, stop/cancel records, output/artifact refs, replay, recovery, HTTP/Wails DTOs, and model-facing task tools exist. Remote teammate/fleet remains P3/later. |
 | Worktree / cwd isolation / sandbox / remote | Implemented foundation | `internal/runtime/runtime_worktrees.go`, `runtime_worktree_store.go`, `runtime_agent_task_scope.go`, sandbox records | `src/utils/worktree.ts`, `src/tools/EnterWorktreeTool/*`, `ExitWorktreeTool`, `src/utils/sandbox/*` | Git worktree lifecycle, cleanup/recovery, task cwd scope, and sandbox execution records exist. Remote remains later. |
 | Audit / replay / eval harness / local observability | Implemented foundation | `internal/runtime/runtime_audit*.go`, `runtime_replay_export.go`, `runtime_scenario_harness_test.go` | `src/services/vcr.ts`, `docs/32-harness-and-eval-runtime.md`, `docs/45-telemetry-and-reporting-rules-audit.md` | Persisted replay events, audit, replay export, and scenarios exist. Need broader fixture packs. Do not import first-party telemetry sinks. |
 | Provider/model configuration on fantasy | Partial | `internal/runtime/runtime_model*.go`, `client/src/features/settings/ModelSettingsDrawer.tsx` | Claude Code provider/product config modules | Correct layer: above fantasy. Need health/capability/per-mode policy; no provider rewrite. |
@@ -140,7 +143,8 @@ Claude Code runtime reference sampled:
 - Skills/MCP inventory, enablement, refresh, auth/elicitation, redaction, and
   policy filtering.
 - AgentTask store, role definitions, scope checks, task messages/results,
-  artifact refs, cancellation.
+  delivery/processed/rejected message states, follow-up delivery, stop/cancel,
+  model-facing task tools, artifact/output refs, replay, and recovery.
 - Git worktree lifecycle store/API/events/audit and recovery/cleanup records.
 - Persisted replay events and replay export.
 - Hook lifecycle records, APIs, audit, replay, and recovery for pre-tool,
@@ -155,7 +159,7 @@ Claude Code runtime reference sampled:
 
 - Tool search guardrail breadth and per-source recursion/concurrency fixtures.
 - Bash/PowerShell parser parity beyond destructive heuristics.
-- AgentTask mailbox, SendMessage equivalent, coordinator/team semantics.
+- Runtime parity stabilization and re-audit fixture breadth.
 - Skill allowed_tools enforcement through policy scopes rather than prompt hints.
 - React diagnostics over compact/replay/task/policy/artifacts/hooks after
   runtime APIs.
@@ -185,9 +189,10 @@ Claude Code runtime reference sampled:
 
 ### Runtime Blockers
 
-| Gap | Why it is real | Risk | Dependencies | Acceptance |
-| --- | --- | --- | --- | --- |
-| AgentTask coordinator mailbox | Task messages/results exist, but SendMessage/coordinator semantics are not complete. | Multi-agent work remains recordable but not fully orchestrated. | Compact/replay/policy hardening. | Parent/child messages, delivery state, results, artifacts, cancellation, and replay are durable runtime state. |
+No current core runtime blocker remains for the local Claude Code parity scope.
+AgentTask/coordinator communication is now a completed local runtime primitive.
+Remaining work is stabilization, fixture breadth, diagnostics, and later product
+optimization.
 
 ### Runtime Hardening
 
@@ -195,7 +200,7 @@ Claude Code runtime reference sampled:
 | --- | --- | --- |
 | Tool discovery guardrails | Repeated/nested tool search or large MCP/skill surfaces can still stress prompt/scheduler behavior. | Per-source recursion/concurrency limits and scenario tests pass. |
 | Shell parser parity | Regex/token heuristics can miss shell edge cases. | Bash/PowerShell/cmd fixture pack covers destructive/read-only patterns. |
-| Hook/policy/scope fixture breadth | Hooks, MCP, sandbox, worktree, compact, replay, and refs cross several authority boundaries. | Scenario fixtures prove deny/headless/scope/sandbox/MCP cannot be bypassed. |
+| Hook/policy/scope/AgentTask fixture breadth | Hooks, MCP, sandbox, worktree, compact, replay, refs, and AgentTask communication cross several authority boundaries. | Scenario fixtures prove deny/headless/scope/sandbox/MCP cannot be bypassed and task communication remains ordered/recoverable. |
 
 ### Page / React Diagnostics Later
 
@@ -222,10 +227,9 @@ These depend on runtime APIs and persisted state. React must not synthesize them
 | P0 | Runtime spine, scheduler, event cursor, audit, recovery | Completed |
 | P0 | Deterministic policy baseline and scoped rules | Completed foundation |
 | P0 | Capability registry and MCP/skills inventory | Completed foundation |
-| P1 Next | Broader scenario fixtures and diagnostics DTO coverage | Next |
+| P1 Next | Runtime parity stabilization and re-audit | Next |
 | P1 Parallel | Shell parser fixture expansion | Parallel |
-| P2 | AgentTask coordinator mailbox / SendMessage semantics | Runtime follow-up |
-| P2 Later | React diagnostics | Blocked by runtime APIs |
+| P2 | React diagnostics over stable runtime APIs | After stabilization |
 | P3 | Sandbox/remote runtime | Later |
 | P3 | Plugin/package governance | Later |
 | P3 | Advisory permission advisor | Later |
@@ -235,7 +239,7 @@ These depend on runtime APIs and persisted state. React must not synthesize them
 
 ```mermaid
 graph TD
-  SP["Completed: Runtime spine"] --> FX["P1: Broader scenarios"]
+  SP["Completed: Runtime spine"] --> FX["P1: Runtime parity stabilization/re-audit"]
   SP --> DTO["P1: Diagnostics DTO mirror"]
 
   HK["Implemented: Hooks lifecycle"] --> FX
@@ -245,11 +249,10 @@ graph TD
   CR["Implemented: Compact/replay"] --> FX
   REF["Implemented: Output/artifact refs"] --> FX
 
-  AT["Implemented foundation: AgentTask records/messages/results"] --> MAIL["P2: Coordinator mailbox"]
-  FX --> MAIL
+  AT["Completed: AgentTask communication"] --> FX
 
   DTO --> RUI["P2 later: React diagnostics"]
-  MAIL --> RUI
+  AT --> RUI
 
   SP --> PKG["P3: Plugin/package governance"]
   POL --> ADV["P3: Advisory permission advisor"]
@@ -263,11 +266,11 @@ graph TD
 
 ## Next Batch Recommendation
 
-### 1. Broader Scenario Fixtures And Diagnostics DTO Coverage
+### 1. Runtime Parity Stabilization And Re-Audit
 
 - Goal: prove cross-boundary runtime behavior across hooks, policy/headless,
   MCP auth/elicitation, AgentTask scope, sandbox/worktree, compact/replay, and
-  refs.
+  refs, including completed AgentTask communication.
 - Not doing: external analytics, first-party telemetry sinks.
 - Go: `runtime_events.go`, `runtime_replay_export.go`, `runtime_audit*.go`,
   `runtime_scenario_harness_test.go`, `internal/hooks/*`, `internal/agent/*`.
@@ -275,11 +278,11 @@ graph TD
 - API/events: stable replay/export over persisted event source.
 - Data model: add `runtime_events` table if bounded buffer remains insufficient.
 - Tests: restart replay, cursor gaps, redaction, compact/policy/MCP/task/worktree
-  fixtures.
-- Acceptance: replay after buffer rollover explains turn/session state.
+  fixtures, task message ordering, rejected follow-up/control, and artifact refs.
+- Acceptance: replay/recovery explain turn/session/task communication state.
 - Risk: duplicated audit semantics, sensitive payload persistence.
 - Blocked by: existing audit/event/replay foundation.
-- Unlocks: diagnostics and safer runtime hardening.
+- Unlocks: React diagnostics and safer product hardening.
 
 ### 3. Policy Profiles And Shell Hardening
 
@@ -294,7 +297,7 @@ graph TD
 - Acceptance: ambiguous non-interactive approvals fail closed and are replayable.
 - Risk: shell false negatives, confusing rule precedence.
 - Blocked by: scoped policy foundation exists.
-- Unlocks: MCP auth, AgentTask mailbox, advisory permission later.
+- Unlocks: MCP auth, AgentTask fixture confidence, advisory permission later.
 
 ### 4. Tool Discovery Guardrails
 
@@ -310,7 +313,7 @@ graph TD
 - Acceptance: search omissions and guardrails are deterministic and auditable.
 - Risk: over-blocking valid nested tool flows.
 - Blocked by: capability/tool search/policy foundations exist.
-- Unlocks: plugin governance and safer coordinator work.
+- Unlocks: plugin governance and safer coordinator/product workflows.
 
 ### 5. React Diagnostics Later
 
@@ -325,7 +328,7 @@ graph TD
 - Tests: client build and reload/recovery smoke.
 - Acceptance: UI can be rebuilt from runtime APIs after reload.
 - Risk: local reducers becoming business state.
-- Blocked by: compact/replay/task/artifact/policy runtime APIs.
+- Blocked by: stabilization confidence over compact/replay/task/artifact/policy runtime APIs.
 - Unlocks: product diagnostics.
 
 ## Self-Review Checklist

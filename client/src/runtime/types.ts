@@ -343,6 +343,7 @@ export type RuntimeAgentTaskMessage = {
   direction: 'parent_to_child' | 'child_to_parent' | string
   kind: 'instruction' | 'control' | 'progress' | 'result' | 'artifact' | string
   status: string
+  sequence?: number
   contentSummary?: string
   payload?: Record<string, unknown>
   relatedToolCallId?: string
@@ -350,6 +351,20 @@ export type RuntimeAgentTaskMessage = {
   artifactRefs?: string[]
   createdAt: number
   deliveredAt?: number
+  processedAt?: number
+  error?: string
+}
+
+export type RuntimeAgentTaskMessageCreateRequest = {
+  direction?: string
+  kind?: string
+  contentSummary?: string
+  payload?: Record<string, unknown>
+  relatedToolCallId?: string
+  relatedMessageId?: string
+  artifactRefs?: string[]
+  status?: string
+  error?: string
 }
 
 export type RuntimeAgentTaskResult = {
@@ -1111,6 +1126,7 @@ export type AgentRuntime = {
   listAgentRoles: () => Promise<RuntimeAgentRoleDefinition[]>
   getAgentRole: (roleId: string) => Promise<RuntimeAgentRoleDefinition>
   listAgentTaskMessages: (taskId: string) => Promise<RuntimeAgentTaskMessage[]>
+  sendAgentTaskFollowUp: (taskId: string, request: RuntimeAgentTaskMessageCreateRequest) => Promise<RuntimeAgentTaskMessage>
   getAgentTaskResult: (taskId: string) => Promise<RuntimeAgentTaskResult>
   getSessionTodos: (sessionId: string) => Promise<RuntimeTodoSummary>
   getTurnTodos: (turnId: string) => Promise<RuntimeTodoSummary>

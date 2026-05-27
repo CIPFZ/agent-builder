@@ -218,7 +218,7 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			summary.ToolDiscovery.BudgetImpact = mergeToolSchemaBudgetImpact(summary.ToolDiscovery.BudgetImpact, RuntimeToolSchemaBudgetImpact{Omitted: replayBudgetBucketFromPayload(event.Payload["budget"])})
 		case runtimeapi.EventSchedulerDeadlockPrevented:
 			summary.ToolDiscovery.GuardrailReasons = appendUniqueStrings(summary.ToolDiscovery.GuardrailReasons, stringFromMap(event.Payload, "reason"))
-		case runtimeapi.EventTaskMessageCreated:
+		case runtimeapi.EventTaskMessageCreated, runtimeapi.EventTaskMessageDelivered, runtimeapi.EventTaskMessageProcessed, runtimeapi.EventTaskMessageRejected:
 			summary.AgentTaskMessages = append(summary.AgentTaskMessages, runtimeReplayTaskMessageFromEvent(event))
 		case runtimeapi.EventTaskArtifactCreated:
 			summary.AgentTaskMessages = append(summary.AgentTaskMessages, runtimeReplayTaskMessageFromEvent(event))
@@ -356,7 +356,7 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			if req := runtimeReplayMCPRequestFromAudit(audit); req.RequestID != "" {
 				summary.MCPRequests = appendRuntimeReplayMCPRequest(summary.MCPRequests, req)
 			}
-		case "task_message_created", "task_artifact_created":
+		case "task_message_created", "task_artifact_created", "task_message_delivered", "task_message_processed", "task_message_rejected":
 			if msg := runtimeReplayTaskMessageFromAudit(audit); msg.ID != "" {
 				summary.AgentTaskMessages = append(summary.AgentTaskMessages, msg)
 			}
@@ -581,15 +581,20 @@ func runtimeReplayTaskMessageFromEvent(event RuntimeEvent) RuntimeAgentTaskMessa
 	return RuntimeAgentTaskMessage{
 		ID:                stringFromMap(event.Payload, "message_id"),
 		TaskID:            stringFromMap(event.Payload, "task_id"),
+		ParentTaskID:      stringFromMap(event.Payload, "parent_task_id"),
 		ParentTurnID:      event.TurnID,
 		ParentSessionID:   event.SessionID,
 		ChildSessionID:    stringFromMap(event.Payload, "child_session_id"),
 		Direction:         stringFromMap(event.Payload, "direction"),
 		Kind:              stringFromMap(event.Payload, "kind"),
 		Status:            stringFromMap(event.Payload, "status"),
+		Sequence:          int64(intFromMap(event.Payload, "sequence")),
 		ContentSummary:    stringFromMap(event.Payload, "summary"),
 		RelatedToolCallID: event.ToolCallID,
 		ArtifactRefs:      stringSliceFromMap(event.Payload, "artifact_refs"),
+		Error:             stringFromMap(event.Payload, "error"),
+		DeliveredAt:       int64(intFromMap(event.Payload, "delivered_at")),
+		ProcessedAt:       int64(intFromMap(event.Payload, "processed_at")),
 	}
 }
 
@@ -628,12 +633,15 @@ func runtimeAgentTaskMessageFromPayload(payload map[string]any) RuntimeAgentTask
 		Direction:         stringFromMap(payload, "direction"),
 		Kind:              stringFromMap(payload, "kind"),
 		Status:            stringFromMap(payload, "status"),
+		Sequence:          int64(intFromMap(payload, "sequence")),
 		ContentSummary:    stringFromMap(payload, "contentSummary"),
 		RelatedToolCallID: stringFromMap(payload, "relatedToolCallId"),
 		RelatedMessageID:  stringFromMap(payload, "relatedMessageId"),
 		ArtifactRefs:      stringSliceFromMap(payload, "artifactRefs"),
 		CreatedAt:         int64(intFromMap(payload, "createdAt")),
 		DeliveredAt:       int64(intFromMap(payload, "deliveredAt")),
+		ProcessedAt:       int64(intFromMap(payload, "processedAt")),
+		Error:             stringFromMap(payload, "error"),
 	}
 }
 

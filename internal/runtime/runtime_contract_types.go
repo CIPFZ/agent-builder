@@ -434,6 +434,7 @@ type RuntimeAgentTaskMessage struct {
 	Direction         string         `json:"direction"`
 	Kind              string         `json:"kind"`
 	Status            string         `json:"status"`
+	Sequence          int64          `json:"sequence,omitempty"`
 	ContentSummary    string         `json:"contentSummary,omitempty"`
 	Payload           map[string]any `json:"payload,omitempty"`
 	RelatedToolCallID string         `json:"relatedToolCallId,omitempty"`
@@ -441,6 +442,8 @@ type RuntimeAgentTaskMessage struct {
 	ArtifactRefs      []string       `json:"artifactRefs,omitempty"`
 	CreatedAt         int64          `json:"createdAt"`
 	DeliveredAt       int64          `json:"deliveredAt,omitempty"`
+	ProcessedAt       int64          `json:"processedAt,omitempty"`
+	Error             string         `json:"error,omitempty"`
 }
 
 type RuntimeAgentTaskMessagesResponse struct {
@@ -455,6 +458,8 @@ type RuntimeAgentTaskMessageCreateRequest struct {
 	RelatedToolCallID string         `json:"relatedToolCallId,omitempty"`
 	RelatedMessageID  string         `json:"relatedMessageId,omitempty"`
 	ArtifactRefs      []string       `json:"artifactRefs,omitempty"`
+	Status            string         `json:"status,omitempty"`
+	Error             string         `json:"error,omitempty"`
 }
 
 type RuntimeAgentTaskMessageResponse struct {

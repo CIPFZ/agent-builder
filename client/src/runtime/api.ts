@@ -172,6 +172,10 @@ export async function requestRuntimeAgentTaskMessages(taskId: string) {
   return getAgentRuntime().listAgentTaskMessages(taskId)
 }
 
+export async function sendRuntimeAgentTaskFollowUp(taskId: string, contentSummary: string) {
+  return getAgentRuntime().sendAgentTaskFollowUp(taskId, { contentSummary })
+}
+
 export async function requestRuntimeAgentTaskResult(taskId: string) {
   return getAgentRuntime().getAgentTaskResult(taskId)
 }

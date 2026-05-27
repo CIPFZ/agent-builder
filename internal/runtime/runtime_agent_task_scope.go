@@ -97,7 +97,7 @@ func capabilityAllowedByTaskScope(scope []string, call agent.SchedulerToolCall) 
 
 func isReadOnlyTaskTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "view", "grep", "glob", "ls", "diagnostics", "references", "crush_info", "crush_logs", "job_output", "list_mcp_resources", "read_mcp_resource":
+	case "view", "grep", "glob", "ls", "diagnostics", "references", "crush_info", "crush_logs", "job_output", "list_mcp_resources", "read_mcp_resource", "task_list", "task_get", "task_output":
 		return true
 	default:
 		return false

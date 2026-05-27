@@ -1,6 +1,7 @@
 # Claude Code Alignment Module Priority
 
-Status: refreshed on 2026-05-26 after hook lifecycle hardening.
+Status: refreshed on 2026-05-27 after AgentTask/coordinator communication
+completion.
 
 Use these docs for the next session:
 
@@ -12,10 +13,11 @@ Use these docs for the next session:
 Older wording that made PermissionPolicy, compact, replay, MCP auth, worktree,
 or React shell the next main module is superseded. Current code already contains
 runtime foundations for scoped policy/headless, compact/reinjection, persisted
-replay events, tool discovery, AgentTask messages/results, output/artifact refs,
-MCP auth/elicitation, worktree recovery/cleanup, sandbox records, context
-loading, hooks lifecycle records, and scenario tests. The next priority remains
-runtime fixture breadth and read-only diagnostics contracts.
+replay events, tool discovery, completed AgentTask/coordinator communication,
+output/artifact refs, MCP auth/elicitation, worktree recovery/cleanup, sandbox
+records, context loading, hooks lifecycle records, and scenario tests. The next
+priority is runtime parity stabilization/re-audit, followed by read-only
+diagnostics contracts.
 
 ## Current Baseline
 
@@ -27,7 +29,7 @@ runtime fixture breadth and read-only diagnostics contracts.
 | Compact and budget | Implemented foundation | `internal/runtime/runtime_compact*.go`, `runtime_budget.go` |
 | Tool search | Implemented foundation | `internal/agent/tool_search.go`, `internal/runtime/runtime_tool_search.go` |
 | MCP/skills/capabilities | Implemented foundation | `internal/runtime/runtime_mcp*.go`, `runtime_skills.go`, `runtime_skill_activation.go`, `runtime_capabilities.go` |
-| AgentTask/coordinator base | Implemented foundation | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go`, `internal/agent/coordinator.go` |
+| AgentTask/coordinator communication | Completed local runtime primitive | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_task_tools.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go`, `internal/agent/task_tools.go`, `internal/agent/coordinator.go` |
 | Worktree/sandbox | Implemented foundation | `internal/runtime/runtime_worktrees.go`, `runtime_worktree_store.go`, sandbox execution records |
 | Hooks lifecycle | Implemented foundation | `internal/hooks/*`, `internal/agent/hooked_tool.go`, `internal/runtime/runtime_hooks.go` |
 | Replay/eval harness | Implemented foundation | `internal/runtime/runtime_replay_export.go`, `runtime_scenario_harness_test.go` |
@@ -36,25 +38,25 @@ runtime fixture breadth and read-only diagnostics contracts.
 ## Recommended Next Module
 
 ```text
-runtime: broaden scenario fixtures and diagnostics DTO coverage
+runtime: parity stabilization and re-audit
 ```
 
-This is first because the core runtime primitive sequence is now in place. The
-remaining highest-value work is proving boundary combinations with fixtures and
-mirroring read-only DTOs for diagnostics. React/page work should still wait
-unless it mirrors runtime contracts; the client must not infer hook, compact,
-policy, task, artifact, or worktree truth from messages.
+This is first because the core runtime primitive sequence is now in place,
+including AgentTask/coordinator communication. The remaining highest-value work
+is proving boundary combinations with fixtures and mirroring read-only DTOs for
+diagnostics. React/page work should still wait unless it mirrors runtime
+contracts; the client must not infer hook, compact, policy, task, artifact, or
+worktree truth from messages.
 
 ## Next Priority Order
 
-1. Broaden scenario fixtures across hooks, policy/headless, MCP, AgentTask
-   scope, sandbox/worktree, compact/replay, and refs.
+1. Runtime parity stabilization/re-audit across hooks, policy/headless, MCP,
+   AgentTask communication, sandbox/worktree, compact/replay, and refs.
 2. React diagnostics DTO/API mirror only where runtime contracts already exist.
-3. AgentTask coordinator mailbox and task-tool parity.
-4. Shell parser fixture expansion for Bash/PowerShell/cmd.
-5. Capability package/plugin governance.
-6. Sandbox/remote runtime.
-7. Advisory permission advisor.
+3. Shell parser fixture expansion for Bash/PowerShell/cmd.
+4. Capability package/plugin governance.
+5. Sandbox/remote runtime.
+6. Advisory permission advisor.
 
 ## Not Needed
 

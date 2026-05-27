@@ -23,6 +23,19 @@ func (b *Backend) SendMessage(ctx context.Context, workspaceID string, msg proto
 	return err
 }
 
+// SendSessionMessage sends a follow-up prompt to an existing coordinator-owned
+// session. Child AgentTask sessions are routed to their child agent when active.
+func (b *Backend) SendSessionMessage(ctx context.Context, workspaceID string, msg proto.AgentMessage) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	if ws.AgentCoordinator == nil {
+		return ErrAgentNotInitialized
+	}
+	return ws.AgentCoordinator.SendToSession(ctx, msg.SessionID, msg.TurnID, msg.Prompt)
+}
+
 // GetAgentInfo returns the agent's model and busy status.
 func (b *Backend) GetAgentInfo(workspaceID string) (proto.AgentInfo, error) {
 	ws, err := b.GetWorkspace(workspaceID)

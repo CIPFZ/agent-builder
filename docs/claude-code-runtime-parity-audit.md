@@ -1,6 +1,6 @@
 # Claude Code Runtime Parity Audit
 
-Status: refreshed on 2026-05-26 from current `main` code and the local Claude
+Status: refreshed on 2026-05-27 from current `main` code and the local Claude
 Code source snapshot at `C:\Users\ytq\work\ai\myclaw\claude-code`.
 
 This audit is now a short current-state entry point. The full module-by-module
@@ -94,7 +94,7 @@ Claude Code runtime reference:
 | Model-assisted permission advisor | Missing | No advisor runtime package or events | Must remain later and advisory-only after deterministic scopes and evals are stable. |
 | MCP lifecycle / resources / prompts / auth / elicitation | Implemented foundation | `internal/runtime/runtime_mcp*.go`, `internal/agent/tools/mcp/*`, `internal/agent/tools/list_mcp_resources.go`, `read_mcp_resource.go` | Server/tool/resource/prompt APIs, lazy refresh, policy filtering, auth/elicitation lifecycle records, and redaction exist. Remaining work is broader protocol/provider fixture coverage. |
 | Skills / allowed tools / activation / plugin metadata | Partial implemented | `internal/skills/*`, `internal/runtime/runtime_skills.go`, `runtime_skill_activation.go`, `runtime_capabilities.go` | Skill metadata and allowed_tools hints are preserved; allowed_tools does not grant permissions. Plugin package governance is still missing. |
-| AgentTask / subagent roles / parent-child messaging | Partial implemented | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go`, `internal/agent/agent_tool.go` | Task store, roles, scope checks, messages, results, artifacts refs exist. True SendMessage/coordinator mailbox and mature task tools remain incomplete. |
+| AgentTask / subagent roles / parent-child messaging | Completed local runtime primitive | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_task_tools.go`, `runtime_agent_roles.go`, `runtime_agent_task_scope.go`, `runtime_agent_task_comm_store.go`, `internal/agent/agent_tool.go`, `internal/agent/task_tools.go`, `internal/agent/coordinator.go` | Local SendMessage/coordinator semantics are runtime-owned: follow-up delivery, stop/cancel, output refs, message sequence/status, replay, recovery, HTTP/Wails DTOs, and model-facing task tools exist. Remote teammate/fleet remains P3/later. |
 | Worktree / cwd isolation / sandbox / remote | Implemented foundation | `internal/runtime/runtime_worktrees.go`, `runtime_worktree_store.go`, `runtime_agent_task_scope.go`, sandbox runtime records | Git worktree lifecycle, recovery/cleanup, task cwd scope, and sandbox execution boundary records exist. Remote runtime remains later. |
 | Audit / replay / eval harness / observability | Implemented foundation | `internal/runtime/runtime_audit*.go`, `runtime_replay_export.go`, `runtime_scenario_harness_test.go` | Persisted replay events, replay export, audit summaries, and scenario harness exist. Remaining work is broader fixture packs. |
 | Provider/model configuration on fantasy | Partial | `internal/runtime/runtime_model*.go`, `client/src/features/settings/ModelSettingsDrawer.tsx` | Correctly stays above fantasy. Needs health/capability diagnostics and per-mode model policy. |
@@ -110,10 +110,11 @@ ToolCalls, permissions, policy modes and scoped rules, context audit, compact
 boundaries and micro compact, tool search/discovery, AgentTask records with
 messages/results, worktree lifecycle, audit, replay export, and scenario tests.
 
-The real gap has moved to fixture breadth and product diagnostics:
+The real gap has moved to stabilization, fixture breadth, and product
+diagnostics:
 
 - broader eval fixtures,
-- mature AgentTask/coordinator messaging,
+- runtime parity re-audit over completed primitives,
 - richer shell parser coverage and remote isolation later,
 - product diagnostics after runtime APIs are stable.
 
@@ -137,16 +138,17 @@ These Claude Code surfaces remain excluded:
 
 Runtime blockers:
 
-- AgentTask parent/child messaging is not yet a complete coordinator mailbox.
-  Risk: multi-agent work can be recorded but not fully orchestrated.
+- None for the local Claude Code runtime parity scope. AgentTask/coordinator
+  communication is complete as a local runtime primitive.
 
 Runtime hardening:
 
 - Tool search and scheduler guardrails need more scenario coverage and
   per-source recursion/concurrency policy.
 - Shell parser parity needs broader Bash/PowerShell/cmd fixtures.
-- Hooks, MCP, worktree, sandbox, refs, replay, and compact should keep gaining
-  scenario coverage as product diagnostics are added.
+- Hooks, MCP, worktree, sandbox, refs, replay, compact, and AgentTask
+  communication should keep gaining scenario coverage as product diagnostics
+  are added.
 - Remote runtime remains a later product optimization.
 
 Page/React diagnostics later:
@@ -172,12 +174,13 @@ Not needed:
 First recommended runtime module after hook lifecycle hardening:
 
 ```text
-runtime: broaden scenario fixtures and diagnostics DTO coverage
+runtime: parity stabilization and re-audit
 ```
 
 Why first:
 
-- Core Claude Code runtime primitives now exist as Go-owned records.
+- Core Claude Code runtime primitives now exist as Go-owned records, including
+  AgentTask/coordinator communication.
 - The remaining risk is regression across cross-cutting boundaries: hooks,
   policy, headless, AgentTask scope, MCP auth/elicitation, sandbox/worktree,
   compact/replay, and refs.

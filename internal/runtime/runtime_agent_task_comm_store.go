@@ -22,6 +22,8 @@ const (
 
 	taskMessageStatusCreated   = "created"
 	taskMessageStatusDelivered = "delivered"
+	taskMessageStatusProcessed = "processed"
+	taskMessageStatusRejected  = "rejected"
 )
 
 type runtimeAgentTaskMessageStore struct {
@@ -57,8 +59,16 @@ func (s runtimeAgentTaskMessageStore) Create(ctx context.Context, msg RuntimeAge
 	if msg.Status == "" {
 		msg.Status = taskMessageStatusCreated
 	}
+	msg.Status = normalizeTaskMessageStatus(msg.Status)
 	if msg.CreatedAt == 0 {
 		msg.CreatedAt = time.Now().UnixMilli()
+	}
+	if msg.Sequence == 0 {
+		seq, err := s.nextSequence(ctx, msg.TaskID)
+		if err != nil {
+			return RuntimeAgentTaskMessage{}, err
+		}
+		msg.Sequence = seq
 	}
 	payload, err := encodeJSONMap(msg.Payload)
 	if err != nil {
@@ -71,9 +81,9 @@ func (s runtimeAgentTaskMessageStore) Create(ctx context.Context, msg RuntimeAge
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO runtime_agent_task_messages (
     id, task_id, parent_task_id, parent_turn_id, parent_session_id, child_session_id,
-    direction, kind, status, content_summary, payload_json, related_tool_call_id,
-    related_message_id, artifact_refs_json, created_at, delivered_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    direction, kind, status, sequence, content_summary, payload_json, related_tool_call_id,
+    related_message_id, artifact_refs_json, created_at, delivered_at, processed_at, error
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		msg.ID,
 		msg.TaskID,
 		nullableString(msg.ParentTaskID),
@@ -83,6 +93,7 @@ INSERT INTO runtime_agent_task_messages (
 		msg.Direction,
 		msg.Kind,
 		msg.Status,
+		msg.Sequence,
 		nullableString(preview(msg.ContentSummary, runtimePartPreviewLimit)),
 		payload,
 		nullableString(msg.RelatedToolCallID),
@@ -90,11 +101,55 @@ INSERT INTO runtime_agent_task_messages (
 		artifactRefs,
 		msg.CreatedAt,
 		nullableInt64(msg.DeliveredAt),
+		nullableInt64(msg.ProcessedAt),
+		nullableString(preview(msg.Error, runtimePartPreviewLimit)),
 	)
 	if err != nil {
 		return RuntimeAgentTaskMessage{}, fmt.Errorf("failed to create runtime agent task message: %w", err)
 	}
 	return s.Get(ctx, msg.ID)
+}
+
+func (s runtimeAgentTaskMessageStore) UpdateStatus(ctx context.Context, id, status, errText string) (RuntimeAgentTaskMessage, error) {
+	if s.db == nil {
+		return RuntimeAgentTaskMessage{}, errors.New("runtime agent task message database is not available")
+	}
+	status = normalizeTaskMessageStatus(status)
+	now := time.Now().UnixMilli()
+	var delivered any
+	var processed any
+	switch status {
+	case taskMessageStatusDelivered:
+		delivered = now
+	case taskMessageStatusProcessed, taskMessageStatusRejected:
+		processed = now
+	}
+	_, err := s.db.ExecContext(ctx, `
+UPDATE runtime_agent_task_messages
+SET status = ?,
+    delivered_at = COALESCE(?, delivered_at),
+    processed_at = COALESCE(?, processed_at),
+    error = COALESCE(NULLIF(?, ''), error)
+WHERE id = ?`,
+		status,
+		delivered,
+		processed,
+		preview(errText, runtimePartPreviewLimit),
+		strings.TrimSpace(id),
+	)
+	if err != nil {
+		return RuntimeAgentTaskMessage{}, fmt.Errorf("failed to update runtime agent task message status: %w", err)
+	}
+	return s.Get(ctx, id)
+}
+
+func (s runtimeAgentTaskMessageStore) nextSequence(ctx context.Context, taskID string) (int64, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence), 0) + 1 FROM runtime_agent_task_messages WHERE task_id = ?`, strings.TrimSpace(taskID))
+	var seq int64
+	if err := row.Scan(&seq); err != nil {
+		return 0, fmt.Errorf("failed to allocate runtime agent task message sequence: %w", err)
+	}
+	return seq, nil
 }
 
 func (s runtimeAgentTaskMessageStore) Get(ctx context.Context, id string) (RuntimeAgentTaskMessage, error) {
@@ -113,7 +168,7 @@ func (s runtimeAgentTaskMessageStore) ListByTask(ctx context.Context, taskID str
 	if s.db == nil {
 		return nil, errors.New("runtime agent task message database is not available")
 	}
-	rows, err := s.db.QueryContext(ctx, runtimeAgentTaskMessageSelectSQL()+` WHERE task_id = ? ORDER BY created_at ASC`, strings.TrimSpace(taskID))
+	rows, err := s.db.QueryContext(ctx, runtimeAgentTaskMessageSelectSQL()+` WHERE task_id = ? ORDER BY sequence ASC, created_at ASC`, strings.TrimSpace(taskID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to list runtime agent task messages: %w", err)
 	}
@@ -124,8 +179,8 @@ func (s runtimeAgentTaskMessageStore) ListByTask(ctx context.Context, taskID str
 func runtimeAgentTaskMessageSelectSQL() string {
 	return `
 SELECT id, task_id, parent_task_id, parent_turn_id, parent_session_id, child_session_id,
-    direction, kind, status, content_summary, payload_json, related_tool_call_id,
-    related_message_id, artifact_refs_json, created_at, delivered_at
+    direction, kind, status, sequence, content_summary, payload_json, related_tool_call_id,
+    related_message_id, artifact_refs_json, created_at, delivered_at, processed_at, error
 FROM runtime_agent_task_messages`
 }
 
@@ -150,8 +205,8 @@ type runtimeAgentTaskMessageScanner interface {
 
 func scanRuntimeAgentTaskMessage(scanner runtimeAgentTaskMessageScanner) (RuntimeAgentTaskMessage, error) {
 	var msg RuntimeAgentTaskMessage
-	var parentTaskID, parentTurnID, parentSessionID, childSessionID, contentSummary, payload, toolCallID, messageID, artifactRefs sql.NullString
-	var deliveredAt sql.NullInt64
+	var parentTaskID, parentTurnID, parentSessionID, childSessionID, contentSummary, payload, toolCallID, messageID, artifactRefs, errText sql.NullString
+	var deliveredAt, processedAt sql.NullInt64
 	if err := scanner.Scan(
 		&msg.ID,
 		&msg.TaskID,
@@ -162,6 +217,7 @@ func scanRuntimeAgentTaskMessage(scanner runtimeAgentTaskMessageScanner) (Runtim
 		&msg.Direction,
 		&msg.Kind,
 		&msg.Status,
+		&msg.Sequence,
 		&contentSummary,
 		&payload,
 		&toolCallID,
@@ -169,6 +225,8 @@ func scanRuntimeAgentTaskMessage(scanner runtimeAgentTaskMessageScanner) (Runtim
 		&artifactRefs,
 		&msg.CreatedAt,
 		&deliveredAt,
+		&processedAt,
+		&errText,
 	); err != nil {
 		return RuntimeAgentTaskMessage{}, err
 	}
@@ -184,6 +242,10 @@ func scanRuntimeAgentTaskMessage(scanner runtimeAgentTaskMessageScanner) (Runtim
 	if deliveredAt.Valid {
 		msg.DeliveredAt = deliveredAt.Int64
 	}
+	if processedAt.Valid {
+		msg.ProcessedAt = processedAt.Int64
+	}
+	msg.Error = errText.String
 	return msg, nil
 }
 
@@ -317,6 +379,15 @@ func normalizeTaskMessageKind(kind string) string {
 		return strings.TrimSpace(kind)
 	default:
 		return taskMessageKindInstruction
+	}
+}
+
+func normalizeTaskMessageStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case taskMessageStatusDelivered, taskMessageStatusProcessed, taskMessageStatusRejected:
+		return strings.TrimSpace(status)
+	default:
+		return taskMessageStatusCreated
 	}
 }
 

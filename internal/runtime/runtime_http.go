@@ -301,6 +301,13 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		value, err := s.service.CreateAgentTaskMessage(r.Context(), taskMessagesPathID(r.URL.Path), req)
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && taskFollowUpPathID(r.URL.Path) != "":
+		var req RuntimeAgentTaskMessageCreateRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.SendAgentTaskFollowUp(r.Context(), taskFollowUpPathID(r.URL.Path), req)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && taskResultPathID(r.URL.Path) != "":
 		value, err := s.service.AgentTaskResult(r.Context(), taskResultPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -714,12 +721,16 @@ func taskResultPathID(path string) string {
 	return trimPathID(path, "/v1/tasks/", "/result")
 }
 
+func taskFollowUpPathID(path string) string {
+	return trimPathID(path, "/v1/tasks/", "/follow-up")
+}
+
 func taskEffectiveScopePathID(path string) string {
 	return trimPathID(path, "/v1/tasks/", "/effective-scope")
 }
 
 func taskPathID(path string) string {
-	if strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/result") || strings.HasSuffix(path, "/cancel") || strings.HasSuffix(path, "/effective-scope") {
+	if strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/result") || strings.HasSuffix(path, "/cancel") || strings.HasSuffix(path, "/follow-up") || strings.HasSuffix(path, "/effective-scope") {
 		return ""
 	}
 	id := strings.TrimPrefix(path, "/v1/tasks/")

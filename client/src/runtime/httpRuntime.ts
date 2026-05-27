@@ -247,6 +247,10 @@ export function createHTTPRuntime(options: RuntimeHTTPOptions): AgentRuntime {
       const response = await get<{ messages: RuntimeAgentTaskMessage[] }>(`/v1/tasks/${encodePath(taskId)}/messages`)
       return response.messages
     },
+    async sendAgentTaskFollowUp(taskId: string, request) {
+      const response = await post<{ message: RuntimeAgentTaskMessage }>(`/v1/tasks/${encodePath(taskId)}/follow-up`, request)
+      return response.message
+    },
     async getAgentTaskResult(taskId: string) {
       const response = await get<{ result: RuntimeAgentTaskResult }>(`/v1/tasks/${encodePath(taskId)}/result`)
       return response.result

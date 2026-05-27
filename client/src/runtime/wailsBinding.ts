@@ -6,6 +6,7 @@ import type {
   RuntimeContextSource,
   RuntimeReadFileState,
   RuntimeAgentTask,
+  RuntimeAgentTaskMessageCreateRequest,
   RuntimeAgentRoleDefinition,
   RuntimeAgentTaskMessage,
   RuntimeAgentTaskResult,
@@ -122,6 +123,7 @@ type WailsRuntimeBridge = {
   AgentRoles: () => Promise<{ roles: RuntimeAgentRoleDefinition[] }>
   AgentRole: (roleId: string) => Promise<{ role: RuntimeAgentRoleDefinition }>
   AgentTaskMessages: (taskId: string) => Promise<{ messages: RuntimeAgentTaskMessage[] }>
+  AgentTaskFollowUp: (taskId: string, request: RuntimeAgentTaskMessageCreateRequest) => Promise<{ message: RuntimeAgentTaskMessage }>
   AgentTaskResult: (taskId: string) => Promise<{ result: RuntimeAgentTaskResult }>
   Turn: (turnId: string) => Promise<{ turn: RuntimeTurn }>
   TurnCompactBoundaries: (turnId: string) => Promise<{ boundaries: RuntimeCompactBoundary[] }>

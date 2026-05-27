@@ -54,6 +54,9 @@ func (s runtimeAgentTaskStore) Upsert(ctx context.Context, task RuntimeAgentTask
 	if task.Status == "" {
 		task.Status = agentTaskStatusQueued
 	}
+	if !isKnownAgentTaskStatus(task.Status) {
+		return RuntimeAgentTask{}, fmt.Errorf("invalid agent task status %q", task.Status)
+	}
 	if task.Progress < 0 {
 		task.Progress = 0
 	}
@@ -360,6 +363,15 @@ func decodeStringMap(data string) map[string]string {
 func isFinalAgentTaskStatus(status string) bool {
 	switch status {
 	case agentTaskStatusCompleted, agentTaskStatusFailed, agentTaskStatusCancelled, agentTaskStatusInterrupted:
+		return true
+	default:
+		return false
+	}
+}
+
+func isKnownAgentTaskStatus(status string) bool {
+	switch status {
+	case agentTaskStatusQueued, agentTaskStatusRunning, agentTaskStatusCompleted, agentTaskStatusFailed, agentTaskStatusCancelled, agentTaskStatusInterrupted:
 		return true
 	default:
 		return false

@@ -2552,6 +2552,125 @@ func TestRuntimeCancelAgentTaskMarksFinalAndAuditsLimitation(t *testing.T) {
 	}
 }
 
+func TestRuntimeAgentTaskFollowUpDeliveryAndRejection(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+	service.turns = newRuntimeTurnStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+	if _, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:              "task-1",
+		ParentTurnID:    "turn-1",
+		ParentSessionID: "session-parent",
+		ChildSessionID:  "session-child",
+		Title:           "Agent",
+		Kind:            agentTaskKindSubagent,
+		Status:          agentTaskStatusRunning,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := service.SendAgentTaskFollowUp(context.Background(), "task-1", RuntimeAgentTaskMessageCreateRequest{
+		ContentSummary: "continue",
+	})
+	if err == nil {
+		t.Fatal("expected delivery error without runtime backend")
+	}
+	if resp.Message.Status != taskMessageStatusRejected || resp.Message.Sequence != 1 || resp.Message.Error == "" {
+		t.Fatalf("rejected message = %#v", resp.Message)
+	}
+	if _, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:              "task-1",
+		ParentTurnID:    "turn-1",
+		ParentSessionID: "session-parent",
+		Status:          agentTaskStatusCompleted,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	finalResp, err := service.SendAgentTaskFollowUp(context.Background(), "task-1", RuntimeAgentTaskMessageCreateRequest{
+		ContentSummary: "too late",
+	})
+	if err == nil {
+		t.Fatal("expected final task rejection")
+	}
+	if finalResp.Message.Status != taskMessageStatusRejected || finalResp.Message.Sequence != 2 {
+		t.Fatalf("final rejected message = %#v", finalResp.Message)
+	}
+	events, err := service.ReplayExport(context.Background(), RuntimeReplayExportRequest{TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events.Summary.AgentTaskMessages, func(msg RuntimeAgentTaskMessage) bool {
+		return msg.TaskID == "task-1" && msg.Status == taskMessageStatusRejected && msg.Sequence == 1
+	}) {
+		t.Fatalf("replay messages = %#v", events.Summary.AgentTaskMessages)
+	}
+}
+
+func TestRuntimeAgentTaskToolOutputUsesRefs(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+	service.refs = newRuntimeRefStore(conn, dataDir)
+	service.turns = newRuntimeTurnStore(conn)
+	if _, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:               "task-1",
+		ParentTurnID:     "turn-1",
+		ParentSessionID:  "session-parent",
+		ParentToolCallID: "tool-1",
+		Title:            "Agent",
+		Status:           agentTaskStatusCompleted,
+		ResultSummary:    strings.Repeat("x", runtimePartPreviewLimit*2),
+		ArtifactRefs:     []string{"artifact-a"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.createRuntimeRef(context.Background(), runtimeRefCreateRequest{
+		SessionID:   "session-parent",
+		TurnID:      "turn-1",
+		ToolCallID:  "tool-1",
+		TaskID:      "task-1",
+		Kind:        runtimeRefKindTaskArtifact,
+		MediaType:   "text/plain",
+		ContentType: "task_output",
+		Payload:     []byte(strings.Repeat("large-output", 200)),
+		Summary:     "large task output",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := service.GetAgentTaskOutputForTool(context.Background(), agent.AgentTaskToolOutputRequest{TaskID: "task-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.OutputRefs) == 0 {
+		t.Fatalf("expected output refs: %#v", out)
+	}
+	if len(out.Summary) > runtimePartPreviewLimit {
+		t.Fatalf("summary not previewed: len=%d", len(out.Summary))
+	}
+}
+
 func TestRecordRuntimeEventConvertsSessionAndPermissionPayloads(t *testing.T) {
 	t.Parallel()
 
@@ -2874,6 +2993,10 @@ func (s *recordingRuntimeService) AgentTaskMessages(context.Context, string) (Ru
 }
 
 func (s *recordingRuntimeService) CreateAgentTaskMessage(context.Context, string, RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error) {
+	return s.agentTaskMessage, nil
+}
+
+func (s *recordingRuntimeService) SendAgentTaskFollowUp(context.Context, string, RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error) {
 	return s.agentTaskMessage, nil
 }
 

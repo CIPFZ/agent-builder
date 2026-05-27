@@ -74,6 +74,13 @@ func TestRuntimeAgentTaskStoreUpsertListGetAndInterrupt(t *testing.T) {
 	if stored.Status != agentTaskStatusInterrupted || stored.FinishedAt == 0 || stored.Progress != 100 {
 		t.Fatalf("stored = %#v", stored)
 	}
+	if _, err := store.Upsert(context.Background(), RuntimeAgentTask{
+		ID:              "task-invalid",
+		ParentSessionID: "session-parent",
+		Status:          "not-a-status",
+	}); err == nil {
+		t.Fatal("expected invalid status error")
+	}
 }
 
 func TestRuntimeAgentTaskRoleMessageResultStores(t *testing.T) {
@@ -131,8 +138,39 @@ func TestRuntimeAgentTaskRoleMessageResultStores(t *testing.T) {
 	if msg.ID == "" || msg.Payload["ok"] != true {
 		t.Fatalf("msg=%#v", msg)
 	}
+	if msg.Sequence != 1 || msg.Status != taskMessageStatusCreated {
+		t.Fatalf("message sequence/status = %#v", msg)
+	}
+	delivered, err := messageStore.UpdateStatus(context.Background(), msg.ID, taskMessageStatusDelivered, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delivered.Status != taskMessageStatusDelivered || delivered.DeliveredAt == 0 {
+		t.Fatalf("delivered=%#v", delivered)
+	}
+	processed, err := messageStore.UpdateStatus(context.Background(), msg.ID, taskMessageStatusProcessed, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if processed.Status != taskMessageStatusProcessed || processed.ProcessedAt == 0 {
+		t.Fatalf("processed=%#v", processed)
+	}
+	rejected, err := messageStore.Create(context.Background(), RuntimeAgentTaskMessage{
+		TaskID:         "task-1",
+		Direction:      taskMessageDirectionParentToChild,
+		Kind:           taskMessageKindControl,
+		Status:         taskMessageStatusRejected,
+		ContentSummary: "stop rejected",
+		Error:          "already final",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected.Sequence != 2 || rejected.Status != taskMessageStatusRejected || rejected.Error == "" {
+		t.Fatalf("rejected=%#v", rejected)
+	}
 	messages, err := messageStore.ListByTask(context.Background(), "task-1")
-	if err != nil || len(messages) != 1 || messages[0].ArtifactRefs[0] != "artifact:file:test.txt" {
+	if err != nil || len(messages) != 2 || messages[0].ArtifactRefs[0] != "artifact:file:test.txt" || messages[1].Sequence != 2 {
 		t.Fatalf("messages=%#v err=%v", messages, err)
 	}
 

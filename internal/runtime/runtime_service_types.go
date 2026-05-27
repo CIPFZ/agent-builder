@@ -49,6 +49,7 @@ type RuntimeService interface {
 	AgentRole(context.Context, string) (RuntimeAgentRoleResponse, error)
 	AgentTaskMessages(context.Context, string) (RuntimeAgentTaskMessagesResponse, error)
 	CreateAgentTaskMessage(context.Context, string, RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error)
+	SendAgentTaskFollowUp(context.Context, string, RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error)
 	AgentTaskResult(context.Context, string) (RuntimeAgentTaskResultResponse, error)
 	SessionTodos(context.Context, string) (RuntimeTodosResponse, error)
 	TurnTodos(context.Context, string) (RuntimeTodosResponse, error)

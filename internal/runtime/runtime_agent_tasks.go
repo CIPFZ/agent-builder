@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/agent"
+	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
@@ -54,6 +55,17 @@ func (r *runtimeService) CancelAgentTask(ctx context.Context, taskID string) (Ru
 		return RuntimeAgentTaskResponse{}, fmt.Errorf("agent task %s was not found: %w", taskID, err)
 	}
 	if isFinalAgentTaskStatus(task.Status) {
+		_, _ = r.createAgentTaskMessage(ctx, task, RuntimeAgentTaskMessage{
+			Direction:      taskMessageDirectionParentToChild,
+			Kind:           taskMessageKindControl,
+			Status:         taskMessageStatusRejected,
+			ContentSummary: "cancel rejected",
+			Error:          "agent task is already final",
+			Payload: map[string]any{
+				"action": "cancel",
+				"reason": "agent task is already final",
+			},
+		})
 		return RuntimeAgentTaskResponse{Task: task}, nil
 	}
 
@@ -87,6 +99,7 @@ func (r *runtimeService) CancelAgentTask(ctx context.Context, taskID string) (Ru
 	_, _ = r.createAgentTaskMessage(ctx, task, RuntimeAgentTaskMessage{
 		Direction:         taskMessageDirectionParentToChild,
 		Kind:              taskMessageKindControl,
+		Status:            taskMessageStatusProcessed,
 		ContentSummary:    "cancel requested",
 		RelatedToolCallID: task.ParentToolCallID,
 		Payload: map[string]any{
@@ -250,19 +263,119 @@ func (r *runtimeService) CreateAgentTaskMessage(ctx context.Context, taskID stri
 	if err != nil {
 		return RuntimeAgentTaskMessageResponse{}, err
 	}
+	if isFinalAgentTaskStatus(task.Status) && normalizeTaskMessageDirection(req.Direction) == taskMessageDirectionParentToChild {
+		msg, createErr := r.createAgentTaskMessage(ctx, task, RuntimeAgentTaskMessage{
+			Direction:         req.Direction,
+			Kind:              req.Kind,
+			Status:            taskMessageStatusRejected,
+			ContentSummary:    firstNonEmpty(req.ContentSummary, "message rejected"),
+			Payload:           req.Payload,
+			RelatedToolCallID: req.RelatedToolCallID,
+			RelatedMessageID:  req.RelatedMessageID,
+			ArtifactRefs:      req.ArtifactRefs,
+			Error:             "agent task is already final",
+		})
+		if createErr != nil {
+			return RuntimeAgentTaskMessageResponse{}, createErr
+		}
+		return RuntimeAgentTaskMessageResponse{Message: msg}, errors.New("agent task is already final")
+	}
 	msg, err := r.createAgentTaskMessage(ctx, task, RuntimeAgentTaskMessage{
 		Direction:         req.Direction,
 		Kind:              req.Kind,
+		Status:            req.Status,
 		ContentSummary:    req.ContentSummary,
 		Payload:           req.Payload,
 		RelatedToolCallID: req.RelatedToolCallID,
 		RelatedMessageID:  req.RelatedMessageID,
 		ArtifactRefs:      req.ArtifactRefs,
+		Error:             req.Error,
 	})
 	if err != nil {
 		return RuntimeAgentTaskMessageResponse{}, err
 	}
 	return RuntimeAgentTaskMessageResponse{Message: msg}, nil
+}
+
+func (r *runtimeService) SendAgentTaskFollowUp(ctx context.Context, taskID string, req RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error) {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return RuntimeAgentTaskMessageResponse{}, errors.New("task id is required")
+	}
+	content := strings.TrimSpace(req.ContentSummary)
+	if content == "" {
+		return RuntimeAgentTaskMessageResponse{}, errors.New("message content is required")
+	}
+	task, err := r.agentTasks.Get(ctx, taskID)
+	if err != nil {
+		return RuntimeAgentTaskMessageResponse{}, fmt.Errorf("agent task %s was not found: %w", taskID, err)
+	}
+	if isFinalAgentTaskStatus(task.Status) {
+		msg, createErr := r.createAgentTaskMessage(ctx, task, RuntimeAgentTaskMessage{
+			Direction:         taskMessageDirectionParentToChild,
+			Kind:              taskMessageKindInstruction,
+			Status:            taskMessageStatusRejected,
+			ContentSummary:    content,
+			RelatedToolCallID: req.RelatedToolCallID,
+			RelatedMessageID:  req.RelatedMessageID,
+			Error:             "agent task is already final",
+			Payload: map[string]any{
+				"reason": "agent task is already final",
+			},
+		})
+		if createErr != nil {
+			return RuntimeAgentTaskMessageResponse{}, createErr
+		}
+		return RuntimeAgentTaskMessageResponse{Message: msg}, errors.New("agent task is already final")
+	}
+	msg, err := r.createAgentTaskMessage(ctx, task, RuntimeAgentTaskMessage{
+		Direction:         taskMessageDirectionParentToChild,
+		Kind:              taskMessageKindInstruction,
+		Status:            taskMessageStatusCreated,
+		ContentSummary:    content,
+		RelatedToolCallID: req.RelatedToolCallID,
+		RelatedMessageID:  req.RelatedMessageID,
+		Payload:           req.Payload,
+	})
+	if err != nil {
+		return RuntimeAgentTaskMessageResponse{}, err
+	}
+	r.mu.Lock()
+	workspaceID := ""
+	if r.workspace != nil {
+		workspaceID = r.workspace.ID
+	}
+	runtimeBackend := r.runtime
+	r.mu.Unlock()
+	if runtimeBackend == nil || workspaceID == "" || task.ChildSessionID == "" {
+		stored, _ := newRuntimeAgentTaskMessageStore(r.turns.db).UpdateStatus(ctx, msg.ID, taskMessageStatusRejected, "agent task child session is not deliverable")
+		r.storeRuntimeEvent(runtimeAgentTaskMessageStatusEvent(runtimeapi.EventTaskMessageRejected, stored))
+		r.writeAgentTaskMessageStatusAudit("task_message_rejected", task, stored)
+		return RuntimeAgentTaskMessageResponse{Message: stored}, errors.New("agent task child session is not deliverable")
+	}
+	delivered, err := newRuntimeAgentTaskMessageStore(r.turns.db).UpdateStatus(ctx, msg.ID, taskMessageStatusDelivered, "")
+	if err != nil {
+		return RuntimeAgentTaskMessageResponse{}, err
+	}
+	r.storeRuntimeEvent(runtimeAgentTaskMessageStatusEvent(runtimeapi.EventTaskMessageDelivered, delivered))
+	r.writeAgentTaskMessageStatusAudit("task_message_delivered", task, delivered)
+	if err := runtimeBackend.SendSessionMessage(ctx, workspaceID, proto.AgentMessage{
+		SessionID: task.ChildSessionID,
+		TurnID:    task.ParentTurnID,
+		Prompt:    content,
+	}); err != nil {
+		rejected, _ := newRuntimeAgentTaskMessageStore(r.turns.db).UpdateStatus(ctx, msg.ID, taskMessageStatusRejected, err.Error())
+		r.storeRuntimeEvent(runtimeAgentTaskMessageStatusEvent(runtimeapi.EventTaskMessageRejected, rejected))
+		r.writeAgentTaskMessageStatusAudit("task_message_rejected", task, rejected)
+		return RuntimeAgentTaskMessageResponse{Message: rejected}, err
+	}
+	processed, err := newRuntimeAgentTaskMessageStore(r.turns.db).UpdateStatus(ctx, msg.ID, taskMessageStatusProcessed, "")
+	if err != nil {
+		return RuntimeAgentTaskMessageResponse{}, err
+	}
+	r.storeRuntimeEvent(runtimeAgentTaskMessageStatusEvent(runtimeapi.EventTaskMessageProcessed, processed))
+	r.writeAgentTaskMessageStatusAudit("task_message_processed", task, processed)
+	return RuntimeAgentTaskMessageResponse{Message: processed}, nil
 }
 
 func (r *runtimeService) AgentTaskResult(ctx context.Context, taskID string) (RuntimeAgentTaskResultResponse, error) {
@@ -302,6 +415,14 @@ func (r *runtimeService) createAgentTaskMessage(ctx context.Context, task Runtim
 		return RuntimeAgentTaskMessage{}, err
 	}
 	r.storeRuntimeEvent(runtimeAgentTaskMessageEvent(stored))
+	switch stored.Status {
+	case taskMessageStatusDelivered:
+		r.storeRuntimeEvent(runtimeAgentTaskMessageStatusEvent(runtimeapi.EventTaskMessageDelivered, stored))
+	case taskMessageStatusProcessed:
+		r.storeRuntimeEvent(runtimeAgentTaskMessageStatusEvent(runtimeapi.EventTaskMessageProcessed, stored))
+	case taskMessageStatusRejected:
+		r.storeRuntimeEvent(runtimeAgentTaskMessageStatusEvent(runtimeapi.EventTaskMessageRejected, stored))
+	}
 	auditType := "task_message_created"
 	if stored.Kind == taskMessageKindArtifact || len(stored.ArtifactRefs) > 0 {
 		r.storeRuntimeEvent(runtimeAgentTaskArtifactEvent(stored))
@@ -316,7 +437,8 @@ func (r *runtimeService) createAgentTaskMessage(ctx context.Context, task Runtim
 		PermissionTool: task.Name,
 		AgentTask:      &task,
 		Extra: map[string]any{
-			"task_message": stored,
+			"task_message":   stored,
+			"message_status": stored.Status,
 		},
 	})
 	return stored, nil
@@ -354,6 +476,21 @@ func (r *runtimeService) ensureTaskArtifactRefs(ctx context.Context, task Runtim
 		out = appendUniqueStrings(out, ref.URI)
 	}
 	return out
+}
+
+func (r *runtimeService) writeAgentTaskMessageStatusAudit(event string, task RuntimeAgentTask, msg RuntimeAgentTaskMessage) {
+	r.writeAudit(auditEntry{
+		RequestID:  msg.ParentTurnID,
+		Event:      event,
+		Timestamp:  time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID:  msg.ParentSessionID,
+		ToolCallID: msg.RelatedToolCallID,
+		AgentTask:  &task,
+		Error:      msg.Error,
+		Extra: map[string]any{
+			"task_message": msg,
+		},
+	})
 }
 
 func (r *runtimeService) agentTaskResult(ctx context.Context, taskID string) (RuntimeAgentTaskResult, error) {
@@ -493,14 +630,29 @@ func runtimeAgentTaskMessageEvent(msg RuntimeAgentTaskMessage) RuntimeEvent {
 	event.Payload = map[string]any{
 		"message_id":         msg.ID,
 		"task_id":            msg.TaskID,
+		"parent_task_id":     msg.ParentTaskID,
 		"direction":          msg.Direction,
 		"kind":               msg.Kind,
 		"status":             msg.Status,
+		"sequence":           msg.Sequence,
 		"child_session_id":   msg.ChildSessionID,
 		"summary":            msg.ContentSummary,
 		"artifact_refs":      msg.ArtifactRefs,
 		"artifact_ref_count": len(msg.ArtifactRefs),
 	}
+	if msg.Error != "" {
+		event.Payload["error"] = msg.Error
+	}
+	return event
+}
+
+func runtimeAgentTaskMessageStatusEvent(eventType string, msg RuntimeAgentTaskMessage) RuntimeEvent {
+	event := runtimeAgentTaskMessageEvent(msg)
+	event.ID = newRuntimeEventID()
+	event.Type = eventType
+	event.Payload["status"] = msg.Status
+	event.Payload["delivered_at"] = msg.DeliveredAt
+	event.Payload["processed_at"] = msg.ProcessedAt
 	return event
 }
 

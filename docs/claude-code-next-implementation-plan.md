@@ -1,7 +1,7 @@
 # Claude Code Next Implementation Plan
 
-Status: refreshed on 2026-05-26. This plan is based on the full parity review
-and the hook lifecycle hardening pass:
+Status: refreshed on 2026-05-27. This plan is based on the full parity review
+and the AgentTask/coordinator communication pass:
 
 - [`docs/claude-code-full-parity-review.md`](./claude-code-full-parity-review.md)
 - [`docs/claude-code-alignment-next-roadmap.md`](./claude-code-alignment-next-roadmap.md)
@@ -25,16 +25,16 @@ state, `charm.land/fantasy` changes, provider rewrites, or TUI/CLI restoration.
 ## First Module To Implement
 
 ```text
-runtime: broaden scenario fixtures and diagnostics DTO coverage
+runtime: parity stabilization and re-audit
 ```
 
 The older plan said the next product module could be a Claude-client-inspired
 React shell or compact-first hardening. The current code has since landed
 compact/reinjection, persisted replay events, tool discovery guardrails,
-policy/headless semantics, AgentTask communication records, output/artifact
-refs, MCP auth/elicitation, worktree recovery/cleanup, sandbox boundaries,
-context loading, and hook lifecycle records. Page work should wait unless it is
-only mirroring runtime DTOs.
+policy/headless semantics, completed AgentTask/coordinator communication,
+output/artifact refs, MCP auth/elicitation, worktree recovery/cleanup, sandbox
+boundaries, context loading, and hook lifecycle records. Page work should wait
+unless it is only mirroring runtime DTOs.
 
 ### Why This Beats Other Candidates
 
@@ -43,38 +43,37 @@ only mirroring runtime DTOs.
   provenance, and AgentTask/worktree scope must remain deterministic.
 - Runtime APIs exist for most diagnostics; React should mirror them instead of
   deriving state from messages.
-- Coordinator mailbox work is safer after broader fixture coverage proves the
-  current boundaries.
+- React diagnostics are safer after broader fixture coverage proves the current
+  runtime boundaries.
 
 ## Phase Map
 
 | Phase | Status | Modules |
 | --- | --- | --- |
 | P0 | Completed foundation | Runtime spine, scheduler, event cursor, audit, recovery, ToolCall store, policy baseline, capability inventory. |
-| P1 Next | Runtime | Broader scenario fixtures across hooks, policy/headless, MCP, AgentTask scope, sandbox/worktree, compact/replay, and refs. |
+| P1 Next | Runtime | Runtime parity stabilization/re-audit with broader scenario fixtures across hooks, policy/headless, MCP, AgentTask communication, sandbox/worktree, compact/replay, and refs. |
 | P1 Parallel | Runtime | Shell parser fixture expansion and diagnostics DTO gap checks. |
-| P2 | Runtime | AgentTask coordinator mailbox and task-tool parity. |
-| P2 Later | React diagnostics | Compact/replay/task/policy/artifact/worktree/hook diagnostics after runtime APIs. |
+| P2 | React diagnostics | Compact/replay/task/policy/artifact/worktree/hook diagnostics after stabilization. |
 | P3 Later | Runtime/product | Sandbox/remote, plugin governance, advisory permission advisor, advanced memory lifecycle. |
 | Not needed | Excluded | TUI/CLI UI, slash UI, fantasy/provider rewrite, marketplace-first distribution. |
 
 ## Module Boundaries
 
-### Broader Scenario Fixtures
+### Runtime Parity Stabilization And Re-Audit
 
 | Field | Plan |
 | --- | --- |
-| Goal | Expand golden scenarios for hooks, policy/headless, tool search, MCP, skills, AgentTask, sandbox/worktree, compact/replay, refs, and recovery. |
+| Goal | Re-audit runtime parity and expand golden scenarios for hooks, policy/headless, tool search, MCP, skills, AgentTask communication, sandbox/worktree, compact/replay, refs, and recovery. |
 | Non-goals | No external telemetry sink, no first-party analytics import, no replay as live runtime state. |
 | Go packages | `internal/runtime/runtime_scenario_harness_test.go`, `runtime_replay_export.go`, `runtime_audit*.go`, `internal/agent/*`, `internal/hooks/*`, `internal/permission/*`. |
 | React packages | None unless mirroring DTOs. |
 | Runtime API / event schema | Keep event types stable; add fields only when a scenario cannot explain a runtime decision. |
 | Data model changes | Avoid new tables unless fixture gaps expose missing runtime-owned state. |
-| Tests | Hook bypass attempts, headless ask fail-closed, MCP pending/denied, AgentTask cwd/worktree scope, sandbox denial, compact reinjection, output/artifact refs, replay redaction. |
-| Acceptance | Scenario harness fails on regressions across authority boundaries and replay explains the decision path with redacted summaries. |
+| Tests | Hook bypass attempts, headless ask fail-closed, MCP pending/denied, AgentTask follow-up/stop/message ordering, AgentTask cwd/worktree scope, sandbox denial, compact reinjection, output/artifact refs, replay redaction. |
+| Acceptance | Scenario harness fails on regressions across authority boundaries and replay/recovery explain the decision path with redacted summaries and ordered task communication. |
 | Risks | Duplicating audit semantics, storing sensitive payloads, brittle golden fixtures. |
 | Blocked by | Existing runtime primitives are now present. |
-| Unlocks | React diagnostics, coordinator mailbox work, safer advisory permission work. |
+| Unlocks | React diagnostics and safer advisory permission work. |
 
 ### Tool Discovery Guardrails
 
@@ -106,23 +105,16 @@ only mirroring runtime DTOs.
 | Acceptance | Destructive shell is reliably denied/asked per mode; diagnostics explain matched rules; model assistance remains absent or advisory-only. |
 | Risks | Shell parser false negatives, rule precedence surprises, allowing skills/MCP to expand permissions. |
 | Blocked by | Existing scoped policy/headless foundation exists. |
-| Unlocks | AgentTask coordinator safety and advisory permission advisor later. |
+| Unlocks | AgentTask fixture confidence and advisory permission advisor later. |
 
-### AgentTask Coordinator Mailbox
+### AgentTask Coordinator Communication
 
-| Field | Plan |
-| --- | --- |
-| Goal | Upgrade current AgentTask messages/results into a full runtime mailbox compatible with parent/child and coordinator/teammate communication semantics. |
-| Non-goals | No swarm UI first, no UI event stitching, no remote fleet. |
-| Go packages | `internal/runtime/runtime_agent_tasks.go`, `runtime_agent_task_comm_store.go`, `runtime_agent_task_scope.go`, `runtime_agent_roles.go`, `internal/agent/agent_tool.go`, `internal/agent/coordinator.go`. |
-| React packages | Later task panel in `client/src/features/chat` or a runtime diagnostics feature. |
-| Runtime API / event schema | Existing task message/result APIs and events should add delivery/ack semantics if required. Add coordinator routing events only in runtime. |
-| Data model changes | Extend task messages with mailbox delivery state if current `status`/`delivered_at` is insufficient. |
-| Tests | Parent-to-child messages, child-to-parent results, cancellation, scope denial, compact refs, replay export, task notification scenarios. |
-| Acceptance | Parent and child sessions communicate through durable runtime records; task output is auditable/replayable; scopes cannot be exceeded. |
-| Risks | Recursion loops, unbounded context, ambiguous transcript ownership. |
-| Blocked by | Broader scenario coverage should land first. |
-| Unlocks | Coordinator mode, teammate workflows, task panels. |
+Completed as a local runtime primitive. The runtime now owns task messages,
+delivery/processed/rejected status, follow-up delivery to child sessions,
+stop/cancel control records, task output/artifact refs, replay/recovery, HTTP
+and Wails DTOs, and model-facing `task_list`, `task_get`, `task_message`,
+`task_stop`, and `task_output` tools. Remote teammate/fleet semantics remain
+P3/later and are not a current parity blocker.
 
 ### React Diagnostics Later
 
@@ -144,11 +136,10 @@ only mirroring runtime DTOs.
 
 Recommended future implementation sequence:
 
-1. `runtime: expand boundary scenario fixtures`
+1. `runtime: parity stabilization and re-audit`
 2. `runtime: mirror diagnostics DTO gaps`
 3. `runtime: expand shell safety fixtures`
-4. `runtime: add agent task mailbox delivery`
-5. `client: expose runtime diagnostics read-only`
+4. `client: expose runtime diagnostics read-only`
 
 ## Acceptance Checklist For This Planning Phase
 
@@ -160,4 +151,5 @@ Recommended future implementation sequence:
   optimization.
 - Runtime continues to be prioritized before page work.
 - Mermaid dependency graph exists in the roadmap/full review.
-- Only docs are changed in this session.
+- AgentTask/coordinator communication is recorded as completed or any future
+  gap is explicitly scoped to P3 remote/product semantics.

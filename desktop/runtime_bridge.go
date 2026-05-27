@@ -330,6 +330,10 @@ func (r *RuntimeBridge) CreateAgentTaskMessage(ctx context.Context, taskID strin
 	return r.service.CreateAgentTaskMessage(ctx, taskID, req)
 }
 
+func (r *RuntimeBridge) AgentTaskFollowUp(ctx context.Context, taskID string, req RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error) {
+	return r.service.SendAgentTaskFollowUp(ctx, taskID, req)
+}
+
 func (r *RuntimeBridge) AgentTaskResult(ctx context.Context, taskID string) (RuntimeAgentTaskResultResponse, error) {
 	return r.service.AgentTaskResult(ctx, taskID)
 }

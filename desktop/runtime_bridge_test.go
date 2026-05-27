@@ -243,6 +243,10 @@ func (s *recordingRuntimeService) CreateAgentTaskMessage(context.Context, string
 	return RuntimeAgentTaskMessageResponse{}, nil
 }
 
+func (s *recordingRuntimeService) SendAgentTaskFollowUp(context.Context, string, RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error) {
+	return RuntimeAgentTaskMessageResponse{}, nil
+}
+
 func (s *recordingRuntimeService) AgentTaskResult(context.Context, string) (RuntimeAgentTaskResultResponse, error) {
 	return RuntimeAgentTaskResultResponse{}, nil
 }
