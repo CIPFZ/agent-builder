@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/charmbracelet/crush/internal/skills"
 )
 
 // SendMessage sends a prompt to the agent coordinator for the given
@@ -81,9 +82,13 @@ func (b *Backend) RefreshWorkspaceSkills(ctx context.Context, workspaceID string
 	if err != nil {
 		return err
 	}
-	allSkills, activeSkills, states := discoverWorkspaceSkills(ws.Cfg)
+	discoveryCfg := skillsDiscoveryConfig(ws.Cfg)
+	allSkills, activeSkills, states := skills.DiscoverFromConfig(discoveryCfg)
 	if ws.Skills != nil {
-		ws.Skills.SetDiscoverySnapshot(allSkills, activeSkills, states)
+		ws.Skills.SetDiscoverySnapshot(allSkills, activeSkills, states,
+			skills.WithResolvedPaths(discoveryCfg.ResolvePaths()),
+			skills.WithWorkingDir(discoveryCfg.WorkingDir),
+		)
 		ws.Skills.PublishStates(states)
 	}
 	return ws.RefreshSkills(ctx)
