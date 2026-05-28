@@ -780,7 +780,7 @@ func extractIncludes(content string) []string {
 			if !strings.HasPrefix(field, "@") || len(field) <= 1 {
 				continue
 			}
-			value := strings.Trim(strings.TrimPrefix(field, "@"), ".,;:)]}\"'")
+			value := strings.TrimRight(strings.TrimPrefix(field, "@"), ".,;:)]}\"'")
 			if strings.HasPrefix(value, "#") || strings.Contains(value, "://") {
 				continue
 			}
