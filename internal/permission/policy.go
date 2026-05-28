@@ -660,6 +660,10 @@ func cleanPathPrefix(path string) string {
 	if path == "" {
 		return ""
 	}
+	path = filepath.FromSlash(path)
+	if looksLikeWindowsAbs(path) {
+		return cleanWindowsPath(path)
+	}
 	if cleaned, err := filepath.Abs(path); err == nil {
 		path = cleaned
 	}
@@ -672,9 +676,42 @@ func pathPrefixMatches(prefix, path string) bool {
 	if prefix == "" || path == "" {
 		return false
 	}
+	if looksLikeWindowsAbs(prefix) || looksLikeWindowsAbs(path) {
+		prefix = strings.ToLower(cleanWindowsPath(prefix))
+		path = strings.ToLower(cleanWindowsPath(path))
+		return path == prefix || strings.HasPrefix(path, prefix+`\`)
+	}
 	prefix = strings.ToLower(filepath.Clean(prefix))
 	path = strings.ToLower(filepath.Clean(path))
 	return path == prefix || strings.HasPrefix(path, prefix+string(filepath.Separator))
+}
+
+func looksLikeWindowsAbs(path string) bool {
+	return len(path) >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/')
+}
+
+func cleanWindowsPath(path string) string {
+	path = strings.ReplaceAll(path, "/", `\`)
+	volume := path[:2]
+	rest := strings.TrimPrefix(path[2:], `\`)
+	parts := strings.Split(rest, `\`)
+	stack := make([]string, 0, len(parts))
+	for _, part := range parts {
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+		default:
+			stack = append(stack, part)
+		}
+	}
+	if len(stack) == 0 {
+		return volume + `\`
+	}
+	return volume + `\` + strings.Join(stack, `\`)
 }
 
 func isShellToolCall(call scheduler.ToolCall) bool {
