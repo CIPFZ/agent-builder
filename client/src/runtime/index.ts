@@ -35,6 +35,7 @@ export type {
   RuntimePolicy,
   RuntimePolicyMode,
   RuntimeRecoveryStatus,
+  RuntimeRef,
   RuntimeSession,
   RuntimeSkillCreateRequest,
   RuntimeTodo,

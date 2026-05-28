@@ -220,6 +220,16 @@ export async function requestRuntimeReadFiles(sessionId?: string) {
   return getAgentRuntime().listReadFiles(sessionId)
 }
 
+export async function requestRuntimeRefs(request?: {
+  sessionId?: string
+  turnId?: string
+  toolCallId?: string
+  taskId?: string
+  kind?: string
+}) {
+  return getAgentRuntime().listRefs(request)
+}
+
 export async function refreshRuntimeCapability(capabilityId: string) {
   return getAgentRuntime().refreshCapability(capabilityId)
 }
