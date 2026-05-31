@@ -84,6 +84,7 @@ tasks:
       - task: frontend:run
         vars:
           SCRIPT: '{{if eq .DEV "true"}}build:dev{{else}}build{{end}}'
+      - node ../desktop/scripts/sync-client-dist.mjs
     env:
       PRODUCTION: '{{if eq .DEV "true"}}false{{else}}true{{end}}'
 

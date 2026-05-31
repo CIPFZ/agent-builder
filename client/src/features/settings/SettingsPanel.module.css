@@ -1,0 +1,122 @@
+.settings {
+  min-width: 0;
+  height: 100%;
+  background: transparent;
+}
+
+.sider {
+  height: 100%;
+  padding: 16px 10px 12px;
+}
+
+.resizer {
+  position: relative;
+  flex: 0 0 1px;
+  width: 1px;
+  height: 100%;
+  background: #e5e5e5;
+  cursor: col-resize;
+  --wails-draggable: no-drag;
+}
+
+.resizer::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 9px;
+  content: "";
+}
+
+.resizer:hover,
+.resizer:focus-visible {
+  background: #bdbdbd;
+  outline: none;
+}
+
+.menu {
+  margin-top: 28px;
+  border-inline-end: 0 !important;
+  font-size: 14px;
+}
+
+.menu:global(.ant-menu-inline) {
+  border-inline-end: 0 !important;
+}
+
+.backButton {
+  height: 32px;
+  padding-inline: 8px;
+  font-size: 14px;
+  justify-content: flex-start;
+}
+
+.backButton :global(.ant-btn-icon),
+.menu :global(.ant-menu-item-icon) {
+  width: 18px;
+  margin-inline-end: 10px;
+  text-align: center;
+}
+
+.content {
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.inner {
+  width: min(100%, 1008px);
+  margin: 0 auto;
+  padding: 96px 56px 120px;
+}
+
+.section {
+  margin-top: 56px;
+}
+
+.modeGroup {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 16px;
+  width: min(100%, 680px);
+}
+
+.modeOption {
+  height: auto;
+  padding: 18px 24px;
+  line-height: 1.5715;
+}
+
+.listItem {
+  padding: 18px 20px;
+}
+
+@media (max-width: 960px) {
+  .inner {
+    padding: 72px 32px 96px;
+  }
+}
+
+@media (max-width: 720px) {
+  .settings {
+    flex-direction: column;
+  }
+
+  .sider {
+    width: 100% !important;
+    max-width: none !important;
+    height: auto;
+  }
+
+  .resizer {
+    display: none;
+  }
+
+  .inner {
+    padding: 40px 20px 72px;
+  }
+
+  .modeGroup {
+    grid-template-columns: 1fr;
+  }
+}

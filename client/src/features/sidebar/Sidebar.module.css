@@ -1,0 +1,162 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  padding: 16px 10px 12px;
+  overflow: hidden;
+}
+
+.primaryNav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+  margin-bottom: 28px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+}
+
+.scrollGroups {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  gap: 18px;
+  overflow-y: auto;
+}
+
+.group {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.expandedGroup {
+  flex: 0 0 auto;
+}
+
+.groupHeader {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  gap: 4px;
+}
+
+.groupLabel {
+  font-size: 14px;
+  line-height: 1.5715;
+  pointer-events: none;
+  color: rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+
+.groupToggle {
+  flex: 0 0 auto;
+  font-size: 11px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease, visibility 120ms ease;
+  pointer-events: none;
+}
+
+.groupHeader:hover .groupToggle {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.groupToggle :global(.anticon) {
+  font-size: inherit;
+}
+
+.groupSpacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.groupSpacer:hover,
+.groupSpacer:focus-visible {
+  background: transparent;
+}
+
+.groupActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.navButton,
+.rowButton,
+.sessionButton {
+  width: 100%;
+}
+
+.navButton,
+.rowButton,
+.sessionButton {
+  height: 32px;
+  padding-inline: 8px;
+  font-size: 14px;
+  justify-content: flex-start;
+}
+
+.navButton :global(.ant-btn-icon),
+.rowButton :global(.ant-btn-icon),
+.sessionButton :global(.ant-btn-icon) {
+  width: 18px;
+  margin-inline-end: 10px;
+  text-align: center;
+}
+
+.rowButton,
+.sessionButton {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  text-align: left;
+}
+
+.rowButton :global(.anticon),
+.sessionButton :global(.anticon) {
+  flex: 0 0 18px;
+  margin-inline-end: 10px;
+  color: rgba(0, 0, 0, 0.65);
+  text-align: center;
+}
+
+.rowText,
+.sessionTitle {
+  min-width: 0;
+  color: rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.sessionButton {
+  justify-content: flex-start;
+}
+
+.currentRow {
+  background: #f2f2f2;
+}
+
+.sessionAge {
+  flex: 0 0 auto;
+  margin-left: 10px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.footer {
+  flex: 0 0 auto;
+  margin-top: auto;
+}

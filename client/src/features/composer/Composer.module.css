@@ -1,0 +1,63 @@
+.composerWrap {
+  width: min(100%, 820px);
+}
+
+.senderRoot,
+.sender {
+  width: 100%;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0 0;
+}
+
+.leftControls,
+.rightControls {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.rightControls {
+  margin-left: auto;
+}
+
+.modelButton {
+  max-width: 220px;
+}
+
+.truncatedLabel,
+.limitButton span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  font-size: 12px;
+}
+
+.limitBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+@media (max-width: 720px) {
+  .footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .rightControls {
+    justify-content: flex-end;
+    width: 100%;
+  }
+}

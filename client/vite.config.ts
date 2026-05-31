@@ -4,43 +4,44 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
-            return 'react'
-          }
-          if (id.includes('node_modules/@ant-design/x/es/bubble')) {
-            return 'ant-design-x-bubble'
-          }
-          if (id.includes('node_modules/@ant-design/x/es/sender')) {
-            return 'ant-design-x-sender'
-          }
-          if (id.includes('node_modules/@ant-design/x/es/thought-chain')) {
-            return 'ant-design-x-thought-chain'
-          }
-          if (id.includes('node_modules/@ant-design/x')) {
-            return 'ant-design-x-shared'
-          }
-          if (id.includes('node_modules/@ant-design/icons')) {
-            return 'ant-design-icons'
-          }
-          if (id.includes('node_modules/antd/es/')) {
-            const match = id.match(/node_modules\/antd\/es\/([^/]+)/)
-            const component = match?.[1]?.replace(/^_/, 'internal') || 'shared'
-            if (['drawer', 'modal'].includes(component)) {
-              return 'antd-overlays'
-            }
-            if (['form', 'input', 'input-number', 'select'].includes(component)) {
-              return 'antd-form'
-            }
-            return `antd-${component}`
-          }
-          if (id.includes('node_modules/antd')) {
-            return 'antd-shared'
-          }
-          return undefined
+        codeSplitting: {
+          includeDependenciesRecursively: false,
+          groups: [
+            {
+              name: 'react',
+              test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/,
+              priority: 90,
+            },
+            {
+              name: 'ant-design-icons',
+              test: /node_modules[\\/]@ant-design[\\/]icons[\\/]/,
+              priority: 80,
+            },
+            {
+              name: 'ant-design-x-sender',
+              test: /node_modules[\\/]@ant-design[\\/]x[\\/]es[\\/]sender[\\/]/,
+              priority: 75,
+            },
+            {
+              name: 'ant-design-x-shared',
+              test: /node_modules[\\/]@ant-design[\\/]x[\\/]/,
+              priority: 74,
+            },
+            {
+              name: 'antd-navigation',
+              test: /node_modules[\\/](antd[\\/]es[\\/](layout|menu|radio|select|switch|card)|rc-menu|rc-select|rc-trigger|rc-overflow|rc-virtual-list|rc-motion)[\\/]/,
+              priority: 72,
+            },
+            {
+              name: 'antd-shared',
+              test: /node_modules[\\/](antd|@ant-design|@rc-component|rc-)[\\/]/,
+              priority: 70,
+            },
+          ],
         },
+        strictExecutionOrder: true,
       },
     },
   },

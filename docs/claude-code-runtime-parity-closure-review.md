@@ -44,7 +44,7 @@ Agent Builder docs read as historical inputs:
 - `docs/turn-task-run-model.md`
 - `docs/tool-scheduler-design.md`
 - `docs/permission-policy-model.md`
-- `docs/client-state-recovery.md`
+- `docs/frontend-runtime-ui-technical-plan.md`
 - `docs/archive/phase-2-runtime-api-boundary.md`
 - `docs/client-architecture-and-core-flow.md`
 

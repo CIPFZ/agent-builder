@@ -1,10 +1,14 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './app/App.tsx'
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { ConfigProvider } from 'antd';
+import zhCN from 'antd/locale/zh_CN';
+import App from './app/App.tsx';
+import './styles.css';
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <ConfigProvider locale={zhCN}>
+      <App />
+    </ConfigProvider>
+  </React.StrictMode>,
+);

@@ -13,6 +13,7 @@
   "dependencies": {
     "@ant-design/icons": "^6.2.3",
     "@ant-design/x": "^2.7.0",
+    "@wailsio/runtime": "^3.0.0-alpha.79",
     "antd": "^6.4.2",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"

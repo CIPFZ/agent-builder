@@ -60,7 +60,7 @@ Start here:
 - `docs/tool-scheduler-design.md`
 - `docs/permission-policy-model.md`
 - `docs/turn-task-run-model.md`
-- `docs/client-state-recovery.md`
+- `docs/frontend-runtime-ui-technical-plan.md`
 
 Historical baselines that are still useful for context:
 

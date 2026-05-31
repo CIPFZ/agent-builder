@@ -12,14 +12,8 @@ material. Use this index to avoid following superseded phase plans.
 - `claude-code-alignment-module-priority.md`: short pointer to the current
   roadmap and parity audit.
 - `client-runtime-architecture-review.md`: current architecture boundary review.
-- `frontend-runtime-ui-technical-plan.md`: active frontend rewrite technology
-  and UI/runtime integration plan.
-- `claude-desktop-ui-analysis.md`: Claude Desktop screenshot analysis used as
-  frontend information-architecture reference.
-- `cc-haha-ui-analysis.md`: cc-haha screenshot analysis used as runtime feature
-  surface reference.
-- `codex-ui-analysis.md`: Codex screenshot analysis used as coding-agent
-  workspace and runtime-control reference.
+- `frontend-runtime-ui-technical-plan.md`: active frontend rewrite technology,
+  UI/runtime integration, reference analysis, and client recovery plan.
 
 ## Active Design Baselines
 
@@ -32,13 +26,9 @@ their checklists.
 - `turn-task-run-model.md`
 - `tool-scheduler-design.md`
 - `permission-policy-model.md`
-- `client-state-recovery.md`
 - `client-first-runtime-refactor.md`
 - `client-information-architecture.md`
 - `frontend-runtime-ui-technical-plan.md`
-- `claude-desktop-ui-analysis.md`
-- `cc-haha-ui-analysis.md`
-- `codex-ui-analysis.md`
 - `agentic-operations-client.md`
 - `architecture-decisions.md`
 - `legacy-crush-inventory.md`

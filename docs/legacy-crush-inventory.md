@@ -152,7 +152,7 @@ client/ -> desktop adapter -> internal/runtime -> internal/agent/tools
 | `docs/client-architecture-and-core-flow.md` | keep | Active client/runtime architecture documentation. | Keep active. |
 | `docs/client-first-runtime-refactor.md` | keep | Active runtime refactor documentation. | Keep active. |
 | `docs/client-information-architecture.md` | keep | Active client IA documentation. | Keep active. |
-| `docs/client-state-recovery.md` | keep | Active client/runtime recovery notes. | Keep active. |
+| `docs/frontend-runtime-ui-technical-plan.md` | keep | Active frontend rewrite and client/runtime recovery notes. | Keep active. |
 | `docs/archive/client-ui-plan.md` | archive | Historical UI/mock/SSH/DeepSeek plan. | Keep for background only. |
 | `docs/desktop-runtime-boundary.md` | keep | Active boundary doc for desktop runtime. | Keep active. |
 | `docs/desktop-runtime-root-cause-analysis.md` | archive | Historical root cause analysis for a fixed/diagnostic issue. | Phase 7 archived to `docs/archive/desktop-runtime-root-cause-analysis.md`. |

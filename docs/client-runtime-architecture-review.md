@@ -48,7 +48,7 @@ state recovery、task/subagent、capability inventory 和客户端可恢复状�
 | `docs/turn-task-run-model.md` | active | Turn/Task/Run 数据模型边界。 |
 | `docs/tool-scheduler-design.md` | active | Tool Scheduler 目标职责和生命周期。 |
 | `docs/permission-policy-model.md` | active | Permission/Policy 模型升级方向。 |
-| `docs/client-state-recovery.md` | active | API-as-truth、event cursor、active turn 恢复。 |
+| `docs/frontend-runtime-ui-technical-plan.md` | active | 前端重构、Codex-like workbench、Ant Design X、API-as-truth、event cursor、active turn 恢复。 |
 | `docs/client-information-architecture.md` | active | 客户端信息架构，conversation-first。 |
 | `docs/legacy-crush-inventory.md` | active reference | 清理结果和遗留 surface 说明，需局部更新旧 wording。 |
 | `docs/archive/dev-baseline.md` | historical reference | 本机 baseline 记录；不再是执行路线入口。 |

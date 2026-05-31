@@ -328,7 +328,7 @@ React starts
 - pending permission 必须可重新展示。
 - audit 要记录恢复动作。
 
-具体设计见 `docs/client-state-recovery.md`。
+具体设计见 `docs/frontend-runtime-ui-technical-plan.md`。
 
 ## 页面与信息架构
 
