@@ -206,6 +206,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		largeModel.Model,
 		fantasy.WithSystemPrompt(systemPrompt),
 		fantasy.WithTools(agentTools...),
+		fantasy.WithRepairToolCall(repairToolCallJSON),
 		fantasy.WithUserAgent(userAgent),
 	)
 

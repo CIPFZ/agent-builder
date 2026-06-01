@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,6 +46,21 @@ func (r *runtimeService) workspaceDB(ctx context.Context) (*sql.DB, error) {
 	return conn, nil
 }
 
+func (r *runtimeService) configDB(ctx context.Context) (*sql.DB, error) {
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return nil, err
+	}
+	if err := ensureDesktopLayout(layout); err != nil {
+		return nil, err
+	}
+	conn, err := db.Connect(ctx, layout.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
 func (r *runtimeService) APIEndpoint(_ context.Context) (RuntimeAPIEndpointResponse, error) {
 	if r.httpAPI == nil {
 		r.httpAPI = newRuntimeHTTPServer(r)
@@ -58,7 +74,23 @@ func (r *runtimeService) APIEndpoint(_ context.Context) (RuntimeAPIEndpointRespo
 	}, nil
 }
 
+func (r *runtimeService) ServeHTTP(_ context.Context, address, token string) (RuntimeAPIEndpointResponse, error) {
+	if r.httpAPI == nil {
+		r.httpAPI = newRuntimeHTTPServer(r)
+	}
+	if err := r.httpAPI.StartAt(address, token); err != nil {
+		return RuntimeAPIEndpointResponse{}, err
+	}
+	return RuntimeAPIEndpointResponse{
+		URL:   r.httpAPI.URL(),
+		Token: r.httpAPI.Token(),
+	}, nil
+}
+
 func (r *runtimeService) restart() {
+	r.startMu.Lock()
+	defer r.startMu.Unlock()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -70,6 +102,7 @@ func (r *runtimeService) restart() {
 	}
 	r.runtime = nil
 	r.workspace = nil
+	r.starting = false
 	r.sessionID = ""
 	r.runtimeCtx = nil
 	r.cancel = nil
@@ -96,17 +129,27 @@ func (r *runtimeService) restart() {
 
 func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	r.mu.Lock()
-	if r.runtime != nil && r.workspace != nil {
+	if !r.starting && r.runtime != nil && r.workspace != nil {
 		r.mu.Unlock()
 		return nil
 	}
 	r.mu.Unlock()
 
+	r.startMu.Lock()
+	defer r.startMu.Unlock()
+
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.runtime != nil && r.workspace != nil {
+	if !r.starting && r.runtime != nil && r.workspace != nil {
+		r.mu.Unlock()
 		return nil
 	}
+	r.starting = true
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		r.starting = false
+		r.mu.Unlock()
+	}()
 
 	layout, err := resolveDesktopLayout()
 	if err != nil {
@@ -125,11 +168,17 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 
 	cfg := config.NewRuntimeConfig(workingDir, layout.DataDir, false)
 	store := config.NewRuntimeStore(workingDir, cfg, layout.ModelConfigPath)
-	localResult := applyLocalModelConfig(store, layout)
-	if localResult.Error != nil {
-		return localResult.Error
+	_, localResult, selectedModelErr := r.applySelectedConfiguredModel(ctx, store)
+	if selectedModelErr != nil {
+		localResult = applyLocalModelConfig(store, layout)
+		if localResult.Error != nil {
+			return localResult.Error
+		}
 	}
 	if !store.Config().IsConfigured() {
+		if errors.Is(selectedModelErr, errSelectedModelMissing) {
+			return errSelectedModelMissing
+		}
 		return errModelConfigMissing
 	}
 	if err := applyDesktopSkillConfigToStore(store, layout); err != nil {
@@ -164,11 +213,17 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 		r.cancel = nil
 		return fmt.Errorf("failed to create Crush workspace: %w", err)
 	}
-	workspaceLocalResult := applyLocalModelConfig(wsRuntime.Cfg, layout)
-	if workspaceLocalResult.Error != nil {
-		return workspaceLocalResult.Error
+	_, workspaceLocalResult, workspaceSelectedModelErr := r.applySelectedConfiguredModel(ctx, wsRuntime.Cfg)
+	if workspaceSelectedModelErr != nil {
+		workspaceLocalResult = applyLocalModelConfig(wsRuntime.Cfg, layout)
+		if workspaceLocalResult.Error != nil {
+			return workspaceLocalResult.Error
+		}
 	}
 	if !wsRuntime.Cfg.Config().IsConfigured() {
+		if errors.Is(workspaceSelectedModelErr, errSelectedModelMissing) {
+			return errSelectedModelMissing
+		}
 		return errModelConfigMissing
 	}
 	if err := applyDesktopSkillConfigToStore(wsRuntime.Cfg, layout); err != nil {
@@ -241,7 +296,6 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to recover runtime permissions: %w", err)
 	}
-	r.mu.Lock()
 	r.recovery = runtimeRecoveryRecord{
 		startedAt:          startedAt,
 		interruptedTurns:   append([]RuntimeTurn(nil), interrupted...),
@@ -250,7 +304,6 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 		interruptedHooks:   append([]RuntimeHookExecution(nil), interruptedHooks...),
 		expiredPermissions: append([]RuntimePermissionRequest(nil), expiredPermissions...),
 	}
-	r.mu.Unlock()
 	for _, turn := range interrupted {
 		r.storeRuntimeEvent(runtimeapi.Event{
 			ID:        newRuntimeEventID(),

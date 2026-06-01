@@ -17,18 +17,7 @@ import {
   SettingOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
-import type { WorkbenchMode, WorkbenchViewModel } from './workbenchTypes.ts';
-
-const projects = [
-  {
-    id: 'agent-builder',
-    name: 'agent-builder',
-    path: 'C:\\Users\\ytq\\work\\ai\\agent-builder',
-    isGitRepository: true,
-    branch: 'main',
-    current: true,
-  },
-];
+import type { WorkbenchAdapter, WorkbenchMode, WorkbenchViewModel } from './workbenchTypes.ts';
 
 const sidebarActions = [
   { id: 'new-chat', label: '新对话', icon: <PlusSquareOutlined /> },
@@ -57,57 +46,94 @@ const settings = {
     { key: 'token-usage', label: 'Token 用量', icon: <BarChartOutlined /> },
     { key: 'diagnostics', label: '诊断', icon: <ExperimentOutlined /> },
   ],
-  permissions: [
-    {
-      key: 'workspace',
-      title: '默认权限',
-      description: '默认情况下，Agent Builder 可以读取并编辑其工作区中的文件。',
-      enabled: true,
-    },
-    {
-      key: 'review',
-      title: '自动审核',
-      description: '自动审核额外访问权限请求，并在高风险操作前保留确认步骤。',
-      enabled: true,
-    },
-    {
-      key: 'full-access',
-      title: '完全访问权限',
-      description: '允许在明确授权后访问更宽的文件范围并运行联网命令。',
-      enabled: true,
-    },
-  ],
-  defaultEditor: 'vscode',
-  terminalProfile: 'powershell',
-  editorOptions: [
-    { label: 'VS Code', value: 'vscode' },
-    { label: 'Visual Studio', value: 'visual-studio' },
-    { label: '系统默认', value: 'system' },
-  ],
-  terminalOptions: [
-    { label: 'PowerShell', value: 'powershell' },
-    { label: 'Windows Terminal', value: 'windows-terminal' },
-    { label: '命令提示符', value: 'cmd' },
-  ],
+  permissions: [],
+  defaultEditor: '',
+  terminalProfile: '',
+  editorOptions: [],
+  terminalOptions: [],
+  providerTypes: [],
+  providers: [],
+  configuredProviders: [],
 };
 
 export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): WorkbenchViewModel {
-  const currentProject = projects.find((project) => project.current) ?? projects[0];
-
   return {
     mode,
-    currentProject,
-    projects,
+    currentProject: {
+      id: '',
+      name: '',
+      path: '',
+      isGitRepository: false,
+    },
+    projects: [],
     sessions: [],
     sidebarActions,
+    conversation: [],
+    timeline: [],
+    pendingPermissions: [],
     composer: {
-      placeholder: '要求后续变更',
-      permissionLabel: '完全访问权限',
-      modelLabel: 'custom · 5.5 中',
+      placeholder: '请输入任务',
+      permissionLabel: '未配置权限',
+      modelLabel: '未配置模型',
+      permissionOptions: [],
+      modelOptions: [],
+      busy: false,
     },
     settings,
   };
 }
+
+async function runtimeUnavailable(): Promise<never> {
+  throw new Error('runtime unavailable');
+}
+
+export const staticWorkbenchAdapter: WorkbenchAdapter = {
+  async loadInitialViewModel(mode = 'project') {
+    return getInitialWorkbenchViewModel(mode);
+  },
+  async refresh(current) {
+    return current;
+  },
+  async createSession() {
+    return runtimeUnavailable();
+  },
+  async selectSession() {
+    return runtimeUnavailable();
+  },
+  async deleteSession() {
+    return runtimeUnavailable();
+  },
+  async selectModel() {
+    return runtimeUnavailable();
+  },
+  async selectPermissionMode() {
+    return runtimeUnavailable();
+  },
+  async decidePermission() {
+    return runtimeUnavailable();
+  },
+  async sendPrompt() {
+    return runtimeUnavailable();
+  },
+  async cancelTurn() {
+    return runtimeUnavailable();
+  },
+  async saveConfiguredProvider() {
+    return runtimeUnavailable();
+  },
+  async deleteConfiguredProvider() {
+    return runtimeUnavailable();
+  },
+  async discoverConfiguredProviderModels() {
+    return runtimeUnavailable();
+  },
+  async testConfiguredProvider() {
+    return runtimeUnavailable();
+  },
+  async measureConfiguredProviderLatency() {
+    return runtimeUnavailable();
+  },
+};
 
 export const settingAction = { id: 'settings', label: '设置', icon: <SettingOutlined /> };
 export const projectGroupIcon = <FolderOutlined />;

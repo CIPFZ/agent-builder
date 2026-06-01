@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	charm.land/catwalk v0.43.0
-	charm.land/fantasy v0.26.0
+	charm.land/fantasy v0.28.0
 	charm.land/x/vcr v0.1.1
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/Microsoft/go-winio v0.6.2

@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
-import type { ProjectViewModel, SessionViewModel, WorkbenchMode, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
+import type { WorkbenchAdapter, WorkbenchMode, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { Sidebar } from '../../features/sidebar/Sidebar.tsx';
 import { SettingsPanel } from '../../features/settings/SettingsPanel.tsx';
 import { Workspace } from '../../features/workspace/Workspace.tsx';
@@ -8,44 +8,194 @@ import { DesktopChrome } from './DesktopChrome.tsx';
 import styles from './WorkbenchShell.module.css';
 
 interface WorkbenchShellProps {
+  adapter: WorkbenchAdapter;
   viewModel: WorkbenchViewModel;
 }
 
-export function WorkbenchShell({ viewModel }: WorkbenchShellProps) {
-  const [mode, setMode] = useState<WorkbenchMode>(viewModel.mode);
-  const [projects, setProjects] = useState<ProjectViewModel[]>(viewModel.projects);
-  const [sessions, setSessions] = useState<SessionViewModel[]>(viewModel.sessions);
+export function WorkbenchShell({ adapter, viewModel: initialViewModel }: WorkbenchShellProps) {
+  const [viewModel, setViewModel] = useState<WorkbenchViewModel>(initialViewModel);
+  const [mode, setMode] = useState<WorkbenchMode>(initialViewModel.mode);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(256);
+  const viewModelRef = useRef(viewModel);
 
-  const createProject = () => {
-    setProjects((items) => [
-      ...items,
-      {
-        id: `mock-project-${items.length + 1}`,
-        name: `模拟项目 ${items.length + 1}`,
-        path: '',
-        isGitRepository: false,
-      },
-    ]);
+  useEffect(() => {
+    viewModelRef.current = viewModel;
+  }, [viewModel]);
+
+  useEffect(() => {
+    if (!viewModel.composer.busy) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const refreshUntilIdle = async () => {
+      try {
+        const nextViewModel = await adapter.refresh({ ...viewModelRef.current, mode });
+        if (cancelled) {
+          return;
+        }
+        setMode(nextViewModel.mode);
+        setViewModel(nextViewModel);
+        if (nextViewModel.composer.busy) {
+          timer = window.setTimeout(refreshUntilIdle, 1200);
+        }
+      } catch {
+        if (!cancelled) {
+          timer = window.setTimeout(refreshUntilIdle, 2000);
+        }
+      }
+    };
+
+    timer = window.setTimeout(refreshUntilIdle, 800);
+
+    return () => {
+      cancelled = true;
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [adapter, mode, viewModel.composer.busy]);
+
+  const changeMode = (nextMode: WorkbenchMode) => {
+    setMode(nextMode);
+    setViewModel((current) => ({ ...current, mode: nextMode }));
+    if (nextMode === 'settings') {
+      void adapter.refresh({ ...viewModel, mode: nextMode }).then((nextViewModel) => {
+        setMode(nextViewModel.mode);
+        setViewModel(nextViewModel);
+      });
+    }
   };
 
   const createSession = () => {
-    setSessions((items) => [
-      ...items,
-      {
-        id: `mock-session-${items.length + 1}`,
-        title: `模拟对话 ${items.length + 1}`,
-        updatedLabel: '刚刚',
-      },
-    ]);
+    void adapter.createSession({ ...viewModel, mode }).then((nextViewModel) => {
+      setMode(nextViewModel.mode);
+      setViewModel(nextViewModel);
+    });
   };
+
+  const createProject = () => {
+    changeMode('project');
+  };
+
+  const selectSession = (sessionID: string) => {
+    void adapter.selectSession({ ...viewModel, mode }, sessionID).then((nextViewModel) => {
+      setMode(nextViewModel.mode);
+      setViewModel(nextViewModel);
+    });
+  };
+
+  const deleteSession = (sessionID: string) => {
+    void adapter.deleteSession({ ...viewModel, mode }, sessionID).then((nextViewModel) => {
+      setMode(nextViewModel.mode);
+      setViewModel(nextViewModel);
+    });
+  };
+
+  const sendPrompt = async (prompt: string) => {
+    const createdAt = Date.now();
+    const userID = `local-${createdAt}`;
+    const loadingID = `loading-${createdAt}`;
+    const optimisticViewModel: WorkbenchViewModel = {
+      ...viewModel,
+      mode,
+      composer: { ...viewModel.composer, busy: true },
+      conversation: [
+        ...viewModel.conversation,
+        {
+          id: userID,
+          role: 'user',
+          content: prompt,
+          createdAt,
+          status: 'success',
+        },
+        {
+          id: loadingID,
+          role: 'assistant',
+          content: '正在生成回复...',
+          status: 'loading',
+        },
+      ],
+      timeline: [
+        ...viewModel.timeline,
+        {
+          id: userID,
+          kind: 'message',
+          role: 'user',
+          content: prompt,
+          createdAt,
+          status: 'success',
+        },
+        {
+          id: loadingID,
+          kind: 'message',
+          role: 'assistant',
+          content: '正在生成回复...',
+          status: 'loading',
+        },
+      ],
+    };
+    setViewModel(optimisticViewModel);
+    const nextViewModel = await adapter.sendPrompt(optimisticViewModel, prompt);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
+  const cancelTurn = async () => {
+    const nextViewModel = await adapter.cancelTurn({ ...viewModel, mode }, viewModel.composer.activeTurnId);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
+  const selectModel = async (configuredProviderID: string, model: string) => {
+    const nextViewModel = await adapter.selectModel({ ...viewModel, mode }, configuredProviderID, model);
+    setViewModel(nextViewModel);
+  };
+
+  const selectPermissionMode = async (permissionMode: string) => {
+    const nextViewModel = await adapter.selectPermissionMode({ ...viewModel, mode }, permissionMode);
+    setViewModel(nextViewModel);
+  };
+
+  const decidePermission = async (permissionID: string, action: 'allow' | 'allow_for_session' | 'deny') => {
+    const nextViewModel = await adapter.decidePermission({ ...viewModel, mode }, permissionID, action);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
+  const saveConfiguredProvider = async (provider: Parameters<WorkbenchAdapter['saveConfiguredProvider']>[1]) => {
+    const nextViewModel = await adapter.saveConfiguredProvider({ ...viewModel, mode }, provider);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+    return nextViewModel.settings.configuredProviders;
+  };
+
+  const refreshSettings = async () => {
+    const nextViewModel = await adapter.refresh({ ...viewModel, mode: 'settings' });
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+    return nextViewModel.settings;
+  };
+
+  const deleteConfiguredProvider = async (providerID: string) => {
+    const nextViewModel = await adapter.deleteConfiguredProvider({ ...viewModel, mode }, providerID);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+    return nextViewModel.settings.configuredProviders;
+  };
+
+  const discoverConfiguredProviderModels = (providerID: string) => adapter.discoverConfiguredProviderModels(providerID);
+
+  const testConfiguredProvider = (providerID: string) => adapter.testConfiguredProvider(providerID);
+
+  const measureConfiguredProviderLatency = (providerID: string) => adapter.measureConfiguredProviderLatency(providerID);
 
   const workbenchViewModel = {
     ...viewModel,
     mode,
-    projects,
-    sessions,
   };
 
   const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -78,7 +228,16 @@ export function WorkbenchShell({ viewModel }: WorkbenchShellProps) {
     return (
       <main className={`${styles.shell} ${styles.settingsShell}`} data-testid="workbench-shell">
         <DesktopChrome />
-        <SettingsPanel settings={workbenchViewModel.settings} onModeChange={setMode} />
+        <SettingsPanel
+          settings={workbenchViewModel.settings}
+          onModeChange={changeMode}
+          onProviderDelete={deleteConfiguredProvider}
+          onProviderDiscoverModels={discoverConfiguredProviderModels}
+          onProviderLatency={measureConfiguredProviderLatency}
+          onProviderSave={saveConfiguredProvider}
+          onProviderTest={testConfiguredProvider}
+          onSettingsRefresh={refreshSettings}
+        />
       </main>
     );
   }
@@ -96,9 +255,11 @@ export function WorkbenchShell({ viewModel }: WorkbenchShellProps) {
       {!sidebarCollapsed && (
         <Sidebar
           viewModel={workbenchViewModel}
-          onModeChange={setMode}
+          onModeChange={changeMode}
           onProjectCreate={createProject}
           onSessionCreate={createSession}
+          onSessionDelete={deleteSession}
+          onSessionSelect={selectSession}
         />
       )}
       {!sidebarCollapsed && (
@@ -114,7 +275,14 @@ export function WorkbenchShell({ viewModel }: WorkbenchShellProps) {
           onPointerDown={startSidebarResize}
         />
       )}
-      <Workspace viewModel={workbenchViewModel} />
+      <Workspace
+        viewModel={workbenchViewModel}
+        onModelSelect={selectModel}
+        onPermissionDecide={decidePermission}
+        onPermissionModeSelect={selectPermissionMode}
+        onPromptCancel={cancelTurn}
+        onPromptSubmit={sendPrompt}
+      />
     </main>
   );
 }

@@ -112,8 +112,7 @@ func TestRuntimeMCPRequestStoreElicitationCreateGetListUpdatePersistence(t *test
 }
 
 func TestRuntimeMCPRequestsAppearInRecoveryAndPersistAcrossRestart(t *testing.T) {
-	t.Parallel()
-
+	t.Cleanup(db.ResetPool)
 	dataDir := t.TempDir()
 	conn, err := db.Connect(context.Background(), dataDir)
 	if err != nil {
@@ -158,8 +157,7 @@ func TestRuntimeMCPRequestsAppearInRecoveryAndPersistAcrossRestart(t *testing.T)
 }
 
 func TestRuntimeMCPRequestDecisionsEmitAuditEventsAndReplay(t *testing.T) {
-	t.Parallel()
-
+	t.Cleanup(db.ResetPool)
 	dataDir := t.TempDir()
 	conn, err := db.Connect(context.Background(), dataDir)
 	if err != nil {
@@ -218,8 +216,7 @@ func TestRuntimeMCPRequestDecisionsEmitAuditEventsAndReplay(t *testing.T) {
 }
 
 func TestRuntimeMCPRequestEventAuditReplayRedactsSecrets(t *testing.T) {
-	t.Parallel()
-
+	t.Cleanup(db.ResetPool)
 	dataDir := t.TempDir()
 	conn, err := db.Connect(context.Background(), dataDir)
 	if err != nil {
@@ -265,8 +262,7 @@ func TestRuntimeMCPRequestEventAuditReplayRedactsSecrets(t *testing.T) {
 }
 
 func TestRuntimeMCPRequestDeniedCancelledFailedPaths(t *testing.T) {
-	t.Parallel()
-
+	t.Cleanup(db.ResetPool)
 	dataDir := t.TempDir()
 	conn, err := db.Connect(context.Background(), dataDir)
 	if err != nil {
@@ -307,8 +303,7 @@ func TestRuntimeMCPRequestDeniedCancelledFailedPaths(t *testing.T) {
 }
 
 func TestRuntimeMCPPolicyAskCreatesPendingAuthAndHeadlessFailsClosed(t *testing.T) {
-	t.Parallel()
-
+	t.Cleanup(db.ResetPool)
 	dataDir := t.TempDir()
 	conn, err := db.Connect(context.Background(), dataDir)
 	if err != nil {

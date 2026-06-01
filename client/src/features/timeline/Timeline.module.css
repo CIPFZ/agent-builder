@@ -1,0 +1,22 @@
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 8px 4px 24px;
+  overflow: auto;
+}
+
+.assistantBubble {
+  max-width: min(760px, 86%);
+}
+
+.userBubble {
+  align-self: flex-end;
+  max-width: min(680px, 78%);
+}
+
+.progress {
+  width: min(720px, 94%);
+  border-radius: 6px;
+}

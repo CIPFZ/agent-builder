@@ -1,0 +1,78 @@
+.triggerWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  padding-inline: 8px;
+  color: #3f3f46;
+}
+
+.trigger span:not(.chevron) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trigger:hover,
+.trigger:focus-visible {
+  color: #0d0d0d;
+  background: #f4f4f5;
+}
+
+.fullAccessTrigger,
+.fullAccessTrigger:hover,
+.fullAccessTrigger:focus-visible {
+  color: #fa541c;
+}
+
+.fullAccessTrigger:hover,
+.fullAccessTrigger:focus-visible {
+  background: #fff2e8;
+}
+
+.chevron {
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
+.dropdown :global(.ant-dropdown-menu) {
+  min-width: 220px;
+  padding: 6px;
+  border-radius: 14px;
+}
+
+.dropdown :global(.ant-dropdown-menu-item) {
+  border-radius: 10px;
+  padding: 0;
+}
+
+.dropdown :global(.ant-dropdown-menu-item-selected) {
+  background: #f4f4f5;
+}
+
+.menuItem {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 6px 10px;
+  color: #18181b;
+}
+
+.menuLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectedIcon {
+  color: #0d0d0d;
+  font-size: 13px;
+}

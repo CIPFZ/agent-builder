@@ -37,6 +37,19 @@ func newRuntimeHTTPServer(service RuntimeService) *runtimeHTTPServer {
 }
 
 func (s *runtimeHTTPServer) Start() error {
+	return s.start("127.0.0.1:0")
+}
+
+func (s *runtimeHTTPServer) StartAt(address, token string) error {
+	if strings.TrimSpace(token) != "" {
+		s.mu.Lock()
+		s.token = strings.TrimSpace(token)
+		s.mu.Unlock()
+	}
+	return s.start(firstNonEmpty(strings.TrimSpace(address), "127.0.0.1:0"))
+}
+
+func (s *runtimeHTTPServer) start(address string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -44,7 +57,7 @@ func (s *runtimeHTTPServer) Start() error {
 		return nil
 	}
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("failed to listen for runtime HTTP API: %w", err)
 	}
@@ -97,6 +110,14 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeJSON(w, http.StatusNoContent, nil)
 		return
 	}
+	if r.Method == http.MethodGet && r.URL.Path == "/v1/dev/jsonp" {
+		s.handleJSONP(w, r)
+		return
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/v1/dev/module" {
+		s.handleDevModule(w, r)
+		return
+	}
 	if !s.authorized(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -111,6 +132,39 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/config/model":
 		value, err := s.service.GetModelConfig(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/config/providers":
+		value, err := s.service.ProviderCatalog(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/config/configured-providers":
+		value, err := s.service.ConfiguredProviders(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/config/configured-providers":
+		var req RuntimeConfiguredProviderRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.SaveConfiguredProvider(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPut && configuredProviderPathID(r.URL.Path) != "":
+		var req RuntimeConfiguredProviderRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		req.ID = configuredProviderPathID(r.URL.Path)
+		value, err := s.service.SaveConfiguredProvider(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodDelete && configuredProviderPathID(r.URL.Path) != "":
+		value, err := s.service.DeleteConfiguredProvider(r.Context(), configuredProviderPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && configuredProviderModelsPathID(r.URL.Path) != "":
+		value, err := s.service.DiscoverConfiguredProviderModels(r.Context(), configuredProviderModelsPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && configuredProviderTestPathID(r.URL.Path) != "":
+		value, err := s.service.TestConfiguredProvider(r.Context(), configuredProviderTestPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && configuredProviderLatencyPathID(r.URL.Path) != "":
+		value, err := s.service.MeasureConfiguredProviderLatency(r.Context(), configuredProviderLatencyPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/config/model/verify":
 		var req RuntimeModelConfig
@@ -135,6 +189,16 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/config/models":
 		value, err := s.service.Models(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/config/selected-model":
+		value, err := s.service.SelectedModel(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPut && r.URL.Path == "/v1/config/selected-model":
+		var req RuntimeSelectedModelRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.SaveSelectedModel(r.Context(), req)
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/permissions":
 		value, err := s.service.Permissions(r.Context())
@@ -172,6 +236,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionMessagesPathID(r.URL.Path) != "":
 		value, err := s.service.SessionMessages(r.Context(), sessionMessagesPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionActivityPathID(r.URL.Path) != "":
+		value, err := s.service.SessionActivity(r.Context(), sessionActivityPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionTodosPathID(r.URL.Path) != "":
 		value, err := s.service.SessionTodos(r.Context(), sessionTodosPathID(r.URL.Path))
@@ -502,6 +569,217 @@ func (s *runtimeHTTPServer) authorized(r *http.Request) bool {
 	return queryToken != "" && subtle.ConstantTimeCompare([]byte(queryToken), []byte(s.Token())) == 1
 }
 
+func (s *runtimeHTTPServer) handleJSONP(w http.ResponseWriter, r *http.Request) {
+	if !s.authorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	callback := strings.TrimSpace(r.URL.Query().Get("callback"))
+	if !validJSONPCallback(callback) {
+		http.Error(w, "invalid callback", http.StatusBadRequest)
+		return
+	}
+
+	var value any
+	var err error
+	switch strings.TrimSpace(r.URL.Query().Get("path")) {
+	case "/v1/runtime/status":
+		value, err = s.service.Status(r.Context())
+	case "/v1/sessions":
+		value, err = s.service.Sessions(r.Context())
+	case "/v1/config/models":
+		value, err = s.service.Models(r.Context())
+	case "/v1/config/selected-model":
+		value, err = s.service.SelectedModel(r.Context())
+	case "/v1/config/providers":
+		value, err = s.service.ProviderCatalog(r.Context())
+	case "/v1/config/configured-providers":
+		value, err = s.service.ConfiguredProviders(r.Context())
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeRuntimeJSONP(w, callback, map[string]string{"error": err.Error()})
+		return
+	}
+	writeRuntimeJSONP(w, callback, value)
+}
+
+func (s *runtimeHTTPServer) handleDevModule(w http.ResponseWriter, r *http.Request) {
+	if !s.authorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	value, err, ok := s.readDevRuntimeValue(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeRuntimeModule(w, map[string]string{"error": err.Error()})
+		return
+	}
+	writeRuntimeModule(w, value)
+}
+
+func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bool) {
+	method := firstNonEmpty(strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("method"))), http.MethodGet)
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	body := strings.TrimSpace(r.URL.Query().Get("body"))
+
+	switch {
+	case method == http.MethodGet && path == "/v1/runtime/status":
+		value, err := s.service.Status(r.Context())
+		return value, err, true
+	case method == http.MethodGet && path == "/v1/sessions":
+		value, err := s.service.Sessions(r.Context())
+		return value, err, true
+	case method == http.MethodPost && path == "/v1/sessions":
+		var req struct {
+			Title string `json:"title"`
+		}
+		if strings.TrimSpace(body) != "" {
+			if err := json.Unmarshal([]byte(body), &req); err != nil {
+				return nil, err, true
+			}
+		}
+		value, err := s.service.NewChat(r.Context(), req.Title)
+		return value, err, true
+	case method == http.MethodPost && strings.HasPrefix(path, "/v1/sessions/") && strings.HasSuffix(path, "/select"):
+		value, err := s.service.SelectSession(r.Context(), trimPathID(path, "/v1/sessions/", "/select"))
+		return value, err, true
+	case method == http.MethodGet && sessionMessagesPathID(path) != "":
+		value, err := s.service.SessionMessages(r.Context(), sessionMessagesPathID(path))
+		return value, err, true
+	case method == http.MethodGet && sessionActivityPathID(path) != "":
+		value, err := s.service.SessionActivity(r.Context(), sessionActivityPathID(path))
+		return value, err, true
+	case method == http.MethodPost && sessionTurnsPathID(path) != "":
+		var req RuntimeChatRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			return nil, err, true
+		}
+		req.SessionID = sessionTurnsPathID(path)
+		value, err := s.service.Chat(r.Context(), req)
+		return value, err, true
+	case method == http.MethodPost && path == "/v1/turns":
+		var req RuntimeChatRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			return nil, err, true
+		}
+		value, err := s.service.Chat(r.Context(), req)
+		return value, err, true
+	case method == http.MethodPost && turnCancelPathID(path) != "":
+		value, err := s.service.CancelTurn(r.Context(), turnCancelPathID(path))
+		return value, err, true
+	case method == http.MethodGet && turnPathID(path) != "":
+		value, err := s.service.Turn(r.Context(), turnPathID(path))
+		return value, err, true
+	case method == http.MethodGet && turnToolCallsPathID(path) != "":
+		value, err := s.service.TurnToolCalls(r.Context(), turnToolCallsPathID(path))
+		return value, err, true
+	case method == http.MethodGet && toolCallPathID(path) != "":
+		value, err := s.service.ToolCall(r.Context(), toolCallPathID(path))
+		return value, err, true
+	case method == http.MethodGet && path == "/v1/permissions":
+		value, err := s.service.Permissions(r.Context())
+		return value, err, true
+	case method == http.MethodPost && permissionDecisionPath(path) != "":
+		var req RuntimePermissionDecision
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			return nil, err, true
+		}
+		req.PermissionID = permissionDecisionPath(path)
+		value, err := s.service.DecidePermission(r.Context(), req)
+		return value, err, true
+	case method == http.MethodGet && path == "/v1/policy":
+		value, err := s.service.GetPolicy(r.Context())
+		return value, err, true
+	case method == http.MethodPut && path == "/v1/policy":
+		var req RuntimePolicyUpdateRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			return nil, err, true
+		}
+		value, err := s.service.UpdatePolicy(r.Context(), req)
+		return value, err, true
+	case method == http.MethodGet && path == "/v1/config/models":
+		value, err := s.service.Models(r.Context())
+		return value, err, true
+	case method == http.MethodGet && path == "/v1/config/selected-model":
+		value, err := s.service.SelectedModel(r.Context())
+		return value, err, true
+	case method == http.MethodPut && path == "/v1/config/selected-model":
+		var req RuntimeSelectedModelRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			return nil, err, true
+		}
+		value, err := s.service.SaveSelectedModel(r.Context(), req)
+		return value, err, true
+	case method == http.MethodGet && path == "/v1/config/providers":
+		value, err := s.service.ProviderCatalog(r.Context())
+		return value, err, true
+	case method == http.MethodGet && path == "/v1/config/configured-providers":
+		value, err := s.service.ConfiguredProviders(r.Context())
+		return value, err, true
+	case method == http.MethodPost && path == "/v1/config/configured-providers":
+		var req RuntimeConfiguredProviderRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			return nil, err, true
+		}
+		value, err := s.service.SaveConfiguredProvider(r.Context(), req)
+		return value, err, true
+	case method == http.MethodPut && configuredProviderPathID(path) != "":
+		var req RuntimeConfiguredProviderRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			return nil, err, true
+		}
+		req.ID = configuredProviderPathID(path)
+		value, err := s.service.SaveConfiguredProvider(r.Context(), req)
+		return value, err, true
+	case method == http.MethodDelete && configuredProviderPathID(path) != "":
+		value, err := s.service.DeleteConfiguredProvider(r.Context(), configuredProviderPathID(path))
+		return value, err, true
+	case method == http.MethodPost && configuredProviderModelsPathID(path) != "":
+		value, err := s.service.DiscoverConfiguredProviderModels(r.Context(), configuredProviderModelsPathID(path))
+		return value, err, true
+	case method == http.MethodPost && configuredProviderTestPathID(path) != "":
+		value, err := s.service.TestConfiguredProvider(r.Context(), configuredProviderTestPathID(path))
+		return value, err, true
+	case method == http.MethodPost && configuredProviderLatencyPathID(path) != "":
+		value, err := s.service.MeasureConfiguredProviderLatency(r.Context(), configuredProviderLatencyPathID(path))
+		return value, err, true
+	default:
+		return nil, nil, false
+	}
+}
+
+func (s *runtimeHTTPServer) readDevRuntimeGetValue(r *http.Request) (any, error, bool) {
+	switch strings.TrimSpace(r.URL.Query().Get("path")) {
+	case "/v1/runtime/status":
+		value, err := s.service.Status(r.Context())
+		return value, err, true
+	case "/v1/sessions":
+		value, err := s.service.Sessions(r.Context())
+		return value, err, true
+	case "/v1/config/models":
+		value, err := s.service.Models(r.Context())
+		return value, err, true
+	case "/v1/config/selected-model":
+		value, err := s.service.SelectedModel(r.Context())
+		return value, err, true
+	case "/v1/config/providers":
+		value, err := s.service.ProviderCatalog(r.Context())
+		return value, err, true
+	case "/v1/config/configured-providers":
+		value, err := s.service.ConfiguredProviders(r.Context())
+		return value, err, true
+	default:
+		return nil, nil, false
+	}
+}
+
 func (s *runtimeHTTPServer) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -520,7 +798,7 @@ func (s *runtimeHTTPServer) handleEvents(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "http://127.0.0.1")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
@@ -569,13 +847,16 @@ func writeRuntimeError(w http.ResponseWriter, err error) {
 	if errors.Is(err, errModelConfigMissing) {
 		status = http.StatusPreconditionRequired
 	}
+	if errors.Is(err, errSelectedModelMissing) {
+		status = http.StatusPreconditionRequired
+	}
 	writeRuntimeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
 func writeRuntimeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Access-Control-Allow-Origin", "http://127.0.0.1")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	w.WriteHeader(status)
@@ -585,6 +866,53 @@ func writeRuntimeJSON(w http.ResponseWriter, status int, value any) {
 	if err := json.NewEncoder(w).Encode(value); err != nil {
 		slog.Error("Failed to encode runtime HTTP response", "error", err)
 	}
+}
+
+func validJSONPCallback(callback string) bool {
+	if callback == "" {
+		return false
+	}
+	for index, char := range callback {
+		valid := char == '_' || char == '$' || char == '.' ||
+			char >= '0' && char <= '9' ||
+			char >= 'A' && char <= 'Z' ||
+			char >= 'a' && char <= 'z'
+		if !valid || index == 0 && char >= '0' && char <= '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func writeRuntimeJSONP(w http.ResponseWriter, callback string, value any) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		writeRuntimeError(w, fmt.Errorf("failed to encode runtime JSONP response: %w", err))
+		return
+	}
+	w.Header().Set("Content-Type", "application/javascript")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(callback))
+	_, _ = w.Write([]byte("("))
+	_, _ = w.Write(data)
+	_, _ = w.Write([]byte(");"))
+}
+
+func writeRuntimeModule(w http.ResponseWriter, value any) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		writeRuntimeError(w, fmt.Errorf("failed to encode runtime module response: %w", err))
+		return
+	}
+	w.Header().Set("Content-Type", "application/javascript")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("export default "))
+	_, _ = w.Write(data)
+	_, _ = w.Write([]byte(";"))
 }
 
 func decodeRuntimeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
@@ -604,6 +932,26 @@ func mcpRequestDecisionPathID(path string) string {
 	return trimPathID(path, "/v1/mcp/requests/", "/decision")
 }
 
+func configuredProviderPathID(path string) string {
+	id := strings.TrimPrefix(path, "/v1/config/configured-providers/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func configuredProviderModelsPathID(path string) string {
+	return trimPathID(path, "/v1/config/configured-providers/", "/models")
+}
+
+func configuredProviderTestPathID(path string) string {
+	return trimPathID(path, "/v1/config/configured-providers/", "/test")
+}
+
+func configuredProviderLatencyPathID(path string) string {
+	return trimPathID(path, "/v1/config/configured-providers/", "/latency")
+}
+
 func mcpRequestPathID(path string) string {
 	if strings.HasSuffix(path, "/decision") {
 		return ""
@@ -617,6 +965,10 @@ func mcpRequestPathID(path string) string {
 
 func sessionMessagesPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/messages")
+}
+
+func sessionActivityPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/activity")
 }
 
 func sessionTodosPathID(path string) string {

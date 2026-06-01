@@ -205,6 +205,116 @@ func TestRuntimeHTTPServerRoutesPolicyToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesSessionActivityToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		activity: RuntimeSessionActivityResponse{
+			SessionID: "session-1",
+			Messages: []RuntimeMessage{{
+				ID:        "msg-1",
+				SessionID: "session-1",
+				Role:      "assistant",
+				Content:   "done",
+				CreatedAt: 1000,
+			}},
+			Turns: []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "completed"}},
+			ToolCalls: []RuntimeToolCall{{
+				ID:        "tool-1",
+				SessionID: "session-1",
+				TurnID:    "turn-1",
+				Name:      "bash",
+				Source:    "shell",
+				Status:    "completed",
+				StartedAt: 1000,
+			}},
+			Permissions: []RuntimePermissionRequest{{
+				ID:         "perm-1",
+				SessionID:  "session-1",
+				TurnID:     "turn-1",
+				ToolCallID: "tool-1",
+				ToolName:   "bash",
+				Action:     "execute",
+				Status:     "allowed_once",
+				CreatedAt:  1000,
+				DecidedAt:  1100,
+			}},
+			Policy: RuntimePolicy{Mode: "ask"},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodGet, "/v1/sessions/session-1/activity", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.activitySession != "session-1" {
+		t.Fatalf("activitySession = %q", service.activitySession)
+	}
+	var activity RuntimeSessionActivityResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &activity); err != nil {
+		t.Fatal(err)
+	}
+	if activity.SessionID != "session-1" || len(activity.ToolCalls) != 1 || len(activity.Permissions) != 1 || activity.Permissions[0].Status != "allowed_once" {
+		t.Fatalf("activity = %#v", activity)
+	}
+}
+
+func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		activity: RuntimeSessionActivityResponse{SessionID: "session-1", Policy: RuntimePolicy{Mode: "ask"}},
+		toolCalls: RuntimeToolCallsResponse{ToolCalls: []RuntimeToolCall{{
+			ID:        "tool-1",
+			SessionID: "session-1",
+			TurnID:    "turn-1",
+			Name:      "bash",
+			Source:    "shell",
+			Status:    "waiting_permission",
+			StartedAt: 1000,
+		}}},
+		policy: RuntimePolicyResponse{Policy: RuntimePolicy{Mode: "ask"}},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/sessions/session-1/activity", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK || !strings.Contains(resp.body.String(), "session-1") {
+		t.Fatalf("activity status = %d body = %s", resp.status, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/turns/turn-1/tool-calls", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || !strings.Contains(resp.body.String(), "tool-1") {
+		t.Fatalf("tool calls status = %d body = %s", resp.status, resp.body.String())
+	}
+
+	body := `%7B%22mode%22%3A%22auto_read%22%7D`
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=PUT&path=/v1/policy&body="+body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("policy status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.updatedPolicyMode != "auto_read" {
+		t.Fatalf("updatedPolicyMode = %q", service.updatedPolicyMode)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesModelVerifyToRuntimeService(t *testing.T) {
 	t.Parallel()
 
@@ -598,6 +708,107 @@ func TestRuntimeHTTPServerRoutesSessionManagementToRuntimeService(t *testing.T) 
 	resp = httptestResponse(server, req)
 	if resp.status != http.StatusOK || service.deletedSession != "session-2" {
 		t.Fatalf("delete status = %d session = %q body = %s", resp.status, service.deletedSession, resp.body.String())
+	}
+}
+
+func TestRuntimeHTTPServerDevModuleRoutesChatLoop(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		status: RuntimeStatus{Ready: true, SessionID: "session-1"},
+		turn:   RuntimeTurnResponse{Turn: RuntimeTurn{ID: "turn-1", SessionID: "session-1", Status: "completed"}},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		check  func(t *testing.T)
+	}{
+		{
+			name:   "new chat",
+			method: http.MethodPost,
+			path:   "/v1/sessions",
+			body:   `{"title":"Draft"}`,
+		},
+		{
+			name:   "select session",
+			method: http.MethodPost,
+			path:   "/v1/sessions/session-2/select",
+			check: func(t *testing.T) {
+				t.Helper()
+				if service.selectedSession != "session-2" {
+					t.Fatalf("selected session = %q, want session-2", service.selectedSession)
+				}
+			},
+		},
+		{
+			name:   "session messages",
+			method: http.MethodGet,
+			path:   "/v1/sessions/session-2/messages",
+			check: func(t *testing.T) {
+				t.Helper()
+				if service.messageSession != "session-2" {
+					t.Fatalf("message session = %q, want session-2", service.messageSession)
+				}
+			},
+		},
+		{
+			name:   "session turn",
+			method: http.MethodPost,
+			path:   "/v1/sessions/session-2/turns",
+			body:   `{"prompt":"hello"}`,
+			check: func(t *testing.T) {
+				t.Helper()
+				if service.chatCalls == 0 {
+					t.Fatal("chat was not called")
+				}
+			},
+		},
+		{
+			name:   "turn",
+			method: http.MethodGet,
+			path:   "/v1/turns/turn-1",
+		},
+		{
+			name:   "cancel turn",
+			method: http.MethodPost,
+			path:   "/v1/turns/turn-1/cancel",
+			check: func(t *testing.T) {
+				t.Helper()
+				if service.cancelledTurn != "turn-1" {
+					t.Fatalf("cancelled turn = %q, want turn-1", service.cancelledTurn)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, "/v1/dev/module", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			q := req.URL.Query()
+			q.Set("token", server.Token())
+			q.Set("method", tt.method)
+			q.Set("path", tt.path)
+			if tt.body != "" {
+				q.Set("body", tt.body)
+			}
+			req.URL.RawQuery = q.Encode()
+
+			resp := httptestResponse(server, req)
+			if resp.status != http.StatusOK {
+				t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+			}
+			if tt.check != nil {
+				tt.check(t)
+			}
+		})
 	}
 }
 

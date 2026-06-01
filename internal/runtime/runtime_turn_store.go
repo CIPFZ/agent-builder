@@ -165,6 +165,36 @@ FROM runtime_turns`
 	return turns, nil
 }
 
+func (s runtimeTurnStore) ListBySession(ctx context.Context, sessionID string) ([]RuntimeTurn, error) {
+	if s.db == nil {
+		return nil, errors.New("runtime turn database is not available")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, session_id, status, user_message_id, latest_assistant_message_id,
+    provider, model, prompt_preview, usage_before_json, usage_after_json,
+    usage_delta_json, started_at, updated_at, finished_at, error
+FROM runtime_turns
+WHERE session_id = ?
+ORDER BY started_at ASC`, strings.TrimSpace(sessionID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list runtime session turns: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var turns []RuntimeTurn
+	for rows.Next() {
+		turn, err := scanRuntimeTurn(rows)
+		if err != nil {
+			return nil, err
+		}
+		turns = append(turns, turn)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate runtime session turns: %w", err)
+	}
+	return turns, nil
+}
+
 func (s runtimeTurnStore) InterruptUnfinished(ctx context.Context) ([]RuntimeTurn, error) {
 	if s.db == nil {
 		return nil, errors.New("runtime turn database is not available")

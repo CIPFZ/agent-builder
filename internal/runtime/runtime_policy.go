@@ -18,6 +18,7 @@ import (
 var runtimePolicyModes = []string{
 	string(permission.PolicyModeAsk),
 	string(permission.PolicyModeAutoRead),
+	string(permission.PolicyModeFullAccess),
 	string(permission.PolicyModePlan),
 	string(permission.PolicyModeDenyAll),
 }
@@ -49,13 +50,15 @@ func normalizeRuntimePolicyMode(mode string) (permission.PolicyMode, error) {
 func runtimePolicyDescription(mode permission.PolicyMode) string {
 	switch permission.NormalizePolicyMode(mode) {
 	case permission.PolicyModeAutoRead:
-		return "Read-only tool calls are allowed; other tool calls request approval."
+		return "只读工具自动执行，其余操作请求审批。"
+	case permission.PolicyModeFullAccess:
+		return "工具调用自动执行，仍受 runtime 安全边界和显式拒绝规则约束。"
 	case permission.PolicyModePlan:
-		return "Read-only tool calls are allowed; mutating, execute, network, destructive, and secret tool calls are blocked."
+		return "只读工具自动执行；写入、执行、网络、破坏性和敏感操作会被阻止。"
 	case permission.PolicyModeDenyAll:
-		return "All tool calls are blocked."
+		return "阻止所有工具调用。"
 	default:
-		return "Tool calls request approval unless explicitly pre-approved by runtime policy."
+		return "工具调用按 runtime 规则请求审批。"
 	}
 }
 

@@ -275,6 +275,12 @@ func (r *runtimeService) reconcilePendingPermissions(ctx context.Context) ([]Run
 	}
 	var expired []RuntimePermissionRequest
 	for _, perm := range pending {
+		r.mu.Lock()
+		_, live := r.permissions[perm.ID]
+		r.mu.Unlock()
+		if live {
+			continue
+		}
 		status := ""
 		if perm.TurnID == "" {
 			status = permissionStatusExpired

@@ -1,8 +1,46 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type ViteDevServer } from 'vite'
 import react from '@vitejs/plugin-react'
+import { existsSync, readFileSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { extname, normalize, resolve, sep } from 'node:path'
+
+const desktopBindingsDir = resolve(__dirname, '../desktop/frontend/bindings')
+const runtimeProxyTarget = process.env.VITE_AGENT_BUILDER_RUNTIME_URL || 'http://127.0.0.1:5183'
+
+function devBindingsPlugin() {
+  return {
+    name: 'agent-builder-dev-bindings',
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use('/bindings', (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+        const requestPath = decodeURIComponent(req.url?.split('?')[0] ?? '')
+        const filePath = resolve(desktopBindingsDir, `.${requestPath}`)
+        const normalizedRoot = normalize(desktopBindingsDir + sep)
+        const normalizedFile = normalize(filePath)
+
+        if (!normalizedFile.startsWith(normalizedRoot) || !existsSync(filePath)) {
+          next()
+          return
+        }
+
+        const contentType = extname(filePath) === '.js' ? 'application/javascript' : 'application/octet-stream'
+        res.setHeader('Content-Type', contentType)
+        res.end(readFileSync(filePath))
+      })
+    },
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    proxy: {
+      '/runtime-api': {
+        target: runtimeProxyTarget,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/runtime-api/, ''),
+      },
+    },
+  },
   build: {
     rolldownOptions: {
       output: {
@@ -45,5 +83,5 @@ export default defineConfig({
       },
     },
   },
-  plugins: [react()],
+  plugins: [react(), devBindingsPlugin()],
 })

@@ -1,0 +1,28 @@
+.thinking {
+  width: min(720px, 94%);
+  color: rgb(13 13 13 / 72%);
+  font-size: 13px;
+}
+
+.thinking :global(.ant-collapse-header) {
+  align-items: center;
+  padding: 4px 0 !important;
+}
+
+.thinking :global(.ant-collapse-content-box) {
+  padding: 4px 0 8px 24px !important;
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.content {
+  max-width: 680px;
+  color: rgb(13 13 13 / 66%);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

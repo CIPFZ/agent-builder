@@ -19,6 +19,9 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		return RuntimeChatResponse{}, errors.New("prompt is required")
 	}
 	if err := r.ensureStarted(ctx); err != nil {
+		if errors.Is(err, errSelectedModelMissing) {
+			return RuntimeChatResponse{}, errSelectedModelMissing
+		}
 		return RuntimeChatResponse{}, err
 	}
 
@@ -174,7 +177,11 @@ func (r *runtimeService) Turn(ctx context.Context, turnID string) (RuntimeTurnRe
 
 	r.mu.Lock()
 	wsID := r.workspace.ID
+	state, active := r.requests[turnID]
 	r.mu.Unlock()
+	if active && !state.Finished {
+		return RuntimeTurnResponse{Turn: runtimeTurnFromRequestState(turnID, state)}, nil
+	}
 	turn, err := r.turns.Get(ctx, turnID)
 	if err != nil {
 		return RuntimeTurnResponse{}, fmt.Errorf("turn %s was not found: %w", turnID, err)
@@ -192,6 +199,24 @@ func (r *runtimeService) Turn(ctx context.Context, turnID string) (RuntimeTurnRe
 		}
 	}
 	return RuntimeTurnResponse{Turn: turn}, nil
+}
+
+func runtimeTurnFromRequestState(turnID string, state runtimeRequestState) RuntimeTurn {
+	return RuntimeTurn{
+		ID:              turnID,
+		SessionID:       state.SessionID,
+		Status:          runtimeTurnStatus(state),
+		StartedAt:       state.StartedAt,
+		FinishedAt:      state.FinishedAt,
+		Provider:        state.Provider,
+		Model:           state.Model,
+		PromptPreview:   state.PromptPreview,
+		UsageBefore:     state.UsageBefore,
+		UsageAfter:      state.UsageAfter,
+		UsageDelta:      state.UsageDelta,
+		LatestMessageID: state.LatestMessageID,
+		Error:           state.Error,
+	}
 }
 
 func (r *runtimeService) Turns(ctx context.Context, status string) (RuntimeTurnsResponse, error) {
@@ -248,6 +273,7 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 	}
 	r.mu.Lock()
 	state.Cancelled = true
+	state.Finished = true
 	state.Status = "cancelled"
 	if state.FinishedAt == 0 {
 		state.FinishedAt = now.UnixMilli()
@@ -507,7 +533,7 @@ func (r *runtimeService) runtimeRequestsLocked() RuntimeRequests {
 	var out RuntimeRequests
 	now := time.Now().UnixMilli()
 	for requestID, state := range r.requests {
-		if state.Finished {
+		if isFinalRuntimeRequestState(state) {
 			continue
 		}
 		out.Running++
@@ -518,6 +544,18 @@ func (r *runtimeService) runtimeRequestsLocked() RuntimeRequests {
 		}
 	}
 	return out
+}
+
+func isFinalRuntimeRequestState(state runtimeRequestState) bool {
+	if state.Finished || state.Cancelled || state.FinishedAt > 0 {
+		return true
+	}
+	switch state.Status {
+	case turnStatusCompleted, turnStatusFailed, turnStatusCancelled, turnStatusInterrupted:
+		return true
+	default:
+		return false
+	}
 }
 
 func runtimeTurnStatus(state runtimeRequestState) string {

@@ -14,10 +14,11 @@ import (
 type PolicyMode string
 
 const (
-	PolicyModeAsk      PolicyMode = "ask"
-	PolicyModeAutoRead PolicyMode = "auto_read"
-	PolicyModePlan     PolicyMode = "plan"
-	PolicyModeDenyAll  PolicyMode = "deny_all"
+	PolicyModeAsk        PolicyMode = "ask"
+	PolicyModeAutoRead   PolicyMode = "auto_read"
+	PolicyModeFullAccess PolicyMode = "full_access"
+	PolicyModePlan       PolicyMode = "plan"
+	PolicyModeDenyAll    PolicyMode = "deny_all"
 )
 
 type Risk string
@@ -122,7 +123,7 @@ func NewScopedPermissionPolicy(mode PolicyMode, profile string, rules []PolicyRu
 
 func NormalizePolicyMode(mode PolicyMode) PolicyMode {
 	switch mode {
-	case PolicyModeAsk, PolicyModeAutoRead, PolicyModePlan, PolicyModeDenyAll:
+	case PolicyModeAsk, PolicyModeAutoRead, PolicyModeFullAccess, PolicyModePlan, PolicyModeDenyAll:
 		return mode
 	default:
 		return PolicyModeAsk
@@ -208,6 +209,8 @@ func applyProfileSemantics(result PolicyResult) PolicyResult {
 
 func (p StaticPolicy) evaluateBaseline(mode PolicyMode, risk Risk) PolicyResult {
 	switch mode {
+	case PolicyModeFullAccess:
+		return PolicyResult{Decision: PolicyAllow, Risk: risk, Reason: "Full access mode allows tool calls without interactive approval.", Mode: mode}
 	case PolicyModeDenyAll:
 		return PolicyResult{Decision: PolicyDeny, Risk: risk, Reason: "Policy mode denies all tool calls.", Mode: mode}
 	case PolicyModePlan:

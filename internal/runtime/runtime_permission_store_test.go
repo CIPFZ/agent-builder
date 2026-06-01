@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/charmbracelet/crush/internal/tools/scheduler"
 )
 
 func TestRuntimePermissionStoreUpsertListAndMark(t *testing.T) {
@@ -133,5 +134,69 @@ func TestRuntimeRecoveryStatusExpiresInvalidPendingPermissions(t *testing.T) {
 	}
 	if perm.Status != permissionStatusExpired || perm.DecidedAt == 0 {
 		t.Fatalf("permission after recovery = %#v", perm)
+	}
+}
+
+func TestRuntimePermissionsKeepsLivePendingRequest(t *testing.T) {
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	runtimeBackend, workspace := backendForSkillTest(t)
+	service.runtime = runtimeBackend
+	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:        "turn-live",
+		SessionID: "session-live",
+		Status:    turnStatusWaitingPermission,
+		StartedAt: 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:        "tool-live",
+		SessionID: "session-live",
+		TurnID:    "turn-live",
+		Name:      "bash",
+		Source:    scheduler.ToolSourceShell,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID: "tool-live",
+		Status:     scheduler.ToolCallCompleted,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	perm := RuntimePermissionRequest{
+		ID:         "perm-live",
+		SessionID:  "session-live",
+		TurnID:     "turn-live",
+		ToolCallID: "tool-live",
+		ToolName:   "bash",
+		Action:     "execute",
+		Status:     permissionStatusPending,
+		CreatedAt:  1000,
+	}
+	if _, err := service.permissionStore.Upsert(context.Background(), perm); err != nil {
+		t.Fatal(err)
+	}
+	service.permissions[perm.ID] = pendingRuntimePermission{Permission: perm}
+
+	response, err := service.Permissions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Permissions) != 1 || response.Permissions[0].Status != permissionStatusPending {
+		t.Fatalf("live permission was reconciled too early: %#v", response.Permissions)
 	}
 }

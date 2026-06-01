@@ -58,6 +58,11 @@ func TestStaticPolicyModeMatrix(t *testing.T) {
 	if got := NewPermissionPolicy(PolicyModeAsk).Evaluate(calls[RiskRead]); got.Decision != PolicyAsk {
 		t.Fatalf("ask read = %#v", got)
 	}
+	for risk, call := range calls {
+		if got := NewPermissionPolicy(PolicyModeFullAccess).Evaluate(call); got.Decision != PolicyAllow || got.Mode != PolicyModeFullAccess {
+			t.Fatalf("full_access %s = %#v, want allow", risk, got)
+		}
+	}
 }
 
 func TestClassifyRiskPlanModeBlockedTools(t *testing.T) {
@@ -224,6 +229,14 @@ func TestScopedPolicyRulesOverrideModeBaseline(t *testing.T) {
 	result = askDeny.Evaluate(scheduler.ToolCall{Name: "view", Source: scheduler.ToolSourceBuiltin, InputSummary: `{"file_path":"C:\\repo\\.env\\prod"}`})
 	if result.Decision != PolicyDeny || result.RuleID != "deny-secret-path" {
 		t.Fatalf("path deny in ask = %#v", result)
+	}
+
+	fullAccessDeny := NewScopedPermissionPolicy(PolicyModeFullAccess, "", []PolicyRule{
+		{ID: "deny-secret-path", Decision: PolicyDeny, PathPrefix: "C:\\repo\\.env", Reason: "secret path blocked"},
+	})
+	result = fullAccessDeny.Evaluate(scheduler.ToolCall{Name: "view", Source: scheduler.ToolSourceBuiltin, InputSummary: `{"file_path":"C:\\repo\\.env\\prod"}`})
+	if result.Decision != PolicyDeny || result.RuleID != "deny-secret-path" || result.Mode != PolicyModeFullAccess {
+		t.Fatalf("path deny in full_access = %#v", result)
 	}
 }
 

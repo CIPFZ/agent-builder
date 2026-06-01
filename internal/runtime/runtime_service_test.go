@@ -126,6 +126,62 @@ func TestApplyModelConfigSelectsConfiguredModelFromDiscoveredList(t *testing.T) 
 	}
 }
 
+func TestSelectedModelStorePersistsGlobalSelection(t *testing.T) {
+	t.Parallel()
+
+	dataDir := filepath.Join(t.TempDir(), "runtime-state")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = conn.Close()
+		_ = db.Release(dataDir)
+	})
+
+	providerStore := newRuntimeProviderSettingsStore(conn)
+	if err := providerStore.SyncCatalog(context.Background(), embeddedProviderCatalog()); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := providerStore.UpsertConfigured(context.Background(), RuntimeConfiguredProviderRequest{
+		ID:           "deepseek-main",
+		ProviderID:   "deepseek",
+		Name:         "DeepSeek",
+		Protocol:     "openai-compat",
+		APIEndpoint:  "https://api.deepseek.com",
+		APIKey:       "test-key",
+		DefaultModel: "deepseek-v4-flash",
+		Enabled:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	selectedStore := newRuntimeSelectedModelStore(conn)
+	selected, err := selectedStore.Upsert(context.Background(), RuntimeSelectedModelRequest{
+		ConfiguredProviderID: provider.ID,
+		Model:                "deepseek-v4-pro",
+		Scope:                "global",
+	}, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.ID != "global" || selected.ConfiguredProviderID != provider.ID || selected.Model != "deepseek-v4-pro" {
+		t.Fatalf("selected model = %#v", selected)
+	}
+
+	loaded, err := selectedStore.Get(context.Background(), "global", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Model != "deepseek-v4-pro" || loaded.ProviderID != "deepseek" {
+		t.Fatalf("loaded selected model = %#v", loaded)
+	}
+}
+
 func TestApplyDesktopProxySetsAndClearsProxyEnvironment(t *testing.T) {
 	t.Setenv("HTTP_PROXY", "")
 	t.Setenv("HTTPS_PROXY", "")
@@ -398,11 +454,11 @@ func TestRuntimePolicyLoadSaveAndUpdate(t *testing.T) {
 		t.Fatalf("default policy = %#v", resp.Policy)
 	}
 
-	updated, err := service.UpdatePolicy(context.Background(), RuntimePolicyUpdateRequest{Mode: "plan"})
+	updated, err := service.UpdatePolicy(context.Background(), RuntimePolicyUpdateRequest{Mode: "full_access"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Policy.Mode != "plan" || updated.Policy.Description == "" {
+	if updated.Policy.Mode != "full_access" || updated.Policy.Description == "" || !slices.Contains(updated.Policy.Modes, "full_access") {
 		t.Fatalf("updated policy = %#v", updated.Policy)
 	}
 
@@ -415,7 +471,7 @@ func TestRuntimePolicyLoadSaveAndUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Mode != "plan" {
+	if loaded.Mode != "full_access" {
 		t.Fatalf("loaded policy = %#v", loaded)
 	}
 }
@@ -633,6 +689,153 @@ func TestRuntimeSchedulerAskCreatesRecoverablePermission(t *testing.T) {
 	}
 	if len(after.Permissions) != 0 {
 		t.Fatalf("permission should no longer be pending: %#v", after.Permissions)
+	}
+}
+
+func TestRuntimeSchedulerFullAccessAllowsWithoutPendingPermission(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "runtime-state")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	service.policy = runtimePolicyFromMode(permission.PolicyModeFullAccess, 0)
+	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:        "turn-full-access",
+		SessionID: "session-full-access",
+		Status:    turnStatusRunning,
+		StartedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := runtimeSchedulerRecorder{service: service}
+	decision, err := recorder.EvaluateToolCall(context.Background(), agent.SchedulerToolCall{
+		ID:           "tool-full-access",
+		SessionID:    "session-full-access",
+		TurnID:       "turn-full-access",
+		Name:         "bash",
+		Source:       "shell",
+		CapabilityID: "builtin:bash",
+		InputSummary: `{"command":"ping baidu.com"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Decision != string(permission.PolicyAllow) || decision.Mode != string(permission.PolicyModeFullAccess) || decision.Risk != string(permission.RiskExecute) {
+		t.Fatalf("decision = %#v", decision)
+	}
+
+	pending, err := service.permissionStore.List(context.Background(), permissionStatusPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("full_access should not create pending permissions: %#v", pending)
+	}
+	permissions, err := service.permissionStore.ListBySession(context.Background(), "session-full-access")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(permissions) != 0 {
+		t.Fatalf("full_access should not persist permission requests: %#v", permissions)
+	}
+	service.decrementRunningToolGuard("turn-full-access")
+}
+
+func TestRuntimeSessionActivityRestoresToolCallsAndPermissionHistory(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "runtime-state")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	service.policy = runtimePolicyFromMode(permission.PolicyModeAsk, time.Now().UnixMilli())
+
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:         "turn-activity",
+		SessionID:  "session-activity",
+		Status:     turnStatusFailed,
+		StartedAt:  time.Now().Add(-time.Second).UnixMilli(),
+		FinishedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:           "tool-activity",
+		SessionID:    "session-activity",
+		TurnID:       "turn-activity",
+		Name:         "bash",
+		Source:       scheduler.ToolSourceShell,
+		InputSummary: `{"command":"ping baidu.com"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID:    "tool-activity",
+		Status:        scheduler.ToolCallDenied,
+		OutputSummary: "Permission denied.",
+		IsError:       true,
+		Error:         "Permission denied.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.permissionStore.Upsert(context.Background(), RuntimePermissionRequest{
+		ID:         "perm-activity",
+		SessionID:  "session-activity",
+		TurnID:     "turn-activity",
+		ToolCallID: "tool-activity",
+		ToolName:   "bash",
+		Action:     "execute",
+		Risk:       "execute",
+		PolicyMode: "ask",
+		Status:     permissionStatusDenied,
+		CreatedAt:  time.Now().Add(-time.Second).UnixMilli(),
+		DecidedAt:  time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	turns, err := service.turns.ListBySession(context.Background(), "session-activity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls, err := service.toolCalls.ListCalls(context.Background(), "turn-activity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	permissions, err := service.permissionStore.ListBySession(context.Background(), "session-activity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Status != turnStatusFailed {
+		t.Fatalf("turns = %#v", turns)
+	}
+	if len(calls) != 1 || calls[0].Status != scheduler.ToolCallDenied {
+		t.Fatalf("calls = %#v", calls)
+	}
+	if len(permissions) != 1 || permissions[0].Status != permissionStatusDenied {
+		t.Fatalf("permissions = %#v", permissions)
 	}
 }
 
@@ -1186,6 +1389,58 @@ func TestRuntimeSchedulerRunningToolGuardCleanup(t *testing.T) {
 				t.Fatalf("stored status = %s, want %s", stored.Status, tc.expected)
 			}
 		})
+	}
+}
+
+func TestRecordToolCallsFromMessageWaitsForToolResult(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	service.toolCalls = scheduler.New(scheduler.NewMemoryStore())
+
+	assistant := proto.Message{
+		ID:        "assistant-1",
+		SessionID: "session-1",
+		Role:      proto.Assistant,
+		Parts: []proto.ContentPart{
+			proto.ToolCall{
+				ID:       "tool-1",
+				Name:     "write",
+				Input:    `{"file_path":"report.md","content":"ok"}`,
+				Finished: true,
+			},
+		},
+	}
+	service.recordToolCallsFromMessage(context.Background(), assistant, "turn-1", time.Now())
+
+	call, err := service.toolCalls.GetCall(context.Background(), "tool-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.Status != scheduler.ToolCallRunning || !call.FinishedAt.IsZero() {
+		t.Fatalf("tool call after input finish = %#v, want running without finished time", call)
+	}
+
+	result := proto.Message{
+		ID:        "tool-result-1",
+		SessionID: "session-1",
+		Role:      proto.Tool,
+		Parts: []proto.ContentPart{
+			proto.ToolResult{
+				ToolCallID: "tool-1",
+				Name:       "write",
+				Content:    "File successfully written: C:/Users/ytq/Desktop/report.md",
+			},
+		},
+	}
+	service.recordToolCallsFromMessage(context.Background(), result, "turn-1", time.Now())
+
+	call, err = service.toolCalls.GetCall(context.Background(), "tool-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.Status != scheduler.ToolCallCompleted || call.OutputSummary == "" || call.FinishedAt.IsZero() {
+		t.Fatalf("tool call after result = %#v, want completed with output and finished time", call)
 	}
 }
 
@@ -1867,7 +2122,14 @@ func TestRuntimeChatRenamesDefaultSessionTitle(t *testing.T) {
 func backendForSkillTest(t *testing.T) (*backend.Backend, proto.Workspace) {
 	t.Helper()
 	workingDir := t.TempDir()
-	dataDir := filepath.Join(workingDir, ".crush")
+	dataRoot, err := os.MkdirTemp("", "agent-builder-runtime-state-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataDir := filepath.Join(dataRoot, "runtime-state")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	cfg := config.NewRuntimeConfig(workingDir, dataDir, false)
 	cfg.Options.AutoLSP = ptr(false)
 	store := config.NewRuntimeStore(workingDir, cfg)
@@ -1882,6 +2144,12 @@ func backendForSkillTest(t *testing.T) (*backend.Backend, proto.Workspace) {
 	}
 	t.Cleanup(func() {
 		runtime.DeleteWorkspace(workspace.ID)
+		for i := 0; i < 20; i++ {
+			if err := os.RemoveAll(dataRoot); err == nil {
+				return
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
 	})
 	return runtime, workspace
 }
@@ -2022,8 +2290,10 @@ func TestRuntimeRequestsLockedReportsActiveRequest(t *testing.T) {
 	now := time.Now().UnixMilli()
 	service := &runtimeService{
 		requests: map[string]runtimeRequestState{
-			"finished": {StartedAt: now - 2000, Finished: true},
-			"running":  {StartedAt: now - 1000},
+			"cancelled":        {StartedAt: now - 4000, Status: turnStatusCancelled, Cancelled: true},
+			"finished":         {StartedAt: now - 3000, Finished: true},
+			"finished-at-only": {StartedAt: now - 2000, FinishedAt: now - 1000},
+			"running":          {StartedAt: now - 1000},
 		},
 	}
 
@@ -2412,8 +2682,6 @@ func TestRuntimeSchedulerBackgroundJobOutputEmitsTaskProgress(t *testing.T) {
 }
 
 func TestRuntimeAgentTaskRecorderEmitsEventsAndAudit(t *testing.T) {
-	t.Parallel()
-
 	dataDir := t.TempDir()
 	t.Cleanup(db.ResetPool)
 	conn, err := db.Connect(context.Background(), dataDir)
@@ -2795,6 +3063,8 @@ type recordingRuntimeService struct {
 	renamedSession       RuntimeSessionUpdateRequest
 	deletedSession       string
 	messageSession       string
+	activitySession      string
+	activity             RuntimeSessionActivityResponse
 	createdSkill         RuntimeSkillCreateRequest
 	addedSkillPath       string
 	cancelledTurn        string
@@ -2851,6 +3121,42 @@ func (s *recordingRuntimeService) RecoveryStatus(context.Context) (RuntimeRecove
 
 func (s *recordingRuntimeService) Models(context.Context) (RuntimeModelsResponse, error) {
 	return RuntimeModelsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SelectedModel(context.Context) (RuntimeSelectedModelResponse, error) {
+	return RuntimeSelectedModelResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SaveSelectedModel(context.Context, RuntimeSelectedModelRequest) (RuntimeSelectedModelResponse, error) {
+	return RuntimeSelectedModelResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ProviderCatalog(context.Context) (RuntimeProviderCatalogResponse, error) {
+	return RuntimeProviderCatalogResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ConfiguredProviders(context.Context) (RuntimeConfiguredProvidersResponse, error) {
+	return RuntimeConfiguredProvidersResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SaveConfiguredProvider(context.Context, RuntimeConfiguredProviderRequest) (RuntimeConfiguredProviderResponse, error) {
+	return RuntimeConfiguredProviderResponse{}, nil
+}
+
+func (s *recordingRuntimeService) DeleteConfiguredProvider(context.Context, string) (RuntimeConfiguredProvidersResponse, error) {
+	return RuntimeConfiguredProvidersResponse{}, nil
+}
+
+func (s *recordingRuntimeService) DiscoverConfiguredProviderModels(context.Context, string) (RuntimeProviderModelDiscoveryResponse, error) {
+	return RuntimeProviderModelDiscoveryResponse{ProviderID: "provider-1", Models: []string{"test-model"}}, nil
+}
+
+func (s *recordingRuntimeService) TestConfiguredProvider(context.Context, string) (RuntimeProviderTestResponse, error) {
+	return RuntimeProviderTestResponse{OK: true, ProviderID: "provider-1", Model: "test-model"}, nil
+}
+
+func (s *recordingRuntimeService) MeasureConfiguredProviderLatency(context.Context, string) (RuntimeProviderTestResponse, error) {
+	return RuntimeProviderTestResponse{OK: true, ProviderID: "provider-1", Model: "test-model", DurationMS: 12}, nil
 }
 
 func (s *recordingRuntimeService) GetModelConfig(context.Context) (RuntimeConfigResponse, error) {
@@ -3045,6 +3351,14 @@ func (s *recordingRuntimeService) SessionMessages(_ context.Context, sessionID s
 	return RuntimeMessagesResponse{}, nil
 }
 
+func (s *recordingRuntimeService) SessionActivity(_ context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {
+	s.activitySession = sessionID
+	if s.activity.SessionID == "" {
+		s.activity.SessionID = sessionID
+	}
+	return s.activity, nil
+}
+
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {
 	return RuntimeMessagesResponse{}, nil
 }
@@ -3192,6 +3506,10 @@ func (s *recordingRuntimeService) ReadFiles(context.Context, string) (RuntimeRea
 }
 
 func (s *recordingRuntimeService) APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error) {
+	return RuntimeAPIEndpointResponse{URL: "http://127.0.0.1:1", Token: "token"}, nil
+}
+
+func (s *recordingRuntimeService) ServeHTTP(context.Context, string, string) (RuntimeAPIEndpointResponse, error) {
 	return RuntimeAPIEndpointResponse{URL: "http://127.0.0.1:1", Token: "token"}, nil
 }
 

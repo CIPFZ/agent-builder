@@ -12,8 +12,13 @@ material. Use this index to avoid following superseded phase plans.
 - `claude-code-alignment-module-priority.md`: short pointer to the current
   roadmap and parity audit.
 - `client-runtime-architecture-review.md`: current architecture boundary review.
+- `frontend-backend-integration-notes.md`: active frontend/backend integration
+  notes, including Wails vs Vite/browser transport constraints.
 - `frontend-runtime-ui-technical-plan.md`: active frontend rewrite technology,
   UI/runtime integration, reference analysis, and client recovery plan.
+- `workbench-runtime-feature-roadmap.md`: active handoff roadmap for main chat,
+  sessions, model switching, timeline rendering, permissions, skills, MCP, and
+  projects.
 
 ## Active Design Baselines
 

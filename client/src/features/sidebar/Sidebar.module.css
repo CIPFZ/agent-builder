@@ -142,12 +142,52 @@
   pointer-events: none;
 }
 
-.sessionButton {
-  justify-content: flex-start;
-}
-
 .currentRow {
   background: #f2f2f2;
+}
+
+.sessionRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 6px;
+}
+
+.sessionRow:hover {
+  background: #f6f6f6;
+}
+
+.sessionRow.currentRow:hover {
+  background: #f2f2f2;
+}
+
+.sessionButton {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  padding-right: 32px;
+}
+
+.sessionButton:hover,
+.sessionButton:focus-visible {
+  background: transparent;
+}
+
+.sessionDeleteButton {
+  position: absolute;
+  right: 4px;
+  flex: 0 0 auto;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease, visibility 120ms ease;
+}
+
+.sessionRow:hover .sessionDeleteButton,
+.sessionRow.currentRow .sessionDeleteButton,
+.sessionDeleteButton:focus-visible,
+.sessionDeleteButton[aria-expanded='true'] {
+  opacity: 1;
+  visibility: visible;
 }
 
 .sessionAge {

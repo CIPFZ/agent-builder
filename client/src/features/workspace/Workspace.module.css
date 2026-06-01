@@ -15,6 +15,58 @@
   padding-bottom: 80px;
 }
 
+.chatContent {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 20px;
+  width: min(920px, 100%);
+  height: calc(100vh - 126px);
+  margin: 0 auto;
+}
+
+.conversation {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 4px 24px;
+}
+
+.assistantBubble {
+  max-width: min(760px, 86%);
+}
+
+.userBubble {
+  max-width: min(680px, 78%);
+}
+
+.assistantMessageActions,
+.userMessageActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: rgb(13 13 13 / 56%);
+}
+
+.userMessageActions {
+  justify-content: flex-end;
+}
+
+.assistantMessageActions :global(.ant-btn),
+.userMessageActions :global(.ant-btn) {
+  color: rgb(13 13 13 / 56%);
+}
+
+.assistantMessageActions :global(.ant-btn:hover),
+.userMessageActions :global(.ant-btn:hover) {
+  color: #0d0d0d;
+  background: rgb(13 13 13 / 6%);
+}
+
+.messageTime {
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 24px;
+}
+
 .title {
   max-width: 100%;
   margin: 0 0 42px;
@@ -29,5 +81,9 @@
 
   .content {
     width: min(100%, 720px);
+  }
+
+  .chatContent {
+    height: calc(100vh - 110px);
   }
 }

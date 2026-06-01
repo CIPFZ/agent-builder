@@ -16,6 +16,15 @@ type RuntimeService interface {
 	Status(context.Context) (RuntimeStatus, error)
 	RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error)
 	Models(context.Context) (RuntimeModelsResponse, error)
+	SelectedModel(context.Context) (RuntimeSelectedModelResponse, error)
+	SaveSelectedModel(context.Context, RuntimeSelectedModelRequest) (RuntimeSelectedModelResponse, error)
+	ProviderCatalog(context.Context) (RuntimeProviderCatalogResponse, error)
+	ConfiguredProviders(context.Context) (RuntimeConfiguredProvidersResponse, error)
+	SaveConfiguredProvider(context.Context, RuntimeConfiguredProviderRequest) (RuntimeConfiguredProviderResponse, error)
+	DeleteConfiguredProvider(context.Context, string) (RuntimeConfiguredProvidersResponse, error)
+	DiscoverConfiguredProviderModels(context.Context, string) (RuntimeProviderModelDiscoveryResponse, error)
+	TestConfiguredProvider(context.Context, string) (RuntimeProviderTestResponse, error)
+	MeasureConfiguredProviderLatency(context.Context, string) (RuntimeProviderTestResponse, error)
 	GetModelConfig(context.Context) (RuntimeConfigResponse, error)
 	SaveModelConfig(context.Context, RuntimeModelConfig) (RuntimeConfigResponse, error)
 	DiscoverModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelDiscoveryResponse, error)
@@ -59,6 +68,7 @@ type RuntimeService interface {
 	RenameSession(context.Context, RuntimeSessionUpdateRequest) (RuntimeSessionsResponse, error)
 	DeleteSession(context.Context, string) (RuntimeSessionsResponse, error)
 	SessionMessages(context.Context, string) (RuntimeMessagesResponse, error)
+	SessionActivity(context.Context, string) (RuntimeSessionActivityResponse, error)
 	Messages(context.Context) (RuntimeMessagesResponse, error)
 	Permissions(context.Context) (RuntimePermissionsResponse, error)
 	GetPolicy(context.Context) (RuntimePolicyResponse, error)
@@ -92,6 +102,7 @@ type RuntimeService interface {
 	ContextSources(context.Context) (RuntimeContextSourcesResponse, error)
 	ReadFiles(context.Context, string) (RuntimeReadFilesResponse, error)
 	APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error)
+	ServeHTTP(context.Context, string, string) (RuntimeAPIEndpointResponse, error)
 	DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error)
 	Cancel(context.Context) (RuntimeStatus, error)
 	CancelTurn(context.Context, string) (RuntimeStatus, error)
@@ -101,6 +112,8 @@ type RuntimeService interface {
 // runtimeService owns workspace, session, and agent lifecycle.
 type runtimeService struct {
 	mu                sync.Mutex
+	startMu           sync.Mutex
+	starting          bool
 	runtime           *backend.Backend
 	workspace         *proto.Workspace
 	sessionID         string

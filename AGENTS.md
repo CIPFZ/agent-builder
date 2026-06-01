@@ -55,3 +55,8 @@ internal/adapters/           Wails/HTTP/CLI/TUI adapters
   making React or Ant Design X hooks the runtime state source.
 - Use Ant Design theme tokens and scoped CSS Modules for new UI surfaces; avoid
   expanding global CSS as the main styling mechanism.
+- For frontend/backend integration, keep the runtime adapter transport-neutral.
+  Wails bindings are only valid inside the desktop Wails runtime; Vite/browser
+  development must use the HTTP/dev transport fallback. Do not assume `fetch`,
+  `XMLHttpRequest`, axios, or Wails generated bindings are always available in
+  the in-app browser. See `docs/frontend-backend-integration-notes.md`.

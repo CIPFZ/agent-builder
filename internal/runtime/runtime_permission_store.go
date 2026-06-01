@@ -170,6 +170,37 @@ FROM runtime_permission_requests`
 	return permissions, nil
 }
 
+func (s runtimePermissionStore) ListBySession(ctx context.Context, sessionID string) ([]RuntimePermissionRequest, error) {
+	if s.db == nil {
+		return nil, errors.New("runtime permission database is not available")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, session_id, turn_id, tool_call_id, tool_name, description, action,
+    params_json, path, target, risk, policy_mode, policy_reason, policy_profile,
+    policy_headless, policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value,
+    policy_target_summary, decision, status, created_at, decided_at
+FROM runtime_permission_requests
+WHERE session_id = ?
+ORDER BY created_at ASC`, strings.TrimSpace(sessionID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list runtime session permission requests: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var permissions []RuntimePermissionRequest
+	for rows.Next() {
+		perm, err := scanRuntimePermission(rows)
+		if err != nil {
+			return nil, err
+		}
+		permissions = append(permissions, perm)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate runtime session permission requests: %w", err)
+	}
+	return permissions, nil
+}
+
 func (s runtimePermissionStore) Mark(ctx context.Context, id, status string, decidedAt int64) (RuntimePermissionRequest, error) {
 	perm, err := s.Get(ctx, id)
 	if err != nil {

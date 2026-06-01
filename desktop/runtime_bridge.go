@@ -9,6 +9,18 @@ import (
 type RuntimeStatus = runtime.RuntimeStatus
 type RuntimeModel = runtime.RuntimeModel
 type RuntimeModelsResponse = runtime.RuntimeModelsResponse
+type RuntimeSelectedModel = runtime.RuntimeSelectedModel
+type RuntimeSelectedModelRequest = runtime.RuntimeSelectedModelRequest
+type RuntimeSelectedModelResponse = runtime.RuntimeSelectedModelResponse
+type RuntimeProviderType = runtime.RuntimeProviderType
+type RuntimeProviderCatalogItem = runtime.RuntimeProviderCatalogItem
+type RuntimeProviderCatalogResponse = runtime.RuntimeProviderCatalogResponse
+type RuntimeConfiguredProvider = runtime.RuntimeConfiguredProvider
+type RuntimeConfiguredProvidersResponse = runtime.RuntimeConfiguredProvidersResponse
+type RuntimeConfiguredProviderRequest = runtime.RuntimeConfiguredProviderRequest
+type RuntimeConfiguredProviderResponse = runtime.RuntimeConfiguredProviderResponse
+type RuntimeProviderModelDiscoveryResponse = runtime.RuntimeProviderModelDiscoveryResponse
+type RuntimeProviderTestResponse = runtime.RuntimeProviderTestResponse
 type RuntimeConfigResponse = runtime.RuntimeConfigResponse
 type RuntimeChatRequest = runtime.RuntimeChatRequest
 type RuntimeChatResponse = runtime.RuntimeChatResponse
@@ -61,6 +73,7 @@ type RuntimeSessionsResponse = runtime.RuntimeSessionsResponse
 type RuntimeSessionResponse = runtime.RuntimeSessionResponse
 type RuntimeSessionUpdateRequest = runtime.RuntimeSessionUpdateRequest
 type RuntimeMessagesResponse = runtime.RuntimeMessagesResponse
+type RuntimeSessionActivityResponse = runtime.RuntimeSessionActivityResponse
 type RuntimePermissionRequest = runtime.RuntimePermissionRequest
 type RuntimePermissionsResponse = runtime.RuntimePermissionsResponse
 type RuntimePermissionDecision = runtime.RuntimePermissionDecision
@@ -149,6 +162,60 @@ func (r *RuntimeBridge) RecoveryStatus(ctx context.Context) (RuntimeRecoveryStat
 func (r *RuntimeBridge) Models(ctx context.Context) (RuntimeModelsResponse, error) {
 
 	return r.service.Models(ctx)
+
+}
+
+func (r *RuntimeBridge) SelectedModel(ctx context.Context) (RuntimeSelectedModelResponse, error) {
+
+	return r.service.SelectedModel(ctx)
+
+}
+
+func (r *RuntimeBridge) SaveSelectedModel(ctx context.Context, req RuntimeSelectedModelRequest) (RuntimeSelectedModelResponse, error) {
+
+	return r.service.SaveSelectedModel(ctx, req)
+
+}
+
+func (r *RuntimeBridge) ProviderCatalog(ctx context.Context) (RuntimeProviderCatalogResponse, error) {
+
+	return r.service.ProviderCatalog(ctx)
+
+}
+
+func (r *RuntimeBridge) ConfiguredProviders(ctx context.Context) (RuntimeConfiguredProvidersResponse, error) {
+
+	return r.service.ConfiguredProviders(ctx)
+
+}
+
+func (r *RuntimeBridge) SaveConfiguredProvider(ctx context.Context, req RuntimeConfiguredProviderRequest) (RuntimeConfiguredProviderResponse, error) {
+
+	return r.service.SaveConfiguredProvider(ctx, req)
+
+}
+
+func (r *RuntimeBridge) DeleteConfiguredProvider(ctx context.Context, providerID string) (RuntimeConfiguredProvidersResponse, error) {
+
+	return r.service.DeleteConfiguredProvider(ctx, providerID)
+
+}
+
+func (r *RuntimeBridge) DiscoverConfiguredProviderModels(ctx context.Context, providerID string) (RuntimeProviderModelDiscoveryResponse, error) {
+
+	return r.service.DiscoverConfiguredProviderModels(ctx, providerID)
+
+}
+
+func (r *RuntimeBridge) TestConfiguredProvider(ctx context.Context, providerID string) (RuntimeProviderTestResponse, error) {
+
+	return r.service.TestConfiguredProvider(ctx, providerID)
+
+}
+
+func (r *RuntimeBridge) MeasureConfiguredProviderLatency(ctx context.Context, providerID string) (RuntimeProviderTestResponse, error) {
+
+	return r.service.MeasureConfiguredProviderLatency(ctx, providerID)
 
 }
 
@@ -374,6 +441,12 @@ func (r *RuntimeBridge) SessionMessages(ctx context.Context, sessionID string) (
 
 }
 
+func (r *RuntimeBridge) SessionActivity(ctx context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {
+
+	return r.service.SessionActivity(ctx, sessionID)
+
+}
+
 func (r *RuntimeBridge) Messages(ctx context.Context) (RuntimeMessagesResponse, error) {
 
 	return r.service.Messages(ctx)
@@ -555,6 +628,12 @@ func (r *RuntimeBridge) ReadFiles(ctx context.Context, sessionID string) (Runtim
 func (r *RuntimeBridge) APIEndpoint(ctx context.Context) (RuntimeAPIEndpointResponse, error) {
 
 	return r.service.APIEndpoint(ctx)
+
+}
+
+func (r *RuntimeBridge) ServeHTTP(ctx context.Context, address string, token string) (RuntimeAPIEndpointResponse, error) {
+
+	return r.service.ServeHTTP(ctx, address, token)
 
 }
 

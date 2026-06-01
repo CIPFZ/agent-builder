@@ -1,0 +1,43 @@
+.gate {
+  display: grid;
+  gap: 8px;
+  width: min(720px, 94%);
+  margin: 4px 0;
+  padding: 12px 14px;
+  border: 1px solid #f0bd55;
+  border-radius: 6px;
+  background: #fffaf0;
+}
+
+.header,
+.title,
+.actions,
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header {
+  justify-content: space-between;
+}
+
+.title,
+.tool {
+  font-weight: 600;
+}
+
+.target,
+.reason {
+  color: rgb(13 13 13 / 68%);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  flex-wrap: wrap;
+}
+
+.meta {
+  flex-wrap: wrap;
+}

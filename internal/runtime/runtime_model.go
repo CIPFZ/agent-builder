@@ -16,6 +16,10 @@ const localProviderID = "local-model"
 var errModelConfigMissing = errors.New("model is not configured. Open model settings and save protocol, URL, API key, and model before chatting.")
 
 func (r *runtimeService) Models(ctx context.Context) (RuntimeModelsResponse, error) {
+	configured, configuredErr := r.configuredProviderModels(ctx)
+	if configuredErr == nil && len(configured) > 0 {
+		return RuntimeModelsResponse{Models: configured}, nil
+	}
 	if err := r.ensureStarted(ctx); err != nil {
 		if errors.Is(err, errModelConfigMissing) {
 			cfg, cfgErr := r.readConfiguredModel()
@@ -55,6 +59,53 @@ func (r *runtimeService) Models(ctx context.Context) (RuntimeModelsResponse, err
 	}
 
 	return RuntimeModelsResponse{Models: models}, nil
+}
+
+func (r *runtimeService) configuredProviderModels(ctx context.Context) ([]RuntimeModel, error) {
+	store, providerStore, err := r.selectedModelStores(ctx)
+	if err != nil {
+		return nil, err
+	}
+	selected, selectedErr := store.Get(ctx, "global", "", "")
+	if selectedErr != nil && !errors.Is(selectedErr, errSelectedModelMissing) {
+		return nil, selectedErr
+	}
+	providers, err := providerStore.ListConfigured(ctx)
+	if err != nil {
+		return nil, err
+	}
+	models := make([]RuntimeModel, 0, len(providers))
+	for _, provider := range providers {
+		if !provider.Enabled {
+			continue
+		}
+		model := strings.TrimSpace(provider.DefaultModel)
+		if model == "" {
+			continue
+		}
+		models = append(models, RuntimeModel{
+			ID:                   provider.ID + ":" + model,
+			Name:                 model,
+			Provider:             firstNonEmpty(provider.Name, provider.ProviderID, provider.ID),
+			ProviderID:           provider.ProviderID,
+			ConfiguredProviderID: provider.ID,
+			ConfiguredProvider:   provider.Name,
+			Selected: selectedErr == nil &&
+				selected.ConfiguredProviderID == provider.ID &&
+				selected.Model == model,
+		})
+	}
+	if selectedErr == nil {
+		for i := range models {
+			if models[i].Selected {
+				return models, nil
+			}
+		}
+	}
+	if errors.Is(selectedErr, errSelectedModelMissing) && len(models) > 0 {
+		models[0].Selected = true
+	}
+	return models, nil
 }
 
 func (r *runtimeService) GetModelConfig(ctx context.Context) (RuntimeConfigResponse, error) {

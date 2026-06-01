@@ -15,7 +15,22 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 	sessionID := r.sessionID
 	events := r.eventStats.snapshot()
 	requests := r.runtimeRequestsLocked()
+	activeRequest := r.requests[requests.ActiveRequestID]
 	r.mu.Unlock()
+	if requests.Running > 0 {
+		return RuntimeStatus{
+			Ready:       true,
+			WorkspaceID: ws.ID,
+			SessionID:   sessionID,
+			WorkingDir:  ws.Path,
+			Model:       activeRequest.Model,
+			Provider:    activeRequest.Provider,
+			Busy:        true,
+			Usage:       activeRequest.UsageBefore,
+			Events:      events,
+			Requests:    requests,
+		}, nil
+	}
 	if requests.Running == 0 {
 		if turns, err := r.turns.List(ctx, "active"); err == nil {
 			now := time.Now().UnixMilli()

@@ -7,6 +7,58 @@
   width: 100%;
 }
 
+.senderRoot {
+  --ant-color-primary: #0d0d0d;
+}
+
+.senderRoot :global(.ant-sender-focused),
+.senderRoot :global(.ant-sender:focus-within) {
+  border-color: #0d0d0d;
+  box-shadow: 0 0 0 2px rgb(13 13 13 / 8%);
+}
+
+.senderRoot :global(textarea),
+.senderRoot :global(.ant-input),
+.senderRoot :global(.ant-sender-contenteditable) {
+  caret-color: #0d0d0d;
+}
+
+.rightControls .sendButton {
+  background: #0d0d0d;
+  border-color: #0d0d0d;
+  box-shadow: none;
+  color: #fff;
+}
+
+.rightControls .sendButton:disabled {
+  background: #8a8a8a;
+  border-color: #8a8a8a;
+  color: #fff;
+  opacity: 1;
+}
+
+.rightControls .sendButton:not(:disabled):hover,
+.rightControls .sendButton:not(:disabled):focus-visible {
+  background: #242424;
+  border-color: #242424;
+  color: #fff;
+}
+
+.rightControls .stopButton,
+.rightControls .stopButton:not(:disabled):hover,
+.rightControls .stopButton:not(:disabled):focus-visible {
+  background: #0d0d0d;
+  border-color: #0d0d0d;
+}
+
+.stopIcon {
+  display: block;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 3px;
+}
+
 .footer {
   display: flex;
   align-items: center;

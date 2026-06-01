@@ -1,20 +1,25 @@
-import { Button, Dropdown } from 'antd';
+import { Button, Dropdown, message } from 'antd';
 import Sender from '@ant-design/x/es/sender';
+import { useState } from 'react';
 import {
   ArrowUpOutlined,
   BranchesOutlined,
   DownOutlined,
   FolderOpenOutlined,
   PlusOutlined,
-  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import type { ComposerViewModel, ProjectViewModel } from '../../runtime/workbenchTypes.ts';
+import { PermissionModeControl } from '../permissions/PermissionModeControl.tsx';
 import styles from './Composer.module.css';
 
 interface ComposerProps {
   composer: ComposerViewModel;
   project: ProjectViewModel;
   showProjectContext: boolean;
+  onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
+  onPermissionModeSelect: (mode: string) => Promise<void>;
+  onCancel: () => Promise<void>;
+  onSubmit: (prompt: string) => Promise<void>;
 }
 
 const menu = {
@@ -26,42 +31,130 @@ const menu = {
   ],
 };
 
-export function Composer({ composer, project, showProjectContext }: ComposerProps) {
+export function Composer({
+  composer,
+  project,
+  showProjectContext,
+  onModelSelect,
+  onPermissionModeSelect,
+  onCancel,
+  onSubmit,
+}: ComposerProps) {
+  const [messageApi, messageContextHolder] = message.useMessage();
+  const [draft, setDraft] = useState('');
+  const selectedProviderID = composer.selectedModel?.configuredProviderId;
+  const visibleModelOptions = selectedProviderID
+    ? composer.modelOptions.filter((model) => model.configuredProviderId === selectedProviderID)
+    : composer.modelOptions.filter((model) => model.configuredProviderId);
+  const canSubmit = draft.trim().length > 0;
+  const isBusy = Boolean(composer.busy);
+  const warnMissingModel = () => {
+    void messageApi.warning('请先在 设置 - 服务商 中配置并选择模型后再使用');
+  };
+  const submitDraft = () => {
+    if (isBusy) {
+      void onCancel();
+      return;
+    }
+    const prompt = draft.trim();
+    if (!prompt) {
+      return;
+    }
+    if (!composer.selectedModel?.configuredProviderId) {
+      warnMissingModel();
+      return;
+    }
+    setDraft('');
+    void onSubmit(prompt);
+  };
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+    event.preventDefault();
+    submitDraft();
+    return false;
+  };
+  const modelMenu = {
+    items:
+      visibleModelOptions.length > 0
+        ? visibleModelOptions.map((model) => ({
+            key: `${model.configuredProviderId ?? ''}:${model.name}`,
+            label: model.name,
+            disabled: !model.configuredProviderId,
+          }))
+        : [
+            {
+              key: 'empty',
+              label: '未配置模型',
+              disabled: true,
+            },
+          ],
+    onClick: ({ key }: { key: string }) => {
+      const option = visibleModelOptions.find((model) => `${model.configuredProviderId ?? ''}:${model.name}` === key);
+      if (!option?.configuredProviderId) {
+        return;
+      }
+      void onModelSelect(option.configuredProviderId, option.name);
+    },
+  };
   const footer = (
     <div className={styles.footer} data-testid="composer-button-row">
       <div className={styles.leftControls}>
         <Button aria-label="添加上下文" icon={<PlusOutlined />} type="text" />
-        <Dropdown menu={menu} trigger={['click']}>
-          <Button type="text">
-            <SafetyCertificateOutlined />
-            <span>{composer.permissionLabel}</span>
-            <DownOutlined className={styles.chevron} />
-          </Button>
-        </Dropdown>
+        <PermissionModeControl composer={composer} onSelect={onPermissionModeSelect} />
       </div>
 
       <div className={styles.rightControls}>
-        <Dropdown menu={menu} trigger={['click']}>
+        <Dropdown menu={modelMenu} trigger={['click']}>
           <Button className={styles.modelButton} type="text">
             <span className={styles.truncatedLabel}>{composer.modelLabel}</span>
             <DownOutlined className={styles.chevron} />
           </Button>
         </Dropdown>
-        <Button aria-label="发送" icon={<ArrowUpOutlined />} shape="circle" type="primary" />
+        <Button
+          aria-label={isBusy ? '停止' : '发送'}
+          className={`${styles.sendButton} ${isBusy ? styles.stopButton : ''}`}
+          disabled={!isBusy && !canSubmit}
+          icon={isBusy ? <span className={styles.stopIcon} /> : <ArrowUpOutlined />}
+          shape="circle"
+          type="primary"
+          onClick={submitDraft}
+        />
       </div>
     </div>
   );
 
   return (
     <div className={styles.composerWrap} data-testid="composer">
+      {messageContextHolder}
       <div className={styles.composerShell}>
         <Sender
           autoSize={{ minRows: 3, maxRows: 5 }}
           className={styles.sender}
           footer={footer}
+          onKeyDown={handleKeyDown}
+          onSubmit={(value) => {
+            if (isBusy) {
+              void onCancel();
+              return;
+            }
+            const prompt = value.trim();
+            if (!prompt) {
+              return;
+            }
+            if (!composer.selectedModel?.configuredProviderId) {
+              warnMissingModel();
+              return;
+            }
+            setDraft('');
+            void onSubmit(prompt);
+          }}
+          onChange={setDraft}
           placeholder={composer.placeholder}
           rootClassName={styles.senderRoot}
           suffix={false}
+          value={draft}
         />
         {showProjectContext && (
           <div className={styles.limitBar} data-testid="composer-limit-bar">

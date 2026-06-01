@@ -72,12 +72,6 @@ func (r *runtimeService) recordToolCallsFromMessage(ctx context.Context, msg pro
 			CapabilityID: capabilityIDForToolName(call.Name),
 			InputSummary: preview(call.Input, runtimePartPreviewLimit),
 		})
-		if call.Finished {
-			_, _ = r.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{
-				ToolCallID: call.ID,
-				Status:     scheduler.ToolCallCompleted,
-			})
-		}
 	}
 	for _, result := range msg.ToolResults() {
 		if result.ToolCallID == "" {

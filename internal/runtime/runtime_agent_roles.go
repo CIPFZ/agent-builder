@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
@@ -194,7 +195,18 @@ func normalizeRuntimeAgentRole(role RuntimeAgentRoleDefinition) RuntimeAgentRole
 }
 
 func (r *runtimeService) ensureAgentRolesLoaded(ctx context.Context) error {
-	db, err := r.workspaceDB(ctx)
+	r.mu.Lock()
+	runtimeBackend := r.runtime
+	workspace := r.workspace
+	r.mu.Unlock()
+	if runtimeBackend == nil || workspace == nil {
+		return errors.New("runtime workspace is not started")
+	}
+	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	if err != nil {
+		return err
+	}
+	db, err := db.Connect(ctx, ws.Cfg.Config().Options.DataDirectory)
 	if err != nil {
 		return err
 	}

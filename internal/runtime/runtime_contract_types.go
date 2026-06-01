@@ -14,14 +14,118 @@ type RuntimeStatus struct {
 }
 
 type RuntimeModel struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	Selected bool   `json:"selected"`
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Provider             string `json:"provider"`
+	ProviderID           string `json:"providerId,omitempty"`
+	ConfiguredProviderID string `json:"configuredProviderId,omitempty"`
+	ConfiguredProvider   string `json:"configuredProvider,omitempty"`
+	Selected             bool   `json:"selected"`
 }
 
 type RuntimeModelsResponse struct {
 	Models []RuntimeModel `json:"models"`
+}
+
+type RuntimeSelectedModel struct {
+	ID                   string `json:"id"`
+	ConfiguredProviderID string `json:"configuredProviderId"`
+	ProviderID           string `json:"providerId"`
+	Model                string `json:"model"`
+	Scope                string `json:"scope"`
+	ProjectID            string `json:"projectId,omitempty"`
+	SessionID            string `json:"sessionId,omitempty"`
+	CreatedAt            int64  `json:"createdAt"`
+	UpdatedAt            int64  `json:"updatedAt"`
+}
+
+type RuntimeSelectedModelRequest struct {
+	ConfiguredProviderID string `json:"configuredProviderId"`
+	Model                string `json:"model"`
+	Scope                string `json:"scope,omitempty"`
+	ProjectID            string `json:"projectId,omitempty"`
+	SessionID            string `json:"sessionId,omitempty"`
+}
+
+type RuntimeSelectedModelResponse struct {
+	SelectedModel RuntimeSelectedModel `json:"selectedModel"`
+	Status        RuntimeStatus        `json:"status,omitempty"`
+}
+
+type RuntimeProviderType struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+type RuntimeProviderCatalogItem struct {
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Type              string   `json:"type"`
+	APIEndpoint       string   `json:"apiEndpoint,omitempty"`
+	APIKeyTemplate    string   `json:"apiKeyTemplate,omitempty"`
+	ModelCount        int      `json:"modelCount"`
+	DefaultLargeModel string   `json:"defaultLargeModel,omitempty"`
+	DefaultSmallModel string   `json:"defaultSmallModel,omitempty"`
+	RequiredFields    []string `json:"requiredFields,omitempty"`
+	Notes             []string `json:"notes,omitempty"`
+	Configurable      bool     `json:"configurable"`
+}
+
+type RuntimeProviderCatalogResponse struct {
+	ProviderTypes []RuntimeProviderType        `json:"providerTypes"`
+	Providers     []RuntimeProviderCatalogItem `json:"providers"`
+}
+
+type RuntimeConfiguredProvider struct {
+	ID              string `json:"id"`
+	ProviderID      string `json:"providerId"`
+	Name            string `json:"name"`
+	Remark          string `json:"remark,omitempty"`
+	Protocol        string `json:"protocol"`
+	APIEndpoint     string `json:"apiEndpoint"`
+	APIKeySecretRef string `json:"apiKeySecretRef,omitempty"`
+	HasAPIKey       bool   `json:"hasApiKey"`
+	Proxy           string `json:"proxy,omitempty"`
+	DefaultModel    string `json:"defaultModel,omitempty"`
+	Enabled         bool   `json:"enabled"`
+	CreatedAt       int64  `json:"createdAt"`
+	UpdatedAt       int64  `json:"updatedAt"`
+}
+
+type RuntimeConfiguredProvidersResponse struct {
+	Providers []RuntimeConfiguredProvider `json:"providers"`
+}
+
+type RuntimeConfiguredProviderRequest struct {
+	ID           string `json:"id,omitempty"`
+	ProviderID   string `json:"providerId"`
+	Name         string `json:"name"`
+	Remark       string `json:"remark,omitempty"`
+	Protocol     string `json:"protocol"`
+	APIEndpoint  string `json:"apiEndpoint"`
+	APIKey       string `json:"apiKey,omitempty"`
+	Proxy        string `json:"proxy,omitempty"`
+	DefaultModel string `json:"defaultModel,omitempty"`
+	Enabled      bool   `json:"enabled"`
+}
+
+type RuntimeConfiguredProviderResponse struct {
+	Provider RuntimeConfiguredProvider `json:"provider"`
+}
+
+type RuntimeProviderModelDiscoveryResponse struct {
+	ProviderID string   `json:"providerId"`
+	Models     []string `json:"models"`
+	Error      string   `json:"error,omitempty"`
+}
+
+type RuntimeProviderTestResponse struct {
+	OK         bool   `json:"ok"`
+	ProviderID string `json:"providerId"`
+	Model      string `json:"model,omitempty"`
+	DurationMS int64  `json:"durationMs,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 type RuntimeConfigResponse struct {
@@ -568,6 +672,15 @@ type RuntimeSessionUpdateRequest struct {
 
 type RuntimeMessagesResponse struct {
 	Messages []RuntimeMessage `json:"messages"`
+}
+
+type RuntimeSessionActivityResponse struct {
+	SessionID   string                     `json:"sessionId"`
+	Messages    []RuntimeMessage           `json:"messages"`
+	Turns       []RuntimeTurn              `json:"turns"`
+	ToolCalls   []RuntimeToolCall          `json:"toolCalls"`
+	Permissions []RuntimePermissionRequest `json:"permissions"`
+	Policy      RuntimePolicy              `json:"policy"`
 }
 
 type RuntimePermissionRequest struct {

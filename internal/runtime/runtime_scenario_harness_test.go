@@ -90,8 +90,6 @@ func (h *runtimeScenarioHarness) assertEventType(eventType string) {
 }
 
 func TestRuntimeScenarioHarnessPolicyToolShellGolden(t *testing.T) {
-	t.Parallel()
-
 	scenarios := []struct {
 		name   string
 		run    func(*testing.T, *runtimeScenarioHarness)
@@ -181,7 +179,6 @@ func TestRuntimeScenarioHarnessPolicyToolShellGolden(t *testing.T) {
 
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
-			t.Parallel()
 			h := newRuntimeScenarioHarness(t)
 			scenario.run(t, h)
 			turnID := "turn-" + strings.Split(scenario.name, " ")[0]

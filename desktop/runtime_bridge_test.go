@@ -110,6 +110,42 @@ func (s *recordingRuntimeService) Models(context.Context) (RuntimeModelsResponse
 	return RuntimeModelsResponse{}, nil
 }
 
+func (s *recordingRuntimeService) SelectedModel(context.Context) (RuntimeSelectedModelResponse, error) {
+	return RuntimeSelectedModelResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SaveSelectedModel(context.Context, RuntimeSelectedModelRequest) (RuntimeSelectedModelResponse, error) {
+	return RuntimeSelectedModelResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ProviderCatalog(context.Context) (RuntimeProviderCatalogResponse, error) {
+	return RuntimeProviderCatalogResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ConfiguredProviders(context.Context) (RuntimeConfiguredProvidersResponse, error) {
+	return RuntimeConfiguredProvidersResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SaveConfiguredProvider(context.Context, RuntimeConfiguredProviderRequest) (RuntimeConfiguredProviderResponse, error) {
+	return RuntimeConfiguredProviderResponse{}, nil
+}
+
+func (s *recordingRuntimeService) DeleteConfiguredProvider(context.Context, string) (RuntimeConfiguredProvidersResponse, error) {
+	return RuntimeConfiguredProvidersResponse{}, nil
+}
+
+func (s *recordingRuntimeService) DiscoverConfiguredProviderModels(context.Context, string) (RuntimeProviderModelDiscoveryResponse, error) {
+	return RuntimeProviderModelDiscoveryResponse{}, nil
+}
+
+func (s *recordingRuntimeService) TestConfiguredProvider(context.Context, string) (RuntimeProviderTestResponse, error) {
+	return RuntimeProviderTestResponse{}, nil
+}
+
+func (s *recordingRuntimeService) MeasureConfiguredProviderLatency(context.Context, string) (RuntimeProviderTestResponse, error) {
+	return RuntimeProviderTestResponse{}, nil
+}
+
 func (s *recordingRuntimeService) GetModelConfig(context.Context) (RuntimeConfigResponse, error) {
 	return RuntimeConfigResponse{}, nil
 }
@@ -283,6 +319,10 @@ func (s *recordingRuntimeService) SessionMessages(context.Context, string) (Runt
 	return RuntimeMessagesResponse{}, nil
 }
 
+func (s *recordingRuntimeService) SessionActivity(context.Context, string) (RuntimeSessionActivityResponse, error) {
+	return RuntimeSessionActivityResponse{}, nil
+}
+
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {
 	return RuntimeMessagesResponse{}, nil
 }
@@ -419,6 +459,10 @@ func (s *recordingRuntimeService) ReadFiles(context.Context, string) (RuntimeRea
 }
 
 func (s *recordingRuntimeService) APIEndpoint(context.Context) (RuntimeAPIEndpointResponse, error) {
+	return RuntimeAPIEndpointResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ServeHTTP(context.Context, string, string) (RuntimeAPIEndpointResponse, error) {
 	return RuntimeAPIEndpointResponse{}, nil
 }
 

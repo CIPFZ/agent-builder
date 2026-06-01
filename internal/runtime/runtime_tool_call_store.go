@@ -237,6 +237,42 @@ ORDER BY started_at ASC`, strings.TrimSpace(turnID))
 	return calls, nil
 }
 
+func (s runtimeSQLiteToolCallStore) ListBySession(ctx context.Context, sessionID string) ([]scheduler.ToolCall, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
+    job_id, command, risk, policy_reason, policy_mode, policy_profile, policy_headless,
+    policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
+    shell_risk, shell_reason, sandbox_decision_id, sandbox_mode, sandbox_status,
+    sandbox_executor, sandbox_reason, sandbox_error, exit_code, job_status, job_started_at, job_finished_at,
+    input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+    output_refs_json, artifact_refs_json, diff_refs_json,
+    compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
+    started_at, finished_at, error
+FROM runtime_tool_calls
+WHERE session_id = ?
+ORDER BY started_at ASC`, strings.TrimSpace(sessionID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list runtime session tool calls: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var calls []scheduler.ToolCall
+	for rows.Next() {
+		call, err := scanRuntimeToolCall(rows)
+		if err != nil {
+			return nil, err
+		}
+		calls = append(calls, call)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate runtime session tool calls: %w", err)
+	}
+	sort.SliceStable(calls, func(i, j int) bool {
+		return calls[i].StartedAt.Before(calls[j].StartedAt)
+	})
+	return calls, nil
+}
+
 type runtimeToolCallScanner interface {
 	Scan(dest ...any) error
 }

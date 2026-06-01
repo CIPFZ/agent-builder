@@ -51,6 +51,7 @@ type Workspace struct {
 	*app.App
 	ID     string
 	Path   string
+	DataDir string
 	Cfg    *config.ConfigStore
 	Env    []string
 	Skills *skills.Manager
@@ -141,6 +142,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		App:    appWorkspace,
 		ID:     id,
 		Path:   args.Path,
+		DataDir: cfg.Config().Options.DataDirectory,
 		Cfg:    cfg,
 		Env:    args.Env,
 		Skills: skillsMgr,
@@ -202,6 +204,11 @@ func (b *Backend) DeleteWorkspace(id string) {
 	ws, ok := b.workspaces.Get(id)
 	if ok {
 		ws.Shutdown()
+		if ws.DataDir != "" {
+			if err := db.Release(ws.DataDir); err != nil {
+				slog.Warn("Failed to release workspace database", "workspace_id", id, "data_dir", ws.DataDir, "error", err)
+			}
+		}
 	}
 	b.workspaces.Del(id)
 

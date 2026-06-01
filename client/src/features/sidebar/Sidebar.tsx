@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Button, ConfigProvider } from 'antd';
-import { CaretDownOutlined, CaretRightOutlined, EditOutlined, FolderAddOutlined, FolderOutlined, MoreOutlined } from '@ant-design/icons';
+import { Button, ConfigProvider, Popconfirm } from 'antd';
+import { CaretDownOutlined, CaretRightOutlined, DeleteOutlined, EditOutlined, FolderAddOutlined, FolderOutlined, MoreOutlined } from '@ant-design/icons';
 import type { WorkbenchMode, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { settingAction } from '../../runtime/staticWorkbenchAdapter.tsx';
 import styles from './Sidebar.module.css';
@@ -10,9 +10,11 @@ interface SidebarProps {
   onModeChange: (mode: WorkbenchMode) => void;
   onProjectCreate: () => void;
   onSessionCreate: () => void;
+  onSessionDelete: (sessionID: string) => void;
+  onSessionSelect: (sessionID: string) => void;
 }
 
-export function Sidebar({ viewModel, onModeChange, onProjectCreate, onSessionCreate }: SidebarProps) {
+export function Sidebar({ viewModel, onModeChange, onProjectCreate, onSessionCreate, onSessionDelete, onSessionSelect }: SidebarProps) {
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [sessionsOpen, setSessionsOpen] = useState(true);
 
@@ -127,10 +129,35 @@ export function Sidebar({ viewModel, onModeChange, onProjectCreate, onSessionCre
             {sessionsOpen && (
               <div className={styles.list} data-testid="session-list">
                 {viewModel.sessions.map((session) => (
-                  <Button key={session.id} className={styles.sessionButton} block type="text">
-                    <span className={styles.sessionTitle}>{session.title}</span>
-                    <span className={styles.sessionAge}>{session.updatedLabel}</span>
-                  </Button>
+                  <div key={session.id} className={`${styles.sessionRow} ${session.active ? styles.currentRow : ''}`}>
+                    <Button
+                      className={styles.sessionButton}
+                      block
+                      type="text"
+                      onClick={() => onSessionSelect(session.id)}
+                    >
+                      <span className={styles.sessionTitle}>{session.title}</span>
+                      <span className={styles.sessionAge}>{session.updatedLabel}</span>
+                    </Button>
+                    <Popconfirm
+                      title="删除对话"
+                      description="此操作会删除该对话及其消息记录。"
+                      okText="删除"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => onSessionDelete(session.id)}
+                    >
+                      <Button
+                        aria-label={`删除对话 ${session.title}`}
+                        className={styles.sessionDeleteButton}
+                        danger
+                        icon={<DeleteOutlined />}
+                        size="small"
+                        title="删除对话"
+                        type="text"
+                      />
+                    </Popconfirm>
+                  </div>
                 ))}
               </div>
             )}

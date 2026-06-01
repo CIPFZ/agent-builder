@@ -161,6 +161,88 @@ func (r *runtimeService) SessionMessages(ctx context.Context, sessionID string) 
 	return r.sessionMessages(ctx, wsID, sessionID)
 }
 
+func (r *runtimeService) SessionActivity(ctx context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeSessionActivityResponse{}, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return RuntimeSessionActivityResponse{}, errors.New("session id is required")
+	}
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	policy := r.policy
+	r.mu.Unlock()
+
+	messages, err := r.sessionMessages(ctx, wsID, sessionID)
+	if err != nil {
+		return RuntimeSessionActivityResponse{}, err
+	}
+	if policy.Mode == "" {
+		if policyResp, err := r.GetPolicy(ctx); err == nil {
+			policy = policyResp.Policy
+		} else {
+			policy = defaultRuntimePolicy()
+		}
+	}
+
+	var turns []RuntimeTurn
+	if r.turns.db != nil {
+		turns, err = r.turns.ListBySession(ctx, sessionID)
+		if err != nil {
+			return RuntimeSessionActivityResponse{}, err
+		}
+	}
+
+	toolCalls := make([]RuntimeToolCall, 0)
+	if r.toolCalls != nil {
+		if len(turns) > 0 {
+			seen := map[string]struct{}{}
+			for _, turn := range turns {
+				calls, err := r.toolCalls.ListCalls(ctx, turn.ID)
+				if err != nil {
+					continue
+				}
+				for _, call := range calls {
+					if _, ok := seen[call.ID]; ok {
+						continue
+					}
+					seen[call.ID] = struct{}{}
+					toolCalls = append(toolCalls, toRuntimeToolCall(call))
+				}
+			}
+		}
+	}
+
+	var permissions []RuntimePermissionRequest
+	if r.permissionStore.db != nil {
+		if _, err := r.reconcilePendingPermissions(ctx); err != nil {
+			return RuntimeSessionActivityResponse{}, err
+		}
+		permissions, err = r.permissionStore.ListBySession(ctx, sessionID)
+		if err != nil {
+			return RuntimeSessionActivityResponse{}, err
+		}
+	} else {
+		r.mu.Lock()
+		for _, pending := range r.permissions {
+			if pending.Permission.SessionID == sessionID {
+				permissions = append(permissions, pending.Permission)
+			}
+		}
+		r.mu.Unlock()
+	}
+
+	return RuntimeSessionActivityResponse{
+		SessionID:   sessionID,
+		Messages:    messages.Messages,
+		Turns:       turns,
+		ToolCalls:   toolCalls,
+		Permissions: permissions,
+		Policy:      policy,
+	}, nil
+}
+
 func (r *runtimeService) Messages(ctx context.Context) (RuntimeMessagesResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeMessagesResponse{}, err
