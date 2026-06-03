@@ -61,6 +61,7 @@ interface SettingsPanelProps {
   onProviderDiscoverModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
   onProviderTest: (providerID: string) => Promise<ProviderTestViewModel>;
   onProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;
+  onPermissionModeSelect: (mode: string) => Promise<void>;
 }
 
 export function SettingsPanel({
@@ -72,6 +73,7 @@ export function SettingsPanel({
   onProviderDiscoverModels,
   onProviderTest,
   onProviderLatency,
+  onPermissionModeSelect,
 }: SettingsPanelProps) {
   const [activeKey, setActiveKey] = useState(settings.activeKey);
   const [siderWidth, setSiderWidth] = useState(256);
@@ -96,7 +98,7 @@ export function SettingsPanel({
           />
         );
       case 'permissions':
-        return <PermissionsSettings settings={settings} />;
+        return <PermissionsSettings settings={settings} onPermissionModeSelect={onPermissionModeSelect} />;
       case 'common':
         return <CommonSettings settings={settings} />;
       default:
@@ -277,7 +279,8 @@ function ProvidersSettings({
     const provider = normalizeConfiguredProvider(values, providers);
     setSaving(true);
     try {
-      await onProviderSave(editingProvider ? { ...provider, id: editingProvider.id } : provider);
+      const configuredProviders = await onProviderSave(editingProvider ? { ...provider, id: editingProvider.id } : provider);
+      setRuntimeSettings({ ...activeSettings, configuredProviders });
       setModalOpen(false);
       messageApi.success(editingProvider ? '服务商已保存' : '服务商已添加');
     } catch {
@@ -588,7 +591,7 @@ function formatDuration(durationMs?: number) {
   return typeof durationMs === 'number' ? `，${durationMs}ms` : '';
 }
 
-function normalizeConfiguredProvider(values: ProviderFormValues, providers: ProviderCatalogItemViewModel[]): ConfiguredProviderViewModel {
+function normalizeConfiguredProvider(values: ProviderFormValues, providers: ProviderCatalogItemViewModel[]): ConfiguredProviderViewModel & { token?: string } {
   const preset = providers.find((provider) => provider.id === values.providerId);
   return {
     id: values.id || values.providerId,
@@ -599,6 +602,7 @@ function normalizeConfiguredProvider(values: ProviderFormValues, providers: Prov
     protocol: values.protocol || 'openai-compat',
     defaultModel: normalizeDefaultModel(values.defaultModel),
     tokenConfigured: Boolean(values.token || values.tokenConfigured),
+    token: values.token,
     proxy: values.proxy,
   };
 }
@@ -610,11 +614,26 @@ function normalizeDefaultModel(model?: string | string[]) {
   return model;
 }
 
-function PermissionsSettings({ settings }: { settings: SettingsViewModel }) {
+function PermissionsSettings({ settings, onPermissionModeSelect }: { settings: SettingsViewModel; onPermissionModeSelect: (mode: string) => Promise<void> }) {
+  const selectedMode = settings.permissionMode?.mode ?? settings.permissionOptions[0]?.mode;
   return (
     <>
       <Title level={2}>权限</Title>
       <section className={styles.section}>
+        <Title level={4}>权限模式</Title>
+        <Radio.Group
+          optionType="button"
+          value={selectedMode}
+          onChange={(event) => {
+            void onPermissionModeSelect(event.target.value);
+          }}
+        >
+          {settings.permissionOptions.map((option) => (
+            <Radio.Button key={option.mode} value={option.mode}>
+              {option.label}
+            </Radio.Button>
+          ))}
+        </Radio.Group>
         <Card styles={{ body: { padding: 0 } }}>
           <Flex vertical>
             {settings.permissions.map((item) => (

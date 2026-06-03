@@ -206,6 +206,8 @@ export interface SettingsViewModel {
   activeKey: string;
   navItems: SettingsNavItemViewModel[];
   permissions: SettingsPermissionViewModel[];
+  permissionMode?: PermissionModeViewModel;
+  permissionOptions: PermissionModeOptionViewModel[];
   defaultEditor: string;
   terminalProfile: string;
   editorOptions: SettingsOptionViewModel[];

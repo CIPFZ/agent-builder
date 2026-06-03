@@ -9,6 +9,7 @@ import type {
   ProviderCatalogItemViewModel,
   ProviderTypeViewModel,
   RuntimeModelOptionViewModel,
+  SettingsPermissionViewModel,
   WorkbenchAdapter,
   WorkbenchViewModel,
 } from './workbenchTypes.ts';
@@ -410,6 +411,16 @@ function isEnglishRuntimeDescription(description: string) {
   return [...description].every((char) => char.charCodeAt(0) <= 127);
 }
 
+function settingsPermissions(policy?: RuntimePolicyDTO): SettingsPermissionViewModel[] {
+  const selected = permissionMode(policy).mode;
+  return permissionModeOptions.map((option) => ({
+    key: option.mode,
+    title: option.label,
+    description: option.description ?? '',
+    enabled: option.mode === selected,
+  }));
+}
+
 function mapPermission(permission: RuntimePermissionDTO): PermissionRequestViewModel {
   return {
     id: permission.id,
@@ -766,6 +777,9 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     },
     settings: {
       ...current.settings,
+      permissionMode: permissionMode(policy),
+      permissionOptions: permissionModeOptions,
+      permissions: settingsPermissions(policy),
       providerTypes: providerCatalog?.providerTypes ?? current.settings.providerTypes,
       providers: providerCatalog?.providers ?? current.settings.providers,
       configuredProviders: mapConfiguredProviders(configuredProvidersResponse) ?? current.settings.configuredProviders,

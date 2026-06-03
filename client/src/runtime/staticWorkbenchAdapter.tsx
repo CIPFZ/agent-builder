@@ -47,6 +47,7 @@ const settings = {
     { key: 'diagnostics', label: '诊断', icon: <ExperimentOutlined /> },
   ],
   permissions: [],
+  permissionOptions: [],
   defaultEditor: '',
   terminalProfile: '',
   editorOptions: [],

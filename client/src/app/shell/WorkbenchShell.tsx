@@ -237,6 +237,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onProviderLatency={measureConfiguredProviderLatency}
           onProviderSave={saveConfiguredProvider}
           onProviderTest={testConfiguredProvider}
+          onPermissionModeSelect={selectPermissionMode}
           onSettingsRefresh={refreshSettings}
         />
       </main>
