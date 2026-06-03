@@ -3,10 +3,11 @@
   gap: 8px;
   width: min(720px, 94%);
   margin: 4px 0;
-  padding: 12px 14px;
-  border: 1px solid #f0bd55;
+  padding: 10px 12px 10px 14px;
+  border: 1px solid rgb(180 119 0 / 24%);
+  border-left: 3px solid #b77900;
   border-radius: 6px;
-  background: #fffaf0;
+  background: #fffaf2;
 }
 
 .header,
@@ -15,29 +16,56 @@
 .meta {
   display: flex;
   align-items: center;
-  gap: 8px;
 }
 
 .header {
   justify-content: space-between;
+  gap: 12px;
 }
 
-.title,
-.tool {
+.title {
+  gap: 7px;
+  color: rgb(13 13 13 / 82%);
+  font-size: 13px;
   font-weight: 600;
 }
 
-.target,
-.reason {
-  color: rgb(13 13 13 / 68%);
+.body {
+  display: grid;
+  gap: 6px;
+}
+
+.tool {
+  color: rgb(13 13 13 / 78%);
   font-size: 13px;
+  font-weight: 600;
+}
+
+.target {
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 6px;
+  overflow: hidden;
+  border: 1px solid rgb(13 13 13 / 9%);
+  border-radius: 5px;
+  background: rgb(255 255 255 / 72%);
+  color: rgb(13 13 13 / 74%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reason {
+  color: rgb(13 13 13 / 64%);
+  font-size: 13px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
-.actions {
-  flex-wrap: wrap;
-}
-
+.actions,
 .meta {
   flex-wrap: wrap;
+  gap: 8px;
 }

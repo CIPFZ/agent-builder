@@ -15,18 +15,25 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 	sessionID := r.sessionID
 	events := r.eventStats.snapshot()
 	requests := r.runtimeRequestsLocked()
-	activeRequest := r.requests[requests.ActiveRequestID]
+	sessionRequestID := r.sessionTurns[sessionID]
+	sessionRequest := r.requests[sessionRequestID]
+	sessionBusy := sessionRequestID != "" && !isFinalRuntimeRequestState(sessionRequest)
+	if sessionBusy {
+		requests.SessionRequestID = sessionRequestID
+		requests.SessionStartedAt = sessionRequest.StartedAt
+		requests.SessionBusy = true
+	}
 	r.mu.Unlock()
-	if requests.Running > 0 {
+	if sessionBusy {
 		return RuntimeStatus{
 			Ready:       true,
 			WorkspaceID: ws.ID,
 			SessionID:   sessionID,
 			WorkingDir:  ws.Path,
-			Model:       activeRequest.Model,
-			Provider:    activeRequest.Provider,
+			Model:       sessionRequest.Model,
+			Provider:    sessionRequest.Provider,
 			Busy:        true,
-			Usage:       activeRequest.UsageBefore,
+			Usage:       sessionRequest.UsageBefore,
 			Events:      events,
 			Requests:    requests,
 		}, nil
@@ -40,6 +47,11 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 					requests.ActiveRequestID = turn.ID
 					requests.ActiveStartedAt = turn.StartedAt
 					requests.ActiveDurationMS = now - turn.StartedAt
+				}
+				if turn.SessionID == sessionID && !isFinalTurnStatus(turn.Status) {
+					requests.SessionRequestID = turn.ID
+					requests.SessionStartedAt = turn.StartedAt
+					requests.SessionBusy = true
 				}
 			}
 		}
@@ -65,7 +77,7 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 		WorkingDir:  ws.Path,
 		Model:       info.ModelCfg.Model,
 		Provider:    info.ModelCfg.Provider,
-		Busy:        info.IsBusy,
+		Busy:        requests.SessionBusy,
 		Usage:       usage,
 		Events:      events,
 		Requests:    requests,

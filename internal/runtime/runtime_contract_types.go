@@ -829,6 +829,9 @@ type RuntimeRequests struct {
 	ActiveRequestID  string `json:"activeRequestId,omitempty"`
 	ActiveStartedAt  int64  `json:"activeStartedAt,omitempty"`
 	ActiveDurationMS int64  `json:"activeDurationMs,omitempty"`
+	SessionRequestID string `json:"sessionRequestId,omitempty"`
+	SessionStartedAt int64  `json:"sessionStartedAt,omitempty"`
+	SessionBusy      bool   `json:"sessionBusy,omitempty"`
 	Running          int    `json:"running"`
 }
 

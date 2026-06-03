@@ -3,10 +3,10 @@
   gap: 8px;
   width: min(720px, 94%);
   margin: 4px 0;
-  padding: 12px 14px;
-  border: 1px solid rgb(13 13 13 / 12%);
+  padding: 8px 0 8px 28px;
+  border-left: 2px solid rgb(13 13 13 / 12%);
   border-radius: 6px;
-  background: #fff;
+  background: transparent;
 }
 
 .header,
@@ -18,12 +18,32 @@
 }
 
 .header {
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 10px;
 }
 
 .title {
   min-width: 0;
-  font-weight: 600;
+  color: rgb(13 13 13 / 70%);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.command {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 7px;
+  overflow: hidden;
+  border: 1px solid rgb(13 13 13 / 10%);
+  border-radius: 5px;
+  background: #f7f7f7;
+  color: rgb(13 13 13 / 78%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .detail {
@@ -38,11 +58,19 @@
   overflow-wrap: anywhere;
 }
 
+.errorDetail {
+  background: #fff5f5;
+  color: #9f1d1d;
+}
+
 .output {
+  margin: 2px 0 0;
   color: rgb(13 13 13 / 72%);
   font-size: 13px;
+  line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .card :global(.ant-collapse-header) {

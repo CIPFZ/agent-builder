@@ -1,6 +1,15 @@
 import { useState } from 'react';
 import { Button, ConfigProvider, Popconfirm } from 'antd';
-import { CaretDownOutlined, CaretRightOutlined, DeleteOutlined, EditOutlined, FolderAddOutlined, FolderOutlined, MoreOutlined } from '@ant-design/icons';
+import {
+  CaretDownOutlined,
+  CaretRightOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  FolderAddOutlined,
+  FolderOutlined,
+  LoadingOutlined,
+  MoreOutlined,
+} from '@ant-design/icons';
 import type { WorkbenchMode, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { settingAction } from '../../runtime/staticWorkbenchAdapter.tsx';
 import styles from './Sidebar.module.css';
@@ -129,16 +138,21 @@ export function Sidebar({ viewModel, onModeChange, onProjectCreate, onSessionCre
             {sessionsOpen && (
               <div className={styles.list} data-testid="session-list">
                 {viewModel.sessions.map((session) => (
-                  <div key={session.id} className={`${styles.sessionRow} ${session.active ? styles.currentRow : ''}`}>
-                    <Button
-                      className={styles.sessionButton}
-                      block
-                      type="text"
-                      onClick={() => onSessionSelect(session.id)}
-                    >
+                  <div
+                    key={session.id}
+                    className={`${styles.sessionRow} ${session.active ? styles.currentRow : ''}`}
+                    data-session-id={session.id}
+                    data-session-busy={session.busy ? 'true' : 'false'}
+                  >
+                    <Button className={styles.sessionButton} block type="text" onClick={() => onSessionSelect(session.id)}>
                       <span className={styles.sessionTitle}>{session.title}</span>
                       <span className={styles.sessionAge}>{session.updatedLabel}</span>
                     </Button>
+                    {session.busy && (
+                      <span className={styles.sessionSpinner} aria-label="会话执行中" title="会话执行中">
+                        <LoadingOutlined spin />
+                      </span>
+                    )}
                     <Popconfirm
                       title="删除对话"
                       description="此操作会删除该对话及其消息记录。"

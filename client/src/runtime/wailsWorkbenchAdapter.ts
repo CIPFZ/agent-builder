@@ -22,6 +22,8 @@ interface RuntimeStatusDTO {
   busy?: boolean;
   requests?: {
     activeRequestId?: string;
+    sessionRequestId?: string;
+    sessionBusy?: boolean;
     running?: number;
   };
 }
@@ -149,9 +151,15 @@ interface RuntimeTurnDTO {
   id: string;
   sessionId: string;
   status: string;
+  userMessageId?: string;
+  latestAssistantMessageId?: string;
   startedAt?: number;
   finishedAt?: number;
   error?: string;
+}
+
+interface RuntimeTurnsResponseDTO {
+  turns: RuntimeTurnDTO[];
 }
 
 interface RuntimeToolCallDTO {
@@ -234,6 +242,7 @@ interface RuntimeBridgeModule {
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
   SessionActivity?: (sessionID: string) => Promise<RuntimeSessionActivityDTO>;
   Turn?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
+  Turns?: (status: string) => Promise<RuntimeTurnsResponseDTO>;
   Permissions?: () => Promise<{ permissions: RuntimePermissionDTO[] }>;
   GetPolicy?: () => Promise<RuntimePolicyResponseDTO>;
   UpdatePolicy?: (req: { mode: string }) => Promise<RuntimePolicyResponseDTO>;
@@ -319,15 +328,26 @@ function modelLabel(status?: RuntimeStatusDTO, modelsResponse?: RuntimeModelsRes
   return model || '未配置模型';
 }
 
-function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: string) {
+function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: string, activeTurns?: RuntimeTurnDTO[]) {
   const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
+  const activeTurnBySession = new Map(
+    (Array.isArray(activeTurns) ? activeTurns : [])
+      .filter((turn) => turn.sessionId && !isFinalTurnStatus(turn.status))
+      .map((turn) => [turn.sessionId, turn]),
+  );
 
   return sessions.map((session) => ({
     id: session.id,
     title: session.title || '新对话',
     updatedLabel: formatUpdatedLabel(session.updatedAt),
     active: session.active || session.id === activeSessionID,
+    busy: activeTurnBySession.has(session.id),
+    activeTurnId: activeTurnBySession.get(session.id)?.id,
   }));
+}
+
+function isFinalTurnStatus(status?: string) {
+  return ['completed', 'failed', 'cancelled', 'interrupted'].includes(status || '');
 }
 
 function mapConfiguredProviders(response?: RuntimeConfiguredProvidersResponseDTO): ConfiguredProviderViewModel[] | undefined {
@@ -416,6 +436,8 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
   const toolCallsDTO = Array.isArray(activity.toolCalls) ? activity.toolCalls : [];
   const permissionsDTO = Array.isArray(activity.permissions) ? activity.permissions : [];
   const turnsDTO = Array.isArray(activity.turns) ? activity.turns : [];
+  const turnContext = buildTurnContext(messagesDTO, turnsDTO);
+  const messageOrder = new Map(messagesDTO.map((message, index) => [message.id, index]));
   const messages: ConversationTimelineItemViewModel[] = messagesDTO
     .filter((message) => message.role === 'user' || message.role === 'assistant')
     .flatMap((message) => {
@@ -436,9 +458,9 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
           error: message.error,
         });
       }
-      timelineItems.push(...runtimeThinkingItems(message, activity.sessionId));
       return timelineItems;
     });
+  const thinking = runtimeGroupedThinkingItems(messagesDTO, activity.sessionId, turnContext);
   const toolCalls: ConversationTimelineItemViewModel[] = toolCallsDTO.map((toolCall) => ({
     id: `tool:${toolCall.id}`,
     kind: 'tool_call',
@@ -483,14 +505,109 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
       error: turn.error,
     }));
 
-  return [...messages, ...toolCalls, ...permissions, ...progress].sort((left, right) => {
-    const leftTime = left.createdAt ?? 0;
-    const rightTime = right.createdAt ?? 0;
+  return [...messages, ...thinking, ...toolCalls, ...permissions, ...progress].sort((left, right) => {
+    const leftTurn = left.turnId || turnIDForMessage(turnContext, left.messageId);
+    const rightTurn = right.turnId || turnIDForMessage(turnContext, right.messageId);
+    const leftTime = timelineSortTime(left, leftTurn, turnContext);
+    const rightTime = timelineSortTime(right, rightTurn, turnContext);
     if (leftTime !== rightTime) {
       return leftTime - rightTime;
     }
+    if (leftTurn && rightTurn && leftTurn === rightTurn) {
+      const leftRank = timelineKindRank(left);
+      const rightRank = timelineKindRank(right);
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+    }
+    const leftMessageOrder = timelineMessageOrder(left, messageOrder);
+    const rightMessageOrder = timelineMessageOrder(right, messageOrder);
+    if (leftMessageOrder !== rightMessageOrder) {
+      return leftMessageOrder - rightMessageOrder;
+    }
     return left.id.localeCompare(right.id);
   });
+}
+
+interface TimelineTurnContext {
+  turnByID: Map<string, RuntimeTurnDTO>;
+  turnIDByMessageID: Map<string, string>;
+}
+
+function buildTurnContext(messages: RuntimeMessageDTO[], turns: RuntimeTurnDTO[]): TimelineTurnContext {
+  const turnByID = new Map(turns.map((turn) => [turn.id, turn]));
+  const turnIDByMessageID = new Map<string, string>();
+  const messageIndex = new Map(messages.map((message, index) => [message.id, index]));
+  for (const turn of turns) {
+    if (turn.userMessageId) {
+      turnIDByMessageID.set(turn.userMessageId, turn.id);
+    }
+    if (turn.latestAssistantMessageId) {
+      turnIDByMessageID.set(turn.latestAssistantMessageId, turn.id);
+      if (!turn.userMessageId) {
+        const assistantIndex = messageIndex.get(turn.latestAssistantMessageId);
+        if (typeof assistantIndex === 'number') {
+          for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+            const candidate = messages[index];
+            if (candidate.role === 'user' && !turnIDByMessageID.has(candidate.id)) {
+              turnIDByMessageID.set(candidate.id, turn.id);
+              for (let relatedIndex = index + 1; relatedIndex <= assistantIndex; relatedIndex += 1) {
+                const related = messages[relatedIndex];
+                if (related.role === 'assistant' && !turnIDByMessageID.has(related.id)) {
+                  turnIDByMessageID.set(related.id, turn.id);
+                }
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+  return { turnByID, turnIDByMessageID };
+}
+
+function timelineMessageOrder(item: ConversationTimelineItemViewModel, messageOrder: Map<string, number>) {
+  if (!item.messageId) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return messageOrder.get(item.messageId) ?? Number.MAX_SAFE_INTEGER;
+}
+
+function turnIDForMessage(context: TimelineTurnContext, messageID?: string) {
+  if (!messageID) {
+    return undefined;
+  }
+  return context.turnIDByMessageID.get(messageID);
+}
+
+function timelineSortTime(item: ConversationTimelineItemViewModel, turnID: string | undefined, context: TimelineTurnContext) {
+  if (turnID) {
+    const turn = context.turnByID.get(turnID);
+    if (turn?.startedAt) {
+      return turn.startedAt;
+    }
+  }
+  return normalizeTimestamp(item.createdAt ?? 0);
+}
+
+function timelineKindRank(item: ConversationTimelineItemViewModel) {
+  if (item.kind === 'message' && item.role === 'user') {
+    return 0;
+  }
+  if (item.kind === 'thinking') {
+    return 1;
+  }
+  if (item.kind === 'tool_call') {
+    return 2;
+  }
+  if (item.kind === 'permission') {
+    return 3;
+  }
+  if (item.kind === 'progress') {
+    return 4;
+  }
+  return 5;
 }
 
 function runtimeMessageContent(message: RuntimeMessageDTO) {
@@ -505,31 +622,79 @@ function runtimeMessageContent(message: RuntimeMessageDTO) {
     .join('\n\n');
 }
 
-function runtimeThinkingItems(message: RuntimeMessageDTO, sessionId: string): ConversationTimelineItemViewModel[] {
-  if (!Array.isArray(message.parts)) {
-    return [];
-  }
-  const items: ConversationTimelineItemViewModel[] = [];
-  message.parts.forEach((part, index) => {
-    if (part.type !== 'reasoning' || !part.thinking?.trim()) {
+function runtimeGroupedThinkingItems(messages: RuntimeMessageDTO[], sessionId: string, turnContext: TimelineTurnContext): ConversationTimelineItemViewModel[] {
+  const groups = new Map<
+    string,
+    {
+      content: string[];
+      createdAt?: number;
+      updatedAt?: number;
+      messageId?: string;
+      provider?: string;
+      model?: string;
+      running: boolean;
+    }
+  >();
+
+  messages.forEach((message) => {
+    if (!Array.isArray(message.parts)) {
       return;
     }
-    items.push({
-        id: `thinking:${message.id}:${index}`,
-        kind: 'thinking' as const,
-        sessionId,
+    message.parts.forEach((part) => {
+      if (part.type !== 'reasoning' || !part.thinking?.trim()) {
+        return;
+      }
+      const turnId = turnIDForMessage(turnContext, message.id) || `message:${message.id}`;
+      const group = groups.get(turnId) ?? {
+        content: [],
         messageId: message.id,
-        role: message.role,
-        title: '运行摘要',
-        content: part.thinking.trim(),
-        status: part.finishedAt ? 'completed' : 'running',
-        createdAt: part.startedAt || message.createdAt,
-        updatedAt: part.finishedAt,
         provider: message.provider,
         model: message.model,
+        running: false,
+      };
+      group.content.push(part.thinking.trim());
+      group.createdAt = minTimestamp(group.createdAt, part.startedAt || message.createdAt);
+      group.updatedAt = maxTimestamp(group.updatedAt, part.finishedAt);
+      group.running ||= !part.finishedAt;
+      groups.set(turnId, group);
     });
   });
-  return items;
+
+  return Array.from(groups.entries()).map(([turnId, group]) => ({
+    id: `thinking:${turnId}`,
+    kind: 'thinking' as const,
+    sessionId,
+    turnId: turnId.startsWith('message:') ? undefined : turnId,
+    messageId: group.messageId,
+    role: 'assistant' as const,
+    title: '思考',
+    content: group.content.join('\n\n'),
+    status: group.running ? 'running' : 'completed',
+    createdAt: group.createdAt,
+    updatedAt: group.updatedAt,
+    provider: group.provider,
+    model: group.model,
+  }));
+}
+
+function minTimestamp(left?: number, right?: number) {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return Math.min(left, right);
+}
+
+function maxTimestamp(left?: number, right?: number) {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return Math.max(left, right);
 }
 
 function toConfiguredProviderRequest(provider: ConfiguredProviderViewModel & { token?: string }): RuntimeConfiguredProviderRequestDTO {
@@ -548,12 +713,13 @@ function toConfiguredProviderRequest(provider: ConfiguredProviderViewModel & { t
 }
 
 async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBridgeModule) {
-  const [status, sessionsResponse, modelsResponse, providerCatalog, configuredProvidersResponse] = await Promise.all([
+  const [status, sessionsResponse, modelsResponse, providerCatalog, configuredProvidersResponse, activeTurnsResponse] = await Promise.all([
     optionalRuntimeRequest(() => bridge.Status()),
     optionalRuntimeRequest(() => bridge.Sessions()),
     bridge.Models().catch(() => undefined),
     bridge.ProviderCatalog?.().catch(() => undefined),
     bridge.ConfiguredProviders?.().catch(() => undefined),
+    optionalRuntimeRequest(() => bridge.Turns?.('active') ?? Promise.resolve(undefined)),
   ]);
   const activeSessionID = status?.sessionId || sessionsResponse?.sessions?.find((session) => session.active)?.id;
   const activity = activeSessionID ? await optionalRuntimeRequest(() => bridge.SessionActivity?.(activeSessionID) ?? Promise.resolve(undefined)) : undefined;
@@ -565,8 +731,15 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const options = modelOptions(modelsResponse);
   const selectedModel = options.find((model) => model.selected);
   const workingDir = status?.workingDir || current.currentProject.path;
-  const busy = typeof status?.busy === 'boolean' ? status.busy : Boolean(current.composer.busy);
-  const activeTurnId = status?.requests?.activeRequestId || (busy ? current.composer.activeTurnId : undefined);
+  const activeTurns = Array.isArray(activeTurnsResponse?.turns) ? activeTurnsResponse.turns : [];
+  const sessionActiveTurn =
+    activeTurns.find((turn) => turn.sessionId === activeSessionID && !isFinalTurnStatus(turn.status)) ||
+    activity?.turns.find((turn) => !isFinalTurnStatus(turn.status));
+  const busy =
+    typeof status?.requests?.sessionBusy === 'boolean'
+      ? status.requests.sessionBusy
+      : Boolean(sessionActiveTurn);
+  const activeTurnId = status?.requests?.sessionRequestId || sessionActiveTurn?.id || (busy ? current.composer.activeTurnId : undefined);
   const policy = activity?.policy ?? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy;
   const permissions = (Array.isArray(activity?.permissions) ? activity.permissions : []).map(mapPermission);
 
@@ -576,7 +749,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       ...current.currentProject,
       path: workingDir,
     },
-    sessions: mapSessions(sessionsResponse, status?.sessionId),
+    sessions: mapSessions(sessionsResponse, status?.sessionId, activeTurns),
     conversation: mapConversation(messagesResponse),
     timeline: activity ? mapActivityTimeline(activity) : current.timeline,
     pendingPermissions: permissions.filter((permission) => permission.status === 'pending'),
@@ -822,6 +995,7 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
   SessionMessages: (sessionID) => runtimeFetch<RuntimeMessagesResponseDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/messages`),
   SessionActivity: (sessionID) => runtimeFetch<RuntimeSessionActivityDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity`),
   Turn: (turnID) => runtimeFetch<RuntimeTurnResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}`),
+  Turns: (status) => runtimeFetch<RuntimeTurnsResponseDTO>(`/v1/turns?status=${encodeURIComponent(status)}`),
   Permissions: () => runtimeFetch<{ permissions: RuntimePermissionDTO[] }>('/v1/permissions'),
   GetPolicy: () => runtimeFetch<RuntimePolicyResponseDTO>('/v1/policy'),
   UpdatePolicy: (req) =>
@@ -1044,7 +1218,12 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
             ...optimistic,
             mode: 'new-chat',
             sessions: responseSessionID
-              ? current.sessions.map((session) => ({ ...session, active: session.id === responseSessionID }))
+              ? current.sessions.map((session) => ({
+                  ...session,
+                  active: session.id === responseSessionID,
+                  busy: session.id === responseSessionID ? busyAfterSubmit : session.busy,
+                  activeTurnId: session.id === responseSessionID && busyAfterSubmit ? response.turnId : session.activeTurnId,
+                }))
               : current.sessions,
             composer: {
               ...optimistic.composer,

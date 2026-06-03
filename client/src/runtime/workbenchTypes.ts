@@ -16,6 +16,8 @@ export interface SessionViewModel {
   title: string;
   updatedLabel: string;
   active?: boolean;
+  busy?: boolean;
+  activeTurnId?: string;
 }
 
 export interface SidebarActionViewModel {

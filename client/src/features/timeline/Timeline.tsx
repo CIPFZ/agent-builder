@@ -1,4 +1,4 @@
-import { Alert, Tag } from 'antd';
+import { Tag } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
 import type { ConversationTimelineItemViewModel } from '../../runtime/workbenchTypes.ts';
 import { PermissionGate } from '../permissions/PermissionGate.tsx';
@@ -26,15 +26,9 @@ export function Timeline({ items, onPermissionDecide }: TimelineProps) {
         }
         if (item.kind === 'progress') {
           return (
-            <Alert
-              key={item.id}
-              className={styles.progress}
-              data-testid="turn-progress"
-              message="运行进度"
-              description={progressLabel(item.status)}
-              type={item.status === 'failed' || item.status === 'cancelled' ? 'error' : 'info'}
-              showIcon
-            />
+            <div key={item.id} className={styles.progress} data-testid="turn-progress" data-progress-status={item.status}>
+              {progressLabel(item.status)}
+            </div>
           );
         }
         return (
@@ -55,16 +49,15 @@ export function Timeline({ items, onPermissionDecide }: TimelineProps) {
 function progressLabel(status?: string) {
   switch (status) {
     case 'waiting_permission':
-      return '等待权限审批';
+      return '等待权限确认';
     case 'running':
-      return '正在执行';
     case 'queued':
-      return '等待执行';
+      return '正在思考';
     case 'cancelled':
       return '已取消';
     case 'failed':
       return '执行失败';
     default:
-      return status || '处理中';
+      return status || '正在思考';
   }
 }

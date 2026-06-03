@@ -18,5 +18,16 @@
 
 .progress {
   width: min(720px, 94%);
-  border-radius: 6px;
+  padding: 8px 0;
+  color: rgb(13 13 13 / 42%);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.progress[data-progress-status='failed'] {
+  color: #cf1322;
+}
+
+.progress[data-progress-status='cancelled'] {
+  color: rgb(13 13 13 / 50%);
 }

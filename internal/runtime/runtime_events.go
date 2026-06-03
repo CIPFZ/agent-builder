@@ -312,6 +312,7 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 		r.eventStats.messageEvents++
 		msg := toProtoMessage(payload.Payload)
 		turnID := r.sessionTurns[msg.SessionID]
+		r.recordUserMessageForTurnLocked(context.Background(), msg, turnID)
 		r.recordToolCallsFromMessage(context.Background(), msg, turnID, now)
 		runtimeEvent := newMessageRuntimeEvent(now, msg)
 		runtimeEvent.TurnID = turnID
@@ -325,6 +326,7 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 	case pubsub.Event[proto.Message]:
 		r.eventStats.messageEvents++
 		turnID := r.sessionTurns[payload.Payload.SessionID]
+		r.recordUserMessageForTurnLocked(context.Background(), payload.Payload, turnID)
 		r.recordToolCallsFromMessage(context.Background(), payload.Payload, turnID, now)
 		runtimeEvent := newMessageRuntimeEvent(now, payload.Payload)
 		runtimeEvent.TurnID = turnID
@@ -352,6 +354,18 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 	for _, runtimeEvent := range runtimeEvents {
 		r.publishRuntimeEvent(runtimeEvent)
 	}
+}
+
+func (r *runtimeService) recordUserMessageForTurnLocked(ctx context.Context, msg proto.Message, turnID string) {
+	if turnID == "" || msg.ID == "" || msg.Role != proto.User {
+		return
+	}
+	turn, err := r.turns.Get(ctx, turnID)
+	if err != nil || turn.UserMessageID != "" {
+		return
+	}
+	turn.UserMessageID = msg.ID
+	_, _ = r.turns.Upsert(ctx, turn)
 }
 
 func (s runtimeEventStats) snapshot() RuntimeEventStats {

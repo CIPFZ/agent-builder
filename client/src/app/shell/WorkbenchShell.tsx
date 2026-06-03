@@ -24,7 +24,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   }, [viewModel]);
 
   useEffect(() => {
-    if (!viewModel.composer.busy) {
+    const hasActiveSession = viewModel.sessions.some((session) => session.busy);
+    if (!viewModel.composer.busy && !hasActiveSession) {
       return undefined;
     }
 
@@ -39,7 +40,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         }
         setMode(nextViewModel.mode);
         setViewModel(nextViewModel);
-        if (nextViewModel.composer.busy) {
+        if (nextViewModel.composer.busy || nextViewModel.sessions.some((session) => session.busy)) {
           timer = window.setTimeout(refreshUntilIdle, 1200);
         }
       } catch {
@@ -57,7 +58,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         window.clearTimeout(timer);
       }
     };
-  }, [adapter, mode, viewModel.composer.busy]);
+  }, [adapter, mode, viewModel.composer.busy, viewModel.sessions]);
 
   const changeMode = (nextMode: WorkbenchMode) => {
     setMode(nextMode);
