@@ -1,6 +1,6 @@
 # Workbench Runtime Feature Roadmap
 
-Status: active roadmap with Phase 1-4 frontend/backend integration completed.
+Status: active roadmap with Phase 1-5 frontend/backend/runtime closure completed.
 
 This document continues the provider-settings work and defines the next
 implementation sequence for turning Agent Builder into a usable runtime-backed
@@ -13,13 +13,18 @@ Update 2026-06-03:
 - Phase 1 through Phase 4 are completed for the current desktop workbench
   milestone: configured provider/model chat, durable sessions/model switching,
   runtime timeline rendering, and permission decision UI.
+- Phase 5 is completed for the runtime closure gate: scenario coverage now
+  exercises pending permission reload/deny, multi-session active recovery, MCP
+  pending/denied replay with redaction, AgentTask mailbox ordering/rejection,
+  and the existing policy, hook, sandbox/worktree, compact/ref, adapter, and
+  DTO contract checks.
 - The tool/thinking/permission integration plan is completed and archived as a
   finished milestone:
   [`tool-thinking-permission-integration-plan.md`](./tool-thinking-permission-integration-plan.md).
-- Before continuing into broader Skills, MCP, Projects, or deep React
-  diagnostics, the next stage is runtime parity closure stabilization and
-  scenario coverage:
+- Runtime parity closure stabilization and scenario coverage is recorded in:
   [`runtime-parity-closure-stabilization-plan.md`](./runtime-parity-closure-stabilization-plan.md).
+- The next implementation stage is Skills and MCP management surfaces, with
+  React consuming runtime DTOs only.
 
 The Settings -> 服务商 module now has the first real frontend/backend path:
 
@@ -256,7 +261,7 @@ Acceptance:
 
 ## Phase 5: Runtime Closure Gate Before Skills And MCP
 
-Status: next.
+Status: completed for the 2026-06-03 closure gate.
 
 Goal: prove the completed runtime primitives across recovery, replay, policy,
 hooks, MCP, AgentTask, sandbox/worktree, refs, and adapter contracts before
@@ -273,6 +278,18 @@ Acceptance:
 - Replay/recovery can explain visible runtime facts without React-owned state.
 - Runtime DTOs are stable enough for later React diagnostics and management
   views.
+
+Completed scope:
+
+- Pending permission reload and deny flows now prove durable permission, tool
+  call, turn, event, audit, and replay updates.
+- Multi-session active recovery keeps running and waiting-permission turns
+  separate by session.
+- MCP pending elicitation recovery and denial are replayable and redacted.
+- AgentTask follow-up rejection and mailbox order are durable and replayable.
+- Existing closure tests continue to cover policy/headless, hooks, shell
+  classification, sandbox/worktree, compact/refs/redaction, HTTP, Wails, and
+  TypeScript build contracts.
 
 ## Phase 6: Skills And MCP
 
@@ -389,8 +406,8 @@ Each group needs:
 3. Completed: add session model switching.
 4. Completed: add timeline rendering for messages/tool calls/permissions.
 5. Completed: add permission decision UI.
-6. Next: run runtime parity closure stabilization and scenario coverage.
-7. Add Skills settings.
+6. Completed: run runtime parity closure stabilization and scenario coverage.
+7. Next: add Skills settings.
 8. Add MCP settings and enabled tool visibility.
 9. Add projects and project-scoped session lists.
 

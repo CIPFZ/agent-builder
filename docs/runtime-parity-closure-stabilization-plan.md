@@ -1,11 +1,54 @@
 # Runtime Parity Closure Stabilization Plan
 
-Status: active next implementation plan.
+Status: completed for the 2026-06-03 runtime closure gate.
 
 This plan starts after the frontend/backend tool, thinking, and permission
 integration milestone. The goal is to prove that the runtime-owned primitives
 now visible in the desktop workbench are durable, recoverable, replayable, and
 safe across their cross-boundary interactions.
+
+## 2026-06-03 Completion Record
+
+The closure gate was run as scenario coverage rather than a new user-facing
+surface. The runtime scenario harness now initializes the same durable stores
+needed by replay/recovery closure, including MCP requests, hook executions, and
+refs, and adds focused scenarios for:
+
+- pending permission recovery after runtime reload, followed by denial through
+  the runtime decision path, with permission, tool call, turn, event, audit, and
+  replay facts updated;
+- multi-session active turn recovery, proving running and waiting-permission
+  turns remain independent while completed turns do not recover as active;
+- MCP elicitation pending recovery, denial, replay provenance, and secret
+  redaction;
+- AgentTask message ordering, undeliverable follow-up rejection, durable
+  mailbox state, and replay explanation.
+
+Existing closure tests continue to cover policy/headless behavior, hook
+precedence, shell risk classification, MCP request store paths, sandbox and
+worktree decisions, compact/ref replay, output/artifact refs, HTTP route
+contracts, and redaction.
+
+Validation completed:
+
+```powershell
+go test ./internal/runtime -run "Scenario|Replay|Recovery|Permission|Policy|Hook|MCP|AgentTask|Sandbox|Worktree|Ref|Turn|Tool" -count=1
+go test ./desktop -count=1
+cd client; npm run lint
+cd client; npm run build
+```
+
+No frontend, adapter implementation, or browser-visible behavior changed in
+this closure pass, so manual in-app browser verification was not required.
+
+Remaining risks:
+
+- shell parser parity can still be broadened with more PowerShell, cmd, and
+  POSIX fixture cases;
+- React diagnostics remain intentionally blocked until the next phase consumes
+  these runtime facts through DTOs rather than local reducers;
+- OS-level sandbox executor maturity and remote teammate/runtime surfaces remain
+  later product hardening, not part of this local closure gate.
 
 ## Goal
 

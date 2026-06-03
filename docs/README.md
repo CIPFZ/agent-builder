@@ -21,8 +21,8 @@ material. Use this index to avoid following superseded phase plans.
   projects.
 - `tool-thinking-permission-integration-plan.md`: completed frontend/backend
   integration milestone for runtime tool calls, thinking, and permissions.
-- `runtime-parity-closure-stabilization-plan.md`: active next implementation
-  plan for runtime closure scenario coverage and contract hardening.
+- `runtime-parity-closure-stabilization-plan.md`: completed 2026-06-03 runtime
+  closure scenario coverage and contract hardening record.
 
 ## Active Design Baselines
 

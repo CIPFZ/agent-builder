@@ -1,6 +1,6 @@
 # Claude Code Next Implementation Plan
 
-Status: active next implementation plan, reconfirmed on 2026-06-03.
+Status: runtime closure implementation completed on 2026-06-03.
 
 Agent Builder baseline: `d51590b76a680e683b9d5335797c7076c16a5b05`
 
@@ -15,21 +15,23 @@ the audit/doc refresh session.
 
 - The frontend/backend tool, thinking, and permission integration milestone is
   completed.
-- The next implementation task remains runtime parity closure stabilization and
-  scenario coverage.
-- Detailed execution scope is now tracked in
+- Runtime parity closure stabilization and scenario coverage is completed for
+  the local desktop closure gate.
+- Detailed completion scope is tracked in
   [`runtime-parity-closure-stabilization-plan.md`](./runtime-parity-closure-stabilization-plan.md).
+- The next implementation task is now Skills/MCP management surfaces, with
+  React consuming runtime DTOs and no frontend-owned business truth.
 
 ## Current Decision
 
 There is no core runtime blocker remaining for the local desktop Claude Code
-runtime parity scope. The next task should be closure stabilization and
-scenario coverage, not a new runtime primitive and not React diagnostics.
+runtime parity scope. Runtime closure stabilization and scenario coverage has
+now been run for the 2026-06-03 gate.
 
 Recommended unique next task:
 
 ```text
-runtime: run parity closure stabilization and scenario coverage
+workbench: add Skills and MCP management surfaces
 ```
 
 ## Why Runtime Remains First
@@ -50,7 +52,7 @@ runtime: run parity closure stabilization and scenario coverage
 
 | Field | Plan |
 | --- | --- |
-| Goal | Add parity closure scenarios and contract checks that prove runtime-owned behavior across hooks, policy/headless, MCP auth/elicitation, AgentTask communication, sandbox/worktree scope, compact/reinjection, output/artifact refs, replay, and recovery. |
+| Goal | Completed: add parity closure scenarios and contract checks that prove runtime-owned behavior across hooks, policy/headless, MCP auth/elicitation, AgentTask communication, sandbox/worktree scope, compact/reinjection, output/artifact refs, replay, and recovery. |
 | Why this beats other modules | No missing local runtime primitive remains. Closure scenarios are the gate before React diagnostics and later advisory/plugin/remote work. |
 | Non-goals | No remote runtime, SSH/cloud teammate, product telemetry, marketplace-first distribution, provider protocol rewrite, `charm.land/fantasy` changes, React-owned business state, or model self-approved permissions. |
 | Go packages/files | `internal/runtime/runtime_scenario_harness_test.go`; `internal/runtime/runtime_replay_export.go`; `internal/runtime/runtime_audit.go`; `internal/runtime/runtime_hooks.go`; `internal/runtime/runtime_agent_tasks.go`; `internal/runtime/runtime_agent_task_comm_store.go`; `internal/runtime/runtime_sandbox.go`; `internal/runtime/runtime_worktrees.go`; `internal/runtime/runtime_mcp_requests.go`; `internal/permission/policy.go`; `internal/agent/task_tools.go`; `internal/agent/hooked_tool.go`. |
@@ -62,16 +64,17 @@ runtime: run parity closure stabilization and scenario coverage
 | Risks | Duplicating audit semantics, brittle golden fixtures, storing sensitive payloads, overfitting to one harness. |
 | Blocked by | Nothing in the current local runtime scope. |
 | Unlocks | Stable React diagnostics, advisory permission explanations, plugin governance, and remote/product work later. |
-| Recommended commit message | `runtime: run parity closure stabilization` |
+| Recommended commit message | Completed with `runtime: run parity closure stabilization` |
 
 ## Phase Map
 
 | Phase | Status | Modules |
 | --- | --- | --- |
 | Completed | Runtime foundation | Runtime spine, scheduler, ToolCall store, event/audit/replay, recovery, compact, policy, MCP, hooks, worktree/sandbox boundary, refs, local AgentTask communication. |
-| Next | Runtime closure | Scenario and contract coverage across the completed primitives. |
+| Completed | Runtime closure | Scenario and contract coverage across the completed primitives. |
 | Parallel | Runtime hardening | Shell parser fixture expansion, diagnostics DTO consistency, migration/replay contract checks. |
-| Blocked | React deep diagnostics | Blocked until closure confidence and stable runtime APIs. |
+| Next | Skills/MCP management | Runtime-backed management surfaces that consume DTOs without frontend-owned business truth. |
+| Unblocked | React deep diagnostics | Allowed after closure confidence, provided diagnostics consume runtime APIs and DTOs. |
 | Later | Product/runtime optimization | Advisory permission advisor, plugin governance, advanced memory/session memory compact, OS sandbox executor maturity, remote runtime/SSH/cloud teammate. |
 | Not needed | Excluded Claude Code surfaces | TUI/CLI UI, slash UI, keybindings, provider rewrite, first-party telemetry, marketplace-first distribution, product growth/login surfaces. |
 

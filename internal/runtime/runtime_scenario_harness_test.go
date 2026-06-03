@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/permission"
+	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 	"github.com/charmbracelet/crush/internal/tools/scheduler"
 )
@@ -40,9 +41,36 @@ func newRuntimeScenarioHarness(t *testing.T) *runtimeScenarioHarness {
 	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
 	service.worktrees = newRuntimeWorktreeStore(conn)
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
+	service.hookExecutions = newRuntimeHookExecutionStore(conn)
+	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
+	service.refs = newRuntimeRefStore(conn, dataDir)
 	service.eventStore = newRuntimeEventStore(conn)
 	service.policy = defaultRuntimePolicy()
 	return &runtimeScenarioHarness{t: t, ctx: context.Background(), service: service, connDir: dataDir}
+}
+
+func (h *runtimeScenarioHarness) attachBackend() {
+	h.t.Helper()
+	runtimeBackend, workspace := backendForSkillTest(h.t)
+	h.service.runtime = runtimeBackend
+	h.service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+}
+
+func (h *runtimeScenarioHarness) restartedService() *runtimeService {
+	h.t.Helper()
+	restarted := newRuntimeService()
+	restarted.turns = newRuntimeTurnStore(h.service.turns.db)
+	restarted.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(h.service.turns.db))
+	restarted.permissionStore = newRuntimePermissionStore(h.service.turns.db)
+	restarted.compactBoundaries = newRuntimeCompactBoundaryStore(h.service.turns.db)
+	restarted.worktrees = newRuntimeWorktreeStore(h.service.turns.db)
+	restarted.agentTasks = newRuntimeAgentTaskStore(h.service.turns.db)
+	restarted.hookExecutions = newRuntimeHookExecutionStore(h.service.turns.db)
+	restarted.mcpRequestStore = newRuntimeMCPRequestStore(h.service.turns.db)
+	restarted.refs = newRuntimeRefStore(h.service.turns.db, h.connDir)
+	restarted.eventStore = newRuntimeEventStore(h.service.turns.db)
+	restarted.policy = h.service.policy
+	return restarted
 }
 
 func (h *runtimeScenarioHarness) seedTurn(sessionID, turnID string) {
@@ -427,6 +455,208 @@ func TestRuntimeScenarioHarnessCancellationExitsWaitingAndLoopStates(t *testing.
 		t.Fatalf("waiting tool not cancelled: %#v", call)
 	}
 	h.assertEventType(runtimeapi.EventTurnCancelled)
+}
+
+func TestRuntimeScenarioHarnessPendingPermissionDecisionSurvivesReload(t *testing.T) {
+	h := newRuntimeScenarioHarness(t)
+	h.attachBackend()
+	h.seedTurn("session-perm-reload", "turn-perm-reload")
+	turn, err := h.service.turns.Get(h.ctx, "turn-perm-reload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Status = turnStatusWaitingPermission
+	if _, err := h.service.turns.Upsert(h.ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.service.toolCalls.CreateCall(h.ctx, scheduler.ToolCallRequest{
+		ID: "tool-perm-reload", SessionID: "session-perm-reload", TurnID: "turn-perm-reload", Name: "bash", Source: scheduler.ToolSourceShell, InputSummary: `{"command":"go test ./..."}`,
+		Risk: string(permission.RiskExecute), PolicyMode: string(permission.PolicyModeAutoRead), PolicyReason: "Auto-read asks before non-read tool calls.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.service.toolCalls.MarkWaitingPermission(h.ctx, "tool-perm-reload"); err != nil {
+		t.Fatal(err)
+	}
+	perm := RuntimePermissionRequest{
+		ID: "perm-reload", SessionID: "session-perm-reload", TurnID: "turn-perm-reload", ToolCallID: "tool-perm-reload", ToolName: "bash",
+		Action: "execute", Risk: string(permission.RiskExecute), PolicyMode: string(permission.PolicyModeAutoRead), PolicyReason: "Auto-read asks before non-read tool calls.",
+		PolicyRuleID: "ask-shell", PolicyRuleSource: "scenario", PolicyScopeKind: "shell_prefix", PolicyScopeValue: "go test", Status: permissionStatusPending, CreatedAt: time.Now().UnixMilli(),
+	}
+	if _, err := h.service.permissionStore.Upsert(h.ctx, perm); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := h.restartedService()
+	restarted.runtime = h.service.runtime
+	restarted.workspace = h.service.workspace
+	recovery, err := restarted.RecoveryStatus(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovery.PendingPermissions) != 1 || recovery.PendingPermissions[0].ID != perm.ID {
+		t.Fatalf("pending permission recovery = %#v", recovery.PendingPermissions)
+	}
+	if _, err := restarted.DecidePermission(h.ctx, RuntimePermissionDecision{PermissionID: perm.ID, Action: string(proto.PermissionDeny)}); err != nil {
+		t.Fatal(err)
+	}
+	decided, err := restarted.permissionStore.Get(h.ctx, perm.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decided.Status != permissionStatusDenied || decided.DecidedAt == 0 {
+		t.Fatalf("decided permission = %#v", decided)
+	}
+	call, err := restarted.toolCalls.GetCall(h.ctx, "tool-perm-reload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if call.Status != scheduler.ToolCallDenied || !call.IsError {
+		t.Fatalf("denied tool call = %#v", call)
+	}
+	deniedTurn, err := restarted.turns.Get(h.ctx, "turn-perm-reload")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deniedTurn.Status != turnStatusFailed || deniedTurn.Error == "" {
+		t.Fatalf("turn after denied permission = %#v", deniedTurn)
+	}
+	replay, err := restarted.ReplayExport(h.ctx, RuntimeReplayExportRequest{SessionID: "session-perm-reload", TurnID: "turn-perm-reload"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(replay.Summary.PermissionEvents, func(item RuntimeReplayPermission) bool {
+		return item.PermissionID == perm.ID && item.Status == permissionStatusDenied
+	}) {
+		t.Fatalf("permission denial missing from replay: %#v", replay.Summary.PermissionEvents)
+	}
+	if !slices.ContainsFunc(replay.Summary.ToolCalls, func(item RuntimeToolCall) bool {
+		return item.ID == "tool-perm-reload" && item.Status == string(scheduler.ToolCallDenied)
+	}) {
+		t.Fatalf("tool denial missing from replay summary: %#v", replay.Summary.ToolCalls)
+	}
+}
+
+func TestRuntimeScenarioHarnessMultiSessionActiveRecoveryIsIndependent(t *testing.T) {
+	h := newRuntimeScenarioHarness(t)
+	h.attachBackend()
+	for _, item := range []struct {
+		sessionID string
+		turnID    string
+		status    string
+	}{
+		{"session-a", "turn-a", turnStatusRunning},
+		{"session-b", "turn-b", turnStatusWaitingPermission},
+		{"session-c", "turn-c", turnStatusCompleted},
+	} {
+		if _, err := h.service.turns.Upsert(h.ctx, RuntimeTurn{ID: item.turnID, SessionID: item.sessionID, Status: item.status, StartedAt: time.Now().UnixMilli()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recovery, err := h.service.RecoveryStatus(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovery.ActiveTurns) != 2 {
+		t.Fatalf("active turns = %#v", recovery.ActiveTurns)
+	}
+	if !slices.ContainsFunc(recovery.ActiveTurns, func(turn RuntimeTurn) bool { return turn.ID == "turn-a" && turn.SessionID == "session-a" }) ||
+		!slices.ContainsFunc(recovery.ActiveTurns, func(turn RuntimeTurn) bool { return turn.ID == "turn-b" && turn.SessionID == "session-b" }) {
+		t.Fatalf("active turns lost session separation: %#v", recovery.ActiveTurns)
+	}
+	if slices.ContainsFunc(recovery.ActiveTurns, func(turn RuntimeTurn) bool { return turn.ID == "turn-c" }) {
+		t.Fatalf("completed turn should not recover as active: %#v", recovery.ActiveTurns)
+	}
+}
+
+func TestRuntimeScenarioHarnessMCPPendingDenyRecoveryReplay(t *testing.T) {
+	h := newRuntimeScenarioHarness(t)
+	h.attachBackend()
+	h.service.sessionID = "session-mcp"
+	h.seedTurn("session-mcp", "turn-mcp")
+	pending, err := h.service.createMCPElicitationRequest(h.ctx, "docs", "mcp:docs:select_project", "Choose project", "Authorization: Bearer sk-secret", permission.PolicyResult{
+		Decision: permission.PolicyAsk,
+		Risk:     permission.RiskSecret,
+		Mode:     permission.PolicyModeAutoRead,
+		Profile:  "default",
+		Reason:   "MCP runtime input is required.",
+		RuleID:   "ask-mcp",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.Status != mcpRequestStatusPending || !pending.Redacted {
+		t.Fatalf("pending mcp request = %#v", pending)
+	}
+	restarted := h.restartedService()
+	restarted.runtime = h.service.runtime
+	restarted.workspace = h.service.workspace
+	recovery, err := restarted.RecoveryStatus(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovery.PendingMCPRequests) != 1 || recovery.PendingMCPRequests[0].ID != pending.ID {
+		t.Fatalf("pending mcp recovery = %#v", recovery.PendingMCPRequests)
+	}
+	resp, err := restarted.DecideMCPRequest(h.ctx, RuntimeMCPRequestDecision{RequestID: pending.ID, Action: "deny", Error: "Authorization: Bearer sk-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Request.Status != mcpRequestStatusDenied || strings.Contains(strings.ToLower(resp.Request.Error), "sk-secret") {
+		t.Fatalf("denied mcp request = %#v", resp.Request)
+	}
+	replay, err := restarted.ReplayExport(h.ctx, RuntimeReplayExportRequest{SessionID: "session-mcp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(replay.Summary.MCPRequests, func(item RuntimeReplayMCPRequest) bool {
+		return item.RequestID == pending.ID && item.Status == mcpRequestStatusDenied && item.PolicyMode == string(permission.PolicyModeAutoRead)
+	}) {
+		t.Fatalf("mcp denial missing from replay: %#v", replay.Summary.MCPRequests)
+	}
+	data, err := json.Marshal(replay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToLower(string(data)), "sk-secret") {
+		t.Fatalf("mcp replay leaked secret: %s", data)
+	}
+}
+
+func TestRuntimeScenarioHarnessAgentTaskMessageOrderingRejectAndReplay(t *testing.T) {
+	h := newRuntimeScenarioHarness(t)
+	h.seedTurn("session-task", "turn-task")
+	task := RuntimeAgentTask{
+		ID: "task-order", ParentSessionID: "session-task", ParentTurnID: "turn-task", ParentToolCallID: "tool-task", ChildSessionID: "child-task",
+		Title: "Task order", Kind: agentTaskKindSubagent, Name: "agent", Status: agentTaskStatusRunning, StartedAt: time.Now().UnixMilli(),
+	}
+	if _, err := h.service.agentTasks.Upsert(h.ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	first, err := h.service.CreateAgentTaskMessage(h.ctx, task.ID, RuntimeAgentTaskMessageCreateRequest{Direction: taskMessageDirectionChildToParent, Kind: taskMessageKindProgress, ContentSummary: "progress one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := h.service.SendAgentTaskFollowUp(h.ctx, task.ID, RuntimeAgentTaskMessageCreateRequest{ContentSummary: "please continue"})
+	if err == nil {
+		t.Fatal("expected undeliverable follow-up to be rejected")
+	}
+	if first.Message.Sequence != 1 || second.Message.Sequence != 2 || second.Message.Status != taskMessageStatusRejected || second.Message.Error == "" {
+		t.Fatalf("message ordering/rejection failed: first=%#v second=%#v err=%v", first.Message, second.Message, err)
+	}
+	messages, err := newRuntimeAgentTaskMessageStore(h.service.turns.db).ListByTask(h.ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 || messages[0].Sequence != 1 || messages[1].Sequence != 2 {
+		t.Fatalf("stored messages = %#v", messages)
+	}
+	replay := h.replay("turn-task")
+	if !slices.ContainsFunc(replay.Summary.AgentTaskMessages, func(item RuntimeAgentTaskMessage) bool {
+		return item.ID == second.Message.ID && item.Status == taskMessageStatusRejected && item.Error != ""
+	}) {
+		t.Fatalf("rejected task message missing from replay: %#v", replay.Summary.AgentTaskMessages)
+	}
 }
 
 func TestRuntimeScenarioHarnessWorktreeReplayAndScopeGolden(t *testing.T) {
