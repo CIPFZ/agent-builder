@@ -471,6 +471,9 @@ func (c *Config) setDefaults(workingDir, dataDir string) {
 		}
 	}
 	c.Options.InitializeAs = cmp.Or(c.Options.InitializeAs, defaultInitializeAs)
+	if !c.Options.ToolResultGuard.Enabled && c.Options.ToolResultGuard.MaxResultChars == 0 {
+		c.Options.ToolResultGuard = DefaultToolResultGuardConfig()
+	}
 }
 
 // applyLSPDefaults applies default values from powernap to LSP configurations

@@ -116,6 +116,10 @@ type ToolResult struct {
 	MIMEType   string `json:"mime_type"`
 	Metadata   string `json:"metadata"`
 	IsError    bool   `json:"is_error"`
+	// Guard fields (set by ToolResultGuard, omitempty for backward compat)
+	StoredPath   string `json:"stored_path,omitempty"`
+	OriginalSize int64  `json:"original_size,omitempty"`
+	TruncatedBy  string `json:"truncated_by,omitempty"` // "single" | "turn_budget" | "session_limit"
 }
 
 func (ToolResult) isPart() {}

@@ -250,17 +250,18 @@ type Options struct {
 	// the SQLite database and workspace overrides. Relative paths are
 	// resolved against the working directory; absolute paths are used
 	// verbatim. After defaulting the stored value is always absolute.
-	DataDirectory             string       `json:"data_directory,omitempty" jsonschema:"description=Directory for storing application data. Relative paths are resolved against the working directory; absolute paths are used as-is.,default=.crush,example=.crush"`
-	DisabledTools             []string     `json:"disabled_tools,omitempty" jsonschema:"description=List of built-in tools to disable and hide from the agent,example=bash,example=sourcegraph"`
-	DisableProviderAutoUpdate bool         `json:"disable_provider_auto_update,omitempty" jsonschema:"description=Disable providers auto-update,default=false"`
-	DisableDefaultProviders   bool         `json:"disable_default_providers,omitempty" jsonschema:"description=Ignore all default/embedded providers. When enabled\\, providers must be fully specified in the config file with base_url\\, models\\, and api_key - no merging with defaults occurs,default=false"`
-	Attribution               *Attribution `json:"attribution,omitempty" jsonschema:"description=Attribution settings for generated content"`
-	DisableMetrics            bool         `json:"disable_metrics,omitempty" jsonschema:"description=Disable sending metrics,default=false"`
-	InitializeAs              string       `json:"initialize_as,omitempty" jsonschema:"description=Name of the context file to create/update during project initialization,default=AGENTS.md,example=AGENTS.md,example=CRUSH.md,example=CLAUDE.md,example=docs/LLMs.md"`
-	AutoLSP                   *bool        `json:"auto_lsp,omitempty" jsonschema:"description=Automatically setup LSPs based on root markers,default=true"`
-	Progress                  *bool        `json:"progress,omitempty" jsonschema:"description=Show indeterminate progress updates during long operations,default=true"`
-	DisableNotifications      bool         `json:"disable_notifications,omitempty" jsonschema:"description=Disable desktop notifications,default=false"`
-	DisabledSkills            []string     `json:"disabled_skills,omitempty" jsonschema:"description=List of skill names to disable and hide from the agent,example=crush-config"`
+	DataDirectory             string                `json:"data_directory,omitempty" jsonschema:"description=Directory for storing application data. Relative paths are resolved against the working directory; absolute paths are used as-is.,default=.crush,example=.crush"`
+	DisabledTools             []string              `json:"disabled_tools,omitempty" jsonschema:"description=List of built-in tools to disable and hide from the agent,example=bash,example=sourcegraph"`
+	DisableProviderAutoUpdate bool                  `json:"disable_provider_auto_update,omitempty" jsonschema:"description=Disable providers auto-update,default=false"`
+	DisableDefaultProviders   bool                  `json:"disable_default_providers,omitempty" jsonschema:"description=Ignore all default/embedded providers. When enabled\\, providers must be fully specified in the config file with base_url\\, models\\, and api_key - no merging with defaults occurs,default=false"`
+	Attribution               *Attribution          `json:"attribution,omitempty" jsonschema:"description=Attribution settings for generated content"`
+	DisableMetrics            bool                  `json:"disable_metrics,omitempty" jsonschema:"description=Disable sending metrics,default=false"`
+	InitializeAs              string                `json:"initialize_as,omitempty" jsonschema:"description=Name of the context file to create/update during project initialization,default=AGENTS.md,example=AGENTS.md,example=CRUSH.md,example=CLAUDE.md,example=docs/LLMs.md"`
+	AutoLSP                   *bool                 `json:"auto_lsp,omitempty" jsonschema:"description=Automatically setup LSPs based on root markers,default=true"`
+	Progress                  *bool                 `json:"progress,omitempty" jsonschema:"description=Show indeterminate progress updates during long operations,default=true"`
+	DisableNotifications      bool                  `json:"disable_notifications,omitempty" jsonschema:"description=Disable desktop notifications,default=false"`
+	DisabledSkills            []string              `json:"disabled_skills,omitempty" jsonschema:"description=List of skill names to disable and hide from the agent,example=crush-config"`
+	ToolResultGuard           ToolResultGuardConfig `json:"tool_result_guard,omitzero"`
 }
 
 type MCPs map[string]MCPConfig
@@ -540,6 +541,40 @@ func (h *HookConfig) TimeoutDuration() time.Duration {
 		return 30 * time.Second
 	}
 	return time.Duration(h.Timeout) * time.Second
+}
+
+// ToolResultGuardConfig controls the tool result guard pipeline that
+// prevents large tool outputs from consuming the context window.
+type ToolResultGuardConfig struct {
+	Enabled            bool           `json:"enabled" yaml:"enabled"`
+	MaxResultChars     int            `json:"max_result_chars" yaml:"max_result_chars"`
+	TurnBudget         int            `json:"turn_budget" yaml:"turn_budget"`
+	ResultsDir         string         `json:"results_dir" yaml:"results_dir"`
+	PerSessionMaxBytes int64          `json:"per_session_max_bytes" yaml:"per_session_max_bytes"`
+	GlobalMaxBytes     int64          `json:"global_max_bytes" yaml:"global_max_bytes"`
+	TTLDays            int            `json:"ttl_days" yaml:"ttl_days"`
+	CompactInterval    string         `json:"compact_interval" yaml:"compact_interval"`
+	KeepLastAssistants int            `json:"keep_last_assistants" yaml:"keep_last_assistants"`
+	ExemptTools        []string       `json:"exempt_tools" yaml:"exempt_tools"`
+	PerTool            map[string]int `json:"per_tool" yaml:"per_tool"`
+}
+
+// DefaultToolResultGuardConfig returns the default configuration for the
+// tool result guard pipeline.
+func DefaultToolResultGuardConfig() ToolResultGuardConfig {
+	return ToolResultGuardConfig{
+		Enabled:            true,
+		MaxResultChars:     16000,
+		TurnBudget:         200000,
+		ResultsDir:         ".crush/results",
+		PerSessionMaxBytes: 524288000,  // 500 MB
+		GlobalMaxBytes:     2147483648, // 2 GB
+		TTLDays:            30,
+		CompactInterval:    "60m",
+		KeepLastAssistants: 3,
+		ExemptTools:        []string{"view"},
+		PerTool:            map[string]int{},
+	}
 }
 
 // Config holds the configuration for crush.
