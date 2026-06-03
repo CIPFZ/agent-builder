@@ -23,6 +23,8 @@ material. Use this index to avoid following superseded phase plans.
   integration milestone for runtime tool calls, thinking, and permissions.
 - `runtime-parity-closure-stabilization-plan.md`: completed 2026-06-03 runtime
   closure scenario coverage and contract hardening record.
+- `workbench-skills-mcp-management-plan.md`: active Phase 6 implementation
+  record for runtime-backed Skills and MCP management surfaces.
 
 ## Active Design Baselines
 

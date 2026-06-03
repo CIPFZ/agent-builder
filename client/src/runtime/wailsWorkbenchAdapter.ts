@@ -8,7 +8,12 @@ import type {
   ProviderTestViewModel,
   ProviderCatalogItemViewModel,
   ProviderTypeViewModel,
+  RuntimeMCPPromptViewModel,
+  RuntimeMCPResourceViewModel,
+  RuntimeMCPServerViewModel,
+  RuntimeMCPToolViewModel,
   RuntimeModelOptionViewModel,
+  RuntimeSkillViewModel,
   SettingsPermissionViewModel,
   WorkbenchAdapter,
   WorkbenchViewModel,
@@ -221,6 +226,87 @@ interface RuntimeSessionActivityDTO {
   policy: RuntimePolicyDTO;
 }
 
+interface RuntimeSkillDTO {
+  name: string;
+  description?: string;
+  builtin: boolean;
+  enabled: boolean;
+  path?: string;
+  skill_file_path?: string;
+  state: string;
+  diagnostics?: string;
+  error?: string;
+  reason?: string;
+  allowed_tools?: string[];
+  capability_id?: string;
+  policy_mode?: string;
+  policy_risk?: string;
+  policy_reason?: string;
+}
+
+interface RuntimeSkillsResponseDTO {
+  skills: RuntimeSkillDTO[];
+}
+
+interface RuntimeMCPCountsDTO {
+  tools?: number;
+  prompts?: number;
+  resources?: number;
+}
+
+interface RuntimeMCPServerDTO {
+  name: string;
+  type: string;
+  url?: string;
+  command?: string;
+  args?: string[];
+  disabled: boolean;
+  state: string;
+  counts?: RuntimeMCPCountsDTO;
+  diagnostics?: string;
+  reason?: string;
+  error?: string;
+  enabled_tools?: string[];
+  disabled_tools?: string[];
+}
+
+interface RuntimeMCPServersResponseDTO {
+  servers: RuntimeMCPServerDTO[];
+}
+
+interface RuntimeMCPToolDTO {
+  server: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+}
+
+interface RuntimeMCPToolsResponseDTO {
+  tools: RuntimeMCPToolDTO[];
+}
+
+interface RuntimeMCPResourceDTO {
+  server: string;
+  uri: string;
+  name?: string;
+  description?: string;
+  mime_type?: string;
+}
+
+interface RuntimeMCPResourcesResponseDTO {
+  resources: RuntimeMCPResourceDTO[];
+}
+
+interface RuntimeMCPPromptDTO {
+  server: string;
+  name: string;
+  description?: string;
+}
+
+interface RuntimeMCPPromptsResponseDTO {
+  prompts: RuntimeMCPPromptDTO[];
+}
+
 interface RuntimeBridgeModule {
   Status: () => Promise<RuntimeStatusDTO>;
   Sessions: () => Promise<RuntimeSessionsResponseDTO>;
@@ -248,6 +334,18 @@ interface RuntimeBridgeModule {
   GetPolicy?: () => Promise<RuntimePolicyResponseDTO>;
   UpdatePolicy?: (req: { mode: string }) => Promise<RuntimePolicyResponseDTO>;
   DecidePermission?: (req: { permissionId: string; action: string }) => Promise<RuntimeStatusDTO>;
+  Skills?: () => Promise<RuntimeSkillsResponseDTO>;
+  RefreshSkills?: () => Promise<RuntimeSkillsResponseDTO>;
+  SetSkillEnabled?: (req: { name: string; enabled: boolean }) => Promise<RuntimeSkillsResponseDTO>;
+  MCPServers?: () => Promise<RuntimeMCPServersResponseDTO>;
+  SaveMCPServer?: (req: RuntimeMCPServerDTO) => Promise<RuntimeMCPServersResponseDTO>;
+  SetMCPServerEnabled?: (req: { name: string; enabled: boolean }) => Promise<RuntimeMCPServersResponseDTO>;
+  RefreshMCPServer?: (name: string) => Promise<RuntimeMCPServersResponseDTO>;
+  RetryMCPServer?: (name: string) => Promise<RuntimeMCPServersResponseDTO>;
+  SetMCPToolEnabled?: (req: { server: string; tool: string; enabled: boolean }) => Promise<RuntimeMCPToolsResponseDTO>;
+  MCPTools?: (name: string) => Promise<RuntimeMCPToolsResponseDTO>;
+  MCPResources?: (name: string) => Promise<RuntimeMCPResourcesResponseDTO>;
+  MCPPrompts?: (name: string) => Promise<RuntimeMCPPromptsResponseDTO>;
 }
 
 let runtimeBridgePromise: Promise<RuntimeBridgeModule | null> | undefined;
@@ -368,6 +466,105 @@ function mapConfiguredProviders(response?: RuntimeConfiguredProvidersResponseDTO
     proxy: provider.proxy,
     enabled: provider.enabled,
   }));
+}
+
+function mapSkills(response?: RuntimeSkillsResponseDTO): RuntimeSkillViewModel[] | undefined {
+  if (!Array.isArray(response?.skills)) {
+    return undefined;
+  }
+
+  return response.skills.map((skill) => ({
+    name: skill.name,
+    description: skill.description,
+    builtin: skill.builtin,
+    enabled: skill.enabled,
+    path: skill.path,
+    skillFilePath: skill.skill_file_path,
+    state: skill.state,
+    diagnostics: skill.diagnostics,
+    error: skill.error,
+    reason: skill.reason,
+    allowedTools: Array.isArray(skill.allowed_tools) ? skill.allowed_tools : [],
+    capabilityId: skill.capability_id,
+    policyMode: skill.policy_mode,
+    policyRisk: skill.policy_risk,
+    policyReason: skill.policy_reason,
+  }));
+}
+
+function mapMCPServers(response?: RuntimeMCPServersResponseDTO): RuntimeMCPServerViewModel[] | undefined {
+  if (!Array.isArray(response?.servers)) {
+    return undefined;
+  }
+
+  return response.servers.map((server) => ({
+    name: server.name,
+    type: server.type,
+    url: server.url,
+    command: server.command,
+    args: Array.isArray(server.args) ? server.args : [],
+    disabled: server.disabled,
+    enabled: !server.disabled,
+    state: server.state,
+    counts: {
+      tools: server.counts?.tools ?? 0,
+      prompts: server.counts?.prompts ?? 0,
+      resources: server.counts?.resources ?? 0,
+    },
+    diagnostics: server.diagnostics,
+    reason: server.reason,
+    error: server.error,
+    enabledTools: Array.isArray(server.enabled_tools) ? server.enabled_tools : [],
+    disabledTools: Array.isArray(server.disabled_tools) ? server.disabled_tools : [],
+  }));
+}
+
+function mapMCPTools(response?: RuntimeMCPToolsResponseDTO): RuntimeMCPToolViewModel[] {
+  return (Array.isArray(response?.tools) ? response.tools : []).map((tool) => ({
+    server: tool.server,
+    name: tool.name,
+    description: tool.description,
+    enabled: tool.enabled,
+  }));
+}
+
+function mapMCPResources(response?: RuntimeMCPResourcesResponseDTO): RuntimeMCPResourceViewModel[] {
+  return (Array.isArray(response?.resources) ? response.resources : []).map((resource) => ({
+    server: resource.server,
+    uri: resource.uri,
+    name: resource.name,
+    description: resource.description,
+    mimeType: resource.mime_type,
+  }));
+}
+
+function mapMCPPrompts(response?: RuntimeMCPPromptsResponseDTO): RuntimeMCPPromptViewModel[] {
+  return (Array.isArray(response?.prompts) ? response.prompts : []).map((prompt) => ({
+    server: prompt.server,
+    name: prompt.name,
+    description: prompt.description,
+  }));
+}
+
+function capabilityLabel(skills: RuntimeSkillViewModel[], servers: RuntimeMCPServerViewModel[]) {
+  const enabledSkills = skills.filter((skill) => skill.enabled).length;
+  const enabledServers = servers.filter((server) => server.enabled).length;
+  const enabledMCPTools = servers.filter((server) => server.enabled).reduce((total, server) => total + server.counts.tools, 0);
+  return `${enabledSkills} skills / ${enabledServers} MCP / ${enabledMCPTools} tools`;
+}
+
+function toMCPServerRequest(server: RuntimeMCPServerViewModel): RuntimeMCPServerDTO {
+  return {
+    name: server.name,
+    type: server.type,
+    url: server.url,
+    command: server.command,
+    args: server.args,
+    disabled: !server.enabled,
+    state: server.state,
+    enabled_tools: server.enabledTools,
+    disabled_tools: server.disabledTools,
+  };
 }
 
 function mapConversation(response?: RuntimeMessagesResponseDTO): ConversationMessageViewModel[] {
@@ -724,13 +921,15 @@ function toConfiguredProviderRequest(provider: ConfiguredProviderViewModel & { t
 }
 
 async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBridgeModule) {
-  const [status, sessionsResponse, modelsResponse, providerCatalog, configuredProvidersResponse, activeTurnsResponse] = await Promise.all([
+  const [status, sessionsResponse, modelsResponse, providerCatalog, configuredProvidersResponse, activeTurnsResponse, skillsResponse, mcpServersResponse] = await Promise.all([
     optionalRuntimeRequest(() => bridge.Status()),
     optionalRuntimeRequest(() => bridge.Sessions()),
     bridge.Models().catch(() => undefined),
     bridge.ProviderCatalog?.().catch(() => undefined),
     bridge.ConfiguredProviders?.().catch(() => undefined),
     optionalRuntimeRequest(() => bridge.Turns?.('active') ?? Promise.resolve(undefined)),
+    optionalRuntimeRequest(() => bridge.Skills?.() ?? Promise.resolve(undefined)),
+    optionalRuntimeRequest(() => bridge.MCPServers?.() ?? Promise.resolve(undefined)),
   ]);
   const activeSessionID = status?.sessionId || sessionsResponse?.sessions?.find((session) => session.active)?.id;
   const activity = activeSessionID ? await optionalRuntimeRequest(() => bridge.SessionActivity?.(activeSessionID) ?? Promise.resolve(undefined)) : undefined;
@@ -753,6 +952,8 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const activeTurnId = status?.requests?.sessionRequestId || sessionActiveTurn?.id || (busy ? current.composer.activeTurnId : undefined);
   const policy = activity?.policy ?? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy;
   const permissions = (Array.isArray(activity?.permissions) ? activity.permissions : []).map(mapPermission);
+  const skills = mapSkills(skillsResponse) ?? current.settings.skills;
+  const mcpServers = mapMCPServers(mcpServersResponse) ?? current.settings.mcpServers;
 
   return {
     ...current,
@@ -770,6 +971,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       permissionMode: permissionMode(policy),
       permissionOptions: permissionModeOptions,
       modelLabel: modelLabel(status, modelsResponse),
+      capabilityLabel: capabilityLabel(skills, mcpServers),
       selectedModel,
       modelOptions: options,
       busy,
@@ -783,6 +985,11 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       providerTypes: providerCatalog?.providerTypes ?? current.settings.providerTypes,
       providers: providerCatalog?.providers ?? current.settings.providers,
       configuredProviders: mapConfiguredProviders(configuredProvidersResponse) ?? current.settings.configuredProviders,
+      skills,
+      mcpServers,
+      mcpToolsByServer: current.settings.mcpToolsByServer,
+      mcpResourcesByServer: current.settings.mcpResourcesByServer,
+      mcpPromptsByServer: current.settings.mcpPromptsByServer,
     },
   };
 }
@@ -1022,6 +1229,43 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
       method: 'POST',
       body: JSON.stringify(req),
     }),
+  Skills: () => runtimeFetch<RuntimeSkillsResponseDTO>('/v1/skills'),
+  RefreshSkills: () =>
+    runtimeFetch<RuntimeSkillsResponseDTO>('/v1/skills/refresh', {
+      method: 'POST',
+    }),
+  SetSkillEnabled: (req) =>
+    runtimeFetch<RuntimeSkillsResponseDTO>(`/v1/skills/${encodeURIComponent(req.name)}/enabled`, {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }),
+  MCPServers: () => runtimeFetch<RuntimeMCPServersResponseDTO>('/v1/mcp/servers'),
+  SaveMCPServer: (req) =>
+    runtimeFetch<RuntimeMCPServersResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(req.name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(req),
+    }),
+  SetMCPServerEnabled: (req) =>
+    runtimeFetch<RuntimeMCPServersResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(req.name)}/enabled`, {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }),
+  RefreshMCPServer: (name) =>
+    runtimeFetch<RuntimeMCPServersResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/refresh`, {
+      method: 'POST',
+    }),
+  RetryMCPServer: (name) =>
+    runtimeFetch<RuntimeMCPServersResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/retry`, {
+      method: 'POST',
+    }),
+  SetMCPToolEnabled: (req) =>
+    runtimeFetch<RuntimeMCPToolsResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(req.server)}/tools/${encodeURIComponent(req.tool)}/enabled`, {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }),
+  MCPTools: (name) => runtimeFetch<RuntimeMCPToolsResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/tools`),
+  MCPResources: (name) => runtimeFetch<RuntimeMCPResourcesResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/resources`),
+  MCPPrompts: (name) => runtimeFetch<RuntimeMCPPromptsResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/prompts`),
   CancelTurn: (turnID) =>
     runtimeFetch<RuntimeStatusDTO>(`/v1/turns/${encodeURIComponent(turnID)}/cancel`, {
       method: 'POST',
@@ -1086,6 +1330,8 @@ async function withBridge(
 async function hydrateSettingsOnly(current: WorkbenchViewModel, bridge: RuntimeBridgeModule) {
   const providerCatalog = await bridge.ProviderCatalog?.().catch(() => undefined);
   const configuredProvidersResponse = await bridge.ConfiguredProviders?.().catch(() => undefined);
+  const skillsResponse = await bridge.Skills?.().catch(() => undefined);
+  const mcpServersResponse = await bridge.MCPServers?.().catch(() => undefined);
 
   return {
     ...current,
@@ -1094,6 +1340,8 @@ async function hydrateSettingsOnly(current: WorkbenchViewModel, bridge: RuntimeB
       providerTypes: providerCatalog?.providerTypes ?? current.settings.providerTypes,
       providers: providerCatalog?.providers ?? current.settings.providers,
       configuredProviders: mapConfiguredProviders(configuredProvidersResponse) ?? current.settings.configuredProviders,
+      skills: mapSkills(skillsResponse) ?? current.settings.skills,
+      mcpServers: mapMCPServers(mcpServersResponse) ?? current.settings.mcpServers,
     },
   };
 }
@@ -1333,6 +1581,148 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       return bridge.MeasureConfiguredProviderLatency(providerID);
     }
     return runtimeHTTPBridge.MeasureConfiguredProviderLatency?.(providerID) ?? staticWorkbenchAdapter.measureConfiguredProviderLatency(providerID);
+  },
+  async refreshSkills(current) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.RefreshSkills) {
+          return staticWorkbenchAdapter.refreshSkills(current);
+        }
+        const response = await bridge.RefreshSkills();
+        return {
+          ...current,
+          settings: {
+            ...current.settings,
+            skills: mapSkills(response) ?? current.settings.skills,
+          },
+        };
+      },
+      () => staticWorkbenchAdapter.refreshSkills(current),
+    );
+  },
+  async setSkillEnabled(current, name, enabled) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.SetSkillEnabled) {
+          return staticWorkbenchAdapter.setSkillEnabled(current, name, enabled);
+        }
+        const response = await bridge.SetSkillEnabled({ name, enabled });
+        return {
+          ...current,
+          settings: {
+            ...current.settings,
+            skills: mapSkills(response) ?? current.settings.skills,
+          },
+        };
+      },
+      () => staticWorkbenchAdapter.setSkillEnabled(current, name, enabled),
+    );
+  },
+  async refreshMCPServer(current, name) {
+    return withBridge(
+      async (bridge) => {
+        const refresh = bridge.RefreshMCPServer ?? bridge.RetryMCPServer;
+        if (!refresh) {
+          return staticWorkbenchAdapter.refreshMCPServer(current, name);
+        }
+        const response = await refresh(name);
+        return {
+          ...current,
+          settings: {
+            ...current.settings,
+            mcpServers: mapMCPServers(response) ?? current.settings.mcpServers,
+          },
+        };
+      },
+      () => staticWorkbenchAdapter.refreshMCPServer(current, name),
+    );
+  },
+  async saveMCPServer(current, server) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.SaveMCPServer) {
+          return staticWorkbenchAdapter.saveMCPServer(current, server);
+        }
+        const response = await bridge.SaveMCPServer(toMCPServerRequest(server));
+        return {
+          ...current,
+          settings: {
+            ...current.settings,
+            mcpServers: mapMCPServers(response) ?? current.settings.mcpServers,
+          },
+        };
+      },
+      () => staticWorkbenchAdapter.saveMCPServer(current, server),
+    );
+  },
+  async setMCPServerEnabled(current, name, enabled) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.SetMCPServerEnabled) {
+          return staticWorkbenchAdapter.setMCPServerEnabled(current, name, enabled);
+        }
+        const response = await bridge.SetMCPServerEnabled({ name, enabled });
+        return {
+          ...current,
+          settings: {
+            ...current.settings,
+            mcpServers: mapMCPServers(response) ?? current.settings.mcpServers,
+          },
+        };
+      },
+      () => staticWorkbenchAdapter.setMCPServerEnabled(current, name, enabled),
+    );
+  },
+  async setMCPToolEnabled(current, server, tool, enabled) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.SetMCPToolEnabled) {
+          return staticWorkbenchAdapter.setMCPToolEnabled(current, server, tool, enabled);
+        }
+        const response = await bridge.SetMCPToolEnabled({ server, tool, enabled });
+        return {
+          ...current,
+          settings: {
+            ...current.settings,
+            mcpToolsByServer: {
+              ...current.settings.mcpToolsByServer,
+              [server]: mapMCPTools(response),
+            },
+          },
+        };
+      },
+      () => staticWorkbenchAdapter.setMCPToolEnabled(current, server, tool, enabled),
+    );
+  },
+  async loadMCPServerDetails(current, name) {
+    return withBridge(
+      async (bridge) => {
+        const [tools, resources, prompts] = await Promise.all([
+          optionalRuntimeRequest(() => bridge.MCPTools?.(name) ?? Promise.resolve(undefined)),
+          optionalRuntimeRequest(() => bridge.MCPResources?.(name) ?? Promise.resolve(undefined)),
+          optionalRuntimeRequest(() => bridge.MCPPrompts?.(name) ?? Promise.resolve(undefined)),
+        ]);
+        return {
+          ...current,
+          settings: {
+            ...current.settings,
+            mcpToolsByServer: {
+              ...current.settings.mcpToolsByServer,
+              [name]: mapMCPTools(tools),
+            },
+            mcpResourcesByServer: {
+              ...current.settings.mcpResourcesByServer,
+              [name]: mapMCPResources(resources),
+            },
+            mcpPromptsByServer: {
+              ...current.settings.mcpPromptsByServer,
+              [name]: mapMCPPrompts(prompts),
+            },
+          },
+        };
+      },
+      () => staticWorkbenchAdapter.loadMCPServerDetails(current, name),
+    );
   },
 };
 

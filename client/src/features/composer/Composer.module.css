@@ -83,6 +83,10 @@
   max-width: 220px;
 }
 
+.capabilityButton {
+  max-width: 180px;
+}
+
 .truncatedLabel,
 .limitButton span {
   min-width: 0;

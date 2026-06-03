@@ -194,6 +194,48 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
 
   const measureConfiguredProviderLatency = (providerID: string) => adapter.measureConfiguredProviderLatency(providerID);
 
+  const refreshSkills = async () => {
+    const nextViewModel = await adapter.refreshSkills({ ...viewModel, mode });
+    setViewModel(nextViewModel);
+    return nextViewModel.settings;
+  };
+
+  const setSkillEnabled = async (name: string, enabled: boolean) => {
+    const nextViewModel = await adapter.setSkillEnabled({ ...viewModel, mode }, name, enabled);
+    setViewModel(nextViewModel);
+    return nextViewModel.settings;
+  };
+
+  const refreshMCPServer = async (name: string) => {
+    const nextViewModel = await adapter.refreshMCPServer({ ...viewModel, mode }, name);
+    setViewModel(nextViewModel);
+    return nextViewModel.settings;
+  };
+
+  const saveMCPServer = async (server: Parameters<WorkbenchAdapter['saveMCPServer']>[1]) => {
+    const nextViewModel = await adapter.saveMCPServer({ ...viewModel, mode }, server);
+    setViewModel(nextViewModel);
+    return nextViewModel.settings;
+  };
+
+  const setMCPServerEnabled = async (name: string, enabled: boolean) => {
+    const nextViewModel = await adapter.setMCPServerEnabled({ ...viewModel, mode }, name, enabled);
+    setViewModel(nextViewModel);
+    return nextViewModel.settings;
+  };
+
+  const setMCPToolEnabled = async (server: string, tool: string, enabled: boolean) => {
+    const nextViewModel = await adapter.setMCPToolEnabled({ ...viewModel, mode }, server, tool, enabled);
+    setViewModel(nextViewModel);
+    return nextViewModel.settings;
+  };
+
+  const loadMCPServerDetails = async (name: string) => {
+    const nextViewModel = await adapter.loadMCPServerDetails({ ...viewModel, mode }, name);
+    setViewModel(nextViewModel);
+    return nextViewModel.settings;
+  };
+
   const workbenchViewModel = {
     ...viewModel,
     mode,
@@ -237,8 +279,15 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onProviderLatency={measureConfiguredProviderLatency}
           onProviderSave={saveConfiguredProvider}
           onProviderTest={testConfiguredProvider}
+          onMCPServerDetailsLoad={loadMCPServerDetails}
+          onMCPServerRefresh={refreshMCPServer}
+          onMCPServerSave={saveMCPServer}
+          onMCPServerToggle={setMCPServerEnabled}
+          onMCPToolToggle={setMCPToolEnabled}
           onPermissionModeSelect={selectPermissionMode}
           onSettingsRefresh={refreshSettings}
+          onSkillRefresh={refreshSkills}
+          onSkillToggle={setSkillEnabled}
         />
       </main>
     );

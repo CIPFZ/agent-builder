@@ -1,6 +1,7 @@
 # Workbench Runtime Feature Roadmap
 
-Status: active roadmap with Phase 1-5 frontend/backend/runtime closure completed.
+Status: active roadmap with Phase 1-6 frontend/backend/runtime workbench
+milestones completed through Skills/MCP management.
 
 This document continues the provider-settings work and defines the next
 implementation sequence for turning Agent Builder into a usable runtime-backed
@@ -23,8 +24,10 @@ Update 2026-06-03:
   [`tool-thinking-permission-integration-plan.md`](./tool-thinking-permission-integration-plan.md).
 - Runtime parity closure stabilization and scenario coverage is recorded in:
   [`runtime-parity-closure-stabilization-plan.md`](./runtime-parity-closure-stabilization-plan.md).
-- The next implementation stage is Skills and MCP management surfaces, with
-  React consuming runtime DTOs only.
+- Skills and MCP management surfaces are completed, with React consuming
+  runtime DTOs only:
+  [`workbench-skills-mcp-management-plan.md`](./workbench-skills-mcp-management-plan.md).
+- The next implementation stage is Projects and multi-session scope.
 
 The Settings -> 服务商 module now has the first real frontend/backend path:
 
@@ -293,6 +296,8 @@ Completed scope:
 
 ## Phase 6: Skills And MCP
 
+Status: completed for the 2026-06-03 management-surface milestone.
+
 Goal: skills and MCP are runtime capabilities available to turns.
 
 Backend work:
@@ -323,6 +328,21 @@ Acceptance:
 - Enable a skill and see it included in runtime capability state.
 - Add or enable an MCP server and see tool list refresh.
 - A turn can use an enabled MCP tool subject to permissions.
+
+Execution plan:
+
+- [`workbench-skills-mcp-management-plan.md`](./workbench-skills-mcp-management-plan.md)
+
+Completed scope:
+
+- Settings -> Skills loads runtime skill DTOs, refreshes discovery, and toggles
+  enabled state through the adapter.
+- Settings -> MCP loads runtime server DTOs, supports baseline add/edit,
+  refresh, server enable/disable, tool/resource/prompt detail loading, and
+  tool enable/disable through the adapter.
+- Composer shows a runtime-derived enabled skill/MCP/tool summary.
+- Manual in-app browser verification covered Skills and MCP settings at
+  `http://127.0.0.1:5174/`.
 
 ## Phase 7: Projects And Multi-Session Scope
 
@@ -407,9 +427,9 @@ Each group needs:
 4. Completed: add timeline rendering for messages/tool calls/permissions.
 5. Completed: add permission decision UI.
 6. Completed: run runtime parity closure stabilization and scenario coverage.
-7. Next: add Skills settings.
-8. Add MCP settings and enabled tool visibility.
-9. Add projects and project-scoped session lists.
+7. Completed: add Skills settings.
+8. Completed: add MCP settings and enabled tool visibility.
+9. Next: add projects and project-scoped session lists.
 
 This order avoids building management screens before the core chat loop is
 usable.

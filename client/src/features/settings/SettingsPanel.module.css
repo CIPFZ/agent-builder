@@ -186,6 +186,33 @@
   padding: 18px 20px;
 }
 
+.monoText {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.mcpLayout {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(280px, 360px);
+  gap: 18px;
+  align-items: start;
+}
+
+.mcpDetailsCard {
+  box-shadow: none;
+}
+
+.selectedListItem {
+  background: #fafafa;
+}
+
+.compactListItem {
+  min-height: 44px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
 @media (max-width: 960px) {
   .inner {
     padding: 72px 32px 96px;
@@ -205,6 +232,10 @@
 
   .settingsListCard :global(.ant-list-item-action) {
     margin-inline-start: 0;
+  }
+
+  .mcpLayout {
+    grid-template-columns: 1fr;
   }
 
 }

@@ -38,8 +38,10 @@ cd client; npm run lint
 cd client; npm run build
 ```
 
-No frontend, adapter implementation, or browser-visible behavior changed in
-this closure pass, so manual in-app browser verification was not required.
+Follow-up desktop smoke validation also started the local runtime and Vite
+workbench, configured the DeepSeek Anthropic-compatible provider through the
+Codex in-app browser, and confirmed a real chat response. No frontend business
+truth was introduced for the closure gate.
 
 Remaining risks:
 

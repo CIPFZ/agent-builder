@@ -10,6 +10,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
   ThunderboltOutlined,
+  ToolOutlined,
 } from '@ant-design/icons';
 import {
   Button,
@@ -26,6 +27,7 @@ import {
   Radio,
   Select,
   Switch,
+  Tag,
   Typography,
 } from 'antd';
 import type { MenuProps } from 'antd';
@@ -34,6 +36,7 @@ import type {
   ProviderCatalogItemViewModel,
   ProviderModelDiscoveryViewModel,
   ProviderTestViewModel,
+  RuntimeMCPServerViewModel,
   SettingsViewModel,
   WorkbenchMode,
 } from '../../runtime/workbenchTypes.ts';
@@ -45,6 +48,11 @@ const { Paragraph, Text, Title } = Typography;
 type ProviderFormValues = Omit<ConfiguredProviderViewModel, 'defaultModel'> & {
   defaultModel?: string | string[];
   token?: string;
+};
+
+type MCPServerFormValues = Omit<RuntimeMCPServerViewModel, 'args' | 'counts' | 'disabled' | 'enabledTools' | 'disabledTools'> & {
+  args?: string;
+  enabled?: boolean;
 };
 
 const protocolOptions = [
@@ -62,6 +70,13 @@ interface SettingsPanelProps {
   onProviderTest: (providerID: string) => Promise<ProviderTestViewModel>;
   onProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;
   onPermissionModeSelect: (mode: string) => Promise<void>;
+  onSkillRefresh: () => Promise<SettingsViewModel>;
+  onSkillToggle: (name: string, enabled: boolean) => Promise<SettingsViewModel>;
+  onMCPServerRefresh: (name: string) => Promise<SettingsViewModel>;
+  onMCPServerSave: (server: RuntimeMCPServerViewModel) => Promise<SettingsViewModel>;
+  onMCPServerToggle: (name: string, enabled: boolean) => Promise<SettingsViewModel>;
+  onMCPToolToggle: (server: string, tool: string, enabled: boolean) => Promise<SettingsViewModel>;
+  onMCPServerDetailsLoad: (name: string) => Promise<SettingsViewModel>;
 }
 
 export function SettingsPanel({
@@ -74,6 +89,13 @@ export function SettingsPanel({
   onProviderTest,
   onProviderLatency,
   onPermissionModeSelect,
+  onSkillRefresh,
+  onSkillToggle,
+  onMCPServerRefresh,
+  onMCPServerSave,
+  onMCPServerToggle,
+  onMCPToolToggle,
+  onMCPServerDetailsLoad,
 }: SettingsPanelProps) {
   const [activeKey, setActiveKey] = useState(settings.activeKey);
   const [siderWidth, setSiderWidth] = useState(256);
@@ -99,6 +121,19 @@ export function SettingsPanel({
         );
       case 'permissions':
         return <PermissionsSettings settings={settings} onPermissionModeSelect={onPermissionModeSelect} />;
+      case 'skills':
+        return <SkillsSettings settings={settings} onSkillRefresh={onSkillRefresh} onSkillToggle={onSkillToggle} />;
+      case 'mcp':
+        return (
+          <MCPSettings
+            settings={settings}
+            onMCPServerDetailsLoad={onMCPServerDetailsLoad}
+            onMCPServerRefresh={onMCPServerRefresh}
+            onMCPServerSave={onMCPServerSave}
+            onMCPServerToggle={onMCPServerToggle}
+            onMCPToolToggle={onMCPToolToggle}
+          />
+        );
       case 'common':
         return <CommonSettings settings={settings} />;
       default:
@@ -167,7 +202,7 @@ export function SettingsPanel({
             selectedKeys={[activeKey]}
             onClick={({ key }) => {
               setActiveKey(key);
-              if (key === 'providers') {
+              if (key === 'providers' || key === 'skills' || key === 'mcp') {
                 void onSettingsRefresh();
               }
             }}
@@ -612,6 +647,457 @@ function normalizeDefaultModel(model?: string | string[]) {
     return model[model.length - 1] || '';
   }
   return model;
+}
+
+function SkillsSettings({
+  settings,
+  onSkillRefresh,
+  onSkillToggle,
+}: {
+  settings: SettingsViewModel;
+  onSkillRefresh: () => Promise<SettingsViewModel>;
+  onSkillToggle: (name: string, enabled: boolean) => Promise<SettingsViewModel>;
+}) {
+  const [runtimeSettings, setRuntimeSettings] = useState<SettingsViewModel | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [messageApi, messageContextHolder] = message.useMessage();
+  const activeSettings = runtimeSettings ?? settings;
+  const skills = activeSettings.skills;
+
+  const refreshSkills = async () => {
+    setLoading(true);
+    try {
+      const nextSettings = await onSkillRefresh();
+      setRuntimeSettings(nextSettings);
+      messageApi.success('技能已刷新');
+    } catch {
+      messageApi.error('刷新技能失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleSkill = async (name: string, enabled: boolean) => {
+    try {
+      const nextSettings = await onSkillToggle(name, enabled);
+      setRuntimeSettings(nextSettings);
+      messageApi.success(enabled ? '技能已启用' : '技能已停用');
+    } catch {
+      messageApi.error('更新技能状态失败');
+    }
+  };
+
+  return (
+    <>
+      {messageContextHolder}
+      <Flex align="flex-start" className={styles.providerHeader} justify="space-between">
+        <Flex vertical gap={2}>
+          <Title className={styles.providerTitle} level={2}>
+            技能
+          </Title>
+          <Text className={styles.providerSubtitle} type="secondary">
+            从 runtime 读取技能清单、状态和工具边界。
+          </Text>
+        </Flex>
+        <Button icon={<ReloadOutlined />} loading={loading} onClick={refreshSkills}>
+          刷新
+        </Button>
+      </Flex>
+
+      <section className={styles.section}>
+        <Card className={styles.settingsListCard} styles={{ body: { padding: 0 } }}>
+          <List
+            dataSource={skills}
+            locale={{ emptyText: 'runtime 未发现技能' }}
+            renderItem={(skill) => (
+              <List.Item
+                actions={[
+                  <Switch
+                    key="enabled"
+                    checked={skill.enabled}
+                    onChange={(enabled) => {
+                      void toggleSkill(skill.name, enabled);
+                    }}
+                  />,
+                ]}
+              >
+                <List.Item.Meta
+                  description={
+                    <Flex vertical gap={6}>
+                      <Text type="secondary">{skill.description || skill.reason || skill.diagnostics || '无描述'}</Text>
+                      <Flex wrap gap={6}>
+                        <Tag color={skill.enabled ? 'green' : 'default'}>{skill.enabled ? 'enabled' : 'disabled'}</Tag>
+                        <Tag>{skill.builtin ? 'builtin' : 'local'}</Tag>
+                        <Tag color={stateTagColor(skill.state)}>{skill.state || 'unknown'}</Tag>
+                        {skill.policyRisk ? <Tag color="orange">{skill.policyRisk}</Tag> : null}
+                      </Flex>
+                      {skill.path || skill.skillFilePath ? (
+                        <Text className={styles.monoText} type="secondary">
+                          {skill.skillFilePath || skill.path}
+                        </Text>
+                      ) : null}
+                      {skill.allowedTools.length > 0 ? (
+                        <Text type="secondary">Allowed tools: {skill.allowedTools.join(', ')}</Text>
+                      ) : null}
+                      {skill.error ? <Text type="danger">{skill.error}</Text> : null}
+                    </Flex>
+                  }
+                  title={<Text strong>{skill.name}</Text>}
+                />
+              </List.Item>
+            )}
+          />
+        </Card>
+      </section>
+    </>
+  );
+}
+
+function MCPSettings({
+  settings,
+  onMCPServerRefresh,
+  onMCPServerSave,
+  onMCPServerToggle,
+  onMCPToolToggle,
+  onMCPServerDetailsLoad,
+}: {
+  settings: SettingsViewModel;
+  onMCPServerRefresh: (name: string) => Promise<SettingsViewModel>;
+  onMCPServerSave: (server: RuntimeMCPServerViewModel) => Promise<SettingsViewModel>;
+  onMCPServerToggle: (name: string, enabled: boolean) => Promise<SettingsViewModel>;
+  onMCPToolToggle: (server: string, tool: string, enabled: boolean) => Promise<SettingsViewModel>;
+  onMCPServerDetailsLoad: (name: string) => Promise<SettingsViewModel>;
+}) {
+  const [runtimeSettings, setRuntimeSettings] = useState<SettingsViewModel | null>(null);
+  const [selectedServer, setSelectedServer] = useState<string>(settings.mcpServers[0]?.name ?? '');
+  const [editingServer, setEditingServer] = useState<RuntimeMCPServerViewModel | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [messageApi, messageContextHolder] = message.useMessage();
+  const activeSettings = runtimeSettings ?? settings;
+  const servers = activeSettings.mcpServers;
+  const selected = servers.find((server) => server.name === selectedServer) ?? servers[0];
+  const detailsName = selected?.name ?? '';
+  const tools = detailsName ? activeSettings.mcpToolsByServer[detailsName] ?? [] : [];
+  const resources = detailsName ? activeSettings.mcpResourcesByServer[detailsName] ?? [] : [];
+  const prompts = detailsName ? activeSettings.mcpPromptsByServer[detailsName] ?? [] : [];
+
+  const loadDetails = async (name: string) => {
+    setSelectedServer(name);
+    try {
+      const nextSettings = await onMCPServerDetailsLoad(name);
+      setRuntimeSettings(nextSettings);
+    } catch {
+      messageApi.error('加载 MCP 详情失败');
+    }
+  };
+
+  const refreshServer = async (name: string) => {
+    try {
+      const nextSettings = await onMCPServerRefresh(name);
+      setRuntimeSettings(nextSettings);
+      messageApi.success('MCP server 已刷新');
+      void loadDetails(name);
+    } catch {
+      messageApi.error('刷新 MCP server 失败');
+    }
+  };
+
+  const toggleServer = async (name: string, enabled: boolean) => {
+    try {
+      const nextSettings = await onMCPServerToggle(name, enabled);
+      setRuntimeSettings(nextSettings);
+      messageApi.success(enabled ? 'MCP server 已启用' : 'MCP server 已停用');
+    } catch {
+      messageApi.error('更新 MCP server 状态失败');
+    }
+  };
+
+  const toggleTool = async (server: string, tool: string, enabled: boolean) => {
+    try {
+      const nextSettings = await onMCPToolToggle(server, tool, enabled);
+      setRuntimeSettings(nextSettings);
+      messageApi.success(enabled ? 'MCP tool 已启用' : 'MCP tool 已停用');
+    } catch {
+      messageApi.error('更新 MCP tool 状态失败');
+    }
+  };
+
+  const saveServer = async (values: MCPServerFormValues) => {
+    const server = normalizeMCPServer(values, editingServer);
+    setSaving(true);
+    try {
+      const nextSettings = await onMCPServerSave(server);
+      setRuntimeSettings(nextSettings);
+      setSelectedServer(server.name);
+      setModalOpen(false);
+      messageApi.success('MCP server 已保存');
+    } catch {
+      messageApi.error('保存 MCP server 失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      {messageContextHolder}
+      <Flex align="flex-start" className={styles.providerHeader} justify="space-between">
+        <Flex vertical gap={2}>
+          <Title className={styles.providerTitle} level={2}>
+            MCP
+          </Title>
+          <Text className={styles.providerSubtitle} type="secondary">
+            管理 runtime MCP servers、工具、资源和 prompts。
+          </Text>
+        </Flex>
+        <Button
+          icon={<PlusOutlined />}
+          onClick={() => {
+            setEditingServer(null);
+            setModalOpen(true);
+          }}
+        >
+          添加
+        </Button>
+      </Flex>
+
+      <section className={styles.section}>
+        <div className={styles.mcpLayout}>
+          <Card className={styles.settingsListCard} styles={{ body: { padding: 0 } }}>
+            <List
+              dataSource={servers}
+              locale={{ emptyText: 'runtime 未配置 MCP server' }}
+              renderItem={(server) => (
+                <List.Item
+                  className={server.name === detailsName ? styles.selectedListItem : undefined}
+                  actions={[
+                    <Button key="details" icon={<ToolOutlined />} type="text" onClick={() => void loadDetails(server.name)} />,
+                    <Button key="refresh" icon={<ReloadOutlined />} type="text" onClick={() => void refreshServer(server.name)} />,
+                    <Button
+                      key="edit"
+                      icon={<EditOutlined />}
+                      type="text"
+                      onClick={() => {
+                        setEditingServer(server);
+                        setModalOpen(true);
+                      }}
+                    />,
+                    <Switch key="enabled" checked={server.enabled} onChange={(enabled) => void toggleServer(server.name, enabled)} />,
+                  ]}
+                >
+                  <List.Item.Meta
+                    description={
+                      <Flex vertical gap={6}>
+                        <Flex wrap gap={6}>
+                          <Tag>{server.type}</Tag>
+                          <Tag color={stateTagColor(server.state)}>{server.state || 'unknown'}</Tag>
+                          <Tag>{server.counts.tools} tools</Tag>
+                          <Tag>{server.counts.resources} resources</Tag>
+                          <Tag>{server.counts.prompts} prompts</Tag>
+                        </Flex>
+                        <Text className={styles.monoText} type="secondary">
+                          {server.url || [server.command, ...server.args].filter(Boolean).join(' ')}
+                        </Text>
+                        {server.error ? <Text type="danger">{server.error}</Text> : server.diagnostics ? <Text type="secondary">{server.diagnostics}</Text> : null}
+                      </Flex>
+                    }
+                    title={<Text strong>{server.name}</Text>}
+                  />
+                </List.Item>
+              )}
+            />
+          </Card>
+
+          <Card className={styles.mcpDetailsCard} styles={{ body: { padding: 18 } }}>
+            {selected ? (
+              <Flex vertical gap={20}>
+                <Flex align="center" justify="space-between">
+                  <Flex vertical gap={2}>
+                    <Text strong>{selected.name}</Text>
+                    <Text type="secondary">{selected.reason || selected.diagnostics || selected.state}</Text>
+                  </Flex>
+                  <Button icon={<ReloadOutlined />} onClick={() => void loadDetails(selected.name)} />
+                </Flex>
+                <CapabilityList title="Tools" items={tools} onToggle={(tool, enabled) => void toggleTool(selected.name, tool, enabled)} />
+                <ReadOnlyCapabilityList title="Resources" items={resources.map((resource) => resource.name || resource.uri)} />
+                <ReadOnlyCapabilityList title="Prompts" items={prompts.map((prompt) => prompt.name)} />
+              </Flex>
+            ) : (
+              <Text type="secondary">选择或添加 MCP server 后查看 capability 详情。</Text>
+            )}
+          </Card>
+        </div>
+      </section>
+
+      <MCPServerEditorModal
+        editingServer={editingServer}
+        open={modalOpen}
+        saving={saving}
+        onCancel={() => setModalOpen(false)}
+        onSave={saveServer}
+      />
+    </>
+  );
+}
+
+function CapabilityList({
+  title,
+  items,
+  onToggle,
+}: {
+  title: string;
+  items: Array<{ name: string; description?: string; enabled: boolean }>;
+  onToggle: (name: string, enabled: boolean) => void;
+}) {
+  return (
+    <Flex vertical gap={8}>
+      <Text strong>{title}</Text>
+      {items.length === 0 ? (
+        <Text type="secondary">暂无数据</Text>
+      ) : (
+        items.map((item) => (
+          <Flex key={item.name} align="center" className={styles.compactListItem} gap={12} justify="space-between">
+            <Flex vertical>
+              <Text>{item.name}</Text>
+              {item.description ? <Text type="secondary">{item.description}</Text> : null}
+            </Flex>
+            <Switch checked={item.enabled} onChange={(enabled) => onToggle(item.name, enabled)} />
+          </Flex>
+        ))
+      )}
+    </Flex>
+  );
+}
+
+function ReadOnlyCapabilityList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <Flex vertical gap={8}>
+      <Text strong>{title}</Text>
+      {items.length === 0 ? (
+        <Text type="secondary">暂无数据</Text>
+      ) : (
+        <Flex wrap gap={6}>
+          {items.map((item) => (
+            <Tag key={item}>{item}</Tag>
+          ))}
+        </Flex>
+      )}
+    </Flex>
+  );
+}
+
+function MCPServerEditorModal({
+  editingServer,
+  open,
+  saving,
+  onCancel,
+  onSave,
+}: {
+  editingServer: RuntimeMCPServerViewModel | null;
+  open: boolean;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (values: MCPServerFormValues) => Promise<void>;
+}) {
+  const [form] = Form.useForm<MCPServerFormValues>();
+  return (
+    <Modal
+      destroyOnClose
+      footer={[
+        <Button key="cancel" onClick={onCancel}>
+          取消
+        </Button>,
+        <Button key="submit" loading={saving} type="primary" onClick={() => form.submit()}>
+          保存
+        </Button>,
+      ]}
+      open={open}
+      title={editingServer ? '编辑 MCP server' : '添加 MCP server'}
+      width={720}
+      onCancel={onCancel}
+      afterOpenChange={(visible) => {
+        if (!visible) {
+          return;
+        }
+        form.setFieldsValue(
+          editingServer
+            ? { ...editingServer, args: editingServer.args.join(' '), enabled: editingServer.enabled }
+            : { name: '', type: 'stdio', command: '', args: '', url: '', enabled: true, state: '' },
+        );
+      }}
+    >
+      <Form form={form} layout="vertical" preserve={false} requiredMark={false} onFinish={onSave}>
+        <Form.Item label="名称" name="name" rules={[{ required: true, message: '请输入名称' }]}>
+          <Input disabled={Boolean(editingServer)} />
+        </Form.Item>
+        <Form.Item label="类型" name="type" rules={[{ required: true, message: '请选择类型' }]}>
+          <Select
+            options={[
+              { label: 'stdio', value: 'stdio' },
+              { label: 'http', value: 'http' },
+              { label: 'sse', value: 'sse' },
+            ]}
+          />
+        </Form.Item>
+        <Form.Item label="URL" name="url">
+          <Input placeholder="https://example.com/mcp" />
+        </Form.Item>
+        <Form.Item label="Command" name="command">
+          <Input placeholder="npx" />
+        </Form.Item>
+        <Form.Item label="Args" name="args">
+          <Input placeholder="-y @modelcontextprotocol/server-filesystem ." />
+        </Form.Item>
+        <Form.Item label="启用" name="enabled" valuePropName="checked">
+          <Switch />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+}
+
+function normalizeMCPServer(values: MCPServerFormValues, editingServer: RuntimeMCPServerViewModel | null): RuntimeMCPServerViewModel {
+  return {
+    ...editingServer,
+    name: values.name,
+    type: values.type || 'stdio',
+    url: values.url,
+    command: values.command,
+    args: splitArgs(values.args),
+    disabled: values.enabled === false,
+    enabled: values.enabled !== false,
+    state: editingServer?.state || 'configured',
+    counts: editingServer?.counts ?? { tools: 0, prompts: 0, resources: 0 },
+    diagnostics: editingServer?.diagnostics,
+    reason: editingServer?.reason,
+    error: editingServer?.error,
+    enabledTools: editingServer?.enabledTools ?? [],
+    disabledTools: editingServer?.disabledTools ?? [],
+  };
+}
+
+function splitArgs(args?: string) {
+  return (args || '')
+    .split(' ')
+    .map((arg) => arg.trim())
+    .filter(Boolean);
+}
+
+function stateTagColor(state?: string) {
+  switch (state) {
+    case 'connected':
+    case 'normal':
+    case 'ready':
+      return 'green';
+    case 'failed':
+    case 'error':
+      return 'red';
+    case 'disabled':
+      return 'default';
+    default:
+      return 'blue';
+  }
 }
 
 function PermissionsSettings({ settings, onPermissionModeSelect }: { settings: SettingsViewModel; onPermissionModeSelect: (mode: string) => Promise<void> }) {

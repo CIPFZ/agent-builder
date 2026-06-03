@@ -55,6 +55,11 @@ const settings = {
   providerTypes: [],
   providers: [],
   configuredProviders: [],
+  skills: [],
+  mcpServers: [],
+  mcpToolsByServer: {},
+  mcpResourcesByServer: {},
+  mcpPromptsByServer: {},
 };
 
 export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): WorkbenchViewModel {
@@ -78,6 +83,7 @@ export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): W
       modelLabel: '未配置模型',
       permissionOptions: [],
       modelOptions: [],
+      capabilityLabel: '0 skills / 0 MCP',
       busy: false,
     },
     settings,
@@ -132,6 +138,27 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
     return runtimeUnavailable();
   },
   async measureConfiguredProviderLatency() {
+    return runtimeUnavailable();
+  },
+  async refreshSkills() {
+    return runtimeUnavailable();
+  },
+  async setSkillEnabled() {
+    return runtimeUnavailable();
+  },
+  async refreshMCPServer() {
+    return runtimeUnavailable();
+  },
+  async saveMCPServer() {
+    return runtimeUnavailable();
+  },
+  async setMCPServerEnabled() {
+    return runtimeUnavailable();
+  },
+  async setMCPToolEnabled() {
+    return runtimeUnavailable();
+  },
+  async loadMCPServerDetails() {
     return runtimeUnavailable();
   },
 };

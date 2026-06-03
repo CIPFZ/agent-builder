@@ -33,6 +33,7 @@ export interface ComposerViewModel {
   permissionMode?: PermissionModeViewModel;
   permissionOptions: PermissionModeOptionViewModel[];
   modelLabel: string;
+  capabilityLabel: string;
   selectedModel?: RuntimeModelOptionViewModel;
   modelOptions: RuntimeModelOptionViewModel[];
   busy?: boolean;
@@ -202,6 +203,68 @@ export interface ProviderTestViewModel {
   error?: string;
 }
 
+export interface RuntimeSkillViewModel {
+  name: string;
+  description?: string;
+  builtin: boolean;
+  enabled: boolean;
+  path?: string;
+  skillFilePath?: string;
+  state: string;
+  diagnostics?: string;
+  error?: string;
+  reason?: string;
+  allowedTools: string[];
+  capabilityId?: string;
+  policyMode?: string;
+  policyRisk?: string;
+  policyReason?: string;
+}
+
+export interface RuntimeMCPCountsViewModel {
+  tools: number;
+  prompts: number;
+  resources: number;
+}
+
+export interface RuntimeMCPServerViewModel {
+  name: string;
+  type: string;
+  url?: string;
+  command?: string;
+  args: string[];
+  disabled: boolean;
+  enabled: boolean;
+  state: string;
+  counts: RuntimeMCPCountsViewModel;
+  diagnostics?: string;
+  reason?: string;
+  error?: string;
+  enabledTools: string[];
+  disabledTools: string[];
+}
+
+export interface RuntimeMCPToolViewModel {
+  server: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+}
+
+export interface RuntimeMCPResourceViewModel {
+  server: string;
+  uri: string;
+  name?: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface RuntimeMCPPromptViewModel {
+  server: string;
+  name: string;
+  description?: string;
+}
+
 export interface SettingsViewModel {
   activeKey: string;
   navItems: SettingsNavItemViewModel[];
@@ -215,6 +278,11 @@ export interface SettingsViewModel {
   providerTypes: ProviderTypeViewModel[];
   providers: ProviderCatalogItemViewModel[];
   configuredProviders: ConfiguredProviderViewModel[];
+  skills: RuntimeSkillViewModel[];
+  mcpServers: RuntimeMCPServerViewModel[];
+  mcpToolsByServer: Record<string, RuntimeMCPToolViewModel[]>;
+  mcpResourcesByServer: Record<string, RuntimeMCPResourceViewModel[]>;
+  mcpPromptsByServer: Record<string, RuntimeMCPPromptViewModel[]>;
 }
 
 export interface WorkbenchViewModel {
@@ -249,4 +317,11 @@ export interface WorkbenchAdapter {
   discoverConfiguredProviderModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
   testConfiguredProvider: (providerID: string) => Promise<ProviderTestViewModel>;
   measureConfiguredProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;
+  refreshSkills: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
+  setSkillEnabled: (current: WorkbenchViewModel, name: string, enabled: boolean) => Promise<WorkbenchViewModel>;
+  refreshMCPServer: (current: WorkbenchViewModel, name: string) => Promise<WorkbenchViewModel>;
+  saveMCPServer: (current: WorkbenchViewModel, server: RuntimeMCPServerViewModel) => Promise<WorkbenchViewModel>;
+  setMCPServerEnabled: (current: WorkbenchViewModel, name: string, enabled: boolean) => Promise<WorkbenchViewModel>;
+  setMCPToolEnabled: (current: WorkbenchViewModel, server: string, tool: string, enabled: boolean) => Promise<WorkbenchViewModel>;
+  loadMCPServerDetails: (current: WorkbenchViewModel, name: string) => Promise<WorkbenchViewModel>;
 }

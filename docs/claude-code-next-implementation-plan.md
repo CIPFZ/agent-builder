@@ -19,8 +19,9 @@ the audit/doc refresh session.
   the local desktop closure gate.
 - Detailed completion scope is tracked in
   [`runtime-parity-closure-stabilization-plan.md`](./runtime-parity-closure-stabilization-plan.md).
-- The next implementation task is now Skills/MCP management surfaces, with
-  React consuming runtime DTOs and no frontend-owned business truth.
+- The current implementation task is Skills/MCP management surfaces, with
+  React consuming runtime DTOs and no frontend-owned business truth. See
+  [`workbench-skills-mcp-management-plan.md`](./workbench-skills-mcp-management-plan.md).
 
 ## Current Decision
 
@@ -28,7 +29,7 @@ There is no core runtime blocker remaining for the local desktop Claude Code
 runtime parity scope. Runtime closure stabilization and scenario coverage has
 now been run for the 2026-06-03 gate.
 
-Recommended unique next task:
+Current unique task:
 
 ```text
 workbench: add Skills and MCP management surfaces
