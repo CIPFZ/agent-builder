@@ -1,12 +1,25 @@
 # Workbench Runtime Feature Roadmap
 
-Status: active handoff plan for the next Agent Builder frontend/backend work.
+Status: active roadmap with Phase 1-4 frontend/backend integration completed.
 
 This document continues the provider-settings work and defines the next
 implementation sequence for turning Agent Builder into a usable runtime-backed
 desktop workbench.
 
 ## Current Baseline
+
+Update 2026-06-03:
+
+- Phase 1 through Phase 4 are completed for the current desktop workbench
+  milestone: configured provider/model chat, durable sessions/model switching,
+  runtime timeline rendering, and permission decision UI.
+- The tool/thinking/permission integration plan is completed and archived as a
+  finished milestone:
+  [`tool-thinking-permission-integration-plan.md`](./tool-thinking-permission-integration-plan.md).
+- Before continuing into broader Skills, MCP, Projects, or deep React
+  diagnostics, the next stage is runtime parity closure stabilization and
+  scenario coverage:
+  [`runtime-parity-closure-stabilization-plan.md`](./runtime-parity-closure-stabilization-plan.md).
 
 The Settings -> 服务商 module now has the first real frontend/backend path:
 
@@ -47,6 +60,8 @@ The next product milestone is:
 - Events notify the UI that state changed; APIs remain the source of truth.
 
 ## Phase 1: Use Configured Provider In Main Chat
+
+Status: completed for the current desktop workbench milestone.
 
 Goal: send the composer prompt through the currently selected configured
 provider and model.
@@ -98,6 +113,8 @@ Acceptance:
 
 ## Phase 2: Sessions And Model Switching
 
+Status: completed for the current desktop workbench milestone.
+
 Goal: sessions are durable and can use different providers/models.
 
 Backend work:
@@ -140,6 +157,8 @@ Acceptance:
 - Restart/reload and preserve sessions.
 
 ## Phase 3: Conversation Rendering
+
+Status: completed for the current desktop workbench milestone.
 
 Goal: the chat surface becomes a runtime timeline, not plain text.
 
@@ -208,6 +227,8 @@ Acceptance:
 
 ## Phase 4: Permissions
 
+Status: completed for the current desktop workbench milestone.
+
 Goal: permissions are runtime-enforced and recoverable.
 
 Backend work:
@@ -233,7 +254,27 @@ Acceptance:
 - Approve continues the turn.
 - Deny records the decision and shows the result in the timeline.
 
-## Phase 5: Skills And MCP
+## Phase 5: Runtime Closure Gate Before Skills And MCP
+
+Status: next.
+
+Goal: prove the completed runtime primitives across recovery, replay, policy,
+hooks, MCP, AgentTask, sandbox/worktree, refs, and adapter contracts before
+building broader management surfaces.
+
+Execution plan:
+
+- [`runtime-parity-closure-stabilization-plan.md`](./runtime-parity-closure-stabilization-plan.md)
+
+Acceptance:
+
+- Cross-boundary scenario tests fail on permission, tool, hook, MCP, AgentTask,
+  sandbox/worktree, compact/replay, refs, or recovery regressions.
+- Replay/recovery can explain visible runtime facts without React-owned state.
+- Runtime DTOs are stable enough for later React diagnostics and management
+  views.
+
+## Phase 6: Skills And MCP
 
 Goal: skills and MCP are runtime capabilities available to turns.
 
@@ -266,7 +307,7 @@ Acceptance:
 - Add or enable an MCP server and see tool list refresh.
 - A turn can use an enabled MCP tool subject to permissions.
 
-## Phase 6: Projects And Multi-Session Scope
+## Phase 7: Projects And Multi-Session Scope
 
 Goal: project is the workspace boundary and owns sessions.
 
@@ -342,14 +383,16 @@ Each group needs:
 
 ## Suggested Implementation Order
 
-1. Finish selected configured provider/model as the main chat model source.
-2. Make main chat create durable session turns and render messages.
-3. Add session model switching.
-4. Add timeline rendering for messages/tool calls/permissions.
-5. Add permission decision UI.
-6. Add Skills settings.
-7. Add MCP settings and enabled tool visibility.
-8. Add projects and project-scoped session lists.
+1. Completed: finish selected configured provider/model as the main chat model
+   source.
+2. Completed: make main chat create durable session turns and render messages.
+3. Completed: add session model switching.
+4. Completed: add timeline rendering for messages/tool calls/permissions.
+5. Completed: add permission decision UI.
+6. Next: run runtime parity closure stabilization and scenario coverage.
+7. Add Skills settings.
+8. Add MCP settings and enabled tool visibility.
+9. Add projects and project-scoped session lists.
 
 This order avoids building management screens before the core chat loop is
 usable.
@@ -367,4 +410,3 @@ usable.
   remain available during development.
 - Hidden chain-of-thought must not be displayed. Only show safe summaries or
   runtime-provided structured thinking metadata.
-

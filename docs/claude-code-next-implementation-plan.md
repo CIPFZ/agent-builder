@@ -1,6 +1,6 @@
 # Claude Code Next Implementation Plan
 
-Status: refreshed on 2026-05-27 from current `main`.
+Status: active next implementation plan, reconfirmed on 2026-06-03.
 
 Agent Builder baseline: `d51590b76a680e683b9d5335797c7076c16a5b05`
 
@@ -10,6 +10,15 @@ Authoritative audit:
 
 This plan is for the next session. It does not authorize implementation during
 the audit/doc refresh session.
+
+2026-06-03 update:
+
+- The frontend/backend tool, thinking, and permission integration milestone is
+  completed.
+- The next implementation task remains runtime parity closure stabilization and
+  scenario coverage.
+- Detailed execution scope is now tracked in
+  [`runtime-parity-closure-stabilization-plan.md`](./runtime-parity-closure-stabilization-plan.md).
 
 ## Current Decision
 

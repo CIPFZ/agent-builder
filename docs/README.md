@@ -19,6 +19,10 @@ material. Use this index to avoid following superseded phase plans.
 - `workbench-runtime-feature-roadmap.md`: active handoff roadmap for main chat,
   sessions, model switching, timeline rendering, permissions, skills, MCP, and
   projects.
+- `tool-thinking-permission-integration-plan.md`: completed frontend/backend
+  integration milestone for runtime tool calls, thinking, and permissions.
+- `runtime-parity-closure-stabilization-plan.md`: active next implementation
+  plan for runtime closure scenario coverage and contract hardening.
 
 ## Active Design Baselines
 

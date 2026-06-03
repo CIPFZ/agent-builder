@@ -1,6 +1,32 @@
 # Tool, Thinking, And Permission Integration Plan
 
-Status: handoff plan for the next Agent Builder implementation session.
+Status: completed on 2026-06-03.
+
+This frontend/backend integration milestone is complete. The main conversation
+surface now consumes runtime-owned tool calls, safe thinking summaries, policy
+mode, permission requests, and active-turn state instead of using React-owned
+mock state.
+
+Completion notes:
+
+- Real runtime tool calls render as timeline cards with lifecycle status and
+  output.
+- Runtime permission requests render inline and support allow once, allow for
+  session, and deny.
+- Permission mode is loaded from and saved to the runtime policy API.
+- Thinking content is grouped by turn, collapsed by default, and shown only as
+  runtime-provided safe content.
+- Multi-session execution no longer cancels the previous session when a new
+  session starts.
+- Sidebar sessions show active execution state independently.
+- Timeline ordering is user message, thinking, tool, permission/progress, then
+  assistant response.
+- Browser verification covered allow, deny, pending permission UI behavior,
+  tool output display, and multi-session busy indicators.
+
+Superseding next step:
+
+- [`runtime-parity-closure-stabilization-plan.md`](./runtime-parity-closure-stabilization-plan.md)
 
 This plan starts after the main composer can use the configured runtime
 provider/model for real chat. The next milestone is to make tool use, safe
