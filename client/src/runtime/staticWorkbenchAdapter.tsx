@@ -22,7 +22,6 @@ import type { WorkbenchAdapter, WorkbenchMode, WorkbenchViewModel } from './work
 const sidebarActions = [
   { id: 'new-chat', label: '新对话', icon: <PlusSquareOutlined /> },
   { id: 'search', label: '搜索', icon: <SearchOutlined /> },
-  { id: 'skills', label: '技能', icon: <ToolOutlined /> },
   { id: 'plugins', label: '插件', icon: <AppstoreAddOutlined /> },
   { id: 'automations', label: '自动化', icon: <SettingOutlined /> },
 ];

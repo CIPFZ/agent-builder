@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-export type WorkbenchMode = 'project' | 'new-chat' | 'settings';
+export type WorkbenchMode = 'project' | 'new-chat' | 'settings' | 'plugins';
 
 export interface ProjectViewModel {
   id: string;

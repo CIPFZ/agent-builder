@@ -27,7 +27,7 @@ export function PermissionModeControl({ composer, onSelect }: PermissionModeCont
   }));
 
   return (
-    <Dropdown menu={{ items, selectedKeys: selectedMode ? [selectedMode] : [], onClick: ({ key }) => void onSelect(key) }} overlayClassName={styles.dropdown} trigger={['click']}>
+    <Dropdown classNames={{ root: styles.dropdown }} menu={{ items, selectedKeys: selectedMode ? [selectedMode] : [], onClick: ({ key }) => void onSelect(key) }} trigger={['click']}>
       <span className={styles.triggerWrap}>
         <Tooltip title={selectedDescription}>
           <Button className={buttonClassName} type="text" data-testid="permission-mode-control">

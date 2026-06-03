@@ -130,19 +130,39 @@
   margin-bottom: 16px;
 }
 
-.settingsListCard :global(.ant-list-item) {
+.settingsList {
+  display: flex;
+  flex-direction: column;
+}
+
+.settingsListItem {
+  display: flex;
+  align-items: center;
   min-height: 78px;
-  padding-inline: 18px;
   gap: 12px;
+  padding: 12px 18px;
+  border-block-end: 1px solid rgba(5, 5, 5, 0.06);
 }
 
-.settingsListCard :global(.ant-list-item-meta) {
+.settingsListItem:last-child {
+  border-block-end: 0;
+}
+
+.settingsListMeta {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   min-width: 180px;
-  margin-block-end: 0 !important;
+  gap: 4px;
 }
 
-.settingsListCard :global(.ant-list-item-action) {
+.settingsListActions {
+  flex: 0 0 auto;
   margin-inline-start: auto;
+}
+
+.emptyListText {
+  padding: 20px 18px;
 }
 
 .formCard {
@@ -226,11 +246,11 @@
     align-self: flex-start;
   }
 
-  .settingsListCard :global(.ant-list-item) {
+  .settingsListItem {
     flex-wrap: wrap;
   }
 
-  .settingsListCard :global(.ant-list-item-action) {
+  .settingsListActions {
     margin-inline-start: 0;
   }
 

@@ -20,7 +20,6 @@ import {
   Form,
   Input,
   Layout,
-  List,
   Menu,
   message,
   Modal,
@@ -359,27 +358,25 @@ function ProvidersSettings({
         </Flex>
 
         <Card className={styles.settingsListCard} styles={{ body: { padding: 0 } }}>
-          <List
-            dataSource={configuredProviders}
-            renderItem={(provider) => {
+          <div className={styles.settingsList}>
+            {configuredProviders.map((provider) => {
               const catalogProvider = providers.find((item) => item.id === provider.providerId);
               const providerProtocol = provider.protocol || catalogProvider?.type || 'openai-compat';
               return (
-                <List.Item
-                  actions={[
-                    <Button key="edit" icon={<EditOutlined />} type="text" onClick={() => openEditProvider(provider)} />,
-                    <Button key="delete" danger icon={<DeleteOutlined />} type="text" onClick={() => deleteProvider(provider.id)} />,
-                    <Switch key="enabled" defaultChecked />,
-                  ]}
-                >
-                  <List.Item.Meta
-                    description={provider.remark || `${catalogProvider?.name ?? provider.providerId} · ${providerProtocol}`}
-                    title={<Text strong>{provider.name}</Text>}
-                  />
-                </List.Item>
+                <div key={provider.id} className={styles.settingsListItem}>
+                  <div className={styles.settingsListMeta}>
+                    <Text strong>{provider.name}</Text>
+                    <Text type="secondary">{provider.remark || `${catalogProvider?.name ?? provider.providerId} · ${providerProtocol}`}</Text>
+                  </div>
+                  <Flex className={styles.settingsListActions} align="center" gap={8}>
+                    <Button icon={<EditOutlined />} type="text" onClick={() => openEditProvider(provider)} />
+                    <Button danger icon={<DeleteOutlined />} type="text" onClick={() => deleteProvider(provider.id)} />
+                    <Switch defaultChecked />
+                  </Flex>
+                </div>
               );
-            }}
-          />
+            })}
+          </div>
         </Card>
       </section>
 
@@ -523,7 +520,7 @@ function ProviderEditorModal({
   return (
     <Modal
       className={styles.providerModal}
-      destroyOnClose
+      destroyOnHidden
       footer={[
         <Button key="cancel" onClick={onCancel}>
           取消
@@ -706,23 +703,12 @@ function SkillsSettings({
 
       <section className={styles.section}>
         <Card className={styles.settingsListCard} styles={{ body: { padding: 0 } }}>
-          <List
-            dataSource={skills}
-            locale={{ emptyText: 'runtime 未发现技能' }}
-            renderItem={(skill) => (
-              <List.Item
-                actions={[
-                  <Switch
-                    key="enabled"
-                    checked={skill.enabled}
-                    onChange={(enabled) => {
-                      void toggleSkill(skill.name, enabled);
-                    }}
-                  />,
-                ]}
-              >
-                <List.Item.Meta
-                  description={
+          <div className={styles.settingsList}>
+            {skills.length > 0 ? (
+              skills.map((skill) => (
+                <div key={skill.name} className={styles.settingsListItem}>
+                  <div className={styles.settingsListMeta}>
+                    <Text strong>{skill.name}</Text>
                     <Flex vertical gap={6}>
                       <Text type="secondary">{skill.description || skill.reason || skill.diagnostics || '无描述'}</Text>
                       <Flex wrap gap={6}>
@@ -741,12 +727,21 @@ function SkillsSettings({
                       ) : null}
                       {skill.error ? <Text type="danger">{skill.error}</Text> : null}
                     </Flex>
-                  }
-                  title={<Text strong>{skill.name}</Text>}
-                />
-              </List.Item>
+                  </div>
+                  <Flex className={styles.settingsListActions} align="center" gap={8}>
+                  <Switch
+                    checked={skill.enabled}
+                    onChange={(enabled) => {
+                      void toggleSkill(skill.name, enabled);
+                    }}
+                  />
+                  </Flex>
+                </div>
+              ))
+            ) : (
+              <Text className={styles.emptyListText} type="secondary">runtime 未发现技能</Text>
             )}
-          />
+          </div>
         </Card>
       </section>
     </>
@@ -865,29 +860,12 @@ function MCPSettings({
       <section className={styles.section}>
         <div className={styles.mcpLayout}>
           <Card className={styles.settingsListCard} styles={{ body: { padding: 0 } }}>
-            <List
-              dataSource={servers}
-              locale={{ emptyText: 'runtime 未配置 MCP server' }}
-              renderItem={(server) => (
-                <List.Item
-                  className={server.name === detailsName ? styles.selectedListItem : undefined}
-                  actions={[
-                    <Button key="details" icon={<ToolOutlined />} type="text" onClick={() => void loadDetails(server.name)} />,
-                    <Button key="refresh" icon={<ReloadOutlined />} type="text" onClick={() => void refreshServer(server.name)} />,
-                    <Button
-                      key="edit"
-                      icon={<EditOutlined />}
-                      type="text"
-                      onClick={() => {
-                        setEditingServer(server);
-                        setModalOpen(true);
-                      }}
-                    />,
-                    <Switch key="enabled" checked={server.enabled} onChange={(enabled) => void toggleServer(server.name, enabled)} />,
-                  ]}
-                >
-                  <List.Item.Meta
-                    description={
+            <div className={styles.settingsList}>
+              {servers.length > 0 ? (
+                servers.map((server) => (
+                  <div key={server.name} className={`${styles.settingsListItem} ${server.name === detailsName ? styles.selectedListItem : ''}`}>
+                    <div className={styles.settingsListMeta}>
+                      <Text strong>{server.name}</Text>
                       <Flex vertical gap={6}>
                         <Flex wrap gap={6}>
                           <Tag>{server.type}</Tag>
@@ -901,12 +879,26 @@ function MCPSettings({
                         </Text>
                         {server.error ? <Text type="danger">{server.error}</Text> : server.diagnostics ? <Text type="secondary">{server.diagnostics}</Text> : null}
                       </Flex>
-                    }
-                    title={<Text strong>{server.name}</Text>}
-                  />
-                </List.Item>
+                    </div>
+                    <Flex className={styles.settingsListActions} align="center" gap={8}>
+                      <Button icon={<ToolOutlined />} type="text" onClick={() => void loadDetails(server.name)} />
+                      <Button icon={<ReloadOutlined />} type="text" onClick={() => void refreshServer(server.name)} />
+                      <Button
+                        icon={<EditOutlined />}
+                        type="text"
+                        onClick={() => {
+                          setEditingServer(server);
+                          setModalOpen(true);
+                        }}
+                      />
+                      <Switch checked={server.enabled} onChange={(enabled) => void toggleServer(server.name, enabled)} />
+                    </Flex>
+                  </div>
+                ))
+              ) : (
+                <Text className={styles.emptyListText} type="secondary">runtime 未配置 MCP server</Text>
               )}
-            />
+            </div>
           </Card>
 
           <Card className={styles.mcpDetailsCard} styles={{ body: { padding: 18 } }}>
@@ -1003,7 +995,7 @@ function MCPServerEditorModal({
   const [form] = Form.useForm<MCPServerFormValues>();
   return (
     <Modal
-      destroyOnClose
+      destroyOnHidden
       footer={[
         <Button key="cancel" onClick={onCancel}>
           取消

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import type { WorkbenchAdapter, WorkbenchMode, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
+import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
 import { Sidebar } from '../../features/sidebar/Sidebar.tsx';
 import { SettingsPanel } from '../../features/settings/SettingsPanel.tsx';
 import { Workspace } from '../../features/workspace/Workspace.tsx';
@@ -63,7 +64,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const changeMode = (nextMode: WorkbenchMode) => {
     setMode(nextMode);
     setViewModel((current) => ({ ...current, mode: nextMode }));
-    if (nextMode === 'settings') {
+    if (nextMode === 'settings' || nextMode === 'plugins') {
       void adapter.refresh({ ...viewModel, mode: nextMode }).then((nextViewModel) => {
         setMode(nextViewModel.mode);
         setViewModel(nextViewModel);
@@ -176,6 +177,13 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
 
   const refreshSettings = async () => {
     const nextViewModel = await adapter.refresh({ ...viewModel, mode: 'settings' });
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+    return nextViewModel.settings;
+  };
+
+  const refreshCurrentSettings = async () => {
+    const nextViewModel = await adapter.refresh({ ...viewModel, mode });
     setMode(nextViewModel.mode);
     setViewModel(nextViewModel);
     return nextViewModel.settings;
@@ -326,14 +334,18 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onPointerDown={startSidebarResize}
         />
       )}
-      <Workspace
-        viewModel={workbenchViewModel}
-        onModelSelect={selectModel}
-        onPermissionDecide={decidePermission}
-        onPermissionModeSelect={selectPermissionMode}
-        onPromptCancel={cancelTurn}
-        onPromptSubmit={sendPrompt}
-      />
+      {mode === 'plugins' ? (
+        <PluginCenter settings={workbenchViewModel.settings} onSettingsRefresh={refreshCurrentSettings} onSkillToggle={setSkillEnabled} />
+      ) : (
+        <Workspace
+          viewModel={workbenchViewModel}
+          onModelSelect={selectModel}
+          onPermissionDecide={decidePermission}
+          onPermissionModeSelect={selectPermissionMode}
+          onPromptCancel={cancelTurn}
+          onPromptSubmit={sendPrompt}
+        />
+      )}
     </main>
   );
 }

@@ -7,7 +7,6 @@ import {
   DownOutlined,
   FolderOpenOutlined,
   PlusOutlined,
-  ToolOutlined,
 } from '@ant-design/icons';
 import type { ComposerViewModel, ProjectViewModel } from '../../runtime/workbenchTypes.ts';
 import { PermissionModeControl } from '../permissions/PermissionModeControl.tsx';
@@ -104,9 +103,6 @@ export function Composer({
       <div className={styles.leftControls}>
         <Button aria-label="添加上下文" icon={<PlusOutlined />} type="text" />
         <PermissionModeControl composer={composer} onSelect={onPermissionModeSelect} />
-        <Button className={styles.capabilityButton} icon={<ToolOutlined />} type="text">
-          <span className={styles.truncatedLabel}>{composer.capabilityLabel}</span>
-        </Button>
       </div>
 
       <div className={styles.rightControls}>

@@ -43,7 +43,7 @@ export function Sidebar({ viewModel, onModeChange, onProjectCreate, onSessionCre
           {viewModel.sidebarActions.map((action) => (
             <Button
               key={action.id}
-              className={styles.navButton}
+              className={`${styles.navButton} ${viewModel.mode === action.id ? styles.currentRow : ''}`}
               data-nav-id={action.id}
               disabled={action.disabled}
               block
@@ -52,6 +52,10 @@ export function Sidebar({ viewModel, onModeChange, onProjectCreate, onSessionCre
               onClick={() => {
                 if (action.id === 'new-chat') {
                   onModeChange('new-chat');
+                  return;
+                }
+                if (action.id === 'plugins') {
+                  onModeChange('plugins');
                 }
               }}
             >
