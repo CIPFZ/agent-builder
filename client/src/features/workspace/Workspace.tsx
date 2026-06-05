@@ -1,4 +1,4 @@
-import { CopyOutlined } from '@ant-design/icons';
+import { CodeOutlined, ControlOutlined, CopyOutlined, DesktopOutlined, MoreOutlined } from '@ant-design/icons';
 import { Button, Tooltip, message as antdMessage } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
 import type { WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
@@ -7,6 +7,7 @@ import { Timeline } from '../timeline/Timeline.tsx';
 import styles from './Workspace.module.css';
 
 interface WorkspaceProps {
+  sidebarCollapsed?: boolean;
   viewModel: WorkbenchViewModel;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
   onPermissionDecide: (permissionID: string, action: 'allow' | 'allow_for_session' | 'deny') => Promise<void>;
@@ -16,6 +17,7 @@ interface WorkspaceProps {
 }
 
 export function Workspace({
+  sidebarCollapsed = false,
   viewModel,
   onModelSelect,
   onPermissionDecide,
@@ -26,6 +28,8 @@ export function Workspace({
   const [messageApi, messageContextHolder] = antdMessage.useMessage();
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
   const hasConversation = viewModel.conversation.length > 0;
+  const activeSession = viewModel.sessions.find((session) => session.active);
+  const sessionTitle = activeSession?.title || viewModel.currentProject.name || '新对话';
   const title =
     viewModel.mode === 'project' && hasProjectContext ? `我们应该在 ${viewModel.currentProject.name} 中构建什么？` : '我们该做什么？';
   const bubbleItems = viewModel.conversation.map((message) => ({
@@ -37,8 +41,32 @@ export function Workspace({
   }));
 
   return (
-    <section className={styles.workspace} data-has-conversation={hasConversation} data-mode={viewModel.mode}>
+    <section
+      className={styles.workspace}
+      data-has-conversation={hasConversation}
+      data-mode={viewModel.mode}
+      data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}
+    >
       {messageContextHolder}
+      <header className={styles.sessionHeader}>
+        <div className={styles.sessionTitleWrap}>
+          <h2 className={styles.sessionTitle}>{sessionTitle}</h2>
+          <Tooltip title="更多对话操作">
+            <Button aria-label="更多对话操作" className={styles.headerIconButton} icon={<MoreOutlined />} type="text" />
+          </Tooltip>
+        </div>
+        <div className={styles.headerActions} aria-label="工作区面板">
+          <Tooltip title="打开代码面板">
+            <Button aria-label="打开代码面板" className={styles.headerIconButton} icon={<CodeOutlined />} type="text" />
+          </Tooltip>
+          <Tooltip title="打开任务列表">
+            <Button aria-label="打开任务列表" className={styles.headerIconButton} icon={<ControlOutlined />} type="text" />
+          </Tooltip>
+          <Tooltip title="打开右侧面板">
+            <Button aria-label="打开右侧面板" className={styles.headerIconButton} icon={<DesktopOutlined />} type="text" />
+          </Tooltip>
+        </div>
+      </header>
       <div className={hasConversation ? styles.chatContent : styles.content}>
         {viewModel.timeline.length > 0 ? (
           <Timeline items={viewModel.timeline} onPermissionDecide={onPermissionDecide} />

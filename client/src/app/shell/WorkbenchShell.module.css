@@ -1,28 +1,21 @@
 .shell {
   display: grid;
-  grid-template-rows: 42px minmax(0, 1fr);
-  grid-template-columns: var(--sidebar-width, 256px) 1px minmax(0, 1fr);
-  grid-template-areas:
-    "chrome chrome chrome"
-    "sidebar resizer workspace";
+  grid-template-columns: var(--sidebar-width, 280px) 1px minmax(0, 1fr);
+  grid-template-areas: "sidebar resizer workspace";
   width: 100vw;
   height: 100vh;
   transition: grid-template-columns 160ms ease;
 }
 
 .shell > :first-child {
-  grid-area: chrome;
-}
-
-.shell > :nth-child(2) {
   grid-area: sidebar;
 }
 
-.shell > :nth-child(3) {
+.shell > :nth-child(2) {
   grid-area: resizer;
 }
 
-.shell > :nth-child(4),
+.shell > :nth-child(3),
 .sidebarCollapsed > :nth-child(2) {
   grid-area: workspace;
 }
@@ -33,7 +26,6 @@
   height: 100%;
   background: #e5e5e5;
   cursor: col-resize;
-  --wails-draggable: no-drag;
 }
 
 .sidebarResizer::before {
@@ -53,25 +45,25 @@
 
 .settingsShell {
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas:
-    "chrome"
-    "workspace";
+  grid-template-areas: "workspace";
 }
 
 .sidebarCollapsed {
-  grid-template-columns: 0 minmax(0, 1fr);
-  grid-template-areas:
-    "chrome chrome"
-    "workspace workspace";
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "workspace";
 }
 
-.settingsShell > :not(:first-child) {
+.settingsShell > :first-child {
+  grid-area: workspace;
+}
+
+.sidebarCollapsed > :first-child {
   grid-area: workspace;
 }
 
 @media (max-width: 820px) {
   .shell {
-    grid-template-columns: var(--sidebar-width, 220px) 1px minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width, 280px) 1px minmax(0, 1fr);
   }
 
   .settingsShell {
@@ -79,13 +71,13 @@
   }
 
   .sidebarCollapsed {
-    grid-template-columns: 0 minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
 @media (max-width: 720px) {
   .shell {
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

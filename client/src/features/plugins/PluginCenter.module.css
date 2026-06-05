@@ -199,14 +199,22 @@
   width: min(100%, 980px);
   margin: 0 auto 30px;
   gap: 12px;
-  font-size: 18px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.manageBreadcrumb :global(.ant-typography),
+.manageBreadcrumb :global(.ant-btn) {
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .breadcrumbBack {
   height: auto;
   padding: 0;
   color: rgba(0, 0, 0, 0.52);
-  font-size: 18px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .breadcrumbBack:hover,
@@ -243,6 +251,18 @@
 .manageRow {
   grid-template-columns: 54px minmax(0, 1fr) 56px;
   padding: 10px 12px;
+}
+
+.managementEmptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  gap: 8px;
+  border: 1px dashed #dedede;
+  border-radius: 8px;
+  background: #fafafa;
 }
 
 .detailContent {

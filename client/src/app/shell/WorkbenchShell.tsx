@@ -5,7 +5,6 @@ import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
 import { Sidebar } from '../../features/sidebar/Sidebar.tsx';
 import { SettingsPanel } from '../../features/settings/SettingsPanel.tsx';
 import { Workspace } from '../../features/workspace/Workspace.tsx';
-import { DesktopChrome } from './DesktopChrome.tsx';
 import styles from './WorkbenchShell.module.css';
 
 interface WorkbenchShellProps {
@@ -17,7 +16,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const [viewModel, setViewModel] = useState<WorkbenchViewModel>(initialViewModel);
   const [mode, setMode] = useState<WorkbenchMode>(initialViewModel.mode);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(256);
+  const [sidebarWidth, setSidebarWidth] = useState(280);
   const viewModelRef = useRef(viewModel);
 
   useEffect(() => {
@@ -259,7 +258,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     target.setPointerCapture(pointerId);
 
     const updateSidebarWidth = (moveEvent: PointerEvent) => {
-      const nextWidth = Math.min(360, Math.max(220, startWidth + moveEvent.clientX - startX));
+      const nextWidth = Math.min(380, Math.max(280, startWidth + moveEvent.clientX - startX));
       setSidebarWidth(nextWidth);
     };
 
@@ -278,7 +277,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   if (mode === 'settings') {
     return (
       <main className={`${styles.shell} ${styles.settingsShell}`} data-testid="workbench-shell">
-        <DesktopChrome />
         <SettingsPanel
           settings={workbenchViewModel.settings}
           onModeChange={changeMode}
@@ -307,28 +305,24 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       data-testid="workbench-shell"
       style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
     >
-      <DesktopChrome
-        sidebarCollapsed={sidebarCollapsed}
-        onSidebarToggle={() => setSidebarCollapsed((collapsed) => !collapsed)}
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        viewModel={workbenchViewModel}
+        onCollapsedChange={setSidebarCollapsed}
+        onModeChange={changeMode}
+        onProjectCreate={createProject}
+        onSessionCreate={createSession}
+        onSessionDelete={deleteSession}
+        onSessionSelect={selectSession}
       />
-      {!sidebarCollapsed && (
-        <Sidebar
-          viewModel={workbenchViewModel}
-          onModeChange={changeMode}
-          onProjectCreate={createProject}
-          onSessionCreate={createSession}
-          onSessionDelete={deleteSession}
-          onSessionSelect={selectSession}
-        />
-      )}
       {!sidebarCollapsed && (
         <div
           aria-label="调整侧栏宽度"
           className={styles.sidebarResizer}
           role="separator"
           aria-orientation="vertical"
-          aria-valuemin={220}
-          aria-valuemax={360}
+          aria-valuemin={280}
+          aria-valuemax={380}
           aria-valuenow={sidebarWidth}
           tabIndex={0}
           onPointerDown={startSidebarResize}
@@ -338,6 +332,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         <PluginCenter settings={workbenchViewModel.settings} onSettingsRefresh={refreshCurrentSettings} onSkillToggle={setSkillEnabled} />
       ) : (
         <Workspace
+          sidebarCollapsed={sidebarCollapsed}
           viewModel={workbenchViewModel}
           onModelSelect={selectModel}
           onPermissionDecide={decidePermission}

@@ -23,7 +23,7 @@ import {
   Menu,
   message,
   Modal,
-  Radio,
+  Segmented,
   Select,
   Switch,
   Tag,
@@ -236,14 +236,16 @@ function GeneralSettings() {
       <section className={styles.section}>
         <Title level={4}>工作模式</Title>
         <Paragraph type="secondary">选择 Agent Builder 显示多少技术细节</Paragraph>
-        <Radio.Group className={styles.modeGroup} defaultValue="code" optionType="button" size="large">
-          <Radio.Button className={styles.modeOption} value="code">
-            适用于编程
-          </Radio.Button>
-          <Radio.Button className={styles.modeOption} value="work">
-            适用于日常工作
-          </Radio.Button>
-        </Radio.Group>
+        <Segmented
+          block
+          className={styles.modeGroup}
+          defaultValue="code"
+          options={[
+            { label: '适用于编程', value: 'code' },
+            { label: '适用于日常工作', value: 'work' },
+          ]}
+          size="large"
+        />
       </section>
     </>
   );
@@ -1099,19 +1101,18 @@ function PermissionsSettings({ settings, onPermissionModeSelect }: { settings: S
       <Title level={2}>权限</Title>
       <section className={styles.section}>
         <Title level={4}>权限模式</Title>
-        <Radio.Group
-          optionType="button"
+        <Segmented
+          className={styles.permissionModeGroup}
+          options={settings.permissionOptions.map((option) => ({
+            disabled: option.disabled,
+            label: option.label,
+            value: option.mode,
+          }))}
           value={selectedMode}
-          onChange={(event) => {
-            void onPermissionModeSelect(event.target.value);
+          onChange={(value) => {
+            void onPermissionModeSelect(String(value));
           }}
-        >
-          {settings.permissionOptions.map((option) => (
-            <Radio.Button key={option.mode} value={option.mode}>
-              {option.label}
-            </Radio.Button>
-          ))}
-        </Radio.Group>
+        />
         <Card styles={{ body: { padding: 0 } }}>
           <Flex vertical>
             {settings.permissions.map((item) => (

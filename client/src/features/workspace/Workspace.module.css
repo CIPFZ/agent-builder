@@ -1,7 +1,67 @@
 .workspace {
   min-width: 0;
   height: 100%;
-  padding: 42px 40px;
+  display: grid;
+  grid-template-rows: 52px minmax(0, 1fr);
+}
+
+.sessionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  height: 52px;
+  padding: 0 18px 0 22px;
+  gap: 16px;
+  background: #ffffff;
+}
+
+.workspace[data-sidebar-collapsed='true'] .sessionHeader {
+  padding-left: 156px;
+}
+
+.sessionTitleWrap {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.sessionTitle {
+  min-width: 0;
+  max-width: min(58vw, 720px);
+  margin: 0;
+  overflow: hidden;
+  color: rgba(0, 0, 0, 0.88);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding-left: 8px;
+}
+
+.headerIconButton {
+  width: 32px;
+  height: 32px;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.headerIconButton:hover,
+.headerIconButton:focus-visible {
+  color: rgba(0, 0, 0, 0.88);
+  background: #f5f5f5;
+}
+
+.workspace[data-sidebar-collapsed='true'] .headerIconButton {
+  color: rgba(0, 0, 0, 0.5);
 }
 
 .content {
@@ -10,9 +70,10 @@
   align-items: center;
   justify-content: center;
   width: min(860px, 100%);
-  min-height: calc(100vh - 126px);
+  min-height: 0;
+  height: 100%;
   margin: 0 auto;
-  padding-bottom: 80px;
+  padding: 42px 40px 80px;
 }
 
 .chatContent {
@@ -20,8 +81,9 @@
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 20px;
   width: min(920px, 100%);
-  height: calc(100vh - 126px);
+  height: 100%;
   margin: 0 auto;
+  padding: 24px 40px 32px;
 }
 
 .conversation {
@@ -36,6 +98,17 @@
 
 .userBubble {
   max-width: min(680px, 78%);
+}
+
+.assistantBubble :global(.ant-bubble-content) {
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.userBubble :global(.ant-bubble-content) {
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: #f2f2f2;
+  color: rgba(0, 0, 0, 0.88);
 }
 
 .assistantMessageActions,
@@ -75,15 +148,17 @@
 }
 
 @media (max-width: 820px) {
-  .workspace {
-    padding: 34px 24px;
+  .sessionHeader {
+    padding-right: 12px;
+    padding-left: 16px;
+  }
+
+  .workspace[data-sidebar-collapsed='true'] .sessionHeader {
+    padding-left: 148px;
   }
 
   .content {
     width: min(100%, 720px);
-  }
-
-  .chatContent {
-    height: calc(100vh - 110px);
+    padding: 34px 24px 72px;
   }
 }

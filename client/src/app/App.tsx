@@ -10,12 +10,20 @@ export default function App() {
   useEffect(() => {
     let active = true;
 
-    void wailsWorkbenchAdapter.loadInitialViewModel().then((nextViewModel) => {
-      if (active) {
-        setViewModel(nextViewModel);
-        setLoaded(true);
-      }
-    });
+    void wailsWorkbenchAdapter
+      .loadInitialViewModel()
+      .then((nextViewModel) => {
+        if (active) {
+          setViewModel(nextViewModel);
+          setLoaded(true);
+        }
+      })
+      .catch((error) => {
+        console.error('[app] failed to load initial runtime view model', error);
+        if (active) {
+          setLoaded(true);
+        }
+      });
 
     return () => {
       active = false;

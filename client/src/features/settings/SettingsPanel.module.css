@@ -16,7 +16,6 @@
   height: 100%;
   background: #e5e5e5;
   cursor: col-resize;
-  --wails-draggable: no-drag;
 }
 
 .resizer::before {
@@ -190,16 +189,32 @@
 }
 
 .modeGroup {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(220px, 1fr));
-  gap: 16px;
   width: min(100%, 680px);
 }
 
-.modeOption {
-  height: auto;
-  padding: 18px 24px;
-  line-height: 1.5715;
+.modeGroup :global(.ant-segmented-group) {
+  width: 100%;
+}
+
+.modeGroup :global(.ant-segmented-item) {
+  min-height: 56px;
+}
+
+.modeGroup :global(.ant-segmented-item-label) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding-inline: 18px;
+  white-space: normal;
+}
+
+.permissionModeGroup {
+  margin-bottom: 18px;
+}
+
+.permissionModeGroup :global(.ant-segmented-item-label) {
+  padding-inline: 14px;
 }
 
 .listItem {

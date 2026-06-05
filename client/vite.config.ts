@@ -42,6 +42,7 @@ export default defineConfig({
     },
   },
   build: {
+    target: 'chrome109',
     chunkSizeWarningLimit: 1200,
     rolldownOptions: {
       output: {

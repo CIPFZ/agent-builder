@@ -26,18 +26,13 @@ func main() {
 	})
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:           "Agent Builder",
-		Width:           1180,
-		Height:          820,
-		Frameless:       true,
-		MinWidth:        1040,
-		MinHeight:       760,
-		InitialPosition: application.WindowCentered,
-		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
-			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar:                application.MacTitleBarHiddenInset,
-		},
+		Title:            "Agent Builder",
+		Width:            1180,
+		Height:           820,
+		Frameless:        false,
+		MinWidth:         1040,
+		MinHeight:        760,
+		InitialPosition:  application.WindowCentered,
 		BackgroundColour: application.NewRGB(255, 255, 255),
 		URL:              "/",
 	})

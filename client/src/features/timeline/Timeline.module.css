@@ -16,6 +16,17 @@
   max-width: min(680px, 78%);
 }
 
+.assistantBubble :global(.ant-bubble-content) {
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.userBubble :global(.ant-bubble-content) {
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: #f2f2f2;
+  color: rgba(0, 0, 0, 0.88);
+}
+
 .progress {
   width: min(720px, 94%);
   padding: 8px 0;

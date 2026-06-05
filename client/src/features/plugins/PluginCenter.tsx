@@ -18,7 +18,7 @@ import {
 } from '@ant-design/icons';
 import { Button, Dropdown, Flex, Input, Modal, Segmented, Switch, Typography, message } from 'antd';
 import type { MenuProps } from 'antd';
-import type { RuntimePluginViewModel, RuntimeSkillViewModel, SettingsViewModel } from '../../runtime/workbenchTypes.ts';
+import type { RuntimeMCPServerViewModel, RuntimePluginViewModel, RuntimeSkillViewModel, SettingsViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './PluginCenter.module.css';
 
 const { Text, Title } = Typography;
@@ -30,11 +30,13 @@ interface PluginCenterProps {
 }
 
 type PluginCenterTab = 'plugins' | 'skills';
+type PluginManagementTab = PluginCenterTab | 'apps' | 'mcp' | 'market';
 
 type PluginIcon = 'browser' | 'chrome' | 'computer' | 'latex' | 'code' | 'cloud' | 'figma' | 'mcp' | 'skills' | 'default';
 
 export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: PluginCenterProps) {
   const [activeTab, setActiveTab] = useState<PluginCenterTab>('plugins');
+  const [activeManagementTab, setActiveManagementTab] = useState<PluginManagementTab>('plugins');
   const [manageMode, setManageMode] = useState(false);
   const [query, setQuery] = useState('');
   const [pluginSourceFilter, setPluginSourceFilter] = useState('全部');
@@ -142,7 +144,7 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
         <PluginDetailView plugin={selectedPlugin} onBack={() => setSelectedPlugin(null)} />
       ) : manageMode ? (
         <ManagementView
-          activeTab={activeTab}
+          activeTab={activeManagementTab}
           settings={activeSettings}
           plugins={filteredPlugins}
           query={query}
@@ -157,7 +159,7 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
           onSkillSelect={setSelectedSkill}
           onSkillToggle={toggleSkill}
           onTabChange={(tab) => {
-            setActiveTab(tab);
+            setActiveManagementTab(tab);
             setQuery('');
             if (tab === 'skills') {
               void refresh();
@@ -186,6 +188,7 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
             <Flex align="center" gap={8}>
               <Button icon={<SettingOutlined />} onClick={() => {
                 setManageMode(true);
+                setActiveManagementTab(activeTab);
                 setQuery('');
               }}>
                 管理
@@ -233,6 +236,7 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
             <Flex align="center" gap={8}>
               <Button icon={<SettingOutlined />} onClick={() => {
                 setManageMode(true);
+                setActiveManagementTab(activeTab);
                 setQuery('');
               }}>
                 管理
@@ -357,7 +361,7 @@ function ManagementView({
   onSkillToggle,
   onTabChange,
 }: {
-  activeTab: PluginCenterTab;
+  activeTab: PluginManagementTab;
   settings: SettingsViewModel;
   plugins: RuntimePluginViewModel[];
   skills: RuntimeSkillViewModel[];
@@ -367,8 +371,19 @@ function ManagementView({
   onPluginSelect: (plugin: RuntimePluginViewModel) => void;
   onSkillSelect: (skill: RuntimeSkillViewModel) => void;
   onSkillToggle: (skill: RuntimeSkillViewModel, enabled: boolean) => void;
-  onTabChange: (tab: PluginCenterTab) => void;
+  onTabChange: (tab: PluginManagementTab) => void;
 }) {
+  const filteredMCPServers = settings.mcpServers.filter((server) =>
+    `${server.name} ${server.type} ${server.url ?? ''} ${server.command ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  const searchPlaceholder = {
+    plugins: '搜索插件',
+    apps: '搜索应用',
+    mcp: '搜索 MCP',
+    skills: '搜索技能',
+    market: '搜索市场',
+  }[activeTab];
+
   return (
     <main className={styles.content}>
       <div className={styles.manageBreadcrumb}>
@@ -383,26 +398,42 @@ function ManagementView({
           <Button className={activeTab === 'plugins' ? styles.activePill : styles.plainTab} type="text" onClick={() => onTabChange('plugins')}>
             插件 {plugins.length}
           </Button>
-          <Button className={styles.plainTab} type="text">应用 0</Button>
-          <Button className={styles.plainTab} type="text">MCP {settings.mcpServers.length}</Button>
+          <Button className={activeTab === 'apps' ? styles.activePill : styles.plainTab} type="text" onClick={() => onTabChange('apps')}>
+            应用 0
+          </Button>
+          <Button className={activeTab === 'mcp' ? styles.activePill : styles.plainTab} type="text" onClick={() => onTabChange('mcp')}>
+            MCP {settings.mcpServers.length}
+          </Button>
           <Button className={activeTab === 'skills' ? styles.activePill : styles.plainTab} type="text" onClick={() => onTabChange('skills')}>
             技能 {skills.length}
           </Button>
-          <Button className={styles.plainTab} type="text">市场 0</Button>
+          <Button className={activeTab === 'market' ? styles.activePill : styles.plainTab} type="text" onClick={() => onTabChange('market')}>
+            市场 0
+          </Button>
         </Flex>
-        <Input className={styles.manageSearch} placeholder={activeTab === 'skills' ? '搜索技能' : '搜索插件'} prefix={<SearchOutlined />} value={query} onChange={(event) => onQueryChange(event.target.value)} />
+        <Input className={styles.manageSearch} placeholder={searchPlaceholder} prefix={<SearchOutlined />} value={query} onChange={(event) => onQueryChange(event.target.value)} />
       </div>
       {activeTab === 'plugins' ? (
         <div className={styles.manageList}>
-          {plugins.map((plugin) => (
+          {plugins.length > 0 ? plugins.map((plugin) => (
             <PluginManageRow key={plugin.id} plugin={plugin} onSelect={onPluginSelect} />
-          ))}
+          )) : <ManagementEmptyState title="暂无插件" description="runtime 尚未发现插件包能力。" />}
+        </div>
+      ) : activeTab === 'skills' ? (
+        <div className={styles.manageList}>
+          {skills.length > 0 ? skills.map((skill) => (
+            <SkillManageRow key={skill.name} skill={skill} onSelect={onSkillSelect} onToggle={onSkillToggle} />
+          )) : <ManagementEmptyState title="暂无技能" description="runtime 尚未发现技能。" />}
+        </div>
+      ) : activeTab === 'mcp' ? (
+        <div className={styles.manageList}>
+          {filteredMCPServers.length > 0 ? filteredMCPServers.map((server) => (
+            <MCPManageRow key={server.name} server={server} />
+          )) : <ManagementEmptyState title="暂无 MCP" description="runtime 尚未配置 MCP server。" />}
         </div>
       ) : (
         <div className={styles.manageList}>
-          {skills.map((skill) => (
-            <SkillManageRow key={skill.name} skill={skill} onSelect={onSkillSelect} onToggle={onSkillToggle} />
-          ))}
+          <ManagementEmptyState title={activeTab === 'apps' ? '暂无应用' : '暂无市场项目'} description="该分类当前没有可管理项目。" />
         </div>
       )}
     </main>
@@ -531,6 +562,30 @@ function SkillManageRow({
         <Switch checked={skill.enabled} onChange={(enabled) => onToggle(skill, enabled)} />
       </span>
     </button>
+  );
+}
+
+function MCPManageRow({ server }: { server: RuntimeMCPServerViewModel }) {
+  return (
+    <div className={styles.manageRow}>
+      <IconBadge icon="mcp" />
+      <div className={styles.itemText}>
+        <Text strong>{server.name}</Text>
+        <Text type="secondary">
+          {server.url || [server.command, ...server.args].filter(Boolean).join(' ') || server.state}
+        </Text>
+      </div>
+      <Switch checked={server.enabled} />
+    </div>
+  );
+}
+
+function ManagementEmptyState({ title, description }: { title: string; description: string }) {
+  return (
+    <div className={styles.managementEmptyState}>
+      <Text strong>{title}</Text>
+      <Text type="secondary">{description}</Text>
+    </div>
   );
 }
 
