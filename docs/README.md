@@ -25,6 +25,8 @@ material. Use this index to avoid following superseded phase plans.
   closure scenario coverage and contract hardening record.
 - `workbench-skills-mcp-management-plan.md`: active Phase 6 implementation
   record for runtime-backed Skills and MCP management surfaces.
+- `plugin-skills-runtime-integration-plan.md`: active follow-up phase for
+  runtime-backed plugin capability-bundle DTOs and plugin-center integration.
 
 ## Active Design Baselines
 

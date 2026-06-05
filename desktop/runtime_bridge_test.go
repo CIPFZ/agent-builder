@@ -371,6 +371,10 @@ func (s *recordingRuntimeService) Skills(context.Context) (RuntimeSkillsResponse
 	return RuntimeSkillsResponse{}, nil
 }
 
+func (s *recordingRuntimeService) Plugins(context.Context) (RuntimePluginsResponse, error) {
+	return RuntimePluginsResponse{}, nil
+}
+
 func (s *recordingRuntimeService) RefreshSkills(context.Context) (RuntimeSkillsResponse, error) {
 	return RuntimeSkillsResponse{}, nil
 }

@@ -221,6 +221,26 @@ export interface RuntimeSkillViewModel {
   policyReason?: string;
 }
 
+export interface RuntimePluginViewModel {
+  id: string;
+  name: string;
+  description?: string;
+  category: string;
+  source: string;
+  kind: string;
+  icon?: string;
+  enabled: boolean;
+  state: string;
+  diagnostics?: string;
+  reason?: string;
+  error?: string;
+  skills: string[];
+  mcpServers: string[];
+  toolCount: number;
+  resourceCount: number;
+  promptCount: number;
+}
+
 export interface RuntimeMCPCountsViewModel {
   tools: number;
   prompts: number;
@@ -278,6 +298,7 @@ export interface SettingsViewModel {
   providerTypes: ProviderTypeViewModel[];
   providers: ProviderCatalogItemViewModel[];
   configuredProviders: ConfiguredProviderViewModel[];
+  plugins: RuntimePluginViewModel[];
   skills: RuntimeSkillViewModel[];
   mcpServers: RuntimeMCPServerViewModel[];
   mcpToolsByServer: Record<string, RuntimeMCPToolViewModel[]>;

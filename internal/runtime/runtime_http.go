@@ -423,6 +423,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/skills":
 		value, err := s.service.Skills(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/plugins":
+		value, err := s.service.Plugins(r.Context())
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/skills/refresh":
 		value, err := s.service.RefreshSkills(r.Context())
 		writeRuntimeResult(w, value, err)

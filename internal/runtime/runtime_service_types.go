@@ -80,6 +80,7 @@ type RuntimeService interface {
 	AuditSession(context.Context, string) (RuntimeAuditResponse, error)
 	ReplayExport(context.Context, RuntimeReplayExportRequest) (RuntimeReplayExportResponse, error)
 	Skills(context.Context) (RuntimeSkillsResponse, error)
+	Plugins(context.Context) (RuntimePluginsResponse, error)
 	RefreshSkills(context.Context) (RuntimeSkillsResponse, error)
 	CreateSkill(context.Context, RuntimeSkillCreateRequest) (RuntimeSkillsResponse, error)
 	AddSkillPath(context.Context, RuntimeSkillPathRequest) (RuntimeSkillsResponse, error)

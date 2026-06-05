@@ -13,6 +13,7 @@ import type {
   RuntimeMCPServerViewModel,
   RuntimeMCPToolViewModel,
   RuntimeModelOptionViewModel,
+  RuntimePluginViewModel,
   RuntimeSkillViewModel,
   SettingsPermissionViewModel,
   WorkbenchAdapter,
@@ -248,6 +249,30 @@ interface RuntimeSkillsResponseDTO {
   skills: RuntimeSkillDTO[];
 }
 
+interface RuntimePluginDTO {
+  id: string;
+  name: string;
+  description?: string;
+  category: string;
+  source: string;
+  kind: string;
+  icon?: string;
+  enabled: boolean;
+  state: string;
+  diagnostics?: string;
+  reason?: string;
+  error?: string;
+  skills?: string[];
+  mcp_servers?: string[];
+  tool_count?: number;
+  resource_count?: number;
+  prompt_count?: number;
+}
+
+interface RuntimePluginsResponseDTO {
+  plugins: RuntimePluginDTO[];
+}
+
 interface RuntimeMCPCountsDTO {
   tools?: number;
   prompts?: number;
@@ -335,6 +360,7 @@ interface RuntimeBridgeModule {
   UpdatePolicy?: (req: { mode: string }) => Promise<RuntimePolicyResponseDTO>;
   DecidePermission?: (req: { permissionId: string; action: string }) => Promise<RuntimeStatusDTO>;
   Skills?: () => Promise<RuntimeSkillsResponseDTO>;
+  Plugins?: () => Promise<RuntimePluginsResponseDTO>;
   RefreshSkills?: () => Promise<RuntimeSkillsResponseDTO>;
   SetSkillEnabled?: (req: { name: string; enabled: boolean }) => Promise<RuntimeSkillsResponseDTO>;
   MCPServers?: () => Promise<RuntimeMCPServersResponseDTO>;
@@ -489,6 +515,32 @@ function mapSkills(response?: RuntimeSkillsResponseDTO): RuntimeSkillViewModel[]
     policyMode: skill.policy_mode,
     policyRisk: skill.policy_risk,
     policyReason: skill.policy_reason,
+  }));
+}
+
+function mapPlugins(response?: RuntimePluginsResponseDTO): RuntimePluginViewModel[] | undefined {
+  if (!Array.isArray(response?.plugins)) {
+    return undefined;
+  }
+
+  return response.plugins.map((plugin) => ({
+    id: plugin.id,
+    name: plugin.name,
+    description: plugin.description,
+    category: plugin.category,
+    source: plugin.source,
+    kind: plugin.kind,
+    icon: plugin.icon,
+    enabled: plugin.enabled,
+    state: plugin.state,
+    diagnostics: plugin.diagnostics,
+    reason: plugin.reason,
+    error: plugin.error,
+    skills: Array.isArray(plugin.skills) ? plugin.skills : [],
+    mcpServers: Array.isArray(plugin.mcp_servers) ? plugin.mcp_servers : [],
+    toolCount: plugin.tool_count ?? 0,
+    resourceCount: plugin.resource_count ?? 0,
+    promptCount: plugin.prompt_count ?? 0,
   }));
 }
 
@@ -921,7 +973,7 @@ function toConfiguredProviderRequest(provider: ConfiguredProviderViewModel & { t
 }
 
 async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBridgeModule) {
-  const [status, sessionsResponse, modelsResponse, providerCatalog, configuredProvidersResponse, activeTurnsResponse, skillsResponse, mcpServersResponse] = await Promise.all([
+  const [status, sessionsResponse, modelsResponse, providerCatalog, configuredProvidersResponse, activeTurnsResponse, skillsResponse, pluginsResponse, mcpServersResponse] = await Promise.all([
     optionalRuntimeRequest(() => bridge.Status()),
     optionalRuntimeRequest(() => bridge.Sessions()),
     bridge.Models().catch(() => undefined),
@@ -929,6 +981,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     bridge.ConfiguredProviders?.().catch(() => undefined),
     optionalRuntimeRequest(() => bridge.Turns?.('active') ?? Promise.resolve(undefined)),
     optionalRuntimeRequest(() => bridge.Skills?.() ?? Promise.resolve(undefined)),
+    optionalRuntimeRequest(() => bridge.Plugins?.() ?? Promise.resolve(undefined)),
     optionalRuntimeRequest(() => bridge.MCPServers?.() ?? Promise.resolve(undefined)),
   ]);
   const activeSessionID = status?.sessionId || sessionsResponse?.sessions?.find((session) => session.active)?.id;
@@ -953,6 +1006,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const policy = activity?.policy ?? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy;
   const permissions = (Array.isArray(activity?.permissions) ? activity.permissions : []).map(mapPermission);
   const skills = mapSkills(skillsResponse) ?? current.settings.skills;
+  const plugins = mapPlugins(pluginsResponse) ?? current.settings.plugins;
   const mcpServers = mapMCPServers(mcpServersResponse) ?? current.settings.mcpServers;
 
   return {
@@ -985,6 +1039,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       providerTypes: providerCatalog?.providerTypes ?? current.settings.providerTypes,
       providers: providerCatalog?.providers ?? current.settings.providers,
       configuredProviders: mapConfiguredProviders(configuredProvidersResponse) ?? current.settings.configuredProviders,
+      plugins,
       skills,
       mcpServers,
       mcpToolsByServer: current.settings.mcpToolsByServer,
@@ -1230,6 +1285,7 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
       body: JSON.stringify(req),
     }),
   Skills: () => runtimeFetch<RuntimeSkillsResponseDTO>('/v1/skills'),
+  Plugins: () => runtimeFetch<RuntimePluginsResponseDTO>('/v1/plugins'),
   RefreshSkills: () =>
     runtimeFetch<RuntimeSkillsResponseDTO>('/v1/skills/refresh', {
       method: 'POST',
@@ -1331,6 +1387,7 @@ async function hydrateSettingsOnly(current: WorkbenchViewModel, bridge: RuntimeB
   const providerCatalog = await bridge.ProviderCatalog?.().catch(() => undefined);
   const configuredProvidersResponse = await bridge.ConfiguredProviders?.().catch(() => undefined);
   const skillsResponse = await bridge.Skills?.().catch(() => undefined);
+  const pluginsResponse = await bridge.Plugins?.().catch(() => undefined);
   const mcpServersResponse = await bridge.MCPServers?.().catch(() => undefined);
 
   return {
@@ -1340,9 +1397,18 @@ async function hydrateSettingsOnly(current: WorkbenchViewModel, bridge: RuntimeB
       providerTypes: providerCatalog?.providerTypes ?? current.settings.providerTypes,
       providers: providerCatalog?.providers ?? current.settings.providers,
       configuredProviders: mapConfiguredProviders(configuredProvidersResponse) ?? current.settings.configuredProviders,
+      plugins: mapPlugins(pluginsResponse) ?? current.settings.plugins,
       skills: mapSkills(skillsResponse) ?? current.settings.skills,
       mcpServers: mapMCPServers(mcpServersResponse) ?? current.settings.mcpServers,
     },
+  };
+}
+
+async function hydratePluginSettings(current: WorkbenchViewModel, bridge: RuntimeBridgeModule) {
+  const pluginsResponse = await bridge.Plugins?.().catch(() => undefined);
+  return {
+    ...current.settings,
+    plugins: mapPlugins(pluginsResponse) ?? current.settings.plugins,
   };
 }
 
@@ -1589,10 +1655,11 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
           return staticWorkbenchAdapter.refreshSkills(current);
         }
         const response = await bridge.RefreshSkills();
+        const settings = await hydratePluginSettings(current, bridge);
         return {
           ...current,
           settings: {
-            ...current.settings,
+            ...settings,
             skills: mapSkills(response) ?? current.settings.skills,
           },
         };
@@ -1607,10 +1674,11 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
           return staticWorkbenchAdapter.setSkillEnabled(current, name, enabled);
         }
         const response = await bridge.SetSkillEnabled({ name, enabled });
+        const settings = await hydratePluginSettings(current, bridge);
         return {
           ...current,
           settings: {
-            ...current.settings,
+            ...settings,
             skills: mapSkills(response) ?? current.settings.skills,
           },
         };
@@ -1626,10 +1694,11 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
           return staticWorkbenchAdapter.refreshMCPServer(current, name);
         }
         const response = await refresh(name);
+        const settings = await hydratePluginSettings(current, bridge);
         return {
           ...current,
           settings: {
-            ...current.settings,
+            ...settings,
             mcpServers: mapMCPServers(response) ?? current.settings.mcpServers,
           },
         };
@@ -1644,10 +1713,11 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
           return staticWorkbenchAdapter.saveMCPServer(current, server);
         }
         const response = await bridge.SaveMCPServer(toMCPServerRequest(server));
+        const settings = await hydratePluginSettings(current, bridge);
         return {
           ...current,
           settings: {
-            ...current.settings,
+            ...settings,
             mcpServers: mapMCPServers(response) ?? current.settings.mcpServers,
           },
         };
@@ -1662,10 +1732,11 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
           return staticWorkbenchAdapter.setMCPServerEnabled(current, name, enabled);
         }
         const response = await bridge.SetMCPServerEnabled({ name, enabled });
+        const settings = await hydratePluginSettings(current, bridge);
         return {
           ...current,
           settings: {
-            ...current.settings,
+            ...settings,
             mcpServers: mapMCPServers(response) ?? current.settings.mcpServers,
           },
         };

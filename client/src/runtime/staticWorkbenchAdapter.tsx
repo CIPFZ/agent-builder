@@ -54,6 +54,7 @@ const settings = {
   providerTypes: [],
   providers: [],
   configuredProviders: [],
+  plugins: [],
   skills: [],
   mcpServers: [],
   mcpToolsByServer: {},

@@ -988,6 +988,34 @@ func TestRuntimeHTTPServerRoutesSkillsToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesPluginsToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		plugins: RuntimePluginsResponse{
+			Plugins: []RuntimePlugin{{ID: "runtime:skills", Name: "Runtime Skills", Kind: "skills", Category: "Skills", Source: "runtime", Enabled: true, State: "loaded"}},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+	req, err := http.NewRequest(http.MethodGet, "/v1/plugins", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	var plugins RuntimePluginsResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &plugins); err != nil {
+		t.Fatal(err)
+	}
+	if len(plugins.Plugins) != 1 || plugins.Plugins[0].ID != "runtime:skills" {
+		t.Fatalf("plugins = %#v", plugins.Plugins)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesSkillManagementToRuntimeService(t *testing.T) {
 	t.Parallel()
 

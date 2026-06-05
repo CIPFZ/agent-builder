@@ -61,6 +61,20 @@
   margin: 0 auto;
 }
 
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: min(100%, 980px);
+  min-height: 180px;
+  margin: 0 auto;
+  gap: 8px;
+  border: 1px dashed #dedede;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
 .pluginGroup {
   padding: 0 0 34px;
 }
@@ -162,6 +176,14 @@
   color: #7c3aed;
 }
 
+.icon-mcp {
+  color: #0f766e;
+}
+
+.icon-skills {
+  color: #7c3aed;
+}
+
 .manageToolbar {
   display: flex;
   align-items: center;
@@ -178,6 +200,19 @@
   margin: 0 auto 30px;
   gap: 12px;
   font-size: 18px;
+}
+
+.breadcrumbBack {
+  height: auto;
+  padding: 0;
+  color: rgba(0, 0, 0, 0.52);
+  font-size: 18px;
+}
+
+.breadcrumbBack:hover,
+.breadcrumbBack:focus-visible {
+  background: transparent !important;
+  color: rgba(0, 0, 0, 0.88) !important;
 }
 
 .breadcrumbChevron {

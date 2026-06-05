@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import {
   AppstoreAddOutlined,
   ArrowLeftOutlined,
@@ -18,7 +18,7 @@ import {
 } from '@ant-design/icons';
 import { Button, Dropdown, Flex, Input, Modal, Segmented, Switch, Typography, message } from 'antd';
 import type { MenuProps } from 'antd';
-import type { RuntimeSkillViewModel, SettingsViewModel } from '../../runtime/workbenchTypes.ts';
+import type { RuntimePluginViewModel, RuntimeSkillViewModel, SettingsViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './PluginCenter.module.css';
 
 const { Text, Title } = Typography;
@@ -31,71 +31,26 @@ interface PluginCenterProps {
 
 type PluginCenterTab = 'plugins' | 'skills';
 
-interface PluginTile {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  source: string;
-  icon: 'browser' | 'chrome' | 'computer' | 'latex' | 'code' | 'cloud' | 'figma' | 'default';
-  enabled: boolean;
-}
-
-const pluginTiles: PluginTile[] = [
-  {
-    id: 'browser',
-    name: 'Browser',
-    description: 'Control the in-app browser',
-    category: 'Featured',
-    source: 'OpenAI Bundled',
-    icon: 'browser',
-    enabled: true,
-  },
-  {
-    id: 'chrome',
-    name: 'Chrome',
-    description: 'Control Chrome from the workbench',
-    category: 'Featured',
-    source: 'OpenAI Bundled',
-    icon: 'chrome',
-    enabled: true,
-  },
-  {
-    id: 'computer-use',
-    name: 'Computer Use',
-    description: 'Control Windows apps from the workbench',
-    category: 'Featured',
-    source: 'OpenAI Bundled',
-    icon: 'computer',
-    enabled: true,
-  },
-  {
-    id: 'latex',
-    name: 'LaTeX',
-    description: 'Compile LaTeX with local toolchains',
-    category: 'Research',
-    source: 'OpenAI Bundled',
-    icon: 'latex',
-    enabled: true,
-  },
-];
+type PluginIcon = 'browser' | 'chrome' | 'computer' | 'latex' | 'code' | 'cloud' | 'figma' | 'mcp' | 'skills' | 'default';
 
 export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: PluginCenterProps) {
   const [activeTab, setActiveTab] = useState<PluginCenterTab>('plugins');
   const [manageMode, setManageMode] = useState(false);
   const [query, setQuery] = useState('');
-  const [pluginSourceFilter, setPluginSourceFilter] = useState('OpenAI Bundled');
+  const [pluginSourceFilter, setPluginSourceFilter] = useState('全部');
   const [pluginCategoryFilter, setPluginCategoryFilter] = useState('全部');
   const [skillCategoryFilter, setSkillCategoryFilter] = useState('全部');
-  const [selectedPlugin, setSelectedPlugin] = useState<PluginTile | null>(null);
+  const [selectedPlugin, setSelectedPlugin] = useState<RuntimePluginViewModel | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<RuntimeSkillViewModel | null>(null);
   const [runtimeSettings, setRuntimeSettings] = useState<SettingsViewModel | null>(null);
   const [messageApi, messageContextHolder] = message.useMessage();
   const activeSettings = runtimeSettings ?? settings;
-  const filteredPlugins = filterPlugins(pluginTiles, query).filter(
+  const filteredPlugins = filterPlugins(activeSettings.plugins, query).filter(
     (plugin) => pluginMatchesSource(plugin, pluginSourceFilter) && pluginMatchesCategory(plugin, pluginCategoryFilter),
   );
   const filteredSkills = filterSkills(activeSettings.skills, query).filter((skill) => skillMatchesCategory(skill, skillCategoryFilter));
+  const pluginSources = uniqueValues(activeSettings.plugins.map((plugin) => plugin.source));
+  const pluginCategories = uniqueValues(activeSettings.plugins.map((plugin) => plugin.category));
   const createMenu: MenuProps = {
     items: [
       { key: 'plugin', icon: <AppstoreAddOutlined />, label: '创建插件' },
@@ -105,10 +60,16 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
   const sourceMenu: MenuProps = {
     items: [
       {
-        key: 'OpenAI Bundled',
-        label: <MenuChoice checked={pluginSourceFilter === 'OpenAI Bundled'} label="OpenAI Bundled" />,
+        key: '全部',
+        label: <MenuChoice checked={pluginSourceFilter === '全部'} label="全部" />,
       },
-      { type: 'divider' },
+      ...pluginSources.map((source) => ({
+        key: source,
+        label: <MenuChoice checked={pluginSourceFilter === source} label={source} />,
+      })),
+      {
+        type: 'divider' as const,
+      },
       { key: 'add-more', icon: <PlusOutlined />, label: '添加更多' },
     ],
     onClick: ({ key }) => {
@@ -120,7 +81,7 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
   const pluginCategoryMenu: MenuProps = {
     items: [
       { key: 'title', disabled: true, label: '类别' },
-      ...['全部', 'Featured', 'Research'].map((category) => ({
+      ...['全部', ...pluginCategories].map((category) => ({
         key: category,
         label: <MenuChoice checked={pluginCategoryFilter === category} label={category} />,
       })),
@@ -179,6 +140,30 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
       {messageContextHolder}
       {selectedPlugin ? (
         <PluginDetailView plugin={selectedPlugin} onBack={() => setSelectedPlugin(null)} />
+      ) : manageMode ? (
+        <ManagementView
+          activeTab={activeTab}
+          settings={activeSettings}
+          plugins={filteredPlugins}
+          query={query}
+          skills={filteredSkills}
+          onExit={() => {
+            setManageMode(false);
+            setActiveTab('plugins');
+            setQuery('');
+          }}
+          onPluginSelect={setSelectedPlugin}
+          onQueryChange={setQuery}
+          onSkillSelect={setSelectedSkill}
+          onSkillToggle={toggleSkill}
+          onTabChange={(tab) => {
+            setActiveTab(tab);
+            setQuery('');
+            if (tab === 'skills') {
+              void refresh();
+            }
+          }}
+        />
       ) : activeTab === 'plugins' ? (
         <>
           <header className={styles.header}>
@@ -199,7 +184,10 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
               }}
             />
             <Flex align="center" gap={8}>
-              <Button icon={<SettingOutlined />} onClick={() => setManageMode((value) => !value)}>
+              <Button icon={<SettingOutlined />} onClick={() => {
+                setManageMode(true);
+                setQuery('');
+              }}>
                 管理
               </Button>
               <Dropdown menu={createMenu} placement="bottomRight" trigger={['click']}>
@@ -212,30 +200,16 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
               </Dropdown>
             </Flex>
           </header>
-          {manageMode ? (
-            <ManagementView
-              activeTab={activeTab}
-              settings={activeSettings}
-              plugins={filteredPlugins}
-              query={query}
-              skills={filteredSkills}
-              onPluginSelect={setSelectedPlugin}
-              onQueryChange={setQuery}
-              onSkillSelect={setSelectedSkill}
-              onSkillToggle={toggleSkill}
-            />
-          ) : (
-            <PluginBrowseView
-              categoryFilter={pluginCategoryFilter}
-              categoryMenu={pluginCategoryMenu}
-              groupedPlugins={groupedPlugins}
-              query={query}
-              sourceFilter={pluginSourceFilter}
-              sourceMenu={sourceMenu}
-              onPluginSelect={setSelectedPlugin}
-              onQueryChange={setQuery}
-            />
-          )}
+          <PluginBrowseView
+            categoryFilter={pluginCategoryFilter}
+            categoryMenu={pluginCategoryMenu}
+            groupedPlugins={groupedPlugins}
+            query={query}
+            sourceFilter={pluginSourceFilter}
+            sourceMenu={sourceMenu}
+            onPluginSelect={setSelectedPlugin}
+            onQueryChange={setQuery}
+          />
         </>
       ) : (
         <>
@@ -257,7 +231,10 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
               }}
             />
             <Flex align="center" gap={8}>
-              <Button icon={<SettingOutlined />} onClick={() => setManageMode((value) => !value)}>
+              <Button icon={<SettingOutlined />} onClick={() => {
+                setManageMode(true);
+                setQuery('');
+              }}>
                 管理
               </Button>
               <Dropdown menu={createMenu} placement="bottomRight" trigger={['click']}>
@@ -270,29 +247,15 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
               </Dropdown>
             </Flex>
           </header>
-          {manageMode ? (
-            <ManagementView
-              activeTab={activeTab}
-              settings={activeSettings}
-              plugins={filteredPlugins}
-              query={query}
-              skills={filteredSkills}
-              onPluginSelect={setSelectedPlugin}
-              onQueryChange={setQuery}
-              onSkillSelect={setSelectedSkill}
-              onSkillToggle={toggleSkill}
-            />
-          ) : (
-            <SkillBrowseView
-              categoryFilter={skillCategoryFilter}
-              categoryMenu={skillCategoryMenu}
-              groupedSkills={groupedSkills}
-              query={query}
-              onQueryChange={setQuery}
-              onSkillSelect={setSelectedSkill}
-              onSkillToggle={toggleSkill}
-            />
-          )}
+          <SkillBrowseView
+            categoryFilter={skillCategoryFilter}
+            categoryMenu={skillCategoryMenu}
+            groupedSkills={groupedSkills}
+            query={query}
+            onQueryChange={setQuery}
+            onSkillSelect={setSelectedSkill}
+            onSkillToggle={toggleSkill}
+          />
         </>
       )}
       <SkillDetailModal
@@ -319,11 +282,11 @@ function PluginBrowseView({
 }: {
   categoryFilter: string;
   categoryMenu: MenuProps;
-  groupedPlugins: Map<string, PluginTile[]>;
+  groupedPlugins: Map<string, RuntimePluginViewModel[]>;
   query: string;
   sourceFilter: string;
   sourceMenu: MenuProps;
-  onPluginSelect: (plugin: PluginTile) => void;
+  onPluginSelect: (plugin: RuntimePluginViewModel) => void;
   onQueryChange: (value: string) => void;
 }) {
   return (
@@ -388,35 +351,41 @@ function ManagementView({
   skills,
   query,
   onQueryChange,
+  onExit,
   onPluginSelect,
   onSkillSelect,
   onSkillToggle,
+  onTabChange,
 }: {
   activeTab: PluginCenterTab;
   settings: SettingsViewModel;
-  plugins: PluginTile[];
+  plugins: RuntimePluginViewModel[];
   skills: RuntimeSkillViewModel[];
   query: string;
   onQueryChange: (value: string) => void;
-  onPluginSelect: (plugin: PluginTile) => void;
+  onExit: () => void;
+  onPluginSelect: (plugin: RuntimePluginViewModel) => void;
   onSkillSelect: (skill: RuntimeSkillViewModel) => void;
   onSkillToggle: (skill: RuntimeSkillViewModel, enabled: boolean) => void;
+  onTabChange: (tab: PluginCenterTab) => void;
 }) {
   return (
     <main className={styles.content}>
       <div className={styles.manageBreadcrumb}>
-        <Text type="secondary">插件</Text>
+        <Button className={styles.breadcrumbBack} type="text" onClick={onExit}>
+          插件
+        </Button>
         <RightOutlined className={styles.breadcrumbChevron} />
         <Text strong>管理</Text>
       </div>
       <div className={styles.manageToolbar}>
         <Flex align="center" gap={24} wrap>
-          <Button className={activeTab === 'plugins' ? styles.activePill : styles.plainTab} type="text">
+          <Button className={activeTab === 'plugins' ? styles.activePill : styles.plainTab} type="text" onClick={() => onTabChange('plugins')}>
             插件 {plugins.length}
           </Button>
           <Button className={styles.plainTab} type="text">应用 0</Button>
           <Button className={styles.plainTab} type="text">MCP {settings.mcpServers.length}</Button>
-          <Button className={activeTab === 'skills' ? styles.activePill : styles.plainTab} type="text">
+          <Button className={activeTab === 'skills' ? styles.activePill : styles.plainTab} type="text" onClick={() => onTabChange('skills')}>
             技能 {skills.length}
           </Button>
           <Button className={styles.plainTab} type="text">市场 0</Button>
@@ -440,7 +409,16 @@ function ManagementView({
   );
 }
 
-function GroupedPluginList({ groupedPlugins, onPluginSelect }: { groupedPlugins: Map<string, PluginTile[]>; onPluginSelect: (plugin: PluginTile) => void }) {
+function GroupedPluginList({ groupedPlugins, onPluginSelect }: { groupedPlugins: Map<string, RuntimePluginViewModel[]>; onPluginSelect: (plugin: RuntimePluginViewModel) => void }) {
+  if (groupedPlugins.size === 0) {
+    return (
+      <div className={styles.emptyState}>
+        <Text strong>暂无插件</Text>
+        <Text type="secondary">runtime 尚未发现 MCP server 或插件包能力。</Text>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.groupedList}>
       {Array.from(groupedPlugins.entries()).map(([category, plugins]) => (
@@ -482,13 +460,13 @@ function GroupedSkillList({
   );
 }
 
-function PluginListItem({ plugin, onSelect }: { plugin: PluginTile; onSelect: (plugin: PluginTile) => void }) {
+function PluginListItem({ plugin, onSelect }: { plugin: RuntimePluginViewModel; onSelect: (plugin: RuntimePluginViewModel) => void }) {
   return (
     <button className={styles.listItem} type="button" onClick={() => onSelect(plugin)}>
       <IconBadge icon={plugin.icon} />
       <div className={styles.itemText}>
         <Text strong>{plugin.name}</Text>
-        <Text type="secondary">{plugin.description}</Text>
+        <Text type="secondary">{plugin.description || plugin.state}</Text>
       </div>
       <RightOutlined className={styles.checkIcon} />
     </button>
@@ -518,13 +496,13 @@ function SkillListItem({
   );
 }
 
-function PluginManageRow({ plugin, onSelect }: { plugin: PluginTile; onSelect: (plugin: PluginTile) => void }) {
+function PluginManageRow({ plugin, onSelect }: { plugin: RuntimePluginViewModel; onSelect: (plugin: RuntimePluginViewModel) => void }) {
   return (
     <button className={styles.manageRow} type="button" onClick={() => onSelect(plugin)}>
       <IconBadge icon={plugin.icon} />
       <div className={styles.itemText}>
         <Text strong>{plugin.name}</Text>
-        <Text type="secondary">{plugin.description}</Text>
+        <Text type="secondary">{plugin.description || plugin.state}</Text>
       </div>
       <span onClick={(event) => event.stopPropagation()}>
         <Switch checked={plugin.enabled} />
@@ -556,7 +534,7 @@ function SkillManageRow({
   );
 }
 
-function PluginDetailView({ plugin, onBack }: { plugin: PluginTile; onBack: () => void }) {
+function PluginDetailView({ plugin, onBack }: { plugin: RuntimePluginViewModel; onBack: () => void }) {
   return (
     <main className={styles.detailContent}>
       <div className={styles.breadcrumb}>
@@ -572,7 +550,7 @@ function PluginDetailView({ plugin, onBack }: { plugin: PluginTile; onBack: () =
       <section className={styles.pluginDetailHero}>
         <IconBadge icon={plugin.icon} />
         <Title level={1}>{plugin.name}</Title>
-        <Text type="secondary">{plugin.description}</Text>
+        <Text type="secondary">{plugin.description || plugin.state}</Text>
       </section>
       <section className={styles.detailPreview}>
         {pluginExamplePrompts(plugin).map((prompt) => (
@@ -588,12 +566,12 @@ function PluginDetailView({ plugin, onBack }: { plugin: PluginTile; onBack: () =
         {plugin.name} 让 Agent Builder 在受控边界内使用相关能力。你可以决定是否启用它，并在对话中按需试用。
       </Text>
       <section className={styles.detailSection}>
-        <Title level={3}>技能 <Text type="secondary">1</Text></Title>
+        <Title level={3}>能力 <Text type="secondary">{plugin.skills.length + plugin.mcpServers.length}</Text></Title>
         <div className={styles.detailSkillRow}>
           <IconBadge icon={plugin.icon} />
           <div className={styles.itemText}>
             <Text strong>{plugin.name}</Text>
-            <Text type="secondary">{plugin.description}</Text>
+            <Text type="secondary">{plugin.description || plugin.state}</Text>
           </div>
           <Switch checked={plugin.enabled} />
         </div>
@@ -603,7 +581,7 @@ function PluginDetailView({ plugin, onBack }: { plugin: PluginTile; onBack: () =
           <Title level={3}>信息</Title>
           <InfoField label="类别" value={plugin.category} />
           <InfoField label="开发者" value={plugin.source} />
-          <InfoField label="功能" value="Interactive, Read, Write" />
+          <InfoField label="功能" value={pluginCapabilitiesLabel(plugin)} />
         </div>
         <div>
           <Title level={3}>链接</Title>
@@ -690,7 +668,8 @@ function MenuChoice({ checked, label }: { checked: boolean; label: string }) {
   );
 }
 
-function IconBadge({ icon }: { icon: PluginTile['icon'] }) {
+function IconBadge({ icon }: { icon?: string }) {
+  const normalizedIcon = normalizePluginIcon(icon);
   const iconNode = {
     browser: <GlobalOutlined />,
     chrome: <ChromeOutlined />,
@@ -699,17 +678,19 @@ function IconBadge({ icon }: { icon: PluginTile['icon'] }) {
     code: <ToolOutlined />,
     cloud: <AppstoreAddOutlined />,
     figma: <AppstoreAddOutlined />,
+    mcp: <AppstoreAddOutlined />,
+    skills: <ToolOutlined />,
     default: <ToolOutlined />,
-  }[icon];
-  return <span className={`${styles.iconBadge} ${styles[`icon-${icon}`]}`}>{iconNode}</span>;
+  }[normalizedIcon];
+  return <span className={`${styles.iconBadge} ${styles[`icon-${normalizedIcon}`]}`}>{iconNode}</span>;
 }
 
-function filterPlugins(plugins: PluginTile[], query: string) {
+function filterPlugins(plugins: RuntimePluginViewModel[], query: string) {
   const value = query.trim().toLowerCase();
   if (!value) {
     return plugins;
   }
-  return plugins.filter((plugin) => `${plugin.name} ${plugin.description} ${plugin.category}`.toLowerCase().includes(value));
+  return plugins.filter((plugin) => `${plugin.name} ${plugin.description ?? ''} ${plugin.category}`.toLowerCase().includes(value));
 }
 
 function filterSkills(skills: RuntimeSkillViewModel[], query: string) {
@@ -720,11 +701,11 @@ function filterSkills(skills: RuntimeSkillViewModel[], query: string) {
   return skills.filter((skill) => `${skill.name} ${skill.description ?? ''} ${skill.path ?? ''}`.toLowerCase().includes(value));
 }
 
-function pluginMatchesSource(plugin: PluginTile, source: string) {
+function pluginMatchesSource(plugin: RuntimePluginViewModel, source: string) {
   return source === '全部' || plugin.source === source;
 }
 
-function pluginMatchesCategory(plugin: PluginTile, category: string) {
+function pluginMatchesCategory(plugin: RuntimePluginViewModel, category: string) {
   return category === '全部' || plugin.category === category;
 }
 
@@ -744,7 +725,48 @@ function skillMatchesCategory(skill: RuntimeSkillViewModel, category: string) {
   return true;
 }
 
-function pluginExamplePrompts(plugin: PluginTile) {
+function uniqueValues(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean))).sort((left, right) => left.localeCompare(right));
+}
+
+function normalizePluginIcon(icon?: string): PluginIcon {
+  if (
+    icon === 'browser' ||
+    icon === 'chrome' ||
+    icon === 'computer' ||
+    icon === 'latex' ||
+    icon === 'code' ||
+    icon === 'cloud' ||
+    icon === 'figma' ||
+    icon === 'mcp' ||
+    icon === 'skills'
+  ) {
+    return icon;
+  }
+  return 'default';
+}
+
+function pluginCapabilitiesLabel(plugin: RuntimePluginViewModel) {
+  const parts = [];
+  if (plugin.skills.length > 0) {
+    parts.push(`${plugin.skills.length} skills`);
+  }
+  if (plugin.mcpServers.length > 0) {
+    parts.push(`${plugin.mcpServers.length} MCP`);
+  }
+  if (plugin.toolCount > 0) {
+    parts.push(`${plugin.toolCount} tools`);
+  }
+  if (plugin.resourceCount > 0) {
+    parts.push(`${plugin.resourceCount} resources`);
+  }
+  if (plugin.promptCount > 0) {
+    parts.push(`${plugin.promptCount} prompts`);
+  }
+  return parts.length > 0 ? parts.join(', ') : plugin.kind;
+}
+
+function pluginExamplePrompts(plugin: RuntimePluginViewModel) {
   if (plugin.id === 'computer-use') {
     return ['播放一组帮助我进入工作状态的音乐', '构建并运行我已经打开的项目', '打开记事本并整理这些要点'];
   }
@@ -778,3 +800,4 @@ function groupSkills(skills: RuntimeSkillViewModel[]) {
   }
   return grouped;
 }
+

@@ -3048,6 +3048,7 @@ type recordingRuntimeService struct {
 	status               RuntimeStatus
 	recoveryStatus       RuntimeRecoveryStatus
 	skills               RuntimeSkillsResponse
+	plugins              RuntimePluginsResponse
 	mcpServers           RuntimeMCPServersResponse
 	mcpRequests          RuntimeMCPRequestsResponse
 	mcpRequest           RuntimeMCPRequestResponse
@@ -3410,6 +3411,10 @@ func (s *recordingRuntimeService) ReplayExport(_ context.Context, req RuntimeRep
 func (s *recordingRuntimeService) Skills(context.Context) (RuntimeSkillsResponse, error) {
 	s.skillsCalls++
 	return s.skills, nil
+}
+
+func (s *recordingRuntimeService) Plugins(context.Context) (RuntimePluginsResponse, error) {
+	return s.plugins, nil
 }
 
 func (s *recordingRuntimeService) RefreshSkills(context.Context) (RuntimeSkillsResponse, error) {

@@ -59,9 +59,9 @@ cd client; npm run build
 
 Known browser console output:
 
-- Existing Ant Design deprecation warnings for Dropdown `overlayClassName`,
-  List, and Modal `destroyOnClose` remain. No new runtime or application error
-  was observed during the Skills/MCP verification.
+- The Ant Design deprecation warnings for Dropdown `overlayClassName`, List,
+  and Modal `destroyOnClose` were removed in the follow-up plugin center UI
+  pass. No new runtime or application error was observed during verification.
 
 ## Non-Goals
 
@@ -119,6 +119,9 @@ The adapter maps Go DTOs returned by existing runtime APIs:
 
 ## Next Phase
 
-After this phase is complete, the roadmap should move to Projects and
-project-scoped sessions/config, unless runtime diagnostics are prioritized for
-MCP request history or capability audit explanations.
+The immediate follow-up is
+`plugin-skills-runtime-integration-plan.md`, which moves the plugin center from
+UI-only placeholder plugin data to runtime-derived plugin capability-bundle
+DTOs. After that, the roadmap should move to Projects and project-scoped
+sessions/config, unless runtime diagnostics are prioritized for MCP request
+history or capability audit explanations.

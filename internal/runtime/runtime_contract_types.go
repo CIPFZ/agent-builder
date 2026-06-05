@@ -1195,6 +1195,30 @@ type RuntimeSkillsResponse struct {
 	Skills []RuntimeSkill `json:"skills"`
 }
 
+type RuntimePlugin struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description,omitempty"`
+	Category      string   `json:"category"`
+	Source        string   `json:"source"`
+	Kind          string   `json:"kind"`
+	Icon          string   `json:"icon,omitempty"`
+	Enabled       bool     `json:"enabled"`
+	State         string   `json:"state"`
+	Diagnostics   string   `json:"diagnostics,omitempty"`
+	Reason        string   `json:"reason,omitempty"`
+	Error         string   `json:"error,omitempty"`
+	Skills        []string `json:"skills,omitempty"`
+	MCPServers    []string `json:"mcp_servers,omitempty"`
+	ToolCount     int      `json:"tool_count,omitempty"`
+	ResourceCount int      `json:"resource_count,omitempty"`
+	PromptCount   int      `json:"prompt_count,omitempty"`
+}
+
+type RuntimePluginsResponse struct {
+	Plugins []RuntimePlugin `json:"plugins"`
+}
+
 type RuntimeSkillActivationMetadata struct {
 	Available bool   `json:"available"`
 	Included  bool   `json:"included"`

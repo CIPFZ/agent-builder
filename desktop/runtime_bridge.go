@@ -91,6 +91,8 @@ type RuntimeReplayExportSummary = runtime.RuntimeReplayExportSummary
 type RuntimeRecoveryStatus = runtime.RuntimeRecoveryStatus
 type RuntimeSkill = runtime.RuntimeSkill
 type RuntimeSkillsResponse = runtime.RuntimeSkillsResponse
+type RuntimePlugin = runtime.RuntimePlugin
+type RuntimePluginsResponse = runtime.RuntimePluginsResponse
 type RuntimeSkillCreateRequest = runtime.RuntimeSkillCreateRequest
 type RuntimeSkillPathRequest = runtime.RuntimeSkillPathRequest
 type RuntimeSkillToggleRequest = runtime.RuntimeSkillToggleRequest
@@ -504,6 +506,12 @@ func (r *RuntimeBridge) ReplayExport(ctx context.Context, req RuntimeReplayExpor
 func (r *RuntimeBridge) Skills(ctx context.Context) (RuntimeSkillsResponse, error) {
 
 	return r.service.Skills(ctx)
+
+}
+
+func (r *RuntimeBridge) Plugins(ctx context.Context) (RuntimePluginsResponse, error) {
+
+	return r.service.Plugins(ctx)
 
 }
 
