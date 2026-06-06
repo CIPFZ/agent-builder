@@ -4,20 +4,26 @@
   grid-template-areas: "sidebar resizer workspace";
   width: 100vw;
   height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   transition: grid-template-columns 160ms ease;
 }
 
 .shell > :first-child {
   grid-area: sidebar;
+  min-height: 0;
 }
 
 .shell > :nth-child(2) {
   grid-area: resizer;
+  min-height: 0;
 }
 
 .shell > :nth-child(3),
 .sidebarCollapsed > :nth-child(2) {
   grid-area: workspace;
+  min-width: 0;
+  min-height: 0;
 }
 
 .sidebarResizer {

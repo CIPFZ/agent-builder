@@ -107,6 +107,9 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   async selectSession() {
     return runtimeUnavailable();
   },
+  async renameSession() {
+    return runtimeUnavailable();
+  },
   async deleteSession() {
     return runtimeUnavailable();
   },

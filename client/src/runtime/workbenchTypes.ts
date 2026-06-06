@@ -324,6 +324,7 @@ export interface WorkbenchAdapter {
   refresh: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
   createSession: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
   selectSession: (current: WorkbenchViewModel, sessionID: string) => Promise<WorkbenchViewModel>;
+  renameSession: (current: WorkbenchViewModel, sessionID: string, title: string) => Promise<WorkbenchViewModel>;
   deleteSession: (current: WorkbenchViewModel, sessionID: string) => Promise<WorkbenchViewModel>;
   selectModel: (current: WorkbenchViewModel, configuredProviderID: string, model: string) => Promise<WorkbenchViewModel>;
   selectPermissionMode: (current: WorkbenchViewModel, mode: string) => Promise<WorkbenchViewModel>;

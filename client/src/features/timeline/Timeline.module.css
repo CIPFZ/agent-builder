@@ -2,9 +2,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: 0;
-  padding: 8px 4px 24px;
-  overflow: auto;
+  min-height: auto;
+  padding: 8px 40px 48px;
+  overflow: visible;
 }
 
 .assistantBubble {
@@ -25,6 +25,44 @@
   border-radius: 16px;
   background: #f2f2f2;
   color: rgba(0, 0, 0, 0.88);
+}
+
+.userBubble :global(.ant-bubble-footer),
+.assistantBubble :global(.ant-bubble-footer) {
+  margin-top: 2px;
+}
+
+.messageFooter {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: rgb(13 13 13 / 45%);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.userMessageFooter {
+  justify-content: flex-end;
+}
+
+.assistantMessageFooter {
+  justify-content: flex-start;
+}
+
+.messageTime {
+  padding-inline: 2px;
+}
+
+.copyButton {
+  width: 22px;
+  height: 22px;
+  color: rgb(13 13 13 / 45%);
+}
+
+.copyButton:hover,
+.copyButton:focus-visible {
+  color: #0d0d0d !important;
+  background: rgb(13 13 13 / 6%) !important;
 }
 
 .progress {

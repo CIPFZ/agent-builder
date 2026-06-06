@@ -7,12 +7,18 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  box-sizing: border-box;
+  height: 32px;
   max-width: 180px;
-  padding-inline: 8px;
+  padding-inline: 7px;
+  border: 1px solid transparent !important;
+  border-radius: 8px;
   color: #3f3f46;
+  box-shadow: none;
+  transition: background-color 0.16s ease;
 }
 
-.trigger span:not(.chevron) {
+.triggerLabel {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -20,20 +26,39 @@
 }
 
 .trigger:hover,
-.trigger:focus-visible {
-  color: #0d0d0d;
-  background: #f4f4f5;
+.trigger:focus,
+.trigger:focus-visible,
+.trigger:active,
+.triggerWrap:global(.ant-dropdown-open) .trigger {
+  color: #3f3f46 !important;
+  background: #f2f2f2 !important;
+  border-color: transparent !important;
+  box-shadow: none;
+  outline: none;
 }
 
-.fullAccessTrigger,
-.fullAccessTrigger:hover,
-.fullAccessTrigger:focus-visible {
-  color: #fa541c;
+.trigger:active,
+.triggerWrap:global(.ant-dropdown-open) .trigger {
+  background: #ececec !important;
+}
+
+.fullAccessTrigger {
+  color: #fa541c !important;
 }
 
 .fullAccessTrigger:hover,
+.fullAccessTrigger:focus,
 .fullAccessTrigger:focus-visible {
-  background: #fff2e8;
+  color: #fa541c !important;
+  background: #f2f2f2 !important;
+  border-color: transparent !important;
+}
+
+.fullAccessTrigger:active,
+.triggerWrap:global(.ant-dropdown-open) .fullAccessTrigger {
+  color: #fa541c !important;
+  background: #ececec !important;
+  border-color: transparent !important;
 }
 
 .chevron {
@@ -41,38 +66,90 @@
   font-size: 11px;
 }
 
+.permissionTooltip :global(.ant-tooltip-inner) {
+  min-height: 24px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .dropdown :global(.ant-dropdown-menu) {
-  min-width: 220px;
-  padding: 6px;
+  width: min(360px, calc(100vw - 24px));
+  padding: 3px;
   border-radius: 14px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 14%);
 }
 
 .dropdown :global(.ant-dropdown-menu-item) {
-  border-radius: 10px;
+  border-radius: 12px !important;
   padding: 0;
 }
 
+.dropdown :global(.ant-dropdown-menu-item-active),
+.dropdown :global(.ant-dropdown-menu-item:hover) {
+  background: #f2f1f2 !important;
+}
+
 .dropdown :global(.ant-dropdown-menu-item-selected) {
-  background: #f4f4f5;
+  background: transparent !important;
+}
+
+.dropdown :global(.ant-dropdown-menu-item-selected:hover),
+.dropdown :global(.ant-dropdown-menu-item-selected.ant-dropdown-menu-item-active) {
+  background: #f2f1f2 !important;
 }
 
 .menuItem {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  grid-template-columns: 19px minmax(0, 1fr) 14px;
   align-items: center;
-  gap: 10px;
-  min-height: 34px;
-  padding: 6px 10px;
+  column-gap: 7px;
+  min-height: 42px;
+  padding: 4px 7px;
   color: #18181b;
 }
 
+.menuItem > :global(.anticon) {
+  color: #18181b;
+  font-size: 15px;
+}
+
+.menuCopy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+
 .menuLabel {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: #18181b;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.menuDescription {
+  color: #8a8a8a;
+  font-size: 11px;
+  line-height: 15px;
+  white-space: normal;
 }
 
 .selectedIcon {
   color: #0d0d0d;
-  font-size: 13px;
+  font-size: 15px;
+}
+
+@container composer-footer (max-width: 560px) {
+  .trigger {
+    width: 52px;
+    max-width: 52px;
+    justify-content: center;
+    gap: 4px;
+    padding-inline: 6px;
+  }
+
+  .triggerLabel {
+    display: none;
+  }
 }

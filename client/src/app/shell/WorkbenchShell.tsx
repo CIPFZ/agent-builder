@@ -89,6 +89,12 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     });
   };
 
+  const renameSession = async (sessionID: string, title: string) => {
+    const nextViewModel = await adapter.renameSession({ ...viewModel, mode }, sessionID, title);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
   const deleteSession = (sessionID: string) => {
     void adapter.deleteSession({ ...viewModel, mode }, sessionID).then((nextViewModel) => {
       setMode(nextViewModel.mode);
@@ -157,7 +163,10 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   };
 
   const selectPermissionMode = async (permissionMode: string) => {
-    const nextViewModel = await adapter.selectPermissionMode({ ...viewModel, mode }, permissionMode);
+    const currentViewModel = { ...viewModel, mode };
+    const optimisticViewModel = applyPermissionMode(currentViewModel, permissionMode);
+    setViewModel(optimisticViewModel);
+    const nextViewModel = await adapter.selectPermissionMode(optimisticViewModel, permissionMode);
     setViewModel(nextViewModel);
   };
 
@@ -329,7 +338,12 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         />
       )}
       {mode === 'plugins' ? (
-        <PluginCenter settings={workbenchViewModel.settings} onSettingsRefresh={refreshCurrentSettings} onSkillToggle={setSkillEnabled} />
+        <PluginCenter
+          sidebarCollapsed={sidebarCollapsed}
+          settings={workbenchViewModel.settings}
+          onSettingsRefresh={refreshCurrentSettings}
+          onSkillToggle={setSkillEnabled}
+        />
       ) : (
         <Workspace
           sidebarCollapsed={sidebarCollapsed}
@@ -338,9 +352,36 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onPermissionDecide={decidePermission}
           onPermissionModeSelect={selectPermissionMode}
           onPromptCancel={cancelTurn}
+          onSessionRename={renameSession}
           onPromptSubmit={sendPrompt}
         />
       )}
     </main>
   );
+}
+
+function applyPermissionMode(current: WorkbenchViewModel, mode: string): WorkbenchViewModel {
+  const option =
+    current.composer.permissionOptions.find((item) => item.mode === mode || item.value === mode) ??
+    current.settings.permissionOptions.find((item) => item.mode === mode || item.value === mode);
+  if (!option) {
+    return current;
+  }
+  const permissionMode = {
+    mode: option.mode,
+    label: option.label,
+    description: option.description,
+  };
+  return {
+    ...current,
+    composer: {
+      ...current.composer,
+      permissionLabel: option.label,
+      permissionMode,
+    },
+    settings: {
+      ...current.settings,
+      permissionMode,
+    },
+  };
 }

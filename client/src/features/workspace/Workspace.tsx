@@ -1,5 +1,6 @@
-import { CodeOutlined, ControlOutlined, CopyOutlined, DesktopOutlined, MoreOutlined } from '@ant-design/icons';
-import { Button, Tooltip, message as antdMessage } from 'antd';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowDownOutlined, CodeOutlined, ControlOutlined, CopyOutlined, DesktopOutlined, EditOutlined, MoreOutlined } from '@ant-design/icons';
+import { Button, Dropdown, Input, Modal, Tooltip, message as antdMessage } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
 import type { WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
@@ -13,6 +14,7 @@ interface WorkspaceProps {
   onPermissionDecide: (permissionID: string, action: 'allow' | 'allow_for_session' | 'deny') => Promise<void>;
   onPermissionModeSelect: (mode: string) => Promise<void>;
   onPromptCancel: () => Promise<void>;
+  onSessionRename: (sessionID: string, title: string) => Promise<void>;
   onPromptSubmit: (prompt: string) => Promise<void>;
 }
 
@@ -23,9 +25,15 @@ export function Workspace({
   onPermissionDecide,
   onPermissionModeSelect,
   onPromptCancel,
+  onSessionRename,
   onPromptSubmit,
 }: WorkspaceProps) {
   const [messageApi, messageContextHolder] = antdMessage.useMessage();
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [renaming, setRenaming] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
   const hasConversation = viewModel.conversation.length > 0;
   const activeSession = viewModel.sessions.find((session) => session.active);
@@ -39,6 +47,58 @@ export function Workspace({
     status: message.status,
     footer: <MessageActions content={message.content} createdAt={message.createdAt} messageApi={messageApi} role={message.role} />,
   }));
+  const updateJumpToBottomVisibility = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) {
+      setShowJumpToBottom(false);
+      return;
+    }
+    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setShowJumpToBottom(distanceToBottom > 180);
+  }, []);
+  const jumpToBottom = () => {
+    scrollContainerRef.current?.scrollTo({
+      top: scrollContainerRef.current.scrollHeight,
+      behavior: 'smooth',
+    });
+  };
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(updateJumpToBottomVisibility);
+    return () => window.cancelAnimationFrame(frame);
+  }, [updateJumpToBottomVisibility, viewModel.conversation.length, viewModel.timeline.length]);
+  const openRenameDialog = () => {
+    if (!activeSession) {
+      void messageApi.warning('请先选择一个对话');
+      return;
+    }
+    setRenameTitle(activeSession.title);
+    setRenameOpen(true);
+  };
+  const submitRename = async () => {
+    if (!activeSession) {
+      setRenameOpen(false);
+      return;
+    }
+    const nextTitle = renameTitle.trim();
+    if (!nextTitle) {
+      void messageApi.warning('请输入对话名称');
+      return;
+    }
+    if (nextTitle === activeSession.title) {
+      setRenameOpen(false);
+      return;
+    }
+    setRenaming(true);
+    try {
+      await onSessionRename(activeSession.id, nextTitle);
+      setRenameOpen(false);
+      void messageApi.success('对话名称已更新');
+    } catch {
+      void messageApi.error('更新对话名称失败');
+    } finally {
+      setRenaming(false);
+    }
+  };
 
   return (
     <section
@@ -51,9 +111,19 @@ export function Workspace({
       <header className={styles.sessionHeader}>
         <div className={styles.sessionTitleWrap}>
           <h2 className={styles.sessionTitle}>{sessionTitle}</h2>
-          <Tooltip title="更多对话操作">
+          <Dropdown
+            menu={{
+              items: [{ key: 'rename', icon: <EditOutlined />, label: '重命名' }],
+              onClick: ({ key }) => {
+                if (key === 'rename') {
+                  openRenameDialog();
+                }
+              },
+            }}
+            trigger={['click']}
+          >
             <Button aria-label="更多对话操作" className={styles.headerIconButton} icon={<MoreOutlined />} type="text" />
-          </Tooltip>
+          </Dropdown>
         </div>
         <div className={styles.headerActions} aria-label="工作区面板">
           <Tooltip title="打开代码面板">
@@ -67,7 +137,37 @@ export function Workspace({
           </Tooltip>
         </div>
       </header>
-      <div className={hasConversation ? styles.chatContent : styles.content}>
+      <Modal
+        cancelText="取消"
+        confirmLoading={renaming}
+        okText="保存"
+        open={renameOpen}
+        title="重命名对话"
+        onCancel={() => {
+          if (!renaming) {
+            setRenameOpen(false);
+          }
+        }}
+        onOk={submitRename}
+      >
+        <Input
+          aria-label="对话名称"
+          autoFocus
+          maxLength={80}
+          placeholder="请输入对话名称"
+          showCount
+          value={renameTitle}
+          onChange={(event) => setRenameTitle(event.target.value)}
+          onPressEnter={() => {
+            void submitRename();
+          }}
+        />
+      </Modal>
+      <div
+        ref={hasConversation ? scrollContainerRef : undefined}
+        className={hasConversation ? styles.chatContent : styles.content}
+        onScroll={hasConversation ? updateJumpToBottomVisibility : undefined}
+      >
         {viewModel.timeline.length > 0 ? (
           <Timeline items={viewModel.timeline} onPermissionDecide={onPermissionDecide} />
         ) : hasConversation ? (
@@ -90,6 +190,16 @@ export function Workspace({
           />
         ) : (
           <h1 className={styles.title}>{title}</h1>
+        )}
+        {hasConversation && showJumpToBottom && (
+          <button
+            aria-label="跳到底部"
+            className={styles.jumpToBottomButton}
+            type="button"
+            onClick={jumpToBottom}
+          >
+            <ArrowDownOutlined />
+          </button>
         )}
         <Composer
           composer={viewModel.composer}

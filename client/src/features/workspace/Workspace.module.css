@@ -1,8 +1,11 @@
 .workspace {
+  position: relative;
   min-width: 0;
+  min-height: 0;
   height: 100%;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .sessionHeader {
@@ -77,19 +80,85 @@
 }
 
 .chatContent {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 20px;
-  width: min(920px, 100%);
+  width: 100%;
+  min-height: 0;
   height: 100%;
-  margin: 0 auto;
-  padding: 24px 40px 32px;
+  padding: 24px 0 0;
+  overflow-y: auto;
+  scrollbar-color: #ececec transparent;
+  scrollbar-gutter: stable;
+}
+
+.chatContent::-webkit-scrollbar {
+  width: 10px;
+}
+
+.chatContent::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chatContent::-webkit-scrollbar-thumb {
+  background: #ececec;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+}
+
+.chatContent::-webkit-scrollbar-thumb:hover,
+.chatContent::-webkit-scrollbar-thumb:active {
+  background: #5a5a5a;
 }
 
 .conversation {
-  min-height: 0;
-  overflow: auto;
-  padding: 8px 4px 24px;
+  width: min(920px, 100%);
+  min-height: auto;
+  margin: 0 auto;
+  overflow: visible;
+  padding: 8px 40px 48px;
+}
+
+.chatContent > :global([data-testid='conversation-timeline']) {
+  width: min(920px, 100%);
+  margin: 0 auto;
+}
+
+.chatContent > :global([data-testid='composer']) {
+  position: sticky;
+  z-index: 5;
+  bottom: 0;
+  width: min(820px, calc(100% - 80px));
+  margin: 0 auto;
+  padding: 10px 0 16px;
+  background: #ffffff;
+}
+
+.jumpToBottomButton {
+  position: absolute;
+  z-index: 8;
+  bottom: 144px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0;
+  color: #0d0d0d;
+  font-size: 16px;
+  background: #ffffff;
+  border: 1px solid #e7e7e7;
+  appearance: none;
+  cursor: pointer;
+  border-radius: 50%;
+  box-shadow: 0 3px 10px rgb(0 0 0 / 8%);
+  transform: translateX(-50%);
+}
+
+.jumpToBottomButton:hover,
+.jumpToBottomButton:focus-visible {
+  color: #0d0d0d !important;
+  background: #f7f7f7 !important;
+  border-color: #dcdcdc !important;
 }
 
 .assistantBubble {
@@ -160,5 +229,19 @@
   .content {
     width: min(100%, 720px);
     padding: 34px 24px 72px;
+  }
+
+  .conversation {
+    padding-right: 24px;
+    padding-left: 24px;
+  }
+
+  .chatContent > :global([data-testid='composer']) {
+    width: min(100% - 48px, 720px);
+    padding-bottom: 24px;
+  }
+
+  .jumpToBottomButton {
+    bottom: 136px;
   }
 }

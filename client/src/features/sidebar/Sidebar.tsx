@@ -42,6 +42,8 @@ export function Sidebar({
   const newChatAction = viewModel.sidebarActions.find((action) => action.id === 'new-chat');
   const searchAction = viewModel.sidebarActions.find((action) => action.id === 'search');
   const primaryActions = viewModel.sidebarActions.filter((action) => action.id !== 'search');
+  const showCollapsedShortcuts = viewModel.mode !== 'plugins';
+  const isPrimaryActionCurrent = (action: SidebarActionViewModel) => action.id !== 'new-chat' && viewModel.mode === action.id;
 
   const runSidebarAction = (action: SidebarActionViewModel) => {
     if (action.id === 'new-chat') {
@@ -76,12 +78,12 @@ export function Sidebar({
                 onClick={() => onCollapsedChange(false)}
               />
             </Tooltip>
-            {searchAction && (
+            {showCollapsedShortcuts && searchAction && (
               <Tooltip title={searchAction.label}>
                 <Button aria-label={searchAction.label} className={styles.floatingButton} icon={searchAction.icon} type="text" />
               </Tooltip>
             )}
-            {newChatAction && (
+            {showCollapsedShortcuts && newChatAction && (
               <Tooltip title={newChatAction.label}>
                 <Button
                   aria-label={newChatAction.label}
@@ -137,7 +139,7 @@ export function Sidebar({
           {primaryActions.map((action) => (
             <Tooltip key={action.id} title={undefined} placement="right">
               <Button
-                className={`${styles.navButton} ${viewModel.mode === action.id ? styles.currentRow : ''}`}
+                className={`${styles.navButton} ${isPrimaryActionCurrent(action) ? styles.currentRow : ''}`}
                 data-nav-id={action.id}
                 disabled={action.disabled}
                 block

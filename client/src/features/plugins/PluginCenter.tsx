@@ -24,6 +24,7 @@ import styles from './PluginCenter.module.css';
 const { Text, Title } = Typography;
 
 interface PluginCenterProps {
+  sidebarCollapsed?: boolean;
   settings: SettingsViewModel;
   onSettingsRefresh: () => Promise<SettingsViewModel>;
   onSkillToggle: (name: string, enabled: boolean) => Promise<SettingsViewModel>;
@@ -34,7 +35,7 @@ type PluginManagementTab = PluginCenterTab | 'apps' | 'mcp' | 'market';
 
 type PluginIcon = 'browser' | 'chrome' | 'computer' | 'latex' | 'code' | 'cloud' | 'figma' | 'mcp' | 'skills' | 'default';
 
-export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: PluginCenterProps) {
+export function PluginCenter({ sidebarCollapsed = false, settings, onSettingsRefresh, onSkillToggle }: PluginCenterProps) {
   const [activeTab, setActiveTab] = useState<PluginCenterTab>('plugins');
   const [activeManagementTab, setActiveManagementTab] = useState<PluginManagementTab>('plugins');
   const [manageMode, setManageMode] = useState(false);
@@ -138,7 +139,7 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
   };
 
   return (
-    <section className={styles.center} data-testid="plugin-center">
+    <section className={styles.center} data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'} data-testid="plugin-center">
       {messageContextHolder}
       {selectedPlugin ? (
         <PluginDetailView plugin={selectedPlugin} onBack={() => setSelectedPlugin(null)} />
@@ -186,7 +187,7 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
               }}
             />
             <Flex align="center" gap={8}>
-              <Button icon={<SettingOutlined />} onClick={() => {
+              <Button className={styles.topActionButton} icon={<SettingOutlined />} type="text" onClick={() => {
                 setManageMode(true);
                 setActiveManagementTab(activeTab);
                 setQuery('');
@@ -194,12 +195,12 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
                 管理
               </Button>
               <Dropdown menu={createMenu} placement="bottomRight" trigger={['click']}>
-                <Button>
+                <Button className={styles.topActionButton} type="text">
                   创建 <DownOutlined />
                 </Button>
               </Dropdown>
               <Dropdown menu={moreMenu} placement="bottomRight" trigger={['click']}>
-                <Button icon={<EllipsisOutlined />} type="text" />
+                <Button className={styles.topIconButton} icon={<EllipsisOutlined />} type="text" />
               </Dropdown>
             </Flex>
           </header>
@@ -234,7 +235,7 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
               }}
             />
             <Flex align="center" gap={8}>
-              <Button icon={<SettingOutlined />} onClick={() => {
+              <Button className={styles.topActionButton} icon={<SettingOutlined />} type="text" onClick={() => {
                 setManageMode(true);
                 setActiveManagementTab(activeTab);
                 setQuery('');
@@ -242,12 +243,12 @@ export function PluginCenter({ settings, onSettingsRefresh, onSkillToggle }: Plu
                 管理
               </Button>
               <Dropdown menu={createMenu} placement="bottomRight" trigger={['click']}>
-                <Button>
+                <Button className={styles.topActionButton} type="text">
                   创建 <DownOutlined />
                 </Button>
               </Dropdown>
               <Dropdown menu={moreMenu} placement="bottomRight" trigger={['click']}>
-                <Button icon={<EllipsisOutlined />} type="text" />
+                <Button className={styles.topIconButton} icon={<EllipsisOutlined />} type="text" />
               </Dropdown>
             </Flex>
           </header>

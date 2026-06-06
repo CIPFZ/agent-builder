@@ -1,6 +1,6 @@
 import { Button, Dropdown, message } from 'antd';
 import Sender from '@ant-design/x/es/sender';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpOutlined,
   BranchesOutlined,
@@ -42,6 +42,7 @@ export function Composer({
 }: ComposerProps) {
   const [messageApi, messageContextHolder] = message.useMessage();
   const [draft, setDraft] = useState('');
+  const composerRef = useRef<HTMLDivElement | null>(null);
   const selectedProviderID = composer.selectedModel?.configuredProviderId;
   const visibleModelOptions = selectedProviderID
     ? composer.modelOptions.filter((model) => model.configuredProviderId === selectedProviderID)
@@ -124,13 +125,34 @@ export function Composer({
       </div>
     </div>
   );
+  const focusComposerInput = () => {
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement &&
+      activeElement !== document.body &&
+      !composerRef.current?.contains(activeElement) &&
+      (activeElement.matches('input, textarea, [contenteditable="true"], button, [role="button"]') || activeElement.closest('.ant-modal, .ant-dropdown'))
+    ) {
+      return;
+    }
+    const input = composerRef.current?.querySelector<HTMLTextAreaElement | HTMLDivElement>('textarea, [contenteditable="true"]');
+    input?.focus({ preventScroll: true });
+  };
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(focusComposerInput);
+    return () => window.cancelAnimationFrame(frame);
+  }, [composer.activeTurnId, composer.selectedModel?.id, composer.permissionMode?.mode]);
+  useEffect(() => {
+    window.addEventListener('focus', focusComposerInput);
+    return () => window.removeEventListener('focus', focusComposerInput);
+  });
 
   return (
-    <div className={styles.composerWrap} data-testid="composer">
+    <div ref={composerRef} className={styles.composerWrap} data-testid="composer">
       {messageContextHolder}
       <div className={styles.composerShell}>
         <Sender
-          autoSize={{ minRows: 3, maxRows: 5 }}
+          autoSize={{ minRows: 1, maxRows: 8 }}
           className={styles.sender}
           footer={footer}
           onKeyDown={handleKeyDown}

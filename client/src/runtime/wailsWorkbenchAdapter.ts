@@ -347,6 +347,7 @@ interface RuntimeBridgeModule {
   MeasureConfiguredProviderLatency?: (providerID: string) => Promise<RuntimeProviderTestResponseDTO>;
   NewChat: (title: string) => Promise<RuntimeStatusDTO>;
   SelectSession: (sessionID: string) => Promise<RuntimeStatusDTO>;
+  RenameSession?: (req: { sessionId: string; title: string }) => Promise<RuntimeSessionsResponseDTO>;
   DeleteSession?: (sessionID: string) => Promise<RuntimeSessionsResponseDTO>;
   Chat: (req: { prompt: string; sessionId?: string }) => Promise<RuntimeChatResponseDTO>;
   CancelTurn?: (turnID: string) => Promise<RuntimeStatusDTO>;
@@ -1264,6 +1265,11 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
     runtimeFetch<RuntimeStatusDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/select`, {
       method: 'POST',
     }),
+  RenameSession: (req) =>
+    runtimeFetch<RuntimeSessionsResponseDTO>(`/v1/sessions/${encodeURIComponent(req.sessionId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(req),
+    }),
   DeleteSession: (sessionID) =>
     runtimeFetch<RuntimeSessionsResponseDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}`, {
       method: 'DELETE',
@@ -1445,6 +1451,19 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         return { ...hydrated, mode: 'new-chat' };
       },
       () => staticWorkbenchAdapter.selectSession(current, sessionID),
+    );
+  },
+  async renameSession(current, sessionID, title) {
+    const nextTitle = title.trim();
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.RenameSession) {
+          return staticWorkbenchAdapter.renameSession(current, sessionID, nextTitle);
+        }
+        await bridge.RenameSession({ sessionId: sessionID, title: nextTitle });
+        return hydrateWorkbench(current, bridge);
+      },
+      () => staticWorkbenchAdapter.renameSession(current, sessionID, nextTitle),
     );
   },
   async deleteSession(current, sessionID) {

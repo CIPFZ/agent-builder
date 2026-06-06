@@ -1,14 +1,25 @@
 .composerWrap {
   width: min(100%, 820px);
+  background: #ffffff;
 }
 
 .senderRoot,
 .sender {
   width: 100%;
+  background: #ffffff;
 }
 
 .senderRoot {
   --ant-color-primary: #0d0d0d;
+}
+
+.senderRoot :global(.ant-sender) {
+  background: #ffffff;
+}
+
+.senderRoot :global(.ant-sender-content) {
+  min-height: 52px;
+  padding-block: 4px;
 }
 
 .senderRoot :global(.ant-sender-focused),
@@ -60,11 +71,13 @@
 }
 
 .footer {
+  container-name: composer-footer;
+  container-type: inline-size;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 0 0;
+  padding: 4px 0 0;
 }
 
 .leftControls,
