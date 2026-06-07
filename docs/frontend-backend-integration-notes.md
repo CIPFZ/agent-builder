@@ -263,3 +263,45 @@ Coverage boundary:
 - The smoke covers packaged executable startup and Wails bridge method
   contract. It is not a full WebView click-through automation and does not
   replace future live packaged long-turn validation.
+
+## 2026-06-08: Phase 6.4 Narrow Activity Hydration Design
+
+Phase 6.4 documents the future narrow activity hydration boundary for very
+large sessions without adding runtime APIs, Wails methods, database migrations,
+Run state, or frontend Run UI.
+
+Current baseline:
+
+- Full `SessionActivity(sessionID)` remains the source of truth for timeline,
+  diagnostics, tool metadata, permissions, policy, and interrupted recovery.
+- Runtime events are still refresh triggers only.
+- React must keep mapping hydrated runtime DTOs into view models. It must not
+  infer artifacts, diagnostics, interrupted recovery, or checkpoint state from
+  event payloads, assistant prose, or local component state.
+
+Future narrow hydration rules:
+
+- Additive session-scoped reads may hydrate a bounded activity window around
+  the active session tail.
+- Additive turn-scoped reads may hydrate one turn's messages, tool calls,
+  permissions, diagnostics, artifacts, events, and interrupted summary.
+- Optional diagnostics/artifact/interrupted slices must be computed in Go from
+  the same runtime evidence and helper code used by full `SessionActivity`.
+- The frontend adapter may choose a narrow read based on the event envelope,
+  but the returned hydrated DTO remains the only state source:
+  - `turn.*`, `tool.call.*`, and `permission.*` events with a `turn_id` should
+    refresh the owning turn activity.
+  - message/progress bursts can stay coalesced and refresh a small session
+    window.
+  - session-level events refresh session metadata plus the active window.
+- Full `SessionActivity` must remain the compatibility fallback and parity
+  oracle until narrow hydration is implemented and validated.
+
+Boundary:
+
+- No automatic resume.
+- No stale running/waiting tool recovery.
+- No restored actionable permission gate after restart.
+- No persisted interrupted acknowledgement field; `MarkInterruptedDone`
+  continues to persist cancelled terminal acknowledgement semantics.
+- No Run store, Run database migration, or frontend Run UI.

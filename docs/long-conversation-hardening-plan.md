@@ -1224,8 +1224,34 @@ Planned follow-up phases:
   - Preserve the current boundary: no Run state machine, runtime Run store,
     database migration, frontend Run UI, automatic resume, stale tool recovery,
     or assistant-prose artifact inference.
+- Phase 6.7: Narrow activity hydration implementation candidate.
+  - Implement the Phase 6.4 session-window and turn-activity design only after
+    the Phase 6.5 MCP transport/native structured-content hardening and Phase
+    6.6 packaged live validation risks are reviewed.
+  - Keep full `SessionActivity` as the compatibility fallback and parity
+    oracle while narrow reads are introduced.
+  - Add bounded session activity window and turn activity DTOs assembled from
+    the same persisted runtime evidence as full `SessionActivity`.
+  - Add store/query helpers needed to avoid whole-session reads in turn-scoped
+    diagnostics:
+    - messages by turn or bounded session window
+    - tool calls by session/turn without per-turn loops
+    - permissions by turn
+    - events by turn or bounded session window
+  - Add parity tests proving narrow reads preserve diagnostics, artifact
+    evidence, interrupted summaries, terminal permission semantics, and
+    `MarkInterruptedDone` acknowledgement behavior.
+  - Define stable cursor/window ordering across messages, turns, tool calls,
+    permissions, and runtime events before frontend adoption.
+  - Teach the frontend adapter to request narrow hydration from event-triggered
+    refreshes only after runtime parity tests pass; runtime events still remain
+    refresh triggers only.
+  - Preserve the current boundary: no Run state machine, runtime Run store,
+    database migration unless separately justified, frontend Run UI, automatic
+    resume, stale tool/permission recovery, or assistant-prose artifact
+    inference.
 - Phase 7 candidate: Additive Run DTO/API prototype.
-  - Only after Phase 6.1 through Phase 6.6 are reviewed.
+  - Only after Phase 6.1 through Phase 6.7 are reviewed.
   - Start with a read-only runtime DTO assembled from existing turns, tasks,
     diagnostics, permissions, tool calls, and refs.
   - Carry the Phase 6.3 lifecycle risk forward: if a durable recovery
@@ -1469,6 +1495,177 @@ Remaining risks:
 - `SessionActivity` remains the safe aggregate for the current UI. Very large
   session hydration remains a Phase 6.4 design topic.
 
+### Phase 6.4: Narrow Activity Hydration Design
+
+Status: reviewed and documented as a narrow hydration design. This is not a
+Run implementation.
+
+Scope:
+
+- Review the current `SessionActivity` hydration path and large-session risk.
+- Specify session-scoped and turn-scoped read boundaries for future
+  implementation.
+- Preserve `SessionActivity` as the current source of truth for timeline,
+  diagnostics, and interrupted recovery UX until the narrower reads are
+  implemented and validated against it.
+- Keep runtime events as refresh triggers only.
+- Preserve current interrupted semantics:
+  - no automatic resume
+  - no stale running/waiting tool recovery
+  - no restored actionable permission gate after restart recovery
+  - pending-at-interruption remains computed diagnostics
+  - `MarkInterruptedDone` / cancelled terminal status remains the
+    acknowledgement mechanism
+- Do not add a runtime Run store, Run state machine, Run database migration,
+  frontend Run UI, or persisted interrupted acknowledgement field.
+
+Current hydration assessment:
+
+- `SessionActivity(sessionID)` is still the correct safety baseline because it
+  returns messages, turns, tool calls, permissions, policy, per-turn
+  diagnostics, and interrupted summaries from runtime-owned data.
+- The current implementation is intentionally aggregate-heavy:
+  - reads all displayable session messages
+  - reads all turns for the session
+  - lists tool calls once per turn
+  - reads all permissions for the session
+  - reads all runtime events for the session and groups them by turn
+  - recomputes diagnostics and interrupted summaries for every hydrated turn
+- That shape is safe but will scale poorly for very large sessions, especially
+  when lifecycle events trigger frequent refreshes during long tool bursts.
+- `Turn(turnID)` and `TurnToolCalls(turnID)` already provide useful
+  turn-scoped foundations, but `Turn(turnID)` still reads whole-session
+  messages and permissions before filtering enough data to compute
+  diagnostics. It should not be treated as the final narrow hydration boundary.
+
+Design conclusion:
+
+- Keep full `GET /v1/sessions/{session_id}/activity` and Wails
+  `SessionActivity(sessionID)` as the canonical aggregate and compatibility
+  fallback.
+- Add future narrow reads as additive DTO/API surfaces assembled from the same
+  persisted runtime evidence. They must not create a parallel source of truth.
+- The first narrow API should be session-scoped and timeline-oriented:
+
+```text
+GET /v1/sessions/{session_id}/activity-window
+  query:
+    cursor optional
+    limit optional
+    before optional
+    after optional
+    include=diagnostics,artifacts,interrupted,permissions optional
+  response:
+    session_id
+    messages[]
+    turns[]
+    tool_calls[]
+    permissions[] optional
+    diagnostics[] optional
+    interrupted_turns[] optional
+    policy optional
+    window
+      cursor
+      has_more_before
+      has_more_after
+      first_event_sequence optional
+      last_event_sequence optional
+```
+
+- The second narrow API should be turn-scoped and evidence-oriented:
+
+```text
+GET /v1/turns/{turn_id}/activity
+  query:
+    include=messages,tool_calls,permissions,diagnostics,artifacts,events,interrupted optional
+  response:
+    turn
+    messages[] optional
+    tool_calls[] optional
+    permissions[] optional
+    diagnostics optional
+    interrupted optional
+    events[] optional
+```
+
+- Optional slices must be runtime-computed DTOs, not React-derived state:
+  - `diagnostics`: same semantics as `RuntimeTurnDiagnostics`
+  - `artifacts`: expected, produced, verified, missing, confidence, and refs
+    derived from tool metadata, refs, structured output, and conservative local
+    filesystem verification
+  - `interrupted`: same semantics as `RuntimeInterruptedSummary`
+  - `permissions`: pending and historical permission rows relevant to the
+    session window or turn, with terminal expired/cancelled rows preserved as
+    evidence but not actionability
+- The future implementation should factor shared runtime helpers so
+  `SessionActivity`, session-window activity, and turn activity compute
+  diagnostics/interrupted summaries from the same code path. Full
+  `SessionActivity` should remain the comparison oracle during rollout.
+
+Event-triggered refresh design:
+
+- Runtime event receipt continues to trigger hydration only.
+- The event envelope may guide which narrow read is requested:
+  - `turn.*` with `turn_id`: refresh `GET /v1/turns/{turn_id}/activity`
+    including diagnostics and interrupted slices.
+  - `tool.call.*` with `turn_id`: refresh the owning turn activity and tool
+    slice.
+  - `permission.*` with `turn_id`: refresh the owning turn activity including
+    permissions and diagnostics.
+  - `message.*` without a useful turn id: refresh a small session activity
+    window around the active session tail.
+  - session-level events: refresh session metadata and the active session
+    window.
+- Event payloads must not be merged directly into React timeline,
+  diagnostics, artifacts, or interrupted recovery state.
+- High-frequency token/progress/message delta events should stay coalesced.
+  Lifecycle, permission, artifact/ref, and terminal turn events may trigger
+  immediate narrow hydration.
+
+Implementation order for a later phase:
+
+1. Add store-level turn/session query helpers where needed:
+   - list messages by turn or bounded session window
+   - list tool calls by session or turn without per-turn loops
+   - list permissions by turn
+   - list events by turn or bounded session window
+2. Add runtime service methods and DTOs for turn activity and session activity
+   windows.
+3. Add HTTP and Wails bridge methods.
+4. Add tests proving narrow activity equals the corresponding subset of full
+   `SessionActivity` for diagnostics, artifact evidence, interrupted summaries,
+   and terminal permission semantics.
+5. Teach the frontend adapter to use narrow hydration after event triggers
+   while keeping full `SessionActivity` as fallback.
+
+Validation:
+
+- Documentation-only gate; no Go or frontend tests were required because no
+  code changed.
+- Reviewed current implementation paths:
+  - `runtimeService.SessionActivity`
+  - `runtimeService.Turn`
+  - `runtimeService.TurnToolCalls`
+  - runtime turn diagnostics and interrupted summary builders
+  - HTTP/Wails bridge routes for session activity, turns, tool calls, events,
+    and `MarkInterruptedDone`
+  - frontend `wailsWorkbenchAdapter` activity mapping and
+    `runtimeEventRefresh` trigger policy
+- Performed git diff review for this documentation update.
+
+Remaining risks:
+
+- Very large sessions still hydrate through full `SessionActivity` until a
+  later implementation phase adds narrow reads.
+- `Turn(turnID)` is not yet a fully narrow diagnostic read because it can still
+  consult whole-session messages and permissions.
+- The future session-window cursor needs careful ordering semantics across
+  messages, turns, tool calls, permissions, and runtime events.
+- Narrow hydration must prove parity with `SessionActivity` before the
+  frontend relies on it for diagnostics or interrupted recovery.
+- MCP streamable HTTP/SSE and native `structuredContent` hardening remain
+  Phase 6.5 topics.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -1516,8 +1713,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Proceed to Phase 6.4 narrow activity hydration design before any additional
-Run persistence or UX state is added.
+Proceed to Phase 6.5 MCP transport and native structured-content hardening
+before any additional Run persistence or UX state is added.
 
 Reason:
 
@@ -1529,5 +1726,7 @@ Reason:
 - Phase 6.3 reviewed pending-at-interruption lifecycle semantics and kept the
   signal computed from `SessionActivity` diagnostics rather than adding a
   persisted recovery lifecycle field.
-- The next unresolved design risk is narrow session-scoped and turn-scoped
-  activity hydration for very large sessions.
+- Phase 6.4 documented narrow session-scoped and turn-scoped activity hydration
+  boundaries and carried the remaining implementation risks into Phase 6.7.
+- The next unresolved validation risk is MCP transport/native structured
+  content beyond the stdio JSON-text fixture.
