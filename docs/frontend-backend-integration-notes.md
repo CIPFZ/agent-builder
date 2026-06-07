@@ -346,3 +346,29 @@ Follow-up boundary:
 - Neither phase should introduce Run persistence, frontend Run UI, automatic
   resume, stale tool recovery, stale permission actionability, or
   prose-derived artifact/checkpoint inference.
+
+## 2026-06-08: Phase 6.6 HTTP/SSE MCP Restart Validation
+
+Phase 6.6 adds deterministic streamable HTTP MCP and SSE MCP restart fixtures
+for native `structuredContent` artifact refs. The runtime path remains:
+completed scheduler output -> persisted tool metadata/refs -> hydrated
+`SessionActivity` diagnostics and interrupted recovery.
+
+Frontend/backend rules remain unchanged:
+
+- `SessionActivity` remains the source of truth for timeline, diagnostics,
+  artifact refs, permissions, policy, MCP request evidence, and interrupted
+  recovery.
+- Runtime events remain refresh triggers only.
+- React must not infer artifacts, diagnostics, interrupted recovery,
+  checkpoints, or Run state from assistant prose, event payloads, partial MCP
+  transport state, or component state.
+- Partial structured MCP output from an unfinished tool is not artifact
+  production evidence after restart. Recovery cancels the unfinished tool and
+  keeps it terminal/read-only.
+- Header-based MCP auth stays in runtime transport config. Hosted OAuth and
+  elicitation flows remain provider/SDK validation risks and must not restore
+  stale actionability after restart.
+- Phase 6.6 does not add automatic resume, stale tool recovery, stale
+  permission or MCP request actionability, narrow hydration APIs, Run store,
+  database migration, or frontend Run UI.

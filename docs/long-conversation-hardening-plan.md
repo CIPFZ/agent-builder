@@ -1758,8 +1758,9 @@ Remaining risks:
 
 ### Phase 6.6: Live HTTP/SSE MCP Restart And Hosted Flow Validation
 
-Status: planned. This must remain a validation/hardening phase, not a Run
-implementation.
+Status: implemented for deterministic local streamable HTTP and SSE MCP
+structured-content restart fixtures, with hosted-provider flow risks reviewed.
+This is not a Run implementation.
 
 Scope:
 
@@ -1782,35 +1783,79 @@ Scope:
   frontend Run UI, narrow hydration API, or persisted interrupted
   acknowledgement field.
 
-Acceptance:
+Implemented:
 
-- A streamable HTTP MCP tool can return native structured artifact metadata,
-  complete before interruption, and hydrate through `SessionActivity` with
-  produced/runtime refs after restart recovery.
-- An SSE MCP tool can return native structured artifact metadata, complete
-  before interruption, and hydrate through `SessionActivity` with
-  produced/runtime refs after restart recovery.
-- If restart/interruption occurs before the scheduler records completed MCP
-  output, the unfinished tool is cancelled and no produced artifact is inferred
-  from partial transport state.
-- Hosted auth and elicitation paths are documented with either focused test
-  coverage or explicit live-validation gaps. They must not restore stale
-  actionability after restart.
+- Added deterministic local MCP fixtures for both streamable HTTP MCP and SSE
+  MCP using the Go SDK HTTP handlers.
+- The fixtures run through the real runtime path:
+  - fake OpenAI-compatible provider requests a real MCP tool
+  - the MCP tool returns native `structuredContent` with artifact refs
+  - the scheduler records completed MCP output
+  - the provider is held open before final assistant completion
+  - runtime restart recovery interrupts the turn
+  - `SessionActivity` hydrates diagnostics and interrupted recovery from
+    persisted runtime evidence
+- Both HTTP and SSE fixtures verify:
+  - configured MCP transport headers are observed by the MCP server
+  - native structured refs survive as produced artifacts after restart
+  - local artifact paths are verified on disk
+  - assistant prose-only paths are not counted as produced artifacts
+  - interrupted summaries restore last completed MCP tool target/display/ref
+    metadata
+  - stale running/pending/waiting tool states are not restored
+- Added a focused recovery fixture for the opposite timing edge:
+  - a running MCP tool has partial structured output persisted before restart
+  - restart cancels the unfinished tool
+  - diagnostics and interrupted summary do not count the partial structured
+    metadata as produced artifacts or structured artifact refs
+- Hardened runtime diagnostics so artifact confidence/ref counts only consider
+  completed tool calls, matching produced-artifact extraction. Cancelled,
+  running, pending, and waiting tool rows remain timeline evidence but do not
+  become artifact production evidence.
 
-Planned validation:
+Validation:
 
-- `go test ./internal/agent/tools/mcp`
-- `go test ./internal/runtime` with focused HTTP/SSE MCP restart fixtures
-- `go test ./...` before commit if code changes touch shared MCP/runtime paths
-- Keep all temporary fixture scripts, logs, pids, and artifacts under
-  `tmp/runtime-dev`.
+- `go test ./internal/agent/tools/mcp -count=1`
+- `go test ./internal/agent/tools -count=1`
+- `go test ./internal/agent -run "TestSchedulerTool|TestConvertToToolResult" -count=1`
+- `go test ./internal/runtime -run "TestRuntimeExternalMCPInterruptedStructuredRefsFixture|TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture|TestRuntimeMCPPartialStructuredOutputCancelledOnRestartDoesNotProduceArtifact|TestRuntimeTurnDiagnosticsMCPStructuredArtifactRefsCountAsProduced|TestRuntimeInterruptedSummaryPhase51StructuredRefsOnly" -count=1`
+- `go test ./internal/runtime -count=1`
 
-Remaining risk after planning:
+Hosted auth / elicitation review:
 
-- Real third-party hosted MCP providers may require manual credentials or
-  browser-mediated OAuth. If those cannot be automated safely, Phase 6.6 should
-  record a reproducible manual smoke checklist rather than storing secrets or
-  moving auth state into React.
+- Header-based hosted auth remains covered by transport setup and by the new
+  HTTP/SSE fixture observing the configured Authorization header.
+- OAuth/browser-mediated hosted auth remains SDK/provider dependent. This phase
+  does not store OAuth state in React, does not add an auth Run/checkpoint
+  object, and does not restore stale auth actionability after restart.
+- Existing runtime MCP request handling for auth and elicitation remains
+  request-store based with pending/completed/denied/cancelled/failed terminal
+  statuses. Phase 6.6 does not add a persisted interrupted acknowledgement
+  field or re-open terminal MCP requests as actionable after restart.
+- Elicitation flows are not expanded into live provider automation here because
+  provider credentials and browser-mediated interaction cannot be safely
+  automated as a deterministic repo test without introducing secrets or moving
+  actionability into frontend state.
+
+Remaining risks:
+
+- Streamable HTTP disconnect/replay was probed with the SDK SSE stream close
+  hook. In this runtime path the MCP call failed with `request terminated
+  without response` before completed scheduler output was recorded. The safe
+  behavior is covered by the partial-output recovery fixture: no artifact is
+  inferred without completed output. A successful SDK replay case remains a
+  live-provider/SDK behavior risk.
+- Legacy SSE MCP completed-output restart is covered, but a deterministic SSE
+  disconnect/replay fixture is not available through the same SDK close hook.
+- Real third-party hosted MCP providers may require credentials, dynamic OAuth,
+  browser redirects, or provider-specific elicitation UI. Those should be
+  validated with a manual smoke checklist that records provider name, auth
+  setup, actionability state before restart, restart timing, and
+  `SessionActivity` output after restart. Secrets must not be stored in repo
+  fixtures or React state.
+- This phase still does not add automatic resume, stale tool recovery, stale
+  permission or MCP request actionability, Run persistence, Run UI, database
+  migrations, or narrow hydration APIs.
 
 ### Phase 6.7: Narrow Activity Hydration Implementation
 

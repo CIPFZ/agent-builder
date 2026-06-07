@@ -363,6 +363,9 @@ func diagnosticShellExitCode(call RuntimeToolCall) *int {
 }
 
 func applyArtifactConfidenceFromToolCall(diag *RuntimeTurnDiagnostics, call RuntimeToolCall) {
+	if call.Status != string(scheduler.ToolCallCompleted) {
+		return
+	}
 	metadataRefs := normalizeArtifactPaths(call.ArtifactRefs)
 	if len(call.Display.ArtifactRefs) > len(metadataRefs) {
 		metadataRefs = normalizeArtifactPaths(call.Display.ArtifactRefs)
