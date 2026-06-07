@@ -2,6 +2,7 @@ import type {
   ConfiguredProviderViewModel,
   ConversationMessageViewModel,
   ConversationTimelineItemViewModel,
+  InterruptedTurnViewModel,
   PermissionModeOptionViewModel,
   PermissionRequestViewModel,
   ProviderModelDiscoveryViewModel,
@@ -188,7 +189,10 @@ interface RuntimeTurnDTO {
   finishedAt?: number;
   error?: string;
   diagnostics?: RuntimeTurnDiagnosticsDTO;
+  interrupted?: RuntimeInterruptedSummaryDTO;
 }
+
+type RuntimeInterruptedSummaryDTO = InterruptedTurnViewModel;
 
 interface RuntimeTurnDiagnosticsDTO {
   turnId?: string;
@@ -460,6 +464,7 @@ interface RuntimeBridgeModule {
   DeleteSession?: (sessionID: string) => Promise<RuntimeSessionsResponseDTO>;
   Chat: (req: { prompt: string; sessionId?: string }) => Promise<RuntimeChatResponseDTO>;
   CancelTurn?: (turnID: string) => Promise<RuntimeStatusDTO>;
+  MarkInterruptedDone?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
   Messages?: () => Promise<RuntimeMessagesResponseDTO>;
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
   SessionActivity?: (sessionID: string) => Promise<RuntimeSessionActivityDTO>;
@@ -932,6 +937,25 @@ function selectTurnDiagnostics(activity?: RuntimeSessionActivityDTO, activeTurnI
   return selected?.diagnostics;
 }
 
+function selectInterruptedTurn(activity?: RuntimeSessionActivityDTO, activeTurnId?: string): InterruptedTurnViewModel | undefined {
+  const turns = Array.isArray(activity?.turns) ? activity.turns : [];
+  if (turns.length === 0) {
+    return undefined;
+  }
+  const interruptedTurns = turns.filter((turn) => turn.status === 'interrupted' && turn.interrupted?.turnId);
+  if (interruptedTurns.length === 0) {
+    return undefined;
+  }
+  const selected =
+    (activeTurnId ? interruptedTurns.find((turn) => turn.id === activeTurnId) : undefined) ??
+    [...interruptedTurns].sort((left, right) => {
+      const leftTime = left.interrupted?.interruptedAt || left.finishedAt || left.startedAt || 0;
+      const rightTime = right.interrupted?.interruptedAt || right.finishedAt || right.startedAt || 0;
+      return rightTime - leftTime;
+    })[0];
+  return selected?.interrupted;
+}
+
 interface TimelineTurnContext {
   turnByID: Map<string, RuntimeTurnDTO>;
   turnIDByMessageID: Map<string, string>;
@@ -1169,6 +1193,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     conversation: mapConversation(messagesResponse),
     timeline: activity ? mapActivityTimeline(activity) : current.timeline,
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
+    interruptedTurn: activity ? selectInterruptedTurn(activity, sessionActiveTurn?.id) : current.interruptedTurn,
     pendingPermissions: permissions.filter((permission) => permission.status === 'pending'),
     composer: {
       ...current.composer,
@@ -1650,6 +1675,10 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
     runtimeFetch<RuntimeStatusDTO>(`/v1/turns/${encodeURIComponent(turnID)}/cancel`, {
       method: 'POST',
     }),
+  MarkInterruptedDone: (turnID) =>
+    runtimeFetch<RuntimeTurnResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}/interrupted/done`, {
+      method: 'POST',
+    }),
   Chat: (req) => {
     if (req.sessionId) {
       return runtimeFetch<RuntimeChatResponseDTO>(`/v1/sessions/${encodeURIComponent(req.sessionId)}/turns`, {
@@ -1949,6 +1978,24 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         };
       },
       () => staticWorkbenchAdapter.cancelTurn(current, turnID),
+    );
+  },
+  async markInterruptedDone(current, turnID) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.MarkInterruptedDone) {
+          return staticWorkbenchAdapter.markInterruptedDone(current, turnID);
+        }
+        await bridge.MarkInterruptedDone(turnID);
+        return hydrateWorkbench(
+          {
+            ...current,
+            interruptedTurn: undefined,
+          },
+          bridge,
+        );
+      },
+      () => staticWorkbenchAdapter.markInterruptedDone(current, turnID),
     );
   },
   async saveConfiguredProvider(current, provider) {

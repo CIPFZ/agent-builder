@@ -2,11 +2,13 @@ package runtime
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/charmbracelet/crush/internal/tools/scheduler"
 )
 
 func TestRuntimeTurnStoreUpsertListAndInterrupt(t *testing.T) {
@@ -202,5 +204,61 @@ func TestRuntimeStatusScopesSessionBusyToSelectedSession(t *testing.T) {
 	}
 	if status.Requests.Running != 2 {
 		t.Fatalf("running = %d, want 2", status.Requests.Running)
+	}
+}
+
+func TestRuntimeServiceMarkInterruptedDoneCancelsInterruptedTurn(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	runtimeBackend, workspace := backendForSkillTest(t)
+	service.runtime = runtimeBackend
+	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	service.turns = newRuntimeTurnStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:         "turn-interrupted",
+		SessionID:  "session-1",
+		Status:     turnStatusInterrupted,
+		StartedAt:  1000,
+		FinishedAt: 2000,
+		Error:      "runtime restarted before turn completed",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := service.MarkInterruptedDone(context.Background(), "turn-interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Turn.Status != turnStatusCancelled || resp.Turn.Interrupted != nil {
+		t.Fatalf("turn response = %#v", resp.Turn)
+	}
+	stored, err := service.turns.Get(context.Background(), "turn-interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != turnStatusCancelled {
+		t.Fatalf("stored turn = %#v", stored)
+	}
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == "turn.cancelled" && event.TurnID == "turn-interrupted"
+	}) {
+		t.Fatalf("mark-done event missing: %#v", events.Events)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -139,6 +140,150 @@ func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, to
 		diag.ArtifactConfidenceSummary.UnknownNotDetected = len(diag.ExpectedArtifacts)
 	}
 	return diag
+}
+
+func buildRuntimeInterruptedSummary(turn RuntimeTurn, diag RuntimeTurnDiagnostics, toolCalls []RuntimeToolCall) *RuntimeInterruptedSummary {
+	if turn.Status != turnStatusInterrupted {
+		return nil
+	}
+	sortedCalls := append([]RuntimeToolCall(nil), toolCalls...)
+	slices.SortFunc(sortedCalls, func(a, b RuntimeToolCall) int {
+		left := firstNonZeroInt64(a.FinishedAt, a.StartedAt)
+		right := firstNonZeroInt64(b.FinishedAt, b.StartedAt)
+		if left != right {
+			return cmpInt64(left, right)
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	var lastCompleted, lastFailed, pending RuntimeInterruptedToolSummary
+	for _, call := range sortedCalls {
+		status := strings.ToLower(strings.TrimSpace(call.Status))
+		summary := interruptedToolSummary(call)
+		if status == string(scheduler.ToolCallCompleted) {
+			if isShellToolCall(call) {
+				exit := diagnosticShellExitCode(call)
+				if exit != nil && *exit != 0 {
+					lastFailed = summary
+					continue
+				}
+			}
+			lastCompleted = summary
+			continue
+		}
+		switch status {
+		case string(scheduler.ToolCallFailed), string(scheduler.ToolCallDenied):
+			lastFailed = summary
+		case string(scheduler.ToolCallPending), string(scheduler.ToolCallRunning), string(scheduler.ToolCallWaitingPermission), string(scheduler.ToolCallCancelled):
+			pending = summary
+			if status == string(scheduler.ToolCallCancelled) && lastFailed.ID == "" {
+				lastFailed = summary
+			}
+		}
+	}
+	interruptedAt := turn.FinishedAt
+	duration := turn.DurationMS
+	if duration == 0 && turn.StartedAt > 0 && interruptedAt > 0 {
+		duration = interruptedAt - turn.StartedAt
+		if duration < 0 {
+			duration = 0
+		}
+	}
+	reason := firstNonEmpty(turn.Error, "runtime interrupted before turn completed")
+	source := "runtime_recovery"
+	if !strings.Contains(strings.ToLower(reason), "restart") && !strings.Contains(strings.ToLower(reason), "recover") {
+		source = "runtime_interrupted"
+	}
+	summary := RuntimeInterruptedSummary{
+		TurnID:                   turn.ID,
+		SessionID:                turn.SessionID,
+		Status:                   turn.Status,
+		StartedAt:                turn.StartedAt,
+		InterruptedAt:            interruptedAt,
+		DurationMS:               duration,
+		Reason:                   reason,
+		Source:                   source,
+		LastCompletedTool:        lastCompleted,
+		LastFailedTool:           lastFailed,
+		PendingTool:              pending,
+		ExpectedArtifacts:        append([]string(nil), diag.ExpectedArtifacts...),
+		ProducedArtifacts:        append([]string(nil), diag.ProducedArtifacts...),
+		VerifiedArtifacts:        append([]string(nil), diag.VerifiedArtifacts...),
+		MissingArtifacts:         append([]string(nil), diag.MissingArtifacts...),
+		ArtifactCounts:           diag.ArtifactCounts,
+		PermissionCounts:         diag.PermissionCounts,
+		FailedToolCount:          diag.FailedToolCount,
+		DeniedToolCount:          diag.DeniedToolCount,
+		CancelledToolCount:       diag.CancelledToolCount,
+		NonzeroExitShellCount:    diag.NonzeroExitShellCount,
+		LastRuntimeEventAt:       diag.LastRuntimeEventAt,
+		LastRuntimeEventSequence: diag.LastRuntimeEventSequence,
+	}
+	summary.SummaryText = interruptedSummaryText(summary)
+	return &summary
+}
+
+func interruptedToolSummary(call RuntimeToolCall) RuntimeInterruptedToolSummary {
+	return RuntimeInterruptedToolSummary{
+		ID:            call.ID,
+		Name:          call.Name,
+		Source:        call.Source,
+		Status:        call.Status,
+		StartedAt:     call.StartedAt,
+		FinishedAt:    call.FinishedAt,
+		Command:       firstNonEmpty(call.Display.Command, call.Command),
+		WorkingDir:    call.Display.WorkingDir,
+		ExitCode:      call.Display.ExitCode,
+		Target:        firstNonEmpty(call.Display.PrimaryTarget, call.Display.Target),
+		Targets:       append([]string(nil), call.Display.Targets...),
+		StdoutExcerpt: call.Display.StdoutExcerpt,
+		StderrExcerpt: call.Display.StderrExcerpt,
+		FailureReason: call.Display.FailureReason,
+		ArtifactRefs:  append([]string(nil), firstNonEmptyStringSlice(call.Display.ArtifactRefs, call.ArtifactRefs)...),
+		DiffRefs:      append([]string(nil), firstNonEmptyStringSlice(call.Display.DiffRefs, call.DiffRefs)...),
+		Display:       call.Display,
+	}
+}
+
+func interruptedSummaryText(summary RuntimeInterruptedSummary) string {
+	var parts []string
+	parts = append(parts, "Interrupted turn "+summary.TurnID)
+	if summary.Reason != "" {
+		parts = append(parts, "Reason: "+summary.Reason)
+	}
+	if summary.LastCompletedTool.ID != "" {
+		parts = append(parts, "Last completed tool: "+interruptedToolLabel(summary.LastCompletedTool))
+	}
+	if summary.LastFailedTool.ID != "" {
+		parts = append(parts, "Last failed tool: "+interruptedToolLabel(summary.LastFailedTool))
+	}
+	if summary.PendingTool.ID != "" {
+		parts = append(parts, "Pending tool at interruption: "+interruptedToolLabel(summary.PendingTool))
+	}
+	if len(summary.ProducedArtifacts) > 0 {
+		parts = append(parts, "Produced artifacts: "+strings.Join(summary.ProducedArtifacts, ", "))
+	}
+	if len(summary.VerifiedArtifacts) > 0 {
+		parts = append(parts, "Verified artifacts: "+strings.Join(summary.VerifiedArtifacts, ", "))
+	}
+	if len(summary.MissingArtifacts) > 0 {
+		parts = append(parts, "Missing artifacts: "+strings.Join(summary.MissingArtifacts, ", "))
+	}
+	if summary.PermissionCounts.Pending > 0 || summary.PermissionCounts.Denied > 0 {
+		parts = append(parts, "Permissions: pending "+formatInt(summary.PermissionCounts.Pending)+", denied "+formatInt(summary.PermissionCounts.Denied))
+	}
+	if summary.FailedToolCount > 0 || summary.DeniedToolCount > 0 || summary.CancelledToolCount > 0 || summary.NonzeroExitShellCount > 0 {
+		parts = append(parts, "Signals: failed "+formatInt(summary.FailedToolCount)+", denied "+formatInt(summary.DeniedToolCount)+", cancelled "+formatInt(summary.CancelledToolCount)+", nonzero shell "+formatInt(summary.NonzeroExitShellCount))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func interruptedToolLabel(tool RuntimeInterruptedToolSummary) string {
+	label := firstNonEmpty(tool.Display.Title, tool.Name, tool.ID)
+	detail := firstNonEmpty(tool.Target, tool.Command, tool.FailureReason)
+	if detail == "" {
+		return label
+	}
+	return label + " (" + detail + ")"
 }
 
 func permissionCountsForTurn(turnID string, permissions []RuntimePermissionRequest) RuntimePermissionCounts {
@@ -480,4 +625,26 @@ func cmpInt64(a, b int64) int {
 	default:
 		return 0
 	}
+}
+
+func firstNonZeroInt64(values ...int64) int64 {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func firstNonEmptyStringSlice(values ...[]string) []string {
+	for _, value := range values {
+		if len(value) > 0 {
+			return value
+		}
+	}
+	return nil
+}
+
+func formatInt(value int) string {
+	return strconv.Itoa(value)
 }

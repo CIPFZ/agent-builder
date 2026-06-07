@@ -304,6 +304,124 @@ func TestRuntimeTurnDiagnosticsNonzeroShellCompletedSignal(t *testing.T) {
 	}
 }
 
+func TestRuntimeInterruptedSummaryPreservesRecoverySignals(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	producedPath := filepath.Join(dir, "produced.md")
+	missingPath := filepath.Join(dir, "missing.md")
+	if err := os.WriteFile(producedPath, []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	exit := 7
+	turn := RuntimeTurn{
+		ID:            "turn-interrupted",
+		SessionID:     "session-1",
+		Status:        turnStatusInterrupted,
+		UserMessageID: "message-1",
+		StartedAt:     1000,
+		FinishedAt:    2600,
+		DurationMS:    1600,
+		Error:         "runtime restarted before turn completed",
+	}
+	messages := []RuntimeMessage{{
+		ID:      "message-1",
+		Role:    "user",
+		Content: "write " + producedPath + " and " + missingPath,
+	}}
+	toolCalls := []RuntimeToolCall{
+		{
+			ID:           "tool-write",
+			TurnID:       turn.ID,
+			Name:         "write",
+			Source:       "builtin",
+			Status:       "completed",
+			InputSummary: `{"file_path":"` + producedPath + `","content":"ok"}`,
+			StartedAt:    1100,
+			FinishedAt:   1200,
+			Display:      RuntimeToolCallDisplay{Kind: "file_write", Title: "Write file", Target: producedPath, PrimaryTarget: producedPath, ArtifactCount: 1},
+		},
+		{
+			ID:         "tool-shell",
+			TurnID:     turn.ID,
+			Name:       "bash",
+			Source:     "shell",
+			Status:     "completed",
+			StartedAt:  1300,
+			FinishedAt: 1400,
+			ExitCode:   7,
+			Display: RuntimeToolCallDisplay{
+				Kind:          "shell",
+				Title:         "Run command",
+				Command:       "go test ./missing",
+				WorkingDir:    dir,
+				ExitCode:      &exit,
+				StderrExcerpt: "failed",
+				FailureReason: "failed",
+			},
+		},
+		{
+			ID:         "tool-running",
+			TurnID:     turn.ID,
+			Name:       "mcp_writer",
+			Source:     "mcp",
+			Status:     "cancelled",
+			StartedAt:  1500,
+			FinishedAt: 2600,
+			Structured: `{"artifact_refs":[{"path":"` + strings.ReplaceAll(producedPath, `\`, `\\`) + `"}]}`,
+			Display: RuntimeToolCallDisplay{
+				Kind:            "generic",
+				Title:           "MCP writer",
+				PrimaryTarget:   producedPath,
+				Targets:         []string{producedPath},
+				ArtifactRefs:    []string{producedPath},
+				ArtifactSummary: "1 artifact ref",
+			},
+		},
+	}
+	permissions := []RuntimePermissionRequest{
+		{ID: "perm-pending", TurnID: turn.ID, Status: permissionStatusPending},
+		{ID: "perm-denied", TurnID: turn.ID, Status: permissionStatusDenied},
+	}
+	events := []RuntimeEvent{
+		{Sequence: 10, TurnID: turn.ID, CreatedAt: "2026-06-07T10:00:00Z"},
+		{Sequence: 12, TurnID: turn.ID, CreatedAt: "2026-06-07T10:00:02Z"},
+	}
+	diag := buildRuntimeTurnDiagnostics(turn, messages, toolCalls, permissions, events)
+	summary := buildRuntimeInterruptedSummary(turn, diag, toolCalls)
+	if summary == nil {
+		t.Fatal("interrupted summary missing")
+	}
+
+	if summary.TurnID != turn.ID || summary.SessionID != turn.SessionID || summary.Status != turnStatusInterrupted {
+		t.Fatalf("identity = %#v", summary)
+	}
+	if summary.InterruptedAt != turn.FinishedAt || summary.DurationMS != 1600 || summary.Source != "runtime_recovery" {
+		t.Fatalf("time/source = %#v", summary)
+	}
+	if summary.LastCompletedTool.ID != "tool-write" || summary.LastCompletedTool.Target != producedPath {
+		t.Fatalf("last completed = %#v", summary.LastCompletedTool)
+	}
+	if summary.LastFailedTool.ID != "tool-shell" || summary.LastFailedTool.Command != "go test ./missing" || summary.LastFailedTool.WorkingDir != dir || summary.LastFailedTool.ExitCode == nil || *summary.LastFailedTool.ExitCode != 7 {
+		t.Fatalf("last failed = %#v", summary.LastFailedTool)
+	}
+	if summary.PendingTool.ID != "tool-running" || !slices.Contains(summary.PendingTool.ArtifactRefs, producedPath) {
+		t.Fatalf("pending tool = %#v", summary.PendingTool)
+	}
+	if !slices.Contains(summary.ProducedArtifacts, producedPath) || !slices.Contains(summary.VerifiedArtifacts, producedPath) || !slices.Contains(summary.MissingArtifacts, missingPath) {
+		t.Fatalf("artifact summary = %#v", summary)
+	}
+	if summary.PermissionCounts.Pending != 1 || summary.PermissionCounts.Denied != 1 {
+		t.Fatalf("permission summary = %#v", summary.PermissionCounts)
+	}
+	if summary.CancelledToolCount != 1 || summary.NonzeroExitShellCount != 1 || summary.LastRuntimeEventSequence != 12 {
+		t.Fatalf("signals/event = %#v", summary)
+	}
+	if !strings.Contains(summary.SummaryText, "Pending tool at interruption") || !strings.Contains(summary.SummaryText, "Missing artifacts") {
+		t.Fatalf("summary text = %q", summary.SummaryText)
+	}
+}
+
 func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 	t.Parallel()
 
@@ -391,5 +509,138 @@ func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 	}
 	if _, err := os.Stat(expectedPath); !os.IsNotExist(err) {
 		t.Fatalf("test expected artifact should not exist; stat err = %v", err)
+	}
+}
+
+func TestRuntimeSessionActivityRestoresInterruptedSummaryWithoutStaleRunningTool(t *testing.T) {
+	t.Parallel()
+
+	runtimeBackend, workspace := backendForSkillTest(t)
+	conn, err := db.Connect(context.Background(), workspace.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(workspace.DataDir)
+	})
+	service := newRuntimeService()
+	service.runtime = runtimeBackend
+	service.workspace = &workspace
+	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+
+	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedPath := filepath.Join(workspace.Path, "tmp", "runtime-dev", "interrupted-summary.md")
+	userMessage, err := ws.Messages.Create(context.Background(), sess.ID, message.CreateMessageParams{
+		Role:  message.User,
+		Parts: []message.ContentPart{message.TextContent{Text: "write " + expectedPath}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:            "turn-interrupted-activity",
+		SessionID:     sess.ID,
+		Status:        turnStatusRunning,
+		UserMessageID: userMessage.ID,
+		PromptPreview: "write " + expectedPath,
+		StartedAt:     time.Now().Add(-2 * time.Second).UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:           "tool-completed",
+		SessionID:    sess.ID,
+		TurnID:       "turn-interrupted-activity",
+		Name:         "write",
+		Source:       scheduler.ToolSourceBuiltin,
+		InputSummary: `{"file_path":"` + expectedPath + `","content":"ok"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID:   "tool-completed",
+		Status:       scheduler.ToolCallCompleted,
+		ArtifactRefs: []string{expectedPath},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:        "tool-running",
+		SessionID: sess.ID,
+		TurnID:    "turn-interrupted-activity",
+		Name:      "bash",
+		Source:    scheduler.ToolSourceShell,
+		Command:   "Start-Sleep -Seconds 60",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.permissionStore.Upsert(context.Background(), RuntimePermissionRequest{
+		ID:         "perm-denied",
+		SessionID:  sess.ID,
+		TurnID:     "turn-interrupted-activity",
+		ToolCallID: "tool-running",
+		ToolName:   "bash",
+		Action:     "execute",
+		Status:     permissionStatusDenied,
+		CreatedAt:  time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	interrupted, err := service.turns.InterruptUnfinished(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := cancelUnfinishedRuntimeToolCalls(context.Background(), service.toolCalls, conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, turn := range interrupted {
+		service.storeRuntimeEvent(RuntimeEvent{
+			Type:      "turn.interrupted",
+			SessionID: turn.SessionID,
+			TurnID:    turn.ID,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		})
+	}
+	for _, call := range cancelled {
+		service.storeRuntimeEvent(runtimeToolCallEvent("tool.call.cancelled", call, map[string]any{"summary": "runtime restarted"}))
+	}
+
+	activity, err := service.SessionActivity(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(activity.Turns) != 1 || activity.Turns[0].Status != turnStatusInterrupted {
+		t.Fatalf("turns = %#v", activity.Turns)
+	}
+	var runningTools []RuntimeToolCall
+	for _, call := range activity.ToolCalls {
+		if call.Status == "running" || call.Status == "pending" || call.Status == "waiting_permission" {
+			runningTools = append(runningTools, call)
+		}
+	}
+	if len(runningTools) != 0 {
+		t.Fatalf("stale running tools restored: %#v", runningTools)
+	}
+	summary := activity.Turns[0].Interrupted
+	if summary == nil {
+		t.Fatal("interrupted summary missing")
+	}
+	if summary.TurnID != "turn-interrupted-activity" || summary.PendingTool.ID != "tool-running" || summary.PendingTool.Status != "cancelled" {
+		t.Fatalf("interrupted summary = %#v", summary)
+	}
+	if summary.LastCompletedTool.ID != "tool-completed" || summary.PermissionCounts.Denied != 1 || summary.CancelledToolCount != 1 {
+		t.Fatalf("summary details = %#v", summary)
 	}
 }

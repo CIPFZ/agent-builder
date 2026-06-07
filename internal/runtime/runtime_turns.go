@@ -235,6 +235,7 @@ func (r *runtimeService) Turn(ctx context.Context, turnID string) (RuntimeTurnRe
 		r.mu.Unlock()
 	}
 	turn.Diagnostics = buildRuntimeTurnDiagnostics(turn, messages, toolCalls, permissions, events)
+	turn.Interrupted = buildRuntimeInterruptedSummary(turn, turn.Diagnostics, toolCalls)
 	return RuntimeTurnResponse{Turn: turn}, nil
 }
 
@@ -371,6 +372,45 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 		},
 	})
 	return r.Status(ctx)
+}
+
+func (r *runtimeService) MarkInterruptedDone(ctx context.Context, turnID string) (RuntimeTurnResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeTurnResponse{}, err
+	}
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return RuntimeTurnResponse{}, errors.New("turn id is required")
+	}
+	turn, err := r.turns.Get(ctx, turnID)
+	if err != nil {
+		return RuntimeTurnResponse{}, fmt.Errorf("turn %s was not found: %w", turnID, err)
+	}
+	if turn.Status != turnStatusInterrupted {
+		return RuntimeTurnResponse{}, fmt.Errorf("turn %s is not interrupted", turnID)
+	}
+	now := time.Now().UTC()
+	turn.Status = turnStatusCancelled
+	turn.Error = firstNonEmpty(turn.Error, "interrupted turn marked done")
+	if turn.FinishedAt == 0 {
+		turn.FinishedAt = now.UnixMilli()
+	}
+	stored, err := r.turns.Upsert(ctx, turn)
+	if err != nil {
+		return RuntimeTurnResponse{}, err
+	}
+	r.storeRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventTurnCancelled,
+		CreatedAt: now.Format(time.RFC3339Nano),
+		SessionID: stored.SessionID,
+		TurnID:    stored.ID,
+		Payload: map[string]any{
+			"status": "cancelled",
+			"reason": "interrupted_marked_done",
+		},
+	})
+	return r.Turn(ctx, stored.ID)
 }
 
 func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID, prompt string, start time.Time, usageBefore RuntimeUsage, provider, model string) {

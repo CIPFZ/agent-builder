@@ -77,6 +77,7 @@ export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): W
     conversation: [],
     timeline: [],
     turnDiagnostics: undefined,
+    interruptedTurn: undefined,
     pendingPermissions: [],
     composer: {
       placeholder: '请输入任务',
@@ -127,6 +128,9 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
     return runtimeUnavailable();
   },
   async cancelTurn() {
+    return runtimeUnavailable();
+  },
+  async markInterruptedDone() {
     return runtimeUnavailable();
   },
   async saveConfiguredProvider() {

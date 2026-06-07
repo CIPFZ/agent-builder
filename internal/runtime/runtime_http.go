@@ -352,6 +352,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && turnPathID(r.URL.Path) != "":
 		value, err := s.service.Turn(r.Context(), turnPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && turnInterruptedDonePathID(r.URL.Path) != "":
+		value, err := s.service.MarkInterruptedDone(r.Context(), turnInterruptedDonePathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && toolCallPathID(r.URL.Path) != "":
 		value, err := s.service.ToolCall(r.Context(), toolCallPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -677,6 +680,9 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 	case method == http.MethodPost && turnCancelPathID(path) != "":
 		value, err := s.service.CancelTurn(r.Context(), turnCancelPathID(path))
 		return value, err, true
+	case method == http.MethodPost && turnInterruptedDonePathID(path) != "":
+		value, err := s.service.MarkInterruptedDone(r.Context(), turnInterruptedDonePathID(path))
+		return value, err, true
 	case method == http.MethodGet && turnPathID(path) != "":
 		value, err := s.service.Turn(r.Context(), turnPathID(path))
 		return value, err, true
@@ -994,8 +1000,12 @@ func turnCancelPathID(path string) string {
 	return trimPathID(path, "/v1/turns/", "/cancel")
 }
 
+func turnInterruptedDonePathID(path string) string {
+	return trimPathID(path, "/v1/turns/", "/interrupted/done")
+}
+
 func turnPathID(path string) string {
-	if strings.HasSuffix(path, "/tool-calls") || strings.HasSuffix(path, "/todos") || strings.HasSuffix(path, "/compact") {
+	if strings.HasSuffix(path, "/tool-calls") || strings.HasSuffix(path, "/todos") || strings.HasSuffix(path, "/compact") || strings.HasSuffix(path, "/interrupted/done") {
 		return ""
 	}
 	id := strings.TrimPrefix(path, "/v1/turns/")

@@ -663,6 +663,12 @@ func (r *RuntimeBridge) CancelTurn(ctx context.Context, turnID string) (RuntimeS
 
 }
 
+func (r *RuntimeBridge) MarkInterruptedDone(ctx context.Context, turnID string) (RuntimeTurnResponse, error) {
+
+	return r.service.MarkInterruptedDone(ctx, turnID)
+
+}
+
 func (r *RuntimeBridge) NewChat(ctx context.Context, title string) (RuntimeStatus, error) {
 	return r.service.NewChat(ctx, title)
 }

@@ -42,6 +42,7 @@ func TestEndpointsFreezePhase2MinimalAPI(t *testing.T) {
 		{Method: MethodPost, Path: "/v1/tasks/{task_id}/follow-up"},
 		{Method: MethodGet, Path: "/v1/tasks/{task_id}/effective-scope"},
 		{Method: MethodPost, Path: "/v1/turns/{turn_id}/cancel"},
+		{Method: MethodPost, Path: "/v1/turns/{turn_id}/interrupted/done"},
 		{Method: MethodGet, Path: "/v1/worktrees"},
 		{Method: MethodPost, Path: "/v1/worktrees"},
 		{Method: MethodGet, Path: "/v1/worktrees/{worktree_id}"},

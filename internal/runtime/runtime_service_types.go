@@ -107,6 +107,7 @@ type RuntimeService interface {
 	DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error)
 	Cancel(context.Context) (RuntimeStatus, error)
 	CancelTurn(context.Context, string) (RuntimeStatus, error)
+	MarkInterruptedDone(context.Context, string) (RuntimeTurnResponse, error)
 	NewChat(context.Context, string) (RuntimeStatus, error)
 }
 

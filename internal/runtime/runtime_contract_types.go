@@ -144,24 +144,25 @@ type RuntimeChatResponse struct {
 }
 
 type RuntimeTurn struct {
-	ID                       string                 `json:"id"`
-	SessionID                string                 `json:"sessionId"`
-	Status                   string                 `json:"status"`
-	UserMessageID            string                 `json:"userMessageId,omitempty"`
-	LatestAssistantMessageID string                 `json:"latestAssistantMessageId,omitempty"`
-	StartedAt                int64                  `json:"startedAt"`
-	FinishedAt               int64                  `json:"finishedAt,omitempty"`
-	DurationMS               int64                  `json:"durationMs,omitempty"`
-	Provider                 string                 `json:"provider,omitempty"`
-	Model                    string                 `json:"model,omitempty"`
-	PromptPreview            string                 `json:"promptPreview,omitempty"`
-	UsageBefore              RuntimeUsage           `json:"usageBefore,omitempty"`
-	UsageAfter               RuntimeUsage           `json:"usageAfter,omitempty"`
-	UsageDelta               RuntimeUsage           `json:"usageDelta,omitempty"`
-	LatestMessageID          string                 `json:"latestMessageId,omitempty"`
-	LatestAssistant          RuntimeMessage         `json:"latestAssistant,omitempty"`
-	Error                    string                 `json:"error,omitempty"`
-	Diagnostics              RuntimeTurnDiagnostics `json:"diagnostics,omitempty"`
+	ID                       string                     `json:"id"`
+	SessionID                string                     `json:"sessionId"`
+	Status                   string                     `json:"status"`
+	UserMessageID            string                     `json:"userMessageId,omitempty"`
+	LatestAssistantMessageID string                     `json:"latestAssistantMessageId,omitempty"`
+	StartedAt                int64                      `json:"startedAt"`
+	FinishedAt               int64                      `json:"finishedAt,omitempty"`
+	DurationMS               int64                      `json:"durationMs,omitempty"`
+	Provider                 string                     `json:"provider,omitempty"`
+	Model                    string                     `json:"model,omitempty"`
+	PromptPreview            string                     `json:"promptPreview,omitempty"`
+	UsageBefore              RuntimeUsage               `json:"usageBefore,omitempty"`
+	UsageAfter               RuntimeUsage               `json:"usageAfter,omitempty"`
+	UsageDelta               RuntimeUsage               `json:"usageDelta,omitempty"`
+	LatestMessageID          string                     `json:"latestMessageId,omitempty"`
+	LatestAssistant          RuntimeMessage             `json:"latestAssistant,omitempty"`
+	Error                    string                     `json:"error,omitempty"`
+	Diagnostics              RuntimeTurnDiagnostics     `json:"diagnostics,omitempty"`
+	Interrupted              *RuntimeInterruptedSummary `json:"interrupted,omitempty"`
 }
 
 type RuntimeTurnResponse struct {
@@ -231,6 +232,53 @@ type RuntimePermissionCounts struct {
 	Denied    int `json:"denied,omitempty"`
 	Expired   int `json:"expired,omitempty"`
 	Cancelled int `json:"cancelled,omitempty"`
+}
+
+type RuntimeInterruptedSummary struct {
+	TurnID                   string                        `json:"turnId,omitempty"`
+	SessionID                string                        `json:"sessionId,omitempty"`
+	Status                   string                        `json:"status,omitempty"`
+	StartedAt                int64                         `json:"startedAt,omitempty"`
+	InterruptedAt            int64                         `json:"interruptedAt,omitempty"`
+	DurationMS               int64                         `json:"durationMs,omitempty"`
+	Reason                   string                        `json:"reason,omitempty"`
+	Source                   string                        `json:"source,omitempty"`
+	LastCompletedTool        RuntimeInterruptedToolSummary `json:"lastCompletedTool,omitempty"`
+	LastFailedTool           RuntimeInterruptedToolSummary `json:"lastFailedTool,omitempty"`
+	PendingTool              RuntimeInterruptedToolSummary `json:"pendingTool,omitempty"`
+	ExpectedArtifacts        []string                      `json:"expectedArtifacts,omitempty"`
+	ProducedArtifacts        []string                      `json:"producedArtifacts,omitempty"`
+	VerifiedArtifacts        []string                      `json:"verifiedArtifacts,omitempty"`
+	MissingArtifacts         []string                      `json:"missingArtifacts,omitempty"`
+	ArtifactCounts           RuntimeArtifactCounts         `json:"artifactCounts,omitempty"`
+	PermissionCounts         RuntimePermissionCounts       `json:"permissionCounts,omitempty"`
+	FailedToolCount          int                           `json:"failedToolCount,omitempty"`
+	DeniedToolCount          int                           `json:"deniedToolCount,omitempty"`
+	CancelledToolCount       int                           `json:"cancelledToolCount,omitempty"`
+	NonzeroExitShellCount    int                           `json:"nonzeroExitShellCount,omitempty"`
+	LastRuntimeEventAt       int64                         `json:"lastRuntimeEventAt,omitempty"`
+	LastRuntimeEventSequence int64                         `json:"lastRuntimeEventSequence,omitempty"`
+	SummaryText              string                        `json:"summaryText,omitempty"`
+}
+
+type RuntimeInterruptedToolSummary struct {
+	ID            string                 `json:"id,omitempty"`
+	Name          string                 `json:"name,omitempty"`
+	Source        string                 `json:"source,omitempty"`
+	Status        string                 `json:"status,omitempty"`
+	StartedAt     int64                  `json:"startedAt,omitempty"`
+	FinishedAt    int64                  `json:"finishedAt,omitempty"`
+	Command       string                 `json:"command,omitempty"`
+	WorkingDir    string                 `json:"workingDir,omitempty"`
+	ExitCode      *int                   `json:"exitCode,omitempty"`
+	Target        string                 `json:"target,omitempty"`
+	Targets       []string               `json:"targets,omitempty"`
+	StdoutExcerpt string                 `json:"stdoutExcerpt,omitempty"`
+	StderrExcerpt string                 `json:"stderrExcerpt,omitempty"`
+	FailureReason string                 `json:"failureReason,omitempty"`
+	ArtifactRefs  []string               `json:"artifactRefs,omitempty"`
+	DiffRefs      []string               `json:"diffRefs,omitempty"`
+	Display       RuntimeToolCallDisplay `json:"display,omitempty"`
 }
 
 type RuntimeToolCall struct {

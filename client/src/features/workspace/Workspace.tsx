@@ -17,6 +17,7 @@ interface WorkspaceProps {
   onPromptCancel: () => Promise<void>;
   onSessionRename: (sessionID: string, title: string) => Promise<void>;
   onPromptSubmit: (prompt: string) => Promise<void>;
+  onInterruptedDone: (turnID: string) => Promise<void>;
 }
 
 export function Workspace({
@@ -28,6 +29,7 @@ export function Workspace({
   onPromptCancel,
   onSessionRename,
   onPromptSubmit,
+  onInterruptedDone,
 }: WorkspaceProps) {
   const [messageApi, messageContextHolder] = antdMessage.useMessage();
   const [renameOpen, setRenameOpen] = useState(false);
@@ -99,6 +101,21 @@ export function Workspace({
     } finally {
       setRenaming(false);
     }
+  };
+  const copyInterruptedSummary = async (summary: string) => {
+    try {
+      await copyText(summary);
+      void messageApi.success('Copied');
+    } catch {
+      void messageApi.error('Copy failed');
+    }
+  };
+  const startInterruptedFollowUp = async (prompt: string) => {
+    await onPromptSubmit(prompt);
+  };
+  const markInterruptedDone = async (turnID: string) => {
+    await onInterruptedDone(turnID);
+    void messageApi.success('Interrupted turn marked done');
   };
 
   return (
@@ -175,7 +192,13 @@ export function Workspace({
               <Timeline items={viewModel.timeline} onPermissionDecide={onPermissionDecide} />
             </div>
             <div className={styles.diagnosticsColumn}>
-              <TurnDiagnosticsPanel diagnostics={viewModel.turnDiagnostics} />
+              <TurnDiagnosticsPanel
+                diagnostics={viewModel.turnDiagnostics}
+                interrupted={viewModel.interruptedTurn}
+                onInterruptedCopy={copyInterruptedSummary}
+                onInterruptedDone={markInterruptedDone}
+                onInterruptedFollowUp={startInterruptedFollowUp}
+              />
             </div>
           </div>
         ) : hasConversation ? (

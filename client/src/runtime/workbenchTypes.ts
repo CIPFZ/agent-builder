@@ -119,6 +119,53 @@ export interface TurnDiagnosticsViewModel {
   warningSource?: string;
 }
 
+export interface InterruptedTurnViewModel {
+  turnId?: string;
+  sessionId?: string;
+  status?: string;
+  startedAt?: number;
+  interruptedAt?: number;
+  durationMs?: number;
+  reason?: string;
+  source?: string;
+  lastCompletedTool?: InterruptedToolViewModel;
+  lastFailedTool?: InterruptedToolViewModel;
+  pendingTool?: InterruptedToolViewModel;
+  expectedArtifacts?: string[];
+  producedArtifacts?: string[];
+  verifiedArtifacts?: string[];
+  missingArtifacts?: string[];
+  artifactCounts?: ArtifactCountsViewModel;
+  permissionCounts?: PermissionCountsViewModel;
+  failedToolCount?: number;
+  deniedToolCount?: number;
+  cancelledToolCount?: number;
+  nonzeroExitShellCount?: number;
+  lastRuntimeEventAt?: number;
+  lastRuntimeEventSequence?: number;
+  summaryText?: string;
+}
+
+export interface InterruptedToolViewModel {
+  id?: string;
+  name?: string;
+  source?: string;
+  status?: string;
+  startedAt?: number;
+  finishedAt?: number;
+  command?: string;
+  workingDir?: string;
+  exitCode?: number;
+  target?: string;
+  targets?: string[];
+  stdoutExcerpt?: string;
+  stderrExcerpt?: string;
+  failureReason?: string;
+  artifactRefs?: string[];
+  diffRefs?: string[];
+  display?: ToolCallDisplayViewModel;
+}
+
 export interface ArtifactCountsViewModel {
   expected?: number;
   produced?: number;
@@ -406,6 +453,7 @@ export interface WorkbenchViewModel {
   conversation: ConversationMessageViewModel[];
   timeline: ConversationTimelineItemViewModel[];
   turnDiagnostics?: TurnDiagnosticsViewModel;
+  interruptedTurn?: InterruptedTurnViewModel;
   pendingPermissions: PermissionRequestViewModel[];
   composer: ComposerViewModel;
   settings: SettingsViewModel;
@@ -433,6 +481,7 @@ export interface WorkbenchAdapter {
   decidePermission: (current: WorkbenchViewModel, permissionID: string, action: 'allow' | 'allow_for_session' | 'deny') => Promise<WorkbenchViewModel>;
   sendPrompt: (current: WorkbenchViewModel, prompt: string) => Promise<WorkbenchViewModel>;
   cancelTurn: (current: WorkbenchViewModel, turnID?: string) => Promise<WorkbenchViewModel>;
+  markInterruptedDone: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;
   saveConfiguredProvider: (
     current: WorkbenchViewModel,
     provider: ConfiguredProviderViewModel & { token?: string },

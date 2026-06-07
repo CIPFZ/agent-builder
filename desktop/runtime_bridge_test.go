@@ -500,6 +500,10 @@ func (s *recordingRuntimeService) CancelTurn(context.Context, string) (RuntimeSt
 	return RuntimeStatus{}, nil
 }
 
+func (s *recordingRuntimeService) MarkInterruptedDone(context.Context, string) (RuntimeTurnResponse, error) {
+	return RuntimeTurnResponse{}, nil
+}
+
 func (s *recordingRuntimeService) NewChat(context.Context, string) (RuntimeStatus, error) {
 	return RuntimeStatus{}, nil
 }

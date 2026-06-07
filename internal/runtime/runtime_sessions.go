@@ -244,6 +244,7 @@ func (r *runtimeService) SessionActivity(ctx context.Context, sessionID string) 
 	eventsByTurn := r.sessionActivityEventsByTurn(ctx, sessionID)
 	for i := range turns {
 		turns[i].Diagnostics = buildRuntimeTurnDiagnostics(turns[i], messages.Messages, toolCallsByTurn[turns[i].ID], permissionsByTurn[turns[i].ID], eventsByTurn[turns[i].ID])
+		turns[i].Interrupted = buildRuntimeInterruptedSummary(turns[i], turns[i].Diagnostics, toolCallsByTurn[turns[i].ID])
 	}
 
 	return RuntimeSessionActivityResponse{

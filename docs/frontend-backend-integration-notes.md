@@ -122,3 +122,39 @@ Follow-up risks:
   binding regeneration, and deterministic fake-model long tool bursts. A
   packaged production installer smoke and a real external long-running model
   run should still be repeated before calling this production-ready.
+
+## 2026-06-07: Interrupted Recovery DTO
+
+Phase 5 keeps `SessionActivity` as the source of truth for interrupted UI.
+Runtime events such as `turn.interrupted` and `tool.call.cancelled` only
+trigger hydration. React maps the hydrated `turns[].interrupted` DTO into a
+read-only recovery surface next to the diagnostics panel.
+
+Frontend actions are intentionally low risk:
+
+- Inspect expands structured runtime metadata.
+- Copy copies the runtime-provided summary text.
+- Follow-up sends a new user turn seeded from the summary; it does not replay
+  the interrupted turn.
+- Mark done calls the runtime action that persists the interrupted turn as
+  `cancelled`.
+
+Validation note:
+
+- During Phase 5 browser validation, clicking "new chat" before submit still
+  allowed the adapter to pass the previously active session id into `Chat`.
+  This is a pre-existing active-session handoff issue and should be fixed
+  separately from interrupted recovery.
+
+Follow-up:
+
+- Add a Phase 5.1 integration fix so `NewChat` clears any submitted session id
+  before the next `Chat` request. The workbench may keep a transient composer
+  view model, but the request must not reuse a stale session id after the
+  runtime has cleared the active session.
+- Validate the fix through the HTTP/Vite path and Wails bridge path with a
+  browser flow: start an existing session, click new chat, submit a prompt, and
+  verify the prompt creates or targets the new session only after hydration.
+- Keep runtime events as refresh triggers only. The fix should still hydrate
+  session, timeline, diagnostics, and interrupted recovery state from
+  `SessionActivity`.

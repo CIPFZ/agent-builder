@@ -802,6 +802,8 @@ Remaining risks:
 
 ### Phase 5: Explicit Interrupted And Resume Flow
 
+Status: implemented for the explicit interrupted/recovery slice.
+
 Scope:
 
 - Do not resume automatically.
@@ -834,6 +836,123 @@ Tests:
 - Browser restart/reload smoke.
 - Restart smoke with shell failure, file edit, and MCP/custom structured refs.
 
+Implemented:
+
+- Runtime startup/recovery continues to avoid automatic resume.
+- Active persisted turns are marked `interrupted` during recovery; unfinished
+  persisted tool calls are cancelled so `SessionActivity` does not restore
+  stale running tools.
+- `RuntimeTurn` now exposes an additive `interrupted` summary DTO computed
+  from persisted turn, tool call, permission, runtime event, and diagnostics
+  data. No database migration was added.
+- The interrupted summary includes:
+  - turn/session/status identity
+  - started/interrupted timestamps and duration
+  - reason/source
+  - last completed, failed, and pending-at-interruption tool summaries
+  - expected, produced, verified, and missing artifact summaries
+  - permission counts
+  - failed, denied, cancelled, and nonzero shell signals
+  - last runtime event time and sequence
+  - Phase 3 tool display metadata, including target paths, command/cwd/exit,
+    stdout/stderr/failure excerpts, artifact refs, diff refs, and display
+    metadata when present
+- The runtime only trusts structured tool fields, display metadata, refs, and
+  machine-readable structured output for interrupted tool/custom/MCP artifact
+  refs. It does not infer interrupted refs from assistant prose.
+- A low-risk `MarkInterruptedDone` action was added. It only applies to an
+  already interrupted turn, persists it as `cancelled`, emits a turn-cancelled
+  refresh event, and does not replay or continue the original turn.
+- HTTP/dev and Wails transports expose
+  `POST /v1/turns/{turn_id}/interrupted/done`.
+- The React workbench maps `SessionActivity.turns[].interrupted` into a
+  view-model `interruptedTurn`; runtime events remain refresh triggers only.
+- `TurnDiagnosticsPanel` now renders a compact interrupted recovery surface
+  next to diagnostics with:
+  - interrupted status/reason/source
+  - last tool and pending tool
+  - failure/denied/nonzero shell signals
+  - artifact summary
+  - permission summary
+  - last event/hydration time
+  - actions for Inspect, Copy, Follow-up, and Mark done
+- Follow-up starts a new user turn from the recovery summary. It does not
+  replay the original turn.
+
+Validation:
+
+- `go test ./internal/runtime`
+- `go test ./internal/runtimeapi`
+- `go test ./desktop`
+- `cd client && npm run lint`
+- `cd client && npx tsc -b --pretty false`
+- Runtime HTTP/Vite validation used only files and logs under
+  `C:\Users\ytq\work\ai\agent-builder\tmp\runtime-dev`.
+- A Phase 5 fake OpenAI-compatible server was added under
+  `tmp/runtime-dev/phase5-fake-openai.mjs` and served
+  `phase5-fake-model` on `http://127.0.0.1:5193`.
+- Runtime HTTP ran on `http://127.0.0.1:5183`; Vite ran on
+  `http://127.0.0.1:5185`.
+- Browser validation in the Codex in-app browser:
+  - opened `http://127.0.0.1:5185/`
+  - submitted a Phase 5 long task through the browser first; this revealed an
+    existing new-chat/active-session issue described under risks
+  - started a clean Phase 5 turn through the runtime API after clearing active
+    session state
+  - fake model requested a `write` tool for
+    `tmp/runtime-dev/phase5-browser-long.md`
+  - file-write tool completed and produced/verified the artifact
+  - runtime was killed and restarted before the delayed final response
+  - recovery status reported the turn as interrupted and no active turns
+  - browser reload restored the timeline from `SessionActivity`
+  - interrupted turn rendered with an interrupted progress row and no stale
+    running tool
+  - tool card still displayed the Phase 3 target path, output refs, artifact
+    count, diff count, and policy metadata
+  - diagnostics panel showed interrupted status, reason/source, duration,
+    tool counts, artifact confidence, last tool, and last event sequence/time
+  - interrupted recovery Inspect expanded the last completed tool and target
+  - Copy summary worked
+  - Follow-up from interrupted state submitted a new turn and completed with
+    the fake provider
+  - Mark done persisted the interrupted turn as `cancelled` and removed the
+    interrupted recovery surface after hydration
+
+Remaining risks:
+
+- Browser validation for denied/pending permissions and nonzero shell signals
+  was covered by runtime tests and existing diagnostics surfaces, not by a
+  live interactive permission-denial browser run in this slice.
+- Live MCP/custom validation still uses structured DTO test coverage rather
+  than an external MCP server that produces interrupted structured refs.
+- The existing browser "new chat" path can still send the next prompt to the
+  previously active session because the runtime clears `sessionID` but the
+  current frontend view model may still carry an active session id. This was
+  observed during Phase 5 validation and should be addressed separately; it is
+  not part of the interrupted-state scope.
+- Mark done uses the existing `cancelled` terminal status rather than adding a
+  new persisted acknowledgement field. This avoids schema churn but means the
+  original interrupted state is no longer the visible terminal status after
+  acknowledgement.
+
+Follow-up task ownership:
+
+- Phase 5.1 should add an explicit browser recovery fixture that leaves a
+  permission pending, denies a permission, and interrupts a nonzero shell turn
+  so the interrupted surface can be validated through live UI interaction, not
+  only runtime tests and inherited diagnostics coverage.
+- Phase 5.1 should fix the frontend new-chat active-session handoff so starting
+  a new chat clears the adapter's submitted session id before the next prompt.
+  The fix must keep `SessionActivity` as the source of truth and must not add a
+  frontend-only session state source.
+- Phase 5.1 or the Phase 6 design gate should add a live MCP/custom validation
+  fixture that emits structured artifact refs during an interrupted turn. This
+  should verify that recovery keeps trusting structured refs only and does not
+  infer artifacts from assistant prose.
+- Phase 6 should decide whether interrupted acknowledgement needs its own
+  persisted field or whether the current `cancelled` terminal status remains
+  sufficient for product UX and audit recovery.
+
 ### Phase 6: Run State Machine Design Gate
 
 Status: deferred until Phase 1.1 through Phase 5 are stable.
@@ -863,6 +982,13 @@ Scope:
     before a Run object is introduced
   - require live MCP/custom validation before promoting structured custom refs
     from conservative support to production-ready artifact accounting
+  - require the Phase 5.1 permission-denial/nonzero-shell interrupted browser
+    fixture before defining Run-level resume affordances
+  - require the new-chat active-session handoff fix before using follow-up or
+    resume actions as a Run entry point
+  - decide whether interrupted acknowledgement is a Run-level checkpoint state,
+    a turn-level persisted acknowledgement, or the existing cancelled terminal
+    status
 
 Acceptance:
 

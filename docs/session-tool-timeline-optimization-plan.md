@@ -378,3 +378,28 @@ Validation:
 
 - `cd client && npm run lint`
 - `cd client && npx tsc -b --pretty false`
+
+### Phase 6: Interrupted Recovery Surface
+
+Status: implemented as part of the long-conversation hardening Phase 5 slice.
+
+- Runtime exposes interrupted recovery metadata through hydrated
+  `SessionActivity` turns.
+- React renders the interrupted recovery surface next to the diagnostics panel
+  and keeps runtime events as refresh triggers only.
+- Tool cards continue to use Phase 3 display metadata for target paths, refs,
+  diff counts, policy metadata, command/cwd/exit, and output excerpts.
+- No timeline duplicate items were observed after browser reload of the
+  interrupted validation session.
+
+Follow-up before the next timeline/runtime phase:
+
+- Add a live browser fixture for interrupted permission denial, pending
+  permission recovery, and nonzero shell signals so the recovery surface is
+  validated through user interaction as well as runtime tests.
+- Fix the new-chat active-session handoff before using follow-up or resume-like
+  actions as part of a broader task flow; the next prompt after new chat must
+  not reuse the previous session id.
+- Add a live MCP/custom structured-ref interruption fixture before promoting
+  generic tool artifact refs from conservative display support to a stronger
+  product guarantee.
