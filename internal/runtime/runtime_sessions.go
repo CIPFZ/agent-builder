@@ -217,9 +217,6 @@ func (r *runtimeService) SessionActivity(ctx context.Context, sessionID string) 
 	for _, call := range toolCalls {
 		toolCallsByTurn[call.TurnID] = append(toolCallsByTurn[call.TurnID], call)
 	}
-	for i := range turns {
-		turns[i].Diagnostics = buildRuntimeTurnDiagnostics(turns[i], messages.Messages, toolCallsByTurn[turns[i].ID])
-	}
 
 	var permissions []RuntimePermissionRequest
 	if r.permissionStore.db != nil {
@@ -240,6 +237,15 @@ func (r *runtimeService) SessionActivity(ctx context.Context, sessionID string) 
 		r.mu.Unlock()
 	}
 
+	permissionsByTurn := map[string][]RuntimePermissionRequest{}
+	for _, perm := range permissions {
+		permissionsByTurn[perm.TurnID] = append(permissionsByTurn[perm.TurnID], perm)
+	}
+	eventsByTurn := r.sessionActivityEventsByTurn(ctx, sessionID)
+	for i := range turns {
+		turns[i].Diagnostics = buildRuntimeTurnDiagnostics(turns[i], messages.Messages, toolCallsByTurn[turns[i].ID], permissionsByTurn[turns[i].ID], eventsByTurn[turns[i].ID])
+	}
+
 	return RuntimeSessionActivityResponse{
 		SessionID:   sessionID,
 		Messages:    messages.Messages,
@@ -248,6 +254,28 @@ func (r *runtimeService) SessionActivity(ctx context.Context, sessionID string) 
 		Permissions: permissions,
 		Policy:      policy,
 	}, nil
+}
+
+func (r *runtimeService) sessionActivityEventsByTurn(ctx context.Context, sessionID string) map[string][]RuntimeEvent {
+	out := map[string][]RuntimeEvent{}
+	if r.eventStore.db != nil {
+		if resp, err := r.eventStore.ListSession(ctx, sessionID, 0); err == nil {
+			for _, event := range resp.Events {
+				if event.TurnID != "" {
+					out[event.TurnID] = append(out[event.TurnID], event)
+				}
+			}
+			return out
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, event := range r.events {
+		if event.SessionID == sessionID && event.TurnID != "" {
+			out[event.TurnID] = append(out[event.TurnID], event)
+		}
+	}
+	return out
 }
 
 func (r *runtimeService) Messages(ctx context.Context) (RuntimeMessagesResponse, error) {

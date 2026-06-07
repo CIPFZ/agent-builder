@@ -116,9 +116,27 @@
   padding: 8px 40px 48px;
 }
 
-.chatContent > :global([data-testid='conversation-timeline']) {
-  width: min(920px, 100%);
+.timelineLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 920px) minmax(260px, 320px);
+  align-items: start;
+  justify-content: center;
+  gap: 18px;
+  width: min(1260px, 100%);
   margin: 0 auto;
+  padding: 0 24px;
+}
+
+.timelineColumn {
+  min-width: 0;
+}
+
+.diagnosticsColumn {
+  min-width: 0;
+}
+
+.timelineColumn > :global([data-testid='conversation-timeline']) {
+  width: 100%;
 }
 
 .chatContent > :global([data-testid='composer']) {
@@ -234,6 +252,23 @@
   .conversation {
     padding-right: 24px;
     padding-left: 24px;
+  }
+
+  .timelineLayout {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    padding: 0;
+  }
+
+  .timelineColumn {
+    width: min(920px, 100%);
+    margin: 0 auto;
+  }
+
+  .diagnosticsColumn {
+    order: -1;
+    width: min(920px, 100%);
+    margin: 0 auto;
   }
 
   .chatContent > :global([data-testid='composer']) {

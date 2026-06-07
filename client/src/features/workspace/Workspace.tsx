@@ -4,6 +4,7 @@ import { Button, Dropdown, Input, Modal, Tooltip, message as antdMessage } from 
 import Bubble from '@ant-design/x/es/bubble';
 import type { WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
+import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import styles from './Workspace.module.css';
 
@@ -169,7 +170,14 @@ export function Workspace({
         onScroll={hasConversation ? updateJumpToBottomVisibility : undefined}
       >
         {viewModel.timeline.length > 0 ? (
-          <Timeline items={viewModel.timeline} onPermissionDecide={onPermissionDecide} />
+          <div className={styles.timelineLayout}>
+            <div className={styles.timelineColumn}>
+              <Timeline items={viewModel.timeline} onPermissionDecide={onPermissionDecide} />
+            </div>
+            <div className={styles.diagnosticsColumn}>
+              <TurnDiagnosticsPanel diagnostics={viewModel.turnDiagnostics} />
+            </div>
+          </div>
         ) : hasConversation ? (
           <Bubble.List
             autoScroll

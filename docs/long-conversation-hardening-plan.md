@@ -670,6 +670,8 @@ Remaining risks:
 
 ### Phase 4: Turn Diagnostics Panel
 
+Status: implemented for the current `SessionActivity` diagnostics surface.
+
 Scope:
 
 - Add a lightweight right-side or inline diagnostics surface for the active
@@ -708,6 +710,95 @@ Tests:
 - Browser checks for active, completed, failed, and interrupted turns.
 - Runtime/browser checks for nonzero shell exit diagnostics, ref-vs-file
   artifact summaries, and large-session refresh timing display.
+
+Implemented:
+
+- `RuntimeTurnDiagnostics` now exposes an additive read-only summary without a
+  database migration:
+  - turn/session/status identity
+  - started, finished, completed duration, running duration, and computed time
+  - tool counts by persisted status and normalized display kind
+  - failed, denied, cancelled, and nonzero-exit shell signals
+  - permission counts for pending, allowed, denied, expired, and cancelled
+  - artifact counts separated into expected, produced, verified, missing,
+    local deliverables, runtime refs, produced metadata refs, and structured
+    refs
+  - artifact confidence buckets for verified local files, produced tool
+    metadata, runtime output refs, structured MCP/custom refs, and unknown/not
+    detected
+  - last tool id, status, and title
+  - last runtime event time and sequence
+  - existing warning, warning reason, and warning source fields
+- `SessionActivity` computes diagnostics from persisted turns, tool calls,
+  permission requests, and runtime event history. Runtime events remain refresh
+  triggers only; React still rebuilds the timeline and diagnostics from
+  hydrated activity.
+- Nonzero shell exits are reported through
+  `nonzeroExitShellCount` even when the persisted tool-call status is
+  `completed`.
+- The artifact summary distinguishes local file deliverables from runtime
+  output refs so ordinary shell/read/search refs do not look like final files.
+- MCP/custom confidence remains conservative and only counts structured
+  machine-readable refs. The diagnostics path still does not parse assistant
+  prose.
+- The React workbench view model now carries `turnDiagnostics` selected from
+  the active turn, or the latest turn when no turn is active.
+- `TurnDiagnosticsPanel` renders a read-only panel next to the timeline on
+  desktop and stacks above the timeline on narrow screens. It uses Ant Design,
+  Ant Design icons, and a scoped CSS Module.
+
+Validation:
+
+- `go test ./internal/runtime`
+- `go test ./...`
+- `cd client && npm run lint`
+- `cd client && npx tsc -b --pretty false`
+- `cd client && npm run build`
+- Runtime HTTP/Vite validation used only files and logs under
+  `C:\Users\ytq\work\ai\agent-builder\tmp\runtime-dev`.
+- Runtime HTTP ran on `http://127.0.0.1:5194`; Vite ran on
+  `http://127.0.0.1:5184`; the existing fake OpenAI-compatible server ran on
+  `http://127.0.0.1:5193`.
+- Browser validation session:
+  `271394a4-f729-4788-a5cb-1a70c926c66a`.
+- Browser and `SessionActivity` checks verified:
+  - diagnostics panel rendered from the runtime DTO
+  - completed turn status and duration displayed
+  - seven grouped tool calls remained individually counted
+  - tool counts showed `completed 7`
+  - kind counts included shell, file write, file read, file search, and file
+    edit
+  - nonzero-exit shell was visible as `nonzero shell 1` while the persisted
+    shell tool status remained `completed`
+  - shell card still showed command output, exit `7`, and failure reason
+    `phase3 shell stderr failed`
+  - write/edit/read/search cards still showed concrete
+    `tmp/runtime-dev` target paths, output refs, artifact counts, and diff
+    counts
+  - artifact summary separated one produced local file from 23 runtime refs
+  - last tool and last runtime event sequence/time rendered
+  - browser reload restored the timeline and diagnostics panel from
+    `SessionActivity`
+  - no duplicate tool ids were present after reload
+- A delayed event-refresh browser smoke in session
+  `20391e7a-5a4c-4244-841f-77687401840c` verified lifecycle refresh still
+  updates tool cards and panel data for a shell turn, and restored last
+  tool/event diagnostics from activity.
+- Existing missing-artifact warning UI was rechecked through a recovered Phase
+  3 session and remained visible alongside the diagnostics panel.
+
+Remaining risks:
+
+- The panel currently shows the active/latest turn, not an arbitrary selected
+  historical turn inspector.
+- Browser validation covered denied/missing warning display and backend
+  permission-count recovery; an interactive browser run that deliberately
+  leaves a permission pending should be repeated when the policy test fixture is
+  separated from the full-access fake-provider smoke.
+- `computedAt` is rebuilt during activity hydration, so it represents
+  diagnostics build time rather than durable turn completion time.
+- Large-session hydration remains whole-activity hydration by design from
+  Phase 2.
 
 ### Phase 5: Explicit Interrupted And Resume Flow
 

@@ -173,18 +173,64 @@ type RuntimeTurnsResponse struct {
 }
 
 type RuntimeTurnDiagnostics struct {
-	ExpectedArtifacts      []string `json:"expectedArtifacts,omitempty"`
-	ProducedArtifacts      []string `json:"producedArtifacts,omitempty"`
-	VerifiedArtifacts      []string `json:"verifiedArtifacts,omitempty"`
-	UnverifiedArtifacts    []string `json:"unverifiedArtifacts,omitempty"`
-	MissingArtifacts       []string `json:"missingArtifacts,omitempty"`
-	ArtifactVerificationAt int64    `json:"artifactVerificationAt,omitempty"`
-	FailedToolCount        int      `json:"failedToolCount,omitempty"`
-	DeniedToolCount        int      `json:"deniedToolCount,omitempty"`
-	LastToolStatus         string   `json:"lastToolStatus,omitempty"`
-	Warning                string   `json:"warning,omitempty"`
-	WarningReason          string   `json:"warningReason,omitempty"`
-	WarningSource          string   `json:"warningSource,omitempty"`
+	TurnID                    string                    `json:"turnId,omitempty"`
+	SessionID                 string                    `json:"sessionId,omitempty"`
+	Status                    string                    `json:"status,omitempty"`
+	StartedAt                 int64                     `json:"startedAt,omitempty"`
+	FinishedAt                int64                     `json:"finishedAt,omitempty"`
+	DurationMS                int64                     `json:"durationMs,omitempty"`
+	RunningDurationMS         int64                     `json:"runningDurationMs,omitempty"`
+	ComputedAt                int64                     `json:"computedAt,omitempty"`
+	ExpectedArtifacts         []string                  `json:"expectedArtifacts,omitempty"`
+	ProducedArtifacts         []string                  `json:"producedArtifacts,omitempty"`
+	VerifiedArtifacts         []string                  `json:"verifiedArtifacts,omitempty"`
+	UnverifiedArtifacts       []string                  `json:"unverifiedArtifacts,omitempty"`
+	MissingArtifacts          []string                  `json:"missingArtifacts,omitempty"`
+	ArtifactVerificationAt    int64                     `json:"artifactVerificationAt,omitempty"`
+	ArtifactCounts            RuntimeArtifactCounts     `json:"artifactCounts,omitempty"`
+	ArtifactConfidenceSummary RuntimeArtifactConfidence `json:"artifactConfidenceSummary,omitempty"`
+	ToolCountsByStatus        map[string]int            `json:"toolCountsByStatus,omitempty"`
+	ToolCountsByKind          map[string]int            `json:"toolCountsByKind,omitempty"`
+	FailedToolCount           int                       `json:"failedToolCount,omitempty"`
+	DeniedToolCount           int                       `json:"deniedToolCount,omitempty"`
+	CancelledToolCount        int                       `json:"cancelledToolCount,omitempty"`
+	NonzeroExitShellCount     int                       `json:"nonzeroExitShellCount,omitempty"`
+	PermissionCounts          RuntimePermissionCounts   `json:"permissionCounts,omitempty"`
+	LastToolID                string                    `json:"lastToolId,omitempty"`
+	LastToolStatus            string                    `json:"lastToolStatus,omitempty"`
+	LastToolTitle             string                    `json:"lastToolTitle,omitempty"`
+	LastRuntimeEventAt        int64                     `json:"lastRuntimeEventAt,omitempty"`
+	LastRuntimeEventSequence  int64                     `json:"lastRuntimeEventSequence,omitempty"`
+	Warning                   string                    `json:"warning,omitempty"`
+	WarningReason             string                    `json:"warningReason,omitempty"`
+	WarningSource             string                    `json:"warningSource,omitempty"`
+}
+
+type RuntimeArtifactCounts struct {
+	Expected             int `json:"expected,omitempty"`
+	Produced             int `json:"produced,omitempty"`
+	Verified             int `json:"verified,omitempty"`
+	Missing              int `json:"missing,omitempty"`
+	LocalDeliverables    int `json:"localDeliverables,omitempty"`
+	RuntimeRefs          int `json:"runtimeRefs,omitempty"`
+	ProducedMetadataRefs int `json:"producedMetadataRefs,omitempty"`
+	StructuredRefs       int `json:"structuredRefs,omitempty"`
+}
+
+type RuntimeArtifactConfidence struct {
+	LocalVerifiedFile       int `json:"localVerifiedFile,omitempty"`
+	ProducedToolMetadata    int `json:"producedToolMetadata,omitempty"`
+	RuntimeOutputRefs       int `json:"runtimeOutputRefs,omitempty"`
+	StructuredMCPCustomRefs int `json:"structuredMcpCustomRefs,omitempty"`
+	UnknownNotDetected      int `json:"unknownNotDetected,omitempty"`
+}
+
+type RuntimePermissionCounts struct {
+	Pending   int `json:"pending,omitempty"`
+	Allowed   int `json:"allowed,omitempty"`
+	Denied    int `json:"denied,omitempty"`
+	Expired   int `json:"expired,omitempty"`
+	Cancelled int `json:"cancelled,omitempty"`
 }
 
 type RuntimeToolCall struct {

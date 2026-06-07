@@ -191,15 +191,55 @@ interface RuntimeTurnDTO {
 }
 
 interface RuntimeTurnDiagnosticsDTO {
+  turnId?: string;
+  sessionId?: string;
+  status?: string;
+  startedAt?: number;
+  finishedAt?: number;
+  durationMs?: number;
+  runningDurationMs?: number;
+  computedAt?: number;
   expectedArtifacts?: string[];
   producedArtifacts?: string[];
   verifiedArtifacts?: string[];
   unverifiedArtifacts?: string[];
   missingArtifacts?: string[];
   artifactVerificationAt?: number;
+  artifactCounts?: {
+    expected?: number;
+    produced?: number;
+    verified?: number;
+    missing?: number;
+    localDeliverables?: number;
+    runtimeRefs?: number;
+    producedMetadataRefs?: number;
+    structuredRefs?: number;
+  };
+  artifactConfidenceSummary?: {
+    localVerifiedFile?: number;
+    producedToolMetadata?: number;
+    runtimeOutputRefs?: number;
+    structuredMcpCustomRefs?: number;
+    unknownNotDetected?: number;
+  };
+  toolCountsByStatus?: Record<string, number>;
+  toolCountsByKind?: Record<string, number>;
   failedToolCount?: number;
   deniedToolCount?: number;
+  cancelledToolCount?: number;
+  nonzeroExitShellCount?: number;
+  permissionCounts?: {
+    pending?: number;
+    allowed?: number;
+    denied?: number;
+    expired?: number;
+    cancelled?: number;
+  };
+  lastToolId?: string;
   lastToolStatus?: string;
+  lastToolTitle?: string;
+  lastRuntimeEventAt?: number;
+  lastRuntimeEventSequence?: number;
   warning?: string;
   warningReason?: string;
   warningSource?: string;
@@ -876,6 +916,22 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
   });
 }
 
+function selectTurnDiagnostics(activity?: RuntimeSessionActivityDTO, activeTurnId?: string) {
+  const turns = Array.isArray(activity?.turns) ? activity.turns : [];
+  if (turns.length === 0) {
+    return undefined;
+  }
+  const selected =
+    (activeTurnId ? turns.find((turn) => turn.id === activeTurnId) : undefined) ??
+    turns.find((turn) => !isFinalTurnStatus(turn.status)) ??
+    [...turns].sort((left, right) => {
+      const leftTime = left.finishedAt || left.startedAt || 0;
+      const rightTime = right.finishedAt || right.startedAt || 0;
+      return rightTime - leftTime;
+    })[0];
+  return selected?.diagnostics;
+}
+
 interface TimelineTurnContext {
   turnByID: Map<string, RuntimeTurnDTO>;
   turnIDByMessageID: Map<string, string>;
@@ -1112,6 +1168,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     sessions: mapSessions(sessionsResponse, status?.sessionId, activeTurns),
     conversation: mapConversation(messagesResponse),
     timeline: activity ? mapActivityTimeline(activity) : current.timeline,
+    turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
     pendingPermissions: permissions.filter((permission) => permission.status === 'pending'),
     composer: {
       ...current.composer,

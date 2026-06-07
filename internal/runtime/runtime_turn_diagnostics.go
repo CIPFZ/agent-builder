@@ -15,8 +15,31 @@ import (
 var explicitArtifactPathPattern = regexp.MustCompile(`(?i)(?:[A-Z]:[\\/]|/[A-Za-z0-9._ -]+[\\/])(?:[^\s"'<>|:*?]+[\\/])*[^\s"'<>|:*?]+\.(?:md|txt|json|yaml|yml|csv|tsv|html|css|js|jsx|ts|tsx|go|py|rs|java|kt|c|cc|cpp|h|hpp|cs|xml|toml|ini|sql|sh|ps1|bat|cmd|docx|xlsx|pptx|pdf)`)
 var shellRedirectArtifactPattern = regexp.MustCompile(`(?i)(?:^|[\s;&|])(?:>|>>|1>|1>>)\s*("[A-Z]:[\\/][^"<>\r\n|?*]+\.[A-Za-z0-9]{1,12}"|'[A-Z]:[\\/][^'<>\r\n|?*]+\.[A-Za-z0-9]{1,12}'|[A-Z]:[\\/][^\s"<>\r\n|?*]+\.[A-Za-z0-9]{1,12})`)
 
-func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, toolCalls []RuntimeToolCall) RuntimeTurnDiagnostics {
-	diag := RuntimeTurnDiagnostics{}
+func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, toolCalls []RuntimeToolCall, permissions []RuntimePermissionRequest, events []RuntimeEvent) RuntimeTurnDiagnostics {
+	now := time.Now().UTC().UnixMilli()
+	diag := RuntimeTurnDiagnostics{
+		TurnID:             turn.ID,
+		SessionID:          turn.SessionID,
+		Status:             turn.Status,
+		StartedAt:          turn.StartedAt,
+		FinishedAt:         turn.FinishedAt,
+		DurationMS:         turn.DurationMS,
+		ComputedAt:         now,
+		ToolCountsByStatus: map[string]int{},
+		ToolCountsByKind:   map[string]int{},
+	}
+	if diag.DurationMS == 0 && turn.StartedAt > 0 && turn.FinishedAt > 0 {
+		diag.DurationMS = turn.FinishedAt - turn.StartedAt
+		if diag.DurationMS < 0 {
+			diag.DurationMS = 0
+		}
+	}
+	if !isFinalTurnStatus(turn.Status) && turn.StartedAt > 0 {
+		diag.RunningDurationMS = now - turn.StartedAt
+		if diag.RunningDurationMS < 0 {
+			diag.RunningDurationMS = 0
+		}
+	}
 	expectedSet := map[string]struct{}{}
 	producedSet := map[string]struct{}{}
 
@@ -43,27 +66,56 @@ func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, to
 		return strings.Compare(a.ID, b.ID)
 	})
 	for _, call := range sortedCalls {
+		status := strings.TrimSpace(call.Status)
+		if status != "" {
+			diag.ToolCountsByStatus[status]++
+		}
+		kind := normalizedDiagnosticToolKind(call)
+		if kind != "" {
+			diag.ToolCountsByKind[kind]++
+		}
 		switch call.Status {
 		case string(scheduler.ToolCallFailed):
 			diag.FailedToolCount++
 		case string(scheduler.ToolCallDenied):
 			diag.DeniedToolCount++
+		case string(scheduler.ToolCallCancelled):
+			diag.CancelledToolCount++
+		}
+		if isShellToolCall(call) && diagnosticShellExitCode(call) != nil && *diagnosticShellExitCode(call) != 0 {
+			diag.NonzeroExitShellCount++
 		}
 		if strings.TrimSpace(call.Status) != "" {
+			diag.LastToolID = call.ID
 			diag.LastToolStatus = call.Status
+			diag.LastToolTitle = firstNonEmpty(call.Display.Title, call.Display.Detail, call.Name)
 		}
 		for _, path := range producedArtifactsFromToolCall(call) {
 			producedSet[path] = struct{}{}
 		}
+		applyArtifactConfidenceFromToolCall(&diag, call)
 	}
+	if len(diag.ToolCountsByStatus) == 0 {
+		diag.ToolCountsByStatus = nil
+	}
+	if len(diag.ToolCountsByKind) == 0 {
+		diag.ToolCountsByKind = nil
+	}
+
+	diag.PermissionCounts = permissionCountsForTurn(turn.ID, permissions)
+	diag.LastRuntimeEventAt, diag.LastRuntimeEventSequence = lastRuntimeEventForTurn(events)
 
 	diag.ExpectedArtifacts = sortedMapKeys(expectedSet)
 	diag.ProducedArtifacts = sortedMapKeys(producedSet)
+	if len(diag.ProducedArtifacts) > diag.ArtifactConfidenceSummary.ProducedToolMetadata {
+		diag.ArtifactConfidenceSummary.ProducedToolMetadata = len(diag.ProducedArtifacts)
+	}
 	if isFinalTurnStatus(turn.Status) && len(diag.ExpectedArtifacts) > 0 {
-		diag.ArtifactVerificationAt = time.Now().UTC().UnixMilli()
+		diag.ArtifactVerificationAt = now
 		for _, expected := range diag.ExpectedArtifacts {
 			if artifactExistsOnDisk(expected) {
 				diag.VerifiedArtifacts = append(diag.VerifiedArtifacts, expected)
+				diag.ArtifactConfidenceSummary.LocalVerifiedFile++
 				continue
 			}
 			diag.MissingArtifacts = append(diag.MissingArtifacts, expected)
@@ -73,7 +125,102 @@ func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, to
 	if turn.Status == turnStatusCompleted && len(diag.MissingArtifacts) > 0 {
 		setArtifactWarning(&diag, producedSet)
 	}
+	diag.ArtifactCounts = RuntimeArtifactCounts{
+		Expected:             len(diag.ExpectedArtifacts),
+		Produced:             len(diag.ProducedArtifacts),
+		Verified:             len(diag.VerifiedArtifacts),
+		Missing:              len(diag.MissingArtifacts),
+		LocalDeliverables:    len(diag.ProducedArtifacts),
+		RuntimeRefs:          diag.ArtifactConfidenceSummary.RuntimeOutputRefs,
+		ProducedMetadataRefs: diag.ArtifactConfidenceSummary.ProducedToolMetadata,
+		StructuredRefs:       diag.ArtifactConfidenceSummary.StructuredMCPCustomRefs,
+	}
+	if len(diag.ExpectedArtifacts) > 0 && len(diag.ProducedArtifacts) == 0 {
+		diag.ArtifactConfidenceSummary.UnknownNotDetected = len(diag.ExpectedArtifacts)
+	}
 	return diag
+}
+
+func permissionCountsForTurn(turnID string, permissions []RuntimePermissionRequest) RuntimePermissionCounts {
+	var counts RuntimePermissionCounts
+	for _, perm := range permissions {
+		if turnID != "" && perm.TurnID != turnID {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(perm.Status)) {
+		case "", permissionStatusPending, "ask":
+			counts.Pending++
+		case permissionStatusAllowedOnce, permissionStatusAllowedSession, "allowed", "allow", "allow_once", "allow_for_session":
+			counts.Allowed++
+		case permissionStatusDenied, "deny":
+			counts.Denied++
+		case permissionStatusExpired:
+			counts.Expired++
+		case permissionStatusCancelled, "canceled":
+			counts.Cancelled++
+		}
+	}
+	return counts
+}
+
+func lastRuntimeEventForTurn(events []RuntimeEvent) (int64, int64) {
+	var lastAt, lastSequence int64
+	for _, event := range events {
+		if event.Sequence >= lastSequence {
+			lastSequence = event.Sequence
+			if parsed := runtimeEventCreatedAtMillis(event.CreatedAt); parsed > 0 {
+				lastAt = parsed
+			}
+		}
+	}
+	return lastAt, lastSequence
+}
+
+func runtimeEventCreatedAtMillis(createdAt string) int64 {
+	createdAt = strings.TrimSpace(createdAt)
+	if createdAt == "" {
+		return 0
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, createdAt); err == nil {
+		return parsed.UTC().UnixMilli()
+	}
+	if parsed, err := time.Parse(time.RFC3339, createdAt); err == nil {
+		return parsed.UTC().UnixMilli()
+	}
+	return 0
+}
+
+func normalizedDiagnosticToolKind(call RuntimeToolCall) string {
+	kind := strings.TrimSpace(call.Display.Kind)
+	if kind != "" {
+		return kind
+	}
+	if isShellToolCall(call) {
+		return "shell"
+	}
+	return "generic"
+}
+
+func diagnosticShellExitCode(call RuntimeToolCall) *int {
+	if call.Display.ExitCode != nil {
+		return call.Display.ExitCode
+	}
+	if call.ExitCode != 0 {
+		return &call.ExitCode
+	}
+	return nil
+}
+
+func applyArtifactConfidenceFromToolCall(diag *RuntimeTurnDiagnostics, call RuntimeToolCall) {
+	metadataRefs := normalizeArtifactPaths(call.ArtifactRefs)
+	if len(call.Display.ArtifactRefs) > len(metadataRefs) {
+		metadataRefs = normalizeArtifactPaths(call.Display.ArtifactRefs)
+	}
+	diag.ArtifactConfidenceSummary.ProducedToolMetadata += len(metadataRefs)
+	diag.ArtifactConfidenceSummary.RuntimeOutputRefs += len(call.OutputRefs)
+	if isCustomArtifactToolCall(call) {
+		diag.ArtifactConfidenceSummary.StructuredMCPCustomRefs += len(artifactPathsFromStructuredToolOutput(call))
+	}
 }
 
 func extractExplicitArtifactPaths(text string) []string {

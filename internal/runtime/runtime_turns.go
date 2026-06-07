@@ -210,7 +210,31 @@ func (r *runtimeService) Turn(ctx context.Context, turnID string) (RuntimeTurnRe
 			}
 		}
 	}
-	turn.Diagnostics = buildRuntimeTurnDiagnostics(turn, messages, toolCalls)
+	var permissions []RuntimePermissionRequest
+	if r.permissionStore.db != nil {
+		if perms, err := r.permissionStore.ListBySession(ctx, turn.SessionID); err == nil {
+			for _, perm := range perms {
+				if perm.TurnID == turn.ID {
+					permissions = append(permissions, perm)
+				}
+			}
+		}
+	}
+	var events []RuntimeEvent
+	if r.eventStore.db != nil {
+		if resp, err := r.eventStore.ListTurn(ctx, turn.ID, 0); err == nil {
+			events = resp.Events
+		}
+	} else {
+		r.mu.Lock()
+		for _, event := range r.events {
+			if event.TurnID == turn.ID {
+				events = append(events, event)
+			}
+		}
+		r.mu.Unlock()
+	}
+	turn.Diagnostics = buildRuntimeTurnDiagnostics(turn, messages, toolCalls, permissions, events)
 	return RuntimeTurnResponse{Turn: turn}, nil
 }
 

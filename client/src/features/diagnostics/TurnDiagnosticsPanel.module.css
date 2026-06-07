@@ -1,0 +1,165 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(320px, 100%);
+  max-height: calc(100vh - 170px);
+  padding: 12px;
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid #ededed;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 5%);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 8px;
+}
+
+.heading {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  color: rgba(0, 0, 0, 0.88);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.metric {
+  display: grid;
+  grid-template-columns: 18px 74px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+}
+
+.metricIcon {
+  color: rgba(0, 0, 0, 0.45);
+  line-height: 18px;
+}
+
+.metricLabel {
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.metricValue {
+  min-width: 0;
+  color: rgba(0, 0, 0, 0.88);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sectionTitle {
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tags :global(.ant-tag) {
+  max-width: 100%;
+  margin-inline-end: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.warning {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  background: #fff7f0;
+  border: 1px solid #ffd8bf;
+  border-radius: 6px;
+}
+
+.paths {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.paths li {
+  min-width: 0;
+  color: rgba(0, 0, 0, 0.72);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.footer {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.truncate {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(0, 0, 0, 0.72);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1120px) {
+  .panel {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .panel {
+    width: calc(100% - 32px);
+  }
+
+  .metric,
+  .footer {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .metricLabel,
+  .footer :global(.ant-typography) {
+    grid-column: 2;
+  }
+}

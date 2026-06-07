@@ -86,18 +86,64 @@ export interface ConversationTimelineItemViewModel {
 }
 
 export interface TurnDiagnosticsViewModel {
+  turnId?: string;
+  sessionId?: string;
+  status?: string;
+  startedAt?: number;
+  finishedAt?: number;
+  durationMs?: number;
+  runningDurationMs?: number;
+  computedAt?: number;
   expectedArtifacts?: string[];
   producedArtifacts?: string[];
   verifiedArtifacts?: string[];
   unverifiedArtifacts?: string[];
   missingArtifacts?: string[];
   artifactVerificationAt?: number;
+  artifactCounts?: ArtifactCountsViewModel;
+  artifactConfidenceSummary?: ArtifactConfidenceViewModel;
+  toolCountsByStatus?: Record<string, number>;
+  toolCountsByKind?: Record<string, number>;
   failedToolCount?: number;
   deniedToolCount?: number;
+  cancelledToolCount?: number;
+  nonzeroExitShellCount?: number;
+  permissionCounts?: PermissionCountsViewModel;
+  lastToolId?: string;
   lastToolStatus?: string;
+  lastToolTitle?: string;
+  lastRuntimeEventAt?: number;
+  lastRuntimeEventSequence?: number;
   warning?: string;
   warningReason?: string;
   warningSource?: string;
+}
+
+export interface ArtifactCountsViewModel {
+  expected?: number;
+  produced?: number;
+  verified?: number;
+  missing?: number;
+  localDeliverables?: number;
+  runtimeRefs?: number;
+  producedMetadataRefs?: number;
+  structuredRefs?: number;
+}
+
+export interface ArtifactConfidenceViewModel {
+  localVerifiedFile?: number;
+  producedToolMetadata?: number;
+  runtimeOutputRefs?: number;
+  structuredMcpCustomRefs?: number;
+  unknownNotDetected?: number;
+}
+
+export interface PermissionCountsViewModel {
+  pending?: number;
+  allowed?: number;
+  denied?: number;
+  expired?: number;
+  cancelled?: number;
 }
 
 export interface ToolCallViewModel {
@@ -359,6 +405,7 @@ export interface WorkbenchViewModel {
   sidebarActions: SidebarActionViewModel[];
   conversation: ConversationMessageViewModel[];
   timeline: ConversationTimelineItemViewModel[];
+  turnDiagnostics?: TurnDiagnosticsViewModel;
   pendingPermissions: PermissionRequestViewModel[];
   composer: ComposerViewModel;
   settings: SettingsViewModel;

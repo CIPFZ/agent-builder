@@ -76,6 +76,7 @@ export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): W
     sidebarActions,
     conversation: [],
     timeline: [],
+    turnDiagnostics: undefined,
     pendingPermissions: [],
     composer: {
       placeholder: '请输入任务',
