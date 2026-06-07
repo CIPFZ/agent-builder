@@ -145,10 +145,13 @@ func (m *Tool) Run(ctx context.Context, params fantasy.ToolCall) (fantasy.ToolRe
 			response = fantasy.NewMediaResponse(result.Data, result.MediaType)
 		}
 		response.Content = result.Content
+		response.Metadata = result.Metadata
 		return response, nil
 	default:
 		response := fantasy.NewTextResponse(result.Content)
-		if looksLikeStructuredMCPText(result.Content) {
+		if result.Metadata != "" {
+			response.Metadata = result.Metadata
+		} else if looksLikeStructuredMCPText(result.Content) {
 			response.Metadata = result.Content
 		}
 		return response, nil

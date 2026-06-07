@@ -305,3 +305,44 @@ Boundary:
 - No persisted interrupted acknowledgement field; `MarkInterruptedDone`
   continues to persist cancelled terminal acknowledgement semantics.
 - No Run store, Run database migration, or frontend Run UI.
+
+## 2026-06-08: Phase 6.5 MCP Structured Content
+
+Phase 6.5 hardens the MCP wrapper path for native MCP `structuredContent`
+without adding frontend-owned state or Run state.
+
+Runtime/backend rules:
+
+- The MCP Go client wrapper captures SDK `CallToolResult.StructuredContent`
+  into tool response metadata.
+- The scheduler/runtime path persists that metadata as structured tool output
+  and can derive artifact refs and diagnostics from it.
+- MCP servers do not need to mirror JSON structured refs as text content for
+  runtime diagnostics to see machine-readable artifact evidence.
+- Streamable HTTP and SSE MCP use the same SDK `CallTool` result shape after
+  transport normalization; hosted auth, elicitation, disconnect, and replay
+  timing remain live-provider validation risks.
+
+Frontend rules remain unchanged:
+
+- `SessionActivity` remains the source of truth for timeline, diagnostics,
+  tool metadata, permissions, policy, and interrupted recovery.
+- Runtime events still only trigger hydration refreshes.
+- React must not infer artifacts, diagnostics, interrupted recovery, or
+  checkpoint state from assistant prose, event payloads, or local component
+  state.
+- Phase 6.5 does not add automatic resume, stale tool recovery, stale
+  permission actionability, narrow hydration APIs, Run store, database
+  migration, or frontend Run UI.
+
+Follow-up boundary:
+
+- Phase 6.6 should validate live/deterministic streamable HTTP MCP and SSE MCP
+  restart behavior, hosted auth, and elicitation timing while keeping
+  `SessionActivity` authoritative.
+- Phase 6.7 may implement the Phase 6.4 narrow hydration design only as
+  additive runtime DTO/API/Wails surfaces with full `SessionActivity` as the
+  parity oracle and fallback.
+- Neither phase should introduce Run persistence, frontend Run UI, automatic
+  resume, stale tool recovery, stale permission actionability, or
+  prose-derived artifact/checkpoint inference.

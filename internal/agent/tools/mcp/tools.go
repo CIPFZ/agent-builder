@@ -21,6 +21,7 @@ type Tool = mcp.Tool
 type ToolResult struct {
 	Type      string
 	Content   string
+	Metadata  string
 	Data      []byte
 	MediaType string
 }
@@ -51,15 +52,19 @@ func RunTool(ctx context.Context, cfg *config.ConfigStore, name, toolName string
 		return ToolResult{}, err
 	}
 
-	if len(result.Content) == 0 {
-		return ToolResult{Type: "text", Content: ""}, nil
-	}
+	return toolResultFromCallToolResult(result), nil
+}
 
+func toolResultFromCallToolResult(result *mcp.CallToolResult) ToolResult {
+	if result == nil {
+		return ToolResult{Type: "text", Content: ""}
+	}
 	var textParts []string
 	var imageData []byte
 	var imageMimeType string
 	var audioData []byte
 	var audioMimeType string
+	structuredMetadata := marshalStructuredContent(result.StructuredContent)
 
 	for _, v := range result.Content {
 		switch content := v.(type) {
@@ -88,24 +93,42 @@ func RunTool(ctx context.Context, cfg *config.ConfigStore, name, toolName string
 		return ToolResult{
 			Type:      "image",
 			Content:   textContent,
+			Metadata:  structuredMetadata,
 			Data:      ensureRawBytes(imageData),
 			MediaType: imageMimeType,
-		}, nil
+		}
 	}
 
 	if audioData != nil {
 		return ToolResult{
 			Type:      "media",
 			Content:   textContent,
+			Metadata:  structuredMetadata,
 			Data:      ensureRawBytes(audioData),
 			MediaType: audioMimeType,
-		}, nil
+		}
 	}
 
 	return ToolResult{
-		Type:    "text",
-		Content: textContent,
-	}, nil
+		Type:     "text",
+		Content:  textContent,
+		Metadata: structuredMetadata,
+	}
+}
+
+func marshalStructuredContent(value any) string {
+	if value == nil {
+		return ""
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		return ""
+	}
+	return trimmed
 }
 
 // RefreshTools gets the updated list of tools from the MCP and updates the

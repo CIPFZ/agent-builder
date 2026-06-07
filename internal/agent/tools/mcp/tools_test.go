@@ -3,9 +3,11 @@ package mcp
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 
 	"github.com/charmbracelet/crush/internal/config"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,4 +116,40 @@ func TestFilterTools(t *testing.T) {
 		result := filterTools(config.MCPConfig{EnabledTools: []string{"non_existent"}}, tools)
 		require.Len(t, result, 0)
 	})
+}
+
+func TestToolResultFromCallToolResultCapturesNativeStructuredContent(t *testing.T) {
+	t.Parallel()
+
+	result := toolResultFromCallToolResult(&sdkmcp.CallToolResult{
+		Content: []sdkmcp.Content{
+			&sdkmcp.TextContent{Text: "created artifact"},
+		},
+		StructuredContent: map[string]any{
+			"artifact_refs": []any{
+				map[string]any{"path": `C:\Users\ytq\work\ai\agent-builder\tmp\runtime-dev\phase65-native.json`},
+			},
+			"display": map[string]any{"target": `C:\Users\ytq\work\ai\agent-builder\tmp\runtime-dev\phase65-native.json`},
+		},
+	})
+
+	require.Equal(t, "text", result.Type)
+	require.Equal(t, "created artifact", result.Content)
+	require.NotEmpty(t, result.Metadata)
+	require.JSONEq(t, `{
+		"artifact_refs": [{"path": "C:\\Users\\ytq\\work\\ai\\agent-builder\\tmp\\runtime-dev\\phase65-native.json"}],
+		"display": {"target": "C:\\Users\\ytq\\work\\ai\\agent-builder\\tmp\\runtime-dev\\phase65-native.json"}
+	}`, result.Metadata)
+}
+
+func TestToolResultFromCallToolResultCapturesStructuredContentWithoutTextMirror(t *testing.T) {
+	t.Parallel()
+
+	result := toolResultFromCallToolResult(&sdkmcp.CallToolResult{
+		StructuredContent: json.RawMessage(`{"artifact_path":"C:\\Users\\ytq\\work\\ai\\agent-builder\\tmp\\runtime-dev\\phase65-raw.json"}`),
+	})
+
+	require.Equal(t, "text", result.Type)
+	require.Empty(t, result.Content)
+	require.JSONEq(t, `{"artifact_path":"C:\\Users\\ytq\\work\\ai\\agent-builder\\tmp\\runtime-dev\\phase65-raw.json"}`, result.Metadata)
 }

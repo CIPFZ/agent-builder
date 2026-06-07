@@ -439,6 +439,9 @@ func schedulerInputSummaryWithScope(ctx context.Context, raw string) string {
 func responseStructuredSummary(resp fantasy.ToolResponse) string {
 	switch resp.Type {
 	case "image", "media":
+		if resp.Metadata != "" {
+			return resp.Metadata
+		}
 		if resp.MediaType != "" {
 			return resp.Type + ":" + resp.MediaType
 		}

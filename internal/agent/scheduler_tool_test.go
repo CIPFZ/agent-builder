@@ -169,6 +169,26 @@ func TestSchedulerToolPassesShellMetadata(t *testing.T) {
 	require.Equal(t, "completed", recorder.completed.JobStatus)
 }
 
+func TestSchedulerToolPassesMediaStructuredMetadata(t *testing.T) {
+	t.Parallel()
+
+	resp := fantasy.NewImageResponse([]byte("image"), "image/png")
+	resp.Metadata = `{"artifact_path":"C:\\Users\\ytq\\work\\ai\\agent-builder\\tmp\\runtime-dev\\phase65-image.json"}`
+	inner := &fakeTool{name: "mcp_server_image_artifact", resp: resp}
+	recorder := &recordingSchedulerRecorder{
+		decision: SchedulerToolPolicyDecision{
+			Decision: string(permission.PolicyAllow),
+			Risk:     string(permission.RiskNetwork),
+			Mode:     string(permission.PolicyModeAsk),
+		},
+	}
+	tool := newSchedulerTool(inner, recorder)
+
+	_, err := tool.Run(t.Context(), fantasy.ToolCall{ID: "tool-1", Name: "mcp_server_image_artifact", Input: `{}`})
+	require.NoError(t, err)
+	require.JSONEq(t, resp.Metadata, recorder.completed.StructuredOutputSummary)
+}
+
 func TestSchedulerToolStampsPolicyApprovalForInnerPermission(t *testing.T) {
 	t.Parallel()
 

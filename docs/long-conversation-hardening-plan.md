@@ -1353,9 +1353,9 @@ Remaining risks:
 - The fixture validates stdio MCP and JSON text output. It does not yet cover
   streamable HTTP MCP, SSE MCP, hosted/provider-specific MCP auth, or
   elicitation flows.
-- The MCP Go client wrapper still primarily exposes text/media content to the
-  scheduler. Standard MCP `structuredContent` is covered here only when the
-  server also returns the same machine-readable JSON as text content.
+- At the end of Phase 6.1, the MCP Go client wrapper still primarily exposed
+  text/media content to the scheduler. Phase 6.5 closes this specific native
+  `structuredContent` capture gap.
 - Runtime refs prove structured MCP output was captured, while local
   filesystem verification only applies to explicit local paths. Virtual URIs
   and non-local artifact handles remain metadata-only in this phase.
@@ -1663,8 +1663,186 @@ Remaining risks:
   messages, turns, tool calls, permissions, and runtime events.
 - Narrow hydration must prove parity with `SessionActivity` before the
   frontend relies on it for diagnostics or interrupted recovery.
-- MCP streamable HTTP/SSE and native `structuredContent` hardening remain
-  Phase 6.5 topics.
+- MCP streamable HTTP/SSE and native `structuredContent` hardening were
+  carried into Phase 6.5.
+
+### Phase 6.5: MCP Transport And Native Structured-Content Hardening
+
+Status: implemented for the focused native `structuredContent` capture path,
+with transport/live-provider risks reviewed. This is not a Run implementation.
+
+Scope:
+
+- Review MCP stdio, streamable HTTP, and SSE result capture as it affects
+  runtime artifact refs and interrupted recovery.
+- Keep `SessionActivity` as the source of truth for timeline, diagnostics, and
+  interrupted recovery UX.
+- Keep runtime events as refresh triggers only.
+- Preserve current interrupted semantics:
+  - no automatic resume
+  - no stale running/waiting tool after restart recovery
+  - no restored actionable permission gate after restart recovery
+  - pending-at-interruption remains computed diagnostics
+  - `MarkInterruptedDone` / cancelled terminal status remains the
+    acknowledgement mechanism
+- Do not add a runtime Run store, Run state machine, Run database migration,
+  frontend Run UI, narrow hydration API, or persisted interrupted
+  acknowledgement field.
+
+Review conclusion:
+
+- Streamable HTTP and SSE MCP use the same Go SDK `ClientSession.CallTool`
+  result type as stdio after transport normalization. The highest-impact
+  hardening point is therefore the shared MCP Go client wrapper, not a
+  transport-specific runtime timeline path.
+- The existing streamable HTTP and SSE configuration paths already construct
+  SDK transports with resolved URLs and resolved headers. Hosted or
+  provider-specific MCP auth that is expressible as headers is preserved by
+  transport setup, while OAuth/browser-driven hosted flows and elicitation
+  recovery remain live-provider risks outside this phase.
+- Phase 6.1 proved end-to-end stdio MCP structured refs only when the MCP
+  server also mirrored JSON as text content. That was too narrow: native MCP
+  `structuredContent` could be dropped before scheduler/runtime diagnostics saw
+  it.
+- Restart/interruption timing around structured refs remains safe only when the
+  scheduler has already recorded completed tool metadata or refs before
+  recovery. Runtime restart still cancels unfinished live tool calls and does
+  not make stale tools or permissions actionable again.
+
+Implemented:
+
+- The MCP Go client wrapper now serializes native SDK
+  `CallToolResult.StructuredContent` into tool response metadata.
+- The MCP agent tool wrapper now passes that metadata through to the scheduler
+  for text, image, and media MCP responses.
+- Existing scheduler/runtime paths then persist it as structured tool output,
+  create runtime artifact refs, and let diagnostics/interrupted summaries
+  extract artifact paths without relying on assistant prose or JSON mirrored as
+  text content.
+- Added focused unit coverage for MCP results that contain native
+  `structuredContent` with and without any text-content JSON mirror.
+
+Validation:
+
+- `go test ./internal/agent/tools/mcp -count=1`
+- `go test ./internal/agent/tools -count=1`
+- `go test ./internal/agent -run "TestSchedulerTool|TestConvertToToolResult" -count=1`
+- `go test ./internal/runtime -run "TestRuntimeExternalMCPInterruptedStructuredRefsFixture|TestRuntimeTurnDiagnosticsMCPStructuredArtifactRefsCountAsProduced|TestRuntimeInterruptedSummaryPhase51StructuredRefsOnly" -count=1`
+
+Guarantees now covered:
+
+- Native MCP `structuredContent` can contribute scheduler structured metadata
+  even when `content` is empty or only contains non-JSON text.
+- MCP servers no longer need to mirror JSON structured refs as text content for
+  runtime diagnostics to see machine-readable artifact refs.
+- Existing stdio interrupted structured-ref coverage still passes after the
+  wrapper change.
+- No frontend-owned inference, Run state, database migration, automatic resume,
+  stale tool recovery, stale permission actionability, or narrow hydration API
+  was introduced.
+
+Remaining risks:
+
+- This phase did not add a live streamable HTTP or live SSE MCP interrupted
+  fixture. The shared SDK result path is covered, but transport disconnect,
+  replay, and provider-hosted auth timing still need broader live validation.
+- Hosted/provider-specific MCP OAuth and elicitation flows are still dependent
+  on the MCP SDK/session behavior and existing runtime MCP request handling;
+  they were reviewed but not expanded here.
+- If an MCP tool is interrupted before the scheduler records completed output,
+  recovery still cancels the unfinished tool and does not infer produced
+  artifacts from partial transport state.
+- Virtual artifact URIs and non-local handles remain metadata/runtime-ref
+  evidence only; filesystem verification still applies only to explicit local
+  paths.
+
+### Phase 6.6: Live HTTP/SSE MCP Restart And Hosted Flow Validation
+
+Status: planned. This must remain a validation/hardening phase, not a Run
+implementation.
+
+Scope:
+
+- Add live or deterministic local fixtures for streamable HTTP MCP and SSE MCP
+  restart/interruption timing around structured refs.
+- Validate that native `structuredContent` captured in Phase 6.5 survives the
+  same scheduler/runtime/ref/diagnostics path over HTTP and SSE transports.
+- Exercise transport disconnect/replay timing where the MCP SDK can reconnect
+  or replay requests.
+- Review hosted/provider-specific MCP auth and elicitation behavior against
+  existing runtime MCP request handling.
+- Preserve current recovery boundaries:
+  - no automatic resume
+  - no stale running/waiting tool recovery
+  - no restored actionable permission gate after restart recovery
+  - pending-at-interruption remains computed diagnostics
+  - `MarkInterruptedDone` / cancelled terminal status remains the
+    acknowledgement mechanism
+- Do not add a runtime Run store, Run state machine, Run database migration,
+  frontend Run UI, narrow hydration API, or persisted interrupted
+  acknowledgement field.
+
+Acceptance:
+
+- A streamable HTTP MCP tool can return native structured artifact metadata,
+  complete before interruption, and hydrate through `SessionActivity` with
+  produced/runtime refs after restart recovery.
+- An SSE MCP tool can return native structured artifact metadata, complete
+  before interruption, and hydrate through `SessionActivity` with
+  produced/runtime refs after restart recovery.
+- If restart/interruption occurs before the scheduler records completed MCP
+  output, the unfinished tool is cancelled and no produced artifact is inferred
+  from partial transport state.
+- Hosted auth and elicitation paths are documented with either focused test
+  coverage or explicit live-validation gaps. They must not restore stale
+  actionability after restart.
+
+Planned validation:
+
+- `go test ./internal/agent/tools/mcp`
+- `go test ./internal/runtime` with focused HTTP/SSE MCP restart fixtures
+- `go test ./...` before commit if code changes touch shared MCP/runtime paths
+- Keep all temporary fixture scripts, logs, pids, and artifacts under
+  `tmp/runtime-dev`.
+
+Remaining risk after planning:
+
+- Real third-party hosted MCP providers may require manual credentials or
+  browser-mediated OAuth. If those cannot be automated safely, Phase 6.6 should
+  record a reproducible manual smoke checklist rather than storing secrets or
+  moving auth state into React.
+
+### Phase 6.7: Narrow Activity Hydration Implementation
+
+Status: planned after Phase 6.6 validation risk is closed or explicitly
+accepted.
+
+Scope:
+
+- Implement the Phase 6.4 session-scoped and turn-scoped narrow hydration
+  design as additive runtime DTO/API/Wails surfaces.
+- Factor shared runtime helpers so full `SessionActivity`, session activity
+  windows, and turn activity compute diagnostics, artifact evidence,
+  interrupted summaries, and terminal permission semantics from the same code
+  path.
+- Keep full `SessionActivity` as the compatibility fallback and parity oracle
+  during rollout.
+- Keep runtime events as refresh triggers only. Event payloads may choose which
+  narrow read to request, but they must not become React timeline, diagnostic,
+  artifact, or interrupted recovery state.
+- Do not add a runtime Run store, Run state machine, Run database migration for
+  Run, frontend Run UI, automatic resume, stale tool recovery, stale permission
+  actionability, or prose-derived artifact/checkpoint inference.
+
+Acceptance:
+
+- Narrow turn activity matches the corresponding subset of full
+  `SessionActivity` for messages, tool calls, permissions, diagnostics,
+  artifacts, interrupted summaries, and terminal permission semantics.
+- Narrow session window activity can hydrate the active session tail without
+  losing warnings, refs, permission evidence, or interrupted recovery data.
+- Frontend adapter can use narrow hydration after lifecycle events while
+  falling back to full `SessionActivity`.
 
 ## Validation Scenarios
 
@@ -1713,20 +1891,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Proceed to Phase 6.5 MCP transport and native structured-content hardening
-before any additional Run persistence or UX state is added.
+Proceed to Phase 6.6 live HTTP/SSE MCP restart and hosted-flow validation.
 
-Reason:
-
-- Phase 6 remains a Run contract/design gate and still has not implemented a
-  Run state machine.
-- Phase 6.1 closed the external stdio MCP interrupted structured-ref fixture.
-- Phase 6.2 added packaged desktop/Wails bridge smoke coverage for new-chat
-  handoff and interrupted recovery method paths.
-- Phase 6.3 reviewed pending-at-interruption lifecycle semantics and kept the
-  signal computed from `SessionActivity` diagnostics rather than adding a
-  persisted recovery lifecycle field.
-- Phase 6.4 documented narrow session-scoped and turn-scoped activity hydration
-  boundaries and carried the remaining implementation risks into Phase 6.7.
-- The next unresolved validation risk is MCP transport/native structured
-  content beyond the stdio JSON-text fixture.
+Do not start Run persistence or Run UI before Phase 6.6 and Phase 6.7 risks are
+explicitly accepted or closed.
