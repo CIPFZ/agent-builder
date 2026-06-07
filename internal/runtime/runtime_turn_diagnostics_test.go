@@ -514,6 +514,28 @@ func TestRuntimeInterruptedSummaryPhase51PermissionAndShellSignals(t *testing.T)
 	}
 }
 
+func TestRuntimeInterruptedPermissionLifecycleDiagnosticsAreComputed(t *testing.T) {
+	t.Parallel()
+
+	permissions := []RuntimePermissionRequest{
+		{ID: "perm-expired", TurnID: "turn-interrupted", Status: permissionStatusExpired},
+		{ID: "perm-cancelled", TurnID: "turn-interrupted", Status: permissionStatusCancelled},
+		{ID: "perm-denied", TurnID: "turn-interrupted", Status: permissionStatusDenied},
+	}
+	interrupted := RuntimeTurn{ID: "turn-interrupted", SessionID: "session-1", Status: turnStatusInterrupted}
+
+	diag := buildRuntimeTurnDiagnostics(interrupted, nil, nil, permissions, nil)
+	if diag.PermissionCounts.Pending != 2 || diag.PermissionCounts.Expired != 1 || diag.PermissionCounts.Cancelled != 1 || diag.PermissionCounts.Denied != 1 {
+		t.Fatalf("interrupted permission diagnostics = %#v", diag.PermissionCounts)
+	}
+
+	completed := RuntimeTurn{ID: "turn-interrupted", SessionID: "session-1", Status: turnStatusCompleted}
+	diag = buildRuntimeTurnDiagnostics(completed, nil, nil, permissions, nil)
+	if diag.PermissionCounts.Pending != 0 || diag.PermissionCounts.Expired != 1 || diag.PermissionCounts.Cancelled != 1 || diag.PermissionCounts.Denied != 1 {
+		t.Fatalf("terminal permission diagnostics should not restore pending gates: %#v", diag.PermissionCounts)
+	}
+}
+
 func TestRuntimeInterruptedSummaryPhase51StructuredRefsOnly(t *testing.T) {
 	t.Parallel()
 

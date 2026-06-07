@@ -1199,6 +1199,9 @@ Planned follow-up phases:
     sessions.
   - Preserve `SessionActivity` as the canonical current aggregate until the
     narrower reads are implemented and validated.
+  - Carry the Phase 6.3 hydration risk forward: make narrower reads preserve
+    diagnostics and interrupted recovery semantics without making runtime
+    events or React local state the source of truth.
 - Phase 6.5: MCP transport and native structured-content hardening.
   - Extend the Phase 6.1 fixture beyond stdio MCP to streamable HTTP MCP and
     SSE MCP, including restart/interruption timing around structured refs.
@@ -1225,6 +1228,10 @@ Planned follow-up phases:
   - Only after Phase 6.1 through Phase 6.6 are reviewed.
   - Start with a read-only runtime DTO assembled from existing turns, tasks,
     diagnostics, permissions, tool calls, and refs.
+  - Carry the Phase 6.3 lifecycle risk forward: if a durable recovery
+    lifecycle field is needed, design it as additive Run/checkpoint metadata
+    with explicit audit events, migration/backfill behavior, acknowledgement
+    UX, and a rule that stale permissions/tools never regain actionability.
   - Include virtual URI and non-local artifact handles as metadata-only Run DTO
     inputs unless or until a transport-specific verifier exists.
   - Defer migrations, background Run scheduler, and frontend Run UI until the
@@ -1395,6 +1402,73 @@ Remaining risks:
 - It does not add narrow activity hydration, Run DTOs, Run persistence, or Run
   UI. Very large session hydration remains a later Phase 6.4 design topic.
 
+### Phase 6.3: Pending-at-Interruption Lifecycle Semantics
+
+Status: reviewed and locked to the current computed diagnostics semantics. This
+is not a Run implementation.
+
+Scope:
+
+- Review whether pending-at-interruption needs a persisted lifecycle field.
+- Keep `SessionActivity` as the source of truth for timeline, diagnostics, and
+  interrupted recovery UX.
+- Keep runtime events as refresh triggers only.
+- Preserve current interrupted semantics:
+  - no automatic resume
+  - no stale running/waiting tool after restart recovery
+  - no restored actionable permission gate after restart recovery
+  - `MarkInterruptedDone` / cancelled terminal status remains the
+    acknowledgement mechanism
+- Do not add a runtime Run store, Run state machine, Run database migration,
+  frontend Run UI, or persisted interrupted acknowledgement field.
+
+Review conclusion:
+
+- Pending-at-interruption should continue to be a computed diagnostics signal.
+  The persisted permission lifecycle remains the audit record of what happened
+  to the permission request (`pending`, `allowed_*`, `denied`, `expired`, or
+  `cancelled`).
+- Restart recovery expires or cancels stale pending permission rows when their
+  live runtime gate is gone. Those terminal rows can still contribute to the
+  interrupted recovery summary and diagnostics, but they must not become
+  approvable permissions again.
+- Counting terminal `expired` and `cancelled` permissions as
+  pending-at-interruption only when the owning turn is `interrupted` is enough
+  for the current UI: it explains that user input was pending when the process
+  stopped without changing the durable permission status.
+- A persisted recovery lifecycle field is not needed in this phase. Adding one
+  now would duplicate existing terminal permission evidence and would require
+  migration, audit semantics, API/DTO review, and UX copy for how it differs
+  from the permission status itself.
+- If a future Run/checkpoint implementation needs durable lifecycle state, it
+  should be designed as an additive field tied to recovery checkpoints or Run
+  summaries. That design must specify migration/backfill behavior, audit event
+  names and payloads, how acknowledgement/discard appears in UX, and how React
+  hydrates the field from runtime DTOs. It must not restore stale permission or
+  tool actionability.
+
+Implemented:
+
+- Added `TestRuntimeInterruptedPermissionLifecycleDiagnosticsAreComputed`.
+  The test locks the current diagnostic behavior:
+  - interrupted turns count terminal `expired` and `cancelled` permissions as
+    pending-at-interruption signals
+  - completed turns keep the same terminal permission statuses without
+    incrementing pending diagnostics
+
+Validation:
+
+- `go test ./internal/runtime -run TestRuntimeInterruptedPermissionLifecycleDiagnosticsAreComputed -count=1`
+- `go test ./internal/runtime`
+
+Remaining risks:
+
+- This phase does not introduce durable Run/checkpoint lifecycle semantics.
+  That remains a Phase 7-or-later design and implementation topic after Phase
+  6 follow-up risks are closed.
+- `SessionActivity` remains the safe aggregate for the current UI. Very large
+  session hydration remains a Phase 6.4 design topic.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -1442,8 +1516,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review Phase 6.3 pending-at-interruption lifecycle semantics before any
-additional persistence or UX state is added.
+Proceed to Phase 6.4 narrow activity hydration design before any additional
+Run persistence or UX state is added.
 
 Reason:
 
@@ -1452,6 +1526,8 @@ Reason:
 - Phase 6.1 closed the external stdio MCP interrupted structured-ref fixture.
 - Phase 6.2 added packaged desktop/Wails bridge smoke coverage for new-chat
   handoff and interrupted recovery method paths.
-- The next unresolved semantic risk is whether pending-at-interruption should
-  stay computed diagnostics or needs an explicit persisted recovery lifecycle
-  field.
+- Phase 6.3 reviewed pending-at-interruption lifecycle semantics and kept the
+  signal computed from `SessionActivity` diagnostics rather than adding a
+  persisted recovery lifecycle field.
+- The next unresolved design risk is narrow session-scoped and turn-scoped
+  activity hydration for very large sessions.
