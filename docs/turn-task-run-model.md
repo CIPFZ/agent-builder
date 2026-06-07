@@ -204,6 +204,59 @@ Run
 
 当前不建议先实现完整 Run，避免过早复杂化。先把 Turn 和 ToolCall 做稳。
 
+### Phase 6 Design Gate: Minimal Run Contract
+
+Phase 6 defines Run as a future additive business-operation summary, not an
+implemented runtime state machine.
+
+Run must not replace these existing primitives:
+
+- `Turn`: the durable unit of user interaction and model/tool execution.
+- `ToolCall`: the durable unit of tool evidence, output, refs, and policy
+  context.
+- `PermissionRequest`: the durable unit of user/policy approval evidence.
+- `RuntimeAgentTask`: the existing task persistence foundation.
+- `SessionActivity`: the current hydrated source of truth for timeline,
+  diagnostics, and interrupted recovery UX.
+
+Minimum Run fields for a future DTO/API:
+
+```text
+Run
+  id
+  workspace_id
+  session_ids
+  objective
+  status
+  expected_artifacts[]
+  produced_artifacts[]
+  verified_artifacts[]
+  turn_ids[]
+  task_ids[]
+  checkpoints[]
+  final_verification
+  user_actions.resume[]
+  user_actions.discard[]
+  created_at
+  updated_at
+  finished_at optional
+```
+
+Design constraints:
+
+- Run is a cross-turn index and summary over existing runtime evidence.
+- Run references turns, tasks, tool calls, permissions, diagnostics, and
+  artifact refs instead of owning or duplicating their state.
+- A future React Run UI must hydrate from runtime DTOs. React must not become a
+  Run source of truth.
+- Runtime events remain refresh triggers only; they are not Run state.
+- Resume is always a user-triggered new turn from an explicit checkpoint
+  summary. It is not automatic replay.
+- Discard acknowledges or closes a checkpoint/run view without deleting the
+  underlying evidence.
+- No database migration, runtime Run store, or frontend Run UI is part of the
+  Phase 6 design gate.
+
 ## API 影响
 
 最小 API：

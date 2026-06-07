@@ -1042,61 +1042,189 @@ Remaining risks:
 
 ### Phase 6: Run State Machine Design Gate
 
-Status: deferred until Phase 1.1 through Phase 5 are stable.
+Status: completed as a design gate only. No runtime Run store, database
+migration, frontend Run UI, or full Run state machine was implemented.
 
 Scope:
 
-- Design a minimal Run object only after turn diagnostics, artifact
-  verification, event refresh, tool details, and interrupted-state UX are
-  reliable.
-- Define:
-  - run objective
-  - expected artifacts
-  - produced/verified artifacts
-  - turn ids
-  - task ids
-  - checkpoints
-  - final verification state
-  - resume/discard actions
-- Keep Run additive. Do not replace `Turn`, `ToolCall`, or `SessionActivity`
-  as the source of truth.
-- Include Phase 3 residual risks in the design gate:
-  - decide whether shell nonzero exit should become a runtime status refinement
-    or remain display-derived metadata
-  - define a confidence model for artifacts: local verified file, produced tool
-    metadata, runtime output ref, structured MCP/custom ref, and unknown
-  - decide whether very large sessions need narrower session-scoped hydration
-    before a Run object is introduced
-  - require an external MCP server end-to-end interrupted fixture before
-    promoting structured custom refs from conservative support to
-    production-ready artifact accounting
-  - use the completed Phase 5.1 permission-denial/nonzero-shell interrupted
-    browser fixture as required evidence before defining Run-level resume
-    affordances
-  - use the completed new-chat active-session handoff fix as required evidence
-    before using follow-up or resume actions as a Run entry point
-  - decide whether interrupted acknowledgement is a Run-level checkpoint state,
-    a turn-level persisted acknowledgement, or the existing cancelled terminal
-    status
-  - decide whether pending-at-interruption should remain a computed
-    diagnostics signal over terminal permission statuses, or become a distinct
-    persisted recovery lifecycle state
-  - add a Wails packaged smoke for the new-chat handoff and interrupted
-    recovery bridge path in addition to the HTTP/Vite browser validation
+- Define the minimum Run contract from Phase 1.1 through Phase 5.1 evidence.
+- Keep Run additive. It must not replace `Turn`, `ToolCall`,
+  `PermissionRequest`, `RuntimeAgentTask`, or `SessionActivity`.
+- Keep `SessionActivity` as the current source of truth for timeline,
+  diagnostics, and interrupted recovery UX.
+- Keep runtime events as refresh triggers only. They must not become React
+  timeline, diagnostics, interrupted, or Run state.
+- Treat this phase as a design gate, not an implementation phase.
+
+Minimum Run contract:
+
+```text
+Run
+  id
+  workspace_id
+  session_ids
+  objective
+  status: planned | active | waiting_user | interrupted | verifying | completed | failed | discarded
+  expected_artifacts[]
+    id
+    label
+    uri_or_path
+    source: user_request | plan | checkpoint | tool_metadata
+    required: true | false
+  produced_artifacts[]
+    id
+    uri_or_path
+    source_turn_id
+    source_task_id optional
+    source_tool_call_id optional
+    confidence
+  verified_artifacts[]
+    id
+    uri_or_path
+    confidence
+    verified_at
+    verifier: filesystem | runtime_ref | structured_ref | user
+  turn_ids[]
+  task_ids[]
+  checkpoints[]
+    id
+    turn_id optional
+    task_id optional
+    label
+    summary
+    completed_tool_call_ids[]
+    failed_tool_call_ids[]
+    pending_permission_ids[]
+    artifact_ids[]
+    created_at
+    checkpoint_state: open | resumable | acknowledged | discarded
+  final_verification
+    state: not_started | partial | passed | failed | unknown
+    expected_count
+    produced_count
+    verified_count
+    missing_count
+    warning_reason optional
+    verified_at optional
+  user_actions
+    resume
+      triggered_by_user_id
+      checkpoint_id
+      created_turn_id
+      created_at
+    discard
+      triggered_by_user_id
+      checkpoint_id optional
+      reason optional
+      created_at
+  created_at
+  updated_at
+  finished_at optional
+```
+
+Contract rules:
+
+- Run summarizes cross-turn work; it never hides or rewrites per-turn evidence.
+- Run references existing turn ids, task ids, tool call ids, permission ids,
+  artifact refs, and diagnostics. It does not own those primitives.
+- Run state is derived from, and links back to, persisted runtime evidence.
+  React may render a Run view in the future, but it must hydrate from runtime
+  DTOs and may not become the Run source of truth.
+- Resume is always user-triggered and creates a new turn from an explicit
+  checkpoint summary. It must not replay an interrupted turn automatically.
+- Discard is an explicit user action. It must not delete the underlying turn,
+  tool, permission, artifact, or audit evidence.
+- The first implementation slice, when approved later, should be DTO/API
+  additive and transport-neutral. It should not require a schema migration
+  until durability requirements are proven.
+
+Design decisions:
+
+- Shell nonzero exit stays a display/diagnostics-derived signal for now.
+  Phase 3 and Phase 4 proved the UI can show a failed visual status and
+  diagnostics can count `nonzeroExitShellCount` while the persisted tool-call
+  status remains `completed`. Future runtime work may add an additive status
+  refinement such as `completed_with_nonzero_exit`, but Phase 6 does not
+  promote nonzero exit into the canonical `ToolCall.status` lifecycle.
+- Artifact confidence is ordered from strongest to weakest:
+  - `local_verified_file`: an explicit local expected artifact was verified by
+    runtime filesystem check.
+  - `produced_tool_metadata`: a trusted tool produced metadata or artifact refs
+    for a target, but no final local verification is available.
+  - `runtime_output_ref`: a persisted runtime ref exists for output, artifact,
+    or diff material, but it is not necessarily a final deliverable.
+  - `structured_mcp_custom_ref`: a custom/MCP tool exposed a machine-readable
+    structured ref or target. This is trusted as conservative metadata, but it
+    needs external MCP end-to-end validation before becoming a stronger product
+    guarantee.
+  - `unknown_not_detected`: no structured artifact evidence was detected.
+    Assistant prose does not upgrade confidence.
+- Large session hydration should move toward narrower hydration before a Run
+  implementation is attempted. The next design should support
+  session-scoped and turn-scoped activity reads, plus optional artifact and
+  diagnostics slices, while keeping whole `SessionActivity` hydration as the
+  current safe baseline.
+- Interrupted acknowledgement should be modeled as a future Run-level
+  checkpoint state when Run exists. The current Phase 5/5.1 implementation may
+  continue using the existing `cancelled` terminal turn status for
+  `MarkInterruptedDone`; no turn-level acknowledgement field is required in
+  this design gate.
+- Pending-at-interruption remains a computed diagnostics signal over terminal
+  permission statuses for now. It should not become a persisted recovery
+  lifecycle state until the product needs audit-distinct recovery semantics
+  beyond display and follow-up handoff.
+
+Planned follow-up phases:
+
+- Phase 6.1: External MCP interrupted structured refs fixture.
+  - Run a real external MCP server end-to-end.
+  - Produce structured artifact refs during a turn that is interrupted.
+  - Restart runtime and verify hydrated `SessionActivity` preserves refs,
+    target metadata, diagnostics confidence, and interrupted recovery summary.
+  - Do not infer refs from assistant prose.
+- Phase 6.2: Wails packaged handoff/recovery smoke.
+  - Exercise the packaged desktop bridge, not only HTTP/Vite.
+  - Verify new-chat handoff creates or targets the correct session after the
+    one-shot draft-submit guard.
+  - Verify interrupted recovery bridge methods, `MarkInterruptedDone`, and
+    event-triggered hydration still rebuild from `SessionActivity`.
+- Phase 6.3: Pending-at-interruption lifecycle semantics.
+  - Decide whether computed diagnostics remain sufficient.
+  - If not, design a persisted recovery lifecycle field without restoring stale
+    actionable permission gates after restart.
+  - Include audit implications and migration requirements before any code
+    change.
+- Phase 6.4: Narrow activity hydration design.
+  - Specify session-scoped and turn-scoped hydration APIs for very large
+    sessions.
+  - Preserve `SessionActivity` as the canonical current aggregate until the
+    narrower reads are implemented and validated.
+- Phase 7 candidate: Additive Run DTO/API prototype.
+  - Only after Phase 6.1 through Phase 6.4 are reviewed.
+  - Start with a read-only runtime DTO assembled from existing turns, tasks,
+    diagnostics, permissions, tool calls, and refs.
+  - Defer migrations, background Run scheduler, and frontend Run UI until the
+    DTO proves useful.
 
 Acceptance:
 
-- A Run can summarize a long multi-turn operation without hiding individual
-  turn/tool evidence.
-- A Run can report artifact verification across turns.
-- Resume is user-triggered and starts from an explicit checkpoint summary.
-- Run design does not hide per-tool failure reasons, artifact confidence, or
-  diagnostics warnings.
+- The Run contract can summarize a long multi-turn operation without hiding
+  individual turn/tool evidence.
+- The contract can report expected, produced, and verified artifacts across
+  turns with confidence levels.
+- Resume/discard are explicit user-triggered actions tied to checkpoints.
+- The design keeps `SessionActivity` as the current timeline, diagnostics, and
+  interrupted recovery source of truth.
+- Runtime events remain refresh triggers only.
+- No Run state machine, store, migration, or frontend Run UI is introduced in
+  this phase.
 
-Tests:
+Validation:
 
-- Design review against Phase 1.1-5 validation data before implementation.
-- Prototype tests only after the contract is documented and approved.
+- Design reviewed against Phase 1.1 through Phase 5.1 implementation and
+  validation records in this document.
+- Documentation-only gate; no full Go/frontend test run is required unless code
+  changes are made.
 
 ## Validation Scenarios
 
@@ -1135,8 +1263,9 @@ Use these as recurring gates after each phase:
 
 - Do not move runtime state into React.
 - Do not parse assistant prose as the primary source of tool state.
-- Do not introduce a full Run state machine until Phase 1.1 through Phase 5 are
-  stable and the minimal Run contract is documented.
+- Do not introduce a full Run state machine merely because the minimal Run
+  contract is documented. Any Run implementation requires a separately approved
+  phase after the Phase 6 follow-up risks are reviewed.
 - Do not auto-resume interrupted tasks.
 - Keep every phase independently testable.
 - Prefer additive DTO fields over schema churn unless durability requires a
@@ -1144,12 +1273,14 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Start with Phase 1.1.
+Proceed to Phase 6.1 planning only after the Phase 6 design gate is reviewed.
 
 Reason:
 
-- Phase 1 already exposes conservative turn diagnostics and warning UI.
-- The next trust gap is verifying whether explicit local expected artifacts
-  actually exist on disk after a turn completes.
-- Phase 1.1 also schedules the shell/MCP produced-artifact normalization needed
-  before richer tool details and Run-level verification can be trustworthy.
+- Phase 1.1 through Phase 5.1 are implemented and validated for the current
+  runtime slice.
+- Phase 6 intentionally stopped at a Run contract/design gate and did not
+  implement a Run state machine.
+- The next risk to close is an external MCP server end-to-end interrupted
+  structured refs fixture, followed by Wails packaged smoke coverage and
+  pending-at-interruption lifecycle semantics.

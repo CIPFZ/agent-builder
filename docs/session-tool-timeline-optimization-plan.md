@@ -402,3 +402,17 @@ Follow-up before the next timeline/runtime phase:
   that validates hydrated `SessionActivity` and the browser UI. A true external
   MCP server end-to-end fixture is still useful before promoting generic tool
   artifact refs to a stronger production guarantee.
+
+### Phase 7: Run Design Gate Follow-up
+
+Status: planned only after the long-conversation hardening Phase 6 design gate.
+
+- Phase 6 defines Run as an additive future contract, not as a replacement for
+  timeline/tool/diagnostics state.
+- `SessionActivity` remains the current source of truth for timeline,
+  diagnostics, and interrupted recovery surfaces.
+- Runtime events remain refresh triggers only.
+- Before any Run UI or runtime store is implemented, close the external MCP
+  interrupted structured refs fixture, Wails packaged new-chat/recovery smoke,
+  pending-at-interruption lifecycle semantics, and narrow hydration design
+  follow-ups.

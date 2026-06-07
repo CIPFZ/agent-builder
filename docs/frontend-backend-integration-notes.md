@@ -181,3 +181,33 @@ refresh.
 Browser validation on the HTTP/Vite path opened an old session, clicked new
 chat, submitted `phase51-new-chat`, and confirmed the old session did not
 receive the prompt while the runtime-created new session did.
+
+## 2026-06-07: Phase 6 Run Design Gate Boundary
+
+Phase 6 is a documentation/design gate only. It defines a minimal future Run
+contract, but it does not add a runtime Run store, database migration, frontend
+Run UI, or full Run state machine.
+
+Frontend/backend rules for any future Run work:
+
+- `SessionActivity` remains the current source of truth for timeline,
+  diagnostics, and interrupted recovery UX.
+- Runtime events remain refresh triggers only. They must not become React Run,
+  timeline, diagnostics, or interrupted recovery state.
+- A future Run view may summarize objective, artifacts, turn ids, task ids,
+  checkpoints, verification, and user-triggered resume/discard actions, but it
+  must hydrate those fields from runtime DTOs.
+- React must not infer Run artifacts or checkpoint state from assistant prose.
+- Resume must create a new user-triggered turn from an explicit checkpoint
+  summary. It must not replay an interrupted turn automatically.
+- Discard/acknowledgement must preserve underlying turn, tool, permission, ref,
+  and audit evidence.
+
+Follow-up validation before implementation:
+
+- External MCP server end-to-end interrupted structured refs fixture.
+- Wails packaged smoke for new-chat handoff and interrupted recovery bridge
+  path.
+- Pending-at-interruption lifecycle semantics review.
+- Narrow session-scoped and turn-scoped hydration design for very large
+  sessions.
