@@ -398,6 +398,8 @@ Remaining risks:
 
 ### Phase 2: Event Refresh Tuning
 
+Status: implemented.
+
 Scope:
 
 - Keep the current event-triggered hydration path.
@@ -417,6 +419,103 @@ Tests:
 - Adapter unit tests for event coalescing where practical.
 - Browser validation with a long task and forced reload.
 - Runtime HTTP SSE test already exists; extend only if sequence behavior changes.
+
+Implemented:
+
+- Runtime events remain refresh triggers only; `SessionActivity` remains the
+  timeline source of truth.
+- `/v1/events` history and SSE both support `after=<sequence>` cursor replay.
+- The desktop bridge now forwards the event cursor to `RuntimeService.Events`.
+- Runtime HTTP SSE tests cover named `runtime-event` delivery, history replay
+  after a cursor, monotonic sequence order, and lifecycle linkage fields.
+- The frontend adapter now keeps the latest event sequence across SSE and
+  polling subscriptions.
+- EventSource uses the named `runtime-event` listener and reconnects with the
+  latest cursor.
+- Polling fallback requests `/v1/events?after=<sequence>` instead of fetching
+  the whole event history each cycle.
+- Runtime event DTO mapping accepts the backend snake_case fields
+  `session_id`, `turn_id`, `tool_call_id`, and `created_at`.
+- Frontend refresh strategy now refreshes immediately for turn/tool/permission
+  lifecycle and artifact/diagnostic-like events, while coalescing message,
+  token, usage, and progress events.
+- Busy polling is still present as a fallback while active turns are running.
+- Pending permission rendering is de-duplicated by permission id when the same
+  runtime permission appears more than once in hydrated activity.
+
+Validation:
+
+- `go test ./internal/runtime`
+- `go test ./desktop`
+- `cd client && npm run lint`
+- `cd client && npx tsc -b --pretty false`
+- Runtime HTTP/Vite validation used only files under
+  `C:\Users\ytq\work\ai\agent-builder\tmp\runtime-dev`.
+- In-app browser validation ran against `http://127.0.0.1:5177/` with runtime
+  HTTP on `http://127.0.0.1:5187`.
+- A local fake OpenAI-compatible server under `tmp/runtime-dev` was used for
+  deterministic runtime turns without external API keys.
+- Event refresh strategy was validated through the Vite-served module:
+  lifecycle/permission/artifact events return immediate refresh, while
+  message/token events return coalesced refresh.
+- Fake unreachable provider turn:
+  - `turn.started` refreshed the UI into active/running state.
+  - `turn.failed` refreshed the final failed state.
+  - `/v1/events?after=68` returned only sequence `69` (`turn.failed`).
+- Missing artifact completed turn:
+  - requested
+    `tmp/runtime-dev/phase2-missing-artifact.md`
+  - fake model completed without tool output
+  - diagnostics warning rendered and survived page reload from
+    `SessionActivity`
+- Permission/tool validation:
+  - fake model requested a `write` tool call for
+    `tmp/runtime-dev/phase2-tool-card.md`
+  - tool card appeared before turn completion
+  - pending permission appeared immediately
+  - approving once completed the tool, hid the permission, wrote the file, and
+    completed the turn
+- Burst validation:
+  - fake model requested two `write` tool calls in one burst
+  - UI rendered a single grouped completed tool card with both tool ids
+  - no pending permission duplication or top-level timeline duplication was
+    observed
+  - `tmp/runtime-dev/phase2-burst-a.md` and
+    `tmp/runtime-dev/phase2-burst-b.md` were created
+- Remaining-risk closure validation:
+  - `go build ./desktop` regenerated the Wails bridge surface and confirmed the
+    desktop `Events(after)` binding forwards the cursor.
+  - `desktop\scripts\phase2-smoke.ps1 -Build` passed against the rebuilt
+    desktop/runtime smoke path.
+  - A deterministic long fake-model run created four `write` tool calls and
+    delayed the final assistant response for 10 seconds after tool completion.
+  - `SessionActivity` for session
+    `b9829920-7a97-4d49-80a9-1ab528c473f5` restored one turn, seven messages,
+    and four completed tool calls:
+    `call_phase2_long_a`, `call_phase2_long_b`, `call_phase2_long_c`, and
+    `call_phase2_long_d`.
+  - After selecting that session and reloading `http://127.0.0.1:5177/` in the
+    in-app browser, the timeline restored the final assistant message and a
+    single grouped completed tool card without duplicate top-level items.
+  - A follow-up browser reload after the pending-permission de-duplication fix
+    produced no new console errors and still restored the same single grouped
+    tool card.
+  - The deterministic long-run artifacts
+    `tmp/runtime-dev/phase2-long-a.md` through
+    `tmp/runtime-dev/phase2-long-d.md` were present on disk.
+
+Remaining risks:
+
+- The frontend still hydrates the whole active view model on visible lifecycle
+  events. This is intentional for Phase 2, but very large sessions may still
+  need narrower session-scoped refresh later.
+- EventSource validation used the Vite/browser path, runtime SSE tests, and the
+  regenerated Wails binding smoke. A packaged production installer smoke is
+  still useful before release.
+- Synthetic fake-model validation now covers deterministic long tool bursts,
+  permission display, reload recovery, and diagnostics recovery. A real
+  external model long-running reasoning session remains dependent on provider
+  credentials and should be repeated before calling Phase 2 production-ready.
 
 ### Phase 3: Tool Detail Normalization
 

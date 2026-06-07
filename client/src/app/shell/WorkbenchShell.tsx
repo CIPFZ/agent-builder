@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import type { WorkbenchAdapter, WorkbenchMode, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
+import { runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
 import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
 import { Sidebar } from '../../features/sidebar/Sidebar.tsx';
 import { SettingsPanel } from '../../features/settings/SettingsPanel.tsx';
@@ -19,6 +20,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const viewModelRef = useRef(viewModel);
   const modeRef = useRef(mode);
+  const hasBusySession = viewModel.sessions.some((session) => session.busy);
 
   useEffect(() => {
     viewModelRef.current = viewModel;
@@ -32,8 +34,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     if (!adapter.subscribeRuntimeEvents) {
       return undefined;
     }
-    const hasActiveSession = viewModel.sessions.some((session) => session.busy);
-    if (!viewModel.composer.busy && !hasActiveSession) {
+    if (!viewModel.composer.busy && !hasBusySession) {
       return undefined;
     }
 
@@ -79,7 +80,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       refreshTimer = window.setTimeout(refreshFromRuntimeEvent, delay);
     };
 
-    void Promise.resolve(adapter.subscribeRuntimeEvents(() => scheduleRuntimeRefresh())).then((cleanup) => {
+    void Promise.resolve(adapter.subscribeRuntimeEvents((event) => scheduleRuntimeRefresh(runtimeEventRefreshDelay(event)))).then((cleanup) => {
       if (cancelled) {
         cleanup();
         return;
@@ -94,11 +95,10 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       }
       unsubscribe?.();
     };
-  }, [adapter, viewModel.composer.busy, viewModel.sessions]);
+  }, [adapter, viewModel.composer.busy, hasBusySession]);
 
   useEffect(() => {
-    const hasActiveSession = viewModel.sessions.some((session) => session.busy);
-    if (!viewModel.composer.busy && !hasActiveSession) {
+    if (!viewModel.composer.busy && !hasBusySession) {
       return undefined;
     }
 
@@ -131,7 +131,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         window.clearTimeout(timer);
       }
     };
-  }, [adapter, mode, viewModel.composer.busy, viewModel.sessions]);
+  }, [adapter, mode, viewModel.composer.busy, hasBusySession]);
 
   const changeMode = (nextMode: WorkbenchMode) => {
     setMode(nextMode);

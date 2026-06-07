@@ -102,3 +102,23 @@ When a frontend/backend feature looks empty or inactive:
 
 Do not leave diagnostic mock data, DOM dataset markers, or frontend-only default
 business data in the codebase.
+
+## 2026-06-07: Runtime Event Refresh Cursor
+
+Runtime events are transport refresh triggers, not timeline state. The frontend
+adapter must keep the latest event sequence and reconnect or poll with
+`after=<sequence>`. EventSource receives named `runtime-event` SSE messages;
+polling fallback uses `/v1/events?after=<sequence>`.
+
+The UI must still rebuild messages, tool calls, permissions, and diagnostics
+from hydrated `SessionActivity`. Lifecycle events may trigger immediate
+hydration; high-frequency message/token/progress events should be coalesced.
+
+Follow-up risks:
+
+- Phase 2 still hydrates the whole active workbench view on visible lifecycle
+  events. Very large sessions may need a narrower session-scoped refresh later.
+- Current validation covers the Vite/browser path, runtime SSE tests, Wails
+  binding regeneration, and deterministic fake-model long tool bursts. A
+  packaged production installer smoke and a real external long-running model
+  run should still be repeated before calling this production-ready.

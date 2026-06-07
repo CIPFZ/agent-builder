@@ -473,9 +473,9 @@ func (r *RuntimeBridge) UpdatePolicy(ctx context.Context, req RuntimePolicyUpdat
 
 }
 
-func (r *RuntimeBridge) Events(ctx context.Context) (RuntimeEventsResponse, error) {
+func (r *RuntimeBridge) Events(ctx context.Context, after int64) (RuntimeEventsResponse, error) {
 
-	return r.service.Events(ctx)
+	return r.service.Events(ctx, after)
 
 }
 

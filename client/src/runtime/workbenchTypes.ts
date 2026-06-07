@@ -355,6 +355,8 @@ export interface RuntimeEventViewModel {
   type?: string;
   sessionId?: string;
   turnId?: string;
+  toolCallId?: string;
+  createdAt?: string;
 }
 
 export interface WorkbenchAdapter {

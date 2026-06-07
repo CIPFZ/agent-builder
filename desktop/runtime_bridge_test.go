@@ -72,6 +72,20 @@ func TestRuntimeBridgeForwardsReplayExport(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsEventsCursor(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	bridge := &RuntimeBridge{service: service}
+
+	if _, err := bridge.Events(context.Background(), 42); err != nil {
+		t.Fatal(err)
+	}
+	if service.eventsAfter != 42 {
+		t.Fatalf("events cursor = %d, want 42", service.eventsAfter)
+	}
+}
+
 func TestRuntimeBridgeForwardsMCPRequestDecision(t *testing.T) {
 	t.Parallel()
 
@@ -96,6 +110,7 @@ type recordingRuntimeService struct {
 	toolSearchQuery     string
 	replayExportRequest runtime.RuntimeReplayExportRequest
 	mcpRequestDecision  runtime.RuntimeMCPRequestDecision
+	eventsAfter         int64
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -339,7 +354,10 @@ func (s *recordingRuntimeService) UpdatePolicy(context.Context, RuntimePolicyUpd
 	return RuntimePolicyResponse{}, nil
 }
 
-func (s *recordingRuntimeService) Events(context.Context, ...int64) (RuntimeEventsResponse, error) {
+func (s *recordingRuntimeService) Events(_ context.Context, afterValues ...int64) (RuntimeEventsResponse, error) {
+	if len(afterValues) > 0 {
+		s.eventsAfter = afterValues[0]
+	}
 	return RuntimeEventsResponse{}, nil
 }
 

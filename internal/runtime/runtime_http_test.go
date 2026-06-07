@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
 func TestRuntimeHTTPServerRequiresBearerToken(t *testing.T) {
@@ -1150,11 +1152,18 @@ func TestRuntimeHTTPServerStreamsRuntimeEvents(t *testing.T) {
 	t.Parallel()
 
 	service := newRuntimeService()
+	first := service.storeRuntimeEvent(RuntimeEvent{
+		ID:        "event-1",
+		Type:      runtimeapi.EventTurnStarted,
+		CreatedAt: "2026-05-18T00:00:00Z",
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+	})
 	server := newRuntimeHTTPServer(service)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/v1/events", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/v1/events?after="+strconv.FormatInt(first.Sequence, 10), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1168,23 +1177,94 @@ func TestRuntimeHTTPServerStreamsRuntimeEvents(t *testing.T) {
 	}()
 
 	recorder.waitForLine(t, ": connected")
-	service.publishRuntimeEvent(RuntimeEvent{
-		ID:        "event-1",
-		Type:      "message.created",
-		CreatedAt: "2026-05-18T00:00:00Z",
-		MessageID: "message-1",
+	second := service.storeRuntimeEvent(RuntimeEvent{
+		ID:         "event-2",
+		Type:       runtimeapi.EventToolCallStarted,
+		CreatedAt:  "2026-05-18T00:00:01Z",
+		SessionID:  "session-1",
+		TurnID:     "turn-1",
+		ToolCallID: "tool-1",
 	})
 
+	recorder.waitForLine(t, "event: runtime-event")
 	line := recorder.waitForPrefix(t, "data: ")
 	var event RuntimeEvent
 	if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
 		t.Fatal(err)
 	}
-	if event.ID != "event-1" || event.MessageID != "message-1" {
+	if event.ID != "event-2" || event.Sequence != second.Sequence || event.Sequence <= first.Sequence {
+		t.Fatalf("event sequence = %#v, first = %#v, second = %#v", event, first, second)
+	}
+	if event.Type != runtimeapi.EventToolCallStarted || event.SessionID != "session-1" || event.TurnID != "turn-1" || event.ToolCallID != "tool-1" {
 		t.Fatalf("event = %#v", event)
 	}
 	cancel()
 	<-done
+}
+
+func TestRuntimeHTTPServerSSEReplaysHistoryAfterCursorWithMonotonicSequence(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	first := service.storeRuntimeEvent(RuntimeEvent{
+		Type:      runtimeapi.EventTurnStarted,
+		CreatedAt: "2026-05-18T00:00:00Z",
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+	})
+	second := service.storeRuntimeEvent(RuntimeEvent{
+		Type:       runtimeapi.EventToolCallStarted,
+		CreatedAt:  "2026-05-18T00:00:01Z",
+		SessionID:  "session-1",
+		TurnID:     "turn-1",
+		ToolCallID: "tool-1",
+	})
+	third := service.storeRuntimeEvent(RuntimeEvent{
+		Type:       runtimeapi.EventToolCallCompleted,
+		CreatedAt:  "2026-05-18T00:00:02Z",
+		SessionID:  "session-1",
+		TurnID:     "turn-1",
+		ToolCallID: "tool-1",
+	})
+	server := newRuntimeHTTPServer(service)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/v1/events?after="+strconv.FormatInt(first.Sequence, 10), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	req.Header.Set("Accept", "text/event-stream")
+	recorder := newStreamingRecorder()
+	done := make(chan struct{})
+	go func() {
+		server.ServeHTTP(recorder, req)
+		close(done)
+	}()
+
+	recorder.waitForLine(t, ": connected")
+	var events []RuntimeEvent
+	for len(events) < 2 {
+		recorder.waitForLine(t, "event: runtime-event")
+		line := recorder.waitForPrefix(t, "data: ")
+		var event RuntimeEvent
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, event)
+	}
+	cancel()
+	<-done
+
+	if events[0].Sequence != second.Sequence || events[1].Sequence != third.Sequence || events[0].Sequence >= events[1].Sequence {
+		t.Fatalf("events are not monotonic after cursor: %#v", events)
+	}
+	for _, event := range events {
+		if event.SessionID != "session-1" || event.TurnID != "turn-1" || event.ToolCallID != "tool-1" {
+			t.Fatalf("lifecycle event linkage missing: %#v", event)
+		}
+	}
 }
 
 func TestRuntimeHTTPServerRoutesEventsHistoryToRuntimeService(t *testing.T) {

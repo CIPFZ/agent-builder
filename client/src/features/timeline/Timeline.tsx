@@ -149,12 +149,18 @@ function ToolProcessCluster({
 
 function attachPendingPermissions(items: RenderTimelineItem[]): RenderTimelineItem[] {
   const attached: RenderTimelineItem[] = [];
+  const seenPermissionIDs = new Set<string>();
 
   for (const item of items) {
     if (item.kind === 'permission' && item.permission?.status === 'pending') {
+      if (seenPermissionIDs.has(item.permission.id)) {
+        continue;
+      }
+      seenPermissionIDs.add(item.permission.id);
       const target = [...attached].reverse().find((candidate) => ownsToolCall(candidate, item.permission?.toolCallId));
       if (target) {
-        target.pendingPermissions = [...(target.pendingPermissions ?? []), item.permission];
+        const existing = target.pendingPermissions ?? [];
+        target.pendingPermissions = existing.some((permission) => permission.id === item.permission?.id) ? existing : [...existing, item.permission];
         continue;
       }
     }

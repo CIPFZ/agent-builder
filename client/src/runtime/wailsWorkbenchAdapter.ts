@@ -124,8 +124,14 @@ interface RuntimeEventsEndpointDTO {
 interface RuntimeEventDTO {
   sequence?: number;
   type?: string;
+  created_at?: string;
+  createdAt?: string;
+  session_id?: string;
   sessionId?: string;
+  turn_id?: string;
   turnId?: string;
+  tool_call_id?: string;
+  toolCallId?: string;
 }
 
 interface RuntimeEventsResponseDTO {
@@ -423,12 +429,13 @@ interface RuntimeBridgeModule {
   MCPResources?: (name: string) => Promise<RuntimeMCPResourcesResponseDTO>;
   MCPPrompts?: (name: string) => Promise<RuntimeMCPPromptsResponseDTO>;
   EventsEndpoint?: () => Promise<RuntimeEventsEndpointDTO>;
-  Events?: () => Promise<RuntimeEventsResponseDTO>;
+  Events?: (after?: number) => Promise<RuntimeEventsResponseDTO>;
 }
 
 let runtimeBridgePromise: Promise<RuntimeBridgeModule | null> | undefined;
 const runtimeBridgePath = '/bindings/github.com/charmbracelet/crush/desktop/runtimebridge.js';
 const runtimeBridgeTimeoutMS = 750;
+let runtimeLatestEventSequence = 0;
 
 function loadRuntimeBridge() {
   if (import.meta.env.DEV && typeof window !== 'undefined') {
@@ -1330,7 +1337,7 @@ async function subscribeRuntimeBridgeEvents(bridge: RuntimeBridgeModule, onEvent
   let closed = false;
   let reconnectTimer: number | undefined;
   let source: EventSource | undefined;
-  let lastSequence = 0;
+  let lastSequence = runtimeLatestEventSequence;
 
   const closeSource = () => {
     if (source) {
@@ -1347,13 +1354,17 @@ async function subscribeRuntimeBridgeEvents(bridge: RuntimeBridgeModule, onEvent
       }
       closeSource();
       source = new window.EventSource(runtimeEventSourceURL(endpoint, lastSequence));
-      source.onmessage = (message) => {
+      const handleMessage = (message: MessageEvent<string>) => {
         const event = parseRuntimeEventMessage(message.data);
-        if (typeof event.sequence === 'number' && event.sequence > lastSequence) {
-          lastSequence = event.sequence;
+        const nextSequence = nextRuntimeEventCursor(lastSequence, event);
+        if (nextSequence > lastSequence) {
+          lastSequence = nextSequence;
+          runtimeLatestEventSequence = nextRuntimeEventCursor(runtimeLatestEventSequence, event);
+          onEvent(event);
         }
-        onEvent(event);
       };
+      source.addEventListener('runtime-event', handleMessage);
+      source.onmessage = handleMessage;
       source.onerror = () => {
         closeSource();
         if (!closed) {
@@ -1385,25 +1396,22 @@ function subscribeRuntimeEventsByPolling(bridge: RuntimeBridgeModule, onEvent: (
 
   let closed = false;
   let timer: number | undefined;
-  let lastSequence = 0;
+  let lastSequence = runtimeLatestEventSequence;
 
   const poll = async () => {
     try {
-      const response = bridge.Events ? await bridge.Events() : await runtimeFetch<RuntimeEventsResponseDTO>('/v1/events');
+      const response = bridge.Events ? await bridge.Events(lastSequence) : await runtimeFetch<RuntimeEventsResponseDTO>(runtimeEventsPath(lastSequence));
       if (closed) {
         return;
       }
       const events = Array.isArray(response.events) ? response.events : [];
       for (const event of events) {
-        const sequence = typeof event.sequence === 'number' ? event.sequence : 0;
-        if (sequence > lastSequence) {
-          lastSequence = sequence;
-          onEvent({
-            sequence,
-            type: event.type,
-            sessionId: event.sessionId,
-            turnId: event.turnId,
-          });
+        const viewEvent = mapRuntimeEvent(event);
+        const nextSequence = nextRuntimeEventCursor(lastSequence, viewEvent);
+        if (nextSequence > lastSequence) {
+          lastSequence = nextSequence;
+          runtimeLatestEventSequence = nextRuntimeEventCursor(runtimeLatestEventSequence, viewEvent);
+          onEvent(viewEvent);
         }
       }
     } catch {
@@ -1428,15 +1436,32 @@ function subscribeRuntimeEventsByPolling(bridge: RuntimeBridgeModule, onEvent: (
 function parseRuntimeEventMessage(data: string): RuntimeEventViewModel {
   try {
     const event = JSON.parse(data) as RuntimeEventDTO;
-    return {
-      sequence: event.sequence,
-      type: event.type,
-      sessionId: event.sessionId,
-      turnId: event.turnId,
-    };
+    return mapRuntimeEvent(event);
   } catch {
     return {};
   }
+}
+
+function mapRuntimeEvent(event: RuntimeEventDTO): RuntimeEventViewModel {
+  return {
+    sequence: event.sequence,
+    type: event.type,
+    sessionId: event.sessionId ?? event.session_id,
+    turnId: event.turnId ?? event.turn_id,
+    toolCallId: event.toolCallId ?? event.tool_call_id,
+    createdAt: event.createdAt ?? event.created_at,
+  };
+}
+
+function nextRuntimeEventCursor(current: number, event: RuntimeEventViewModel) {
+  return typeof event.sequence === 'number' && Number.isFinite(event.sequence) && event.sequence > current ? event.sequence : current;
+}
+
+function runtimeEventsPath(after?: number) {
+  if (!after || after <= 0) {
+    return '/v1/events';
+  }
+  return `/v1/events?after=${encodeURIComponent(String(after))}`;
 }
 
 const runtimeHTTPBridge: RuntimeBridgeModule = {
@@ -1549,7 +1574,7 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
   MCPResources: (name) => runtimeFetch<RuntimeMCPResourcesResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/resources`),
   MCPPrompts: (name) => runtimeFetch<RuntimeMCPPromptsResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/prompts`),
   EventsEndpoint: () => Promise.resolve(runtimeHTTPEventsEndpoint()),
-  Events: () => runtimeFetch<RuntimeEventsResponseDTO>('/v1/events'),
+  Events: (after) => runtimeFetch<RuntimeEventsResponseDTO>(runtimeEventsPath(after)),
   CancelTurn: (turnID) =>
     runtimeFetch<RuntimeStatusDTO>(`/v1/turns/${encodeURIComponent(turnID)}/cancel`, {
       method: 'POST',
