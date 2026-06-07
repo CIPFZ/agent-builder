@@ -232,3 +232,34 @@ Frontend/backend rules remain unchanged:
   from assistant prose.
 - Phase 6.1 does not add a runtime Run store, database migration, frontend Run
   UI, automatic resume, or persisted interrupted acknowledgement field.
+
+## 2026-06-07: Phase 6.2 Wails Packaged Smoke
+
+Phase 6.2 adds a focused packaged desktop/Wails bridge smoke without adding Run
+state.
+
+The packaged smoke is `desktop/scripts/phase62-wails-packaged-smoke.ps1`. It
+uses `AGENT_BUILDER_DESKTOP_ROOT` under `tmp/runtime-dev`, starts
+`desktop/bin/AgentBuilder.exe`, and verifies the packaged runtime creates its
+desktop runtime directories there. It also runs a desktop bridge contract test
+covering `NewChat`, draft `Chat`, `Events(after)`, `SessionActivity`, and
+`MarkInterruptedDone`.
+
+Frontend/backend rules remain unchanged:
+
+- `SessionActivity` is still the source of truth for timeline, diagnostics, and
+  interrupted recovery UX.
+- Runtime events still only trigger hydration refreshes.
+- The one-shot new-chat guard is request hygiene; it is not a frontend-owned
+  session state source.
+- React must not infer produced artifacts, checkpoint state, or recovery state
+  from assistant prose.
+- Phase 6.2 does not add a runtime Run store, database migration, frontend Run
+  UI, automatic resume, stale tool recovery, or a persisted interrupted
+  acknowledgement field.
+
+Coverage boundary:
+
+- The smoke covers packaged executable startup and Wails bridge method
+  contract. It is not a full WebView click-through automation and does not
+  replace future live packaged long-turn validation.

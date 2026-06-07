@@ -1210,8 +1210,19 @@ Planned follow-up phases:
   - Preserve the Phase 6.1 boundary: no Run state machine, runtime Run store,
     database migration, frontend Run UI, automatic resume, or prose-derived
     artifact inference.
+- Phase 6.6: Packaged WebView/live long-turn validation.
+  - Add a repeatable packaged desktop WebView click-through smoke when a stable
+    UI automation hook is available for the Wails WebView.
+  - Exercise a real packaged long-running turn with a live or deterministic
+    provider through the packaged frontend, including new-chat handoff,
+    interrupted recovery hydration, event-triggered refresh, and
+    `MarkInterruptedDone`.
+  - Keep all validation artifacts under `tmp/runtime-dev`.
+  - Preserve the current boundary: no Run state machine, runtime Run store,
+    database migration, frontend Run UI, automatic resume, stale tool recovery,
+    or assistant-prose artifact inference.
 - Phase 7 candidate: Additive Run DTO/API prototype.
-  - Only after Phase 6.1 through Phase 6.5 are reviewed.
+  - Only after Phase 6.1 through Phase 6.6 are reviewed.
   - Start with a read-only runtime DTO assembled from existing turns, tasks,
     diagnostics, permissions, tool calls, and refs.
   - Include virtual URI and non-local artifact handles as metadata-only Run DTO
@@ -1316,6 +1327,74 @@ Remaining risks:
   filesystem verification only applies to explicit local paths. Virtual URIs
   and non-local artifact handles remain metadata-only in this phase.
 
+### Phase 6.2: Wails Packaged Handoff/Recovery Smoke
+
+Status: implemented for the focused packaged desktop/Wails bridge smoke. This
+is not a Run implementation.
+
+Scope:
+
+- Exercise the packaged desktop path and the Wails `RuntimeBridge` contract,
+  not the HTTP/Vite development transport.
+- Keep `SessionActivity` as the source of truth for timeline, diagnostics, and
+  interrupted recovery UX.
+- Keep runtime events as refresh triggers only.
+- Preserve current interrupted semantics:
+  - no automatic resume
+  - no stale running/waiting tool after restart recovery
+  - pending-at-interruption remains a computed diagnostics signal
+  - `MarkInterruptedDone` / cancelled terminal status remains the
+    acknowledgement mechanism
+- Do not add a runtime Run store, Run state machine, Run database migration, or
+  frontend Run UI.
+
+Implemented:
+
+- Added `desktop/scripts/phase62-wails-packaged-smoke.ps1`.
+- The smoke script builds the shared React assets and packaged
+  `desktop/bin/AgentBuilder.exe` when requested, starts the packaged
+  executable with `AGENT_BUILDER_DESKTOP_ROOT` under
+  `tmp/runtime-dev`, and verifies the packaged runtime creates its `config`,
+  `data`, and `logs` directories there.
+- Added `TestRuntimeBridgePhase62PackagedHandoffRecoveryContract` in the
+  desktop package. The test exercises the Wails bridge-facing methods used by
+  the packaged client:
+  - `NewChat`
+  - draft `Chat` without a stale session id
+  - `Events(after)` cursor forwarding
+  - `SessionActivity`
+  - `MarkInterruptedDone`
+- The bridge contract fixture verifies interrupted recovery data is consumed
+  from hydrated `SessionActivity`, stale running/waiting tools are not exposed,
+  `MarkInterruptedDone` keeps cancelled terminal acknowledgement semantics, and
+  prose-only artifact paths are not treated as produced artifact evidence.
+
+Validation:
+
+- `go test . -run TestRuntimeBridgePhase62PackagedHandoffRecoveryContract -count=1`
+  from `desktop`.
+
+Guarantees now covered:
+
+- The packaged executable can start through the Wails desktop shell with its
+  runtime root redirected into `tmp/runtime-dev`.
+- The Wails bridge exposes the new-chat handoff and interrupted recovery method
+  surface needed by the packaged frontend.
+- Event cursors cross the Wails bridge and remain suitable only as hydration
+  refresh triggers.
+- Interrupted recovery display data still comes from `SessionActivity`; the
+  bridge does not introduce a frontend-owned recovery source.
+
+Remaining risks:
+
+- The smoke is not a full WebView click-through automation. It validates
+  packaged executable startup plus the Wails bridge contract used by the
+  packaged frontend.
+- It does not exercise a live external provider or a real long-running
+  packaged UI turn. Those remain separate manual or live smoke risks.
+- It does not add narrow activity hydration, Run DTOs, Run persistence, or Run
+  UI. Very large session hydration remains a later Phase 6.4 design topic.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -1363,14 +1442,16 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Proceed to Phase 6.1 planning only after the Phase 6 design gate is reviewed.
+Review Phase 6.3 pending-at-interruption lifecycle semantics before any
+additional persistence or UX state is added.
 
 Reason:
 
-- Phase 1.1 through Phase 5.1 are implemented and validated for the current
-  runtime slice.
-- Phase 6 intentionally stopped at a Run contract/design gate and did not
-  implement a Run state machine.
-- The next risk to close is an external MCP server end-to-end interrupted
-  structured refs fixture, followed by Wails packaged smoke coverage and
-  pending-at-interruption lifecycle semantics.
+- Phase 6 remains a Run contract/design gate and still has not implemented a
+  Run state machine.
+- Phase 6.1 closed the external stdio MCP interrupted structured-ref fixture.
+- Phase 6.2 added packaged desktop/Wails bridge smoke coverage for new-chat
+  handoff and interrupted recovery method paths.
+- The next unresolved semantic risk is whether pending-at-interruption should
+  stay computed diagnostics or needs an explicit persisted recovery lifecycle
+  field.

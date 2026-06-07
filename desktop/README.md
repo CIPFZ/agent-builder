@@ -78,3 +78,17 @@ instead of a checked-in file:
 $env:DEEPSEEK_API_KEY="..."
 .\scripts\phase2-smoke.ps1 -Build -Live
 ```
+
+## Phase 6.2 Wails Packaged Handoff/Recovery Smoke
+
+Run the focused packaged desktop/Wails bridge smoke from the desktop project:
+
+```powershell
+.\scripts\phase62-wails-packaged-smoke.ps1 -Build
+```
+
+The script builds `bin/AgentBuilder.exe` when requested, uses
+`../tmp/runtime-dev` for its temporary runtime root, starts the packaged
+executable, and runs the desktop bridge contract test for new-chat handoff,
+event cursor forwarding, `SessionActivity` interrupted recovery hydration, and
+`MarkInterruptedDone` acknowledgement semantics.

@@ -86,6 +86,113 @@ func TestRuntimeBridgeForwardsEventsCursor(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgePhase62PackagedHandoffRecoveryContract(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		status: RuntimeStatus{SessionID: "session-new"},
+		activity: RuntimeSessionActivityResponse{
+			SessionID: "session-new",
+			Turns: []RuntimeTurn{{
+				ID:        "turn-interrupted",
+				SessionID: "session-new",
+				Status:    "interrupted",
+				Diagnostics: runtime.RuntimeTurnDiagnostics{
+					ProducedArtifacts: []string{"tmp/runtime-dev/phase62-structured.json"},
+				},
+				Interrupted: &runtime.RuntimeInterruptedSummary{
+					TurnID:    "turn-interrupted",
+					SessionID: "session-new",
+					PendingTool: runtime.RuntimeInterruptedToolSummary{
+						ID:     "tool-stale",
+						Name:   "bash",
+						Status: "cancelled",
+					},
+					ProducedArtifacts: []string{"tmp/runtime-dev/phase62-structured.json"},
+				},
+			}},
+			ToolCalls: []RuntimeToolCall{{
+				ID:        "tool-stale",
+				SessionID: "session-new",
+				TurnID:    "turn-interrupted",
+				Name:      "bash",
+				Status:    "cancelled",
+			}},
+		},
+		eventsResponse: RuntimeEventsResponse{
+			Events: []RuntimeEvent{{
+				Sequence:  7,
+				Type:      "turn.interrupted",
+				SessionID: "session-new",
+				TurnID:    "turn-interrupted",
+			}},
+		},
+		markInterruptedDoneResponse: RuntimeTurnResponse{
+			Turn: RuntimeTurn{ID: "turn-interrupted", SessionID: "session-new", Status: "cancelled"},
+		},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	if _, err := bridge.NewChat(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if service.newChatTitle != "" {
+		t.Fatalf("new chat title = %q, want empty draft title", service.newChatTitle)
+	}
+
+	chat, err := bridge.Chat(context.Background(), RuntimeChatRequest{Prompt: "phase62 packaged handoff"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(service.chatRequests) != 1 || service.chatRequests[0].SessionID != "" {
+		t.Fatalf("new-chat handoff should submit a draft chat without stale session id: %#v", service.chatRequests)
+	}
+	if chat.Status.SessionID != "session-new" || chat.TurnID != "turn-new" {
+		t.Fatalf("chat response = %#v", chat)
+	}
+
+	events, err := bridge.Events(context.Background(), 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.eventsAfter != 6 {
+		t.Fatalf("events cursor = %d, want 6", service.eventsAfter)
+	}
+	if len(events.Events) != 1 || events.Events[0].Type != "turn.interrupted" {
+		t.Fatalf("events should be lifecycle refresh triggers: %#v", events.Events)
+	}
+
+	activity, err := bridge.SessionActivity(context.Background(), "session-new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.sessionActivityID != "session-new" {
+		t.Fatalf("session activity id = %q", service.sessionActivityID)
+	}
+	if len(activity.Turns) != 1 || activity.Turns[0].Interrupted == nil {
+		t.Fatalf("interrupted recovery should hydrate from SessionActivity: %#v", activity.Turns)
+	}
+	if len(activity.ToolCalls) != 1 || activity.ToolCalls[0].Status != "cancelled" {
+		t.Fatalf("stale running/waiting tool was restored: %#v", activity.ToolCalls)
+	}
+	for _, produced := range activity.Turns[0].Diagnostics.ProducedArtifacts {
+		if produced == "tmp/runtime-dev/phase62-prose-only.json" {
+			t.Fatalf("assistant prose-only artifact was treated as runtime evidence: %#v", activity.Turns[0].Diagnostics)
+		}
+	}
+
+	done, err := bridge.MarkInterruptedDone(context.Background(), "turn-interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.markInterruptedDoneID != "turn-interrupted" {
+		t.Fatalf("mark interrupted done id = %q", service.markInterruptedDoneID)
+	}
+	if done.Turn.Status != "cancelled" {
+		t.Fatalf("MarkInterruptedDone should preserve cancelled terminal acknowledgement semantics: %#v", done.Turn)
+	}
+}
+
 func TestRuntimeBridgeForwardsMCPRequestDecision(t *testing.T) {
 	t.Parallel()
 
@@ -105,16 +212,24 @@ func TestRuntimeBridgeForwardsMCPRequestDecision(t *testing.T) {
 }
 
 type recordingRuntimeService struct {
-	chatCalls           int
-	refreshedCapability string
-	toolSearchQuery     string
-	replayExportRequest runtime.RuntimeReplayExportRequest
-	mcpRequestDecision  runtime.RuntimeMCPRequestDecision
-	eventsAfter         int64
+	chatCalls                   int
+	chatRequests                []RuntimeChatRequest
+	refreshedCapability         string
+	toolSearchQuery             string
+	replayExportRequest         runtime.RuntimeReplayExportRequest
+	mcpRequestDecision          runtime.RuntimeMCPRequestDecision
+	eventsAfter                 int64
+	status                      RuntimeStatus
+	activity                    RuntimeSessionActivityResponse
+	eventsResponse              RuntimeEventsResponse
+	newChatTitle                string
+	sessionActivityID           string
+	markInterruptedDoneID       string
+	markInterruptedDoneResponse RuntimeTurnResponse
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
-	return RuntimeStatus{}, nil
+	return s.status, nil
 }
 
 func (s *recordingRuntimeService) RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error) {
@@ -177,9 +292,10 @@ func (s *recordingRuntimeService) VerifyModelConfig(context.Context, RuntimeMode
 	return RuntimeModelVerifyResponse{}, nil
 }
 
-func (s *recordingRuntimeService) Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error) {
+func (s *recordingRuntimeService) Chat(_ context.Context, req RuntimeChatRequest) (RuntimeChatResponse, error) {
 	s.chatCalls++
-	return RuntimeChatResponse{RequestID: "request-1", TurnID: "request-1"}, nil
+	s.chatRequests = append(s.chatRequests, req)
+	return RuntimeChatResponse{RequestID: "request-1", TurnID: "turn-new", Status: RuntimeStatus{SessionID: "session-new"}}, nil
 }
 
 func (s *recordingRuntimeService) Turn(context.Context, string) (RuntimeTurnResponse, error) {
@@ -334,8 +450,9 @@ func (s *recordingRuntimeService) SessionMessages(context.Context, string) (Runt
 	return RuntimeMessagesResponse{}, nil
 }
 
-func (s *recordingRuntimeService) SessionActivity(context.Context, string) (RuntimeSessionActivityResponse, error) {
-	return RuntimeSessionActivityResponse{}, nil
+func (s *recordingRuntimeService) SessionActivity(_ context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {
+	s.sessionActivityID = sessionID
+	return s.activity, nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {
@@ -358,7 +475,7 @@ func (s *recordingRuntimeService) Events(_ context.Context, afterValues ...int64
 	if len(afterValues) > 0 {
 		s.eventsAfter = afterValues[0]
 	}
-	return RuntimeEventsResponse{}, nil
+	return s.eventsResponse, nil
 }
 
 func (s *recordingRuntimeService) EventsEndpoint(context.Context) (RuntimeEventsEndpointResponse, error) {
@@ -500,12 +617,14 @@ func (s *recordingRuntimeService) CancelTurn(context.Context, string) (RuntimeSt
 	return RuntimeStatus{}, nil
 }
 
-func (s *recordingRuntimeService) MarkInterruptedDone(context.Context, string) (RuntimeTurnResponse, error) {
-	return RuntimeTurnResponse{}, nil
+func (s *recordingRuntimeService) MarkInterruptedDone(_ context.Context, turnID string) (RuntimeTurnResponse, error) {
+	s.markInterruptedDoneID = turnID
+	return s.markInterruptedDoneResponse, nil
 }
 
-func (s *recordingRuntimeService) NewChat(context.Context, string) (RuntimeStatus, error) {
-	return RuntimeStatus{}, nil
+func (s *recordingRuntimeService) NewChat(_ context.Context, title string) (RuntimeStatus, error) {
+	s.newChatTitle = title
+	return s.status, nil
 }
 
 var _ runtime.RuntimeService = (*recordingRuntimeService)(nil)
