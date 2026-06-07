@@ -1889,6 +1889,54 @@ Acceptance:
 - Frontend adapter can use narrow hydration after lifecycle events while
   falling back to full `SessionActivity`.
 
+### Phase 6.8: Hosted MCP Replay/Auth/Elicitation Follow-up
+
+Status: planned after Phase 6.7 narrow hydration parity is implemented or
+explicitly deferred. This remains a validation/hardening phase, not a Run
+implementation.
+
+Scope:
+
+- Revisit the Phase 6.6 live-provider risks that could not be closed with
+  deterministic repo fixtures:
+  - successful streamable HTTP disconnect/replay after the SDK or provider path
+    records completed output
+  - legacy SSE disconnect/replay behavior where a deterministic SDK close hook
+    is unavailable
+  - hosted/provider-specific OAuth flows
+  - hosted/provider-specific elicitation flows
+- Prefer deterministic local fixtures when the SDK exposes stable hooks. If a
+  provider requires credentials or browser-mediated OAuth, use a manual smoke
+  checklist instead of storing secrets or auth state in repo fixtures.
+- Preserve current recovery boundaries:
+  - no automatic resume
+  - no stale running/waiting tool recovery
+  - no restored actionable permission gate after restart recovery
+  - no restored actionable MCP auth or elicitation request after restart
+  - pending-at-interruption remains computed diagnostics
+  - `MarkInterruptedDone` / cancelled terminal status remains the interrupted
+    acknowledgement mechanism
+- Do not add a runtime Run store, Run state machine, Run database migration,
+  frontend Run UI, persisted interrupted acknowledgement field, or
+  prose-derived artifact/checkpoint inference.
+
+Acceptance:
+
+- A successful replay case, when available, proves that only completed
+  scheduler output contributes produced refs after restart.
+- A failed/disconnected replay case proves the unfinished tool is cancelled and
+  no artifact is inferred from partial transport state.
+- Hosted auth and elicitation smoke results document:
+  - provider and transport
+  - auth or elicitation setup without secrets
+  - runtime MCP request status before restart
+  - restart timing
+  - `SessionActivity` diagnostics/interrupted state after restart
+  - confirmation that no stale MCP request or permission is actionable after
+    restart
+- If provider automation is not safe, the phase records an explicit manual
+  validation gap and keeps the runtime/frontend boundaries unchanged.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -1936,7 +1984,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Proceed to Phase 6.6 live HTTP/SSE MCP restart and hosted-flow validation.
+Proceed to Phase 6.7 narrow activity hydration implementation.
 
-Do not start Run persistence or Run UI before Phase 6.6 and Phase 6.7 risks are
-explicitly accepted or closed.
+Do not start Run persistence or Run UI before Phase 6.7 parity is validated and
+the Phase 6.8 hosted MCP replay/auth/elicitation follow-up risks are explicitly
+accepted or closed.
