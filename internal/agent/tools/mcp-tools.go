@@ -2,8 +2,10 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
@@ -145,6 +147,27 @@ func (m *Tool) Run(ctx context.Context, params fantasy.ToolCall) (fantasy.ToolRe
 		response.Content = result.Content
 		return response, nil
 	default:
-		return fantasy.NewTextResponse(result.Content), nil
+		response := fantasy.NewTextResponse(result.Content)
+		if looksLikeStructuredMCPText(result.Content) {
+			response.Metadata = result.Content
+		}
+		return response, nil
+	}
+}
+
+func looksLikeStructuredMCPText(content string) bool {
+	trimmed := strings.TrimSpace(content)
+	if !(strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) {
+		return false
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+		return false
+	}
+	switch decoded.(type) {
+	case map[string]any, []any:
+		return true
+	default:
+		return false
 	}
 }

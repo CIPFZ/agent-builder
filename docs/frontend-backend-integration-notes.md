@@ -211,3 +211,24 @@ Follow-up validation before implementation:
 - Pending-at-interruption lifecycle semantics review.
 - Narrow session-scoped and turn-scoped hydration design for very large
   sessions.
+
+## 2026-06-07: Phase 6.1 External MCP Structured Refs
+
+Phase 6.1 closes the external MCP interrupted structured-ref fixture gap without
+adding Run state.
+
+The runtime now has an end-to-end stdio MCP fixture where a fake provider calls
+a real external MCP tool, the MCP tool returns machine-readable JSON artifact
+refs, the turn is interrupted before final assistant completion, and hydrated
+`SessionActivity` restores diagnostics, target/display metadata, runtime
+artifact refs, and the interrupted recovery summary.
+
+Frontend/backend rules remain unchanged:
+
+- `SessionActivity` is still the source of truth for timeline, diagnostics, and
+  interrupted recovery UX.
+- Runtime events still only trigger hydration refreshes.
+- React must not infer produced artifacts, Run checkpoints, or recovery state
+  from assistant prose.
+- Phase 6.1 does not add a runtime Run store, database migration, frontend Run
+  UI, automatic resume, or persisted interrupted acknowledgement field.

@@ -1199,10 +1199,23 @@ Planned follow-up phases:
     sessions.
   - Preserve `SessionActivity` as the canonical current aggregate until the
     narrower reads are implemented and validated.
+- Phase 6.5: MCP transport and native structured-content hardening.
+  - Extend the Phase 6.1 fixture beyond stdio MCP to streamable HTTP MCP and
+    SSE MCP, including restart/interruption timing around structured refs.
+  - Cover hosted/provider-specific MCP auth and elicitation flows before
+    promoting external MCP artifact refs to a broader production guarantee.
+  - Capture native MCP `structuredContent` directly in the Go client wrapper
+    instead of relying on servers to mirror the same JSON payload as text
+    content.
+  - Preserve the Phase 6.1 boundary: no Run state machine, runtime Run store,
+    database migration, frontend Run UI, automatic resume, or prose-derived
+    artifact inference.
 - Phase 7 candidate: Additive Run DTO/API prototype.
-  - Only after Phase 6.1 through Phase 6.4 are reviewed.
+  - Only after Phase 6.1 through Phase 6.5 are reviewed.
   - Start with a read-only runtime DTO assembled from existing turns, tasks,
     diagnostics, permissions, tool calls, and refs.
+  - Include virtual URI and non-local artifact handles as metadata-only Run DTO
+    inputs unless or until a transport-specific verifier exists.
   - Defer migrations, background Run scheduler, and frontend Run UI until the
     DTO proves useful.
 
@@ -1225,6 +1238,83 @@ Validation:
   validation records in this document.
 - Documentation-only gate; no full Go/frontend test run is required unless code
   changes are made.
+
+### Phase 6.1: External MCP Interrupted Structured Refs Fixture
+
+Status: implemented for the focused external MCP interrupted structured-ref
+fixture. This is not a Run implementation.
+
+Scope:
+
+- Close the Phase 5.1 close-live fixture gap with a real external stdio MCP
+  server path.
+- Keep `SessionActivity` as the source of truth for timeline, diagnostics, and
+  interrupted recovery.
+- Keep runtime events as refresh triggers only.
+- Preserve current interrupted semantics:
+  - no automatic resume
+  - no stale running/waiting tool after restart recovery
+  - pending-at-interruption remains computed diagnostics
+  - `MarkInterruptedDone` / cancelled terminal status remains the
+    acknowledgement mechanism
+- Do not add a runtime Run store, Run state machine, Run database migration, or
+  frontend Run UI.
+
+Implemented:
+
+- Added a runtime test fixture that writes an external stdio MCP server script
+  under `tmp/runtime-dev/phase61-tests`.
+- The fixture runs through the real runtime/backend/agent/scheduler/MCP tool
+  path:
+  - a fake OpenAI-compatible provider requests the discovered
+    `mcp_phase61_structured_artifact` tool
+  - the external MCP server creates a local artifact under `tmp/runtime-dev`
+    and returns machine-readable JSON artifact refs and target metadata
+  - the fake provider blocks the post-tool model request so the turn remains
+    unfinished after structured refs have been produced
+  - restart recovery interrupts the turn and cancels unfinished live tool state
+  - hydrated `SessionActivity` rebuilds the interrupted turn, diagnostics, tool
+    display metadata, structured artifact evidence, and recovery summary
+- MCP text results that are themselves JSON objects or arrays are now copied
+  into tool response metadata. This lets the existing runtime scheduler create
+  structured artifact refs and diagnostics from machine-readable MCP output
+  without parsing prose.
+
+Validation:
+
+- `go test ./internal/runtime -run TestRuntimeExternalMCPInterruptedStructuredRefsFixture -count=1`
+- `go test ./internal/agent/tools -count=1`
+- `go test ./internal/runtime`
+- `go test ./...`
+
+Guarantees now covered:
+
+- External stdio MCP structured JSON output can contribute produced artifacts
+  and runtime artifact refs through the end-to-end tool path.
+- Hydrated `SessionActivity` restores:
+  - interrupted turn status
+  - produced and verified local artifact path
+  - runtime artifact refs
+  - target/display metadata for the MCP tool
+  - diagnostics structured MCP/custom artifact confidence
+  - interrupted recovery artifact summary
+- Assistant/user prose-only paths are not counted as produced structured refs.
+  Only machine-readable tool output, runtime refs, tool/display metadata, and
+  filesystem verification contribute artifact evidence.
+- Runtime restart recovery does not restore stale running or waiting tool
+  calls.
+
+Remaining risks:
+
+- The fixture validates stdio MCP and JSON text output. It does not yet cover
+  streamable HTTP MCP, SSE MCP, hosted/provider-specific MCP auth, or
+  elicitation flows.
+- The MCP Go client wrapper still primarily exposes text/media content to the
+  scheduler. Standard MCP `structuredContent` is covered here only when the
+  server also returns the same machine-readable JSON as text content.
+- Runtime refs prove structured MCP output was captured, while local
+  filesystem verification only applies to explicit local paths. Virtual URIs
+  and non-local artifact handles remain metadata-only in this phase.
 
 ## Validation Scenarios
 

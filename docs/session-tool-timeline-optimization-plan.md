@@ -398,10 +398,10 @@ Follow-up before the next timeline/runtime phase:
   permission diagnostics, and nonzero shell interrupted recovery.
 - Phase 5.1 fixed the new-chat active-session handoff; the next prompt after
   new chat no longer reuses the previous session id.
-- Phase 5.1 added a close-live MCP/custom structured-ref interrupted fixture
-  that validates hydrated `SessionActivity` and the browser UI. A true external
-  MCP server end-to-end fixture is still useful before promoting generic tool
-  artifact refs to a stronger production guarantee.
+- Phase 6.1 replaced the remaining close-live MCP/custom structured-ref gap
+  with an external stdio MCP end-to-end interrupted fixture. The timeline,
+  diagnostics, and interrupted recovery surfaces still hydrate from
+  `SessionActivity`; runtime events remain refresh triggers only.
 
 ### Phase 7: Run Design Gate Follow-up
 
@@ -414,5 +414,5 @@ Status: planned only after the long-conversation hardening Phase 6 design gate.
 - Runtime events remain refresh triggers only.
 - Before any Run UI or runtime store is implemented, close the external MCP
   interrupted structured refs fixture, Wails packaged new-chat/recovery smoke,
-  pending-at-interruption lifecycle semantics, and narrow hydration design
-  follow-ups.
+  pending-at-interruption lifecycle semantics, narrow hydration design, and MCP
+  transport/native `structuredContent` follow-ups.
