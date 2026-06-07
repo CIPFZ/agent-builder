@@ -213,6 +213,13 @@ func (r *runtimeService) SessionActivity(ctx context.Context, sessionID string) 
 			}
 		}
 	}
+	toolCallsByTurn := map[string][]RuntimeToolCall{}
+	for _, call := range toolCalls {
+		toolCallsByTurn[call.TurnID] = append(toolCallsByTurn[call.TurnID], call)
+	}
+	for i := range turns {
+		turns[i].Diagnostics = buildRuntimeTurnDiagnostics(turns[i], messages.Messages, toolCallsByTurn[turns[i].ID])
+	}
 
 	var permissions []RuntimePermissionRequest
 	if r.permissionStore.db != nil {

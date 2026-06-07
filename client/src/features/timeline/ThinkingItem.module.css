@@ -1,34 +1,71 @@
 .thinking {
   width: min(720px, 94%);
-  color: rgb(13 13 13 / 72%);
+  margin: 1px 0;
+  padding-left: 28px;
+  color: rgb(13 13 13 / 66%);
   font-size: 13px;
-}
-
-.thinking :global(.ant-collapse-header) {
-  align-items: center;
-  padding: 4px 0 !important;
-}
-
-.thinking :global(.ant-collapse-content-box) {
-  padding: 4px 0 8px 24px !important;
 }
 
 .label {
   display: inline-flex;
+  min-height: 28px;
   align-items: center;
   gap: 8px;
-  min-height: 28px;
   color: rgb(13 13 13 / 58%);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.label :global(.anticon) {
+  color: rgb(13 13 13 / 46%);
+  font-size: 13px;
 }
 
 .label :global(.ant-tag) {
   margin-inline-end: 0;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
 }
 
 .content {
   max-width: 680px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f6f6f6;
   color: rgb(13 13 13 / 66%);
+  font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.thinking :global(.ant-collapse-header) {
+  align-items: center !important;
+  padding: 2px 0 !important;
+}
+
+.thinking :global(.ant-collapse-expand-icon) {
+  height: 28px !important;
+  padding-inline-start: 6px !important;
+  color: rgb(13 13 13 / 36%);
+}
+
+.thinking :global(.ant-collapse-content-box) {
+  padding: 2px 4px 4px 21px !important;
+}
+
+.thinking :global(.ant-collapse-item) {
+  border: 0 !important;
+}
+
+@media (max-width: 720px) {
+  .thinking {
+    width: 100%;
+    padding-left: 18px;
+  }
+
+  .thinking :global(.ant-collapse-content-box) {
+    padding-left: 18px !important;
+  }
 }

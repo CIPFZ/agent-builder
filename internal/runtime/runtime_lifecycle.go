@@ -288,6 +288,10 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to recover runtime hook executions: %w", err)
 	}
+	interruptedToolCalls, err := cancelUnfinishedRuntimeToolCalls(ctx, r.toolCalls, conn)
+	if err != nil {
+		return fmt.Errorf("failed to recover runtime tool calls: %w", err)
+	}
 	recoveredWorktrees, err := r.recoverWorktrees(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to recover runtime worktrees: %w", err)
@@ -330,6 +334,28 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 				"provider":     turn.Provider,
 				"model":        turn.Model,
 				"error":        turn.Error,
+			},
+		})
+	}
+	for _, call := range interruptedToolCalls {
+		r.storeRuntimeEvent(runtimeToolCallEvent(runtimeapi.EventToolCallCancelled, call, map[string]any{
+			"name":    call.Name,
+			"summary": "runtime restarted",
+			"status":  string(call.Status),
+		}))
+		_ = newRuntimeAuditStore(conn).Append(ctx, RuntimeAuditEvent{
+			ID:         newRuntimeEventID(),
+			SessionID:  call.SessionID,
+			TurnID:     call.TurnID,
+			ToolCallID: call.ID,
+			Type:       "tool_call_cancelled",
+			CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+			Payload: map[string]any{
+				"event":      "tool_call_cancelled",
+				"reason":     "runtime restarted",
+				"status":     string(call.Status),
+				"tool_name":  call.Name,
+				"tool_input": call.InputSummary,
 			},
 		})
 	}

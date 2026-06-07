@@ -14,7 +14,10 @@ import (
 //go:embed todos.md
 var todosDescription string
 
-const TodosToolName = "todos"
+const (
+	TodosToolName     = "todos"
+	TodosSpanToolName = "todospan"
+)
 
 type TodosParams struct {
 	Todos []TodoItem `json:"todos" description:"The updated todo list"`
@@ -56,9 +59,17 @@ func SubscribeTodoUpdates(ctx context.Context) <-chan pubsub.Event[TodoUpdatedEv
 }
 
 func NewTodosTool(sessions session.Service) fantasy.AgentTool {
+	return newTodosTool(TodosToolName, todosDescription, sessions)
+}
+
+func NewTodosSpanTool(sessions session.Service) fantasy.AgentTool {
+	return newTodosTool(TodosSpanToolName, todosDescription, sessions)
+}
+
+func newTodosTool(name, description string, sessions session.Service) fantasy.AgentTool {
 	return fantasy.NewAgentTool(
-		TodosToolName,
-		todosDescription,
+		name,
+		description,
 		func(ctx context.Context, params TodosParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 			sessionID := GetSessionFromContext(ctx)
 			if sessionID == "" {

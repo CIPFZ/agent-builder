@@ -475,9 +475,9 @@ func TestRuntimeHTTPServerRoutesToolCallQueriesToRuntimeService(t *testing.T) {
 	t.Parallel()
 
 	service := &recordingRuntimeService{
-		toolCall: RuntimeToolCallResponse{ToolCall: RuntimeToolCall{ID: "tool-1", TurnID: "turn-1", Name: "bash"}},
+		toolCall: RuntimeToolCallResponse{ToolCall: RuntimeToolCall{ID: "tool-1", TurnID: "turn-1", Name: "bash", Display: RuntimeToolCallDisplay{Kind: "shell", Title: "已运行 1 条命令"}}},
 		toolCalls: RuntimeToolCallsResponse{ToolCalls: []RuntimeToolCall{
-			{ID: "tool-1", TurnID: "turn-1", Name: "bash"},
+			{ID: "tool-1", TurnID: "turn-1", Name: "bash", Display: RuntimeToolCallDisplay{Kind: "shell", Title: "已运行 1 条命令"}},
 		}},
 	}
 	server := newRuntimeHTTPServer(service)
@@ -495,7 +495,7 @@ func TestRuntimeHTTPServerRoutesToolCallQueriesToRuntimeService(t *testing.T) {
 	if err := json.Unmarshal(resp.body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list.ToolCalls) != 1 || list.ToolCalls[0].ID != "tool-1" {
+	if len(list.ToolCalls) != 1 || list.ToolCalls[0].ID != "tool-1" || list.ToolCalls[0].Display.Kind != "shell" {
 		t.Fatalf("tool calls = %#v", list.ToolCalls)
 	}
 
@@ -512,7 +512,7 @@ func TestRuntimeHTTPServerRoutesToolCallQueriesToRuntimeService(t *testing.T) {
 	if err := json.Unmarshal(resp.body.Bytes(), &detail); err != nil {
 		t.Fatal(err)
 	}
-	if detail.ToolCall.ID != "tool-1" {
+	if detail.ToolCall.ID != "tool-1" || detail.ToolCall.Display.Title != "已运行 1 条命令" {
 		t.Fatalf("tool call = %#v", detail.ToolCall)
 	}
 }

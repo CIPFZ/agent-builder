@@ -80,3 +80,47 @@
 .progress[data-progress-status='cancelled'] {
   color: rgb(13 13 13 / 50%);
 }
+
+.toolProcessCluster {
+  display: grid;
+  gap: 4px;
+}
+
+.embeddedPermissions {
+  display: grid;
+  gap: 4px;
+  margin-top: -2px;
+}
+
+.diagnosticWarning {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  width: min(720px, 94%);
+  padding: 8px 10px;
+  border: 1px solid #ffe58f;
+  border-radius: 8px;
+  background: #fffbe6;
+  color: #5f4300;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.diagnosticIcon {
+  margin-top: 2px;
+  color: #d48806;
+}
+
+.diagnosticBody {
+  min-width: 0;
+}
+
+.diagnosticTitle {
+  font-weight: 600;
+}
+
+.diagnosticContent {
+  overflow-wrap: anywhere;
+  color: rgb(95 67 0 / 82%);
+}

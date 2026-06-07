@@ -61,7 +61,7 @@ export interface ConversationMessageViewModel {
   error?: string;
 }
 
-export type ConversationTimelineKind = 'message' | 'thinking' | 'tool_call' | 'permission' | 'progress';
+export type ConversationTimelineKind = 'message' | 'thinking' | 'tool_call' | 'permission' | 'progress' | 'diagnostic';
 
 export interface ConversationTimelineItemViewModel {
   id: string;
@@ -82,6 +82,22 @@ export interface ConversationTimelineItemViewModel {
   error?: string;
   toolCall?: ToolCallViewModel;
   permission?: PermissionRequestViewModel;
+  diagnostics?: TurnDiagnosticsViewModel;
+}
+
+export interface TurnDiagnosticsViewModel {
+  expectedArtifacts?: string[];
+  producedArtifacts?: string[];
+  verifiedArtifacts?: string[];
+  unverifiedArtifacts?: string[];
+  missingArtifacts?: string[];
+  artifactVerificationAt?: number;
+  failedToolCount?: number;
+  deniedToolCount?: number;
+  lastToolStatus?: string;
+  warning?: string;
+  warningReason?: string;
+  warningSource?: string;
 }
 
 export interface ToolCallViewModel {
@@ -101,8 +117,23 @@ export interface ToolCallViewModel {
   policyMode?: string;
   policyReason?: string;
   policyTargetSummary?: string;
+  display?: ToolCallDisplayViewModel;
+  exitCode?: number;
+  outputRefs?: string[];
+  artifactRefs?: string[];
+  diffRefs?: string[];
   startedAt?: number;
   finishedAt?: number;
+}
+
+export interface ToolCallDisplayViewModel {
+  kind?: 'file_read' | 'file_write' | 'file_edit' | 'file_search' | 'shell' | 'generic' | string;
+  title?: string;
+  detail?: string;
+  target?: string;
+  command?: string;
+  exitCode?: number;
+  durationMs?: number;
 }
 
 export interface PermissionRequestViewModel {
@@ -319,9 +350,17 @@ export interface WorkbenchViewModel {
   settings: SettingsViewModel;
 }
 
+export interface RuntimeEventViewModel {
+  sequence?: number;
+  type?: string;
+  sessionId?: string;
+  turnId?: string;
+}
+
 export interface WorkbenchAdapter {
   loadInitialViewModel: (mode?: WorkbenchMode) => Promise<WorkbenchViewModel>;
   refresh: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
+  subscribeRuntimeEvents?: (onEvent: (event: RuntimeEventViewModel) => void) => Promise<() => void> | (() => void);
   createSession: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
   selectSession: (current: WorkbenchViewModel, sessionID: string) => Promise<WorkbenchViewModel>;
   renameSession: (current: WorkbenchViewModel, sessionID: string, title: string) => Promise<WorkbenchViewModel>;

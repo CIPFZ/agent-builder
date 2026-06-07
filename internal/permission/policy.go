@@ -888,6 +888,10 @@ func splitShellStatements(command string) []string {
 			current.WriteRune(r)
 			continue
 		}
+		if r == '&' && previousNonSpaceRune(current.String()) == '>' {
+			current.WriteRune(r)
+			continue
+		}
 		if strings.ContainsRune(";&|\n", r) {
 			if text := strings.TrimSpace(current.String()); text != "" {
 				out = append(out, text)
@@ -904,6 +908,16 @@ func splitShellStatements(command string) []string {
 		return []string{command}
 	}
 	return out
+}
+
+func previousNonSpaceRune(value string) rune {
+	for i := len(value) - 1; i >= 0; i-- {
+		r := rune(value[i])
+		if r != ' ' && r != '\t' && r != '\r' && r != '\n' {
+			return r
+		}
+	}
+	return 0
 }
 
 func shellFields(statement string) []string {

@@ -27,10 +27,12 @@ var writeDescription string
 type WriteParams struct {
 	FilePath string `json:"file_path" description:"The path to the file to write"`
 	Content  string `json:"content" description:"The content to write to the file"`
+	Mode     string `json:"mode,omitempty" description:"Write mode: overwrite (default) or append"`
 }
 
 type WritePermissionsParams struct {
 	FilePath   string `json:"file_path"`
+	Mode       string `json:"mode,omitempty"`
 	OldContent string `json:"old_content,omitempty"`
 	NewContent string `json:"new_content,omitempty"`
 }
@@ -57,6 +59,10 @@ func NewWriteTool(
 			if params.FilePath == "" {
 				return fantasy.NewTextErrorResponse("file_path is required"), nil
 			}
+			mode := normalizeWriteMode(params.Mode)
+			if mode == "" {
+				return fantasy.NewTextErrorResponse("mode must be either overwrite or append"), nil
+			}
 
 			sessionID := GetSessionFromContext(ctx)
 			if sessionID == "" {
@@ -80,7 +86,7 @@ func NewWriteTool(
 				}
 
 				oldContent, readErr := os.ReadFile(filePath)
-				if readErr == nil && string(oldContent) == params.Content {
+				if mode == "overwrite" && readErr == nil && string(oldContent) == params.Content {
 					return fantasy.NewTextErrorResponse(fmt.Sprintf("File %s already contains the exact content. No changes made.", filePath)), nil
 				}
 			} else if !os.IsNotExist(err) {
@@ -99,10 +105,14 @@ func NewWriteTool(
 					oldContent = string(oldBytes)
 				}
 			}
+			newContent := params.Content
+			if mode == "append" {
+				newContent = oldContent + params.Content
+			}
 
 			diff, additions, removals := diff.GenerateDiff(
 				oldContent,
-				params.Content,
+				newContent,
 				strings.TrimPrefix(filePath, effectiveDir),
 			)
 
@@ -116,8 +126,9 @@ func NewWriteTool(
 					Description: fmt.Sprintf("Create file %s", filePath),
 					Params: WritePermissionsParams{
 						FilePath:   filePath,
+						Mode:       mode,
 						OldContent: oldContent,
-						NewContent: params.Content,
+						NewContent: newContent,
 					},
 				},
 			)
@@ -128,9 +139,23 @@ func NewWriteTool(
 				return NewPermissionDeniedResponse(), nil
 			}
 
-			err = os.WriteFile(filePath, []byte(params.Content), 0o644)
-			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("error writing file: %w", err)
+			if mode == "append" {
+				file, openErr := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+				if openErr != nil {
+					return fantasy.ToolResponse{}, fmt.Errorf("error opening file for append: %w", openErr)
+				}
+				if _, err = file.WriteString(params.Content); err != nil {
+					_ = file.Close()
+					return fantasy.ToolResponse{}, fmt.Errorf("error appending file: %w", err)
+				}
+				if err = file.Close(); err != nil {
+					return fantasy.ToolResponse{}, fmt.Errorf("error closing file: %w", err)
+				}
+			} else {
+				err = os.WriteFile(filePath, []byte(params.Content), 0o644)
+				if err != nil {
+					return fantasy.ToolResponse{}, fmt.Errorf("error writing file: %w", err)
+				}
 			}
 
 			// Check if file exists in history
@@ -150,7 +175,7 @@ func NewWriteTool(
 				}
 			}
 			// Store the new version
-			_, err = files.CreateVersion(ctx, sessionID, filePath, params.Content)
+			_, err = files.CreateVersion(ctx, sessionID, filePath, newContent)
 			if err != nil {
 				slog.Error("Error creating file history version", "error", err)
 			}
@@ -159,7 +184,7 @@ func NewWriteTool(
 
 			notifyLSPs(ctx, lspManager, params.FilePath)
 
-			result := fmt.Sprintf("File successfully written: %s", filePath)
+			result := fmt.Sprintf("File successfully %s: %s", writeModePastTense(mode), filePath)
 			result = fmt.Sprintf("<result>\n%s\n</result>", result)
 			result += getDiagnostics(filePath, lspManager)
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(result),
@@ -170,4 +195,22 @@ func NewWriteTool(
 				},
 			), nil
 		})
+}
+
+func normalizeWriteMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "overwrite":
+		return "overwrite"
+	case "append":
+		return "append"
+	default:
+		return ""
+	}
+}
+
+func writeModePastTense(mode string) string {
+	if mode == "append" {
+		return "appended"
+	}
+	return "written"
 }

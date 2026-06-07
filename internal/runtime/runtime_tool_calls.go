@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -49,6 +50,64 @@ func (r *runtimeService) TurnToolCalls(ctx context.Context, turnID string) (Runt
 		out = append(out, toRuntimeToolCall(call))
 	}
 	return RuntimeToolCallsResponse{ToolCalls: out}, nil
+}
+
+func cancelUnfinishedRuntimeToolCalls(ctx context.Context, calls *scheduler.Scheduler, db *sql.DB) ([]scheduler.ToolCall, error) {
+	if calls == nil || db == nil {
+		return nil, nil
+	}
+	unfinished, err := listUnfinishedRuntimeToolCalls(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	cancelled := make([]scheduler.ToolCall, 0, len(unfinished))
+	for _, call := range unfinished {
+		if isFinalToolCallStatus(string(call.Status)) {
+			continue
+		}
+		if err := calls.CancelCall(ctx, call.ID); err != nil {
+			return nil, err
+		}
+		updated, err := calls.GetCall(ctx, call.ID)
+		if err != nil {
+			return nil, err
+		}
+		cancelled = append(cancelled, updated)
+	}
+	return cancelled, nil
+}
+
+func listUnfinishedRuntimeToolCalls(ctx context.Context, db *sql.DB) ([]scheduler.ToolCall, error) {
+	rows, err := db.QueryContext(ctx, `
+SELECT id, turn_id, session_id, message_id, name, source, capability_id, status,
+    job_id, command, risk, policy_reason, policy_mode, policy_profile, policy_headless,
+    policy_headless_reason, policy_rule_id, policy_rule_source, policy_scope_kind, policy_scope_value, policy_target_summary,
+    shell_risk, shell_reason, sandbox_decision_id, sandbox_mode, sandbox_status,
+    sandbox_executor, sandbox_reason, sandbox_error, exit_code, job_status, job_started_at, job_finished_at,
+    input_summary, output_summary, model_content, structured_output, stdout, stderr, is_error,
+    output_refs_json, artifact_refs_json, diff_refs_json,
+    compacted, compact_ref, compact_boundary_id, compact_original_estimated_tokens, compacted_at,
+    started_at, finished_at, error
+FROM runtime_tool_calls
+WHERE status NOT IN ('completed', 'failed', 'cancelled', 'denied')
+ORDER BY started_at ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list unfinished runtime tool calls: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var out []scheduler.ToolCall
+	for rows.Next() {
+		call, err := scanRuntimeToolCall(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, call)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate unfinished runtime tool calls: %w", err)
+	}
+	return out, nil
 }
 
 func (r *runtimeService) recordToolCallsFromMessage(ctx context.Context, msg proto.Message, turnID string, createdAt time.Time) {
@@ -201,6 +260,154 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		StartedAt:                      call.StartedAt.UnixMilli(),
 		FinishedAt:                     finishedAt,
 		Error:                          stringFromMap(redacted, "error"),
+		Display:                        runtimeToolCallDisplay(call, redacted, finishedAt),
+	}
+}
+
+func runtimeToolCallDisplay(call scheduler.ToolCall, redacted map[string]any, finishedAt int64) RuntimeToolCallDisplay {
+	kind := runtimeToolDisplayKind(call)
+	command := stringFromMap(redacted, "command")
+	target := runtimeToolDisplayTarget(stringFromMap(redacted, "input"))
+	detail := runtimeToolDisplayDetail(kind, command, target, stringFromMap(redacted, "input"))
+	title := runtimeToolDisplayTitle(call, kind)
+	var durationMS int64
+	if !call.StartedAt.IsZero() && finishedAt > 0 {
+		durationMS = finishedAt - call.StartedAt.UnixMilli()
+		if durationMS < 0 {
+			durationMS = 0
+		}
+	}
+	return RuntimeToolCallDisplay{
+		Kind:       kind,
+		Title:      title,
+		Detail:     detail,
+		Target:     target,
+		Command:    command,
+		ExitCode:   call.ExitCode,
+		DurationMS: durationMS,
+	}
+}
+
+func runtimeToolDisplayDetail(kind, command, target, input string) string {
+	if kind == "shell" {
+		return firstNonEmpty(command, input)
+	}
+	return firstNonEmpty(target, command, input)
+}
+
+func runtimeToolDisplayTarget(input string) string {
+	input = strings.TrimSpace(input)
+	if input == "" || !strings.HasPrefix(input, "{") {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(input), &payload); err != nil {
+		return runtimeToolDisplayTargetFromText(input)
+	}
+	for _, key := range []string{"path", "file_path", "filepath", "file", "target", "uri", "pattern", "query", "glob"} {
+		if value, ok := payload[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return runtimeToolDisplayTargetFromText(input)
+}
+
+func runtimeToolDisplayTargetFromText(input string) string {
+	for _, key := range []string{"file_path", "filepath", "path", "file", "target", "uri", "pattern", "query", "glob"} {
+		marker := `"` + key + `"`
+		start := strings.Index(input, marker)
+		if start < 0 {
+			continue
+		}
+		remainder := input[start+len(marker):]
+		colon := strings.Index(remainder, ":")
+		if colon < 0 {
+			continue
+		}
+		remainder = strings.TrimSpace(remainder[colon+1:])
+		if !strings.HasPrefix(remainder, `"`) {
+			continue
+		}
+		remainder = remainder[1:]
+		end := strings.Index(remainder, `"`)
+		if end <= 0 {
+			continue
+		}
+		if value := strings.TrimSpace(remainder[:end]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func runtimeToolDisplayKind(call scheduler.ToolCall) string {
+	name := strings.ToLower(strings.TrimSpace(call.Name))
+	summary := strings.ToLower(call.InputSummary + " " + call.Command)
+	switch {
+	case call.Source == scheduler.ToolSourceShell || call.Risk == "execute" || call.Command != "" || name == "bash" || name == "shell" || name == "cmd" || name == "powershell" || name == "pwsh" || name == "go" || name == "npm" || name == "node" || name == "python":
+		return "shell"
+	case name == "todos" || name == "todospan" || strings.Contains(name, "todo"):
+		return "generic"
+	case strings.Contains(name, "edit") || strings.Contains(name, "patch") || strings.Contains(summary, "apply_patch"):
+		return "file_edit"
+	case strings.Contains(name, "read") || strings.Contains(name, "view") || strings.Contains(name, "open"):
+		return "file_read"
+	case strings.Contains(name, "write") || strings.Contains(name, "create"):
+		return "file_write"
+	case name == "glob" || name == "grep" || name == "list" || name == "ls" || name == "dir" || strings.Contains(name, "search") || strings.Contains(name, "find") || strings.Contains(summary, "glob") || strings.Contains(summary, "grep") || strings.Contains(summary, "search"):
+		return "file_search"
+	case strings.Contains(summary, "read"):
+		return "file_read"
+	case strings.Contains(summary, "write"):
+		return "file_write"
+	default:
+		return "generic"
+	}
+}
+
+func runtimeToolDisplayTitle(call scheduler.ToolCall, kind string) string {
+	status := string(call.Status)
+	switch kind {
+	case "shell":
+		if status == string(scheduler.ToolCallRunning) || status == string(scheduler.ToolCallPending) {
+			return "正在运行 1 条命令"
+		}
+		if status == string(scheduler.ToolCallWaitingPermission) {
+			return "等待运行 1 条命令"
+		}
+		return "已运行 1 条命令"
+	case "file_read":
+		if status == string(scheduler.ToolCallCompleted) {
+			return "已读取文件"
+		}
+		return "读取文件"
+	case "file_write":
+		if status == string(scheduler.ToolCallCompleted) {
+			return "已写入文件"
+		}
+		return "写入文件"
+	case "file_edit":
+		if status == string(scheduler.ToolCallCompleted) {
+			return "已编辑文件"
+		}
+		return "编辑文件"
+	case "file_search":
+		if status == string(scheduler.ToolCallCompleted) {
+			return "已搜索文件"
+		}
+		return "搜索文件"
+	default:
+		name := strings.TrimSpace(call.Name)
+		if name == "" {
+			name = "tool"
+		}
+		if status == string(scheduler.ToolCallRunning) || status == string(scheduler.ToolCallPending) {
+			return "正在运行 " + name
+		}
+		if status == string(scheduler.ToolCallCompleted) {
+			return "已运行 " + name
+		}
+		return name
 	}
 }
 

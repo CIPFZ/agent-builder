@@ -1,55 +1,70 @@
 .gate {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   width: min(720px, 94%);
-  margin: 4px 0;
-  padding: 10px 12px 10px 14px;
-  border: 1px solid rgb(180 119 0 / 24%);
-  border-left: 3px solid #b77900;
-  border-radius: 6px;
-  background: #fffaf2;
+  margin: 2px 0;
+  padding: 4px 0 4px 28px;
+  color: rgb(13 13 13 / 72%);
 }
 
-.header,
+.pendingGate {
+  padding-top: 8px;
+  padding-right: 10px;
+  padding-bottom: 8px;
+  border-radius: 8px;
+  background: #fff8ed;
+}
+
+.summary,
 .title,
 .actions,
-.meta {
+.meta,
+.body,
+.allowedStatus {
   display: flex;
   align-items: center;
 }
 
-.header {
+.summary {
+  min-height: 28px;
   justify-content: space-between;
   gap: 12px;
 }
 
 .title {
-  gap: 7px;
-  color: rgb(13 13 13 / 82%);
+  min-width: 0;
+  gap: 8px;
+  color: rgb(13 13 13 / 66%);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
+}
+
+.title :global(.anticon) {
+  flex: 0 0 auto;
+  color: #b77900;
+  font-size: 13px;
 }
 
 .body {
-  display: grid;
+  min-width: 0;
+  flex-wrap: wrap;
   gap: 6px;
+  padding-left: 21px;
 }
 
 .tool {
-  color: rgb(13 13 13 / 78%);
-  font-size: 13px;
-  font-weight: 600;
+  color: rgb(13 13 13 / 66%);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .target {
-  width: fit-content;
-  max-width: 100%;
-  padding: 3px 6px;
+  max-width: min(100%, 560px);
+  padding: 2px 6px;
   overflow: hidden;
-  border: 1px solid rgb(13 13 13 / 9%);
   border-radius: 5px;
-  background: rgb(255 255 255 / 72%);
-  color: rgb(13 13 13 / 74%);
+  background: rgb(255 255 255 / 78%);
+  color: rgb(13 13 13 / 70%);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
   line-height: 1.45;
@@ -58,14 +73,58 @@
 }
 
 .reason {
-  color: rgb(13 13 13 / 64%);
-  font-size: 13px;
-  line-height: 1.5;
+  color: rgb(13 13 13 / 54%);
+  font-size: 12px;
+  line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
-.actions,
 .meta {
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 5px;
+  padding-left: 21px;
+}
+
+.actions {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 21px;
+}
+
+.actions :global(.ant-btn) {
+  height: 26px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.allowedStatus {
+  flex: 0 0 auto;
+  gap: 4px;
+  color: rgb(13 13 13 / 46%);
+  font-size: 12px;
+}
+
+.allowedStatus :global(.anticon) {
+  color: #2f8f5b;
+  font-size: 11px;
+}
+
+.gate :global(.ant-tag) {
+  margin-inline-end: 0;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+@media (max-width: 720px) {
+  .gate {
+    width: 100%;
+    padding-left: 18px;
+  }
+
+  .body,
+  .meta,
+  .actions {
+    padding-left: 18px;
+  }
 }

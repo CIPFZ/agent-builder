@@ -1,4 +1,4 @@
-import { CheckCircleOutlined, CloseCircleOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { CheckOutlined, CloseCircleOutlined, LoadingOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { Button, Tag } from 'antd';
 import { useState } from 'react';
 import type { PermissionRequestViewModel } from '../../runtime/workbenchTypes.ts';
@@ -28,19 +28,19 @@ export function PermissionGate({ permission, onDecide }: PermissionGateProps) {
   };
 
   return (
-    <section className={styles.gate} data-testid="permission-gate" data-permission-id={permission.id} data-permission-status={permission.status}>
-      <div className={styles.header}>
+    <section className={pending ? `${styles.gate} ${styles.pendingGate}` : styles.gate} data-testid="permission-gate" data-permission-id={permission.id} data-permission-status={permission.status}>
+      <div className={styles.summary}>
         <span className={styles.title}>
           <SafetyCertificateOutlined />
-          需要权限
+          {pending ? '需要权限' : permissionSummary(permission.status)}
         </span>
         <PermissionStatus status={permission.status} />
       </div>
 
       <div className={styles.body}>
-        <div className={styles.tool}>{permission.toolName}</div>
+        <span className={styles.tool}>{permission.toolName}</span>
         {permission.target && <code className={styles.target}>{permission.target}</code>}
-        {permission.reason && <div className={styles.reason}>{permission.reason}</div>}
+        {permission.reason && <span className={styles.reason}>{permission.reason}</span>}
       </div>
 
       {(permission.risk || permission.policyMode || permission.action) && (
@@ -73,15 +73,17 @@ function PermissionStatus({ status }: { status: string }) {
     case 'allowed':
     case 'allowed_once':
       return (
-        <Tag icon={<CheckCircleOutlined />} color="success">
+        <span className={styles.allowedStatus}>
+          <CheckOutlined />
           已允许
-        </Tag>
+        </span>
       );
     case 'allowed_session':
       return (
-        <Tag icon={<CheckCircleOutlined />} color="success">
+        <span className={styles.allowedStatus}>
+          <CheckOutlined />
           本会话已允许
-        </Tag>
+        </span>
       );
     case 'denied':
       return (
@@ -94,7 +96,24 @@ function PermissionStatus({ status }: { status: string }) {
     case 'cancelled':
       return <Tag color="default">已取消</Tag>;
     default:
-      return <Tag color="warning">等待确认</Tag>;
+      return (
+        <Tag icon={<LoadingOutlined spin />} color="warning">
+          等待确认
+        </Tag>
+      );
+  }
+}
+
+function permissionSummary(status: string) {
+  switch (status) {
+    case 'denied':
+      return '权限已拒绝';
+    case 'expired':
+      return '权限已过期';
+    case 'cancelled':
+      return '权限已取消';
+    default:
+      return '权限已处理';
   }
 }
 
@@ -120,9 +139,9 @@ function riskLabel(risk: string) {
 function policyModeLabel(mode: string) {
   switch (mode) {
     case 'ask':
-      return '默认模式';
+      return '请求批准';
     case 'auto_read':
-      return '自动审查';
+      return '替我审批';
     case 'full_access':
       return '完全访问';
     case 'plan':

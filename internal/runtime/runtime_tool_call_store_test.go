@@ -121,3 +121,57 @@ func TestRuntimeSQLiteToolCallStoreDoesNotDowngradeFinalState(t *testing.T) {
 		t.Fatalf("call = %#v", call)
 	}
 }
+
+func TestRuntimeSQLiteToolCallStoreCancelsUnfinishedCallsOnRecovery(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	sched := scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	if _, err := sched.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:        "tool-running",
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+		Name:      "write",
+		Source:    scheduler.ToolSourceBuiltin,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sched.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:        "tool-complete",
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+		Name:      "view",
+		Source:    scheduler.ToolSourceBuiltin,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sched.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID: "tool-complete",
+		Status:     scheduler.ToolCallCompleted,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cancelled, err := cancelUnfinishedRuntimeToolCalls(context.Background(), sched, conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cancelled) != 1 || cancelled[0].ID != "tool-running" || cancelled[0].Status != scheduler.ToolCallCancelled || cancelled[0].FinishedAt.IsZero() {
+		t.Fatalf("cancelled calls = %#v", cancelled)
+	}
+	completed, err := sched.GetCall(context.Background(), "tool-complete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Status != scheduler.ToolCallCompleted {
+		t.Fatalf("completed call was changed: %#v", completed)
+	}
+}

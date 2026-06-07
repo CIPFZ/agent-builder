@@ -18,10 +18,83 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const viewModelRef = useRef(viewModel);
+  const modeRef = useRef(mode);
 
   useEffect(() => {
     viewModelRef.current = viewModel;
   }, [viewModel]);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+
+  useEffect(() => {
+    if (!adapter.subscribeRuntimeEvents) {
+      return undefined;
+    }
+    const hasActiveSession = viewModel.sessions.some((session) => session.busy);
+    if (!viewModel.composer.busy && !hasActiveSession) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let refreshTimer: number | undefined;
+    let refreshing = false;
+    let queued = false;
+    let unsubscribe: (() => void) | undefined;
+
+    const refreshFromRuntimeEvent = async () => {
+      if (cancelled) {
+        return;
+      }
+      if (refreshing) {
+        queued = true;
+        return;
+      }
+      refreshing = true;
+      queued = false;
+      try {
+        const nextViewModel = await adapter.refresh({ ...viewModelRef.current, mode: modeRef.current });
+        if (!cancelled) {
+          setMode(nextViewModel.mode);
+          setViewModel(nextViewModel);
+        }
+      } catch {
+        // Polling remains active while busy; event refresh is an opportunistic fast path.
+      } finally {
+        refreshing = false;
+        if (queued && !cancelled) {
+          scheduleRuntimeRefresh(120);
+        }
+      }
+    };
+
+    const scheduleRuntimeRefresh = (delay = 180) => {
+      if (cancelled) {
+        return;
+      }
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
+      refreshTimer = window.setTimeout(refreshFromRuntimeEvent, delay);
+    };
+
+    void Promise.resolve(adapter.subscribeRuntimeEvents(() => scheduleRuntimeRefresh())).then((cleanup) => {
+      if (cancelled) {
+        cleanup();
+        return;
+      }
+      unsubscribe = cleanup;
+    });
+
+    return () => {
+      cancelled = true;
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+      }
+      unsubscribe?.();
+    };
+  }, [adapter, viewModel.composer.busy, viewModel.sessions]);
 
   useEffect(() => {
     const hasActiveSession = viewModel.sessions.some((session) => session.busy);
@@ -146,9 +219,23 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       ],
     };
     setViewModel(optimisticViewModel);
-    const nextViewModel = await adapter.sendPrompt(optimisticViewModel, prompt);
-    setMode(nextViewModel.mode);
-    setViewModel(nextViewModel);
+    try {
+      const nextViewModel = await adapter.sendPrompt(optimisticViewModel, prompt);
+      setMode(nextViewModel.mode);
+      setViewModel(nextViewModel);
+    } catch (error) {
+      const failedViewModel: WorkbenchViewModel = {
+        ...optimisticViewModel,
+        composer: { ...optimisticViewModel.composer, busy: false },
+        conversation: optimisticViewModel.conversation.map((message) =>
+          message.id === loadingID ? { ...message, content: sendPromptErrorMessage(error), status: 'error', error: sendPromptErrorMessage(error) } : message,
+        ),
+        timeline: optimisticViewModel.timeline.map((item) =>
+          item.id === loadingID ? { ...item, content: sendPromptErrorMessage(error), status: 'error', error: sendPromptErrorMessage(error) } : item,
+        ),
+      };
+      setViewModel(failedViewModel);
+    }
   };
 
   const cancelTurn = async () => {
@@ -384,4 +471,11 @@ function applyPermissionMode(current: WorkbenchViewModel, mode: string): Workben
       permissionMode,
     },
   };
+}
+
+function sendPromptErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return '发送失败';
 }

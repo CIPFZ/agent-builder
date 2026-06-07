@@ -14,6 +14,7 @@ import type {
   RuntimeMCPToolViewModel,
   RuntimeModelOptionViewModel,
   RuntimePluginViewModel,
+  RuntimeEventViewModel,
   RuntimeSkillViewModel,
   SettingsPermissionViewModel,
   WorkbenchAdapter,
@@ -115,6 +116,22 @@ interface RuntimeChatResponseDTO {
   status: RuntimeStatusDTO;
 }
 
+interface RuntimeEventsEndpointDTO {
+  url: string;
+  token?: string;
+}
+
+interface RuntimeEventDTO {
+  sequence?: number;
+  type?: string;
+  sessionId?: string;
+  turnId?: string;
+}
+
+interface RuntimeEventsResponseDTO {
+  events?: RuntimeEventDTO[];
+}
+
 interface RuntimeMessageDTO {
   id: string;
   role: 'user' | 'assistant' | 'tool' | 'system';
@@ -151,6 +168,7 @@ interface RuntimeTurnResponseDTO {
     sessionId?: string;
     error?: string;
     latestAssistant?: RuntimeMessageDTO;
+    diagnostics?: RuntimeTurnDiagnosticsDTO;
   };
 }
 
@@ -163,6 +181,22 @@ interface RuntimeTurnDTO {
   startedAt?: number;
   finishedAt?: number;
   error?: string;
+  diagnostics?: RuntimeTurnDiagnosticsDTO;
+}
+
+interface RuntimeTurnDiagnosticsDTO {
+  expectedArtifacts?: string[];
+  producedArtifacts?: string[];
+  verifiedArtifacts?: string[];
+  unverifiedArtifacts?: string[];
+  missingArtifacts?: string[];
+  artifactVerificationAt?: number;
+  failedToolCount?: number;
+  deniedToolCount?: number;
+  lastToolStatus?: string;
+  warning?: string;
+  warningReason?: string;
+  warningSource?: string;
 }
 
 interface RuntimeTurnsResponseDTO {
@@ -180,6 +214,11 @@ interface RuntimeToolCallDTO {
   policyMode?: string;
   policyReason?: string;
   policyTargetSummary?: string;
+  display?: RuntimeToolCallDisplayDTO;
+  exitCode?: number;
+  outputRefs?: string[];
+  artifactRefs?: string[];
+  diffRefs?: string[];
   status: string;
   inputSummary?: string;
   outputSummary?: string;
@@ -188,6 +227,16 @@ interface RuntimeToolCallDTO {
   error?: string;
   startedAt?: number;
   finishedAt?: number;
+}
+
+interface RuntimeToolCallDisplayDTO {
+  kind?: string;
+  title?: string;
+  detail?: string;
+  target?: string;
+  command?: string;
+  exitCode?: number;
+  durationMs?: number;
 }
 
 interface RuntimePermissionDTO {
@@ -373,6 +422,8 @@ interface RuntimeBridgeModule {
   MCPTools?: (name: string) => Promise<RuntimeMCPToolsResponseDTO>;
   MCPResources?: (name: string) => Promise<RuntimeMCPResourcesResponseDTO>;
   MCPPrompts?: (name: string) => Promise<RuntimeMCPPromptsResponseDTO>;
+  EventsEndpoint?: () => Promise<RuntimeEventsEndpointDTO>;
+  Events?: () => Promise<RuntimeEventsResponseDTO>;
 }
 
 let runtimeBridgePromise: Promise<RuntimeBridgeModule | null> | undefined;
@@ -765,8 +816,22 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
       updatedAt: turn.finishedAt,
       error: turn.error,
     }));
+  const diagnostics: ConversationTimelineItemViewModel[] = turnsDTO
+    .filter((turn) => Boolean(turn.diagnostics?.warning))
+    .map((turn) => ({
+      id: `turn-diagnostics:${turn.id}`,
+      kind: 'diagnostic',
+      sessionId: turn.sessionId,
+      turnId: turn.id,
+      title: 'Turn diagnostics',
+      status: 'warning',
+      summary: turn.diagnostics?.warning,
+      createdAt: turn.finishedAt || turn.startedAt,
+      updatedAt: turn.finishedAt,
+      diagnostics: turn.diagnostics,
+    }));
 
-  return [...messages, ...thinking, ...toolCalls, ...permissions, ...progress].sort((left, right) => {
+  return [...messages, ...thinking, ...toolCalls, ...permissions, ...progress, ...diagnostics].sort((left, right) => {
     const leftTurn = left.turnId || turnIDForMessage(turnContext, left.messageId);
     const rightTurn = right.turnId || turnIDForMessage(turnContext, right.messageId);
     const leftTime = timelineSortTime(left, leftTurn, turnContext);
@@ -843,13 +908,17 @@ function turnIDForMessage(context: TimelineTurnContext, messageID?: string) {
 }
 
 function timelineSortTime(item: ConversationTimelineItemViewModel, turnID: string | undefined, context: TimelineTurnContext) {
+  const itemTime = normalizeTimestamp(item.createdAt ?? 0);
+  if (itemTime > 0) {
+    return itemTime;
+  }
   if (turnID) {
     const turn = context.turnByID.get(turnID);
     if (turn?.startedAt) {
       return turn.startedAt;
     }
   }
-  return normalizeTimestamp(item.createdAt ?? 0);
+  return 0;
 }
 
 function timelineKindRank(item: ConversationTimelineItemViewModel) {
@@ -868,7 +937,10 @@ function timelineKindRank(item: ConversationTimelineItemViewModel) {
   if (item.kind === 'progress') {
     return 4;
   }
-  return 5;
+  if (item.kind === 'diagnostic') {
+    return 5;
+  }
+  return 6;
 }
 
 function runtimeMessageContent(message: RuntimeMessageDTO) {
@@ -1219,6 +1291,154 @@ function runtimeXHR<T>(
   });
 }
 
+function runtimeHTTPEventsEndpoint(): RuntimeEventsEndpointDTO {
+  return {
+    url: `${runtimeHTTPURL}/v1/events`,
+    token: runtimeHTTPToken,
+  };
+}
+
+function runtimeEventSourceURL(endpoint: RuntimeEventsEndpointDTO, after?: number) {
+  const baseURL = typeof window !== 'undefined' ? window.location.href : 'http://127.0.0.1/';
+  try {
+    const url = new URL(endpoint.url, baseURL);
+    if (endpoint.token) {
+      url.searchParams.set('token', endpoint.token);
+    }
+    if (after && after > 0) {
+      url.searchParams.set('after', String(after));
+    }
+    return url.toString();
+  } catch {
+    const separator = endpoint.url.includes('?') ? '&' : '?';
+    const params = new URLSearchParams();
+    if (endpoint.token) {
+      params.set('token', endpoint.token);
+    }
+    if (after && after > 0) {
+      params.set('after', String(after));
+    }
+    return `${endpoint.url}${separator}${params.toString()}`;
+  }
+}
+
+async function subscribeRuntimeBridgeEvents(bridge: RuntimeBridgeModule, onEvent: (event: RuntimeEventViewModel) => void) {
+  if (typeof window === 'undefined' || typeof window.EventSource === 'undefined') {
+    return subscribeRuntimeEventsByPolling(bridge, onEvent);
+  }
+
+  let closed = false;
+  let reconnectTimer: number | undefined;
+  let source: EventSource | undefined;
+  let lastSequence = 0;
+
+  const closeSource = () => {
+    if (source) {
+      source.close();
+      source = undefined;
+    }
+  };
+
+  const connect = async () => {
+    try {
+      const endpoint = bridge.EventsEndpoint ? await bridge.EventsEndpoint() : runtimeHTTPEventsEndpoint();
+      if (closed) {
+        return;
+      }
+      closeSource();
+      source = new window.EventSource(runtimeEventSourceURL(endpoint, lastSequence));
+      source.onmessage = (message) => {
+        const event = parseRuntimeEventMessage(message.data);
+        if (typeof event.sequence === 'number' && event.sequence > lastSequence) {
+          lastSequence = event.sequence;
+        }
+        onEvent(event);
+      };
+      source.onerror = () => {
+        closeSource();
+        if (!closed) {
+          reconnectTimer = window.setTimeout(connect, 2000);
+        }
+      };
+    } catch {
+      if (!closed) {
+        reconnectTimer = window.setTimeout(connect, 2000);
+      }
+    }
+  };
+
+  await connect();
+
+  return () => {
+    closed = true;
+    if (reconnectTimer) {
+      window.clearTimeout(reconnectTimer);
+    }
+    closeSource();
+  };
+}
+
+function subscribeRuntimeEventsByPolling(bridge: RuntimeBridgeModule, onEvent: (event: RuntimeEventViewModel) => void) {
+  if (typeof window === 'undefined') {
+    return () => undefined;
+  }
+
+  let closed = false;
+  let timer: number | undefined;
+  let lastSequence = 0;
+
+  const poll = async () => {
+    try {
+      const response = bridge.Events ? await bridge.Events() : await runtimeFetch<RuntimeEventsResponseDTO>('/v1/events');
+      if (closed) {
+        return;
+      }
+      const events = Array.isArray(response.events) ? response.events : [];
+      for (const event of events) {
+        const sequence = typeof event.sequence === 'number' ? event.sequence : 0;
+        if (sequence > lastSequence) {
+          lastSequence = sequence;
+          onEvent({
+            sequence,
+            type: event.type,
+            sessionId: event.sessionId,
+            turnId: event.turnId,
+          });
+        }
+      }
+    } catch {
+      // Keep polling; the existing refresh loop still covers active turns.
+    } finally {
+      if (!closed) {
+        timer = window.setTimeout(poll, 1200);
+      }
+    }
+  };
+
+  timer = window.setTimeout(poll, 300);
+
+  return () => {
+    closed = true;
+    if (timer) {
+      window.clearTimeout(timer);
+    }
+  };
+}
+
+function parseRuntimeEventMessage(data: string): RuntimeEventViewModel {
+  try {
+    const event = JSON.parse(data) as RuntimeEventDTO;
+    return {
+      sequence: event.sequence,
+      type: event.type,
+      sessionId: event.sessionId,
+      turnId: event.turnId,
+    };
+  } catch {
+    return {};
+  }
+}
+
 const runtimeHTTPBridge: RuntimeBridgeModule = {
   Status: () => runtimeFetch<RuntimeStatusDTO>('/v1/runtime/status'),
   Sessions: () => runtimeFetch<RuntimeSessionsResponseDTO>('/v1/sessions'),
@@ -1328,6 +1548,8 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
   MCPTools: (name) => runtimeFetch<RuntimeMCPToolsResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/tools`),
   MCPResources: (name) => runtimeFetch<RuntimeMCPResourcesResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/resources`),
   MCPPrompts: (name) => runtimeFetch<RuntimeMCPPromptsResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/prompts`),
+  EventsEndpoint: () => Promise.resolve(runtimeHTTPEventsEndpoint()),
+  Events: () => runtimeFetch<RuntimeEventsResponseDTO>('/v1/events'),
   CancelTurn: (turnID) =>
     runtimeFetch<RuntimeStatusDTO>(`/v1/turns/${encodeURIComponent(turnID)}/cancel`, {
       method: 'POST',
@@ -1432,6 +1654,17 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       (bridge) => hydrateWorkbench(current, bridge),
       () => staticWorkbenchAdapter.refresh(current),
     );
+  },
+  async subscribeRuntimeEvents(onEvent) {
+    const bridge = await loadRuntimeBridge();
+    if (hasProviderSettingsBridge(bridge)) {
+      return subscribeRuntimeBridgeEvents(bridge, onEvent);
+    }
+    const httpBridge = await loadRuntimeHTTPBridge();
+    if (!httpBridge) {
+      return () => undefined;
+    }
+    return subscribeRuntimeBridgeEvents(httpBridge, onEvent);
   },
   async createSession(current) {
     return withBridge(

@@ -49,3 +49,28 @@ func TestWriteToolWritesEmptyNewFile(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "", string(b))
 }
+
+func TestWriteToolAppendsExistingFile(t *testing.T) {
+	t.Parallel()
+
+	workingDir := t.TempDir()
+	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	path := filepath.Join(workingDir, "report.md")
+	require.NoError(t, os.WriteFile(path, []byte("# Report\n"), 0o644))
+
+	tool := NewWriteTool(nil, &mockPermissionService{}, &mockHistoryService{}, mockFileTrackerService{}, workingDir)
+	input, err := json.Marshal(WriteParams{FilePath: "report.md", Content: "\n## Section\ncontent\n", Mode: "append"})
+	require.NoError(t, err)
+
+	resp, err := tool.Run(ctx, fantasy.ToolCall{
+		ID:    "test-call",
+		Name:  WriteToolName,
+		Input: string(input),
+	})
+	require.NoError(t, err)
+	require.False(t, resp.IsError)
+
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "# Report\n\n## Section\ncontent\n", string(b))
+}

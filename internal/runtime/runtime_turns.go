@@ -198,6 +198,19 @@ func (r *runtimeService) Turn(ctx context.Context, turnID string) (RuntimeTurnRe
 			}
 		}
 	}
+	var messages []RuntimeMessage
+	if messageResp, err := r.sessionMessages(ctx, wsID, turn.SessionID); err == nil {
+		messages = messageResp.Messages
+	}
+	var toolCalls []RuntimeToolCall
+	if r.toolCalls != nil {
+		if calls, err := r.toolCalls.ListCalls(ctx, turn.ID); err == nil {
+			for _, call := range calls {
+				toolCalls = append(toolCalls, toRuntimeToolCall(call))
+			}
+		}
+	}
+	turn.Diagnostics = buildRuntimeTurnDiagnostics(turn, messages, toolCalls)
 	return RuntimeTurnResponse{Turn: turn}, nil
 }
 

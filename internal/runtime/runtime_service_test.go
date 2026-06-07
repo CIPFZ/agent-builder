@@ -2533,6 +2533,178 @@ func TestRuntimeToolCallCarriesShellJobMetadata(t *testing.T) {
 	if call.Source != "shell" || call.CapabilityID != "shell:bash" || call.JobID != "ABC" || call.Command != "go test ./..." || call.Risk != "execute" || call.Stdout != "ok" || call.JobStatus != "completed" {
 		t.Fatalf("tool call shell metadata = %#v", call)
 	}
+	if call.Display.Kind != "shell" || call.Display.Title != "已运行 1 条命令" || call.Display.Command != "go test ./..." || call.Display.Detail != "go test ./..." {
+		t.Fatalf("tool call display metadata = %#v", call.Display)
+	}
+}
+
+func TestRuntimeToolCallDisplayExtractsFileTarget(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:           "tool-read",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		Name:         "view",
+		Source:       scheduler.ToolSourceBuiltin,
+		CapabilityID: "builtin:view",
+		InputSummary: `{"file_path":"go.mod","limit":200}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID:    "tool-read",
+		Status:        scheduler.ToolCallCompleted,
+		OutputSummary: "module github.com/charmbracelet/crush",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := service.ToolCall(context.Background(), "tool-read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ToolCall.Display.Kind != "file_read" || resp.ToolCall.Display.Title != "已读取文件" || resp.ToolCall.Display.Target != "go.mod" || resp.ToolCall.Display.Detail != "go.mod" {
+		t.Fatalf("tool call file display metadata = %#v", resp.ToolCall.Display)
+	}
+}
+
+func TestRuntimeToolCallDisplayKeepsViewAsReadWhenPathContainsWrite(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:           "tool-view-write-path",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		Name:         "view",
+		Source:       scheduler.ToolSourceBuiltin,
+		CapabilityID: "builtin:view",
+		InputSummary: `{"file_path":"tmp/runtime-dev/long-write-smoke.md"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID:    "tool-view-write-path",
+		Status:        scheduler.ToolCallCompleted,
+		OutputSummary: "# Long Write Smoke Test",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := service.ToolCall(context.Background(), "tool-view-write-path")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ToolCall.Display.Kind != "file_read" || resp.ToolCall.Display.Target != "tmp/runtime-dev/long-write-smoke.md" {
+		t.Fatalf("view display metadata = %#v", resp.ToolCall.Display)
+	}
+}
+
+func TestRuntimeToolCallDisplayKeepsTodosGenericWhenContentMentionsWrite(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:           "tool-todospan",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		Name:         "todospan",
+		Source:       scheduler.ToolSourceBuiltin,
+		CapabilityID: "builtin:todospan",
+		InputSummary: `{"todos":[{"content":"Write the report","status":"in_progress"}]}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID:    "tool-todospan",
+		Status:        scheduler.ToolCallCompleted,
+		OutputSummary: "Todo list updated successfully.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := service.ToolCall(context.Background(), "tool-todospan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ToolCall.Display.Kind != "generic" {
+		t.Fatalf("todo display metadata = %#v", resp.ToolCall.Display)
+	}
+}
+
+func TestRuntimeToolCallDisplayClassifiesFileSearch(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		input  string
+		target string
+	}{
+		{name: "glob", input: `{"pattern":"**/*.go"}`, target: "**/*.go"},
+		{name: "ls", input: `{"path":"internal/runtime"}`, target: "internal/runtime"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			service := newRuntimeService()
+			if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+				ID:           "tool-" + tc.name,
+				SessionID:    "session-1",
+				TurnID:       "turn-1",
+				Name:         tc.name,
+				Source:       scheduler.ToolSourceBuiltin,
+				CapabilityID: "builtin:" + tc.name,
+				InputSummary: tc.input,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+				ToolCallID:    "tool-" + tc.name,
+				Status:        scheduler.ToolCallCompleted,
+				OutputSummary: "internal/runtime/runtime_tool_calls.go",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			resp, err := service.ToolCall(context.Background(), "tool-"+tc.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.ToolCall.Display.Kind != "file_search" || resp.ToolCall.Display.Title != "已搜索文件" || resp.ToolCall.Display.Target != tc.target || resp.ToolCall.Display.Detail != tc.target {
+				t.Fatalf("tool call search display metadata = %#v", resp.ToolCall.Display)
+			}
+		})
+	}
+}
+
+func TestRuntimeToolCallDisplayExtractsTargetFromTruncatedJSON(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:           "tool-write",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		Name:         "write",
+		Source:       scheduler.ToolSourceBuiltin,
+		CapabilityID: "builtin:write",
+		InputSummary: `{"file_path":"C:/repo/docs/report.md","content":"` + strings.Repeat("内容", 120),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID: "tool-write",
+		Status:     scheduler.ToolCallFailed,
+		Error:      "truncated input",
+		IsError:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := service.ToolCall(context.Background(), "tool-write")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.ToolCall.Display.Kind != "file_write" || resp.ToolCall.Display.Target != "C:/repo/docs/report.md" || resp.ToolCall.Display.Detail != "C:/repo/docs/report.md" {
+		t.Fatalf("truncated target display metadata = %#v", resp.ToolCall.Display)
+	}
 }
 
 func TestRuntimeToolCallRedactsShellSecrets(t *testing.T) {

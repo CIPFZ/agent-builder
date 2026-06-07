@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { CheckOutlined, CopyOutlined } from '@ant-design/icons';
+import type { ReactNode } from 'react';
+import { CheckOutlined, CopyOutlined, WarningOutlined } from '@ant-design/icons';
 import { Button, Tag, Tooltip, message } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
-import type { ConversationTimelineItemViewModel } from '../../runtime/workbenchTypes.ts';
+import type { ConversationTimelineItemViewModel, PermissionRequestViewModel, ToolCallViewModel } from '../../runtime/workbenchTypes.ts';
 import { PermissionGate } from '../permissions/PermissionGate.tsx';
 import { ThinkingItem } from './ThinkingItem.tsx';
 import { ToolCallCard } from '../tools/ToolCallCard.tsx';
@@ -13,17 +14,46 @@ interface TimelineProps {
   onPermissionDecide: (permissionID: string, action: 'allow' | 'allow_for_session' | 'deny') => Promise<void>;
 }
 
+type RenderTimelineItem = ToolCallRenderItem | ToolCallGroupRenderItem;
+
+interface ToolCallRenderItem extends ConversationTimelineItemViewModel {
+  pendingPermissions?: PermissionRequestViewModel[];
+}
+
+interface ToolCallGroupRenderItem {
+  id: string;
+  kind: 'tool_call_group';
+  turnId?: string;
+  toolCalls: ToolCallViewModel[];
+  pendingPermissions?: PermissionRequestViewModel[];
+}
+
 export function Timeline({ items, onPermissionDecide }: TimelineProps) {
   const [messageApi, messageContextHolder] = message.useMessage();
+  const renderItems = attachPendingPermissions(groupAdjacentToolCalls(items));
 
   return (
     <div className={styles.timeline} data-testid="conversation-timeline">
       {messageContextHolder}
-      {items.map((item) => {
+      {renderItems.map((item) => {
+        if (item.kind === 'tool_call_group') {
+          return (
+            <ToolProcessCluster key={item.id} pendingPermissions={item.pendingPermissions} onPermissionDecide={onPermissionDecide}>
+              <ToolCallCard toolCalls={item.toolCalls} />
+            </ToolProcessCluster>
+          );
+        }
         if (item.kind === 'tool_call' && item.toolCall) {
-          return <ToolCallCard key={item.id} toolCall={item.toolCall} />;
+          return (
+            <ToolProcessCluster key={item.id} pendingPermissions={item.pendingPermissions} onPermissionDecide={onPermissionDecide}>
+              <ToolCallCard toolCall={item.toolCall} />
+            </ToolProcessCluster>
+          );
         }
         if (item.kind === 'permission' && item.permission) {
+          if (item.permission.status !== 'pending') {
+            return null;
+          }
           return <PermissionGate key={item.id} permission={item.permission} onDecide={onPermissionDecide} />;
         }
         if (item.kind === 'thinking') {
@@ -35,6 +65,9 @@ export function Timeline({ items, onPermissionDecide }: TimelineProps) {
               {progressLabel(item.status)}
             </div>
           );
+        }
+        if (item.kind === 'diagnostic') {
+          return <TurnDiagnosticWarning key={item.id} item={item} />;
         }
         return (
           <Bubble
@@ -60,6 +93,159 @@ export function Timeline({ items, onPermissionDecide }: TimelineProps) {
       })}
     </div>
   );
+}
+
+function TurnDiagnosticWarning({ item }: { item: ConversationTimelineItemViewModel }) {
+  const missingArtifacts = item.diagnostics?.missingArtifacts ?? [];
+  if (!item.diagnostics?.warning || missingArtifacts.length === 0) {
+    return null;
+  }
+  return (
+    <div className={styles.diagnosticWarning} data-testid="turn-diagnostic-warning">
+      <WarningOutlined className={styles.diagnosticIcon} />
+      <div className={styles.diagnosticBody}>
+        <div className={styles.diagnosticTitle}>{diagnosticWarningTitle(item)}</div>
+        <div className={styles.diagnosticContent}>{formatMissingArtifacts(missingArtifacts)}</div>
+      </div>
+    </div>
+  );
+}
+
+function diagnosticWarningTitle(item: ConversationTimelineItemViewModel) {
+  switch (item.diagnostics?.warningReason) {
+    case 'produced_artifact_missing_on_disk':
+      return '工具已报告生成期望文件，但磁盘上不存在';
+    case 'expected_artifact_not_produced':
+      return '期望文件未由工具生成';
+    default:
+      return item.diagnostics?.warning ?? '期望产物警告';
+  }
+}
+
+function ToolProcessCluster({
+  children,
+  onPermissionDecide,
+  pendingPermissions,
+}: {
+  children: ReactNode;
+  onPermissionDecide: TimelineProps['onPermissionDecide'];
+  pendingPermissions?: PermissionRequestViewModel[];
+}) {
+  if (!pendingPermissions?.length) {
+    return <>{children}</>;
+  }
+
+  return (
+    <div className={styles.toolProcessCluster} data-testid="tool-process-cluster">
+      {children}
+      <div className={styles.embeddedPermissions}>
+        {pendingPermissions.map((permission) => (
+          <PermissionGate key={permission.id} permission={permission} onDecide={onPermissionDecide} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function attachPendingPermissions(items: RenderTimelineItem[]): RenderTimelineItem[] {
+  const attached: RenderTimelineItem[] = [];
+
+  for (const item of items) {
+    if (item.kind === 'permission' && item.permission?.status === 'pending') {
+      const target = [...attached].reverse().find((candidate) => ownsToolCall(candidate, item.permission?.toolCallId));
+      if (target) {
+        target.pendingPermissions = [...(target.pendingPermissions ?? []), item.permission];
+        continue;
+      }
+    }
+    attached.push(item);
+  }
+
+  return attached;
+}
+
+function ownsToolCall(item: RenderTimelineItem, toolCallID?: string) {
+  if (!toolCallID) {
+    return false;
+  }
+  if (item.kind === 'tool_call' && item.toolCall?.id === toolCallID) {
+    return true;
+  }
+  if (item.kind === 'tool_call_group' && item.toolCalls.some((toolCall) => toolCall.id === toolCallID)) {
+    return true;
+  }
+  return false;
+}
+
+function groupAdjacentToolCalls(items: ConversationTimelineItemViewModel[]): RenderTimelineItem[] {
+  const grouped: RenderTimelineItem[] = [];
+  let pending: ConversationTimelineItemViewModel[] = [];
+
+  const flush = () => {
+    if (pending.length === 0) {
+      return;
+    }
+    if (pending.length === 1) {
+      grouped.push(pending[0]);
+      pending = [];
+      return;
+    }
+    grouped.push({
+      id: `tool-group:${pending.map((item) => item.toolCallId || item.id).join(':')}`,
+      kind: 'tool_call_group',
+      turnId: pending[0].turnId,
+      toolCalls: pending.map((item) => item.toolCall).filter((toolCall): toolCall is ToolCallViewModel => Boolean(toolCall)),
+    });
+    pending = [];
+  };
+
+  for (const item of items) {
+    if (item.kind === 'tool_call' && item.toolCall) {
+      const previous = pending[pending.length - 1];
+      if (!previous || (previous.turnId === item.turnId && timelineToolKind(previous.toolCall) === timelineToolKind(item.toolCall) && previous.toolCall?.status === item.toolCall.status)) {
+        pending.push(item);
+        continue;
+      }
+    }
+    flush();
+    grouped.push(item);
+  }
+  flush();
+
+  return grouped;
+}
+
+function timelineToolKind(toolCall?: ToolCallViewModel) {
+  if (!toolCall) {
+    return 'generic';
+  }
+  if (toolCall.display?.kind) {
+    return toolCall.display.kind;
+  }
+  const name = toolCall.name.toLowerCase();
+  const summary = `${toolCall.inputSummary ?? ''} ${toolCall.command ?? ''}`.toLowerCase();
+  const source = toolCall.source?.toLowerCase() ?? '';
+  const shellNames = new Set(['bash', 'cmd', 'command', 'go', 'npm', 'node', 'python', 'powershell', 'pwsh', 'shell']);
+  if (toolCall.command || toolCall.risk === 'execute' || source.includes('shell') || shellNames.has(name) || name.includes('command')) {
+    return 'shell';
+  }
+  if (name.includes('edit') || name.includes('patch') || summary.includes('apply_patch')) {
+    return 'file_edit';
+  }
+  if (name.includes('write') || name.includes('create') || summary.includes('write')) {
+    return 'file_write';
+  }
+  if (name.includes('read') || name.includes('view') || name.includes('open') || summary.includes('read')) {
+    return 'file_read';
+  }
+  if (isSearchToolName(name) || summary.includes('glob') || summary.includes('grep') || summary.includes('search')) {
+    return 'file_search';
+  }
+  return 'generic';
+}
+
+function isSearchToolName(name: string) {
+  return name === 'glob' || name === 'grep' || name === 'list' || name === 'ls' || name === 'dir' || name.includes('search') || name.includes('find');
 }
 
 function MessageFooter({
@@ -187,4 +373,11 @@ function progressLabel(status?: string) {
     default:
       return status || '正在思考';
   }
+}
+
+function formatMissingArtifacts(paths: string[]) {
+  if (paths.length === 1) {
+    return paths[0];
+  }
+  return `${paths.length} 个文件缺失：${paths.join('、')}`;
 }

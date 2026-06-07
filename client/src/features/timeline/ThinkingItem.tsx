@@ -1,36 +1,35 @@
-import { BulbOutlined } from '@ant-design/icons';
+import { BulbOutlined, LoadingOutlined } from '@ant-design/icons';
 import { Collapse, Tag } from 'antd';
 import type { ConversationTimelineItemViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './ThinkingItem.module.css';
 
 export function ThinkingItem({ item }: { item: ConversationTimelineItemViewModel }) {
+  const label = (
+    <span className={styles.label}>
+      {item.status === 'running' ? <LoadingOutlined spin /> : <BulbOutlined />}
+      {thinkingLabel(item)}
+      <Tag color="default">runtime</Tag>
+    </span>
+  );
+
   if (!item.content?.trim()) {
     return (
-      <section className={styles.thinking} data-testid="thinking-item">
-        <span className={styles.label}>
-          <BulbOutlined />
-          {thinkingLabel(item)}
-          <Tag color="default">runtime</Tag>
-        </span>
+      <section className={styles.thinking} data-testid="thinking-item" data-thinking-status={item.status}>
+        {label}
       </section>
     );
   }
 
   return (
-    <section className={styles.thinking} data-testid="thinking-item">
+    <section className={styles.thinking} data-testid="thinking-item" data-thinking-status={item.status}>
       <Collapse
         ghost
         size="small"
+        expandIconPlacement="end"
         items={[
           {
             key: item.id,
-            label: (
-              <span className={styles.label}>
-                <BulbOutlined />
-                {thinkingLabel(item)}
-                <Tag color="default">runtime</Tag>
-              </span>
-            ),
+            label,
             children: <div className={styles.content}>{item.content}</div>,
           },
         ]}

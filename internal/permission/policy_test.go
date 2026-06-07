@@ -356,3 +356,21 @@ func TestClassifyShellCommandReadOnlyAndAmbiguous(t *testing.T) {
 		t.Fatalf("ambiguous command = %#v, want execute with reason", ambiguous)
 	}
 }
+
+func TestClassifyShellCommandStderrRedirectIsNotOverwrite(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{
+		`{"command":"go test -count=1 ./internal/runtime 2>&1"}`,
+		`{"command":"cd client && npm run lint 2>&1"}`,
+		`{"command":"git status --short 2>&1"}`,
+	}
+	for _, input := range cases {
+		t.Run(input, func(t *testing.T) {
+			result := ClassifyShellCommand(input)
+			if result.Risk != RiskExecute {
+				t.Fatalf("risk = %#v, want execute", result)
+			}
+		})
+	}
+}
