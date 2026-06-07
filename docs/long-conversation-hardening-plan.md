@@ -937,21 +937,108 @@ Remaining risks:
 
 Follow-up task ownership:
 
-- Phase 5.1 should add an explicit browser recovery fixture that leaves a
-  permission pending, denies a permission, and interrupts a nonzero shell turn
-  so the interrupted surface can be validated through live UI interaction, not
-  only runtime tests and inherited diagnostics coverage.
-- Phase 5.1 should fix the frontend new-chat active-session handoff so starting
-  a new chat clears the adapter's submitted session id before the next prompt.
-  The fix must keep `SessionActivity` as the source of truth and must not add a
-  frontend-only session state source.
-- Phase 5.1 or the Phase 6 design gate should add a live MCP/custom validation
-  fixture that emits structured artifact refs during an interrupted turn. This
-  should verify that recovery keeps trusting structured refs only and does not
-  infer artifacts from assistant prose.
-- Phase 6 should decide whether interrupted acknowledgement needs its own
+- Completed in Phase 5.1: explicit browser recovery validation for pending
+  permission, denied permission, and nonzero shell interrupted recovery.
+- Completed in Phase 5.1: frontend new-chat active-session handoff fix. The
+  fix keeps `SessionActivity` as the source of truth and does not add a
+  frontend-only session source.
+- Partially completed in Phase 5.1 and carried to Phase 6: MCP/custom
+  structured refs were validated through a close-live persisted
+  `SessionActivity` fixture. A true external MCP server end-to-end fixture
+  remains required before promoting generic tool artifact refs to a stronger
+  product guarantee.
+- Carried to Phase 6: decide whether interrupted acknowledgement needs its own
   persisted field or whether the current `cancelled` terminal status remains
   sufficient for product UX and audit recovery.
+
+### Phase 5.1: Interrupted Recovery Hardening
+
+Status: implemented for the focused hardening slice.
+
+Scope:
+
+- Fix new-chat active-session handoff so the first prompt after `NewChat` does
+  not reuse a stale active session id.
+- Add stronger interrupted recovery fixtures for:
+  - pending permission at interruption
+  - denied permission diagnostics
+  - nonzero shell exit during an interrupted turn
+  - MCP/custom structured artifact refs during interrupted recovery
+- Keep `SessionActivity` as the source of truth for timeline, diagnostics, and
+  interrupted recovery UI.
+- Keep runtime events as refresh triggers only.
+- Do not auto replay or auto resume interrupted work.
+- Do not introduce a Run state machine.
+
+Implemented:
+
+- The workbench now immediately clears the visible draft chat surface when the
+  user clicks new chat.
+- The runtime adapter records a one-shot draft-submit guard after `NewChat`.
+  The next `Chat` request omits `sessionId` even if an older hydrated view
+  model still contains a stale active session. The guard is cleared when a new
+  turn returns a runtime session id or when the user explicitly selects an
+  existing session.
+- The guard is adapter-level request hygiene only; it does not own sessions,
+  timeline, diagnostics, or interrupted state.
+- Interrupted permission diagnostics now preserve a pending-at-interruption
+  signal for permissions that were expired/cancelled by runtime recovery. The
+  persisted permission remains non-pending, so reload does not restore a stale
+  actionable permission gate.
+- Runtime interrupted summary tests now cover pending/expired permission
+  recovery, denied permission signals, cancelled tool signals, nonzero shell
+  exits, and structured MCP/custom artifact refs.
+- Structured MCP/custom artifact validation continues to trust only structured
+  refs, tool metadata, and display metadata. Assistant prose is not used to
+  infer artifact refs.
+
+Validation:
+
+- `go test ./internal/runtime`
+- `cd client && npm run lint`
+- `cd client && npx tsc -b --pretty false`
+- Runtime HTTP/Vite validation used runtime HTTP
+  `http://127.0.0.1:5197`, Vite `http://127.0.0.1:5198`, and fake provider
+  `http://127.0.0.1:5196`.
+- All validation scripts, logs, pid files, and generated artifacts were kept
+  under `C:\Users\ytq\work\ai\agent-builder\tmp\runtime-dev`.
+- Browser validation in the Codex in-app browser verified:
+  - opening an old session, clicking new chat, and submitting
+    `phase51-new-chat` created session
+    `6187b9f0-8d5f-459f-af5d-a1a3b3edb911`; the old session
+    `cbb139fe-8007-4469-b79f-a0342dea263e` did not receive the prompt
+  - pending permission interrupted recovery restored from
+    `SessionActivity` after runtime restart with interrupted status, no stale
+    running/waiting tool, and diagnostics showing pending-at-interruption plus
+    expired recovery state
+  - denied permission was exercised through the browser permission gate; reload
+    restored diagnostics with `denied 1` and no stale permission gate
+  - nonzero shell interrupted recovery restored command, cwd, exit `7`,
+    stdout, stderr, failure reason, runtime artifact refs, and
+    `nonzero shell 1`
+  - close-live MCP/custom structured refs interrupted fixture restored
+    structured artifact refs, target, and display metadata while excluding the
+    assistant-prose-only path `phase51-prose-should-not-count.json`
+  - reload recovery rebuilt timeline, diagnostics, and interrupted recovery
+    surfaces from hydrated `SessionActivity`
+  - no duplicate tool ids were observed in the browser DOM for the validated
+    sessions
+
+Remaining risks:
+
+- The MCP/custom structured refs browser fixture is close-live: it seeds
+  persisted runtime tables under the local dev database and validates the real
+  `SessionActivity` hydration/UI path. It is not an external MCP server
+  end-to-end run.
+- The Wails bridge uses the same adapter `NewChat`/`Chat` path and the same
+  runtime bridge methods, but this slice's click-through browser validation
+  used the HTTP/Vite development transport. Desktop bridge coverage should be
+  kept through `go test ./desktop` and future packaged smoke runs.
+- Pending-at-interruption is represented by counting recovered expired or
+  cancelled permissions as pending in diagnostics for interrupted turns while
+  leaving their persisted lifecycle status terminal. This avoids stale approval
+  actions but means the diagnostics count intentionally differs from the raw
+  permission status.
 
 ### Phase 6: Run State Machine Design Gate
 
@@ -980,15 +1067,22 @@ Scope:
     metadata, runtime output ref, structured MCP/custom ref, and unknown
   - decide whether very large sessions need narrower session-scoped hydration
     before a Run object is introduced
-  - require live MCP/custom validation before promoting structured custom refs
-    from conservative support to production-ready artifact accounting
-  - require the Phase 5.1 permission-denial/nonzero-shell interrupted browser
-    fixture before defining Run-level resume affordances
-  - require the new-chat active-session handoff fix before using follow-up or
-    resume actions as a Run entry point
+  - require an external MCP server end-to-end interrupted fixture before
+    promoting structured custom refs from conservative support to
+    production-ready artifact accounting
+  - use the completed Phase 5.1 permission-denial/nonzero-shell interrupted
+    browser fixture as required evidence before defining Run-level resume
+    affordances
+  - use the completed new-chat active-session handoff fix as required evidence
+    before using follow-up or resume actions as a Run entry point
   - decide whether interrupted acknowledgement is a Run-level checkpoint state,
     a turn-level persisted acknowledgement, or the existing cancelled terminal
     status
+  - decide whether pending-at-interruption should remain a computed
+    diagnostics signal over terminal permission statuses, or become a distinct
+    persisted recovery lifecycle state
+  - add a Wails packaged smoke for the new-chat handoff and interrupted
+    recovery bridge path in addition to the HTTP/Vite browser validation
 
 Acceptance:
 

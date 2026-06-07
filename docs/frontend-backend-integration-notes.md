@@ -158,3 +158,26 @@ Follow-up:
 - Keep runtime events as refresh triggers only. The fix should still hydrate
   session, timeline, diagnostics, and interrupted recovery state from
   `SessionActivity`.
+
+## 2026-06-07: New Chat Active-Session Handoff
+
+Phase 5.1 fixed the stale active-session handoff observed during interrupted
+recovery validation.
+
+Resolution:
+
+- Clicking new chat now clears the visible draft conversation immediately.
+- The runtime adapter sets a one-shot draft-submit guard after `NewChat`.
+- The next `Chat` request omits `sessionId` even if an older hydrated view
+  model still contains the previous active session id.
+- The guard is cleared after the runtime returns the new session id, or when
+  the user explicitly selects an existing session.
+
+This guard only constrains request parameters. It is not a frontend-owned
+session source. Sessions, timeline, diagnostics, and interrupted recovery still
+hydrate from runtime `SessionActivity`; runtime events still only trigger
+refresh.
+
+Browser validation on the HTTP/Vite path opened an old session, clicked new
+chat, submitted `phase51-new-chat`, and confirmed the old session did not
+receive the prompt while the runtime-created new session did.

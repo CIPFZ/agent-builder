@@ -145,7 +145,20 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   };
 
   const createSession = () => {
-    void adapter.createSession({ ...viewModel, mode }).then((nextViewModel) => {
+    const draftViewModel: WorkbenchViewModel = {
+      ...viewModel,
+      mode: 'new-chat',
+      sessions: viewModel.sessions.map((session) => ({ ...session, active: false })),
+      conversation: [],
+      timeline: [],
+      turnDiagnostics: undefined,
+      interruptedTurn: undefined,
+      pendingPermissions: [],
+      composer: { ...viewModel.composer, busy: false, activeTurnId: undefined },
+    };
+    setMode('new-chat');
+    setViewModel(draftViewModel);
+    void adapter.createSession(draftViewModel).then((nextViewModel) => {
       setMode(nextViewModel.mode);
       setViewModel(nextViewModel);
     });

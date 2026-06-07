@@ -103,7 +103,7 @@ func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, to
 		diag.ToolCountsByKind = nil
 	}
 
-	diag.PermissionCounts = permissionCountsForTurn(turn.ID, permissions)
+	diag.PermissionCounts = permissionCountsForTurn(turn, permissions)
 	diag.LastRuntimeEventAt, diag.LastRuntimeEventSequence = lastRuntimeEventForTurn(events)
 
 	diag.ExpectedArtifacts = sortedMapKeys(expectedSet)
@@ -286,10 +286,10 @@ func interruptedToolLabel(tool RuntimeInterruptedToolSummary) string {
 	return label + " (" + detail + ")"
 }
 
-func permissionCountsForTurn(turnID string, permissions []RuntimePermissionRequest) RuntimePermissionCounts {
+func permissionCountsForTurn(turn RuntimeTurn, permissions []RuntimePermissionRequest) RuntimePermissionCounts {
 	var counts RuntimePermissionCounts
 	for _, perm := range permissions {
-		if turnID != "" && perm.TurnID != turnID {
+		if turn.ID != "" && perm.TurnID != turn.ID {
 			continue
 		}
 		switch strings.ToLower(strings.TrimSpace(perm.Status)) {
@@ -301,8 +301,14 @@ func permissionCountsForTurn(turnID string, permissions []RuntimePermissionReque
 			counts.Denied++
 		case permissionStatusExpired:
 			counts.Expired++
+			if turn.Status == turnStatusInterrupted {
+				counts.Pending++
+			}
 		case permissionStatusCancelled, "canceled":
 			counts.Cancelled++
+			if turn.Status == turnStatusInterrupted {
+				counts.Pending++
+			}
 		}
 	}
 	return counts

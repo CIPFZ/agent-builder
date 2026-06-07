@@ -422,6 +422,155 @@ func TestRuntimeInterruptedSummaryPreservesRecoverySignals(t *testing.T) {
 	}
 }
 
+func TestRuntimeInterruptedSummaryPhase51PermissionAndShellSignals(t *testing.T) {
+	t.Parallel()
+
+	dir := phase51RuntimeDevDir(t)
+	exit := 9
+	turn := RuntimeTurn{
+		ID:         "turn-phase51-signals",
+		SessionID:  "session-phase51",
+		Status:     turnStatusInterrupted,
+		StartedAt:  1000,
+		FinishedAt: 2200,
+		Error:      "runtime restarted before permission or shell completion",
+	}
+	toolCalls := []RuntimeToolCall{
+		{
+			ID:         "tool-pending-permission",
+			TurnID:     turn.ID,
+			Name:       "write",
+			Source:     "builtin",
+			Status:     string(scheduler.ToolCallCancelled),
+			StartedAt:  1100,
+			FinishedAt: 2200,
+			Display: RuntimeToolCallDisplay{
+				Kind:          "file_write",
+				Title:         "Write pending file",
+				PrimaryTarget: filepath.Join(dir, "pending-permission.md"),
+			},
+		},
+		{
+			ID:         "tool-denied-permission",
+			TurnID:     turn.ID,
+			Name:       "bash",
+			Source:     "shell",
+			Status:     string(scheduler.ToolCallDenied),
+			StartedAt:  1200,
+			FinishedAt: 1300,
+			Display: RuntimeToolCallDisplay{
+				Kind:          "shell",
+				Title:         "Run denied command",
+				Command:       "Remove-Item blocked.txt",
+				WorkingDir:    dir,
+				FailureReason: "permission denied",
+			},
+		},
+		{
+			ID:         "tool-nonzero-shell",
+			TurnID:     turn.ID,
+			Name:       "bash",
+			Source:     "shell",
+			Status:     string(scheduler.ToolCallCompleted),
+			StartedAt:  1400,
+			FinishedAt: 1500,
+			ExitCode:   9,
+			Stderr:     "phase51 shell failed",
+			Display: RuntimeToolCallDisplay{
+				Kind:          "shell",
+				Title:         "Run failing command",
+				Command:       "go test ./phase51",
+				WorkingDir:    dir,
+				ExitCode:      &exit,
+				StderrExcerpt: "phase51 shell failed",
+				FailureReason: "phase51 shell failed",
+			},
+		},
+	}
+	permissions := []RuntimePermissionRequest{
+		{ID: "perm-pending", TurnID: turn.ID, ToolCallID: "tool-pending-permission", Status: permissionStatusExpired},
+		{ID: "perm-denied", TurnID: turn.ID, ToolCallID: "tool-denied-permission", Status: permissionStatusDenied},
+	}
+
+	diag := buildRuntimeTurnDiagnostics(turn, nil, toolCalls, permissions, nil)
+	summary := buildRuntimeInterruptedSummary(turn, diag, toolCalls)
+	if summary == nil {
+		t.Fatal("interrupted summary missing")
+	}
+	if summary.PendingTool.ID != "tool-pending-permission" || summary.PendingTool.Status != string(scheduler.ToolCallCancelled) {
+		t.Fatalf("pending permission recovery tool = %#v", summary.PendingTool)
+	}
+	if summary.PermissionCounts.Pending != 1 || summary.PermissionCounts.Expired != 1 || summary.PermissionCounts.Denied != 1 {
+		t.Fatalf("permission signals = %#v", summary.PermissionCounts)
+	}
+	if summary.DeniedToolCount != 1 || summary.CancelledToolCount != 1 || summary.NonzeroExitShellCount != 1 {
+		t.Fatalf("tool signals = %#v", summary)
+	}
+	if summary.LastFailedTool.ID != "tool-nonzero-shell" || summary.LastFailedTool.ExitCode == nil || *summary.LastFailedTool.ExitCode != 9 {
+		t.Fatalf("nonzero shell recovery = %#v", summary.LastFailedTool)
+	}
+	if !strings.Contains(summary.SummaryText, "Permissions: pending 1, denied 1") || !strings.Contains(summary.SummaryText, "nonzero shell 1") {
+		t.Fatalf("summary text does not explain signals: %q", summary.SummaryText)
+	}
+}
+
+func TestRuntimeInterruptedSummaryPhase51StructuredRefsOnly(t *testing.T) {
+	t.Parallel()
+
+	dir := phase51RuntimeDevDir(t)
+	structuredPath := filepath.Join(dir, "structured-mcp-artifact.json")
+	prosePath := filepath.Join(dir, "prose-should-not-count.json")
+	turn := RuntimeTurn{
+		ID:         "turn-phase51-structured",
+		SessionID:  "session-phase51",
+		Status:     turnStatusInterrupted,
+		StartedAt:  1000,
+		FinishedAt: 2000,
+		Error:      "runtime restarted before final assistant response",
+	}
+	toolCalls := []RuntimeToolCall{{
+		ID:           "tool-custom-structured",
+		TurnID:       turn.ID,
+		Name:         "custom_artifact_writer",
+		Source:       "mcp",
+		Status:       string(scheduler.ToolCallCompleted),
+		StartedAt:    1100,
+		FinishedAt:   1200,
+		Structured:   `{"artifact_refs":[{"path":"` + strings.ReplaceAll(structuredPath, `\`, `\\`) + `","target":"phase51-report","display":{"label":"Phase 5.1 report"}}]}`,
+		ModelContent: "Assistant prose claims an artifact exists at " + prosePath,
+		Display: RuntimeToolCallDisplay{
+			Kind:          "generic",
+			Title:         "Custom structured artifact",
+			Detail:        "structured refs only",
+			PrimaryTarget: structuredPath,
+			Target:        structuredPath,
+			Targets:       []string{structuredPath},
+			ArtifactRefs:  []string{structuredPath},
+		},
+	}}
+
+	diag := buildRuntimeTurnDiagnostics(turn, nil, toolCalls, nil, nil)
+	summary := buildRuntimeInterruptedSummary(turn, diag, toolCalls)
+	if summary == nil {
+		t.Fatal("interrupted summary missing")
+	}
+	if !slices.Contains(summary.ProducedArtifacts, structuredPath) {
+		t.Fatalf("structured artifact ref not preserved: %#v", summary.ProducedArtifacts)
+	}
+	if slices.Contains(summary.ProducedArtifacts, prosePath) {
+		t.Fatalf("assistant prose path was incorrectly trusted: %#v", summary.ProducedArtifacts)
+	}
+	if summary.ArtifactCounts.StructuredRefs != 1 || diag.ArtifactConfidenceSummary.StructuredMCPCustomRefs != 1 {
+		t.Fatalf("structured confidence = diag %#v summary %#v", diag.ArtifactConfidenceSummary, summary.ArtifactCounts)
+	}
+	if summary.LastCompletedTool.Target != structuredPath || !slices.Contains(summary.LastCompletedTool.ArtifactRefs, structuredPath) {
+		t.Fatalf("interrupted tool metadata = %#v", summary.LastCompletedTool)
+	}
+	if summary.LastCompletedTool.Display.Title != "Custom structured artifact" || summary.LastCompletedTool.Display.Detail != "structured refs only" {
+		t.Fatalf("display metadata not retained: %#v", summary.LastCompletedTool.Display)
+	}
+}
+
 func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 	t.Parallel()
 
@@ -643,4 +792,17 @@ func TestRuntimeSessionActivityRestoresInterruptedSummaryWithoutStaleRunningTool
 	if summary.LastCompletedTool.ID != "tool-completed" || summary.PermissionCounts.Denied != 1 || summary.CancelledToolCount != 1 {
 		t.Fatalf("summary details = %#v", summary)
 	}
+}
+
+func phase51RuntimeDevDir(t *testing.T) string {
+	t.Helper()
+	name := strings.NewReplacer("/", "-", "\\", "-", " ", "-").Replace(t.Name())
+	dir, err := filepath.Abs(filepath.Join("..", "..", "tmp", "runtime-dev", "phase51-tests", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

@@ -394,12 +394,11 @@ Status: implemented as part of the long-conversation hardening Phase 5 slice.
 
 Follow-up before the next timeline/runtime phase:
 
-- Add a live browser fixture for interrupted permission denial, pending
-  permission recovery, and nonzero shell signals so the recovery surface is
-  validated through user interaction as well as runtime tests.
-- Fix the new-chat active-session handoff before using follow-up or resume-like
-  actions as part of a broader task flow; the next prompt after new chat must
-  not reuse the previous session id.
-- Add a live MCP/custom structured-ref interruption fixture before promoting
-  generic tool artifact refs from conservative display support to a stronger
-  product guarantee.
+- Phase 5.1 added browser validation for pending permission recovery, denied
+  permission diagnostics, and nonzero shell interrupted recovery.
+- Phase 5.1 fixed the new-chat active-session handoff; the next prompt after
+  new chat no longer reuses the previous session id.
+- Phase 5.1 added a close-live MCP/custom structured-ref interrupted fixture
+  that validates hydrated `SessionActivity` and the browser UI. A true external
+  MCP server end-to-end fixture is still useful before promoting generic tool
+  artifact refs to a stronger production guarantee.

@@ -495,6 +495,7 @@ let runtimeBridgePromise: Promise<RuntimeBridgeModule | null> | undefined;
 const runtimeBridgePath = '/bindings/github.com/charmbracelet/crush/desktop/runtimebridge.js';
 const runtimeBridgeTimeoutMS = 750;
 let runtimeLatestEventSequence = 0;
+let forceDraftChatSubmit = false;
 
 function loadRuntimeBridge() {
   if (import.meta.env.DEV && typeof window !== 'undefined') {
@@ -1792,6 +1793,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     return subscribeRuntimeBridgeEvents(httpBridge, onEvent);
   },
   async createSession(current) {
+    forceDraftChatSubmit = true;
     return withBridge(
       async (bridge) => {
         await bridge.NewChat('');
@@ -1802,6 +1804,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     );
   },
   async selectSession(current, sessionID) {
+    forceDraftChatSubmit = false;
     return withBridge(
       async (bridge) => {
         await bridge.SelectSession(sessionID);
@@ -1878,7 +1881,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     );
   },
   async sendPrompt(current, prompt) {
-    const activeSessionID = current.sessions.find((session) => session.active)?.id;
+    const activeSessionID = forceDraftChatSubmit ? undefined : current.sessions.find((session) => session.active)?.id;
 
     return withBridge(
       async (bridge) => {
@@ -1918,6 +1921,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
             '运行时响应超时，请稍后刷新会话查看结果。',
           );
           const responseSessionID = response.status.sessionId || activeSessionID;
+          forceDraftChatSubmit = false;
           const busyAfterSubmit = Boolean(response.turnId);
           return {
             ...optimistic,
