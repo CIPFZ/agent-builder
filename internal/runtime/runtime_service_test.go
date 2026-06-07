@@ -2707,6 +2707,303 @@ func TestRuntimeToolCallDisplayExtractsTargetFromTruncatedJSON(t *testing.T) {
 	}
 }
 
+func TestRuntimeToolCallDisplayShellDetailMetadata(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "shell-created.md")
+	started := time.UnixMilli(1000)
+	finished := time.UnixMilli(2750)
+	call := toRuntimeToolCall(scheduler.ToolCall{
+		ID:           "tool-shell",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		Name:         "bash",
+		Source:       scheduler.ToolSourceShell,
+		Command:      `Set-Content -LiteralPath "` + path + `" -Value ok`,
+		InputSummary: `{"command":"ignored","cwd":"C:/work/repo"}`,
+		Stdout:       strings.Repeat("stdout line\n", 300),
+		Stderr:       "stderr line",
+		ArtifactRefs: []string{path},
+		ExitCode:     7,
+		Status:       scheduler.ToolCallFailed,
+		StartedAt:    started,
+		FinishedAt:   finished,
+	})
+	display := call.Display
+	if display.Kind != "shell" || display.Command != `Set-Content -LiteralPath "`+path+`" -Value ok` || display.WorkingDir != "C:/work/repo" {
+		t.Fatalf("shell display metadata = %#v", display)
+	}
+	if display.ExitCode == nil || *display.ExitCode != 7 || display.DurationMS != 1750 {
+		t.Fatalf("shell exit/duration = %#v", display)
+	}
+	if display.PrimaryTarget != path || !slices.Contains(display.Targets, path) || display.ArtifactCount != 1 {
+		t.Fatalf("shell target/artifact metadata = %#v", display)
+	}
+	if !strings.Contains(display.StdoutExcerpt, "... truncated ...") || !strings.Contains(display.StdoutExcerpt, "stdout line") || display.StderrExcerpt != "stderr line" {
+		t.Fatalf("shell excerpts = stdout %q stderr %q", display.StdoutExcerpt, display.StderrExcerpt)
+	}
+	if display.FailureReason != "stderr line" {
+		t.Fatalf("shell failure reason = %q", display.FailureReason)
+	}
+	nonzeroCompleted := toRuntimeToolCall(scheduler.ToolCall{
+		ID:         "tool-shell-nonzero",
+		SessionID:  "session-1",
+		TurnID:     "turn-1",
+		Name:       "bash",
+		Source:     scheduler.ToolSourceShell,
+		Command:    "exit 7",
+		Stderr:     "nonzero stderr",
+		ExitCode:   7,
+		Status:     scheduler.ToolCallCompleted,
+		StartedAt:  started,
+		FinishedAt: finished,
+	})
+	if nonzeroCompleted.Display.FailureReason != "nonzero stderr" {
+		t.Fatalf("nonzero shell failure reason = %#v", nonzeroCompleted.Display)
+	}
+	success := toRuntimeToolCall(scheduler.ToolCall{
+		ID:         "tool-shell-ok",
+		SessionID:  "session-1",
+		TurnID:     "turn-1",
+		Name:       "bash",
+		Source:     scheduler.ToolSourceShell,
+		Command:    "echo ok",
+		ExitCode:   0,
+		Status:     scheduler.ToolCallCompleted,
+		StartedAt:  started,
+		FinishedAt: finished,
+	})
+	if success.Display.ExitCode == nil || *success.Display.ExitCode != 0 {
+		t.Fatalf("shell success exit code missing: %#v", success.Display)
+	}
+}
+
+func TestRuntimeToolCallDisplayFileKindsAndTargets(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		input     string
+		wantKind  string
+		want      string
+		artifacts int
+	}{
+		{name: "write", input: `{"file_path":"tmp/runtime-dev/read-report.md","mode":"append"}`, wantKind: "file_write", want: "tmp/runtime-dev/read-report.md", artifacts: 1},
+		{name: "view", input: `{"file_path":"tmp/runtime-dev/write-report.md"}`, wantKind: "file_read", want: "tmp/runtime-dev/write-report.md"},
+		{name: "glob", input: `{"pattern":"**/*write*.go"}`, wantKind: "file_search", want: "**/*write*.go"},
+		{name: "grep", input: `{"query":"read","path":"internal/runtime"}`, wantKind: "file_search", want: "internal/runtime"},
+		{name: "multiedit", input: `{"file_path":"client/src/App.tsx","edits":[{"old":"a","new":"b"}]}`, wantKind: "file_edit", want: "client/src/App.tsx"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			call := toRuntimeToolCall(scheduler.ToolCall{
+				ID:           "tool-" + tc.name,
+				SessionID:    "session-1",
+				TurnID:       "turn-1",
+				Name:         tc.name,
+				Source:       scheduler.ToolSourceBuiltin,
+				InputSummary: tc.input,
+				Status:       scheduler.ToolCallCompleted,
+				StartedAt:    time.UnixMilli(1000),
+				FinishedAt:   time.UnixMilli(1100),
+			})
+			if call.Display.Kind != tc.wantKind || call.Display.PrimaryTarget != tc.want || call.Display.Target != tc.want || !slices.Contains(call.Display.Targets, tc.want) {
+				t.Fatalf("display metadata = %#v, want kind %s target %s", call.Display, tc.wantKind, tc.want)
+			}
+			if call.Display.ArtifactCount != tc.artifacts {
+				t.Fatalf("artifact count = %d, want %d: %#v", call.Display.ArtifactCount, tc.artifacts, call.Display)
+			}
+		})
+	}
+}
+
+func TestRuntimeToolCallDisplayCountsDiffAndStructuredArtifacts(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "mcp-created.md")
+	mcpCall := toRuntimeToolCall(scheduler.ToolCall{
+		ID:         "tool-mcp",
+		SessionID:  "session-1",
+		TurnID:     "turn-1",
+		Name:       "mcp_docs_writer",
+		Source:     scheduler.ToolSourceMCP,
+		Structured: `{"artifact_refs":[{"path":"` + strings.ReplaceAll(path, `\`, `\\`) + `"}]}`,
+		Status:     scheduler.ToolCallCompleted,
+		StartedAt:  time.UnixMilli(1000),
+		FinishedAt: time.UnixMilli(1100),
+	})
+	if mcpCall.Display.Kind != "generic" || mcpCall.Display.PrimaryTarget != path || mcpCall.Display.ArtifactCount != 1 {
+		t.Fatalf("mcp display metadata = %#v", mcpCall.Display)
+	}
+
+	editCall := toRuntimeToolCall(scheduler.ToolCall{
+		ID:           "tool-edit",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		Name:         "apply_patch",
+		Source:       scheduler.ToolSourceBuiltin,
+		InputSummary: `{"file_path":"internal/runtime/runtime_tool_calls.go"}`,
+		DiffRefs:     []string{"ref-diff-1", "ref-diff-2"},
+		Status:       scheduler.ToolCallCompleted,
+		StartedAt:    time.UnixMilli(1000),
+		FinishedAt:   time.UnixMilli(1100),
+	})
+	if editCall.Display.Kind != "file_edit" || editCall.Display.DiffCount != 2 || editCall.Display.DiffSummary != "2 diff refs" {
+		t.Fatalf("edit display metadata = %#v", editCall.Display)
+	}
+}
+
+func TestRuntimeToolCallDisplayShellCommandKeywordsStayShell(t *testing.T) {
+	t.Parallel()
+
+	call := toRuntimeToolCall(scheduler.ToolCall{
+		ID:           "tool-shell",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		Name:         "bash",
+		Source:       scheduler.ToolSourceShell,
+		Command:      `echo write > C:\tmp\read-output.md`,
+		InputSummary: `{"command":"echo write > C:\\tmp\\read-output.md"}`,
+		Status:       scheduler.ToolCallCompleted,
+		StartedAt:    time.UnixMilli(1000),
+		FinishedAt:   time.UnixMilli(1100),
+	})
+	if call.Display.Kind != "shell" {
+		t.Fatalf("shell command keyword changed kind: %#v", call.Display)
+	}
+}
+
+func TestRuntimeSessionActivityPreservesGroupedToolDisplayMetadata(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "runtime-state")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	workingDir := t.TempDir()
+	cfg := config.NewRuntimeConfig(workingDir, dataDir, false)
+	cfg.Options.AutoLSP = ptr(false)
+	store := config.NewRuntimeStore(workingDir, cfg)
+	runtimeBackend := backend.New(context.Background(), store, nil)
+	_, workspace, err := runtimeBackend.CreateWorkspace(proto.Workspace{
+		Path:    workingDir,
+		DataDir: dataDir,
+		Config:  store.Config(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		runtimeBackend.DeleteWorkspace(workspace.ID)
+	})
+	service.runtime = runtimeBackend
+	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	providerStore := newRuntimeProviderSettingsStore(conn)
+	if err := service.syncProviderCatalog(context.Background(), providerStore); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := providerStore.UpsertConfigured(context.Background(), RuntimeConfiguredProviderRequest{
+		ID:           "provider-test",
+		ProviderID:   "custom",
+		Name:         "Test Provider",
+		Protocol:     "openai-compat",
+		APIEndpoint:  "http://127.0.0.1:9",
+		APIKey:       "test-key",
+		DefaultModel: "test-model",
+		Enabled:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newRuntimeSelectedModelStore(conn).Upsert(context.Background(), RuntimeSelectedModelRequest{
+		ConfiguredProviderID: provider.ID,
+		Model:                provider.DefaultModel,
+		Scope:                "global",
+	}, provider); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "Tool metadata")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.UnixMilli(1000)
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:         "turn-tools",
+		SessionID:  sess.ID,
+		Status:     turnStatusCompleted,
+		StartedAt:  started.UnixMilli(),
+		FinishedAt: started.Add(3 * time.Second).UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, req := range []scheduler.ToolCallRequest{
+		{ID: "tool-write", SessionID: sess.ID, TurnID: "turn-tools", Name: "write", Source: scheduler.ToolSourceBuiltin, InputSummary: `{"file_path":"tmp/runtime-dev/group-write.md"}`},
+		{ID: "tool-shell-fail", SessionID: sess.ID, TurnID: "turn-tools", Name: "bash", Source: scheduler.ToolSourceShell, Command: "exit 7", InputSummary: `{"cwd":"C:/work/repo"}`},
+		{ID: "tool-edit", SessionID: sess.ID, TurnID: "turn-tools", Name: "apply_patch", Source: scheduler.ToolSourceBuiltin, InputSummary: `{"file_path":"tmp/runtime-dev/group-edit.md"}`},
+	} {
+		if _, err := service.toolCalls.CreateCall(context.Background(), req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID:   "tool-write",
+		Status:       scheduler.ToolCallCompleted,
+		ArtifactRefs: []string{"tmp/runtime-dev/group-write.md"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID: "tool-shell-fail",
+		Status:     scheduler.ToolCallFailed,
+		ExitCode:   7,
+		Stderr:     "boom",
+		Error:      "boom",
+		IsError:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID: "tool-edit",
+		Status:     scheduler.ToolCallCompleted,
+		DiffRefs:   []string{"diff-1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	activity, err := service.SessionActivity(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(activity.ToolCalls) != 3 {
+		t.Fatalf("tool calls = %#v", activity.ToolCalls)
+	}
+	byID := map[string]RuntimeToolCall{}
+	for _, call := range activity.ToolCalls {
+		byID[call.ID] = call
+	}
+	if byID["tool-write"].Status != string(scheduler.ToolCallCompleted) || byID["tool-write"].Display.PrimaryTarget != "tmp/runtime-dev/group-write.md" || byID["tool-write"].Display.ArtifactCount == 0 {
+		t.Fatalf("write metadata lost: %#v", byID["tool-write"])
+	}
+	if byID["tool-shell-fail"].Status != string(scheduler.ToolCallFailed) || byID["tool-shell-fail"].Display.ExitCode == nil || *byID["tool-shell-fail"].Display.ExitCode != 7 || byID["tool-shell-fail"].Display.FailureReason != "boom" {
+		t.Fatalf("failed shell metadata lost: %#v", byID["tool-shell-fail"])
+	}
+	if byID["tool-edit"].Status != string(scheduler.ToolCallCompleted) || byID["tool-edit"].Display.DiffCount != 1 {
+		t.Fatalf("edit metadata lost: %#v", byID["tool-edit"])
+	}
+}
+
 func TestRuntimeToolCallRedactsShellSecrets(t *testing.T) {
 	t.Parallel()
 

@@ -101,6 +101,27 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.detailRows {
+  display: grid;
+  gap: 4px;
+}
+
+.detailRow {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  color: rgb(13 13 13 / 48%);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.detailRow code {
+  color: rgb(13 13 13 / 76%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .output,
 .emptyOutput {
   margin: 1px 0 0;

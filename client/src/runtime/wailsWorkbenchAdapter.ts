@@ -240,9 +240,23 @@ interface RuntimeToolCallDisplayDTO {
   title?: string;
   detail?: string;
   target?: string;
+  primaryTarget?: string;
+  targets?: string[];
+  workingDir?: string;
   command?: string;
   exitCode?: number;
   durationMs?: number;
+  stdoutExcerpt?: string;
+  stderrExcerpt?: string;
+  inputExcerpt?: string;
+  outputExcerpt?: string;
+  failureReason?: string;
+  artifactCount?: number;
+  diffCount?: number;
+  artifactRefs?: string[];
+  diffRefs?: string[];
+  artifactSummary?: string;
+  diffSummary?: string;
 }
 
 interface RuntimePermissionDTO {

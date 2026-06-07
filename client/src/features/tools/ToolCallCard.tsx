@@ -35,7 +35,7 @@ function SingleToolCallCard({ toolCall }: { toolCall: ToolCallViewModel }) {
   const defaultActiveKey = shouldOpenByDefault([toolCall]) ? ['details'] : [];
 
   return (
-    <section className={styles.process} data-testid="tool-call-card" data-tool-call-id={toolCall.id} data-tool-kind={kind} data-tool-status={toolCall.status}>
+    <section className={styles.process} data-testid="tool-call-card" data-tool-call-id={toolCall.id} data-tool-kind={kind} data-tool-status={toolVisualStatus(toolCall)}>
       {messageContextHolder}
       <Collapse
         ghost
@@ -50,12 +50,12 @@ function SingleToolCallCard({ toolCall }: { toolCall: ToolCallViewModel }) {
             label: (
               <div className={styles.summary}>
                 <span className={styles.summaryTitle}>
-                  <ToolIcon kind={kind} status={toolCall.status} />
+                  <ToolIcon kind={kind} status={toolVisualStatus(toolCall)} />
                   {toolCall.display?.title || summaryTitle(toolCall, kind)}
                 </span>
                 <span className={styles.summaryMeta}>
                   {toolDuration(toolCall)}
-                  <ToolStatus status={toolCall.status} />
+                  <ToolStatus status={toolVisualStatus(toolCall)} />
                 </span>
               </div>
             ),
@@ -140,7 +140,12 @@ function ToolDetails({
   toolCall: ToolCallViewModel;
 }) {
   const shellLike = kind === 'shell';
-  const detailsText = [detail, output, toolCall.stderr, toolCall.error].filter(Boolean).join('\n\n');
+  const stderr = toolStderr(toolCall);
+  const failureReason = toolFailureReason(toolCall);
+  const detailsText = [detail, output, stderr, failureReason, toolCall.error].filter(Boolean).join('\n\n');
+  const targets = toolTargets(toolCall);
+  const workingDir = toolCall.display?.workingDir;
+  const command = toolCall.display?.command || toolCall.command;
 
   return (
     <div className={styles.details}>
@@ -153,8 +158,26 @@ function ToolDetails({
           <Typography.Paragraph className={shellLike ? styles.commandLine : styles.detailText} copyable={false}>
             {detail}
           </Typography.Paragraph>
+          {(workingDir || (!shellLike && targets.length > 0)) && (
+            <div className={styles.detailRows}>
+              {workingDir && (
+                <div className={styles.detailRow}>
+                  <span>cwd</span>
+                  <code>{workingDir}</code>
+                </div>
+              )}
+              {!shellLike && targets.length > 0 && (
+                <div className={styles.detailRow}>
+                  <span>{targets.length > 1 ? 'targets' : 'target'}</span>
+                  <code>{targets.join('\n')}</code>
+                </div>
+              )}
+            </div>
+          )}
+          {shellLike && command && command !== detail && <pre className={styles.output}>{command}</pre>}
           {output ? <pre className={styles.output}>{output}</pre> : shellLike && toolCall.status === 'completed' ? <div className={styles.emptyOutput}>无输出</div> : null}
-          {toolCall.stderr && <pre className={`${styles.output} ${styles.errorOutput}`}>{toolCall.stderr}</pre>}
+          {failureReason && failureReason !== stderr && failureReason !== toolCall.error && <pre className={`${styles.output} ${styles.errorOutput}`}>{failureReason}</pre>}
+          {stderr && <pre className={`${styles.output} ${styles.errorOutput}`}>{stderr}</pre>}
           {toolCall.error && <pre className={`${styles.output} ${styles.errorOutput}`}>{toolCall.error}</pre>}
         </div>
       )}
@@ -169,12 +192,13 @@ function ToolDetails({
         </div>
       )}
 
-      {(toolCall.risk || toolCall.policyMode || toolCall.policyReason || toolCall.policyTargetSummary || toolExitCode(toolCall) !== undefined || toolRefCount(toolCall) > 0) && (
+      {(toolCall.risk || toolCall.policyMode || toolCall.policyReason || toolCall.policyTargetSummary || toolExitCode(toolCall) !== undefined || toolRefCount(toolCall) > 0 || targets.length > 0) && (
         <div className={styles.meta}>
           {toolExitCode(toolCall) !== undefined && <Tag>exit {toolExitCode(toolCall)}</Tag>}
-          {toolCall.outputRefs?.length ? <Tag>{toolCall.outputRefs.length} output refs</Tag> : null}
-          {toolCall.artifactRefs?.length ? <Tag>{toolCall.artifactRefs.length} artifacts</Tag> : null}
-          {toolCall.diffRefs?.length ? <Tag>{toolCall.diffRefs.length} diffs</Tag> : null}
+          {targets.length ? <Tag>{targets.length === 1 ? targets[0] : `${targets.length} targets`}</Tag> : null}
+          {toolOutputRefCount(toolCall) ? <Tag>{toolOutputRefCount(toolCall)} output refs</Tag> : null}
+          {toolArtifactCount(toolCall) ? <Tag>{toolArtifactCount(toolCall)} artifacts</Tag> : null}
+          {toolDiffCount(toolCall) ? <Tag>{toolDiffCount(toolCall)} diffs</Tag> : null}
           {toolCall.risk && <Tag icon={<SafetyCertificateOutlined />}>{riskLabel(toolCall.risk)}</Tag>}
           {toolCall.policyMode && <Tag>{policyModeLabel(toolCall.policyMode)}</Tag>}
           {toolCall.policyReason && <Tag>{toolCall.policyReason}</Tag>}
@@ -332,7 +356,7 @@ function isSearchToolName(name: string) {
 }
 
 function toolDetail(toolCall: ToolCallViewModel) {
-  return toolCall.display?.detail || toolCall.display?.target || toolCall.display?.command || toolCall.command || toolCall.inputSummary;
+  return toolCall.display?.detail || toolCall.display?.primaryTarget || toolCall.display?.target || toolCall.display?.command || toolCall.command || toolCall.inputSummary;
 }
 
 function toolExitCode(toolCall: ToolCallViewModel) {
@@ -340,7 +364,19 @@ function toolExitCode(toolCall: ToolCallViewModel) {
 }
 
 function toolRefCount(toolCall: ToolCallViewModel) {
-  return (toolCall.outputRefs?.length ?? 0) + (toolCall.artifactRefs?.length ?? 0) + (toolCall.diffRefs?.length ?? 0);
+  return toolOutputRefCount(toolCall) + toolArtifactCount(toolCall) + toolDiffCount(toolCall);
+}
+
+function toolOutputRefCount(toolCall: ToolCallViewModel) {
+  return toolCall.outputRefs?.length ?? 0;
+}
+
+function toolArtifactCount(toolCall: ToolCallViewModel) {
+  return toolCall.display?.artifactCount ?? toolCall.display?.artifactRefs?.length ?? toolCall.artifactRefs?.length ?? 0;
+}
+
+function toolDiffCount(toolCall: ToolCallViewModel) {
+  return toolCall.display?.diffCount ?? toolCall.display?.diffRefs?.length ?? toolCall.diffRefs?.length ?? 0;
 }
 
 function toolDuration(toolCall: ToolCallViewModel) {
@@ -361,15 +397,27 @@ function isShellTool(toolCall: ToolCallViewModel) {
 }
 
 function hasToolDetails(toolCall: ToolCallViewModel, detail?: string, output?: string) {
-  return Boolean(detail || output || toolCall.stdout || toolCall.stderr || toolCall.error || toolCall.policyReason || toolCall.policyTargetSummary);
+  return Boolean(
+    detail ||
+      output ||
+      toolStderr(toolCall) ||
+      toolCall.error ||
+      toolCall.policyReason ||
+      toolCall.display?.failureReason ||
+      toolCall.policyTargetSummary ||
+      toolCall.display?.workingDir ||
+      toolTargets(toolCall).length ||
+      toolArtifactCount(toolCall) ||
+      toolDiffCount(toolCall),
+  );
 }
 
 function shouldOpenByDefault(toolCalls: ToolCallViewModel[]) {
-  return toolCalls.some((call) => call.status === 'failed' || call.status === 'running' || call.status === 'queued');
+  return toolCalls.some((call) => ['failed', 'running', 'queued'].includes(toolVisualStatus(call)));
 }
 
 function groupStatus(toolCalls: ToolCallViewModel[]) {
-  if (toolCalls.some((call) => call.status === 'failed' || call.status === 'denied' || call.status === 'cancelled')) {
+  if (toolCalls.some((call) => ['failed', 'denied', 'cancelled'].includes(toolVisualStatus(call)))) {
     return 'failed';
   }
   if (toolCalls.some((call) => call.status === 'waiting_permission')) {
@@ -387,15 +435,39 @@ function groupStatus(toolCalls: ToolCallViewModel[]) {
   return toolCalls[toolCalls.length - 1]?.status ?? 'completed';
 }
 
+function toolVisualStatus(toolCall: ToolCallViewModel) {
+  const exitCode = toolExitCode(toolCall);
+  if (toolKind(toolCall) === 'shell' && typeof exitCode === 'number' && exitCode !== 0) {
+    return 'failed';
+  }
+  return toolCall.status;
+}
+
 function readableToolOutput(toolCall: ToolCallViewModel) {
-  const output = extractWrappedOutput(toolCall.stdout) || extractWrappedOutput(toolCall.outputSummary);
+  const output = toolCall.display?.stdoutExcerpt || toolCall.display?.outputExcerpt || extractWrappedOutput(toolCall.stdout) || extractWrappedOutput(toolCall.outputSummary);
   if (output) {
     return output.trim();
   }
-  if (toolCall.status === 'failed' || toolCall.status === 'denied' || toolCall.status === 'cancelled') {
-    return (extractWrappedOutput(toolCall.stderr) || toolCall.error || '').trim();
+  if (['failed', 'denied', 'cancelled'].includes(toolVisualStatus(toolCall))) {
+    return (toolFailureReason(toolCall) || toolStderr(toolCall) || toolCall.error || '').trim();
   }
   return '';
+}
+
+function toolFailureReason(toolCall: ToolCallViewModel) {
+  return (toolCall.display?.failureReason || '').trim();
+}
+
+function toolStderr(toolCall: ToolCallViewModel) {
+  return (toolCall.display?.stderrExcerpt || extractWrappedOutput(toolCall.stderr) || '').trim();
+}
+
+function toolTargets(toolCall: ToolCallViewModel) {
+  const targets = toolCall.display?.targets?.filter(Boolean) ?? [];
+  if (targets.length > 0) {
+    return targets;
+  }
+  return [toolCall.display?.primaryTarget, toolCall.display?.target].filter((value): value is string => Boolean(value?.trim()));
 }
 
 function extractWrappedOutput(value?: string) {

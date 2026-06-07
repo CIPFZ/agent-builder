@@ -153,27 +153,66 @@ Validation:
 
 ### Phase 3: Runtime Metadata
 
-Status: implemented for the current display surface.
+Status: implemented for the Phase 3 display normalization surface.
 
 - Runtime returns computed `display` metadata for tool calls.
 - Frontend uses `display.kind`, `display.title`, `display.detail`,
   `display.target`, `display.command`, `display.exitCode`, and
   `display.durationMs` first, falling back to legacy fields.
+- Runtime now also exposes additive display fields for `workingDir`,
+  `primaryTarget`, `targets`, `stdoutExcerpt`, `stderrExcerpt`,
+  `inputExcerpt`, `outputExcerpt`, `failureReason`, `artifactCount`,
+  `diffCount`, `artifactRefs`, `diffRefs`, `artifactSummary`, and
+  `diffSummary`.
 - Runtime extracts file targets from common JSON input keys such as `path`,
   `file_path`, `filepath`, `file`, `target`, and `uri`.
+- Runtime extracts multi-target fields such as `paths`, `files`, `targets`,
+  `patterns`, `artifact_refs`, `artifacts`, and `diff_refs`.
 - Runtime falls back to truncated JSON-like input summaries for common target
   fields when the original tool input is unavailable or too large.
 - Runtime classifies file search tools separately from file reads and shell
   commands.
+- Runtime no longer uses generic `read`/`write` summary keywords to decide the
+  primary tool kind, preventing paths or shell commands from changing a tool's
+  category.
+- Runtime classifies shell before file tools, so shell commands containing file
+  names or file-tool keywords stay `shell`.
+- Runtime classifies MCP/plugin/custom tools conservatively as `generic` and
+  extracts structured artifact refs/path targets from machine-readable output.
+- Shell display metadata includes command, working directory, exit code,
+  duration, stdout/stderr excerpts, failure reason for failed or nonzero-exit
+  shell calls, artifact counts, and existing sandbox/policy metadata on the
+  call.
+- File edit display uses diff refs when present and a conservative synthetic
+  `diffCount` for structured edit summaries that expose additions/removals.
 - Runtime startup cancels unfinished persisted tool calls so old `running`
   states do not survive a backend restart.
 - Existing persisted fields remain the source of truth.
+- `ToolCallCard` displays runtime metadata first for command, cwd, targets,
+  stdout/stderr excerpts, failure reason, artifact/diff counts, and refs.
+- Nonzero shell exit codes render as failed visual status and expand by
+  default, even when persisted status is `completed`.
 
 Validation:
 
 - `go test ./internal/runtime`
+- `go test ./...`
 - `cd client && npm run lint`
 - `cd client && npx tsc -b --pretty false`
+- `cd client && npm run build`
+- Runtime HTTP/Vite/browser smoke:
+  - runtime HTTP `http://127.0.0.1:5189`
+  - Vite `http://127.0.0.1:5179`
+  - fake OpenAI-compatible server `http://127.0.0.1:5193`
+  - session `0ba53bcb-1774-4196-a939-c0c791d6d95c`
+  - turn `1780789254668-f0650ef246d730d8`
+  - verified shell stdout/stderr/exit display, write target/diff refs, read
+    path containing `write`, glob/search kind, multiedit target/diff count,
+    diagnostics warning recovery, and no duplicate cards after refresh.
+  - follow-up local validation on `http://127.0.0.1:5190` /
+    `http://127.0.0.1:5180` verified `failureReason`, long-output truncation,
+    grouped shell status, browser refresh recovery from `SessionActivity`, and
+    event-triggered tool-card visibility before final assistant completion.
 
 ### Phase 4: Long Task Validation
 

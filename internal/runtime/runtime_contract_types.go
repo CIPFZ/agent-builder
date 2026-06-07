@@ -243,13 +243,27 @@ type RuntimeToolCall struct {
 }
 
 type RuntimeToolCallDisplay struct {
-	Kind       string `json:"kind,omitempty"`
-	Title      string `json:"title,omitempty"`
-	Detail     string `json:"detail,omitempty"`
-	Target     string `json:"target,omitempty"`
-	Command    string `json:"command,omitempty"`
-	ExitCode   int    `json:"exitCode,omitempty"`
-	DurationMS int64  `json:"durationMs,omitempty"`
+	Kind            string   `json:"kind,omitempty"`
+	Title           string   `json:"title,omitempty"`
+	Detail          string   `json:"detail,omitempty"`
+	Target          string   `json:"target,omitempty"`
+	PrimaryTarget   string   `json:"primaryTarget,omitempty"`
+	Targets         []string `json:"targets,omitempty"`
+	WorkingDir      string   `json:"workingDir,omitempty"`
+	Command         string   `json:"command,omitempty"`
+	ExitCode        *int     `json:"exitCode,omitempty"`
+	DurationMS      int64    `json:"durationMs,omitempty"`
+	StdoutExcerpt   string   `json:"stdoutExcerpt,omitempty"`
+	StderrExcerpt   string   `json:"stderrExcerpt,omitempty"`
+	InputExcerpt    string   `json:"inputExcerpt,omitempty"`
+	OutputExcerpt   string   `json:"outputExcerpt,omitempty"`
+	FailureReason   string   `json:"failureReason,omitempty"`
+	ArtifactCount   int      `json:"artifactCount,omitempty"`
+	DiffCount       int      `json:"diffCount,omitempty"`
+	ArtifactRefs    []string `json:"artifactRefs,omitempty"`
+	DiffRefs        []string `json:"diffRefs,omitempty"`
+	ArtifactSummary string   `json:"artifactSummary,omitempty"`
+	DiffSummary     string   `json:"diffSummary,omitempty"`
 }
 
 type RuntimeRef struct {

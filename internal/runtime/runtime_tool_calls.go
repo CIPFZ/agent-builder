@@ -266,9 +266,16 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 
 func runtimeToolCallDisplay(call scheduler.ToolCall, redacted map[string]any, finishedAt int64) RuntimeToolCallDisplay {
 	kind := runtimeToolDisplayKind(call)
-	command := stringFromMap(redacted, "command")
-	target := runtimeToolDisplayTarget(stringFromMap(redacted, "input"))
-	detail := runtimeToolDisplayDetail(kind, command, target, stringFromMap(redacted, "input"))
+	input := stringFromMap(redacted, "input")
+	output := stringFromMap(redacted, "output")
+	command := firstNonEmpty(stringFromMap(redacted, "command"), runtimeToolDisplayStringField(input, []string{"command", "cmd", "script"}))
+	workingDir := runtimeToolDisplayStringField(input, []string{"cwd", "working_dir", "workdir", "effective_cwd"})
+	targets := runtimeToolDisplayTargets(call, kind, input)
+	target := ""
+	if len(targets) > 0 {
+		target = targets[0]
+	}
+	detail := runtimeToolDisplayDetail(kind, command, workingDir, target, input)
 	title := runtimeToolDisplayTitle(call, kind)
 	var durationMS int64
 	if !call.StartedAt.IsZero() && finishedAt > 0 {
@@ -277,39 +284,187 @@ func runtimeToolCallDisplay(call scheduler.ToolCall, redacted map[string]any, fi
 			durationMS = 0
 		}
 	}
+	artifactRefs := append([]string(nil), call.ArtifactRefs...)
+	diffRefs := append([]string(nil), call.DiffRefs...)
+	diffCount := runtimeToolDisplayDiffCount(call, kind, diffRefs)
+	artifactCount := len(artifactRefs)
+	if artifactTargets := runtimeToolDisplayArtifactTargets(call, kind); len(artifactTargets) > artifactCount {
+		artifactCount = len(artifactTargets)
+	}
+	if kind == "file_write" && len(targets) > artifactCount {
+		artifactCount = len(targets)
+	}
+	var exitCode *int
+	if kind == "shell" || call.ExitCode != 0 {
+		value := call.ExitCode
+		exitCode = &value
+	}
 	return RuntimeToolCallDisplay{
-		Kind:       kind,
-		Title:      title,
-		Detail:     detail,
-		Target:     target,
-		Command:    command,
-		ExitCode:   call.ExitCode,
-		DurationMS: durationMS,
+		Kind:            kind,
+		Title:           title,
+		Detail:          detail,
+		Target:          target,
+		PrimaryTarget:   target,
+		Targets:         targets,
+		WorkingDir:      workingDir,
+		Command:         command,
+		ExitCode:        exitCode,
+		DurationMS:      durationMS,
+		StdoutExcerpt:   stableToolExcerpt(stringFromMap(redacted, "stdout")),
+		StderrExcerpt:   stableToolExcerpt(stringFromMap(redacted, "stderr")),
+		InputExcerpt:    stableToolExcerpt(input),
+		OutputExcerpt:   stableToolExcerpt(output),
+		FailureReason:   runtimeToolDisplayFailureReason(call, redacted),
+		ArtifactCount:   artifactCount,
+		DiffCount:       diffCount,
+		ArtifactRefs:    artifactRefs,
+		DiffRefs:        diffRefs,
+		ArtifactSummary: runtimeToolRefsSummary(artifactRefs, "artifact"),
+		DiffSummary:     runtimeToolDisplayDiffSummary(diffCount, diffRefs),
 	}
 }
 
-func runtimeToolDisplayDetail(kind, command, target, input string) string {
+func runtimeToolDisplayFailureReason(call scheduler.ToolCall, redacted map[string]any) string {
+	status := string(call.Status)
+	kind := runtimeToolDisplayKind(call)
+	shellExitFailed := kind == "shell" && call.ExitCode != 0
+	if status != string(scheduler.ToolCallFailed) && status != string(scheduler.ToolCallDenied) && status != string(scheduler.ToolCallCancelled) && !call.IsError && !shellExitFailed {
+		return ""
+	}
+	for _, value := range []string{
+		stringFromMap(redacted, "error"),
+		stringFromMap(redacted, "stderr"),
+		stringFromMap(redacted, "output"),
+		stringFromMap(redacted, "sandbox_error"),
+		stringFromMap(redacted, "policy_reason"),
+	} {
+		if excerpt := stableToolExcerpt(value); excerpt != "" {
+			return excerpt
+		}
+	}
+	return ""
+}
+
+func runtimeToolDisplayArtifactTargets(call scheduler.ToolCall, kind string) []string {
+	var targets []string
+	targets = append(targets, normalizeArtifactPaths(call.ArtifactRefs)...)
+	if kind == "shell" {
+		targets = append(targets, shellCreatedArtifactPaths(call.Command)...)
+		targets = append(targets, artifactPathsFromStructuredJSON(call.Structured)...)
+		targets = append(targets, artifactPathsFromStructuredJSON(call.OutputSummary)...)
+	}
+	if call.Source == scheduler.ToolSourceMCP || call.Source == "plugin" || call.Source == "custom" {
+		targets = append(targets, artifactPathsFromStructuredJSON(call.Structured)...)
+		targets = append(targets, artifactPathsFromStructuredJSON(call.OutputSummary)...)
+	}
+	return uniqueSortedStrings(targets)
+}
+
+func runtimeToolDisplayDetail(kind, command, workingDir, target, input string) string {
 	if kind == "shell" {
 		return firstNonEmpty(command, input)
+	}
+	if workingDir != "" && target != "" {
+		return target
 	}
 	return firstNonEmpty(target, command, input)
 }
 
 func runtimeToolDisplayTarget(input string) string {
+	targets := runtimeToolDisplayTargetsFromInput(input)
+	if len(targets) > 0 {
+		return targets[0]
+	}
+	return ""
+}
+
+func runtimeToolDisplayTargets(call scheduler.ToolCall, kind, input string) []string {
+	var targets []string
+	switch kind {
+	case "shell":
+		targets = append(targets, shellCreatedArtifactPaths(firstNonEmpty(call.Command, input))...)
+	case "generic":
+		targets = append(targets, normalizeArtifactPaths(call.ArtifactRefs)...)
+		targets = append(targets, artifactPathsFromStructuredJSON(call.Structured)...)
+		targets = append(targets, artifactPathsFromStructuredJSON(call.OutputSummary)...)
+		targets = append(targets, runtimeToolDisplayTargetsFromInput(input)...)
+	default:
+		targets = append(targets, runtimeToolDisplayTargetsFromInput(input)...)
+	}
+	if len(targets) == 0 && kind == "file_edit" {
+		targets = normalizeArtifactPaths(call.DiffRefs)
+	}
+	return uniqueSortedStrings(targets)
+}
+
+func runtimeToolDisplayTargetsFromInput(input string) []string {
+	input = strings.TrimSpace(input)
+	if input == "" || !strings.HasPrefix(input, "{") {
+		return nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(input), &payload); err != nil {
+		target := runtimeToolDisplayTargetFromText(input)
+		if target == "" {
+			return nil
+		}
+		return []string{target}
+	}
+	var targets []string
+	for _, key := range []string{"path", "file_path", "filepath", "file", "target", "uri", "pattern", "query", "glob", "display_target", "output_path", "artifact_path"} {
+		targets = append(targets, runtimeToolDisplayValuesForKey(payload[key])...)
+	}
+	for _, key := range []string{"paths", "files", "targets", "uris", "patterns", "artifact_refs", "artifacts", "diff_refs"} {
+		targets = append(targets, runtimeToolDisplayValuesForKey(payload[key])...)
+	}
+	if len(targets) == 0 {
+		if target := runtimeToolDisplayTargetFromText(input); target != "" {
+			targets = append(targets, target)
+		}
+	}
+	return uniqueSortedStrings(targets)
+}
+
+func runtimeToolDisplayValuesForKey(value any) []string {
+	switch typed := value.(type) {
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed != "" {
+			return []string{trimmed}
+		}
+	case []any:
+		var values []string
+		for _, item := range typed {
+			values = append(values, runtimeToolDisplayValuesForKey(item)...)
+		}
+		return values
+	case map[string]any:
+		var values []string
+		for _, key := range []string{"path", "file_path", "filepath", "file", "target", "uri", "ref"} {
+			values = append(values, runtimeToolDisplayValuesForKey(typed[key])...)
+		}
+		return values
+	}
+	return nil
+}
+
+func runtimeToolDisplayStringField(input string, keys []string) string {
 	input = strings.TrimSpace(input)
 	if input == "" || !strings.HasPrefix(input, "{") {
 		return ""
 	}
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(input), &payload); err != nil {
-		return runtimeToolDisplayTargetFromText(input)
+		return ""
 	}
-	for _, key := range []string{"path", "file_path", "filepath", "file", "target", "uri", "pattern", "query", "glob"} {
-		if value, ok := payload[key].(string); ok && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
+	for _, key := range keys {
+		if value, ok := payload[key].(string); ok {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				return trimmed
+			}
 		}
 	}
-	return runtimeToolDisplayTargetFromText(input)
+	return ""
 }
 
 func runtimeToolDisplayTargetFromText(input string) string {
@@ -342,27 +497,93 @@ func runtimeToolDisplayTargetFromText(input string) string {
 
 func runtimeToolDisplayKind(call scheduler.ToolCall) string {
 	name := strings.ToLower(strings.TrimSpace(call.Name))
-	summary := strings.ToLower(call.InputSummary + " " + call.Command)
 	switch {
 	case call.Source == scheduler.ToolSourceShell || call.Risk == "execute" || call.Command != "" || name == "bash" || name == "shell" || name == "cmd" || name == "powershell" || name == "pwsh" || name == "go" || name == "npm" || name == "node" || name == "python":
 		return "shell"
+	case call.Source == scheduler.ToolSourceMCP || call.Source == "plugin" || call.Source == "custom":
+		return "generic"
 	case name == "todos" || name == "todospan" || strings.Contains(name, "todo"):
 		return "generic"
-	case strings.Contains(name, "edit") || strings.Contains(name, "patch") || strings.Contains(summary, "apply_patch"):
+	case name == "glob" || name == "grep" || name == "list" || name == "ls" || name == "dir" || strings.Contains(name, "search") || strings.Contains(name, "find"):
+		return "file_search"
+	case strings.Contains(name, "edit") || strings.Contains(name, "patch") || strings.Contains(name, "multiedit") || name == "apply_patch":
 		return "file_edit"
 	case strings.Contains(name, "read") || strings.Contains(name, "view") || strings.Contains(name, "open"):
 		return "file_read"
 	case strings.Contains(name, "write") || strings.Contains(name, "create"):
 		return "file_write"
-	case name == "glob" || name == "grep" || name == "list" || name == "ls" || name == "dir" || strings.Contains(name, "search") || strings.Contains(name, "find") || strings.Contains(summary, "glob") || strings.Contains(summary, "grep") || strings.Contains(summary, "search"):
-		return "file_search"
-	case strings.Contains(summary, "read"):
-		return "file_read"
-	case strings.Contains(summary, "write"):
-		return "file_write"
 	default:
 		return "generic"
 	}
+}
+
+func stableToolExcerpt(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	const limit = 2000
+	if len([]rune(value)) <= limit {
+		return value
+	}
+	runes := []rune(value)
+	return strings.TrimSpace(string(runes[:limit])) + "\n... truncated ..."
+}
+
+func runtimeToolRefsSummary(refs []string, label string) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	return runtimeToolCountSummary(len(refs), label+" ref")
+}
+
+func runtimeToolCountSummary(count int, label string) string {
+	if count == 0 {
+		return ""
+	}
+	if count == 1 {
+		return "1 " + label
+	}
+	return fmt.Sprintf("%d %ss", count, label)
+}
+
+func runtimeToolDisplayDiffCount(call scheduler.ToolCall, kind string, diffRefs []string) int {
+	if len(diffRefs) > 0 {
+		return len(diffRefs)
+	}
+	if kind != "file_edit" {
+		return 0
+	}
+	for _, text := range []string{call.Structured, call.OutputSummary, call.ModelContent} {
+		if runtimeToolDisplayEditOutputHasDiffSummary(text) {
+			return 1
+		}
+	}
+	return 0
+}
+
+func runtimeToolDisplayDiffSummary(diffCount int, diffRefs []string) string {
+	if len(diffRefs) > 0 {
+		return runtimeToolRefsSummary(diffRefs, "diff")
+	}
+	return runtimeToolCountSummary(diffCount, "diff")
+}
+
+func runtimeToolDisplayEditOutputHasDiffSummary(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" || !strings.HasPrefix(text, "{") {
+		return false
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		return false
+	}
+	for _, key := range []string{"diff", "additions", "removals", "edits_applied", "old_content", "new_content"} {
+		if _, ok := payload[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeToolDisplayTitle(call scheduler.ToolCall, kind string) string {

@@ -256,8 +256,10 @@ Tests:
 Validation:
 
 - `go test ./internal/runtime`
+- `go test ./...`
 - `cd client && npm run lint`
 - `cd client && npx tsc -b --pretty false`
+- `cd client && npm run build`
 - Runtime HTTP/Vite stress validation:
   - Success case created
     `tmp/runtime-dev/phase1-success/diagnostics-success.md`; diagnostics
@@ -519,6 +521,8 @@ Remaining risks:
 
 ### Phase 3: Tool Detail Normalization
 
+Status: implemented for the current runtime DTO and ToolCallCard surface.
+
 Scope:
 
 - Add richer runtime display fields without a database migration:
@@ -527,6 +531,7 @@ Scope:
   - `targets`
   - `stdoutExcerpt`
   - `stderrExcerpt`
+  - `failureReason`
   - `artifactCount`
   - `diffCount`
 - Normalize artifact-capable tool metadata:
@@ -554,6 +559,115 @@ Tests:
 - Browser check for failed command, long stdout, and grouped reads.
 - Browser check for shell-produced and MCP-simulated artifact metadata.
 
+Implemented:
+
+- `RuntimeToolCallDisplay` now exposes additive display metadata without a
+  database migration:
+  - `workingDir`
+  - `primaryTarget`
+  - `targets`
+  - `stdoutExcerpt`
+  - `stderrExcerpt`
+  - `inputExcerpt`
+  - `outputExcerpt`
+  - `failureReason`
+  - `artifactCount`
+  - `diffCount`
+  - display-level artifact and diff refs/summaries
+- Runtime tool kind normalization is now stable for:
+  - `file_read`
+  - `file_write`
+  - `file_edit`
+  - `file_search`
+  - `shell`
+  - `generic`
+- Runtime classification no longer uses generic `read`/`write` input-summary
+  keyword fallback to decide primary kind.
+- Shell tools stay `shell` even when the command contains file-tool keywords.
+- MCP/plugin/custom tools default to `generic`; structured artifact refs and
+  local path targets are extracted conservatively from machine-readable output.
+- File targets are normalized into `primaryTarget` and `targets`; multi-target
+  JSON fields are supported for paths, files, targets, artifact refs, and diff
+  refs.
+- Shell display metadata includes command, cwd, exit code, duration,
+  stdout/stderr excerpts, failure reason for failed or nonzero-exit shell
+  calls, sandbox/policy refs already present on the call, and conservative
+  shell-created artifact targets.
+- File edit display includes real diff ref counts when available and a
+  conservative `diffCount=1` for structured edit summaries that expose
+  additions/removals/edits-applied but not raw diff refs.
+- `ToolCallCard` now reads runtime display metadata first for title, kind,
+  detail, target, targets, command, cwd, exit code, duration, stdout/stderr
+  excerpt, failure reason, artifact count, and diff count.
+- Legacy fallback remains for old hydrated tool calls.
+- Nonzero shell exit codes render as failed visual status and open by default,
+  even when the persisted tool status is `completed`.
+
+Validation:
+
+- `go test ./internal/runtime`
+- `go test ./...`
+- `cd client && npm run lint`
+- `cd client && npx tsc -b --pretty false`
+- `cd client && npm run build`
+- Runtime HTTP/Vite validation used only files under
+  `C:\Users\ytq\work\ai\agent-builder\tmp\runtime-dev`.
+- Runtime HTTP ran on `http://127.0.0.1:5189`; Vite ran on
+  `http://127.0.0.1:5179`; a local fake OpenAI-compatible server ran on
+  `http://127.0.0.1:5193`.
+- Validation session:
+  `0ba53bcb-1774-4196-a939-c0c791d6d95c`.
+- Turn:
+  `1780789254668-f0650ef246d730d8`.
+- Cases verified through runtime `SessionActivity` and the in-app browser:
+  - shell success card showed command, cwd, duration, stdout excerpt, and refs
+  - shell nonzero exit card showed exit `7`, stderr excerpt, failed visual
+    status, and was expanded by default
+  - write card showed normalized target path and diff refs/count
+  - view card for a path containing `write` stayed `file_read`
+  - glob card stayed `file_search`
+  - multiedit card showed target path, artifact refs, and `diffCount=1`
+  - diagnostics warning for missing
+    `tmp/runtime-dev/phase3-missing-warning.md` rendered and survived refresh
+  - browser refresh restored cards from `SessionActivity`
+  - no duplicate tool card ids were observed after refresh
+- Follow-up validation after adding `failureReason` used runtime HTTP
+  `http://127.0.0.1:5190`, Vite `http://127.0.0.1:5180`, and a fake
+  OpenAI-compatible server on `http://127.0.0.1:5193`; all validation files,
+  logs, and generated artifacts stayed under `tmp/runtime-dev`.
+- Follow-up cases verified through runtime `SessionActivity` and the in-app
+  browser:
+  - session `b3d0e13f-5d0b-4138-9fea-576a85e54845` restored seven tool calls,
+    including shell success, nonzero shell exit, write, read, glob,
+    read-written-file, and multiedit calls
+  - nonzero shell exit exposed `exitCode=7`, stderr excerpt, and
+    `failureReason=phase3 shell stderr failed`
+  - file/write/read/edit cards exposed concrete `tmp/runtime-dev` targets and
+    artifact/diff counts
+  - session `2a5cc1ed-81b4-420e-a416-060d1d9314a8` verified a long stdout
+    excerpt capped around 2000 characters with a `truncated` marker and no
+    horizontal page overflow in the expanded card
+  - session `d672da86-addf-43fc-a6ca-e380a1c8a11f` verified the Phase 1/1.1
+    missing artifact diagnostics warning and missing path survive browser
+    refresh
+  - browser-composer event-refresh smoke showed a completed tool card before
+    the delayed final assistant response; after refresh, the expanded card
+    restored command, cwd, output excerpt, refs, and had no duplicate card ids
+
+Remaining risks:
+
+- Shell-created artifact target extraction remains intentionally conservative
+  and does not try to understand arbitrary scripts, variables, or pipelines.
+- MCP/custom validation used runtime/API structured refs rather than a live
+  external MCP server because no suitable enabled local MCP tool was available
+  in this validation environment.
+- Shell tools can persist `status=completed` with a nonzero exit code; the UI
+  now treats that as failed visually, but a later runtime status refinement
+  could make this explicit in the DTO.
+- Very large historical sessions can take a short moment to hydrate after
+  browser refresh; Phase 2's event refresh remains whole-activity hydration by
+  design.
+
 ### Phase 4: Turn Diagnostics Panel
 
 Scope:
@@ -569,16 +683,31 @@ Scope:
   - expected/produced artifacts
   - last event time
 - This should be read-only at first, except existing cancel action.
+- Carry forward Phase 3 residual risk into diagnostics:
+  - show shell nonzero exit as a first-class diagnostic even when the persisted
+    tool status is still `completed`
+  - distinguish produced output refs from user-relevant file artifacts so
+    ordinary shell/read/search refs do not look like deliverables
+  - summarize MCP/custom artifact confidence as structured refs only,
+    unverified external MCP, or not detected
+  - expose hydration cost and last refresh timing for very large sessions so
+    whole-activity refresh latency is visible before optimizing it
 
 Acceptance:
 
 - User can answer "what is it doing now?" without reading every card.
 - User can answer "why did it stop?" after failure or denial.
 - Panel data comes from runtime DTOs only.
+- Nonzero shell exits are visible in turn diagnostics independent of the
+  persisted tool-call status value.
+- Artifact counts in diagnostics separate runtime refs from local file
+  deliverables.
 
 Tests:
 
 - Browser checks for active, completed, failed, and interrupted turns.
+- Runtime/browser checks for nonzero shell exit diagnostics, ref-vs-file
+  artifact summaries, and large-session refresh timing display.
 
 ### Phase 5: Explicit Interrupted And Resume Flow
 
@@ -592,17 +721,27 @@ Scope:
   - start follow-up from this state
   - discard/interrupted done
 - Later, define a true checkpoint resume protocol.
+- Carry forward Phase 3 recovery risks:
+  - interrupted/restarted long sessions should keep tool display metadata
+    available from `SessionActivity`
+  - large historical sessions should remain inspectable after restart even when
+    hydration takes noticeable time
+  - interrupted shell/custom tools should preserve structured refs and failure
+    reasons without trying to infer from assistant prose
 
 Acceptance:
 
 - Restart with active turn does not show stale running tools.
 - User sees what was interrupted and what artifacts already exist.
 - Follow-up turn can be started with the interrupted summary.
+- Restarted interrupted turns retain command, cwd, exit/failure reason,
+  target paths, and artifact/diff counts in recovered tool details.
 
 Tests:
 
 - Runtime startup recovery tests.
 - Browser restart/reload smoke.
+- Restart smoke with shell failure, file edit, and MCP/custom structured refs.
 
 ### Phase 6: Run State Machine Design Gate
 
@@ -624,6 +763,15 @@ Scope:
   - resume/discard actions
 - Keep Run additive. Do not replace `Turn`, `ToolCall`, or `SessionActivity`
   as the source of truth.
+- Include Phase 3 residual risks in the design gate:
+  - decide whether shell nonzero exit should become a runtime status refinement
+    or remain display-derived metadata
+  - define a confidence model for artifacts: local verified file, produced tool
+    metadata, runtime output ref, structured MCP/custom ref, and unknown
+  - decide whether very large sessions need narrower session-scoped hydration
+    before a Run object is introduced
+  - require live MCP/custom validation before promoting structured custom refs
+    from conservative support to production-ready artifact accounting
 
 Acceptance:
 
@@ -631,6 +779,8 @@ Acceptance:
   turn/tool evidence.
 - A Run can report artifact verification across turns.
 - Resume is user-triggered and starts from an explicit checkpoint summary.
+- Run design does not hide per-tool failure reasons, artifact confidence, or
+  diagnostics warnings.
 
 Tests:
 
