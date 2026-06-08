@@ -2083,11 +2083,12 @@ Remaining risks:
 
 ### Phase 6.9: Narrow Activity Cursor, Rollout, And Hosted MCP Smoke
 
-Status: implemented for the durable narrow activity cursor contract, frontend
-rollout hardening, bridge/browser contract coverage, and deterministic hosted
-MCP recovery guarantees. Real hosted-provider OAuth/elicitation smoke remains
-a redacted manual gap because no safe credentials/browser auth state were
-available in this workspace. This is not a Run implementation.
+Status: accepted after review for the durable narrow activity cursor contract,
+frontend rollout hardening, bridge/browser contract coverage, and
+deterministic hosted MCP recovery guarantees. Real hosted-provider
+OAuth/elicitation smoke remains a redacted manual gap because no safe
+credentials/browser auth state were available in this workspace. This is not a
+Run implementation.
 
 Scope:
 
@@ -2242,6 +2243,24 @@ Remaining risks:
   migrations, persisted interrupted acknowledgement, or prose-derived
   artifact/checkpoint inference.
 
+Acceptance review:
+
+- Accepted commit: `4fe4beb12 Implement Phase 6.9 narrow activity cursor`.
+- Review confirmed the implementation stayed within the Phase 6.9 boundary:
+  - no Run state machine, runtime Run store, Run migration, or frontend Run UI
+  - no automatic resume
+  - no stale running/waiting tool recovery
+  - no restored stale actionable permission gate
+  - no restored stale actionable MCP auth or elicitation request
+  - no event payload merge into timeline, diagnostics, artifact, interrupted,
+    permission, or MCP actionability state
+  - no assistant-prose artifact/checkpoint inference
+- Full `SessionActivity` remains the fallback and parity oracle.
+- Cursor-window activity remains an additive runtime DTO/API surface.
+- Hosted-provider OAuth/elicitation is accepted as a manual redacted validation
+  gap, not a reason to keep Phase 6.9 open, because closing it safely requires
+  operator-held credentials or browser auth state outside repo fixtures.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -2289,8 +2308,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept or revise Phase 6.9 narrow activity cursor, frontend rollout
-hardening, and hosted MCP smoke validation.
+Proceed to Phase 7 candidate planning for a read-only additive Run DTO/API
+prototype.
 
-Do not start Run persistence or Run UI until Phase 6.9 is explicitly accepted
-or a separate follow-up phase is approved.
+The first Phase 7 slice must remain read-only and assembled from existing
+runtime evidence. Do not start Run persistence, Run database migrations,
+automatic resume, background Run scheduling, or frontend Run UI until a
+separate implementation phase explicitly approves those surfaces.
