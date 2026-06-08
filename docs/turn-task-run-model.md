@@ -405,6 +405,44 @@ Implemented boundary:
 - `SessionActivity` remains the parity oracle and the source for timeline,
   diagnostics, permission, artifact, and interrupted recovery state.
 
+### Phase 8 Gate: Durable Run Identity And Persistence Design
+
+Phase 8 defines the persistence contract for a future durable Run without
+implementing it. The key decision is to separate durable identity from runtime
+truth: a persisted Run can group sessions, turns, tasks, worktrees, and
+checkpoints, but `SessionActivity` and structured runtime evidence remain the
+authority for timeline, diagnostics, permission, artifact, interrupted, and
+MCP terminal semantics.
+
+Design decisions:
+
+- New persisted Runs should use generated durable ids such as `run_<id>`.
+  Legacy backfill can use deterministic compatibility ids like
+  `run:session:<session_id>` for idempotency.
+- A Run must keep `primary_session_id` and use a link table for additional
+  sessions, child sessions, task sessions, and recovery sessions.
+- Proposed tables are `runtime_runs`, `runtime_run_sessions`, and
+  `runtime_run_checkpoints`. Phase 8 does not add those migrations.
+- Backfill must not infer grouping, artifacts, or checkpoints from assistant
+  prose. It can use existing `sessions`, `runtime_turns`,
+  `runtime_tool_calls`, `runtime_permission_requests`, `runtime_agent_tasks`,
+  `runtime_worktrees`, runtime events, and diagnostics.
+- Resume is a new user-triggered turn linked to a checkpoint summary and the
+  current workspace state. It is not automatic replay.
+- Discard acknowledges product UX state only; it must not delete evidence or
+  rewrite terminal turn/tool/permission/MCP records.
+
+Phase 8.1 entry criteria:
+
+- Migrations and stores must be accepted separately.
+- Backfill must be idempotent.
+- Restart tests must prove stale running/waiting tools, permission gates, MCP
+  auth requests, and MCP elicitation requests do not become actionable.
+- Persisted Run summaries must prove parity with the corresponding
+  `SessionActivity`/`RunProjection` subset.
+- No automatic resume, background Run scheduler, or executable resume/discard
+  controls should be implemented in the persistence foundation phase.
+
 ## API 影响
 
 最小 API：

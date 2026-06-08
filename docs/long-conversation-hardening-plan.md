@@ -2635,6 +2635,187 @@ Remaining risks:
 - This is a preview of the current projection contract, not a replacement for
   `SessionActivity`.
 
+### Phase 8: Durable Run Identity And Persistence Design Gate
+
+Status: completed as a documentation/design gate only. No runtime Run store,
+database migration, automatic resume, background Run scheduler, executable
+resume/discard control, or expanded frontend Run UI was implemented.
+
+Purpose:
+
+- Decide when Agent Builder can move from the Phase 7 read-only Run projection
+  to a durable Run identity.
+- Ground the design in Claude Code's transcript/session/task model while
+  preserving Agent Builder's current `SessionActivity` parity guarantees.
+- Define the minimum persistence contract that Phase 8.1 must implement before
+  any real resume/discard behavior can be exposed.
+
+Claude Code and external documentation findings:
+
+- Claude Code sessions start with fresh model context, but persistent project
+  instructions and memory are loaded at session start. This reinforces that
+  durable runtime state must be explicit evidence, not browser or model memory.
+  Reference: https://code.claude.com/docs/en/memory
+- Claude Code permissions are enforced by the runtime with rules, modes, and
+  hooks. Prompt text or memory can influence intent, but cannot grant
+  permission. Reference: https://code.claude.com/docs/en/permissions
+- Claude Code hooks can participate in permission evaluation, but deny/ask
+  rules remain authoritative. This matches Agent Builder's rule that stale
+  permission or MCP actionability must not be restored from persisted Run data.
+  Reference: https://code.claude.com/docs/en/hooks
+- The local Claude Code study docs show session recovery rebuilds from
+  transcript, metadata, file history, todos, agent/mode/model metadata, and
+  worktree state; background agent resume reads transcript/metadata and
+  continues with a new prompt instead of replaying a previous stream.
+
+Design decisions:
+
+- New Runs get a runtime-generated durable id, independent from session id.
+  Suggested prefix: `run_` plus a collision-resistant id.
+- Legacy/backfilled Runs may use a deterministic compatibility id such as
+  `run:session:<session_id>` until migrated to generated ids. This makes
+  backfill idempotent and keeps existing Phase 7 projections stable.
+- A Run is a top-level user-visible work unit. A Run can reference multiple
+  sessions when a task creates child sessions, background agent tasks, or
+  isolated worktree sessions.
+- `primary_session_id` remains required. Session identity is not hidden by the
+  Run; the Run only groups structured runtime evidence.
+- Run status is a persisted summary over linked turns/tasks/checkpoints:
+  `active`, `waiting_user`, `interrupted`, `completed`, `failed`, `cancelled`,
+  or `discarded`. This is not a full Run state machine yet; Phase 8.1 must
+  keep status transitions derived from turn/task terminal evidence and explicit
+  user actions.
+- `SessionActivity` remains the fallback and parity oracle. Persisted Run rows
+  are not allowed to become the source of timeline, diagnostics, artifact,
+  interrupted, permission, or MCP actionability state.
+
+Proposed schema contract, not a migration:
+
+```text
+runtime_runs
+  id TEXT PRIMARY KEY
+  workspace_id TEXT NOT NULL
+  primary_session_id TEXT NOT NULL
+  objective TEXT
+  status TEXT NOT NULL
+  created_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL
+  finished_at INTEGER
+  discarded_at INTEGER
+  source TEXT NOT NULL              -- user_prompt | backfill | task | recovery
+  metadata_json TEXT
+
+runtime_run_sessions
+  run_id TEXT NOT NULL
+  session_id TEXT NOT NULL
+  role TEXT NOT NULL                -- primary | child | task | recovery
+  task_id TEXT
+  turn_id TEXT
+  worktree_id TEXT
+  created_at INTEGER NOT NULL
+  PRIMARY KEY (run_id, session_id)
+
+runtime_run_checkpoints
+  id TEXT PRIMARY KEY
+  run_id TEXT NOT NULL
+  session_id TEXT NOT NULL
+  turn_id TEXT
+  task_id TEXT
+  status TEXT NOT NULL              -- open | resumable | acknowledged | discarded
+  summary TEXT
+  artifact_refs_json TEXT
+  diagnostic_refs_json TEXT
+  created_at INTEGER NOT NULL
+  acknowledged_at INTEGER
+  discarded_at INTEGER
+  metadata_json TEXT
+```
+
+Backfill and migration requirements for Phase 8.1:
+
+- Backfill must be idempotent. Running the migration twice must not duplicate
+  Runs, session links, or checkpoints.
+- Backfill should create one compatibility Run per existing session unless
+  `runtime_agent_tasks` already proves parent/child session grouping.
+- Backfill may link child sessions through `runtime_agent_tasks`, but must not
+  infer grouping from assistant prose.
+- Backfill must not mark stale running/waiting turns, stale permissions, or
+  stale MCP auth/elicitation requests as actionable. Startup recovery should
+  normalize them to terminal/cancelled evidence before Run status is computed.
+- Backfill must not invent produced artifacts. Produced/verified artifact state
+  still comes from completed structured tool/task evidence and diagnostics.
+
+Resume/discard contract:
+
+- Resume is a new explicit user-triggered turn linked to a checkpoint. It is
+  not automatic replay and not a continuation of an in-memory request.
+- Resume prompt construction must read current workspace state and checkpoint
+  summary, then ask the model to continue from that state. It must not replay
+  completed tool calls.
+- Discard acknowledges a checkpoint or Run for product UX. It must not delete
+  evidence and must not change terminal turn/tool/permission/MCP records.
+- `MarkInterruptedDone` remains the current acknowledgement path until the
+  Phase 8.1 persistence implementation explicitly introduces checkpoint
+  acknowledgement rows.
+
+API contract for the first persisted implementation:
+
+- `GET /v1/runs` can list durable Run summaries.
+- `GET /v1/runs/{run_id}` can return a persisted Run summary plus a read-only
+  `RunProjection` parity payload.
+- `GET /v1/sessions/{session_id}/run-projection` remains available as the
+  legacy/fallback projection endpoint.
+- `POST /v1/runs/{run_id}/resume` and
+  `POST /v1/runs/{run_id}/discard` must stay out of Phase 8.1 unless Phase 8.1
+  explicitly includes action semantics, audit tests, restart tests, and
+  permission/MCP stale-actionability tests.
+
+Frontend contract:
+
+- The Phase 7.3 preview can continue to display `RunProjectionViewModel`.
+- A persisted Run UI must remain read-only until resume/discard actions are
+  separately implemented and tested.
+- React must never be the source of Run status. It may request `GET /v1/runs`
+  or `GET /v1/runs/{run_id}` after runtime events, but event payloads may only
+  choose which DTO to refresh.
+
+Acceptance criteria for Phase 8.1 implementation:
+
+- Add migrations and stores only after this Phase 8 design is accepted.
+- Add contract tests proving new Run ids are durable and session links are
+  idempotent.
+- Add backfill tests for single-session, child-session, interrupted, failed,
+  cancelled, and completed evidence.
+- Add restart tests proving stale running/waiting tools, stale permission
+  gates, stale MCP auth, and stale MCP elicitation are terminalized or kept
+  non-actionable.
+- Add parity tests proving persisted Run summaries match the corresponding
+  `SessionActivity`/`RunProjection` subset for messages, turns, tool calls,
+  permissions, diagnostics, artifact evidence, interrupted summaries, and
+  terminal permission/MCP semantics.
+
+Validation:
+
+- Reviewed existing Agent Builder tables and stores for sessions, messages,
+  runtime turns, tool calls, permission requests, agent tasks, worktrees,
+  runtime events, audit events, compact boundaries, output refs, and MCP
+  requests.
+- Reviewed local Claude Code study docs for session persistence/recovery,
+  permissions, agents/tasks, and background resume.
+- Reviewed current Claude Code docs for memory, permissions, hooks, and
+  settings.
+- Performed a docs-only design review; no Go or TypeScript code changed.
+
+Review conclusion:
+
+- Agent Builder is ready to design a persisted Run identity, but not to expose
+  resume/discard execution in the same step.
+- The next implementation phase should be narrow: durable Run id, run/session
+  links, checkpoint persistence rows, idempotent backfill, read-only APIs, and
+  parity/restart tests.
+- Background scheduling, automatic resume, and full frontend Run management
+  remain explicitly out of scope until persisted evidence proves stable.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -2682,7 +2863,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 7.3, then decide the next separately approved gate for
-durable Run identity and persistence design. That future gate must explicitly
-cover migration/backfill, workspace/worktree grouping, scheduler semantics, and
-resume/discard execution before any persisted Run implementation begins.
+Review/accept Phase 8, then proceed to Phase 8.1: Durable Run Identity,
+Persistence Store, And Backfill Implementation. Phase 8.1 should implement the
+read-only persistence foundation only: migrations, stores, idempotent backfill,
+read-only transport, and parity/restart tests. Do not implement automatic
+resume, background Run scheduling, executable resume/discard, or expanded
+frontend Run management in Phase 8.1 unless a separate accepted gate adds those
+action semantics.

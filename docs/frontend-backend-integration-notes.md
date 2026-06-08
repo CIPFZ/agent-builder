@@ -620,3 +620,30 @@ Boundary:
 - No executable resume/discard controls and no `userActions` wiring.
 - No stale running/waiting tool, stale permission gate, or stale MCP
   auth/elicitation actionability recovery.
+
+## 2026-06-09: Phase 8 Durable Run Persistence Design Gate
+
+Phase 8 is a design gate for future persisted Run identity. It does not change
+the current frontend runtime integration.
+
+Frontend/backend rules:
+
+- The frontend continues to read the Phase 7.3 `RunProjectionViewModel` as a
+  read-only preview.
+- Future persisted Run APIs may add `GET /v1/runs` and
+  `GET /v1/runs/{run_id}`, but those APIs must still hydrate from Go runtime
+  evidence and return read-only DTOs until action semantics are accepted.
+- Runtime events may choose whether to refresh a Run list, Run detail, or
+  session projection. Event payloads must not populate Run state.
+- `SessionActivity` remains the source for timeline, diagnostics, permissions,
+  artifact evidence, interrupted recovery, and terminal MCP semantics.
+- React state must clear or rehydrate persisted Run DTOs on session/workspace
+  changes; it must not carry stale Run actionability across sessions.
+
+Boundary:
+
+- No frontend Run management UI in Phase 8.
+- No executable resume/discard controls.
+- No automatic resume or background Run scheduler.
+- No persisted Run store or database migration until Phase 8.1 is separately
+  accepted.
