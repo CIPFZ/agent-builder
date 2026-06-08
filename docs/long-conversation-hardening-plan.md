@@ -2007,8 +2007,63 @@ Acceptance:
   - `SessionActivity` diagnostics/interrupted state after restart
   - confirmation that no stale MCP request or permission is actionable after
     restart
+- Narrow activity reads, when used during hosted MCP validation, preserve the
+  same terminal MCP request/actionability semantics as full `SessionActivity`
+  and recovery/replay evidence. Event payloads may select the narrow read, but
+  must not recreate an actionable auth or elicitation request.
 - If provider automation is not safe, the phase records an explicit manual
   validation gap and keeps the runtime/frontend boundaries unchanged.
+
+### Phase 6.9: Narrow Activity Cursor And Rollout Hardening
+
+Status: planned after Phase 6.8 hosted MCP follow-up risks are accepted or
+closed. This remains a narrow hydration rollout phase, not a Run
+implementation.
+
+Scope:
+
+- Replace the simple tail-by-turn session activity window with a durable cursor
+  contract across mixed runtime evidence:
+  - messages
+  - turns
+  - tool calls
+  - permissions
+  - runtime events
+- Define stable ordering semantics for session windows so long sessions can
+  hydrate around the active tail without losing adjacent user/assistant
+  messages, terminal permissions, diagnostics warnings, artifact refs, or
+  interrupted summaries.
+- Add browser/Vite and packaged Wails smoke coverage for the frontend narrow
+  hydration path:
+  - event-triggered `TurnActivity`
+  - event-triggered `SessionActivityWindow`
+  - fallback to full `SessionActivity`
+  - no duplicate timeline items after multiple lifecycle events
+- Consider a runtime feature flag or adapter capability check for staged
+  rollout if large-session validation finds ordering or merge regressions.
+- Preserve current boundaries:
+  - full `SessionActivity` remains the parity oracle and fallback
+  - runtime events remain refresh triggers only
+  - no automatic resume
+  - no stale running/waiting tool recovery
+  - no restored actionable permission gate
+  - no restored actionable MCP auth or elicitation request
+  - no Run store, Run state machine, Run database migration, frontend Run UI,
+    persisted interrupted acknowledgement field, or prose-derived
+    artifact/checkpoint inference
+
+Acceptance:
+
+- A cursor-based session window can hydrate the active tail of a large session
+  and prove parity with the corresponding full `SessionActivity` subset for
+  messages, tool calls, permissions, diagnostics, artifact evidence,
+  interrupted summaries, and terminal permission/MCP semantics.
+- Browser/Vite validation proves event-triggered narrow hydration updates the
+  visible timeline without using event payloads as state.
+- Packaged Wails validation proves regenerated bridge bindings expose narrow
+  methods and fallback safely to full `SessionActivity`.
+- Repeated lifecycle, permission, artifact/ref, and terminal events do not
+  duplicate or resurrect stale timeline/actionability state.
 
 ## Validation Scenarios
 
