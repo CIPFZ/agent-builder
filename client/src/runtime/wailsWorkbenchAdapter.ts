@@ -16,6 +16,7 @@ import type {
   RuntimeModelOptionViewModel,
   RuntimePluginViewModel,
   RuntimeEventViewModel,
+  RunProjectionViewModel,
   RuntimeSkillViewModel,
   SettingsPermissionViewModel,
   WorkbenchAdapter,
@@ -381,9 +382,11 @@ interface RuntimeRunProjectionRequestDTO {
 
 interface RuntimeRunProjectionResponseDTO {
   run: {
-    id?: string;
+    id: string;
+    workspaceId?: string;
     primarySessionId?: string;
     sessionIds?: string[];
+    objective?: string;
     status?: string;
     turnIds?: string[];
     taskIds?: string[];
@@ -392,13 +395,44 @@ interface RuntimeRunProjectionResponseDTO {
     expectedArtifacts?: string[];
     producedArtifacts?: string[];
     verifiedArtifacts?: string[];
+    checkpoints?: Array<{
+      id?: string;
+      turnId?: string;
+      taskId?: string;
+      status?: string;
+      summary?: string;
+      artifactRefs?: string[];
+      createdAt?: number;
+      resumeEligible?: boolean;
+    }>;
+    diagnostics?: {
+      turnCount?: number;
+      taskCount?: number;
+      toolCallCount?: number;
+      permissionRequestCount?: number;
+      interruptedTurnCount?: number;
+      failedTurnCount?: number;
+      cancelledTurnCount?: number;
+      runningTurnCount?: number;
+      waitingPermissionTurnCount?: number;
+      artifactCounts?: {
+        expected?: number;
+        produced?: number;
+        verified?: number;
+        missing?: number;
+      };
+    };
     evidenceCursor?: string;
+    activityWindow?: RuntimeSessionActivityWindowDTO['window'];
     source?: {
       kind?: string;
       readOnly?: boolean;
       sessionActivityParity?: boolean;
       evidence?: string[];
     };
+    createdAt?: number;
+    updatedAt?: number;
+    finishedAt?: number;
   };
 }
 
@@ -1189,6 +1223,41 @@ function timelineKindRank(item: ConversationTimelineItemViewModel) {
   return 6;
 }
 
+function mapRunProjection(response?: RuntimeRunProjectionResponseDTO): RunProjectionViewModel | undefined {
+  const run = response?.run;
+  if (!run?.id) {
+    return undefined;
+  }
+  const diagnostics = run.diagnostics;
+  const artifactCounts = diagnostics?.artifactCounts;
+  return {
+    id: run.id,
+    primarySessionId: run.primarySessionId,
+    status: run.status,
+    objective: run.objective,
+    turnCount: diagnostics?.turnCount ?? run.turnIds?.length,
+    taskCount: diagnostics?.taskCount ?? run.taskIds?.length,
+    toolCallCount: diagnostics?.toolCallCount ?? run.toolCallIds?.length,
+    permissionRequestCount: diagnostics?.permissionRequestCount ?? run.permissionRequestIds?.length,
+    waitingPermissionTurnCount: diagnostics?.waitingPermissionTurnCount,
+    runningTurnCount: diagnostics?.runningTurnCount,
+    interruptedTurnCount: diagnostics?.interruptedTurnCount,
+    failedTurnCount: diagnostics?.failedTurnCount,
+    cancelledTurnCount: diagnostics?.cancelledTurnCount,
+    expectedArtifactCount: artifactCounts?.expected ?? run.expectedArtifacts?.length,
+    producedArtifactCount: artifactCounts?.produced ?? run.producedArtifacts?.length,
+    verifiedArtifactCount: artifactCounts?.verified ?? run.verifiedArtifacts?.length,
+    missingArtifactCount: artifactCounts?.missing,
+    checkpointCount: run.checkpoints?.length,
+    evidenceCursor: run.evidenceCursor || run.activityWindow?.lastCursor,
+    sourceKind: run.source?.kind,
+    sourceReadOnly: run.source?.readOnly,
+    sessionActivityParity: run.source?.sessionActivityParity,
+    updatedAt: run.updatedAt,
+    finishedAt: run.finishedAt,
+  };
+}
+
 function runtimeMessageContent(message: RuntimeMessageDTO) {
   const content = message.content || message.error || '';
   if (content.trim() || !Array.isArray(message.parts)) {
@@ -1330,6 +1399,9 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const activeSessionID = status?.sessionId || sessionsResponse?.sessions?.find((session) => session.active)?.id;
   const narrowActivity = activeSessionID ? await hydrateNarrowActivityFromHint(bridge, activeSessionID) : undefined;
   const activity = narrowActivity ?? (activeSessionID ? await optionalRuntimeRequest(() => bridge.SessionActivity?.(activeSessionID) ?? Promise.resolve(undefined)) : undefined);
+  const runProjection = activeSessionID && bridge.RunProjection
+    ? await optionalRuntimeRequest(() => bridge.RunProjection?.({ sessionId: activeSessionID, limit: 24 }) ?? Promise.resolve(undefined))
+    : undefined;
   const messagesResponse = activity
     ? { messages: Array.isArray(activity.messages) ? activity.messages : [] }
     : activeSessionID
@@ -1376,6 +1448,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     timeline,
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
     interruptedTurn: activity ? selectInterruptedTurn(activity, sessionActiveTurn?.id) : current.interruptedTurn,
+    runProjection: mapRunProjection(runProjection) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
     pendingPermissions,
     composer: {
       ...current.composer,

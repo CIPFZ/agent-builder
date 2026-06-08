@@ -2573,6 +2573,68 @@ Remaining risks:
 - A future persisted Run implementation still requires an explicit migration
   and backfill design.
 
+### Phase 7.3: Run Projection Frontend Read-only Preview Gate
+
+Status: implemented as an additive read-only preview. No runtime Run store, Run
+database migration, automatic resume, background Run scheduler, executable
+resume/discard control, or persisted Run UI was implemented.
+
+Scope:
+
+- Decide whether the client can safely display a read-only Run summary hydrated
+  from `RunProjection`.
+- Add a frontend view-model field for the transport DTO without making React
+  the runtime source of truth.
+- Hydrate the preview from `RuntimeBridge.RunProjection(...)` or the HTTP/dev
+  fallback during normal workbench refresh.
+- Keep `SessionActivity` as the timeline, diagnostics, permission, artifact,
+  interrupted-state fallback and parity oracle.
+
+Implemented:
+
+- Added `RunProjectionViewModel` to the workbench model with only aggregate
+  status, count, cursor, and source/parity fields.
+- Added client mapping from `RuntimeRunProjectionResponse` to that read-only
+  view model.
+- `hydrateWorkbench` now calls `RunProjection({ sessionId, limit: 24 })` when
+  the active bridge supports it.
+- Added `RunProjectionPreview`, a read-only diagnostics-column panel that shows
+  status, turn/tool/artifact counts, permission/task/checkpoint counts, cursor
+  source, and `SessionActivity` parity.
+- Cleared stale preview state when creating a draft/new session and only reused
+  a previous preview when its `primarySessionId` still matches the active
+  session.
+
+Boundary review:
+
+- Runtime events still only trigger `adapter.refresh`; event payloads do not
+  merge into Run, checkpoint, artifact, permission, MCP actionability, or
+  interrupted state.
+- The preview does not expose `userActions`, `resume`, or `discard`.
+- The preview does not infer artifact/ref/checkpoint state from assistant
+  prose.
+- The preview does not recover stale running/waiting tools, stale permission
+  gates, or stale MCP auth/elicitation actionability.
+- `SessionActivity` remains the authority for the timeline and diagnostics.
+
+Validation:
+
+- `cd client && npm run lint`
+- `cd client && npx tsc -b --pretty false`
+- `cd client && npm run build`
+- `go test ./internal/runtime -run "TestRuntimeRunProjection" -count=1`
+- `go test ./desktop -run "TestRuntimeBridgeNarrowActivityUsesRuntimeService|TestRuntimeBridgePhase62PackagedHandoffRecoveryContract" -count=1`
+- Browser/Vite smoke against `http://localhost:5180/` after build/typecheck.
+
+Remaining risks:
+
+- The projection id remains session-derived and is not a durable Run id.
+- Cross-session grouping, checkpoint persistence, workspace/worktree semantics,
+  and executable resume/discard still need a separately approved Run
+  implementation phase.
+- This is a preview of the current projection contract, not a replacement for
+  `SessionActivity`.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -2620,9 +2682,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Proceed to Phase 7.3: Run projection frontend read-only preview gate.
-
-Phase 7.3 should decide whether the client should display a read-only Run
-summary preview hydrated from `RunProjection`. It must not add Run persistence,
-database migrations, automatic resume, background Run scheduling, or actionable
-resume/discard controls without a separate approved implementation phase.
+Review/accept Phase 7.3, then decide the next separately approved gate for
+durable Run identity and persistence design. That future gate must explicitly
+cover migration/backfill, workspace/worktree grouping, scheduler semantics, and
+resume/discard execution before any persisted Run implementation begins.

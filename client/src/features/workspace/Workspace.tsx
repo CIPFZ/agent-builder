@@ -4,6 +4,7 @@ import { Button, Dropdown, Input, Modal, Tooltip, message as antdMessage } from 
 import Bubble from '@ant-design/x/es/bubble';
 import type { WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
+import { RunProjectionPreview } from '../diagnostics/RunProjectionPreview.tsx';
 import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import styles from './Workspace.module.css';
@@ -192,6 +193,7 @@ export function Workspace({
               <Timeline items={viewModel.timeline} onPermissionDecide={onPermissionDecide} />
             </div>
             <div className={styles.diagnosticsColumn}>
+              <RunProjectionPreview run={viewModel.runProjection} />
               <TurnDiagnosticsPanel
                 diagnostics={viewModel.turnDiagnostics}
                 interrupted={viewModel.interruptedTurn}

@@ -78,6 +78,7 @@ export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): W
     timeline: [],
     turnDiagnostics: undefined,
     interruptedTurn: undefined,
+    runProjection: undefined,
     pendingPermissions: [],
     composer: {
       placeholder: '请输入任务',

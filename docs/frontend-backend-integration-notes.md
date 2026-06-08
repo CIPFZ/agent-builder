@@ -593,3 +593,30 @@ Boundary:
 - No executable resume/discard control.
 - No stale running/waiting tool, stale permission gate, or stale MCP
   auth/elicitation actionability recovery.
+
+## 2026-06-08: Phase 7.3 Run Projection Read-only Preview
+
+Phase 7.3 lets the client display a narrow, read-only Run projection preview
+without changing the frontend/backend source-of-truth boundary.
+
+Frontend/backend rules:
+
+- `hydrateWorkbench` may call `RunProjection({ sessionId, limit })` after it
+  identifies the active session.
+- The preview maps only aggregate fields into `RunProjectionViewModel`: status,
+  counts, cursor/source metadata, and the `SessionActivity` parity flag.
+- Runtime events remain refresh triggers only. Event payloads do not populate
+  or merge Run projection state.
+- `SessionActivity` remains the source for timeline, diagnostics, permissions,
+  artifact evidence, and interrupted recovery surfaces.
+- The client must clear stale projection state on draft/new sessions and may
+  reuse a previous projection only when its `primarySessionId` matches the
+  active session.
+
+Boundary:
+
+- No runtime Run store or Run database migration.
+- No automatic resume or background Run scheduler.
+- No executable resume/discard controls and no `userActions` wiring.
+- No stale running/waiting tool, stale permission gate, or stale MCP
+  auth/elicitation actionability recovery.

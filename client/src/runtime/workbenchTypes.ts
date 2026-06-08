@@ -193,6 +193,33 @@ export interface PermissionCountsViewModel {
   cancelled?: number;
 }
 
+export interface RunProjectionViewModel {
+  id: string;
+  primarySessionId?: string;
+  status?: string;
+  objective?: string;
+  turnCount?: number;
+  taskCount?: number;
+  toolCallCount?: number;
+  permissionRequestCount?: number;
+  waitingPermissionTurnCount?: number;
+  runningTurnCount?: number;
+  interruptedTurnCount?: number;
+  failedTurnCount?: number;
+  cancelledTurnCount?: number;
+  expectedArtifactCount?: number;
+  producedArtifactCount?: number;
+  verifiedArtifactCount?: number;
+  missingArtifactCount?: number;
+  checkpointCount?: number;
+  evidenceCursor?: string;
+  sourceKind?: string;
+  sourceReadOnly?: boolean;
+  sessionActivityParity?: boolean;
+  updatedAt?: number;
+  finishedAt?: number;
+}
+
 export interface ToolCallViewModel {
   id: string;
   sessionId: string;
@@ -454,6 +481,7 @@ export interface WorkbenchViewModel {
   timeline: ConversationTimelineItemViewModel[];
   turnDiagnostics?: TurnDiagnosticsViewModel;
   interruptedTurn?: InterruptedTurnViewModel;
+  runProjection?: RunProjectionViewModel;
   pendingPermissions: PermissionRequestViewModel[];
   composer: ComposerViewModel;
   settings: SettingsViewModel;

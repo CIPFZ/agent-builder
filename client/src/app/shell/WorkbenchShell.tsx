@@ -153,6 +153,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       timeline: [],
       turnDiagnostics: undefined,
       interruptedTurn: undefined,
+      runProjection: undefined,
       pendingPermissions: [],
       composer: { ...viewModel.composer, busy: false, activeTurnId: undefined },
     };

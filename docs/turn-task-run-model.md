@@ -387,6 +387,24 @@ Validation:
 - `go test ./desktop -run "TestRuntimeBridgeNarrowActivityUsesRuntimeService|TestRuntimeBridgePhase62PackagedHandoffRecoveryContract" -count=1`
 - `cd client && npx tsc -b --pretty false`
 
+### Phase 7.3 Gate: Frontend Read-only Run Projection Preview
+
+Phase 7.3 adopts the read-only projection in the client as a preview only. It
+does not make Run a persisted resource and does not make React the source of
+truth.
+
+Implemented boundary:
+
+- `WorkbenchViewModel` now has an optional `RunProjectionViewModel` containing
+  aggregate status/count/cursor/source fields.
+- The runtime adapter hydrates it from `RunProjection({ sessionId, limit })`
+  after resolving the active session.
+- The workspace renders a read-only projection preview beside turn diagnostics.
+- `userActions`, resume/discard execution, persisted acknowledgement,
+  background scheduling, and auto-resume remain out of scope.
+- `SessionActivity` remains the parity oracle and the source for timeline,
+  diagnostics, permission, artifact, and interrupted recovery state.
+
 ## API 影响
 
 最小 API：
