@@ -674,8 +674,9 @@ Frontend rules:
 
 ## 2026-06-09: Phase 8.2 Action Design Gate Frontend Boundary
 
-Phase 8.2 is a design gate for future checkpoint acknowledgement, resume, and
-discard actions. It does not add frontend controls or new executable endpoints.
+Phase 8.2 is an accepted design gate for future checkpoint acknowledgement,
+resume, and discard actions. It does not add frontend controls or new
+executable endpoints.
 
 Frontend boundary:
 
@@ -688,3 +689,11 @@ Frontend boundary:
   not from optimistic local-only state that could resurrect stale actionability.
 - Stale permission gates and MCP auth/elicitation requests must remain
   non-actionable unless current runtime stores return them as pending.
+
+Phase 8.3 frontend boundary:
+
+- The next implementation may expose checkpoint acknowledgement/discard
+  endpoints and refreshed Run detail.
+- The frontend may refresh Run detail after those actions, but must not add
+  resume execution controls or a Run management surface in Phase 8.3.
+- Runtime events remain refresh triggers only.

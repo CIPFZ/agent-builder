@@ -2876,9 +2876,9 @@ Remaining risks:
 
 ### Phase 8.2: Checkpoint Acknowledgement, Resume, And Discard Action Gate
 
-Status: planned as a design gate only. Do not implement executable action APIs,
-automatic resume, background scheduling, frontend Run management UI, or a full
-Run state machine in this phase.
+Status: accepted as a design gate only. No executable action APIs, automatic
+resume, background scheduling, frontend Run management UI, or full Run state
+machine was implemented in this phase.
 
 Purpose:
 
@@ -2939,6 +2939,55 @@ Exit criteria:
   state machine implementation, and expanded frontend Run management UI unless
   a later accepted phase explicitly adds them.
 
+Review conclusion:
+
+- Phase 8.2 is accepted as the action semantics gate.
+- The next implementation should start with checkpoint acknowledgement/discard
+  because it is evidence-preserving and does not require prompt construction or
+  model execution.
+- Resume execution remains deferred until checkpoint acknowledgement/discard
+  proves restart-safe, audited, and parity-preserving.
+- Any future resume implementation must create a new explicit user turn from a
+  structured checkpoint; it must not auto-resume or replay previous tool/MCP
+  state.
+
+### Phase 8.3: Checkpoint Acknowledgement And Discard Contract
+
+Status: next implementation phase.
+
+Scope:
+
+- Implement explicit checkpoint acknowledgement/discard for persisted
+  `runtime_run_checkpoints`.
+- Add transport routes for checkpoint acknowledgement/discard only. Do not add
+  resume execution in this phase.
+- Return refreshed persisted Run detail plus `RunProjection` parity payload
+  after acknowledgement/discard.
+- Keep `SessionActivity`/runtime stores as the source for timeline,
+  diagnostics, artifacts, interrupted summaries, permissions, and MCP terminal
+  semantics.
+- Runtime events may trigger DTO refresh but must not hydrate acknowledgement
+  state from payloads.
+
+Out of scope:
+
+- Automatic resume.
+- Background Run scheduler.
+- Full Run state machine.
+- Frontend Run management UI.
+- Model prompt construction for resume.
+- Any restoration of stale running/waiting tools, permission gates, MCP auth
+  requests, or MCP elicitation requests.
+
+Acceptance criteria:
+
+- Store tests cover idempotent checkpoint acknowledgement/discard and prove
+  evidence rows are not deleted.
+- HTTP/Wails/contract tests cover checkpoint acknowledgement/discard transport.
+- Restart/parity tests prove stale permission and MCP actionability is not
+  resurrected by Run detail refresh after acknowledgement/discard.
+- Docs record that resume execution remains deferred.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -2986,7 +3035,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 8.2, then implement only the accepted narrow action slice.
-The next implementation phase should start with checkpoint acknowledgement or
-explicit user-triggered resume/discard contracts, not automatic resume,
-background Run scheduling, or expanded frontend Run management UI.
+Implement Phase 8.3: Checkpoint Acknowledgement And Discard Contract. Keep it
+limited to acknowledgement/discard writes and refreshed read-only Run detail.
+Do not implement resume execution, automatic resume, background Run scheduling,
+or expanded frontend Run management UI.
