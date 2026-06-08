@@ -3027,9 +3027,9 @@ Review conclusion:
 
 ### Phase 8.4: Explicit Resume Contract Design Gate
 
-Status: planned as a design gate only. Do not implement a resume endpoint,
-automatic resume, background scheduling, frontend Run management UI, or full
-Run state machine in this phase.
+Status: accepted as a design gate only. No resume endpoint, automatic resume,
+background scheduling, frontend Run management UI, or full Run state machine
+was implemented in this phase.
 
 Purpose:
 
@@ -3078,6 +3078,58 @@ Acceptance criteria for a future implementation phase:
 - Frontend transport tests prove events only trigger refresh and React state is
   not the source of resume status.
 
+Review conclusion:
+
+- Phase 8.4 is accepted as the explicit resume design gate.
+- The first implementation should create an explicit user-triggered resume
+  turn from a checkpoint and return structured action metadata plus refreshed
+  Run detail.
+- Resume must not replay previous streams, completed tool calls, permission
+  requests, MCP auth requests, or MCP elicitation requests.
+- Resume prompt construction must be structured and redacted: checkpoint
+  summary, source Run/session/checkpoint ids, artifact refs, and current
+  workspace context only.
+- Frontend resume controls remain out of scope until the runtime endpoint and
+  transport tests are proven.
+
+### Phase 8.5: Explicit Checkpoint Resume Contract
+
+Status: next implementation phase.
+
+Scope:
+
+- Implement `POST /v1/runs/{run_id}/checkpoints/{checkpoint_id}/resume` as an
+  explicit user-triggered action.
+- The action creates a new turn in the checkpoint's primary session by calling
+  the existing runtime chat path with a structured resume prompt.
+- Return a dedicated action DTO with the new turn id, source run/checkpoint ids,
+  and refreshed read-only Run detail.
+- Record enough structured audit/runtime metadata to prove the new turn was
+  created from the checkpoint.
+- Keep existing `SessionActivity`/runtime stores as the source for timeline,
+  diagnostics, artifact evidence, interrupted summaries, permission state, and
+  MCP terminal semantics.
+
+Out of scope:
+
+- Automatic resume.
+- Background Run scheduler.
+- Full Run state machine.
+- Frontend Run management UI or resume button wiring.
+- Replaying previous model streams or tool calls.
+- Restoring stale running/waiting tools, stale permission gates, stale MCP auth
+  requests, or stale MCP elicitation requests.
+
+Acceptance criteria:
+
+- Store/service tests prove resume creates a new turn linked to the checkpoint
+  without mutating previous checkpoint evidence.
+- HTTP/Wails/contract tests cover the resume action transport.
+- Restart/parity tests prove stale permission and MCP actionability is not
+  resurrected by resume or by Run detail refresh after resume.
+- Docs record that auto resume, background scheduling, and frontend Run UI
+  remain deferred.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -3125,6 +3177,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 8.4, then implement only the accepted explicit resume
-contract. Do not implement automatic resume, background Run scheduling, or
-expanded frontend Run management UI.
+Implement Phase 8.5: Explicit Checkpoint Resume Contract. Keep it limited to a
+user-triggered runtime resume action that creates a new turn and returns
+refreshed Run detail. Do not implement automatic resume, background Run
+scheduling, or expanded frontend Run management UI.

@@ -702,7 +702,7 @@ Phase 8.3 frontend boundary:
 
 ## 2026-06-09: Phase 8.4 Explicit Resume Design Gate Boundary
 
-Phase 8.4 is a planned design gate for explicit user-triggered resume. It does
+Phase 8.4 is an accepted design gate for explicit user-triggered resume. It did
 not add a resume endpoint or frontend resume control.
 
 Frontend boundary:
@@ -714,3 +714,13 @@ Frontend boundary:
 - Failed resume responses must leave no local optimistic resumed state.
 - Stale permission/MCP actionability must still be determined only by current
   runtime stores.
+
+Phase 8.5 frontend boundary:
+
+- The next implementation may expose an explicit resume action endpoint and a
+  structured action response.
+- The frontend must not wire a visible resume control in Phase 8.5 unless the
+  runtime endpoint, Wails/HTTP transport, and refresh behavior are all covered
+  by tests.
+- Runtime events remain refresh triggers only; the action response and
+  subsequent DTO refresh are the only allowed sources of resume status.
