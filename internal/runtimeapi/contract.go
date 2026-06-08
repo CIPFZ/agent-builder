@@ -37,6 +37,8 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/turns"},
 	{Method: MethodGet, Path: "/v1/runs"},
 	{Method: MethodGet, Path: "/v1/runs/{run_id}"},
+	{Method: MethodPost, Path: "/v1/runs/{run_id}/checkpoints/{checkpoint_id}/acknowledge"},
+	{Method: MethodPost, Path: "/v1/runs/{run_id}/checkpoints/{checkpoint_id}/discard"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/activity"},
 	{Method: MethodGet, Path: "/v1/turns/{turn_id}/todos"},

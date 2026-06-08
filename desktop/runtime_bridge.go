@@ -289,6 +289,18 @@ func (r *RuntimeBridge) Run(ctx context.Context, runID string) (RuntimeRunRespon
 
 }
 
+func (r *RuntimeBridge) AcknowledgeRunCheckpoint(ctx context.Context, runID string, checkpointID string) (RuntimeRunResponse, error) {
+
+	return r.service.AcknowledgeRunCheckpoint(ctx, runID, checkpointID)
+
+}
+
+func (r *RuntimeBridge) DiscardRunCheckpoint(ctx context.Context, runID string, checkpointID string) (RuntimeRunResponse, error) {
+
+	return r.service.DiscardRunCheckpoint(ctx, runID, checkpointID)
+
+}
+
 func (r *RuntimeBridge) ToolCall(ctx context.Context, toolCallID string) (RuntimeToolCallResponse, error) {
 
 	return r.service.ToolCall(ctx, toolCallID)

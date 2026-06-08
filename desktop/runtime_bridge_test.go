@@ -296,6 +296,22 @@ func TestRuntimeBridgeForwardsDurableRunReads(t *testing.T) {
 	if service.runID != "run-1" || run.Run.ID != "run-1" {
 		t.Fatalf("run = %#v service id %q", run, service.runID)
 	}
+
+	ack, err := bridge.AcknowledgeRunCheckpoint(context.Background(), "run-1", "checkpoint-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.ackRunID != "run-1" || service.ackCheckpointID != "checkpoint-1" || ack.Run.ID != "run-1" {
+		t.Fatalf("ack = %#v args=%q/%q", ack, service.ackRunID, service.ackCheckpointID)
+	}
+
+	discard, err := bridge.DiscardRunCheckpoint(context.Background(), "run-1", "checkpoint-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.discardRunID != "run-1" || service.discardCheckpointID != "checkpoint-1" || discard.Run.ID != "run-1" {
+		t.Fatalf("discard = %#v args=%q/%q", discard, service.discardRunID, service.discardCheckpointID)
+	}
 }
 
 func TestRuntimeBridgeForwardsMCPRequestDecision(t *testing.T) {
@@ -340,6 +356,10 @@ type recordingRuntimeService struct {
 	runs                        RuntimeRunsResponse
 	run                         RuntimeRunResponse
 	runID                       string
+	ackRunID                    string
+	ackCheckpointID             string
+	discardRunID                string
+	discardCheckpointID         string
 	markInterruptedDoneID       string
 	markInterruptedDoneResponse RuntimeTurnResponse
 }
@@ -428,6 +448,18 @@ func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, er
 
 func (s *recordingRuntimeService) Run(_ context.Context, runID string) (RuntimeRunResponse, error) {
 	s.runID = runID
+	return s.run, nil
+}
+
+func (s *recordingRuntimeService) AcknowledgeRunCheckpoint(_ context.Context, runID, checkpointID string) (RuntimeRunResponse, error) {
+	s.ackRunID = runID
+	s.ackCheckpointID = checkpointID
+	return s.run, nil
+}
+
+func (s *recordingRuntimeService) DiscardRunCheckpoint(_ context.Context, runID, checkpointID string) (RuntimeRunResponse, error) {
+	s.discardRunID = runID
+	s.discardCheckpointID = checkpointID
 	return s.run, nil
 }
 

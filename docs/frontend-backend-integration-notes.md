@@ -692,8 +692,10 @@ Frontend boundary:
 
 Phase 8.3 frontend boundary:
 
-- The next implementation may expose checkpoint acknowledgement/discard
-  endpoints and refreshed Run detail.
+- Checkpoint acknowledgement/discard endpoints and refreshed Run detail are
+  available through HTTP/dev transport and Wails.
 - The frontend may refresh Run detail after those actions, but must not add
   resume execution controls or a Run management surface in Phase 8.3.
 - Runtime events remain refresh triggers only.
+- Local optimistic acknowledgement/discard state must be replaced by runtime
+  DTO refresh; it must not become the source of actionability.

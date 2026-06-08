@@ -241,6 +241,8 @@ type RuntimeRunCheckpoint struct {
 	Summary        string   `json:"summary,omitempty"`
 	ArtifactRefs   []string `json:"artifactRefs,omitempty"`
 	CreatedAt      int64    `json:"createdAt,omitempty"`
+	AcknowledgedAt int64    `json:"acknowledgedAt,omitempty"`
+	DiscardedAt    int64    `json:"discardedAt,omitempty"`
 	ResumeEligible bool     `json:"resumeEligible,omitempty"`
 }
 

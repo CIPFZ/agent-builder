@@ -3546,6 +3546,10 @@ type recordingRuntimeService struct {
 	runs                  RuntimeRunsResponse
 	run                   RuntimeRunResponse
 	runID                 string
+	ackRunID              string
+	ackCheckpointID       string
+	discardRunID          string
+	discardCheckpointID   string
 	createdSkill          RuntimeSkillCreateRequest
 	addedSkillPath        string
 	cancelledTurn         string
@@ -3676,6 +3680,18 @@ func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, er
 
 func (s *recordingRuntimeService) Run(_ context.Context, id string) (RuntimeRunResponse, error) {
 	s.runID = id
+	return s.run, nil
+}
+
+func (s *recordingRuntimeService) AcknowledgeRunCheckpoint(_ context.Context, runID, checkpointID string) (RuntimeRunResponse, error) {
+	s.ackRunID = runID
+	s.ackCheckpointID = checkpointID
+	return s.run, nil
+}
+
+func (s *recordingRuntimeService) DiscardRunCheckpoint(_ context.Context, runID, checkpointID string) (RuntimeRunResponse, error) {
+	s.discardRunID = runID
+	s.discardCheckpointID = checkpointID
 	return s.run, nil
 }
 

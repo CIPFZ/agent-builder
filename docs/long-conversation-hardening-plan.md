@@ -2953,7 +2953,9 @@ Review conclusion:
 
 ### Phase 8.3: Checkpoint Acknowledgement And Discard Contract
 
-Status: next implementation phase.
+Status: implemented as a narrow checkpoint action contract. Resume execution,
+automatic resume, background scheduling, frontend Run management UI, and a full
+Run state machine were not implemented.
 
 Scope:
 
@@ -2987,6 +2989,41 @@ Acceptance criteria:
 - Restart/parity tests prove stale permission and MCP actionability is not
   resurrected by Run detail refresh after acknowledgement/discard.
 - Docs record that resume execution remains deferred.
+
+Implemented:
+
+- Added `acknowledgedAt` and `discardedAt` to persisted Run checkpoint DTOs.
+- Added idempotent `runtimeRunStore` checkpoint acknowledgement/discard writes.
+  These writes set timestamps only; they do not change original checkpoint
+  status, summary, artifact refs, turn/task records, permission records, or MCP
+  request records.
+- Added read/write runtime service methods for checkpoint
+  acknowledgement/discard that return refreshed Run detail plus the read-only
+  projection parity payload.
+- Added HTTP/dev-module routes:
+  `POST /v1/runs/{run_id}/checkpoints/{checkpoint_id}/acknowledge`
+  and `POST /v1/runs/{run_id}/checkpoints/{checkpoint_id}/discard`.
+- Added Wails bridge methods `AcknowledgeRunCheckpoint` and
+  `DiscardRunCheckpoint`.
+
+Validation:
+
+- Store tests cover idempotent acknowledgement, idempotent discard, and
+  evidence preservation.
+- HTTP tests cover bearer routes and dev-module fallback routes for both
+  checkpoint actions.
+- Wails bridge tests cover checkpoint action delegation.
+- Runtime API contract tests include the new checkpoint action routes.
+
+Review conclusion:
+
+- Checkpoint acknowledgement/discard is now a persisted UX acknowledgement
+  layer over existing runtime evidence.
+- It does not make stale permission gates, stale MCP auth/elicitation requests,
+  stale tools, or stale interrupted turns actionable.
+- Resume execution remains the next separate design/implementation problem and
+  must create a new explicit user turn rather than replay previous runtime
+  state.
 
 ## Validation Scenarios
 
@@ -3035,7 +3072,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 8.3: Checkpoint Acknowledgement And Discard Contract. Keep it
-limited to acknowledgement/discard writes and refreshed read-only Run detail.
-Do not implement resume execution, automatic resume, background Run scheduling,
-or expanded frontend Run management UI.
+Review/accept Phase 8.3, then design the explicit resume contract. The next
+phase should specify prompt construction, audit linkage, permission/MCP stale
+actionability tests, and frontend refresh behavior before implementing any
+`resume` endpoint.

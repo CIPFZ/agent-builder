@@ -54,6 +54,32 @@ func (r *runtimeService) Run(ctx context.Context, id string) (RuntimeRunResponse
 	return RuntimeRunResponse{Run: run, Projection: projection.Run}, nil
 }
 
+func (r *runtimeService) AcknowledgeRunCheckpoint(ctx context.Context, runID, checkpointID string) (RuntimeRunResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeRunResponse{}, err
+	}
+	if r.runs.db == nil {
+		return RuntimeRunResponse{}, errors.New("runtime run database is not available")
+	}
+	if _, err := r.runs.AcknowledgeCheckpoint(ctx, runID, checkpointID); err != nil {
+		return RuntimeRunResponse{}, err
+	}
+	return r.Run(ctx, runID)
+}
+
+func (r *runtimeService) DiscardRunCheckpoint(ctx context.Context, runID, checkpointID string) (RuntimeRunResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeRunResponse{}, err
+	}
+	if r.runs.db == nil {
+		return RuntimeRunResponse{}, errors.New("runtime run database is not available")
+	}
+	if _, err := r.runs.DiscardCheckpoint(ctx, runID, checkpointID); err != nil {
+		return RuntimeRunResponse{}, err
+	}
+	return r.Run(ctx, runID)
+}
+
 func (r *runtimeService) backfillRuntimeRuns(ctx context.Context) error {
 	r.mu.Lock()
 	wsID := r.workspace.ID

@@ -22,6 +22,7 @@ const (
 )
 
 var errRuntimeRunNotFound = errors.New("runtime run not found")
+var errRuntimeRunCheckpointNotFound = errors.New("runtime run checkpoint not found")
 
 type runtimeRunStore struct {
 	db *sql.DB
@@ -251,6 +252,52 @@ func (s runtimeRunStore) List(ctx context.Context) ([]RuntimeRun, error) {
 	return runs, nil
 }
 
+func (s runtimeRunStore) AcknowledgeCheckpoint(ctx context.Context, runID, checkpointID string) (RuntimeRun, error) {
+	return s.markCheckpoint(ctx, runID, checkpointID, "acknowledged_at")
+}
+
+func (s runtimeRunStore) DiscardCheckpoint(ctx context.Context, runID, checkpointID string) (RuntimeRun, error) {
+	return s.markCheckpoint(ctx, runID, checkpointID, "discarded_at")
+}
+
+func (s runtimeRunStore) markCheckpoint(ctx context.Context, runID, checkpointID, column string) (RuntimeRun, error) {
+	if s.db == nil {
+		return RuntimeRun{}, errors.New("runtime run database is not available")
+	}
+	runID = strings.TrimSpace(runID)
+	checkpointID = strings.TrimSpace(checkpointID)
+	if runID == "" {
+		return RuntimeRun{}, errors.New("run id is required")
+	}
+	if checkpointID == "" {
+		return RuntimeRun{}, errors.New("checkpoint id is required")
+	}
+	if column != "acknowledged_at" && column != "discarded_at" {
+		return RuntimeRun{}, errors.New("unsupported checkpoint marker")
+	}
+	now := time.Now().UnixMilli()
+	result, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+UPDATE runtime_run_checkpoints
+SET %[1]s = COALESCE(%[1]s, ?)
+WHERE run_id = ? AND id = ?`, column), now, runID, checkpointID)
+	if err != nil {
+		return RuntimeRun{}, fmt.Errorf("failed to mark runtime run checkpoint: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return RuntimeRun{}, fmt.Errorf("failed to inspect runtime run checkpoint marker: %w", err)
+	}
+	if affected == 0 {
+		if _, err := s.Get(ctx, runID); errors.Is(err, errRuntimeRunNotFound) {
+			return RuntimeRun{}, err
+		} else if err != nil {
+			return RuntimeRun{}, err
+		}
+		return RuntimeRun{}, errRuntimeRunCheckpointNotFound
+	}
+	return s.Get(ctx, runID)
+}
+
 func (s runtimeRunStore) upsertSessionLinks(ctx context.Context, run RuntimeRun) error {
 	sessionIDs := appendUniqueStrings([]string{run.PrimarySessionID}, run.SessionIDs...)
 	for _, sessionID := range sessionIDs {
@@ -327,7 +374,7 @@ func (s runtimeRunStore) hydrateRunChildren(ctx context.Context, run RuntimeRun)
 		return RuntimeRun{}, fmt.Errorf("failed to iterate runtime run sessions: %w", err)
 	}
 	checkpointRows, err := s.db.QueryContext(ctx, `
-SELECT id, turn_id, task_id, status, summary, artifact_refs_json, created_at
+SELECT id, turn_id, task_id, status, summary, artifact_refs_json, created_at, acknowledged_at, discarded_at
 FROM runtime_run_checkpoints
 WHERE run_id = ?
 ORDER BY created_at ASC`, run.ID)
@@ -339,14 +386,23 @@ ORDER BY created_at ASC`, run.ID)
 	for checkpointRows.Next() {
 		var checkpoint RuntimeRunCheckpoint
 		var turnID, taskID, summary, artifactRefs sql.NullString
-		if err := checkpointRows.Scan(&checkpoint.ID, &turnID, &taskID, &checkpoint.Status, &summary, &artifactRefs, &checkpoint.CreatedAt); err != nil {
+		var acknowledgedAt, discardedAt sql.NullInt64
+		if err := checkpointRows.Scan(&checkpoint.ID, &turnID, &taskID, &checkpoint.Status, &summary, &artifactRefs, &checkpoint.CreatedAt, &acknowledgedAt, &discardedAt); err != nil {
 			return RuntimeRun{}, err
 		}
 		checkpoint.TurnID = turnID.String
 		checkpoint.TaskID = taskID.String
 		checkpoint.Summary = summary.String
 		checkpoint.ArtifactRefs = decodeStringSlice(artifactRefs.String)
-		checkpoint.ResumeEligible = checkpoint.Status == runtimeRunCheckpointStatusResumable || checkpoint.Status == turnStatusInterrupted || checkpoint.Status == agentTaskStatusInterrupted
+		if acknowledgedAt.Valid {
+			checkpoint.AcknowledgedAt = acknowledgedAt.Int64
+		}
+		if discardedAt.Valid {
+			checkpoint.DiscardedAt = discardedAt.Int64
+		}
+		checkpoint.ResumeEligible = (checkpoint.Status == runtimeRunCheckpointStatusResumable || checkpoint.Status == turnStatusInterrupted || checkpoint.Status == agentTaskStatusInterrupted) &&
+			checkpoint.AcknowledgedAt == 0 &&
+			checkpoint.DiscardedAt == 0
 		run.Checkpoints = append(run.Checkpoints, checkpoint)
 	}
 	if err := checkpointRows.Err(); err != nil {

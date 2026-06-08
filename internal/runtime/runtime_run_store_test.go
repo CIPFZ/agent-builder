@@ -132,3 +132,66 @@ func TestRuntimeRunStoreDoesNotCompleteActiveRunFromEmptyProjection(t *testing.T
 		t.Fatalf("updated run = %#v active = %#v", updated, active)
 	}
 }
+
+func TestRuntimeRunStoreMarksCheckpointAcknowledgedAndDiscardedIdempotently(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Release(dataDir); err != nil {
+			t.Fatalf("release db: %v", err)
+		}
+	})
+	store := newRuntimeRunStore(conn)
+	run, err := store.UpsertFromProjection(context.Background(), RuntimeRunProjection{
+		ID:               runtimeRunProjectionID("session-1"),
+		WorkspaceID:      "workspace-1",
+		PrimarySessionID: "session-1",
+		SessionIDs:       []string{"session-1"},
+		Status:           runtimeRunStatusInterrupted,
+		Checkpoints: []RuntimeRunCheckpoint{{
+			ID:           "turn:turn-1:interrupted",
+			TurnID:       "turn-1",
+			Status:       turnStatusInterrupted,
+			Summary:      "runtime restarted",
+			ArtifactRefs: []string{"artifact://report"},
+			CreatedAt:    1200,
+		}},
+		CreatedAt: 1000,
+		UpdatedAt: 1300,
+	}, runtimeRunSourceBackfill)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ack, err := store.AcknowledgeCheckpoint(context.Background(), run.ID, "turn:turn-1:interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ack.Checkpoints) != 1 || ack.Checkpoints[0].AcknowledgedAt == 0 || ack.Checkpoints[0].ResumeEligible {
+		t.Fatalf("ack checkpoints = %#v", ack.Checkpoints)
+	}
+	secondAck, err := store.AcknowledgeCheckpoint(context.Background(), run.ID, "turn:turn-1:interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondAck.Checkpoints[0].AcknowledgedAt != ack.Checkpoints[0].AcknowledgedAt {
+		t.Fatalf("ack was not idempotent: first=%#v second=%#v", ack.Checkpoints[0], secondAck.Checkpoints[0])
+	}
+
+	discarded, err := store.DiscardCheckpoint(context.Background(), run.ID, "turn:turn-1:interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := discarded.Checkpoints[0]
+	if checkpoint.DiscardedAt == 0 || checkpoint.Status != turnStatusInterrupted || len(checkpoint.ArtifactRefs) != 1 {
+		t.Fatalf("discard checkpoint = %#v", checkpoint)
+	}
+	if checkpoint.AcknowledgedAt != ack.Checkpoints[0].AcknowledgedAt {
+		t.Fatalf("discard rewrote acknowledgement: %#v", checkpoint)
+	}
+}

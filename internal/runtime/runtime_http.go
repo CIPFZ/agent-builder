@@ -278,6 +278,14 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && runPathID(r.URL.Path) != "":
 		value, err := s.service.Run(r.Context(), runPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && runCheckpointAcknowledgePathIDs(r.URL.Path).runID != "":
+		ids := runCheckpointAcknowledgePathIDs(r.URL.Path)
+		value, err := s.service.AcknowledgeRunCheckpoint(r.Context(), ids.runID, ids.checkpointID)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && runCheckpointDiscardPathIDs(r.URL.Path).runID != "":
+		ids := runCheckpointDiscardPathIDs(r.URL.Path)
+		value, err := s.service.DiscardRunCheckpoint(r.Context(), ids.runID, ids.checkpointID)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/refs":
 		value, err := s.service.Refs(r.Context(), RuntimeRefListRequest{
 			SessionID:  r.URL.Query().Get("session_id"),
@@ -726,6 +734,14 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 	case method == http.MethodGet && runPathID(path) != "":
 		value, err := s.service.Run(r.Context(), runPathID(path))
 		return value, err, true
+	case method == http.MethodPost && runCheckpointAcknowledgePathIDs(path).runID != "":
+		ids := runCheckpointAcknowledgePathIDs(path)
+		value, err := s.service.AcknowledgeRunCheckpoint(r.Context(), ids.runID, ids.checkpointID)
+		return value, err, true
+	case method == http.MethodPost && runCheckpointDiscardPathIDs(path).runID != "":
+		ids := runCheckpointDiscardPathIDs(path)
+		value, err := s.service.DiscardRunCheckpoint(r.Context(), ids.runID, ids.checkpointID)
+		return value, err, true
 	case method == http.MethodGet && turnPathID(path) != "":
 		value, err := s.service.Turn(r.Context(), turnPathID(path))
 		return value, err, true
@@ -1056,6 +1072,31 @@ func runPathID(path string) string {
 		return ""
 	}
 	return id
+}
+
+type runCheckpointPathIDs struct {
+	runID        string
+	checkpointID string
+}
+
+func runCheckpointAcknowledgePathIDs(path string) runCheckpointPathIDs {
+	return runCheckpointActionPathIDs(path, "acknowledge")
+}
+
+func runCheckpointDiscardPathIDs(path string) runCheckpointPathIDs {
+	return runCheckpointActionPathIDs(path, "discard")
+}
+
+func runCheckpointActionPathIDs(path, action string) runCheckpointPathIDs {
+	prefix := "/v1/runs/"
+	if !strings.HasPrefix(path, prefix) {
+		return runCheckpointPathIDs{}
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) != 4 || parts[1] != "checkpoints" || parts[3] != action || parts[0] == "" || parts[2] == "" {
+		return runCheckpointPathIDs{}
+	}
+	return runCheckpointPathIDs{runID: parts[0], checkpointID: parts[2]}
 }
 
 func turnCancelPathID(path string) string {

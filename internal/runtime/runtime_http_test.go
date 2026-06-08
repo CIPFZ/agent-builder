@@ -377,8 +377,13 @@ func TestRuntimeHTTPServerRoutesRunsToRuntimeService(t *testing.T) {
 				SessionIDs:       []string{"session-1"},
 				Status:           "completed",
 				Source:           runtimeRunSourceBackfill,
-				CreatedAt:        1000,
-				UpdatedAt:        1200,
+				Checkpoints: []RuntimeRunCheckpoint{{
+					ID:             "checkpoint-1",
+					Status:         turnStatusInterrupted,
+					AcknowledgedAt: 1300,
+				}},
+				CreatedAt: 1000,
+				UpdatedAt: 1200,
 			},
 			Projection: RuntimeRunProjection{
 				ID:               "run-1",
@@ -429,6 +434,32 @@ func TestRuntimeHTTPServerRoutesRunsToRuntimeService(t *testing.T) {
 	if run.Run.ID != "run-1" || run.Projection.ID != "run-1" || !run.Projection.Source.SessionActivityParity {
 		t.Fatalf("run response = %#v", run)
 	}
+
+	req, err = http.NewRequest(http.MethodPost, "/v1/runs/run-1/checkpoints/checkpoint-1/acknowledge", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("ack status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.ackRunID != "run-1" || service.ackCheckpointID != "checkpoint-1" {
+		t.Fatalf("ack args = %q %q", service.ackRunID, service.ackCheckpointID)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, "/v1/runs/run-1/checkpoints/checkpoint-1/discard", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("discard status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.discardRunID != "run-1" || service.discardCheckpointID != "checkpoint-1" {
+		t.Fatalf("discard args = %q %q", service.discardRunID, service.discardCheckpointID)
+	}
 }
 
 func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
@@ -461,8 +492,12 @@ func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
 			PrimarySessionID: "session-1",
 			Status:           "completed",
 			Source:           runtimeRunSourceBackfill,
-			CreatedAt:        1000,
-			UpdatedAt:        1200,
+			Checkpoints: []RuntimeRunCheckpoint{{
+				ID:     "checkpoint-1",
+				Status: turnStatusInterrupted,
+			}},
+			CreatedAt: 1000,
+			UpdatedAt: 1200,
 		}},
 	}
 	server := newRuntimeHTTPServer(service)
@@ -528,6 +563,24 @@ func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
 	resp = httptestResponse(server, req)
 	if resp.status != http.StatusOK || service.runID != "run-1" {
 		t.Fatalf("run status = %d body = %s id=%q", resp.status, resp.body.String(), service.runID)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=POST&path=/v1/runs/run-1/checkpoints/checkpoint-1/acknowledge", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.ackRunID != "run-1" || service.ackCheckpointID != "checkpoint-1" {
+		t.Fatalf("ack status = %d body = %s args=%q/%q", resp.status, resp.body.String(), service.ackRunID, service.ackCheckpointID)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=POST&path=/v1/runs/run-1/checkpoints/checkpoint-1/discard", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.discardRunID != "run-1" || service.discardCheckpointID != "checkpoint-1" {
+		t.Fatalf("discard status = %d body = %s args=%q/%q", resp.status, resp.body.String(), service.discardRunID, service.discardCheckpointID)
 	}
 
 	body := `%7B%22mode%22%3A%22auto_read%22%7D`
