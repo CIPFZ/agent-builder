@@ -74,6 +74,9 @@ type RuntimeSessionResponse = runtime.RuntimeSessionResponse
 type RuntimeSessionUpdateRequest = runtime.RuntimeSessionUpdateRequest
 type RuntimeMessagesResponse = runtime.RuntimeMessagesResponse
 type RuntimeSessionActivityResponse = runtime.RuntimeSessionActivityResponse
+type RuntimeActivityWindow = runtime.RuntimeActivityWindow
+type RuntimeSessionActivityWindowResponse = runtime.RuntimeSessionActivityWindowResponse
+type RuntimeTurnActivityResponse = runtime.RuntimeTurnActivityResponse
 type RuntimePermissionRequest = runtime.RuntimePermissionRequest
 type RuntimePermissionsResponse = runtime.RuntimePermissionsResponse
 type RuntimePermissionDecision = runtime.RuntimePermissionDecision
@@ -446,6 +449,18 @@ func (r *RuntimeBridge) SessionMessages(ctx context.Context, sessionID string) (
 func (r *RuntimeBridge) SessionActivity(ctx context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {
 
 	return r.service.SessionActivity(ctx, sessionID)
+
+}
+
+func (r *RuntimeBridge) SessionActivityWindow(ctx context.Context, sessionID string, limit int) (RuntimeSessionActivityWindowResponse, error) {
+
+	return r.service.SessionActivityWindow(ctx, sessionID, limit)
+
+}
+
+func (r *RuntimeBridge) TurnActivity(ctx context.Context, turnID string) (RuntimeTurnActivityResponse, error) {
+
+	return r.service.TurnActivity(ctx, turnID)
 
 }
 

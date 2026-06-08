@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -240,6 +241,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && sessionActivityPathID(r.URL.Path) != "":
 		value, err := s.service.SessionActivity(r.Context(), sessionActivityPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionActivityWindowPathID(r.URL.Path) != "":
+		value, err := s.service.SessionActivityWindow(r.Context(), sessionActivityWindowPathID(r.URL.Path), runtimeQueryLimit(r))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionTodosPathID(r.URL.Path) != "":
 		value, err := s.service.SessionTodos(r.Context(), sessionTodosPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -289,6 +293,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnToolCallsPathID(r.URL.Path) != "":
 		value, err := s.service.TurnToolCalls(r.Context(), turnToolCallsPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && turnActivityPathID(r.URL.Path) != "":
+		value, err := s.service.TurnActivity(r.Context(), turnActivityPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnCompactPathID(r.URL.Path) != "":
 		value, err := s.service.TurnCompactBoundaries(r.Context(), turnCompactPathID(r.URL.Path))
@@ -633,6 +640,13 @@ func (s *runtimeHTTPServer) handleDevModule(w http.ResponseWriter, r *http.Reque
 func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bool) {
 	method := firstNonEmpty(strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("method"))), http.MethodGet)
 	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	pathQuery := url.Values{}
+	if idx := strings.Index(path, "?"); idx >= 0 {
+		if parsed, err := url.ParseQuery(path[idx+1:]); err == nil {
+			pathQuery = parsed
+		}
+		path = path[:idx]
+	}
 	body := strings.TrimSpace(r.URL.Query().Get("body"))
 
 	switch {
@@ -662,6 +676,9 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 	case method == http.MethodGet && sessionActivityPathID(path) != "":
 		value, err := s.service.SessionActivity(r.Context(), sessionActivityPathID(path))
 		return value, err, true
+	case method == http.MethodGet && sessionActivityWindowPathID(path) != "":
+		value, err := s.service.SessionActivityWindow(r.Context(), sessionActivityWindowPathID(path), runtimeDevModuleLimit(r, pathQuery))
+		return value, err, true
 	case method == http.MethodPost && sessionTurnsPathID(path) != "":
 		var req RuntimeChatRequest
 		if err := json.Unmarshal([]byte(body), &req); err != nil {
@@ -685,6 +702,9 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 		return value, err, true
 	case method == http.MethodGet && turnPathID(path) != "":
 		value, err := s.service.Turn(r.Context(), turnPathID(path))
+		return value, err, true
+	case method == http.MethodGet && turnActivityPathID(path) != "":
+		value, err := s.service.TurnActivity(r.Context(), turnActivityPathID(path))
 		return value, err, true
 	case method == http.MethodGet && turnToolCallsPathID(path) != "":
 		value, err := s.service.TurnToolCalls(r.Context(), turnToolCallsPathID(path))
@@ -980,6 +1000,10 @@ func sessionActivityPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/activity")
 }
 
+func sessionActivityWindowPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/activity-window")
+}
+
 func sessionTodosPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/todos")
 }
@@ -1005,7 +1029,7 @@ func turnInterruptedDonePathID(path string) string {
 }
 
 func turnPathID(path string) string {
-	if strings.HasSuffix(path, "/tool-calls") || strings.HasSuffix(path, "/todos") || strings.HasSuffix(path, "/compact") || strings.HasSuffix(path, "/interrupted/done") {
+	if strings.HasSuffix(path, "/activity") || strings.HasSuffix(path, "/tool-calls") || strings.HasSuffix(path, "/todos") || strings.HasSuffix(path, "/compact") || strings.HasSuffix(path, "/interrupted/done") {
 		return ""
 	}
 	id := strings.TrimPrefix(path, "/v1/turns/")
@@ -1019,8 +1043,29 @@ func turnToolCallsPathID(path string) string {
 	return trimPathID(path, "/v1/turns/", "/tool-calls")
 }
 
+func turnActivityPathID(path string) string {
+	return trimPathID(path, "/v1/turns/", "/activity")
+}
+
 func turnCompactPathID(path string) string {
 	return trimPathID(path, "/v1/turns/", "/compact")
+}
+
+func runtimeQueryLimit(r *http.Request) int {
+	limit, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("limit")))
+	if limit < 0 {
+		return 0
+	}
+	return limit
+}
+
+func runtimeDevModuleLimit(r *http.Request, pathQuery url.Values) int {
+	limitText := firstNonEmpty(pathQuery.Get("limit"), r.URL.Query().Get("limit"))
+	limit, _ := strconv.Atoi(strings.TrimSpace(limitText))
+	if limit < 0 {
+		return 0
+	}
+	return limit
 }
 
 func sessionCompactPathID(path string) string {

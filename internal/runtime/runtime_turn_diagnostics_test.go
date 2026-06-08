@@ -681,6 +681,62 @@ func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 	if _, err := os.Stat(expectedPath); !os.IsNotExist(err) {
 		t.Fatalf("test expected artifact should not exist; stat err = %v", err)
 	}
+
+	turnActivity, err := service.TurnActivity(context.Background(), "turn-diagnostics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNarrowActivityMatchesFullTurn(t, activity, RuntimeSessionActivityWindowResponse{
+		SessionID:   turnActivity.SessionID,
+		Messages:    turnActivity.Messages,
+		Turns:       turnActivity.Turns,
+		ToolCalls:   turnActivity.ToolCalls,
+		Permissions: turnActivity.Permissions,
+		Events:      turnActivity.Events,
+		Policy:      turnActivity.Policy,
+	}, "turn-diagnostics")
+
+	window, err := service.SessionActivityWindow(context.Background(), sess.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNarrowActivityMatchesFullTurn(t, activity, window, "turn-diagnostics")
+}
+
+func assertNarrowActivityMatchesFullTurn(t *testing.T, full RuntimeSessionActivityResponse, narrow RuntimeSessionActivityWindowResponse, turnID string) {
+	t.Helper()
+	fullTurn := findRuntimeTurn(full.Turns, turnID)
+	narrowTurn := findRuntimeTurn(narrow.Turns, turnID)
+	if fullTurn.ID == "" || narrowTurn.ID == "" {
+		t.Fatalf("turn %q full=%#v narrow=%#v", turnID, full.Turns, narrow.Turns)
+	}
+	if narrowTurn.Diagnostics.Warning != fullTurn.Diagnostics.Warning ||
+		!slices.Equal(narrowTurn.Diagnostics.MissingArtifacts, fullTurn.Diagnostics.MissingArtifacts) ||
+		narrowTurn.Diagnostics.PermissionCounts != fullTurn.Diagnostics.PermissionCounts ||
+		narrowTurn.Diagnostics.LastRuntimeEventSequence != fullTurn.Diagnostics.LastRuntimeEventSequence {
+		t.Fatalf("diagnostics mismatch full=%#v narrow=%#v", fullTurn.Diagnostics, narrowTurn.Diagnostics)
+	}
+	if len(narrow.Messages) != 1 || narrow.Messages[0].ID != fullTurn.UserMessageID {
+		t.Fatalf("narrow messages = %#v, want user message %q", narrow.Messages, fullTurn.UserMessageID)
+	}
+	if len(narrow.Permissions) != 1 || narrow.Permissions[0].Status != permissionStatusDenied || narrow.Permissions[0].TurnID != turnID {
+		t.Fatalf("terminal permission evidence mismatch: %#v", narrow.Permissions)
+	}
+	if len(narrow.Events) != 1 || narrow.Events[0].TurnID != turnID || narrow.Events[0].Sequence != fullTurn.Diagnostics.LastRuntimeEventSequence {
+		t.Fatalf("events mismatch: %#v", narrow.Events)
+	}
+	if len(narrow.ToolCalls) != 0 {
+		t.Fatalf("tool calls mismatch: %#v", narrow.ToolCalls)
+	}
+}
+
+func findRuntimeTurn(turns []RuntimeTurn, turnID string) RuntimeTurn {
+	for _, turn := range turns {
+		if turn.ID == turnID {
+			return turn
+		}
+	}
+	return RuntimeTurn{}
 }
 
 func TestRuntimeSessionActivityRestoresInterruptedSummaryWithoutStaleRunningTool(t *testing.T) {

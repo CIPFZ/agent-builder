@@ -69,6 +69,8 @@ type RuntimeService interface {
 	DeleteSession(context.Context, string) (RuntimeSessionsResponse, error)
 	SessionMessages(context.Context, string) (RuntimeMessagesResponse, error)
 	SessionActivity(context.Context, string) (RuntimeSessionActivityResponse, error)
+	SessionActivityWindow(context.Context, string, int) (RuntimeSessionActivityWindowResponse, error)
+	TurnActivity(context.Context, string) (RuntimeTurnActivityResponse, error)
 	Messages(context.Context) (RuntimeMessagesResponse, error)
 	Permissions(context.Context) (RuntimePermissionsResponse, error)
 	GetPolicy(context.Context) (RuntimePolicyResponse, error)

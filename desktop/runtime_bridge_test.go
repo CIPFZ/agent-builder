@@ -193,6 +193,43 @@ func TestRuntimeBridgePhase62PackagedHandoffRecoveryContract(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		activityWindow: RuntimeSessionActivityWindowResponse{
+			SessionID: "session-window",
+			Turns:     []RuntimeTurn{{ID: "turn-window", SessionID: "session-window", Status: "running"}},
+			Window:    RuntimeActivityWindow{Limit: 2, ToEnd: true},
+		},
+		turnActivity: RuntimeTurnActivityResponse{
+			SessionID: "session-window",
+			TurnID:    "turn-window",
+			Turns:     []RuntimeTurn{{ID: "turn-window", SessionID: "session-window", Status: "running"}},
+		},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	window, err := bridge.SessionActivityWindow(context.Background(), "session-window", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.sessionActivityWindowID != "session-window" || service.sessionActivityWindowLimit != 2 {
+		t.Fatalf("window args = %q %d", service.sessionActivityWindowID, service.sessionActivityWindowLimit)
+	}
+	if window.Window.Limit != 2 || len(window.Turns) != 1 {
+		t.Fatalf("window = %#v", window)
+	}
+
+	turnActivity, err := bridge.TurnActivity(context.Background(), "turn-window")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.turnActivityID != "turn-window" || turnActivity.TurnID != "turn-window" {
+		t.Fatalf("turn activity = %#v service id %q", turnActivity, service.turnActivityID)
+	}
+}
+
 func TestRuntimeBridgeForwardsMCPRequestDecision(t *testing.T) {
 	t.Parallel()
 
@@ -221,9 +258,14 @@ type recordingRuntimeService struct {
 	eventsAfter                 int64
 	status                      RuntimeStatus
 	activity                    RuntimeSessionActivityResponse
+	activityWindow              RuntimeSessionActivityWindowResponse
+	turnActivity                RuntimeTurnActivityResponse
 	eventsResponse              RuntimeEventsResponse
 	newChatTitle                string
 	sessionActivityID           string
+	sessionActivityWindowID     string
+	sessionActivityWindowLimit  int
+	turnActivityID              string
 	markInterruptedDoneID       string
 	markInterruptedDoneResponse RuntimeTurnResponse
 }
@@ -453,6 +495,23 @@ func (s *recordingRuntimeService) SessionMessages(context.Context, string) (Runt
 func (s *recordingRuntimeService) SessionActivity(_ context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {
 	s.sessionActivityID = sessionID
 	return s.activity, nil
+}
+
+func (s *recordingRuntimeService) SessionActivityWindow(_ context.Context, sessionID string, limit int) (RuntimeSessionActivityWindowResponse, error) {
+	s.sessionActivityWindowID = sessionID
+	s.sessionActivityWindowLimit = limit
+	if s.activityWindow.SessionID == "" {
+		s.activityWindow.SessionID = sessionID
+	}
+	return s.activityWindow, nil
+}
+
+func (s *recordingRuntimeService) TurnActivity(_ context.Context, turnID string) (RuntimeTurnActivityResponse, error) {
+	s.turnActivityID = turnID
+	if s.turnActivity.TurnID == "" {
+		s.turnActivity.TurnID = turnID
+	}
+	return s.turnActivity, nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {

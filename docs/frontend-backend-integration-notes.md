@@ -372,3 +372,39 @@ Frontend/backend rules remain unchanged:
 - Phase 6.6 does not add automatic resume, stale tool recovery, stale
   permission or MCP request actionability, narrow hydration APIs, Run store,
   database migration, or frontend Run UI.
+
+## 2026-06-08: Phase 6.7 Narrow Activity Hydration
+
+Phase 6.7 adds additive narrow activity reads while keeping full
+`SessionActivity` as the fallback and parity oracle.
+
+New runtime reads:
+
+- `GET /v1/turns/{turn_id}/activity`
+- `GET /v1/sessions/{session_id}/activity-window?limit=N`
+- Wails bridge methods `TurnActivity(turnID)` and
+  `SessionActivityWindow(sessionID, limit)`
+
+Frontend/backend rules:
+
+- Runtime events remain refresh triggers only. The adapter may use the event
+  envelope to choose `TurnActivity` or `SessionActivityWindow`, but the
+  returned runtime DTO is the only source for timeline, diagnostics,
+  permissions, artifact evidence, and interrupted recovery.
+- Failed or unavailable narrow reads fall back to full `SessionActivity`.
+- The frontend may merge narrow runtime DTO items into the previously hydrated
+  runtime view model, but it must not infer new artifact, checkpoint,
+  permission, MCP request, or interrupted state from event payloads, assistant
+  prose, or local component state.
+- Vite/browser development, including the dev-module fallback path for browsers
+  without `fetch` or `XMLHttpRequest`, must expose the same narrow DTO contract
+  as Wails.
+
+Boundary:
+
+- No automatic resume.
+- No stale running/waiting tool recovery.
+- No restored actionable permission gate.
+- No restored actionable MCP auth or elicitation request.
+- No Run store, Run database migration, persisted interrupted acknowledgement
+  field, or frontend Run UI.

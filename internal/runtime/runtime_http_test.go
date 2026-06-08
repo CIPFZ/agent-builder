@@ -267,6 +267,64 @@ func TestRuntimeHTTPServerRoutesSessionActivityToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		activityWindow: RuntimeSessionActivityWindowResponse{
+			SessionID: "session-1",
+			Turns:     []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "running"}},
+			Window:    RuntimeActivityWindow{Limit: 2, ToEnd: true},
+		},
+		turnActivity: RuntimeTurnActivityResponse{
+			SessionID: "session-1",
+			TurnID:    "turn-1",
+			Turns:     []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "running"}},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/sessions/session-1/activity-window?limit=2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("window status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.activityWindowSession != "session-1" || service.activityWindowLimit != 2 {
+		t.Fatalf("window args = %q %d", service.activityWindowSession, service.activityWindowLimit)
+	}
+	var window RuntimeSessionActivityWindowResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &window); err != nil {
+		t.Fatal(err)
+	}
+	if window.Window.Limit != 2 || len(window.Turns) != 1 {
+		t.Fatalf("window = %#v", window)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/turns/turn-1/activity", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("turn activity status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.turnActivityID != "turn-1" {
+		t.Fatalf("turn activity id = %q", service.turnActivityID)
+	}
+	var turnActivity RuntimeTurnActivityResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &turnActivity); err != nil {
+		t.Fatal(err)
+	}
+	if turnActivity.TurnID != "turn-1" || len(turnActivity.Turns) != 1 {
+		t.Fatalf("turn activity = %#v", turnActivity)
+	}
+}
+
 func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
 	t.Parallel()
 
@@ -301,6 +359,24 @@ func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
 	resp = httptestResponse(server, req)
 	if resp.status != http.StatusOK || !strings.Contains(resp.body.String(), "tool-1") {
 		t.Fatalf("tool calls status = %d body = %s", resp.status, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/sessions/session-1/activity-window&limit=3", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.activityWindowSession != "session-1" || service.activityWindowLimit != 3 {
+		t.Fatalf("activity window status = %d body = %s args=%q/%d", resp.status, resp.body.String(), service.activityWindowSession, service.activityWindowLimit)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/turns/turn-1/activity", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.turnActivityID != "turn-1" {
+		t.Fatalf("turn activity status = %d body = %s id=%q", resp.status, resp.body.String(), service.turnActivityID)
 	}
 
 	body := `%7B%22mode%22%3A%22auto_read%22%7D`

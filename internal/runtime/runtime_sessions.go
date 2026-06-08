@@ -169,29 +169,125 @@ func (r *runtimeService) SessionActivity(ctx context.Context, sessionID string) 
 	if sessionID == "" {
 		return RuntimeSessionActivityResponse{}, errors.New("session id is required")
 	}
-	r.mu.Lock()
-	wsID := r.workspace.ID
-	policy := r.policy
-	r.mu.Unlock()
-
-	messages, err := r.sessionMessages(ctx, wsID, sessionID)
+	activity, err := r.hydrateSessionActivity(ctx, sessionID, 0)
 	if err != nil {
 		return RuntimeSessionActivityResponse{}, err
 	}
-	if policy.Mode == "" {
-		if policyResp, err := r.GetPolicy(ctx); err == nil {
-			policy = policyResp.Policy
-		} else {
-			policy = defaultRuntimePolicy()
-		}
-	}
+	return RuntimeSessionActivityResponse{
+		SessionID:   activity.SessionID,
+		Messages:    activity.Messages,
+		Turns:       activity.Turns,
+		ToolCalls:   activity.ToolCalls,
+		Permissions: activity.Permissions,
+		Policy:      activity.Policy,
+	}, nil
+}
 
+func (r *runtimeService) SessionActivityWindow(ctx context.Context, sessionID string, limit int) (RuntimeSessionActivityWindowResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeSessionActivityWindowResponse{}, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return RuntimeSessionActivityWindowResponse{}, errors.New("session id is required")
+	}
+	return r.hydrateSessionActivity(ctx, sessionID, limit)
+}
+
+func (r *runtimeService) TurnActivity(ctx context.Context, turnID string) (RuntimeTurnActivityResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeTurnActivityResponse{}, err
+	}
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return RuntimeTurnActivityResponse{}, errors.New("turn id is required")
+	}
+	turn, err := r.runtimeTurnForActivity(ctx, turnID)
+	if err != nil {
+		return RuntimeTurnActivityResponse{}, err
+	}
+	policy, err := r.activityPolicy(ctx)
+	if err != nil {
+		return RuntimeTurnActivityResponse{}, err
+	}
+	activity, err := r.hydrateActivityForTurns(ctx, turn.SessionID, []RuntimeTurn{turn}, policy, false)
+	if err != nil {
+		return RuntimeTurnActivityResponse{}, err
+	}
+	return RuntimeTurnActivityResponse{
+		SessionID:   activity.SessionID,
+		TurnID:      turn.ID,
+		Messages:    activity.Messages,
+		Turns:       activity.Turns,
+		ToolCalls:   activity.ToolCalls,
+		Permissions: activity.Permissions,
+		Events:      activity.Events,
+		Policy:      activity.Policy,
+	}, nil
+}
+
+func (r *runtimeService) hydrateSessionActivity(ctx context.Context, sessionID string, limit int) (RuntimeSessionActivityWindowResponse, error) {
+	policy, err := r.activityPolicy(ctx)
+	if err != nil {
+		return RuntimeSessionActivityWindowResponse{}, err
+	}
 	var turns []RuntimeTurn
 	if r.turns.db != nil {
 		turns, err = r.turns.ListBySession(ctx, sessionID)
 		if err != nil {
-			return RuntimeSessionActivityResponse{}, err
+			return RuntimeSessionActivityWindowResponse{}, err
 		}
+	}
+	window := RuntimeActivityWindow{Limit: limit, FromStart: true, ToEnd: true}
+	if limit > 0 && len(turns) > limit {
+		turns = append([]RuntimeTurn(nil), turns[len(turns)-limit:]...)
+		window.FromStart = false
+	} else {
+		turns = append([]RuntimeTurn(nil), turns...)
+	}
+	activity, err := r.hydrateActivityForTurns(ctx, sessionID, turns, policy, limit <= 0)
+	if err != nil {
+		return RuntimeSessionActivityWindowResponse{}, err
+	}
+	activity.Window = window
+	return activity, nil
+}
+
+func (r *runtimeService) activityPolicy(ctx context.Context) (RuntimePolicy, error) {
+	r.mu.Lock()
+	policy := r.policy
+	r.mu.Unlock()
+	if policy.Mode != "" {
+		return policy, nil
+	}
+	policyResp, err := r.GetPolicy(ctx)
+	if err == nil {
+		return policyResp.Policy, nil
+	}
+	return defaultRuntimePolicy(), nil
+}
+
+func (r *runtimeService) runtimeTurnForActivity(ctx context.Context, turnID string) (RuntimeTurn, error) {
+	r.mu.Lock()
+	state, active := r.requests[turnID]
+	r.mu.Unlock()
+	if active && !state.Finished {
+		return runtimeTurnFromRequestState(turnID, state), nil
+	}
+	turn, err := r.turns.Get(ctx, turnID)
+	if err != nil {
+		return RuntimeTurn{}, fmt.Errorf("turn %s was not found: %w", turnID, err)
+	}
+	return turn, nil
+}
+
+func (r *runtimeService) hydrateActivityForTurns(ctx context.Context, sessionID string, turns []RuntimeTurn, policy RuntimePolicy, includeAllMessages bool) (RuntimeSessionActivityWindowResponse, error) {
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	r.mu.Unlock()
+	messages, err := r.sessionMessages(ctx, wsID, sessionID)
+	if err != nil {
+		return RuntimeSessionActivityWindowResponse{}, err
 	}
 
 	toolCalls := make([]RuntimeToolCall, 0)
@@ -221,16 +317,37 @@ func (r *runtimeService) SessionActivity(ctx context.Context, sessionID string) 
 	var permissions []RuntimePermissionRequest
 	if r.permissionStore.db != nil {
 		if _, err := r.reconcilePendingPermissions(ctx); err != nil {
-			return RuntimeSessionActivityResponse{}, err
+			return RuntimeSessionActivityWindowResponse{}, err
 		}
-		permissions, err = r.permissionStore.ListBySession(ctx, sessionID)
+		sessionPermissions, err := r.permissionStore.ListBySession(ctx, sessionID)
 		if err != nil {
-			return RuntimeSessionActivityResponse{}, err
+			return RuntimeSessionActivityWindowResponse{}, err
+		}
+		turnIDs := runtimeActivityTurnIDSet(turns)
+		for _, perm := range sessionPermissions {
+			if perm.TurnID == "" {
+				if includeAllMessages {
+					permissions = append(permissions, perm)
+				}
+				continue
+			}
+			if _, ok := turnIDs[perm.TurnID]; ok {
+				permissions = append(permissions, perm)
+			}
 		}
 	} else {
+		turnIDs := runtimeActivityTurnIDSet(turns)
 		r.mu.Lock()
 		for _, pending := range r.permissions {
 			if pending.Permission.SessionID == sessionID {
+				if pending.Permission.TurnID == "" && !includeAllMessages {
+					continue
+				}
+				if pending.Permission.TurnID != "" {
+					if _, ok := turnIDs[pending.Permission.TurnID]; !ok {
+						continue
+					}
+				}
 				permissions = append(permissions, pending.Permission)
 			}
 		}
@@ -241,42 +358,94 @@ func (r *runtimeService) SessionActivity(ctx context.Context, sessionID string) 
 	for _, perm := range permissions {
 		permissionsByTurn[perm.TurnID] = append(permissionsByTurn[perm.TurnID], perm)
 	}
-	eventsByTurn := r.sessionActivityEventsByTurn(ctx, sessionID)
+	eventsByTurn, events := r.activityEventsByTurn(ctx, sessionID, runtimeActivityTurnIDSet(turns))
 	for i := range turns {
 		turns[i].Diagnostics = buildRuntimeTurnDiagnostics(turns[i], messages.Messages, toolCallsByTurn[turns[i].ID], permissionsByTurn[turns[i].ID], eventsByTurn[turns[i].ID])
 		turns[i].Interrupted = buildRuntimeInterruptedSummary(turns[i], turns[i].Diagnostics, toolCallsByTurn[turns[i].ID])
 	}
 
-	return RuntimeSessionActivityResponse{
+	activityMessages := messages.Messages
+	if !includeAllMessages {
+		activityMessages = runtimeActivityMessagesForTurns(messages.Messages, turns)
+	}
+	return RuntimeSessionActivityWindowResponse{
 		SessionID:   sessionID,
-		Messages:    messages.Messages,
+		Messages:    activityMessages,
 		Turns:       turns,
 		ToolCalls:   toolCalls,
 		Permissions: permissions,
+		Events:      events,
 		Policy:      policy,
 	}, nil
 }
 
-func (r *runtimeService) sessionActivityEventsByTurn(ctx context.Context, sessionID string) map[string][]RuntimeEvent {
+func runtimeActivityTurnIDSet(turns []RuntimeTurn) map[string]struct{} {
+	out := make(map[string]struct{}, len(turns))
+	for _, turn := range turns {
+		if turn.ID != "" {
+			out[turn.ID] = struct{}{}
+		}
+	}
+	return out
+}
+
+func runtimeActivityMessagesForTurns(messages []RuntimeMessage, turns []RuntimeTurn) []RuntimeMessage {
+	if len(turns) == 0 {
+		return nil
+	}
+	messageIDs := map[string]struct{}{}
+	for _, turn := range turns {
+		if turn.UserMessageID != "" {
+			messageIDs[turn.UserMessageID] = struct{}{}
+		}
+		if turn.LatestAssistantMessageID != "" {
+			messageIDs[turn.LatestAssistantMessageID] = struct{}{}
+		}
+		if turn.LatestMessageID != "" {
+			messageIDs[turn.LatestMessageID] = struct{}{}
+		}
+	}
+	out := make([]RuntimeMessage, 0, len(messageIDs))
+	for _, msg := range messages {
+		if _, ok := messageIDs[msg.ID]; ok {
+			out = append(out, msg)
+		}
+	}
+	return out
+}
+
+func (r *runtimeService) activityEventsByTurn(ctx context.Context, sessionID string, turnIDs map[string]struct{}) (map[string][]RuntimeEvent, []RuntimeEvent) {
 	out := map[string][]RuntimeEvent{}
+	events := []RuntimeEvent{}
 	if r.eventStore.db != nil {
 		if resp, err := r.eventStore.ListSession(ctx, sessionID, 0); err == nil {
 			for _, event := range resp.Events {
+				if _, ok := turnIDs[event.TurnID]; !ok {
+					continue
+				}
+				events = append(events, event)
 				if event.TurnID != "" {
 					out[event.TurnID] = append(out[event.TurnID], event)
 				}
 			}
-			return out
+			return out, events
 		}
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, event := range r.events {
-		if event.SessionID == sessionID && event.TurnID != "" {
+		if event.SessionID != sessionID {
+			continue
+		}
+		if _, ok := turnIDs[event.TurnID]; !ok {
+			continue
+		}
+		events = append(events, event)
+		if event.TurnID != "" {
 			out[event.TurnID] = append(out[event.TurnID], event)
 		}
 	}
-	return out
+	return out, events
 }
 
 func (r *runtimeService) Messages(ctx context.Context) (RuntimeMessagesResponse, error) {

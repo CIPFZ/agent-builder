@@ -3509,74 +3509,79 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 }
 
 type recordingRuntimeService struct {
-	chatCalls            int
-	statusCalls          int
-	recoveryStatusCalls  int
-	skillsCalls          int
-	mcpServerCalls       int
-	status               RuntimeStatus
-	recoveryStatus       RuntimeRecoveryStatus
-	skills               RuntimeSkillsResponse
-	plugins              RuntimePluginsResponse
-	mcpServers           RuntimeMCPServersResponse
-	mcpRequests          RuntimeMCPRequestsResponse
-	mcpRequest           RuntimeMCPRequestResponse
-	mcpRequestDecision   RuntimeMCPRequestDecision
-	capabilities         RuntimeCapabilitiesResponse
-	contextSources       RuntimeContextSourcesResponse
-	refreshedCapability  string
-	toolSearchQuery      string
-	savedMCPServer       RuntimeMCPServerConfigRequest
-	toggledMCPServer     RuntimeMCPServerToggleRequest
-	toggledMCPTool       RuntimeMCPToolToggleRequest
-	selectedSession      string
-	renamedSession       RuntimeSessionUpdateRequest
-	deletedSession       string
-	messageSession       string
-	activitySession      string
-	activity             RuntimeSessionActivityResponse
-	createdSkill         RuntimeSkillCreateRequest
-	addedSkillPath       string
-	cancelledTurn        string
-	turn                 RuntimeTurnResponse
-	turns                RuntimeTurnsResponse
-	turnsStatus          string
-	toolCall             RuntimeToolCallResponse
-	toolCalls            RuntimeToolCallsResponse
-	hooks                RuntimeHooksResponse
-	hookExecution        RuntimeHookExecutionResponse
-	hookExecutions       RuntimeHookExecutionsResponse
-	hookExecutionsReq    RuntimeHookExecutionsRequest
-	sandboxDecision      RuntimeSandboxDecisionResponse
-	sandboxDecisions     RuntimeSandboxDecisionsResponse
-	ref                  RuntimeRefResponse
-	refs                 RuntimeRefsResponse
-	refContent           RuntimeRefContentResponse
-	compactBoundaries    RuntimeCompactBoundariesResponse
-	worktrees            RuntimeWorktreesResponse
-	worktree             RuntimeWorktreeResponse
-	worktreeCreate       RuntimeWorktreeCreateRequest
-	worktreeAction       RuntimeWorktreeActionRequest
-	worktreeActionID     string
-	effectiveScope       RuntimeEffectiveScopeResponse
-	replayExport         RuntimeReplayExportResponse
-	replayExportRequest  RuntimeReplayExportRequest
-	agentTask            RuntimeAgentTaskResponse
-	agentTasks           RuntimeAgentTasksResponse
-	agentRoles           RuntimeAgentRolesResponse
-	agentRole            RuntimeAgentRoleResponse
-	agentTaskMessages    RuntimeAgentTaskMessagesResponse
-	agentTaskMessage     RuntimeAgentTaskMessageResponse
-	agentTaskResult      RuntimeAgentTaskResultResponse
-	cancelledTask        string
-	todos                RuntimeTodosResponse
-	todoSession          string
-	todoTurn             string
-	policy               RuntimePolicyResponse
-	policyCalls          int
-	updatedPolicyMode    string
-	updatedPolicyRules   []RuntimePolicyRule
-	updatedPolicyProfile string
+	chatCalls             int
+	statusCalls           int
+	recoveryStatusCalls   int
+	skillsCalls           int
+	mcpServerCalls        int
+	status                RuntimeStatus
+	recoveryStatus        RuntimeRecoveryStatus
+	skills                RuntimeSkillsResponse
+	plugins               RuntimePluginsResponse
+	mcpServers            RuntimeMCPServersResponse
+	mcpRequests           RuntimeMCPRequestsResponse
+	mcpRequest            RuntimeMCPRequestResponse
+	mcpRequestDecision    RuntimeMCPRequestDecision
+	capabilities          RuntimeCapabilitiesResponse
+	contextSources        RuntimeContextSourcesResponse
+	refreshedCapability   string
+	toolSearchQuery       string
+	savedMCPServer        RuntimeMCPServerConfigRequest
+	toggledMCPServer      RuntimeMCPServerToggleRequest
+	toggledMCPTool        RuntimeMCPToolToggleRequest
+	selectedSession       string
+	renamedSession        RuntimeSessionUpdateRequest
+	deletedSession        string
+	messageSession        string
+	activitySession       string
+	activityWindowSession string
+	activityWindowLimit   int
+	activity              RuntimeSessionActivityResponse
+	activityWindow        RuntimeSessionActivityWindowResponse
+	turnActivityID        string
+	turnActivity          RuntimeTurnActivityResponse
+	createdSkill          RuntimeSkillCreateRequest
+	addedSkillPath        string
+	cancelledTurn         string
+	turn                  RuntimeTurnResponse
+	turns                 RuntimeTurnsResponse
+	turnsStatus           string
+	toolCall              RuntimeToolCallResponse
+	toolCalls             RuntimeToolCallsResponse
+	hooks                 RuntimeHooksResponse
+	hookExecution         RuntimeHookExecutionResponse
+	hookExecutions        RuntimeHookExecutionsResponse
+	hookExecutionsReq     RuntimeHookExecutionsRequest
+	sandboxDecision       RuntimeSandboxDecisionResponse
+	sandboxDecisions      RuntimeSandboxDecisionsResponse
+	ref                   RuntimeRefResponse
+	refs                  RuntimeRefsResponse
+	refContent            RuntimeRefContentResponse
+	compactBoundaries     RuntimeCompactBoundariesResponse
+	worktrees             RuntimeWorktreesResponse
+	worktree              RuntimeWorktreeResponse
+	worktreeCreate        RuntimeWorktreeCreateRequest
+	worktreeAction        RuntimeWorktreeActionRequest
+	worktreeActionID      string
+	effectiveScope        RuntimeEffectiveScopeResponse
+	replayExport          RuntimeReplayExportResponse
+	replayExportRequest   RuntimeReplayExportRequest
+	agentTask             RuntimeAgentTaskResponse
+	agentTasks            RuntimeAgentTasksResponse
+	agentRoles            RuntimeAgentRolesResponse
+	agentRole             RuntimeAgentRoleResponse
+	agentTaskMessages     RuntimeAgentTaskMessagesResponse
+	agentTaskMessage      RuntimeAgentTaskMessageResponse
+	agentTaskResult       RuntimeAgentTaskResultResponse
+	cancelledTask         string
+	todos                 RuntimeTodosResponse
+	todoSession           string
+	todoTurn              string
+	policy                RuntimePolicyResponse
+	policyCalls           int
+	updatedPolicyMode     string
+	updatedPolicyRules    []RuntimePolicyRule
+	updatedPolicyProfile  string
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -3827,6 +3832,23 @@ func (s *recordingRuntimeService) SessionActivity(_ context.Context, sessionID s
 		s.activity.SessionID = sessionID
 	}
 	return s.activity, nil
+}
+
+func (s *recordingRuntimeService) SessionActivityWindow(_ context.Context, sessionID string, limit int) (RuntimeSessionActivityWindowResponse, error) {
+	s.activityWindowSession = sessionID
+	s.activityWindowLimit = limit
+	if s.activityWindow.SessionID == "" {
+		s.activityWindow.SessionID = sessionID
+	}
+	return s.activityWindow, nil
+}
+
+func (s *recordingRuntimeService) TurnActivity(_ context.Context, turnID string) (RuntimeTurnActivityResponse, error) {
+	s.turnActivityID = turnID
+	if s.turnActivity.TurnID == "" {
+		s.turnActivity.TurnID = turnID
+	}
+	return s.turnActivity, nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {

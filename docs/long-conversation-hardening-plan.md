@@ -1859,8 +1859,8 @@ Remaining risks:
 
 ### Phase 6.7: Narrow Activity Hydration Implementation
 
-Status: planned after Phase 6.6 validation risk is closed or explicitly
-accepted.
+Status: implemented for additive turn-scoped and session-window activity
+hydration. This is not a Run implementation.
 
 Scope:
 
@@ -1888,6 +1888,79 @@ Acceptance:
   losing warnings, refs, permission evidence, or interrupted recovery data.
 - Frontend adapter can use narrow hydration after lifecycle events while
   falling back to full `SessionActivity`.
+
+Implemented:
+
+- Added additive runtime DTOs and service methods:
+  - `RuntimeTurnActivityResponse`
+  - `RuntimeSessionActivityWindowResponse`
+  - `RuntimeActivityWindow`
+- Added HTTP/dev-module routes:
+  - `GET /v1/turns/{turn_id}/activity`
+  - `GET /v1/sessions/{session_id}/activity-window?limit=N`
+- Added Wails bridge methods:
+  - `TurnActivity(turnID)`
+  - `SessionActivityWindow(sessionID, limit)`
+- Factored shared runtime activity hydration so full `SessionActivity`, turn
+  activity, and session-window activity compute diagnostics, artifact evidence,
+  interrupted summaries, tool calls, permission evidence, and runtime events
+  from the same Go-side evidence path.
+- Kept full `SessionActivity` unchanged as the compatibility fallback and
+  parity oracle. Full activity still returns the full message list; narrow
+  activity returns only messages tied to the hydrated turn window.
+- Regenerated Wails bindings and synced desktop frontend dist assets so the
+  packaged Wails path exposes the new methods.
+- Updated the frontend adapter so runtime events remain refresh triggers only:
+  the event envelope records a short-lived hint for which runtime DTO to read,
+  then the UI hydrates from `TurnActivity`, `SessionActivityWindow`, or falls
+  back to full `SessionActivity`. Event payloads are not merged into timeline,
+  diagnostics, artifact, permission, or interrupted state.
+- Narrow frontend hydration merges only runtime-returned DTO items into the
+  existing runtime-hydrated view model. It does not parse assistant prose or
+  infer artifact/checkpoint/recovery state from React local state.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService|TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy|TestRuntimeSessionActivityExposesTurnDiagnosticsWarning" -count=1`
+- `go test ./desktop -run "TestRuntimeBridgeNarrowActivityUsesRuntimeService|TestRuntimeBridgePhase62PackagedHandoffRecoveryContract" -count=1`
+- `go test ./internal/runtimeapi -count=1`
+- `go test ./internal/runtime -count=1`
+- `go test ./desktop -count=1`
+- `go test ./...`
+- `cd client && npm run lint`
+- `cd client && npx tsc -b --pretty false`
+- `cd client && npm run build`
+- `cd desktop && node scripts/sync-client-dist.mjs --build-client`
+
+Parity coverage added:
+
+- Narrow turn activity and session-window activity are compared against full
+  `SessionActivity` for the same turn's:
+  - messages
+  - diagnostics warning and missing artifact evidence
+  - terminal denied permission evidence and permission counts
+  - runtime event sequence evidence
+  - tool call subset
+- HTTP and dev-module route tests prove both narrow reads reach the runtime
+  service and preserve session/turn ids plus window limit.
+- Wails bridge tests prove both narrow methods delegate to the transport-neutral
+  runtime service.
+
+Remaining risks:
+
+- Session-window ordering is intentionally simple tail-by-turn ordering. It
+  does not yet expose a durable cursor across mixed message/tool/permission
+  streams.
+- The frontend currently uses narrow hydration opportunistically after runtime
+  events. Busy polling and failed narrow reads still fall back to full
+  `SessionActivity`.
+- Narrow activity does not introduce an MCP request UI or restore stale MCP
+  auth/elicitation actionability. Terminal MCP request semantics remain covered
+  by existing request/recovery/replay paths and Phase 6.8 follow-up risks.
+- No automatic resume, stale running/waiting tool recovery, stale permission
+  actionability, Run store, Run database migration, frontend Run UI, persisted
+  interrupted acknowledgement field, or prose-derived artifact/checkpoint
+  inference was added.
 
 ### Phase 6.8: Hosted MCP Replay/Auth/Elicitation Follow-up
 

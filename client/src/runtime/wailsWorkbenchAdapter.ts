@@ -337,7 +337,20 @@ interface RuntimeSessionActivityDTO {
   turns: RuntimeTurnDTO[];
   toolCalls: RuntimeToolCallDTO[];
   permissions: RuntimePermissionDTO[];
+  events?: RuntimeEventDTO[];
   policy: RuntimePolicyDTO;
+}
+
+interface RuntimeSessionActivityWindowDTO extends RuntimeSessionActivityDTO {
+  window?: {
+    limit?: number;
+    fromStart?: boolean;
+    toEnd?: boolean;
+  };
+}
+
+interface RuntimeTurnActivityDTO extends RuntimeSessionActivityDTO {
+  turnId: string;
 }
 
 interface RuntimeSkillDTO {
@@ -468,6 +481,8 @@ interface RuntimeBridgeModule {
   Messages?: () => Promise<RuntimeMessagesResponseDTO>;
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
   SessionActivity?: (sessionID: string) => Promise<RuntimeSessionActivityDTO>;
+  SessionActivityWindow?: (sessionID: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
+  TurnActivity?: (turnID: string) => Promise<RuntimeTurnActivityDTO>;
   Turn?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
   Turns?: (status: string) => Promise<RuntimeTurnsResponseDTO>;
   Permissions?: () => Promise<{ permissions: RuntimePermissionDTO[] }>;
@@ -495,6 +510,7 @@ let runtimeBridgePromise: Promise<RuntimeBridgeModule | null> | undefined;
 const runtimeBridgePath = '/bindings/github.com/charmbracelet/crush/desktop/runtimebridge.js';
 const runtimeBridgeTimeoutMS = 750;
 let runtimeLatestEventSequence = 0;
+let runtimeActivityRefreshHint: RuntimeEventViewModel | undefined;
 let forceDraftChatSubmit = false;
 
 function loadRuntimeBridge() {
@@ -827,6 +843,7 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
           id: `message:${message.id}`,
           kind: 'message',
           sessionId: activity.sessionId,
+          turnId: turnIDForMessage(turnContext, message.id),
           messageId: message.id,
           role: message.role,
           content,
@@ -920,6 +937,58 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
     }
     return left.id.localeCompare(right.id);
   });
+}
+
+function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], activity: RuntimeSessionActivityDTO) {
+  const replacement = mapActivityTimeline(activity);
+  const turnIDs = new Set((Array.isArray(activity.turns) ? activity.turns : []).map((turn) => turn.id).filter(Boolean));
+  const messageIDs = new Set((Array.isArray(activity.messages) ? activity.messages : []).map((message) => message.id).filter(Boolean));
+  const toolCallIDs = new Set((Array.isArray(activity.toolCalls) ? activity.toolCalls : []).map((toolCall) => toolCall.id).filter(Boolean));
+  const permissionIDs = new Set((Array.isArray(activity.permissions) ? activity.permissions : []).map((permission) => permission.id).filter(Boolean));
+  const kept = current.filter((item) => {
+    if (item.turnId && turnIDs.has(item.turnId)) {
+      return false;
+    }
+    if (item.messageId && messageIDs.has(item.messageId)) {
+      return false;
+    }
+    if (item.toolCallId && toolCallIDs.has(item.toolCallId)) {
+      return false;
+    }
+    if (item.permission?.id && permissionIDs.has(item.permission.id)) {
+      return false;
+    }
+    return true;
+  });
+  return [...kept, ...replacement].sort((left, right) => {
+    const leftTime = normalizeTimestamp(left.createdAt ?? left.updatedAt ?? 0);
+    const rightTime = normalizeTimestamp(right.createdAt ?? right.updatedAt ?? 0);
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function mergeConversationMessages(current: ConversationMessageViewModel[], response?: RuntimeMessagesResponseDTO) {
+  const incoming = mapConversation(response);
+  if (incoming.length === 0) {
+    return current;
+  }
+  const incomingIDs = new Set(incoming.map((message) => message.id));
+  return [...current.filter((message) => !incomingIDs.has(message.id)), ...incoming].sort((left, right) => {
+    const leftTime = normalizeTimestamp(left.createdAt ?? 0);
+    const rightTime = normalizeTimestamp(right.createdAt ?? 0);
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function mergePendingPermissions(current: PermissionRequestViewModel[], permissions: PermissionRequestViewModel[]) {
+  const incomingIDs = new Set(permissions.map((permission) => permission.id));
+  return [...current.filter((permission) => !incomingIDs.has(permission.id)), ...permissions].filter((permission) => permission.status === 'pending');
 }
 
 function selectTurnDiagnostics(activity?: RuntimeSessionActivityDTO, activeTurnId?: string) {
@@ -1147,6 +1216,27 @@ function toConfiguredProviderRequest(provider: ConfiguredProviderViewModel & { t
   };
 }
 
+async function hydrateNarrowActivityFromHint(bridge: RuntimeBridgeModule, activeSessionID: string): Promise<RuntimeSessionActivityDTO | undefined> {
+  const hint = runtimeActivityRefreshHint;
+  runtimeActivityRefreshHint = undefined;
+  if (!hint) {
+    return undefined;
+  }
+  if (hint.sessionId && hint.sessionId !== activeSessionID) {
+    return undefined;
+  }
+  if (hint.turnId && bridge.TurnActivity) {
+    const turnActivity = await optionalRuntimeRequest(() => bridge.TurnActivity?.(hint.turnId ?? '') ?? Promise.resolve(undefined));
+    if (turnActivity?.sessionId === activeSessionID) {
+      return turnActivity;
+    }
+  }
+  if (bridge.SessionActivityWindow) {
+    return optionalRuntimeRequest(() => bridge.SessionActivityWindow?.(activeSessionID, 8) ?? Promise.resolve(undefined));
+  }
+  return undefined;
+}
+
 async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBridgeModule) {
   const [status, sessionsResponse, modelsResponse, providerCatalog, configuredProvidersResponse, activeTurnsResponse, skillsResponse, pluginsResponse, mcpServersResponse] = await Promise.all([
     optionalRuntimeRequest(() => bridge.Status()),
@@ -1160,7 +1250,8 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     optionalRuntimeRequest(() => bridge.MCPServers?.() ?? Promise.resolve(undefined)),
   ]);
   const activeSessionID = status?.sessionId || sessionsResponse?.sessions?.find((session) => session.active)?.id;
-  const activity = activeSessionID ? await optionalRuntimeRequest(() => bridge.SessionActivity?.(activeSessionID) ?? Promise.resolve(undefined)) : undefined;
+  const narrowActivity = activeSessionID ? await hydrateNarrowActivityFromHint(bridge, activeSessionID) : undefined;
+  const activity = narrowActivity ?? (activeSessionID ? await optionalRuntimeRequest(() => bridge.SessionActivity?.(activeSessionID) ?? Promise.resolve(undefined)) : undefined);
   const messagesResponse = activity
     ? { messages: Array.isArray(activity.messages) ? activity.messages : [] }
     : activeSessionID
@@ -1180,6 +1271,17 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const activeTurnId = status?.requests?.sessionRequestId || sessionActiveTurn?.id || (busy ? current.composer.activeTurnId : undefined);
   const policy = activity?.policy ?? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy;
   const permissions = (Array.isArray(activity?.permissions) ? activity.permissions : []).map(mapPermission);
+  const timeline = activity
+    ? narrowActivity
+      ? mergeActivityTimeline(current.timeline, activity)
+      : mapActivityTimeline(activity)
+    : current.timeline;
+  const conversation = activity && narrowActivity
+    ? mergeConversationMessages(current.conversation, messagesResponse)
+    : mapConversation(messagesResponse);
+  const pendingPermissions = activity && narrowActivity
+    ? mergePendingPermissions(current.pendingPermissions, permissions)
+    : permissions.filter((permission) => permission.status === 'pending');
   const skills = mapSkills(skillsResponse) ?? current.settings.skills;
   const plugins = mapPlugins(pluginsResponse) ?? current.settings.plugins;
   const mcpServers = mapMCPServers(mcpServersResponse) ?? current.settings.mcpServers;
@@ -1191,11 +1293,11 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       path: workingDir,
     },
     sessions: mapSessions(sessionsResponse, status?.sessionId, activeTurns),
-    conversation: mapConversation(messagesResponse),
-    timeline: activity ? mapActivityTimeline(activity) : current.timeline,
+    conversation,
+    timeline,
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
     interruptedTurn: activity ? selectInterruptedTurn(activity, sessionActiveTurn?.id) : current.interruptedTurn,
-    pendingPermissions: permissions.filter((permission) => permission.status === 'pending'),
+    pendingPermissions,
     composer: {
       ...current.composer,
       permissionLabel: permissionMode(policy).label,
@@ -1457,6 +1559,7 @@ async function subscribeRuntimeBridgeEvents(bridge: RuntimeBridgeModule, onEvent
         if (nextSequence > lastSequence) {
           lastSequence = nextSequence;
           runtimeLatestEventSequence = nextRuntimeEventCursor(runtimeLatestEventSequence, event);
+          runtimeActivityRefreshHint = event;
           onEvent(event);
         }
       };
@@ -1508,6 +1611,7 @@ function subscribeRuntimeEventsByPolling(bridge: RuntimeBridgeModule, onEvent: (
         if (nextSequence > lastSequence) {
           lastSequence = nextSequence;
           runtimeLatestEventSequence = nextRuntimeEventCursor(runtimeLatestEventSequence, viewEvent);
+          runtimeActivityRefreshHint = viewEvent;
           onEvent(viewEvent);
         }
       }
@@ -1618,6 +1722,9 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
     }),
   SessionMessages: (sessionID) => runtimeFetch<RuntimeMessagesResponseDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/messages`),
   SessionActivity: (sessionID) => runtimeFetch<RuntimeSessionActivityDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity`),
+  SessionActivityWindow: (sessionID, limit) =>
+    runtimeFetch<RuntimeSessionActivityWindowDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity-window?limit=${encodeURIComponent(String(limit))}`),
+  TurnActivity: (turnID) => runtimeFetch<RuntimeTurnActivityDTO>(`/v1/turns/${encodeURIComponent(turnID)}/activity`),
   Turn: (turnID) => runtimeFetch<RuntimeTurnResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}`),
   Turns: (status) => runtimeFetch<RuntimeTurnsResponseDTO>(`/v1/turns?status=${encodeURIComponent(status)}`),
   Permissions: () => runtimeFetch<{ permissions: RuntimePermissionDTO[] }>('/v1/permissions'),

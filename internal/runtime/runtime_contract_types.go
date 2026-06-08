@@ -818,6 +818,34 @@ type RuntimeSessionActivityResponse struct {
 	Policy      RuntimePolicy              `json:"policy"`
 }
 
+type RuntimeActivityWindow struct {
+	Limit     int  `json:"limit,omitempty"`
+	FromStart bool `json:"fromStart,omitempty"`
+	ToEnd     bool `json:"toEnd,omitempty"`
+}
+
+type RuntimeSessionActivityWindowResponse struct {
+	SessionID   string                     `json:"sessionId"`
+	Messages    []RuntimeMessage           `json:"messages"`
+	Turns       []RuntimeTurn              `json:"turns"`
+	ToolCalls   []RuntimeToolCall          `json:"toolCalls"`
+	Permissions []RuntimePermissionRequest `json:"permissions"`
+	Events      []RuntimeEvent             `json:"events,omitempty"`
+	Policy      RuntimePolicy              `json:"policy"`
+	Window      RuntimeActivityWindow      `json:"window"`
+}
+
+type RuntimeTurnActivityResponse struct {
+	SessionID   string                     `json:"sessionId"`
+	TurnID      string                     `json:"turnId"`
+	Messages    []RuntimeMessage           `json:"messages"`
+	Turns       []RuntimeTurn              `json:"turns"`
+	ToolCalls   []RuntimeToolCall          `json:"toolCalls"`
+	Permissions []RuntimePermissionRequest `json:"permissions"`
+	Events      []RuntimeEvent             `json:"events,omitempty"`
+	Policy      RuntimePolicy              `json:"policy"`
+}
+
 type RuntimePermissionRequest struct {
 	ID                   string `json:"id"`
 	SessionID            string `json:"sessionId"`
