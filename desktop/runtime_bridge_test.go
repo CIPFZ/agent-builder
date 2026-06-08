@@ -207,6 +207,15 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 			TurnID:    "turn-window",
 			Turns:     []RuntimeTurn{{ID: "turn-window", SessionID: "session-window", Status: "running"}},
 		},
+		runProjection: RuntimeRunProjectionResponse{Run: RuntimeRunProjection{
+			ID:               "run:session:session-window",
+			PrimarySessionID: "session-window",
+			Source: RuntimeRunProjectionSource{
+				Kind:                  "session_activity_projection",
+				ReadOnly:              true,
+				SessionActivityParity: true,
+			},
+		}},
 	}
 	bridge := &RuntimeBridge{service: service}
 
@@ -237,6 +246,17 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 	}
 	if service.turnActivityID != "turn-window" || turnActivity.TurnID != "turn-window" {
 		t.Fatalf("turn activity = %#v service id %q", turnActivity, service.turnActivityID)
+	}
+
+	runProjection, err := bridge.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: "session-window", Cursor: "v1:run", Limit: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.runProjectionRequest.SessionID != "session-window" || service.runProjectionRequest.Cursor != "v1:run" || service.runProjectionRequest.Limit != 4 {
+		t.Fatalf("run projection request = %#v", service.runProjectionRequest)
+	}
+	if runProjection.Run.PrimarySessionID != "session-window" || !runProjection.Run.Source.ReadOnly || !runProjection.Run.Source.SessionActivityParity {
+		t.Fatalf("run projection = %#v", runProjection)
 	}
 }
 
@@ -277,6 +297,8 @@ type recordingRuntimeService struct {
 	sessionActivityWindowCursor string
 	sessionActivityWindowLimit  int
 	turnActivityID              string
+	runProjectionRequest        RuntimeRunProjectionRequest
+	runProjection               RuntimeRunProjectionResponse
 	markInterruptedDoneID       string
 	markInterruptedDoneResponse RuntimeTurnResponse
 }
@@ -528,6 +550,14 @@ func (s *recordingRuntimeService) TurnActivity(_ context.Context, turnID string)
 		s.turnActivity.TurnID = turnID
 	}
 	return s.turnActivity, nil
+}
+
+func (s *recordingRuntimeService) RunProjection(_ context.Context, req RuntimeRunProjectionRequest) (RuntimeRunProjectionResponse, error) {
+	s.runProjectionRequest = req
+	if s.runProjection.Run.PrimarySessionID == "" {
+		s.runProjection.Run.PrimarySessionID = req.SessionID
+	}
+	return s.runProjection, nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {

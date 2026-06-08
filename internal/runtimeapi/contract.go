@@ -31,6 +31,7 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/messages"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/activity-window"},
+	{Method: MethodGet, Path: "/v1/sessions/{session_id}/run-projection"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/todos"},
 	{Method: MethodPost, Path: "/v1/sessions/{session_id}/turns"},
 	{Method: MethodGet, Path: "/v1/turns"},

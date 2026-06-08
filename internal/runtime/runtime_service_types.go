@@ -72,6 +72,7 @@ type RuntimeService interface {
 	SessionActivityWindow(context.Context, string, int) (RuntimeSessionActivityWindowResponse, error)
 	SessionActivityCursorWindow(context.Context, string, string, int) (RuntimeSessionActivityWindowResponse, error)
 	TurnActivity(context.Context, string) (RuntimeTurnActivityResponse, error)
+	RunProjection(context.Context, RuntimeRunProjectionRequest) (RuntimeRunProjectionResponse, error)
 	Messages(context.Context) (RuntimeMessagesResponse, error)
 	Permissions(context.Context) (RuntimePermissionsResponse, error)
 	GetPolicy(context.Context) (RuntimePolicyResponse, error)

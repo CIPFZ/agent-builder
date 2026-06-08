@@ -281,6 +281,15 @@ func TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService(t *testing.T) {
 			TurnID:    "turn-1",
 			Turns:     []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "running"}},
 		},
+		runProjection: RuntimeRunProjectionResponse{Run: RuntimeRunProjection{
+			ID:               "run:session:session-1",
+			PrimarySessionID: "session-1",
+			Source: RuntimeRunProjectionSource{
+				Kind:                  "session_activity_projection",
+				ReadOnly:              true,
+				SessionActivityParity: true,
+			},
+		}},
 	}
 	server := newRuntimeHTTPServer(service)
 
@@ -322,6 +331,26 @@ func TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService(t *testing.T) {
 	}
 	if turnActivity.TurnID != "turn-1" || len(turnActivity.Turns) != 1 {
 		t.Fatalf("turn activity = %#v", turnActivity)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/sessions/session-1/run-projection?limit=4&cursor=v1%3Arun", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("run projection status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.runProjectionRequest.SessionID != "session-1" || service.runProjectionRequest.Limit != 4 || service.runProjectionRequest.Cursor != "v1:run" {
+		t.Fatalf("run projection args = %#v", service.runProjectionRequest)
+	}
+	var projection RuntimeRunProjectionResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &projection); err != nil {
+		t.Fatal(err)
+	}
+	if !projection.Run.Source.ReadOnly || !projection.Run.Source.SessionActivityParity {
+		t.Fatalf("run projection source = %#v", projection.Run.Source)
 	}
 }
 
@@ -368,6 +397,15 @@ func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
 	resp = httptestResponse(server, req)
 	if resp.status != http.StatusOK || service.activityWindowSession != "session-1" || service.activityWindowLimit != 3 {
 		t.Fatalf("activity window status = %d body = %s args=%q/%d", resp.status, resp.body.String(), service.activityWindowSession, service.activityWindowLimit)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/sessions/session-1/run-projection&limit=5&cursor=v1%3Arun", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.runProjectionRequest.SessionID != "session-1" || service.runProjectionRequest.Limit != 5 || service.runProjectionRequest.Cursor != "v1:run" {
+		t.Fatalf("run projection status = %d body = %s args=%#v", resp.status, resp.body.String(), service.runProjectionRequest)
 	}
 
 	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/turns/turn-1/activity", nil)

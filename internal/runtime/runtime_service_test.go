@@ -3541,6 +3541,8 @@ type recordingRuntimeService struct {
 	activityWindow        RuntimeSessionActivityWindowResponse
 	turnActivityID        string
 	turnActivity          RuntimeTurnActivityResponse
+	runProjectionRequest  RuntimeRunProjectionRequest
+	runProjection         RuntimeRunProjectionResponse
 	createdSkill          RuntimeSkillCreateRequest
 	addedSkillPath        string
 	cancelledTurn         string
@@ -3855,6 +3857,14 @@ func (s *recordingRuntimeService) TurnActivity(_ context.Context, turnID string)
 		s.turnActivity.TurnID = turnID
 	}
 	return s.turnActivity, nil
+}
+
+func (s *recordingRuntimeService) RunProjection(_ context.Context, req RuntimeRunProjectionRequest) (RuntimeRunProjectionResponse, error) {
+	s.runProjectionRequest = req
+	if s.runProjection.Run.PrimarySessionID == "" {
+		s.runProjection.Run.PrimarySessionID = req.SessionID
+	}
+	return s.runProjection, nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {

@@ -2508,6 +2508,71 @@ Remaining risks:
   acknowledgement persistence, or UI action wiring exists.
 - No public API or frontend adoption exists yet, by design.
 
+### Phase 7.2: Run Projection Contract Review And Transport Gate
+
+Status: implemented for read-only transport exposure. No runtime Run store, Run
+database migration, automatic resume, background Run scheduler, frontend Run UI,
+or resume/discard execution was implemented.
+
+Scope:
+
+- Promote the Phase 7.1 internal read-only Run projection to a transport
+  contract.
+- Expose Run projection through:
+  - transport-neutral `RuntimeService`
+  - HTTP/dev-module runtime adapter
+  - packaged Wails `RuntimeBridge`
+  - client bridge capability typing and HTTP fallback
+- Keep `SessionActivity` as the fallback and parity oracle.
+- Keep frontend adoption out of scope. The client bridge can call the endpoint,
+  but `hydrateWorkbench` and React UI do not consume it.
+
+Implemented:
+
+- Added `RunProjection(ctx, RuntimeRunProjectionRequest)` to
+  `RuntimeService`.
+- Added `GET /v1/sessions/{session_id}/run-projection?limit=N&cursor=C`.
+- Added dev-module fallback support for the same route.
+- Added runtime API contract entry for
+  `/v1/sessions/{session_id}/run-projection`.
+- Added Wails bridge aliases and `RuntimeBridge.RunProjection(...)`.
+- Added optional `RunProjection` to the client runtime bridge module and HTTP
+  fallback. This is a capability only; it is not wired into UI state.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService|TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy|TestRuntimeRunProjection" -count=1`
+- `go test ./internal/runtimeapi -count=1`
+- `go test ./desktop -run "TestRuntimeBridgeNarrowActivityUsesRuntimeService|TestRuntimeBridgePhase62PackagedHandoffRecoveryContract" -count=1`
+- `cd client && npx tsc -b --pretty false`
+
+Contract coverage:
+
+- HTTP and dev-module tests verify session id, cursor, and limit are forwarded
+  to the runtime service.
+- Wails bridge tests verify `RuntimeBridge.RunProjection` delegates to the
+  runtime service and preserves the read-only/parity source flags.
+- Runtime projection tests continue to prove `SessionActivity` parity for
+  selected full and cursor-window evidence.
+
+Review conclusion:
+
+- Run projection is now safe to read through transport adapters as an additive
+  DTO.
+- Runtime events may trigger a future Run projection refresh, but event payloads
+  still must not be merged into Run state.
+- The endpoint is not a persisted Run resource. It is a session-scoped
+  projection over existing runtime evidence.
+- Resume/discard remain descriptive read-only user-action DTO candidates only.
+
+Remaining risks:
+
+- Public frontend adoption still needs a separate UI design gate.
+- Durable Run identity, cross-session grouping, checkpoint persistence,
+  workspace/worktree semantics, and resume execution remain unresolved.
+- A future persisted Run implementation still requires an explicit migration
+  and backfill design.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -2555,10 +2620,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Proceed to Phase 7.2: Run projection contract review and transport gate.
+Proceed to Phase 7.3: Run projection frontend read-only preview gate.
 
-Phase 7.2 should decide whether the internal `RuntimeRunProjection` is ready to
-be added to the transport-neutral `RuntimeService` and HTTP/Wails contracts. It
-must still avoid a runtime Run store, Run database migration, automatic resume,
-background Run scheduler, and frontend Run UI unless those surfaces are
-separately approved after the read-only projection contract is reviewed.
+Phase 7.3 should decide whether the client should display a read-only Run
+summary preview hydrated from `RunProjection`. It must not add Run persistence,
+database migrations, automatic resume, background Run scheduling, or actionable
+resume/discard controls without a separate approved implementation phase.

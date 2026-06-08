@@ -244,6 +244,13 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && sessionActivityWindowPathID(r.URL.Path) != "":
 		value, err := s.service.SessionActivityCursorWindow(r.Context(), sessionActivityWindowPathID(r.URL.Path), runtimeQueryCursor(r), runtimeQueryLimit(r))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionRunProjectionPathID(r.URL.Path) != "":
+		value, err := s.service.RunProjection(r.Context(), RuntimeRunProjectionRequest{
+			SessionID: sessionRunProjectionPathID(r.URL.Path),
+			Cursor:    runtimeQueryCursor(r),
+			Limit:     runtimeQueryLimit(r),
+		})
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionTodosPathID(r.URL.Path) != "":
 		value, err := s.service.SessionTodos(r.Context(), sessionTodosPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -679,6 +686,13 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 	case method == http.MethodGet && sessionActivityWindowPathID(path) != "":
 		value, err := s.service.SessionActivityCursorWindow(r.Context(), sessionActivityWindowPathID(path), runtimeDevModuleCursor(r, pathQuery), runtimeDevModuleLimit(r, pathQuery))
 		return value, err, true
+	case method == http.MethodGet && sessionRunProjectionPathID(path) != "":
+		value, err := s.service.RunProjection(r.Context(), RuntimeRunProjectionRequest{
+			SessionID: sessionRunProjectionPathID(path),
+			Cursor:    runtimeDevModuleCursor(r, pathQuery),
+			Limit:     runtimeDevModuleLimit(r, pathQuery),
+		})
+		return value, err, true
 	case method == http.MethodPost && sessionTurnsPathID(path) != "":
 		var req RuntimeChatRequest
 		if err := json.Unmarshal([]byte(body), &req); err != nil {
@@ -1002,6 +1016,10 @@ func sessionActivityPathID(path string) string {
 
 func sessionActivityWindowPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/activity-window")
+}
+
+func sessionRunProjectionPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/run-projection")
 }
 
 func sessionTodosPathID(path string) string {

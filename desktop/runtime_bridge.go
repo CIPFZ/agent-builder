@@ -77,6 +77,14 @@ type RuntimeSessionActivityResponse = runtime.RuntimeSessionActivityResponse
 type RuntimeActivityWindow = runtime.RuntimeActivityWindow
 type RuntimeSessionActivityWindowResponse = runtime.RuntimeSessionActivityWindowResponse
 type RuntimeTurnActivityResponse = runtime.RuntimeTurnActivityResponse
+type RuntimeRunProjectionRequest = runtime.RuntimeRunProjectionRequest
+type RuntimeRunProjectionResponse = runtime.RuntimeRunProjectionResponse
+type RuntimeRunProjection = runtime.RuntimeRunProjection
+type RuntimeRunCheckpoint = runtime.RuntimeRunCheckpoint
+type RuntimeRunDiagnostics = runtime.RuntimeRunDiagnostics
+type RuntimeRunUserActions = runtime.RuntimeRunUserActions
+type RuntimeRunUserAction = runtime.RuntimeRunUserAction
+type RuntimeRunProjectionSource = runtime.RuntimeRunProjectionSource
 type RuntimePermissionRequest = runtime.RuntimePermissionRequest
 type RuntimePermissionsResponse = runtime.RuntimePermissionsResponse
 type RuntimePermissionDecision = runtime.RuntimePermissionDecision
@@ -467,6 +475,12 @@ func (r *RuntimeBridge) SessionActivityCursorWindow(ctx context.Context, session
 func (r *RuntimeBridge) TurnActivity(ctx context.Context, turnID string) (RuntimeTurnActivityResponse, error) {
 
 	return r.service.TurnActivity(ctx, turnID)
+
+}
+
+func (r *RuntimeBridge) RunProjection(ctx context.Context, req RuntimeRunProjectionRequest) (RuntimeRunProjectionResponse, error) {
+
+	return r.service.RunProjection(ctx, req)
 
 }
 

@@ -373,6 +373,35 @@ interface RuntimeTurnActivityDTO extends RuntimeSessionActivityDTO {
   turnId: string;
 }
 
+interface RuntimeRunProjectionRequestDTO {
+  sessionId: string;
+  cursor?: string;
+  limit?: number;
+}
+
+interface RuntimeRunProjectionResponseDTO {
+  run: {
+    id?: string;
+    primarySessionId?: string;
+    sessionIds?: string[];
+    status?: string;
+    turnIds?: string[];
+    taskIds?: string[];
+    toolCallIds?: string[];
+    permissionRequestIds?: string[];
+    expectedArtifacts?: string[];
+    producedArtifacts?: string[];
+    verifiedArtifacts?: string[];
+    evidenceCursor?: string;
+    source?: {
+      kind?: string;
+      readOnly?: boolean;
+      sessionActivityParity?: boolean;
+      evidence?: string[];
+    };
+  };
+}
+
 interface RuntimeSkillDTO {
   name: string;
   description?: string;
@@ -504,6 +533,7 @@ interface RuntimeBridgeModule {
   SessionActivityWindow?: (sessionID: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
   SessionActivityCursorWindow?: (sessionID: string, cursor: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
   TurnActivity?: (turnID: string) => Promise<RuntimeTurnActivityDTO>;
+  RunProjection?: (req: RuntimeRunProjectionRequestDTO) => Promise<RuntimeRunProjectionResponseDTO>;
   Turn?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
   Turns?: (status: string) => Promise<RuntimeTurnsResponseDTO>;
   Permissions?: () => Promise<{ permissions: RuntimePermissionDTO[] }>;
@@ -1779,6 +1809,19 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
       params.set('cursor', cursor);
     }
     return runtimeFetch<RuntimeSessionActivityWindowDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity-window?${params.toString()}`);
+  },
+  RunProjection: (req) => {
+    const params = new URLSearchParams();
+    if (typeof req.limit === 'number') {
+      params.set('limit', String(req.limit));
+    }
+    if (req.cursor) {
+      params.set('cursor', req.cursor);
+    }
+    const query = params.toString();
+    return runtimeFetch<RuntimeRunProjectionResponseDTO>(
+      `/v1/sessions/${encodeURIComponent(req.sessionId)}/run-projection${query ? `?${query}` : ''}`,
+    );
   },
   TurnActivity: (turnID) => runtimeFetch<RuntimeTurnActivityDTO>(`/v1/turns/${encodeURIComponent(turnID)}/activity`),
   Turn: (turnID) => runtimeFetch<RuntimeTurnResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}`),

@@ -567,3 +567,29 @@ Boundary:
 - No automatic resume or background Run scheduler.
 - No stale running/waiting tool, stale permission gate, or stale MCP
   auth/elicitation actionability recovery.
+
+## 2026-06-08: Phase 7.2 Run Projection Transport Gate
+
+Phase 7.2 exposes the read-only Run projection through transport adapters while
+keeping React adoption out of scope.
+
+Frontend/backend rules:
+
+- `GET /v1/sessions/{session_id}/run-projection?limit=N&cursor=C` returns the
+  same read-only runtime projection that Phase 7.1 validated.
+- The Wails bridge exposes `RunProjection(req)`.
+- The client runtime bridge type and HTTP fallback include optional
+  `RunProjection`, but `hydrateWorkbench` and React UI do not call it.
+- Runtime events may be used by a future UI only to choose when to refresh this
+  DTO. Event payloads must not be merged into Run, checkpoint, artifact,
+  permission, MCP actionability, or interrupted state.
+- `SessionActivity` remains the fallback and parity oracle.
+
+Boundary:
+
+- No frontend Run UI.
+- No runtime Run store or Run database migration.
+- No automatic resume or background Run scheduler.
+- No executable resume/discard control.
+- No stale running/waiting tool, stale permission gate, or stale MCP
+  auth/elicitation actionability recovery.

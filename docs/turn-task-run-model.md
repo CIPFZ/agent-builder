@@ -353,6 +353,40 @@ Validation:
 - `go test ./internal/runtime -run "TestRuntimeRunProjection" -count=1`
 - `go test ./internal/runtime -count=1`
 
+### Phase 7.2 Gate: Read-only Transport Contract
+
+Phase 7.2 promotes the read-only projection to transport surfaces without
+turning it into persisted Run state.
+
+Implemented semantics:
+
+- `RunProjection(ctx, RuntimeRunProjectionRequest)` is now part of the
+  transport-neutral `RuntimeService`.
+- HTTP exposes
+  `GET /v1/sessions/{session_id}/run-projection?limit=N&cursor=C`.
+- Wails exposes `RuntimeBridge.RunProjection(...)`.
+- The client bridge has an optional `RunProjection` capability and HTTP
+  fallback method, but no React view consumes it.
+- The endpoint remains session-scoped and read-only. It is not a persisted Run
+  resource.
+
+Boundary:
+
+- No runtime Run store.
+- No Run database migration.
+- No automatic resume.
+- No background Run scheduler.
+- No frontend Run UI.
+- No executable resume/discard action.
+- No event-payload or assistant-prose-derived Run state.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService|TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy|TestRuntimeRunProjection" -count=1`
+- `go test ./internal/runtimeapi -count=1`
+- `go test ./desktop -run "TestRuntimeBridgeNarrowActivityUsesRuntimeService|TestRuntimeBridgePhase62PackagedHandoffRecoveryContract" -count=1`
+- `cd client && npx tsc -b --pretty false`
+
 ## API 影响
 
 最小 API：
