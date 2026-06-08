@@ -2953,7 +2953,7 @@ Review conclusion:
 
 ### Phase 8.3: Checkpoint Acknowledgement And Discard Contract
 
-Status: implemented as a narrow checkpoint action contract. Resume execution,
+Status: accepted as a narrow checkpoint action contract. Resume execution,
 automatic resume, background scheduling, frontend Run management UI, and a full
 Run state machine were not implemented.
 
@@ -3025,6 +3025,59 @@ Review conclusion:
   must create a new explicit user turn rather than replay previous runtime
   state.
 
+### Phase 8.4: Explicit Resume Contract Design Gate
+
+Status: planned as a design gate only. Do not implement a resume endpoint,
+automatic resume, background scheduling, frontend Run management UI, or full
+Run state machine in this phase.
+
+Purpose:
+
+- Define the exact runtime contract for user-triggered resume from a persisted
+  checkpoint.
+- Specify how a resume action creates a new turn, links back to the checkpoint,
+  audits the action, and refreshes Run detail without replaying stale state.
+- Decide the minimum transport and frontend behavior needed before exposing a
+  resume control.
+
+Design questions to answer:
+
+- API shape:
+  - candidate endpoint:
+    `POST /v1/runs/{run_id}/checkpoints/{checkpoint_id}/resume`
+  - response should return the new `RuntimeChatResponse` or a combined action
+    response with new turn id plus refreshed Run detail.
+- Prompt construction:
+  - use checkpoint summary, current workspace state, linked session/task
+    metadata, and current model/provider selection.
+  - do not include stale pending permission/MCP auth/elicitation actionability.
+  - do not infer artifact/checkpoint state from assistant prose.
+- Audit:
+  - record run id, checkpoint id, source session id, new turn id, and redacted
+    resume prompt summary.
+  - preserve previous evidence; do not rewrite terminal turn/tool/permission/MCP
+    records.
+- Runtime events:
+  - emit ordinary turn/session/runtime events for the new turn.
+  - event payloads may trigger Run detail refresh but must not hydrate resume
+    state directly.
+- Frontend:
+  - a resume control must call the runtime action endpoint and then refresh Run
+    detail/session activity.
+  - no local optimistic resume state should survive a failed runtime response.
+
+Acceptance criteria for a future implementation phase:
+
+- Store/service tests prove resume links a new turn to the checkpoint without
+  mutating previous checkpoint evidence.
+- Restart tests prove stale running/waiting tools, permission gates, MCP auth,
+  and MCP elicitation requests remain terminal/non-actionable before and after
+  resume.
+- HTTP/Wails/contract tests cover the accepted resume endpoint shape.
+- Audit tests prove the new turn and checkpoint link are recoverable.
+- Frontend transport tests prove events only trigger refresh and React state is
+  not the source of resume status.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -3072,7 +3125,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 8.3, then design the explicit resume contract. The next
-phase should specify prompt construction, audit linkage, permission/MCP stale
-actionability tests, and frontend refresh behavior before implementing any
-`resume` endpoint.
+Review/accept Phase 8.4, then implement only the accepted explicit resume
+contract. Do not implement automatic resume, background Run scheduling, or
+expanded frontend Run management UI.

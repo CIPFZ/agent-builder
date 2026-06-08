@@ -699,3 +699,18 @@ Phase 8.3 frontend boundary:
 - Runtime events remain refresh triggers only.
 - Local optimistic acknowledgement/discard state must be replaced by runtime
   DTO refresh; it must not become the source of actionability.
+
+## 2026-06-09: Phase 8.4 Explicit Resume Design Gate Boundary
+
+Phase 8.4 is a planned design gate for explicit user-triggered resume. It does
+not add a resume endpoint or frontend resume control.
+
+Frontend boundary:
+
+- A future resume control must call an explicit runtime action endpoint and
+  refresh Run detail/session activity from Go runtime responses.
+- React must not treat a clicked resume button, event payload, or cached Run DTO
+  as proof that work resumed.
+- Failed resume responses must leave no local optimistic resumed state.
+- Stale permission/MCP actionability must still be determined only by current
+  runtime stores.
