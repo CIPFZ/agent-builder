@@ -173,6 +173,91 @@ type RuntimeTurnsResponse struct {
 	Turns []RuntimeTurn `json:"turns"`
 }
 
+type RuntimeRunProjectionRequest struct {
+	SessionID string `json:"sessionId"`
+	Limit     int    `json:"limit,omitempty"`
+	Cursor    string `json:"cursor,omitempty"`
+}
+
+type RuntimeRunProjectionResponse struct {
+	Run RuntimeRunProjection `json:"run"`
+}
+
+type RuntimeRunProjection struct {
+	ID                   string                     `json:"id"`
+	WorkspaceID          string                     `json:"workspaceId,omitempty"`
+	SessionIDs           []string                   `json:"sessionIds"`
+	PrimarySessionID     string                     `json:"primarySessionId"`
+	Objective            string                     `json:"objective,omitempty"`
+	Status               string                     `json:"status"`
+	TurnIDs              []string                   `json:"turnIds,omitempty"`
+	TaskIDs              []string                   `json:"taskIds,omitempty"`
+	ToolCallIDs          []string                   `json:"toolCallIds,omitempty"`
+	PermissionRequestIDs []string                   `json:"permissionRequestIds,omitempty"`
+	ExpectedArtifacts    []string                   `json:"expectedArtifacts,omitempty"`
+	ProducedArtifacts    []string                   `json:"producedArtifacts,omitempty"`
+	VerifiedArtifacts    []string                   `json:"verifiedArtifacts,omitempty"`
+	Checkpoints          []RuntimeRunCheckpoint     `json:"checkpoints,omitempty"`
+	Diagnostics          RuntimeRunDiagnostics      `json:"diagnostics,omitempty"`
+	Interrupted          *RuntimeInterruptedSummary `json:"interrupted,omitempty"`
+	UserActions          RuntimeRunUserActions      `json:"userActions,omitempty"`
+	EvidenceCursor       string                     `json:"evidenceCursor,omitempty"`
+	ActivityWindow       RuntimeActivityWindow      `json:"activityWindow,omitempty"`
+	Source               RuntimeRunProjectionSource `json:"source"`
+	CreatedAt            int64                      `json:"createdAt,omitempty"`
+	UpdatedAt            int64                      `json:"updatedAt,omitempty"`
+	FinishedAt           int64                      `json:"finishedAt,omitempty"`
+}
+
+type RuntimeRunCheckpoint struct {
+	ID             string   `json:"id"`
+	TurnID         string   `json:"turnId,omitempty"`
+	TaskID         string   `json:"taskId,omitempty"`
+	Status         string   `json:"status"`
+	Summary        string   `json:"summary,omitempty"`
+	ArtifactRefs   []string `json:"artifactRefs,omitempty"`
+	CreatedAt      int64    `json:"createdAt,omitempty"`
+	ResumeEligible bool     `json:"resumeEligible,omitempty"`
+}
+
+type RuntimeRunDiagnostics struct {
+	TurnCount                  int                     `json:"turnCount,omitempty"`
+	TaskCount                  int                     `json:"taskCount,omitempty"`
+	ToolCallCount              int                     `json:"toolCallCount,omitempty"`
+	PermissionRequestCount     int                     `json:"permissionRequestCount,omitempty"`
+	InterruptedTurnCount       int                     `json:"interruptedTurnCount,omitempty"`
+	FailedTurnCount            int                     `json:"failedTurnCount,omitempty"`
+	CancelledTurnCount         int                     `json:"cancelledTurnCount,omitempty"`
+	RunningTurnCount           int                     `json:"runningTurnCount,omitempty"`
+	WaitingPermissionTurnCount int                     `json:"waitingPermissionTurnCount,omitempty"`
+	TerminalPermissionCounts   RuntimePermissionCounts `json:"terminalPermissionCounts,omitempty"`
+	ArtifactCounts             RuntimeArtifactCounts   `json:"artifactCounts,omitempty"`
+	ToolCountsByStatus         map[string]int          `json:"toolCountsByStatus,omitempty"`
+	Warning                    string                  `json:"warning,omitempty"`
+	WarningReason              string                  `json:"warningReason,omitempty"`
+}
+
+type RuntimeRunUserActions struct {
+	Resume  []RuntimeRunUserAction `json:"resume,omitempty"`
+	Discard []RuntimeRunUserAction `json:"discard,omitempty"`
+}
+
+type RuntimeRunUserAction struct {
+	ID      string `json:"id"`
+	TurnID  string `json:"turnId,omitempty"`
+	Kind    string `json:"kind"`
+	Label   string `json:"label,omitempty"`
+	Enabled bool   `json:"enabled"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+type RuntimeRunProjectionSource struct {
+	Kind                  string   `json:"kind"`
+	ReadOnly              bool     `json:"readOnly"`
+	SessionActivityParity bool     `json:"sessionActivityParity"`
+	Evidence              []string `json:"evidence,omitempty"`
+}
+
 type RuntimeTurnDiagnostics struct {
 	TurnID                    string                    `json:"turnId,omitempty"`
 	SessionID                 string                    `json:"sessionId,omitempty"`

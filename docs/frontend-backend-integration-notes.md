@@ -506,3 +506,64 @@ Boundary:
 - No restored actionable MCP auth or elicitation request.
 - No Run store, Run database migration, persisted interrupted acknowledgement
   field, frontend Run UI, or prose-derived artifact/checkpoint inference.
+
+## 2026-06-08: Phase 7 Claude Code Runtime Mapping And Run DTO Gate
+
+Phase 7 is a documentation/design gate for a future read-only Run DTO. It maps
+Agent Builder's runtime surfaces to Claude Code's `QueryEngine`, transcript,
+session metadata, task state, background agent output, and explicit resume
+protocol before any Run implementation.
+
+Frontend/backend rules:
+
+- A future Run surface must hydrate from runtime DTOs assembled in Go. React
+  must not own Run lifecycle, checkpoint, artifact, permission, or MCP
+  actionability state.
+- The first Run DTO must be read-only and derived from existing sessions,
+  turns, tool calls, permissions, `RuntimeAgentTask`, runtime events, replay,
+  and `SessionActivity`.
+- `SessionActivity` remains the fallback and parity oracle. A Run DTO may
+  summarize corresponding activity evidence, but it must not hide or rewrite
+  primitive turn/tool/permission/task evidence.
+- Runtime events may select a Run DTO refresh in the same way they select
+  `TurnActivity` or `SessionActivityCursorWindow`; event payloads must not be
+  merged into Run state.
+- Future resume UX must create an explicit user-triggered turn from a
+  structured checkpoint summary. It must not auto-resume from React state,
+  stale runtime events, or assistant prose.
+
+Boundary:
+
+- No frontend Run UI in Phase 7.
+- No runtime Run store or Run database migration.
+- No automatic resume or background Run scheduler.
+- No stale running/waiting tool, stale permission gate, or stale MCP
+  auth/elicitation actionability recovery.
+- No artifact, ref, or checkpoint inference from assistant prose.
+
+## 2026-06-08: Phase 7.1 Internal Run Projection Spike
+
+Phase 7.1 adds an internal Go runtime `RuntimeRunProjection` and tests, but it
+does not expose a frontend/backend Run contract yet.
+
+Frontend/backend rules:
+
+- There is no HTTP, Wails, dev-module, or React Run surface in Phase 7.1.
+- The projection is assembled in Go from `SessionActivity`, turns, tool calls,
+  permissions, runtime events, and `RuntimeAgentTask` evidence.
+- `SessionActivity` remains the public fallback and parity oracle.
+- Future transport exposure must preserve the same rule as activity hydration:
+  runtime events may select a Run projection refresh, but payloads must not be
+  merged into Run, checkpoint, artifact, permission, MCP actionability, or
+  interrupted state.
+- The read-only resume/discard action DTOs are candidate UX descriptions only.
+  They must not be wired to automatic resume or persisted acknowledgement
+  without a separate approved phase.
+
+Boundary:
+
+- No frontend Run UI.
+- No runtime Run store or Run database migration.
+- No automatic resume or background Run scheduler.
+- No stale running/waiting tool, stale permission gate, or stale MCP
+  auth/elicitation actionability recovery.

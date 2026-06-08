@@ -180,6 +180,11 @@ func (s runtimeAgentTaskStore) ListByChildSession(ctx context.Context, childSess
 	return s.list(ctx, `child_session_id = ?`, strings.TrimSpace(childSessionID))
 }
 
+func (s runtimeAgentTaskStore) ListBySession(ctx context.Context, sessionID string) ([]RuntimeAgentTask, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	return s.list(ctx, `parent_session_id = ? OR child_session_id = ?`, sessionID, sessionID)
+}
+
 func (s runtimeAgentTaskStore) ListByStatus(ctx context.Context, status string) ([]RuntimeAgentTask, error) {
 	status = strings.TrimSpace(status)
 	if status == "active" {

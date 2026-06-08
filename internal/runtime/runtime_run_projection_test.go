@@ -1,0 +1,198 @@
+package runtime
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/charmbracelet/crush/internal/db"
+	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/tools/scheduler"
+)
+
+func TestRuntimeRunProjectionDerivesFromSessionActivityEvidence(t *testing.T) {
+	t.Parallel()
+
+	service, sessionID, artifactPath := newRuntimeRunProjectionFixture(t)
+
+	activity, err := service.SessionActivity(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := projection.Run
+	if run.ID != "run:session:"+sessionID || run.PrimarySessionID != sessionID || !slices.Contains(run.SessionIDs, sessionID) {
+		t.Fatalf("run identity mismatch: %#v", run)
+	}
+	if run.Source.Kind != runtimeRunProjectionSourceKind || !run.Source.ReadOnly || !run.Source.SessionActivityParity {
+		t.Fatalf("source boundary mismatch: %#v", run.Source)
+	}
+	if run.Status != runtimeRunStatusInterrupted {
+		t.Fatalf("status = %q, want interrupted: %#v", run.Status, run.Diagnostics)
+	}
+	if !slices.Contains(run.TurnIDs, "turn-run-new") || !slices.Contains(run.ToolCallIDs, "tool-run-new") || !slices.Contains(run.PermissionRequestIDs, "perm-run-new") {
+		t.Fatalf("projection ids missing turn/tool/permission evidence: %#v", run)
+	}
+	if !slices.Contains(run.TaskIDs, "task-run-1") || !slices.Contains(run.SessionIDs, "session-child-run") {
+		t.Fatalf("projection ids missing task evidence: %#v", run)
+	}
+	if !slices.Contains(run.ProducedArtifacts, artifactPath) || !slices.Contains(run.VerifiedArtifacts, artifactPath) {
+		t.Fatalf("artifact parity mismatch: produced=%#v verified=%#v", run.ProducedArtifacts, run.VerifiedArtifacts)
+	}
+	fullTurn := findRuntimeTurn(activity.Turns, "turn-run-new")
+	if fullTurn.ID == "" {
+		t.Fatalf("full activity turn missing: %#v", activity.Turns)
+	}
+	if !slices.Equal(run.VerifiedArtifacts, appendUniqueStrings(nil, fullTurn.Diagnostics.VerifiedArtifacts...)) {
+		t.Fatalf("verified artifacts diverged from SessionActivity diagnostics: run=%#v full=%#v", run.VerifiedArtifacts, fullTurn.Diagnostics.VerifiedArtifacts)
+	}
+	if run.Diagnostics.TerminalPermissionCounts.Cancelled != 1 || run.Diagnostics.TerminalPermissionCounts.Pending != 0 {
+		t.Fatalf("terminal permission counts resurrected actionability: %#v", run.Diagnostics.TerminalPermissionCounts)
+	}
+	if !slices.ContainsFunc(run.Checkpoints, func(checkpoint RuntimeRunCheckpoint) bool {
+		return checkpoint.TurnID == "turn-run-new" && checkpoint.Status == turnStatusInterrupted && checkpoint.ResumeEligible
+	}) {
+		t.Fatalf("interrupted checkpoint missing: %#v", run.Checkpoints)
+	}
+	if len(run.UserActions.Resume) != 1 || !run.UserActions.Resume[0].Enabled || run.UserActions.Resume[0].TurnID != "turn-run-new" {
+		t.Fatalf("resume action should be explicit read-only DTO evidence: %#v", run.UserActions.Resume)
+	}
+}
+
+func TestRuntimeRunProjectionCursorWindowKeepsSessionActivityParity(t *testing.T) {
+	t.Parallel()
+
+	service, sessionID, artifactPath := newRuntimeRunProjectionFixture(t)
+
+	window, err := service.SessionActivityCursorWindow(context.Background(), sessionID, "", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if window.Window.FirstCursor == "" || !window.Window.HasMoreBefore {
+		t.Fatalf("fixture should produce a bounded cursor window: %#v", window.Window)
+	}
+	projection, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sessionID, Limit: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := projection.Run
+	if run.ActivityWindow.LastCursor != window.Window.LastCursor || run.EvidenceCursor != window.Window.LastCursor {
+		t.Fatalf("projection cursor mismatch run=%#v window=%#v", run.ActivityWindow, window.Window)
+	}
+	fullTurn := findRuntimeTurn(mustSessionActivity(t, service, sessionID).Turns, "turn-run-new")
+	windowTurn := findRuntimeTurn(window.Turns, "turn-run-new")
+	if fullTurn.ID == "" || windowTurn.ID == "" {
+		t.Fatalf("turn-run-new missing from full/window activity: full=%#v window=%#v", fullTurn, windowTurn)
+	}
+	if !slices.Equal(windowTurn.Diagnostics.ProducedArtifacts, fullTurn.Diagnostics.ProducedArtifacts) ||
+		!slices.Equal(windowTurn.Diagnostics.VerifiedArtifacts, fullTurn.Diagnostics.VerifiedArtifacts) ||
+		windowTurn.Diagnostics.PermissionCounts != fullTurn.Diagnostics.PermissionCounts {
+		t.Fatalf("cursor diagnostics diverged from full activity: full=%#v window=%#v", fullTurn.Diagnostics, windowTurn.Diagnostics)
+	}
+	windowTurnIDs := make([]string, 0, len(window.Turns))
+	for _, turn := range window.Turns {
+		windowTurnIDs = append(windowTurnIDs, turn.ID)
+	}
+	slices.Sort(windowTurnIDs)
+	if !slices.Equal(run.TurnIDs, windowTurnIDs) {
+		t.Fatalf("cursor projection turn ids diverged from window: run=%#v window=%#v", run.TurnIDs, windowTurnIDs)
+	}
+	if !slices.Contains(run.ProducedArtifacts, artifactPath) || run.Diagnostics.TerminalPermissionCounts.Pending != 0 {
+		t.Fatalf("cursor projection parity/actionability mismatch: %#v", run)
+	}
+	if run.Source.Kind != runtimeRunProjectionSourceKind || !run.Source.ReadOnly {
+		t.Fatalf("cursor projection became non-read-only: %#v", run.Source)
+	}
+}
+
+func newRuntimeRunProjectionFixture(t *testing.T) (*runtimeService, string, string) {
+	t.Helper()
+
+	runtimeBackend, workspace := backendForSkillTest(t)
+	conn, err := db.Connect(context.Background(), workspace.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(workspace.DataDir)
+	})
+	service := newRuntimeService()
+	service.runtime = runtimeBackend
+	service.workspace = &workspace
+	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+
+	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "run-projection")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldMessage, err := ws.Messages.Create(context.Background(), sess.ID, message.CreateMessageParams{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "old run turn"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(workspace.Path, "tmp", "runtime-dev", "run-projection.md")
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(artifactPath, []byte("phase 7.1 run projection artifact\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newMessage, err := ws.Messages.Create(context.Background(), sess.ID, message.CreateMessageParams{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "write " + artifactPath}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{ID: "turn-run-old", SessionID: sess.ID, Status: turnStatusCompleted, UserMessageID: oldMessage.ID, PromptPreview: "old run turn", StartedAt: now.Add(-2 * time.Minute).UnixMilli(), FinishedAt: now.Add(-90 * time.Second).UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{ID: "turn-run-new", SessionID: sess.ID, Status: turnStatusInterrupted, UserMessageID: newMessage.ID, PromptPreview: "write " + artifactPath, StartedAt: now.Add(-30 * time.Second).UnixMilli(), FinishedAt: now.Add(-5 * time.Second).UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{ID: "tool-run-old", SessionID: sess.ID, TurnID: "turn-run-old", Name: "read", Source: scheduler.ToolSourceBuiltin}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{ToolCallID: "tool-run-old", Status: scheduler.ToolCallCompleted, OutputSummary: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{ID: "tool-run-new", SessionID: sess.ID, TurnID: "turn-run-new", Name: "write", Source: scheduler.ToolSourceBuiltin, InputSummary: `{"file_path":"` + artifactPath + `"}`}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{ToolCallID: "tool-run-new", Status: scheduler.ToolCallCompleted, OutputSummary: "wrote", ArtifactRefs: []string{artifactPath}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.permissionStore.Upsert(context.Background(), RuntimePermissionRequest{ID: "perm-run-old", SessionID: sess.ID, TurnID: "turn-run-old", ToolCallID: "tool-run-old", ToolName: "read", Action: "read", Status: permissionStatusAllowedOnce, CreatedAt: now.Add(-110 * time.Second).UnixMilli(), DecidedAt: now.Add(-100 * time.Second).UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.permissionStore.Upsert(context.Background(), RuntimePermissionRequest{ID: "perm-run-new", SessionID: sess.ID, TurnID: "turn-run-new", ToolCallID: "tool-run-new", ToolName: "write", Action: "write", Status: permissionStatusCancelled, CreatedAt: now.Add(-20 * time.Second).UnixMilli(), DecidedAt: now.Add(-4 * time.Second).UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{ID: "task-run-1", ParentSessionID: sess.ID, ParentTurnID: "turn-run-new", ParentToolCallID: "tool-run-new", ChildSessionID: "session-child-run", Title: "subagent verify", Status: agentTaskStatusCompleted, Progress: 100, ResultSummary: "verified", ArtifactRefs: []string{artifactPath}, StartedAt: now.Add(-25 * time.Second).UnixMilli(), FinishedAt: now.Add(-2 * time.Second).UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	service.storeRuntimeEvent(RuntimeEvent{Type: "turn.started", SessionID: sess.ID, TurnID: "turn-run-old", CreatedAt: now.Add(-2 * time.Minute).UTC().Format(time.RFC3339Nano)})
+	service.storeRuntimeEvent(RuntimeEvent{Type: "tool.call.completed", SessionID: sess.ID, TurnID: "turn-run-new", ToolCallID: "tool-run-new", CreatedAt: now.Add(-3 * time.Second).UTC().Format(time.RFC3339Nano)})
+
+	return service, sess.ID, artifactPath
+}
+
+func mustSessionActivity(t *testing.T, service *runtimeService, sessionID string) RuntimeSessionActivityResponse {
+	t.Helper()
+	activity, err := service.SessionActivity(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return activity
+}

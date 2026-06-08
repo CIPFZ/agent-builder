@@ -69,8 +69,22 @@ interface RuntimeSelectedModelResponseDTO {
 }
 
 interface RuntimeProviderCatalogResponseDTO {
-  providerTypes: ProviderTypeViewModel[];
-  providers: ProviderCatalogItemViewModel[];
+  providerTypes?: ProviderTypeViewModel[];
+  providers?: RuntimeProviderCatalogItemDTO[];
+}
+
+interface RuntimeProviderCatalogItemDTO {
+  id?: string;
+  name?: string;
+  type?: string;
+  apiEndpoint?: string;
+  apiKeyTemplate?: string;
+  modelCount?: number;
+  defaultLargeModel?: string;
+  defaultSmallModel?: string;
+  requiredFields?: string[];
+  notes?: string[];
+  configurable?: boolean;
 }
 
 interface RuntimeConfiguredProviderDTO {
@@ -634,6 +648,30 @@ function mapConfiguredProviders(response?: RuntimeConfiguredProvidersResponseDTO
     proxy: provider.proxy,
     enabled: provider.enabled,
   }));
+}
+
+function mapProviderCatalogItems(response?: RuntimeProviderCatalogResponseDTO): ProviderCatalogItemViewModel[] | undefined {
+  if (!Array.isArray(response?.providers)) {
+    return undefined;
+  }
+
+  return response.providers.map(mapProviderCatalogItem);
+}
+
+function mapProviderCatalogItem(item: RuntimeProviderCatalogItemDTO): ProviderCatalogItemViewModel {
+  return {
+    id: item.id ?? '',
+    name: item.name ?? item.id ?? '',
+    type: item.type ?? '',
+    apiEndpoint: item.apiEndpoint,
+    apiKeyTemplate: item.apiKeyTemplate,
+    modelCount: item.modelCount ?? 0,
+    defaultLargeModel: item.defaultLargeModel,
+    defaultSmallModel: item.defaultSmallModel,
+    requiredFields: Array.isArray(item.requiredFields) ? item.requiredFields : [],
+    notes: Array.isArray(item.notes) ? item.notes : [],
+    configurable: item.configurable ?? false,
+  };
 }
 
 function mapSkills(response?: RuntimeSkillsResponseDTO): RuntimeSkillViewModel[] | undefined {
@@ -1295,6 +1333,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const skills = mapSkills(skillsResponse) ?? current.settings.skills;
   const plugins = mapPlugins(pluginsResponse) ?? current.settings.plugins;
   const mcpServers = mapMCPServers(mcpServersResponse) ?? current.settings.mcpServers;
+  const providers = mapProviderCatalogItems(providerCatalog) ?? current.settings.providers;
 
   return {
     ...current,
@@ -1326,7 +1365,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       permissionOptions: permissionModeOptions,
       permissions: settingsPermissions(policy),
       providerTypes: providerCatalog?.providerTypes ?? current.settings.providerTypes,
-      providers: providerCatalog?.providers ?? current.settings.providers,
+      providers,
       configuredProviders: mapConfiguredProviders(configuredProvidersResponse) ?? current.settings.configuredProviders,
       plugins,
       skills,
@@ -1867,13 +1906,14 @@ async function hydrateSettingsOnly(current: WorkbenchViewModel, bridge: RuntimeB
   const skillsResponse = await bridge.Skills?.().catch(() => undefined);
   const pluginsResponse = await bridge.Plugins?.().catch(() => undefined);
   const mcpServersResponse = await bridge.MCPServers?.().catch(() => undefined);
+  const providers = mapProviderCatalogItems(providerCatalog) ?? current.settings.providers;
 
   return {
     ...current,
     settings: {
       ...current.settings,
       providerTypes: providerCatalog?.providerTypes ?? current.settings.providerTypes,
-      providers: providerCatalog?.providers ?? current.settings.providers,
+      providers,
       configuredProviders: mapConfiguredProviders(configuredProvidersResponse) ?? current.settings.configuredProviders,
       plugins: mapPlugins(pluginsResponse) ?? current.settings.plugins,
       skills: mapSkills(skillsResponse) ?? current.settings.skills,

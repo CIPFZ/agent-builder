@@ -257,6 +257,102 @@ Design constraints:
 - No database migration, runtime Run store, or frontend Run UI is part of the
   Phase 6 design gate.
 
+### Phase 7 Design Gate: Claude Code Runtime Mapping
+
+Phase 7 grounds the future Run DTO in the Claude Code runtime model rather than
+introducing an independent abstraction.
+
+Claude Code mapping:
+
+| Claude Code concept | Agent Builder counterpart |
+| --- | --- |
+| `QueryEngine` conversation | runtime `Session` and runtime service |
+| `submitMessage()` | `RuntimeTurn` |
+| transcript messages | persisted messages and `SessionActivity` |
+| tool stream/result | `RuntimeToolCall` and structured refs |
+| permission callbacks/denials | `RuntimePermissionRequest` |
+| session metadata and recovery | runtime events, audit, replay, recovery status |
+| background/local/remote task state | `RuntimeAgentTask` |
+| subagent transcript and output file | task/ref/artifact evidence |
+| `resumeAgentBackground()` | future explicit checkpoint continuation |
+
+Read-only Run DTO candidate:
+
+```text
+RuntimeRunSummary
+  id
+  workspace_id
+  session_ids[]
+  primary_session_id
+  objective
+  status: active | waiting_user | interrupted | completed | failed | cancelled
+  turn_ids[]
+  task_ids[]
+  tool_call_ids[]
+  permission_request_ids[]
+  expected_artifacts[]
+  produced_artifacts[]
+  verified_artifacts[]
+  checkpoints[]
+  diagnostics
+  interrupted
+  user_actions.resume[]
+  user_actions.discard[]
+  evidence_cursor
+  created_at
+  updated_at
+  finished_at optional
+```
+
+Stability decision:
+
+- Stable as a read-only DTO vocabulary because the fields map to existing
+  Agent Builder evidence and to Claude Code runtime concepts.
+- Not stable as a database schema yet. Run id assignment, objective ownership,
+  checkpoint identity, cross-session grouping, and workspace/worktree metadata
+  still need implementation evidence.
+- A first implementation should derive the DTO from existing sessions, turns,
+  tool calls, permissions, `RuntimeAgentTask`, runtime events, replay, and
+  `SessionActivity`.
+- `SessionActivity` remains the fallback and parity oracle. Any Run projection
+  must prove parity with the corresponding activity evidence for messages,
+  tool calls, permissions, diagnostics, artifact evidence, interrupted
+  summaries, and terminal permission/MCP semantics.
+- Runtime events can trigger a Run DTO refresh, but event payloads must never
+  become Run state.
+- Resume remains a user-triggered new turn from an explicit checkpoint summary,
+  not automatic replay.
+- Phase 7 does not add a Run state machine, runtime Run store, Run migration,
+  automatic resume, background Run scheduler, or frontend Run UI.
+
+### Phase 7.1 Spike: Internal Read-only Run Projection
+
+Phase 7.1 implements the first read-only projection as an internal runtime
+method and test fixture only.
+
+Implemented semantics:
+
+- `RuntimeRunProjection` is assembled from existing `SessionActivity` evidence,
+  runtime turns, tool calls, permission requests, runtime events, and
+  `RuntimeAgentTask` rows.
+- The projection source is marked `session_activity_projection`, `readOnly:
+  true`, and `sessionActivityParity: true`.
+- `RunProjection(ctx, RuntimeRunProjectionRequest)` is not part of the
+  transport-neutral `RuntimeService` interface and is not exposed through
+  HTTP, Wails, or React.
+- `runtimeAgentTaskStore.ListBySession` is query-only over the existing task
+  table. It does not add a migration.
+- Checkpoints are derived only from structured interrupted summaries and final
+  task evidence. Assistant prose is not a checkpoint source.
+- Resume/discard are read-only user-action DTO candidates. They do not execute
+  resume, persist acknowledgement, or restore stale permission/MCP/tool
+  actionability.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeRunProjection" -count=1`
+- `go test ./internal/runtime -count=1`
+
 ## API 影响
 
 最小 API：
