@@ -212,6 +212,27 @@ func (s runtimeMCPRequestStore) Mark(ctx context.Context, id, status, responseSu
 	return s.Upsert(ctx, req)
 }
 
+func (s runtimeMCPRequestStore) CancelActionableOnStartup(ctx context.Context, reason string) ([]RuntimeMCPRequest, error) {
+	if s.db == nil {
+		return nil, errors.New("runtime mcp request database is not available")
+	}
+	var cancelled []RuntimeMCPRequest
+	for _, status := range []string{mcpRequestStatusPending, mcpRequestStatusRequired} {
+		requests, err := s.List(ctx, RuntimeMCPRequestListRequest{Status: status})
+		if err != nil {
+			return nil, err
+		}
+		for _, req := range requests {
+			updated, err := s.Mark(ctx, req.ID, mcpRequestStatusCancelled, "", reason)
+			if err != nil {
+				return nil, err
+			}
+			cancelled = append(cancelled, updated)
+		}
+	}
+	return cancelled, nil
+}
+
 type runtimeMCPRequestScanner interface {
 	Scan(dest ...any) error
 }

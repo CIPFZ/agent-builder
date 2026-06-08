@@ -300,6 +300,10 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to recover runtime permissions: %w", err)
 	}
+	cancelledMCPRequests, err := r.mcpRequestStore.CancelActionableOnStartup(ctx, "runtime restarted; stale MCP request is no longer actionable")
+	if err != nil {
+		return fmt.Errorf("failed to recover runtime mcp requests: %w", err)
+	}
 	r.recovery = runtimeRecoveryRecord{
 		startedAt:          startedAt,
 		interruptedTurns:   append([]RuntimeTurn(nil), interrupted...),
@@ -434,6 +438,10 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 				"tool_call_id":  perm.ToolCallID,
 			},
 		})
+	}
+	for _, req := range cancelledMCPRequests {
+		r.publishMCPRequestLifecycle(req)
+		r.writeMCPRequestAudit(req)
 	}
 
 	last, listErr := r.runtime.ListSessions(ctx, ws.ID)

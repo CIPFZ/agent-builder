@@ -3,12 +3,15 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/db"
+	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
@@ -153,6 +156,155 @@ func TestRuntimeMCPRequestsAppearInRecoveryAndPersistAcrossRestart(t *testing.T)
 	}
 	if got.Status != mcpRequestStatusPending {
 		t.Fatalf("restarted got = %#v", got)
+	}
+}
+
+func TestRuntimeMCPStartupCancelsStaleActionableAuthAndElicitationRequests(t *testing.T) {
+	t.Cleanup(db.ResetPool)
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Release(dataDir) })
+
+	service := newRuntimeService()
+	runtimeBackend, workspace := backendForSkillTest(t)
+	service.runtime = runtimeBackend
+	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	service.turns = newRuntimeTurnStore(conn)
+	service.permissionStore = newRuntimePermissionStore(conn)
+	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+	service.policy = defaultRuntimePolicy()
+	service.nextEventSequence = 0
+
+	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "mcp startup recovery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userMessage, err := ws.Messages.Create(context.Background(), sess.ID, message.CreateMessageParams{
+		Role:  message.User,
+		Parts: []message.ContentPart{message.TextContent{Text: "trigger hosted MCP auth and elicitation"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turnID := "turn-mcp-startup"
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:            turnID,
+		SessionID:     sess.ID,
+		Status:        turnStatusInterrupted,
+		UserMessageID: userMessage.ID,
+		PromptPreview: "trigger hosted MCP auth and elicitation",
+		StartedAt:     time.Now().Add(-time.Second).UnixMilli(),
+		FinishedAt:    time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, req := range []RuntimeMCPRequest{
+		{
+			ID:             "mcp-auth-stale",
+			Kind:           mcpRequestKindAuth,
+			Server:         "hosted-docs",
+			CapabilityID:   "mcp_server:hosted-docs",
+			SessionID:      sess.ID,
+			TurnID:         turnID,
+			Status:         mcpRequestStatusPending,
+			Description:    "Authorization: Bearer sk-secret",
+			PolicyDecision: "ask",
+			PolicyMode:     string(permission.PolicyModeAutoRead),
+			PolicyRisk:     string(permission.RiskSecret),
+			CreatedAt:      1000,
+			UpdatedAt:      1000,
+		},
+		{
+			ID:             "mcp-elicitation-stale",
+			Kind:           mcpRequestKindElicitation,
+			Server:         "hosted-docs",
+			CapabilityID:   "mcp:hosted-docs:select_project",
+			SessionID:      sess.ID,
+			TurnID:         turnID,
+			Status:         mcpRequestStatusRequired,
+			Prompt:         "Choose project",
+			Description:    "Authorization: Bearer sk-secret",
+			PolicyDecision: "ask",
+			PolicyMode:     string(permission.PolicyModeAutoRead),
+			PolicyRisk:     string(permission.RiskSecret),
+			CreatedAt:      1001,
+			UpdatedAt:      1001,
+		},
+	} {
+		if _, err := service.mcpRequestStore.Upsert(context.Background(), req); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cancelled, err := service.mcpRequestStore.CancelActionableOnStartup(context.Background(), "runtime restarted; stale MCP request is no longer actionable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cancelled) != 2 {
+		t.Fatalf("cancelled requests = %#v", cancelled)
+	}
+	for _, req := range cancelled {
+		service.publishMCPRequestLifecycle(req)
+		service.writeMCPRequestAudit(req)
+		if req.Status != mcpRequestStatusCancelled || req.CompletedAt == 0 {
+			t.Fatalf("request was not terminal after startup recovery: %#v", req)
+		}
+		if strings.Contains(strings.ToLower(req.Description+req.Error), "sk-secret") {
+			t.Fatalf("cancelled request leaked secret: %#v", req)
+		}
+	}
+
+	recovery, err := service.RecoveryStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovery.PendingMCPRequests) != 0 {
+		t.Fatalf("stale MCP requests remained actionable after startup recovery: %#v", recovery.PendingMCPRequests)
+	}
+	resp, err := service.DecideMCPRequest(context.Background(), RuntimeMCPRequestDecision{RequestID: "mcp-auth-stale", Action: "approve"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Request.Status != mcpRequestStatusCancelled {
+		t.Fatalf("terminal cancelled request became actionable again: %#v", resp.Request)
+	}
+
+	replay, err := service.ReplayExport(context.Background(), RuntimeReplayExportRequest{SessionID: sess.ID, TurnID: turnID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.Summary.Recovery.PendingMCPRequests != 0 {
+		t.Fatalf("replay still reports pending MCP actionability: %#v", replay.Summary.Recovery)
+	}
+	for _, id := range []string{"mcp-auth-stale", "mcp-elicitation-stale"} {
+		if !slices.ContainsFunc(replay.Summary.MCPRequests, func(item RuntimeReplayMCPRequest) bool {
+			return item.RequestID == id && item.Status == mcpRequestStatusCancelled && item.Redacted
+		}) {
+			t.Fatalf("cancelled MCP request missing from replay: id=%s replay=%#v", id, replay.Summary.MCPRequests)
+		}
+	}
+
+	turnActivity, err := service.TurnActivity(context.Background(), turnID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turnActivity.Turns) != 1 || turnActivity.Turns[0].ID != turnID {
+		t.Fatalf("turn activity = %#v", turnActivity.Turns)
+	}
+	if !slices.ContainsFunc(turnActivity.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventMCPAuthDenied && stringFromMap(event.Payload, "status") == mcpRequestStatusCancelled
+	}) || !slices.ContainsFunc(turnActivity.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventMCPElicitationDenied && stringFromMap(event.Payload, "status") == mcpRequestStatusCancelled
+	}) {
+		t.Fatalf("terminal MCP events missing from narrow activity: %#v", turnActivity.Events)
 	}
 }
 

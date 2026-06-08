@@ -387,6 +387,10 @@ func TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture(t *testing.T) {
 			if mcpServer.authRequests.Load() == 0 {
 				t.Fatal("MCP HTTP/SSE fixture did not observe configured auth header")
 			}
+			// Phase 6.8 exercises the successful disconnect edge: after the
+			// scheduler has recorded completed MCP output, a transport close must
+			// not erase or replay partial state into artifact evidence.
+			mcpServer.CloseClientConnections()
 
 			cancel()
 			restarted := newPhase66RuntimeService(conn, dataDir, runtimeBackend)
@@ -458,6 +462,21 @@ func TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture(t *testing.T) {
 				if call.Status == string(scheduler.ToolCallRunning) || call.Status == string(scheduler.ToolCallPending) || call.Status == string(scheduler.ToolCallWaitingPermission) {
 					t.Fatalf("stale live tool restored after interruption: %#v", call)
 				}
+			}
+			replay, err := restarted.ReplayExport(context.Background(), RuntimeReplayExportRequest{SessionID: sessionID, TurnID: chat.TurnID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.ContainsFunc(replay.Summary.ToolCalls, func(call RuntimeToolCall) bool {
+				return call.Source == string(scheduler.ToolSourceMCP) && call.Status == string(scheduler.ToolCallCompleted) && call.Display.Target == structuredPath
+			}) {
+				t.Fatalf("completed MCP scheduler output missing from replay: %#v", replay.Summary.ToolCalls)
+			}
+			structuredFile := filepath.Base(structuredPath)
+			if !slices.ContainsFunc(replay.Summary.ArtifactRefs, func(ref RuntimeRef) bool {
+				return ref.ContentType == "structured_output" && strings.Contains(ref.Preview, structuredFile)
+			}) {
+				t.Fatalf("structured MCP artifact ref missing from replay: %#v", replay.Summary.ArtifactRefs)
 			}
 		})
 	}

@@ -408,3 +408,44 @@ Boundary:
 - No restored actionable MCP auth or elicitation request.
 - No Run store, Run database migration, persisted interrupted acknowledgement
   field, or frontend Run UI.
+
+## 2026-06-08: Phase 6.8 Hosted MCP Follow-up
+
+Phase 6.8 hardens MCP restart semantics without adding frontend-owned state or
+Run state.
+
+Runtime/backend rules:
+
+- Startup recovery marks stale pending/required MCP auth and elicitation
+  requests as terminal `cancelled`. This uses the existing MCP request status,
+  event, audit, and replay paths; it does not add a persisted acknowledgement
+  field.
+- Completed MCP scheduler output remains the only artifact-producing evidence.
+  A streamable HTTP or SSE transport disconnect after completed output does not
+  remove the persisted completed tool call or create partial artifact evidence.
+- Unfinished or partial MCP tool output remains non-producing evidence and is
+  cancelled on restart.
+- Hosted OAuth and provider-specific elicitation flows must be validated with a
+  manual smoke checklist when credentials or browser auth are required. Secrets
+  and auth state must not be written to repo fixtures, logs, React state, or
+  screenshots.
+
+Frontend rules remain unchanged:
+
+- Runtime events are refresh triggers only. MCP auth/elicitation event payloads
+  may select a runtime read, but must not recreate actionable request state.
+- Full `SessionActivity` remains the timeline/diagnostics/interrupted fallback.
+  Narrow activity may expose terminal MCP request events as read-only evidence,
+  not as UI actionability.
+- React must not infer artifacts, diagnostics, MCP request state, checkpoints,
+  or recovery state from assistant prose, event payloads, partial MCP transport
+  state, or component state.
+
+Boundary:
+
+- No automatic resume.
+- No stale running/waiting tool recovery.
+- No restored actionable permission gate.
+- No restored actionable MCP auth or elicitation request after restart.
+- No Run store, Run database migration, persisted interrupted acknowledgement
+  field, frontend Run UI, durable narrow cursor, or frontend rollout change.

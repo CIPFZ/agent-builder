@@ -1964,9 +1964,9 @@ Remaining risks:
 
 ### Phase 6.8: Hosted MCP Replay/Auth/Elicitation Follow-up
 
-Status: planned after Phase 6.7 narrow hydration parity is implemented or
-explicitly deferred. This remains a validation/hardening phase, not a Run
-implementation.
+Status: implemented for deterministic local replay/restart hardening and
+manual hosted-provider smoke criteria. This remains a validation/hardening
+phase, not a Run implementation.
 
 Scope:
 
@@ -2013,6 +2013,73 @@ Acceptance:
   must not recreate an actionable auth or elicitation request.
 - If provider automation is not safe, the phase records an explicit manual
   validation gap and keeps the runtime/frontend boundaries unchanged.
+
+Implemented:
+
+- Hardened startup recovery for runtime MCP requests:
+  - pending/required MCP auth and elicitation requests from a previous runtime
+    are marked `cancelled` during startup recovery
+  - cancellation uses the existing terminal MCP request status path and records
+    runtime event/audit/replay evidence
+  - no new persisted acknowledgement field was added
+  - normal same-process recovery/listing still preserves currently pending MCP
+    requests; only startup recovery prevents stale actionability after restart
+- Extended the deterministic streamable HTTP and legacy SSE MCP interrupted
+  structured-ref fixture:
+  - after completed MCP scheduler output is recorded, the fixture closes MCP
+    client connections before runtime interruption/restart
+  - restart hydration still derives produced/verified artifacts from completed
+    scheduler output and persisted structured refs
+  - replay evidence includes the completed MCP tool call and structured output
+    artifact ref
+  - no running/pending/waiting MCP tool is restored after restart
+- Added focused terminal MCP request coverage for hosted-style auth and
+  elicitation:
+  - stale auth and elicitation requests become terminal `cancelled` on startup
+    recovery
+  - `RecoveryStatus` no longer returns them as pending/actionable
+  - `DecideMCPRequest` cannot re-open the terminal cancelled request
+  - `ReplayExport` preserves redacted cancelled evidence and reports zero
+    pending MCP request actionability
+  - `TurnActivity` exposes terminal MCP request events only as hydrated runtime
+    evidence; event payloads are not an actionability source
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeMCPStartupCancelsStaleActionableAuthAndElicitationRequests|TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture|TestRuntimeMCPPartialStructuredOutputCancelledOnRestartDoesNotProduceArtifact" -count=1`
+
+Hosted provider manual smoke checklist:
+
+- Record provider name and MCP transport.
+- Record auth/elicitation setup without secrets, tokens, redirect cookies, or
+  browser state in repo fixtures, docs, logs, React state, or screenshots.
+- Start a turn that reaches an MCP auth or elicitation request.
+- Record request kind/status before restart using runtime APIs with redacted
+  output only.
+- Restart the desktop/runtime before answering the request.
+- Verify `RecoveryStatus` has no stale pending MCP auth/elicitation request.
+- Verify `SessionActivity` restores the interrupted turn/tool evidence without
+  any running/waiting stale MCP tool.
+- Verify `ReplayExport` contains terminal redacted MCP request evidence and no
+  pending MCP request recovery count.
+- If narrow reads are used, verify `TurnActivity`/`SessionActivityWindow`
+  return only hydrated runtime evidence and do not recreate actionable auth or
+  elicitation state from event payloads.
+
+Remaining risks:
+
+- Real hosted OAuth/browser-mediated flows remain provider- and SDK-dependent.
+  They require manual smoke because deterministic automation would need
+  credentials or browser auth state that must not be stored in repo fixtures or
+  React state.
+- Legacy SSE still lacks a deterministic SDK hook for a true provider replay
+  after transport disconnect. The local fixture now covers completed-output
+  disconnect before restart; unfinished/partial transport state remains covered
+  by cancellation/no-artifact evidence.
+- This phase does not add automatic resume, stale tool recovery, stale
+  permission or MCP request actionability, Run persistence, Run UI, database
+  migrations, durable narrow cursors, or prose-derived artifact/checkpoint
+  inference.
 
 ### Phase 6.9: Narrow Activity Cursor And Rollout Hardening
 
@@ -2065,6 +2132,52 @@ Acceptance:
 - Repeated lifecycle, permission, artifact/ref, and terminal events do not
   duplicate or resurrect stale timeline/actionability state.
 
+### Phase 6.10: Hosted Provider MCP Manual Smoke
+
+Status: planned after Phase 6.9 cursor/rollout hardening. This remains hosted
+provider validation, not a Run implementation.
+
+Scope:
+
+- Execute the Phase 6.8 hosted-provider manual smoke checklist against one or
+  more real hosted MCP providers when credentials and browser OAuth can be
+  handled outside repo fixtures.
+- Cover provider-specific timing that deterministic local fixtures cannot
+  safely automate:
+  - browser-mediated OAuth redirects and token refresh
+  - provider-specific elicitation prompts and cancellation paths
+  - successful streamable HTTP provider replay after a transport disconnect
+  - legacy SSE provider behavior where SDK replay hooks are limited
+- Store only redacted observations under
+  `C:\Users\ytq\work\ai\agent-builder\tmp\runtime-dev` during validation.
+  Do not write secrets, OAuth tokens, cookies, browser profiles, or provider
+  auth state into repo fixtures, committed docs, logs, screenshots, or React
+  state.
+- Preserve current boundaries:
+  - full `SessionActivity` remains the parity oracle and fallback
+  - runtime events remain refresh triggers only
+  - no automatic resume
+  - no stale running/waiting tool recovery
+  - no restored actionable permission gate
+  - no restored actionable MCP auth or elicitation request after restart
+  - no Run store, Run state machine, Run database migration, frontend Run UI,
+    persisted interrupted acknowledgement field, or prose-derived
+    artifact/checkpoint inference
+
+Acceptance:
+
+- For each provider smoke, record provider name, transport, redacted setup,
+  request kind/status before restart, restart timing, and post-restart
+  `RecoveryStatus`, `SessionActivity`, and `ReplayExport` evidence.
+- Verify no stale MCP auth or elicitation request remains actionable after
+  restart.
+- Verify completed scheduler output is the only source of produced refs.
+- Verify unfinished/partial/disconnected MCP tools are terminal cancelled and
+  do not produce artifact evidence.
+- If narrow reads are used, verify `TurnActivity`/`SessionActivityWindow`
+  preserve the corresponding full `SessionActivity` subset semantics and do
+  not use event payloads to recreate actionability.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -2112,8 +2225,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Proceed to Phase 6.7 narrow activity hydration implementation.
+Proceed to Phase 6.9 narrow activity cursor and rollout hardening.
 
-Do not start Run persistence or Run UI before Phase 6.7 parity is validated and
-the Phase 6.8 hosted MCP replay/auth/elicitation follow-up risks are explicitly
+Do not start Run persistence or Run UI before Phase 6.9 durable cursor/frontend
+rollout hardening and Phase 6.10 hosted provider manual smoke are explicitly
 accepted or closed.
