@@ -344,6 +344,12 @@ interface RuntimeSessionActivityDTO {
 interface RuntimeSessionActivityWindowDTO extends RuntimeSessionActivityDTO {
   window?: {
     limit?: number;
+    cursor?: string;
+    firstCursor?: string;
+    lastCursor?: string;
+    hasMoreBefore?: boolean;
+    hasMoreAfter?: boolean;
+    evidenceCount?: number;
     fromStart?: boolean;
     toEnd?: boolean;
   };
@@ -482,6 +488,7 @@ interface RuntimeBridgeModule {
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
   SessionActivity?: (sessionID: string) => Promise<RuntimeSessionActivityDTO>;
   SessionActivityWindow?: (sessionID: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
+  SessionActivityCursorWindow?: (sessionID: string, cursor: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
   TurnActivity?: (turnID: string) => Promise<RuntimeTurnActivityDTO>;
   Turn?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
   Turns?: (status: string) => Promise<RuntimeTurnsResponseDTO>;
@@ -1231,6 +1238,9 @@ async function hydrateNarrowActivityFromHint(bridge: RuntimeBridgeModule, active
       return turnActivity;
     }
   }
+  if (bridge.SessionActivityCursorWindow) {
+    return optionalRuntimeRequest(() => bridge.SessionActivityCursorWindow?.(activeSessionID, '', 8) ?? Promise.resolve(undefined));
+  }
   if (bridge.SessionActivityWindow) {
     return optionalRuntimeRequest(() => bridge.SessionActivityWindow?.(activeSessionID, 8) ?? Promise.resolve(undefined));
   }
@@ -1724,6 +1734,13 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
   SessionActivity: (sessionID) => runtimeFetch<RuntimeSessionActivityDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity`),
   SessionActivityWindow: (sessionID, limit) =>
     runtimeFetch<RuntimeSessionActivityWindowDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity-window?limit=${encodeURIComponent(String(limit))}`),
+  SessionActivityCursorWindow: (sessionID, cursor, limit) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) {
+      params.set('cursor', cursor);
+    }
+    return runtimeFetch<RuntimeSessionActivityWindowDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity-window?${params.toString()}`);
+  },
   TurnActivity: (turnID) => runtimeFetch<RuntimeTurnActivityDTO>(`/v1/turns/${encodeURIComponent(turnID)}/activity`),
   Turn: (turnID) => runtimeFetch<RuntimeTurnResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}`),
   Turns: (status) => runtimeFetch<RuntimeTurnsResponseDTO>(`/v1/turns?status=${encodeURIComponent(status)}`),

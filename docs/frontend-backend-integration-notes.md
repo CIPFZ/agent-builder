@@ -449,3 +449,60 @@ Boundary:
 - No restored actionable MCP auth or elicitation request after restart.
 - No Run store, Run database migration, persisted interrupted acknowledgement
   field, frontend Run UI, durable narrow cursor, or frontend rollout change.
+
+## 2026-06-08: Phase 6.9 Narrow Activity Cursor
+
+Phase 6.9 adds a durable cursor contract for narrow session activity windows
+without changing the source-of-truth boundary.
+
+Runtime/API rules:
+
+- `GET /v1/sessions/{session_id}/activity-window?limit=N&cursor=C` hydrates a
+  mixed-evidence window ordered by message, turn, tool call, permission, and
+  runtime event anchors.
+- `RuntimeActivityWindow` now returns cursor metadata: `cursor`,
+  `firstCursor`, `lastCursor`, `hasMoreBefore`, `hasMoreAfter`, and
+  `evidenceCount`.
+- `SessionActivityCursorWindow(sessionID, cursor, limit)` is additive.
+  Existing `SessionActivityWindow(sessionID, limit)` remains available as a
+  compatibility fallback.
+- Full `SessionActivity` remains the fallback and parity oracle. Cursor-window
+  DTOs are assembled from the same runtime evidence and diagnostics helpers.
+
+Frontend rules:
+
+- The adapter may use an event envelope to choose `TurnActivity`,
+  `SessionActivityCursorWindow`, the legacy `SessionActivityWindow`, or full
+  `SessionActivity`.
+- Event payloads must not be merged into timeline, diagnostics, artifact,
+  interrupted, permission, or MCP actionability state.
+- Cursor-window results may merge runtime-returned DTO items into the current
+  hydrated view model, but duplicate lifecycle/permission/artifact/ref/terminal
+  events must not create duplicate timeline items or resurrect stale
+  actionability.
+- Vite/browser HTTP and dev-module fallback paths must pass cursor/limit
+  through to the runtime service. Packaged Wails uses
+  `SessionActivityCursorWindow` when generated bindings expose it, then falls
+  back to legacy narrow/full activity.
+
+Hosted MCP rules:
+
+- Restart recovery still cancels stale actionable MCP auth/elicitation
+  requests. Narrow activity can show terminal MCP request/event evidence only;
+  it must not recreate actionable hosted auth or elicitation UI from events.
+- Completed scheduler output remains the only source of produced artifact refs.
+  Partial/unfinished/disconnected MCP output remains non-producing and
+  cancelled after restart.
+- Real hosted OAuth/provider-specific elicitation smoke must stay manual and
+  redacted when credentials or browser auth are required. Do not store secrets,
+  tokens, cookies, browser profiles, screenshots, provider auth state, or
+  React state in repo fixtures or docs.
+
+Boundary:
+
+- No automatic resume.
+- No stale running/waiting tool recovery.
+- No restored actionable permission gate.
+- No restored actionable MCP auth or elicitation request.
+- No Run store, Run database migration, persisted interrupted acknowledgement
+  field, frontend Run UI, or prose-derived artifact/checkpoint inference.

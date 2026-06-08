@@ -730,6 +730,144 @@ func assertNarrowActivityMatchesFullTurn(t *testing.T, full RuntimeSessionActivi
 	}
 }
 
+func TestRuntimeSessionActivityCursorWindowPreservesMixedEvidenceParity(t *testing.T) {
+	t.Parallel()
+
+	runtimeBackend, workspace := backendForSkillTest(t)
+	conn, err := db.Connect(context.Background(), workspace.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(workspace.DataDir)
+	})
+	service := newRuntimeService()
+	service.runtime = runtimeBackend
+	service.workspace = &workspace
+	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+
+	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "cursor-window")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldMessage, err := ws.Messages.Create(context.Background(), sess.ID, message.CreateMessageParams{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "old turn"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newArtifact := filepath.Join(workspace.Path, "tmp", "runtime-dev", "cursor-window.md")
+	newMessage, err := ws.Messages.Create(context.Background(), sess.ID, message.CreateMessageParams{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "write " + newArtifact}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{ID: "turn-old", SessionID: sess.ID, Status: turnStatusCompleted, UserMessageID: oldMessage.ID, PromptPreview: "old turn", StartedAt: now.Add(-2 * time.Minute).UnixMilli(), FinishedAt: now.Add(-90 * time.Second).UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{ID: "turn-new", SessionID: sess.ID, Status: turnStatusInterrupted, UserMessageID: newMessage.ID, PromptPreview: "write " + newArtifact, StartedAt: now.Add(-30 * time.Second).UnixMilli(), FinishedAt: now.Add(-5 * time.Second).UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{ID: "tool-old", SessionID: sess.ID, TurnID: "turn-old", Name: "read", Source: scheduler.ToolSourceBuiltin}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{ToolCallID: "tool-old", Status: scheduler.ToolCallCompleted, OutputSummary: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{ID: "tool-new", SessionID: sess.ID, TurnID: "turn-new", Name: "write", Source: scheduler.ToolSourceBuiltin, InputSummary: `{"file_path":"` + newArtifact + `"}`}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{ToolCallID: "tool-new", Status: scheduler.ToolCallCompleted, OutputSummary: "wrote", ArtifactRefs: []string{newArtifact}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.permissionStore.Upsert(context.Background(), RuntimePermissionRequest{ID: "perm-old", SessionID: sess.ID, TurnID: "turn-old", ToolCallID: "tool-old", ToolName: "read", Action: "read", Status: permissionStatusAllowedOnce, CreatedAt: now.Add(-110 * time.Second).UnixMilli(), DecidedAt: now.Add(-100 * time.Second).UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.permissionStore.Upsert(context.Background(), RuntimePermissionRequest{ID: "perm-new", SessionID: sess.ID, TurnID: "turn-new", ToolCallID: "tool-new", ToolName: "write", Action: "write", Status: permissionStatusCancelled, CreatedAt: now.Add(-20 * time.Second).UnixMilli(), DecidedAt: now.Add(-4 * time.Second).UnixMilli()}); err != nil {
+		t.Fatal(err)
+	}
+	service.storeRuntimeEvent(RuntimeEvent{Type: "turn.started", SessionID: sess.ID, TurnID: "turn-old", CreatedAt: now.Add(-2 * time.Minute).UTC().Format(time.RFC3339Nano)})
+	service.storeRuntimeEvent(RuntimeEvent{Type: "tool.call.completed", SessionID: sess.ID, TurnID: "turn-new", ToolCallID: "tool-new", CreatedAt: now.Add(-3 * time.Second).UTC().Format(time.RFC3339Nano)})
+
+	full, err := service.SessionActivity(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window, err := service.SessionActivityCursorWindow(context.Background(), sess.ID, "", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if window.Window.LastCursor == "" || !window.Window.HasMoreBefore || window.Window.EvidenceCount < 6 {
+		t.Fatalf("window metadata = %#v", window.Window)
+	}
+	assertActivitySubsetMatchesFullTurn(t, full, window, "turn-new")
+
+	previous, err := service.SessionActivityCursorWindow(context.Background(), sess.ID, window.Window.FirstCursor, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if previous.Window.LastCursor == "" || !previous.Window.HasMoreAfter {
+		t.Fatalf("previous window metadata = %#v", previous.Window)
+	}
+	if findRuntimeTurn(previous.Turns, "turn-old").ID == "" {
+		t.Fatalf("cursor window did not hydrate earlier mixed evidence: %#v", previous.Turns)
+	}
+}
+
+func assertActivitySubsetMatchesFullTurn(t *testing.T, full RuntimeSessionActivityResponse, narrow RuntimeSessionActivityWindowResponse, turnID string) {
+	t.Helper()
+	fullTurn := findRuntimeTurn(full.Turns, turnID)
+	narrowTurn := findRuntimeTurn(narrow.Turns, turnID)
+	if fullTurn.ID == "" || narrowTurn.ID == "" {
+		t.Fatalf("turn %q full=%#v narrow=%#v", turnID, full.Turns, narrow.Turns)
+	}
+	if narrowTurn.Diagnostics.Warning != fullTurn.Diagnostics.Warning ||
+		!slices.Equal(narrowTurn.Diagnostics.ProducedArtifacts, fullTurn.Diagnostics.ProducedArtifacts) ||
+		narrowTurn.Diagnostics.ArtifactCounts != fullTurn.Diagnostics.ArtifactCounts ||
+		narrowTurn.Diagnostics.PermissionCounts != fullTurn.Diagnostics.PermissionCounts ||
+		narrowTurn.Diagnostics.LastRuntimeEventSequence != fullTurn.Diagnostics.LastRuntimeEventSequence {
+		t.Fatalf("diagnostics mismatch full=%#v narrow=%#v", fullTurn.Diagnostics, narrowTurn.Diagnostics)
+	}
+	if len(narrowTurn.Diagnostics.ProducedArtifacts) == 0 {
+		t.Fatalf("produced artifact diagnostics missing: %#v", narrowTurn.Diagnostics)
+	}
+	toolCall := RuntimeToolCall{}
+	for _, call := range narrow.ToolCalls {
+		if call.ID == "tool-new" {
+			toolCall = call
+			break
+		}
+	}
+	if toolCall.ID == "" || !slices.Contains(toolCall.ArtifactRefs, narrowTurn.Diagnostics.ProducedArtifacts[0]) {
+		t.Fatalf("tool artifact evidence mismatch: %#v diag=%#v", narrow.ToolCalls, narrowTurn.Diagnostics)
+	}
+	permission := RuntimePermissionRequest{}
+	for _, perm := range narrow.Permissions {
+		if perm.ID == "perm-new" {
+			permission = perm
+			break
+		}
+	}
+	if permission.ID == "" || permission.Status != permissionStatusCancelled {
+		t.Fatalf("terminal permission evidence mismatch: %#v", narrow.Permissions)
+	}
+	eventFound := false
+	for _, event := range narrow.Events {
+		if event.TurnID == turnID && event.ToolCallID == "tool-new" {
+			eventFound = true
+			break
+		}
+	}
+	if !eventFound {
+		t.Fatalf("event evidence mismatch: %#v", narrow.Events)
+	}
+}
+
 func findRuntimeTurn(turns []RuntimeTurn, turnID string) RuntimeTurn {
 	for _, turn := range turns {
 		if turn.ID == turnID {

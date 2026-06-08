@@ -3535,6 +3535,7 @@ type recordingRuntimeService struct {
 	messageSession        string
 	activitySession       string
 	activityWindowSession string
+	activityWindowCursor  string
 	activityWindowLimit   int
 	activity              RuntimeSessionActivityResponse
 	activityWindow        RuntimeSessionActivityWindowResponse
@@ -3835,7 +3836,12 @@ func (s *recordingRuntimeService) SessionActivity(_ context.Context, sessionID s
 }
 
 func (s *recordingRuntimeService) SessionActivityWindow(_ context.Context, sessionID string, limit int) (RuntimeSessionActivityWindowResponse, error) {
+	return s.SessionActivityCursorWindow(context.Background(), sessionID, "", limit)
+}
+
+func (s *recordingRuntimeService) SessionActivityCursorWindow(_ context.Context, sessionID string, cursor string, limit int) (RuntimeSessionActivityWindowResponse, error) {
 	s.activityWindowSession = sessionID
+	s.activityWindowCursor = cursor
 	s.activityWindowLimit = limit
 	if s.activityWindow.SessionID == "" {
 		s.activityWindow.SessionID = sessionID

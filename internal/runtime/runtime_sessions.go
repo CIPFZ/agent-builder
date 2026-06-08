@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -169,7 +171,7 @@ func (r *runtimeService) SessionActivity(ctx context.Context, sessionID string) 
 	if sessionID == "" {
 		return RuntimeSessionActivityResponse{}, errors.New("session id is required")
 	}
-	activity, err := r.hydrateSessionActivity(ctx, sessionID, 0)
+	activity, err := r.hydrateSessionActivity(ctx, sessionID, "", 0)
 	if err != nil {
 		return RuntimeSessionActivityResponse{}, err
 	}
@@ -184,6 +186,10 @@ func (r *runtimeService) SessionActivity(ctx context.Context, sessionID string) 
 }
 
 func (r *runtimeService) SessionActivityWindow(ctx context.Context, sessionID string, limit int) (RuntimeSessionActivityWindowResponse, error) {
+	return r.SessionActivityCursorWindow(ctx, sessionID, "", limit)
+}
+
+func (r *runtimeService) SessionActivityCursorWindow(ctx context.Context, sessionID string, cursor string, limit int) (RuntimeSessionActivityWindowResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeSessionActivityWindowResponse{}, err
 	}
@@ -191,7 +197,7 @@ func (r *runtimeService) SessionActivityWindow(ctx context.Context, sessionID st
 	if sessionID == "" {
 		return RuntimeSessionActivityWindowResponse{}, errors.New("session id is required")
 	}
-	return r.hydrateSessionActivity(ctx, sessionID, limit)
+	return r.hydrateSessionActivity(ctx, sessionID, strings.TrimSpace(cursor), limit)
 }
 
 func (r *runtimeService) TurnActivity(ctx context.Context, turnID string) (RuntimeTurnActivityResponse, error) {
@@ -210,7 +216,9 @@ func (r *runtimeService) TurnActivity(ctx context.Context, turnID string) (Runti
 	if err != nil {
 		return RuntimeTurnActivityResponse{}, err
 	}
-	activity, err := r.hydrateActivityForTurns(ctx, turn.SessionID, []RuntimeTurn{turn}, policy, false)
+	activity, err := r.hydrateActivityForSelection(ctx, turn.SessionID, []RuntimeTurn{turn}, policy, runtimeActivitySelection{
+		turnIDs: map[string]struct{}{turn.ID: {}},
+	})
 	if err != nil {
 		return RuntimeTurnActivityResponse{}, err
 	}
@@ -226,7 +234,7 @@ func (r *runtimeService) TurnActivity(ctx context.Context, turnID string) (Runti
 	}, nil
 }
 
-func (r *runtimeService) hydrateSessionActivity(ctx context.Context, sessionID string, limit int) (RuntimeSessionActivityWindowResponse, error) {
+func (r *runtimeService) hydrateSessionActivity(ctx context.Context, sessionID, cursor string, limit int) (RuntimeSessionActivityWindowResponse, error) {
 	policy, err := r.activityPolicy(ctx)
 	if err != nil {
 		return RuntimeSessionActivityWindowResponse{}, err
@@ -238,14 +246,17 @@ func (r *runtimeService) hydrateSessionActivity(ctx context.Context, sessionID s
 			return RuntimeSessionActivityWindowResponse{}, err
 		}
 	}
-	window := RuntimeActivityWindow{Limit: limit, FromStart: true, ToEnd: true}
-	if limit > 0 && len(turns) > limit {
-		turns = append([]RuntimeTurn(nil), turns[len(turns)-limit:]...)
-		window.FromStart = false
+	selection := runtimeActivitySelection{includeAll: limit <= 0 && cursor == ""}
+	window := RuntimeActivityWindow{Limit: limit, Cursor: cursor, FromStart: true, ToEnd: true}
+	if selection.includeAll {
+		selection.turnIDs = runtimeActivityTurnIDSet(turns)
 	} else {
-		turns = append([]RuntimeTurn(nil), turns...)
+		selection, window, err = r.selectActivityWindow(ctx, sessionID, turns, cursor, limit)
+		if err != nil {
+			return RuntimeSessionActivityWindowResponse{}, err
+		}
 	}
-	activity, err := r.hydrateActivityForTurns(ctx, sessionID, turns, policy, limit <= 0)
+	activity, err := r.hydrateActivityForSelection(ctx, sessionID, turns, policy, selection)
 	if err != nil {
 		return RuntimeSessionActivityWindowResponse{}, err
 	}
@@ -281,7 +292,181 @@ func (r *runtimeService) runtimeTurnForActivity(ctx context.Context, turnID stri
 	return turn, nil
 }
 
-func (r *runtimeService) hydrateActivityForTurns(ctx context.Context, sessionID string, turns []RuntimeTurn, policy RuntimePolicy, includeAllMessages bool) (RuntimeSessionActivityWindowResponse, error) {
+type runtimeActivityEvidence struct {
+	kind       string
+	id         string
+	cursor     string
+	rank       int
+	timestamp  int64
+	turnID     string
+	messageID  string
+	toolCallID string
+	permID     string
+	sequence   int64
+}
+
+type runtimeActivitySelection struct {
+	includeAll     bool
+	turnIDs        map[string]struct{}
+	messageIDs     map[string]struct{}
+	toolCallIDs    map[string]struct{}
+	permissionIDs  map[string]struct{}
+	eventSequences map[int64]struct{}
+}
+
+func (r *runtimeService) selectActivityWindow(ctx context.Context, sessionID string, turns []RuntimeTurn, cursor string, limit int) (runtimeActivitySelection, RuntimeActivityWindow, error) {
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	r.mu.Unlock()
+	messages, err := r.sessionMessages(ctx, wsID, sessionID)
+	if err != nil {
+		return runtimeActivitySelection{}, RuntimeActivityWindow{}, err
+	}
+	messageTurnIDs := runtimeActivityMessageTurnIDs(turns)
+	evidence := make([]runtimeActivityEvidence, 0, len(messages.Messages)+len(turns))
+	for _, msg := range messages.Messages {
+		entry := runtimeActivityEvidence{kind: "message", id: msg.ID, rank: 10, timestamp: msg.CreatedAt, messageID: msg.ID, turnID: messageTurnIDs[msg.ID]}
+		entry.cursor = runtimeActivityCursor(entry)
+		evidence = append(evidence, entry)
+	}
+	for _, turn := range turns {
+		entry := runtimeActivityEvidence{kind: "turn", id: turn.ID, rank: 20, timestamp: firstPositiveInt64(turn.StartedAt, turn.FinishedAt), turnID: turn.ID}
+		entry.cursor = runtimeActivityCursor(entry)
+		evidence = append(evidence, entry)
+	}
+	if r.toolCalls != nil {
+		for _, turn := range turns {
+			calls, err := r.toolCalls.ListCalls(ctx, turn.ID)
+			if err != nil {
+				continue
+			}
+			for _, call := range calls {
+				runtimeCall := toRuntimeToolCall(call)
+				entry := runtimeActivityEvidence{kind: "tool", id: runtimeCall.ID, rank: 30, timestamp: firstPositiveInt64(runtimeCall.StartedAt, runtimeCall.FinishedAt), turnID: runtimeCall.TurnID, messageID: runtimeCall.MessageID, toolCallID: runtimeCall.ID}
+				entry.cursor = runtimeActivityCursor(entry)
+				evidence = append(evidence, entry)
+			}
+		}
+	}
+	if r.permissionStore.db != nil {
+		if _, err := r.reconcilePendingPermissions(ctx); err != nil {
+			return runtimeActivitySelection{}, RuntimeActivityWindow{}, err
+		}
+		permissions, err := r.permissionStore.ListBySession(ctx, sessionID)
+		if err != nil {
+			return runtimeActivitySelection{}, RuntimeActivityWindow{}, err
+		}
+		for _, perm := range permissions {
+			entry := runtimeActivityEvidence{kind: "permission", id: perm.ID, rank: 40, timestamp: firstPositiveInt64(perm.CreatedAt, perm.DecidedAt), turnID: perm.TurnID, toolCallID: perm.ToolCallID, permID: perm.ID}
+			entry.cursor = runtimeActivityCursor(entry)
+			evidence = append(evidence, entry)
+		}
+	} else {
+		r.mu.Lock()
+		for _, pending := range r.permissions {
+			perm := pending.Permission
+			if perm.SessionID != sessionID {
+				continue
+			}
+			entry := runtimeActivityEvidence{kind: "permission", id: perm.ID, rank: 40, timestamp: firstPositiveInt64(perm.CreatedAt, perm.DecidedAt), turnID: perm.TurnID, toolCallID: perm.ToolCallID, permID: perm.ID}
+			entry.cursor = runtimeActivityCursor(entry)
+			evidence = append(evidence, entry)
+		}
+		r.mu.Unlock()
+	}
+	events := []RuntimeEvent{}
+	if r.eventStore.db != nil {
+		if resp, err := r.eventStore.ListSession(ctx, sessionID, 0); err == nil {
+			events = resp.Events
+		}
+	} else {
+		r.mu.Lock()
+		for _, event := range r.events {
+			if event.SessionID == sessionID {
+				events = append(events, event)
+			}
+		}
+		r.mu.Unlock()
+	}
+	for _, event := range events {
+		entry := runtimeActivityEvidence{kind: "event", id: strconv.FormatInt(event.Sequence, 10), rank: 50, timestamp: runtimeEventMillis(event.CreatedAt), turnID: event.TurnID, messageID: event.MessageID, toolCallID: event.ToolCallID, sequence: event.Sequence}
+		entry.cursor = runtimeActivityCursor(entry)
+		evidence = append(evidence, entry)
+	}
+	sort.SliceStable(evidence, func(i, j int) bool {
+		if evidence[i].timestamp != evidence[j].timestamp {
+			return evidence[i].timestamp < evidence[j].timestamp
+		}
+		if evidence[i].rank != evidence[j].rank {
+			return evidence[i].rank < evidence[j].rank
+		}
+		if evidence[i].kind != evidence[j].kind {
+			return evidence[i].kind < evidence[j].kind
+		}
+		return evidence[i].id < evidence[j].id
+	})
+	for i := range evidence {
+		evidence[i].cursor = runtimeActivityCursor(evidence[i])
+	}
+	selection := runtimeActivitySelection{
+		turnIDs:        map[string]struct{}{},
+		messageIDs:     map[string]struct{}{},
+		toolCallIDs:    map[string]struct{}{},
+		permissionIDs:  map[string]struct{}{},
+		eventSequences: map[int64]struct{}{},
+	}
+	window := RuntimeActivityWindow{Limit: limit, Cursor: cursor, FromStart: true, ToEnd: true, EvidenceCount: len(evidence)}
+	if len(evidence) == 0 {
+		return selection, window, nil
+	}
+	end := len(evidence)
+	if cursor != "" {
+		cursorIndex := sort.Search(len(evidence), func(i int) bool {
+			return runtimeActivityCompareCursor(evidence[i].cursor, cursor) > 0
+		})
+		end = cursorIndex
+		if end < len(evidence) {
+			window.HasMoreAfter = true
+			window.ToEnd = false
+		}
+	}
+	if end > len(evidence) {
+		end = len(evidence)
+	}
+	start := 0
+	if limit > 0 && end > limit {
+		start = end - limit
+		window.HasMoreBefore = true
+		window.FromStart = false
+	}
+	if start < end {
+		window.FirstCursor = evidence[start].cursor
+		window.LastCursor = evidence[end-1].cursor
+	}
+	for _, item := range evidence[start:end] {
+		if item.turnID != "" {
+			selection.turnIDs[item.turnID] = struct{}{}
+		}
+		if item.messageID != "" {
+			selection.messageIDs[item.messageID] = struct{}{}
+			if turnID := messageTurnIDs[item.messageID]; turnID != "" {
+				selection.turnIDs[turnID] = struct{}{}
+			}
+		}
+		if item.toolCallID != "" {
+			selection.toolCallIDs[item.toolCallID] = struct{}{}
+		}
+		if item.permID != "" {
+			selection.permissionIDs[item.permID] = struct{}{}
+		}
+		if item.sequence > 0 {
+			selection.eventSequences[item.sequence] = struct{}{}
+		}
+	}
+	return selection, window, nil
+}
+
+func (r *runtimeService) hydrateActivityForSelection(ctx context.Context, sessionID string, allTurns []RuntimeTurn, policy RuntimePolicy, selection runtimeActivitySelection) (RuntimeSessionActivityWindowResponse, error) {
 	r.mu.Lock()
 	wsID := r.workspace.ID
 	r.mu.Unlock()
@@ -289,6 +474,7 @@ func (r *runtimeService) hydrateActivityForTurns(ctx context.Context, sessionID 
 	if err != nil {
 		return RuntimeSessionActivityWindowResponse{}, err
 	}
+	turns := runtimeActivityFilterTurns(allTurns, selection.turnIDs)
 
 	toolCalls := make([]RuntimeToolCall, 0)
 	if r.toolCalls != nil {
@@ -323,28 +509,26 @@ func (r *runtimeService) hydrateActivityForTurns(ctx context.Context, sessionID 
 		if err != nil {
 			return RuntimeSessionActivityWindowResponse{}, err
 		}
-		turnIDs := runtimeActivityTurnIDSet(turns)
 		for _, perm := range sessionPermissions {
 			if perm.TurnID == "" {
-				if includeAllMessages {
+				if selection.includeAll || runtimeActivitySelected(selection.permissionIDs, perm.ID) {
 					permissions = append(permissions, perm)
 				}
 				continue
 			}
-			if _, ok := turnIDs[perm.TurnID]; ok {
+			if _, ok := selection.turnIDs[perm.TurnID]; ok {
 				permissions = append(permissions, perm)
 			}
 		}
 	} else {
-		turnIDs := runtimeActivityTurnIDSet(turns)
 		r.mu.Lock()
 		for _, pending := range r.permissions {
 			if pending.Permission.SessionID == sessionID {
-				if pending.Permission.TurnID == "" && !includeAllMessages {
+				if pending.Permission.TurnID == "" && !selection.includeAll && !runtimeActivitySelected(selection.permissionIDs, pending.Permission.ID) {
 					continue
 				}
 				if pending.Permission.TurnID != "" {
-					if _, ok := turnIDs[pending.Permission.TurnID]; !ok {
+					if _, ok := selection.turnIDs[pending.Permission.TurnID]; !ok {
 						continue
 					}
 				}
@@ -358,15 +542,15 @@ func (r *runtimeService) hydrateActivityForTurns(ctx context.Context, sessionID 
 	for _, perm := range permissions {
 		permissionsByTurn[perm.TurnID] = append(permissionsByTurn[perm.TurnID], perm)
 	}
-	eventsByTurn, events := r.activityEventsByTurn(ctx, sessionID, runtimeActivityTurnIDSet(turns))
+	eventsByTurn, events := r.activityEventsByTurn(ctx, sessionID, selection)
 	for i := range turns {
 		turns[i].Diagnostics = buildRuntimeTurnDiagnostics(turns[i], messages.Messages, toolCallsByTurn[turns[i].ID], permissionsByTurn[turns[i].ID], eventsByTurn[turns[i].ID])
 		turns[i].Interrupted = buildRuntimeInterruptedSummary(turns[i], turns[i].Diagnostics, toolCallsByTurn[turns[i].ID])
 	}
 
 	activityMessages := messages.Messages
-	if !includeAllMessages {
-		activityMessages = runtimeActivityMessagesForTurns(messages.Messages, turns)
+	if !selection.includeAll {
+		activityMessages = runtimeActivityMessagesForSelection(messages.Messages, turns, selection.messageIDs)
 	}
 	return RuntimeSessionActivityWindowResponse{
 		SessionID:   sessionID,
@@ -389,10 +573,20 @@ func runtimeActivityTurnIDSet(turns []RuntimeTurn) map[string]struct{} {
 	return out
 }
 
-func runtimeActivityMessagesForTurns(messages []RuntimeMessage, turns []RuntimeTurn) []RuntimeMessage {
-	if len(turns) == 0 {
+func runtimeActivityFilterTurns(turns []RuntimeTurn, turnIDs map[string]struct{}) []RuntimeTurn {
+	if len(turnIDs) == 0 {
 		return nil
 	}
+	out := make([]RuntimeTurn, 0, len(turnIDs))
+	for _, turn := range turns {
+		if _, ok := turnIDs[turn.ID]; ok {
+			out = append(out, turn)
+		}
+	}
+	return out
+}
+
+func runtimeActivityMessagesForSelection(messages []RuntimeMessage, turns []RuntimeTurn, selectedMessageIDs map[string]struct{}) []RuntimeMessage {
 	messageIDs := map[string]struct{}{}
 	for _, turn := range turns {
 		if turn.UserMessageID != "" {
@@ -405,6 +599,11 @@ func runtimeActivityMessagesForTurns(messages []RuntimeMessage, turns []RuntimeT
 			messageIDs[turn.LatestMessageID] = struct{}{}
 		}
 	}
+	for id := range selectedMessageIDs {
+		if id != "" {
+			messageIDs[id] = struct{}{}
+		}
+	}
 	out := make([]RuntimeMessage, 0, len(messageIDs))
 	for _, msg := range messages {
 		if _, ok := messageIDs[msg.ID]; ok {
@@ -414,13 +613,65 @@ func runtimeActivityMessagesForTurns(messages []RuntimeMessage, turns []RuntimeT
 	return out
 }
 
-func (r *runtimeService) activityEventsByTurn(ctx context.Context, sessionID string, turnIDs map[string]struct{}) (map[string][]RuntimeEvent, []RuntimeEvent) {
+func runtimeActivitySelected[T comparable](values map[T]struct{}, value T) bool {
+	_, ok := values[value]
+	return ok
+}
+
+func runtimeActivityMessageTurnIDs(turns []RuntimeTurn) map[string]string {
+	out := map[string]string{}
+	for _, turn := range turns {
+		if turn.UserMessageID != "" {
+			out[turn.UserMessageID] = turn.ID
+		}
+		if turn.LatestAssistantMessageID != "" {
+			out[turn.LatestAssistantMessageID] = turn.ID
+		}
+		if turn.LatestMessageID != "" {
+			out[turn.LatestMessageID] = turn.ID
+		}
+	}
+	return out
+}
+
+func runtimeActivityCursor(entry runtimeActivityEvidence) string {
+	return fmt.Sprintf("v1:%020d:%03d:%s:%s", entry.timestamp, entry.rank, entry.kind, entry.id)
+}
+
+func runtimeActivityCompareCursor(left, right string) int {
+	return strings.Compare(left, right)
+}
+
+func runtimeEventMillis(createdAt string) int64 {
+	if createdAt == "" {
+		return 0
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, createdAt); err == nil {
+		return parsed.UnixMilli()
+	}
+	return 0
+}
+
+func firstPositiveInt64(values ...int64) int64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func (r *runtimeService) activityEventsByTurn(ctx context.Context, sessionID string, selection runtimeActivitySelection) (map[string][]RuntimeEvent, []RuntimeEvent) {
 	out := map[string][]RuntimeEvent{}
 	events := []RuntimeEvent{}
 	if r.eventStore.db != nil {
 		if resp, err := r.eventStore.ListSession(ctx, sessionID, 0); err == nil {
 			for _, event := range resp.Events {
-				if _, ok := turnIDs[event.TurnID]; !ok {
+				if event.TurnID == "" {
+					if !selection.includeAll && !runtimeActivitySelected(selection.eventSequences, event.Sequence) {
+						continue
+					}
+				} else if _, ok := selection.turnIDs[event.TurnID]; !ok {
 					continue
 				}
 				events = append(events, event)
@@ -437,7 +688,11 @@ func (r *runtimeService) activityEventsByTurn(ctx context.Context, sessionID str
 		if event.SessionID != sessionID {
 			continue
 		}
-		if _, ok := turnIDs[event.TurnID]; !ok {
+		if event.TurnID == "" {
+			if !selection.includeAll && !runtimeActivitySelected(selection.eventSequences, event.Sequence) {
+				continue
+			}
+		} else if _, ok := selection.turnIDs[event.TurnID]; !ok {
 			continue
 		}
 		events = append(events, event)

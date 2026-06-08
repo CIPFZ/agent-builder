@@ -819,9 +819,15 @@ type RuntimeSessionActivityResponse struct {
 }
 
 type RuntimeActivityWindow struct {
-	Limit     int  `json:"limit,omitempty"`
-	FromStart bool `json:"fromStart,omitempty"`
-	ToEnd     bool `json:"toEnd,omitempty"`
+	Limit         int    `json:"limit,omitempty"`
+	Cursor        string `json:"cursor,omitempty"`
+	FirstCursor   string `json:"firstCursor,omitempty"`
+	LastCursor    string `json:"lastCursor,omitempty"`
+	HasMoreBefore bool   `json:"hasMoreBefore,omitempty"`
+	HasMoreAfter  bool   `json:"hasMoreAfter,omitempty"`
+	EvidenceCount int    `json:"evidenceCount,omitempty"`
+	FromStart     bool   `json:"fromStart,omitempty"`
+	ToEnd         bool   `json:"toEnd,omitempty"`
 }
 
 type RuntimeSessionActivityWindowResponse struct {

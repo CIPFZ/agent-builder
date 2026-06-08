@@ -458,6 +458,12 @@ func (r *RuntimeBridge) SessionActivityWindow(ctx context.Context, sessionID str
 
 }
 
+func (r *RuntimeBridge) SessionActivityCursorWindow(ctx context.Context, sessionID string, cursor string, limit int) (RuntimeSessionActivityWindowResponse, error) {
+
+	return r.service.SessionActivityCursorWindow(ctx, sessionID, cursor, limit)
+
+}
+
 func (r *RuntimeBridge) TurnActivity(ctx context.Context, turnID string) (RuntimeTurnActivityResponse, error) {
 
 	return r.service.TurnActivity(ctx, turnID)

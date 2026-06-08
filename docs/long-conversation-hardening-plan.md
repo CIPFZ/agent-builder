@@ -2081,11 +2081,13 @@ Remaining risks:
   migrations, durable narrow cursors, or prose-derived artifact/checkpoint
   inference.
 
-### Phase 6.9: Narrow Activity Cursor And Rollout Hardening
+### Phase 6.9: Narrow Activity Cursor, Rollout, And Hosted MCP Smoke
 
-Status: planned after Phase 6.8 hosted MCP follow-up risks are accepted or
-closed. This remains a narrow hydration rollout phase, not a Run
-implementation.
+Status: implemented for the durable narrow activity cursor contract, frontend
+rollout hardening, bridge/browser contract coverage, and deterministic hosted
+MCP recovery guarantees. Real hosted-provider OAuth/elicitation smoke remains
+a redacted manual gap because no safe credentials/browser auth state were
+available in this workspace. This is not a Run implementation.
 
 Scope:
 
@@ -2108,6 +2110,20 @@ Scope:
   - no duplicate timeline items after multiple lifecycle events
 - Consider a runtime feature flag or adapter capability check for staged
   rollout if large-session validation finds ordering or merge regressions.
+- Execute the Phase 6.8 hosted-provider manual smoke checklist against one or
+  more real hosted MCP providers when credentials and browser OAuth can be
+  handled outside repo fixtures.
+- Cover provider-specific timing that deterministic local fixtures cannot
+  safely automate:
+  - browser-mediated OAuth redirects and token refresh
+  - provider-specific elicitation prompts and cancellation paths
+  - successful streamable HTTP provider replay after a transport disconnect
+  - legacy SSE provider behavior where SDK replay hooks are limited
+- Store only redacted observations under
+  `C:\Users\ytq\work\ai\agent-builder\tmp\runtime-dev` during validation.
+  Do not write secrets, OAuth tokens, cookies, browser profiles, or provider
+  auth state into repo fixtures, committed docs, logs, screenshots, or React
+  state.
 - Preserve current boundaries:
   - full `SessionActivity` remains the parity oracle and fallback
   - runtime events remain refresh triggers only
@@ -2131,41 +2147,6 @@ Acceptance:
   methods and fallback safely to full `SessionActivity`.
 - Repeated lifecycle, permission, artifact/ref, and terminal events do not
   duplicate or resurrect stale timeline/actionability state.
-
-### Phase 6.10: Hosted Provider MCP Manual Smoke
-
-Status: planned after Phase 6.9 cursor/rollout hardening. This remains hosted
-provider validation, not a Run implementation.
-
-Scope:
-
-- Execute the Phase 6.8 hosted-provider manual smoke checklist against one or
-  more real hosted MCP providers when credentials and browser OAuth can be
-  handled outside repo fixtures.
-- Cover provider-specific timing that deterministic local fixtures cannot
-  safely automate:
-  - browser-mediated OAuth redirects and token refresh
-  - provider-specific elicitation prompts and cancellation paths
-  - successful streamable HTTP provider replay after a transport disconnect
-  - legacy SSE provider behavior where SDK replay hooks are limited
-- Store only redacted observations under
-  `C:\Users\ytq\work\ai\agent-builder\tmp\runtime-dev` during validation.
-  Do not write secrets, OAuth tokens, cookies, browser profiles, or provider
-  auth state into repo fixtures, committed docs, logs, screenshots, or React
-  state.
-- Preserve current boundaries:
-  - full `SessionActivity` remains the parity oracle and fallback
-  - runtime events remain refresh triggers only
-  - no automatic resume
-  - no stale running/waiting tool recovery
-  - no restored actionable permission gate
-  - no restored actionable MCP auth or elicitation request after restart
-  - no Run store, Run state machine, Run database migration, frontend Run UI,
-    persisted interrupted acknowledgement field, or prose-derived
-    artifact/checkpoint inference
-
-Acceptance:
-
 - For each provider smoke, record provider name, transport, redacted setup,
   request kind/status before restart, restart timing, and post-restart
   `RecoveryStatus`, `SessionActivity`, and `ReplayExport` evidence.
@@ -2177,6 +2158,89 @@ Acceptance:
 - If narrow reads are used, verify `TurnActivity`/`SessionActivityWindow`
   preserve the corresponding full `SessionActivity` subset semantics and do
   not use event payloads to recreate actionability.
+
+Implemented:
+
+- Replaced the simple tail-by-turn `SessionActivityWindow` selection with a
+  cursor-based mixed-evidence window. The cursor order is stable across:
+  - messages
+  - turns
+  - tool calls
+  - permissions
+  - runtime events
+- Added `RuntimeActivityWindow` cursor metadata:
+  - `cursor`
+  - `firstCursor`
+  - `lastCursor`
+  - `hasMoreBefore`
+  - `hasMoreAfter`
+  - `evidenceCount`
+- Added transport-neutral `SessionActivityCursorWindow(sessionID, cursor,
+  limit)` while preserving the existing `SessionActivityWindow(sessionID,
+  limit)` bridge/API fallback.
+- Updated HTTP/dev-module `/v1/sessions/{session_id}/activity-window` to accept
+  `cursor` and `limit`.
+- Updated the Wails bridge with `SessionActivityCursorWindow`; packaged bridge
+  callers can use the cursor method when available and fall back to the old
+  method or full `SessionActivity`.
+- Updated the frontend adapter to prefer the cursor-capable activity window
+  after session-level event hints while keeping `TurnActivity` for turn-level
+  hints and full `SessionActivity` as fallback.
+- Kept runtime events as refresh triggers only. Event payloads still only
+  choose which runtime DTO to read; they are not merged into timeline,
+  diagnostics, artifact, interrupted, permission, or MCP actionability state.
+- Kept full `SessionActivity` as the fallback and parity oracle. Cursor windows
+  hydrate selected evidence through the same Go diagnostics/interrupted helper
+  path as full activity.
+- Recorded the hosted-provider smoke result as a redacted manual gap in
+  `tmp/runtime-dev/phase-6.9-hosted-mcp-smoke-redacted.md`; no secrets,
+  cookies, OAuth tokens, screenshots, browser profiles, provider auth state, or
+  React state were written to repo fixtures or docs.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeSessionActivityCursorWindowPreservesMixedEvidenceParity|TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService|TestRuntimeMCPStartupCancelsStaleActionableAuthAndElicitationRequests|TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture|TestRuntimeMCPPartialStructuredOutputCancelledOnRestartDoesNotProduceArtifact" -count=1`
+- `go test ./desktop -run "TestRuntimeBridgeNarrowActivityUsesRuntimeService|TestRuntimeBridgePhase62PackagedHandoffRecoveryContract" -count=1`
+
+Parity coverage added:
+
+- Cursor windows prove parity with the corresponding full `SessionActivity`
+  subset for mixed message/turn/tool/permission/event evidence.
+- The cursor window test verifies diagnostics, produced artifact evidence,
+  terminal permission evidence, interrupted turn state, and runtime event
+  sequence evidence for the selected turn.
+- HTTP/dev-module route coverage verifies browser/Vite fallback paths forward
+  cursor and limit to the runtime service.
+- Wails bridge coverage verifies packaged bridge exposure for
+  `SessionActivityCursorWindow`, existing `SessionActivityWindow`, and
+  `TurnActivity`.
+
+Hosted MCP validation result:
+
+- Deterministic Phase 6.8/6.9 tests continue to prove:
+  - restart does not restore stale actionable MCP auth or elicitation requests
+  - completed scheduler output is the only source of produced refs
+  - unfinished/partial/disconnected MCP tools are cancelled and do not produce
+    artifact evidence
+  - narrow reads expose hydrated runtime evidence only and do not use event
+    payloads to recreate actionability
+- Real hosted OAuth/provider-specific elicitation smoke was not run because it
+  requires credentials or browser auth state that must not be automated or
+  persisted in this repo. The manual checklist remains in `tmp/runtime-dev` as
+  a redacted validation artifact.
+
+Remaining risks:
+
+- Cursor windows are additive rollout infrastructure; full `SessionActivity`
+  remains the safe fallback and parity oracle.
+- Real hosted OAuth/browser-mediated MCP flows still require an operator-run
+  manual smoke with redacted notes when credentials are available.
+- Legacy SSE provider replay remains provider/SDK dependent beyond the local
+  completed-output disconnect and partial-output cancellation fixtures.
+- This phase did not add automatic resume, stale tool recovery, stale
+  permission or MCP request actionability, Run persistence, Run UI, database
+  migrations, persisted interrupted acknowledgement, or prose-derived
+  artifact/checkpoint inference.
 
 ## Validation Scenarios
 
@@ -2225,8 +2289,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Proceed to Phase 6.9 narrow activity cursor and rollout hardening.
+Review and accept or revise Phase 6.9 narrow activity cursor, frontend rollout
+hardening, and hosted MCP smoke validation.
 
-Do not start Run persistence or Run UI before Phase 6.9 durable cursor/frontend
-rollout hardening and Phase 6.10 hosted provider manual smoke are explicitly
-accepted or closed.
+Do not start Run persistence or Run UI until Phase 6.9 is explicitly accepted
+or a separate follow-up phase is approved.

@@ -284,7 +284,7 @@ func TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService(t *testing.T) {
 	}
 	server := newRuntimeHTTPServer(service)
 
-	req, err := http.NewRequest(http.MethodGet, "/v1/sessions/session-1/activity-window?limit=2", nil)
+	req, err := http.NewRequest(http.MethodGet, "/v1/sessions/session-1/activity-window?limit=2&cursor=v1%3A00000000000000000100%3A010%3Amessage%3Am1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,8 +293,8 @@ func TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService(t *testing.T) {
 	if resp.status != http.StatusOK {
 		t.Fatalf("window status = %d body = %s", resp.status, resp.body.String())
 	}
-	if service.activityWindowSession != "session-1" || service.activityWindowLimit != 2 {
-		t.Fatalf("window args = %q %d", service.activityWindowSession, service.activityWindowLimit)
+	if service.activityWindowSession != "session-1" || service.activityWindowLimit != 2 || service.activityWindowCursor == "" {
+		t.Fatalf("window args = %q %q %d", service.activityWindowSession, service.activityWindowCursor, service.activityWindowLimit)
 	}
 	var window RuntimeSessionActivityWindowResponse
 	if err := json.Unmarshal(resp.body.Bytes(), &window); err != nil {

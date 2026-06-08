@@ -220,6 +220,16 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 	if window.Window.Limit != 2 || len(window.Turns) != 1 {
 		t.Fatalf("window = %#v", window)
 	}
+	cursorWindow, err := bridge.SessionActivityCursorWindow(context.Background(), "session-window", "v1:cursor", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.sessionActivityWindowID != "session-window" || service.sessionActivityWindowCursor != "v1:cursor" || service.sessionActivityWindowLimit != 3 {
+		t.Fatalf("cursor window args = %q %q %d", service.sessionActivityWindowID, service.sessionActivityWindowCursor, service.sessionActivityWindowLimit)
+	}
+	if cursorWindow.SessionID != "session-window" {
+		t.Fatalf("cursor window = %#v", cursorWindow)
+	}
 
 	turnActivity, err := bridge.TurnActivity(context.Background(), "turn-window")
 	if err != nil {
@@ -264,6 +274,7 @@ type recordingRuntimeService struct {
 	newChatTitle                string
 	sessionActivityID           string
 	sessionActivityWindowID     string
+	sessionActivityWindowCursor string
 	sessionActivityWindowLimit  int
 	turnActivityID              string
 	markInterruptedDoneID       string
@@ -498,7 +509,12 @@ func (s *recordingRuntimeService) SessionActivity(_ context.Context, sessionID s
 }
 
 func (s *recordingRuntimeService) SessionActivityWindow(_ context.Context, sessionID string, limit int) (RuntimeSessionActivityWindowResponse, error) {
+	return s.SessionActivityCursorWindow(context.Background(), sessionID, "", limit)
+}
+
+func (s *recordingRuntimeService) SessionActivityCursorWindow(_ context.Context, sessionID string, cursor string, limit int) (RuntimeSessionActivityWindowResponse, error) {
 	s.sessionActivityWindowID = sessionID
+	s.sessionActivityWindowCursor = cursor
 	s.sessionActivityWindowLimit = limit
 	if s.activityWindow.SessionID == "" {
 		s.activityWindow.SessionID = sessionID

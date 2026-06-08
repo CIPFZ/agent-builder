@@ -242,7 +242,7 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		value, err := s.service.SessionActivity(r.Context(), sessionActivityPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionActivityWindowPathID(r.URL.Path) != "":
-		value, err := s.service.SessionActivityWindow(r.Context(), sessionActivityWindowPathID(r.URL.Path), runtimeQueryLimit(r))
+		value, err := s.service.SessionActivityCursorWindow(r.Context(), sessionActivityWindowPathID(r.URL.Path), runtimeQueryCursor(r), runtimeQueryLimit(r))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionTodosPathID(r.URL.Path) != "":
 		value, err := s.service.SessionTodos(r.Context(), sessionTodosPathID(r.URL.Path))
@@ -677,7 +677,7 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 		value, err := s.service.SessionActivity(r.Context(), sessionActivityPathID(path))
 		return value, err, true
 	case method == http.MethodGet && sessionActivityWindowPathID(path) != "":
-		value, err := s.service.SessionActivityWindow(r.Context(), sessionActivityWindowPathID(path), runtimeDevModuleLimit(r, pathQuery))
+		value, err := s.service.SessionActivityCursorWindow(r.Context(), sessionActivityWindowPathID(path), runtimeDevModuleCursor(r, pathQuery), runtimeDevModuleLimit(r, pathQuery))
 		return value, err, true
 	case method == http.MethodPost && sessionTurnsPathID(path) != "":
 		var req RuntimeChatRequest
@@ -1059,6 +1059,10 @@ func runtimeQueryLimit(r *http.Request) int {
 	return limit
 }
 
+func runtimeQueryCursor(r *http.Request) string {
+	return strings.TrimSpace(r.URL.Query().Get("cursor"))
+}
+
 func runtimeDevModuleLimit(r *http.Request, pathQuery url.Values) int {
 	limitText := firstNonEmpty(pathQuery.Get("limit"), r.URL.Query().Get("limit"))
 	limit, _ := strconv.Atoi(strings.TrimSpace(limitText))
@@ -1066,6 +1070,10 @@ func runtimeDevModuleLimit(r *http.Request, pathQuery url.Values) int {
 		return 0
 	}
 	return limit
+}
+
+func runtimeDevModuleCursor(r *http.Request, pathQuery url.Values) string {
+	return strings.TrimSpace(firstNonEmpty(pathQuery.Get("cursor"), r.URL.Query().Get("cursor")))
 }
 
 func sessionCompactPathID(path string) string {
