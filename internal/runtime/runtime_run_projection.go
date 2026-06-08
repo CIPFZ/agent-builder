@@ -17,9 +17,9 @@ const (
 	runtimeRunStatusCancelled      = "cancelled"
 )
 
-// RunProjection builds the Phase 7.1 read-only Run DTO from existing runtime
-// evidence. It is intentionally not wired to HTTP/Wails yet; SessionActivity
-// remains the public aggregate and parity oracle.
+// RunProjection builds the read-only Run DTO from existing runtime evidence.
+// SessionActivity remains the parity oracle; persisted Run rows only provide
+// durable identity and summary metadata for the projection.
 func (r *runtimeService) RunProjection(ctx context.Context, req RuntimeRunProjectionRequest) (RuntimeRunProjectionResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeRunProjectionResponse{}, err
@@ -40,6 +40,11 @@ func (r *runtimeService) RunProjection(ctx context.Context, req RuntimeRunProjec
 	r.mu.Unlock()
 	tasks := r.runtimeRunProjectionTasks(ctx, sessionID)
 	run := buildRuntimeRunProjection(workspaceID, activity, tasks)
+	if r.runs.db != nil {
+		if persisted, err := r.runs.UpsertFromProjection(ctx, run, runtimeRunSourceBackfill); err == nil {
+			run.ID = persisted.ID
+		}
+	}
 	return RuntimeRunProjectionResponse{Run: run}, nil
 }
 

@@ -354,6 +354,83 @@ func TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesRunsToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		runs: RuntimeRunsResponse{Runs: []RuntimeRun{{
+			ID:               "run-1",
+			WorkspaceID:      "workspace-1",
+			PrimarySessionID: "session-1",
+			SessionIDs:       []string{"session-1"},
+			Objective:        "ship durable runs",
+			Status:           "completed",
+			Source:           runtimeRunSourceBackfill,
+			CreatedAt:        1000,
+			UpdatedAt:        1200,
+		}}},
+		run: RuntimeRunResponse{
+			Run: RuntimeRun{
+				ID:               "run-1",
+				WorkspaceID:      "workspace-1",
+				PrimarySessionID: "session-1",
+				SessionIDs:       []string{"session-1"},
+				Status:           "completed",
+				Source:           runtimeRunSourceBackfill,
+				CreatedAt:        1000,
+				UpdatedAt:        1200,
+			},
+			Projection: RuntimeRunProjection{
+				ID:               "run-1",
+				PrimarySessionID: "session-1",
+				Source: RuntimeRunProjectionSource{
+					Kind:                  runtimeRunProjectionSourceKind,
+					ReadOnly:              true,
+					SessionActivityParity: true,
+				},
+			},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/runs", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("runs status = %d body = %s", resp.status, resp.body.String())
+	}
+	var runs RuntimeRunsResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &runs); err != nil {
+		t.Fatal(err)
+	}
+	if len(runs.Runs) != 1 || runs.Runs[0].ID != "run-1" {
+		t.Fatalf("runs = %#v", runs)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/runs/run-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("run status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.runID != "run-1" {
+		t.Fatalf("run id = %q, want run-1", service.runID)
+	}
+	var run RuntimeRunResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &run); err != nil {
+		t.Fatal(err)
+	}
+	if run.Run.ID != "run-1" || run.Projection.ID != "run-1" || !run.Projection.Source.SessionActivityParity {
+		t.Fatalf("run response = %#v", run)
+	}
+}
+
 func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
 	t.Parallel()
 
@@ -369,6 +446,24 @@ func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
 			StartedAt: 1000,
 		}}},
 		policy: RuntimePolicyResponse{Policy: RuntimePolicy{Mode: "ask"}},
+		runs: RuntimeRunsResponse{Runs: []RuntimeRun{{
+			ID:               "run-1",
+			WorkspaceID:      "workspace-1",
+			PrimarySessionID: "session-1",
+			Status:           "completed",
+			Source:           runtimeRunSourceBackfill,
+			CreatedAt:        1000,
+			UpdatedAt:        1200,
+		}}},
+		run: RuntimeRunResponse{Run: RuntimeRun{
+			ID:               "run-1",
+			WorkspaceID:      "workspace-1",
+			PrimarySessionID: "session-1",
+			Status:           "completed",
+			Source:           runtimeRunSourceBackfill,
+			CreatedAt:        1000,
+			UpdatedAt:        1200,
+		}},
 	}
 	server := newRuntimeHTTPServer(service)
 
@@ -415,6 +510,24 @@ func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
 	resp = httptestResponse(server, req)
 	if resp.status != http.StatusOK || service.turnActivityID != "turn-1" {
 		t.Fatalf("turn activity status = %d body = %s id=%q", resp.status, resp.body.String(), service.turnActivityID)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/runs", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || !strings.Contains(resp.body.String(), "run-1") {
+		t.Fatalf("runs status = %d body = %s", resp.status, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/runs/run-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.runID != "run-1" {
+		t.Fatalf("run status = %d body = %s id=%q", resp.status, resp.body.String(), service.runID)
 	}
 
 	body := `%7B%22mode%22%3A%22auto_read%22%7D`

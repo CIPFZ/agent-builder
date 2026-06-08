@@ -173,6 +173,30 @@ type RuntimeTurnsResponse struct {
 	Turns []RuntimeTurn `json:"turns"`
 }
 
+type RuntimeRunsResponse struct {
+	Runs []RuntimeRun `json:"runs"`
+}
+
+type RuntimeRunResponse struct {
+	Run        RuntimeRun           `json:"run"`
+	Projection RuntimeRunProjection `json:"projection,omitempty"`
+}
+
+type RuntimeRun struct {
+	ID               string                 `json:"id"`
+	WorkspaceID      string                 `json:"workspaceId"`
+	PrimarySessionID string                 `json:"primarySessionId"`
+	SessionIDs       []string               `json:"sessionIds,omitempty"`
+	Objective        string                 `json:"objective,omitempty"`
+	Status           string                 `json:"status"`
+	Source           string                 `json:"source"`
+	Checkpoints      []RuntimeRunCheckpoint `json:"checkpoints,omitempty"`
+	CreatedAt        int64                  `json:"createdAt"`
+	UpdatedAt        int64                  `json:"updatedAt"`
+	FinishedAt       int64                  `json:"finishedAt,omitempty"`
+	DiscardedAt      int64                  `json:"discardedAt,omitempty"`
+}
+
 type RuntimeRunProjectionRequest struct {
 	SessionID string `json:"sessionId"`
 	Limit     int    `json:"limit,omitempty"`

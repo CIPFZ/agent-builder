@@ -647,3 +647,27 @@ Boundary:
 - No automatic resume or background Run scheduler.
 - No persisted Run store or database migration until Phase 8.1 is separately
   accepted.
+
+## 2026-06-09: Phase 8.1 Read-only Durable Run APIs
+
+Phase 8.1 adds a persisted Run identity foundation, but the frontend contract
+remains read-only.
+
+Transport:
+
+- HTTP/dev transport now exposes `GET /v1/runs` and
+  `GET /v1/runs/{run_id}`.
+- Wails exposes matching `Runs` and `Run` bridge methods.
+- `GET /v1/runs/{run_id}` returns a persisted Run summary plus a read-only
+  projection payload. The projection remains hydrated from runtime evidence and
+  must be treated as a parity payload, not as an action source.
+
+Frontend rules:
+
+- Runtime events may trigger refreshes of the Run list, Run detail, or session
+  projection. Event payloads must not be merged into Run/timeline/diagnostics/
+  artifact/permission/MCP state.
+- React may cache the returned DTO for rendering, but Go runtime evidence
+  remains the source of truth.
+- Do not add resume/discard controls or background Run UI from these endpoints.
+  Action semantics need a separate accepted phase.

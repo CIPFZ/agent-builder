@@ -260,6 +260,44 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsDurableRunReads(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		runs: RuntimeRunsResponse{Runs: []RuntimeRun{{
+			ID:               "run-1",
+			WorkspaceID:      "workspace-1",
+			PrimarySessionID: "session-1",
+			Status:           "completed",
+			Source:           "backfill",
+		}}},
+		run: RuntimeRunResponse{Run: RuntimeRun{
+			ID:               "run-1",
+			WorkspaceID:      "workspace-1",
+			PrimarySessionID: "session-1",
+			Status:           "completed",
+			Source:           "backfill",
+		}},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	runs, err := bridge.Runs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs.Runs) != 1 || runs.Runs[0].ID != "run-1" {
+		t.Fatalf("runs = %#v", runs)
+	}
+
+	run, err := bridge.Run(context.Background(), "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.runID != "run-1" || run.Run.ID != "run-1" {
+		t.Fatalf("run = %#v service id %q", run, service.runID)
+	}
+}
+
 func TestRuntimeBridgeForwardsMCPRequestDecision(t *testing.T) {
 	t.Parallel()
 
@@ -299,6 +337,9 @@ type recordingRuntimeService struct {
 	turnActivityID              string
 	runProjectionRequest        RuntimeRunProjectionRequest
 	runProjection               RuntimeRunProjectionResponse
+	runs                        RuntimeRunsResponse
+	run                         RuntimeRunResponse
+	runID                       string
 	markInterruptedDoneID       string
 	markInterruptedDoneResponse RuntimeTurnResponse
 }
@@ -379,6 +420,15 @@ func (s *recordingRuntimeService) Turn(context.Context, string) (RuntimeTurnResp
 
 func (s *recordingRuntimeService) Turns(context.Context, string) (RuntimeTurnsResponse, error) {
 	return RuntimeTurnsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, error) {
+	return s.runs, nil
+}
+
+func (s *recordingRuntimeService) Run(_ context.Context, runID string) (RuntimeRunResponse, error) {
+	s.runID = runID
+	return s.run, nil
 }
 
 func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeToolCallResponse, error) {

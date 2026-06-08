@@ -2816,6 +2816,64 @@ Review conclusion:
 - Background scheduling, automatic resume, and full frontend Run management
   remain explicitly out of scope until persisted evidence proves stable.
 
+### Phase 8.1: Durable Run Identity, Persistence Store, And Backfill
+
+Status: implemented as a read-only persistence foundation.
+
+Implemented:
+
+- Added the `runtime_runs`, `runtime_run_sessions`, and
+  `runtime_run_checkpoints` migration.
+- Added a `runtimeRunStore` with generated durable Run ids for new user-prompt
+  sessions and deterministic `run:session:<session_id>` ids for legacy
+  projection backfill.
+- Added idempotent session-link and checkpoint upsert behavior. Repeated
+  backfill does not duplicate Runs, session links, or checkpoint evidence.
+- Added read-only runtime DTOs and transport endpoints:
+  `GET /v1/runs`, `GET /v1/runs/{run_id}`, Wails `Runs`, and Wails `Run`.
+- `GET /v1/runs/{run_id}` returns persisted Run summary metadata plus a
+  read-only `RunProjection` parity payload. The projection is still hydrated
+  from `SessionActivity`-derived runtime evidence.
+- `Chat` now ensures a durable Run summary for the active/new session before
+  creating the turn. This only creates/read-updates summary metadata; it does
+  not schedule, resume, or replay work.
+- `RunProjection` can backfill/update persisted Run summaries when the Run
+  store is available, while preserving `SessionActivity` as the parity oracle.
+- Empty projection reads do not complete an already active/waiting/interrupted
+  durable Run summary.
+
+Validation:
+
+- Store tests cover generated durable ids, idempotent session links, projection
+  backfill, checkpoint dedupe, and the empty-projection active-run guard.
+- HTTP tests cover browser/dev transport routes for `GET /v1/runs`,
+  `GET /v1/runs/{run_id}`, and dev-module forwarding.
+- Wails bridge tests cover `Runs` and `Run` delegation.
+- Runtime API contract tests include the new read-only Run routes.
+
+Boundary review:
+
+- No full Run state machine was implemented.
+- No background Run scheduler or automatic resume was implemented.
+- No executable resume/discard API was implemented.
+- No frontend Run management UI was implemented.
+- No runtime event payload hydrates Run state; events remain refresh triggers.
+- No assistant prose is used to infer artifacts, refs, checkpoints, or Run
+  actionability.
+- Permission and MCP actionability remain sourced from existing runtime records
+  and recovery semantics, not persisted Run rows.
+
+Remaining risks:
+
+- Phase 8.1 persists Run identity and summary metadata only. It does not yet
+  implement user-facing checkpoint acknowledgement, resume, or discard.
+- Cross-session grouping is limited to existing projection evidence and task
+  links; richer worktree/background task grouping still needs an accepted
+  action phase.
+- Restart parity for stale hosted MCP auth/elicitation remains covered by the
+  existing recovery/MCP tests and docs; Phase 8.1 does not add new hosted
+  provider credentials or browser OAuth fixtures.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -2863,10 +2921,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 8, then proceed to Phase 8.1: Durable Run Identity,
-Persistence Store, And Backfill Implementation. Phase 8.1 should implement the
-read-only persistence foundation only: migrations, stores, idempotent backfill,
-read-only transport, and parity/restart tests. Do not implement automatic
-resume, background Run scheduling, executable resume/discard, or expanded
-frontend Run management in Phase 8.1 unless a separate accepted gate adds those
-action semantics.
+Review/accept Phase 8.1, then design the next action gate. The next phase
+should decide checkpoint acknowledgement/resume/discard semantics before any
+runtime scheduler, automatic resume, or frontend Run management UI is added.

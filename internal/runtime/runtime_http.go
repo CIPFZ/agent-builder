@@ -272,6 +272,12 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/turns":
 		value, err := s.service.Turns(r.Context(), r.URL.Query().Get("status"))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/runs":
+		value, err := s.service.Runs(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && runPathID(r.URL.Path) != "":
+		value, err := s.service.Run(r.Context(), runPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/refs":
 		value, err := s.service.Refs(r.Context(), RuntimeRefListRequest{
 			SessionID:  r.URL.Query().Get("session_id"),
@@ -714,6 +720,12 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 	case method == http.MethodPost && turnInterruptedDonePathID(path) != "":
 		value, err := s.service.MarkInterruptedDone(r.Context(), turnInterruptedDonePathID(path))
 		return value, err, true
+	case method == http.MethodGet && path == "/v1/runs":
+		value, err := s.service.Runs(r.Context())
+		return value, err, true
+	case method == http.MethodGet && runPathID(path) != "":
+		value, err := s.service.Run(r.Context(), runPathID(path))
+		return value, err, true
 	case method == http.MethodGet && turnPathID(path) != "":
 		value, err := s.service.Turn(r.Context(), turnPathID(path))
 		return value, err, true
@@ -1032,6 +1044,14 @@ func sessionTurnsPathID(path string) string {
 
 func sessionPathID(path string) string {
 	id := strings.TrimPrefix(path, "/v1/sessions/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func runPathID(path string) string {
+	id := strings.TrimPrefix(path, "/v1/runs/")
 	if id == path || id == "" || strings.Contains(id, "/") {
 		return ""
 	}

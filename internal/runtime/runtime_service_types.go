@@ -32,6 +32,8 @@ type RuntimeService interface {
 	Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error)
 	Turn(context.Context, string) (RuntimeTurnResponse, error)
 	Turns(context.Context, string) (RuntimeTurnsResponse, error)
+	Runs(context.Context) (RuntimeRunsResponse, error)
+	Run(context.Context, string) (RuntimeRunResponse, error)
 	ToolCall(context.Context, string) (RuntimeToolCallResponse, error)
 	TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error)
 	SandboxDecisions(context.Context, RuntimeSandboxDecisionListRequest) (RuntimeSandboxDecisionsResponse, error)
@@ -140,6 +142,7 @@ type runtimeService struct {
 	eventStore        runtimeEventStore
 	permissionStore   runtimePermissionStore
 	mcpRequestStore   runtimeMCPRequestStore
+	runs              runtimeRunStore
 	permissions       map[string]pendingRuntimePermission
 	policy            RuntimePolicy
 	capabilityLoads   map[string]runtimeCapabilityLoadRecord

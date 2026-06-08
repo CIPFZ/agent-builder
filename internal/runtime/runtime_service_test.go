@@ -3543,6 +3543,9 @@ type recordingRuntimeService struct {
 	turnActivity          RuntimeTurnActivityResponse
 	runProjectionRequest  RuntimeRunProjectionRequest
 	runProjection         RuntimeRunProjectionResponse
+	runs                  RuntimeRunsResponse
+	run                   RuntimeRunResponse
+	runID                 string
 	createdSkill          RuntimeSkillCreateRequest
 	addedSkillPath        string
 	cancelledTurn         string
@@ -3665,6 +3668,15 @@ func (s *recordingRuntimeService) Turn(context.Context, string) (RuntimeTurnResp
 func (s *recordingRuntimeService) Turns(_ context.Context, status string) (RuntimeTurnsResponse, error) {
 	s.turnsStatus = status
 	return s.turns, nil
+}
+
+func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, error) {
+	return s.runs, nil
+}
+
+func (s *recordingRuntimeService) Run(_ context.Context, id string) (RuntimeRunResponse, error) {
+	s.runID = id
+	return s.run, nil
 }
 
 func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeToolCallResponse, error) {

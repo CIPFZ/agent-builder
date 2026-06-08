@@ -62,6 +62,11 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 	if err := r.ensureSessionTitle(ctx, wsID, sessionID, prompt); err != nil {
 		slog.Warn("Failed to update desktop session title", "workspace_id", wsID, "session_id", sessionID, "error", err)
 	}
+	if r.runs.db != nil {
+		if _, err := r.runs.EnsureForSession(ctx, wsID, sessionID, preview(prompt, auditPreviewLimit), runtimeRunSourceUserPrompt); err != nil {
+			slog.Warn("Failed to ensure runtime run", "workspace_id", wsID, "session_id", sessionID, "error", err)
+		}
+	}
 
 	requestID := newRequestID()
 	start := time.Now()
