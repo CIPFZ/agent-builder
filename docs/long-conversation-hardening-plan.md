@@ -2874,6 +2874,71 @@ Remaining risks:
   existing recovery/MCP tests and docs; Phase 8.1 does not add new hosted
   provider credentials or browser OAuth fixtures.
 
+### Phase 8.2: Checkpoint Acknowledgement, Resume, And Discard Action Gate
+
+Status: planned as a design gate only. Do not implement executable action APIs,
+automatic resume, background scheduling, frontend Run management UI, or a full
+Run state machine in this phase.
+
+Purpose:
+
+- Decide the exact contract for future user-triggered checkpoint
+  acknowledgement, resume, and discard actions.
+- Convert the Phase 8.1 read-only durable Run foundation into a safe action
+  design without letting persisted Run rows become the source of runtime
+  actionability.
+- Define the minimum tests required before any `POST /v1/runs/{run_id}/resume`
+  or `POST /v1/runs/{run_id}/discard` endpoint can be implemented.
+
+Design constraints:
+
+- Resume must create a new explicit user turn. It must not replay a previous
+  stream, completed tool call, permission request, MCP auth request, or MCP
+  elicitation request.
+- Resume prompt construction must use structured checkpoint summary, current
+  workspace state, linked session/task metadata, and current model/provider
+  configuration. It must not infer task state from assistant prose.
+- Discard is an acknowledgement of a checkpoint or Run for UX purposes. It must
+  not delete evidence or rewrite terminal turn/tool/permission/MCP records.
+- Checkpoint acknowledgement should live in `runtime_run_checkpoints` through
+  `acknowledged_at`/`discarded_at` only after the action API phase explicitly
+  accepts that storage contract.
+- `MarkInterruptedDone` remains the current interrupted acknowledgement path
+  until the checkpoint action implementation replaces or bridges it with tests.
+- Permission and MCP auth/elicitation actionability must continue to come from
+  current runtime stores and recovery normalization. Persisted Run/checkpoint
+  rows may describe candidate actions, but must not make stale requests
+  actionable.
+- Runtime events may trigger Run detail refresh after an action. Event payloads
+  must not hydrate resumed/discarded state directly.
+
+Required implementation gates after this design phase:
+
+- Contract tests for any future action endpoint:
+  `POST /v1/runs/{run_id}/resume`,
+  `POST /v1/runs/{run_id}/checkpoints/{checkpoint_id}/resume`,
+  `POST /v1/runs/{run_id}/discard`, or checkpoint discard/ack endpoints.
+- Restart tests proving stale running/waiting tools, stale permission gates,
+  stale MCP auth requests, and stale MCP elicitation requests remain terminal
+  or non-actionable after Run detail refresh.
+- Parity tests proving action responses still derive timeline, diagnostics,
+  artifacts, interrupted summaries, and terminal permission/MCP semantics from
+  `SessionActivity`/runtime stores.
+- Audit tests proving resume creates a new turn linked to the checkpoint and
+  discard records acknowledgement without deleting evidence.
+- Frontend transport tests proving React refreshes DTOs after events/actions
+  and never uses event payload or browser memory as Run action source.
+
+Exit criteria:
+
+- The team can point to a narrow implementation plan for explicit
+  user-triggered resume/discard.
+- The plan names the exact storage writes, API shapes, audit records, and
+  stale-actionability tests required.
+- The plan still excludes automatic resume, background Run scheduling, full Run
+  state machine implementation, and expanded frontend Run management UI unless
+  a later accepted phase explicitly adds them.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -2921,6 +2986,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 8.1, then design the next action gate. The next phase
-should decide checkpoint acknowledgement/resume/discard semantics before any
-runtime scheduler, automatic resume, or frontend Run management UI is added.
+Review/accept Phase 8.2, then implement only the accepted narrow action slice.
+The next implementation phase should start with checkpoint acknowledgement or
+explicit user-triggered resume/discard contracts, not automatic resume,
+background Run scheduling, or expanded frontend Run management UI.

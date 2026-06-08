@@ -671,3 +671,20 @@ Frontend rules:
   remains the source of truth.
 - Do not add resume/discard controls or background Run UI from these endpoints.
   Action semantics need a separate accepted phase.
+
+## 2026-06-09: Phase 8.2 Action Design Gate Frontend Boundary
+
+Phase 8.2 is a design gate for future checkpoint acknowledgement, resume, and
+discard actions. It does not add frontend controls or new executable endpoints.
+
+Frontend boundary:
+
+- A future resume/discard UI must call explicit runtime action endpoints and
+  then refresh Run detail/session activity. It must not synthesize action
+  results from event payloads or React state.
+- Resume must be represented as a new user-triggered turn returned by the Go
+  runtime, not as a continuation of a browser-held stream.
+- Discard/acknowledgement state must come from runtime DTOs after persistence,
+  not from optimistic local-only state that could resurrect stale actionability.
+- Stale permission gates and MCP auth/elicitation requests must remain
+  non-actionable unless current runtime stores return them as pending.
