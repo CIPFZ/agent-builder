@@ -700,6 +700,20 @@ Accepted implementation:
 - No automatic resume, unattended background execution, or frontend Run
   management UI is added.
 
+### Phase 16.1 Gate: Scheduler Delegate Acceptance
+
+Phase 16.1 accepts the foreground delegate slice for user turns and explicit
+checkpoint resume.
+
+Next boundary:
+
+- Task scheduling ownership requires its own design gate.
+- Task scheduling must not be inferred from transition history, event payloads,
+  assistant prose, or React state.
+- Agent task stores, Run ownership, cancellation, diagnostics, permission/MCP
+  actionability, and artifact evidence boundaries must be defined before
+  executable task scheduling is added.
+
 ## API 影响
 
 最小 API：

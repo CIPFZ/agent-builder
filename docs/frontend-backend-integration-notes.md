@@ -1435,3 +1435,21 @@ Phase 16 result:
   path as other user turns.
 - Source checkpoint evidence is not acknowledged, discarded, or mutated by the
   scheduler delegate path.
+
+## 2026-06-09: Phase 16.1 Scheduler Delegate Acceptance Gate
+
+Phase 16.1 accepts the user-turn and checkpoint-resume foreground delegate
+slice.
+
+Frontend boundary:
+
+- Frontend behavior remains existing actions followed by DTO refresh.
+- No scheduler transport or Run management UI is added.
+- The next boundary is backend task scheduling design, not frontend exposure.
+
+Phase 16.1 result:
+
+- User-turn and explicit checkpoint resume scheduler delegate contracts are
+  accepted.
+- Task scheduling ownership remains unimplemented and requires a separate
+  design gate.

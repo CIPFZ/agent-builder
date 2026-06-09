@@ -6051,6 +6051,66 @@ Review conclusion:
   transition history, assistant prose, and React state were not promoted to
   lifecycle or actionability sources.
 
+### Phase 16.1: Scheduler Delegate Acceptance And Next Boundary Gate
+
+Status: accepted as a review gate only.
+
+Scope:
+
+- Review the user-turn and checkpoint-resume foreground delegate slice.
+- Decide whether the next safe boundary is task scheduling design,
+  transport/read exposure, or more backend delegate coverage.
+- Keep this phase free of runtime behavior changes unless a focused contract
+  gap is found.
+
+Accepted review:
+
+- User-triggered `Chat` now has an internal foreground scheduler delegate before
+  `turn_started` transition audit and before `runChat(...)`.
+- Preflight rejection terminalizes durable turn state and in-memory request
+  state without starting execution.
+- Explicit checkpoint resume remains user-triggered and inherits the foreground
+  delegate through its resumed turn.
+- Checkpoint planning remains non-executable until a concrete resumed turn
+  exists.
+- Source checkpoint evidence remains intact after resumed-turn linking and
+  transition audit.
+
+Next boundary decision:
+
+- Task scheduling ownership is the next meaningful scheduler boundary.
+- Read-only transport exposure is still not required because no frontend
+  scheduler UI is accepted and current frontend behavior remains DTO refresh
+  only.
+- The next phase should be a task scheduling design gate before any executable
+  task worker is introduced.
+
+Rejected behavior:
+
+- No automatic resume.
+- No unattended background scheduler queue, poller, or worker loop.
+- No scheduler-owned permission/MCP/checkpoint/artifact actionability.
+- No task scheduling execution.
+- No HTTP/Wails bridge route, generated binding, adapter, or frontend Run UI.
+- No database migration.
+- No assistant-prose-derived lifecycle/checkpoint/artifact inference.
+
+Validation:
+
+- Review confirmed scheduler delegate code is internal to runtime.
+- Review confirmed no transport/frontend exposure was added.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 16.1 accepts the foreground scheduler delegate slice for user turns and
+  explicit checkpoint resume.
+- The next safe task is Phase 17: Task Scheduling Ownership Design Gate.
+- Phase 17 must design task scheduling ownership only. It must not implement
+  task execution scheduling, automatic resume, unattended background execution,
+  frontend Run management UI, transition-derived actionability, React-owned
+  lifecycle state, or database migration.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6098,9 +6158,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 16.1: Scheduler Delegate Acceptance And Next Boundary Gate.
-Review the user-turn and checkpoint-resume delegate slice before considering
-task scheduling design or any transport/read exposure. Do not add automatic
-resume, unattended background execution, frontend Run management UI,
-transition-derived actionability, React-owned lifecycle state, task execution
-scheduling, or database migration.
+Implement Phase 17: Task Scheduling Ownership Design Gate. Define how future
+task scheduling should relate to Runs, foreground user turns, agent task
+stores, cancellation, diagnostics, and permission/MCP actionability before any
+task scheduler execution is implemented. Do not add automatic resume,
+unattended background execution, frontend Run management UI, transition-derived
+actionability, React-owned lifecycle state, task execution scheduling, or
+database migration.
