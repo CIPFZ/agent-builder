@@ -111,6 +111,154 @@ func TestRuntimeRunProjectionCursorWindowKeepsSessionActivityParity(t *testing.T
 	}
 }
 
+func TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability(t *testing.T) {
+	t.Parallel()
+
+	runtimeBackend, workspace := backendForSkillTest(t)
+	conn, err := db.Connect(context.Background(), workspace.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(workspace.DataDir)
+	})
+	service := newRuntimeService()
+	service.runtime = runtimeBackend
+	service.workspace = &workspace
+	service.turns = newRuntimeTurnStore(conn)
+	service.runs = newRuntimeRunStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
+
+	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "run-envelope-restart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userMessage, err := ws.Messages.Create(context.Background(), sess.ID, message.CreateMessageParams{
+		Role:  message.User,
+		Parts: []message.ContentPart{message.TextContent{Text: "recover run envelope"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Now().Add(-2 * time.Second).UnixMilli()
+	run, err := service.runs.EnsureForSession(context.Background(), workspace.ID, sess.ID, "recover run envelope", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:            "turn-run-envelope",
+		SessionID:     sess.ID,
+		Status:        turnStatusRunning,
+		UserMessageID: userMessage.ID,
+		PromptPreview: "recover run envelope",
+		StartedAt:     startedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.runs.LinkTurn(context.Background(), run.ID, sess.ID, "turn-run-envelope", startedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:        "tool-run-envelope",
+		SessionID: sess.ID,
+		TurnID:    "turn-run-envelope",
+		Name:      "bash",
+		Source:    scheduler.ToolSourceShell,
+		Command:   "Start-Sleep -Seconds 60",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.permissionStore.Upsert(context.Background(), RuntimePermissionRequest{
+		ID:         "perm-run-envelope",
+		SessionID:  sess.ID,
+		TurnID:     "turn-run-envelope",
+		ToolCallID: "tool-run-envelope",
+		ToolName:   "bash",
+		Action:     "execute",
+		Status:     permissionStatusPending,
+		CreatedAt:  startedAt + 10,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.mcpRequestStore.Upsert(context.Background(), RuntimeMCPRequest{
+		ID:             "mcp-run-envelope",
+		Kind:           mcpRequestKindAuth,
+		Server:         "hosted-docs",
+		CapabilityID:   "mcp_server:hosted-docs",
+		SessionID:      sess.ID,
+		TurnID:         "turn-run-envelope",
+		Status:         mcpRequestStatusPending,
+		PolicyDecision: "ask",
+		CreatedAt:      startedAt + 20,
+		UpdatedAt:      startedAt + 20,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	interrupted, err := service.turns.InterruptUnfinished(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(interrupted) != 1 || interrupted[0].Status != turnStatusInterrupted {
+		t.Fatalf("interrupted turns = %#v", interrupted)
+	}
+	cancelledTools, err := cancelUnfinishedRuntimeToolCalls(context.Background(), service.toolCalls, conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cancelledTools) != 1 {
+		t.Fatalf("cancelled tools = %#v", cancelledTools)
+	}
+	expiredPermissions, err := service.expireInvalidPendingPermissions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expiredPermissions) != 1 || expiredPermissions[0].Status == permissionStatusPending {
+		t.Fatalf("expired permissions = %#v", expiredPermissions)
+	}
+	cancelledMCP, err := service.mcpRequestStore.CancelActionableOnStartup(context.Background(), "runtime restarted; stale MCP request is no longer actionable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cancelledMCP) != 1 || cancelledMCP[0].Status != mcpRequestStatusCancelled {
+		t.Fatalf("cancelled mcp = %#v", cancelledMCP)
+	}
+
+	projection, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sess.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.Run.ID != run.ID || projection.Run.Status != runtimeRunStatusInterrupted {
+		t.Fatalf("run projection = %#v original = %#v", projection.Run, run)
+	}
+	if projection.Run.Diagnostics.TerminalPermissionCounts.Pending != 0 {
+		t.Fatalf("run projection restored pending permission actionability: %#v", projection.Run.Diagnostics.TerminalPermissionCounts)
+	}
+	activity, err := service.SessionActivity(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range activity.ToolCalls {
+		if call.Status == "running" || call.Status == "pending" || call.Status == "waiting_permission" {
+			t.Fatalf("stale tool call restored through activity: %#v", activity.ToolCalls)
+		}
+	}
+	recovery, err := service.RecoveryStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovery.PendingPermissions) != 0 || len(recovery.PendingMCPRequests) != 0 {
+		t.Fatalf("stale actionability remained after recovery: permissions=%#v mcp=%#v", recovery.PendingPermissions, recovery.PendingMCPRequests)
+	}
+}
+
 func newRuntimeRunProjectionFixture(t *testing.T) (*runtimeService, string, string) {
 	t.Helper()
 

@@ -3574,7 +3574,7 @@ Review conclusion:
 
 ### Phase 9.2: Run Envelope Restart Replay Validation
 
-Status: next validation phase.
+Status: implemented.
 
 Scope:
 
@@ -3584,6 +3584,59 @@ Scope:
 - Verify stale running tools, permission gates, MCP auth requests, and
   elicitation requests are not restored as actionable through the Run envelope.
 - Verify `SessionActivity` remains fallback/parity oracle after replay.
+
+Out of scope:
+
+- Automatic resume.
+- Background scheduler.
+- Full Run state machine.
+- New Run database migrations.
+- Frontend Run management UI.
+
+Implementation notes:
+
+- Added a focused restart/replay validation for a Run envelope linked to an
+  unfinished running turn.
+- The test simulates startup recovery by interrupting unfinished turns,
+  cancelling unfinished tool calls, expiring stale permission requests, and
+  cancelling stale MCP auth/actionability requests.
+- It verifies `RunProjection` keeps the original durable Run id, moves the Run
+  to interrupted status through structured evidence, and does not expose pending
+  permission counts.
+- It verifies `SessionActivity` has no stale running/pending tool calls and
+  `RecoveryStatus` has no pending permission or MCP requests after recovery.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability|TestRuntimeRunProjection"
+  -count=1` passed.
+- `go test ./internal/runtime ./internal/runtimeapi ./desktop -count=1`
+  passed.
+- `go test ./... -timeout 180s` passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 9.2 validates the Phase 9.1 Run envelope does not resurrect stale
+  actionability after replay/recovery.
+- `SessionActivity` remains the fallback/parity oracle.
+- No automatic resume, background scheduler, full Run state machine, database
+  migration, frontend Run management UI, event-payload hydration, or
+  assistant-prose inference was introduced.
+
+### Phase 9.3: Run Envelope Acceptance And Cutover Boundary
+
+Status: next review phase.
+
+Scope:
+
+- Review and accept the Phase 9.1/9.2 minimal Run envelope.
+- Decide the next implementation boundary: either keep hardening the envelope
+  with more validation, or plan the first separately approved transition beyond
+  session-first execution.
+- Record remaining risks before any database migration, scheduler, or frontend
+  Run management work is allowed.
 
 Out of scope:
 
@@ -3640,8 +3693,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 9.2: Run Envelope Restart Replay Validation. Keep it limited to
-tests and any narrowly required replay/reconcile hardening for the Phase 9.1
-Run envelope. Do not implement automatic resume, background Run scheduling,
-full Run state machine, database migrations, or expanded frontend Run
-management UI.
+Review/accept Phase 9.1 and Phase 9.2 as the minimal durable Run envelope
+cutover boundary, then plan the next phase. Do not implement automatic resume,
+background Run scheduling, full Run state machine, database migrations, or
+expanded frontend Run management UI without a separate accepted gate.

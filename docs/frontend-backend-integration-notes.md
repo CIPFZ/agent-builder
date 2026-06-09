@@ -809,3 +809,15 @@ Frontend boundary:
 - Runtime events remain refresh triggers only.
 - The client must not infer Run lifecycle, checkpoint, permission, MCP,
   diagnostics, or artifact state from the new envelope linkage.
+
+## 2026-06-09: Phase 9.2 Run Envelope Restart Replay Validation
+
+Phase 9.2 validates that the Phase 9.1 Run envelope linkage does not change
+frontend/backend source-of-truth boundaries after restart-style recovery.
+
+Frontend boundary:
+
+- No new UI behavior is added.
+- Run projection remains a runtime DTO read.
+- Stale tool, permission, MCP auth, and elicitation actionability must remain
+  absent unless current runtime stores expose them after refresh.
