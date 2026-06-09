@@ -559,6 +559,21 @@ only. It does not decide permission, MCP auth, MCP elicitation, checkpoint,
 artifact, interrupted, timeline, diagnostics, or lifecycle truth. It does not
 start a worker, resume work, write transitions, or emit frontend state.
 
+### Phase 13.2 Gate: Scheduler Preflight Acceptance
+
+Phase 13.2 accepts the internal preflight as the first execution gate for a
+future scheduler. No additional runtime behavior is introduced.
+
+Remaining before scheduler implementation:
+
+- Define a read-only scheduler plan DTO.
+- The plan DTO must describe intended ownership, ordering, cancellation scope,
+  diagnostics routing, refresh targets, and required preflight checks.
+- The plan DTO must not start work, auto-resume checkpoints, write transitions,
+  decide actionability, or become frontend lifecycle state.
+- Any future worker must check the Phase 13.1 preflight before executing a
+  planned turn.
+
 ## API 影响
 
 最小 API：

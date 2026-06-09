@@ -5473,6 +5473,67 @@ Review conclusion:
   transition history, assistant prose, and React state were not promoted to
   lifecycle or actionability sources.
 
+### Phase 13.2: Scheduler Preflight Acceptance And Integration Gate
+
+Status: accepted as a review gate only.
+
+Scope:
+
+- Review whether Phase 13.1's internal preflight is sufficient as the first
+  scheduler-facing execution gate.
+- Decide whether another read-only boundary is required before any scheduler
+  worker implementation.
+- Keep this phase free of runtime behavior changes unless a focused contract
+  gap is found.
+
+Accepted review:
+
+- Phase 13.1 is sufficient for the execution preflight boundary: a future
+  scheduler cannot treat work as executable unless durable Run/session/turn
+  evidence exists and the turn is non-terminal.
+- The preflight is intentionally internal and read-only. It is not an HTTP,
+  Wails, or React capability.
+- The preflight does not replace `SessionActivity`, `RunProjection`, persisted
+  Run detail, transition history, permission stores, MCP stores, checkpoint
+  DTOs, artifact refs, or interrupted summaries.
+- No additional code change is needed in this gate.
+
+Remaining scheduler gap:
+
+- A scheduler implementation still needs a concrete read-only Run scheduler
+  plan DTO before any worker exists.
+- That plan DTO must describe intended work ownership, ordering, cancellation
+  scope, diagnostics routing, and refresh targets without starting work,
+  replaying checkpoints, or changing actionability.
+- The plan DTO must be checked by the Phase 13.1 preflight before execution in
+  any future worker phase.
+
+Rejected behavior:
+
+- No scheduler worker or background execution loop.
+- No automatic resume.
+- No HTTP/Wails bridge route or frontend Run management UI.
+- No transition-derived lifecycle/actionability.
+- No permission/MCP/checkpoint/artifact actionability decision.
+- No database migration.
+
+Validation:
+
+- Review confirmed `runtimeRunSchedulerPreflight(...)` is not exposed through
+  `RuntimeService`, HTTP routes, Wails bridge bindings, or React adapters.
+- Review confirmed the preflight source is read-only and reports
+  `StartsWorker=false`.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 13.2 accepts Phase 13.1 as the scheduler execution preflight gate.
+- The next safe task is Phase 14: Run Scheduler Plan DTO Design Gate.
+- Phase 14 must define plan/read contracts only. It must not implement a
+  scheduler worker, automatic resume, background execution, frontend Run
+  management UI, transition-derived actionability, React-owned lifecycle state,
+  or database migration.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -5520,10 +5581,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 13.2: Scheduler Preflight Acceptance And Integration Gate. Keep
-it as a gate/review phase only unless a focused contract test is needed; decide
-whether the internal preflight is sufficient for a later scheduler implementation
-or whether another read-only contract boundary is required. Do not add
-migrations, scheduler implementation, automatic resume, frontend Run management
-UI, background Run execution, transition-derived actionability, or React-owned
-lifecycle state.
+Implement Phase 14: Run Scheduler Plan DTO Design Gate. Define the read-only
+plan contract a future scheduler worker would consume, including ownership,
+ordering, cancellation scope, diagnostics routing, refresh targets, and
+preflight requirements. Do not add migrations, scheduler implementation,
+automatic resume, frontend Run management UI, background Run execution,
+transition-derived actionability, or React-owned lifecycle state.

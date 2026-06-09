@@ -1269,3 +1269,22 @@ Phase 13.1 result:
   turn.
 - No frontend Run management UI, scheduler behavior, automatic resume, or
   transition-derived actionability was introduced.
+
+## 2026-06-09: Phase 13.2 Scheduler Preflight Acceptance Gate
+
+Phase 13.2 accepts the internal preflight and keeps frontend behavior unchanged.
+
+Frontend boundary:
+
+- The scheduler preflight remains internal to the backend.
+- No HTTP, Wails, React, or generated binding surface is added for preflight.
+- Future scheduler plan events may only trigger DTO refreshes; they must not
+  hydrate lifecycle, timeline, diagnostics, artifacts, interrupted recovery,
+  checkpoint, permission, MCP auth, or MCP elicitation state.
+
+Phase 13.2 result:
+
+- The next frontend-relevant boundary is a read-only scheduler plan DTO design,
+  not Run management UI or scheduler execution.
+- Existing frontend sources remain Run detail, RunProjection, TurnActivity,
+  SessionActivityWindow, and full SessionActivity refreshes.
