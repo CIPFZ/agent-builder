@@ -1142,3 +1142,16 @@ Frontend boundary:
   transition rows.
 - No frontend adapter, React state, Run management UI, scheduler behavior, or
   automatic resume change is introduced.
+
+## 2026-06-09: Phase 12.2 Run Cancellation Ownership Boundary
+
+Phase 12.2 should add backend-only cancellation ownership coverage.
+
+Frontend boundary:
+
+- Cancellation UI/transport should continue to call runtime endpoints and then
+  refresh DTOs.
+- Frontend must not synthesize cancelled Run state from event payloads or
+  transition rows.
+- No frontend Run management UI, scheduler behavior, automatic resume, or
+  transition-derived actionability is accepted.
