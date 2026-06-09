@@ -4854,7 +4854,7 @@ Review conclusion:
 
 ### Phase 11.4: Run Reconciliation Acceptance And Scheduler Readiness Gate
 
-Status: next design gate.
+Status: accepted as a design gate only.
 
 Scope:
 
@@ -4884,6 +4884,44 @@ Acceptance questions:
   prove stale actionability is not restored?
 - Is the next safe implementation a scheduler gate, or another recovery/parity
   hardening slice?
+
+Accepted answers:
+
+- Persisted Run detail and list rows are safe as reconciled read sources only
+  when hydrated through full Run detail/list/projection refreshes.
+- Bounded activity/projection windows are now guaranteed read-only for persisted
+  Run reconciliation.
+- Checkpoint acknowledgement/discard markers are protected from projection
+  refresh clobbering at the Run detail boundary.
+- Resumed-turn links remain explicit checkpoint metadata and are not inferred
+  from transition rows or assistant prose.
+- Existing restart, permission, MCP, interrupted, artifact, checkpoint, Run
+  detail, Run list, and transition tests prove the current read/recovery slice
+  does not restore stale actionability.
+- The next safe task is not scheduler implementation. It should be a Phase 12
+  design gate for Run execution ownership and scheduler boundaries.
+
+Phase 12 design gate requirements:
+
+- Define the first possible Run-owned execution boundary without replacing
+  session-first turns prematurely.
+- Decide whether a scheduler can use reconciled Run detail for ownership,
+  grouping, and cancellation scope while leaving permission/MCP actionability in
+  current runtime stores.
+- Define how explicit checkpoint resume remains a user-triggered new turn and
+  cannot become automatic replay.
+- Require tests for restart, cancellation, permission/MCP gates, checkpoint
+  resume, transition audit ordering, and `SessionActivity` parity before any
+  scheduler code.
+
+Review conclusion:
+
+- Phase 11 is accepted as Run reconciliation hardening only.
+- It makes persisted Run detail/list reads safer, but it does not implement or
+  authorize a scheduler, automatic resume, background Run execution, frontend
+  Run management UI, transition-derived actionability, or React-owned lifecycle
+  state.
+- Phase 12 should be a design gate before any execution ownership change.
 
 ## Validation Scenarios
 
@@ -4932,7 +4970,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 11.4: Run Reconciliation Acceptance And Scheduler Readiness
-Gate. Keep it as a design gate only; do not add migrations, scheduler,
+Implement Phase 12: Run Execution Ownership And Scheduler Design Gate. Keep it
+as a design gate only; do not add migrations, scheduler implementation,
 automatic resume, frontend Run management UI, background Run execution,
 transition-derived actionability, or React-owned lifecycle state.

@@ -1105,3 +1105,11 @@ Frontend boundary:
 - Bounded projection/activity windows remain read-only preview evidence.
 - No frontend Run management UI, scheduler behavior, automatic resume, or
   transition-derived actionability is accepted by this gate.
+
+Phase 11.4 result:
+
+- Phase 11 is accepted as read/reconciliation hardening only.
+- The next step is a Phase 12 Run execution ownership and scheduler design
+  gate, not scheduler implementation.
+- Frontend behavior remains DTO refresh only; no Run management UI or
+  transition-derived actionability is accepted.
