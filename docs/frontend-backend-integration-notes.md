@@ -760,6 +760,7 @@ Phase 8.7 implementation note:
   events are not merged into timeline, diagnostics, artifacts, permissions, MCP
   actionability, or checkpoint state.
 - The browser/dev HTTP transport maps
-  `POST /v1/runs/{run_id}/checkpoints/{checkpoint_id}/resume`. Packaged Wails
-  still needs generated binding smoke before the Wails adapter path is treated
-  as fully verified.
+  `POST /v1/runs/{run_id}/checkpoints/{checkpoint_id}/resume`.
+- `wails3 task common:generate:bindings` regenerates a Wails bridge export for
+  `ResumeRunCheckpoint`; a packaged app smoke is still needed before treating
+  the packaged Wails path as fully shipped.

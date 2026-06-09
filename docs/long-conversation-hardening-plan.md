@@ -3217,7 +3217,7 @@ Review conclusion:
 
 ### Phase 8.7: Narrow Resume Control Frontend Rollout
 
-Status: implemented.
+Status: accepted.
 
 Scope:
 
@@ -3275,6 +3275,8 @@ Validation:
 - `cd client && npm run lint` passed.
 - `git diff --check` passed with only the existing Windows CRLF warning for
   `client/src/runtime/wailsWorkbenchAdapter.ts`.
+- `cd desktop && wails3 task common:generate:bindings` passed; the generated
+  Wails bridge output contains `ResumeRunCheckpoint`.
 - Diff review confirmed no automatic resume, background scheduler, full Run
   state machine, frontend Run management UI, event-payload hydration, prose
   inference, or React-owned resume source of truth was introduced.
@@ -3285,12 +3287,57 @@ Remaining validation gaps:
   the successful/failed click and duplicate-event UI cases were verified by
   build/lint/diff review rather than executable browser/component tests in this
   phase.
-- The packaged Wails generated binding files currently do not include
-  `ResumeRunCheckpoint`; the Go bridge method exists, but packaged Wails smoke
-  should regenerate/verify bindings before treating the Wails path as fully
-  shipped.
+- The packaged Wails generated binding path now regenerates with
+  `ResumeRunCheckpoint`, but an end-to-end packaged app smoke should still
+  verify the visible control through the packaged bridge before treating the
+  Wails path as fully shipped.
 - No hosted provider credentials were used and no auth state or secrets were
   written to fixtures, logs, screenshots, docs, or React state.
+
+Review conclusion:
+
+- Phase 8.7 is accepted as the first visible explicit checkpoint resume control.
+- The implementation keeps runtime DTO refresh as the source of actionability
+  and resumed state.
+- The remaining work is validation hardening: packaged Wails smoke and an
+  executable frontend test harness or equivalent browser smoke for success,
+  failure, and duplicate-event cases.
+
+### Phase 8.8: Resume Control Packaged Smoke And Frontend Harness Gate
+
+Status: next implementation phase.
+
+Scope:
+
+- Add or reuse a narrow executable frontend validation path for the visible
+  resume control covering eligible DTO rendering, failed resume cleanup, and
+  no duplicate controls/submissions after duplicate refresh triggers.
+- Add packaged Wails or bridge-layer smoke proving `ResumeRunCheckpoint` is
+  available through generated bindings and that success refreshes runtime DTOs
+  rather than merging the action response into React state.
+- Keep HTTP/dev and Wails transport behavior aligned.
+- Record whether a full packaged app smoke is automated or remains a redacted
+  manual checklist.
+
+Out of scope:
+
+- Automatic resume.
+- Background scheduler.
+- Full Run state machine.
+- Runtime Run store expansion beyond existing Phase 8 persistence.
+- Full frontend Run management UI.
+- Batch checkpoint actions.
+
+Acceptance criteria:
+
+- The visible control remains derived only from refreshed runtime checkpoint
+  DTOs.
+- Failed resume leaves checkpoint actionability/resumed status unchanged until
+  the next runtime DTO refresh.
+- Duplicate lifecycle/runtime refresh triggers do not duplicate controls or
+  submit the same resume twice.
+- Packaged Wails binding availability for `ResumeRunCheckpoint` is verified.
+- Docs record any remaining manual packaged or browser smoke gap.
 
 ## Validation Scenarios
 
@@ -3339,7 +3386,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 8.7: Narrow Resume Control Frontend Rollout. Keep it limited to
-one explicit checkpoint resume action wired through existing runtime DTOs and
-refresh flows. Do not implement automatic resume, background Run scheduling, or
-expanded frontend Run management UI.
+Implement Phase 8.8: Resume Control Packaged Smoke And Frontend Harness Gate.
+Keep it limited to validation hardening for the explicit checkpoint resume
+control. Do not implement automatic resume, background Run scheduling, full Run
+state machine, or expanded frontend Run management UI.
