@@ -781,3 +781,18 @@ Phase 8.9 validation note:
   fixture before it can be automated through WebView. Until that fixture exists,
   runtime DTO refresh and Wails binding availability remain covered by
   contract/bridge smoke rather than a clicked packaged UI flow.
+
+## 2026-06-09: Phase 9 Run Execution Cutover Design Gate
+
+Phase 9 accepts only the design direction for a future write-capable Run
+execution envelope.
+
+Frontend boundary:
+
+- The client continues to consume runtime DTOs and must not become the Run
+  lifecycle source of truth.
+- Runtime events remain refresh triggers only.
+- No frontend Run management UI is introduced by Phase 9.
+- A future Phase 9.1 implementation may expose new runtime DTO fields, but the
+  UI must continue to reconcile them against `SessionActivity` fallback/parity
+  until a replacement gate is explicitly accepted.

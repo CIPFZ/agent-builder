@@ -3444,7 +3444,7 @@ Review conclusion:
 
 ### Phase 9: Runtime Run Execution Cutover Design Gate
 
-Status: next design gate.
+Status: accepted as a design gate only.
 
 Purpose:
 
@@ -3471,6 +3471,57 @@ Out of scope until this gate is accepted:
 - Implementing a background scheduler.
 - Building a frontend Run management UI.
 - Replacing SessionActivity as fallback/parity oracle.
+
+Claude Code mapping carried forward:
+
+- Claude Code's stable behavior comes from a durable transcript/session spine
+  plus runtime-owned tools, permissions, tasks, and recovery rules. It does not
+  make the browser/client memory the execution source of truth.
+- Agent Builder should mirror that shape: a Run may become the runtime
+  execution envelope, but messages, tool calls, permissions, tasks, artifacts,
+  and checkpoints remain structured runtime evidence.
+- Session recovery should still rebuild from persisted/runtime evidence. It
+  must not reconstruct actionability from event payloads, assistant prose, or
+  React state.
+
+Design decision:
+
+- Do not jump directly from Phase 8 to a full Run state machine.
+- The next implementation should introduce a minimal write-capable Run
+  execution envelope only after a separate implementation phase is approved.
+- That envelope should persist only stable ownership/linkage first:
+  `run_id`, workspace/session linkage, objective/source metadata, active turn
+  linkage, and terminal summary fields that can be reconciled with
+  `SessionActivity`.
+- Runtime events remain refresh triggers. They may select Run detail/activity
+  reads, but they must not carry enough state for the frontend to mutate Run
+  lifecycle, checkpoint, permission, MCP, diagnostics, or artifact state.
+- `SessionActivity` remains the fallback and parity oracle until a later phase
+  proves the Run execution envelope can replace a specific subset.
+
+Minimum invariants before implementation:
+
+- Every persisted Run transition must be idempotent and replay-safe.
+- Running/waiting tool calls, permission gates, MCP auth requests, and
+  elicitation requests must not be restored as actionable after restart unless
+  a current runtime store explicitly says they are actionable.
+- Pending-at-interruption remains computed diagnostics until a later accepted
+  phase changes that contract.
+- Explicit checkpoint resume stays user-triggered; no automatic resume or
+  background scheduler is introduced by the cutover envelope.
+- New Run persistence must include focused migration/backfill tests before it
+  is allowed to affect production runtime paths.
+
+Recommended next implementation phase:
+
+- Phase 9.1 should be a minimal durable Run execution envelope implementation
+  gate, not a full scheduler.
+- It should add the smallest persistence/API surface needed to create or link a
+  Run at turn start and reconcile it at turn finish.
+- It must keep existing session-first execution working and keep
+  `SessionActivity` as fallback/parity oracle.
+- It must include restart/replay tests proving no stale permission/MCP/tool
+  actionability is resurrected.
 
 ## Validation Scenarios
 
@@ -3519,7 +3570,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 9: Runtime Run Execution Cutover Design Gate. Keep it as a
-design gate for the first write-capable Run execution contract; do not implement
-automatic resume, background Run scheduling, full Run state machine, database
-migrations, or expanded frontend Run management UI until the gate is accepted.
+Implement Phase 9.1: Minimal Durable Run Execution Envelope. Keep it limited to
+creating/linking/reconciling a runtime-owned Run envelope around existing
+session-first turn execution. Do not implement automatic resume, background Run
+scheduling, full Run state machine, or expanded frontend Run management UI.
