@@ -747,6 +747,19 @@ Accepted implementation:
 - Planning does not mutate task state, widen scope, produce artifact evidence,
   or change cancellation/recovery ownership.
 
+### Phase 17.2 Gate: Task Plan Acceptance
+
+Phase 17.2 accepts read-only task planning and chooses task cancellation
+ownership as the next boundary.
+
+Accepted review:
+
+- `ownership_verified` is not executability.
+- Task scheduler execution remains unimplemented.
+- `CancelAgentTask` remains the current cancellation entry point.
+- Future scheduler task items must not own cancellation actionability until a
+  separate cancellation ownership gate is accepted.
+
 ## API 影响
 
 最小 API：

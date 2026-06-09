@@ -6252,6 +6252,66 @@ Review conclusion:
 - Runtime truth remains in existing task stores, Run stores, activity/projection
   DTOs, and structured task/tool output.
 
+### Phase 17.2: Task Scheduler Plan Acceptance Gate
+
+Status: accepted as a review gate only.
+
+Scope:
+
+- Review Phase 17.1 before any task execution scheduling.
+- Decide whether the next safe boundary is task cancellation ownership
+  hardening or another backend contract test.
+- Keep this phase free of runtime behavior changes unless a focused contract
+  gap is found.
+
+Accepted review:
+
+- Task scheduler planning is read-only.
+- Task items read `runtime_agent_tasks` and copy scope fields into the plan DTO.
+- Parent Run/session/turn ownership is represented by `OwnershipVerified`.
+- Task items remain non-executable even when ownership is valid because task
+  scheduler execution is not accepted.
+- Missing parent Run/session/turn ownership keeps task items non-executable
+  with the scheduler preflight reason.
+- No task state, task scope, artifact evidence, cancellation state, permission
+  actionability, MCP actionability, transition-derived lifecycle, or frontend
+  state is mutated by planning.
+
+Next boundary decision:
+
+- Task cancellation ownership hardening is the next safe task.
+- `CancelAgentTask(...)` already exists and terminalizes task/result/message
+  evidence, but the scheduler boundary now needs focused coverage that task
+  cancellation stays store-owned and does not become scheduler-owned
+  actionability or task execution.
+
+Rejected behavior:
+
+- No task scheduler execution.
+- No automatic resume.
+- No unattended background scheduler queue, poller, or worker loop.
+- No frontend Run management UI.
+- No scheduler-owned permission/MCP/checkpoint/artifact actionability.
+- No database migration.
+- No transition-derived lifecycle/actionability.
+- No assistant-prose-derived lifecycle/checkpoint/artifact inference.
+
+Validation:
+
+- Review confirmed task plan items remain `CanSchedule=false`.
+- Review confirmed no transport/frontend exposure was added.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 17.2 accepts the read-only task scheduler plan/preflight contract.
+- The next safe task is Phase 18: Task Cancellation Ownership Design Gate.
+- Phase 18 must define cancellation ownership before any scheduler-owned task
+  execution or cancellation implementation. It must not implement task
+  scheduler execution, automatic resume, unattended background execution,
+  frontend Run management UI, transition-derived actionability, React-owned
+  lifecycle state, or database migration.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6299,10 +6359,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 17.2: Task Scheduler Plan Acceptance Gate. Review the read-only
-task plan/preflight slice before any task execution scheduling. Decide whether
-the next safe boundary is task cancellation ownership hardening or another
-backend contract test. Do not implement task execution scheduling, automatic
-resume, unattended background execution, frontend Run management UI,
-transition-derived actionability, React-owned lifecycle state, or database
-migration.
+Implement Phase 18: Task Cancellation Ownership Design Gate. Define how
+`CancelAgentTask(...)`, task result/message evidence, Run task transition audit,
+and future scheduler task items interact before any scheduler-owned task
+execution or cancellation implementation. Do not implement task scheduler
+execution, automatic resume, unattended background execution, frontend Run
+management UI, transition-derived actionability, React-owned lifecycle state, or
+database migration.

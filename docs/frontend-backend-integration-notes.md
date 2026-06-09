@@ -1492,3 +1492,20 @@ Phase 17.1 result:
 - Even with valid ownership, task items remain non-executable until a later
   task scheduler implementation gate.
 - Task scope fields are copied into the read-only plan and are not widened.
+
+## 2026-06-10: Phase 17.2 Task Scheduler Plan Acceptance Gate
+
+Phase 17.2 accepts the read-only task scheduler plan/preflight contract.
+
+Frontend boundary:
+
+- Task scheduler plan remains backend-internal and read-only.
+- No task scheduler transport, adapter method, or Run management UI is added.
+- Existing task cancellation and task detail UI behavior remains DTO refresh
+  only.
+
+Phase 17.2 result:
+
+- The next boundary is task cancellation ownership design.
+- Future scheduler task items must not own cancellation actionability until that
+  boundary is accepted.
