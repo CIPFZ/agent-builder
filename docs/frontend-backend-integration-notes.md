@@ -1550,3 +1550,25 @@ Phase 18.1 result:
   evidence is not rewritten.
 - Scheduler task plans have tests proving cancelled task items remain
   non-executable and scope-preserving.
+
+## 2026-06-10: Phase 18.2 Task Cancellation Ownership Acceptance Gate
+
+Phase 18.2 accepts the backend task cancellation ownership contract.
+
+Frontend boundary:
+
+- Existing task cancellation UI may continue to call the runtime cancellation
+  action and refresh task DTOs.
+- Scheduler task plans remain read-only evidence and must not become frontend
+  actionability.
+- Events remain refresh triggers only; event payloads must not hydrate task
+  lifecycle, artifact evidence, permission/MCP actionability, or Run status in
+  React state.
+
+Phase 18.2 result:
+
+- `CancelAgentTask(...)` remains the cancellation entry point.
+- Cancellation evidence is stable enough to inform the next design gate.
+- The next frontend/backend risk to design is task scheduler execution
+  transport exposure, but no task scheduler transport, worker, queue, or Run
+  management UI is accepted yet.

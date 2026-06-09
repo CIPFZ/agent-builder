@@ -6427,6 +6427,62 @@ Review conclusion:
 - The next safe task is Phase 18.2: Task Cancellation Ownership Acceptance
   Gate.
 
+### Phase 18.2: Task Cancellation Ownership Acceptance Gate
+
+Status: accepted as a review gate only.
+
+Scope:
+
+- Review Phase 18.1 before moving toward any scheduler-owned task execution.
+- Confirm task cancellation ownership is stable and remains backend/runtime
+  owned.
+- Decide the next safe boundary without implementing task scheduler execution,
+  automatic resume, unattended background execution, frontend Run management UI,
+  transition-derived actionability, React-owned lifecycle state, or database
+  migration.
+
+Accepted review:
+
+- `CancelAgentTask(...)` remains the cancellation entry point.
+- Active cancellation terminalizes durable task row/result/message evidence and
+  preserves parent Run/session/turn/tool/task links.
+- Already-final cancellation records only rejected control evidence and does
+  not rewrite final task/result/artifact evidence.
+- Scheduler task plan items may carry cancellation scope and task scope
+  evidence, but remain read-only, non-executable, and non-authoritative for
+  cancellation actionability.
+- Cancellation events remain refresh triggers only. Event payloads do not
+  hydrate lifecycle, artifact evidence, permission/MCP actionability, or Run
+  status.
+
+Next boundary decision:
+
+- The next safe task is Phase 19: Task Scheduler Execution Design Gate.
+- Phase 19 must define the minimum accepted task scheduler execution boundary
+  before implementation. It must explicitly address parent Run/session/turn/task
+  ownership, task scope enforcement, cancellation ownership, evidence ordering,
+  and frontend/backend transport exposure.
+- Phase 19 must not implement a task scheduler worker, automatic resume,
+  unattended queue/poller, frontend Run management UI, database migration, or
+  transition/event/prose/React-derived lifecycle/actionability.
+
+Validation:
+
+- Review confirmed Phase 18.1 changed only cancellation detail propagation,
+  backend tests, and docs.
+- Review confirmed no frontend adapter, Run UI, migration, task scheduler
+  execution, automatic resume, unattended worker, or source-of-truth promotion
+  was added.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 18.2 accepts task cancellation ownership as stable enough to inform the
+  next design gate.
+- Task execution remains unimplemented for task plan items until a later
+  accepted implementation phase.
+- The next safe task is Phase 19: Task Scheduler Execution Design Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6474,10 +6530,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept Phase 18.1 as Phase 18.2: Task Cancellation Ownership
-Acceptance Gate. Confirm the cancellation ownership contract is stable, keep
-`CancelAgentTask(...)` as the current entry point, and decide the next safe
-boundary without implementing task scheduler execution, automatic resume,
-unattended background execution, frontend Run management UI,
-transition-derived actionability, React-owned lifecycle state, or database
-migration.
+Start Phase 19: Task Scheduler Execution Design Gate. Define the minimum
+accepted boundary for scheduler-owned task execution before implementation,
+including ownership, task scope, cancellation, evidence ordering, transport,
+and frontend DTO refresh constraints. Do not implement a task scheduler worker,
+automatic resume, unattended queue/poller, frontend Run management UI, database
+migration, or transition/event/prose/React-derived lifecycle/actionability.

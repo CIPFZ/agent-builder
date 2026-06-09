@@ -22,6 +22,14 @@ Phase 18.1 note:
   database migration, and transition-derived lifecycle/actionability remain out
   of scope.
 
+Phase 18.2 note:
+
+- Task cancellation ownership is accepted as stable: `CancelAgentTask` remains
+  the entry point, cancellation evidence comes from task row/result/message
+  stores, and scheduler task plan items remain read-only planning evidence.
+- The next safe boundary is a task scheduler execution design gate. Task
+  execution remains unimplemented until a later accepted implementation phase.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
