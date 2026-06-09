@@ -3,6 +3,7 @@ import { Button, Tag, Tooltip, Typography } from 'antd';
 import type React from 'react';
 import { useState } from 'react';
 import type { RunProjectionViewModel } from '../../runtime/workbenchTypes.ts';
+import { selectResumableCheckpoint } from './runProjectionResumeContract.ts';
 import styles from './RunProjectionPreview.module.css';
 
 const { Text } = Typography;
@@ -20,7 +21,7 @@ export function RunProjectionPreview({
   if (!run) {
     return null;
   }
-  const resumableCheckpoint = run.checkpoints?.find((checkpoint) => checkpoint.resumeEligible);
+  const resumableCheckpoint = selectResumableCheckpoint(run.checkpoints);
   const canResume = Boolean(resumableCheckpoint?.id && onResumeCheckpoint);
   const resumeCheckpoint = async () => {
     if (!resumableCheckpoint?.id || !onResumeCheckpoint || pendingCheckpointID) {

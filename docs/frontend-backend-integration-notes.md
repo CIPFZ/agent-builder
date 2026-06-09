@@ -764,3 +764,12 @@ Phase 8.7 implementation note:
 - `wails3 task common:generate:bindings` regenerates a Wails bridge export for
   `ResumeRunCheckpoint`; a packaged app smoke is still needed before treating
   the packaged Wails path as fully shipped.
+
+Phase 8.8 validation note:
+
+- `npm run smoke:phase88` executes the checkpoint resume selection contract,
+  verifies the Run projection component keeps a stable resume-control marker
+  and local pending state, and checks the generated Wails bridge exports
+  `ResumeRunCheckpoint`.
+- This is a contract and bridge smoke. It does not replace a packaged WebView
+  click smoke for the Ant Design button and runtime DTO refresh path.

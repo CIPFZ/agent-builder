@@ -3305,7 +3305,7 @@ Review conclusion:
 
 ### Phase 8.8: Resume Control Packaged Smoke And Frontend Harness Gate
 
-Status: next implementation phase.
+Status: implemented.
 
 Scope:
 
@@ -3338,6 +3338,69 @@ Acceptance criteria:
   submit the same resume twice.
 - Packaged Wails binding availability for `ResumeRunCheckpoint` is verified.
 - Docs record any remaining manual packaged or browser smoke gap.
+
+Implementation notes:
+
+- Added `runProjectionResumeContract.ts` so the resume checkpoint selection
+  rule is executable outside the React component and reusable by the UI.
+- Added `client/scripts/phase88-resume-control-smoke.mjs` and
+  `npm run smoke:phase88`.
+- The smoke script writes its temporary bundle under
+  `tmp/runtime-dev/phase88-resume-control-smoke`, executes the checkpoint
+  actionability contract, checks the component keeps a stable
+  `run-checkpoint-resume` marker and local pending state, and verifies the
+  generated Wails bridge exports `ResumeRunCheckpoint`.
+
+Validation:
+
+- `cd desktop && wails3 task common:generate:bindings` passed before the smoke;
+  generated output contains `ResumeRunCheckpoint`.
+- `cd client && npm run smoke:phase88` passed.
+- `cd client && npm run lint` passed.
+- `cd client && npm run build` passed.
+
+Remaining validation gaps:
+
+- Phase 8.8 adds an executable contract smoke without introducing a full DOM
+  test dependency. It does not yet click the Ant Design button in a browser DOM
+  harness.
+- A true packaged desktop app smoke is still needed to click the visible
+  control through WebView/Wails and observe the runtime DTO refresh end to end.
+  The bridge export itself is verified.
+- No hosted provider credentials were used and no secrets/auth state were
+  written to repo files, logs, screenshots, docs, or React state.
+
+Review conclusion:
+
+- Phase 8.8 narrows the Phase 8.7 validation gap without expanding the product
+  surface.
+- The resume actionability source remains the runtime checkpoint DTO.
+- No automatic resume, background scheduler, full Run state machine, expanded
+  runtime Run store, batch action, or frontend Run management UI was introduced.
+
+### Phase 8.9: Packaged Resume Click Smoke And Phase 8 Acceptance
+
+Status: next validation phase.
+
+Scope:
+
+- Run or script a packaged Wails/WebView smoke for the visible checkpoint resume
+  control when the runtime fixture can expose an eligible checkpoint.
+- Verify the click path calls `ResumeRunCheckpoint`, then refreshes Run
+  projection/session activity from runtime APIs.
+- Verify failed resume clears pending UI state without locally marking the
+  checkpoint resumed.
+- Accept Phase 8 only after the packaged click path is covered or explicitly
+  recorded as a redacted manual smoke gap.
+
+Out of scope:
+
+- Automatic resume.
+- Background scheduler.
+- Full Run state machine.
+- Full frontend Run management UI.
+- Batch checkpoint actions.
+- Hosted provider secrets or browser auth automation.
 
 ## Validation Scenarios
 
@@ -3386,7 +3449,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 8.8: Resume Control Packaged Smoke And Frontend Harness Gate.
-Keep it limited to validation hardening for the explicit checkpoint resume
-control. Do not implement automatic resume, background Run scheduling, full Run
-state machine, or expanded frontend Run management UI.
+Implement Phase 8.9: Packaged Resume Click Smoke And Phase 8 Acceptance. Keep
+it limited to packaged/browser validation and acceptance. Do not implement
+automatic resume, background Run scheduling, full Run state machine, or expanded
+frontend Run management UI.
