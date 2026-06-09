@@ -4386,7 +4386,7 @@ Review conclusion:
 
 ### Phase 10.10: Transition History Generated Binding Smoke
 
-Status: implemented.
+Status: accepted.
 
 Scope:
 
@@ -4428,6 +4428,27 @@ Review conclusion:
   `RunTransitionHistory`.
 - No frontend adapter consumption, React state, UI, packaged click smoke,
   scheduler, automatic resume, or transition-derived actionability was added.
+- Phase 10.10 is accepted as generated-binding validation only.
+
+### Phase 10.11: Transition History Frontend Diagnostic Use-case Gate
+
+Status: next design gate.
+
+Scope:
+
+- Decide whether there is a real frontend diagnostic use case for consuming
+  transition history.
+- If a use case exists, define the minimal read-only view model and where it
+  should appear without becoming Run management UI.
+- If no use case exists, explicitly defer frontend consumption and keep
+  transition history as transport-only audit evidence.
+
+Out of scope:
+
+- Implementing frontend adapter consumption.
+- React state or UI.
+- Scheduler, automatic resume, Run management UI, or transition-derived
+  actionability.
 
 ## Validation Scenarios
 
@@ -4476,6 +4497,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept Phase 10.10. The next gate should decide whether there is a
-real frontend diagnostic use case for consuming transition history, or whether
-transition history should remain transport-only audit evidence for now.
+Implement Phase 10.11: Transition History Frontend Diagnostic Use-case Gate.
+Keep it as a design gate only; do not add frontend adapter consumption or React
+UI until the gate is accepted.
