@@ -5201,7 +5201,7 @@ Review conclusion:
 
 ### Phase 12.4: Run Checkpoint Resume Ownership Contract Coverage
 
-Status: implemented.
+Status: accepted.
 
 Scope:
 
@@ -5249,6 +5249,12 @@ Validation:
 - `go test ./internal/runtime -run
   "TestRuntimeRunTransitionWriter(RequiresResumedTurnBeforeCheckpointResume|RecordsCheckpointResumeFromNewTurn)"
   -count=1` passed.
+- `go test ./internal/runtime -run
+  "TestRuntimeRunTransitionWriter|TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability|TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership|TestRuntimeRun(Projection|Detail|List|Envelope|Store|Transition)|TestRuntimeRunStore|TestRuntimeRunTransition|TestRuntimeServiceMarkInterruptedDoneCancelsInterruptedTurn"
+  -count=1` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `git diff --check` passed.
 
 Review conclusion:
 
@@ -5260,6 +5266,37 @@ Review conclusion:
   execution, frontend Run management UI, transition-derived actionability,
   React-owned lifecycle state, or prose-derived lifecycle/checkpoint/artifact
   inference was introduced.
+
+### Phase 12.5: Run Ownership Contract Acceptance And Scheduler Gate
+
+Status: next design gate.
+
+Scope:
+
+- Review Phase 12.1 through 12.4 as a complete Run ownership contract slice.
+- Decide whether the next boundary can move to scheduler design or still needs
+  more ownership/recovery hardening.
+- Keep scheduler implementation out of this gate.
+
+Acceptance questions:
+
+- Does `turn_started` transition audit require a durable Run/session/turn link?
+- Does cancellation preserve Run ownership and terminalize structured evidence
+  before transition audit?
+- Does startup recovery preserve Run ownership and terminalize stale
+  tool/permission/MCP evidence before recovery audit?
+- Does explicit checkpoint resume require a concrete resumed turn and keep
+  source checkpoint evidence unchanged?
+- Are all actionability decisions still owned by current runtime stores and
+  refreshed DTOs rather than transition rows, event payloads, or React state?
+
+Out of scope:
+
+- Scheduler implementation or background Run execution worker.
+- Automatic resume.
+- Frontend Run management UI.
+- New database migration.
+- Transition-derived lifecycle/actionability.
 
 ## Validation Scenarios
 
@@ -5308,8 +5345,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept Phase 12.4 after package-level validation. Then decide the
-next separately approved boundary; do not add migrations, scheduler
-implementation, automatic resume, frontend Run management UI, background Run
-execution, transition-derived actionability, or React-owned lifecycle state
-without a new gate.
+Implement Phase 12.5: Run Ownership Contract Acceptance And Scheduler Gate.
+Keep it as a design gate only; do not add migrations, scheduler implementation,
+automatic resume, frontend Run management UI, background Run execution,
+transition-derived actionability, or React-owned lifecycle state.

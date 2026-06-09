@@ -1201,3 +1201,16 @@ Phase 12.4 result:
 - Backend checkpoint resume coverage proves transition audit requires a
   concrete resumed turn and resumed-turn links stay checkpoint metadata.
 - No frontend behavior changes were added.
+
+## 2026-06-09: Phase 12.5 Run Ownership Acceptance Gate
+
+Phase 12.5 should review Run ownership contract coverage before any scheduler
+implementation is designed.
+
+Frontend boundary:
+
+- Frontend behavior remains DTO refresh only.
+- No frontend Run management UI, scheduler behavior, automatic resume, or
+  transition-derived actionability is accepted.
+- Any future scheduler design must preserve runtime-owned permission/MCP and
+  checkpoint actionability.
