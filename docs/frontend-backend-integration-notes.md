@@ -728,8 +728,8 @@ Phase 8.5 frontend boundary:
 
 ## 2026-06-09: Phase 8.6 Resume Control Rollout Gate Boundary
 
-Phase 8.6 is planned as a frontend/runtime rollout gate. It should decide how
-to expose the explicit resume endpoint without moving actionability into React.
+Phase 8.6 is accepted as a frontend/runtime rollout gate. It decides how to
+expose the explicit resume endpoint without moving actionability into React.
 
 Frontend boundary:
 
@@ -740,3 +740,12 @@ Frontend boundary:
   session activity.
 - Failed resume responses must clear pending UI state and must not mark a
   checkpoint as resumed locally.
+
+Phase 8.7 frontend boundary:
+
+- Implement only one explicit checkpoint resume action in the existing
+  read-only Run projection/detail surface.
+- Keep pending/error state local and transient; runtime DTO refresh remains the
+  source of checkpoint actionability and resumed status.
+- No batch resume, automatic resume, background scheduling, or full Run
+  management UI.

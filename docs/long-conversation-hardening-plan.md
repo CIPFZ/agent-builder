@@ -3166,10 +3166,9 @@ Review conclusion:
 
 ### Phase 8.6: Resume Control Frontend Rollout Gate
 
-Status: planned as a rollout/design gate. Do not implement a visible resume
-control, full Run management UI, automatic resume, background scheduling, or a
-full Run state machine in this phase unless this gate is explicitly accepted
-and scoped.
+Status: accepted as a rollout/design gate. No visible resume control, full Run
+management UI, automatic resume, background scheduling, or full Run state
+machine was implemented in this phase.
 
 Purpose:
 
@@ -3203,6 +3202,51 @@ Acceptance criteria for a future implementation:
 - UI tests prove duplicate lifecycle/runtime events do not create duplicate
   controls or duplicate resume submissions.
 - Docs record any remaining manual smoke gaps before shipping visible controls.
+
+Review conclusion:
+
+- Phase 8.6 is accepted as the frontend/runtime rollout gate.
+- The first visible UI implementation should be narrow: one explicit checkpoint
+  resume control rendered from refreshed Run detail DTOs.
+- The control must call the runtime `ResumeRunCheckpoint` action and then
+  refresh Run detail/session activity.
+- React may track transient pending/error UI state, but it must not become the
+  source of checkpoint actionability or resumed status.
+- No automatic resume, batch resume, background scheduling, full Run management
+  UI, or event-payload hydration is accepted.
+
+### Phase 8.7: Narrow Resume Control Frontend Rollout
+
+Status: next implementation phase.
+
+Scope:
+
+- Expose a single visible checkpoint resume action in the existing read-only Run
+  projection/detail surface.
+- Add adapter support for `ResumeRunCheckpoint` through Wails and HTTP/dev
+  transport.
+- After a successful resume action, refresh Run detail/session activity from
+  runtime APIs. Do not merge event payloads into UI state.
+- Keep local state limited to pending/error rendering for the clicked action.
+- Add browser/Vite and component/adapter coverage proving duplicate events do
+  not duplicate controls or submissions.
+
+Out of scope:
+
+- Automatic resume.
+- Background Run scheduler.
+- Full Run state machine.
+- Full Run management UI.
+- Batch resume.
+- Any permission/MCP actionability derived from React state or event payloads.
+
+Acceptance criteria:
+
+- Frontend tests cover successful resume, failed resume cleanup, duplicate event
+  refresh, and no local resurrection of stale actionability.
+- Adapter tests cover HTTP/dev and Wails resume action mapping.
+- Existing Go runtime tests continue to pass.
+- Docs record any remaining packaged Wails/manual browser smoke gaps.
 
 ## Validation Scenarios
 
@@ -3251,6 +3295,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 8.6 before adding visible resume controls. Do not implement
-automatic resume, background Run scheduling, or expanded frontend Run
-management UI without a separate accepted phase.
+Implement Phase 8.7: Narrow Resume Control Frontend Rollout. Keep it limited to
+one explicit checkpoint resume action wired through existing runtime DTOs and
+refresh flows. Do not implement automatic resume, background Run scheduling, or
+expanded frontend Run management UI.
