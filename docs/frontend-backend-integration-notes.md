@@ -1195,3 +1195,9 @@ Frontend boundary:
   transition rows, event payloads, or React state.
 - No frontend Run management UI, scheduler behavior, automatic resume, or
   transition-derived actionability is accepted.
+
+Phase 12.4 result:
+
+- Backend checkpoint resume coverage proves transition audit requires a
+  concrete resumed turn and resumed-turn links stay checkpoint metadata.
+- No frontend behavior changes were added.

@@ -5201,7 +5201,7 @@ Review conclusion:
 
 ### Phase 12.4: Run Checkpoint Resume Ownership Contract Coverage
 
-Status: next implementation.
+Status: implemented.
 
 Scope:
 
@@ -5229,6 +5229,37 @@ Validation required:
 - `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
   -count=1`.
 - `git diff --check`.
+
+Implementation notes:
+
+- Added
+  `TestRuntimeRunTransitionWriterRequiresResumedTurnBeforeCheckpointResume`.
+- The test proves checkpoint resume transition audit is not recorded before the
+  resumed turn exists.
+- It also proves a created resumed turn can be linked through checkpoint
+  metadata and then audited without acknowledging, discarding, or otherwise
+  mutating the source checkpoint evidence.
+- Existing
+  `TestRuntimeRunTransitionWriterRecordsCheckpointResumeFromNewTurn` continues
+  to prove checkpoint resume transition ordering and idempotency.
+- No runtime code change was needed.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunTransitionWriter(RequiresResumedTurnBeforeCheckpointResume|RecordsCheckpointResumeFromNewTurn)"
+  -count=1` passed.
+
+Review conclusion:
+
+- Explicit checkpoint resume ownership is covered at the transition/checkpoint
+  metadata boundary.
+- Resume transition audit requires a concrete resumed turn and remains
+  explicit user-triggered evidence, not automatic replay.
+- No migration, scheduler implementation, automatic resume, background Run
+  execution, frontend Run management UI, transition-derived actionability,
+  React-owned lifecycle state, or prose-derived lifecycle/checkpoint/artifact
+  inference was introduced.
 
 ## Validation Scenarios
 
@@ -5277,7 +5308,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 12.4: Run Checkpoint Resume Ownership Contract Coverage. Keep
-it test-first and narrow; do not add migrations, scheduler implementation,
-automatic resume, frontend Run management UI, background Run execution,
-transition-derived actionability, or React-owned lifecycle state.
+Review and accept Phase 12.4 after package-level validation. Then decide the
+next separately approved boundary; do not add migrations, scheduler
+implementation, automatic resume, frontend Run management UI, background Run
+execution, transition-derived actionability, or React-owned lifecycle state
+without a new gate.

@@ -282,6 +282,75 @@ func TestRuntimeRunTransitionWriterRecordsCheckpointResumeFromNewTurn(t *testing
 	}
 }
 
+func TestRuntimeRunTransitionWriterRequiresResumedTurnBeforeCheckpointResume(t *testing.T) {
+	t.Parallel()
+
+	service, release := runtimeRunTransitionWriterTestService(t)
+	defer release()
+	run, err := service.runs.Upsert(context.Background(), RuntimeRun{
+		ID:               "run-resume-preflight",
+		WorkspaceID:      "workspace-1",
+		PrimarySessionID: "session-1",
+		SessionIDs:       []string{"session-1"},
+		Status:           runtimeRunStatusInterrupted,
+		Source:           runtimeRunSourceUserPrompt,
+		Checkpoints: []RuntimeRunCheckpoint{{
+			ID:        "turn:turn-source:interrupted",
+			TurnID:    "turn-source",
+			Status:    turnStatusInterrupted,
+			CreatedAt: 2000,
+		}},
+		CreatedAt: 1000,
+		UpdatedAt: 2000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := run.Checkpoints[0]
+	service.recordCheckpointResumeTransition(context.Background(), run, checkpoint, "turn-resumed-missing")
+	transitions, err := service.transitions.ListByRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(transitions) != 0 {
+		t.Fatalf("checkpoint resume transition recorded before resumed turn exists: %#v", transitions)
+	}
+	before, err := service.runs.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Checkpoints) != 1 || len(before.Checkpoints[0].ResumedTurnIDs) != 0 || before.Checkpoints[0].AcknowledgedAt != 0 || before.Checkpoints[0].DiscardedAt != 0 {
+		t.Fatalf("missing resumed turn mutated checkpoint evidence: %#v", before.Checkpoints)
+	}
+	resumed, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:        "turn-resumed-created",
+		SessionID: "session-1",
+		Status:    turnStatusQueued,
+		StartedAt: 3000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.runs.LinkCheckpointResume(context.Background(), run.ID, checkpoint.ID, resumed.ID); err != nil {
+		t.Fatal(err)
+	}
+	service.recordCheckpointResumeTransition(context.Background(), run, checkpoint, resumed.ID)
+	transitions, err = service.transitions.ListByRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(transitions) != 1 || transitions[0].Source != runtimeRunTransitionSourceCheckpointResume || transitions[0].TurnID != resumed.ID {
+		t.Fatalf("checkpoint resume transition missing after resumed turn exists: %#v", transitions)
+	}
+	after, err := service.runs.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Checkpoints[0].ResumedTurnIDs) != 1 || after.Checkpoints[0].ResumedTurnIDs[0] != resumed.ID || after.Checkpoints[0].AcknowledgedAt != 0 || after.Checkpoints[0].DiscardedAt != 0 {
+		t.Fatalf("resumed turn link mutated source checkpoint evidence: %#v", after.Checkpoints[0])
+	}
+}
+
 func runtimeRunTransitionWriterTestService(t *testing.T) (*runtimeService, func()) {
 	t.Helper()
 	dataDir := t.TempDir()
