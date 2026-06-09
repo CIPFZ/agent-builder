@@ -5722,6 +5722,73 @@ Review conclusion:
   transition history, assistant prose, and React state were not promoted to
   lifecycle or actionability sources.
 
+### Phase 14.2: Scheduler Plan DTO Acceptance Gate
+
+Status: accepted as a review gate only.
+
+Scope:
+
+- Review the internal scheduler plan DTO before any transport or worker phase.
+- Decide whether the next safe boundary is read-only transport exposure,
+  another backend contract test, or a worker design gate.
+- Keep this phase free of runtime behavior changes unless a focused contract
+  gap is found.
+
+Accepted review:
+
+- Phase 14.1 is sufficient as the internal scheduler plan contract.
+- The plan source is read-only, reports `StartsWorker=false`, and is not
+  exposed through `RuntimeService`, HTTP routes, Wails bridge bindings, or
+  React adapters.
+- Plan item executability is derived from Phase 13.1 preflight.
+- Missing Run/session/turn links, mismatched sessions, and terminal turns remain
+  non-executable.
+- Checkpoint plan items remain descriptive and do not acknowledge, discard,
+  resume, or mutate checkpoint evidence.
+- Task items remain non-executable until a later task scheduling ownership gate.
+
+Transport decision:
+
+- Read-only transport exposure is not required before a minimal scheduler worker
+  design. The plan is currently a backend-internal contract for future worker
+  code, not a frontend surface.
+- If transport is added later, it must be read-only and must not create frontend
+  Run management UI or event-payload-derived state.
+
+Remaining scheduler gap:
+
+- A future worker design must decide how to apply the internal plan and
+  preflight to the existing session-first `Chat` path.
+- The first worker design should be user-triggered and foreground only. It must
+  not introduce automatic resume, stale actionability replay, or unattended
+  background execution.
+
+Rejected behavior:
+
+- No scheduler worker or background execution loop.
+- No automatic resume.
+- No HTTP/Wails bridge route, generated binding, adapter, or frontend Run UI.
+- No transition-derived lifecycle/actionability.
+- No permission/MCP/checkpoint/artifact actionability decision.
+- No database migration.
+
+Validation:
+
+- Review confirmed `runtimeRunSchedulerPlan(...)` is not exposed through
+  `RuntimeService`, HTTP routes, Wails bridge bindings, or React adapters.
+- Review confirmed `RuntimeRunSchedulerPlanSource.StartsWorker=false`.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 14.2 accepts the internal scheduler plan DTO.
+- The next safe task is Phase 15: Minimal User-triggered Run Scheduler Worker
+  Design Gate.
+- Phase 15 must design worker behavior only. It must not implement a worker,
+  automatic resume, unattended background execution, frontend Run management UI,
+  transition-derived actionability, React-owned lifecycle state, or database
+  migration.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -5769,9 +5836,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 14.2: Scheduler Plan DTO Acceptance Gate. Review the internal
-plan DTO before any transport or worker phase. Decide whether the next safe
-boundary is read-only transport exposure or another backend contract test. Do
-not add migrations, scheduler implementation, automatic resume, frontend Run
-management UI, background Run execution, transition-derived actionability, or
-React-owned lifecycle state.
+Implement Phase 15: Minimal User-triggered Run Scheduler Worker Design Gate.
+Design how a future worker would apply the internal plan and preflight to the
+existing session-first `Chat` path. Keep it foreground and user-triggered in the
+design. Do not implement a worker, automatic resume, unattended background
+execution, frontend Run management UI, transition-derived actionability,
+React-owned lifecycle state, or database migration.

@@ -1334,3 +1334,21 @@ Phase 14.1 result:
 - The source reports `startsWorker=false`.
 - Checkpoint plan items do not acknowledge, discard, resume, or mutate
   checkpoint evidence.
+
+## 2026-06-09: Phase 14.2 Scheduler Plan DTO Acceptance Gate
+
+Phase 14.2 accepts the internal scheduler plan DTO and keeps it backend-only.
+
+Frontend boundary:
+
+- No scheduler plan transport is added before a concrete frontend need exists.
+- Future transport exposure, if accepted, must remain read-only and must not
+  create Run management UI or React-owned scheduler state.
+- Frontend refresh behavior remains unchanged.
+
+Phase 14.2 result:
+
+- The next boundary is a minimal user-triggered scheduler worker design gate,
+  not frontend transport or UI.
+- The first worker design must preserve DTO refresh source-of-truth and must not
+  use event payloads to hydrate lifecycle or actionability.

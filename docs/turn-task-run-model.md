@@ -614,6 +614,21 @@ Accepted implementation:
   checkpoint evidence.
 - Task items stay non-executable until a later task scheduling ownership gate.
 
+### Phase 14.2 Gate: Scheduler Plan Acceptance
+
+Phase 14.2 accepts the internal plan DTO as sufficient before worker design. It
+does not expose plan transport.
+
+Next worker design boundary:
+
+- The first worker design must be user-triggered and foreground only.
+- It should apply the internal plan and Phase 13.1 preflight to the existing
+  session-first `Chat` path.
+- It must not auto-resume checkpoints, restore stale actionability, run
+  unattended in the background, or make transition rows/current events into
+  lifecycle truth.
+- It must not move Run or scheduler state into React.
+
 ## API 影响
 
 最小 API：
