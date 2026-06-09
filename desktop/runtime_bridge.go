@@ -83,6 +83,10 @@ type RuntimeSessionActivityWindowResponse = runtime.RuntimeSessionActivityWindow
 type RuntimeTurnActivityResponse = runtime.RuntimeTurnActivityResponse
 type RuntimeRunProjectionRequest = runtime.RuntimeRunProjectionRequest
 type RuntimeRunProjectionResponse = runtime.RuntimeRunProjectionResponse
+type RuntimeRunTransitionHistoryRequest = runtime.RuntimeRunTransitionHistoryRequest
+type RuntimeRunTransitionHistoryResponse = runtime.RuntimeRunTransitionHistoryResponse
+type RuntimeRunTransitionHistorySource = runtime.RuntimeRunTransitionHistorySource
+type RuntimeRunTransition = runtime.RuntimeRunTransition
 type RuntimeRunProjection = runtime.RuntimeRunProjection
 type RuntimeRunCheckpoint = runtime.RuntimeRunCheckpoint
 type RuntimeRunDiagnostics = runtime.RuntimeRunDiagnostics
@@ -515,6 +519,12 @@ func (r *RuntimeBridge) TurnActivity(ctx context.Context, turnID string) (Runtim
 func (r *RuntimeBridge) RunProjection(ctx context.Context, req RuntimeRunProjectionRequest) (RuntimeRunProjectionResponse, error) {
 
 	return r.service.RunProjection(ctx, req)
+
+}
+
+func (r *RuntimeBridge) RunTransitionHistory(ctx context.Context, req RuntimeRunTransitionHistoryRequest) (RuntimeRunTransitionHistoryResponse, error) {
+
+	return r.service.RunTransitionHistory(ctx, req)
 
 }
 

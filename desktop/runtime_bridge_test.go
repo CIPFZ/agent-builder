@@ -216,6 +216,23 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 				SessionActivityParity: true,
 			},
 		}},
+		transitionHistory: RuntimeRunTransitionHistoryResponse{
+			Transitions: []RuntimeRunTransition{{
+				ID:        "transition-1",
+				RunID:     "run-1",
+				SessionID: "session-window",
+				TurnID:    "turn-window",
+				ToStatus:  "completed",
+				Source:    "turn_finished",
+				CreatedAt: 1200,
+			}},
+			Window: RuntimeActivityWindow{Limit: 5, ToEnd: true},
+			Source: RuntimeRunTransitionHistorySource{
+				Kind:      "run_transition_history",
+				ReadOnly:  true,
+				AuditOnly: true,
+			},
+		},
 	}
 	bridge := &RuntimeBridge{service: service}
 
@@ -257,6 +274,17 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 	}
 	if runProjection.Run.PrimarySessionID != "session-window" || !runProjection.Run.Source.ReadOnly || !runProjection.Run.Source.SessionActivityParity {
 		t.Fatalf("run projection = %#v", runProjection)
+	}
+
+	transitionHistory, err := bridge.RunTransitionHistory(context.Background(), RuntimeRunTransitionHistoryRequest{RunID: "run-1", Cursor: "v1:transition", Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.transitionHistoryReq.RunID != "run-1" || service.transitionHistoryReq.Cursor != "v1:transition" || service.transitionHistoryReq.Limit != 5 {
+		t.Fatalf("transition history request = %#v", service.transitionHistoryReq)
+	}
+	if len(transitionHistory.Transitions) != 1 || !transitionHistory.Source.ReadOnly || !transitionHistory.Source.AuditOnly {
+		t.Fatalf("transition history = %#v", transitionHistory)
 	}
 }
 
@@ -361,6 +389,8 @@ type recordingRuntimeService struct {
 	turnActivityID              string
 	runProjectionRequest        RuntimeRunProjectionRequest
 	runProjection               RuntimeRunProjectionResponse
+	transitionHistoryReq        RuntimeRunTransitionHistoryRequest
+	transitionHistory           RuntimeRunTransitionHistoryResponse
 	runs                        RuntimeRunsResponse
 	run                         RuntimeRunResponse
 	runID                       string
@@ -662,6 +692,11 @@ func (s *recordingRuntimeService) RunProjection(_ context.Context, req RuntimeRu
 		s.runProjection.Run.PrimarySessionID = req.SessionID
 	}
 	return s.runProjection, nil
+}
+
+func (s *recordingRuntimeService) RunTransitionHistory(_ context.Context, req RuntimeRunTransitionHistoryRequest) (RuntimeRunTransitionHistoryResponse, error) {
+	s.transitionHistoryReq = req
+	return s.transitionHistory, nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {

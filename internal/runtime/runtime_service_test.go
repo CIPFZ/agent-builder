@@ -3543,6 +3543,8 @@ type recordingRuntimeService struct {
 	turnActivity          RuntimeTurnActivityResponse
 	runProjectionRequest  RuntimeRunProjectionRequest
 	runProjection         RuntimeRunProjectionResponse
+	transitionHistoryReq  RuntimeRunTransitionHistoryRequest
+	transitionHistory     RuntimeRunTransitionHistoryResponse
 	runs                  RuntimeRunsResponse
 	run                   RuntimeRunResponse
 	runID                 string
@@ -3907,6 +3909,11 @@ func (s *recordingRuntimeService) RunProjection(_ context.Context, req RuntimeRu
 		s.runProjection.Run.PrimarySessionID = req.SessionID
 	}
 	return s.runProjection, nil
+}
+
+func (s *recordingRuntimeService) RunTransitionHistory(_ context.Context, req RuntimeRunTransitionHistoryRequest) (RuntimeRunTransitionHistoryResponse, error) {
+	s.transitionHistoryReq = req
+	return s.transitionHistory, nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {

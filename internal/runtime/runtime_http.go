@@ -251,6 +251,15 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Limit:     runtimeQueryLimit(r),
 		})
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/run-transitions":
+		value, err := s.service.RunTransitionHistory(r.Context(), RuntimeRunTransitionHistoryRequest{
+			RunID:     r.URL.Query().Get("run_id"),
+			SessionID: r.URL.Query().Get("session_id"),
+			TurnID:    r.URL.Query().Get("turn_id"),
+			Cursor:    runtimeQueryCursor(r),
+			Limit:     runtimeQueryLimit(r),
+		})
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionTodosPathID(r.URL.Path) != "":
 		value, err := s.service.SessionTodos(r.Context(), sessionTodosPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -707,6 +716,15 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 	case method == http.MethodGet && sessionRunProjectionPathID(path) != "":
 		value, err := s.service.RunProjection(r.Context(), RuntimeRunProjectionRequest{
 			SessionID: sessionRunProjectionPathID(path),
+			Cursor:    runtimeDevModuleCursor(r, pathQuery),
+			Limit:     runtimeDevModuleLimit(r, pathQuery),
+		})
+		return value, err, true
+	case method == http.MethodGet && path == "/v1/run-transitions":
+		value, err := s.service.RunTransitionHistory(r.Context(), RuntimeRunTransitionHistoryRequest{
+			RunID:     pathQuery.Get("run_id"),
+			SessionID: pathQuery.Get("session_id"),
+			TurnID:    pathQuery.Get("turn_id"),
 			Cursor:    runtimeDevModuleCursor(r, pathQuery),
 			Limit:     runtimeDevModuleLimit(r, pathQuery),
 		})

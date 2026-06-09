@@ -942,3 +942,18 @@ Frontend boundary:
 - Transport responses remain audit/diagnostic evidence only and must not become
   lifecycle, checkpoint, permission, MCP, artifact, diagnostics, interrupted,
   or tool actionability truth.
+
+## 2026-06-09: Phase 10.8 Transition History Transport Exposure
+
+Phase 10.8 exposes transition history through RuntimeService, HTTP/dev, and
+Wails bridge delegation.
+
+Frontend boundary:
+
+- No client adapter consumption, React state, UI, or generated binding smoke is
+  added.
+- HTTP/dev exposes `GET /v1/run-transitions`.
+- Wails bridge exposes `RunTransitionHistory(req)`, but frontend use remains
+  deferred.
+- Existing Run detail, RunProjection, and SessionActivity remain the only
+  frontend lifecycle/actionability sources.

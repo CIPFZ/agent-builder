@@ -4283,6 +4283,54 @@ Review conclusion:
 - Transition history remains audit evidence and cannot become lifecycle or
   actionability truth.
 
+### Phase 10.8: Transition History Read-only Transport Exposure
+
+Status: implemented.
+
+Scope:
+
+- Expose the Phase 10.6 read-only transition-history DTO through the
+  transport-neutral runtime boundary.
+- Add direct HTTP/dev module route coverage.
+- Add Wails bridge delegation coverage.
+
+Implementation notes:
+
+- Added `RunTransitionHistory(ctx, RuntimeRunTransitionHistoryRequest)` to
+  `RuntimeService`.
+- Added direct HTTP `GET /v1/run-transitions` with `run_id`, `session_id`,
+  `turn_id`, `cursor`, and `limit` query support.
+- Added dev module support for `/v1/run-transitions`.
+- Added Wails bridge aliases and `RuntimeBridge.RunTransitionHistory(...)`.
+- Added transport tests proving direct HTTP, dev module, and Wails bridge
+  delegation preserve request fields and return read-only/audit-only response
+  metadata.
+- Did not add client adapter consumption, React state, frontend UI, generated
+  binding smoke, scheduler, automatic resume, or transition-derived
+  actionability.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeHTTPServerRoutesRunTransitionHistoryToRuntimeService|TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy|TestRuntimeRunTransitionHistory"
+  -count=1` passed.
+- `go test ./desktop -run
+  "TestRuntimeBridgeNarrowActivityUsesRuntimeService|TestRuntimeBridgeForwardsDurableRunReads"
+  -count=1` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `go test ./... -timeout 180s` passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 10.8 exposes transition history as read-only transport diagnostics
+  only.
+- Frontend consumption and generated binding smoke remain deferred until a
+  separate accepted validation or UI phase.
+- Existing Run detail, RunProjection, and SessionActivity remain the source of
+  lifecycle and actionability state.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -4330,7 +4378,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 10.8: Transition History Read-only Transport Exposure. Add only
-the transport-neutral service interface method, HTTP/dev routes, Wails bridge
-delegation, and contract tests. Do not add frontend consumption or generated
-binding smoke unless separately accepted.
+Review and accept Phase 10.8 before frontend consumption or generated binding
+smoke. The next gate should decide whether a packaged/generated binding
+validation is needed before any React adapter use.

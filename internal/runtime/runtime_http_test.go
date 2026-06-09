@@ -354,6 +354,71 @@ func TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesRunTransitionHistoryToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		transitionHistory: RuntimeRunTransitionHistoryResponse{
+			Transitions: []RuntimeRunTransition{{
+				ID:        "transition-1",
+				RunID:     "run-1",
+				SessionID: "session-1",
+				TurnID:    "turn-1",
+				ToStatus:  runtimeRunStatusCompleted,
+				Source:    runtimeRunTransitionSourceTurnFinished,
+				CreatedAt: 2000,
+			}},
+			Window: RuntimeActivityWindow{Limit: 4, ToEnd: true},
+			Source: RuntimeRunTransitionHistorySource{
+				Kind:      runtimeRunTransitionHistorySourceKind,
+				ReadOnly:  true,
+				AuditOnly: true,
+			},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/run-transitions?run_id=run-1&limit=4&cursor=v1%3Atransition", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.transitionHistoryReq.RunID != "run-1" || service.transitionHistoryReq.Limit != 4 || service.transitionHistoryReq.Cursor != "v1:transition" {
+		t.Fatalf("run transition args = %#v", service.transitionHistoryReq)
+	}
+	var history RuntimeRunTransitionHistoryResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &history); err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Transitions) != 1 || !history.Source.ReadOnly || !history.Source.AuditOnly {
+		t.Fatalf("history = %#v", history)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/run-transitions?session_id=session-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.transitionHistoryReq.SessionID != "session-1" {
+		t.Fatalf("session route status = %d body = %s args=%#v", resp.status, resp.body.String(), service.transitionHistoryReq)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/run-transitions?turn_id=turn-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.transitionHistoryReq.TurnID != "turn-1" {
+		t.Fatalf("turn route status = %d body = %s args=%#v", resp.status, resp.body.String(), service.transitionHistoryReq)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesRunsToRuntimeService(t *testing.T) {
 	t.Parallel()
 
@@ -519,6 +584,23 @@ func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
 			CreatedAt: 1000,
 			UpdatedAt: 1200,
 		}},
+		transitionHistory: RuntimeRunTransitionHistoryResponse{
+			Transitions: []RuntimeRunTransition{{
+				ID:        "transition-1",
+				RunID:     "run-1",
+				SessionID: "session-1",
+				TurnID:    "turn-1",
+				ToStatus:  runtimeRunStatusCompleted,
+				Source:    runtimeRunTransitionSourceTurnFinished,
+				CreatedAt: 1200,
+			}},
+			Window: RuntimeActivityWindow{Limit: 7, ToEnd: true},
+			Source: RuntimeRunTransitionHistorySource{
+				Kind:      runtimeRunTransitionHistorySourceKind,
+				ReadOnly:  true,
+				AuditOnly: true,
+			},
+		},
 	}
 	server := newRuntimeHTTPServer(service)
 
@@ -556,6 +638,15 @@ func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
 	resp = httptestResponse(server, req)
 	if resp.status != http.StatusOK || service.runProjectionRequest.SessionID != "session-1" || service.runProjectionRequest.Limit != 5 || service.runProjectionRequest.Cursor != "v1:run" {
 		t.Fatalf("run projection status = %d body = %s args=%#v", resp.status, resp.body.String(), service.runProjectionRequest)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/run-transitions%3Frun_id%3Drun-1&limit=7&cursor=v1%3Atransition", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.transitionHistoryReq.RunID != "run-1" || service.transitionHistoryReq.Limit != 7 || service.transitionHistoryReq.Cursor != "v1:transition" {
+		t.Fatalf("transition history status = %d body = %s args=%#v", resp.status, resp.body.String(), service.transitionHistoryReq)
 	}
 
 	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/turns/turn-1/activity", nil)
