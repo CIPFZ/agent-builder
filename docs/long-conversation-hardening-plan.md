@@ -4729,7 +4729,7 @@ Review conclusion:
 
 ### Phase 11.2: Persisted Run List Reconciliation Hardening
 
-Status: implemented.
+Status: accepted.
 
 Scope:
 
@@ -4770,6 +4770,12 @@ Validation:
 - `go test ./internal/runtime -run
   "TestRuntimeRunListRefreshesPersistedStatusFromProjection" -count=1`
   passed.
+- `go test ./internal/runtime -run
+  "TestRuntimeRun(Projection|Detail|List|Envelope|Store|Transition)|TestRuntimeRunStore|TestRuntimeRunTransition|TestRuntimeServiceMarkInterruptedDoneCancelsInterruptedTurn"
+  -count=1` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `git diff --check` passed.
 
 Review conclusion:
 
@@ -4779,6 +4785,35 @@ Review conclusion:
   background Run execution, transition-derived actionability, React-owned
   lifecycle state, or prose-derived lifecycle/checkpoint/artifact inference was
   introduced.
+
+### Phase 11.3: Full-window-only Persisted Run Reconciliation
+
+Status: next implementation.
+
+Scope:
+
+- Ensure only full `RunProjection` reads can reconcile persisted Run detail.
+- Prevent cursor/limit projection windows from overwriting durable Run status,
+  timestamps, checkpoints, sessions, or objective with partial evidence.
+- Preserve bounded `RunProjection` as read-only window/parity evidence.
+
+Out of scope:
+
+- New database migration.
+- Scheduler, automatic resume, or background Run execution.
+- Frontend Run management UI.
+- Transition-derived current lifecycle or actionability.
+- React-owned lifecycle/checkpoint state.
+
+Validation required:
+
+- Focused Go tests proving bounded `RunProjection(limit/cursor)` does not
+  mutate persisted Run detail.
+- Existing Run detail/list reconciliation tests proving full projections still
+  refresh persisted rows.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1`.
+- `git diff --check`.
 
 ## Validation Scenarios
 
@@ -4827,7 +4862,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept Phase 11.2 after package-level validation. Then decide the
-next separately approved boundary; do not add migrations, scheduler, automatic
-resume, frontend Run management UI, background Run execution, transition-derived
-actionability, or React-owned lifecycle state without a new gate.
+Implement Phase 11.3: Full-window-only Persisted Run Reconciliation. Keep
+bounded projection windows read-only; do not add migrations, scheduler,
+automatic resume, frontend Run management UI, background Run execution,
+transition-derived actionability, or React-owned lifecycle state.

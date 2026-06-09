@@ -1072,3 +1072,16 @@ Phase 11.2 result:
   projection-backed backfill; the phase added regression coverage only.
 - Frontend list consumers should continue to use backend DTO refreshes as the
   source of truth.
+
+## 2026-06-09: Phase 11.3 Full-window-only Run Reconciliation Boundary
+
+Phase 11.3 should prevent bounded projection windows from mutating persisted
+Run detail.
+
+Frontend boundary:
+
+- `RunProjection(limit/cursor)` remains a read-only window for UI preview and
+  parity checks.
+- Only full projection/detail/list refreshes may reconcile durable Run rows.
+- Frontend consumers must not treat partial projection windows as complete Run
+  lifecycle, checkpoint, artifact, or diagnostics truth.
