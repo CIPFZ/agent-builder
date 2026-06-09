@@ -3857,7 +3857,7 @@ Review conclusion:
 
 ### Phase 10.2: Run Transition History Store Foundation
 
-Status: next implementation phase.
+Status: implemented.
 
 Scope:
 
@@ -3871,6 +3871,51 @@ Out of scope:
 
 - Runtime lifecycle state machine wiring.
 - Scheduler.
+- Automatic resume.
+- Frontend Run management UI.
+- Replacing `SessionActivity`.
+
+Implementation notes:
+
+- Added `runtime_run_transitions` migration with ordered indexes for run,
+  session, and turn queries.
+- Added `runtimeRunTransitionStore` with idempotent `Upsert`, `Get`,
+  `ListByRun`, `ListBySession`, and `ListByTurn`.
+- Deterministic transition ids are generated from stable runtime evidence when
+  callers do not provide an id.
+- The store is intentionally not wired into runtime execution in this phase.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeRunTransition" -count=1`
+  passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `go test ./... -timeout 180s` passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 10.2 adds the migration/store foundation only.
+- No runtime state machine wiring, scheduler, automatic resume, frontend Run UI,
+  event-payload lifecycle authority, or `SessionActivity` replacement was
+  introduced.
+
+### Phase 10.3: Run Transition History Runtime Wiring Gate
+
+Status: next design gate.
+
+Scope:
+
+- Decide where transition history should be recorded in existing runtime paths:
+  turn start, finish, cancel, interrupted acknowledgement, restart recovery,
+  and checkpoint resume.
+- Specify idempotency keys for each transition source.
+- Define tests proving transition history does not become actionability truth.
+
+Out of scope:
+
+- Implementing a scheduler.
 - Automatic resume.
 - Frontend Run management UI.
 - Replacing `SessionActivity`.
@@ -3922,7 +3967,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 10.2: Run Transition History Store Foundation. Keep it limited
-to the migration and narrow store/tests; do not wire a runtime state machine,
-implement a scheduler, implement automatic resume, add frontend Run management
-UI, or replace `SessionActivity`.
+Implement Phase 10.3: Run Transition History Runtime Wiring Gate. Keep it as a
+design gate only; do not wire transitions, implement a scheduler, implement
+automatic resume, add frontend Run management UI, or replace `SessionActivity`
+until the gate is accepted.

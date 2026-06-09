@@ -857,3 +857,15 @@ Frontend boundary:
 - Transition history must not become a frontend source of lifecycle truth until
   a later runtime DTO contract exposes it.
 - Current Run projection and session activity reads remain unchanged.
+
+## 2026-06-09: Phase 10.2 Run Transition History Store Foundation
+
+Phase 10.2 adds only the backend transition-history migration and narrow store.
+
+Frontend boundary:
+
+- No transport, generated binding, or UI changes are introduced.
+- The frontend still reads existing Run projection DTOs and session activity.
+- Transition rows are not exposed as lifecycle truth in this phase.
+- Runtime events remain refresh triggers only and must not be merged into
+  lifecycle, permission, MCP, artifact, diagnostics, or checkpoint state.
