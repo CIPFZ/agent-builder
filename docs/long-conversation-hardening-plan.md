@@ -4005,7 +4005,7 @@ Review conclusion:
 
 ### Phase 10.4: Run Transition History Runtime Wiring
 
-Status: implemented.
+Status: accepted.
 
 Scope:
 
@@ -4055,6 +4055,29 @@ Review conclusion:
 - Transition rows still cannot make stale permission gates, MCP auth,
   elicitation requests, tools, checkpoints, artifacts, diagnostics, or
   interrupted summaries actionable.
+- Phase 10.4 is accepted as the backend-only transition-history wiring
+  foundation.
+
+### Phase 10.5: Read-only Transition History DTO Design Gate
+
+Status: next design gate.
+
+Scope:
+
+- Decide whether transition history should be exposed as a read-only DTO.
+- Define the DTO shape, cursor semantics, and transport-neutral API boundary if
+  exposure is justified.
+- Prove how transition-history reads preserve `SessionActivity`,
+  `RunProjection`, and persisted Run detail parity without becoming lifecycle
+  or actionability truth.
+
+Out of scope:
+
+- Implementing transition-history transport.
+- Frontend Run management UI.
+- Scheduler or automatic resume.
+- Treating transition rows as source of permission, MCP auth, elicitation,
+  checkpoint, artifact, diagnostics, interrupted, or tool actionability.
 
 ## Validation Scenarios
 
@@ -4103,7 +4126,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept Phase 10.4 before any transition-history transport exposure.
-The next design gate should decide whether a read-only transition-history DTO is
-needed and how it would preserve `SessionActivity`/RunProjection parity without
-becoming lifecycle or actionability truth.
+Implement Phase 10.5: Read-only Transition History DTO Design Gate. Keep it as
+a design gate only; do not expose transition history through HTTP, Wails, or
+React until the gate is accepted.
