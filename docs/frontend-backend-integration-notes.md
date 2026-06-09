@@ -986,3 +986,21 @@ Frontend boundary:
   added.
 - Existing Run detail, RunProjection, and SessionActivity remain the frontend
   lifecycle/actionability sources.
+
+## 2026-06-09: Phase 10.11 Transition History Frontend Diagnostic Gate
+
+Phase 10.11 rejects immediate frontend consumption of transition history.
+
+Frontend boundary:
+
+- Generated Wails binding availability is validation evidence only; it does not
+  authorize React or adapter consumption.
+- There is no current diagnostic workflow that requires a transition-history
+  panel, timeline overlay, or checkpoint correlation surface in the frontend.
+- Existing RunProjection, persisted Run detail, SessionActivity, and narrow
+  activity DTOs remain the frontend sources for lifecycle, timeline,
+  diagnostics, artifact evidence, interrupted recovery, permissions, MCP
+  semantics, and checkpoint actionability.
+- Any future transition-history UI must be accepted separately as additive,
+  read-only audit evidence and must fetch a full runtime DTO/window after event
+  triggers instead of merging event payload fields into React state.

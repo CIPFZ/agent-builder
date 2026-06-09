@@ -4432,7 +4432,7 @@ Review conclusion:
 
 ### Phase 10.11: Transition History Frontend Diagnostic Use-case Gate
 
-Status: next design gate.
+Status: accepted as a design gate only.
 
 Scope:
 
@@ -4449,6 +4449,67 @@ Out of scope:
 - React state or UI.
 - Scheduler, automatic resume, Run management UI, or transition-derived
   actionability.
+
+Accepted decision:
+
+- There is no current frontend diagnostic use case strong enough to consume
+  transition history in the client adapter or React view model.
+- Existing user-visible diagnostics should continue to come from refreshed
+  `SessionActivity`, `RunProjection`, and persisted Run detail DTOs.
+- Transition history remains a transport-accessible read-only audit stream for
+  backend tests, support debugging, and future operator diagnostics.
+- Generated binding availability from Phase 10.10 is validation evidence only;
+  it does not authorize frontend consumption by itself.
+- Event payloads may select a transition-history refresh only in a future
+  accepted diagnostic phase. Even then, transition rows must remain display-only
+  audit evidence and must not be merged into timeline, lifecycle, checkpoint,
+  permission, MCP, artifact, diagnostics, interrupted, or tool actionability
+  state.
+
+Rejected frontend use cases for this phase:
+
+- A transition-history panel next to `RunProjectionPreview`: rejected because it
+  would duplicate lifecycle/status signals already exposed by RunProjection and
+  risks making transition rows look authoritative.
+- A timeline overlay built from transition rows: rejected because timeline,
+  tool, permission, artifact, and diagnostic parity must stay based on
+  `SessionActivity` and narrow activity DTOs.
+- React-side transition correlation for checkpoint resume: rejected because
+  checkpoint actionability is already derived from refreshed runtime checkpoint
+  DTOs, not audit rows.
+
+Future acceptance criteria for any frontend consumption:
+
+- The use case must be a concrete diagnostic workflow that cannot be satisfied
+  by `SessionActivity`, `RunProjection`, or persisted Run detail.
+- The view model must be additive, read-only, and named as audit/diagnostic
+  evidence rather than Run lifecycle state.
+- The adapter must fetch the full DTO/window from Go after an event trigger; it
+  must not merge event payload fields into transition history.
+- Tests must prove duplicate lifecycle/checkpoint/permission/artifact events do
+  not duplicate visible rows or resurrect stale actionability.
+- Tests must prove the corresponding `SessionActivity`/`RunProjection` subset
+  remains the source for messages, tool calls, permissions, diagnostics,
+  artifact evidence, interrupted summaries, terminal permission/MCP semantics,
+  and checkpoint actionability.
+
+Validation:
+
+- Reviewed `RunProjectionPreview` and existing diagnostics surfaces. They
+  already expose the narrow user-facing Run status, counts, checkpoint, and
+  artifact diagnostics that are safe for React to render.
+- Reviewed Phase 10.10 smoke coverage. It proves binding availability and
+  intentionally guards against client runtime/workbench type consumption.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 10.11 accepts no frontend transition-history consumption at this time.
+- Transition history remains read-only transport/audit evidence.
+- `SessionActivity`, `RunProjection`, and persisted Run detail remain frontend
+  lifecycle/actionability sources.
+- No frontend adapter consumption, React state, UI, scheduler, automatic resume,
+  Run management UI, or transition-derived actionability is accepted.
 
 ## Validation Scenarios
 
@@ -4497,6 +4558,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 10.11: Transition History Frontend Diagnostic Use-case Gate.
-Keep it as a design gate only; do not add frontend adapter consumption or React
-UI until the gate is accepted.
+Review the Phase 10 transition-history work as a whole and decide the next
+separately approved implementation boundary. Do not implement scheduler,
+automatic resume, frontend Run management UI, or transition-derived
+actionability without a new accepted gate.
