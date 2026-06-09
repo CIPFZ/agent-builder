@@ -821,3 +821,15 @@ Frontend boundary:
 - Run projection remains a runtime DTO read.
 - Stale tool, permission, MCP auth, and elicitation actionability must remain
   absent unless current runtime stores expose them after refresh.
+
+## 2026-06-09: Phase 9.3 Run Envelope Acceptance
+
+Phase 9.3 accepts the minimal durable Run envelope as a backend/runtime
+boundary, not as a frontend product surface.
+
+Frontend boundary:
+
+- No Run management UI is introduced.
+- The frontend keeps reading Run projection DTOs and session activity.
+- Future Run lifecycle or scheduler work requires a separate design gate before
+  any UI state or transport contract changes.

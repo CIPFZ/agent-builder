@@ -3627,7 +3627,7 @@ Review conclusion:
 
 ### Phase 9.3: Run Envelope Acceptance And Cutover Boundary
 
-Status: next review phase.
+Status: accepted.
 
 Scope:
 
@@ -3645,6 +3645,61 @@ Out of scope:
 - Full Run state machine.
 - New Run database migrations.
 - Frontend Run management UI.
+
+Review conclusion:
+
+- Phase 9.1 and Phase 9.2 are accepted as the minimal durable Run envelope
+  cutover boundary.
+- The runtime now has a write-capable envelope that links session-first turns
+  to durable Run identity and reconciles terminal summary through
+  `RunProjection`.
+- The envelope is not yet a scheduler and is not yet a replacement for
+  `SessionActivity`.
+- Restart/replay validation proves the envelope does not restore stale tool,
+  permission, MCP auth, or elicitation actionability.
+- The next step must remain a design gate before any database migration,
+  scheduler, full state machine, or frontend Run management work.
+
+Remaining risks:
+
+- The Run envelope stores the current linked turn in existing
+  `runtime_run_sessions.turn_id`; it does not yet model multi-turn Run
+  lifecycle transitions as first-class persisted state.
+- Packaged WebView click smoke for the visible checkpoint resume control still
+  needs a deterministic eligible-checkpoint fixture.
+- Any future replacement of session-first execution still needs explicit
+  migration/backfill, replay, and parity gates.
+
+### Phase 10: Run Lifecycle State Machine And Scheduler Design Gate
+
+Status: next design gate.
+
+Purpose:
+
+- Decide whether and how Agent Builder should move from the minimal Run
+  envelope to a first-class runtime Run lifecycle.
+- Define the minimum persisted state machine needed before scheduler work is
+  allowed.
+- Preserve Claude Code lessons: durable transcript/session evidence first,
+  runtime-owned actionability, no browser-owned execution state.
+
+Scope:
+
+- Design candidate Run lifecycle states and transitions.
+- Decide whether a database migration is justified and what backward-compatible
+  backfill would require.
+- Define scheduler boundaries, especially what remains session-first and what
+  may become Run-first.
+- Define acceptance tests for restart, cancellation, permission/MCP
+  actionability, checkpoint resume, and parity with `SessionActivity`.
+
+Out of scope:
+
+- Implementing the state machine.
+- Writing database migrations.
+- Implementing automatic resume.
+- Implementing a background scheduler.
+- Implementing frontend Run management UI.
 
 ## Validation Scenarios
 
@@ -3693,7 +3748,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 9.1 and Phase 9.2 as the minimal durable Run envelope
-cutover boundary, then plan the next phase. Do not implement automatic resume,
-background Run scheduling, full Run state machine, database migrations, or
-expanded frontend Run management UI without a separate accepted gate.
+Implement Phase 10: Run Lifecycle State Machine And Scheduler Design Gate. Keep
+it as a design gate only; do not implement automatic resume, background Run
+scheduling, full Run state machine, database migrations, or expanded frontend
+Run management UI until the gate is accepted.
