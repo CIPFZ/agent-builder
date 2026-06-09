@@ -95,7 +95,7 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 	}
 	r.sessionTurns[sessionID] = requestID
 	r.mu.Unlock()
-	if _, err := r.turns.Upsert(ctx, RuntimeTurn{
+	startedTurn := RuntimeTurn{
 		ID:            requestID,
 		SessionID:     sessionID,
 		Status:        turnStatusQueued,
@@ -104,12 +104,15 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		PromptPreview: preview(prompt, auditPreviewLimit),
 		UsageBefore:   usageBefore,
 		StartedAt:     start.UnixMilli(),
-	}); err != nil {
+	}
+	if _, err := r.turns.Upsert(ctx, startedTurn); err != nil {
 		return RuntimeChatResponse{}, err
 	}
 	if run.ID != "" {
 		if _, err := r.runs.LinkTurn(ctx, run.ID, sessionID, requestID, start.UnixMilli()); err != nil {
 			slog.Warn("Failed to link runtime run turn", "run_id", run.ID, "session_id", sessionID, "turn_id", requestID, "error", err)
+		} else {
+			r.recordRunTurnTransition(ctx, runtimeRunTransitionSourceTurnStarted, startedTurn, "", runtimeRunStatusActive, "turn started")
 		}
 	}
 
@@ -314,6 +317,7 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 	if !ok {
 		state = runtimeRequestState{SessionID: turn.SessionID}
 	}
+	runStatusBefore := r.runtimeRunStatusForSession(ctx, turn.SessionID)
 
 	if err := r.runtime.CancelSession(wsID, state.SessionID); err != nil {
 		return RuntimeStatus{}, fmt.Errorf("failed to cancel session: %w", err)
@@ -337,7 +341,6 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 	if _, err := r.turns.Upsert(ctx, turn); err != nil {
 		return RuntimeStatus{}, err
 	}
-	r.reconcileRuntimeRunForSession(ctx, turn.SessionID)
 	if r.toolCalls != nil {
 		calls, _ := r.toolCalls.ListCalls(ctx, turnID)
 		for _, call := range calls {
@@ -368,6 +371,9 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 				Error: "turn cancelled",
 			})
 		}
+	}
+	if projection, err := r.reconcileRuntimeRunForSession(ctx, turn.SessionID); err == nil {
+		r.recordRunTurnTransition(ctx, runtimeRunTransitionSourceTurnCancelled, turn, runStatusBefore, firstNonEmpty(projection.Status, runtimeRunStatusCancelled), "turn cancelled")
 	}
 	r.writeAudit(auditEntry{
 		RequestID:   turnID,
@@ -404,6 +410,7 @@ func (r *runtimeService) MarkInterruptedDone(ctx context.Context, turnID string)
 	if turn.Status != turnStatusInterrupted {
 		return RuntimeTurnResponse{}, fmt.Errorf("turn %s is not interrupted", turnID)
 	}
+	runStatusBefore := r.runtimeRunStatusForSession(ctx, turn.SessionID)
 	now := time.Now().UTC()
 	turn.Status = turnStatusCancelled
 	turn.Error = firstNonEmpty(turn.Error, "interrupted turn marked done")
@@ -414,7 +421,9 @@ func (r *runtimeService) MarkInterruptedDone(ctx context.Context, turnID string)
 	if err != nil {
 		return RuntimeTurnResponse{}, err
 	}
-	r.reconcileRuntimeRunForSession(ctx, stored.SessionID)
+	if projection, err := r.reconcileRuntimeRunForSession(ctx, stored.SessionID); err == nil {
+		r.recordRunTurnTransition(ctx, runtimeRunTransitionSourceInterruptedMarkedDone, stored, runStatusBefore, firstNonEmpty(projection.Status, runtimeRunStatusCancelled), "interrupted turn marked done")
+	}
 	r.storeRuntimeEvent(runtimeapi.Event{
 		ID:        newRuntimeEventID(),
 		Type:      runtimeapi.EventTurnCancelled,
@@ -526,7 +535,8 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 	} else if entry.Event == "cancelled" {
 		turnStatus = turnStatusCancelled
 	}
-	_, _ = r.turns.Upsert(context.Background(), RuntimeTurn{
+	runStatusBefore := r.runtimeRunStatusForSession(context.Background(), sessionID)
+	finishedTurn := RuntimeTurn{
 		ID:                       requestID,
 		SessionID:                sessionID,
 		Status:                   turnStatus,
@@ -541,8 +551,11 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 		StartedAt:                start.UnixMilli(),
 		FinishedAt:               time.Now().UnixMilli(),
 		Error:                    entry.Error,
-	})
-	r.reconcileRuntimeRunForSession(context.Background(), sessionID)
+	}
+	_, _ = r.turns.Upsert(context.Background(), finishedTurn)
+	if projection, err := r.reconcileRuntimeRunForSession(context.Background(), sessionID); err == nil {
+		r.recordRunTurnTransition(context.Background(), runtimeRunTransitionSourceTurnFinished, finishedTurn, runStatusBefore, firstNonEmpty(projection.Status, runtimeRunStatusCompleted), "turn "+entry.Event)
+	}
 	r.storeRuntimeEvent(newUsageRuntimeEvent(time.Now(), requestID, sessionID, usageAfter, usageDelta))
 	r.storeRuntimeEvent(newTurnFinishedRuntimeEvent(time.Now(), requestID, sessionID, entry.Event, duration, provider, model, usageDelta, entry.Error))
 }

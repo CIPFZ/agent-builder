@@ -883,3 +883,18 @@ Frontend boundary:
   the frontend integration points.
 - Transition history must not become permission, MCP auth, elicitation,
   checkpoint, artifact, diagnostics, or interrupted actionability truth.
+
+## 2026-06-09: Phase 10.4 Run Transition Runtime Wiring
+
+Phase 10.4 wires backend transition-history writes into accepted runtime paths.
+
+Frontend boundary:
+
+- No HTTP, Wails, generated binding, or React surface is added.
+- Existing Run projection, Run detail, and session activity refreshes remain
+  the only frontend integration points.
+- Transition rows are backend audit evidence only and are not lifecycle,
+  checkpoint, permission, MCP, artifact, diagnostics, or interrupted
+  actionability truth.
+- Runtime events continue to trigger refreshes only; event payloads are not
+  merged into frontend lifecycle state.

@@ -25,6 +25,7 @@ func newRuntimeService() *runtimeService {
 		sandboxDecisions:  runtimeSandboxDecisionStore{},
 		hookExecutions:    runtimeHookExecutionStore{},
 		runs:              runtimeRunStore{},
+		transitions:       runtimeRunTransitionStore{},
 
 		agentTasks: runtimeAgentTaskStore{},
 

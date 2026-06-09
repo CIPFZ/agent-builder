@@ -118,6 +118,7 @@ func (r *runtimeService) ResumeRunCheckpoint(ctx context.Context, runID, checkpo
 	if _, err := r.runs.LinkCheckpointResume(ctx, run.ID, checkpoint.ID, chat.TurnID); err != nil {
 		return RuntimeRunResumeResponse{}, err
 	}
+	r.recordCheckpointResumeTransition(ctx, run, checkpoint, chat.TurnID)
 	r.writeAudit(auditEntry{
 		RequestID:     chat.TurnID,
 		Event:         "run_checkpoint_resumed",
@@ -188,13 +189,16 @@ func (r *runtimeService) backfillRuntimeRunSession(ctx context.Context, sessionI
 	return r.runs.UpsertFromProjection(ctx, projection.Run, runtimeRunSourceBackfill)
 }
 
-func (r *runtimeService) reconcileRuntimeRunForSession(ctx context.Context, sessionID string) {
+func (r *runtimeService) reconcileRuntimeRunForSession(ctx context.Context, sessionID string) (RuntimeRunProjection, error) {
 	if r.runs.db == nil || strings.TrimSpace(sessionID) == "" {
-		return
+		return RuntimeRunProjection{}, nil
 	}
-	if _, err := r.RunProjection(ctx, RuntimeRunProjectionRequest{SessionID: sessionID}); err != nil {
+	resp, err := r.RunProjection(ctx, RuntimeRunProjectionRequest{SessionID: sessionID})
+	if err != nil {
 		slog.Warn("Failed to reconcile runtime run", "session_id", sessionID, "error", err)
+		return RuntimeRunProjection{}, err
 	}
+	return resp.Run, nil
 }
 
 func runtimeRunCheckpointByID(checkpoints []RuntimeRunCheckpoint, checkpointID string) (RuntimeRunCheckpoint, bool) {

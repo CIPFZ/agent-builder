@@ -4003,6 +4003,59 @@ Review conclusion:
   transport exposure, or `SessionActivity` replacement is implemented in this
   phase.
 
+### Phase 10.4: Run Transition History Runtime Wiring
+
+Status: implemented.
+
+Scope:
+
+- Add a narrow transition writer over the Phase 10.2
+  `runtime_run_transitions` store.
+- Wire only accepted existing runtime paths from Phase 10.3.
+- Keep transition writes non-authoritative and disconnected from transport/UI.
+
+Implementation notes:
+
+- Added `runtimeRunTransitionStore` ownership to `runtimeService` startup,
+  restart, and test harness setup.
+- Added `recordRunTransition`, turn/task transition helpers, and checkpoint
+  resume transition helper.
+- `Chat` records `turn_started` only after the turn row exists and
+  `runtimeRunStore.LinkTurn` succeeds.
+- `runChat` records `turn_finished` after final turn persistence and
+  RunProjection reconciliation.
+- `CancelTurn` records `turn_cancelled` after terminal turn and stale tool-call
+  cancellation evidence has been written.
+- `MarkInterruptedDone` records `interrupted_marked_done` after preserving the
+  existing cancelled terminal turn semantics.
+- Startup recovery records `startup_recovery` for interrupted turns/tasks only
+  after unfinished tools, permissions, and stale MCP requests have been
+  terminalized.
+- `ResumeRunCheckpoint` records `checkpoint_resume` after the explicit new turn
+  is created and linked to the checkpoint.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeRunTransition" -count=1`
+  passed.
+- `go test ./internal/runtime -run
+  "TestRuntimeServiceMarkInterruptedDoneCancelsInterruptedTurn|TestRuntimeRunProjection|TestRuntimeRunStore"
+  -count=1` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `go test ./... -timeout 180s` passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 10.4 wires transition-history writes as audit evidence only.
+- No transition-history HTTP/Wails/React DTO, scheduler, automatic resume,
+  frontend Run management UI, event-payload lifecycle authority, or
+  `SessionActivity` replacement was introduced.
+- Transition rows still cannot make stale permission gates, MCP auth,
+  elicitation requests, tools, checkpoints, artifacts, diagnostics, or
+  interrupted summaries actionable.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -4050,7 +4103,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 10.4: Run Transition History Runtime Wiring. Keep it limited to
-the accepted existing runtime paths and transition-store writes; do not expose a
-transition DTO over transport, implement a scheduler, implement automatic
-resume, add frontend Run management UI, or replace `SessionActivity`.
+Review and accept Phase 10.4 before any transition-history transport exposure.
+The next design gate should decide whether a read-only transition-history DTO is
+needed and how it would preserve `SessionActivity`/RunProjection parity without
+becoming lifecycle or actionability truth.

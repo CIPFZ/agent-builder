@@ -146,6 +146,7 @@ type runtimeService struct {
 	permissionStore   runtimePermissionStore
 	mcpRequestStore   runtimeMCPRequestStore
 	runs              runtimeRunStore
+	transitions       runtimeRunTransitionStore
 	permissions       map[string]pendingRuntimePermission
 	policy            RuntimePolicy
 	capabilityLoads   map[string]runtimeCapabilityLoadRecord

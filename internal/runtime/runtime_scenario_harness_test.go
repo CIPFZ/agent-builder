@@ -45,6 +45,8 @@ func newRuntimeScenarioHarness(t *testing.T) *runtimeScenarioHarness {
 	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
 	service.refs = newRuntimeRefStore(conn, dataDir)
 	service.eventStore = newRuntimeEventStore(conn)
+	service.runs = newRuntimeRunStore(conn)
+	service.transitions = newRuntimeRunTransitionStore(conn)
 	service.policy = defaultRuntimePolicy()
 	return &runtimeScenarioHarness{t: t, ctx: context.Background(), service: service, connDir: dataDir}
 }
@@ -69,6 +71,8 @@ func (h *runtimeScenarioHarness) restartedService() *runtimeService {
 	restarted.mcpRequestStore = newRuntimeMCPRequestStore(h.service.turns.db)
 	restarted.refs = newRuntimeRefStore(h.service.turns.db, h.connDir)
 	restarted.eventStore = newRuntimeEventStore(h.service.turns.db)
+	restarted.runs = newRuntimeRunStore(h.service.turns.db)
+	restarted.transitions = newRuntimeRunTransitionStore(h.service.turns.db)
 	restarted.policy = h.service.policy
 	return restarted
 }

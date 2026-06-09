@@ -121,6 +121,7 @@ func (r *runtimeService) restart() {
 	r.permissionStore = runtimePermissionStore{}
 	r.mcpRequestStore = runtimeMCPRequestStore{}
 	r.runs = runtimeRunStore{}
+	r.transitions = runtimeRunTransitionStore{}
 	r.permissions = make(map[string]pendingRuntimePermission)
 	r.policy = defaultRuntimePolicy()
 	r.capabilityLoads = make(map[string]runtimeCapabilityLoadRecord)
@@ -270,6 +271,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	r.permissionStore = newRuntimePermissionStore(conn)
 	r.mcpRequestStore = newRuntimeMCPRequestStore(conn)
 	r.runs = newRuntimeRunStore(conn)
+	r.transitions = newRuntimeRunTransitionStore(conn)
 	if maxSequence, err := r.eventStore.MaxSequence(ctx); err != nil {
 		return fmt.Errorf("failed to recover runtime event sequence: %w", err)
 	} else if maxSequence > r.nextEventSequence {
@@ -444,6 +446,12 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	for _, req := range cancelledMCPRequests {
 		r.publishMCPRequestLifecycle(req)
 		r.writeMCPRequestAudit(req)
+	}
+	for _, turn := range interrupted {
+		r.recordRunTurnTransition(ctx, runtimeRunTransitionSourceStartupRecovery, turn, "", runtimeRunStatusInterrupted, "runtime startup recovery interrupted unfinished turn")
+	}
+	for _, task := range interruptedTasks {
+		r.recordRunTaskTransition(ctx, runtimeRunTransitionSourceStartupRecovery, task, "", runtimeRunStatusInterrupted, "runtime startup recovery interrupted unfinished task")
 	}
 
 	last, listErr := r.runtime.ListSessions(ctx, ws.ID)
