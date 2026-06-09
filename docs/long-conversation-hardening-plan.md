@@ -4334,7 +4334,7 @@ Review conclusion:
 
 ### Phase 10.9: Transition History Generated Binding Validation Gate
 
-Status: next design gate.
+Status: accepted as a design gate only.
 
 Scope:
 
@@ -4349,6 +4349,40 @@ Out of scope:
 - React state or UI.
 - Scheduler, automatic resume, Run management UI, or transition-derived
   actionability.
+
+Accepted decision:
+
+- Generated binding validation is required before any future frontend adapter
+  consumes `RunTransitionHistory`.
+- A packaged WebView click smoke is not required yet because there is no
+  frontend consumer or visible UI.
+- The validation should mirror the Phase 8.8 binding smoke pattern and stay
+  limited to generated bridge availability and read-only DTO shape.
+
+Accepted validation strategy for Phase 10.10:
+
+- Run `cd desktop && wails3 task common:generate:bindings`.
+- Add a small client-side smoke script under `client/scripts` that reads
+  `desktop/frontend/bindings/.../runtimebridge.js`.
+- Assert the generated file exports `RunTransitionHistory`.
+- Assert the generated function delegates through `$Call.ByID`.
+- Assert no client runtime adapter or React source imports/uses
+  `RunTransitionHistory` in this phase.
+- Keep any temporary smoke outputs under `tmp/runtime-dev`.
+
+Validation commands for Phase 10.10:
+
+- `cd desktop && wails3 task common:generate:bindings`
+- `cd client && npm run smoke:phase1010`
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1`
+- `git diff --check`
+
+Review conclusion:
+
+- Phase 10.9 accepts generated binding validation as the next step.
+- It does not accept frontend consumption, React UI, packaged click smoke, or
+  transition-derived lifecycle/actionability state.
 
 ## Validation Scenarios
 
@@ -4397,6 +4431,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 10.9: Transition History Generated Binding Validation Gate.
-Keep it as a design gate only; do not add frontend consumption, React UI, or
-generated binding smoke until the gate is accepted.
+Implement Phase 10.10: Transition History Generated Binding Smoke. Keep it
+limited to generating Wails bindings and a small smoke script that verifies the
+generated `RunTransitionHistory` export; do not add frontend adapter
+consumption or React UI.

@@ -957,3 +957,17 @@ Frontend boundary:
   deferred.
 - Existing Run detail, RunProjection, and SessionActivity remain the only
   frontend lifecycle/actionability sources.
+
+## 2026-06-09: Phase 10.9 Transition History Binding Validation Gate
+
+Phase 10.9 accepts generated Wails binding validation before frontend use.
+
+Frontend boundary:
+
+- The next validation may generate Wails bindings and check the generated
+  `RunTransitionHistory` export.
+- No client runtime adapter consumption, React state, or UI is accepted.
+- Packaged WebView click smoke is deferred until a visible frontend consumer
+  exists.
+- Binding availability does not make transition history a lifecycle or
+  actionability source.
