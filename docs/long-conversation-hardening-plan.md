@@ -3770,7 +3770,7 @@ Review conclusion:
 
 ### Phase 10.1: Run Transition History Migration Design Gate
 
-Status: next design gate.
+Status: accepted as a design gate only.
 
 Scope:
 
@@ -3787,6 +3787,93 @@ Out of scope:
 - Implementing a scheduler.
 - Implementing automatic resume.
 - Implementing frontend Run management UI.
+
+Decision:
+
+- A dedicated transition-history table is justified before implementing a
+  first-class Run lifecycle.
+- Extending `runtime_runs.metadata_json` is not enough because transition
+  history must be queryable, replayable, idempotently backfilled, and auditable
+  without rewriting the durable Run summary row.
+
+Proposed table:
+
+```text
+runtime_run_transitions
+  id TEXT PRIMARY KEY
+  run_id TEXT NOT NULL
+  session_id TEXT
+  turn_id TEXT
+  task_id TEXT
+  from_status TEXT
+  to_status TEXT NOT NULL
+  reason TEXT
+  source TEXT NOT NULL
+  event_id TEXT
+  created_at INTEGER NOT NULL
+  metadata_json TEXT
+```
+
+Indexes:
+
+- `(run_id, created_at)`
+- `(turn_id, created_at)`
+- `(session_id, created_at)`
+- Unique id should be deterministic for replay-safe transitions, for example
+  hash of `run_id`, `turn_id`, `to_status`, `source`, and `created_at` bucket
+  when a runtime event id is unavailable.
+
+Backfill rules:
+
+- Backfill may create at most one synthetic transition per terminal historical
+  turn unless richer persisted evidence already exists.
+- Backfill must not infer lifecycle from assistant prose.
+- Backfill must preserve existing generated Run ids and deterministic
+  `run:session:<session_id>` ids.
+- Re-running backfill must not duplicate transitions.
+
+Implementation gate for Phase 10.2:
+
+- Add the migration and store only.
+- Add idempotent insert/list tests and rollback validation.
+- Do not wire transitions into runtime execution yet.
+- Do not implement scheduler, automatic resume, or frontend Run UI.
+
+Acceptance tests required for Phase 10.2:
+
+- Migration up/down applies cleanly on an empty database and a database with
+  existing Phase 8/9 Run rows.
+- Store insert is idempotent under repeated replay.
+- Listing transitions by run/session/turn is stable and ordered.
+- Existing `RunProjection`, `Run`, `SessionActivity`, checkpoint resume, and
+  restart-replay tests still pass.
+
+Review conclusion:
+
+- Phase 10.1 accepts a transition-history migration design.
+- The migration is still not implemented in this phase.
+- `SessionActivity` remains fallback/parity oracle, and runtime events remain
+  refresh triggers rather than lifecycle truth.
+
+### Phase 10.2: Run Transition History Store Foundation
+
+Status: next implementation phase.
+
+Scope:
+
+- Implement the accepted `runtime_run_transitions` migration.
+- Add a narrow runtime transition store with idempotent insert and ordered list
+  methods.
+- Keep the store disconnected from runtime execution until a later accepted
+  lifecycle wiring phase.
+
+Out of scope:
+
+- Runtime lifecycle state machine wiring.
+- Scheduler.
+- Automatic resume.
+- Frontend Run management UI.
+- Replacing `SessionActivity`.
 
 ## Validation Scenarios
 
@@ -3835,6 +3922,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 10.1: Run Transition History Migration Design Gate. Keep it as
-a design gate only; do not write migrations, implement a scheduler, implement
-automatic resume, or add frontend Run management UI.
+Implement Phase 10.2: Run Transition History Store Foundation. Keep it limited
+to the migration and narrow store/tests; do not wire a runtime state machine,
+implement a scheduler, implement automatic resume, add frontend Run management
+UI, or replace `SessionActivity`.

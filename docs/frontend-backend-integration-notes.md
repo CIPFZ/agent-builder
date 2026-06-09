@@ -846,3 +846,14 @@ Frontend boundary:
   stores, never from cached Run state or event payloads.
 - Any future transport changes for lifecycle history require a separate
   migration/contract gate.
+
+## 2026-06-09: Phase 10.1 Run Transition History Migration Gate
+
+Phase 10.1 accepts a backend migration design for Run transition history only.
+
+Frontend boundary:
+
+- No transport or UI changes are introduced by the design gate.
+- Transition history must not become a frontend source of lifecycle truth until
+  a later runtime DTO contract exposes it.
+- Current Run projection and session activity reads remain unchanged.
