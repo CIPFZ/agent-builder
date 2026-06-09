@@ -148,6 +148,44 @@ func TestRuntimeRunDetailRefreshesPersistedStatusFromProjection(t *testing.T) {
 	}
 }
 
+func TestRuntimeRunListRefreshesPersistedStatusFromProjection(t *testing.T) {
+	t.Parallel()
+
+	service, sessionID, _ := newRuntimeRunProjectionFixture(t)
+
+	projection, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := projection.Run.ID
+	stale, err := service.runs.LinkTurn(context.Background(), runID, sessionID, "turn-stale-list-active", time.Now().UnixMilli())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale.Status != runtimeRunStatusActive {
+		t.Fatalf("fixture failed to create stale active run: %#v", stale)
+	}
+
+	list, err := service.Runs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := findRuntimeRun(list.Runs, runID)
+	if listed.ID == "" {
+		t.Fatalf("run %q missing from list: %#v", runID, list.Runs)
+	}
+	if listed.Status != runtimeRunStatusInterrupted || listed.FinishedAt == 0 {
+		t.Fatalf("run list did not refresh from projection: listed=%#v projection=%#v", listed, projection.Run)
+	}
+	persisted, err := service.runs.Get(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != listed.Status || persisted.FinishedAt != listed.FinishedAt {
+		t.Fatalf("persisted run diverged from list after reconciliation: persisted=%#v listed=%#v", persisted, listed)
+	}
+}
+
 func TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation(t *testing.T) {
 	t.Parallel()
 
@@ -428,4 +466,13 @@ func findRuntimeRunCheckpoint(checkpoints []RuntimeRunCheckpoint, checkpointID s
 		}
 	}
 	return RuntimeRunCheckpoint{}
+}
+
+func findRuntimeRun(runs []RuntimeRun, runID string) RuntimeRun {
+	for _, run := range runs {
+		if run.ID == runID {
+			return run
+		}
+	}
+	return RuntimeRun{}
 }

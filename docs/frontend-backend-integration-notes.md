@@ -1065,3 +1065,10 @@ Frontend boundary:
   status from events, transition rows, or React state.
 - No frontend Run management UI, scheduler behavior, automatic resume, or
   transition-derived actionability is accepted by this boundary.
+
+Phase 11.2 result:
+
+- `Runs()` list reconciliation already refreshed stale rows through
+  projection-backed backfill; the phase added regression coverage only.
+- Frontend list consumers should continue to use backend DTO refreshes as the
+  source of truth.

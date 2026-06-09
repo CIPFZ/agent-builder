@@ -4729,7 +4729,7 @@ Review conclusion:
 
 ### Phase 11.2: Persisted Run List Reconciliation Hardening
 
-Status: next implementation.
+Status: implemented.
 
 Scope:
 
@@ -4754,6 +4754,31 @@ Validation required:
 - `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
   -count=1`.
 - `git diff --check`.
+
+Implementation notes:
+
+- Added `TestRuntimeRunListRefreshesPersistedStatusFromProjection`.
+- The test creates a stale persisted `active` Run list row, then calls
+  `Runs(ctx)` and proves list status/finished timestamp are refreshed from
+  projection-backed reconciliation.
+- No runtime code change was needed; existing `Runs(ctx)` calls
+  `backfillRuntimeRuns`, which refreshes each session through `RunProjection`
+  before listing persisted runs.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunListRefreshesPersistedStatusFromProjection" -count=1`
+  passed.
+
+Review conclusion:
+
+- Run list reads now have explicit regression coverage matching the Phase 11.1
+  Run detail reconciliation contract.
+- No migration, scheduler, automatic resume, frontend Run management UI,
+  background Run execution, transition-derived actionability, React-owned
+  lifecycle state, or prose-derived lifecycle/checkpoint/artifact inference was
+  introduced.
 
 ## Validation Scenarios
 
@@ -4802,7 +4827,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 11.2: Persisted Run List Reconciliation Hardening. Keep it
-test-first and narrow; do not add migrations, scheduler, automatic resume,
-frontend Run management UI, background Run execution, transition-derived
-actionability, or React-owned lifecycle state.
+Review and accept Phase 11.2 after package-level validation. Then decide the
+next separately approved boundary; do not add migrations, scheduler, automatic
+resume, frontend Run management UI, background Run execution, transition-derived
+actionability, or React-owned lifecycle state without a new gate.
