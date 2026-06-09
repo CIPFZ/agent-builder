@@ -5332,6 +5332,91 @@ Review conclusion:
   lifecycle state, or a new migration.
 - The next task is Phase 13: Run Scheduler Design Gate.
 
+### Phase 13: Run Scheduler Design Gate
+
+Status: accepted as a design gate only.
+
+Scope:
+
+- Define what a future Run scheduler may own before any scheduler code is
+  introduced.
+- Preserve the current session-first execution path as the implementation until
+  a later accepted scheduler implementation phase.
+- Define the minimum contracts a scheduler implementation must satisfy around
+  Run ownership, cancellation, diagnostics, checkpoints, permissions, MCP
+  actionability, and activity parity.
+
+Accepted scheduler ownership:
+
+- A scheduler may create and own Run-level execution plans after a durable Run
+  row and Run/session link exist.
+- A scheduler may use reconciled Run detail for grouping, ownership, display
+  status, cancellation scope, and diagnostics routing.
+- A scheduler may assign future work to explicit user-triggered turns,
+  checkpoint-resume turns, or task turns, but each executable unit must still
+  have durable session/turn evidence before transition audit becomes useful.
+- A scheduler may emit runtime events as refresh triggers that identify which
+  DTO family changed.
+- A scheduler may write audit/diagnostic evidence after the underlying
+  structured runtime evidence has been persisted.
+
+State that remains outside scheduler ownership:
+
+- Permission request actionability remains owned by the permission/runtime
+  stores and refreshed DTOs.
+- MCP auth and elicitation actionability remains owned by the MCP/runtime
+  stores and refreshed DTOs.
+- Checkpoint actionability remains owned by structured checkpoint DTO state and
+  explicit user actions.
+- Artifact evidence remains owned by completed scheduler/tool output and
+  persisted structured refs, not by scheduler intent, event payloads, or
+  assistant prose.
+- Timeline, diagnostics, interrupted summaries, terminal permission semantics,
+  and terminal MCP semantics remain covered by `SessionActivity` and
+  `RunProjection`/Run detail parity.
+- Transition history remains audit evidence only. It may validate order and
+  replay, but it cannot become lifecycle or actionability truth.
+
+Required scheduler implementation entry criteria:
+
+- Define a concrete scheduler DTO/API shape before adding a worker.
+- Prove scheduler-created work cannot run without a durable Run/session/turn
+  link.
+- Prove cancellation terminalizes owned turn/tool evidence before recording
+  transition audit.
+- Prove startup recovery cancels stale running/waiting tool evidence, stale
+  permissions, stale MCP auth requests, and stale MCP elicitation requests
+  before any scheduler replay.
+- Prove explicit checkpoint resume creates a new user-triggered turn and does
+  not mutate source checkpoint evidence into acknowledged, discarded, or
+  auto-resumed state.
+- Prove scheduler reads preserve `SessionActivity` subset parity for messages,
+  tool calls, permissions, diagnostics, artifact evidence, interrupted
+  summaries, and terminal permission/MCP semantics.
+- Prove runtime event payloads only select DTO refreshes and are never merged
+  directly into timeline, diagnostics, artifact, interrupted, checkpoint,
+  permission, MCP, or Run lifecycle state.
+
+Out of scope:
+
+- Implementing a scheduler or background Run worker.
+- Automatic resume.
+- Frontend Run management UI.
+- New database migration.
+- Transition-derived lifecycle/actionability.
+- React-owned scheduler or Run lifecycle state.
+- Inferring artifact, checkpoint, or lifecycle state from assistant prose.
+
+Review conclusion:
+
+- Phase 13 accepts a scheduler boundary, not scheduler behavior.
+- The next implementation should be a narrow contract phase that introduces the
+  smallest scheduler-facing DTO/API or store preflight needed to prove these
+  boundaries, before any background worker or automatic execution loop exists.
+- No migration, scheduler implementation, automatic resume, background Run
+  execution, frontend Run management UI, transition-derived actionability,
+  React-owned lifecycle state, or prose-derived state was introduced.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -5379,7 +5464,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 13: Run Scheduler Design Gate. Keep it as a design gate only;
-do not add migrations, scheduler implementation, automatic resume, frontend Run
-management UI, background Run execution, transition-derived actionability, or
-React-owned lifecycle state.
+Implement Phase 13.1: Scheduler-facing Contract Preflight. Keep it as a narrow
+contract phase only; prove the minimum scheduler-facing DTO/API or store
+preflight boundaries needed before any scheduler worker exists. Do not add
+migrations, scheduler implementation, automatic resume, frontend Run management
+UI, background Run execution, transition-derived actionability, or React-owned
+lifecycle state.

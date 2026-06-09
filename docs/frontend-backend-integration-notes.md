@@ -1221,3 +1221,30 @@ Phase 12.5 result:
 - The next step is a Phase 13 scheduler design gate, not scheduler
   implementation.
 - Frontend behavior remains DTO refresh only.
+
+## 2026-06-09: Phase 13 Run Scheduler Design Gate
+
+Phase 13 defines scheduler boundaries before any scheduler implementation.
+
+Frontend boundary:
+
+- The current UI must keep treating backend DTO refreshes as the source of
+  truth.
+- Future scheduler events may identify that Run detail, Run projection,
+  TurnActivity, SessionActivityWindow, or full SessionActivity should refresh,
+  but event payloads must not be merged directly into lifecycle, timeline,
+  diagnostics, artifacts, interrupted recovery, checkpoint, permission, MCP
+  auth, or MCP elicitation state.
+- Permission, MCP auth, MCP elicitation, checkpoint, artifact, interrupted, and
+  terminal semantics remain runtime-owned and DTO-backed.
+- No frontend Run management UI, background scheduler behavior, automatic
+  resume, transition-derived actionability, or React-owned scheduler state is
+  accepted by this gate.
+
+Phase 13 result:
+
+- Scheduler ownership is limited to future Run-level planning/grouping,
+  cancellation scope, diagnostics routing, and refresh-trigger events after
+  durable Run/session/turn evidence exists.
+- Frontend work remains read/refresh only until a later accepted scheduler
+  implementation phase defines concrete DTOs and user actions.

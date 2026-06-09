@@ -492,6 +492,53 @@ Phase 12.1 should add ownership preflight/link stability tests only. It should
 not add a scheduler implementation, migration, automatic resume, frontend Run
 management UI, background worker, or transition-derived actionability.
 
+### Phase 13 Gate: Run Scheduler Boundary
+
+Phase 13 defines scheduler ownership without introducing scheduler behavior.
+The current implementation remains session-first: `Chat`, cancellation,
+startup recovery, interrupted acknowledgement, and explicit checkpoint resume
+continue to write structured runtime evidence before Run transition audit or
+frontend refresh events can be interpreted.
+
+Accepted future scheduler responsibilities:
+
+- Create and manage Run-level execution plans only after a durable Run and
+  Run/session link exist.
+- Group future turns/tasks/checkpoint-resume turns under a Run for ownership,
+  cancellation scope, and diagnostics routing.
+- Use reconciled Run detail as a read model for display status and grouping.
+- Emit refresh-trigger events that select which runtime DTO should be read.
+- Write audit/diagnostic evidence after durable turn/tool/runtime evidence is
+  persisted.
+
+Responsibilities that remain outside scheduler ownership:
+
+- Permission request actionability.
+- MCP auth and elicitation actionability.
+- Checkpoint actionability and checkpoint acknowledgement/discard state.
+- Artifact evidence and produced refs.
+- Session timeline, diagnostics, interrupted summaries, terminal permission
+  semantics, and terminal MCP semantics.
+- Current lifecycle truth for partial/bounded projection windows.
+
+Required before implementing scheduler code:
+
+- A concrete scheduler-facing DTO/API contract.
+- Tests proving scheduler-created work cannot execute without durable
+  Run/session/turn links.
+- Tests proving cancellation and startup recovery terminalize stale structured
+  evidence before transition audit or replay.
+- Tests proving explicit checkpoint resume remains a user-triggered new turn,
+  never automatic replay.
+- Parity tests proving scheduler reads match the corresponding
+  `SessionActivity`/`RunProjection` subset for messages, tool calls,
+  permissions, diagnostics, artifact evidence, interrupted summaries, and
+  terminal permission/MCP semantics.
+
+Phase 13 does not add a migration, background scheduler, automatic resume,
+frontend Run UI, transition-derived lifecycle/actionability, React-owned Run
+state, or prose-derived artifact/checkpoint/lifecycle inference.
+
 ## API 影响
 
 最小 API：
