@@ -286,6 +286,10 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ids := runCheckpointDiscardPathIDs(r.URL.Path)
 		value, err := s.service.DiscardRunCheckpoint(r.Context(), ids.runID, ids.checkpointID)
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && runCheckpointResumePathIDs(r.URL.Path).runID != "":
+		ids := runCheckpointResumePathIDs(r.URL.Path)
+		value, err := s.service.ResumeRunCheckpoint(r.Context(), ids.runID, ids.checkpointID)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/refs":
 		value, err := s.service.Refs(r.Context(), RuntimeRefListRequest{
 			SessionID:  r.URL.Query().Get("session_id"),
@@ -742,6 +746,10 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 		ids := runCheckpointDiscardPathIDs(path)
 		value, err := s.service.DiscardRunCheckpoint(r.Context(), ids.runID, ids.checkpointID)
 		return value, err, true
+	case method == http.MethodPost && runCheckpointResumePathIDs(path).runID != "":
+		ids := runCheckpointResumePathIDs(path)
+		value, err := s.service.ResumeRunCheckpoint(r.Context(), ids.runID, ids.checkpointID)
+		return value, err, true
 	case method == http.MethodGet && turnPathID(path) != "":
 		value, err := s.service.Turn(r.Context(), turnPathID(path))
 		return value, err, true
@@ -1085,6 +1093,10 @@ func runCheckpointAcknowledgePathIDs(path string) runCheckpointPathIDs {
 
 func runCheckpointDiscardPathIDs(path string) runCheckpointPathIDs {
 	return runCheckpointActionPathIDs(path, "discard")
+}
+
+func runCheckpointResumePathIDs(path string) runCheckpointPathIDs {
+	return runCheckpointActionPathIDs(path, "resume")
 }
 
 func runCheckpointActionPathIDs(path, action string) runCheckpointPathIDs {

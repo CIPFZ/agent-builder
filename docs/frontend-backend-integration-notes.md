@@ -717,10 +717,11 @@ Frontend boundary:
 
 Phase 8.5 frontend boundary:
 
-- The next implementation may expose an explicit resume action endpoint and a
-  structured action response.
+- The explicit resume action endpoint and structured action response are
+  available through HTTP/dev transport and Wails.
 - The frontend must not wire a visible resume control in Phase 8.5 unless the
   runtime endpoint, Wails/HTTP transport, and refresh behavior are all covered
   by tests.
 - Runtime events remain refresh triggers only; the action response and
   subsequent DTO refresh are the only allowed sources of resume status.
+- Visible resume controls remain deferred to a separate frontend rollout gate.

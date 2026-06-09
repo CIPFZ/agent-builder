@@ -182,6 +182,15 @@ type RuntimeRunResponse struct {
 	Projection RuntimeRunProjection `json:"projection,omitempty"`
 }
 
+type RuntimeRunResumeResponse struct {
+	RunID        string              `json:"runId"`
+	CheckpointID string              `json:"checkpointId"`
+	SessionID    string              `json:"sessionId"`
+	TurnID       string              `json:"turnId"`
+	Chat         RuntimeChatResponse `json:"chat"`
+	Run          RuntimeRunResponse  `json:"run"`
+}
+
 type RuntimeRun struct {
 	ID               string                 `json:"id"`
 	WorkspaceID      string                 `json:"workspaceId"`
@@ -243,6 +252,7 @@ type RuntimeRunCheckpoint struct {
 	CreatedAt      int64    `json:"createdAt,omitempty"`
 	AcknowledgedAt int64    `json:"acknowledgedAt,omitempty"`
 	DiscardedAt    int64    `json:"discardedAt,omitempty"`
+	ResumedTurnIDs []string `json:"resumedTurnIds,omitempty"`
 	ResumeEligible bool     `json:"resumeEligible,omitempty"`
 }
 

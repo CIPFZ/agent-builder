@@ -36,6 +36,7 @@ type RuntimeService interface {
 	Run(context.Context, string) (RuntimeRunResponse, error)
 	AcknowledgeRunCheckpoint(context.Context, string, string) (RuntimeRunResponse, error)
 	DiscardRunCheckpoint(context.Context, string, string) (RuntimeRunResponse, error)
+	ResumeRunCheckpoint(context.Context, string, string) (RuntimeRunResumeResponse, error)
 	ToolCall(context.Context, string) (RuntimeToolCallResponse, error)
 	TurnToolCalls(context.Context, string) (RuntimeToolCallsResponse, error)
 	SandboxDecisions(context.Context, RuntimeSandboxDecisionListRequest) (RuntimeSandboxDecisionsResponse, error)

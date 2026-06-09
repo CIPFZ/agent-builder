@@ -260,6 +260,59 @@ func (s runtimeRunStore) DiscardCheckpoint(ctx context.Context, runID, checkpoin
 	return s.markCheckpoint(ctx, runID, checkpointID, "discarded_at")
 }
 
+func (s runtimeRunStore) LinkCheckpointResume(ctx context.Context, runID, checkpointID, turnID string) (RuntimeRun, error) {
+	if s.db == nil {
+		return RuntimeRun{}, errors.New("runtime run database is not available")
+	}
+	runID = strings.TrimSpace(runID)
+	checkpointID = strings.TrimSpace(checkpointID)
+	turnID = strings.TrimSpace(turnID)
+	if runID == "" {
+		return RuntimeRun{}, errors.New("run id is required")
+	}
+	if checkpointID == "" {
+		return RuntimeRun{}, errors.New("checkpoint id is required")
+	}
+	if turnID == "" {
+		return RuntimeRun{}, errors.New("resume turn id is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return RuntimeRun{}, fmt.Errorf("failed to begin runtime run checkpoint resume link: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	var raw sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT metadata_json FROM runtime_run_checkpoints WHERE run_id = ? AND id = ?`, runID, checkpointID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		var existingRunID string
+		if getErr := tx.QueryRowContext(ctx, `SELECT id FROM runtime_runs WHERE id = ?`, runID).Scan(&existingRunID); errors.Is(getErr, sql.ErrNoRows) {
+			return RuntimeRun{}, errRuntimeRunNotFound
+		} else if getErr != nil {
+			return RuntimeRun{}, getErr
+		}
+		return RuntimeRun{}, errRuntimeRunCheckpointNotFound
+	}
+	if err != nil {
+		return RuntimeRun{}, fmt.Errorf("failed to read runtime run checkpoint metadata: %w", err)
+	}
+	metadata := decodeJSONMap(raw.String)
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadata["resumedTurnIds"] = appendUniqueStrings(stringSliceFromMap(metadata, "resumedTurnIds"), turnID)
+	encoded, err := encodeJSONMap(metadata)
+	if err != nil {
+		return RuntimeRun{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE runtime_run_checkpoints SET metadata_json = ? WHERE run_id = ? AND id = ?`, encoded, runID, checkpointID); err != nil {
+		return RuntimeRun{}, fmt.Errorf("failed to link runtime run checkpoint resume turn: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return RuntimeRun{}, fmt.Errorf("failed to commit runtime run checkpoint resume link: %w", err)
+	}
+	return s.Get(ctx, runID)
+}
+
 func (s runtimeRunStore) markCheckpoint(ctx context.Context, runID, checkpointID, column string) (RuntimeRun, error) {
 	if s.db == nil {
 		return RuntimeRun{}, errors.New("runtime run database is not available")
@@ -374,7 +427,7 @@ func (s runtimeRunStore) hydrateRunChildren(ctx context.Context, run RuntimeRun)
 		return RuntimeRun{}, fmt.Errorf("failed to iterate runtime run sessions: %w", err)
 	}
 	checkpointRows, err := s.db.QueryContext(ctx, `
-SELECT id, turn_id, task_id, status, summary, artifact_refs_json, created_at, acknowledged_at, discarded_at
+SELECT id, turn_id, task_id, status, summary, artifact_refs_json, created_at, acknowledged_at, discarded_at, metadata_json
 FROM runtime_run_checkpoints
 WHERE run_id = ?
 ORDER BY created_at ASC`, run.ID)
@@ -387,7 +440,8 @@ ORDER BY created_at ASC`, run.ID)
 		var checkpoint RuntimeRunCheckpoint
 		var turnID, taskID, summary, artifactRefs sql.NullString
 		var acknowledgedAt, discardedAt sql.NullInt64
-		if err := checkpointRows.Scan(&checkpoint.ID, &turnID, &taskID, &checkpoint.Status, &summary, &artifactRefs, &checkpoint.CreatedAt, &acknowledgedAt, &discardedAt); err != nil {
+		var metadata sql.NullString
+		if err := checkpointRows.Scan(&checkpoint.ID, &turnID, &taskID, &checkpoint.Status, &summary, &artifactRefs, &checkpoint.CreatedAt, &acknowledgedAt, &discardedAt, &metadata); err != nil {
 			return RuntimeRun{}, err
 		}
 		checkpoint.TurnID = turnID.String
@@ -400,6 +454,7 @@ ORDER BY created_at ASC`, run.ID)
 		if discardedAt.Valid {
 			checkpoint.DiscardedAt = discardedAt.Int64
 		}
+		checkpoint.ResumedTurnIDs = stringSliceFromMap(decodeJSONMap(metadata.String), "resumedTurnIds")
 		checkpoint.ResumeEligible = (checkpoint.Status == runtimeRunCheckpointStatusResumable || checkpoint.Status == turnStatusInterrupted || checkpoint.Status == agentTaskStatusInterrupted) &&
 			checkpoint.AcknowledgedAt == 0 &&
 			checkpoint.DiscardedAt == 0

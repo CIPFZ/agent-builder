@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/crush/internal/db"
@@ -193,5 +194,80 @@ func TestRuntimeRunStoreMarksCheckpointAcknowledgedAndDiscardedIdempotently(t *t
 	}
 	if checkpoint.AcknowledgedAt != ack.Checkpoints[0].AcknowledgedAt {
 		t.Fatalf("discard rewrote acknowledgement: %#v", checkpoint)
+	}
+}
+
+func TestRuntimeRunStoreLinksCheckpointResumeTurnsWithoutMutatingEvidence(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Release(dataDir); err != nil {
+			t.Fatalf("release db: %v", err)
+		}
+	})
+	store := newRuntimeRunStore(conn)
+	run, err := store.UpsertFromProjection(context.Background(), RuntimeRunProjection{
+		ID:               runtimeRunProjectionID("session-1"),
+		WorkspaceID:      "workspace-1",
+		PrimarySessionID: "session-1",
+		SessionIDs:       []string{"session-1"},
+		Status:           runtimeRunStatusInterrupted,
+		Checkpoints: []RuntimeRunCheckpoint{{
+			ID:           "turn:turn-1:interrupted",
+			TurnID:       "turn-1",
+			Status:       turnStatusInterrupted,
+			Summary:      "runtime restarted",
+			ArtifactRefs: []string{"artifact://report"},
+			CreatedAt:    1200,
+		}},
+		CreatedAt: 1000,
+		UpdatedAt: 1300,
+	}, runtimeRunSourceBackfill)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	linked, err := store.LinkCheckpointResume(context.Background(), run.ID, "turn:turn-1:interrupted", "turn-resume-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked, err = store.LinkCheckpointResume(context.Background(), run.ID, "turn:turn-1:interrupted", "turn-resume-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := linked.Checkpoints[0]
+	if len(checkpoint.ResumedTurnIDs) != 1 || checkpoint.ResumedTurnIDs[0] != "turn-resume-1" {
+		t.Fatalf("resumed turn ids = %#v", checkpoint.ResumedTurnIDs)
+	}
+	if checkpoint.Status != turnStatusInterrupted || checkpoint.Summary != "runtime restarted" || checkpoint.ArtifactRefs[0] != "artifact://report" {
+		t.Fatalf("resume link mutated evidence: %#v", checkpoint)
+	}
+	if !checkpoint.ResumeEligible {
+		t.Fatalf("resume link should not acknowledge/discard checkpoint: %#v", checkpoint)
+	}
+}
+
+func TestRuntimeRunResumePromptRedactsCheckpointSummary(t *testing.T) {
+	t.Parallel()
+
+	prompt := runtimeRunResumePrompt(RuntimeRun{
+		ID:               "run-1",
+		PrimarySessionID: "session-1",
+	}, RuntimeRunCheckpoint{
+		ID:           "checkpoint-1",
+		TurnID:       "turn-1",
+		Summary:      "continue with API_TOKEN=sk-secret",
+		ArtifactRefs: []string{"artifact://report"},
+	})
+	if strings.Contains(prompt, "sk-secret") {
+		t.Fatalf("resume prompt leaked secret: %s", prompt)
+	}
+	if !strings.Contains(prompt, "run-1") || !strings.Contains(prompt, "checkpoint-1") || !strings.Contains(prompt, "turn-1") {
+		t.Fatalf("resume prompt missing structured ids: %s", prompt)
 	}
 }

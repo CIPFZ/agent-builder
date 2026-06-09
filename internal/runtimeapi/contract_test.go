@@ -29,6 +29,7 @@ func TestEndpointsFreezePhase2MinimalAPI(t *testing.T) {
 		{Method: MethodGet, Path: "/v1/runs/{run_id}"},
 		{Method: MethodPost, Path: "/v1/runs/{run_id}/checkpoints/{checkpoint_id}/acknowledge"},
 		{Method: MethodPost, Path: "/v1/runs/{run_id}/checkpoints/{checkpoint_id}/discard"},
+		{Method: MethodPost, Path: "/v1/runs/{run_id}/checkpoints/{checkpoint_id}/resume"},
 		{Method: MethodGet, Path: "/v1/turns/{turn_id}"},
 		{Method: MethodGet, Path: "/v1/turns/{turn_id}/activity"},
 		{Method: MethodGet, Path: "/v1/turns/{turn_id}/todos"},

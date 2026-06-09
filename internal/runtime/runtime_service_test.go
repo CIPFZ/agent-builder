@@ -3550,6 +3550,9 @@ type recordingRuntimeService struct {
 	ackCheckpointID       string
 	discardRunID          string
 	discardCheckpointID   string
+	resumeRunID           string
+	resumeCheckpointID    string
+	resume                RuntimeRunResumeResponse
 	createdSkill          RuntimeSkillCreateRequest
 	addedSkillPath        string
 	cancelledTurn         string
@@ -3693,6 +3696,17 @@ func (s *recordingRuntimeService) DiscardRunCheckpoint(_ context.Context, runID,
 	s.discardRunID = runID
 	s.discardCheckpointID = checkpointID
 	return s.run, nil
+}
+
+func (s *recordingRuntimeService) ResumeRunCheckpoint(_ context.Context, runID, checkpointID string) (RuntimeRunResumeResponse, error) {
+	s.resumeRunID = runID
+	s.resumeCheckpointID = checkpointID
+	if s.resume.RunID == "" {
+		s.resume.RunID = runID
+		s.resume.CheckpointID = checkpointID
+		s.resume.TurnID = "turn-resume"
+	}
+	return s.resume, nil
 }
 
 func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeToolCallResponse, error) {

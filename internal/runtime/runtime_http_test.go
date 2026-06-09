@@ -460,6 +460,26 @@ func TestRuntimeHTTPServerRoutesRunsToRuntimeService(t *testing.T) {
 	if service.discardRunID != "run-1" || service.discardCheckpointID != "checkpoint-1" {
 		t.Fatalf("discard args = %q %q", service.discardRunID, service.discardCheckpointID)
 	}
+
+	req, err = http.NewRequest(http.MethodPost, "/v1/runs/run-1/checkpoints/checkpoint-1/resume", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("resume status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.resumeRunID != "run-1" || service.resumeCheckpointID != "checkpoint-1" {
+		t.Fatalf("resume args = %q %q", service.resumeRunID, service.resumeCheckpointID)
+	}
+	var resume RuntimeRunResumeResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &resume); err != nil {
+		t.Fatal(err)
+	}
+	if resume.RunID != "run-1" || resume.CheckpointID != "checkpoint-1" || resume.TurnID == "" {
+		t.Fatalf("resume response = %#v", resume)
+	}
 }
 
 func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
@@ -581,6 +601,15 @@ func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
 	resp = httptestResponse(server, req)
 	if resp.status != http.StatusOK || service.discardRunID != "run-1" || service.discardCheckpointID != "checkpoint-1" {
 		t.Fatalf("discard status = %d body = %s args=%q/%q", resp.status, resp.body.String(), service.discardRunID, service.discardCheckpointID)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=POST&path=/v1/runs/run-1/checkpoints/checkpoint-1/resume", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.resumeRunID != "run-1" || service.resumeCheckpointID != "checkpoint-1" {
+		t.Fatalf("resume status = %d body = %s args=%q/%q", resp.status, resp.body.String(), service.resumeRunID, service.resumeCheckpointID)
 	}
 
 	body := `%7B%22mode%22%3A%22auto_read%22%7D`

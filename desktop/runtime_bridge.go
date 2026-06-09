@@ -30,6 +30,7 @@ type RuntimeTurnsResponse = runtime.RuntimeTurnsResponse
 type RuntimeRun = runtime.RuntimeRun
 type RuntimeRunsResponse = runtime.RuntimeRunsResponse
 type RuntimeRunResponse = runtime.RuntimeRunResponse
+type RuntimeRunResumeResponse = runtime.RuntimeRunResumeResponse
 type RuntimeTodosResponse = runtime.RuntimeTodosResponse
 type RuntimeToolCall = runtime.RuntimeToolCall
 type RuntimeToolCallResponse = runtime.RuntimeToolCallResponse
@@ -298,6 +299,12 @@ func (r *RuntimeBridge) AcknowledgeRunCheckpoint(ctx context.Context, runID stri
 func (r *RuntimeBridge) DiscardRunCheckpoint(ctx context.Context, runID string, checkpointID string) (RuntimeRunResponse, error) {
 
 	return r.service.DiscardRunCheckpoint(ctx, runID, checkpointID)
+
+}
+
+func (r *RuntimeBridge) ResumeRunCheckpoint(ctx context.Context, runID string, checkpointID string) (RuntimeRunResumeResponse, error) {
+
+	return r.service.ResumeRunCheckpoint(ctx, runID, checkpointID)
 
 }
 

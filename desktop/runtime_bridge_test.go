@@ -312,6 +312,14 @@ func TestRuntimeBridgeForwardsDurableRunReads(t *testing.T) {
 	if service.discardRunID != "run-1" || service.discardCheckpointID != "checkpoint-1" || discard.Run.ID != "run-1" {
 		t.Fatalf("discard = %#v args=%q/%q", discard, service.discardRunID, service.discardCheckpointID)
 	}
+
+	resume, err := bridge.ResumeRunCheckpoint(context.Background(), "run-1", "checkpoint-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.resumeRunID != "run-1" || service.resumeCheckpointID != "checkpoint-1" || resume.TurnID != "turn-resume" {
+		t.Fatalf("resume = %#v args=%q/%q", resume, service.resumeRunID, service.resumeCheckpointID)
+	}
 }
 
 func TestRuntimeBridgeForwardsMCPRequestDecision(t *testing.T) {
@@ -360,6 +368,9 @@ type recordingRuntimeService struct {
 	ackCheckpointID             string
 	discardRunID                string
 	discardCheckpointID         string
+	resumeRunID                 string
+	resumeCheckpointID          string
+	resume                      RuntimeRunResumeResponse
 	markInterruptedDoneID       string
 	markInterruptedDoneResponse RuntimeTurnResponse
 }
@@ -461,6 +472,17 @@ func (s *recordingRuntimeService) DiscardRunCheckpoint(_ context.Context, runID,
 	s.discardRunID = runID
 	s.discardCheckpointID = checkpointID
 	return s.run, nil
+}
+
+func (s *recordingRuntimeService) ResumeRunCheckpoint(_ context.Context, runID, checkpointID string) (RuntimeRunResumeResponse, error) {
+	s.resumeRunID = runID
+	s.resumeCheckpointID = checkpointID
+	if s.resume.RunID == "" {
+		s.resume.RunID = runID
+		s.resume.CheckpointID = checkpointID
+		s.resume.TurnID = "turn-resume"
+	}
+	return s.resume, nil
 }
 
 func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeToolCallResponse, error) {

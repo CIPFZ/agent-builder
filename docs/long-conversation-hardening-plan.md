@@ -3094,7 +3094,9 @@ Review conclusion:
 
 ### Phase 8.5: Explicit Checkpoint Resume Contract
 
-Status: next implementation phase.
+Status: implemented as a narrow explicit resume action contract. Automatic
+resume, background scheduling, frontend Run management UI, and a full Run state
+machine were not implemented.
 
 Scope:
 
@@ -3129,6 +3131,38 @@ Acceptance criteria:
   resurrected by resume or by Run detail refresh after resume.
 - Docs record that auto resume, background scheduling, and frontend Run UI
   remain deferred.
+
+Implemented:
+
+- Added `RuntimeRunResumeResponse` and `resumedTurnIds` checkpoint metadata.
+- Added `runtimeRunStore.LinkCheckpointResume`, backed by checkpoint
+  `metadata_json`, to persist the new turn id without mutating checkpoint
+  status, summary, artifact refs, acknowledgement, or discard timestamps.
+- Added `ResumeRunCheckpoint` service method. It validates the persisted Run
+  and checkpoint, rejects non-eligible checkpoints, constructs a structured
+  resume prompt, calls the existing `Chat` path to create a new explicit turn,
+  links the turn to the checkpoint, writes redacted audit metadata, emits a
+  refresh-trigger runtime event, and returns refreshed Run detail.
+- Added HTTP/dev-module route:
+  `POST /v1/runs/{run_id}/checkpoints/{checkpoint_id}/resume`.
+- Added Wails bridge method `ResumeRunCheckpoint`.
+
+Validation:
+
+- Store tests cover idempotent resumed turn links and evidence preservation.
+- HTTP tests cover bearer and dev-module resume routes.
+- Wails bridge tests cover resume delegation.
+- Runtime API contract tests include the resume route.
+
+Review conclusion:
+
+- Resume is explicit and user-triggered. It creates a new turn through the
+  existing runtime chat path.
+- Resume does not replay streams, completed tool calls, permission requests,
+  MCP auth requests, or MCP elicitation requests.
+- Runtime events remain refresh triggers only; the persisted checkpoint
+  metadata plus refreshed Run detail is the source of resume linkage.
+- Frontend resume controls remain deferred until a separate UI phase.
 
 ## Validation Scenarios
 
@@ -3177,7 +3211,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 8.5: Explicit Checkpoint Resume Contract. Keep it limited to a
-user-triggered runtime resume action that creates a new turn and returns
-refreshed Run detail. Do not implement automatic resume, background Run
-scheduling, or expanded frontend Run management UI.
+Review/accept Phase 8.5, then plan a frontend/runtime rollout gate for exposing
+resume controls. Do not implement automatic resume, background Run scheduling,
+or expanded frontend Run management UI without a separate accepted phase.
