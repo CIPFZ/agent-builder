@@ -91,6 +91,50 @@
   text-overflow: ellipsis;
 }
 
+.resumeAction {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 6px;
+}
+
+.resumeCopy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.resumeTitle {
+  color: rgba(0, 0, 0, 0.88);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.resumeSummary {
+  display: -webkit-box;
+  max-height: 36px;
+  overflow: hidden;
+  color: rgba(0, 0, 0, 0.65);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.resumeError {
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
 .footer {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

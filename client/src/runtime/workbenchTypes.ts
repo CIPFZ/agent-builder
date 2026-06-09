@@ -216,8 +216,23 @@ export interface RunProjectionViewModel {
   sourceKind?: string;
   sourceReadOnly?: boolean;
   sessionActivityParity?: boolean;
+  checkpoints?: RunCheckpointViewModel[];
   updatedAt?: number;
   finishedAt?: number;
+}
+
+export interface RunCheckpointViewModel {
+  id: string;
+  turnId?: string;
+  taskId?: string;
+  status?: string;
+  summary?: string;
+  artifactRefs?: string[];
+  createdAt?: number;
+  acknowledgedAt?: number;
+  discardedAt?: number;
+  resumedTurnIds?: string[];
+  resumeEligible?: boolean;
 }
 
 export interface ToolCallViewModel {
@@ -510,6 +525,7 @@ export interface WorkbenchAdapter {
   sendPrompt: (current: WorkbenchViewModel, prompt: string) => Promise<WorkbenchViewModel>;
   cancelTurn: (current: WorkbenchViewModel, turnID?: string) => Promise<WorkbenchViewModel>;
   markInterruptedDone: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;
+  resumeRunCheckpoint: (current: WorkbenchViewModel, runID: string, checkpointID: string) => Promise<WorkbenchViewModel>;
   saveConfiguredProvider: (
     current: WorkbenchViewModel,
     provider: ConfiguredProviderViewModel & { token?: string },

@@ -134,6 +134,9 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   async markInterruptedDone() {
     return runtimeUnavailable();
   },
+  async resumeRunCheckpoint() {
+    return runtimeUnavailable();
+  },
   async saveConfiguredProvider() {
     return runtimeUnavailable();
   },

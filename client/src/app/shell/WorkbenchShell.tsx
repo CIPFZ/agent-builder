@@ -264,6 +264,12 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setViewModel(nextViewModel);
   };
 
+  const resumeRunCheckpoint = async (runID: string, checkpointID: string) => {
+    const nextViewModel = await adapter.resumeRunCheckpoint({ ...viewModelRef.current, mode: modeRef.current }, runID, checkpointID);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
   const selectModel = async (configuredProviderID: string, model: string) => {
     const nextViewModel = await adapter.selectModel({ ...viewModel, mode }, configuredProviderID, model);
     setViewModel(nextViewModel);
@@ -462,6 +468,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onSessionRename={renameSession}
           onPromptSubmit={sendPrompt}
           onInterruptedDone={markInterruptedDone}
+          onRunCheckpointResume={resumeRunCheckpoint}
         />
       )}
     </main>

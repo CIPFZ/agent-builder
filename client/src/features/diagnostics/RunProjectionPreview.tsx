@@ -1,15 +1,42 @@
-import { BranchesOutlined, CheckCircleOutlined, FileDoneOutlined, ToolOutlined } from '@ant-design/icons';
-import { Tag, Typography } from 'antd';
+import { BranchesOutlined, CheckCircleOutlined, FileDoneOutlined, PlayCircleOutlined, ToolOutlined } from '@ant-design/icons';
+import { Button, Tag, Tooltip, Typography } from 'antd';
 import type React from 'react';
+import { useState } from 'react';
 import type { RunProjectionViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './RunProjectionPreview.module.css';
 
 const { Text } = Typography;
 
-export function RunProjectionPreview({ run }: { run?: RunProjectionViewModel }) {
+export function RunProjectionPreview({
+  run,
+  onResumeCheckpoint,
+}: {
+  run?: RunProjectionViewModel;
+  onResumeCheckpoint?: (runID: string, checkpointID: string) => Promise<void>;
+}) {
+  const [pendingCheckpointID, setPendingCheckpointID] = useState<string | undefined>();
+  const [resumeError, setResumeError] = useState<string | undefined>();
+
   if (!run) {
     return null;
   }
+  const resumableCheckpoint = run.checkpoints?.find((checkpoint) => checkpoint.resumeEligible);
+  const canResume = Boolean(resumableCheckpoint?.id && onResumeCheckpoint);
+  const resumeCheckpoint = async () => {
+    if (!resumableCheckpoint?.id || !onResumeCheckpoint || pendingCheckpointID) {
+      return;
+    }
+    setResumeError(undefined);
+    setPendingCheckpointID(resumableCheckpoint.id);
+    try {
+      await onResumeCheckpoint(run.id, resumableCheckpoint.id);
+    } catch (error) {
+      setResumeError(resumeErrorMessage(error));
+    } finally {
+      setPendingCheckpointID(undefined);
+    }
+  };
+
   return (
     <aside className={styles.panel} data-testid="run-projection-preview" aria-label="Run projection preview">
       <div className={styles.header}>
@@ -39,6 +66,33 @@ export function RunProjectionPreview({ run }: { run?: RunProjectionViewModel }) 
         <SignalTag label="cancelled" value={run.cancelledTurnCount} />
         <SignalTag label="checkpoints" value={run.checkpointCount} />
       </div>
+
+      {resumableCheckpoint ? (
+        <div className={styles.resumeAction} data-testid="run-checkpoint-resume" data-checkpoint-id={resumableCheckpoint.id}>
+          <div className={styles.resumeCopy}>
+            <Text className={styles.resumeTitle}>Checkpoint</Text>
+            {resumableCheckpoint.summary ? <Text className={styles.resumeSummary}>{resumableCheckpoint.summary}</Text> : null}
+          </div>
+          <Tooltip title={canResume ? 'Resume checkpoint' : 'Resume unavailable'}>
+            <Button
+              aria-label="Resume checkpoint"
+              icon={<PlayCircleOutlined />}
+              loading={pendingCheckpointID === resumableCheckpoint.id}
+              size="small"
+              type="primary"
+              disabled={!canResume}
+              onClick={resumeCheckpoint}
+            >
+              Resume
+            </Button>
+          </Tooltip>
+        </div>
+      ) : null}
+      {resumeError ? (
+        <Text className={styles.resumeError} type="danger">
+          {resumeError}
+        </Text>
+      ) : null}
 
       <div className={styles.footer}>
         <Text type="secondary">{run.sourceReadOnly ? 'read-only' : 'runtime'}</Text>
@@ -107,4 +161,11 @@ function statusColor(status?: string) {
     default:
       return 'default';
   }
+}
+
+function resumeErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return 'Resume failed';
 }

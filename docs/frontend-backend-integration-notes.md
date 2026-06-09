@@ -749,3 +749,17 @@ Phase 8.7 frontend boundary:
   source of checkpoint actionability and resumed status.
 - No batch resume, automatic resume, background scheduling, or full Run
   management UI.
+
+Phase 8.7 implementation note:
+
+- `RunProjectionViewModel` now carries structured checkpoint DTO fields from
+  the runtime projection. The resume button is rendered only from refreshed
+  checkpoint `resumeEligible` state.
+- `WorkbenchAdapter.resumeRunCheckpoint` calls the runtime action and then
+  hydrates the workbench from runtime APIs. The action response and runtime
+  events are not merged into timeline, diagnostics, artifacts, permissions, MCP
+  actionability, or checkpoint state.
+- The browser/dev HTTP transport maps
+  `POST /v1/runs/{run_id}/checkpoints/{checkpoint_id}/resume`. Packaged Wails
+  still needs generated binding smoke before the Wails adapter path is treated
+  as fully verified.

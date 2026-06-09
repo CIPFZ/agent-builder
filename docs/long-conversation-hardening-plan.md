@@ -3217,7 +3217,7 @@ Review conclusion:
 
 ### Phase 8.7: Narrow Resume Control Frontend Rollout
 
-Status: next implementation phase.
+Status: implemented.
 
 Scope:
 
@@ -3247,6 +3247,50 @@ Acceptance criteria:
 - Adapter tests cover HTTP/dev and Wails resume action mapping.
 - Existing Go runtime tests continue to pass.
 - Docs record any remaining packaged Wails/manual browser smoke gaps.
+
+Implementation notes:
+
+- Extended the frontend Run projection view model with structured checkpoint
+  fields from the runtime DTO: status, summary, artifact refs, acknowledged /
+  discarded timestamps, resumed turn ids, and `resumeEligible`.
+- Added `WorkbenchAdapter.resumeRunCheckpoint(current, runID, checkpointID)`.
+  The Wails/HTTP adapter calls runtime `ResumeRunCheckpoint` and then hydrates
+  the workbench from runtime APIs. It does not merge the action response into
+  timeline, diagnostics, artifacts, permissions, MCP actionability, or Run
+  checkpoint state.
+- Added HTTP/dev transport mapping for
+  `POST /v1/runs/{run_id}/checkpoints/{checkpoint_id}/resume`.
+- Added one visible resume control to the existing Run projection diagnostics
+  panel. It renders only the first refreshed checkpoint DTO with
+  `resumeEligible=true`.
+- React state is limited to the clicked checkpoint's transient loading/error
+  display. Failed resume responses clear pending state and do not mark the
+  checkpoint resumed locally.
+- The control path is wired through `Workspace` and `WorkbenchShell`; successful
+  actions replace the view model with the runtime-hydrated result.
+
+Validation:
+
+- `cd client && npm run build` passed.
+- `cd client && npm run lint` passed.
+- `git diff --check` passed with only the existing Windows CRLF warning for
+  `client/src/runtime/wailsWorkbenchAdapter.ts`.
+- Diff review confirmed no automatic resume, background scheduler, full Run
+  state machine, frontend Run management UI, event-payload hydration, prose
+  inference, or React-owned resume source of truth was introduced.
+
+Remaining validation gaps:
+
+- The client currently has no Vitest/Testing Library component test harness, so
+  the successful/failed click and duplicate-event UI cases were verified by
+  build/lint/diff review rather than executable browser/component tests in this
+  phase.
+- The packaged Wails generated binding files currently do not include
+  `ResumeRunCheckpoint`; the Go bridge method exists, but packaged Wails smoke
+  should regenerate/verify bindings before treating the Wails path as fully
+  shipped.
+- No hosted provider credentials were used and no auth state or secrets were
+  written to fixtures, logs, screenshots, docs, or React state.
 
 ## Validation Scenarios
 

@@ -403,6 +403,9 @@ interface RuntimeRunProjectionResponseDTO {
       summary?: string;
       artifactRefs?: string[];
       createdAt?: number;
+      acknowledgedAt?: number;
+      discardedAt?: number;
+      resumedTurnIds?: string[];
       resumeEligible?: boolean;
     }>;
     diagnostics?: {
@@ -434,6 +437,13 @@ interface RuntimeRunProjectionResponseDTO {
     updatedAt?: number;
     finishedAt?: number;
   };
+}
+
+interface RuntimeRunResumeResponseDTO {
+  runId?: string;
+  checkpointId?: string;
+  sessionId?: string;
+  turnId?: string;
 }
 
 interface RuntimeSkillDTO {
@@ -568,6 +578,7 @@ interface RuntimeBridgeModule {
   SessionActivityCursorWindow?: (sessionID: string, cursor: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
   TurnActivity?: (turnID: string) => Promise<RuntimeTurnActivityDTO>;
   RunProjection?: (req: RuntimeRunProjectionRequestDTO) => Promise<RuntimeRunProjectionResponseDTO>;
+  ResumeRunCheckpoint?: (runID: string, checkpointID: string) => Promise<RuntimeRunResumeResponseDTO>;
   Turn?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
   Turns?: (status: string) => Promise<RuntimeTurnsResponseDTO>;
   Permissions?: () => Promise<{ permissions: RuntimePermissionDTO[] }>;
@@ -1249,6 +1260,21 @@ function mapRunProjection(response?: RuntimeRunProjectionResponseDTO): RunProjec
     verifiedArtifactCount: artifactCounts?.verified ?? run.verifiedArtifacts?.length,
     missingArtifactCount: artifactCounts?.missing,
     checkpointCount: run.checkpoints?.length,
+    checkpoints: run.checkpoints
+      ?.filter((checkpoint) => checkpoint.id)
+      .map((checkpoint) => ({
+        id: checkpoint.id || '',
+        turnId: checkpoint.turnId,
+        taskId: checkpoint.taskId,
+        status: checkpoint.status,
+        summary: checkpoint.summary,
+        artifactRefs: checkpoint.artifactRefs,
+        createdAt: checkpoint.createdAt,
+        acknowledgedAt: checkpoint.acknowledgedAt,
+        discardedAt: checkpoint.discardedAt,
+        resumedTurnIds: checkpoint.resumedTurnIds,
+        resumeEligible: checkpoint.resumeEligible,
+      })),
     evidenceCursor: run.evidenceCursor || run.activityWindow?.lastCursor,
     sourceKind: run.source?.kind,
     sourceReadOnly: run.source?.readOnly,
@@ -1896,6 +1922,13 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
       `/v1/sessions/${encodeURIComponent(req.sessionId)}/run-projection${query ? `?${query}` : ''}`,
     );
   },
+  ResumeRunCheckpoint: (runID, checkpointID) =>
+    runtimeFetch<RuntimeRunResumeResponseDTO>(
+      `/v1/runs/${encodeURIComponent(runID)}/checkpoints/${encodeURIComponent(checkpointID)}/resume`,
+      {
+        method: 'POST',
+      },
+    ),
   TurnActivity: (turnID) => runtimeFetch<RuntimeTurnActivityDTO>(`/v1/turns/${encodeURIComponent(turnID)}/activity`),
   Turn: (turnID) => runtimeFetch<RuntimeTurnResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}`),
   Turns: (status) => runtimeFetch<RuntimeTurnsResponseDTO>(`/v1/turns?status=${encodeURIComponent(status)}`),
@@ -2280,6 +2313,18 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         );
       },
       () => staticWorkbenchAdapter.markInterruptedDone(current, turnID),
+    );
+  },
+  async resumeRunCheckpoint(current, runID, checkpointID) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.ResumeRunCheckpoint) {
+          return staticWorkbenchAdapter.resumeRunCheckpoint(current, runID, checkpointID);
+        }
+        await bridge.ResumeRunCheckpoint(runID, checkpointID);
+        return hydrateWorkbench(current, bridge);
+      },
+      () => staticWorkbenchAdapter.resumeRunCheckpoint(current, runID, checkpointID),
     );
   },
   async saveConfiguredProvider(current, provider) {
