@@ -461,6 +461,85 @@ func TestRuntimeScenarioHarnessCancellationExitsWaitingAndLoopStates(t *testing.
 	h.assertEventType(runtimeapi.EventTurnCancelled)
 }
 
+func TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership(t *testing.T) {
+	t.Parallel()
+
+	h := newRuntimeScenarioHarness(t)
+	h.attachBackend()
+	session, err := h.service.runtime.CreateSession(h.ctx, h.service.workspace.ID, "cancel ownership")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.service.sessionID = session.ID
+	run, err := h.service.runs.EnsureForSession(h.ctx, h.service.workspace.ID, session.ID, "cancel ownership", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Now().Add(-time.Second).UTC().UnixMilli()
+	turn, err := h.service.turns.Upsert(h.ctx, RuntimeTurn{
+		ID:            "turn-cancel-owned",
+		SessionID:     session.ID,
+		Status:        turnStatusRunning,
+		PromptPreview: "cancel ownership",
+		StartedAt:     startedAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.service.runs.LinkTurn(h.ctx, run.ID, session.ID, turn.ID, startedAt); err != nil {
+		t.Fatal(err)
+	}
+	h.service.requests[turn.ID] = runtimeRequestState{SessionID: session.ID, Status: "running", StartedAt: startedAt}
+	h.service.sessionTurns[session.ID] = turn.ID
+	if _, err := h.service.toolCalls.CreateCall(h.ctx, scheduler.ToolCallRequest{
+		ID: "tool-cancel-owned", SessionID: session.ID, TurnID: turn.ID, Name: "bash", Source: scheduler.ToolSourceShell, InputSummary: `{"command":"sleep 10"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.service.toolCalls.MarkWaitingPermission(h.ctx, "tool-cancel-owned"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := h.service.CancelTurn(h.ctx, turn.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !runtimeRunSessionLinkedToTurn(h.ctx, h.service.runs, run.ID, session.ID, turn.ID) {
+		t.Fatalf("cancel broke run turn link: run=%s turn=%s", run.ID, turn.ID)
+	}
+	cancelledTurn, err := h.service.turns.Get(h.ctx, turn.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelledTurn.Status != turnStatusCancelled || cancelledTurn.FinishedAt == 0 {
+		t.Fatalf("turn was not terminalized before transition: %#v", cancelledTurn)
+	}
+	cancelledCall, err := h.service.toolCalls.GetCall(h.ctx, "tool-cancel-owned")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelledCall.Status != scheduler.ToolCallCancelled {
+		t.Fatalf("tool call was not cancelled: %#v", cancelledCall)
+	}
+	transitions, err := h.service.transitions.ListByRun(h.ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(transitions) != 1 || transitions[0].Source != runtimeRunTransitionSourceTurnCancelled || transitions[0].TurnID != turn.ID {
+		t.Fatalf("cancel transition missing: %#v", transitions)
+	}
+	if transitions[0].CreatedAt != cancelledTurn.FinishedAt {
+		t.Fatalf("cancel transition was not recorded from terminal turn evidence: transition=%#v turn=%#v", transitions[0], cancelledTurn)
+	}
+	detail, err := h.service.Run(h.ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Run.Status != runtimeRunStatusCancelled || detail.Projection.Status != runtimeRunStatusCancelled {
+		t.Fatalf("run detail was not reconciled as cancelled: run=%#v projection=%#v", detail.Run, detail.Projection)
+	}
+	h.assertEventType(runtimeapi.EventTurnCancelled)
+}
+
 func TestRuntimeScenarioHarnessPendingPermissionDecisionSurvivesReload(t *testing.T) {
 	h := newRuntimeScenarioHarness(t)
 	h.attachBackend()

@@ -5066,7 +5066,7 @@ Review conclusion:
 
 ### Phase 12.2: Run Cancellation Ownership Contract Coverage
 
-Status: next implementation.
+Status: implemented.
 
 Scope:
 
@@ -5094,6 +5094,36 @@ Validation required:
 - `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
   -count=1`.
 - `git diff --check`.
+
+Implementation notes:
+
+- Added `TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership`.
+- The test exercises real `CancelTurn` over the existing session-first runtime
+  path with a durable Run, linked turn, waiting tool call, and backend session.
+- It proves cancellation:
+  - preserves the `runtime_run_sessions` turn link;
+  - terminalizes the turn and waiting tool call;
+  - records `turn_cancelled` transition audit from terminal turn evidence;
+  - reconciles persisted Run detail/projection to `cancelled`;
+  - emits `turn.cancelled` without deriving actionability from event payloads.
+- No runtime code change was needed.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership" -count=1`
+  passed.
+
+Review conclusion:
+
+- Cancellation ownership is covered at the existing session-first execution
+  boundary.
+- `CancelTurn` preserves Run ownership links and records transition audit only
+  after structured turn/tool evidence is terminal.
+- No migration, scheduler implementation, automatic resume, background Run
+  execution, frontend Run management UI, transition-derived actionability,
+  React-owned lifecycle state, or prose-derived lifecycle/checkpoint/artifact
+  inference was introduced.
 
 ## Validation Scenarios
 
@@ -5142,7 +5172,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 12.2: Run Cancellation Ownership Contract Coverage. Keep it
-test-first and narrow; do not add migrations, scheduler implementation,
-automatic resume, frontend Run management UI, background Run execution,
-transition-derived actionability, or React-owned lifecycle state.
+Review and accept Phase 12.2 after package-level validation. Then decide the
+next separately approved boundary; do not add migrations, scheduler
+implementation, automatic resume, frontend Run management UI, background Run
+execution, transition-derived actionability, or React-owned lifecycle state
+without a new gate.

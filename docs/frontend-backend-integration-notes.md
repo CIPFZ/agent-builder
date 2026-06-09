@@ -1155,3 +1155,10 @@ Frontend boundary:
   transition rows.
 - No frontend Run management UI, scheduler behavior, automatic resume, or
   transition-derived actionability is accepted.
+
+Phase 12.2 result:
+
+- Backend cancellation ownership coverage proves `CancelTurn` preserves Run
+  links, terminalizes turn/tool evidence, records audit transition after
+  terminal evidence, and reconciles Run detail/projection to `cancelled`.
+- No frontend behavior changes were added.
