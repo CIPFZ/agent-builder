@@ -598,6 +598,22 @@ cannot decide permission, MCP auth, MCP elicitation, checkpoint, artifact,
 interrupted, diagnostics, timeline, or lifecycle truth. It cannot start work,
 write transitions, auto-resume, or mutate checkpoint evidence.
 
+### Phase 14.1 Gate: Internal Scheduler Plan DTO
+
+Phase 14.1 implements the plan DTO internally. It remains read-only and backend
+only.
+
+Accepted implementation:
+
+- Plan source has `read_only=true` and `starts_worker=false`.
+- Plan item `can_schedule` is derived through Phase 13.1 preflight.
+- Missing Run/session/turn links and terminal turns remain non-executable.
+- Checkpoint resume items remain non-executable until an explicit resumed turn
+  exists.
+- Checkpoint planning does not acknowledge, discard, resume, or mutate source
+  checkpoint evidence.
+- Task items stay non-executable until a later task scheduling ownership gate.
+
 ## API 影响
 
 最小 API：

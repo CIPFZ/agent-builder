@@ -5664,6 +5664,64 @@ Review conclusion:
   frontend Run management UI, migration, transition-derived actionability, or
   React-owned lifecycle state.
 
+### Phase 14.1: Internal Read-only Scheduler Plan DTO
+
+Status: accepted.
+
+Scope:
+
+- Add internal scheduler plan DTO types and a read-only builder.
+- Use Phase 13.1 preflight to decide plan item executability.
+- Keep the plan internal; do not expose it through HTTP, Wails, or React.
+
+Implementation notes:
+
+- Added `RuntimeRunSchedulerPlanRequest`,
+  `RuntimeRunSchedulerPlanResponse`, `RuntimeRunSchedulerPlan`,
+  `RuntimeRunSchedulerPlanItem`, and `RuntimeRunSchedulerPlanSource`.
+- Added internal `runtimeRunSchedulerPlan(...)`.
+- The plan source is read-only, reports `StartsWorker=false`, and records
+  evidence as `runtime_runs`, `runtime_run_sessions`, `runtime_turns`, and
+  `runtime_run_checkpoints`.
+- Plan-level routing includes cancellation scope, diagnostics route, and
+  refresh targets only. These are descriptive read contracts, not events or
+  execution commands.
+- `user_turn` items use Phase 13.1 preflight for `CanSchedule`.
+- Missing Run/session/turn links and terminal turns remain non-executable plan
+  items with preflight reasons.
+- `checkpoint_resume` items are non-executable until an explicit resumed turn
+  exists and do not acknowledge, discard, resume, or mutate checkpoint
+  evidence.
+- `task_turn` items remain non-executable until a later task scheduling gate
+  accepts executable task ownership.
+
+Rejected behavior:
+
+- No scheduler worker or background execution loop.
+- No automatic resume.
+- No HTTP/Wails bridge route, generated binding, adapter, or frontend Run UI.
+- No transition-derived lifecycle/actionability.
+- No permission/MCP/checkpoint/artifact actionability decision.
+- No database migration.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeRunScheduler(Plan|Preflight)"
+  -count=1` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 14.1 implements the internal read-only scheduler plan DTO without
+  making scheduler behavior executable.
+- The plan builder preserves the Phase 13.1 preflight boundary and does not
+  mutate checkpoint evidence.
+- Runtime truth remains in existing stores and DTO refreshes; events,
+  transition history, assistant prose, and React state were not promoted to
+  lifecycle or actionability sources.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -5711,9 +5769,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 14.1: Internal Read-only Scheduler Plan DTO. Add internal DTO
-types and a read-only builder that uses Phase 13.1 preflight for item
-executability. Do not expose it through HTTP, Wails, or React, and do not add
-migrations, scheduler implementation, automatic resume, frontend Run management
-UI, background Run execution, transition-derived actionability, or React-owned
-lifecycle state.
+Implement Phase 14.2: Scheduler Plan DTO Acceptance Gate. Review the internal
+plan DTO before any transport or worker phase. Decide whether the next safe
+boundary is read-only transport exposure or another backend contract test. Do
+not add migrations, scheduler implementation, automatic resume, frontend Run
+management UI, background Run execution, transition-derived actionability, or
+React-owned lifecycle state.

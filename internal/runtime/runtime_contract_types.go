@@ -252,6 +252,59 @@ type RuntimeRunSchedulerPreflightSource struct {
 	Evidence     []string `json:"evidence,omitempty"`
 }
 
+type RuntimeRunSchedulerPlanRequest struct {
+	RunID        string `json:"runId,omitempty"`
+	SessionID    string `json:"sessionId,omitempty"`
+	Mode         string `json:"mode,omitempty"`
+	TurnID       string `json:"turnId,omitempty"`
+	CheckpointID string `json:"checkpointId,omitempty"`
+	TaskID       string `json:"taskId,omitempty"`
+	Cursor       string `json:"cursor,omitempty"`
+	Limit        int    `json:"limit,omitempty"`
+}
+
+type RuntimeRunSchedulerPlanResponse struct {
+	Plan   RuntimeRunSchedulerPlan       `json:"plan"`
+	Source RuntimeRunSchedulerPlanSource `json:"source"`
+}
+
+type RuntimeRunSchedulerPlan struct {
+	RunID               string                        `json:"runId"`
+	PrimarySessionID    string                        `json:"primarySessionId"`
+	SessionIDs          []string                      `json:"sessionIds,omitempty"`
+	Objective           string                        `json:"objective,omitempty"`
+	StatusFromRunDetail string                        `json:"statusFromRunDetail,omitempty"`
+	Items               []RuntimeRunSchedulerPlanItem `json:"items,omitempty"`
+	CancellationScope   string                        `json:"cancellationScope,omitempty"`
+	DiagnosticsRoute    string                        `json:"diagnosticsRoute,omitempty"`
+	RefreshTargets      []string                      `json:"refreshTargets,omitempty"`
+	ActivityWindow      RuntimeActivityWindow         `json:"activityWindow,omitempty"`
+}
+
+type RuntimeRunSchedulerPlanItem struct {
+	ID                string   `json:"id"`
+	Kind              string   `json:"kind"`
+	OrderKey          string   `json:"orderKey,omitempty"`
+	SessionID         string   `json:"sessionId,omitempty"`
+	TurnID            string   `json:"turnId,omitempty"`
+	CheckpointID      string   `json:"checkpointId,omitempty"`
+	TaskID            string   `json:"taskId,omitempty"`
+	CanSchedule       bool     `json:"canSchedule"`
+	PreflightReason   string   `json:"preflightReason,omitempty"`
+	RequiredPreflight bool     `json:"requiredPreflight"`
+	RefreshTargets    []string `json:"refreshTargets,omitempty"`
+	CancellationScope string   `json:"cancellationScope,omitempty"`
+	DiagnosticsRoute  string   `json:"diagnosticsRoute,omitempty"`
+}
+
+type RuntimeRunSchedulerPlanSource struct {
+	Kind                  string   `json:"kind"`
+	ReadOnly              bool     `json:"readOnly"`
+	StartsWorker          bool     `json:"startsWorker"`
+	SessionActivityParity bool     `json:"sessionActivityParity"`
+	Evidence              []string `json:"evidence,omitempty"`
+}
+
 type RuntimeRunTransitionHistorySource struct {
 	Kind                  string   `json:"kind"`
 	ReadOnly              bool     `json:"readOnly"`

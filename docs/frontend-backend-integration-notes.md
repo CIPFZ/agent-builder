@@ -1313,3 +1313,24 @@ Phase 14 result:
   preflight, not event payloads or React state.
 - Checkpoint plan items may describe explicit user-triggered future work only;
   they must not auto-resume or mutate checkpoint evidence.
+
+## 2026-06-09: Phase 14.1 Internal Read-only Scheduler Plan DTO
+
+Phase 14.1 implements the scheduler plan DTO internally only.
+
+Frontend boundary:
+
+- No HTTP route, Wails bridge method, generated binding, runtime adapter method,
+  or React consumer is added.
+- Plan refresh targets are descriptive backend fields only. They do not hydrate
+  lifecycle, timeline, diagnostics, artifacts, interrupted recovery,
+  checkpoint, permission, MCP auth, or MCP elicitation state.
+- `canSchedule` remains backend preflight output, not frontend state.
+
+Phase 14.1 result:
+
+- The backend can build read-only scheduler plan evidence for a Run/turn or
+  checkpoint request.
+- The source reports `startsWorker=false`.
+- Checkpoint plan items do not acknowledge, discard, resume, or mutate
+  checkpoint evidence.
