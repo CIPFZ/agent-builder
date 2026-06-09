@@ -670,6 +670,20 @@ Accepted implementation:
 - No queue, poller, automatic resume, task scheduler execution, or frontend Run
   management UI is added.
 
+### Phase 15.2 Gate: Foreground Delegate Acceptance
+
+Phase 15.2 accepts the foreground delegate and chooses checkpoint-resume
+hardening as the next boundary.
+
+Next boundary:
+
+- `ResumeRunCheckpoint` must remain an explicit user action.
+- The resumed turn should inherit the foreground scheduler delegate through
+  `Chat`.
+- Source checkpoint evidence must not be acknowledged, discarded, resumed, or
+  otherwise mutated by planning.
+- No automatic resume or unattended background execution is accepted.
+
 ## API 影响
 
 最小 API：

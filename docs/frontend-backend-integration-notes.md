@@ -1397,3 +1397,20 @@ Phase 15.1 result:
   do not show stale busy work.
 - No automatic resume, unattended background execution, or frontend scheduler
   state was introduced.
+
+## 2026-06-09: Phase 15.2 Foreground Scheduler Delegate Acceptance Gate
+
+Phase 15.2 accepts the foreground scheduler delegate and keeps frontend behavior
+unchanged.
+
+Frontend boundary:
+
+- `Chat` remains the frontend entry point.
+- No scheduler transport or frontend Run management UI is added.
+- Preflight rejection events remain refresh triggers only.
+
+Phase 15.2 result:
+
+- The next relevant boundary is checkpoint-resume backend hardening, because
+  explicit resume already enters through `Chat`.
+- Frontend resume behavior remains runtime action followed by DTO refresh.

@@ -5937,6 +5937,65 @@ Review conclusion:
   transition history, assistant prose, and React state were not promoted to
   lifecycle or actionability sources.
 
+### Phase 15.2: Foreground Scheduler Delegate Acceptance Gate
+
+Status: accepted as a review gate only.
+
+Scope:
+
+- Review Phase 15.1 before extending scheduler ownership.
+- Decide whether the next safe boundary is checkpoint-resume delegate hardening,
+  task scheduling design, or transport/read exposure.
+- Keep this phase free of runtime behavior changes unless a focused contract
+  gap is found.
+
+Accepted review:
+
+- Phase 15.1 is accepted as the first real scheduler execution boundary.
+- The delegate is foreground and user-triggered through existing `Chat`.
+- The delegate uses the internal plan DTO and Phase 13.1 preflight before
+  `turn_started` transition audit and before `runChat(...)`.
+- Preflight rejection terminalizes both durable turn state and in-memory request
+  state, emits a refresh event, and does not start execution.
+- No transport, frontend UI, automatic resume, unattended background execution,
+  task scheduling, migration, or scheduler-owned actionability was added.
+
+Next boundary decision:
+
+- Checkpoint-resume delegate hardening is the next safe task.
+- `ResumeRunCheckpoint(...)` already creates an explicit user-triggered turn
+  through `Chat`, so it should inherit the foreground scheduler delegate.
+- The next phase should prove this with focused coverage and ensure checkpoint
+  resume still does not become automatic replay or mutate source checkpoint
+  evidence.
+
+Rejected behavior:
+
+- No automatic resume.
+- No unattended background scheduler queue, poller, or worker loop.
+- No scheduler-owned permission/MCP/checkpoint/artifact actionability.
+- No task scheduling execution.
+- No HTTP/Wails bridge route, generated binding, adapter, or frontend Run UI.
+- No database migration.
+- No assistant-prose-derived lifecycle/checkpoint/artifact inference.
+
+Validation:
+
+- Review confirmed `runtimeRunSchedulerDelegateUserTurn(...)` is internal and
+  only called from `Chat`.
+- Review confirmed failed preflight path does not record `turn_started`.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 15.2 accepts the foreground scheduler delegate.
+- The next safe task is Phase 16: Checkpoint Resume Scheduler Delegate
+  Hardening.
+- Phase 16 may add focused backend coverage or narrow internal wiring, but it
+  must not add automatic resume, unattended background execution, frontend Run
+  management UI, transition-derived actionability, React-owned lifecycle state,
+  task execution scheduling, or database migration.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -5984,9 +6043,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 15.2: Foreground Scheduler Delegate Acceptance Gate. Review the
-new delegate before extending scheduler ownership. Decide whether the next safe
-boundary is checkpoint-resume delegate hardening, task scheduling design, or
-transport/read exposure. Do not add automatic resume, unattended background
-execution, frontend Run management UI, transition-derived actionability,
-React-owned lifecycle state, task execution scheduling, or database migration.
+Implement Phase 16: Checkpoint Resume Scheduler Delegate Hardening. Prove
+explicit `ResumeRunCheckpoint(...)` uses the foreground scheduler delegate via
+`Chat`, preserves source checkpoint evidence, and does not become automatic
+resume. Do not add unattended background execution, frontend Run management UI,
+transition-derived actionability, React-owned lifecycle state, task execution
+scheduling, or database migration.
