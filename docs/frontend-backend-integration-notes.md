@@ -1527,3 +1527,26 @@ Phase 18 result:
 - Task row, task result, and task message evidence remain cancellation truth.
 - Future scheduler task items may describe cancellation scope, but they must not
   become cancellation actionability or execution authority.
+
+## 2026-06-10: Phase 18.1 Task Cancellation Ownership Contract Coverage
+
+Phase 18.1 adds backend contract coverage for the accepted cancellation
+boundary.
+
+Frontend boundary:
+
+- Existing task cancellation remains a runtime action followed by DTO refresh.
+- Task cancellation events remain refresh triggers only; payloads must not
+  hydrate lifecycle, artifact evidence, permission/MCP actionability, or Run
+  status in React state.
+- Scheduler task plan items remain read-only evidence and must not be surfaced
+  as executable task cancellation controls.
+
+Phase 18.1 result:
+
+- Active cancellation now has tests for terminal task row, task result, and
+  parent-to-child control message evidence.
+- Already-final cancellation has tests proving final task/result/artifact
+  evidence is not rewritten.
+- Scheduler task plans have tests proving cancelled task items remain
+  non-executable and scope-preserving.

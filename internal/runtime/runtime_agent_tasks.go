@@ -83,17 +83,19 @@ func (r *runtimeService) CancelAgentTask(ctx context.Context, taskID string) (Ru
 	task.Progress = 100
 	task.FinishedAt = time.Now().UnixMilli()
 	task.Error = firstNonEmpty(task.Error, "agent task cancellation requested")
-	task.CancellationDetail = "Child session cancellation was requested through the runtime when available."
+	cancellationDetail := "Child session cancellation was requested through the runtime when available."
+	task.CancellationDetail = cancellationDetail
 	task, err = r.agentTasks.Upsert(ctx, task)
 	if err != nil {
 		return RuntimeAgentTaskResponse{}, err
 	}
+	task.CancellationDetail = cancellationDetail
 	result, _ := r.upsertAgentTaskResult(ctx, RuntimeAgentTaskResult{
 		TaskID:             task.ID,
 		Status:             agentTaskStatusCancelled,
 		Summary:            task.ResultSummary,
 		ErrorDetail:        task.Error,
-		CancellationDetail: task.CancellationDetail,
+		CancellationDetail: cancellationDetail,
 		ArtifactRefs:       task.ArtifactRefs,
 	})
 	_, _ = r.createAgentTaskMessage(ctx, task, RuntimeAgentTaskMessage{
@@ -104,7 +106,7 @@ func (r *runtimeService) CancelAgentTask(ctx context.Context, taskID string) (Ru
 		RelatedToolCallID: task.ParentToolCallID,
 		Payload: map[string]any{
 			"action": "cancel",
-			"reason": task.CancellationDetail,
+			"reason": cancellationDetail,
 		},
 	})
 	r.recordAgentTaskLifecycle(ctx, runtimeapi.EventTaskCancelled, "task_cancelled", task)

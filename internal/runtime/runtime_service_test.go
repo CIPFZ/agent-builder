@@ -3289,6 +3289,209 @@ func TestRuntimeCancelAgentTaskMarksFinalAndAuditsLimitation(t *testing.T) {
 	}
 }
 
+func TestRuntimeCancelAgentTaskTerminalizesEvidenceAndPreservesOwnership(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+	service.turns = newRuntimeTurnStore(conn)
+	service.runs = newRuntimeRunStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+
+	run, err := service.runs.EnsureForSession(context.Background(), "workspace-1", "session-parent", "cancel task", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:        "turn-parent",
+		SessionID: "session-parent",
+		Status:    turnStatusRunning,
+		StartedAt: 1000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.runs.LinkTurn(context.Background(), run.ID, "session-parent", turn.ID, turn.StartedAt); err != nil {
+		t.Fatal(err)
+	}
+	task, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:               "task-cancel",
+		ParentTurnID:     turn.ID,
+		ParentSessionID:  "session-parent",
+		ParentToolCallID: "tool-parent",
+		ChildSessionID:   "session-child",
+		Title:            "Agent",
+		Kind:             agentTaskKindSubagent,
+		Role:             "reviewer",
+		Provider:         "provider-1",
+		Model:            "model-1",
+		AllowedTools:     []string{"view"},
+		CapabilityScope:  []string{"C:/work/project"},
+		CWD:              "C:/work/project",
+		Worktree:         "worktree-1",
+		Status:           agentTaskStatusRunning,
+		Progress:         25,
+		StartedAt:        1100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := service.CancelAgentTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Task.Status != agentTaskStatusCancelled || resp.Task.Progress != 100 || resp.Task.FinishedAt == 0 {
+		t.Fatalf("cancelled task = %#v", resp.Task)
+	}
+	if resp.Task.ParentSessionID != task.ParentSessionID || resp.Task.ParentTurnID != task.ParentTurnID || resp.Task.ParentToolCallID != task.ParentToolCallID || resp.Task.ChildSessionID != task.ChildSessionID {
+		t.Fatalf("ownership links changed: task=%#v original=%#v", resp.Task, task)
+	}
+	if resp.Task.Role != task.Role || resp.Task.Provider != task.Provider || resp.Task.Model != task.Model || resp.Task.CWD != task.CWD || resp.Task.Worktree != task.Worktree {
+		t.Fatalf("task scope changed: task=%#v original=%#v", resp.Task, task)
+	}
+	if resp.Result == nil || resp.Result.TaskID != task.ID || resp.Result.Status != agentTaskStatusCancelled || resp.Result.CancellationDetail == "" || len(resp.Result.ArtifactRefs) != 0 {
+		t.Fatalf("cancel result = %#v", resp.Result)
+	}
+
+	refreshedTask, err := service.agentTasks.Get(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshedTask.Status != agentTaskStatusCancelled || refreshedTask.ParentSessionID != task.ParentSessionID || refreshedTask.ParentTurnID != task.ParentTurnID || refreshedTask.ParentToolCallID != task.ParentToolCallID || refreshedTask.ChildSessionID != task.ChildSessionID {
+		t.Fatalf("persisted cancelled task = %#v", refreshedTask)
+	}
+	refreshedResult, err := newRuntimeAgentTaskResultStore(conn).Get(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshedResult.Status != agentTaskStatusCancelled || refreshedResult.CancellationDetail == "" || len(refreshedResult.ArtifactRefs) != 0 {
+		t.Fatalf("persisted cancel result = %#v", refreshedResult)
+	}
+	messages, err := newRuntimeAgentTaskMessageStore(conn).ListByTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("messages = %#v", messages)
+	}
+	msg := messages[0]
+	if msg.Direction != taskMessageDirectionParentToChild || msg.Kind != taskMessageKindControl || msg.Status != taskMessageStatusProcessed || msg.RelatedToolCallID != task.ParentToolCallID {
+		t.Fatalf("cancel message = %#v", msg)
+	}
+	if msg.ParentSessionID != task.ParentSessionID || msg.ParentTurnID != task.ParentTurnID || msg.ChildSessionID != task.ChildSessionID {
+		t.Fatalf("message ownership links changed: %#v", msg)
+	}
+
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventTaskCancelled &&
+			event.SessionID == task.ParentSessionID &&
+			event.TurnID == task.ParentTurnID &&
+			event.ToolCallID == task.ParentToolCallID &&
+			event.Payload["task_id"] == task.ID &&
+			event.Payload["status"] == agentTaskStatusCancelled
+	}) {
+		t.Fatalf("task.cancelled event missing: %#v", events.Events)
+	}
+	if slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventTaskArtifactCreated
+	}) {
+		t.Fatalf("cancel without completed artifact output created artifact event: %#v", events.Events)
+	}
+}
+
+func TestRuntimeCancelAgentTaskAlreadyFinalDoesNotRewriteEvidence(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	service := newRuntimeService()
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+	service.turns = newRuntimeTurnStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+	task, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:               "task-final",
+		ParentTurnID:     "turn-parent",
+		ParentSessionID:  "session-parent",
+		ParentToolCallID: "tool-parent",
+		ChildSessionID:   "session-child",
+		Title:            "Agent",
+		Kind:             agentTaskKindSubagent,
+		Status:           agentTaskStatusCompleted,
+		Progress:         100,
+		ResultSummary:    "completed output",
+		ArtifactRefs:     []string{"runtime://refs/task-output"},
+		StartedAt:        1000,
+		FinishedAt:       2000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.upsertAgentTaskResult(context.Background(), RuntimeAgentTaskResult{
+		TaskID:       task.ID,
+		Status:       agentTaskStatusCompleted,
+		Summary:      "completed output",
+		ArtifactRefs: []string{"runtime://refs/task-output"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := service.CancelAgentTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Task.Status != agentTaskStatusCompleted || resp.Task.FinishedAt != task.FinishedAt || resp.Task.ResultSummary != task.ResultSummary {
+		t.Fatalf("final task rewritten = %#v original=%#v", resp.Task, task)
+	}
+	if len(resp.Task.ArtifactRefs) != 1 || resp.Task.ArtifactRefs[0] != "runtime://refs/task-output" {
+		t.Fatalf("final task artifact refs rewritten = %#v", resp.Task.ArtifactRefs)
+	}
+	refreshedResult, err := newRuntimeAgentTaskResultStore(conn).Get(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshedResult.Status != result.Status || refreshedResult.Summary != result.Summary || refreshedResult.CancellationDetail != "" || len(refreshedResult.ArtifactRefs) != 1 || refreshedResult.ArtifactRefs[0] != result.ArtifactRefs[0] {
+		t.Fatalf("final result rewritten = %#v original=%#v", refreshedResult, result)
+	}
+	messages, err := newRuntimeAgentTaskMessageStore(conn).ListByTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 1 || messages[0].Status != taskMessageStatusRejected || messages[0].Kind != taskMessageKindControl || messages[0].Error == "" {
+		t.Fatalf("final cancel rejection message = %#v", messages)
+	}
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
+		return event.Type == runtimeapi.EventTaskCancelled
+	}) {
+		t.Fatalf("final cancel emitted task.cancelled: %#v", events.Events)
+	}
+}
+
 func TestRuntimeAgentTaskFollowUpDeliveryAndRejection(t *testing.T) {
 	t.Parallel()
 
