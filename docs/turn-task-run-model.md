@@ -443,6 +443,31 @@ Phase 8.1 entry criteria:
 - No automatic resume, background Run scheduler, or executable resume/discard
   controls should be implemented in the persistence foundation phase.
 
+### Phase 11 Gate: Run Lifecycle Source-of-Truth Cutover
+
+Phase 11 narrows the first source-of-truth cutover to persisted Run detail
+reconciliation.
+
+Accepted model:
+
+- Persisted Run detail is a durable read cache for runtime-owned evidence, not
+  an independent scheduler state machine.
+- `RunProjection` remains the parity oracle for status, timestamps, counts,
+  checkpoints, diagnostics, artifacts, and user-action eligibility.
+- `SessionActivity` remains the fallback/parity oracle for timeline, messages,
+  tool calls, permissions, diagnostics, artifact evidence, interrupted
+  summaries, and terminal MCP semantics.
+- Transition history remains audit evidence. It can validate replay/order, but
+  it cannot decide current lifecycle or actionability.
+- Permission, MCP auth, and elicitation actionability still come from current
+  runtime stores.
+
+Phase 11.1 should harden persisted Run detail reconciliation after turn start,
+turn finish, cancellation, interrupted acknowledgement, startup recovery,
+explicit checkpoint resume, and checkpoint acknowledgement/discard. It should
+not add a migration, scheduler, automatic resume, frontend Run management UI,
+or transition-derived actionability.
+
 ## API 影响
 
 最小 API：

@@ -4574,6 +4574,108 @@ Review conclusion:
 - No scheduler, automatic resume, frontend Run management UI, transition-driven
   actionability, or React-owned runtime state is accepted by Phase 10.
 
+### Phase 11: Run Lifecycle Source-of-Truth Cutover Design Gate
+
+Status: accepted as a design gate only.
+
+Purpose:
+
+- Decide the first safe source-of-truth cutover after Phase 10 transition
+  history.
+- Prevent accidental promotion of audit rows, event payloads, or React state
+  into lifecycle/actionability authority.
+- Define the next implementation slice narrowly enough to be tested against
+  `SessionActivity`, `RunProjection`, persisted Run detail, checkpoint, MCP,
+  permission, artifact, diagnostics, and restart evidence.
+
+Current state:
+
+- Persisted `runtime_runs` already provides durable Run identity, session links,
+  checkpoints, source, status, timestamps, and list/detail reads.
+- `RunProjection` is still assembled from `SessionActivity`, turns, tool calls,
+  permissions, runtime events, and agent tasks.
+- `RunProjection` may upsert the persisted Run summary, which means persisted
+  Run detail is already a reconciliation cache for structured runtime evidence,
+  not an independent scheduler-owned state machine.
+- `runtime_run_transitions` records ordered audit evidence only. It is useful
+  for debugging and replay validation, but it does not decide current state.
+
+Accepted cutover decision:
+
+- The first source-of-truth implementation should harden persisted Run detail
+  reconciliation, not introduce a scheduler or transition-derived state
+  machine.
+- Persisted Run detail may become the durable read source for Run list/detail
+  status, timestamps, session links, and checkpoint markers only when it is
+  refreshed from `RunProjection`/structured runtime evidence.
+- `RunProjection` remains the parity oracle for lifecycle status, counts,
+  checkpoints, diagnostics, artifacts, and user action eligibility.
+- `SessionActivity` remains the fallback/parity oracle for timeline, messages,
+  tool calls, permissions, diagnostics, artifact evidence, interrupted
+  summaries, and terminal MCP semantics.
+- Current runtime permission/MCP stores remain the only source for actionable
+  permission, auth, and elicitation gates.
+- Transition rows remain audit evidence. They may be used in tests to confirm
+  replay order, but they must not determine current lifecycle or actionability.
+
+Rejected cutovers:
+
+- Making `runtime_run_transitions` the lifecycle state machine: rejected because
+  audit rows cannot safely represent current permission/MCP/checkpoint
+  actionability without refreshed runtime evidence.
+- Adding a background Run scheduler: rejected until persisted Run detail,
+  projection parity, and restart semantics are hardened first.
+- Auto-resuming interrupted Runs from checkpoints or transitions: rejected;
+  resume remains explicit user-triggered continuation from a structured
+  checkpoint.
+- Adding frontend Run management UI: rejected because frontend still lacks an
+  accepted runtime-owned management contract.
+
+Phase 11.1 implementation gate:
+
+- Add tests and, if needed, small runtime/store changes proving persisted Run
+  detail reconciliation is current after:
+  - turn start;
+  - turn finish success/failure/cancellation;
+  - interrupted acknowledgement;
+  - startup recovery;
+  - explicit checkpoint resume;
+  - checkpoint acknowledgement/discard.
+- Prove persisted Run detail and `RunProjection` agree on status, finished
+  timestamp, session ids, checkpoint markers, resumed turn links, and read-only
+  source metadata where applicable.
+- Prove divergence handling favors refreshed projection/structured runtime
+  evidence, never stale persisted status or transition rows.
+- Keep all actionability decisions tied to current runtime permission/MCP
+  stores and structured checkpoint DTOs.
+
+Out of scope for Phase 11.1:
+
+- New database migration.
+- Scheduler, automatic resume, or background Run execution.
+- Frontend Run management UI.
+- Transition-derived actionability.
+- React state as lifecycle or checkpoint truth.
+- Assistant-prose-derived artifact, checkpoint, or lifecycle inference.
+
+Validation required for Phase 11.1:
+
+- Focused Go tests for Run detail/projection reconciliation.
+- Existing restart stale-actionability tests covering unfinished tools,
+  permissions, MCP auth requests, and MCP elicitation requests.
+- Existing checkpoint resume tests proving explicit new-turn semantics.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1`.
+- `git diff --check`.
+
+Review conclusion:
+
+- Phase 11 accepts a narrow persisted Run detail reconciliation hardening as
+  the next implementation.
+- It does not accept a full Run state machine, scheduler, automatic resume,
+  frontend Run management UI, transition-derived actionability, or React-owned
+  lifecycle state.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -4621,7 +4723,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 11: Run Lifecycle Source-of-Truth Cutover Design Gate. Keep it
-as a design gate only; do not implement scheduler, automatic resume, frontend
-Run management UI, background Run execution, or transition-derived
-actionability.
+Implement Phase 11.1: Persisted Run Detail Reconciliation Hardening. Keep it
+narrow: tests and minimal runtime/store fixes only, with no migration,
+scheduler, automatic resume, frontend Run management UI, background Run
+execution, transition-derived actionability, or React-owned lifecycle state.

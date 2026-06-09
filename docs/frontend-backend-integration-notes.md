@@ -1020,3 +1020,19 @@ Frontend boundary:
 - The next design gate may review lifecycle source-of-truth cutover, but it
   must not add frontend Run management UI, scheduler behavior, automatic
   resume, background Run execution, or transition-derived actionability.
+
+## 2026-06-09: Phase 11 Run Lifecycle Source-of-Truth Gate
+
+Phase 11 accepts persisted Run detail reconciliation hardening as the next
+implementation boundary.
+
+Frontend boundary:
+
+- Persisted Run detail may become a more reliable durable read source only
+  after it is reconciled from `RunProjection` and structured runtime evidence.
+- The frontend should still refresh runtime DTOs rather than cache lifecycle or
+  checkpoint state locally.
+- Transition rows remain audit evidence and must not drive frontend lifecycle,
+  checkpoint, permission, MCP, artifact, diagnostics, or interrupted state.
+- No frontend Run management UI, background scheduler behavior, automatic
+  resume, or transition-derived actionability is accepted by this gate.
