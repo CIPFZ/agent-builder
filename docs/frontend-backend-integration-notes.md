@@ -1572,3 +1572,30 @@ Phase 18.2 result:
 - The next frontend/backend risk to design is task scheduler execution
   transport exposure, but no task scheduler transport, worker, queue, or Run
   management UI is accepted yet.
+
+## 2026-06-10: Phase 19 Task Scheduler Execution Design Gate
+
+Phase 19 defines the frontend/backend boundary for future scheduler-owned task
+execution before implementation.
+
+Frontend boundary:
+
+- No task scheduler transport method, adapter method, worker, queue, or Run
+  management UI is added in this phase.
+- Future task execution events may select DTO refresh targets only. Event
+  payloads must not hydrate task lifecycle, diagnostics, artifact evidence,
+  permission/MCP actionability, or Run status in React state.
+- Any future executable task plan item must be backed by runtime DTO refreshes
+  and full `SessionActivity` parity checks, not frontend-only task state.
+- Task cancellation UI remains backed by `CancelAgentTask(...)` followed by
+  DTO refresh.
+
+Phase 19 result:
+
+- The first task execution boundary must be foreground and explicit, not an
+  unattended background scheduler or automatic resume path.
+- Task execution must preserve parent Run/session/turn/tool ownership and
+  task scope fields before side effects.
+- Completed structured task/tool output is the only accepted produced-ref path.
+- Phase 19.1 should add backend contract coverage before any transport or UI
+  exposure is considered.

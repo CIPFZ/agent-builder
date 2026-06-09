@@ -6483,6 +6483,111 @@ Review conclusion:
   accepted implementation phase.
 - The next safe task is Phase 19: Task Scheduler Execution Design Gate.
 
+### Phase 19: Task Scheduler Execution Design Gate
+
+Status: accepted as a design gate only.
+
+Purpose:
+
+- Define the minimum safe boundary for scheduler-owned task execution before
+  implementation.
+- Align with the Claude Code lesson that tasks/subagents must have explicit
+  tool/session/task state, stop/output controls, and durable transcripts or
+  event readers instead of UI-derived lifecycle.
+- Preserve Agent Builder's runtime-owned truth model: Go stores and DTO reads
+  remain authoritative; React state, event payloads, transition history, and
+  assistant prose do not become task lifecycle or actionability sources.
+
+Existing implementation inventory:
+
+- Foreground user turns already pass through `runtimeRunSchedulerDelegateUserTurn(...)`
+  before `runChat(...)`.
+- Runtime task records already come from the existing AgentTool/coordinator
+  path through `AgentTaskStarted/Progress/Completed/Failed`.
+- Task stop/output/list/get/message tools already call runtime DTO/action
+  methods; `CancelAgentTask(...)` remains the cancellation entry point.
+- `runtimeRunSchedulerPlan(...)` can describe `task_turn` items and copy task
+  scope evidence, but task items remain non-executable with
+  `task_scheduler_not_accepted`.
+
+Accepted design:
+
+- The first scheduler-owned task execution boundary must be foreground and
+  explicitly user/model/tool-triggered. It must not be an unattended worker,
+  queue, poller, or automatic resume path.
+- A task execution delegate must load the current `runtime_agent_tasks` row,
+  verify parent Run/session/turn ownership, verify the parent turn is linked to
+  the Run, and reject terminal or unowned tasks before any execution side
+  effect.
+- Task scope is an execution constraint, not UI decoration. Allowed tools,
+  capability scope, cwd/worktree, role, provider/model, parent tool-call id,
+  and child session id must be preserved and enforced by runtime policy before
+  child tool calls run.
+- Cancellation ownership stays with `CancelAgentTask(...)`. A task scheduler
+  delegate may observe cancellation state and terminal evidence, but must not
+  invent a second cancellation source of truth.
+- Artifact evidence can be produced only from completed structured task/tool
+  output. Unfinished, partial, denied, disconnected, or cancelled task execution
+  must not create produced refs.
+- Event payloads may choose refresh targets only. After any task event, the
+  frontend must refresh runtime DTOs such as task detail, turn activity,
+  session activity window, Run projection, or scheduler plan; it must not merge
+  payloads into lifecycle, diagnostics, artifact evidence, permission/MCP
+  actionability, or Run status.
+- The scheduler plan source must stay explicit about whether it is read-only or
+  starts a worker. Any future executable task plan item must flip that contract
+  only in the same implementation phase that proves side effects and fallback
+  parity.
+
+Required implementation entry criteria for Phase 19.1:
+
+- Add focused backend tests for a task execution delegate contract before
+  enabling task plan executability.
+- Prove unowned, terminal, missing, cancelled, or stale task rows are rejected
+  without execution side effects.
+- Prove accepted task execution preserves task scope and parent
+  Run/session/turn/tool ownership.
+- Prove cancellation during or before execution terminalizes through
+  `CancelAgentTask(...)` or recorder terminal evidence, not through transition
+  history, event payloads, assistant prose, or React state.
+- Prove completed structured task output is the only path that can contribute
+  produced artifact refs.
+- Prove DTO refresh/fallback behavior remains compatible with full
+  `SessionActivity` parity.
+
+Rejected behavior:
+
+- No task scheduler worker, queue, poller, or background daemon.
+- No automatic resume of tasks, child sessions, stale permission gates, stale
+  MCP auth requests, or stale MCP elicitation requests.
+- No frontend Run management UI.
+- No database migration.
+- No transition/event/prose/React-derived lifecycle, artifact evidence,
+  permission/MCP actionability, or Run status.
+- No provider credentials, browser auth state, hosted MCP secrets, or task
+  auth state in fixtures, logs, docs, screenshots, or React state.
+
+Validation:
+
+- Design review only.
+- Reviewed the existing runtime scheduler delegate, task scheduler plan, task
+  tools, AgentTask recorder, and coordinator subagent path.
+- Read-only Claude Code comparison confirmed the reference architecture exposes
+  explicit Agent/TaskCreate/TaskGet/TaskStop/TaskOutput style boundaries and
+  separates subagent state/transcripts from UI-only state.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 19 accepts the task scheduler execution design boundary, not an
+  implementation.
+- The next safe task is Phase 19.1: Task Scheduler Execution Delegate Contract
+  Coverage.
+- Phase 19.1 must start with backend contract tests and may add only the
+  narrowest internal helper needed to express the delegate contract. It must
+  not add a worker, queue, automatic resume, frontend Run UI, migration, or
+  source-of-truth promotion.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6530,9 +6635,11 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Start Phase 19: Task Scheduler Execution Design Gate. Define the minimum
-accepted boundary for scheduler-owned task execution before implementation,
-including ownership, task scope, cancellation, evidence ordering, transport,
-and frontend DTO refresh constraints. Do not implement a task scheduler worker,
-automatic resume, unattended queue/poller, frontend Run management UI, database
-migration, or transition/event/prose/React-derived lifecycle/actionability.
+Implement Phase 19.1: Task Scheduler Execution Delegate Contract Coverage.
+Start with focused backend tests for the accepted task execution delegate
+boundary: reject unowned/terminal/missing/cancelled/stale tasks without side
+effects, preserve task scope and parent ownership for accepted candidates, keep
+cancellation owned by `CancelAgentTask(...)` or recorder terminal evidence,
+and prove completed structured task output is the only produced-ref path. Do
+not add a worker, queue, automatic resume, frontend Run UI, migration, or
+transition/event/prose/React-derived lifecycle/actionability.

@@ -30,6 +30,19 @@ Phase 18.2 note:
 - The next safe boundary is a task scheduler execution design gate. Task
   execution remains unimplemented until a later accepted implementation phase.
 
+Phase 19 note:
+
+- Task scheduler execution is accepted only as a design boundary. A future
+  delegate must verify parent Run/session/turn/task ownership, enforce task
+  scope, keep cancellation owned by `CancelAgentTask` or recorder terminal
+  evidence, and treat completed structured task/tool output as the only
+  produced-ref source.
+- Event payloads, transition history, assistant prose, and React state remain
+  refresh signals or presentation state only. They are not task lifecycle,
+  artifact, permission/MCP actionability, or Run status truth.
+- No worker, queue, automatic resume, frontend Run UI, or migration is accepted
+  by this gate.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
