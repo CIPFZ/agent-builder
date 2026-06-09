@@ -3094,7 +3094,7 @@ Review conclusion:
 
 ### Phase 8.5: Explicit Checkpoint Resume Contract
 
-Status: implemented as a narrow explicit resume action contract. Automatic
+Status: accepted as a narrow explicit resume action contract. Automatic
 resume, background scheduling, frontend Run management UI, and a full Run state
 machine were not implemented.
 
@@ -3164,6 +3164,46 @@ Review conclusion:
   metadata plus refreshed Run detail is the source of resume linkage.
 - Frontend resume controls remain deferred until a separate UI phase.
 
+### Phase 8.6: Resume Control Frontend Rollout Gate
+
+Status: planned as a rollout/design gate. Do not implement a visible resume
+control, full Run management UI, automatic resume, background scheduling, or a
+full Run state machine in this phase unless this gate is explicitly accepted
+and scoped.
+
+Purpose:
+
+- Decide how the existing explicit resume runtime endpoint can be exposed safely
+  in the React workbench.
+- Define the UI and transport rules for displaying checkpoint resume
+  availability without making React the source of actionability.
+- Define browser/Vite and Wails smoke coverage before any visible resume
+  control ships.
+
+Design constraints:
+
+- The visible control must be derived from refreshed Run detail/checkpoint DTOs,
+  not from event payloads or local optimistic state.
+- Clicking resume must call `ResumeRunCheckpoint`, then refresh Run detail and
+  relevant session activity from runtime APIs.
+- Failed resume responses must clear pending local UI state and must not mark a
+  checkpoint as resumed.
+- The UI must not expose automatic resume, batch resume, background scheduling,
+  or Run management beyond the single explicit checkpoint action.
+- Stale permission/MCP actionability must still come only from current runtime
+  stores after refresh.
+
+Acceptance criteria for a future implementation:
+
+- Browser/Vite tests cover event-triggered Run detail refresh, explicit resume
+  action, failed resume response cleanup, and no local resurrection of stale
+  actionability.
+- Wails/bridge tests cover the same action path through generated bindings or
+  the bridge adapter.
+- UI tests prove duplicate lifecycle/runtime events do not create duplicate
+  controls or duplicate resume submissions.
+- Docs record any remaining manual smoke gaps before shipping visible controls.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -3211,6 +3251,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 8.5, then plan a frontend/runtime rollout gate for exposing
-resume controls. Do not implement automatic resume, background Run scheduling,
-or expanded frontend Run management UI without a separate accepted phase.
+Review/accept Phase 8.6 before adding visible resume controls. Do not implement
+automatic resume, background Run scheduling, or expanded frontend Run
+management UI without a separate accepted phase.

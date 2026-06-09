@@ -725,3 +725,18 @@ Phase 8.5 frontend boundary:
 - Runtime events remain refresh triggers only; the action response and
   subsequent DTO refresh are the only allowed sources of resume status.
 - Visible resume controls remain deferred to a separate frontend rollout gate.
+
+## 2026-06-09: Phase 8.6 Resume Control Rollout Gate Boundary
+
+Phase 8.6 is planned as a frontend/runtime rollout gate. It should decide how
+to expose the explicit resume endpoint without moving actionability into React.
+
+Frontend boundary:
+
+- Visible resume controls must be derived from refreshed Run detail DTOs.
+- Runtime events may trigger refresh only; payloads must not create or update
+  resume controls directly.
+- A resume click must call the runtime endpoint and then refresh Run detail and
+  session activity.
+- Failed resume responses must clear pending UI state and must not mark a
+  checkpoint as resumed locally.
