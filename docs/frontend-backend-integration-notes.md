@@ -1051,3 +1051,17 @@ Frontend boundary:
   fields and are not derived from transition rows or event payloads.
 - No frontend Run management UI, scheduler behavior, automatic resume, or
   transition-derived actionability is added.
+
+## 2026-06-09: Phase 11.2 Run List Reconciliation Boundary
+
+Phase 11.2 should harden Run list reconciliation to match the Phase 11.1 detail
+contract.
+
+Frontend boundary:
+
+- Run list rows should be trusted only after backend reconciliation from
+  structured runtime evidence.
+- The frontend must still refresh DTOs rather than locally mutating Run list
+  status from events, transition rows, or React state.
+- No frontend Run management UI, scheduler behavior, automatic resume, or
+  transition-derived actionability is accepted by this boundary.

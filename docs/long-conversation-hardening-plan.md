@@ -4678,7 +4678,7 @@ Review conclusion:
 
 ### Phase 11.1: Persisted Run Detail Reconciliation Hardening
 
-Status: implemented.
+Status: accepted.
 
 Scope:
 
@@ -4713,6 +4713,9 @@ Validation:
 - `go test ./internal/runtime -run
   "TestRuntimeRun(Projection|Detail|Envelope|Store|Transition)|TestRuntimeRunStore|TestRuntimeRunTransition|TestRuntimeServiceMarkInterruptedDoneCancelsInterruptedTurn"
   -count=1` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `git diff --check` passed.
 
 Review conclusion:
 
@@ -4723,6 +4726,34 @@ Review conclusion:
   background Run execution, transition-derived actionability, React-owned
   lifecycle state, or prose-derived lifecycle/checkpoint/artifact inference was
   introduced.
+
+### Phase 11.2: Persisted Run List Reconciliation Hardening
+
+Status: next implementation.
+
+Scope:
+
+- Prove `Runs(ctx)` returns list rows reconciled from `RunProjection` and
+  structured runtime evidence, not stale persisted status.
+- Keep the list contract aligned with `Run(ctx, runID)` after Phase 11.1.
+- Add tests first; make only minimal runtime/store fixes if a stale list row can
+  leak.
+
+Out of scope:
+
+- New database migration.
+- Scheduler, automatic resume, or background Run execution.
+- Frontend Run management UI.
+- Transition-derived actionability or transition-derived current lifecycle.
+- React-owned lifecycle/checkpoint state.
+
+Validation required:
+
+- Focused Go tests for `Runs(ctx)` list/status reconciliation.
+- Existing Run detail/projection/checkpoint marker tests.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1`.
+- `git diff --check`.
 
 ## Validation Scenarios
 
@@ -4771,7 +4802,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept Phase 11.1 after package-level validation. Then decide the
-next separately approved boundary; do not implement scheduler, automatic
-resume, frontend Run management UI, background Run execution, transition-derived
-actionability, or React-owned lifecycle state without a new gate.
+Implement Phase 11.2: Persisted Run List Reconciliation Hardening. Keep it
+test-first and narrow; do not add migrations, scheduler, automatic resume,
+frontend Run management UI, background Run execution, transition-derived
+actionability, or React-owned lifecycle state.
