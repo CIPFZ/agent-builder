@@ -282,19 +282,33 @@ type RuntimeRunSchedulerPlan struct {
 }
 
 type RuntimeRunSchedulerPlanItem struct {
-	ID                string   `json:"id"`
-	Kind              string   `json:"kind"`
-	OrderKey          string   `json:"orderKey,omitempty"`
-	SessionID         string   `json:"sessionId,omitempty"`
-	TurnID            string   `json:"turnId,omitempty"`
-	CheckpointID      string   `json:"checkpointId,omitempty"`
-	TaskID            string   `json:"taskId,omitempty"`
-	CanSchedule       bool     `json:"canSchedule"`
-	PreflightReason   string   `json:"preflightReason,omitempty"`
-	RequiredPreflight bool     `json:"requiredPreflight"`
-	RefreshTargets    []string `json:"refreshTargets,omitempty"`
-	CancellationScope string   `json:"cancellationScope,omitempty"`
-	DiagnosticsRoute  string   `json:"diagnosticsRoute,omitempty"`
+	ID                string                       `json:"id"`
+	Kind              string                       `json:"kind"`
+	OrderKey          string                       `json:"orderKey,omitempty"`
+	SessionID         string                       `json:"sessionId,omitempty"`
+	TurnID            string                       `json:"turnId,omitempty"`
+	CheckpointID      string                       `json:"checkpointId,omitempty"`
+	TaskID            string                       `json:"taskId,omitempty"`
+	CanSchedule       bool                         `json:"canSchedule"`
+	PreflightReason   string                       `json:"preflightReason,omitempty"`
+	OwnershipVerified bool                         `json:"ownershipVerified,omitempty"`
+	RequiredPreflight bool                         `json:"requiredPreflight"`
+	RefreshTargets    []string                     `json:"refreshTargets,omitempty"`
+	CancellationScope string                       `json:"cancellationScope,omitempty"`
+	DiagnosticsRoute  string                       `json:"diagnosticsRoute,omitempty"`
+	TaskScope         RuntimeRunSchedulerTaskScope `json:"taskScope,omitempty"`
+}
+
+type RuntimeRunSchedulerTaskScope struct {
+	AllowedTools     []string `json:"allowedTools,omitempty"`
+	CapabilityScope  []string `json:"capabilityScope,omitempty"`
+	CWD              string   `json:"cwd,omitempty"`
+	Worktree         string   `json:"worktree,omitempty"`
+	Role             string   `json:"role,omitempty"`
+	Provider         string   `json:"provider,omitempty"`
+	Model            string   `json:"model,omitempty"`
+	ParentToolCallID string   `json:"parentToolCallId,omitempty"`
+	ChildSessionID   string   `json:"childSessionId,omitempty"`
 }
 
 type RuntimeRunSchedulerPlanSource struct {

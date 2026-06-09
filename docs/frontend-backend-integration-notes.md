@@ -1473,3 +1473,22 @@ Phase 17 result:
   role, provider/model, and parent tool-call link must be preserved.
 - Task completion may contribute artifact refs only through completed structured
   task/tool output.
+
+## 2026-06-10: Phase 17.1 Task Scheduler Plan/Preflight Contract
+
+Phase 17.1 adds backend-only read-only task plan/preflight coverage.
+
+Frontend boundary:
+
+- No task scheduler execution, scheduler transport, adapter method, or Run
+  management UI is added.
+- Task plan fields are backend read-only contract evidence, not frontend state.
+- Existing frontend task behavior remains DTO refresh only.
+
+Phase 17.1 result:
+
+- Task plan items verify parent Run/session/turn ownership separately from
+  executability.
+- Even with valid ownership, task items remain non-executable until a later
+  task scheduler implementation gate.
+- Task scope fields are copied into the read-only plan and are not widened.

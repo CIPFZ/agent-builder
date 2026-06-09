@@ -365,6 +365,7 @@ func runtimeRunTransitionWriterTestService(t *testing.T) (*runtimeService, func(
 	service.eventStore = newRuntimeEventStore(conn)
 	service.runs = newRuntimeRunStore(conn)
 	service.transitions = newRuntimeRunTransitionStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
 	return service, func() {
 		if err := db.Release(dataDir); err != nil {
 			t.Fatalf("release db: %v", err)

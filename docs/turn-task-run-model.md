@@ -731,6 +731,22 @@ Accepted model:
 - Task lifecycle or artifact evidence must not be inferred from transition
   history, event payloads, assistant prose, or React state.
 
+### Phase 17.1 Gate: Task Scheduler Plan/Preflight
+
+Phase 17.1 implements read-only task scheduler plan/preflight coverage.
+
+Accepted implementation:
+
+- Task plan items read `runtime_agent_tasks`.
+- Task plan items verify parent Run/session/turn ownership through the existing
+  scheduler preflight.
+- Valid ownership sets `ownership_verified=true`, but task items still remain
+  non-executable because task scheduler execution is not accepted.
+- Task plan items preserve allowed tools, capability scope, worktree/cwd, role,
+  provider/model, parent tool-call id, and child session id.
+- Planning does not mutate task state, widen scope, produce artifact evidence,
+  or change cancellation/recovery ownership.
+
 ## API 影响
 
 最小 API：

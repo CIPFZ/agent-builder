@@ -22,6 +22,7 @@ const (
 
 	runtimeRunSchedulerPlanReasonCheckpointRequiresTurn = "checkpoint_requires_explicit_resume_turn"
 	runtimeRunSchedulerPlanReasonMissingCheckpoint      = "missing_checkpoint"
+	runtimeRunSchedulerPlanReasonMissingTask            = "missing_task"
 	runtimeRunSchedulerPlanReasonTaskSchedulerNotReady  = "task_scheduler_not_accepted"
 )
 
@@ -54,7 +55,7 @@ func (r *runtimeService) runtimeRunSchedulerPlan(ctx context.Context, req Runtim
 			ReadOnly:              true,
 			StartsWorker:          false,
 			SessionActivityParity: true,
-			Evidence:              []string{"runtime_runs", "runtime_run_sessions", "runtime_turns", "runtime_run_checkpoints"},
+			Evidence:              []string{"runtime_runs", "runtime_run_sessions", "runtime_turns", "runtime_run_checkpoints", "runtime_agent_tasks"},
 		},
 	}, nil
 }
@@ -77,9 +78,7 @@ func (r *runtimeService) runtimeRunSchedulerPlanItem(ctx context.Context, run Ru
 	case runtimeRunSchedulerPlanModeCheckpointResume:
 		return r.runtimeRunSchedulerCheckpointPlanItem(ctx, run, item)
 	case runtimeRunSchedulerPlanModeTaskTurn:
-		item.ID = "task:" + item.TaskID
-		item.PreflightReason = runtimeRunSchedulerPlanReasonTaskSchedulerNotReady
-		return item
+		return r.runtimeRunSchedulerTaskPlanItem(ctx, run, item)
 	default:
 		return r.runtimeRunSchedulerTurnPlanItem(ctx, run, item)
 	}
@@ -126,6 +125,46 @@ func (r *runtimeService) runtimeRunSchedulerCheckpointPlanItem(ctx context.Conte
 	return r.runtimeRunSchedulerTurnPlanItem(ctx, run, item)
 }
 
+func (r *runtimeService) runtimeRunSchedulerTaskPlanItem(ctx context.Context, run RuntimeRun, item RuntimeRunSchedulerPlanItem) RuntimeRunSchedulerPlanItem {
+	if strings.TrimSpace(item.TaskID) == "" {
+		return RuntimeRunSchedulerPlanItem{}
+	}
+	item.ID = "task:" + item.TaskID
+	item.OrderKey = item.TaskID
+	if r.agentTasks.db == nil {
+		item.PreflightReason = "runtime agent task database is not available"
+		return item
+	}
+	task, err := r.agentTasks.Get(ctx, item.TaskID)
+	if errors.Is(err, errRuntimeAgentTaskNotFound) {
+		item.PreflightReason = runtimeRunSchedulerPlanReasonMissingTask
+		return item
+	}
+	if err != nil {
+		item.PreflightReason = err.Error()
+		return item
+	}
+	item.SessionID = task.ParentSessionID
+	item.TurnID = task.ParentTurnID
+	item.TaskScope = runtimeRunSchedulerTaskScope(task)
+	preflight, err := r.runtimeRunSchedulerPreflight(ctx, RuntimeRunSchedulerPreflightRequest{
+		RunID:     run.ID,
+		SessionID: task.ParentSessionID,
+		TurnID:    task.ParentTurnID,
+	})
+	if err != nil {
+		item.PreflightReason = err.Error()
+		return item
+	}
+	item.OwnershipVerified = preflight.CanSchedule
+	if !preflight.CanSchedule {
+		item.PreflightReason = preflight.Reason
+		return item
+	}
+	item.PreflightReason = runtimeRunSchedulerPlanReasonTaskSchedulerNotReady
+	return item
+}
+
 func runtimeRunSchedulerPlanMode(req RuntimeRunSchedulerPlanRequest) string {
 	if strings.TrimSpace(req.CheckpointID) != "" {
 		return runtimeRunSchedulerPlanModeCheckpointResume
@@ -153,4 +192,18 @@ func runtimeRunSchedulerCancellationScope(runID string) string {
 
 func runtimeRunSchedulerDiagnosticsRoute(runID string) string {
 	return "run:" + strings.TrimSpace(runID) + ":diagnostics"
+}
+
+func runtimeRunSchedulerTaskScope(task RuntimeAgentTask) RuntimeRunSchedulerTaskScope {
+	return RuntimeRunSchedulerTaskScope{
+		AllowedTools:     appendUniqueStrings(nil, task.AllowedTools...),
+		CapabilityScope:  appendUniqueStrings(nil, task.CapabilityScope...),
+		CWD:              task.CWD,
+		Worktree:         task.Worktree,
+		Role:             task.Role,
+		Provider:         task.Provider,
+		Model:            task.Model,
+		ParentToolCallID: task.ParentToolCallID,
+		ChildSessionID:   task.ChildSessionID,
+	}
 }

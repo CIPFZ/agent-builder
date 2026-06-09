@@ -6192,6 +6192,66 @@ Review conclusion:
   frontend Run management UI, transition-derived actionability, React-owned
   lifecycle state, or database migration.
 
+### Phase 17.1: Task Scheduler Plan/Preflight Contract
+
+Status: accepted.
+
+Scope:
+
+- Add read-only task scheduler planning/preflight contracts.
+- Prove task plan items cannot become executable without parent
+  Run/session/turn ownership.
+- Prove task plan items preserve existing task scope and do not widen allowed
+  tools, capability scope, worktree, cwd, provider/model, or role.
+
+Implementation notes:
+
+- Extended `RuntimeRunSchedulerPlanItem` with `OwnershipVerified` and
+  `TaskScope`.
+- Added `RuntimeRunSchedulerTaskScope`.
+- Extended internal `runtimeRunSchedulerPlan(...)` task item handling to read
+  `runtime_agent_tasks`.
+- Task plan items now:
+  - load the task by id;
+  - copy task scope fields into the read-only plan item;
+  - run Phase 13.1 preflight against the task's parent session/turn and Run;
+  - set `OwnershipVerified=true` only when parent Run/session/turn ownership
+    is valid; and
+  - remain `CanSchedule=false` with `task_scheduler_not_accepted` even when
+    ownership is valid.
+- Initialized `agentTasks` in the shared runtime transition writer test
+  fixture.
+
+Rejected behavior:
+
+- No task scheduler execution.
+- No automatic resume.
+- No unattended background scheduler queue, poller, or worker loop.
+- No frontend Run management UI.
+- No scheduler-owned permission/MCP/checkpoint/artifact actionability.
+- No database migration.
+- No transition-derived lifecycle/actionability.
+- No assistant-prose-derived lifecycle/checkpoint/artifact inference.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunSchedulerPlanTaskItem|TestRuntimeRunSchedulerPlanCheckpointItemDoesNotMutateEvidence|TestRuntimeRunSchedulerPlanBuildsReadOnlyExecutableTurnItem"
+  -count=1` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 17.1 adds task scheduler read-only plan/preflight coverage without
+  making task execution schedulable.
+- Parent Run/session/turn ownership is now represented separately from
+  executable task scheduling.
+- Task scope is preserved in the plan DTO and is not widened by planning.
+- Runtime truth remains in existing task stores, Run stores, activity/projection
+  DTOs, and structured task/tool output.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6239,10 +6299,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 17.1: Task Scheduler Plan/Preflight Contract. Add read-only
-task scheduler planning/preflight contracts or focused backend coverage proving
-task items cannot become executable without parent Run/session/turn ownership
-and task scope preservation. Do not implement task execution scheduling,
-automatic resume, unattended background execution, frontend Run management UI,
+Implement Phase 17.2: Task Scheduler Plan Acceptance Gate. Review the read-only
+task plan/preflight slice before any task execution scheduling. Decide whether
+the next safe boundary is task cancellation ownership hardening or another
+backend contract test. Do not implement task execution scheduling, automatic
+resume, unattended background execution, frontend Run management UI,
 transition-derived actionability, React-owned lifecycle state, or database
 migration.

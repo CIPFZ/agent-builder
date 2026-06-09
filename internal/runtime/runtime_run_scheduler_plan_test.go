@@ -125,6 +125,108 @@ func TestRuntimeRunSchedulerPlanCheckpointItemDoesNotMutateEvidence(t *testing.T
 	}
 }
 
+func TestRuntimeRunSchedulerPlanTaskItemRequiresParentRunTurnOwnership(t *testing.T) {
+	t.Parallel()
+
+	service, release := runtimeRunTransitionWriterTestService(t)
+	defer release()
+
+	run, err := service.runs.EnsureForSession(context.Background(), "workspace-1", "session-1", "write report", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:        "turn-parent",
+		SessionID: "session-1",
+		Status:    turnStatusQueued,
+		StartedAt: 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:              "task-unowned",
+		ParentSessionID: "session-1",
+		ParentTurnID:    "turn-parent",
+		Status:          agentTaskStatusQueued,
+		StartedAt:       1100,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := service.runtimeRunSchedulerPlan(context.Background(), RuntimeRunSchedulerPlanRequest{
+		RunID:  run.ID,
+		TaskID: "task-unowned",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Plan.Items) != 1 {
+		t.Fatalf("task plan = %#v", plan.Plan)
+	}
+	item := plan.Plan.Items[0]
+	if item.CanSchedule || item.OwnershipVerified || item.PreflightReason != runtimeRunSchedulerPreflightReasonMissingTurnLink {
+		t.Fatalf("unowned task item = %#v", item)
+	}
+}
+
+func TestRuntimeRunSchedulerPlanTaskItemPreservesScopeAndStaysNonExecutable(t *testing.T) {
+	t.Parallel()
+
+	service, release := runtimeRunTransitionWriterTestService(t)
+	defer release()
+
+	run, turn := runtimeRunSchedulerPlanLinkedTurnFixture(t, service, turnStatusQueued)
+	task, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:               "task-scoped",
+		ParentSessionID:  "session-1",
+		ParentTurnID:     turn.ID,
+		ParentToolCallID: "tool-parent",
+		ChildSessionID:   "session-child",
+		Status:           agentTaskStatusQueued,
+		Role:             "reviewer",
+		Provider:         "provider-1",
+		Model:            "model-1",
+		AllowedTools:     []string{"view", "grep"},
+		CapabilityScope:  []string{"C:/work/project"},
+		CWD:              "C:/work/project",
+		Worktree:         "worktree-1",
+		StartedAt:        1100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := service.runtimeRunSchedulerPlan(context.Background(), RuntimeRunSchedulerPlanRequest{
+		RunID:  run.ID,
+		TaskID: task.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Plan.Items) != 1 {
+		t.Fatalf("task plan = %#v", plan.Plan)
+	}
+	item := plan.Plan.Items[0]
+	if item.CanSchedule || !item.OwnershipVerified || item.PreflightReason != runtimeRunSchedulerPlanReasonTaskSchedulerNotReady {
+		t.Fatalf("owned task item = %#v", item)
+	}
+	scope := item.TaskScope
+	if scope.Role != task.Role || scope.Provider != task.Provider || scope.Model != task.Model || scope.CWD != task.CWD || scope.Worktree != task.Worktree || scope.ParentToolCallID != task.ParentToolCallID || scope.ChildSessionID != task.ChildSessionID {
+		t.Fatalf("task scope = %#v task = %#v", scope, task)
+	}
+	if len(scope.AllowedTools) != 2 || scope.AllowedTools[0] != "view" || scope.AllowedTools[1] != "grep" {
+		t.Fatalf("allowed tools widened or reordered = %#v", scope.AllowedTools)
+	}
+	if len(scope.CapabilityScope) != 1 || scope.CapabilityScope[0] != "C:/work/project" {
+		t.Fatalf("capability scope = %#v", scope.CapabilityScope)
+	}
+	refreshed, err := service.agentTasks.Get(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.Status != agentTaskStatusQueued || len(refreshed.ArtifactRefs) != 0 {
+		t.Fatalf("task mutated = %#v", refreshed)
+	}
+}
+
 func runtimeRunSchedulerPlanLinkedTurnFixture(t *testing.T, service *runtimeService, status string) (RuntimeRun, RuntimeTurn) {
 	t.Helper()
 	run, err := service.runs.EnsureForSession(context.Background(), "workspace-1", "session-1", "write report", runtimeRunSourceUserPrompt)
