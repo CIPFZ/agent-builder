@@ -172,6 +172,26 @@ WHERE id = ?`, runtimeRunStatusActive, startedAt, runID); err != nil {
 	return s.Get(ctx, runID)
 }
 
+func runtimeRunSessionLinkedToTurn(ctx context.Context, store runtimeRunStore, runID, sessionID, turnID string) bool {
+	if store.db == nil {
+		return false
+	}
+	runID = strings.TrimSpace(runID)
+	sessionID = strings.TrimSpace(sessionID)
+	turnID = strings.TrimSpace(turnID)
+	if runID == "" || sessionID == "" || turnID == "" {
+		return false
+	}
+	var linkedTurnID string
+	if err := store.db.QueryRowContext(ctx, `
+SELECT COALESCE(turn_id, '')
+FROM runtime_run_sessions
+WHERE run_id = ? AND session_id = ?`, runID, sessionID).Scan(&linkedTurnID); err != nil {
+		return false
+	}
+	return linkedTurnID == turnID
+}
+
 func (s runtimeRunStore) Upsert(ctx context.Context, run RuntimeRun) (RuntimeRun, error) {
 	if s.db == nil {
 		return RuntimeRun{}, errors.New("runtime run database is not available")

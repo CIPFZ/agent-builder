@@ -5011,6 +5011,53 @@ Review conclusion:
   management UI, transition-derived actionability, React-owned lifecycle state,
   or new migration is accepted by Phase 12.
 
+### Phase 12.1: Run Ownership Preflight Contract Coverage
+
+Status: implemented.
+
+Scope:
+
+- Add contract coverage proving `turn_started` transition audit rows are useful
+  only after the persisted turn is linked to the durable Run/session row.
+- Prove interrupted acknowledgement keeps existing Run-turn ownership links
+  stable.
+- Prove checkpoint resume transition evidence does not mutate checkpoint
+  markers and explicit resumed-turn links remain structured checkpoint metadata.
+
+Implementation notes:
+
+- Added `runtimeRunSessionLinkedToTurn(...)` as a small internal store helper.
+- `recordRunTurnTransition(...)` now skips `turn_started` transitions unless
+  `runtime_run_sessions.turn_id` is already linked to the turn.
+- Added
+  `TestRuntimeRunTransitionWriterRequiresRunTurnLinkBeforeStartedTransition`.
+  It proves a `turn_started` transition is not recorded before `LinkTurn`, then
+  records normally after the link exists.
+- Extended interrupted acknowledgement transition coverage to assert the Run
+  turn link survives `MarkInterruptedDone`.
+- Extended checkpoint resume transition coverage to assert explicit resumed
+  turn ids stay in checkpoint metadata without acknowledging/discarding the
+  checkpoint.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunTransitionWriter(RequiresRunTurnLinkBeforeStartedTransition|RecordsTurnLifecycleIdempotently|MarkInterruptedDonePreservesCancelledSemantics|RecordsStartupRecoveryForTurnAndTask|RecordsCheckpointResumeFromNewTurn)"
+  -count=1` passed.
+- `go test ./internal/runtime -run "TestRuntimeRunTransitionWriter" -count=1`
+  passed.
+
+Review conclusion:
+
+- Run ownership preflight is now explicit at the transition writer boundary:
+  `turn_started` audit evidence requires a persisted Run/session/turn link.
+- Terminal acknowledgement and checkpoint resume contracts preserve ownership
+  links and checkpoint evidence.
+- No migration, scheduler implementation, automatic resume, background Run
+  execution, frontend Run management UI, transition-derived actionability,
+  React-owned lifecycle state, or prose-derived lifecycle/checkpoint/artifact
+  inference was introduced.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -5058,7 +5105,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 12.1: Run Ownership Preflight Contract Coverage. Keep it
-test-first and narrow; do not add migrations, scheduler implementation,
-automatic resume, frontend Run management UI, background Run execution,
-transition-derived actionability, or React-owned lifecycle state.
+Review and accept Phase 12.1 after package-level validation. Then decide the
+next separately approved boundary; do not add migrations, scheduler
+implementation, automatic resume, frontend Run management UI, background Run
+execution, transition-derived actionability, or React-owned lifecycle state
+without a new gate.

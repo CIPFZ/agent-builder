@@ -76,6 +76,49 @@ func TestRuntimeRunTransitionWriterRecordsTurnLifecycleIdempotently(t *testing.T
 	}
 }
 
+func TestRuntimeRunTransitionWriterRequiresRunTurnLinkBeforeStartedTransition(t *testing.T) {
+	t.Parallel()
+
+	service, release := runtimeRunTransitionWriterTestService(t)
+	defer release()
+
+	run, err := service.runs.EnsureForSession(context.Background(), "workspace-1", "session-1", "write report", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:        "turn-preflight",
+		SessionID: "session-1",
+		Status:    turnStatusQueued,
+		StartedAt: 1000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.recordRunTurnTransition(context.Background(), runtimeRunTransitionSourceTurnStarted, started, "", runtimeRunStatusActive, "turn started before link")
+	transitions, err := service.transitions.ListByRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(transitions) != 0 {
+		t.Fatalf("turn_started transition recorded before run turn link: %#v", transitions)
+	}
+	if _, err := service.runs.LinkTurn(context.Background(), run.ID, "session-1", started.ID, started.StartedAt); err != nil {
+		t.Fatal(err)
+	}
+	service.recordRunTurnTransition(context.Background(), runtimeRunTransitionSourceTurnStarted, started, "", runtimeRunStatusActive, "turn started after link")
+	transitions, err = service.transitions.ListByRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(transitions) != 1 || transitions[0].TurnID != started.ID || transitions[0].Source != runtimeRunTransitionSourceTurnStarted {
+		t.Fatalf("linked turn_started transition missing: %#v", transitions)
+	}
+	if !runtimeRunSessionLinkedToTurn(context.Background(), service.runs, run.ID, "session-1", started.ID) {
+		t.Fatalf("run session link missing for started transition: run=%s turn=%s", run.ID, started.ID)
+	}
+}
+
 func TestRuntimeRunTransitionWriterMarkInterruptedDonePreservesCancelledSemantics(t *testing.T) {
 	t.Parallel()
 
@@ -102,6 +145,9 @@ func TestRuntimeRunTransitionWriterMarkInterruptedDonePreservesCancelledSemantic
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := service.runs.LinkTurn(context.Background(), run.ID, sess.ID, "turn-interrupted", 1000); err != nil {
+		t.Fatal(err)
+	}
 
 	resp, err := service.MarkInterruptedDone(context.Background(), "turn-interrupted")
 	if err != nil {
@@ -119,6 +165,9 @@ func TestRuntimeRunTransitionWriterMarkInterruptedDonePreservesCancelledSemantic
 	}
 	if transitions[0].Source != runtimeRunTransitionSourceInterruptedMarkedDone || transitions[0].ToStatus != runtimeRunStatusCancelled {
 		t.Fatalf("transition = %#v", transitions[0])
+	}
+	if !runtimeRunSessionLinkedToTurn(context.Background(), service.runs, run.ID, sess.ID, "turn-interrupted") {
+		t.Fatalf("interrupted acknowledgement broke run turn link: run=%s turn=%s", run.ID, "turn-interrupted")
 	}
 }
 
@@ -218,12 +267,18 @@ func TestRuntimeRunTransitionWriterRecordsCheckpointResumeFromNewTurn(t *testing
 	if transitions[0].TurnID != resumed.ID || transitions[0].CreatedAt != 3000 {
 		t.Fatalf("resume transition evidence = %#v", transitions[0])
 	}
+	if _, err := service.runs.LinkCheckpointResume(context.Background(), run.ID, run.Checkpoints[0].ID, resumed.ID); err != nil {
+		t.Fatal(err)
+	}
 	refreshed, err := service.runs.Get(context.Background(), run.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(refreshed.Checkpoints) != 1 || refreshed.Checkpoints[0].ID != run.Checkpoints[0].ID || refreshed.Checkpoints[0].AcknowledgedAt != 0 || refreshed.Checkpoints[0].DiscardedAt != 0 {
 		t.Fatalf("checkpoint mutated = %#v", refreshed.Checkpoints)
+	}
+	if len(refreshed.Checkpoints[0].ResumedTurnIDs) != 1 || refreshed.Checkpoints[0].ResumedTurnIDs[0] != resumed.ID {
+		t.Fatalf("checkpoint resumed turn link missing = %#v", refreshed.Checkpoints[0])
 	}
 }
 

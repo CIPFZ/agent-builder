@@ -1129,3 +1129,16 @@ Frontend boundary:
   resume, or transition-derived actionability is accepted.
 - Phase 12.1 should add backend ownership/link stability coverage, not frontend
   adapter or React changes.
+
+## 2026-06-09: Phase 12.1 Run Ownership Preflight Coverage
+
+Phase 12.1 adds backend-only Run ownership/link stability coverage.
+
+Frontend boundary:
+
+- `turn_started` transition audit evidence now requires the backend
+  Run/session/turn link to exist first.
+- Frontend event payloads still cannot infer lifecycle or actionability from
+  transition rows.
+- No frontend adapter, React state, Run management UI, scheduler behavior, or
+  automatic resume change is introduced.

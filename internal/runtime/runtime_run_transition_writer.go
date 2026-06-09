@@ -46,6 +46,9 @@ func (r *runtimeService) recordRunTurnTransition(ctx context.Context, source str
 		slog.Warn("Failed to load runtime run for transition", "session_id", turn.SessionID, "turn_id", turn.ID, "source", source, "error", err)
 		return
 	}
+	if source == runtimeRunTransitionSourceTurnStarted && !runtimeRunSessionLinkedToTurn(ctx, r.runs, run.ID, turn.SessionID, turn.ID) {
+		return
+	}
 	createdAt := transitionCreatedAtForSource(source, turn)
 	if createdAt == 0 {
 		return
