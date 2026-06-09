@@ -96,11 +96,17 @@ func (s runtimeRunStore) UpsertFromProjection(ctx context.Context, projection Ru
 		SessionIDs:       appendUniqueStrings(nil, projection.SessionIDs...),
 		Objective:        projection.Objective,
 		Status:           projection.Status,
-		Source:           firstNonEmpty(strings.TrimSpace(source), runtimeRunSourceBackfill),
+		Source:           firstNonEmpty(existing.Source, strings.TrimSpace(source), runtimeRunSourceBackfill),
 		Checkpoints:      projection.Checkpoints,
 		CreatedAt:        projection.CreatedAt,
 		UpdatedAt:        projection.UpdatedAt,
 		FinishedAt:       projection.FinishedAt,
+	}
+	if run.Objective == "" {
+		run.Objective = existing.Objective
+	}
+	if run.CreatedAt == 0 {
+		run.CreatedAt = existing.CreatedAt
 	}
 	if run.ID == "" {
 		run.ID = runtimeRunProjectionID(sessionID)
@@ -116,6 +122,54 @@ func (s runtimeRunStore) UpsertFromProjection(ctx context.Context, projection Ru
 		}
 	}
 	return s.Upsert(ctx, run)
+}
+
+func (s runtimeRunStore) LinkTurn(ctx context.Context, runID, sessionID, turnID string, startedAt int64) (RuntimeRun, error) {
+	if s.db == nil {
+		return RuntimeRun{}, errors.New("runtime run database is not available")
+	}
+	runID = strings.TrimSpace(runID)
+	sessionID = strings.TrimSpace(sessionID)
+	turnID = strings.TrimSpace(turnID)
+	if runID == "" {
+		return RuntimeRun{}, errors.New("run id is required")
+	}
+	if sessionID == "" {
+		return RuntimeRun{}, errors.New("run session id is required")
+	}
+	if turnID == "" {
+		return RuntimeRun{}, errors.New("run turn id is required")
+	}
+	now := time.Now().UnixMilli()
+	if startedAt <= 0 {
+		startedAt = now
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE runtime_run_sessions
+SET turn_id = ?
+WHERE run_id = ? AND session_id = ?`, turnID, runID, sessionID)
+	if err != nil {
+		return RuntimeRun{}, fmt.Errorf("failed to link runtime run turn: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return RuntimeRun{}, fmt.Errorf("failed to inspect runtime run turn link: %w", err)
+	}
+	if affected == 0 {
+		if _, err := s.Get(ctx, runID); errors.Is(err, errRuntimeRunNotFound) {
+			return RuntimeRun{}, err
+		} else if err != nil {
+			return RuntimeRun{}, err
+		}
+		return RuntimeRun{}, errors.New("runtime run session link not found")
+	}
+	if _, err := s.db.ExecContext(ctx, `
+UPDATE runtime_runs
+SET status = ?, updated_at = ?, finished_at = NULL
+WHERE id = ?`, runtimeRunStatusActive, startedAt, runID); err != nil {
+		return RuntimeRun{}, fmt.Errorf("failed to mark runtime run active: %w", err)
+	}
+	return s.Get(ctx, runID)
 }
 
 func (s runtimeRunStore) Upsert(ctx context.Context, run RuntimeRun) (RuntimeRun, error) {

@@ -134,6 +134,59 @@ func TestRuntimeRunStoreDoesNotCompleteActiveRunFromEmptyProjection(t *testing.T
 	}
 }
 
+func TestRuntimeRunStoreLinksTurnAndPreservesUserPromptSourceOnReconcile(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Release(dataDir); err != nil {
+			t.Fatalf("release db: %v", err)
+		}
+	})
+	store := newRuntimeRunStore(conn)
+	run, err := store.EnsureForSession(context.Background(), "workspace-1", "session-1", "write report", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked, err := store.LinkTurn(context.Background(), run.ID, "session-1", "turn-1", run.CreatedAt+10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linked.Status != runtimeRunStatusActive || linked.FinishedAt != 0 || linked.Source != runtimeRunSourceUserPrompt {
+		t.Fatalf("linked run = %#v", linked)
+	}
+	var linkedTurnID string
+	if err := conn.QueryRowContext(context.Background(), `SELECT turn_id FROM runtime_run_sessions WHERE run_id = ? AND session_id = ?`, run.ID, "session-1").Scan(&linkedTurnID); err != nil {
+		t.Fatal(err)
+	}
+	if linkedTurnID != "turn-1" {
+		t.Fatalf("linked turn id = %q", linkedTurnID)
+	}
+	reconciled, err := store.UpsertFromProjection(context.Background(), RuntimeRunProjection{
+		ID:               runtimeRunProjectionID("session-1"),
+		WorkspaceID:      "workspace-1",
+		PrimarySessionID: "session-1",
+		SessionIDs:       []string{"session-1"},
+		Objective:        "write report",
+		Status:           runtimeRunStatusCompleted,
+		TurnIDs:          []string{"turn-1"},
+		Diagnostics:      RuntimeRunDiagnostics{TurnCount: 1},
+		CreatedAt:        run.CreatedAt,
+		UpdatedAt:        run.CreatedAt + 100,
+		FinishedAt:       run.CreatedAt + 100,
+	}, runtimeRunSourceBackfill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconciled.ID != run.ID || reconciled.Source != runtimeRunSourceUserPrompt || reconciled.Status != runtimeRunStatusCompleted || reconciled.FinishedAt == 0 {
+		t.Fatalf("reconciled run = %#v original = %#v", reconciled, run)
+	}
+}
+
 func TestRuntimeRunStoreMarksCheckpointAcknowledgedAndDiscardedIdempotently(t *testing.T) {
 	t.Parallel()
 

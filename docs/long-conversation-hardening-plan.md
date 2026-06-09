@@ -3523,6 +3523,76 @@ Recommended next implementation phase:
 - It must include restart/replay tests proving no stale permission/MCP/tool
   actionability is resurrected.
 
+### Phase 9.1: Minimal Durable Run Execution Envelope
+
+Status: implemented.
+
+Scope:
+
+- Reuse the existing Phase 8 `runtime_runs` and `runtime_run_sessions` schema.
+- Link the current turn into the runtime-owned Run envelope after the queued
+  turn is persisted.
+- Reconcile Run status and terminal summary from `RunProjection` after turn
+  finish, cancel, or interrupted acknowledgement.
+- Preserve `SessionActivity` as fallback/parity oracle and keep projection
+  evidence as the source of diagnostics, artifacts, permissions, MCP state, and
+  checkpoints.
+
+Implementation notes:
+
+- Added `runtimeRunStore.LinkTurn`, which writes the latest turn id into
+  `runtime_run_sessions.turn_id` and marks the Run active without introducing a
+  scheduler or new lifecycle table.
+- `Chat` now ensures a runtime Run for the session, persists the queued turn,
+  then links the Run envelope to that turn.
+- `runChat`, `CancelTurn`, and `MarkInterruptedDone` now call a narrow
+  `reconcileRuntimeRunForSession` helper. The helper reads `RunProjection` and
+  lets the existing projection/store parity path update durable Run summary.
+- `UpsertFromProjection` now preserves an existing user-created Run source and
+  objective instead of overwriting them with backfill metadata during
+  reconciliation.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunStore|TestRuntimeRunProjection|TestRuntimeRunResume|TestRuntimeTurn"
+  -count=1` passed.
+- `go test ./internal/runtime ./internal/runtimeapi ./desktop -count=1`
+  passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 9.1 adds the minimum write-capable Run envelope around existing
+  session-first turn execution.
+- No new database migration was added.
+- No automatic resume, background scheduler, full Run state machine, expanded
+  runtime Run store, batch action, frontend Run management UI, event-payload
+  hydration, or assistant-prose inference was introduced.
+- The remaining cutover risk is restart/replay validation for the new envelope
+  link when a process exits between queued/running/final reconciliation.
+
+### Phase 9.2: Run Envelope Restart Replay Validation
+
+Status: next validation phase.
+
+Scope:
+
+- Add focused restart/replay tests for the Phase 9.1 Run envelope linkage.
+- Verify a Run linked to an unfinished queued/running/waiting turn is reconciled
+  through existing interruption semantics after restart.
+- Verify stale running tools, permission gates, MCP auth requests, and
+  elicitation requests are not restored as actionable through the Run envelope.
+- Verify `SessionActivity` remains fallback/parity oracle after replay.
+
+Out of scope:
+
+- Automatic resume.
+- Background scheduler.
+- Full Run state machine.
+- New Run database migrations.
+- Frontend Run management UI.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -3570,7 +3640,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 9.1: Minimal Durable Run Execution Envelope. Keep it limited to
-creating/linking/reconciling a runtime-owned Run envelope around existing
-session-first turn execution. Do not implement automatic resume, background Run
-scheduling, full Run state machine, or expanded frontend Run management UI.
+Implement Phase 9.2: Run Envelope Restart Replay Validation. Keep it limited to
+tests and any narrowly required replay/reconcile hardening for the Phase 9.1
+Run envelope. Do not implement automatic resume, background Run scheduling,
+full Run state machine, database migrations, or expanded frontend Run
+management UI.

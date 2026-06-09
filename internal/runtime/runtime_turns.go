@@ -62,9 +62,13 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 	if err := r.ensureSessionTitle(ctx, wsID, sessionID, prompt); err != nil {
 		slog.Warn("Failed to update desktop session title", "workspace_id", wsID, "session_id", sessionID, "error", err)
 	}
+	var run RuntimeRun
 	if r.runs.db != nil {
-		if _, err := r.runs.EnsureForSession(ctx, wsID, sessionID, preview(prompt, auditPreviewLimit), runtimeRunSourceUserPrompt); err != nil {
+		ensuredRun, err := r.runs.EnsureForSession(ctx, wsID, sessionID, preview(prompt, auditPreviewLimit), runtimeRunSourceUserPrompt)
+		if err != nil {
 			slog.Warn("Failed to ensure runtime run", "workspace_id", wsID, "session_id", sessionID, "error", err)
+		} else {
+			run = ensuredRun
 		}
 	}
 
@@ -102,6 +106,11 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		StartedAt:     start.UnixMilli(),
 	}); err != nil {
 		return RuntimeChatResponse{}, err
+	}
+	if run.ID != "" {
+		if _, err := r.runs.LinkTurn(ctx, run.ID, sessionID, requestID, start.UnixMilli()); err != nil {
+			slog.Warn("Failed to link runtime run turn", "run_id", run.ID, "session_id", sessionID, "turn_id", requestID, "error", err)
+		}
 	}
 
 	skills, mcpServers, mcpTools := r.runtimeAuditInventory(ctx)
@@ -328,6 +337,7 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 	if _, err := r.turns.Upsert(ctx, turn); err != nil {
 		return RuntimeStatus{}, err
 	}
+	r.reconcileRuntimeRunForSession(ctx, turn.SessionID)
 	if r.toolCalls != nil {
 		calls, _ := r.toolCalls.ListCalls(ctx, turnID)
 		for _, call := range calls {
@@ -404,6 +414,7 @@ func (r *runtimeService) MarkInterruptedDone(ctx context.Context, turnID string)
 	if err != nil {
 		return RuntimeTurnResponse{}, err
 	}
+	r.reconcileRuntimeRunForSession(ctx, stored.SessionID)
 	r.storeRuntimeEvent(runtimeapi.Event{
 		ID:        newRuntimeEventID(),
 		Type:      runtimeapi.EventTurnCancelled,
@@ -531,6 +542,7 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 		FinishedAt:               time.Now().UnixMilli(),
 		Error:                    entry.Error,
 	})
+	r.reconcileRuntimeRunForSession(context.Background(), sessionID)
 	r.storeRuntimeEvent(newUsageRuntimeEvent(time.Now(), requestID, sessionID, usageAfter, usageDelta))
 	r.storeRuntimeEvent(newTurnFinishedRuntimeEvent(time.Now(), requestID, sessionID, entry.Event, duration, provider, model, usageDelta, entry.Error))
 }

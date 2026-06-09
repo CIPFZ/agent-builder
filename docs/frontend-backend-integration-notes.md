@@ -796,3 +796,16 @@ Frontend boundary:
 - A future Phase 9.1 implementation may expose new runtime DTO fields, but the
   UI must continue to reconcile them against `SessionActivity` fallback/parity
   until a replacement gate is explicitly accepted.
+
+## 2026-06-09: Phase 9.1 Minimal Durable Run Execution Envelope
+
+Phase 9.1 adds runtime-owned Run linkage around existing session-first turn
+execution.
+
+Frontend boundary:
+
+- No new frontend Run UI is added.
+- Existing Run projection reads remain the frontend surface.
+- Runtime events remain refresh triggers only.
+- The client must not infer Run lifecycle, checkpoint, permission, MCP,
+  diagnostics, or artifact state from the new envelope linkage.

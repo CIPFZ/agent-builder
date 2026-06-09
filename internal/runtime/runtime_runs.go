@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -185,6 +186,15 @@ func (r *runtimeService) backfillRuntimeRunSession(ctx context.Context, sessionI
 		return RuntimeRun{}, err
 	}
 	return r.runs.UpsertFromProjection(ctx, projection.Run, runtimeRunSourceBackfill)
+}
+
+func (r *runtimeService) reconcileRuntimeRunForSession(ctx context.Context, sessionID string) {
+	if r.runs.db == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	if _, err := r.RunProjection(ctx, RuntimeRunProjectionRequest{SessionID: sessionID}); err != nil {
+		slog.Warn("Failed to reconcile runtime run", "session_id", sessionID, "error", err)
+	}
 }
 
 func runtimeRunCheckpointByID(checkpoints []RuntimeRunCheckpoint, checkpointID string) (RuntimeRunCheckpoint, bool) {
