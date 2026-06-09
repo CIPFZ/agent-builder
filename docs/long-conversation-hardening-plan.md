@@ -5789,6 +5789,98 @@ Review conclusion:
   transition-derived actionability, React-owned lifecycle state, or database
   migration.
 
+### Phase 15: Minimal User-triggered Run Scheduler Worker Design Gate
+
+Status: accepted as a design gate only.
+
+Scope:
+
+- Design the first executable scheduler step without implementing it.
+- Constrain the first worker to the existing user-triggered `Chat` path.
+- Keep execution foreground from the user's action perspective: the worker may
+  delegate to the current asynchronous `runChat` goroutine, but it must not add
+  an unattended background queue, poller, or automatic resume loop.
+- Require the internal scheduler plan and Phase 13.1 preflight before
+  delegating to execution.
+
+Accepted worker shape:
+
+```text
+Chat(...)
+  -> ensure/select session
+  -> ensure durable Run
+  -> persist queued RuntimeTurn
+  -> link Run/session/turn
+  -> build RuntimeRunSchedulerPlan for the turn
+  -> require plan item can_schedule=true
+  -> record turn_started transition audit
+  -> write existing audit/event/budget/context evidence
+  -> delegate to existing runChat(...)
+```
+
+Accepted ownership:
+
+- The worker may own applying a single `user_turn` plan item to the existing
+  execution path.
+- The worker may fail fast before delegation when plan/preflight rejects the
+  turn.
+- The worker may emit refresh-trigger events that identify DTO families to
+  refresh.
+- The worker may record diagnostic/audit evidence only after durable runtime
+  evidence exists.
+
+State that remains outside worker ownership:
+
+- Permission request actionability.
+- MCP auth and elicitation actionability.
+- Checkpoint resume actionability and acknowledgement/discard state.
+- Artifact evidence and produced refs.
+- Timeline, diagnostics, interrupted summaries, terminal permission semantics,
+  and terminal MCP semantics.
+- Transition history as lifecycle or actionability truth.
+- React state as scheduler or Run truth.
+
+Rejected first-worker behavior:
+
+- No automatic resume.
+- No unattended background scheduler queue, poller, or worker loop.
+- No scheduler-owned permission/MCP/checkpoint/artifact actionability.
+- No task scheduling execution.
+- No frontend Run management UI.
+- No database migration.
+- No assistant-prose-derived lifecycle/checkpoint/artifact inference.
+
+Implementation entry criteria for Phase 15.1:
+
+- Add an internal foreground scheduler delegate around the existing `Chat`
+  turn-start path only.
+- Preserve the public `Chat(ctx, RuntimeChatRequest)` contract.
+- Keep `runChat(...)` as the execution delegate.
+- If plan/preflight rejects, terminalize the queued turn before any
+  `turn_started` transition or `runChat` delegation.
+- Prove success path still links Run/session/turn before `turn_started`
+  transition audit.
+- Prove failed preflight does not call `runChat`, does not create stale
+  actionability, and leaves Run detail/projection consistent.
+- Prove checkpoint resume remains explicit and is not auto-triggered by the
+  worker.
+
+Validation:
+
+- Design review only.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 15 accepts a minimal worker design that can begin replacing direct Chat
+  delegation in a controlled way.
+- The first implementation should be Phase 15.1: foreground user-turn scheduler
+  delegate.
+- Phase 15.1 may add internal execution wiring, but it must not add automatic
+  resume, unattended background execution, frontend Run management UI,
+  transition-derived actionability, React-owned lifecycle state, task execution
+  scheduling, or database migration.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -5836,9 +5928,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 15: Minimal User-triggered Run Scheduler Worker Design Gate.
-Design how a future worker would apply the internal plan and preflight to the
-existing session-first `Chat` path. Keep it foreground and user-triggered in the
-design. Do not implement a worker, automatic resume, unattended background
-execution, frontend Run management UI, transition-derived actionability,
-React-owned lifecycle state, or database migration.
+Implement Phase 15.1: Foreground User-turn Scheduler Delegate. Add internal
+execution wiring around the existing `Chat` turn-start path so successful plan
+preflight delegates to `runChat(...)`, while failed preflight terminalizes the
+queued turn without starting execution. Do not add automatic resume, unattended
+background execution, frontend Run management UI, transition-derived
+actionability, React-owned lifecycle state, task execution scheduling, or
+database migration.

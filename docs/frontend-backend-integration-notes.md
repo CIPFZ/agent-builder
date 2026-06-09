@@ -1352,3 +1352,26 @@ Phase 14.2 result:
   not frontend transport or UI.
 - The first worker design must preserve DTO refresh source-of-truth and must not
   use event payloads to hydrate lifecycle or actionability.
+
+## 2026-06-09: Phase 15 Minimal User-triggered Scheduler Worker Design Gate
+
+Phase 15 designs the first scheduler worker boundary without implementing it.
+
+Frontend boundary:
+
+- The first worker is backend-internal and still entered through the existing
+  user-triggered `Chat` action.
+- No frontend Run management UI, scheduler controls, generated bindings, or
+  adapter methods are added.
+- Events from the future worker may only trigger DTO refreshes. They must not
+  hydrate lifecycle, timeline, diagnostics, artifacts, interrupted recovery,
+  checkpoint, permission, MCP auth, or MCP elicitation state.
+
+Phase 15 result:
+
+- The accepted first worker shape is a foreground backend delegate around the
+  current `Chat` turn-start path.
+- It must use the internal plan DTO and Phase 13.1 preflight before delegating
+  to `runChat`.
+- Failed preflight must terminalize the queued turn and must not start
+  execution or resurrect stale actionability.

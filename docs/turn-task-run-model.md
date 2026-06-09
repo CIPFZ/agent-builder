@@ -629,6 +629,31 @@ Next worker design boundary:
   lifecycle truth.
 - It must not move Run or scheduler state into React.
 
+### Phase 15 Gate: Foreground User-turn Scheduler Worker Design
+
+Phase 15 accepts the first worker only as a design. The worker is a foreground
+backend delegate for user-triggered `Chat`, not a background queue.
+
+Designed flow:
+
+- `Chat` ensures/selects a session.
+- Runtime ensures a durable Run.
+- Runtime persists the queued turn.
+- Runtime links Run/session/turn.
+- Runtime builds an internal scheduler plan for that turn.
+- Runtime requires Phase 13.1 preflight to pass.
+- Runtime records `turn_started` transition audit.
+- Runtime delegates to existing `runChat`.
+
+Rejected behavior:
+
+- Automatic resume.
+- Unattended background execution.
+- Scheduler-owned permission/MCP/checkpoint/artifact actionability.
+- Task scheduling execution.
+- Frontend Run management UI.
+- Transition/event/React-derived lifecycle truth.
+
 ## API 影响
 
 最小 API：
