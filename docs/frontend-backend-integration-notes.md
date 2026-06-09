@@ -1509,3 +1509,21 @@ Phase 17.2 result:
 - The next boundary is task cancellation ownership design.
 - Future scheduler task items must not own cancellation actionability until that
   boundary is accepted.
+
+## 2026-06-10: Phase 18 Task Cancellation Ownership Design Gate
+
+Phase 18 defines backend task cancellation ownership only.
+
+Frontend boundary:
+
+- Existing task cancellation remains a runtime action followed by DTO refresh.
+- No scheduler-owned task cancellation UI, transport, or Run management UI is
+  added.
+- Task cancellation events remain refresh triggers only.
+
+Phase 18 result:
+
+- `CancelAgentTask(...)` remains the cancellation entry point.
+- Task row, task result, and task message evidence remain cancellation truth.
+- Future scheduler task items may describe cancellation scope, but they must not
+  become cancellation actionability or execution authority.

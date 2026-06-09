@@ -6312,6 +6312,85 @@ Review conclusion:
   frontend Run management UI, transition-derived actionability, React-owned
   lifecycle state, or database migration.
 
+### Phase 18: Task Cancellation Ownership Design Gate
+
+Status: accepted as a design gate only.
+
+Scope:
+
+- Define how `CancelAgentTask(...)`, task result/message evidence, Run task
+  transition audit, and future scheduler task items interact.
+- Preserve current task cancellation behavior until a later accepted
+  implementation phase.
+- Keep scheduler-owned task cancellation execution out of this gate.
+
+Accepted cancellation ownership:
+
+- `CancelAgentTask(...)` remains the current cancellation entry point.
+- Cancellation truth is the terminal task row plus task result/message evidence.
+- When a child session exists, runtime may request child-session cancellation
+  through the backend, but the durable task row/result/message evidence remains
+  the source of truth.
+- Run task transition audit may record cancellation ordering after task
+  evidence is terminal, but transition rows cannot decide task lifecycle or
+  actionability.
+- Future scheduler task items may describe cancellation scope and ownership
+  checks, but they must not become cancellation actionability or execution
+  authority until a later gate.
+
+Required future cancellation rules:
+
+- A task cancellation request must load the current task from
+  `runtime_agent_tasks`.
+- If the task is already final, cancellation must not rewrite final status,
+  artifact refs, result evidence, or scheduler plan state.
+- If the task is active, cancellation must terminalize task row, task result,
+  and parent-to-child control message evidence before any transition audit is
+  considered useful.
+- Cancellation must preserve parent Run/session/turn/task ownership links.
+- Cancellation must not restore stale permission requests, MCP auth requests,
+  MCP elicitation requests, or tool calls as actionable.
+- Cancellation must not create produced artifact refs unless completed
+  structured task/tool output already exists.
+
+Out of scope:
+
+- Implementing scheduler-owned task cancellation.
+- Implementing task scheduler execution.
+- Automatic resume.
+- Unattended background scheduler queue, poller, or worker loop.
+- Frontend Run management UI.
+- Scheduler-owned permission/MCP/checkpoint/artifact actionability.
+- Database migration.
+- Transition-derived lifecycle/actionability.
+- Assistant-prose-derived lifecycle/checkpoint/artifact inference.
+
+Implementation entry criteria for Phase 18.1:
+
+- Add focused backend coverage for active task cancellation ownership.
+- Prove `CancelAgentTask(...)` terminalizes task/result/message evidence and
+  preserves parent Run/session/turn/task links.
+- Prove cancelling an already-final task does not rewrite final evidence.
+- Prove cancellation does not make scheduler task plan items executable and
+  does not mutate task scope.
+
+Validation:
+
+- Design review only.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 18 accepts task cancellation ownership boundaries, not scheduler-owned
+  task cancellation.
+- The next safe task is Phase 18.1: Task Cancellation Ownership Contract
+  Coverage.
+- Phase 18.1 should add focused tests only unless a narrow internal helper is
+  required. It must not implement task scheduler execution, automatic resume,
+  unattended background execution, frontend Run management UI,
+  transition-derived actionability, React-owned lifecycle state, or database
+  migration.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6359,10 +6438,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 18: Task Cancellation Ownership Design Gate. Define how
-`CancelAgentTask(...)`, task result/message evidence, Run task transition audit,
-and future scheduler task items interact before any scheduler-owned task
-execution or cancellation implementation. Do not implement task scheduler
-execution, automatic resume, unattended background execution, frontend Run
-management UI, transition-derived actionability, React-owned lifecycle state, or
-database migration.
+Implement Phase 18.1: Task Cancellation Ownership Contract Coverage. Add
+focused backend tests proving `CancelAgentTask(...)` terminalizes task/result/
+message evidence, preserves ownership links, does not rewrite already-final
+task evidence, and does not make scheduler task plan items executable. Do not
+implement task scheduler execution, automatic resume, unattended background
+execution, frontend Run management UI, transition-derived actionability,
+React-owned lifecycle state, or database migration.

@@ -760,6 +760,22 @@ Accepted review:
 - Future scheduler task items must not own cancellation actionability until a
   separate cancellation ownership gate is accepted.
 
+### Phase 18 Gate: Task Cancellation Ownership
+
+Phase 18 defines task cancellation ownership without implementing scheduler-owned
+task cancellation.
+
+Accepted model:
+
+- `CancelAgentTask` remains the cancellation entry point.
+- Task row, task result, and task message evidence are cancellation truth.
+- Run task transition audit can record ordering only after terminal task
+  evidence exists.
+- Cancelling an already-final task must not rewrite final status, refs, or
+  result evidence.
+- Future scheduler task items may describe cancellation scope, but they must not
+  decide cancellation actionability or execute cancellation.
+
 ## API 影响
 
 最小 API：
