@@ -1162,3 +1162,16 @@ Phase 12.2 result:
   links, terminalizes turn/tool evidence, records audit transition after
   terminal evidence, and reconciles Run detail/projection to `cancelled`.
 - No frontend behavior changes were added.
+
+## 2026-06-09: Phase 12.3 Run Startup Recovery Ownership Boundary
+
+Phase 12.3 should add backend-only startup recovery ownership coverage.
+
+Frontend boundary:
+
+- Startup recovery must refresh backend DTOs after stale evidence is
+  terminalized.
+- Frontend must not restore stale tool, permission, MCP auth, or MCP
+  elicitation actionability from events, transition rows, or React state.
+- No frontend Run management UI, scheduler behavior, automatic resume, or
+  transition-derived actionability is accepted.

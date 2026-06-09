@@ -5066,7 +5066,7 @@ Review conclusion:
 
 ### Phase 12.2: Run Cancellation Ownership Contract Coverage
 
-Status: implemented.
+Status: accepted.
 
 Scope:
 
@@ -5113,6 +5113,12 @@ Validation:
 - `go test ./internal/runtime -run
   "TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership" -count=1`
   passed.
+- `go test ./internal/runtime -run
+  "TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership|TestRuntimeRunTransitionWriter|TestRuntimeRun(Projection|Detail|List|Envelope|Store|Transition)|TestRuntimeRunStore|TestRuntimeRunTransition|TestRuntimeServiceMarkInterruptedDoneCancelsInterruptedTurn"
+  -count=1` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `git diff --check` passed.
 
 Review conclusion:
 
@@ -5124,6 +5130,36 @@ Review conclusion:
   execution, frontend Run management UI, transition-derived actionability,
   React-owned lifecycle state, or prose-derived lifecycle/checkpoint/artifact
   inference was introduced.
+
+### Phase 12.3: Run Startup Recovery Ownership Contract Coverage
+
+Status: next implementation.
+
+Scope:
+
+- Add focused coverage for startup recovery ownership on existing durable Run
+  rows.
+- Prove startup recovery interrupts unfinished turn/task evidence, preserves
+  Run/session/turn ownership links, cancels stale tool/permission/MCP
+  actionability, reconciles Run detail, and records recovery transition audit
+  only after stale evidence is terminalized.
+
+Out of scope:
+
+- New database migration.
+- Scheduler implementation or background Run execution worker.
+- Automatic resume.
+- Frontend Run management UI.
+- Transition-derived lifecycle/actionability.
+- React-owned lifecycle/checkpoint state.
+
+Validation required:
+
+- Focused Go tests for startup recovery ownership/link stability.
+- Existing Run ownership preflight, cancellation, and reconciliation tests.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1`.
+- `git diff --check`.
 
 ## Validation Scenarios
 
@@ -5172,8 +5208,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept Phase 12.2 after package-level validation. Then decide the
-next separately approved boundary; do not add migrations, scheduler
-implementation, automatic resume, frontend Run management UI, background Run
-execution, transition-derived actionability, or React-owned lifecycle state
-without a new gate.
+Implement Phase 12.3: Run Startup Recovery Ownership Contract Coverage. Keep it
+test-first and narrow; do not add migrations, scheduler implementation,
+automatic resume, frontend Run management UI, background Run execution,
+transition-derived actionability, or React-owned lifecycle state.
