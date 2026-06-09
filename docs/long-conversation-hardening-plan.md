@@ -4203,7 +4203,7 @@ Review conclusion:
 
 ### Phase 10.7: Transition History Read-only Transport Design Gate
 
-Status: next design gate.
+Status: accepted as a design gate only.
 
 Scope:
 
@@ -4219,6 +4219,69 @@ Out of scope:
 - Generated bindings or frontend consumption.
 - Frontend Run management UI.
 - Scheduler, automatic resume, or transition-derived actionability.
+
+Accepted transport decision:
+
+- Expose the Phase 10.6 internal DTO through the transport-neutral runtime
+  boundary in a later implementation phase.
+- Keep the method read-only, audit-only, and explicitly diagnostic.
+- Do not add frontend consumption in the same implementation phase.
+
+Accepted service boundary:
+
+```text
+RuntimeService.RunTransitionHistory(ctx, RuntimeRunTransitionHistoryRequest)
+  -> RuntimeRunTransitionHistoryResponse
+```
+
+Accepted HTTP/dev routes:
+
+```text
+GET /v1/run-transitions?run_id=<id>&cursor=<cursor>&limit=<n>
+GET /v1/run-transitions?session_id=<id>&cursor=<cursor>&limit=<n>
+GET /v1/run-transitions?turn_id=<id>&cursor=<cursor>&limit=<n>
+```
+
+Accepted Wails bridge:
+
+```text
+RuntimeBridge.RunTransitionHistory(req RuntimeRunTransitionHistoryRequest)
+  -> RuntimeRunTransitionHistoryResponse
+```
+
+Contract rules:
+
+- Exactly one of `run_id`, `session_id`, or `turn_id` should be provided by
+  callers. The service may preserve the existing internal priority order for
+  defensive compatibility, but tests should cover the intended single-filter
+  contract.
+- HTTP/dev module routing must support the same path/query shape as direct
+  HTTP.
+- Wails bridge tests must prove delegation only; generated binding smoke may be
+  deferred to a later packaged validation phase if no frontend consumer exists.
+- The response must remain transition rows plus window/source metadata only.
+  It must not include synthesized lifecycle, timeline, diagnostics, artifact,
+  checkpoint, permission, MCP, or interrupted actionability state.
+- Runtime events may trigger a refresh of this DTO, but event payloads must not
+  be merged into transition history or frontend source-of-truth state.
+
+Acceptance tests required for Phase 10.8:
+
+- Runtime service interface compile-time coverage for `RunTransitionHistory`.
+- HTTP direct route returns read-only transition history for run/session/turn
+  filters and cursor/limit query values.
+- HTTP dev module route delegates to the same service method.
+- Wails bridge delegates to the service method and preserves request fields.
+- Existing RunProjection, Run detail, SessionActivity, checkpoint resume, and
+  stale actionability tests still pass.
+
+Review conclusion:
+
+- Phase 10.7 accepts read-only transport exposure for transition history.
+- Frontend consumption, generated binding smoke, and any UI are explicitly
+  deferred.
+- Transition history remains audit evidence and cannot become lifecycle or
+  actionability truth.
 
 ## Validation Scenarios
 
@@ -4267,6 +4330,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 10.7: Transition History Read-only Transport Design Gate. Keep
-it as a design gate only; do not expose HTTP/Wails/React transport until the
-gate is accepted.
+Implement Phase 10.8: Transition History Read-only Transport Exposure. Add only
+the transport-neutral service interface method, HTTP/dev routes, Wails bridge
+delegation, and contract tests. Do not add frontend consumption or generated
+binding smoke unless separately accepted.

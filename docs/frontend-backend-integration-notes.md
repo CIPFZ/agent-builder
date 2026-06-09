@@ -927,3 +927,18 @@ Frontend boundary:
 - Existing frontend reads remain Run detail, RunProjection, and
   SessionActivity.
 - Transition-history transport exposure still requires a later accepted gate.
+
+## 2026-06-09: Phase 10.7 Transition History Transport Gate
+
+Phase 10.7 accepts read-only transport exposure for transition history.
+
+Frontend boundary:
+
+- The accepted next implementation may add RuntimeService, HTTP/dev, and Wails
+  bridge transport for `RunTransitionHistory`.
+- Frontend consumption remains out of scope.
+- Generated binding smoke can be deferred until a frontend consumer or packaged
+  validation need exists.
+- Transport responses remain audit/diagnostic evidence only and must not become
+  lifecycle, checkpoint, permission, MCP, artifact, diagnostics, interrupted,
+  or tool actionability truth.
