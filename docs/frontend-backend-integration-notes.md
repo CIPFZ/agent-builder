@@ -1085,3 +1085,10 @@ Frontend boundary:
 - Only full projection/detail/list refreshes may reconcile durable Run rows.
 - Frontend consumers must not treat partial projection windows as complete Run
   lifecycle, checkpoint, artifact, or diagnostics truth.
+
+Phase 11.3 result:
+
+- Bounded `RunProjection(limit/cursor)` reads no longer persist reconciliation
+  back into `runtime_runs`.
+- Full Run detail/list refreshes still reconcile durable rows through full
+  projection reads.

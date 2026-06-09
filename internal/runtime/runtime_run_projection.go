@@ -40,12 +40,16 @@ func (r *runtimeService) RunProjection(ctx context.Context, req RuntimeRunProjec
 	r.mu.Unlock()
 	tasks := r.runtimeRunProjectionTasks(ctx, sessionID)
 	run := buildRuntimeRunProjection(workspaceID, activity, tasks)
-	if r.runs.db != nil {
+	if r.runs.db != nil && runtimeRunProjectionCanReconcile(req) {
 		if persisted, err := r.runs.UpsertFromProjection(ctx, run, runtimeRunSourceBackfill); err == nil {
 			run.ID = persisted.ID
 		}
 	}
 	return RuntimeRunProjectionResponse{Run: run}, nil
+}
+
+func runtimeRunProjectionCanReconcile(req RuntimeRunProjectionRequest) bool {
+	return strings.TrimSpace(req.Cursor) == "" && req.Limit <= 0
 }
 
 func (r *runtimeService) runtimeRunProjectionTasks(ctx context.Context, sessionID string) []RuntimeAgentTask {

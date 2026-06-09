@@ -4788,7 +4788,7 @@ Review conclusion:
 
 ### Phase 11.3: Full-window-only Persisted Run Reconciliation
 
-Status: next implementation.
+Status: implemented.
 
 Scope:
 
@@ -4814,6 +4814,37 @@ Validation required:
 - `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
   -count=1`.
 - `git diff --check`.
+
+Implementation notes:
+
+- Added `runtimeRunProjectionCanReconcile(...)` and limited
+  `RunProjection` persistence to full reads with no cursor and no positive
+  limit.
+- Bounded `RunProjection(limit/cursor)` still returns windowed DTOs, cursors,
+  and parity evidence, but it no longer mutates `runtime_runs`.
+- Added `TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail`.
+  The test failed before the fix because `RunProjection(limit=1)` could mutate
+  a persisted interrupted Run to completed from partial evidence.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail" -count=1`
+  failed before the fix and passed after the fix.
+- `go test ./internal/runtime -run
+  "TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail|TestRuntimeRunDetailRefreshesPersistedStatusFromProjection|TestRuntimeRunListRefreshesPersistedStatusFromProjection|TestRuntimeRunProjectionCursorWindowKeepsSessionActivityParity"
+  -count=1` passed.
+
+Review conclusion:
+
+- Persisted Run reconciliation is now full-window-only.
+- Cursor/limit RunProjection reads remain read-only evidence and cannot clobber
+  durable Run status, timestamps, checkpoint rows, sessions, or objective from
+  partial evidence.
+- No migration, scheduler, automatic resume, frontend Run management UI,
+  background Run execution, transition-derived actionability, React-owned
+  lifecycle state, or prose-derived lifecycle/checkpoint/artifact inference was
+  introduced.
 
 ## Validation Scenarios
 
@@ -4862,7 +4893,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 11.3: Full-window-only Persisted Run Reconciliation. Keep
-bounded projection windows read-only; do not add migrations, scheduler,
-automatic resume, frontend Run management UI, background Run execution,
-transition-derived actionability, or React-owned lifecycle state.
+Review and accept Phase 11.3 after package-level validation. Then decide the
+next separately approved boundary; do not add migrations, scheduler, automatic
+resume, frontend Run management UI, background Run execution, transition-derived
+actionability, or React-owned lifecycle state without a new gate.

@@ -186,6 +186,36 @@ func TestRuntimeRunListRefreshesPersistedStatusFromProjection(t *testing.T) {
 	}
 }
 
+func TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail(t *testing.T) {
+	t.Parallel()
+
+	service, sessionID, _ := newRuntimeRunProjectionFixture(t)
+
+	full, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := full.Run.ID
+	before, err := service.runs.Get(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	windowed, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sessionID, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if windowed.Run.ActivityWindow.FromStart && windowed.Run.ActivityWindow.ToEnd {
+		t.Fatalf("fixture did not produce a bounded projection window: %#v", windowed.Run.ActivityWindow)
+	}
+	after, err := service.runs.Get(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != before.Status || after.FinishedAt != before.FinishedAt || after.Objective != before.Objective || len(after.SessionIDs) != len(before.SessionIDs) || len(after.Checkpoints) != len(before.Checkpoints) {
+		t.Fatalf("bounded projection mutated persisted run: before=%#v after=%#v windowed=%#v", before, after, windowed.Run)
+	}
+}
+
 func TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation(t *testing.T) {
 	t.Parallel()
 
