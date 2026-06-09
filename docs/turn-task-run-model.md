@@ -574,6 +574,30 @@ Remaining before scheduler implementation:
 - Any future worker must check the Phase 13.1 preflight before executing a
   planned turn.
 
+### Phase 14 Gate: Scheduler Plan DTO
+
+Phase 14 defines the read-only scheduler plan DTO contract. It does not
+implement the DTO or a worker.
+
+The future plan model is:
+
+- `RuntimeRunSchedulerPlanRequest`: run/session plus optional turn,
+  checkpoint, task, cursor, and limit fields.
+- `RuntimeRunSchedulerPlanResponse`: plan plus source metadata.
+- `RuntimeRunSchedulerPlan`: Run identity, linked sessions, objective,
+  status-from-Run-detail, plan items, cancellation scope, diagnostics route,
+  refresh targets, and optional activity window.
+- `RuntimeRunSchedulerPlanItem`: item kind, order key, session/turn/checkpoint
+  or task ids, `can_schedule`, preflight reason, required preflight,
+  cancellation scope, diagnostics route, and refresh targets.
+- `RuntimeRunSchedulerPlanSource`: `kind=run_scheduler_plan`,
+  `read_only=true`, `starts_worker=false`, and parity/evidence metadata.
+
+Plan item executability must come from the Phase 13.1 preflight. The plan
+cannot decide permission, MCP auth, MCP elicitation, checkpoint, artifact,
+interrupted, diagnostics, timeline, or lifecycle truth. It cannot start work,
+write transitions, auto-resume, or mutate checkpoint evidence.
+
 ## API 影响
 
 最小 API：

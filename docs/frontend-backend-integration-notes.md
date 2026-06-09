@@ -1288,3 +1288,28 @@ Phase 13.2 result:
   not Run management UI or scheduler execution.
 - Existing frontend sources remain Run detail, RunProjection, TurnActivity,
   SessionActivityWindow, and full SessionActivity refreshes.
+
+## 2026-06-09: Phase 14 Run Scheduler Plan DTO Design Gate
+
+Phase 14 defines a future scheduler plan DTO contract only.
+
+Frontend boundary:
+
+- No scheduler plan HTTP, Wails, generated binding, adapter, or React surface is
+  added in this gate.
+- A future scheduler plan DTO may be used as read-only backend planning
+  evidence, but it must not become frontend lifecycle, permission, MCP,
+  checkpoint, artifact, interrupted, diagnostics, or timeline truth.
+- Future plan events may only identify refresh targets such as Run detail,
+  RunProjection, TurnActivity, SessionActivityWindow, full SessionActivity, or
+  schedulerPlan.
+- Frontend Run management UI remains out of scope until a later accepted UI
+  phase.
+
+Phase 14 result:
+
+- The accepted plan DTO shape is read-only and reports `startsWorker=false`.
+- Plan item executability must be derived from the backend Phase 13.1
+  preflight, not event payloads or React state.
+- Checkpoint plan items may describe explicit user-triggered future work only;
+  they must not auto-resume or mutate checkpoint evidence.

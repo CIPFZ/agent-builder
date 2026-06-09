@@ -5534,6 +5534,136 @@ Review conclusion:
   management UI, transition-derived actionability, React-owned lifecycle state,
   or database migration.
 
+### Phase 14: Run Scheduler Plan DTO Design Gate
+
+Status: accepted as a design gate only.
+
+Scope:
+
+- Define the read-only Run scheduler plan DTO contract a future worker would
+  consume.
+- Preserve session-first execution until a later accepted implementation phase.
+- Require Phase 13.1 preflight before any plan item can become executable.
+- Keep scheduler plan output as planning evidence only, never lifecycle or
+  actionability truth.
+
+Accepted plan DTO shape:
+
+```text
+RuntimeRunSchedulerPlanRequest
+  run_id
+  session_id
+  mode: user_turn | checkpoint_resume | task_turn
+  turn_id?
+  checkpoint_id?
+  task_id?
+  cursor?
+  limit?
+
+RuntimeRunSchedulerPlanResponse
+  plan: RuntimeRunSchedulerPlan
+  source: RuntimeRunSchedulerPlanSource
+
+RuntimeRunSchedulerPlan
+  run_id
+  primary_session_id
+  session_ids[]
+  objective
+  status_from_run_detail
+  items[]
+  cancellation_scope
+  diagnostics_route
+  refresh_targets[]
+  activity_window?
+
+RuntimeRunSchedulerPlanItem
+  id
+  kind: user_turn | checkpoint_resume | task_turn
+  order_key
+  session_id
+  turn_id?
+  checkpoint_id?
+  task_id?
+  can_schedule
+  preflight_reason?
+  required_preflight
+  refresh_targets[]
+  cancellation_scope
+  diagnostics_route
+
+RuntimeRunSchedulerPlanSource
+  kind: run_scheduler_plan
+  read_only: true
+  starts_worker: false
+  session_activity_parity: true
+  evidence[]
+```
+
+Accepted source-of-truth rules:
+
+- Run identity, primary session, linked sessions, checkpoints, and persisted
+  summary come from persisted Run detail reconciled from `RunProjection`.
+- Turn executability comes from Phase 13.1 preflight over `runtime_runs`,
+  `runtime_run_sessions`, and `runtime_turns`.
+- Timeline, messages, tool calls, permissions, diagnostics, artifact evidence,
+  interrupted summaries, and terminal permission/MCP semantics remain from
+  `SessionActivity`/activity windows and `RunProjection` parity.
+- Checkpoint resume plan items may only describe an explicit user-triggered
+  future turn. They must not auto-resume.
+- Artifact refs may appear only as existing structured refs from completed
+  tool/task/checkpoint evidence.
+- Runtime events may carry only plan/read refresh targets such as `run`,
+  `runProjection`, `turnActivity`, `sessionActivityWindow`,
+  `sessionActivity`, or `schedulerPlan`.
+
+Required plan item rules:
+
+- `can_schedule=true` requires the Phase 13.1 preflight to pass.
+- A plan item without a durable Run/session/turn link must remain
+  non-executable with a preflight reason.
+- A terminal turn must remain non-executable.
+- A checkpoint item must reference a concrete checkpoint and must not mark it
+  acknowledged, discarded, or resumed.
+- A task item must remain read-only until a later task scheduling gate accepts
+  executable task ownership.
+
+Out of scope:
+
+- Implementing the DTO in Go.
+- Exposing scheduler plan through HTTP, Wails, or React.
+- Scheduler worker or background execution loop.
+- Automatic resume.
+- Frontend Run management UI.
+- Database migration.
+- Transition-derived lifecycle/actionability.
+- React-owned scheduler or Run lifecycle state.
+- Inferring artifact, checkpoint, or lifecycle state from assistant prose.
+
+Implementation entry criteria for Phase 14.1:
+
+- Add internal DTO types and builder only.
+- Keep the builder read-only and internal.
+- Make `RuntimeRunSchedulerPlanSource.StartsWorker=false`.
+- Use Phase 13.1 preflight for item executability.
+- Add tests proving missing Run/session/turn links and terminal turns produce
+  non-executable plan items.
+- Add tests proving checkpoint plan items do not acknowledge, discard, resume,
+  or mutate checkpoint evidence.
+
+Validation:
+
+- Design review only.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 14 accepts the scheduler plan DTO contract, not scheduler behavior.
+- The next safe task is Phase 14.1: internal read-only scheduler plan DTO
+  implementation.
+- Phase 14.1 must not add a worker, automatic resume, background execution,
+  frontend Run management UI, migration, transition-derived actionability, or
+  React-owned lifecycle state.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -5581,9 +5711,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 14: Run Scheduler Plan DTO Design Gate. Define the read-only
-plan contract a future scheduler worker would consume, including ownership,
-ordering, cancellation scope, diagnostics routing, refresh targets, and
-preflight requirements. Do not add migrations, scheduler implementation,
-automatic resume, frontend Run management UI, background Run execution,
-transition-derived actionability, or React-owned lifecycle state.
+Implement Phase 14.1: Internal Read-only Scheduler Plan DTO. Add internal DTO
+types and a read-only builder that uses Phase 13.1 preflight for item
+executability. Do not expose it through HTTP, Wails, or React, and do not add
+migrations, scheduler implementation, automatic resume, frontend Run management
+UI, background Run execution, transition-derived actionability, or React-owned
+lifecycle state.
