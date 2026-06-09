@@ -1414,3 +1414,24 @@ Phase 15.2 result:
 - The next relevant boundary is checkpoint-resume backend hardening, because
   explicit resume already enters through `Chat`.
 - Frontend resume behavior remains runtime action followed by DTO refresh.
+
+## 2026-06-09: Phase 16 Checkpoint Resume Scheduler Delegate Hardening
+
+Phase 16 adds backend coverage for explicit checkpoint resume under the
+foreground scheduler delegate.
+
+Frontend boundary:
+
+- Resume remains an explicit runtime action followed by DTO refresh.
+- No automatic resume, scheduler transport, or frontend Run management UI is
+  added.
+- Checkpoint resume events remain refresh triggers only.
+
+Phase 16 result:
+
+- Checkpoint planning stays non-executable until an explicit resumed turn
+  exists.
+- The explicit resumed turn uses the same backend foreground delegate/preflight
+  path as other user turns.
+- Source checkpoint evidence is not acknowledged, discarded, or mutated by the
+  scheduler delegate path.

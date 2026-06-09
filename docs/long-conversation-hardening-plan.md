@@ -5996,6 +5996,61 @@ Review conclusion:
   management UI, transition-derived actionability, React-owned lifecycle state,
   task execution scheduling, or database migration.
 
+### Phase 16: Checkpoint Resume Scheduler Delegate Hardening
+
+Status: accepted.
+
+Scope:
+
+- Prove explicit checkpoint resume inherits the foreground scheduler delegate
+  boundary through the new resumed turn.
+- Keep checkpoint resume explicit and user-triggered.
+- Preserve source checkpoint evidence.
+
+Implementation notes:
+
+- Added
+  `TestRuntimeRunSchedulerDelegateAcceptsExplicitCheckpointResumeTurnOnly`.
+- The test first proves a checkpoint plan item is not executable without a
+  concrete explicit resumed turn.
+- It then simulates the explicit resumed turn created by `Chat`, links
+  Run/session/turn, and proves `runtimeRunSchedulerDelegateUserTurn(...)`
+  accepts that turn through the same foreground preflight path.
+- It links the resumed turn to the checkpoint, records checkpoint resume
+  transition audit, and verifies source checkpoint evidence is not
+  acknowledged, discarded, or otherwise mutated.
+
+Rejected behavior:
+
+- No automatic resume.
+- No unattended background scheduler queue, poller, or worker loop.
+- No scheduler-owned permission/MCP/checkpoint/artifact actionability.
+- No task scheduling execution.
+- No HTTP/Wails bridge route, generated binding, adapter, or frontend Run UI.
+- No database migration.
+- No assistant-prose-derived lifecycle/checkpoint/artifact inference.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunSchedulerDelegate|TestRuntimeRunSchedulerPlanCheckpointItemDoesNotMutateEvidence|TestRuntimeRunTransitionWriterRequiresResumedTurnBeforeCheckpointResume|TestRuntimeRunTransitionWriterRecordsCheckpointResumeFromNewTurn"
+  -count=1` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 16 hardens explicit checkpoint resume under the foreground scheduler
+  delegate without adding automatic resume.
+- Checkpoint planning remains non-executable until an explicit resumed turn
+  exists.
+- Source checkpoint evidence remains intact after resumed-turn linking and
+  transition audit.
+- Runtime truth remains in existing stores and DTO refreshes; events,
+  transition history, assistant prose, and React state were not promoted to
+  lifecycle or actionability sources.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6043,9 +6098,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 16: Checkpoint Resume Scheduler Delegate Hardening. Prove
-explicit `ResumeRunCheckpoint(...)` uses the foreground scheduler delegate via
-`Chat`, preserves source checkpoint evidence, and does not become automatic
-resume. Do not add unattended background execution, frontend Run management UI,
+Implement Phase 16.1: Scheduler Delegate Acceptance And Next Boundary Gate.
+Review the user-turn and checkpoint-resume delegate slice before considering
+task scheduling design or any transport/read exposure. Do not add automatic
+resume, unattended background execution, frontend Run management UI,
 transition-derived actionability, React-owned lifecycle state, task execution
 scheduling, or database migration.

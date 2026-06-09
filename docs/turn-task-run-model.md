@@ -684,6 +684,22 @@ Next boundary:
   otherwise mutated by planning.
 - No automatic resume or unattended background execution is accepted.
 
+### Phase 16 Gate: Checkpoint Resume Scheduler Delegate
+
+Phase 16 proves explicit checkpoint resume can use the foreground scheduler
+delegate without becoming automatic resume.
+
+Accepted implementation:
+
+- Checkpoint plan items are not executable without a concrete explicit resumed
+  turn.
+- A resumed turn linked through Run/session/turn passes the same foreground
+  delegate preflight as other user turns.
+- Linking the resumed turn to checkpoint metadata does not acknowledge,
+  discard, or mutate source checkpoint evidence.
+- No automatic resume, unattended background execution, or frontend Run
+  management UI is added.
+
 ## API 影响
 
 最小 API：
