@@ -869,3 +869,17 @@ Frontend boundary:
 - Transition rows are not exposed as lifecycle truth in this phase.
 - Runtime events remain refresh triggers only and must not be merged into
   lifecycle, permission, MCP, artifact, diagnostics, or checkpoint state.
+
+## 2026-06-09: Phase 10.3 Run Transition Runtime Wiring Gate
+
+Phase 10.3 accepts where backend transition-history writes may be wired later.
+
+Frontend boundary:
+
+- No transport, generated binding, or UI changes are introduced by the gate.
+- The first runtime wiring implementation must not expose transition-history
+  DTOs to React.
+- Existing Run projection, Run detail, and session activity refreshes remain
+  the frontend integration points.
+- Transition history must not become permission, MCP auth, elicitation,
+  checkpoint, artifact, diagnostics, or interrupted actionability truth.

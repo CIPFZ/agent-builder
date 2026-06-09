@@ -3903,7 +3903,7 @@ Review conclusion:
 
 ### Phase 10.3: Run Transition History Runtime Wiring Gate
 
-Status: next design gate.
+Status: accepted as a design gate only.
 
 Scope:
 
@@ -3919,6 +3919,89 @@ Out of scope:
 - Automatic resume.
 - Frontend Run management UI.
 - Replacing `SessionActivity`.
+
+Accepted wiring design:
+
+- `turn_started`: record after the `RuntimeTurn` exists and
+  `runtimeRunStore.LinkTurn` has linked the turn to its Run. This can record
+  `nil/previous -> active` evidence for the new turn, but it must not infer
+  timeline, artifact, permission, MCP, or checkpoint state.
+- `turn_finished`: record from `runChat` only after the final `RuntimeTurn`
+  row has been written and `RunProjection`/persisted Run reconciliation can
+  derive the target status from structured evidence.
+- `turn_cancelled`: record from `CancelTurn` after terminal turn and tool-call
+  cancellation evidence has been written. The transition writer must not use
+  the cancel event payload as lifecycle truth.
+- `interrupted_marked_done`: record from `MarkInterruptedDone` after the
+  interrupted turn has been persisted as cancelled. This preserves the existing
+  `MarkInterruptedDone`/cancelled terminal semantics and does not add a
+  persisted acknowledgement field.
+- `startup_recovery`: record during runtime startup only after unfinished
+  turns/tasks/hooks/tools, expired permissions, and stale MCP auth/elicitation
+  requests have been terminalized. Restart recovery must never restore stale
+  running/waiting tools, permission gates, MCP auth requests, or elicitation
+  requests as actionable.
+- `checkpoint_resume`: record after `ResumeRunCheckpoint` creates a new
+  explicit user-triggered turn and `LinkCheckpointResume` links that turn to
+  the checkpoint. This transition is `interrupted -> active` evidence only; it
+  does not replay previous tools and does not auto-resume.
+- `checkpoint_acknowledged` and `checkpoint_discarded` stay checkpoint marker
+  writes rather than Run lifecycle transitions. They may be audited separately,
+  but they must not change Run actionability or terminal status.
+
+Accepted idempotency keys:
+
+- `turn_started`: run id, session id, turn id, source `turn_started`, target
+  `active`, and turn `started_at`.
+- `turn_finished`: run id, session id, turn id, source `turn_finished`, target
+  status derived from reconciled Run/RunProjection, and turn `finished_at`.
+- `turn_cancelled`: run id, session id, turn id, source `turn_cancelled`,
+  target `cancelled`, and terminal turn `finished_at`.
+- `interrupted_marked_done`: run id, session id, turn id, source
+  `interrupted_marked_done`, target `cancelled`, and terminal turn
+  `finished_at`.
+- `startup_recovery`: run id, session id, affected turn/task id when present,
+  source `startup_recovery`, target `interrupted`, and the recovered evidence
+  id. Replaying startup after evidence is already terminal must not duplicate
+  rows.
+- `checkpoint_resume`: run id, checkpoint id, resumed turn id, source
+  `checkpoint_resume`, target `active`, and resumed turn `started_at`.
+
+Implementation gate for Phase 10.4:
+
+- Add a narrow transition-writer helper that reads current persisted Run and
+  structured runtime evidence, then writes `runtime_run_transitions`.
+- Wire only the accepted existing runtime paths above.
+- Keep transition writes best-effort and non-authoritative for actionability;
+  a transition write failure may warn but must not resurrect stale state or
+  replace existing terminal evidence.
+- Do not expose transition history through HTTP, Wails, or React in the first
+  wiring implementation.
+
+Acceptance tests required for Phase 10.4:
+
+- Chat start/finish records stable, ordered transitions without duplicate rows
+  under repeated reconciliation.
+- Cancel and interrupted acknowledgement record terminal transitions while
+  preserving current cancelled semantics.
+- Startup recovery records interrupted transitions only after stale tools,
+  permissions, and MCP action requests are terminalized; no stale actionability
+  is restored.
+- Explicit checkpoint resume records `checkpoint_resume` and links the new
+  turn without mutating prior checkpoint evidence or replaying previous tools.
+- `SessionActivity`, `RunProjection`, and persisted Run detail remain the
+  parity oracle for timeline, diagnostics, artifact evidence, interrupted
+  summaries, permission state, and terminal MCP semantics.
+- HTTP/Wails/frontend tests remain unchanged except for refreshes reading
+  existing DTOs; event payloads remain refresh triggers only.
+
+Review conclusion:
+
+- Phase 10.3 accepts where transition history may be recorded and the
+  idempotency contract for each source.
+- No runtime transition wiring, scheduler, automatic resume, frontend Run UI,
+  transport exposure, or `SessionActivity` replacement is implemented in this
+  phase.
 
 ## Validation Scenarios
 
@@ -3967,7 +4050,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 10.3: Run Transition History Runtime Wiring Gate. Keep it as a
-design gate only; do not wire transitions, implement a scheduler, implement
-automatic resume, add frontend Run management UI, or replace `SessionActivity`
-until the gate is accepted.
+Implement Phase 10.4: Run Transition History Runtime Wiring. Keep it limited to
+the accepted existing runtime paths and transition-store writes; do not expose a
+transition DTO over transport, implement a scheduler, implement automatic
+resume, add frontend Run management UI, or replace `SessionActivity`.
