@@ -1182,3 +1182,16 @@ Phase 12.3 result:
   stale tool/permission/MCP actionability is terminalized, and recovery
   transition audit is recorded from terminal evidence.
 - No frontend behavior changes were added.
+
+## 2026-06-09: Phase 12.4 Run Checkpoint Resume Ownership Boundary
+
+Phase 12.4 should add backend-only explicit checkpoint resume ownership
+coverage.
+
+Frontend boundary:
+
+- Resume remains a runtime endpoint action followed by DTO refresh.
+- Frontend must not auto-resume or synthesize resumed checkpoint state from
+  transition rows, event payloads, or React state.
+- No frontend Run management UI, scheduler behavior, automatic resume, or
+  transition-derived actionability is accepted.
