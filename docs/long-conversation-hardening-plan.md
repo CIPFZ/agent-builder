@@ -4788,7 +4788,7 @@ Review conclusion:
 
 ### Phase 11.3: Full-window-only Persisted Run Reconciliation
 
-Status: implemented.
+Status: accepted.
 
 Scope:
 
@@ -4834,6 +4834,12 @@ Validation:
 - `go test ./internal/runtime -run
   "TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail|TestRuntimeRunDetailRefreshesPersistedStatusFromProjection|TestRuntimeRunListRefreshesPersistedStatusFromProjection|TestRuntimeRunProjectionCursorWindowKeepsSessionActivityParity"
   -count=1` passed.
+- `go test ./internal/runtime -run
+  "TestRuntimeRun(Projection|Detail|List|Envelope|Store|Transition)|TestRuntimeRunStore|TestRuntimeRunTransition|TestRuntimeServiceMarkInterruptedDoneCancelsInterruptedTurn"
+  -count=1` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `git diff --check` passed.
 
 Review conclusion:
 
@@ -4845,6 +4851,39 @@ Review conclusion:
   background Run execution, transition-derived actionability, React-owned
   lifecycle state, or prose-derived lifecycle/checkpoint/artifact inference was
   introduced.
+
+### Phase 11.4: Run Reconciliation Acceptance And Scheduler Readiness Gate
+
+Status: next design gate.
+
+Scope:
+
+- Review Phase 11.1 through 11.3 as a complete Run reconciliation hardening
+  slice.
+- Decide whether the next implementation can safely move beyond reconciliation
+  toward lifecycle execution ownership, or whether more read/recovery hardening
+  is required first.
+- Keep the gate grounded in Claude Code lessons: transcript/evidence first,
+  runtime-owned actionability, no browser-owned execution state.
+
+Out of scope:
+
+- Implementing scheduler, automatic resume, or background Run execution.
+- Implementing frontend Run management UI.
+- Making transition rows lifecycle or actionability truth.
+- New database migration.
+
+Acceptance questions:
+
+- Are persisted Run detail/list rows now safe as reconciled read sources when
+  hydrated through full projection/detail/list refreshes?
+- Are bounded activity/projection windows guaranteed read-only?
+- Are checkpoint markers and resumed-turn links protected from projection
+  refresh clobbering?
+- Do restart, permission, MCP, interrupted, artifact, and checkpoint tests still
+  prove stale actionability is not restored?
+- Is the next safe implementation a scheduler gate, or another recovery/parity
+  hardening slice?
 
 ## Validation Scenarios
 
@@ -4893,7 +4932,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept Phase 11.3 after package-level validation. Then decide the
-next separately approved boundary; do not add migrations, scheduler, automatic
-resume, frontend Run management UI, background Run execution, transition-derived
-actionability, or React-owned lifecycle state without a new gate.
+Implement Phase 11.4: Run Reconciliation Acceptance And Scheduler Readiness
+Gate. Keep it as a design gate only; do not add migrations, scheduler,
+automatic resume, frontend Run management UI, background Run execution,
+transition-derived actionability, or React-owned lifecycle state.

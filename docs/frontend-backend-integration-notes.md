@@ -1092,3 +1092,16 @@ Phase 11.3 result:
   back into `runtime_runs`.
 - Full Run detail/list refreshes still reconcile durable rows through full
   projection reads.
+
+## 2026-06-09: Phase 11.4 Reconciliation Acceptance Gate
+
+Phase 11.4 should review the Phase 11 reconciliation slice before any larger
+lifecycle execution work.
+
+Frontend boundary:
+
+- Persisted Run detail/list reads are reconciled backend DTOs, not React-owned
+  state.
+- Bounded projection/activity windows remain read-only preview evidence.
+- No frontend Run management UI, scheduler behavior, automatic resume, or
+  transition-derived actionability is accepted by this gate.
