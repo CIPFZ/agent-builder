@@ -4159,7 +4159,7 @@ Review conclusion:
 
 ### Phase 10.6: Internal Read-only Transition History DTO
 
-Status: implemented.
+Status: accepted.
 
 Scope:
 
@@ -4199,6 +4199,26 @@ Review conclusion:
   and tool actionability still require existing Run/RunProjection/
   SessionActivity refreshes.
 - Transition-history transport exposure still requires a later accepted gate.
+- Phase 10.6 is accepted as an internal-only DTO foundation.
+
+### Phase 10.7: Transition History Read-only Transport Design Gate
+
+Status: next design gate.
+
+Scope:
+
+- Decide whether the internal transition-history DTO should be exposed through
+  the transport-neutral runtime boundary.
+- Define HTTP/Wails route and method names if exposure is accepted.
+- Define contract tests proving transport exposure remains read-only and
+  audit-only.
+
+Out of scope:
+
+- Implementing HTTP/Wails transport.
+- Generated bindings or frontend consumption.
+- Frontend Run management UI.
+- Scheduler, automatic resume, or transition-derived actionability.
 
 ## Validation Scenarios
 
@@ -4247,7 +4267,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept Phase 10.6 before any transition-history transport exposure.
-The next gate should decide whether to expose `RunTransitionHistory` through
-HTTP/Wails as read-only diagnostics, or leave it internal until a frontend
-diagnostic use case exists.
+Implement Phase 10.7: Transition History Read-only Transport Design Gate. Keep
+it as a design gate only; do not expose HTTP/Wails/React transport until the
+gate is accepted.
