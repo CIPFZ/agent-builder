@@ -4676,6 +4676,54 @@ Review conclusion:
   frontend Run management UI, transition-derived actionability, or React-owned
   lifecycle state.
 
+### Phase 11.1: Persisted Run Detail Reconciliation Hardening
+
+Status: implemented.
+
+Scope:
+
+- Harden `Run(ctx, runID)` so returned persisted Run detail reflects the
+  reconciliation performed by `RunProjection`.
+- Add focused tests proving stale persisted status does not leak through Run
+  detail after projection refresh.
+- Add focused tests proving checkpoint acknowledgement/discard markers survive
+  Run detail reconciliation.
+
+Implementation notes:
+
+- `runtimeService.Run(...)` now re-reads `runtime_runs` after building
+  `RunProjection`, because `RunProjection` may upsert refreshed status,
+  timestamps, sessions, and checkpoints.
+- The fix keeps persisted Run detail as a reconciliation cache for structured
+  runtime evidence. It does not use transition rows as current lifecycle truth.
+- The `runtime_run_projection_test` fixture now wires a real `runtimeRunStore`
+  so projection/detail parity tests exercise persisted Run rows.
+- Added `TestRuntimeRunDetailRefreshesPersistedStatusFromProjection`, which
+  creates a stale persisted `active` Run and proves `Run(...)` returns the
+  refreshed `interrupted` status from projection-backed reconciliation.
+- Added `TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation`,
+  which proves checkpoint acknowledgement/discard markers and non-actionability
+  survive subsequent Run detail refreshes.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunDetailRefreshesPersistedStatusFromProjection" -count=1`
+  failed before the fix and passed after the fix.
+- `go test ./internal/runtime -run
+  "TestRuntimeRun(Projection|Detail|Envelope|Store|Transition)|TestRuntimeRunStore|TestRuntimeRunTransition|TestRuntimeServiceMarkInterruptedDoneCancelsInterruptedTurn"
+  -count=1` passed.
+
+Review conclusion:
+
+- Persisted Run detail now returns the refreshed reconciliation result rather
+  than a stale pre-projection row.
+- Checkpoint marker durability is covered at the Run detail boundary.
+- No migration, scheduler, automatic resume, frontend Run management UI,
+  background Run execution, transition-derived actionability, React-owned
+  lifecycle state, or prose-derived lifecycle/checkpoint/artifact inference was
+  introduced.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -4723,7 +4771,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 11.1: Persisted Run Detail Reconciliation Hardening. Keep it
-narrow: tests and minimal runtime/store fixes only, with no migration,
-scheduler, automatic resume, frontend Run management UI, background Run
-execution, transition-derived actionability, or React-owned lifecycle state.
+Review and accept Phase 11.1 after package-level validation. Then decide the
+next separately approved boundary; do not implement scheduler, automatic
+resume, frontend Run management UI, background Run execution, transition-derived
+actionability, or React-owned lifecycle state without a new gate.

@@ -111,6 +111,81 @@ func TestRuntimeRunProjectionCursorWindowKeepsSessionActivityParity(t *testing.T
 	}
 }
 
+func TestRuntimeRunDetailRefreshesPersistedStatusFromProjection(t *testing.T) {
+	t.Parallel()
+
+	service, sessionID, _ := newRuntimeRunProjectionFixture(t)
+
+	projection, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := projection.Run.ID
+	stale, err := service.runs.LinkTurn(context.Background(), runID, sessionID, "turn-stale-active", time.Now().UnixMilli())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale.Status != runtimeRunStatusActive {
+		t.Fatalf("fixture failed to create stale active run: %#v", stale)
+	}
+
+	detail, err := service.Run(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Projection.Status != runtimeRunStatusInterrupted {
+		t.Fatalf("projection status = %q, want interrupted: %#v", detail.Projection.Status, detail.Projection)
+	}
+	if detail.Run.Status != detail.Projection.Status || detail.Run.FinishedAt != detail.Projection.FinishedAt {
+		t.Fatalf("run detail did not refresh from projection: run=%#v projection=%#v", detail.Run, detail.Projection)
+	}
+	persisted, err := service.runs.Get(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != detail.Projection.Status || persisted.FinishedAt != detail.Projection.FinishedAt {
+		t.Fatalf("persisted run diverged from projection: persisted=%#v projection=%#v", persisted, detail.Projection)
+	}
+}
+
+func TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation(t *testing.T) {
+	t.Parallel()
+
+	service, sessionID, _ := newRuntimeRunProjectionFixture(t)
+
+	projection, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := projection.Run.ID
+	checkpointID := "turn:turn-run-new:interrupted"
+	acknowledged, err := service.AcknowledgeRunCheckpoint(context.Background(), runID, checkpointID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ackCheckpoint := findRuntimeRunCheckpoint(acknowledged.Run.Checkpoints, checkpointID)
+	if ackCheckpoint.ID == "" || ackCheckpoint.AcknowledgedAt == 0 || ackCheckpoint.ResumeEligible {
+		t.Fatalf("acknowledged checkpoint marker missing after run detail refresh: %#v", acknowledged.Run.Checkpoints)
+	}
+
+	discarded, err := service.DiscardRunCheckpoint(context.Background(), runID, checkpointID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	discardCheckpoint := findRuntimeRunCheckpoint(discarded.Run.Checkpoints, checkpointID)
+	if discardCheckpoint.ID == "" || discardCheckpoint.AcknowledgedAt != ackCheckpoint.AcknowledgedAt || discardCheckpoint.DiscardedAt == 0 || discardCheckpoint.ResumeEligible {
+		t.Fatalf("discarded checkpoint marker missing after run detail refresh: %#v", discarded.Run.Checkpoints)
+	}
+	refreshed, err := service.Run(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshedCheckpoint := findRuntimeRunCheckpoint(refreshed.Run.Checkpoints, checkpointID)
+	if refreshedCheckpoint.AcknowledgedAt != ackCheckpoint.AcknowledgedAt || refreshedCheckpoint.DiscardedAt != discardCheckpoint.DiscardedAt {
+		t.Fatalf("checkpoint markers were not durable across reconciliation: %#v", refreshed.Run.Checkpoints)
+	}
+}
+
 func TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability(t *testing.T) {
 	t.Parallel()
 
@@ -274,6 +349,7 @@ func newRuntimeRunProjectionFixture(t *testing.T) (*runtimeService, string, stri
 	service.runtime = runtimeBackend
 	service.workspace = &workspace
 	service.turns = newRuntimeTurnStore(conn)
+	service.runs = newRuntimeRunStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.permissionStore = newRuntimePermissionStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
@@ -343,4 +419,13 @@ func mustSessionActivity(t *testing.T, service *runtimeService, sessionID string
 		t.Fatal(err)
 	}
 	return activity
+}
+
+func findRuntimeRunCheckpoint(checkpoints []RuntimeRunCheckpoint, checkpointID string) RuntimeRunCheckpoint {
+	for _, checkpoint := range checkpoints {
+		if checkpoint.ID == checkpointID {
+			return checkpoint
+		}
+	}
+	return RuntimeRunCheckpoint{}
 }

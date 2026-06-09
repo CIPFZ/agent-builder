@@ -55,6 +55,10 @@ func (r *runtimeService) Run(ctx context.Context, id string) (RuntimeRunResponse
 		return RuntimeRunResponse{}, fmt.Errorf("failed to build runtime run projection parity payload: %w", err)
 	}
 	projection.Run.ID = run.ID
+	run, err = r.runs.Get(ctx, run.ID)
+	if err != nil {
+		return RuntimeRunResponse{}, err
+	}
 	return RuntimeRunResponse{Run: run, Projection: projection.Run}, nil
 }
 

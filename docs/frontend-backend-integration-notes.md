@@ -1036,3 +1036,18 @@ Frontend boundary:
   checkpoint, permission, MCP, artifact, diagnostics, or interrupted state.
 - No frontend Run management UI, background scheduler behavior, automatic
   resume, or transition-derived actionability is accepted by this gate.
+
+## 2026-06-09: Phase 11.1 Persisted Run Detail Reconciliation
+
+Phase 11.1 hardens backend Run detail reads after projection reconciliation.
+
+Frontend boundary:
+
+- `Run(runID)` now returns persisted Run detail after `RunProjection` has
+  refreshed the durable row.
+- Frontend callers still treat runtime DTO responses as the source of truth and
+  should not cache lifecycle or checkpoint actionability in React state.
+- Checkpoint acknowledgement/discard markers remain persisted runtime DTO
+  fields and are not derived from transition rows or event payloads.
+- No frontend Run management UI, scheduler behavior, automatic resume, or
+  transition-derived actionability is added.
