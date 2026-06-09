@@ -4060,7 +4060,7 @@ Review conclusion:
 
 ### Phase 10.5: Read-only Transition History DTO Design Gate
 
-Status: next design gate.
+Status: accepted as a design gate only.
 
 Scope:
 
@@ -4078,6 +4078,84 @@ Out of scope:
 - Scheduler or automatic resume.
 - Treating transition rows as source of permission, MCP auth, elicitation,
   checkpoint, artifact, diagnostics, interrupted, or tool actionability.
+
+Accepted DTO design:
+
+```text
+RuntimeRunTransitionHistoryRequest
+  run_id optional
+  session_id optional
+  turn_id optional
+  cursor optional
+  limit optional
+
+RuntimeRunTransitionHistoryResponse
+  transitions[] RuntimeRunTransition
+  window RuntimeActivityWindow
+  source
+
+source
+  kind: "run_transition_history"
+  read_only: true
+  audit_only: true
+  session_activity_parity: true
+  evidence: ["runtime_run_transitions", "runtime_runs", "runtime_turns",
+             "runtime_agent_tasks", "session_activity", "run_projection"]
+```
+
+Accepted cursor semantics:
+
+- Use an additive transition-history cursor, not the session-activity cursor:
+  `v1:<created_at padded>:transition:<transition_id>`.
+- Order by `created_at ASC, id ASC`, matching the store order.
+- Cursor filtering is window-only; it must not decide current lifecycle,
+  permission, MCP, checkpoint, artifact, diagnostics, or interrupted state.
+- A response may include only transition rows plus cursor metadata. It must not
+  synthesize timeline cards, diagnostics, checkpoints, user actions, or
+  artifact evidence.
+
+Accepted transport boundary if implemented later:
+
+- Runtime service method candidate:
+  `RunTransitionHistory(ctx, RuntimeRunTransitionHistoryRequest)`.
+- HTTP candidate:
+  `GET /v1/run-transitions?run_id=&session_id=&turn_id=&cursor=&limit=`.
+- Wails candidate:
+  `RuntimeBridge.RunTransitionHistory(req)`.
+- Frontend usage, if any, must be read-only diagnostics/audit display and must
+  refresh existing `Run`, `RunProjection`, or `SessionActivity` DTOs for actual
+  lifecycle and actionability state.
+
+Parity requirements:
+
+- `RuntimeRunTransitionHistoryResponse` must not claim a Run is currently
+  active, waiting, interrupted, completed, failed, or cancelled unless the
+  caller also refreshes existing Run/RunProjection evidence.
+- Transition rows must be traceable back to existing turn/task/checkpoint
+  evidence ids when present.
+- For a transition window, tests must compare the corresponding
+  `SessionActivity`/`RunProjection` subset and prove messages, tool calls,
+  permissions, diagnostics, artifact evidence, interrupted summaries, terminal
+  permission/MCP semantics, and checkpoint actionability are not derived from
+  transition rows.
+- Event payloads may trigger this DTO refresh, but may not populate or mutate
+  the transition list directly in React.
+
+Implementation gate for Phase 10.6:
+
+- Add contract types and an internal service method only if tests can prove the
+  read-only/audit-only boundary.
+- Add HTTP/Wails exposure only after the internal method and parity tests pass.
+- Do not add frontend consumption in the same phase unless separately accepted.
+- Do not implement scheduler, automatic resume, Run management UI, or
+  transition-derived actionability.
+
+Review conclusion:
+
+- Phase 10.5 accepts a read-only transition-history DTO contract as optional
+  diagnostic/audit evidence.
+- The DTO is not required for current frontend behavior and must not replace
+  `SessionActivity`, `RunProjection`, or persisted Run detail.
 
 ## Validation Scenarios
 
@@ -4126,6 +4204,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 10.5: Read-only Transition History DTO Design Gate. Keep it as
-a design gate only; do not expose transition history through HTTP, Wails, or
-React until the gate is accepted.
+Implement Phase 10.6: Internal Read-only Transition History DTO. Start with
+contract types, an internal service method, and parity tests only. Do not expose
+HTTP/Wails/React transport until the internal boundary is proven.

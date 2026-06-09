@@ -898,3 +898,18 @@ Frontend boundary:
   actionability truth.
 - Runtime events continue to trigger refreshes only; event payloads are not
   merged into frontend lifecycle state.
+
+## 2026-06-09: Phase 10.5 Read-only Transition History DTO Gate
+
+Phase 10.5 accepts an optional read-only transition-history DTO design.
+
+Frontend boundary:
+
+- No HTTP, Wails, generated binding, or React surface is added by the gate.
+- If implemented later, transition-history reads are audit/diagnostic evidence
+  only.
+- The frontend must refresh existing Run detail, RunProjection, or
+  SessionActivity DTOs for lifecycle, checkpoint, permission, MCP, artifact,
+  diagnostics, and interrupted state.
+- Event payloads may choose to refresh a transition-history DTO, but may not
+  merge transition rows into frontend source-of-truth state.
