@@ -10,7 +10,8 @@
     "build:dev": "tsc -b && vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "smoke:phase88": "node scripts/phase88-resume-control-smoke.mjs"
+    "smoke:phase88": "node scripts/phase88-resume-control-smoke.mjs",
+    "smoke:phase1010": "node scripts/phase1010-transition-binding-smoke.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.3",

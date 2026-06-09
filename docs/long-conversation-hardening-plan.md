@@ -4384,6 +4384,51 @@ Review conclusion:
 - It does not accept frontend consumption, React UI, packaged click smoke, or
   transition-derived lifecycle/actionability state.
 
+### Phase 10.10: Transition History Generated Binding Smoke
+
+Status: implemented.
+
+Scope:
+
+- Generate Wails bindings and verify `RunTransitionHistory` is available in the
+  generated runtime bridge output.
+- Add a small smoke script that can be rerun before any future frontend adapter
+  consumption.
+- Keep validation limited to binding availability and read-only transport
+  shape.
+
+Implementation notes:
+
+- Ran `cd desktop && wails3 task common:generate:bindings`; generated output
+  contains `RunTransitionHistory(req)` delegating through `$Call.ByID`.
+- Added `client/scripts/phase1010-transition-binding-smoke.mjs`.
+- Added `npm run smoke:phase1010`.
+- The smoke verifies:
+  - generated `runtimebridge.js` exports `RunTransitionHistory(req)`;
+  - generated bridge delegates through `$Call.ByID`;
+  - `client/src/runtime/wailsWorkbenchAdapter.ts` does not consume
+    `RunTransitionHistory`;
+  - `client/src/runtime/workbenchTypes.ts` does not expose
+    `RunTransitionHistory`.
+- Generated binding files are not tracked in this repository state, so the
+  committed guard is the rerunnable smoke script and package command.
+
+Validation:
+
+- `cd desktop && wails3 task common:generate:bindings` passed.
+- `cd client && npm run smoke:phase1010` passed.
+- `cd client && npm run build` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 10.10 validates generated Wails binding availability for
+  `RunTransitionHistory`.
+- No frontend adapter consumption, React state, UI, packaged click smoke,
+  scheduler, automatic resume, or transition-derived actionability was added.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -4431,7 +4476,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 10.10: Transition History Generated Binding Smoke. Keep it
-limited to generating Wails bindings and a small smoke script that verifies the
-generated `RunTransitionHistory` export; do not add frontend adapter
-consumption or React UI.
+Review and accept Phase 10.10. The next gate should decide whether there is a
+real frontend diagnostic use case for consuming transition history, or whether
+transition history should remain transport-only audit evidence for now.

@@ -971,3 +971,18 @@ Frontend boundary:
   exists.
 - Binding availability does not make transition history a lifecycle or
   actionability source.
+
+## 2026-06-09: Phase 10.10 Transition History Binding Smoke
+
+Phase 10.10 adds a rerunnable generated-binding smoke for transition history.
+
+Frontend boundary:
+
+- `npm run smoke:phase1010` verifies the generated Wails bridge exports
+  `RunTransitionHistory(req)`.
+- The smoke also verifies the client runtime adapter and workbench types do not
+  consume or expose `RunTransitionHistory`.
+- No React state, UI, packaged click smoke, or frontend adapter consumption is
+  added.
+- Existing Run detail, RunProjection, and SessionActivity remain the frontend
+  lifecycle/actionability sources.
