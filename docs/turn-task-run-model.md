@@ -714,6 +714,23 @@ Next boundary:
   actionability, and artifact evidence boundaries must be defined before
   executable task scheduling is added.
 
+### Phase 17 Gate: Task Scheduling Ownership
+
+Phase 17 defines task scheduling ownership without implementing task execution.
+
+Accepted model:
+
+- A task requires parent Run/session/turn ownership before it can become
+  executable scheduler work.
+- Existing `runtime_agent_tasks`, task messages, task results, and completed
+  task/tool refs remain structured evidence.
+- Task plan items must preserve allowed tools, capability scope, worktree/cwd,
+  role, provider/model, and parent tool-call linkage.
+- Task cancellation and recovery remain owned by current task stores and
+  runtime recovery until a later implementation gate.
+- Task lifecycle or artifact evidence must not be inferred from transition
+  history, event payloads, assistant prose, or React state.
+
 ## API 影响
 
 最小 API：

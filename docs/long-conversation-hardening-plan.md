@@ -6111,6 +6111,87 @@ Review conclusion:
   frontend Run management UI, transition-derived actionability, React-owned
   lifecycle state, or database migration.
 
+### Phase 17: Task Scheduling Ownership Design Gate
+
+Status: accepted as a design gate only.
+
+Scope:
+
+- Define how future task scheduling relates to Runs, foreground user turns,
+  existing agent task stores, cancellation, diagnostics, artifact evidence, and
+  permission/MCP actionability.
+- Preserve existing agent task recorder/store behavior until a later accepted
+  implementation phase.
+- Keep task scheduling execution out of this gate.
+
+Accepted ownership model:
+
+- A task must be owned by a parent Run and parent turn before it can become
+  executable scheduler work.
+- A task may have a child session, worktree, role, model/provider, allowed tool
+  scope, capability scope, and parent tool-call link.
+- `runtime_agent_tasks`, task messages, task results, and completed tool/task
+  artifact refs remain the structured evidence sources.
+- Run task transition audit may record ordering and diagnostics after task
+  evidence exists, but it cannot become task lifecycle or actionability truth.
+- `CancelAgentTask(...)` remains the cancellation entry point until a later
+  scheduler-owned cancellation implementation is accepted.
+- Startup recovery remains responsible for terminalizing stale queued/running
+  task evidence before any scheduler replay.
+
+Required future task scheduler plan rules:
+
+- Task plan items must require parent Run/session/turn ownership evidence.
+- Task plan items must remain non-executable if the parent turn is missing,
+  terminal in an incompatible state, or not linked to the Run.
+- Task plan items must preserve existing task scope controls:
+  allowed tools, capability scope, worktree/cwd, role, provider/model, and
+  parent tool-call association.
+- Task plan execution must not restore stale permission requests, MCP auth
+  requests, or MCP elicitation requests as actionable.
+- Task completion may contribute produced refs only through completed task/tool
+  structured output.
+- Partial, interrupted, failed, cancelled, or disconnected task evidence must
+  not create artifact evidence unless structured completed output already
+  exists.
+
+Out of scope:
+
+- Implementing task scheduler execution.
+- Automatic resume.
+- Unattended background scheduler queue, poller, or worker loop.
+- Frontend Run management UI.
+- Scheduler-owned permission/MCP/checkpoint/artifact actionability.
+- Database migration.
+- Transition-derived lifecycle/actionability.
+- Assistant-prose-derived lifecycle/checkpoint/artifact inference.
+
+Implementation entry criteria for Phase 17.1:
+
+- Add read-only task scheduler plan/preflight coverage only, or another focused
+  backend contract test if a gap is found.
+- Prove task plan items cannot become executable without parent
+  Run/session/turn ownership.
+- Prove task plan items preserve task scope and do not widen allowed tools,
+  capability scope, worktree, cwd, provider/model, or role.
+- Prove cancellation/recovery semantics remain owned by existing task stores
+  and runtime recovery until a later implementation gate.
+
+Validation:
+
+- Design review only.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 17 accepts task scheduling ownership boundaries, not task scheduler
+  execution.
+- The next safe task is Phase 17.1: Task Scheduler Plan/Preflight Contract.
+- Phase 17.1 must stay read-only or test-only. It must not implement task
+  execution scheduling, automatic resume, unattended background execution,
+  frontend Run management UI, transition-derived actionability, React-owned
+  lifecycle state, or database migration.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6158,10 +6239,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 17: Task Scheduling Ownership Design Gate. Define how future
-task scheduling should relate to Runs, foreground user turns, agent task
-stores, cancellation, diagnostics, and permission/MCP actionability before any
-task scheduler execution is implemented. Do not add automatic resume,
-unattended background execution, frontend Run management UI, transition-derived
-actionability, React-owned lifecycle state, task execution scheduling, or
-database migration.
+Implement Phase 17.1: Task Scheduler Plan/Preflight Contract. Add read-only
+task scheduler planning/preflight contracts or focused backend coverage proving
+task items cannot become executable without parent Run/session/turn ownership
+and task scope preservation. Do not implement task execution scheduling,
+automatic resume, unattended background execution, frontend Run management UI,
+transition-derived actionability, React-owned lifecycle state, or database
+migration.

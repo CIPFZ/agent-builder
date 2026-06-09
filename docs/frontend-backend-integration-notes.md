@@ -1453,3 +1453,23 @@ Phase 16.1 result:
   accepted.
 - Task scheduling ownership remains unimplemented and requires a separate
   design gate.
+
+## 2026-06-09: Phase 17 Task Scheduling Ownership Design Gate
+
+Phase 17 defines backend task scheduling ownership only.
+
+Frontend boundary:
+
+- No task scheduler execution, scheduler transport, or Run management UI is
+  added.
+- Existing task views/actions remain backed by task DTO refreshes.
+- Events remain refresh triggers only and must not hydrate task lifecycle,
+  permission/MCP actionability, artifact evidence, or Run status.
+
+Phase 17 result:
+
+- Future task plan items must require parent Run/session/turn ownership.
+- Task scope fields such as allowed tools, capability scope, worktree/cwd,
+  role, provider/model, and parent tool-call link must be preserved.
+- Task completion may contribute artifact refs only through completed structured
+  task/tool output.
