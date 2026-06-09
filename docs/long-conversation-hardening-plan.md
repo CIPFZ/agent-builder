@@ -3380,7 +3380,7 @@ Review conclusion:
 
 ### Phase 8.9: Packaged Resume Click Smoke And Phase 8 Acceptance
 
-Status: next validation phase.
+Status: accepted with a packaged click fixture gap.
 
 Scope:
 
@@ -3401,6 +3401,76 @@ Out of scope:
 - Full frontend Run management UI.
 - Batch checkpoint actions.
 - Hosted provider secrets or browser auth automation.
+
+Validation:
+
+- `cd desktop && go test . -run
+  "TestRuntimeBridgePhase62PackagedHandoffRecoveryContract|TestRuntimeBridgeActionMethods"
+  -count=1` passed.
+- `cd desktop && .\scripts\phase62-wails-packaged-smoke.ps1` passed and
+  started the packaged app with a runtime root under `tmp/runtime-dev`.
+- Phase 8.8 already verified generated Wails bindings expose
+  `ResumeRunCheckpoint` and the frontend contract smoke passes.
+
+Manual packaged click gap:
+
+- A true WebView click smoke still needs a deterministic runtime fixture that
+  opens the packaged app on a session with an eligible checkpoint visible in
+  the Run projection panel.
+- The manual smoke checklist for that fixture is:
+  1. Start packaged app with `AGENT_BUILDER_DESKTOP_ROOT` under
+     `tmp/runtime-dev`.
+  2. Open a fixture session whose runtime projection includes exactly one
+     `resumeEligible=true` checkpoint.
+  3. Verify one `run-checkpoint-resume` control is visible.
+  4. Click the control and verify `ResumeRunCheckpoint(runID, checkpointID)` is
+     invoked through Wails.
+  5. Verify the UI refreshes from runtime Run projection/session activity APIs.
+  6. Verify a failed resume clears pending UI state and does not locally mark
+     the checkpoint resumed.
+- No hosted provider credentials were used and no secrets/auth state were
+  written to repo files, logs, screenshots, docs, or React state.
+
+Review conclusion:
+
+- Phase 8 is accepted as the narrow explicit checkpoint resume rollout through
+  runtime DTOs and explicit user action.
+- Remaining risk is validation infrastructure, not missing product behavior:
+  the packaged WebView click path needs a deterministic eligible-checkpoint
+  fixture before it can be automated.
+- No automatic resume, background scheduler, full Run state machine, expanded
+  runtime Run store, batch actions, frontend Run management UI, event-payload
+  hydration, or assistant-prose inference was introduced.
+
+### Phase 9: Runtime Run Execution Cutover Design Gate
+
+Status: next design gate.
+
+Purpose:
+
+- Decide whether the validated read-only Run projection plus explicit
+  checkpoint actions are ready to become a runtime execution source of truth.
+- Map the next implementation against the Claude Code runtime lessons already
+  captured in Phase 7, rather than inventing a new scheduler model from scratch.
+- Define the minimum durable Run lifecycle needed before any replacement of
+  session-first execution.
+
+Scope:
+
+- Design the first write-capable Run execution contract and its invariants.
+- Identify which state transitions must be persisted, which remain computed,
+  and which are still explicitly out of scope.
+- Define migration/test gates before introducing any runtime Run store expansion
+  or scheduler behavior.
+
+Out of scope until this gate is accepted:
+
+- Implementing a full Run state machine.
+- Writing new database migrations.
+- Implementing automatic resume.
+- Implementing a background scheduler.
+- Building a frontend Run management UI.
+- Replacing SessionActivity as fallback/parity oracle.
 
 ## Validation Scenarios
 
@@ -3449,7 +3519,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 8.9: Packaged Resume Click Smoke And Phase 8 Acceptance. Keep
-it limited to packaged/browser validation and acceptance. Do not implement
-automatic resume, background Run scheduling, full Run state machine, or expanded
-frontend Run management UI.
+Implement Phase 9: Runtime Run Execution Cutover Design Gate. Keep it as a
+design gate for the first write-capable Run execution contract; do not implement
+automatic resume, background Run scheduling, full Run state machine, database
+migrations, or expanded frontend Run management UI until the gate is accepted.

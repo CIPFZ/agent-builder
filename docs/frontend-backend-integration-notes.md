@@ -773,3 +773,11 @@ Phase 8.8 validation note:
   `ResumeRunCheckpoint`.
 - This is a contract and bridge smoke. It does not replace a packaged WebView
   click smoke for the Ant Design button and runtime DTO refresh path.
+
+Phase 8.9 validation note:
+
+- Focused desktop bridge tests and the existing packaged startup smoke passed.
+- The packaged click path still needs a deterministic eligible-checkpoint
+  fixture before it can be automated through WebView. Until that fixture exists,
+  runtime DTO refresh and Wails binding availability remain covered by
+  contract/bridge smoke rather than a clicked packaged UI flow.
