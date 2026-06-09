@@ -274,6 +274,7 @@ func TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability(t *test
 	service.permissionStore = newRuntimePermissionStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
 	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
+	service.transitions = newRuntimeRunTransitionStore(conn)
 
 	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "run-envelope-restart")
 	if err != nil {
@@ -373,6 +374,20 @@ func TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability(t *test
 	if len(cancelledMCP) != 1 || cancelledMCP[0].Status != mcpRequestStatusCancelled {
 		t.Fatalf("cancelled mcp = %#v", cancelledMCP)
 	}
+	if !runtimeRunSessionLinkedToTurn(context.Background(), service.runs, run.ID, sess.ID, "turn-run-envelope") {
+		t.Fatalf("startup recovery broke run turn link: run=%s turn=%s", run.ID, "turn-run-envelope")
+	}
+	service.recordRunTurnTransition(context.Background(), runtimeRunTransitionSourceStartupRecovery, interrupted[0], "", runtimeRunStatusInterrupted, "runtime startup recovery interrupted unfinished turn")
+	transitions, err := service.transitions.ListByRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(transitions) != 1 || transitions[0].Source != runtimeRunTransitionSourceStartupRecovery || transitions[0].TurnID != interrupted[0].ID || transitions[0].ToStatus != runtimeRunStatusInterrupted {
+		t.Fatalf("startup recovery transition = %#v", transitions)
+	}
+	if transitions[0].CreatedAt != interrupted[0].FinishedAt {
+		t.Fatalf("startup recovery transition was not recorded from terminal turn evidence: transition=%#v turn=%#v", transitions[0], interrupted[0])
+	}
 
 	projection, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sess.ID})
 	if err != nil {
@@ -383,6 +398,13 @@ func TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability(t *test
 	}
 	if projection.Run.Diagnostics.TerminalPermissionCounts.Pending != 0 {
 		t.Fatalf("run projection restored pending permission actionability: %#v", projection.Run.Diagnostics.TerminalPermissionCounts)
+	}
+	detail, err := service.Run(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Run.Status != runtimeRunStatusInterrupted || detail.Projection.Status != runtimeRunStatusInterrupted {
+		t.Fatalf("run detail after startup recovery = run=%#v projection=%#v", detail.Run, detail.Projection)
 	}
 	activity, err := service.SessionActivity(context.Background(), sess.ID)
 	if err != nil {

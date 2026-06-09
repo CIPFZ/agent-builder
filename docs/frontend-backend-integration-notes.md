@@ -1175,3 +1175,10 @@ Frontend boundary:
   elicitation actionability from events, transition rows, or React state.
 - No frontend Run management UI, scheduler behavior, automatic resume, or
   transition-derived actionability is accepted.
+
+Phase 12.3 result:
+
+- Backend recovery coverage proves Run links survive startup-style recovery,
+  stale tool/permission/MCP actionability is terminalized, and recovery
+  transition audit is recorded from terminal evidence.
+- No frontend behavior changes were added.

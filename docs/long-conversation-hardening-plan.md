@@ -5133,7 +5133,7 @@ Review conclusion:
 
 ### Phase 12.3: Run Startup Recovery Ownership Contract Coverage
 
-Status: next implementation.
+Status: implemented.
 
 Scope:
 
@@ -5160,6 +5160,38 @@ Validation required:
 - `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
   -count=1`.
 - `git diff --check`.
+
+Implementation notes:
+
+- Extended `TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability`
+  with Run startup recovery ownership assertions.
+- The test now wires `runtime_run_transitions`, preserves the
+  `runtime_run_sessions` turn link across startup-style interruption, records a
+  `startup_recovery` transition only after the interrupted turn has terminal
+  evidence, and verifies persisted Run detail/projection reconcile to
+  `interrupted`.
+- The same fixture continues to prove unfinished tool calls are cancelled,
+  pending permissions are expired, and stale MCP auth requests are cancelled
+  rather than restored as actionable.
+- No runtime code change was needed.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability"
+  -count=1` passed.
+
+Review conclusion:
+
+- Startup recovery ownership is covered at the existing recovery contract
+  boundary.
+- Recovery preserves Run ownership links, terminalizes stale evidence before
+  transition audit, and keeps stale permission/MCP/tool actionability from
+  being restored.
+- No migration, scheduler implementation, automatic resume, background Run
+  execution, frontend Run management UI, transition-derived actionability,
+  React-owned lifecycle state, or prose-derived lifecycle/checkpoint/artifact
+  inference was introduced.
 
 ## Validation Scenarios
 
@@ -5208,7 +5240,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 12.3: Run Startup Recovery Ownership Contract Coverage. Keep it
-test-first and narrow; do not add migrations, scheduler implementation,
-automatic resume, frontend Run management UI, background Run execution,
-transition-derived actionability, or React-owned lifecycle state.
+Review and accept Phase 12.3 after package-level validation. Then decide the
+next separately approved boundary; do not add migrations, scheduler
+implementation, automatic resume, frontend Run management UI, background Run
+execution, transition-derived actionability, or React-owned lifecycle state
+without a new gate.
