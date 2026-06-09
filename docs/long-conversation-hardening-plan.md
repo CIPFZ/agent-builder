@@ -4285,7 +4285,7 @@ Review conclusion:
 
 ### Phase 10.8: Transition History Read-only Transport Exposure
 
-Status: implemented.
+Status: accepted.
 
 Scope:
 
@@ -4330,6 +4330,25 @@ Review conclusion:
   separate accepted validation or UI phase.
 - Existing Run detail, RunProjection, and SessionActivity remain the source of
   lifecycle and actionability state.
+- Phase 10.8 is accepted as read-only transport exposure only.
+
+### Phase 10.9: Transition History Generated Binding Validation Gate
+
+Status: next design gate.
+
+Scope:
+
+- Decide whether generated Wails binding validation is required before any
+  frontend adapter consumes `RunTransitionHistory`.
+- Define a minimal generated/packaged smoke strategy if validation is required.
+- Keep validation focused on binding availability and read-only DTO shape.
+
+Out of scope:
+
+- Frontend adapter consumption.
+- React state or UI.
+- Scheduler, automatic resume, Run management UI, or transition-derived
+  actionability.
 
 ## Validation Scenarios
 
@@ -4378,6 +4397,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept Phase 10.8 before frontend consumption or generated binding
-smoke. The next gate should decide whether a packaged/generated binding
-validation is needed before any React adapter use.
+Implement Phase 10.9: Transition History Generated Binding Validation Gate.
+Keep it as a design gate only; do not add frontend consumption, React UI, or
+generated binding smoke until the gate is accepted.
