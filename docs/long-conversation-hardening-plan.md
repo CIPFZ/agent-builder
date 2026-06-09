@@ -3672,7 +3672,7 @@ Remaining risks:
 
 ### Phase 10: Run Lifecycle State Machine And Scheduler Design Gate
 
-Status: next design gate.
+Status: accepted as a design gate only.
 
 Purpose:
 
@@ -3699,6 +3699,93 @@ Out of scope:
 - Writing database migrations.
 - Implementing automatic resume.
 - Implementing a background scheduler.
+- Implementing frontend Run management UI.
+
+Candidate lifecycle vocabulary:
+
+- `created`: durable Run envelope exists but no turn has been linked yet.
+- `active`: at least one linked turn is queued/running/cancelling.
+- `waiting_user`: linked evidence has a current runtime-owned permission/MCP
+  gate that is actionable in the current runtime stores.
+- `interrupted`: linked evidence contains an interrupted turn/task and no
+  current actionable gate should be restored automatically.
+- `completed`: linked evidence is terminal and successful.
+- `failed`: linked evidence is terminal with failure.
+- `cancelled`: linked evidence is terminal by explicit cancellation or
+  interrupted acknowledgement.
+
+Transition rules:
+
+- `created -> active` happens only when a turn is durably linked after the turn
+  row exists.
+- `active -> waiting_user` is computed from current runtime stores, not from
+  persisted event payloads.
+- `active/waiting_user -> interrupted` happens during restart recovery or
+  explicit interruption semantics.
+- `active/waiting_user -> completed|failed|cancelled` happens only after
+  structured turn/task evidence is terminal.
+- `interrupted -> active` can happen only through an explicit user-triggered
+  checkpoint resume that creates a new turn. It must not replay tool calls or
+  revive stale actionability.
+
+Scheduler boundary:
+
+- Session-first turn execution remains the runtime execution path until a later
+  accepted phase proves a Run-first scheduler.
+- A scheduler may eventually use the Run envelope for ownership, grouping, and
+  cancellation scope, but it must not own permission/MCP actionability without
+  current runtime-store confirmation.
+- Runtime events may trigger `RunProjection`, `Run`, `TurnActivity`, or
+  `SessionActivity` refreshes. Event payloads remain non-authoritative.
+
+Migration decision:
+
+- A migration is justified only when the next implementation needs first-class
+  transition history or multi-turn Run ownership that cannot be represented by
+  existing `runtime_runs`, `runtime_run_sessions`, and
+  `runtime_run_checkpoints`.
+- Before any migration, tests must prove backfill idempotency, replay safety,
+  and parity with `SessionActivity` for messages, tool calls, permissions,
+  diagnostics, artifact evidence, interrupted summaries, terminal MCP
+  semantics, and checkpoint actions.
+
+Acceptance tests required before implementation:
+
+- Start, finish, cancel, fail, and restart a linked Run without stale
+  tool/permission/MCP actionability.
+- Resume an interrupted checkpoint as an explicit new turn and prove the
+  original checkpoint evidence is unchanged.
+- Backfill legacy sessions into Runs idempotently without changing user-created
+  Run ids.
+- Keep frontend state derived from runtime DTO refreshes only.
+
+Review conclusion:
+
+- Phase 10 accepts the vocabulary and boundaries for a future state-machine
+  implementation.
+- The next phase may design a migration and transition-history contract, but it
+  must still be a gate before code changes.
+- No state machine, migration, automatic resume, background scheduler, or
+  frontend Run management UI is implemented in Phase 10.
+
+### Phase 10.1: Run Transition History Migration Design Gate
+
+Status: next design gate.
+
+Scope:
+
+- Decide whether to add a transition-history table or extend existing Run
+  metadata for first-class lifecycle audit.
+- Specify idempotent backfill behavior for existing Phase 8/9 Runs.
+- Define exact migration rollback and replay tests.
+- Keep `SessionActivity` as fallback/parity oracle.
+
+Out of scope:
+
+- Writing the migration.
+- Implementing the state machine.
+- Implementing a scheduler.
+- Implementing automatic resume.
 - Implementing frontend Run management UI.
 
 ## Validation Scenarios
@@ -3748,7 +3835,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 10: Run Lifecycle State Machine And Scheduler Design Gate. Keep
-it as a design gate only; do not implement automatic resume, background Run
-scheduling, full Run state machine, database migrations, or expanded frontend
-Run management UI until the gate is accepted.
+Implement Phase 10.1: Run Transition History Migration Design Gate. Keep it as
+a design gate only; do not write migrations, implement a scheduler, implement
+automatic resume, or add frontend Run management UI.

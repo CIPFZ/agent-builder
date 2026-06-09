@@ -833,3 +833,16 @@ Frontend boundary:
 - The frontend keeps reading Run projection DTOs and session activity.
 - Future Run lifecycle or scheduler work requires a separate design gate before
   any UI state or transport contract changes.
+
+## 2026-06-09: Phase 10 Run Lifecycle Design Gate
+
+Phase 10 accepts lifecycle vocabulary and scheduler boundaries only.
+
+Frontend boundary:
+
+- No frontend Run management UI is added.
+- Lifecycle state must come from runtime DTO refreshes.
+- Waiting/actionable state must still come from current permission/MCP runtime
+  stores, never from cached Run state or event payloads.
+- Any future transport changes for lifecycle history require a separate
+  migration/contract gate.
