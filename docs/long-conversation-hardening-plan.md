@@ -5881,6 +5881,62 @@ Review conclusion:
   transition-derived actionability, React-owned lifecycle state, task execution
   scheduling, or database migration.
 
+### Phase 15.1: Foreground User-turn Scheduler Delegate
+
+Status: accepted.
+
+Scope:
+
+- Add internal execution wiring around the existing `Chat` turn-start path.
+- Require scheduler plan/preflight success before `turn_started` transition
+  audit and before delegating to `runChat(...)`.
+- Keep `Chat(ctx, RuntimeChatRequest)` as the public user-triggered entry point.
+
+Implementation notes:
+
+- Added `runtimeRunSchedulerDelegateUserTurn(...)`.
+- Added `failRuntimeRunScheduledTurn(...)`.
+- `Chat` now links Run/session/turn, builds the internal scheduler plan for the
+  queued turn, requires `CanSchedule=true`, and only then records
+  `turn_started` transition audit.
+- If the delegate rejects the turn, the queued turn is marked `failed`, a
+  `turn.failed` refresh event is recorded, and `runChat(...)` is not started.
+- Rejection also marks the in-memory request state finished/failed so status
+  reads do not resurrect a stale busy turn.
+- The successful path still delegates to the existing `runChat(...)` execution
+  function. No new queue, poller, or background worker loop was added.
+
+Rejected behavior:
+
+- No automatic resume.
+- No unattended background scheduler queue, poller, or worker loop.
+- No scheduler-owned permission/MCP/checkpoint/artifact actionability.
+- No task scheduling execution.
+- No HTTP/Wails bridge route, generated binding, adapter, or frontend Run UI.
+- No database migration.
+- No assistant-prose-derived lifecycle/checkpoint/artifact inference.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunScheduler(Delegate|Plan|Preflight)|TestRuntimeRunTransitionWriterRequiresRunTurnLinkBeforeStartedTransition"
+  -count=1` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 15.1 introduces the first real scheduler execution boundary, but only
+  as a foreground delegate for user-triggered `Chat`.
+- Successful turns must pass the internal plan/preflight gate before
+  `turn_started` transition audit and `runChat(...)`.
+- Failed preflight terminalizes the queued turn and does not start execution.
+- Failed preflight also terminalizes the in-memory request state.
+- Runtime truth remains in existing stores and DTO refreshes; events,
+  transition history, assistant prose, and React state were not promoted to
+  lifecycle or actionability sources.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -5928,10 +5984,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 15.1: Foreground User-turn Scheduler Delegate. Add internal
-execution wiring around the existing `Chat` turn-start path so successful plan
-preflight delegates to `runChat(...)`, while failed preflight terminalizes the
-queued turn without starting execution. Do not add automatic resume, unattended
-background execution, frontend Run management UI, transition-derived
-actionability, React-owned lifecycle state, task execution scheduling, or
-database migration.
+Implement Phase 15.2: Foreground Scheduler Delegate Acceptance Gate. Review the
+new delegate before extending scheduler ownership. Decide whether the next safe
+boundary is checkpoint-resume delegate hardening, task scheduling design, or
+transport/read exposure. Do not add automatic resume, unattended background
+execution, frontend Run management UI, transition-derived actionability,
+React-owned lifecycle state, task execution scheduling, or database migration.

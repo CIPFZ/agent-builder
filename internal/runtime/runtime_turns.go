@@ -112,6 +112,14 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		if _, err := r.runs.LinkTurn(ctx, run.ID, sessionID, requestID, start.UnixMilli()); err != nil {
 			slog.Warn("Failed to link runtime run turn", "run_id", run.ID, "session_id", sessionID, "turn_id", requestID, "error", err)
 		} else {
+			if _, err := r.runtimeRunSchedulerDelegateUserTurn(ctx, run, startedTurn); err != nil {
+				failed, failErr := r.failRuntimeRunScheduledTurn(ctx, startedTurn, err.Error())
+				if failErr != nil {
+					return RuntimeChatResponse{}, failErr
+				}
+				r.storeRuntimeEvent(newTurnFinishedRuntimeEvent(time.Now(), failed.ID, failed.SessionID, "failed", 0, failed.Provider, failed.Model, RuntimeUsage{}, failed.Error))
+				return RuntimeChatResponse{}, err
+			}
 			r.recordRunTurnTransition(ctx, runtimeRunTransitionSourceTurnStarted, startedTurn, "", runtimeRunStatusActive, "turn started")
 		}
 	}

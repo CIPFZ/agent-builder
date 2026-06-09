@@ -654,6 +654,22 @@ Rejected behavior:
 - Frontend Run management UI.
 - Transition/event/React-derived lifecycle truth.
 
+### Phase 15.1 Gate: Foreground Scheduler Delegate
+
+Phase 15.1 wires the designed foreground delegate into `Chat`.
+
+Accepted implementation:
+
+- `Chat` remains the public user-triggered entry point.
+- Runtime links Run/session/turn before scheduler plan/preflight.
+- `turn_started` transition audit is recorded only after plan/preflight accepts
+  the queued turn.
+- Accepted turns still delegate to existing `runChat`.
+- Rejected turns are marked `failed` before execution starts.
+- Rejected turns also mark the in-memory request state finished/failed.
+- No queue, poller, automatic resume, task scheduler execution, or frontend Run
+  management UI is added.
+
 ## API 影响
 
 最小 API：

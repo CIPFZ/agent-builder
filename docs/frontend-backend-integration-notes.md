@@ -1375,3 +1375,25 @@ Phase 15 result:
   to `runChat`.
 - Failed preflight must terminalize the queued turn and must not start
   execution or resurrect stale actionability.
+
+## 2026-06-09: Phase 15.1 Foreground User-turn Scheduler Delegate
+
+Phase 15.1 implements the first scheduler execution boundary internally.
+
+Frontend boundary:
+
+- The public frontend action remains `Chat`.
+- No scheduler transport, generated binding, adapter method, or Run management
+  UI is added.
+- The new `turn.failed` event from preflight rejection remains a refresh
+  trigger only; frontend state still comes from refreshed DTOs.
+
+Phase 15.1 result:
+
+- Backend `Chat` now requires the internal scheduler plan/preflight before
+  `turn_started` transition audit and before `runChat` starts.
+- Failed preflight terminalizes the queued turn and does not start execution.
+- Failed preflight also terminalizes in-memory request state so status refreshes
+  do not show stale busy work.
+- No automatic resume, unattended background execution, or frontend scheduler
+  state was introduced.
