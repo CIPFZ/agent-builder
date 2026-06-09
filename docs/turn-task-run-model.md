@@ -539,6 +539,26 @@ Phase 13 does not add a migration, background scheduler, automatic resume,
 frontend Run UI, transition-derived lifecycle/actionability, React-owned Run
 state, or prose-derived artifact/checkpoint/lifecycle inference.
 
+### Phase 13.1 Gate: Scheduler Preflight Contract
+
+Phase 13.1 adds an internal read-only scheduler preflight contract. It is not a
+scheduler worker and it is not exposed as a frontend capability.
+
+The preflight can return `canSchedule=true` only when all durable ownership
+evidence is present:
+
+- The turn exists in `runtime_turns`.
+- The request session matches the turn session.
+- The Run exists in `runtime_runs`.
+- The Run contains the session in `runtime_run_sessions`.
+- The Run/session link points at the same turn.
+- The turn is not terminal.
+
+The preflight reads `runtime_runs`, `runtime_run_sessions`, and `runtime_turns`
+only. It does not decide permission, MCP auth, MCP elicitation, checkpoint,
+artifact, interrupted, timeline, diagnostics, or lifecycle truth. It does not
+start a worker, resume work, write transitions, or emit frontend state.
+
 ## API 影响
 
 最小 API：

@@ -5417,6 +5417,62 @@ Review conclusion:
   execution, frontend Run management UI, transition-derived actionability,
   React-owned lifecycle state, or prose-derived state was introduced.
 
+### Phase 13.1: Scheduler-facing Contract Preflight
+
+Status: accepted.
+
+Scope:
+
+- Add the smallest scheduler-facing preflight contract needed before any
+  scheduler worker exists.
+- Prove future scheduler-created work cannot be considered executable unless
+  durable Run/session/turn ownership evidence exists.
+- Keep the preflight read-only and internal; it must not expose scheduler
+  actions through HTTP, Wails, or React.
+
+Implementation notes:
+
+- Added `RuntimeRunSchedulerPreflightRequest`,
+  `RuntimeRunSchedulerPreflightResponse`, and
+  `RuntimeRunSchedulerPreflightSource`.
+- Added internal `runtimeRunSchedulerPreflight(...)`.
+- The preflight reads only `runtime_runs`, `runtime_run_sessions`, and
+  `runtime_turns`.
+- `CanSchedule` is true only when:
+  - the turn exists;
+  - the session id matches the turn;
+  - the Run exists;
+  - the Run contains the session;
+  - the Run/session link points at the same turn; and
+  - the turn is not terminal.
+- The preflight source is explicitly read-only and reports
+  `StartsWorker=false`.
+
+Rejected behavior:
+
+- No scheduler worker or background execution loop.
+- No automatic resume.
+- No HTTP/Wails bridge route or frontend Run management UI.
+- No transition-derived lifecycle/actionability.
+- No permission/MCP/checkpoint/artifact actionability decision.
+- No database migration.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunSchedulerPreflight|TestRuntimeRunTransitionWriterRequiresRunTurnLinkBeforeStartedTransition|TestRuntimeRunTransitionWriterRequiresResumedTurnBeforeCheckpointResume"
+  -count=1` passed.
+
+Review conclusion:
+
+- Phase 13.1 creates a future scheduler entry contract without making the
+  scheduler executable.
+- Scheduler readiness now has a concrete read-only preflight gate tied to
+  durable Run/session/turn evidence.
+- Runtime truth remains in existing stores and DTO refreshes; events,
+  transition history, assistant prose, and React state were not promoted to
+  lifecycle or actionability sources.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -5464,9 +5520,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 13.1: Scheduler-facing Contract Preflight. Keep it as a narrow
-contract phase only; prove the minimum scheduler-facing DTO/API or store
-preflight boundaries needed before any scheduler worker exists. Do not add
+Implement Phase 13.2: Scheduler Preflight Acceptance And Integration Gate. Keep
+it as a gate/review phase only unless a focused contract test is needed; decide
+whether the internal preflight is sufficient for a later scheduler implementation
+or whether another read-only contract boundary is required. Do not add
 migrations, scheduler implementation, automatic resume, frontend Run management
 UI, background Run execution, transition-derived actionability, or React-owned
 lifecycle state.

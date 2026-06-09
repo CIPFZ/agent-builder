@@ -230,6 +230,28 @@ type RuntimeRunTransitionHistoryResponse struct {
 	Source      RuntimeRunTransitionHistorySource `json:"source"`
 }
 
+type RuntimeRunSchedulerPreflightRequest struct {
+	RunID     string `json:"runId,omitempty"`
+	SessionID string `json:"sessionId,omitempty"`
+	TurnID    string `json:"turnId"`
+}
+
+type RuntimeRunSchedulerPreflightResponse struct {
+	CanSchedule bool                               `json:"canSchedule"`
+	Reason      string                             `json:"reason,omitempty"`
+	RunID       string                             `json:"runId,omitempty"`
+	SessionID   string                             `json:"sessionId,omitempty"`
+	TurnID      string                             `json:"turnId,omitempty"`
+	Source      RuntimeRunSchedulerPreflightSource `json:"source"`
+}
+
+type RuntimeRunSchedulerPreflightSource struct {
+	Kind         string   `json:"kind"`
+	ReadOnly     bool     `json:"readOnly"`
+	StartsWorker bool     `json:"startsWorker"`
+	Evidence     []string `json:"evidence,omitempty"`
+}
+
 type RuntimeRunTransitionHistorySource struct {
 	Kind                  string   `json:"kind"`
 	ReadOnly              bool     `json:"readOnly"`

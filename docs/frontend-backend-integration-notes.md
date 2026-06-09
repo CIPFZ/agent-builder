@@ -1248,3 +1248,24 @@ Phase 13 result:
   durable Run/session/turn evidence exists.
 - Frontend work remains read/refresh only until a later accepted scheduler
   implementation phase defines concrete DTOs and user actions.
+
+## 2026-06-09: Phase 13.1 Scheduler-facing Contract Preflight
+
+Phase 13.1 adds an internal scheduler preflight contract only.
+
+Frontend boundary:
+
+- The preflight is not exposed through HTTP, Wails, or React.
+- Frontend behavior remains unchanged: events can trigger DTO refreshes only.
+- The frontend must not synthesize scheduler readiness, lifecycle,
+  permission/MCP actionability, checkpoint state, artifact evidence, or
+  interrupted recovery from event payloads, transition rows, or React state.
+
+Phase 13.1 result:
+
+- The backend now has a read-only internal preflight DTO proving whether a
+  future scheduler may consider a turn executable.
+- `CanSchedule` requires durable Run/session/turn evidence and a non-terminal
+  turn.
+- No frontend Run management UI, scheduler behavior, automatic resume, or
+  transition-derived actionability was introduced.
