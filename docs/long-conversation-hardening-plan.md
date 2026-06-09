@@ -4511,6 +4511,69 @@ Review conclusion:
 - No frontend adapter consumption, React state, UI, scheduler, automatic resume,
   Run management UI, or transition-derived actionability is accepted.
 
+### Phase 10.12: Transition History Phase Acceptance And Next Boundary Gate
+
+Status: accepted as a design gate only.
+
+Scope:
+
+- Review Phase 10 as a whole after transition-history storage, runtime wiring,
+  read-only DTO, transport exposure, generated binding validation, and frontend
+  non-consumption have all been accepted.
+- Decide what implementation boundary is safe next.
+- Keep transition history from becoming lifecycle or actionability authority
+  by accident.
+
+Accepted Phase 10 closure:
+
+- `runtime_run_transitions` is accepted as durable audit evidence for Run
+  lifecycle transitions.
+- Transition writes are accepted only in already-approved runtime paths:
+  turn start, turn finish, cancellation, interrupted acknowledgement, startup
+  recovery, and explicit checkpoint resume.
+- `RunTransitionHistory` is accepted as a read-only transport DTO with stable
+  cursor/window semantics.
+- Generated Wails binding availability is accepted as validation evidence.
+- Frontend transition-history consumption remains deferred.
+
+Non-authoritative boundary:
+
+- Transition history must not drive current Run status, checkpoint
+  actionability, permission actionability, MCP auth/elicitation actionability,
+  artifact evidence, diagnostics, interrupted summaries, or timeline cards.
+- Runtime events remain refresh triggers. Event payloads may select DTOs to
+  refresh but may not populate lifecycle, actionability, timeline, diagnostics,
+  artifact, checkpoint, or transition-history state.
+- `SessionActivity`, `RunProjection`, persisted Run detail, current runtime
+  permission/MCP stores, and structured checkpoint DTOs remain the source of
+  truth for user-visible behavior.
+
+Next accepted boundary:
+
+- Phase 11 should be a design gate for Run lifecycle source-of-truth cutover.
+- Phase 11 must decide whether any current lifecycle field may move from
+  computed projection toward persisted Run detail, and exactly which existing
+  runtime evidence remains authoritative.
+- Phase 11 must not implement scheduler, automatic resume, background Run
+  execution, frontend Run management UI, or transition-derived actionability.
+- Any later implementation must be scoped to one narrow source-of-truth change
+  with restart, replay, checkpoint, permission, MCP, artifact, diagnostics, and
+  `SessionActivity` parity tests.
+
+Validation:
+
+- Reviewed Phase 10.1 through Phase 10.11 records.
+- Confirmed all Phase 10 code-bearing steps already list their Go/client
+  validation commands.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 10 is accepted as the transition-history audit foundation.
+- The next task is Phase 11: Run Lifecycle Source-of-Truth Cutover Design Gate.
+- No scheduler, automatic resume, frontend Run management UI, transition-driven
+  actionability, or React-owned runtime state is accepted by Phase 10.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -4558,7 +4621,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review the Phase 10 transition-history work as a whole and decide the next
-separately approved implementation boundary. Do not implement scheduler,
-automatic resume, frontend Run management UI, or transition-derived
-actionability without a new accepted gate.
+Implement Phase 11: Run Lifecycle Source-of-Truth Cutover Design Gate. Keep it
+as a design gate only; do not implement scheduler, automatic resume, frontend
+Run management UI, background Run execution, or transition-derived
+actionability.

@@ -1004,3 +1004,19 @@ Frontend boundary:
 - Any future transition-history UI must be accepted separately as additive,
   read-only audit evidence and must fetch a full runtime DTO/window after event
   triggers instead of merging event payload fields into React state.
+
+## 2026-06-09: Phase 10.12 Transition History Phase Acceptance
+
+Phase 10.12 accepts transition history as a backend audit foundation and
+defines the next boundary as a Run lifecycle source-of-truth design gate.
+
+Frontend boundary:
+
+- Transition history remains transport-accessible audit evidence, not a
+  frontend lifecycle source.
+- The frontend still derives user-visible state from refreshed runtime DTOs:
+  RunProjection, persisted Run detail, SessionActivity, narrow activity,
+  current permission/MCP stores, and structured checkpoint DTOs.
+- The next design gate may review lifecycle source-of-truth cutover, but it
+  must not add frontend Run management UI, scheduler behavior, automatic
+  resume, background Run execution, or transition-derived actionability.
