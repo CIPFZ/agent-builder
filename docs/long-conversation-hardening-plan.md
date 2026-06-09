@@ -4157,6 +4157,49 @@ Review conclusion:
 - The DTO is not required for current frontend behavior and must not replace
   `SessionActivity`, `RunProjection`, or persisted Run detail.
 
+### Phase 10.6: Internal Read-only Transition History DTO
+
+Status: implemented.
+
+Scope:
+
+- Add internal contract types for read-only transition history.
+- Add a concrete runtime service method for internal use and tests.
+- Prove cursor/window behavior and parity boundaries without transport or UI
+  exposure.
+
+Implementation notes:
+
+- Added `RuntimeRunTransitionHistoryRequest`,
+  `RuntimeRunTransitionHistoryResponse`, and
+  `RuntimeRunTransitionHistorySource`.
+- Added concrete `runtimeService.RunTransitionHistory(...)`, intentionally not
+  added to the transport-neutral `RuntimeService` interface.
+- Added transition-history cursor semantics:
+  `v1:<created_at padded>:transition:<transition_id>`.
+- Responses include transition rows, `RuntimeActivityWindow`, and read-only
+  audit-only source metadata only.
+- No HTTP route, Wails bridge method, generated binding, React state, or UI was
+  added.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunTransitionHistory|TestRuntimeRunTransition" -count=1` passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1` passed.
+- `go test ./... -timeout 180s` passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 10.6 proves the internal transition-history DTO can be read as
+  audit/diagnostic evidence with stable cursor semantics.
+- Lifecycle, checkpoint, permission, MCP, artifact, diagnostics, interrupted,
+  and tool actionability still require existing Run/RunProjection/
+  SessionActivity refreshes.
+- Transition-history transport exposure still requires a later accepted gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -4204,6 +4247,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 10.6: Internal Read-only Transition History DTO. Start with
-contract types, an internal service method, and parity tests only. Do not expose
-HTTP/Wails/React transport until the internal boundary is proven.
+Review and accept Phase 10.6 before any transition-history transport exposure.
+The next gate should decide whether to expose `RunTransitionHistory` through
+HTTP/Wails as read-only diagnostics, or leave it internal until a frontend
+diagnostic use case exists.

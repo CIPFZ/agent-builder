@@ -913,3 +913,17 @@ Frontend boundary:
   diagnostics, and interrupted state.
 - Event payloads may choose to refresh a transition-history DTO, but may not
   merge transition rows into frontend source-of-truth state.
+
+## 2026-06-09: Phase 10.6 Internal Transition History DTO
+
+Phase 10.6 implements the read-only transition-history DTO internally only.
+
+Frontend boundary:
+
+- No HTTP route, Wails bridge method, generated binding, React state, or UI is
+  added.
+- `RunTransitionHistory` is a concrete runtime method for internal tests and is
+  not part of the transport-neutral `RuntimeService` interface.
+- Existing frontend reads remain Run detail, RunProjection, and
+  SessionActivity.
+- Transition-history transport exposure still requires a later accepted gate.

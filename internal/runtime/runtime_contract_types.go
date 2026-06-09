@@ -216,6 +216,28 @@ type RuntimeRunProjectionResponse struct {
 	Run RuntimeRunProjection `json:"run"`
 }
 
+type RuntimeRunTransitionHistoryRequest struct {
+	RunID     string `json:"runId,omitempty"`
+	SessionID string `json:"sessionId,omitempty"`
+	TurnID    string `json:"turnId,omitempty"`
+	Cursor    string `json:"cursor,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+type RuntimeRunTransitionHistoryResponse struct {
+	Transitions []RuntimeRunTransition            `json:"transitions"`
+	Window      RuntimeActivityWindow             `json:"window"`
+	Source      RuntimeRunTransitionHistorySource `json:"source"`
+}
+
+type RuntimeRunTransitionHistorySource struct {
+	Kind                  string   `json:"kind"`
+	ReadOnly              bool     `json:"readOnly"`
+	AuditOnly             bool     `json:"auditOnly"`
+	SessionActivityParity bool     `json:"sessionActivityParity"`
+	Evidence              []string `json:"evidence,omitempty"`
+}
+
 type RuntimeRunProjection struct {
 	ID                   string                     `json:"id"`
 	WorkspaceID          string                     `json:"workspaceId,omitempty"`
