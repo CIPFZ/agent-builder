@@ -1214,3 +1214,10 @@ Frontend boundary:
   transition-derived actionability is accepted.
 - Any future scheduler design must preserve runtime-owned permission/MCP and
   checkpoint actionability.
+
+Phase 12.5 result:
+
+- Phase 12 is accepted as backend Run ownership contract hardening only.
+- The next step is a Phase 13 scheduler design gate, not scheduler
+  implementation.
+- Frontend behavior remains DTO refresh only.

@@ -5269,7 +5269,7 @@ Review conclusion:
 
 ### Phase 12.5: Run Ownership Contract Acceptance And Scheduler Gate
 
-Status: next design gate.
+Status: accepted as a design gate only.
 
 Scope:
 
@@ -5297,6 +5297,40 @@ Out of scope:
 - Frontend Run management UI.
 - New database migration.
 - Transition-derived lifecycle/actionability.
+
+Accepted answers:
+
+- `turn_started` transition audit now requires an existing durable
+  Run/session/turn link.
+- Cancellation preserves Run ownership, terminalizes turn/tool evidence, and
+  records transition audit after terminal evidence.
+- Startup recovery preserves Run ownership, terminalizes stale
+  tool/permission/MCP evidence, and records recovery transition audit after
+  terminal evidence.
+- Explicit checkpoint resume requires a concrete resumed turn before transition
+  audit and keeps source checkpoint evidence unchanged.
+- Permission, MCP auth, elicitation, checkpoint, artifact, interrupted, and
+  lifecycle actionability still come from current runtime stores and refreshed
+  DTOs, not transition rows, event payloads, or React state.
+
+Accepted next boundary:
+
+- Phase 13 may be a scheduler design gate.
+- Phase 13 must define scheduler ownership without implementing it.
+- The scheduler design may use reconciled Run detail for ownership, grouping,
+  cancellation scope, and diagnostics.
+- The scheduler design must keep session-first turn execution as the current
+  implementation until a later accepted implementation phase.
+- The scheduler design must preserve explicit checkpoint resume as a
+  user-triggered new turn and must not introduce automatic resume.
+
+Review conclusion:
+
+- Phase 12 is accepted as Run ownership contract hardening.
+- It does not implement scheduler, automatic resume, background Run execution,
+  frontend Run management UI, transition-derived actionability, React-owned
+  lifecycle state, or a new migration.
+- The next task is Phase 13: Run Scheduler Design Gate.
 
 ## Validation Scenarios
 
@@ -5345,7 +5379,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 12.5: Run Ownership Contract Acceptance And Scheduler Gate.
-Keep it as a design gate only; do not add migrations, scheduler implementation,
-automatic resume, frontend Run management UI, background Run execution,
-transition-derived actionability, or React-owned lifecycle state.
+Implement Phase 13: Run Scheduler Design Gate. Keep it as a design gate only;
+do not add migrations, scheduler implementation, automatic resume, frontend Run
+management UI, background Run execution, transition-derived actionability, or
+React-owned lifecycle state.
