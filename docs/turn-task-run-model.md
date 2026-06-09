@@ -468,6 +468,30 @@ explicit checkpoint resume, and checkpoint acknowledgement/discard. It should
 not add a migration, scheduler, automatic resume, frontend Run management UI,
 or transition-derived actionability.
 
+### Phase 12 Gate: Run Execution Ownership
+
+Phase 12 keeps the current session-first execution path and accepts only
+contract-first Run ownership hardening.
+
+Accepted model:
+
+- `Chat` remains the execution entry point.
+- Runtime must ensure a durable Run for the session before execution and link
+  each persisted turn to that Run before transition audit rows are treated as
+  useful ordering evidence.
+- `runChat`, cancellation, startup recovery, interrupted acknowledgement, and
+  explicit checkpoint resume remain structured evidence writers before any
+  transition row or frontend event can be interpreted.
+- A future scheduler may use reconciled Run detail for ownership/grouping and
+  cancellation scope, but permission/MCP actionability must stay in current
+  runtime stores.
+- Checkpoint resume remains an explicit user-triggered new turn, never
+  automatic replay.
+
+Phase 12.1 should add ownership preflight/link stability tests only. It should
+not add a scheduler implementation, migration, automatic resume, frontend Run
+management UI, background worker, or transition-derived actionability.
+
 ## API 影响
 
 最小 API：

@@ -1113,3 +1113,19 @@ Phase 11.4 result:
   gate, not scheduler implementation.
 - Frontend behavior remains DTO refresh only; no Run management UI or
   transition-derived actionability is accepted.
+
+## 2026-06-09: Phase 12 Run Execution Ownership Gate
+
+Phase 12 accepts contract-first Run ownership hardening before any scheduler
+implementation.
+
+Frontend boundary:
+
+- The current session-first execution path remains the execution surface.
+- Frontend events may trigger Run/detail/activity refreshes only; event payloads
+  must not become scheduler, lifecycle, checkpoint, permission, MCP, artifact,
+  diagnostics, or interrupted state.
+- No frontend Run management UI, background scheduler behavior, automatic
+  resume, or transition-derived actionability is accepted.
+- Phase 12.1 should add backend ownership/link stability coverage, not frontend
+  adapter or React changes.

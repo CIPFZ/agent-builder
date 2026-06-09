@@ -4923,6 +4923,94 @@ Review conclusion:
   state.
 - Phase 12 should be a design gate before any execution ownership change.
 
+### Phase 12: Run Execution Ownership And Scheduler Design Gate
+
+Status: accepted as a design gate only.
+
+Purpose:
+
+- Decide the first safe move from Run read/reconciliation hardening toward Run
+  execution ownership.
+- Keep the current session-first turn execution path intact until ownership,
+  cancellation, recovery, and actionability contracts are proven.
+- Prevent a scheduler implementation from bypassing structured runtime
+  evidence, permission/MCP stores, `SessionActivity`, or explicit checkpoint
+  semantics.
+
+Current execution model:
+
+- `Chat(ctx, RuntimeChatRequest)` remains the execution entry point.
+- Before a turn is linked to execution, the runtime ensures a durable Run for
+  the session through `EnsureForSession`.
+- After the `RuntimeTurn` row exists, the runtime links the turn to the Run via
+  `LinkTurn` and records a `turn_started` transition.
+- `runChat` remains the model/tool execution loop. It records final turn
+  evidence, reconciles Run detail through `RunProjection`, and records terminal
+  transition audit rows.
+- `CancelTurn`, startup recovery, `MarkInterruptedDone`, and explicit
+  checkpoint resume already update structured turn/tool/permission/MCP evidence
+  before transition rows are used as audit evidence.
+
+Accepted scheduler boundary:
+
+- Do not implement a new background scheduler yet.
+- Do not replace session-first turns with Run-first execution yet.
+- A future scheduler may use reconciled Run detail for ownership, grouping,
+  cancellation scope, and operator diagnostics only after those contracts are
+  proven.
+- Permission, MCP auth, and elicitation actionability must continue to come
+  from current runtime stores.
+- Checkpoint resume must remain an explicit user-triggered new turn. It must
+  not replay prior tools or auto-start from transition/checkpoint evidence.
+- Transition rows may validate order and replay behavior, but they must not
+  decide current lifecycle or actionability.
+- Frontend event payloads may trigger DTO refreshes only; they must not merge
+  scheduler/run state into React.
+
+Rejected implementation paths:
+
+- A Run-first background scheduler that directly owns tool execution.
+- Automatic resume of interrupted Runs or checkpoints.
+- Restoring stale running/waiting tools, permission gates, MCP auth requests,
+  or MCP elicitation requests on startup.
+- Frontend Run management UI or React-owned lifecycle state.
+- Using transition history as the lifecycle state machine.
+
+Phase 12.1 implementation gate:
+
+- Add contract tests for the existing session-first execution path proving Run
+  ownership preflight:
+  - `Chat` ensures a durable Run before execution;
+  - the persisted turn is linked to the Run before `turn_started` transition
+    audit is considered useful;
+  - cancellation, startup recovery, interrupted acknowledgement, and checkpoint
+    resume keep Run ownership links stable;
+  - no permission/MCP/checkpoint actionability is derived from transition rows
+    or event payloads.
+- Make only minimal runtime fixes if those contracts fail.
+- Do not add a scheduler implementation, migration, automatic resume,
+  background execution worker, frontend Run management UI, or transition-driven
+  actionability.
+
+Validation required for Phase 12.1:
+
+- Focused Go tests for Run ownership preflight and link stability.
+- Existing Run detail/list/projection reconciliation tests.
+- Existing restart stale-actionability and checkpoint resume tests.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop
+  -count=1`.
+- `git diff --check`.
+
+Review conclusion:
+
+- Phase 12 accepts Run execution ownership work only as a contract-first
+  hardening path.
+- The next implementation is Phase 12.1 Run ownership preflight coverage, not a
+  scheduler implementation.
+- No scheduler, automatic resume, background Run execution, frontend Run
+  management UI, transition-derived actionability, React-owned lifecycle state,
+  or new migration is accepted by Phase 12.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -4970,7 +5058,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 12: Run Execution Ownership And Scheduler Design Gate. Keep it
-as a design gate only; do not add migrations, scheduler implementation,
+Implement Phase 12.1: Run Ownership Preflight Contract Coverage. Keep it
+test-first and narrow; do not add migrations, scheduler implementation,
 automatic resume, frontend Run management UI, background Run execution,
 transition-derived actionability, or React-owned lifecycle state.
