@@ -182,6 +182,15 @@ Phase 22.7 note:
 - Transport/frontend exposure remains blocked until the real adapter is
   implemented and separately accepted.
 
+Phase 23 note:
+
+- The real coordinator foreground runner adapter is planned as a design gate.
+- The adapter must execute an already-started runtime task, skip duplicate
+  start evidence, reuse coordinator sub-agent semantics, and write terminal
+  evidence through recorder-compatible paths.
+- Process-local child agent registration may support active foreground
+  follow-up/cancel routing, but it must not become durable resume state.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

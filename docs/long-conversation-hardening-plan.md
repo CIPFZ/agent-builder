@@ -7505,6 +7505,110 @@ Review conclusion:
   coordinator/agent method that can execute an already-started runtime task
   without duplicating task start evidence or restoring stale process state.
 
+## 2026-06-10: Phase 23 Real Coordinator Foreground Runner Adapter Design Gate
+
+Phase 23 designs the real coordinator adapter that can eventually implement the
+accepted `runtimeAgentTaskRunner` contract. It is a design gate only; no
+coordinator method, adapter implementation, transport exposure, frontend
+control, background worker, automatic resume, database migration, or stale
+actionability recovery is added.
+
+Adapter problem statement:
+
+- Current `coordinator.runSubAgent(...)` creates a task session, registers a
+  process-local child agent, evaluates policy, starts the child agent, writes
+  start/progress/completed/failed task recorder evidence, and unregisters the
+  child agent on return.
+- The runtime execute path already records durable start evidence before
+  runner invocation. A real foreground adapter therefore cannot call
+  `runSubAgent(...)` as-is without duplicating start messages/events and
+  potentially creating a second child session.
+- The accepted Phase 22.6 runner request represents an already-started runtime
+  task. The adapter must run that task foreground-only and write terminal
+  evidence through recorder-compatible paths without treating process-local
+  `childAgents` as durable resume state.
+
+Accepted adapter direction:
+
+- Add a narrow agent/coordinator-facing contract in a later implementation
+  phase, for example:
+
+  ```text
+  ExecuteStartedAgentTask(ctx, StartedAgentTaskExecutionRequest) (StartedAgentTaskExecutionResult, error)
+  ```
+
+  The request should map one-to-one from
+  `RuntimeAgentTaskExecutionRequest`, including task id, parent session/turn/
+  tool call, child session id, title/kind/role/name, prompt summary or durable
+  task prompt body, model/provider, tools, scope, cwd/worktree, and source
+  flags.
+- Refactor coordinator sub-agent execution into reusable pieces instead of
+  cloning logic in runtime:
+  - shared policy evaluation using current permission/MCP state;
+  - child session/agent registration for foreground follow-up/cancel routing;
+  - model/provider option resolution;
+  - non-interactive child agent `Run`;
+  - parent session cost propagation;
+  - terminal recorder writes.
+- Split start evidence from terminal execution. The new adapter path must
+  accept `startAlreadyRecorded=true` and skip `AgentTaskStarted`/
+  `AgentTaskProgress` start writes unless a future accepted migration changes
+  the start owner.
+- Preserve `Coordinator.Cancel(sessionID)` routing only while the foreground
+  call is active. After process restart, missing child-agent process state must
+  remain non-resumable and must be handled by runtime cancellation/interruption
+  evidence, not auto-resume.
+- The runtime-side adapter that satisfies `runtimeAgentTaskRunner` should be
+  thin: map runtime DTO to agent/coordinator DTO, call the coordinator method,
+  then let runtime re-read durable task/result/ref DTOs.
+
+Required Phase 23.1 implementation entry criteria:
+
+- Add only backend/internal agent/coordinator contract types and tests first.
+- Prove an already-started task does not duplicate start evidence.
+- Prove active foreground registration enables follow-up/cancel routing during
+  the call and is removed after return.
+- Prove cancellation maps to cancelled terminal recorder evidence and no
+  artifact refs.
+- Prove failed child execution writes failed terminal evidence and no artifact
+  refs unless completed structured output exists.
+- Prove completed child execution writes completion/result evidence and
+  produced refs only from completed recorder output.
+- Prove permission/MCP actionability is current-state only and is not restored
+  from event payloads, assistant prose, React state, or process-local child
+  maps after restart.
+
+Rejected adapter shape:
+
+- Do not call `runSubAgent(...)` directly from runtime in a way that duplicates
+  task session/start evidence.
+- Do not create a background scheduler, queue, daemon, poller, or join loop.
+- Do not auto-resume a started child task after restart.
+- Do not persist process-local child agent handles or add database migrations.
+- Do not expose HTTP/dev/Wails/generated binding/client adapter/frontend
+  execution controls.
+- Do not let event payloads, transition history, assistant prose, or React
+  state hydrate lifecycle, artifacts, permission/MCP actionability, or Run
+  status.
+
+Validation:
+
+- Design review only.
+- Reviewed `coordinator.runSubAgent(...)`,
+  `Coordinator.SendToSession(...)`, `Coordinator.Cancel(...)`,
+  `AgentTaskRecorder`, Phase 22.6 runner contract, runtime task cancellation,
+  and recorder completion/failure evidence.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 23 accepts the real adapter direction but not implementation.
+- The next safe task is Phase 23.1: Agent/coordinator Started Task Execution
+  Contract.
+- Phase 23.1 must remain backend/internal and must not expose transport/UI or
+  add background scheduling, automatic resume, database migrations, stale
+  actionability recovery, or event/prose/React-derived truth.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7552,8 +7656,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Plan Phase 23: Real Coordinator Foreground Runner Adapter Design Gate. Do not
-implement the adapter yet, expose frontend controls, expose HTTP/Wails
-transport, add background workers, add automatic resume, write database
-migrations, restore stale actionability, or make event/prose/React state the
-source of truth.
+Implement Phase 23.1: Agent/coordinator Started Task Execution Contract. Keep
+it backend/internal and contract-tested first. Do not expose frontend controls,
+expose HTTP/Wails transport, add background workers, add automatic resume,
+write database migrations, restore stale actionability, or make event/prose/
+React state the source of truth.

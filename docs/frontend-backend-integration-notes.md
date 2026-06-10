@@ -1829,3 +1829,11 @@ Phase 22.7 note:
   events as refresh triggers.
 - A future coordinator adapter must be accepted before any transport or UI
   affordance can call foreground task execution.
+
+Phase 23 note:
+
+- The real coordinator adapter is design-only.
+- Frontend and transport still have no execute action. The eventual adapter
+  must first prove backend cancellation, permission/MCP, terminal evidence, and
+  completion-only artifact semantics before any browser/Wails affordance is
+  considered.
