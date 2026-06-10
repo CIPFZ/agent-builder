@@ -2432,3 +2432,12 @@ Phase 37 note:
 - Frontend adapters must continue to re-read durable runtime DTOs after write
   actions. No frontend Run management UI, automatic resume, background
   scheduler, migration, or stale actionability recovery is accepted.
+
+Phase 37.1 note:
+
+- The shared write-action envelope is accepted as additive metadata only.
+- Existing action-specific response fields should remain until each action has
+  its own compatibility review.
+- Scheduler execute is the first implementation candidate because it already
+  carries accepted/reason/source/refresh-target metadata and has browser,
+  provider-backed, and packaged WebView coverage.

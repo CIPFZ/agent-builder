@@ -11257,12 +11257,12 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.1: Runtime Write Action Envelope Contract Gate. Define a
-transport-neutral envelope for explicit user-triggered runtime write actions
-that returns action metadata and refresh targets only, while durable DTO rereads
-remain authoritative. Do not add full Run persistence, database migrations,
-automatic resume, background scheduling, stale actionability recovery, or
-frontend Run UI.
+Implement Phase 37.2: Runtime Write Action Envelope Contract Implementation.
+Add additive shared action metadata/source types and focused contract tests for
+existing explicit write actions, starting with scheduler task execute, while
+preserving action-specific DTO fields and durable DTO rereads as the source of
+truth. Do not add full Run persistence, database migrations, automatic resume,
+background scheduling, stale actionability recovery, or frontend Run UI.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -11582,3 +11582,90 @@ Review conclusion:
 - The project can proceed to a write-action envelope gate.
 - It is still not ready for full Run persistence, migrations, auto resume,
   background scheduling, stale actionability recovery, or frontend Run UI.
+
+## 2026-06-11: Phase 37.1 Runtime Write Action Envelope Contract Gate
+
+Phase 37.1 defines the common contract for explicit runtime write-action
+responses. It is a design gate only. It does not change action behavior,
+transport routes, database schema, Run persistence, scheduler execution model,
+frontend UI, or recovery semantics.
+
+Observed current state:
+
+- `RuntimeRunSchedulerExecuteTaskResponse` already has the required envelope
+  shape in action-specific form: `accepted`, `reason`, `refreshTargets`,
+  `source`, and idempotency/source metadata.
+- The same response also carries action-specific durable context (`plan` and
+  `task`) that existing tests and callers use. Removing those fields would be
+  churn without improving source-of-truth behavior.
+- Other explicit actions return specialized DTOs today:
+  checkpoint acknowledgement/discard returns `RuntimeRunResponse`,
+  checkpoint resume returns `RuntimeRunResumeResponse`, task cancellation
+  returns `RuntimeAgentTaskResponse`, and turn cancellation returns
+  `RuntimeStatus`.
+
+Accepted envelope model:
+
+```text
+RuntimeWriteActionMetadata
+  accepted: bool
+  reason?: string
+  refreshTargets?: []string
+  source: RuntimeWriteActionSource
+
+RuntimeWriteActionSource
+  kind: string
+  action: string
+  backendOnly: bool
+  startsWorker: bool
+  idempotentBy?: string
+  sessionActivityParity: bool
+  evidence?: []string
+```
+
+Contract rules:
+
+- The envelope is additive metadata. It is not lifecycle, scheduler, timeline,
+  diagnostic, artifact, permission, MCP actionability, interrupted, task, or
+  Run state.
+- Existing action-specific response fields remain valid and may continue to
+  provide convenient context, but clients must still re-read durable DTOs after
+  the action.
+- Refresh targets may select which DTOs to re-read, but they may not carry or
+  merge the resulting state.
+- `startsWorker` describes the synchronous foreground action contract only. It
+  must not imply a background scheduler, queue, daemon, poller, or unattended
+  worker.
+- `idempotentBy` must name the durable idempotency key, such as task id, turn
+  id, checkpoint id, or action-specific composite key. It must not be inferred
+  from assistant prose or React state.
+
+Phase 37.2 implementation direction:
+
+- Add shared action metadata/source structs in runtime contract types.
+- Add a compatibility helper that maps
+  `RuntimeRunSchedulerExecuteTaskResponse` into the shared metadata without
+  removing the existing scheduler-specific fields.
+- Add focused tests proving scheduler execute action metadata is metadata-only,
+  preserves current refresh targets/source semantics, and still requires
+  durable DTO rereads for task/result/ref/projection state.
+- Do not retrofit every action in one phase. Checkpoint, task cancel, and turn
+  cancel actions can adopt the shared metadata in later small phases after
+  their compatibility risks are reviewed.
+
+Rejected for Phase 37.2:
+
+- No breaking response shape replacement.
+- No full Run persistence or migration.
+- No runtime Run state machine.
+- No frontend Run management UI.
+- No background scheduler or automatic resume.
+- No stale permission/MCP actionability recovery.
+- No event/action/prose/React-derived source of truth.
+
+Review conclusion:
+
+- The stable next step is additive shared metadata, not a broad response
+  rewrite.
+- Scheduler execute is the right first adopter because it already follows the
+  envelope semantics and has browser/provider/packaged validation.

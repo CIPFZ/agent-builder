@@ -22,6 +22,16 @@ Phase 37 note:
   automatic resume, background scheduling, stale actionability recovery, or
   frontend Run management UI.
 
+Phase 37.1 note:
+
+- The accepted envelope is additive. It standardizes action metadata and source
+  fields without replacing specialized response DTOs.
+- Scheduler task execute should adopt the shared metadata first because it
+  already has explicit idempotency, refresh targets, backend-only source
+  evidence, and durable reread validation.
+- Checkpoint, task cancel, and turn cancel actions should be migrated only in
+  later focused phases.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
