@@ -2335,3 +2335,12 @@ Phase 34 note:
   smoke remains a separate Windows/package-specific command.
 - No default CI hook or runtime/frontend behavior change is accepted in this
   phase.
+
+Phase 34.1 note:
+
+- `npm run smoke:scheduler` now groups the accepted local browser scheduler
+  smokes: Phase 28.1, Phase 29.1, and Phase 33.1.
+- The grouped command remains explicit and local; it is not part of build/lint
+  or default CI.
+- Packaged Wails scheduler smoke remains separate because it has different
+  platform and packaging prerequisites.

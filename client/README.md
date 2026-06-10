@@ -62,3 +62,14 @@ Lint:
 npm run lint
 ```
 
+Scheduler/provider browser smokes:
+
+```bash
+npm run smoke:scheduler
+```
+
+This explicit local command runs `smoke:phase281`, `smoke:phase291`, and
+`smoke:phase331` in sequence. Use it when changing scheduler Execute controls,
+runtime DTO hydration, task result/ref evidence, or provider-backed child-agent
+completion. It is intentionally separate from build/lint and does not include
+packaged Wails smokes.

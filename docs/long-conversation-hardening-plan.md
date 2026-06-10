@@ -10931,6 +10931,51 @@ Review conclusion:
 - The next safe task is Phase 34.1: Scheduler Provider Smoke Matrix Docs And
   Local Command.
 
+## 2026-06-11: Phase 34.1 Scheduler Provider Smoke Matrix Docs And Local Command
+
+Phase 34.1 documents the accepted scheduler/provider smoke matrix and adds an
+explicit local browser smoke grouping. It does not add CI requirements, live
+provider credentials, hosted OAuth automation, production seed/debug endpoints,
+runtime readiness bypasses, background workers, automatic resume, database
+migrations, stale actionability recovery, frontend Run state ownership,
+packaged WebView automation, full scheduler UI, or full Run executor behavior.
+
+Implemented:
+
+- Added `npm run smoke:scheduler` in `client/package.json`.
+  - Runs `smoke:phase281`, `smoke:phase291`, and `smoke:phase331` in sequence.
+  - Keeps packaged/Wails smoke separate.
+- Updated `client/README.md` with the scheduler/provider browser smoke command
+  and usage guidance.
+
+Accepted matrix:
+
+- `smoke:phase281`: browser Execute click/start and terminal candidate
+  disablement.
+- `smoke:phase291`: browser completion/ref hydration with duplicate refresh
+  events and test-only foreground runner.
+- `smoke:phase331`: browser Execute click through real coordinator and loopback
+  provider completion.
+- `desktop/scripts/phase311-wails-packaged-scheduler-smoke.ps1`: packaged
+  startup plus Wails bridge scheduler contract, kept separate because it is
+  Windows/package-specific.
+
+Validation:
+
+```text
+npm run smoke:scheduler
+npm run lint
+npm run build
+git diff --check
+```
+
+Review conclusion:
+
+- Phase 34.1 accepts the explicit local browser smoke grouping.
+- No default CI hook or packaged-smoke coupling was added.
+- The next safe task is Phase 34.2: Scheduler Provider Smoke Matrix Acceptance
+  And Remaining Risk Review.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10978,6 +11023,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 34.1: Scheduler Provider Smoke Matrix Docs And Local Command.
-Add explicit documentation and an optional local browser smoke grouping without
-default CI integration or packaged smoke coupling.
+Implement Phase 34.2: Scheduler Provider Smoke Matrix Acceptance And Remaining
+Risk Review. Accept the matrix consolidation and choose whether the next target
+is packaged WebView automation design or hosted-provider manual smoke refresh.
