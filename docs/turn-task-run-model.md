@@ -280,6 +280,15 @@ Phase 24.5 note:
   cancellation behavior, still without transport/UI exposure, background
   workers, automatic resume, or migrations.
 
+Phase 25 note:
+
+- Internal backend/coordinator runner smoke now validates queued task execution
+  through the installed runtime runner and backend workspace coordinator path.
+- Failed and cancelled task recorder evidence ignores incoming artifact refs,
+  so partial/unfinished child output cannot become artifact evidence.
+- Live hosted/provider smoke remains credential-gated and must be redacted or
+  manual unless covered by safe local fakes.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

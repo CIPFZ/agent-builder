@@ -1918,3 +1918,11 @@ Phase 24.5 note:
 - Do not add browser/Wails/React execution controls until real child-agent
   execution smoke, cancellation, permission/MCP behavior, and completed-output
   refs are validated behind the internal runner.
+
+Phase 25 note:
+
+- Internal backend/coordinator runner smoke is validated without changing
+  frontend behavior.
+- The frontend still must not infer task completion, cancellation, artifacts,
+  permission state, or MCP actionability from events or React state; durable
+  runtime DTO reads remain authoritative.

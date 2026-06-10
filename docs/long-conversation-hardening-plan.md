@@ -8350,6 +8350,68 @@ Review conclusion:
   live/fake-provider smoke paths without adding frontend controls, transport
   execution routes, background workers, auto-resume, or migrations.
 
+## 2026-06-10: Phase 25 Real Child-agent Execution Smoke And Cancellation Validation
+
+Phase 25 validates the installed backend/runtime executor with an internal
+fake-coordinator smoke path. It exercises the real runtime scheduler execution
+entry, installed `runtimeCoordinatorTaskRunner`, backend workspace routing, and
+coordinator interface without adding HTTP/dev routes, Wails bindings, frontend
+controls, background workers, automatic resume, database migrations, or stale
+actionability recovery.
+
+Implemented validation/hardening:
+
+- Added runtime scheduler execute smoke coverage for:
+  - queued AgentTask start through the installed backend runner;
+  - backend workspace `AgentCoordinator.ExecuteConfiguredStartedAgentTask(...)`
+    invocation exactly once;
+  - durable prompt sourcing from `runtime_task_instruction`;
+  - completed backend runner output producing artifact refs only through
+    completion recorder evidence;
+  - no duplicate task-start message/event evidence;
+  - cancelled backend runner output producing terminal cancelled evidence with
+    zero artifact refs.
+- Hardened `runtimeSchedulerRecorder.AgentTaskFailed(...)` so failed and
+  cancelled task evidence ignores incoming `ArtifactRefs`. This prevents
+  unfinished, partial, failed, or cancelled child execution from creating
+  artifact evidence even if a coordinator accidentally passes partial refs.
+- For cancelled task results, the recorder now stores the terminal reason in
+  `CancellationDetail` instead of treating cancellation as a generic error
+  detail.
+
+Validation:
+
+- Focused runtime scheduler execute smoke passed:
+
+  ```text
+  go test ./internal/runtime -run "TestRuntimeRunSchedulerExecuteTask" -count=1
+  ```
+
+- Related package regression passed:
+
+  ```text
+  go test ./internal/agent ./internal/backend ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1
+  ```
+
+Review conclusion:
+
+- Phase 25 accepts the internal fake-coordinator child-agent execution smoke
+  and the no-artifact-on-failed/cancelled hardening.
+- The test is intentionally credential-free and writes no secrets, OAuth
+  state, provider auth state, screenshots, or live logs to the repository.
+- The implementation remains backend/internal. No client execution affordance,
+  transport action, background scheduler loop, auto-resume path, Run migration,
+  or stale permission/MCP actionability recovery was added.
+- Remaining risk: this phase validates the backend/coordinator interface with
+  fake coordinator evidence, not a real hosted/provider call. Provider-specific
+  live smoke still requires credentials and must be redacted/manual unless a
+  safe local fake provider can cover the behavior.
+- The next safe task is Phase 25.1: Real Provider/Hosted MCP Redacted Smoke
+  Checklist And Gap Review. It should document or execute redacted credential-
+  safe live smoke for child-agent execution, cancellation, permissions, MCP,
+  and completed-output refs without storing secrets or adding UI/transport
+  execution actions.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8397,10 +8459,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 25: Real Child-agent Execution Smoke And Cancellation
-Validation. Keep it internal and validation-first: exercise the installed
-backend/coordinator runner with fake or redacted live-provider smoke coverage,
-prove cancellation/no-artifact semantics during real child execution, and do
-not expose frontend controls, expose HTTP/Wails transport, add background
-workers, add automatic resume, write database migrations, restore stale
-actionability, or make event/prose/React state the source of truth.
+Implement Phase 25.1: Real Provider/Hosted MCP Redacted Smoke Checklist And
+Gap Review. Keep it credential-safe and validation-first: use fake local
+providers where possible, use redacted/manual checklists where real hosted
+credentials or browser OAuth are required, and do not expose frontend controls,
+expose HTTP/Wails transport, add background workers, add automatic resume,
+write database migrations, restore stale actionability, or make event/prose/
+React state the source of truth.

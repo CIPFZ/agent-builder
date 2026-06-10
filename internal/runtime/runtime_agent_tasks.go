@@ -210,7 +210,7 @@ func (r *runtimeSchedulerRecorder) AgentTaskFailed(ctx context.Context, task age
 		status = agentTaskStatusCancelled
 	}
 	record := runtimeAgentTaskFromRecord(task, status)
-	record.ArtifactRefs = r.service.ensureTaskArtifactRefs(ctx, record, record.ArtifactRefs)
+	record.ArtifactRefs = nil
 	record.Progress = 100
 	if record.FinishedAt == 0 {
 		record.FinishedAt = time.Now().UnixMilli()
@@ -220,12 +220,18 @@ func (r *runtimeSchedulerRecorder) AgentTaskFailed(ctx context.Context, task age
 		return err
 	}
 	resultStatus := stored.Status
+	errorDetail := stored.Error
+	cancellationDetail := stored.CancellationDetail
+	if stored.Status == agentTaskStatusCancelled {
+		cancellationDetail = firstNonEmpty(cancellationDetail, stored.Error)
+		errorDetail = ""
+	}
 	_, _ = r.service.upsertAgentTaskResult(ctx, RuntimeAgentTaskResult{
 		TaskID:             stored.ID,
 		Status:             resultStatus,
 		Summary:            stored.ResultSummary,
-		ErrorDetail:        stored.Error,
-		CancellationDetail: stored.CancellationDetail,
+		ErrorDetail:        errorDetail,
+		CancellationDetail: cancellationDetail,
 		ArtifactRefs:       stored.ArtifactRefs,
 		RelatedToolCallRefs: []string{
 			stored.ParentToolCallID,

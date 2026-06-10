@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/agent"
+	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
@@ -340,6 +343,147 @@ func TestRuntimeRunSchedulerExecuteTaskRunnerCancellationDoesNotCreateArtifactEv
 	}
 }
 
+func TestRuntimeRunSchedulerExecuteTaskUsesBackendCoordinatorRunnerCompletion(t *testing.T) {
+	t.Parallel()
+
+	service, release := runtimeRunTransitionWriterTestService(t)
+	defer release()
+	runtimeBackend, workspace := backendForSkillTest(t)
+	service.runtime = runtimeBackend
+	service.workspace = &workspace
+	service.installBackendAgentTaskRunner(runtimeBackend, workspace.ID)
+
+	run, turn := runtimeRunSchedulerPlanLinkedTurnFixture(t, service, turnStatusQueued)
+	task, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:               "task-execute-backend-runner-complete",
+		ParentSessionID:  "session-1",
+		ParentTurnID:     turn.ID,
+		ParentToolCallID: "tool-parent",
+		ChildSessionID:   "session-child",
+		Title:            "Review output",
+		Kind:             agentTaskKindSubagent,
+		Role:             config.AgentTask,
+		Name:             "agent",
+		PromptSummary:    "inspect child output",
+		Status:           agentTaskStatusQueued,
+		StartedAt:        1100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wsRuntime, err := runtimeBackend.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coord := &phase25RuntimeBackendCoordinator{service: service}
+	wsRuntime.AgentCoordinator = coord
+
+	resp, err := service.runtimeRunSchedulerExecuteTask(context.Background(), RuntimeRunSchedulerExecuteTaskRequest{RunID: run.ID, TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coord.calls != 1 || coord.last.TaskID != task.ID || coord.last.Prompt != "inspect child output" || !coord.last.StartAlreadyRecorded {
+		t.Fatalf("coordinator calls=%d last=%#v", coord.calls, coord.last)
+	}
+	if !resp.Accepted || !resp.ExecutionStarted || resp.Task.Status != agentTaskStatusCompleted || resp.Task.ResultSummary != "backend runner completed" {
+		t.Fatalf("execute response = %#v", resp)
+	}
+	messages, err := newRuntimeAgentTaskMessageStore(service.turns.db).ListByTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startMessages := 0
+	resultMessages := 0
+	for _, msg := range messages {
+		switch msg.Kind {
+		case taskMessageKindInstruction:
+			startMessages++
+		case taskMessageKindResult:
+			resultMessages++
+		}
+	}
+	if startMessages != 1 || resultMessages != 1 {
+		t.Fatalf("task messages start=%d result=%d messages=%#v", startMessages, resultMessages, messages)
+	}
+	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs.Refs) != 1 {
+		t.Fatalf("completion refs = %#v", refs.Refs)
+	}
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	startEvents := 0
+	for _, event := range events.Events {
+		if event.Type == runtimeapi.EventTaskStarted && event.Payload["task_id"] == task.ID {
+			startEvents++
+		}
+	}
+	if startEvents != 1 {
+		t.Fatalf("task started events = %d events=%#v", startEvents, events.Events)
+	}
+}
+
+func TestRuntimeRunSchedulerExecuteTaskUsesBackendCoordinatorRunnerCancellation(t *testing.T) {
+	t.Parallel()
+
+	service, release := runtimeRunTransitionWriterTestService(t)
+	defer release()
+	runtimeBackend, workspace := backendForSkillTest(t)
+	service.runtime = runtimeBackend
+	service.workspace = &workspace
+	service.installBackendAgentTaskRunner(runtimeBackend, workspace.ID)
+
+	run, turn := runtimeRunSchedulerPlanLinkedTurnFixture(t, service, turnStatusQueued)
+	task, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:              "task-execute-backend-runner-cancelled",
+		ParentSessionID: "session-1",
+		ParentTurnID:    turn.ID,
+		ChildSessionID:  "session-child",
+		Role:            config.AgentTask,
+		PromptSummary:   "cancel child output",
+		Status:          agentTaskStatusQueued,
+		StartedAt:       1100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wsRuntime, err := runtimeBackend.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coord := &phase25RuntimeBackendCoordinator{service: service, cancel: true}
+	wsRuntime.AgentCoordinator = coord
+
+	resp, err := service.runtimeRunSchedulerExecuteTask(context.Background(), RuntimeRunSchedulerExecuteTaskRequest{RunID: run.ID, TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coord.calls != 1 {
+		t.Fatalf("coordinator calls=%d", coord.calls)
+	}
+	if !resp.Accepted || !resp.ExecutionStarted || resp.Task.Status != agentTaskStatusCancelled || len(resp.Task.ArtifactRefs) != 0 {
+		t.Fatalf("cancelled execute response = %#v", resp)
+	}
+	result, err := newRuntimeAgentTaskResultStore(service.turns.db).Get(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != agentTaskStatusCancelled || len(result.ArtifactRefs) != 0 || !strings.Contains(result.CancellationDetail, "cancelled") {
+		t.Fatalf("cancelled result = %#v", result)
+	}
+	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs.Refs) != 0 {
+		t.Fatalf("cancelled backend runner created refs = %#v", refs.Refs)
+	}
+}
+
 func TestRuntimeRunSchedulerExecuteTaskRejectsInvalidCandidatesWithoutSideEffects(t *testing.T) {
 	t.Parallel()
 
@@ -427,4 +571,85 @@ func (r *recordingRuntimeAgentTaskRunner) ExecuteAgentTask(ctx context.Context, 
 		}, nil
 	}
 	return r.run(ctx, req)
+}
+
+type phase25RuntimeBackendCoordinator struct {
+	service *runtimeService
+	calls   int
+	last    agent.StartedAgentTaskExecutionRequest
+	cancel  bool
+}
+
+func (c *phase25RuntimeBackendCoordinator) Run(context.Context, string, string, string, ...message.Attachment) (*fantasy.AgentResult, error) {
+	return nil, nil
+}
+func (c *phase25RuntimeBackendCoordinator) Cancel(string) {}
+func (c *phase25RuntimeBackendCoordinator) SendToSession(context.Context, string, string, string) error {
+	return nil
+}
+func (c *phase25RuntimeBackendCoordinator) CancelAll()                              {}
+func (c *phase25RuntimeBackendCoordinator) IsSessionBusy(string) bool               { return false }
+func (c *phase25RuntimeBackendCoordinator) IsBusy() bool                            { return false }
+func (c *phase25RuntimeBackendCoordinator) QueuedPrompts(string) int                { return 0 }
+func (c *phase25RuntimeBackendCoordinator) QueuedPromptsList(string) []string       { return nil }
+func (c *phase25RuntimeBackendCoordinator) ClearQueue(string)                       {}
+func (c *phase25RuntimeBackendCoordinator) Summarize(context.Context, string) error { return nil }
+func (c *phase25RuntimeBackendCoordinator) Model() agent.Model                      { return agent.Model{} }
+func (c *phase25RuntimeBackendCoordinator) UpdateModels(context.Context) error      { return nil }
+func (c *phase25RuntimeBackendCoordinator) RefreshSkills(context.Context) error     { return nil }
+func (c *phase25RuntimeBackendCoordinator) ExecuteConfiguredStartedAgentTask(ctx context.Context, req agent.StartedAgentTaskExecutionRequest) (agent.StartedAgentTaskExecutionResult, error) {
+	c.calls++
+	c.last = req
+	recorder := runtimeSchedulerRecorder{service: c.service}
+	if c.cancel {
+		err := recorder.AgentTaskFailed(ctx, agent.AgentTaskRecord{
+			ID:              req.TaskID,
+			ParentTurnID:    req.ParentTurnID,
+			ParentSessionID: req.ParentSessionID,
+			ChildSessionID:  req.ChildSessionID,
+			Role:            req.Role,
+			Status:          agentTaskStatusCancelled,
+			Progress:        100,
+			ResultSummary:   "partial backend runner output must not become an artifact",
+			ArtifactRefs:    []string{"artifact:file:partial.txt"},
+			StartedAt:       req.StartedAt,
+			FinishedAt:      time.Now().UnixMilli(),
+			Error:           "cancelled by backend runner smoke",
+		})
+		return agent.StartedAgentTaskExecutionResult{
+			TaskID:             req.TaskID,
+			Status:             agentTaskStatusCancelled,
+			Terminal:           true,
+			ResultSummary:      "partial backend runner output must not become an artifact",
+			Error:              "cancelled by backend runner smoke",
+			NoStaleResume:      true,
+			CompletionOnlyRefs: true,
+		}, err
+	}
+	err := recorder.AgentTaskCompleted(ctx, agent.AgentTaskRecord{
+		ID:               req.TaskID,
+		ParentTurnID:     req.ParentTurnID,
+		ParentSessionID:  req.ParentSessionID,
+		ParentToolCallID: req.ParentToolCallID,
+		ChildSessionID:   req.ChildSessionID,
+		Title:            req.Title,
+		Kind:             req.Kind,
+		Role:             req.Role,
+		Name:             req.Name,
+		PromptSummary:    req.PromptSummary,
+		Status:           agentTaskStatusCompleted,
+		Progress:         100,
+		ResultSummary:    "backend runner completed",
+		ArtifactRefs:     []string{"artifact:file:backend-runner.txt"},
+		StartedAt:        req.StartedAt,
+		FinishedAt:       time.Now().UnixMilli(),
+	})
+	return agent.StartedAgentTaskExecutionResult{
+		TaskID:             req.TaskID,
+		Status:             agentTaskStatusCompleted,
+		Terminal:           true,
+		ResultSummary:      "backend runner completed",
+		NoStaleResume:      true,
+		CompletionOnlyRefs: true,
+	}, err
 }
