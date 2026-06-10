@@ -152,6 +152,16 @@ Phase 22.4 note:
 - Actual child-agent execution remains unimplemented and unexposed through
   transport/UI.
 
+Phase 22.5 note:
+
+- The child-agent foreground runner direction is accepted as a design only.
+- Runtime should call a narrow backend-internal runner contract that reuses
+  coordinator sub-agent semantics and `AgentTaskRecorder` evidence instead of
+  cloning execution logic in runtime.
+- The runner remains foreground/request-scoped; background scheduling,
+  automatic resume, transport/frontend exposure, stale actionability recovery,
+  and event/prose/React-derived truth remain rejected.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

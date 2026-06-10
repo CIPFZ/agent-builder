@@ -7258,6 +7258,133 @@ Next safe boundary:
   background scheduling, automatic resume, stale actionability restoration, or
   frontend-owned state.
 
+## 2026-06-10: Phase 22.5 Child-agent Foreground Runner Design Gate
+
+Phase 22.5 designs the runtime-to-agent runner boundary behind the accepted
+internal task start body. It is a design gate only; no child-agent runner,
+transport exposure, frontend control, background worker, automatic resume,
+database migration, or stale actionability recovery is added.
+
+Reviewed implementation points:
+
+- `agent.coordinator.runSubAgent(...)` already owns child task execution for
+  current tool-driven subagents. It creates the child task session, registers
+  the child `SessionAgent` for follow-up/cancel routing, evaluates scheduler
+  policy, runs the child agent non-interactively, propagates cost, and writes
+  task started/progress/completed/failed evidence through `AgentTaskRecorder`.
+- `Coordinator.SendToSession(...)` and `Coordinator.Cancel(...)` route active
+  child sessions through `childAgents`; this routing is runtime process state
+  and must not be treated as durable resume state after restart.
+- `runtimeRunSchedulerExecuteTask(...)` currently provides only backend-only
+  foreground start evidence: it revalidates ownership through
+  `runtimeRunSchedulerDelegateTaskTurn(...)`, moves queued tasks to `running`,
+  writes one instruction message, one `task_started` event, and one
+  task-start transition, and remains idempotent for already-running tasks.
+- `runtimeSchedulerRecorder.AgentTaskCompleted(...)` is the correct completion
+  evidence path for produced refs. Failed/cancelled task evidence must stay
+  terminal and must not produce artifact refs from partial output.
+
+Accepted runner shape:
+
+- The eventual foreground runner should be an explicit backend-internal
+  dependency behind `runtimeRunSchedulerExecuteTask(...)`, not a HTTP/Wails/
+  client/frontend action in the first implementation.
+- Runtime should depend on a narrow child-agent runner interface, for example
+  an internal shape equivalent to:
+
+  ```text
+  ExecuteAgentTask(ctx, RuntimeAgentTaskExecutionRequest) (RuntimeAgentTaskExecutionResult, error)
+  ```
+
+  The request should be built from fresh runtime evidence after scheduler
+  revalidation: run id, parent session id, parent turn id, parent tool call id,
+  child session id/session title, task id, role/name/kind, prompt summary or
+  durable prompt body, allowed tools, capability scope, cwd/worktree, provider,
+  and model. The interface may be implemented by an adapter around coordinator
+  sub-agent execution, but runtime tests should be able to inject a fake runner.
+- The runner must reuse coordinator/agent execution semantics instead of
+  inventing a parallel scheduler. The implementation path should either export
+  a narrow coordinator foreground-task method or add an adapter in the agent
+  package that calls the same sub-agent machinery used by `runSubAgent(...)`.
+  Directly duplicating session creation, child agent registration, provider
+  options, permission evaluation, or recorder writes in runtime is rejected.
+- Execution remains foreground and request-scoped. A successful call may block
+  until the child agent reaches completed/failed/cancelled terminal evidence;
+  it must not enqueue background work, spawn a daemon, poll after return, or
+  automatically resume after restart.
+- Idempotency remains task-id based. If the durable task is already running,
+  completed, failed, cancelled, or interrupted, the runner must not start a
+  second child execution or duplicate child sessions/messages/results/refs.
+  Running duplicates may return the existing running task as
+  `task_already_running` until a later accepted phase adds safe foreground join
+  semantics.
+- Cancellation remains owned by `CancelAgentTask(...)` and recorder terminal
+  evidence. The runner must observe `ctx.Done()` and fresh task cancellation
+  state before start and before completion writes. Cancellation after restart
+  must terminalize stale running task evidence; it must not recover a
+  process-local child agent or stale tool state.
+- Permission and MCP auth/elicitation state must be read from current runtime
+  DTO/state during foreground execution. The runner must not restore stale
+  actionable permission gates or stale MCP auth/elicitation requests from task
+  rows, event payloads, React state, assistant prose, or transition history.
+- Produced refs remain completion-only. Only completed structured child-agent
+  recorder output may populate task/result artifact refs. Partial, unfinished,
+  disconnected, failed, cancelled, or interrupted child work must not create
+  artifact evidence.
+- Runtime events emitted by the runner are refresh triggers only. Payloads may
+  help callers decide which DTOs to refresh, but callers must re-read task
+  detail/result, `TurnActivity`, `SessionActivityCursorWindow`, full
+  `SessionActivity`, `RunProjection`, refs, permission, and MCP request DTOs
+  for truth.
+
+Required implementation entry criteria for the next implementation phase:
+
+- Add a backend-internal child-agent runner interface and wire it into
+  `runtimeService` for tests without exposing transport or UI.
+- Preserve `runtimeRunSchedulerExecuteTask(...)` revalidation and start
+  idempotency before invoking the runner.
+- Prove queued task execution reaches completed, failed, and cancelled terminal
+  evidence through recorder-compatible paths.
+- Prove duplicate execute calls do not duplicate child sessions, messages,
+  results, refs, lifecycle events, or transitions.
+- Prove cancellation before start, during execution, and after an already-final
+  task remains terminal and artifact-safe.
+- Prove permission/MCP actionability is current-state only and event payloads
+  are refresh triggers only.
+- Prove completed output is the only produced-ref source and failed/cancelled/
+  partial child execution creates no artifact evidence.
+
+Rejected runner shape:
+
+- No background scheduler, queue, poller, daemon, unattended execution, or
+  automatic resume.
+- No runtime Run store, Run state-machine migration, or new database migration.
+- No HTTP/dev/Wails/generated binding/client adapter/frontend Run UI exposure.
+- No stale running/waiting tool recovery.
+- No stale actionable permission gate or MCP auth/elicitation recovery.
+- No event-payload, assistant-prose, transition-history, or React-state source
+  of truth.
+- No runtime-side clone of coordinator sub-agent logic that bypasses
+  `AgentTaskRecorder` evidence.
+
+Validation:
+
+- Design review only.
+- Reviewed coordinator child-agent execution, active child routing,
+  runtime task start, task cancellation, task recorder completion/failure, and
+  task tool DTO paths.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 22.5 accepts the foreground child-agent runner direction but not its
+  implementation.
+- The next safe task is Phase 22.6: implement a backend-internal child-agent
+  runner contract/fake-runner harness behind `runtimeRunSchedulerExecuteTask`.
+- Phase 22.6 must still avoid transport/frontend exposure, background workers,
+  automatic resume, database migrations, stale actionability recovery, and
+  event/prose/React-derived truth.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7305,7 +7432,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Plan Phase 22.5: Child-agent Foreground Runner Design Gate. Do not expose
-frontend controls, HTTP/Wails transport, background workers, automatic resume,
-database migrations, stale actionability recovery, or event/prose/React-derived
-source of truth.
+Implement Phase 22.6: Child-agent Foreground Runner Backend Contract. Keep it
+backend-internal and test-injectable first. Do not expose frontend controls,
+HTTP/Wails transport, background workers, automatic resume, database
+migrations, stale actionability recovery, or event/prose/React-derived source
+of truth.

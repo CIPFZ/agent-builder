@@ -1799,3 +1799,14 @@ Phase 22.4 note:
 - Transport/frontend exposure remains blocked until an actual child-agent
   foreground runner is designed, implemented, and accepted with cancellation,
   permission/MCP, failure/completion, and artifact evidence coverage.
+
+Phase 22.5 note:
+
+- The child-agent foreground runner is accepted as a backend-internal design
+  direction only.
+- Frontend and transport surfaces must continue to treat runtime events as
+  refresh triggers and re-read runtime DTOs for task/result/ref/permission/MCP
+  truth.
+- No execute transport, generated binding, adapter method, React control, or
+  frontend-owned task lifecycle state is accepted until the backend runner
+  contract is implemented and reviewed.
