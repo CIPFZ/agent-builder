@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/agent"
+	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
 )
 
@@ -23,6 +24,31 @@ type runtimeStartedAgentTaskExecutor interface {
 type runtimeCoordinatorTaskRunner struct {
 	service  *runtimeService
 	executor runtimeStartedAgentTaskExecutor
+}
+
+type runtimeBackendStartedAgentTaskExecutor struct {
+	backend     *backend.Backend
+	workspaceID string
+}
+
+func (r *runtimeService) installBackendAgentTaskRunner(runtimeBackend *backend.Backend, workspaceID string) {
+	r.agentTaskRunner = runtimeCoordinatorTaskRunner{
+		service: r,
+		executor: runtimeBackendStartedAgentTaskExecutor{
+			backend:     runtimeBackend,
+			workspaceID: workspaceID,
+		},
+	}
+}
+
+func (e runtimeBackendStartedAgentTaskExecutor) ExecuteStartedAgentTask(ctx context.Context, req agent.StartedAgentTaskExecutionRequest) (agent.StartedAgentTaskExecutionResult, error) {
+	if e.backend == nil {
+		return agent.StartedAgentTaskExecutionResult{}, errors.New("runtime backend is not available")
+	}
+	if strings.TrimSpace(e.workspaceID) == "" {
+		return agent.StartedAgentTaskExecutionResult{}, errors.New("runtime workspace id is not available")
+	}
+	return e.backend.ExecuteStartedAgentTask(ctx, e.workspaceID, req)
 }
 
 func (r runtimeCoordinatorTaskRunner) ExecuteAgentTask(ctx context.Context, req RuntimeAgentTaskExecutionRequest) (RuntimeAgentTaskExecutionResult, error) {
@@ -63,6 +89,9 @@ func (r runtimeCoordinatorTaskRunner) ExecuteAgentTask(ctx context.Context, req 
 		BackendOnly:             req.BackendOnly,
 		EventPayloadRefreshOnly: req.EventPayloadRefreshOnly,
 	})
+	if err != nil && !result.Terminal {
+		return r.fail(ctx, req, err.Error())
+	}
 	return RuntimeAgentTaskExecutionResult{
 		TaskID:             firstNonEmpty(result.TaskID, req.TaskID),
 		Status:             result.Status,

@@ -272,6 +272,7 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	r.mcpRequestStore = newRuntimeMCPRequestStore(conn)
 	r.runs = newRuntimeRunStore(conn)
 	r.transitions = newRuntimeRunTransitionStore(conn)
+	r.installBackendAgentTaskRunner(r.runtime, ws.ID)
 	if maxSequence, err := r.eventStore.MaxSequence(ctx); err != nil {
 		return fmt.Errorf("failed to recover runtime event sequence: %w", err)
 	} else if maxSequence > r.nextEventSequence {

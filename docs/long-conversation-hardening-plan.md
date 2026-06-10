@@ -8212,6 +8212,73 @@ Review conclusion:
   exposure, background scheduling, automatic resume, migrations, stale
   actionability recovery, and event/prose/React-derived truth.
 
+## 2026-06-10: Phase 24.4 Backend/runtime Executor Wiring Contract
+
+Phase 24.4 implements the backend/internal executor wiring needed to connect
+the accepted coordinator configured started-task executor to the runtime
+runner. It remains internal only: no HTTP/dev route, Wails binding, generated
+client adapter, React control, background worker, automatic resume, database
+migration, or stale actionability recovery is added.
+
+Implemented contract:
+
+- Added `Backend.ExecuteStartedAgentTask(ctx, workspaceID, req)` as an
+  internal backend method. It resolves the workspace, requires an initialized
+  `AgentCoordinator`, and delegates to
+  `ExecuteConfiguredStartedAgentTask(...)`.
+- Added `runtimeBackendStartedAgentTaskExecutor` as a thin runtime adapter
+  around backend/workspace routing. It performs only availability checks and
+  delegates execution; it does not build agents, select models, inspect
+  frontend state, or infer prompts.
+- Installed `runtimeCoordinatorTaskRunner` after runtime startup has a live
+  backend, workspace id, and DB-backed runtime stores. Installation does not
+  execute or resume tasks; it only gives later explicit scheduler execution a
+  backend/coordinator delegate.
+- Hardened `runtimeCoordinatorTaskRunner.ExecuteAgentTask(...)` so a backend
+  or coordinator error that returns no terminal result is converted into
+  durable failed task evidence through the existing scheduler recorder path.
+  The failure is terminal, refresh-target-only, no-stale-resume, and
+  completion-only-refs.
+- Preserved explicit prompt sourcing: request prompt first, then durable
+  `runtime_task_instruction` task message payload. Assistant prose, runtime
+  events, transition history, and React state are still rejected as sources of
+  truth.
+
+Validation:
+
+- Backend routing test proves the backend calls the workspace coordinator once
+  and returns terminal coordinator metadata.
+- Backend guard test proves missing workspace and missing coordinator return
+  errors instead of falling back to a coder agent.
+- Runtime installation test proves the service installs a coordinator runner
+  backed by the backend/workspace adapter, and adapter guard tests prove
+  missing backend or workspace id is rejected before delegation.
+- Runtime runner tests prove durable instruction prompt sourcing, unsupported
+  role failure, missing prompt-source failure, and non-terminal executor error
+  terminalization. These failure paths create no artifact refs.
+- Narrow test command passed:
+
+  ```text
+  go test ./internal/backend ./internal/runtime -run "TestBackendExecuteStartedAgentTask|TestRuntimeCoordinatorTaskRunner|TestRuntimeBackendStartedAgentTaskExecutor|TestRuntimeServiceInstallsBackendAgentTaskRunner" -count=1
+  ```
+- Related package regression passed:
+
+  ```text
+  go test ./internal/agent ./internal/backend ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1
+  ```
+
+Review conclusion:
+
+- Phase 24.4 accepts backend/runtime executor wiring as internal-only.
+- The implementation keeps runtime DTO/durable re-read semantics as the source
+  of truth; event payloads remain refresh triggers only.
+- Cancellation remains owned by existing runtime task cancellation paths; no
+  new process recovery or automatic resume semantics were added.
+- Remaining risk before any user-facing execution affordance: run broader
+  related-package tests and perform an acceptance pass that reviews duplicate
+  lifecycle/progress evidence, cancellation ordering, and transport boundaries.
+- The next safe task is Phase 24.5: Backend/runtime Executor Wiring Acceptance.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:

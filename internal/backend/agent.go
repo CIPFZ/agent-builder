@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 
+	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/charmbracelet/crush/internal/skills"
@@ -35,6 +36,17 @@ func (b *Backend) SendSessionMessage(ctx context.Context, workspaceID string, ms
 		return ErrAgentNotInitialized
 	}
 	return ws.AgentCoordinator.SendToSession(ctx, msg.SessionID, msg.TurnID, msg.Prompt)
+}
+
+func (b *Backend) ExecuteStartedAgentTask(ctx context.Context, workspaceID string, req agent.StartedAgentTaskExecutionRequest) (agent.StartedAgentTaskExecutionResult, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return agent.StartedAgentTaskExecutionResult{}, err
+	}
+	if ws.AgentCoordinator == nil {
+		return agent.StartedAgentTaskExecutionResult{}, ErrAgentNotInitialized
+	}
+	return ws.AgentCoordinator.ExecuteConfiguredStartedAgentTask(ctx, req)
 }
 
 // GetAgentInfo returns the agent's model and busy status.

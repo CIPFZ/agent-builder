@@ -259,6 +259,18 @@ Phase 24.3 note:
   coordinator executor; runtime should install only a thin executor adapter and
   keep durable re-read semantics after return.
 
+Phase 24.4 note:
+
+- Backend/runtime executor wiring now exists internally and is installed after
+  runtime startup has a live backend, workspace id, and DB-backed stores.
+- Backend resolves workspace/coordinator and delegates to the coordinator-owned
+  configured started-task executor; runtime installs only a thin adapter and
+  terminalizes non-terminal backend/coordinator errors through durable failed
+  task evidence.
+- Runtime still does not construct agents, choose models, expose transport/UI
+  execution actions, auto-resume, or treat events/prose/React state as source
+  of truth.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

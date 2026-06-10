@@ -1902,3 +1902,11 @@ Phase 24.3 note:
 - Backend/runtime executor wiring is design-only.
 - No browser/Wails/React execution affordance is accepted; frontend remains
   read-only and refresh-driven.
+
+Phase 24.4 note:
+
+- Backend/runtime executor wiring now exists internally and is installed during
+  runtime startup, but there is still no HTTP/dev, Wails, generated binding,
+  adapter, or React execution affordance.
+- Frontend behavior remains read-only: runtime DTO reads are source of truth
+  and runtime events may only trigger refreshes.

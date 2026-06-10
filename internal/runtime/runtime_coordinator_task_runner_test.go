@@ -2,10 +2,12 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/crush/internal/agent"
+	"github.com/charmbracelet/crush/internal/backend"
 	"github.com/charmbracelet/crush/internal/config"
 )
 
@@ -151,14 +153,106 @@ func TestRuntimeCoordinatorTaskRunnerMissingPromptSourceFailsTerminally(t *testi
 	}
 }
 
+func TestRuntimeBackendStartedAgentTaskExecutorRequiresBackendAndWorkspace(t *testing.T) {
+	t.Parallel()
+
+	_, err := runtimeBackendStartedAgentTaskExecutor{}.ExecuteStartedAgentTask(context.Background(), agent.StartedAgentTaskExecutionRequest{TaskID: "task-1"})
+	if err == nil || !strings.Contains(err.Error(), "runtime backend is not available") {
+		t.Fatalf("nil backend err = %v", err)
+	}
+
+	_, err = runtimeBackendStartedAgentTaskExecutor{backend: backend.New(context.Background(), nil, nil), workspaceID: " "}.ExecuteStartedAgentTask(context.Background(), agent.StartedAgentTaskExecutionRequest{TaskID: "task-1"})
+	if err == nil || !strings.Contains(err.Error(), "runtime workspace id is not available") {
+		t.Fatalf("empty workspace err = %v", err)
+	}
+}
+
+func TestRuntimeServiceInstallsBackendAgentTaskRunner(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	runtimeBackend := backend.New(context.Background(), nil, nil)
+
+	service.installBackendAgentTaskRunner(runtimeBackend, "workspace-1")
+
+	runner, ok := service.agentTaskRunner.(runtimeCoordinatorTaskRunner)
+	if !ok {
+		t.Fatalf("runner type = %T", service.agentTaskRunner)
+	}
+	if runner.service != service {
+		t.Fatalf("runner service was not installed")
+	}
+	executor, ok := runner.executor.(runtimeBackendStartedAgentTaskExecutor)
+	if !ok {
+		t.Fatalf("executor type = %T", runner.executor)
+	}
+	if executor.backend != runtimeBackend || executor.workspaceID != "workspace-1" {
+		t.Fatalf("executor = %#v", executor)
+	}
+}
+
+func TestRuntimeCoordinatorTaskRunnerExecutorErrorFailsStartedTaskTerminally(t *testing.T) {
+	t.Parallel()
+
+	service, release := runtimeRunTransitionWriterTestService(t)
+	defer release()
+
+	run, turn := runtimeRunSchedulerPlanLinkedTurnFixture(t, service, turnStatusQueued)
+	task, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:               "task-coordinator-executor-error",
+		ParentSessionID:  "session-1",
+		ParentTurnID:     turn.ID,
+		ParentToolCallID: "tool-parent",
+		ChildSessionID:   "session-child",
+		Role:             config.AgentTask,
+		Status:           agentTaskStatusRunning,
+		StartedAt:        1100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := runtimeCoordinatorTaskRunner{
+		service: service,
+		executor: &recordingStartedAgentTaskExecutor{
+			err: errors.New("workspace coordinator is not available"),
+		},
+	}
+
+	result, err := runner.ExecuteAgentTask(context.Background(), runtimeAgentTaskExecutionRequest(run, task, "do work"))
+	if err == nil || !strings.Contains(err.Error(), "workspace coordinator is not available") {
+		t.Fatalf("executor err=%v result=%#v", err, result)
+	}
+	if !result.Terminal || result.Status != agentTaskStatusFailed || !result.NoStaleResume || !result.CompletionOnlyRefs {
+		t.Fatalf("runner result = %#v", result)
+	}
+	refreshed, err := service.agentTasks.Get(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.Status != agentTaskStatusFailed || refreshed.Progress != 100 || refreshed.Error != "workspace coordinator is not available" || len(refreshed.ArtifactRefs) != 0 {
+		t.Fatalf("failed task = %#v", refreshed)
+	}
+	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs.Refs) != 0 {
+		t.Fatalf("executor error created refs = %#v", refs.Refs)
+	}
+}
+
 type recordingStartedAgentTaskExecutor struct {
 	calls int
 	last  agent.StartedAgentTaskExecutionRequest
+	err   error
 }
 
 func (r *recordingStartedAgentTaskExecutor) ExecuteStartedAgentTask(_ context.Context, req agent.StartedAgentTaskExecutionRequest) (agent.StartedAgentTaskExecutionResult, error) {
 	r.calls++
 	r.last = req
+	if r.err != nil {
+		return agent.StartedAgentTaskExecutionResult{}, r.err
+	}
 	return agent.StartedAgentTaskExecutionResult{
 		TaskID:             req.TaskID,
 		Status:             agentTaskStatusCompleted,
