@@ -2087,3 +2087,13 @@ Phase 26.13 note:
   candidates just to make the click smoke easier.
 - Any later automation must use non-secret provider/config state and transient
   output under `tmp/runtime-dev`.
+
+Phase 26.14 note:
+
+- The explicit scheduler execute track is accepted through the current
+  boundary and should pause here unless a separate test-provider/config
+  readiness automation phase is opened.
+- No database migration, background scheduler, automatic resume, stale
+  permission/MCP actionability recovery, or frontend-owned Run state was added.
+- Remaining full browser click automation is a provider readiness problem, not
+  a reason to weaken scheduler candidate source-of-truth boundaries.

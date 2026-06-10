@@ -9378,6 +9378,77 @@ Review conclusion:
   decide whether to pause this track or open a separate test-provider/config
   automation phase.
 
+## 2026-06-11: Phase 26.14 Scheduler Execute Phase Acceptance And Risk Review
+
+Phase 26.14 accepts the Phase 26 explicit scheduler execute track through the
+current boundary. It is a review/acceptance phase only and does not add code,
+background workers, automatic resume, database migrations, stale actionability
+recovery, frontend Run state ownership, a full scheduler UI, or full Run
+executor behavior.
+
+Reviewed scope:
+
+- Backend/service HTTP and Wails transport for explicit scheduler task
+  execution.
+- Frontend adapter action that executes and then rehydrates durable DTOs.
+- Durable scheduler task candidate read model mapped from `RunSchedulerPlan`.
+- Event-triggered refresh contract: events schedule reads only.
+- Minimal visible `RunProjectionPreview` execute affordance backed by durable
+  candidate rows.
+- Runtime-owned seed smoke for queued and terminal scheduler candidates.
+- Manual/local browser click boundary when normal runtime readiness is not
+  available.
+
+Verification summary:
+
+- No `internal/db` migration files changed in the Phase 26.1-26.13 file set.
+- No runtime Run state machine was added.
+- No runtime Run store expansion was added beyond existing accepted Run/turn/
+  task evidence use.
+- No background scheduler, queue, poller, daemon, or automatic resume loop was
+  added.
+- No stale permission gate or stale MCP auth/elicitation actionability recovery
+  was added.
+- React renders candidate rows and local pending/error affordance only; durable
+  `schedulerTaskCandidates` remain the source for execution eligibility.
+- Action response payloads remain metadata; the adapter rehydrates durable DTOs
+  after explicit actions.
+- Runtime events remain refresh triggers and are not merged into timeline,
+  diagnostics, artifacts, permission/MCP actionability, scheduler candidates,
+  or Run state.
+
+Validation already run across the accepted implementation:
+
+```text
+npm run smoke:phase263
+npm run smoke:phase266
+npm run smoke:phase267
+npm run smoke:phase269
+npm run smoke:phase2610
+npm run build
+go test ./internal/runtime -run "TestRuntimeSchedulerUICandidateSeedExposesDurableHTTPPlanAndExecute|TestRuntimeRunSchedulerPlan|TestRuntimeRunSchedulerExecute" -count=1
+```
+
+Residual risks:
+
+- Full browser click automation still needs a normally ready runtime with
+  provider/model configuration. This should not be solved by a readiness
+  bypass or React fixture mode.
+- The visible scheduler row uses limited durable display data (`taskID`, role,
+  status/preflight reason). A richer task manager should wait for a separate
+  durable task display/read-model phase.
+- The execute action starts queued tasks through the accepted foreground
+  explicit path only; it is not a background scheduler.
+
+Review conclusion:
+
+- Pause the scheduler execute track at Phase 26.14.
+- If more automation is desired, open a separate phase for non-secret local
+  test-provider/config readiness automation and browser click smoke.
+- The next safe task is Phase 27: Test Provider/Config Readiness Automation
+  Gate, if the project wants to automate full browser scheduler click smoke
+  without manual local provider setup.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9425,7 +9496,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.14: Scheduler Execute Phase Acceptance And Risk Review.
-Review Phases 26.1-26.13, confirm no forbidden Run persistence/auto-resume/
-background scheduler behavior was introduced, and decide whether to pause this
-track or open a separate test-provider/config automation phase.
+Implement Phase 27: Test Provider/Config Readiness Automation Gate, only if
+the project wants automated full browser scheduler click smoke. Otherwise pause
+the scheduler execute track at Phase 26.14 and keep the remaining browser click
+validation as a manual/local checklist.

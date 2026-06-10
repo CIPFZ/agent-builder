@@ -422,6 +422,14 @@ Phase 26.13 note:
 - The model boundary remains unchanged: candidate state must come from runtime
   Run/Turn/AgentTask evidence, not frontend fixtures.
 
+Phase 26.14 note:
+
+- The scheduler execute track is accepted through explicit transport, durable
+  candidate reads, minimal visible UI, and runtime-owned seed smoke.
+- Full browser click automation is deferred to a separate provider/config
+  readiness gate. It must not introduce Run persistence expansion, migrations,
+  auto-resume, background scheduling, or frontend-owned candidate state.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
