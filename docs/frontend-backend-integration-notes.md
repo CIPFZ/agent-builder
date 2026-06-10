@@ -2027,3 +2027,14 @@ Phase 26.7 note:
   diagnostic, artifact, permission/MCP, or Run state.
 - Duplicate terminal/event evidence is constrained by durable rereads and
   stable `runID:taskID` candidate keys.
+
+Phase 26.8 note:
+
+- A minimal visible scheduler execute control is accepted for a later
+  implementation phase.
+- The control may render only from durable
+  `RunProjectionViewModel.schedulerTaskCandidates`.
+- Enablement must use `candidate.executeEligible`; click handling must call the
+  adapter action and then rely on durable hydration.
+- Local pending/error UI may exist, but it must not become task status,
+  diagnostics, artifacts, permission/MCP actionability, or Run state.

@@ -378,6 +378,14 @@ Phase 26.7 note:
   or resurrect stale permission/MCP actionability because candidate state is
   keyed and hydrated from durable reads.
 
+Phase 26.8 note:
+
+- A minimal visible execute control is accepted only as a consumer of durable
+  scheduler candidate rows.
+- The UI may hold local pending/error affordance for the clicked action, but it
+  must not persist or infer task lifecycle, artifact, permission, MCP
+  actionability, or Run state.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

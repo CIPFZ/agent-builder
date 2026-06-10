@@ -9025,6 +9025,78 @@ Review conclusion:
   to add a visible restrained task-row control, or whether another runtime
   contract gap remains.
 
+## 2026-06-10: Phase 26.8 Visible Scheduler Execute Control Gate
+
+Phase 26.8 accepts a minimal visible scheduler execute control for a later
+implementation phase. This is a design gate only; it does not add the visible
+control, background workers, automatic resume, database migrations, stale
+actionability recovery, frontend Run state ownership, or full Run executor
+behavior.
+
+Gate finding:
+
+- The hidden candidate read model from Phase 26.6 is sufficient for a minimal
+  safe control because it provides durable `runID`, `taskID`,
+  `executeEligible`, `disabledReason`, ownership/preflight evidence, refresh
+  targets, and stable row keys.
+- The current read model is not rich enough for a polished task manager. It
+  does not yet provide a durable human summary, task progress text, or full
+  task status beyond scheduler eligibility. The first visible control must
+  therefore be intentionally narrow and diagnostic.
+
+Accepted visible UI contract:
+
+- Surface: `RunProjectionPreview`, below the existing metric/tags area and
+  above checkpoint resume.
+- Rendering: show at most a small list of scheduler task candidate rows from
+  `run.schedulerTaskCandidates`.
+- Copy: use durable `title`/`taskID`, durable `source`/role if present, and
+  `disabledReason` when blocked. Do not infer from assistant prose or runtime
+  event payloads.
+- Button: restrained icon+label action. Enabled only when
+  `candidate.executeEligible === true` and an `onRunTaskExecute` handler is
+  supplied.
+- Click behavior: call `onRunTaskExecute(run.id, candidate.taskID)` and let the
+  adapter call `executeRunTask(...)` followed by durable hydration. Do not merge
+  action response payload into UI state.
+- Pending UI: local loading state may disable only the clicked row while the
+  action is in flight. It must not mark the task running/completed/failed.
+- Error UI: local action error text may be shown as an ephemeral action error,
+  but must not become durable task status, diagnostics, artifacts, permission,
+  MCP actionability, or Run state.
+- Terminal/blocked rows may stay visible as diagnostics, but must remain
+  disabled and must not resurrect stale permission/MCP auth or elicitation
+  actionability.
+
+Required implementation criteria:
+
+- Add `onRunTaskExecute` plumbing from `WorkbenchShell` to `Workspace` to
+  `RunProjectionPreview`.
+- Render candidate rows without cards-inside-cards and keep text constrained.
+- Add source smoke proving:
+  - `RunProjectionPreview` only reads `schedulerTaskCandidates`.
+  - Enablement uses `candidate.executeEligible`.
+  - Clicks call `onRunTaskExecute(run.id, candidate.taskID)`.
+  - No event payload, action response, assistant prose, or React state becomes
+    scheduler/task source of truth.
+- Run client build.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 26.8 accepts a minimal visible execute control implementation.
+- The next safe task is Phase 26.9: Visible Scheduler Execute Control
+  Implementation. It should add the UI plumbing and source smoke only; no full
+  scheduler UI, background worker, auto-resume, migration, stale actionability
+  recovery, or full Run executor behavior.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9072,9 +9144,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.8: Visible Scheduler Execute Control Gate. Decide whether
-the hidden scheduler candidate read model is sufficient to add a visible,
-restrained task-row execute control, or whether another runtime contract gap
-remains. Do not add background workers, automatic resume, database migrations,
-stale actionability recovery, frontend Run state ownership, or full Run
-executor behavior.
+Implement Phase 26.9: Visible Scheduler Execute Control Implementation. Add
+minimal `RunProjectionPreview` scheduler candidate rows and execute plumbing
+backed only by durable `schedulerTaskCandidates` and adapter rehydration. Do
+not add background workers, automatic resume, database migrations, stale
+actionability recovery, frontend Run state ownership, full scheduler UI, or
+full Run executor behavior.
