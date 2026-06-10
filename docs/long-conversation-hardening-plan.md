@@ -8279,6 +8279,77 @@ Review conclusion:
   lifecycle/progress evidence, cancellation ordering, and transport boundaries.
 - The next safe task is Phase 24.5: Backend/runtime Executor Wiring Acceptance.
 
+## 2026-06-10: Phase 24.5 Backend/runtime Executor Wiring Acceptance
+
+Phase 24.5 accepts the Phase 24.4 backend/runtime executor wiring contract.
+This is an acceptance/review phase only; it does not add execution routes,
+client bindings, frontend controls, background workers, automatic resume,
+database migrations, or stale permission/MCP actionability recovery.
+
+Acceptance review:
+
+- `Backend.ExecuteStartedAgentTask(...)` is backend-internal and only resolves
+  workspace/coordinator before delegating to the coordinator-owned
+  `ExecuteConfiguredStartedAgentTask(...)`.
+- `runtimeCoordinatorTaskRunner` is installed during runtime startup only
+  after a live backend, workspace id, and DB-backed runtime stores exist.
+  Installation does not execute queued work, resume interrupted tasks, or
+  change startup recovery semantics.
+- Runtime still uses explicit prompt sources only:
+  `RuntimeAgentTaskExecutionRequest.Prompt` or the durable
+  `runtime_task_instruction` task message payload. Assistant prose, runtime
+  events, transition history, and React state remain rejected as prompt/state
+  sources.
+- Backend/coordinator errors that return no terminal result are converted into
+  durable failed task evidence by the existing recorder path, with no artifact
+  refs and no stale resume.
+- Existing task cancellation remains owned by `CancelAgentTask(...)` and
+  recorder terminal evidence. The backend runner installation does not add a
+  scheduler-owned cancellation source or process-recovery resume path.
+- No HTTP/dev route, Wails binding, generated frontend client action, React
+  Run UI, runtime Run store migration, background queue/worker, poller, daemon,
+  or automatic resume path was added by Phase 24.4.
+- Event payloads remain refresh triggers only; runtime DTO reads and durable
+  task/result/ref stores remain the source of truth.
+
+Validation:
+
+- Phase 24.4 implementation tests passed:
+
+  ```text
+  go test ./internal/backend ./internal/runtime -run "TestBackendExecuteStartedAgentTask|TestRuntimeCoordinatorTaskRunner|TestRuntimeBackendStartedAgentTaskExecutor|TestRuntimeServiceInstallsBackendAgentTaskRunner" -count=1
+  ```
+
+- Related package regression passed:
+
+  ```text
+  go test ./internal/agent ./internal/backend ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1
+  ```
+
+- Phase 24.5 acceptance diff review passed:
+  - no `client/` changes;
+  - no `desktop/` binding or bridge changes;
+  - no HTTP execution route changes;
+  - no database migration changes;
+  - no runtime-side agent construction or model selection;
+  - no auto-resume or background scheduler execution loop.
+
+Review conclusion:
+
+- Phase 24.5 accepts Phase 24.4 as the first real internal backend/coordinator
+  executor installation.
+- The implementation is still not a user-facing execution feature. It is a
+  controlled internal delegate used only when existing explicit scheduler
+  execution reaches an accepted AgentTask candidate.
+- Remaining risk before exposing any operator-facing execution affordance:
+  live foreground child-agent smoke coverage with configured credentials,
+  cancellation during a real provider call, and permission/MCP behavior during
+  real child execution.
+- The next safe task is Phase 25: Real Child-agent Execution Smoke And
+  Cancellation Validation. It should validate the installed backend runner in
+  live/fake-provider smoke paths without adding frontend controls, transport
+  execution routes, background workers, auto-resume, or migrations.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8326,8 +8397,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 24.4: Backend/runtime Executor Wiring Contract. Keep it
-backend/internal and test-covered first. Do not expose frontend controls,
-expose HTTP/Wails transport, add background workers, add automatic resume,
-write database migrations, restore stale actionability, or make event/prose/
-React state the source of truth.
+Implement Phase 25: Real Child-agent Execution Smoke And Cancellation
+Validation. Keep it internal and validation-first: exercise the installed
+backend/coordinator runner with fake or redacted live-provider smoke coverage,
+prove cancellation/no-artifact semantics during real child execution, and do
+not expose frontend controls, expose HTTP/Wails transport, add background
+workers, add automatic resume, write database migrations, restore stale
+actionability, or make event/prose/React state the source of truth.

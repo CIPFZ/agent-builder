@@ -1910,3 +1910,11 @@ Phase 24.4 note:
   adapter, or React execution affordance.
 - Frontend behavior remains read-only: runtime DTO reads are source of truth
   and runtime events may only trigger refreshes.
+
+Phase 24.5 note:
+
+- The internal backend/runtime executor wiring is accepted, but frontend
+  behavior remains unchanged.
+- Do not add browser/Wails/React execution controls until real child-agent
+  execution smoke, cancellation, permission/MCP behavior, and completed-output
+  refs are validated behind the internal runner.

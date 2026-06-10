@@ -271,6 +271,15 @@ Phase 24.4 note:
   execution actions, auto-resume, or treat events/prose/React state as source
   of truth.
 
+Phase 24.5 note:
+
+- The backend/runtime executor wiring contract is accepted as internal-only.
+- It remains a controlled delegate for existing explicit scheduler execution,
+  not a user-facing Run/task execution feature.
+- The next validation boundary is live/fake child-agent execution smoke and
+  cancellation behavior, still without transport/UI exposure, background
+  workers, automatic resume, or migrations.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
