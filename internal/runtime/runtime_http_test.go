@@ -670,6 +670,12 @@ func TestRuntimeHTTPServerRoutesRunsToRuntimeService(t *testing.T) {
 	if resume.RunID != "run-1" || resume.CheckpointID != "checkpoint-1" || resume.TurnID == "" {
 		t.Fatalf("resume response = %#v", resume)
 	}
+	if resume.Action == nil || !resume.Action.Accepted || resume.Action.Source.Action != runtimeRunCheckpointActionResume || resume.Action.Source.IdempotentBy != "" || !resume.Action.Source.StartsWorker {
+		t.Fatalf("resume action metadata = %#v", resume.Action)
+	}
+	if resume.Run.Action != nil {
+		t.Fatalf("nested run response should not carry resume action metadata: %#v", resume.Run.Action)
+	}
 }
 
 func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {

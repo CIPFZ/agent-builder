@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.9: Checkpoint Resume Write Action Metadata Implementation.
-Add top-level shared metadata to `RuntimeRunResumeResponse` only, preserve the
-existing chat and nested Run payload, leave `idempotentBy` empty because resume
-creates a new turn per explicit action, and keep permission decision for later.
+Implement Phase 37.10: Checkpoint Resume Write Action Envelope Acceptance And
+Permission Decision Contract Gate. Review the top-level resume metadata
+implementation, then define whether permission decisions can adopt the shared
+envelope without making response payloads the source of active gate state.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12128,3 +12128,56 @@ Review conclusion:
   only on the top-level resume response and without an idempotency claim.
 - Permission decision metadata remains later because live permission
   actionability needs a separate contract review.
+
+## 2026-06-11: Phase 37.9 Checkpoint Resume Write Action Metadata Implementation
+
+Phase 37.9 implements the shared write-action metadata envelope for
+`ResumeRunCheckpoint(...)` only. It preserves the existing resume response shape
+and does not change checkpoint resume behavior, permission decision behavior,
+database schema, Run persistence, automatic resume, background scheduling,
+stale actionability recovery, or frontend Run UI.
+
+Implemented:
+
+- Added optional top-level `action` metadata to `RuntimeRunResumeResponse`.
+- Populated `action` from `ResumeRunCheckpoint(...)` after the existing Chat,
+  checkpoint resume link, transition/audit/event write, and Run reread succeed.
+- Preserved existing response fields: `runId`, `checkpointId`, `sessionId`,
+  `turnId`, `chat`, and nested `run`.
+- Kept nested `RuntimeRunResponse.action` unset for resume. The nested `run`
+  remains durable Run detail/read payload.
+- Used source kind `run_checkpoint`, action `resume_checkpoint`,
+  `backendOnly=true`, `startsWorker=true`, and `sessionActivityParity=true`.
+- Left `idempotentBy` empty because each explicit checkpoint resume can create
+  a new resumed turn.
+- Declared durable evidence names for Run/checkpoint rows, resumed turns,
+  messages/chat response, transition history, runtime events/audit, scheduler
+  plan, Run projection, and session activity.
+- Added HTTP route contract assertions for top-level resume metadata and nested
+  Run action absence.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run "TestRuntimeHTTPServerRoutesRunsToRuntimeService|TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation|TestRuntimeRunSchedulerDelegateAcceptsExplicitCheckpointResumeTurnOnly" -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- The checkpoint resume envelope is additive and metadata-only.
+- New-turn state, checkpoint resume links, transition history, chat/message
+  evidence, timeline rows, diagnostics, artifacts, permission state, MCP
+  actionability, scheduler state, and Run projection remain durable DTO/read
+  concerns after the action.
+- The implementation does not add permission decision metadata, retry/
+  idempotency keys, automatic resume, a Run state machine, Run store migration,
+  background queue, stale tool/permission/MCP recovery, frontend Run UI,
+  React-owned resume/checkpoint/turn state, event-payload state merging, or
+  assistant-prose-derived refs/artifacts/checkpoints/actionability.
+
+Remaining risk:
+
+- Permission decision responses still do not carry the shared `action`
+  metadata. Phase 37.10 should review the resume implementation and define a
+  permission decision contract gate before any implementation.

@@ -3934,7 +3934,7 @@ func (s *recordingRuntimeService) ResumeRunCheckpoint(_ context.Context, runID, 
 		s.resume.CheckpointID = checkpointID
 		s.resume.TurnID = "turn-resume"
 	}
-	return s.resume, nil
+	return withRuntimeRunCheckpointResumeAction(s.resume), nil
 }
 
 func (s *recordingRuntimeService) ToolCall(context.Context, string) (RuntimeToolCallResponse, error) {

@@ -99,6 +99,15 @@ Phase 37.8 note:
 - Resume action metadata must not claim `idempotentBy` because each explicit
   resume creates a new turn.
 
+Phase 37.9 note:
+
+- `RuntimeRunResumeResponse` now has optional top-level shared write-action
+  metadata for `ResumeRunCheckpoint(...)`.
+- Nested `RuntimeRunResponse.action` remains unset for resume.
+- Resume metadata remains non-idempotent and does not own new-turn,
+  checkpoint-link, transition, timeline, diagnostic, artifact, permission, MCP,
+  scheduler, or Run projection state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

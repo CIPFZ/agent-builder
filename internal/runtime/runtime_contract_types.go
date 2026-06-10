@@ -184,12 +184,13 @@ type RuntimeRunResponse struct {
 }
 
 type RuntimeRunResumeResponse struct {
-	RunID        string              `json:"runId"`
-	CheckpointID string              `json:"checkpointId"`
-	SessionID    string              `json:"sessionId"`
-	TurnID       string              `json:"turnId"`
-	Chat         RuntimeChatResponse `json:"chat"`
-	Run          RuntimeRunResponse  `json:"run"`
+	RunID        string                      `json:"runId"`
+	CheckpointID string                      `json:"checkpointId"`
+	SessionID    string                      `json:"sessionId"`
+	TurnID       string                      `json:"turnId"`
+	Chat         RuntimeChatResponse         `json:"chat"`
+	Run          RuntimeRunResponse          `json:"run"`
+	Action       *RuntimeWriteActionMetadata `json:"action,omitempty"`
 }
 
 type RuntimeRun struct {

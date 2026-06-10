@@ -16,9 +16,11 @@ const (
 
 	runtimeRunCheckpointActionAcknowledge = "acknowledge_checkpoint"
 	runtimeRunCheckpointActionDiscard     = "discard_checkpoint"
+	runtimeRunCheckpointActionResume      = "resume_checkpoint"
 
 	runtimeRunCheckpointActionReasonAcknowledged = "checkpoint_acknowledged"
 	runtimeRunCheckpointActionReasonDiscarded    = "checkpoint_discarded"
+	runtimeRunCheckpointActionReasonResumed      = "checkpoint_resume_started"
 )
 
 func (r *runtimeService) Runs(ctx context.Context) (RuntimeRunsResponse, error) {
@@ -197,14 +199,43 @@ func (r *runtimeService) ResumeRunCheckpoint(ctx context.Context, runID, checkpo
 	if err != nil {
 		return RuntimeRunResumeResponse{}, err
 	}
-	return RuntimeRunResumeResponse{
+	resp := RuntimeRunResumeResponse{
 		RunID:        run.ID,
 		CheckpointID: checkpoint.ID,
 		SessionID:    run.PrimarySessionID,
 		TurnID:       chat.TurnID,
 		Chat:         chat,
 		Run:          refreshed,
-	}, nil
+	}
+	return withRuntimeRunCheckpointResumeAction(resp), nil
+}
+
+func withRuntimeRunCheckpointResumeAction(resp RuntimeRunResumeResponse) RuntimeRunResumeResponse {
+	resp.Action = &RuntimeWriteActionMetadata{
+		Accepted:       true,
+		Reason:         runtimeRunCheckpointActionReasonResumed,
+		RefreshTargets: runtimeRunSchedulerRefreshTargets(),
+		Source: RuntimeWriteActionSource{
+			Kind:                  runtimeRunCheckpointActionSourceKind,
+			Action:                runtimeRunCheckpointActionResume,
+			BackendOnly:           true,
+			StartsWorker:          true,
+			SessionActivityParity: true,
+			Evidence: []string{
+				"runtime_runs",
+				"runtime_run_checkpoints",
+				"runtime_turns",
+				"runtime_messages",
+				"runtime_run_transitions",
+				"runtime_events",
+				"runtime_audit",
+				"runtime_run_projection",
+				"runtime_run_scheduler_plan",
+				"session_activity",
+			},
+		},
+	}
+	return resp
 }
 
 func (r *runtimeService) backfillRuntimeRuns(ctx context.Context) error {
