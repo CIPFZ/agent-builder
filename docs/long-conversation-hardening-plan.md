@@ -11031,6 +11031,86 @@ Review conclusion:
 - The next safe task is Phase 35: Hosted Provider And MCP Manual Smoke Refresh
   Gate.
 
+## 2026-06-11: Phase 35 Hosted Provider And MCP Manual Smoke Refresh Gate
+
+Phase 35 refreshes the hosted provider and hosted MCP manual-smoke boundary
+after deterministic local browser/provider smokes were added. It is a design
+gate only and does not add code, live provider credentials, hosted OAuth
+automation, provider-specific secret fixtures, production seed/debug endpoints,
+runtime readiness bypasses, background workers, automatic resume, database
+migrations, stale actionability recovery, frontend Run state ownership,
+packaged WebView automation, full scheduler UI, or full Run executor behavior.
+
+Current deterministic substitute coverage:
+
+- Phase 32.1 proves provider-backed child-agent execution can reach the real
+  scheduler, installed backend runner, backend workspace routing, real
+  coordinator configured task-agent path, and loopback OpenAI-compatible
+  provider without credentials.
+- Phase 33.1 proves visible browser Execute click can trigger the same
+  provider-backed path and rehydrate runtime DTOs after completion.
+- Phase 6.8/6.9 coverage remains the deterministic hosted-MCP substitute for:
+  - no stale actionable MCP auth/elicitation recovery after restart;
+  - completed scheduler output as the only artifact-producing evidence;
+  - unfinished/partial/disconnected MCP output producing no artifact evidence;
+  - event payloads as refresh triggers only.
+
+Credential-sensitive manual gap:
+
+- Real hosted provider execution still requires operator-held credentials.
+- Hosted OAuth and provider-specific MCP elicitation still require browser auth
+  state or provider-side interaction.
+- This workspace does not have safe credentials or browser auth state to
+  automate.
+- Do not write secrets, OAuth tokens, cookies, auth URLs, browser profiles,
+  raw headers, provider auth state, screenshots containing auth state, or live
+  provider logs into repo fixtures, docs, screenshots, logs, or React state.
+
+Refreshed manual smoke checklist:
+
+1. Use operator-held provider credentials outside the repo and outside
+   `tmp/runtime-dev`.
+2. Use an operator-controlled browser profile outside the workspace for OAuth.
+3. Start a queued AgentTask through the browser Execute flow or the explicit
+   scheduler execute transport.
+4. Verify prompt source remains durable `runtime_task_instruction` evidence.
+5. Verify completed hosted provider output terminalizes the task and that
+   produced refs come only from terminal recorder evidence.
+6. Cancel or disconnect during foreground hosted provider execution and verify
+   terminal failed/cancelled evidence with zero artifact refs.
+7. Trigger hosted MCP auth/elicitation when available and record only redacted
+   request kind/status through runtime APIs.
+8. Restart before answering hosted MCP auth/elicitation and verify
+   `RecoveryStatus`, activity DTOs, `RunProjection`, MCP request DTOs, and
+   replay export do not expose stale actionability.
+9. Verify frontend refreshes from runtime DTO reads only; event payloads must
+   not directly restore timeline, diagnostics, artifact evidence, permission
+   state, MCP actionability, or Run state.
+10. Store any operator notes only as redacted local files under
+    `tmp/runtime-dev`, never as committed fixtures.
+
+Gate decision:
+
+- Keep hosted provider/MCP live validation as a redacted manual checklist.
+- Do not block deterministic local scheduler/provider progress on hosted
+  credentials.
+- Do not add automation until a credential-handling plan exists outside repo
+  fixtures and logs.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 35 accepts the refreshed hosted provider/MCP manual smoke boundary.
+- The next safe task is Phase 35.1: Redacted Hosted Provider MCP Checklist
+  Artifact Refresh.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -11078,6 +11158,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 35: Hosted Provider And MCP Manual Smoke Refresh Gate. Review
-the redacted hosted-provider/MCP manual checklist now that deterministic
-browser/provider smokes exist, without automating secrets or auth state.
+Implement Phase 35.1: Redacted Hosted Provider MCP Checklist Artifact Refresh.
+Write an ignored, redacted local checklist under `tmp/runtime-dev` reflecting
+the Phase 35 manual smoke boundary, without secrets or auth state.

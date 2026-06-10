@@ -548,6 +548,14 @@ Phase 32 note:
   task evidence boundary; this is validation work, not Run persistence or
   scheduler state-machine expansion.
 
+Phase 35 note:
+
+- Hosted provider and hosted MCP validation remains credential-gated manual
+  smoke.
+- Deterministic local smokes cover loopback provider-backed execution, but
+  hosted OAuth/MCP elicitation must not persist secrets, auth state, or stale
+  actionability in Run, task, permission, MCP, event, or React state.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

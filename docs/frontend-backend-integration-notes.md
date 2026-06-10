@@ -2352,3 +2352,14 @@ Phase 34.2 note:
   is designed.
 - The next validation risk is hosted provider/MCP manual smoke refresh, with no
   repo-stored credentials or auth state.
+
+Phase 35 note:
+
+- Hosted provider and hosted MCP validation remains a redacted manual smoke
+  boundary.
+- Deterministic local coverage now includes browser Execute click through the
+  real coordinator and loopback provider, while hosted OAuth/provider-specific
+  elicitation still requires operator credentials or browser auth state.
+- Do not store secrets, OAuth state, auth URLs, screenshots, raw headers, live
+  provider logs, or browser profiles in repo docs, fixtures, logs, screenshots,
+  or React state.
