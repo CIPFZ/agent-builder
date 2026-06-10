@@ -276,7 +276,7 @@ func TestRuntimeRunSchedulerDelegateTaskTurnRejectsInvalidCandidatesWithoutSideE
 	assertTaskDelegateNoSideEffects(t, service, run.ID, interrupted.ID)
 }
 
-func TestRuntimeRunSchedulerDelegateTaskTurnPreservesOwnedScopeButRemainsRejected(t *testing.T) {
+func TestRuntimeRunSchedulerDelegateTaskTurnAllowsOwnedActiveCandidateWithoutSideEffects(t *testing.T) {
 	t.Parallel()
 
 	service, release := runtimeRunTransitionWriterTestService(t)
@@ -303,14 +303,14 @@ func TestRuntimeRunSchedulerDelegateTaskTurnPreservesOwnedScopeButRemainsRejecte
 		t.Fatal(err)
 	}
 	plan, err := service.runtimeRunSchedulerDelegateTaskTurn(context.Background(), run, task.ID)
-	if err == nil || !strings.Contains(err.Error(), runtimeRunSchedulerPlanReasonTaskSchedulerNotReady) {
+	if err != nil {
 		t.Fatalf("owned task delegate error = %v plan = %#v", err, plan)
 	}
 	if len(plan.Plan.Items) != 1 {
 		t.Fatalf("task plan = %#v", plan.Plan)
 	}
 	item := plan.Plan.Items[0]
-	if item.CanSchedule || !item.OwnershipVerified || item.PreflightReason != runtimeRunSchedulerPlanReasonTaskSchedulerNotReady {
+	if !item.CanSchedule || !item.OwnershipVerified || item.PreflightReason != "" {
 		t.Fatalf("owned task item = %#v", item)
 	}
 	scope := item.TaskScope

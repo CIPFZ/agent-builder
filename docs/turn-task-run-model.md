@@ -61,6 +61,15 @@ Phase 19.2 note:
 - Worker, queue, automatic resume, frontend Run UI, migration, and
   event/prose/React-derived truth remain out of scope.
 
+Phase 20 note:
+
+- Owned active task plan items with verified parent Run/session/turn ownership
+  may now become foreground-schedulable internally. The delegate can accept
+  that candidate, but it does not start execution or write lifecycle evidence
+  by itself.
+- Final, cancelled, interrupted, missing, or unowned task rows remain
+  non-executable. Runtime stores/DTO reads remain the source of truth.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

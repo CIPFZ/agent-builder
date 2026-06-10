@@ -168,7 +168,7 @@ func TestRuntimeRunSchedulerPlanTaskItemRequiresParentRunTurnOwnership(t *testin
 	}
 }
 
-func TestRuntimeRunSchedulerPlanTaskItemPreservesScopeAndStaysNonExecutable(t *testing.T) {
+func TestRuntimeRunSchedulerPlanTaskItemPreservesScopeAndAllowsOwnedActiveCandidate(t *testing.T) {
 	t.Parallel()
 
 	service, release := runtimeRunTransitionWriterTestService(t)
@@ -205,7 +205,7 @@ func TestRuntimeRunSchedulerPlanTaskItemPreservesScopeAndStaysNonExecutable(t *t
 		t.Fatalf("task plan = %#v", plan.Plan)
 	}
 	item := plan.Plan.Items[0]
-	if item.CanSchedule || !item.OwnershipVerified || item.PreflightReason != runtimeRunSchedulerPlanReasonTaskSchedulerNotReady {
+	if !item.CanSchedule || !item.OwnershipVerified || item.PreflightReason != "" {
 		t.Fatalf("owned task item = %#v", item)
 	}
 	scope := item.TaskScope
@@ -268,7 +268,7 @@ func TestRuntimeRunSchedulerPlanTaskItemAfterCancellationStaysNonExecutableAndDo
 		t.Fatalf("task plan = %#v", plan.Plan)
 	}
 	item := plan.Plan.Items[0]
-	if item.CanSchedule || !item.OwnershipVerified || item.PreflightReason != runtimeRunSchedulerPlanReasonTaskSchedulerNotReady {
+	if item.CanSchedule || !item.OwnershipVerified || item.PreflightReason != runtimeRunSchedulerPlanReasonTerminalTask {
 		t.Fatalf("cancelled task item = %#v", item)
 	}
 	if item.CancellationScope == "" || item.DiagnosticsRoute == "" || len(item.RefreshTargets) == 0 {

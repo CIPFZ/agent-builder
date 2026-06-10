@@ -6680,6 +6680,52 @@ Review conclusion:
 - The next safe task is Phase 20: Foreground Task Plan Executability
   Implementation Gate.
 
+### Phase 20: Foreground Task Plan Executability Implementation Gate
+
+Status: implemented.
+
+Implementation:
+
+- Updated `runtimeRunSchedulerTaskPlanItem(...)` so an owned, active task with
+  verified parent Run/session/turn ownership is now `CanSchedule=true`.
+- Added explicit `terminal_task` task-plan rejection for final task rows after
+  ownership verification.
+- Updated `runtimeRunSchedulerDelegateTaskTurn(...)` tests so owned active task
+  candidates are accepted by the delegate while still producing no runtime
+  events, run transitions, task messages, task results, or artifact evidence.
+- Kept missing, unowned, completed, cancelled, and interrupted task candidates
+  rejected without side effects.
+- Updated scheduler plan tests so cancelled task rows remain non-executable and
+  owned active task rows preserve scope while becoming foreground-schedulable.
+
+Accepted behavior:
+
+- This phase flips plan/delegate foreground schedulability only. It does not
+  add a worker, queue, poller, automatic resume, frontend Run UI, transport
+  exposure, database migration, or new source of truth.
+- A successful task delegate preflight means the existing foreground caller may
+  proceed; it does not itself start child execution or infer lifecycle.
+- Task cancellation remains owned by `CancelAgentTask(...)` or recorder
+  terminal evidence.
+- Completed structured task/tool output remains the only produced-ref path.
+- Runtime DTO reads remain authoritative; event payloads remain refresh
+  triggers only.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunSchedulerDelegate(TaskTurn|Allows|Rejects|Accepts)|TestRuntimeRunSchedulerPlanTaskItem"
+  -count=1` passed.
+
+Review conclusion:
+
+- Phase 20 implements the minimum foreground task-plan executability flip.
+- No background scheduler, automatic resume, frontend Run UI, migration,
+  transition/event/prose/React-derived lifecycle/actionability, or artifact
+  inference was added.
+- The next safe task is Phase 20.1: Foreground Task Executability Parity And
+  Recorder Evidence Coverage.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6727,10 +6773,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Start Phase 20: Foreground Task Plan Executability Implementation Gate. Define
-and implement only the minimum foreground path that can flip an owned active
-task plan candidate from rejection-only to executable after proving ownership,
-task scope enforcement, cancellation ordering, artifact evidence, and
-`SessionActivity` parity. Do not add a background worker, queue, poller,
-automatic resume, frontend Run UI, migration, or event/prose/React-derived
-source of truth.
+Implement Phase 20.1: Foreground Task Executability Parity And Recorder
+Evidence Coverage. Add focused backend coverage proving the foreground
+schedulable task candidate remains compatible with full `SessionActivity`
+fallback/parity, recorder completed output remains the only produced-ref path,
+and cancellation/terminal evidence still wins over executable plan refreshes.
+Do not add a background worker, queue, poller, automatic resume, frontend Run
+UI, migration, or event/prose/React-derived source of truth.

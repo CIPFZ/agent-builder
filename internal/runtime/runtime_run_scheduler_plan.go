@@ -24,6 +24,7 @@ const (
 	runtimeRunSchedulerPlanReasonMissingCheckpoint      = "missing_checkpoint"
 	runtimeRunSchedulerPlanReasonMissingTask            = "missing_task"
 	runtimeRunSchedulerPlanReasonTaskSchedulerNotReady  = "task_scheduler_not_accepted"
+	runtimeRunSchedulerPlanReasonTerminalTask           = "terminal_task"
 )
 
 func (r *runtimeService) runtimeRunSchedulerPlan(ctx context.Context, req RuntimeRunSchedulerPlanRequest) (RuntimeRunSchedulerPlanResponse, error) {
@@ -161,7 +162,11 @@ func (r *runtimeService) runtimeRunSchedulerTaskPlanItem(ctx context.Context, ru
 		item.PreflightReason = preflight.Reason
 		return item
 	}
-	item.PreflightReason = runtimeRunSchedulerPlanReasonTaskSchedulerNotReady
+	if isFinalAgentTaskStatus(task.Status) {
+		item.PreflightReason = runtimeRunSchedulerPlanReasonTerminalTask
+		return item
+	}
+	item.CanSchedule = true
 	return item
 }
 

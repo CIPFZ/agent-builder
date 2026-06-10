@@ -1640,3 +1640,26 @@ Phase 19.2 result:
   executability implementation gate.
 - The next frontend/backend risk is exposing any executable task plan path; it
   must remain DTO-refresh based and parity-checked before UI/transport exposure.
+
+## 2026-06-10: Phase 20 Foreground Task Plan Executability Implementation Gate
+
+Phase 20 flips only the internal foreground task plan/delegate schedulability
+contract.
+
+Frontend boundary:
+
+- No task scheduler transport method, adapter method, worker, queue, automatic
+  resume, or Run management UI is added.
+- Owned active task plan items may now be schedulable internally, but frontend
+  state still comes from runtime DTO refreshes.
+- Event payloads remain refresh triggers only and must not hydrate task
+  lifecycle, artifact evidence, permission/MCP actionability, or Run status.
+
+Phase 20 result:
+
+- Owned active task candidates with verified parent Run/session/turn ownership
+  can pass the internal foreground delegate.
+- Missing, unowned, completed, cancelled, and interrupted task candidates remain
+  rejected without side effects.
+- The delegate still does not start a worker or write runtime events, task
+  messages/results, transitions, or artifact evidence by itself.
