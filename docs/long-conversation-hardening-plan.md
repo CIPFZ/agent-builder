@@ -11257,11 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.7: Checkpoint Acknowledge/Discard Write Action Envelope
-Acceptance And Next Action Selection. Review the checkpoint acknowledge/discard
-metadata implementation, decide whether checkpoint resume or permission
-decision should adopt the envelope next, and keep action payloads as refresh
-metadata only.
+Implement Phase 37.8: Checkpoint Resume Write Action Envelope Contract Gate.
+Review the existing `ResumeRunCheckpoint(...)` response shape, define whether
+and how shared action metadata can describe a new-turn write without becoming
+Run/turn/checkpoint state, and keep permission decision for a later phase.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -11975,3 +11974,78 @@ Remaining risk:
 - Checkpoint resume and permission decision responses still do not carry the
   shared `action` metadata. Phase 37.7 should review the checkpoint
   acknowledge/discard implementation and choose the next adopter deliberately.
+
+## 2026-06-11: Phase 37.7 Checkpoint Acknowledge/Discard Write Action Envelope Acceptance And Next Action Selection
+
+Phase 37.7 reviews the Phase 37.6 checkpoint acknowledge/discard implementation
+and chooses the next explicit write action to evaluate for the shared metadata
+envelope. It is an acceptance/design phase only. It does not change runtime
+behavior, database schema, Run persistence, automatic resume, background
+scheduling, stale permission/MCP actionability recovery, or frontend Run UI.
+
+Phase 37.6 acceptance:
+
+- `AcknowledgeRunCheckpoint(...)` and `DiscardRunCheckpoint(...)` now return
+  optional shared `action` metadata on `RuntimeRunResponse`.
+- Ordinary `Run(...)` reads omit `action`, so checkpoint metadata is not a
+  persisted Run/checkpoint field and not a frontend state source.
+- Checkpoint markers remain durable Run checkpoint evidence; acknowledge,
+  discard, and subsequent Run reconciliation preserve existing marker
+  semantics.
+- HTTP route coverage verifies the action metadata is forwarded for
+  acknowledge/discard responses.
+- Frontend integration remains reread driven: action metadata may choose
+  refresh targets, but checkpoint state, Run projection, diagnostics, timeline
+  rows, artifacts, permissions, MCP actionability, and scheduler state still
+  come from runtime DTO reads.
+
+Next-action review:
+
+- `ResumeRunCheckpoint(...)` is the next action to evaluate, but it should
+  start with a contract gate rather than immediate implementation.
+- Resume is still within the Run/checkpoint path, but it creates a new
+  user-triggered turn, records a checkpoint resume transition, and returns a
+  composite `RuntimeRunResumeResponse` containing chat and Run detail.
+- Permission decisions remain later because they affect live permission service
+  actionability and must not make response payloads the source of truth for
+  active gates.
+- Provider/config/MCP admin writes remain outside this scheduler/Run write
+  envelope track.
+
+Accepted Phase 37.8 scope:
+
+- Review the current `RuntimeRunResumeResponse` fields:
+  `runId`, `checkpointId`, `sessionId`, `turnId`, `chat`, and nested `run`.
+- Define whether the shared metadata belongs on the top-level resume response,
+  the nested `RuntimeRunResponse`, or both.
+- Specify refresh targets and durable evidence for resumed turn, checkpoint
+  resume link, Run projection, transition history, session activity, and
+  scheduler plan rereads.
+- Prove the action metadata would describe request/refresh/source facts only;
+  the new turn, checkpoint marker, transition history, Run projection, and
+  timeline rows must remain durable DTO/read concerns.
+- Decide implementation acceptance criteria for a later phase.
+
+Rejected for Phase 37.8:
+
+- No checkpoint resume implementation yet.
+- No permission decision metadata yet.
+- No full Run state machine, Run store expansion, migration, background queue,
+  automatic resume, stale task/tool recovery, stale permission/MCP recovery, or
+  frontend Run management UI.
+- No React-owned resume/checkpoint/turn state.
+- No event payload or action payload as a source of truth.
+- No assistant-prose-derived refs, artifacts, checkpoints, or actionability.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Phase 37.6 is accepted.
+- Phase 37.8 should be a checkpoint resume write-action envelope contract gate,
+  not an implementation phase. Permission decision metadata remains later.

@@ -80,6 +80,16 @@ Phase 37.6 note:
 - Checkpoint resume remains unchanged and still requires a separate review
   because it creates a new user-triggered turn.
 
+Phase 37.7 note:
+
+- The checkpoint acknowledge/discard envelope implementation is accepted.
+- `ResumeRunCheckpoint(...)` is the next action to evaluate, but only through a
+  contract gate because it creates a new user-triggered turn and returns a
+  composite chat/Run response.
+- Permission decisions, MCP/admin writes, full Run persistence, migrations,
+  background scheduling, automatic resume, and frontend Run UI remain outside
+  the next phase.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

@@ -2496,3 +2496,15 @@ Phase 37.6 note:
   and scheduler state from runtime DTO reads.
 - Plain `Run(...)` reads omit `action`; checkpoint action metadata must not be
   cached as React-owned Run/checkpoint state.
+
+Phase 37.7 note:
+
+- Checkpoint acknowledge/discard action metadata is accepted as additive
+  refresh/request metadata only.
+- `ResumeRunCheckpoint(...)` is the next selected review target, but Phase 37.8
+  is a contract gate because resume creates a new turn and returns chat plus
+  Run detail.
+- Future resume metadata must not let the frontend derive new-turn state,
+  checkpoint markers, transition history, timeline rows, diagnostics,
+  artifacts, permissions, MCP actionability, scheduler state, or Run projection
+  from the action payload.
