@@ -8466,6 +8466,59 @@ Review conclusion:
   explicitly-approved transport/UI design gate, or whether more internal fake
   provider coverage is needed first.
 
+## 2026-06-10: Phase 25.2 Backend Runner Acceptance And Next Exposure Gate
+
+Phase 25.2 accepts the internal backend runner validation track and defines the
+next exposure boundary. It does not implement transport exposure, Wails
+bindings, generated client adapters, frontend controls, background workers,
+automatic resume, database migrations, or stale actionability recovery.
+
+Acceptance review:
+
+- Phase 24.4 installed the runtime coordinator runner behind the existing
+  explicit scheduler execution path.
+- Phase 24.5 accepted the backend/runtime wiring as internal-only and confirmed
+  runtime still does not build agents, choose models, infer prompts from prose,
+  or use event/React state as source of truth.
+- Phase 25 validated the installed backend runner through scheduler execution,
+  backend workspace routing, and coordinator interface evidence. Completion
+  refs come only from terminal completion evidence.
+- Phase 25 also hardened failed/cancelled recorder semantics so partial,
+  failed, cancelled, or unfinished child work cannot create artifact refs.
+- Phase 25.1 recorded provider/hosted MCP live smoke as a credential-gated
+  redacted manual gap. This is acceptable for the internal runner track but
+  must remain visible before user-facing exposure.
+
+Exposure decision:
+
+- The backend runner is ready for a design gate for explicit transport exposure
+  of the already-existing scheduler execute action.
+- It is not yet accepted for direct frontend implementation or visible Run/task
+  controls.
+- The next design gate must specify:
+  - HTTP/dev route and Wails method shape, if accepted;
+  - generated binding/client adapter contract, if accepted;
+  - request idempotency by run id + task id;
+  - current durable task/run preflight checks before execution;
+  - response shape as action metadata plus refresh targets only;
+  - required runtime DTO re-read after action;
+  - no event payload merge into task, artifact, permission, MCP, or timeline
+    state;
+  - no background queue/worker/poller/daemon;
+  - no automatic resume or stale actionability recovery;
+  - no frontend Run management UI until transport contracts pass.
+
+Review conclusion:
+
+- Phase 25.2 accepts internal backend runner readiness for a transport exposure
+  design gate only.
+- More internal fake-provider coverage is useful but not required before the
+  design gate, because the current blocker is contract exposure semantics, not
+  backend runner installation.
+- The next safe task is Phase 26: Explicit Scheduler Execute Transport Design
+  Gate. It must remain design-only unless a later implementation phase is
+  explicitly accepted.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8513,9 +8566,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 25.2: Backend Runner Acceptance And Next Exposure Gate. Decide
-whether the backend runner is ready for a later explicitly-approved transport/
-UI design gate, or whether more internal fake-provider coverage is needed
-first. Do not expose frontend controls, expose HTTP/Wails transport, add
-background workers, add automatic resume, write database migrations, restore
-stale actionability, or make event/prose/React state the source of truth.
+Implement Phase 26: Explicit Scheduler Execute Transport Design Gate. Keep it
+design-only: define whether/how an explicit scheduler execute action may be
+exposed through HTTP/Wails/client adapters after internal backend runner
+validation. Do not implement frontend controls, generated bindings, transport
+routes, background workers, automatic resume, database migrations, stale
+actionability recovery, or event/prose/React source-of-truth behavior in the
+design gate.

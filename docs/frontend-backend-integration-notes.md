@@ -1934,3 +1934,11 @@ Phase 25.1 note:
 - Frontend behavior remains unchanged: no browser/Wails/React execution
   controls, no event-payload actionability, and no React-owned task/provider
   state.
+
+Phase 25.2 note:
+
+- The internal backend runner is accepted for a future transport exposure
+  design gate only.
+- Do not add frontend controls, generated bindings, or adapter execute methods
+  until the explicit scheduler execute transport contract is designed and
+  accepted.

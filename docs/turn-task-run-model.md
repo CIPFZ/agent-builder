@@ -298,6 +298,14 @@ Phase 25.1 note:
 - No Run persistence, transport/UI exposure, background execution, automatic
   resume, migration, or stale actionability recovery was added.
 
+Phase 25.2 note:
+
+- The internal backend runner track is accepted as ready for a transport
+  exposure design gate only.
+- User-facing execution controls are still not accepted; the next gate must
+  define idempotent action metadata, durable rereads, refresh targets, and
+  no event/prose/React source-of-truth behavior before any implementation.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
