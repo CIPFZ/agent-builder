@@ -2401,3 +2401,12 @@ Phase 36.1 note:
 - The tagged channel requires WebView user data under `tmp/runtime-dev` and is
   only for local smoke automation. It must not carry secrets, hosted OAuth
   state, provider auth headers, browser profiles, or React-owned runtime state.
+
+Phase 36.2 note:
+
+- `npm run smoke:phase362` now covers a real packaged WebView scheduler
+  Execute click through the `webview_test` CDP channel.
+- The smoke seeds durable runtime evidence only after the packaged runtime has
+  completed startup recovery, preserving stale-turn interruption semantics.
+- Post-click assertions re-read Wails runtime DTOs for scheduler plan,
+  projection, permissions, task result, refs, and full `SessionActivity`.

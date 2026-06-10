@@ -121,3 +121,18 @@ starts the app with a local WebView2 remote-debugging port, and verifies the
 CDP endpoint becomes reachable. This is test-only automation infrastructure;
 normal untagged builds do not read the WebView test environment variables or
 open a remote-debugging port.
+
+## Phase 36.2 Packaged WebView Scheduler Click Smoke
+
+Run the packaged WebView scheduler click smoke from the client project:
+
+```powershell
+cd ..\client
+npm run smoke:phase362
+```
+
+The smoke starts a non-secret loopback provider, builds the packaged executable
+with `EXTRA_TAGS=webview_test`, starts the packaged app with its runtime root
+and WebView user-data directory under `../tmp/runtime-dev`, connects to the
+test-only CDP endpoint, clicks the visible scheduler Execute button, and
+verifies completion by re-reading Wails runtime DTOs.

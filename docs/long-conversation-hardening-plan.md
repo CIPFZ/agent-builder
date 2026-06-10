@@ -11257,11 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 36.2: Packaged WebView Scheduler Click Smoke Gate. Use the
-Phase 36.1 test-only CDP channel to decide and script a visible packaged
-scheduler Execute click smoke, with all assertions sourced from durable runtime
-DTO rereads rather than event payloads, action responses, React state, or
-assistant prose.
+Implement Phase 36.3: Packaged WebView Scheduler Click Acceptance And Smoke
+Matrix Update. Review Phase 36.2, decide whether to include
+`npm run smoke:phase362` in the local scheduler smoke matrix or keep it as a
+separate Windows/package-specific gate, and record remaining risk.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -11391,3 +11390,62 @@ Remaining risk:
 - Phase 36.1 proves the test-only CDP channel shape and compile-time isolation,
   but it does not yet automate a packaged Execute button click or prove
   post-click durable DTO parity. That is the next gate.
+
+## 2026-06-11: Phase 36.2 Packaged WebView Scheduler Click Smoke
+
+Phase 36.2 implements the packaged WebView scheduler Execute click smoke using
+the Phase 36.1 `webview_test` CDP channel. It does not add production debug
+endpoints, production seed endpoints, runtime Run persistence, database
+migrations, background scheduling, automatic resume, stale permission/MCP
+actionability recovery, frontend Run UI, or React-owned scheduler state.
+
+Implemented:
+
+- Added `npm run smoke:phase362`.
+- Added `client/scripts/phase362-packaged-webview-scheduler-click-smoke.mjs`.
+- Added `TestPhase362PackagedWebViewSchedulerSeed` to create phase-scoped
+  durable session/run/turn/task evidence under `tmp/runtime-dev`.
+- The smoke starts a non-secret local OpenAI-compatible loopback provider,
+  builds the packaged app with `EXTRA_TAGS=webview_test`, starts the packaged
+  WebView with a phase-scoped runtime root and WebView user-data directory, and
+  connects Playwright over the tagged CDP port.
+- The smoke clicks the visible packaged scheduler Execute button and verifies
+  completion through Wails runtime DTO rereads: `RunProjection`,
+  `RunSchedulerPlan`, `Permissions`, `AgentTaskResult`, `Refs`, and full
+  `SessionActivity`.
+
+Important finding:
+
+- Pre-seeding a nonterminal turn before packaged startup is invalid. Packaged
+  startup recovery correctly interrupts stale unfinished turns, and scheduler
+  preflight then returns `terminal_turn`.
+- The accepted smoke therefore starts the packaged runtime first, forces
+  `Status()` so startup recovery completes against an empty root, then seeds
+  durable scheduler evidence into the same root. This preserves the Phase 6.x
+  stale-turn recovery semantics while still testing packaged WebView click and
+  DTO reread behavior.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run TestPhase362PackagedWebViewSchedulerSeed -count=1
+go test ./desktop -count=1
+go test -tags webview_test ./desktop -run TestDesktopWebviewTestOptions -count=1
+npm run smoke:phase362
+```
+
+Review conclusion:
+
+- Packaged WebView scheduler clicking is now automated through a test-only
+  build-tagged channel.
+- Runtime events and action responses remain refresh/request metadata only; the
+  smoke asserts durable DTOs after the click.
+- No hosted credentials, OAuth state, provider auth headers, browser profiles,
+  screenshots, or secrets are written into repo fixtures, docs, logs, or React
+  state.
+
+Remaining risk:
+
+- `npm run smoke:phase362` is Windows/package/WebView2-specific and slower than
+  local Vite smokes. The next gate should decide whether it stays separate or
+  joins an explicit local scheduler smoke matrix.
