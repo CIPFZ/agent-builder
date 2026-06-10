@@ -11257,12 +11257,12 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37: Runtime Write-Semantics Readiness Gate. Review whether the
-read-only Run DTO, explicit scheduler execute action, Vite/browser smokes,
-provider-backed smokes, and packaged WebView smoke are enough to design the
-first narrow runtime write semantics without adding full Run persistence,
-database migrations, automatic resume, background scheduling, or frontend Run
-UI.
+Implement Phase 37.1: Runtime Write Action Envelope Contract Gate. Define a
+transport-neutral envelope for explicit user-triggered runtime write actions
+that returns action metadata and refresh targets only, while durable DTO rereads
+remain authoritative. Do not add full Run persistence, database migrations,
+automatic resume, background scheduling, stale actionability recovery, or
+frontend Run UI.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -11507,3 +11507,78 @@ Remaining risk:
   first narrow runtime write semantics, without jumping to full Run
   persistence, migrations, auto resume, background scheduling, or frontend Run
   UI.
+
+## 2026-06-11: Phase 37 Runtime Write-Semantics Readiness Gate
+
+Phase 37 reviews whether the project can move from validation/read-only DTO
+work into narrow runtime write semantics. It is a design/readiness gate only.
+It does not add code paths, production seed/debug endpoints, full Run
+persistence, database migrations, automatic resume, background scheduling,
+stale permission/MCP actionability recovery, frontend Run UI, or React-owned
+runtime state.
+
+Readiness inputs now accepted:
+
+- Read-only Run projection and scheduler plan DTOs are transported through
+  RuntimeService, HTTP/dev, Wails, and frontend adapter paths.
+- Explicit foreground scheduler task execute exists as a user-triggered action
+  and already returns metadata plus refresh targets instead of frontend state.
+- The visible scheduler Execute control consumes durable scheduler candidate
+  rows and rehydrates after click.
+- Local Vite/browser smokes cover click/start, worker completion/ref evidence,
+  and real coordinator plus loopback provider completion:
+  `smoke:phase281`, `smoke:phase291`, and `smoke:phase331`.
+- Packaged Wails/WebView smoke now covers visible packaged Execute clicking
+  through the `webview_test` CDP channel and Wails DTO rereads:
+  `smoke:phase362`.
+- Hosted provider/MCP smoke remains manual/redacted when credentials or browser
+  OAuth are required.
+
+Decision:
+
+- It is now reasonable to design the first common write-action contract because
+  the project has coverage for browser, provider-backed, Wails bridge, and
+  packaged WebView refresh behavior.
+- The next step must be a narrow action envelope, not a Run state machine.
+- The envelope may cover explicit user-triggered actions such as scheduler
+  task execute, checkpoint resume/acknowledge/discard, task cancel, and
+  session/turn cancellation only as contract alignment. It must not introduce
+  new actionability rules or make unavailable actions visible.
+- Existing durable stores remain the source of truth. The action envelope can
+  describe `accepted`, `reason`, `refreshTargets`, idempotency, source, and
+  non-secret diagnostics, but clients must re-read runtime DTOs after the
+  action.
+
+Rejected scope for the next phase:
+
+- No full Run persistence redesign or migration.
+- No runtime Run state machine.
+- No background scheduler, queue, daemon, poller, or unattended worker.
+- No automatic resume or replay of interrupted turns.
+- No stale running/waiting tool recovery.
+- No stale permission, MCP auth, or MCP elicitation actionability recovery.
+- No frontend Run management UI.
+- No event-payload, action-response, React-state, or assistant-prose source of
+  truth for timeline, diagnostics, artifacts, permissions, MCP actionability,
+  interrupted state, task lifecycle, or Run status.
+
+Acceptance criteria for Phase 37.1:
+
+- Define a shared runtime action envelope shape without changing current action
+  semantics.
+- Map at least the existing scheduler execute response into the envelope or
+  prove why it should remain specialized for now.
+- Preserve existing action-specific DTO fields where callers/tests already
+  rely on them.
+- Add contract tests proving action responses are metadata-only and durable
+  DTO rereads remain authoritative.
+- Update frontend/backend notes so adapters continue to ignore action response
+  payloads as state and use them only to select refreshes.
+
+Review conclusion:
+
+- The validation phase has closed the main browser/provider/packaged scheduler
+  confidence gaps.
+- The project can proceed to a write-action envelope gate.
+- It is still not ready for full Run persistence, migrations, auto resume,
+  background scheduling, stale actionability recovery, or frontend Run UI.

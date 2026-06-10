@@ -2420,3 +2420,15 @@ Phase 36.3 note:
 - Both smoke paths preserve the same source-of-truth rule: UI clicks and events
   trigger actions/refreshes, while runtime DTO rereads provide scheduler,
   diagnostic, artifact, permission, MCP, interrupted, and Run evidence.
+
+Phase 37 note:
+
+- The next accepted design target is a shared runtime write-action envelope for
+  explicit user-triggered actions.
+- The envelope may carry metadata such as accepted/reason/source/refresh
+  targets/idempotency, but it must not become frontend scheduler, timeline,
+  diagnostic, artifact, permission, MCP actionability, interrupted, task
+  lifecycle, or Run state.
+- Frontend adapters must continue to re-read durable runtime DTOs after write
+  actions. No frontend Run management UI, automatic resume, background
+  scheduler, migration, or stale actionability recovery is accepted.

@@ -10,6 +10,18 @@ Current remaining gaps are tracked in:
 - `docs/claude-code-runtime-parity-audit.md`
 - `docs/claude-code-alignment-next-roadmap.md`
 
+Phase 37 note:
+
+- Browser/provider/packaged scheduler validation is now strong enough to design
+  a shared explicit write-action envelope.
+- The envelope must remain metadata-only: accepted/reason/source/refresh
+  targets/idempotency can guide refreshes, but durable runtime DTOs remain the
+  source for lifecycle, diagnostics, artifacts, permissions, MCP actionability,
+  interrupted state, and Run status.
+- This readiness decision does not approve full Run persistence, migrations,
+  automatic resume, background scheduling, stale actionability recovery, or
+  frontend Run management UI.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
