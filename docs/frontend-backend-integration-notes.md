@@ -2280,3 +2280,13 @@ Phase 32 note:
   elicitation in repo tests.
 - Frontend and Wails UI remain unchanged; runtime DTOs after scheduler execute
   remain the source of truth.
+
+Phase 32.1 note:
+
+- Loopback provider-backed child-agent execution smoke is implemented in
+  `internal/runtime`.
+- The test reaches scheduler execute, the installed backend runner, backend
+  workspace routing, the real coordinator configured task-agent path, and a
+  local OpenAI-compatible SSE fake provider.
+- No frontend/Wails UI, production seed endpoint, event-payload state merge, or
+  secret automation was added.

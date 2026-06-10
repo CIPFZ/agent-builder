@@ -10572,6 +10572,58 @@ Review conclusion:
 - The next safe task is Phase 32.1: Loopback Provider Child-Agent Execution
   Smoke.
 
+## 2026-06-11: Phase 32.1 Loopback Provider Child-Agent Execution Smoke
+
+Phase 32.1 adds deterministic provider-backed child-agent smoke coverage using
+a local loopback fake provider. It does not add live provider credentials,
+hosted OAuth automation, provider-specific secret fixtures, production
+seed/debug endpoints, runtime readiness bypasses, background workers,
+automatic resume, database migrations, stale actionability recovery, frontend
+Run state ownership, packaged WebView automation, full scheduler UI, or full
+Run executor behavior.
+
+Implemented:
+
+- Added `TestPhase321LoopbackProviderChildAgentExecutionSmoke`.
+  - Uses a phase-scoped `tmp/runtime-dev` desktop root and temp `model.json`
+    pointing at a loopback OpenAI-compatible fake provider.
+  - Writes a phase-scoped `policy.json` with `full_access` so the smoke tests
+    provider/coordinator execution rather than blocking on interactive
+    permission approval.
+  - Seeds durable Run/Turn/AgentTask evidence through runtime-owned stores.
+  - Creates a real child task session through the backend workspace session
+    service.
+  - Executes the queued task through `service.ExecuteRunTask(...)`, reaching:
+    scheduler preflight, task start evidence, installed backend runner,
+    backend workspace routing, real coordinator configured task-agent path, and
+    loopback provider.
+- Completion case:
+  - loopback provider returns an OpenAI chat-completions SSE stream;
+  - task reaches `completed`;
+  - result summary comes from provider output;
+  - provider text alone creates zero artifact refs.
+- Failure case:
+  - loopback provider returns an error;
+  - task terminalizes as `failed`;
+  - task progress reaches 100;
+  - task artifact refs and runtime refs remain empty.
+
+Validation:
+
+```text
+go test ./internal/runtime -run TestPhase321LoopbackProviderChildAgentExecutionSmoke -count=1 -v -timeout 90s
+```
+
+Review conclusion:
+
+- Phase 32.1 closes the deterministic repo-owned provider-backed child-agent
+  validation gap without secrets.
+- Real hosted provider smoke remains credential-gated and should stay as a
+  redacted manual checklist unless an operator explicitly supplies credentials
+  outside the repo.
+- The next safe task is Phase 32.2: Provider-backed Child-Agent Smoke
+  Acceptance And Next Risk Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10619,6 +10671,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 32.1: Loopback Provider Child-Agent Execution Smoke. Validate
-the real coordinator/provider-backed child-agent path with a non-secret
-loopback fake provider and runtime-owned durable evidence.
+Implement Phase 32.2: Provider-backed Child-Agent Smoke Acceptance And Next Risk
+Gate. Review Phase 32.1 coverage and choose the next validation target without
+adding secrets, production debug endpoints, auto-resume, or frontend-owned Run
+state.
