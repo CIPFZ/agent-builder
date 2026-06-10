@@ -9680,6 +9680,109 @@ Review conclusion:
   Gate. It should define the harness contract before any process launcher,
   browser automation, or packaged/Wails click smoke is implemented.
 
+## 2026-06-11: Phase 28 Browser Scheduler Click Harness Contract Gate
+
+Phase 28 defines the local-only harness contract for future browser scheduler
+click automation. It is a design gate only and does not add scripts, process
+launchers, runtime readiness bypasses, production seed endpoints, background
+workers, automatic resume, database migrations, stale actionability recovery,
+frontend Run state ownership, full scheduler UI, or full Run executor behavior.
+
+Harness purpose:
+
+- Prove the visible scheduler Execute button works against a normally ready
+  runtime and durable scheduler candidate evidence.
+- Prove the browser refresh path uses runtime DTO reads after events/actions,
+  not event payloads, action payloads, React fixtures, or assistant prose.
+- Prove duplicate lifecycle/permission/artifact/ref/terminal events do not
+  duplicate candidate rows or resurrect stale permission/MCP actionability.
+
+Accepted local-only contract:
+
+1. Workspace and output:
+   - All temporary files must live under
+     `tmp/runtime-dev/phase28-browser-scheduler-click/`.
+   - The harness may write only redacted logs, pid files, screenshots, and
+     non-secret config under that directory.
+   - It must not write provider secrets, OAuth state, browser auth state, or
+     screenshots containing secrets into the repo.
+2. Runtime readiness:
+   - Runtime readiness must use the normal local config path accepted in
+     Phase 27.1: temp desktop root, temp `model.json`, loopback fake
+     OpenAI-compatible provider, and dummy non-secret token.
+   - The harness must not bypass `ensureStarted`, add embedded provider
+     catalog entries, or add production seed endpoints.
+3. Runtime data:
+   - Durable Run/Turn/AgentTask candidate evidence must be seeded through
+     existing runtime stores or accepted test-only harness helpers.
+   - Candidate identity must be exposed to the browser by selecting the seeded
+     session/run through runtime DTOs or a test-only non-production harness
+     manifest under `tmp/runtime-dev`, not by React fixtures.
+4. Process orchestration:
+   - Runtime HTTP, fake provider, and Vite must bind to loopback only.
+   - Ports should be dynamically allocated where possible; any fixed fallback
+     must first check ownership and fail closed if already occupied.
+   - Each child process must have a pid file and redacted stdout/stderr log
+     under the phase temp directory.
+   - Cleanup must terminate only the pids recorded for this harness run and
+     must verify paths resolve inside the phase temp directory.
+5. Browser automation:
+   - Browser automation should navigate to the Vite URL configured with
+     `VITE_AGENT_BUILDER_RUNTIME_URL` or the dev proxy target for the harness
+     runtime.
+   - The test should select the seeded session through normal UI/runtime
+     hydration, verify exactly one queued executable candidate, click Execute
+     once, then verify durable post-click hydration.
+   - The test must also verify terminal candidates are disabled and duplicate
+     refresh events do not create duplicate rows.
+6. Source-of-truth rules:
+   - Runtime events may choose which DTO to refresh.
+   - Event payloads must not directly update scheduler candidates, timelines,
+     diagnostics, artifact evidence, interrupted summaries, permission state,
+     or MCP actionability.
+   - Action responses may confirm request metadata but must not become durable
+     scheduler state; the browser must re-read runtime DTOs.
+7. Packaged/Wails boundary:
+   - A packaged/Wails smoke can be added only after the Vite/browser harness is
+     stable or if it reuses the same runtime-owned seed and redaction rules.
+   - Wails bindings are adapter-specific; browser development must continue to
+     support HTTP/dev transport fallback.
+
+Required validation for a future implementation phase:
+
+- Start and stop fake provider, runtime HTTP, Vite, and browser automation with
+  all outputs under the phase temp directory.
+- Run the browser click smoke against durable scheduler candidates.
+- Run existing scheduler smoke/build coverage:
+
+  ```text
+  npm run smoke:phase263
+  npm run smoke:phase266
+  npm run smoke:phase267
+  npm run smoke:phase269
+  npm run smoke:phase2610
+  npm run build
+  go test ./internal/runtime -run "TestRuntimeLocalModelConfigReadinessAllowsSchedulerCandidateProjection|TestRuntimeSchedulerUICandidateSeedExposesDurableHTTPPlanAndExecute|TestRuntimeRunSchedulerPlan|TestRuntimeRunSchedulerExecute" -count=1
+  ```
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 28 accepts the harness contract and keeps browser click automation
+  blocked until implementation follows this contract.
+- The next safe task is Phase 28.1: Local Browser Scheduler Click Harness
+  Implementation. It may add local-only scripts/tests under the accepted
+  contract, but must not add production seed endpoints, readiness bypasses,
+  background scheduling, automatic resume, database migrations, or
+  frontend-owned scheduler state.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9727,7 +9830,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 28: Browser Scheduler Click Harness Contract Gate. Define the
-local-only process orchestration contract for runtime HTTP, Vite, browser
-automation, ports, pids, logs, cleanup, session selection, and redaction before
-building the click harness.
+Implement Phase 28.1: Local Browser Scheduler Click Harness Implementation.
+Add a local-only harness that follows the Phase 28 contract and proves the
+visible scheduler Execute button against durable runtime evidence.

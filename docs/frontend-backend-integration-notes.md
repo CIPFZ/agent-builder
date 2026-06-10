@@ -2134,3 +2134,18 @@ Phase 27.3 note:
   is accepted.
 - The next frontend/backend boundary is a Browser Scheduler Click Harness
   Contract Gate, not React-owned scheduler fixtures or a background scheduler.
+
+Phase 28 note:
+
+- Browser scheduler click automation now has an accepted local-only harness
+  contract.
+- The future harness must launch loopback fake provider, runtime HTTP, Vite,
+  and browser automation with pid files, redacted logs, screenshots, and
+  cleanup scoped to `tmp/runtime-dev/phase28-browser-scheduler-click/`.
+- The browser must select seeded durable runtime evidence through DTO hydration
+  or a non-production harness manifest, not React fixtures.
+- Runtime events and action responses remain refresh/request metadata only; the
+  frontend must re-read durable scheduler/activity DTOs before rendering
+  candidate, permission, MCP, diagnostic, artifact, or interrupted state.
+- Packaged/Wails smoke may reuse the same runtime-owned seed only after the
+  Vite/browser harness contract is stable.

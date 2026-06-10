@@ -459,6 +459,15 @@ Phase 27.3 note:
 - No Run state machine, migration, background scheduler, automatic resume, or
   frontend-owned scheduler state is accepted by this track.
 
+Phase 28 note:
+
+- The browser scheduler click harness contract is accepted as local-only
+  validation infrastructure.
+- Harness-selected sessions/runs must still resolve to durable Run/Turn/
+  AgentTask evidence before execution.
+- The contract does not change Run persistence, lifecycle semantics,
+  scheduler ownership, or frontend source-of-truth boundaries.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
