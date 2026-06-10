@@ -6941,6 +6941,52 @@ Review conclusion:
   refresh targets; they still cannot hydrate lifecycle, artifact evidence,
   permission/MCP actionability, or Run status.
 
+## 2026-06-10: Phase 21.2 Read-only Scheduler Plan Transport Acceptance
+
+Phase 21.2 accepts the Phase 21.1 scheduler plan transport as stable read-only
+planning evidence.
+
+Acceptance review:
+
+- Reviewed the RuntimeService, HTTP, dev module, and Wails bridge changes.
+- Confirmed the only new transport surface is `RunSchedulerPlan` /
+  `GET /v1/run-scheduler-plan`.
+- Confirmed no scheduler execute/cancel route, adapter method, React action,
+  frontend Run management UI, background worker, queue, poller, automatic
+  resume, or database migration was added.
+- Confirmed `runtimeRunSchedulerDelegateTaskTurn(...)` remains
+  backend-internal.
+- Confirmed scheduler plan reads carry explicit source metadata:
+  `readOnly=true`, `startsWorker=false`, and `sessionActivityParity=true`.
+- Confirmed event payloads still select refresh targets only and do not become
+  lifecycle, artifact, permission/MCP actionability, or Run status truth.
+
+Validation:
+
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1`
+  passed.
+- `git diff --check` passed.
+
+Accepted contract:
+
+- Frontend/browser/Wails callers may request scheduler plan DTOs to display or
+  reason about disabled/enabled planning affordances.
+- Callers must still refresh `SessionActivity`, `RunProjection`, persisted Run
+  detail, task detail/result, permission/MCP DTOs, or artifact/ref DTOs for
+  authoritative state.
+- The scheduler plan transport does not authorize task execution.
+
+Next safe boundary:
+
+- Phase 22 should be a design gate for an explicit foreground task execute
+  action, if that product path is still desired.
+- Phase 22 must decide ownership, idempotency, cancellation ordering, artifact
+  evidence, permission/MCP semantics, and event refresh behavior before any
+  implementation.
+- Phase 22 should still reject background workers, automatic resume, database
+  migrations, stale actionability restoration, and frontend-owned lifecycle
+  truth unless separately accepted.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6988,8 +7034,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 21.1, then plan Phase 21.2 acceptance for read-only
-scheduler plan transport. Do not add task scheduler execute/cancel actions,
-frontend Run management UI, worker, queue, automatic resume, database
-migration, or event/prose/React-derived source of truth without a separate
-implementation gate.
+Plan Phase 22: Explicit Foreground Task Execute Action Design Gate. Do not
+implement execution yet. The gate must define ownership, idempotency,
+cancellation ordering, artifact evidence, permission/MCP semantics, refresh
+behavior, and source-of-truth constraints before any execute transport or UI is
+added.

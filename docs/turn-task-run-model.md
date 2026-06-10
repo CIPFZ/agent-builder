@@ -100,6 +100,14 @@ Phase 21.1 note:
 - No worker, queue, automatic resume, frontend Run UI, or migration is accepted
   by this gate.
 
+Phase 21.2 note:
+
+- Read-only scheduler plan transport is accepted. It can inform planning
+  affordances, but it is not an execution command and is not lifecycle truth.
+- The next boundary, if pursued, is a foreground execute-action design gate
+  with explicit ownership, idempotency, cancellation, artifact, permission/MCP,
+  and refresh semantics.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

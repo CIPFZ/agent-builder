@@ -1738,3 +1738,14 @@ Phase 21.1 note:
   The scheduler plan response remains planning evidence and must not replace
   `SessionActivity`, `RunProjection`, persisted Run detail, permission/MCP
   DTOs, or artifact evidence as source of truth.
+
+Phase 21.2 note:
+
+- The read-only scheduler plan transport is accepted as stable planning
+  evidence for HTTP/dev/Wails callers.
+- It does not authorize execution. Any frontend affordance based on scheduler
+  plan data must remain disabled/read-only until a separate execute action gate
+  accepts ownership, idempotency, cancellation, permission/MCP, artifact, and
+  refresh semantics.
+- The next safe boundary is an explicit foreground task execute action design
+  gate, not a background scheduler or automatic resume implementation.
