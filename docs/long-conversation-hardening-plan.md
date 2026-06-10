@@ -10976,6 +10976,61 @@ Review conclusion:
 - The next safe task is Phase 34.2: Scheduler Provider Smoke Matrix Acceptance
   And Remaining Risk Review.
 
+## 2026-06-11: Phase 34.2 Scheduler Provider Smoke Matrix Acceptance And Remaining Risk Review
+
+Phase 34.2 accepts the scheduler/provider smoke matrix consolidation and
+chooses the next validation target. It is a review/acceptance phase only and
+does not add code, CI requirements, live provider credentials, hosted OAuth
+automation, production seed/debug endpoints, runtime readiness bypasses,
+background workers, automatic resume, database migrations, stale actionability
+recovery, frontend Run state ownership, packaged WebView automation, full
+scheduler UI, or full Run executor behavior.
+
+Accepted coverage:
+
+- `npm run smoke:scheduler` is the explicit local browser scheduler/provider
+  regression group.
+- The group covers:
+  - browser Execute click/start;
+  - browser completion/ref hydration with duplicate refresh events;
+  - browser click to real coordinator plus loopback provider completion.
+- Packaged/Wails scheduler bridge smoke remains separate because it is
+  Windows/package-specific and may require packaged executable/build tooling.
+- The group is not part of build, lint, default Go tests, pre-commit hooks, or
+  CI.
+
+Remaining risks:
+
+- True packaged WebView2 click automation is still not covered. It needs a
+  test-only automation channel before implementation.
+- Real hosted provider/OAuth/MCP smoke remains credential-gated and should stay
+  redacted/manual unless an operator supplies credentials outside the repo.
+- Browser/provider smokes are useful but not a substitute for ordinary focused
+  Go tests when changing runtime internals.
+
+Next validation decision:
+
+- Refresh the hosted-provider/manual smoke checklist before attempting any
+  test-only packaged WebView automation channel. The hosted/manual gap is now
+  the clearer operator-facing validation risk, while packaged webview
+  automation still lacks an accepted test hook shape.
+- The next phase must not automate credentials or write secrets/auth state to
+  repo fixtures, logs, screenshots, docs, or React state.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 34.2 accepts the explicit local smoke matrix.
+- The next safe task is Phase 35: Hosted Provider And MCP Manual Smoke Refresh
+  Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -11023,6 +11078,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 34.2: Scheduler Provider Smoke Matrix Acceptance And Remaining
-Risk Review. Accept the matrix consolidation and choose whether the next target
-is packaged WebView automation design or hosted-provider manual smoke refresh.
+Implement Phase 35: Hosted Provider And MCP Manual Smoke Refresh Gate. Review
+the redacted hosted-provider/MCP manual checklist now that deterministic
+browser/provider smokes exist, without automating secrets or auth state.

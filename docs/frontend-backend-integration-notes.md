@@ -2344,3 +2344,11 @@ Phase 34.1 note:
   or default CI.
 - Packaged Wails scheduler smoke remains separate because it has different
   platform and packaging prerequisites.
+
+Phase 34.2 note:
+
+- The local browser scheduler/provider smoke matrix is accepted.
+- Packaged WebView2 click automation remains deferred until a test-only channel
+  is designed.
+- The next validation risk is hosted provider/MCP manual smoke refresh, with no
+  repo-stored credentials or auth state.
