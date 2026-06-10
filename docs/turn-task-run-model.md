@@ -415,6 +415,13 @@ Phase 26.12 note:
 - The validation preserves Run projection readiness guards and leaves full
   browser clicking for a normal ready runtime setup.
 
+Phase 26.13 note:
+
+- End-to-end browser clicking remains manual/local until runtime readiness can
+  be satisfied through an accepted non-secret provider/config fixture.
+- The model boundary remains unchanged: candidate state must come from runtime
+  Run/Turn/AgentTask evidence, not frontend fixtures.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

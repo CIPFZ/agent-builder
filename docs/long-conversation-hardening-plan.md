@@ -9315,6 +9315,69 @@ Review conclusion:
   test provider/config fixture, or keep the click smoke as a manual local
   validation checklist.
 
+## 2026-06-11: Phase 26.13 End-to-End Browser Scheduler Click Smoke Gate
+
+Phase 26.13 reviews the remaining full browser click gap. It is a design gate
+only and does not add a test provider, runtime readiness bypass, production
+seed endpoint, background worker, automatic resume, database migration, stale
+actionability recovery, frontend Run state ownership, full scheduler UI, or
+full Run executor behavior.
+
+Gate finding:
+
+- The visible scheduler execute control is now covered by source smokes and a
+  fixture-backed runtime seed smoke.
+- A true browser click smoke additionally requires a ready runtime because
+  frontend hydration reads `/v1/sessions/{id}/run-projection`, and the
+  production Run projection path correctly calls `ensureStarted`.
+- Satisfying `ensureStarted` automatically is not just a scheduler UI concern:
+  it crosses provider/model configuration and test-provider behavior.
+- Introducing a dev-only readiness bypass or React-only candidate fixture would
+  weaken the source-of-truth boundary this phase is trying to validate.
+
+Accepted path:
+
+- Do not add a runtime readiness bypass.
+- Do not add a React fixture mode for scheduler candidates.
+- Keep the full browser click smoke as a manual/local validation checklist
+  until a separate test-provider/config design is accepted.
+- If automation is needed later, design a local test provider/config fixture as
+  its own phase, with no secrets and all transient files under
+  `tmp/runtime-dev`.
+
+Manual local checklist:
+
+1. Start a normal local runtime with a configured non-secret provider/model.
+2. Seed or create a runtime-owned Run/Turn/AgentTask candidate through existing
+   runtime paths.
+3. Start Vite with `VITE_AGENT_BUILDER_RUNTIME_URL` pointing at that runtime.
+4. Open `http://localhost:5180/`.
+5. Verify `RunProjectionPreview` shows queued and terminal scheduler rows.
+6. Verify the queued row's Execute button is enabled and the terminal row is
+   disabled with durable preflight reason.
+7. Click Execute once and verify the UI refreshes from durable hydration.
+8. Verify duplicate lifecycle/ref events do not duplicate rows or resurrect
+   stale permission/MCP auth or elicitation actionability.
+9. Do not write secrets, provider auth state, screenshots containing secrets,
+   or runtime logs containing credentials into the repo.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 26.13 accepts the manual/local browser click validation boundary.
+- The next safe task is Phase 26.14: Scheduler Execute Phase Acceptance And
+  Risk Review. It should review Phases 26.1-26.13, confirm no forbidden Run
+  persistence/auto-resume/background scheduler behavior was introduced, and
+  decide whether to pause this track or open a separate test-provider/config
+  automation phase.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9362,9 +9425,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.13: End-to-End Browser Scheduler Click Smoke Gate. Decide
-whether to satisfy runtime readiness with a local test provider/config fixture,
-or keep the browser click smoke as a manual local validation checklist. Do not
-add production seed endpoints, background workers, automatic resume, database
-migrations, stale actionability recovery, frontend Run state ownership, full
-scheduler UI, or full Run executor behavior.
+Implement Phase 26.14: Scheduler Execute Phase Acceptance And Risk Review.
+Review Phases 26.1-26.13, confirm no forbidden Run persistence/auto-resume/
+background scheduler behavior was introduced, and decide whether to pause this
+track or open a separate test-provider/config automation phase.

@@ -2078,3 +2078,12 @@ Phase 26.12 note:
   configuration.
 - Frontend candidate state must continue to come from durable runtime DTOs, not
   a React-only fixture.
+
+Phase 26.13 note:
+
+- Full browser click automation remains a manual/local checklist until a
+  separate local test-provider/config fixture is accepted.
+- Do not bypass runtime readiness and do not add React-only scheduler
+  candidates just to make the click smoke easier.
+- Any later automation must use non-secret provider/config state and transient
+  output under `tmp/runtime-dev`.
