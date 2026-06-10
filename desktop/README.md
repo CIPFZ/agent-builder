@@ -92,3 +92,17 @@ The script builds `bin/AgentBuilder.exe` when requested, uses
 executable, and runs the desktop bridge contract test for new-chat handoff,
 event cursor forwarding, `SessionActivity` interrupted recovery hydration, and
 `MarkInterruptedDone` acknowledgement semantics.
+
+## Phase 31.1 Wails Packaged Scheduler Smoke
+
+Run the packaged scheduler bridge smoke from the desktop project:
+
+```powershell
+.\scripts\phase311-wails-packaged-scheduler-smoke.ps1 -Build
+```
+
+The script builds `bin/AgentBuilder.exe` when requested, uses
+`../tmp/runtime-dev` for its temporary runtime root, runs the Wails bridge
+scheduler projection/plan/execute contract test, starts the packaged
+executable, and verifies packaged runtime directories are created. It does not
+automate a WebView2 button click.

@@ -10369,6 +10369,63 @@ Review conclusion:
 - The next safe task is Phase 31.1: Packaged/Wails Scheduler Click Smoke
   Implementation.
 
+## 2026-06-11: Phase 31.1 Packaged/Wails Scheduler Bridge Smoke Implementation
+
+Phase 31.1 adds a packaged/Wails scheduler bridge smoke without adding
+production seed endpoints, WebView debug endpoints, provider-backed child-agent
+execution, runtime readiness bypasses, background workers, automatic resume,
+database migrations, stale actionability recovery, frontend Run state
+ownership, full scheduler UI, or full Run executor behavior.
+
+Implemented:
+
+- Added `TestRuntimeBridgePhase311PackagedSchedulerClickContract`.
+  - Verifies Wails `RuntimeBridge` forwarding for:
+    - read-only `RunProjection`;
+    - read-only `RunSchedulerPlan`;
+    - backend-only/idempotent `ExecuteRunTask`;
+    - no pending permission resurrection after execute.
+  - Asserts projection/plan/execute source metadata remains
+    `SessionActivity` parity-oriented and does not start workers from read-only
+    reads.
+- Added `desktop/scripts/phase311-wails-packaged-scheduler-smoke.ps1`.
+  - Uses a phase-scoped root under `tmp/runtime-dev`.
+  - Runs the Phase 31.1 Wails bridge contract test.
+  - Builds `bin/AgentBuilder.exe` when requested.
+  - Starts the packaged executable with `AGENT_BUILDER_DESKTOP_ROOT` pointed at
+    the phase-scoped temp root.
+  - Verifies packaged `config`, `data`, and `logs` directories are created.
+  - Writes only phase metadata/pid files under the phase-scoped temp root.
+- Updated `desktop/README.md` with the new smoke command.
+
+Validation coverage:
+
+- This closes the packaged startup plus Wails bridge-layer scheduler contract
+  gap.
+- It does not yet automate a real WebView2 click inside the packaged app. That
+  remains a validation-surface risk because the current Wails packaged harness
+  has no stable browser automation channel and adding one through production
+  seed/debug endpoints would violate the Phase 31 contract.
+
+Validation:
+
+```text
+go test ./desktop -run TestRuntimeBridgePhase311PackagedSchedulerClickContract -count=1
+.\desktop\scripts\phase311-wails-packaged-scheduler-smoke.ps1
+go test ./desktop -run "TestRuntimeBridgePhase62PackagedHandoffRecoveryContract|TestRuntimeBridgePhase311PackagedSchedulerClickContract" -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Phase 31.1 accepts packaged startup and Wails bridge scheduler contract
+  validation.
+- Remaining risk is true packaged WebView2 click automation, not runtime Run
+  semantics.
+- The next safe task is Phase 31.2: Packaged WebView Scheduler Click Feasibility
+  Gate, unless the project chooses provider-backed child-agent validation
+  first.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10416,7 +10473,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 31.1: Packaged/Wails Scheduler Click Smoke Implementation.
-Add packaged scheduler click validation under the accepted Phase 31 contract
-without adding production seed endpoints, readiness bypasses, provider-backed
-secret automation, or scheduler ownership changes.
+Implement Phase 31.2: Packaged WebView Scheduler Click Feasibility Gate.
+Decide whether true packaged WebView2 click automation can be added without
+production seed endpoints, readiness bypasses, secret automation, or scheduler
+ownership changes.

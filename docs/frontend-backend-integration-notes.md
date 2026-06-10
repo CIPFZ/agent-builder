@@ -2250,3 +2250,13 @@ Phase 31 note:
 - The Wails packaged harness must keep temp roots, logs, pids, screenshots, and
   generated automation files under `tmp/runtime-dev`, with token/auth redaction
   and no production seed endpoint.
+
+Phase 31.1 note:
+
+- Packaged startup plus Wails bridge scheduler projection/plan/execute
+  contract validation is implemented in
+  `desktop/scripts/phase311-wails-packaged-scheduler-smoke.ps1`.
+- The smoke verifies Wails bridge DTO forwarding and packaged runtime root
+  creation, but it does not automate a true WebView2 Execute button click.
+- Event payloads remain refresh triggers only; scheduler state is still read
+  from runtime DTOs after execute.

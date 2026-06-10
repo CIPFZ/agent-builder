@@ -394,6 +394,147 @@ func TestRuntimeBridgeForwardsDurableRunReads(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgePhase311PackagedSchedulerClickContract(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		runProjection: RuntimeRunProjectionResponse{
+			Run: RuntimeRunProjection{
+				ID:               "run-phase311",
+				WorkspaceID:      "workspace-phase311",
+				PrimarySessionID: "session-phase311",
+				SessionIDs:       []string{"session-phase311"},
+				TurnIDs:          []string{"turn-phase311"},
+				TaskIDs:          []string{"task-phase311-queued", "task-phase311-terminal"},
+				Status:           "running",
+				EvidenceCursor:   "v1:phase311",
+				Source: RuntimeRunProjectionSource{
+					Kind:                  "run_projection",
+					ReadOnly:              true,
+					SessionActivityParity: true,
+					Evidence:              []string{"session_activity_subset"},
+				},
+			},
+		},
+		runSchedulerPlan: RuntimeRunSchedulerPlanResponse{
+			Plan: RuntimeRunSchedulerPlan{
+				RunID:            "run-phase311",
+				PrimarySessionID: "session-phase311",
+				SessionIDs:       []string{"session-phase311"},
+				Items: []RuntimeRunSchedulerPlanItem{{
+					ID:                "task-phase311-queued",
+					Kind:              "agent_task",
+					SessionID:         "session-phase311",
+					TurnID:            "turn-phase311",
+					TaskID:            "task-phase311-queued",
+					CanSchedule:       true,
+					OwnershipVerified: true,
+					RequiredPreflight: true,
+					RefreshTargets:    []string{"run_projection", "session_activity_window"},
+				}, {
+					ID:                "task-phase311-terminal",
+					Kind:              "agent_task",
+					SessionID:         "session-phase311",
+					TurnID:            "turn-phase311",
+					TaskID:            "task-phase311-terminal",
+					CanSchedule:       false,
+					PreflightReason:   "task_status_terminal",
+					RequiredPreflight: true,
+					RefreshTargets:    []string{"run_projection"},
+					CancellationScope: "task",
+					DiagnosticsRoute:  "run_projection",
+					OwnershipVerified: true,
+				}},
+			},
+			Source: RuntimeRunSchedulerPlanSource{
+				Kind:                  "run_scheduler_plan",
+				ReadOnly:              true,
+				StartsWorker:          false,
+				SessionActivityParity: true,
+				Evidence:              []string{"runtime_owned_seed"},
+			},
+		},
+		executeRunTask: RuntimeRunSchedulerExecuteTaskResponse{
+			Accepted:         true,
+			ExecutionStarted: true,
+			Task: RuntimeAgentTask{
+				ID:              "task-phase311-queued",
+				ParentSessionID: "session-phase311",
+				ParentTurnID:    "turn-phase311",
+				Status:          "running",
+			},
+			RefreshTargets: []string{"run_projection", "session_activity_window"},
+			Source: RuntimeRunSchedulerExecuteTaskSource{
+				Kind:                  "run_scheduler_execute_task",
+				Action:                "execute_task",
+				BackendOnly:           true,
+				StartsWorker:          false,
+				IdempotentByTaskID:    true,
+				SessionActivityParity: true,
+				Evidence:              []string{"runtime_owned_execute"},
+			},
+		},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	projection, err := bridge.RunProjection(context.Background(), RuntimeRunProjectionRequest{
+		SessionID: "session-phase311",
+		Limit:     24,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !projection.Run.Source.ReadOnly || !projection.Run.Source.SessionActivityParity {
+		t.Fatalf("projection source = %#v", projection.Run.Source)
+	}
+	if len(projection.Run.TaskIDs) != 2 {
+		t.Fatalf("projection task ids = %#v", projection.Run.TaskIDs)
+	}
+
+	plan, err := bridge.RunSchedulerPlan(context.Background(), RuntimeRunSchedulerPlanRequest{
+		RunID:  "run-phase311",
+		TaskID: "task-phase311-queued",
+		Mode:   "task_turn",
+		Limit:  24,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.runSchedulerPlanReq.RunID != "run-phase311" || service.runSchedulerPlanReq.TaskID != "task-phase311-queued" {
+		t.Fatalf("scheduler plan request = %#v", service.runSchedulerPlanReq)
+	}
+	if !plan.Source.ReadOnly || plan.Source.StartsWorker || !plan.Source.SessionActivityParity {
+		t.Fatalf("scheduler plan source = %#v", plan.Source)
+	}
+	if len(plan.Plan.Items) != 2 || !plan.Plan.Items[0].CanSchedule || plan.Plan.Items[1].CanSchedule {
+		t.Fatalf("scheduler items = %#v", plan.Plan.Items)
+	}
+
+	execute, err := bridge.ExecuteRunTask(context.Background(), "run-phase311", "task-phase311-queued")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.executeRunID != "run-phase311" || service.executeTaskID != "task-phase311-queued" {
+		t.Fatalf("execute args = %q/%q", service.executeRunID, service.executeTaskID)
+	}
+	if !execute.Accepted || !execute.ExecutionStarted || execute.Task.Status != "running" {
+		t.Fatalf("execute = %#v", execute)
+	}
+	if !execute.Source.BackendOnly || execute.Source.StartsWorker || !execute.Source.IdempotentByTaskID || !execute.Source.SessionActivityParity {
+		t.Fatalf("execute source = %#v", execute.Source)
+	}
+
+	permissions, err := bridge.Permissions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, permission := range permissions.Permissions {
+		if permission.Status == "pending" {
+			t.Fatalf("stale pending permission resurrected: %#v", permission)
+		}
+	}
+}
+
 func TestRuntimeBridgeForwardsMCPRequestDecision(t *testing.T) {
 	t.Parallel()
 
