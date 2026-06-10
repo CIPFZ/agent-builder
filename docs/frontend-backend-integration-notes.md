@@ -2326,3 +2326,12 @@ Phase 33.2 note:
   `smoke:phase331`, and packaged bridge smoke.
 - Do not make long-running browser/packaged smokes default CI gates until the
   matrix explicitly accepts their cost and platform assumptions.
+
+Phase 34 note:
+
+- The accepted consolidation is documentation plus an optional local browser
+  smoke grouping.
+- Browser scheduler/provider smokes may be grouped together; packaged/Wails
+  smoke remains a separate Windows/package-specific command.
+- No default CI hook or runtime/frontend behavior change is accepted in this
+  phase.

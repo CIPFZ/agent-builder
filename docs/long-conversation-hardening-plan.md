@@ -10867,6 +10867,70 @@ Review conclusion:
 - The next safe task is Phase 34: Scheduler Provider Smoke Matrix
   Consolidation Gate.
 
+## 2026-06-11: Phase 34 Scheduler Provider Smoke Matrix Consolidation Gate
+
+Phase 34 decides how to consolidate the accepted scheduler/provider validation
+matrix. It is a design gate only and does not add code, CI requirements, live
+provider credentials, hosted OAuth automation, production seed/debug endpoints,
+runtime readiness bypasses, background workers, automatic resume, database
+migrations, stale actionability recovery, frontend Run state ownership,
+packaged WebView automation, full scheduler UI, or full Run executor behavior.
+
+Accepted smoke matrix:
+
+| Command | Scope | Transport | Provider path | Cost |
+| --- | --- | --- | --- | --- |
+| `npm run smoke:phase281` | Browser Execute click/start and terminal candidate disablement | Vite + HTTP/dev | loopback readiness provider only | medium |
+| `npm run smoke:phase291` | Browser completion/ref hydration with duplicate refresh events | Vite + HTTP/dev | test-only foreground runner | medium |
+| `npm run smoke:phase331` | Browser Execute click through real coordinator and loopback provider completion | Vite + HTTP/dev | loopback OpenAI-compatible SSE provider | medium |
+| `desktop/scripts/phase311-wails-packaged-scheduler-smoke.ps1` | Packaged startup plus Wails bridge scheduler contract | Wails bridge/package | bridge-level fake DTOs | Windows/package-specific |
+
+Gate decision:
+
+- Add documentation for when to run each accepted smoke.
+- Add a local optional command grouping for browser scheduler/provider smokes
+  if it can stay explicit and non-default.
+- Do not add the grouped smoke to default `npm run build`, `npm run lint`,
+  `go test ./...`, pre-commit hooks, or CI in this phase.
+- Do not group packaged/Wails smoke with browser smokes because it has
+  platform/package prerequisites and may require `AgentBuilder.exe` or Wails
+  build tools.
+
+Accepted Phase 34.1 direction:
+
+- Add `npm run smoke:scheduler` in `client/package.json` to run:
+  - `smoke:phase281`;
+  - `smoke:phase291`;
+  - `smoke:phase331`.
+- Update docs with the smoke matrix and recommended usage:
+  - quick browser start gate;
+  - completion/ref gate;
+  - provider-backed browser completion gate;
+  - packaged bridge gate.
+- Keep all generated outputs under `tmp/runtime-dev`.
+
+Rejected for Phase 34.1:
+
+- Default CI integration.
+- Packaged smoke in the browser smoke group.
+- Hosted provider credentials or OAuth automation.
+- Any runtime behavior change.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 34 accepts a documentation plus optional local browser-smoke grouping
+  as the next task.
+- The next safe task is Phase 34.1: Scheduler Provider Smoke Matrix Docs And
+  Local Command.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10914,7 +10978,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 34: Scheduler Provider Smoke Matrix Consolidation Gate. Decide
-how to document or group the accepted scheduler/provider smokes without adding
-long-running default CI, secrets, production debug endpoints, or frontend-owned
-Run state.
+Implement Phase 34.1: Scheduler Provider Smoke Matrix Docs And Local Command.
+Add explicit documentation and an optional local browser smoke grouping without
+default CI integration or packaged smoke coupling.
