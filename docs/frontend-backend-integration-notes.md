@@ -2441,3 +2441,11 @@ Phase 37.1 note:
 - Scheduler execute is the first implementation candidate because it already
   carries accepted/reason/source/refresh-target metadata and has browser,
   provider-backed, and packaged WebView coverage.
+
+Phase 37.2 note:
+
+- Scheduler execute now carries optional shared `action` metadata in addition
+  to its existing action-specific response fields.
+- The frontend adapter remains unchanged and still ignores action payloads as
+  state, re-reading durable runtime DTOs after execute.
+- Other write actions are intentionally unchanged until later focused phases.

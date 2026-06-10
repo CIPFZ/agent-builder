@@ -32,6 +32,15 @@ Phase 37.1 note:
 - Checkpoint, task cancel, and turn cancel actions should be migrated only in
   later focused phases.
 
+Phase 37.2 note:
+
+- Scheduler task execute now includes additive shared write-action metadata.
+- The specialized scheduler execute DTO remains intact, including plan/task
+  context and scheduler-specific source fields.
+- The metadata does not change task lifecycle ownership; task rows, task
+  results, refs, Run projection, scheduler plan, and `SessionActivity` remain
+  durable read sources after the explicit action.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

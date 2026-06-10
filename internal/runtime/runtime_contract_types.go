@@ -332,6 +332,7 @@ type RuntimeRunSchedulerExecuteTaskResponse struct {
 	Task             RuntimeAgentTask                     `json:"task,omitempty"`
 	RefreshTargets   []string                             `json:"refreshTargets,omitempty"`
 	Source           RuntimeRunSchedulerExecuteTaskSource `json:"source"`
+	Action           *RuntimeWriteActionMetadata          `json:"action,omitempty"`
 }
 
 type RuntimeRunSchedulerExecuteTaskSource struct {
@@ -340,6 +341,23 @@ type RuntimeRunSchedulerExecuteTaskSource struct {
 	BackendOnly           bool     `json:"backendOnly"`
 	StartsWorker          bool     `json:"startsWorker"`
 	IdempotentByTaskID    bool     `json:"idempotentByTaskId"`
+	SessionActivityParity bool     `json:"sessionActivityParity"`
+	Evidence              []string `json:"evidence,omitempty"`
+}
+
+type RuntimeWriteActionMetadata struct {
+	Accepted       bool                     `json:"accepted"`
+	Reason         string                   `json:"reason,omitempty"`
+	RefreshTargets []string                 `json:"refreshTargets,omitempty"`
+	Source         RuntimeWriteActionSource `json:"source"`
+}
+
+type RuntimeWriteActionSource struct {
+	Kind                  string   `json:"kind"`
+	Action                string   `json:"action"`
+	BackendOnly           bool     `json:"backendOnly"`
+	StartsWorker          bool     `json:"startsWorker"`
+	IdempotentBy          string   `json:"idempotentBy,omitempty"`
 	SessionActivityParity bool     `json:"sessionActivityParity"`
 	Evidence              []string `json:"evidence,omitempty"`
 }

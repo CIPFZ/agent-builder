@@ -11257,12 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.2: Runtime Write Action Envelope Contract Implementation.
-Add additive shared action metadata/source types and focused contract tests for
-existing explicit write actions, starting with scheduler task execute, while
-preserving action-specific DTO fields and durable DTO rereads as the source of
-truth. Do not add full Run persistence, database migrations, automatic resume,
-background scheduling, stale actionability recovery, or frontend Run UI.
+Implement Phase 37.3: Runtime Write Action Envelope Acceptance And Next Action
+Selection. Review the scheduler execute metadata implementation, decide which
+explicit action should adopt the envelope next, and keep the scope limited to
+metadata-only responses plus durable DTO rereads.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -11669,3 +11667,48 @@ Review conclusion:
   rewrite.
 - Scheduler execute is the right first adopter because it already follows the
   envelope semantics and has browser/provider/packaged validation.
+
+## 2026-06-11: Phase 37.2 Runtime Write Action Envelope Contract Implementation
+
+Phase 37.2 implements the additive write-action metadata contract for scheduler
+task execute only. It preserves the existing scheduler-specific response fields
+and does not change action behavior, routes, database schema, Run persistence,
+automatic resume, background scheduling, stale actionability recovery, or
+frontend Run UI.
+
+Implemented:
+
+- Added `RuntimeWriteActionMetadata` and `RuntimeWriteActionSource`.
+- Added optional `action` metadata to
+  `RuntimeRunSchedulerExecuteTaskResponse`.
+- Added a scheduler execute compatibility helper that maps the existing
+  scheduler source into shared metadata with `idempotentBy="task_id"`.
+- Preserved existing scheduler response fields: `accepted`,
+  `executionStarted`, `reason`, `plan`, `task`, `refreshTargets`, and
+  scheduler-specific `source`.
+- Added focused scheduler execute tests for the shared action metadata/source
+  while retaining existing plan/task/source assertions.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run TestRuntimeRunSchedulerExecuteTask -count=1
+go test ./internal/runtime -run TestPhase362PackagedWebViewSchedulerSeed -count=1
+go test ./desktop -count=1
+cd client && npm run build
+cd desktop && wails3 task common:generate:bindings -f
+```
+
+Review conclusion:
+
+- The envelope implementation is additive and metadata-only.
+- Scheduler execute remains durable-reread driven; action metadata can guide
+  refresh choice but does not become task/result/ref/projection state.
+- Wails generated bindings were verified locally, but `desktop/frontend/
+  bindings` remains ignored in this repo and is not committed.
+
+Remaining risk:
+
+- Other explicit actions still return specialized responses without the shared
+  `action` metadata. Phase 37.3 should choose the next action deliberately
+  rather than broad-retrofitting all write responses.

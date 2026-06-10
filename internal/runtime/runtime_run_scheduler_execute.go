@@ -17,7 +17,11 @@ const (
 	runtimeRunSchedulerExecuteTaskReasonUnsupportedForegroundStatus = "unsupported_foreground_task_status"
 )
 
-func (r *runtimeService) runtimeRunSchedulerExecuteTask(ctx context.Context, req RuntimeRunSchedulerExecuteTaskRequest) (RuntimeRunSchedulerExecuteTaskResponse, error) {
+func (r *runtimeService) runtimeRunSchedulerExecuteTask(ctx context.Context, req RuntimeRunSchedulerExecuteTaskRequest) (resp RuntimeRunSchedulerExecuteTaskResponse, err error) {
+	defer func() {
+		resp = withRuntimeRunSchedulerExecuteTaskAction(resp)
+	}()
+
 	runID := strings.TrimSpace(req.RunID)
 	taskID := strings.TrimSpace(req.TaskID)
 	if runID == "" {
@@ -148,4 +152,25 @@ func runtimeRunSchedulerExecuteTaskSource() RuntimeRunSchedulerExecuteTaskSource
 		SessionActivityParity: true,
 		Evidence:              []string{"runtime_runs", "runtime_run_sessions", "runtime_turns", "runtime_agent_tasks", "runtime_run_scheduler_plan"},
 	}
+}
+
+func withRuntimeRunSchedulerExecuteTaskAction(resp RuntimeRunSchedulerExecuteTaskResponse) RuntimeRunSchedulerExecuteTaskResponse {
+	if resp.Source.Kind == "" {
+		return resp
+	}
+	resp.Action = &RuntimeWriteActionMetadata{
+		Accepted:       resp.Accepted,
+		Reason:         resp.Reason,
+		RefreshTargets: append([]string(nil), resp.RefreshTargets...),
+		Source: RuntimeWriteActionSource{
+			Kind:                  resp.Source.Kind,
+			Action:                resp.Source.Action,
+			BackendOnly:           resp.Source.BackendOnly,
+			StartsWorker:          resp.Source.StartsWorker,
+			IdempotentBy:          "task_id",
+			SessionActivityParity: resp.Source.SessionActivityParity,
+			Evidence:              append([]string(nil), resp.Source.Evidence...),
+		},
+	}
+	return resp
 }

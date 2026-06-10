@@ -53,6 +53,12 @@ func TestRuntimeRunSchedulerExecuteTaskAcceptsOwnedActiveCandidateWithoutStartin
 	if resp.Source.Kind != runtimeRunSchedulerExecuteTaskSourceKind || !resp.Source.BackendOnly || resp.Source.StartsWorker || !resp.Source.IdempotentByTaskID || !resp.Source.SessionActivityParity {
 		t.Fatalf("execute source = %#v", resp.Source)
 	}
+	if resp.Action == nil || !resp.Action.Accepted || resp.Action.Reason != resp.Reason || len(resp.Action.RefreshTargets) != len(resp.RefreshTargets) {
+		t.Fatalf("execute action metadata = %#v response=%#v", resp.Action, resp)
+	}
+	if resp.Action.Source.Kind != resp.Source.Kind || resp.Action.Source.Action != resp.Source.Action || !resp.Action.Source.BackendOnly || resp.Action.Source.StartsWorker || resp.Action.Source.IdempotentBy != "task_id" || !resp.Action.Source.SessionActivityParity {
+		t.Fatalf("execute action source = %#v response source=%#v", resp.Action.Source, resp.Source)
+	}
 	if resp.Task.ID != task.ID || len(resp.Plan.Plan.Items) != 1 || !resp.Plan.Plan.Items[0].CanSchedule || !resp.Plan.Plan.Items[0].OwnershipVerified {
 		t.Fatalf("execute plan/task = %#v / %#v", resp.Plan, resp.Task)
 	}
