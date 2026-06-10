@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.8: Checkpoint Resume Write Action Envelope Contract Gate.
-Review the existing `ResumeRunCheckpoint(...)` response shape, define whether
-and how shared action metadata can describe a new-turn write without becoming
-Run/turn/checkpoint state, and keep permission decision for a later phase.
+Implement Phase 37.9: Checkpoint Resume Write Action Metadata Implementation.
+Add top-level shared metadata to `RuntimeRunResumeResponse` only, preserve the
+existing chat and nested Run payload, leave `idempotentBy` empty because resume
+creates a new turn per explicit action, and keep permission decision for later.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12049,3 +12049,82 @@ Review conclusion:
 - Phase 37.6 is accepted.
 - Phase 37.8 should be a checkpoint resume write-action envelope contract gate,
   not an implementation phase. Permission decision metadata remains later.
+
+## 2026-06-11: Phase 37.8 Checkpoint Resume Write Action Envelope Contract Gate
+
+Phase 37.8 reviews whether `ResumeRunCheckpoint(...)` can safely adopt the
+shared write-action metadata envelope. It is a contract/design phase only. It
+does not change runtime behavior, database schema, Run persistence, automatic
+resume, background scheduling, stale permission/MCP actionability recovery, or
+frontend Run UI.
+
+Current resume response:
+
+- `RuntimeRunResumeResponse` returns `runId`, `checkpointId`, `sessionId`,
+  `turnId`, `chat`, and nested `run`.
+- `ResumeRunCheckpoint(...)` validates a persisted checkpoint, calls
+  `Chat(...)` to create a new user-triggered turn, links the resumed turn to the
+  checkpoint, records checkpoint resume transition/audit/event evidence, then
+  rereads Run detail.
+- Resume is intentionally not idempotent by `run_id+checkpoint_id`: repeated
+  explicit resume actions may create distinct resumed turns and append
+  `resumedTurnIds` evidence.
+
+Accepted contract:
+
+- Add optional top-level `action` metadata to `RuntimeRunResumeResponse`.
+- Do not populate nested `RuntimeRunResponse.action` for resume. The nested
+  `run` remains durable Run detail/read payload.
+- Preserve existing response fields and semantics: `runId`, `checkpointId`,
+  `sessionId`, `turnId`, `chat`, and nested `run`.
+- Use source kind `run_checkpoint`, action `resume_checkpoint`,
+  `backendOnly=true`, `startsWorker=true`, and `sessionActivityParity=true`.
+- Leave `idempotentBy` empty because checkpoint resume creates a new turn per
+  explicit action.
+- Use a stable reason such as `checkpoint_resume_started`.
+- Use refresh targets that force rereads of Run detail, Run projection, resumed
+  turn activity, session activity window/full activity, transition history, and
+  scheduler plan evidence.
+- Declare durable evidence names for Run rows/checkpoints, resumed turn,
+  messages/chat response, run transition history, runtime events/audit,
+  scheduler plan, and session activity.
+- Treat top-level action metadata as refresh/request metadata only. The new
+  turn, checkpoint resume link, transition history, timeline rows, diagnostics,
+  artifacts, permissions, MCP actionability, scheduler state, and Run
+  projection must come from runtime DTO reads.
+
+Accepted Phase 37.9 scope:
+
+- Add optional top-level `Action *RuntimeWriteActionMetadata` to
+  `RuntimeRunResumeResponse`.
+- Populate it from `ResumeRunCheckpoint(...)` after the existing durable writes
+  and Run reread succeed.
+- Extend backend and HTTP contract tests to assert top-level metadata and prove
+  nested `Run.Action` remains nil unless a nested Run write action explicitly
+  owns it.
+
+Rejected for Phase 37.9:
+
+- No permission decision metadata yet.
+- No retry/idempotency key for resume.
+- No automatic resume.
+- No full Run state machine, Run store expansion, migration, background queue,
+  stale task/tool recovery, stale permission/MCP recovery, or frontend Run
+  management UI.
+- No React-owned resume/checkpoint/turn state.
+- No event payload or action payload as a source of truth.
+- No assistant-prose-derived refs, artifacts, checkpoints, or actionability.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- `ResumeRunCheckpoint(...)` can adopt shared write-action metadata next, but
+  only on the top-level resume response and without an idempotency claim.
+- Permission decision metadata remains later because live permission
+  actionability needs a separate contract review.

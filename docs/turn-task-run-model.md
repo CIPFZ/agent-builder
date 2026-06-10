@@ -90,6 +90,15 @@ Phase 37.7 note:
   background scheduling, automatic resume, and frontend Run UI remain outside
   the next phase.
 
+Phase 37.8 note:
+
+- `ResumeRunCheckpoint(...)` is accepted for the next metadata implementation,
+  but only with top-level `RuntimeRunResumeResponse.action`.
+- The nested `RuntimeRunResponse` remains durable Run detail and should not
+  carry resume action metadata.
+- Resume action metadata must not claim `idempotentBy` because each explicit
+  resume creates a new turn.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

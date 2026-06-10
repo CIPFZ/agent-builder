@@ -2508,3 +2508,15 @@ Phase 37.7 note:
   checkpoint markers, transition history, timeline rows, diagnostics,
   artifacts, permissions, MCP actionability, scheduler state, or Run projection
   from the action payload.
+
+Phase 37.8 note:
+
+- Resume action metadata is accepted for implementation only on top-level
+  `RuntimeRunResumeResponse.action`.
+- The nested `run` payload remains a durable Run read response; frontend code
+  must not interpret nested `run.action` as resume state.
+- Resume metadata must not claim idempotency. Frontend code may use future
+  `action.refreshTargets` to choose rereads, but the resumed turn, checkpoint
+  resume link, transition history, timeline rows, diagnostics, artifacts,
+  permissions, MCP actionability, scheduler state, and Run projection must come
+  from runtime DTO reads.
