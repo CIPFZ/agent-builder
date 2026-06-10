@@ -10687,6 +10687,75 @@ Review conclusion:
 - The next safe task is Phase 33: Browser Click To Loopback Provider Completion
   Gate.
 
+## 2026-06-11: Phase 33 Browser Click To Loopback Provider Completion Gate
+
+Phase 33 designs the combined browser scheduler Execute click plus loopback
+provider-backed child-agent completion smoke. It is a design gate only and does
+not add code, live provider credentials, hosted OAuth automation, production
+seed/debug endpoints, runtime readiness bypasses, background workers,
+automatic resume, database migrations, stale actionability recovery, frontend
+Run state ownership, packaged WebView automation, full scheduler UI, or full
+Run executor behavior.
+
+Existing inputs:
+
+- Phase 30.1 provides `client/scripts/browserSchedulerHarness.mjs` for shared
+  Vite/browser process orchestration.
+- Phase 28.1 proves visible browser Execute click starts a queued task through
+  runtime DTOs.
+- Phase 29.1 proves browser-visible completion/ref hydration, but with a
+  test-only foreground runner.
+- Phase 32.1 proves scheduler execution can reach the real backend/coordinator
+  configured task-agent path and loopback OpenAI-compatible provider, but
+  without browser click.
+
+Accepted Phase 33.1 contract:
+
+- Add a new browser smoke that reuses the shared browser scheduler harness.
+- Add a runtime harness server that:
+  - uses a phase-scoped `tmp/runtime-dev` root;
+  - writes temp `model.json` to a loopback OpenAI-compatible SSE fake provider;
+  - writes temp `policy.json` only under the phase root so execution does not
+    block on interactive permission approval;
+  - starts the real runtime service and installed backend runner;
+  - creates parent and child task sessions through runtime/backend-owned APIs;
+  - seeds durable Run/Turn/AgentTask evidence through runtime-owned stores;
+  - starts runtime HTTP on loopback.
+- The Playwright spec must:
+  - verify refs are empty before click;
+  - click the visible Execute button;
+  - poll durable runtime DTOs until the queued task is `completed`;
+  - verify result summary came from loopback provider output;
+  - verify provider text alone did not create artifact refs;
+  - verify terminal candidates remain disabled;
+  - verify duplicate refresh events do not duplicate timeline/candidate state
+    or resurrect stale permission/MCP actionability.
+
+Rejected for Phase 33.1:
+
+- Reusing Phase 29.1's test-only completion runner.
+- Real hosted provider credentials, browser OAuth, cookies, or provider auth
+  state.
+- Production seed/debug endpoints.
+- React state, event payloads, or assistant prose as source of truth.
+- Background queues/workers/pollers, automatic resume, stale actionability
+  recovery, Run migrations, or a full Run state machine.
+
+Validation for this gate:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 33 accepts combined browser click to loopback provider completion as
+  the next implementation target.
+- The next safe task is Phase 33.1: Browser Click To Loopback Provider
+  Completion Smoke.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10734,7 +10803,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 33: Browser Click To Loopback Provider Completion Gate. Design
-the combined browser Execute click plus real coordinator/loopback provider
-completion smoke without adding production debug endpoints, secrets,
-auto-resume, or frontend-owned Run state.
+Implement Phase 33.1: Browser Click To Loopback Provider Completion Smoke.
+Combine the accepted browser scheduler harness with the real
+coordinator/loopback provider path while keeping runtime DTOs as source of
+truth.

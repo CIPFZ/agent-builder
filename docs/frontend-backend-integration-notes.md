@@ -2299,3 +2299,12 @@ Phase 32.2 note:
   provider-backed coordinator completion.
 - The combined smoke must still re-read runtime DTOs after events/actions and
   must not make React state or event payloads the scheduler source of truth.
+
+Phase 33 note:
+
+- Browser click to loopback provider completion is accepted as the next smoke
+  target.
+- The browser may trigger scheduler execute, but all completion, result, refs,
+  diagnostics, and actionability assertions must come from runtime DTO reads.
+- No production seed/debug endpoint, React-owned fixture, or hosted credential
+  automation is accepted for this combined smoke.
