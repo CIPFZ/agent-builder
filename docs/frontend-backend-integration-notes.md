@@ -2240,3 +2240,13 @@ Phase 30.2 note:
   not provider-backed child-agent execution.
 - Packaged validation must define its own app lifecycle, runtime root/config
   injection, webview automation, cleanup, and redaction before implementation.
+
+Phase 31 note:
+
+- Packaged/Wails scheduler click validation is accepted as the next
+  implementation target.
+- The packaged smoke must use runtime-owned test evidence plus durable DTO
+  reads; React state and event payloads remain refresh hints only.
+- The Wails packaged harness must keep temp roots, logs, pids, screenshots, and
+  generated automation files under `tmp/runtime-dev`, with token/auth redaction
+  and no production seed endpoint.

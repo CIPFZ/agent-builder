@@ -10282,6 +10282,93 @@ Review conclusion:
   endpoints, runtime readiness bypasses, background scheduling, automatic
   resume, or frontend-owned scheduler state.
 
+## 2026-06-11: Phase 31 Packaged/Wails Scheduler Click Validation Gate
+
+Phase 31 defines the packaged/Wails scheduler click validation contract. It is
+a design gate only and does not add packaged automation, provider-backed
+child-agent execution, production seed endpoints, runtime readiness bypasses,
+background workers, automatic resume, database migrations, stale actionability
+recovery, frontend Run state ownership, full scheduler UI, or full Run executor
+behavior.
+
+Existing coverage reviewed:
+
+- Phase 6.2 `desktop/scripts/phase62-wails-packaged-smoke.ps1` verifies
+  packaged app startup, packaged runtime root creation, and the bridge
+  handoff/recovery contract.
+- Phase 28.1 verifies scheduler Execute click/start behavior in the Vite
+  browser harness.
+- Phase 29.1 verifies foreground worker completion, durable task result refs,
+  and Run projection evidence in the Vite browser harness.
+- Phase 30.1 consolidates local Vite/browser harness orchestration only.
+
+Gap:
+
+- No current automated gate clicks scheduler Execute inside the packaged Wails
+  webview.
+- No current packaged gate proves the Wails adapter consumes runtime DTOs after
+  click while keeping event payloads as refresh triggers only.
+- No current packaged gate proves duplicate lifecycle/permission/artifact/ref
+  and terminal events remain non-duplicating/non-resurrecting in the packaged
+  shell.
+
+Accepted Phase 31.1 contract:
+
+- Use a phase-scoped runtime root under `tmp/runtime-dev`.
+- Inject only non-secret test config, including a loopback/fake provider
+  `model.json` equivalent where needed.
+- Seed scheduler candidates through runtime-owned test helper evidence, not a
+  production seed endpoint and not React state.
+- Launch the packaged app with explicit temp root/environment injection and
+  capture logs, pids, screenshots, and generated automation files only under
+  `tmp/runtime-dev`.
+- Automate the packaged webview with a Windows-safe strategy that can click the
+  visible Execute control and then verify durable DTO reads through the runtime
+  boundary.
+- Redact bearer tokens, provider keys, OAuth state, auth URLs, and local
+  browser/profile details from logs and docs.
+- Clean up app processes on success and failure, without deleting anything
+  outside the phase-scoped temp root.
+
+Required assertions for Phase 31.1:
+
+- Packaged app starts with the phase-scoped runtime root and reaches scheduler
+  readiness without a readiness bypass.
+- Runtime-owned scheduler candidate hydrates into the packaged UI.
+- Clicking Execute mutates durable runtime task status to `running` through the
+  scheduler API/DTO path.
+- Terminal candidates remain disabled.
+- Duplicate lifecycle/permission/artifact/ref/terminal events do not duplicate
+  timeline items or resurrect stale actionability.
+- Event payloads may select which runtime DTO to refresh, but cannot be merged
+  directly into timeline, diagnostics, artifact evidence, interrupted summary,
+  permission state, or MCP actionability.
+- Full `SessionActivity`/Run projection reads remain the parity oracle for any
+  narrow or windowed packaged read.
+
+Rejected for Phase 31.1:
+
+- Provider-backed child-agent execution.
+- Hosted OAuth or provider-specific secret automation.
+- Production seed/debug endpoints.
+- A new Run state machine, runtime Run store expansion, database migration,
+  automatic resume, background queue/worker/poller, or frontend Run UI.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 31 accepts packaged/Wails scheduler click validation as the next
+  implementation target.
+- The next safe task is Phase 31.1: Packaged/Wails Scheduler Click Smoke
+  Implementation.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10329,6 +10416,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 31: Packaged/Wails Scheduler Click Validation Gate. Design
-packaged scheduler click validation using runtime-owned seed and redaction
-rules without adding production seed endpoints or scheduler ownership changes.
+Implement Phase 31.1: Packaged/Wails Scheduler Click Smoke Implementation.
+Add packaged scheduler click validation under the accepted Phase 31 contract
+without adding production seed endpoints, readiness bypasses, provider-backed
+secret automation, or scheduler ownership changes.

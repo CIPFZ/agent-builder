@@ -533,6 +533,13 @@ Phase 30.2 note:
 - The next packaged/Wails validation gate should remain transport-shell
   validation and must not change Run/task/ref ownership semantics.
 
+Phase 31 note:
+
+- Packaged/Wails scheduler click validation is a transport-shell smoke target.
+- It must verify durable task status and evidence through runtime DTO reads
+  after a packaged UI click, without introducing Run persistence changes,
+  background scheduling, automatic resume, or frontend-owned Run state.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
