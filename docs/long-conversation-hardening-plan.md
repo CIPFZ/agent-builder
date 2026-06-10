@@ -9996,6 +9996,64 @@ Review conclusion:
   foreground completion runner and browser assertions for completed task
   result/artifact refs.
 
+## 2026-06-11: Phase 29.1 Local Browser Scheduler Worker Completion Smoke Implementation
+
+Phase 29.1 implements local browser validation for completed scheduler output
+and produced refs. It does not add packaged/Wails automation, production seed
+endpoints, runtime readiness bypasses, background workers, automatic resume,
+database migrations, stale actionability recovery, frontend Run state
+ownership, full scheduler UI, or full Run executor behavior.
+
+Implemented:
+
+- Added `internal/runtime/runtime_browser_scheduler_completion_harness_test.go`.
+  - The helper is skipped by default and runs only when
+    `AGENT_BUILDER_PHASE291_BROWSER_HARNESS=1`.
+  - It uses `AGENT_BUILDER_DESKTOP_ROOT` under
+    `tmp/runtime-dev/phase29-worker-completion-browser-smoke/`.
+  - It reaches readiness through temp `model.json` plus loopback fake provider.
+  - It creates a normal runtime session, selects it, seeds durable
+    Run/Turn/AgentTask evidence, and starts runtime HTTP on loopback.
+  - It installs a test-only foreground runner that completes the clicked task
+    through `runtimeSchedulerRecorder.AgentTaskCompleted(...)`.
+- Added `client/scripts/phase291-browser-scheduler-worker-completion-smoke.mjs`
+  and `npm run smoke:phase291`.
+  - The script starts the Go helper, Vite, and Playwright.
+  - It writes pid/log/spec/config/screenshot output under the Phase 29.1 temp
+    directory.
+  - It verifies before-click refs are empty.
+  - It clicks the visible queued Execute button.
+  - It verifies by durable DTO reads:
+    - task status becomes `completed`;
+    - task result exists and is completed;
+    - task result carries artifact refs;
+    - `/v1/refs?task_id=...` returns exactly one runtime ref;
+    - bounded `RunProjection(limit=24)` exposes produced artifact evidence.
+
+Validation:
+
+```text
+go test ./internal/runtime -run "TestPhase291BrowserSchedulerWorkerCompletionHarnessServer|TestRuntimeRunSchedulerExecuteTaskInvokesForegroundRunnerAndUsesCompletionEvidence" -count=1
+npm run smoke:phase291
+go test ./internal/runtime -run "TestPhase281BrowserSchedulerClickHarnessServer|TestPhase291BrowserSchedulerWorkerCompletionHarnessServer|TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail|TestRuntimeRunSchedulerExecute|TestRuntimeRunSchedulerPlan" -count=1
+npm run smoke:phase281
+npm run lint
+npm run build
+git diff --check
+```
+
+Review conclusion:
+
+- Phase 29.1 accepts browser validation for completed scheduler output and
+  produced refs.
+- The smoke still uses test-only foreground execution and does not validate
+  real provider-backed child agent behavior.
+- Packaged/Wails click automation remains deferred.
+- The next safe task is Phase 29.2: Scheduler Browser Harness Acceptance And
+  Remaining Risk Review. It should review Phases 28-29.1 and decide whether to
+  pause, add packaged/Wails coverage, or add provider-backed child-agent
+  validation.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10043,6 +10101,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 29.1: Local Browser Scheduler Worker Completion Smoke
-Implementation. Extend the local harness with a test-only foreground completion
-runner and browser assertions for completed task result/artifact refs.
+Implement Phase 29.2: Scheduler Browser Harness Acceptance And Remaining Risk
+Review. Review Phases 28-29.1 and decide whether to pause, add packaged/Wails
+coverage, or add provider-backed child-agent validation.

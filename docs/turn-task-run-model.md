@@ -497,6 +497,16 @@ Phase 29 note:
 - No model change is accepted for background scheduling, automatic resume,
   frontend-owned state, or prose/event-derived refs.
 
+Phase 29.1 note:
+
+- Browser worker-completion validation is implemented with a test-only
+  foreground runner.
+- Completed task result and produced refs are verified from durable runtime DTOs
+  after the browser click.
+- This confirms completion-only ref semantics without adding background
+  scheduling, automatic resume, a Run state machine, migrations, packaged/Wails
+  validation, or frontend-owned scheduler state.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

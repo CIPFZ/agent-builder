@@ -2190,3 +2190,15 @@ Phase 29 note:
   prose, or React state.
 - Packaged/Wails automation, background scheduling, automatic resume, and
   production seed endpoints remain out of scope.
+
+Phase 29.1 note:
+
+- Local browser worker-completion validation now exists as
+  `npm run smoke:phase291`.
+- The smoke uses a test-only foreground runner that records completion through
+  normal runtime recorder/task-result/ref paths.
+- Browser assertions verify completed task status, completed task result,
+  exactly one runtime ref, and produced artifact evidence through durable DTO
+  reads.
+- The smoke does not validate real provider-backed child agent execution or
+  packaged/Wails webview automation.
