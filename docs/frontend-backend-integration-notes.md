@@ -1683,3 +1683,22 @@ Phase 20.1 result:
   artifacts.
 - Completed task evidence wins over executable plan refreshes: completed task
   items become `terminal_task` and non-executable.
+
+## 2026-06-10: Phase 20.2 Foreground Task Executability Acceptance Gate
+
+Phase 20.2 accepts internal foreground task schedulability.
+
+Frontend boundary:
+
+- No executable task plan path is exposed through HTTP, Wails, or frontend
+  adapters yet.
+- Full `SessionActivity` remains the fallback and parity oracle.
+- Frontend task state remains DTO-refresh based; event payloads remain refresh
+  triggers only.
+
+Phase 20.2 result:
+
+- Internal foreground task schedulability is stable enough to inform a
+  transport/UI exposure design gate.
+- Transport and UI exposure remain unaccepted until Phase 21 defines the
+  adapter and source-of-truth constraints.

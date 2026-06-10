@@ -6759,6 +6759,58 @@ Review conclusion:
 - The next safe task is Phase 20.2: Foreground Task Executability Acceptance
   Gate.
 
+### Phase 20.2: Foreground Task Executability Acceptance Gate
+
+Status: accepted as a review gate only.
+
+Scope:
+
+- Review Phase 20 and Phase 20.1 before exposing any executable task plan path
+  through transport or UI.
+- Confirm foreground task schedulability is internal, evidence-backed, and
+  compatible with full `SessionActivity` fallback/parity.
+- Decide the next safe boundary without adding a background worker, queue,
+  poller, automatic resume, frontend Run UI, database migration, or
+  event/prose/React-derived source of truth.
+
+Accepted review:
+
+- Owned active task plan items with verified parent Run/session/turn ownership
+  may be internally foreground-schedulable.
+- `runtimeRunSchedulerDelegateTaskTurn(...)` may accept that candidate, but it
+  does not start execution or write lifecycle evidence by itself.
+- Missing, unowned, completed, cancelled, and interrupted task rows remain
+  non-executable.
+- Recorder terminal evidence remains authoritative. Completed recorder output
+  is the covered task artifact ref path, and completed task rows become
+  `terminal_task` again.
+- Full `SessionActivity` remains the fallback and parity oracle; cursor-window
+  events remain additive refresh evidence.
+
+Next boundary decision:
+
+- The next safe task is Phase 21: Task Scheduler Transport And UI Exposure
+  Design Gate.
+- Phase 21 must decide if, when, and how any executable task plan/delegate
+  signal is exposed through HTTP/Wails/frontend adapters. It must preserve DTO
+  refresh source-of-truth boundaries and must not introduce Run management UI
+  without a separate accepted UI phase.
+
+Validation:
+
+- Review confirmed Phase 20/20.1 changed internal scheduler plan/delegate
+  behavior and backend tests only.
+- Review confirmed no worker, queue, poller, automatic resume, frontend Run UI,
+  database migration, or event/prose/React-derived source of truth was added.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 20.2 accepts internal foreground task schedulability as stable.
+- Transport and UI exposure remain unaccepted until a separate design gate.
+- The next safe task is Phase 21: Task Scheduler Transport And UI Exposure
+  Design Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6806,9 +6858,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept Phase 20.1 as Phase 20.2: Foreground Task Executability
-Acceptance Gate. Confirm the foreground schedulability flip is stable, recorder
-terminal evidence remains authoritative, and full `SessionActivity` remains the
-fallback/parity oracle. Do not add a background worker, queue, poller,
-automatic resume, frontend Run UI, migration, or event/prose/React-derived
-source of truth.
+Start Phase 21: Task Scheduler Transport And UI Exposure Design Gate. Decide
+whether executable task plan/delegate signals should be exposed through
+HTTP/Wails/frontend adapters, and define the DTO refresh/source-of-truth
+constraints before implementation. Do not add a background worker, queue,
+poller, automatic resume, frontend Run management UI, database migration, or
+event/prose/React-derived source of truth.

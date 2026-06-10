@@ -77,6 +77,12 @@ Phase 20.1 note:
   artifact refs, cursor-window events match the full activity evidence, and
   completed task rows become terminal/non-executable again.
 
+Phase 20.2 note:
+
+- Internal foreground task schedulability is accepted. Transport and UI
+  exposure remain unaccepted until a separate design gate defines adapter DTOs,
+  refresh behavior, and source-of-truth constraints.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
