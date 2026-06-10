@@ -401,6 +401,13 @@ Phase 26.10 note:
 - Live click validation remains pending until a runtime-owned durable candidate
   seed exists; React must not fabricate that source state.
 
+Phase 26.11 note:
+
+- Live scheduler click validation should seed durable Run/Turn/AgentTask
+  evidence through runtime stores in a temp environment.
+- No production seed endpoint, migration, React fixture mode, background
+  scheduler, or auto-resume behavior is accepted for this validation.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

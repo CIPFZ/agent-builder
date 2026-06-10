@@ -2058,3 +2058,13 @@ Phase 26.10 note:
   row, so real clicking remains gated on a local durable candidate seed.
 - Do not fake live candidate state in React; create any future click smoke from
   runtime-owned durable evidence.
+
+Phase 26.11 note:
+
+- The accepted live click smoke path is a local-only runtime-owned seed, not a
+  React mock or production seed endpoint.
+- Prefer temp SQLite/runtime HTTP evidence seeded through existing runtime
+  stores and keep transient files under `tmp/runtime-dev`.
+- The smoke must prove visible rows, disabled terminal rows, single execute
+  transport call, durable post-click hydration, and no stale permission/MCP
+  actionability resurrection.

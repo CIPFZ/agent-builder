@@ -9201,6 +9201,70 @@ Review conclusion:
   background workers, auto-resume, migrations, stale actionability recovery, or
   full Run executor behavior.
 
+## 2026-06-10: Phase 26.11 Live Scheduler Candidate Seed And Click Smoke Gate
+
+Phase 26.11 accepts the design for a live scheduler candidate seed and click
+smoke. This is a gate only; it does not add the seed, click smoke, background
+workers, automatic resume, database migrations, stale actionability recovery,
+frontend Run state ownership, a full scheduler UI, or full Run executor
+behavior.
+
+Existing reusable runtime evidence:
+
+- Backend runtime tests already create durable scheduler candidates with:
+  - `runtimeRunSchedulerPlanLinkedTurnFixture(...)`;
+  - `RuntimeRun`/`RuntimeTurn` links through the runtime stores;
+  - `RuntimeAgentTask` rows written through `service.agentTasks.Upsert(...)`;
+  - `runtimeRunSchedulerPlan(...)` reads that return owned executable and
+    terminal/non-executable task items.
+- These fixtures use temp runtime databases and do not require credentials,
+  browser OAuth, generated secrets, or repository fixtures containing auth
+  state.
+
+Accepted seed approach:
+
+- Build the live click smoke from runtime-owned durable evidence, not React
+  mocks.
+- Prefer a Go runtime/http integration fixture that starts a local runtime HTTP
+  server over a temp SQLite database seeded with:
+  - one active Run linked to one queued parent Turn;
+  - one queued owned AgentTask candidate;
+  - one terminal owned AgentTask candidate;
+  - optional duplicate terminal/ref events to prove durable rereads do not
+    duplicate rows.
+- Run the frontend against that local runtime endpoint in a browser/Vite smoke
+  when feasible.
+- Keep all transient database files, logs, pid files, screenshots, and smoke
+  output under `tmp/runtime-dev`.
+- Do not add a dev-only persistent endpoint, production seed command,
+  migration, or React-local fixture mode.
+
+Accepted click-smoke assertions:
+
+- The queued candidate row is visible and its Execute button is enabled.
+- The terminal candidate row is visible and disabled with durable
+  `terminal_task`/preflight reason.
+- Clicking the queued row calls the explicit execute transport once.
+- UI changes after click come only from adapter durable hydration.
+- Duplicate lifecycle/terminal/ref events do not duplicate rows and do not
+  resurrect stale permission/MCP auth or elicitation actionability.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 26.11 accepts a runtime-owned temp seed and browser click smoke design.
+- The next safe task is Phase 26.12: Live Scheduler Candidate Seed And Click
+  Smoke Implementation. It should implement the local-only fixture/smoke path
+  under `tmp/runtime-dev` constraints and keep production runtime behavior
+  unchanged.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9248,8 +9312,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.11: Live Scheduler Candidate Seed And Click Smoke Gate.
-Decide how to create a non-secret, local-only durable scheduler candidate
-fixture for end-to-end UI clicking without adding background workers,
-automatic resume, database migrations, stale actionability recovery, frontend
-Run state ownership, full scheduler UI, or full Run executor behavior.
+Implement Phase 26.12: Live Scheduler Candidate Seed And Click Smoke
+Implementation. Add a local-only runtime-owned seed/click smoke under
+`tmp/runtime-dev` constraints, without adding background workers, automatic
+resume, database migrations, stale actionability recovery, frontend Run state
+ownership, full scheduler UI, or full Run executor behavior.
