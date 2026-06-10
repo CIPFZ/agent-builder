@@ -146,6 +146,12 @@ Phase 22.3 note:
 - The start action does not produce task results or artifact refs; those remain
   completion-only evidence.
 
+Phase 22.4 note:
+
+- Internal foreground task start is accepted as durable lifecycle evidence.
+- Actual child-agent execution remains unimplemented and unexposed through
+  transport/UI.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

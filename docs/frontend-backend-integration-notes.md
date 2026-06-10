@@ -1792,3 +1792,10 @@ Phase 22.3 note:
   evidence.
 - This remains internal runtime-only. No child agent runner, HTTP/dev/Wails
   route, frontend adapter, or UI control is exposed.
+
+Phase 22.4 note:
+
+- The internal task start body is accepted.
+- Transport/frontend exposure remains blocked until an actual child-agent
+  foreground runner is designed, implemented, and accepted with cancellation,
+  permission/MCP, failure/completion, and artifact evidence coverage.

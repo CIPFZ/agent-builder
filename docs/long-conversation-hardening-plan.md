@@ -7216,6 +7216,48 @@ Review conclusion:
 - Transport/frontend exposure remains unaccepted until a later gate accepts
   actual child-agent execution and its permission/MCP/cancellation behavior.
 
+## 2026-06-10: Phase 22.4 Foreground Task Start Body Acceptance
+
+Phase 22.4 accepts the internal foreground task start body from Phase 22.3.
+
+Acceptance review:
+
+- Confirmed `runtimeRunSchedulerExecuteTask(...)` remains internal runtime code.
+- Confirmed no `RuntimeService`, HTTP/dev module, Wails bridge, generated
+  binding, frontend adapter, or UI surface was added.
+- Confirmed queued task starts write only start evidence: task status
+  `running`, one instruction message, one `task_started` event/audit entry,
+  and one task-start transition.
+- Confirmed duplicate/running calls return `already_running` and do not
+  duplicate messages, events, transitions, task results, refs, or lifecycle
+  evidence.
+- Confirmed unowned and terminal tasks remain rejected without side effects.
+- Confirmed no completion/result/artifact evidence is produced by task start.
+
+Validation:
+
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1`
+  passed.
+- `git diff --check` passed.
+
+Accepted contract:
+
+- Internal foreground task start is accepted as the first execution body behind
+  the backend-only execute contract.
+- Artifact refs remain completion-only and must come from completed structured
+  scheduler/recorder output.
+- A later child-agent runner must preserve this idempotent start behavior and
+  prove cancellation, permission/MCP, failure, completion, and artifact
+  semantics before any transport/frontend exposure.
+
+Next safe boundary:
+
+- Phase 22.5 should design the actual child-agent foreground runner behind the
+  accepted internal start body.
+- Phase 22.5 must decide how to call agent/coordinator execution without
+  background scheduling, automatic resume, stale actionability restoration, or
+  frontend-owned state.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7263,8 +7305,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 22.3, then plan the next gate for actual child-agent
-foreground execution behind the internal contract. Do not expose frontend
-controls, HTTP/Wails transport, background workers, automatic resume, database
-migrations, stale actionability recovery, or event/prose/React-derived source
-of truth.
+Plan Phase 22.5: Child-agent Foreground Runner Design Gate. Do not expose
+frontend controls, HTTP/Wails transport, background workers, automatic resume,
+database migrations, stale actionability recovery, or event/prose/React-derived
+source of truth.
