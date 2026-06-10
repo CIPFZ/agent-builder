@@ -2049,3 +2049,12 @@ Phase 26.9 note:
   action. The UI does not inspect execute action response payloads.
 - Local row pending/error state is ephemeral and must not be treated as
   runtime task state.
+
+Phase 26.10 note:
+
+- Added fixture-backed scheduler execute UI acceptance smoke for executable,
+  terminal/blocked, and duplicate candidate evidence.
+- The current live browser session did not expose a Run projection/candidate
+  row, so real clicking remains gated on a local durable candidate seed.
+- Do not fake live candidate state in React; create any future click smoke from
+  runtime-owned durable evidence.

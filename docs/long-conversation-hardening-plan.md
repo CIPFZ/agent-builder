@@ -9152,6 +9152,55 @@ Review conclusion:
   candidate fixture or live local runtime, including disabled terminal rows,
   duplicate refresh events, and post-click durable rehydration.
 
+## 2026-06-10: Phase 26.10 Scheduler Execute UI Runtime Smoke And Acceptance
+
+Phase 26.10 adds fixture-backed acceptance coverage for the visible scheduler
+execute UI. It does not add background workers, automatic resume, database
+migrations, stale actionability recovery, frontend Run state ownership, a full
+scheduler UI, or full Run executor behavior.
+
+Implemented:
+
+- Added `client/scripts/phase2610-scheduler-ui-runtime-fixture-smoke.mjs`.
+- Added `npm run smoke:phase2610`.
+- The fixture smoke covers:
+  - executable queued candidate evidence;
+  - terminal/blocked candidate evidence with durable disabled reason;
+  - duplicate task evidence deduped by stable `runID:taskID`;
+  - preview enablement using durable `candidate.executeEligible`;
+  - click routing through durable `run.id` and `candidate.taskID`;
+  - local action errors remaining ephemeral;
+  - adapter execution followed by durable workbench hydration;
+  - shell state replacement from the hydrated view model, not action metadata.
+
+Validation:
+
+```text
+npm run smoke:phase2610
+npm run smoke:phase269
+npm run build
+```
+
+Browser/Vite live check:
+
+- `http://localhost:5180/` rendered without console errors.
+- The current live page had no `RunProjectionPreview` and no scheduler
+  candidate rows, so no real click was performed.
+- This is recorded as a redacted runtime fixture gap rather than fabricating
+  live candidate state.
+
+Review conclusion:
+
+- Phase 26.10 accepts fixture-backed UI/runtime contract coverage.
+- Remaining risk: a real local runtime session with durable scheduler
+  candidates still needs an end-to-end click smoke to verify post-click
+  candidate transition in the live UI.
+- The next safe task is Phase 26.11: Live Scheduler Candidate Seed And Click
+  Smoke Gate. It should decide how to create a non-secret, local-only durable
+  scheduler candidate fixture for end-to-end UI clicking without adding
+  background workers, auto-resume, migrations, stale actionability recovery, or
+  full Run executor behavior.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9199,9 +9248,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.10: Scheduler Execute UI Runtime Smoke And Acceptance.
-Validate the visible execute control against a runtime candidate fixture or
-live local runtime, including disabled terminal rows, duplicate refresh events,
-and post-click durable rehydration. Do not add background workers, automatic
-resume, database migrations, stale actionability recovery, frontend Run state
-ownership, full scheduler UI, or full Run executor behavior.
+Implement Phase 26.11: Live Scheduler Candidate Seed And Click Smoke Gate.
+Decide how to create a non-secret, local-only durable scheduler candidate
+fixture for end-to-end UI clicking without adding background workers,
+automatic resume, database migrations, stale actionability recovery, frontend
+Run state ownership, full scheduler UI, or full Run executor behavior.

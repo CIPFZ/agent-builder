@@ -394,6 +394,13 @@ Phase 26.9 note:
   action response metadata and local pending/error affordance are not runtime
   state.
 
+Phase 26.10 note:
+
+- Visible scheduler execute behavior is covered by a fixture smoke for queued,
+  terminal/blocked, and duplicate candidate evidence.
+- Live click validation remains pending until a runtime-owned durable candidate
+  seed exists; React must not fabricate that source state.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
