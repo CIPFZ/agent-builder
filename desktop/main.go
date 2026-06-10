@@ -11,9 +11,15 @@ import (
 var assets embed.FS
 
 func main() {
+	webviewTestOptions, webviewTestWindowOptions, err := desktopWebviewTestOptions()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	app := application.New(application.Options{
 		Name:        "Agent Builder",
 		Description: "Agentic operations desktop client",
+		Windows:     webviewTestOptions,
 		Services: []application.Service{
 			application.NewService(NewRuntimeBridge()),
 		},
@@ -25,7 +31,7 @@ func main() {
 		},
 	})
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	windowOptions := application.WebviewWindowOptions{
 		Title:            "Agent Builder",
 		Width:            1180,
 		Height:           820,
@@ -35,7 +41,9 @@ func main() {
 		InitialPosition:  application.WindowCentered,
 		BackgroundColour: application.NewRGB(255, 255, 255),
 		URL:              "/",
-	})
+	}
+	applyDesktopWebviewTestWindowOptions(&windowOptions, webviewTestWindowOptions)
+	app.Window.NewWithOptions(windowOptions)
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)

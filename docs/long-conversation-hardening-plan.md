@@ -11257,11 +11257,11 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 36.1: Packaged WebView Test Automation Channel Prototype. Add
-a build-tagged, test-only Wails/WebView2 automation channel that can expose a
-local CDP remote-debug port for packaged scheduler click smoke runs without
-production debug endpoints, runtime state changes, frontend-owned fixtures, or
-event-payload-derived state.
+Implement Phase 36.2: Packaged WebView Scheduler Click Smoke Gate. Use the
+Phase 36.1 test-only CDP channel to decide and script a visible packaged
+scheduler Execute click smoke, with all assertions sourced from durable runtime
+DTO rereads rather than event payloads, action responses, React state, or
+assistant prose.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -11333,3 +11333,61 @@ Review conclusion:
   persistence, migrations, auto resume, background scheduler behavior, frontend
   Run UI, stale tool recovery, stale permission recovery, or stale MCP
   auth/elicitation actionability.
+
+## 2026-06-11: Phase 36.1 Packaged WebView Test Automation Channel Prototype
+
+Phase 36.1 implements the accepted test-only packaged WebView automation
+channel. It does not add a visible packaged scheduler click smoke yet, and it
+does not change runtime state ownership, Run persistence, database schema,
+background scheduling, automatic resume, stale tool recovery, stale
+permission/MCP actionability recovery, frontend Run UI, or React-owned
+scheduler state.
+
+Implemented:
+
+- Added a desktop `webview_test` build-tag option layer.
+- Untagged builds return zero Wails/WebView test options and do not read
+  WebView test environment variables.
+- Tagged builds may read:
+  - `AGENT_BUILDER_WEBVIEW_TEST_REMOTE_DEBUG_PORT`
+  - `AGENT_BUILDER_WEBVIEW_TEST_USER_DATA_DIR`
+  - `AGENT_BUILDER_WEBVIEW_TEST_OPEN_DEVTOOLS`
+- The tagged path validates the remote-debug port, requires the WebView
+  user-data directory to live under `tmp/runtime-dev`, enables DevTools for the
+  test window, and passes `--remote-debugging-port=<port>` through Wails
+  Windows `AdditionalBrowserArgs`.
+- Added `desktop/scripts/phase361-wails-webview-test-channel-smoke.ps1` to
+  build with `EXTRA_TAGS=webview_test`, start the packaged app with a
+  phase-scoped runtime root and WebView user-data directory under
+  `tmp/runtime-dev`, and verify the local WebView2 CDP `/json/version`
+  endpoint becomes reachable.
+- Fixed the top-level desktop `build`/`package` tasks to forward `EXTRA_TAGS`
+  to platform-specific Wails tasks, so the test tag is actually applied during
+  packaged builds.
+- Documented the smoke in `desktop/README.md`.
+
+Validation:
+
+```powershell
+go test ./desktop -count=1
+go test -tags webview_test ./desktop -run TestDesktopWebviewTestOptions -count=1
+.\desktop\scripts\phase361-wails-webview-test-channel-smoke.ps1 -Build
+```
+
+Source-of-truth review:
+
+- The channel only configures packaged WebView automation. It does not expose a
+  production debug endpoint or seed endpoint.
+- Runtime events remain refresh triggers only.
+- The future packaged click smoke must still click the visible UI and then
+  re-read durable runtime DTOs for projection, scheduler plan, activity,
+  permissions, task/result/ref evidence, diagnostics, artifacts, interrupted
+  summaries, and terminal permission/MCP semantics.
+- The WebView test env vars are local test process configuration only; they
+  are not React state and must not contain secrets or hosted auth state.
+
+Remaining risk:
+
+- Phase 36.1 proves the test-only CDP channel shape and compile-time isolation,
+  but it does not yet automate a packaged Execute button click or prove
+  post-click durable DTO parity. That is the next gate.

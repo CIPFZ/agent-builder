@@ -106,3 +106,18 @@ The script builds `bin/AgentBuilder.exe` when requested, uses
 scheduler projection/plan/execute contract test, starts the packaged
 executable, and verifies packaged runtime directories are created. It does not
 automate a WebView2 button click.
+
+## Phase 36.1 Wails WebView Test Channel Smoke
+
+Run the packaged WebView test-channel smoke from the desktop project:
+
+```powershell
+.\scripts\phase361-wails-webview-test-channel-smoke.ps1 -Build
+```
+
+The script builds the packaged executable with `EXTRA_TAGS=webview_test`, uses
+`../tmp/runtime-dev` for its runtime root and WebView user-data directory,
+starts the app with a local WebView2 remote-debugging port, and verifies the
+CDP endpoint becomes reachable. This is test-only automation infrastructure;
+normal untagged builds do not read the WebView test environment variables or
+open a remote-debugging port.

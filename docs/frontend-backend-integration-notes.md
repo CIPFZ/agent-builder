@@ -2391,3 +2391,13 @@ Phase 36 note:
   durable runtime DTOs. Event payloads, action responses, React state, and
   assistant prose remain invalid sources for scheduler state, diagnostics,
   artifacts, permissions, MCP actionability, interrupted state, or Run state.
+
+Phase 36.1 note:
+
+- The desktop `webview_test` build tag now provides the only accepted packaged
+  WebView automation channel.
+- Untagged builds do not read WebView test env vars or open a remote-debugging
+  port.
+- The tagged channel requires WebView user data under `tmp/runtime-dev` and is
+  only for local smoke automation. It must not carry secrets, hosted OAuth
+  state, provider auth headers, browser profiles, or React-owned runtime state.
