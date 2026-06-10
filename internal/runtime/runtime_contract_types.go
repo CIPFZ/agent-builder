@@ -832,9 +832,10 @@ type RuntimeAgentTask struct {
 }
 
 type RuntimeAgentTaskResponse struct {
-	Task     RuntimeAgentTask          `json:"task"`
-	Messages []RuntimeAgentTaskMessage `json:"messages,omitempty"`
-	Result   *RuntimeAgentTaskResult   `json:"result,omitempty"`
+	Task     RuntimeAgentTask            `json:"task"`
+	Messages []RuntimeAgentTaskMessage   `json:"messages,omitempty"`
+	Result   *RuntimeAgentTaskResult     `json:"result,omitempty"`
+	Action   *RuntimeWriteActionMetadata `json:"action,omitempty"`
 }
 
 type RuntimeAgentTasksResponse struct {

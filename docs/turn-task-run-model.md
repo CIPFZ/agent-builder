@@ -51,6 +51,16 @@ Phase 37.3 note:
   persistence, migrations, background scheduling, automatic resume, and
   frontend Run UI remain outside the next implementation scope.
 
+Phase 37.4 note:
+
+- `RuntimeAgentTaskResponse` now has optional shared write-action metadata for
+  `CancelAgentTask(...)`.
+- Task cancellation remains owned by task rows, task results, task messages,
+  runtime events, scheduler/read DTOs, and `SessionActivity`; the action
+  metadata only describes acceptance, refresh targets, source, and idempotency.
+- Already-final task cancellation remains rejected/idempotent and does not
+  rewrite completed task/result/artifact evidence.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

@@ -2462,3 +2462,14 @@ Phase 37.3 note:
 - Checkpoint resume/ack/discard and permission decisions remain later focused
   phases; no frontend Run management UI or React-owned cancellation state is
   accepted.
+
+Phase 37.4 note:
+
+- `CancelAgentTask(...)` responses now include optional shared `action`
+  metadata.
+- The frontend may use cancellation `action.refreshTargets` to choose which
+  runtime DTOs to refresh, but must continue to render task status, task
+  result, artifact refs, diagnostics, timeline rows, permissions, MCP
+  actionability, scheduler state, and Run projection from durable runtime reads.
+- Plain `AgentTask(...)` reads omit `action`; cancellation metadata is not a
+  persistent task field and must not be cached as React-owned task state.

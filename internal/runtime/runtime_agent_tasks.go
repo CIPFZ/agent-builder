@@ -12,6 +12,13 @@ import (
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
+const (
+	runtimeAgentTaskCancelSourceKind = "agent_task"
+	runtimeAgentTaskCancelAction     = "cancel_task"
+
+	runtimeAgentTaskCancelReasonAlreadyFinal = "agent_task_already_final"
+)
+
 func (r *runtimeService) AgentTask(ctx context.Context, taskID string) (RuntimeAgentTaskResponse, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
@@ -66,7 +73,7 @@ func (r *runtimeService) CancelAgentTask(ctx context.Context, taskID string) (Ru
 				"reason": "agent task is already final",
 			},
 		})
-		return RuntimeAgentTaskResponse{Task: task}, nil
+		return withRuntimeAgentTaskCancelAction(RuntimeAgentTaskResponse{Task: task}, false, runtimeAgentTaskCancelReasonAlreadyFinal), nil
 	}
 
 	r.mu.Lock()
@@ -110,7 +117,32 @@ func (r *runtimeService) CancelAgentTask(ctx context.Context, taskID string) (Ru
 		},
 	})
 	r.recordAgentTaskLifecycle(ctx, runtimeapi.EventTaskCancelled, "task_cancelled", task)
-	return RuntimeAgentTaskResponse{Task: task, Result: &result}, nil
+	return withRuntimeAgentTaskCancelAction(RuntimeAgentTaskResponse{Task: task, Result: &result}, true, cancellationDetail), nil
+}
+
+func withRuntimeAgentTaskCancelAction(resp RuntimeAgentTaskResponse, accepted bool, reason string) RuntimeAgentTaskResponse {
+	resp.Action = &RuntimeWriteActionMetadata{
+		Accepted:       accepted,
+		Reason:         reason,
+		RefreshTargets: runtimeRunSchedulerRefreshTargets(),
+		Source: RuntimeWriteActionSource{
+			Kind:                  runtimeAgentTaskCancelSourceKind,
+			Action:                runtimeAgentTaskCancelAction,
+			BackendOnly:           true,
+			StartsWorker:          false,
+			IdempotentBy:          "task_id",
+			SessionActivityParity: true,
+			Evidence: []string{
+				"runtime_agent_tasks",
+				"runtime_agent_task_results",
+				"runtime_agent_task_messages",
+				"runtime_events",
+				"runtime_run_scheduler_plan",
+				"session_activity",
+			},
+		},
+	}
+	return resp
 }
 
 func (r *runtimeSchedulerRecorder) AgentTaskStarted(ctx context.Context, task agent.AgentTaskRecord) error {

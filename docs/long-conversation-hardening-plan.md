@@ -11257,10 +11257,11 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.4: Task Cancellation Write Action Metadata Implementation.
-Add the shared metadata envelope to `CancelAgentTask(...)` only, preserve the
-existing task/result/message response shape, and verify cancellation state from
-durable DTO rereads rather than the action payload.
+Implement Phase 37.5: Task Cancellation Write Action Envelope Acceptance And
+Next Action Selection. Review the `CancelAgentTask(...)` metadata
+implementation, decide whether checkpoint acknowledge/discard or permission
+decision should adopt the envelope next, and keep action payloads as refresh
+metadata only.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -11791,3 +11792,56 @@ Review conclusion:
 - Phase 37.4 should implement task cancellation write-action metadata as the
   second adopter, using the same additive envelope pattern and durable reread
   source-of-truth rule.
+
+## 2026-06-11: Phase 37.4 Task Cancellation Write Action Metadata Implementation
+
+Phase 37.4 implements the shared write-action metadata envelope for
+`CancelAgentTask(...)` only. It preserves the existing task response shape and
+does not change cancellation behavior, database schema, Run persistence,
+automatic resume, background scheduling, stale actionability recovery, or
+frontend Run UI.
+
+Implemented:
+
+- Added optional `action` metadata to `RuntimeAgentTaskResponse`.
+- Populated `action` only from the explicit `CancelAgentTask(...)` write path;
+  ordinary `AgentTask(...)` reads continue to omit it.
+- Preserved the existing `task`, `messages`, and `result` response fields.
+- Preserved existing task cancellation durable behavior:
+  - active tasks are terminalized as cancelled with task/result/message/event
+    evidence
+  - already-final tasks are not rewritten and still receive a rejected control
+    message
+  - completed artifact refs are not rewritten during rejected cancellation
+- Used `idempotentBy="task_id"`, `backendOnly=true`, `startsWorker=false`, and
+  `sessionActivityParity=true`.
+- Reused the scheduler refresh target set so the frontend can re-read Run,
+  Run projection, turn activity, session activity window/full activity, and
+  scheduler plan evidence after cancellation.
+- Declared durable evidence names in metadata for task rows, task results, task
+  messages, runtime events, scheduler plan, and session activity.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run "TestRuntimeCancelAgentTask|TestRuntimeRunSchedulerExecuteTask" -count=1
+go test ./desktop -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- The task cancellation envelope is additive and metadata-only.
+- Cancellation terminal state, result details, artifact refs, ownership links,
+  event history, timeline rows, diagnostics, permissions, MCP actionability,
+  and Run projection remain durable DTO/read concerns after the action.
+- The implementation does not add a Run state machine, Run store migration,
+  background queue, automatic resume, stale tool/permission/MCP recovery,
+  frontend Run UI, React-owned cancellation state, event-payload state merging,
+  or assistant-prose-derived refs/artifacts/checkpoints/actionability.
+
+Remaining risk:
+
+- Checkpoint acknowledge/discard/resume and permission decision responses still
+  do not carry the shared `action` metadata. Phase 37.5 should review the task
+  cancellation implementation and choose the next adopter deliberately.

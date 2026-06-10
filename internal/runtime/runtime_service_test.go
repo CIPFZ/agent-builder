@@ -3278,6 +3278,12 @@ func TestRuntimeCancelAgentTaskMarksFinalAndAuditsLimitation(t *testing.T) {
 	if resp.Task.Status != agentTaskStatusCancelled || resp.Task.FinishedAt == 0 {
 		t.Fatalf("cancelled task = %#v", resp.Task)
 	}
+	if resp.Action == nil || !resp.Action.Accepted || resp.Action.Source.Kind != runtimeAgentTaskCancelSourceKind || resp.Action.Source.Action != runtimeAgentTaskCancelAction || resp.Action.Source.IdempotentBy != "task_id" {
+		t.Fatalf("cancel action metadata = %#v", resp.Action)
+	}
+	if len(resp.Action.RefreshTargets) == 0 || !resp.Action.Source.BackendOnly || resp.Action.Source.StartsWorker || !resp.Action.Source.SessionActivityParity {
+		t.Fatalf("cancel action source/refresh metadata = %#v", resp.Action)
+	}
 	events, err := service.Events(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -3361,6 +3367,15 @@ func TestRuntimeCancelAgentTaskTerminalizesEvidenceAndPreservesOwnership(t *test
 	}
 	if resp.Result == nil || resp.Result.TaskID != task.ID || resp.Result.Status != agentTaskStatusCancelled || resp.Result.CancellationDetail == "" || len(resp.Result.ArtifactRefs) != 0 {
 		t.Fatalf("cancel result = %#v", resp.Result)
+	}
+	if resp.Action == nil || !resp.Action.Accepted || resp.Action.Reason != resp.Result.CancellationDetail {
+		t.Fatalf("cancel action metadata = %#v result=%#v", resp.Action, resp.Result)
+	}
+	if !slices.Contains(resp.Action.Source.Evidence, "runtime_agent_tasks") ||
+		!slices.Contains(resp.Action.Source.Evidence, "runtime_agent_task_results") ||
+		!slices.Contains(resp.Action.Source.Evidence, "runtime_agent_task_messages") ||
+		!slices.Contains(resp.Action.Source.Evidence, "session_activity") {
+		t.Fatalf("cancel action evidence = %#v", resp.Action.Source.Evidence)
 	}
 
 	refreshedTask, err := service.agentTasks.Get(context.Background(), task.ID)
@@ -3463,6 +3478,9 @@ func TestRuntimeCancelAgentTaskAlreadyFinalDoesNotRewriteEvidence(t *testing.T) 
 	}
 	if resp.Task.Status != agentTaskStatusCompleted || resp.Task.FinishedAt != task.FinishedAt || resp.Task.ResultSummary != task.ResultSummary {
 		t.Fatalf("final task rewritten = %#v original=%#v", resp.Task, task)
+	}
+	if resp.Action == nil || resp.Action.Accepted || resp.Action.Reason != runtimeAgentTaskCancelReasonAlreadyFinal || resp.Action.Source.IdempotentBy != "task_id" {
+		t.Fatalf("final cancel action metadata = %#v", resp.Action)
 	}
 	if len(resp.Task.ArtifactRefs) != 1 || resp.Task.ArtifactRefs[0] != "runtime://refs/task-output" {
 		t.Fatalf("final task artifact refs rewritten = %#v", resp.Task.ArtifactRefs)
