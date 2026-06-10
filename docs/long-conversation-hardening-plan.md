@@ -11159,6 +11159,57 @@ Review conclusion:
 - The next safe task is Phase 35.2: Hosted Manual Smoke Acceptance And Next
   Track Gate.
 
+## 2026-06-11: Phase 35.2 Hosted Manual Smoke Acceptance And Next Track Gate
+
+Phase 35.2 accepts the hosted provider/MCP manual-smoke refresh and chooses the
+next track. It is a review/acceptance phase only and does not add code, live
+provider credentials, hosted OAuth automation, provider-specific secret
+fixtures, production seed/debug endpoints, runtime readiness bypasses,
+background workers, automatic resume, database migrations, stale actionability
+recovery, frontend Run state ownership, packaged WebView automation, full
+scheduler UI, or full Run executor behavior.
+
+Accepted coverage:
+
+- Deterministic local smokes now cover:
+  - runtime provider-backed child-agent execution through loopback provider;
+  - browser Execute click through real coordinator and loopback provider;
+  - browser scheduler/provider smoke grouping.
+- Hosted provider/MCP live validation remains credential-gated and manual.
+- A refreshed redacted local checklist exists under ignored `tmp/runtime-dev`.
+- No hosted credentials, OAuth state, raw headers, screenshots, browser
+  profiles, or live provider logs were committed.
+
+Remaining validation risks:
+
+- True packaged WebView2 scheduler Execute clicking is still not covered.
+- The project still lacks an accepted test-only automation channel for packaged
+  WebView2 interaction.
+- Hosted provider/MCP manual smoke remains an operator task, not an automation
+  blocker.
+
+Next track decision:
+
+- Open a design gate for a test-only packaged WebView automation channel.
+- The gate must decide whether Wails/WebView2 can expose an automation surface
+  under build tags or test-only app options without production debug endpoints
+  or runtime state changes.
+- Do not implement packaged clicking until that channel is accepted.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 35.2 accepts the hosted manual smoke refresh.
+- The next safe task is Phase 36: Packaged WebView Test Automation Channel
+  Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -11206,6 +11257,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 35.2: Hosted Manual Smoke Acceptance And Next Track Gate.
-Accept the redacted manual checklist refresh and choose the next implementation
-or validation track.
+Implement Phase 36: Packaged WebView Test Automation Channel Gate. Decide
+whether a test-only Wails/WebView2 automation surface can support packaged
+Execute clicking without production debug endpoints or runtime state changes.

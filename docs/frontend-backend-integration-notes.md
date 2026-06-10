@@ -2371,3 +2371,11 @@ Phase 35.1 note:
 - It is a local operator checklist only, not a committed fixture.
 - Real hosted smoke was not executed because no safe operator credentials or
   browser auth state were provided.
+
+Phase 35.2 note:
+
+- The hosted provider/MCP manual-smoke refresh is accepted.
+- The next validation track is a test-only packaged WebView automation channel
+  gate.
+- Packaged WebView clicking must not be solved with production debug endpoints,
+  React-owned fixtures, event-payload state, or runtime source-of-truth changes.
