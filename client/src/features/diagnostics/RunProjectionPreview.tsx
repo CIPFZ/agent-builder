@@ -11,17 +11,22 @@ const { Text } = Typography;
 export function RunProjectionPreview({
   run,
   onResumeCheckpoint,
+  onExecuteTask,
 }: {
   run?: RunProjectionViewModel;
   onResumeCheckpoint?: (runID: string, checkpointID: string) => Promise<void>;
+  onExecuteTask?: (runID: string, taskID: string) => Promise<void>;
 }) {
   const [pendingCheckpointID, setPendingCheckpointID] = useState<string | undefined>();
+  const [pendingTaskID, setPendingTaskID] = useState<string | undefined>();
   const [resumeError, setResumeError] = useState<string | undefined>();
+  const [taskError, setTaskError] = useState<string | undefined>();
 
   if (!run) {
     return null;
   }
   const resumableCheckpoint = selectResumableCheckpoint(run.checkpoints);
+  const schedulerTaskCandidates = run.schedulerTaskCandidates ?? [];
   const canResume = Boolean(resumableCheckpoint?.id && onResumeCheckpoint);
   const resumeCheckpoint = async () => {
     if (!resumableCheckpoint?.id || !onResumeCheckpoint || pendingCheckpointID) {
@@ -35,6 +40,20 @@ export function RunProjectionPreview({
       setResumeError(resumeErrorMessage(error));
     } finally {
       setPendingCheckpointID(undefined);
+    }
+  };
+  const executeTask = async (taskID: string) => {
+    if (!onExecuteTask || pendingTaskID) {
+      return;
+    }
+    setTaskError(undefined);
+    setPendingTaskID(taskID);
+    try {
+      await onExecuteTask(run.id, taskID);
+    } catch (error) {
+      setTaskError(actionErrorMessage(error, 'Task execution failed'));
+    } finally {
+      setPendingTaskID(undefined);
     }
   };
 
@@ -67,6 +86,44 @@ export function RunProjectionPreview({
         <SignalTag label="cancelled" value={run.cancelledTurnCount} />
         <SignalTag label="checkpoints" value={run.checkpointCount} />
       </div>
+
+      {schedulerTaskCandidates.length ? (
+        <div className={styles.taskList} data-testid="run-scheduler-candidates">
+          {schedulerTaskCandidates.map((candidate) => {
+            const canExecute = candidate.executeEligible && Boolean(onExecuteTask);
+            const disabledReason = candidate.disabledReason || (!onExecuteTask ? 'Execute unavailable' : undefined);
+            return (
+              <div className={styles.taskAction} data-testid="run-scheduler-candidate" data-task-id={candidate.taskID} key={candidate.id}>
+                <div className={styles.taskCopy}>
+                  <Text className={styles.taskTitle}>{candidate.title || candidate.taskID}</Text>
+                  <Text className={styles.taskMeta}>
+                    {[candidate.source, candidate.status, disabledReason].filter(Boolean).join(' / ') || candidate.kind}
+                  </Text>
+                </div>
+                <Tooltip title={canExecute ? 'Execute task' : disabledReason || 'Execute unavailable'}>
+                  <Button
+                    aria-label={`Execute task ${candidate.taskID}`}
+                    icon={<PlayCircleOutlined />}
+                    loading={pendingTaskID === candidate.taskID}
+                    size="small"
+                    disabled={!canExecute || Boolean(pendingTaskID)}
+                    onClick={() => {
+                      void executeTask(candidate.taskID);
+                    }}
+                  >
+                    Execute
+                  </Button>
+                </Tooltip>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+      {taskError ? (
+        <Text className={styles.resumeError} type="danger">
+          {taskError}
+        </Text>
+      ) : null}
 
       {resumableCheckpoint ? (
         <div className={styles.resumeAction} data-testid="run-checkpoint-resume" data-checkpoint-id={resumableCheckpoint.id}>
@@ -165,8 +222,12 @@ function statusColor(status?: string) {
 }
 
 function resumeErrorMessage(error: unknown) {
+  return actionErrorMessage(error, 'Resume failed');
+}
+
+function actionErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message.trim()) {
     return error.message;
   }
-  return 'Resume failed';
+  return fallback;
 }

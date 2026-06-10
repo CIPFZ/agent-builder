@@ -91,6 +91,52 @@
   text-overflow: ellipsis;
 }
 
+.taskList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.taskAction {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+}
+
+.taskCopy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.taskTitle {
+  color: rgba(0, 0, 0, 0.88);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.taskMeta {
+  display: -webkit-box;
+  max-height: 36px;
+  overflow: hidden;
+  color: rgba(0, 0, 0, 0.65);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .resumeAction {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

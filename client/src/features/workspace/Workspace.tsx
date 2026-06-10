@@ -20,6 +20,7 @@ interface WorkspaceProps {
   onPromptSubmit: (prompt: string) => Promise<void>;
   onInterruptedDone: (turnID: string) => Promise<void>;
   onRunCheckpointResume?: (runID: string, checkpointID: string) => Promise<void>;
+  onRunTaskExecute?: (runID: string, taskID: string) => Promise<void>;
 }
 
 export function Workspace({
@@ -33,6 +34,7 @@ export function Workspace({
   onPromptSubmit,
   onInterruptedDone,
   onRunCheckpointResume,
+  onRunTaskExecute,
 }: WorkspaceProps) {
   const [messageApi, messageContextHolder] = antdMessage.useMessage();
   const [renameOpen, setRenameOpen] = useState(false);
@@ -195,7 +197,7 @@ export function Workspace({
               <Timeline items={viewModel.timeline} onPermissionDecide={onPermissionDecide} />
             </div>
             <div className={styles.diagnosticsColumn}>
-              <RunProjectionPreview run={viewModel.runProjection} onResumeCheckpoint={onRunCheckpointResume} />
+              <RunProjectionPreview run={viewModel.runProjection} onResumeCheckpoint={onRunCheckpointResume} onExecuteTask={onRunTaskExecute} />
               <TurnDiagnosticsPanel
                 diagnostics={viewModel.turnDiagnostics}
                 interrupted={viewModel.interruptedTurn}

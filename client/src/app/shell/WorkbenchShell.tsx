@@ -270,6 +270,12 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setViewModel(nextViewModel);
   };
 
+  const executeRunTask = async (runID: string, taskID: string) => {
+    const nextViewModel = await adapter.executeRunTask({ ...viewModelRef.current, mode: modeRef.current }, runID, taskID);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
   const selectModel = async (configuredProviderID: string, model: string) => {
     const nextViewModel = await adapter.selectModel({ ...viewModel, mode }, configuredProviderID, model);
     setViewModel(nextViewModel);
@@ -469,6 +475,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onPromptSubmit={sendPrompt}
           onInterruptedDone={markInterruptedDone}
           onRunCheckpointResume={resumeRunCheckpoint}
+          onRunTaskExecute={executeRunTask}
         />
       )}
     </main>

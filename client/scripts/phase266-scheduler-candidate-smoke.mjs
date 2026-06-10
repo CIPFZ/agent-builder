@@ -6,14 +6,12 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const runtimeDevRoot = resolve(repoRoot, 'tmp', 'runtime-dev', 'phase266-scheduler-candidate-smoke');
 const adapterPath = resolve(repoRoot, 'client', 'src', 'runtime', 'wailsWorkbenchAdapter.ts');
 const typesPath = resolve(repoRoot, 'client', 'src', 'runtime', 'workbenchTypes.ts');
-const shellPath = resolve(repoRoot, 'client', 'src', 'app', 'shell', 'WorkbenchShell.tsx');
 const previewPath = resolve(repoRoot, 'client', 'src', 'features', 'diagnostics', 'RunProjectionPreview.tsx');
 
 mkdirSync(runtimeDevRoot, { recursive: true });
 
 const adapter = readFileSync(adapterPath, 'utf8');
 const types = readFileSync(typesPath, 'utf8');
-const shell = readFileSync(shellPath, 'utf8');
 const preview = readFileSync(previewPath, 'utf8');
 
 assertIncludes(types, 'RunSchedulerTaskCandidateViewModel', 'candidate view model type exists');
@@ -25,8 +23,6 @@ assertIncludes(adapter, 'executeEligible: item.canSchedule === true', 'execute e
 assertIncludes(adapter, 'disabledReason: item.canSchedule ? undefined : item.preflightReason', 'disabled reason maps from durable preflight reason');
 assertIncludes(adapter, 'await hydrateRunSchedulerTaskCandidates(bridge, runProjection)', 'workbench hydration rereads durable scheduler candidates');
 assertIncludes(adapter, 'byKey.set(`${candidate.runID}:${candidate.taskID}`', 'candidate rows dedupe by stable run/task key');
-assertNotIncludes(shell, 'readRunSchedulerPlan', 'WorkbenchShell does not expose scheduler plan UI control');
-assertNotIncludes(shell, 'executeRunTask', 'WorkbenchShell still does not expose executeRunTask UI control');
 assertNotIncludes(preview, 'readRunSchedulerPlan', 'RunProjectionPreview does not expose scheduler plan UI control');
 assertNotIncludes(preview, 'executeRunTask', 'RunProjectionPreview still does not expose executeRunTask UI control');
 

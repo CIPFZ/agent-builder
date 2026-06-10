@@ -14,7 +14,8 @@
     "smoke:phase1010": "node scripts/phase1010-transition-binding-smoke.mjs",
     "smoke:phase263": "node scripts/phase263-execute-adapter-smoke.mjs",
     "smoke:phase266": "node scripts/phase266-scheduler-candidate-smoke.mjs",
-    "smoke:phase267": "node scripts/phase267-scheduler-refresh-contract-smoke.mjs"
+    "smoke:phase267": "node scripts/phase267-scheduler-refresh-contract-smoke.mjs",
+    "smoke:phase269": "node scripts/phase269-scheduler-execute-ui-smoke.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.3",

@@ -9097,6 +9097,61 @@ Review conclusion:
   scheduler UI, background worker, auto-resume, migration, stale actionability
   recovery, or full Run executor behavior.
 
+## 2026-06-10: Phase 26.9 Visible Scheduler Execute Control Implementation
+
+Phase 26.9 implements the minimal visible scheduler execute control accepted
+by Phase 26.8. It does not add a full scheduler UI, background workers,
+automatic resume, database migrations, stale actionability recovery, frontend
+Run state ownership, or full Run executor behavior.
+
+Implemented:
+
+- Added `WorkbenchShell` execute plumbing that calls
+  `adapter.executeRunTask(...)` and replaces UI state only with the hydrated
+  durable view model returned by the adapter.
+- Added `Workspace.onRunTaskExecute` plumbing.
+- Added scheduler candidate rows to `RunProjectionPreview`, rendered only from
+  durable `run.schedulerTaskCandidates`.
+- Enabled each row's `Execute` button only when
+  `candidate.executeEligible === true` and an execute handler is available.
+- Button clicks call `onExecuteTask(run.id, candidate.taskID)`.
+- Local pending/error state is limited to the clicked row/action feedback and
+  does not synthesize task status, diagnostics, artifacts, permission/MCP
+  actionability, or Run state.
+- Added scoped CSS for compact task rows inside the existing diagnostics panel.
+- Added `client/scripts/phase269-scheduler-execute-ui-smoke.mjs` and
+  `npm run smoke:phase269`.
+- Updated earlier source smokes whose old "no visible control" assertions were
+  intentionally superseded, while keeping their durable-read/action-response
+  boundaries intact.
+
+Validation:
+
+```text
+npm run smoke:phase269
+npm run smoke:phase267
+npm run smoke:phase266
+npm run smoke:phase263
+npm run build
+```
+
+Browser/Vite check:
+
+- Reloaded `http://localhost:5180/` in the in-app browser.
+- React root rendered with `workbench-shell` present.
+- Browser console error log was empty.
+
+Review conclusion:
+
+- Phase 26.9 accepts the first visible scheduler execute affordance.
+- Source-of-truth boundaries remain intact: durable candidate rows determine
+  eligibility, explicit action responses are ignored as UI state, and adapter
+  hydration remains authoritative after execution.
+- The next safe task is Phase 26.10: Scheduler Execute UI Runtime Smoke And
+  Acceptance. It should validate the visible control against a runtime
+  candidate fixture or live local runtime, including disabled terminal rows,
+  duplicate refresh events, and post-click durable rehydration.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9144,9 +9199,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.9: Visible Scheduler Execute Control Implementation. Add
-minimal `RunProjectionPreview` scheduler candidate rows and execute plumbing
-backed only by durable `schedulerTaskCandidates` and adapter rehydration. Do
-not add background workers, automatic resume, database migrations, stale
-actionability recovery, frontend Run state ownership, full scheduler UI, or
-full Run executor behavior.
+Implement Phase 26.10: Scheduler Execute UI Runtime Smoke And Acceptance.
+Validate the visible execute control against a runtime candidate fixture or
+live local runtime, including disabled terminal rows, duplicate refresh events,
+and post-click durable rehydration. Do not add background workers, automatic
+resume, database migrations, stale actionability recovery, frontend Run state
+ownership, full scheduler UI, or full Run executor behavior.

@@ -35,7 +35,8 @@ assertIncludes(adapter, 'disabledReason: item.canSchedule ? undefined : item.pre
 assertNotIncludes(adapter, 'accepted ? true', 'execute action accepted flag is not used as UI actionability');
 assertNotIncludes(adapter, 'executionStarted ? true', 'execute action started flag is not used as UI actionability');
 assertIncludes(types, 'schedulerTaskCandidates?: RunSchedulerTaskCandidateViewModel[];', 'scheduler candidates remain hidden on RunProjection');
-assertNotIncludes(preview, 'schedulerTaskCandidates', 'RunProjectionPreview does not render scheduler candidates yet');
+assertIncludes(preview, 'const schedulerTaskCandidates = run.schedulerTaskCandidates ?? [];', 'RunProjectionPreview renders durable scheduler candidates only');
+assertNotIncludes(preview, 'runtimeActivityRefreshHint', 'RunProjectionPreview does not read runtime event hints');
 assertNotIncludes(preview, 'readRunSchedulerPlan', 'RunProjectionPreview does not call hidden scheduler read');
 assertNotIncludes(preview, 'executeRunTask', 'RunProjectionPreview does not call hidden execute action');
 

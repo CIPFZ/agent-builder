@@ -2038,3 +2038,14 @@ Phase 26.8 note:
   adapter action and then rely on durable hydration.
 - Local pending/error UI may exist, but it must not become task status,
   diagnostics, artifacts, permission/MCP actionability, or Run state.
+
+Phase 26.9 note:
+
+- `RunProjectionPreview` now renders minimal scheduler candidate rows from
+  durable `schedulerTaskCandidates`.
+- `WorkbenchShell`/`Workspace` pass an execute callback that delegates to
+  `adapter.executeRunTask(...)`.
+- The adapter remains responsible for rehydrating durable DTOs after the
+  action. The UI does not inspect execute action response payloads.
+- Local row pending/error state is ephemeral and must not be treated as
+  runtime task state.
