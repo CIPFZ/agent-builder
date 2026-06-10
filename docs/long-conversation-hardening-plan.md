@@ -10054,6 +10054,74 @@ Review conclusion:
   pause, add packaged/Wails coverage, or add provider-backed child-agent
   validation.
 
+## 2026-06-11: Phase 29.2 Scheduler Browser Harness Acceptance And Remaining Risk Review
+
+Phase 29.2 accepts the browser scheduler harness track through Phase 29.1. It
+is a review/acceptance phase only and does not add code, packaged/Wails
+automation, provider-backed child-agent validation, production seed endpoints,
+runtime readiness bypasses, background workers, automatic resume, database
+migrations, stale actionability recovery, frontend Run state ownership, full
+scheduler UI, or full Run executor behavior.
+
+Accepted coverage:
+
+- Phase 28 defines the local-only harness contract.
+- Phase 28.1 implements the Vite/browser click harness and validates:
+  - normal runtime readiness through temp local config;
+  - durable session/run/task candidate hydration;
+  - one visible queued Execute click;
+  - terminal candidate disablement;
+  - post-click task start verified by durable DTO reads;
+  - no stale pending permission actionability resurrection.
+- Phase 28.1 also fixed bounded Run projection identity by preserving an
+  existing durable Run ID for windowed read-only projections.
+- Phase 28.2 accepts deferring packaged/Wails scheduler click automation.
+- Phase 29 defines worker-completion browser validation.
+- Phase 29.1 implements the Vite/browser worker-completion smoke and validates:
+  - pre-click refs are empty;
+  - a test-only foreground runner records completion through normal recorder
+    paths;
+  - task status becomes completed;
+  - task result is completed and carries artifact refs;
+  - `/v1/refs?task_id=...` returns exactly one runtime ref;
+  - bounded `RunProjection(limit=24)` exposes produced artifact evidence.
+
+Verification already run across the accepted implementation:
+
+```text
+go test ./internal/runtime -run "TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail|TestPhase281BrowserSchedulerClickHarnessServer|TestRuntimeLocalModelConfigReadinessAllowsSchedulerCandidateProjection|TestRuntimeSchedulerUICandidateSeedExposesDurableHTTPPlanAndExecute|TestRuntimeRunSchedulerPlan|TestRuntimeRunSchedulerExecute" -count=1
+go test ./internal/runtime -run "TestPhase291BrowserSchedulerWorkerCompletionHarnessServer|TestRuntimeRunSchedulerExecuteTaskInvokesForegroundRunnerAndUsesCompletionEvidence" -count=1
+go test ./internal/runtime -run "TestPhase281BrowserSchedulerClickHarnessServer|TestPhase291BrowserSchedulerWorkerCompletionHarnessServer|TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail|TestRuntimeRunSchedulerExecute|TestRuntimeRunSchedulerPlan" -count=1
+npm run lint
+npm run build
+npm run smoke:phase263
+npm run smoke:phase266
+npm run smoke:phase267
+npm run smoke:phase269
+npm run smoke:phase2610
+npm run smoke:phase281
+npm run smoke:phase291
+git diff --check
+```
+
+Remaining risks:
+
+- Packaged/Wails scheduler clicking remains unimplemented.
+- Real provider-backed child-agent execution is not covered by browser smoke;
+  Phase 29.1 uses a test-only foreground completion runner.
+- The browser harnesses depend on local Playwright browser availability.
+- The two harness scripts intentionally duplicate orchestration logic; future
+  cleanup can extract a shared local harness helper after the contracts settle.
+
+Review conclusion:
+
+- Pause the browser scheduler harness track at Phase 29.2.
+- Do not add packaged/Wails or provider-backed child-agent automation as a
+  silent extension of this track.
+- The next safe task is Phase 30: Scheduler Harness Consolidation Or Packaged
+  Validation Gate, if the project wants to reduce duplication or choose the
+  next validation target.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10101,6 +10169,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 29.2: Scheduler Browser Harness Acceptance And Remaining Risk
-Review. Review Phases 28-29.1 and decide whether to pause, add packaged/Wails
-coverage, or add provider-backed child-agent validation.
+Implement Phase 30: Scheduler Harness Consolidation Or Packaged Validation
+Gate. Decide whether to consolidate local harness code, add packaged/Wails
+scheduler click validation, or open provider-backed child-agent validation.

@@ -507,6 +507,14 @@ Phase 29.1 note:
   scheduling, automatic resume, a Run state machine, migrations, packaged/Wails
   validation, or frontend-owned scheduler state.
 
+Phase 29.2 note:
+
+- The scheduler browser harness track is accepted through explicit start and
+  completion/ref evidence.
+- Remaining risks are validation-surface risks, not Run model changes:
+  packaged/Wails clicking, real provider-backed child-agent execution, and
+  duplicated local harness orchestration.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

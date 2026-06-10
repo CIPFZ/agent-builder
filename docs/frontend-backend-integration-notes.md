@@ -2202,3 +2202,14 @@ Phase 29.1 note:
   reads.
 - The smoke does not validate real provider-backed child agent execution or
   packaged/Wails webview automation.
+
+Phase 29.2 note:
+
+- The browser scheduler harness track is accepted through start and completion
+  coverage.
+- Current automated gates are `npm run smoke:phase281` and
+  `npm run smoke:phase291`.
+- Packaged/Wails scheduler clicking and real provider-backed child-agent
+  execution remain separate validation targets.
+- Future work should either consolidate duplicated harness orchestration or
+  open a dedicated packaged/provider-backed validation gate.
