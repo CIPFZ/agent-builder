@@ -540,6 +540,14 @@ Phase 31 note:
   after a packaged UI click, without introducing Run persistence changes,
   background scheduling, automatic resume, or frontend-owned Run state.
 
+Phase 32 note:
+
+- Provider-backed child-agent validation should exercise the real coordinator
+  path with a non-secret loopback provider.
+- Completion-only refs and failed/cancelled zero-artifact semantics remain the
+  task evidence boundary; this is validation work, not Run persistence or
+  scheduler state-machine expansion.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

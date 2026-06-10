@@ -10492,6 +10492,86 @@ Review conclusion:
   are already covered and provider-backed child-agent behavior is the remaining
   high-value validation target.
 
+## 2026-06-11: Phase 32 Provider-backed Child-Agent Validation Gate
+
+Phase 32 defines the next provider-backed child-agent validation step. It is a
+design gate only and does not add live provider credentials, hosted OAuth
+automation, provider-specific secret fixtures, production seed/debug endpoints,
+runtime readiness bypasses, background workers, automatic resume, database
+migrations, stale actionability recovery, frontend Run state ownership,
+packaged WebView automation, full scheduler UI, or full Run executor behavior.
+
+Existing coverage reviewed:
+
+- Phase 24.4/24.5 installed and accepted the backend/coordinator runner behind
+  the explicit scheduler execute path.
+- Phase 25 validated scheduler execution through the installed backend runner
+  and fake coordinator evidence, including completion-only refs and
+  no-artifact failed/cancelled semantics.
+- Phase 25.1 retained real hosted provider/MCP smoke as a redacted,
+  credential-gated manual checklist.
+- Phase 28.1 validates browser Execute click/start behavior through HTTP/dev
+  transport.
+- Phase 29.1 validates browser completion/ref evidence through a test-only
+  foreground runner, not a real provider-backed coordinator call.
+- Phase 31.1 validates packaged startup plus Wails bridge scheduler
+  projection/plan/execute forwarding.
+
+Remaining validation gap:
+
+- No deterministic repo-owned smoke currently proves the scheduler execute path
+  can reach the real child-agent coordinator and complete through an
+  OpenAI-compatible provider call without operator credentials.
+- Cloud-hosted provider smoke remains useful, but it cannot be automated in the
+  repo without secret/auth-state risk.
+
+Accepted Phase 32.1 direction:
+
+- Add a non-secret loopback fake provider smoke for real coordinator child-agent
+  execution.
+- Use the existing temp `model.json` readiness pattern, pointing at a local
+  loopback OpenAI-compatible fake provider under `tmp/runtime-dev`.
+- Seed durable Run/Turn/AgentTask evidence through runtime-owned test helpers,
+  not production seed endpoints and not React state.
+- Execute the queued task through the existing scheduler execute path so the
+  installed backend runner calls the real coordinator path.
+- Verify completed child-agent output contributes produced refs only from
+  terminal recorder evidence.
+- Verify unfinished, failed, cancelled, disconnected, or partial provider
+  execution yields terminal failed/cancelled evidence with zero artifact refs.
+- Verify event payloads remain refresh triggers only and cannot restore
+  timeline, diagnostics, artifact evidence, permission state, MCP actionability,
+  or Run state.
+- Keep all generated logs, pids, fake provider transcripts, and artifacts under
+  `tmp/runtime-dev`.
+
+Rejected for Phase 32.1:
+
+- Real hosted provider credentials or browser OAuth automation.
+- Checked-in provider responses containing secrets, auth headers, cookies, or
+  user data.
+- Production seed/debug endpoints.
+- Frontend or Wails UI changes.
+- A background scheduler, queue, worker, daemon, poller, automatic resume, Run
+  migration, or full Run state machine.
+- Resurrecting stale permission, MCP auth, or elicitation actionability after
+  restart.
+
+Validation for this gate:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 32 accepts loopback provider-backed child-agent validation as the next
+  implementation target.
+- The next safe task is Phase 32.1: Loopback Provider Child-Agent Execution
+  Smoke.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10539,6 +10619,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 32: Provider-backed Child-Agent Validation Gate. Decide the
-minimum non-secret provider-backed validation contract after the accepted local
-browser scheduler and packaged Wails bridge smokes.
+Implement Phase 32.1: Loopback Provider Child-Agent Execution Smoke. Validate
+the real coordinator/provider-backed child-agent path with a non-secret
+loopback fake provider and runtime-owned durable evidence.

@@ -2271,3 +2271,12 @@ Phase 31.2 note:
 - The accepted packaged coverage remains startup plus Wails bridge DTO
   forwarding; visible click behavior is covered by the Vite/browser scheduler
   smokes.
+
+Phase 32 note:
+
+- Provider-backed child-agent validation should use a non-secret loopback fake
+  provider and the real coordinator path.
+- Do not automate hosted provider credentials, OAuth state, or provider-specific
+  elicitation in repo tests.
+- Frontend and Wails UI remain unchanged; runtime DTOs after scheduler execute
+  remain the source of truth.
