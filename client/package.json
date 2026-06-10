@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "smoke:phase88": "node scripts/phase88-resume-control-smoke.mjs",
-    "smoke:phase1010": "node scripts/phase1010-transition-binding-smoke.mjs"
+    "smoke:phase1010": "node scripts/phase1010-transition-binding-smoke.mjs",
+    "smoke:phase263": "node scripts/phase263-execute-adapter-smoke.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.3",

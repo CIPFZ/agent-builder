@@ -446,6 +446,13 @@ interface RuntimeRunResumeResponseDTO {
   turnId?: string;
 }
 
+interface RuntimeRunSchedulerExecuteTaskResponseDTO {
+  accepted?: boolean;
+  executionStarted?: boolean;
+  reason?: string;
+  refreshTargets?: string[];
+}
+
 interface RuntimeSkillDTO {
   name: string;
   description?: string;
@@ -579,6 +586,7 @@ interface RuntimeBridgeModule {
   TurnActivity?: (turnID: string) => Promise<RuntimeTurnActivityDTO>;
   RunProjection?: (req: RuntimeRunProjectionRequestDTO) => Promise<RuntimeRunProjectionResponseDTO>;
   ResumeRunCheckpoint?: (runID: string, checkpointID: string) => Promise<RuntimeRunResumeResponseDTO>;
+  ExecuteRunTask?: (runID: string, taskID: string) => Promise<RuntimeRunSchedulerExecuteTaskResponseDTO>;
   Turn?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
   Turns?: (status: string) => Promise<RuntimeTurnsResponseDTO>;
   Permissions?: () => Promise<{ permissions: RuntimePermissionDTO[] }>;
@@ -1929,6 +1937,13 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
         method: 'POST',
       },
     ),
+  ExecuteRunTask: (runID, taskID) =>
+    runtimeFetch<RuntimeRunSchedulerExecuteTaskResponseDTO>(
+      `/v1/runs/${encodeURIComponent(runID)}/tasks/${encodeURIComponent(taskID)}/execute`,
+      {
+        method: 'POST',
+      },
+    ),
   TurnActivity: (turnID) => runtimeFetch<RuntimeTurnActivityDTO>(`/v1/turns/${encodeURIComponent(turnID)}/activity`),
   Turn: (turnID) => runtimeFetch<RuntimeTurnResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}`),
   Turns: (status) => runtimeFetch<RuntimeTurnsResponseDTO>(`/v1/turns?status=${encodeURIComponent(status)}`),
@@ -2325,6 +2340,18 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         return hydrateWorkbench(current, bridge);
       },
       () => staticWorkbenchAdapter.resumeRunCheckpoint(current, runID, checkpointID),
+    );
+  },
+  async executeRunTask(current, runID, taskID) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.ExecuteRunTask) {
+          return staticWorkbenchAdapter.executeRunTask(current, runID, taskID);
+        }
+        await bridge.ExecuteRunTask(runID, taskID);
+        return hydrateWorkbench(current, bridge);
+      },
+      () => staticWorkbenchAdapter.executeRunTask(current, runID, taskID),
     );
   },
   async saveConfiguredProvider(current, provider) {

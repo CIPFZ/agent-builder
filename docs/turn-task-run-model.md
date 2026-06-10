@@ -333,6 +333,13 @@ Phase 26.2 note:
   DTOs; it must not derive UI state from action responses or runtime events.
 - Visible frontend execution controls remain out of scope.
 
+Phase 26.3 note:
+
+- Hidden workbench adapter support for explicit scheduler task execution now
+  exists.
+- The adapter calls the action and then rehydrates durable DTOs; visible UI
+  controls remain unimplemented.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

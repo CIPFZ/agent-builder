@@ -8693,6 +8693,59 @@ Review conclusion:
 - The next safe task is Phase 26.3: Explicit Scheduler Execute Adapter
   Contract Implementation.
 
+## 2026-06-10: Phase 26.3 Explicit Scheduler Execute Adapter Contract Implementation
+
+Phase 26.3 implements hidden workbench adapter support for the explicit
+scheduler task execute transport. It does not add visible frontend controls,
+generated Wails binding updates, background workers, automatic resume,
+database migrations, stale actionability recovery, full Run executor behavior,
+or event/prose/React source-of-truth behavior.
+
+Implemented contract:
+
+- Added `WorkbenchAdapter.executeRunTask(current, runID, taskID)`.
+- Added optional runtime bridge module `ExecuteRunTask(runID, taskID)` typing.
+- Added HTTP fallback call to:
+
+  ```text
+  POST /v1/runs/{run_id}/tasks/{task_id}/execute
+  ```
+
+- Implemented `wailsWorkbenchAdapter.executeRunTask(...)` so it calls the
+  explicit action and then immediately calls `hydrateWorkbench(current,
+  bridge)`.
+- Added `staticWorkbenchAdapter.executeRunTask(...)` as runtime-unavailable
+  fallback only; it does not mutate offline state.
+- Kept `WorkbenchShell` and `RunProjectionPreview` unchanged. No visible UI
+  control calls the hidden adapter method.
+- Added `client/scripts/phase263-execute-adapter-smoke.mjs` and
+  `npm run smoke:phase263` to verify the contract.
+
+Validation:
+
+- Hidden adapter smoke passed:
+
+  ```text
+  npm run smoke:phase263
+  ```
+
+- Client build passed:
+
+  ```text
+  npm run build
+  ```
+
+Review conclusion:
+
+- Phase 26.3 accepts hidden adapter support for explicit scheduler task
+  execution.
+- The adapter treats action response payload as non-authoritative and relies on
+  durable rehydration.
+- The next safe task is Phase 26.4: Explicit Scheduler Execute UI Gate. It
+  should decide whether and where to expose a visible control, with no
+  background workers, auto-resume, migrations, full Run executor behavior, or
+  stale actionability recovery.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8740,9 +8793,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.3: Explicit Scheduler Execute Adapter Contract
-Implementation. Add hidden workbench adapter support for the explicit execute
-transport and tests proving action responses are followed by durable DTO
-rehydration. Do not add visible frontend controls, background workers,
-automatic resume, database migrations, stale actionability recovery, full Run
-executor behavior, or event/prose/React source-of-truth behavior.
+Implement Phase 26.4: Explicit Scheduler Execute UI Gate. Decide whether and
+where a visible execute control should appear for accepted scheduler task
+candidates, and define the exact UI/refresh contract before implementation. Do
+not add background workers, automatic resume, database migrations, stale
+actionability recovery, full Run executor behavior, or event/prose/React
+source-of-truth behavior.

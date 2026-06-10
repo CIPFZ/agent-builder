@@ -1969,3 +1969,10 @@ Phase 26.2 note:
   hydration path.
 - No visible React control should call execute until a later UI gate is
   accepted.
+
+Phase 26.3 note:
+
+- Hidden adapter support is implemented and covered by a source smoke plus
+  client build.
+- No visible React control calls `executeRunTask`; action response payloads are
+  ignored as UI state and durable hydration remains authoritative.

@@ -526,6 +526,7 @@ export interface WorkbenchAdapter {
   cancelTurn: (current: WorkbenchViewModel, turnID?: string) => Promise<WorkbenchViewModel>;
   markInterruptedDone: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;
   resumeRunCheckpoint: (current: WorkbenchViewModel, runID: string, checkpointID: string) => Promise<WorkbenchViewModel>;
+  executeRunTask: (current: WorkbenchViewModel, runID: string, taskID: string) => Promise<WorkbenchViewModel>;
   saveConfiguredProvider: (
     current: WorkbenchViewModel,
     provider: ConfiguredProviderViewModel & { token?: string },
