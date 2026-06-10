@@ -1960,3 +1960,12 @@ Phase 26.1 note:
 - The workbench adapter and visible UI still do not call it. A later adapter
   contract must re-read durable Run/task/activity DTOs after action metadata
   returns.
+
+Phase 26.2 note:
+
+- Hidden adapter exposure is accepted as a contract only.
+- The adapter may call Wails or HTTP execute transport, but after action
+  metadata returns it must re-read durable workbench DTOs through the existing
+  hydration path.
+- No visible React control should call execute until a later UI gate is
+  accepted.

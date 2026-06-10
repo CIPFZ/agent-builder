@@ -8645,6 +8645,54 @@ Review conclusion:
   Contract Gate. It should decide whether to expose this transport through the
   browser/Wails workbench adapter without adding visible UI controls yet.
 
+## 2026-06-10: Phase 26.2 Explicit Scheduler Execute Adapter Contract Gate
+
+Phase 26.2 accepts a frontend adapter contract for the explicit scheduler task
+execute transport, but does not implement it. No visible UI control, generated
+binding update, background worker, automatic resume, database migration, full
+Run executor, or stale actionability recovery is added in this design gate.
+
+Accepted adapter shape:
+
+- Add an optional `executeRunTask(current, runID, taskID)` method to
+  `WorkbenchAdapter`.
+- Add optional `ExecuteRunTask(runID, taskID)` to the runtime bridge module
+  type and HTTP bridge.
+- The adapter method may call Wails `ExecuteRunTask` when available, otherwise
+  the HTTP fallback:
+
+  ```text
+  POST /v1/runs/{run_id}/tasks/{task_id}/execute
+  ```
+
+- The adapter must ignore action payloads as source-of-truth and call
+  `hydrateWorkbench(current, bridge)` after the action returns.
+- The adapter may surface transport/action errors to callers, but it must not
+  synthesize task status, artifact refs, permission state, MCP actionability,
+  timeline entries, diagnostics, or Run state from the error or response body.
+- `staticWorkbenchAdapter.executeRunTask(...)` should remain a no-op refresh/
+  fallback, not an offline state mutation.
+- No React component should call the method in this phase; visible controls are
+  reserved for a later UI design/implementation gate.
+
+Required Phase 26.3 implementation criteria:
+
+- Update TS DTO/module types for `RuntimeRunSchedulerExecuteTaskResponse`.
+- Add `runtimeHTTPBridge.ExecuteRunTask`.
+- Add `WorkbenchAdapter.executeRunTask` and Wails adapter implementation that
+  calls the action and then hydrates durable DTOs.
+- Keep `WorkbenchShell` and `RunProjectionPreview` UI unchanged.
+- Add a client contract smoke that proves the method exists, calls
+  `hydrateWorkbench`/durable reads after action, and does not inspect action
+  response payload for UI state.
+- Run client typecheck/build or the repo's available TS validation command.
+
+Review conclusion:
+
+- Phase 26.2 accepts hidden adapter exposure only.
+- The next safe task is Phase 26.3: Explicit Scheduler Execute Adapter
+  Contract Implementation.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8692,9 +8740,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.2: Explicit Scheduler Execute Adapter Contract Gate.
-Decide whether/how the browser/Wails workbench adapter may call the explicit
-execute transport and then re-read durable DTOs, without adding visible UI
-controls. Do not add background workers, automatic resume, database migrations,
-stale actionability recovery, full Run executor behavior, or event/prose/React
-source-of-truth behavior.
+Implement Phase 26.3: Explicit Scheduler Execute Adapter Contract
+Implementation. Add hidden workbench adapter support for the explicit execute
+transport and tests proving action responses are followed by durable DTO
+rehydration. Do not add visible frontend controls, background workers,
+automatic resume, database migrations, stale actionability recovery, full Run
+executor behavior, or event/prose/React source-of-truth behavior.

@@ -326,6 +326,13 @@ Phase 26.1 note:
 - Browser/Wails workbench adapter exposure and visible frontend controls remain
   unimplemented.
 
+Phase 26.2 note:
+
+- Hidden workbench adapter exposure is accepted as a contract only.
+- The adapter must call the explicit execute action and then re-read durable
+  DTOs; it must not derive UI state from action responses or runtime events.
+- Visible frontend execution controls remain out of scope.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
