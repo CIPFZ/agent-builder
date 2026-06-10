@@ -2317,3 +2317,12 @@ Phase 33.1 note:
 - The smoke re-reads runtime DTOs for completion, result summary, refs,
   projection, and permissions; event payloads remain refresh triggers only.
 - Provider text alone is verified to create zero artifact refs/runtime refs.
+
+Phase 33.2 note:
+
+- Phase 33.1 is accepted as the combined browser/provider completion smoke.
+- The next integration task should consolidate the scheduler/provider smoke
+  matrix so contributors know when to run `smoke:phase281`, `smoke:phase291`,
+  `smoke:phase331`, and packaged bridge smoke.
+- Do not make long-running browser/packaged smokes default CI gates until the
+  matrix explicitly accepts their cost and platform assumptions.

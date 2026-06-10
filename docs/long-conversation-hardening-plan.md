@@ -10804,6 +10804,69 @@ Review conclusion:
 - The next safe task is Phase 33.2: Browser Provider Completion Smoke
   Acceptance And Next Risk Gate.
 
+## 2026-06-11: Phase 33.2 Browser Provider Completion Smoke Acceptance And Next Risk Gate
+
+Phase 33.2 accepts the combined browser click plus loopback provider-backed
+completion smoke and chooses the next validation target. It is a
+review/acceptance phase only and does not add code, live provider credentials,
+hosted OAuth automation, production seed/debug endpoints, runtime readiness
+bypasses, background workers, automatic resume, database migrations, stale
+actionability recovery, frontend Run state ownership, packaged WebView
+automation, full scheduler UI, or full Run executor behavior.
+
+Accepted coverage:
+
+- Browser Execute click starts the queued task through the existing HTTP/dev
+  scheduler execute route.
+- Completion reaches the installed backend runner, backend workspace routing,
+  real coordinator configured task-agent path, and loopback OpenAI-compatible
+  SSE provider.
+- Completion/result/projection/refs/permissions are verified through runtime
+  DTO reads after the click.
+- Provider text alone creates zero artifact refs/runtime refs.
+- Terminal candidates remain disabled.
+- No production seed/debug endpoint, React-owned state, event payload merge,
+  hosted credentials, OAuth state, background scheduler, or auto-resume path was
+  added.
+
+Remaining validation risks:
+
+- The validation suite now has several phase-specific smoke entry points:
+  - Phase 28.1 browser click/start;
+  - Phase 29.1 browser completion/ref evidence with test runner;
+  - Phase 31.1 packaged startup plus Wails bridge scheduler contract;
+  - Phase 32.1 runtime provider-backed coordinator execution;
+  - Phase 33.1 browser click to loopback provider completion.
+- These are intentionally scoped, but the project needs a concise matrix and
+  recommended command set so future changes run the right gates without
+  over-testing every phase manually.
+- True packaged WebView2 click automation remains deferred until a test-only
+  automation channel is designed.
+- Real hosted provider/OAuth/MCP smoke remains credential-gated and manual.
+
+Next validation decision:
+
+- Consolidate the scheduler/provider validation matrix in docs and optionally
+  add a local script/README command grouping for the accepted smoke set.
+- Do not add CI requirements or long-running default test hooks yet; keep the
+  first consolidation as a gate because these smokes have different runtime and
+  platform costs.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 33.2 accepts Phase 33.1 as the combined browser/provider completion
+  smoke.
+- The next safe task is Phase 34: Scheduler Provider Smoke Matrix
+  Consolidation Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10851,7 +10914,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 33.2: Browser Provider Completion Smoke Acceptance And Next
-Risk Gate. Review Phase 33.1 coverage and choose the next validation target
-without adding production debug endpoints, secrets, auto-resume, or
-frontend-owned Run state.
+Implement Phase 34: Scheduler Provider Smoke Matrix Consolidation Gate. Decide
+how to document or group the accepted scheduler/provider smokes without adding
+long-running default CI, secrets, production debug endpoints, or frontend-owned
+Run state.
