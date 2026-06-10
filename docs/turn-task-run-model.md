@@ -430,6 +430,13 @@ Phase 26.14 note:
   readiness gate. It must not introduce Run persistence expansion, migrations,
   auto-resume, background scheduling, or frontend-owned candidate state.
 
+Phase 27 note:
+
+- Provider/config readiness automation is accepted as a separate gate only.
+- Any browser click automation must make the runtime ready through normal local
+  config and durable runtime evidence, not a readiness bypass or frontend-owned
+  fixture state.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

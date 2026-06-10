@@ -2097,3 +2097,13 @@ Phase 26.14 note:
   permission/MCP actionability recovery, or frontend-owned Run state was added.
 - Remaining full browser click automation is a provider readiness problem, not
   a reason to weaken scheduler candidate source-of-truth boundaries.
+
+Phase 27 note:
+
+- Full browser scheduler click automation may proceed only through a local
+  non-secret readiness harness.
+- The accepted direction is a loopback fake provider plus temp `model.json` and
+  temp runtime DB under `tmp/runtime-dev`, not a React fixture or
+  `ensureStarted` bypass.
+- Do not add test providers to the embedded provider catalog or commit auth
+  state/config secrets.

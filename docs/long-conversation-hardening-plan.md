@@ -9449,6 +9449,87 @@ Review conclusion:
   Gate, if the project wants to automate full browser scheduler click smoke
   without manual local provider setup.
 
+## 2026-06-11: Phase 27 Test Provider/Config Readiness Automation Gate
+
+Phase 27 reviews whether to automate a full browser scheduler click smoke by
+making the local runtime normally ready without secrets. This is a design gate
+only and does not add a test provider, provider catalog entry, production seed
+endpoint, runtime readiness bypass, background worker, automatic resume,
+database migration, stale actionability recovery, frontend Run state ownership,
+full scheduler UI, or full Run executor behavior.
+
+Current readiness model:
+
+- `/v1/sessions/{id}/run-projection` correctly calls `ensureStarted`.
+- `ensureStarted` requires either:
+  - selected configured provider/model records with a non-empty API key; or
+  - a local desktop `model.json` loaded through `applyLocalModelConfig(...)`.
+- Existing tests already cover selected model persistence and local model config
+  application.
+- Existing fake provider fixtures are runtime tests, not a product provider
+  catalog or frontend-configured provider path.
+
+Gate finding:
+
+- A full automated browser click smoke should not bypass `ensureStarted`.
+- It should not add a React-only scheduler candidate fixture.
+- It should not add a production provider catalog entry that points at a test
+  server.
+- The safest automation path is a local-only test harness that:
+  - creates all temporary runtime/config files under `tmp/runtime-dev`;
+  - starts a local fake OpenAI-compatible provider bound to loopback;
+  - writes a temp desktop `model.json` pointing at that fake provider with a
+    dummy non-secret token;
+  - starts the runtime HTTP server against a temp runtime database seeded with
+    durable Run/Turn/AgentTask evidence;
+  - starts Vite with `VITE_AGENT_BUILDER_RUNTIME_URL` pointing at that runtime;
+  - drives the in-app/browser test to click the visible Execute button;
+  - records only redacted, non-secret logs.
+
+Accepted constraints for any future implementation:
+
+- All temporary scripts, logs, pid files, screenshots, and artifacts must live
+  under `tmp/runtime-dev`.
+- The fake provider must be local loopback only and must not require network
+  credentials.
+- The fake provider/config must not be added to the embedded provider catalog
+  or committed as user configuration.
+- The runtime must become ready through the normal config path; no
+  `ensureStarted` bypass is accepted.
+- The smoke must still prove post-click UI state comes from durable hydration,
+  not action response payloads or event payloads.
+
+Required implementation criteria for a future Phase 27.1:
+
+- Add a local-only smoke harness, preferably script-driven, that starts and
+  tears down:
+  - fake provider;
+  - temp runtime/config root;
+  - runtime HTTP server;
+  - Vite dev server if needed.
+- Seed runtime-owned durable scheduler candidate evidence through existing
+  stores or accepted test-only harness code.
+- Use the browser to verify queued/terminal rows and click exactly one queued
+  Execute button.
+- Verify no duplicate rows and no stale permission/MCP actionability after
+  duplicate refresh events.
+- Run the existing Phase 26 smoke/build tests as regression coverage.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 27 accepts the design for non-secret local readiness automation, but
+  does not implement it.
+- The next safe task is Phase 27.1: Local Test Provider Browser Click Smoke
+  Implementation, if the project wants to continue automation now.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9496,7 +9577,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 27: Test Provider/Config Readiness Automation Gate, only if
-the project wants automated full browser scheduler click smoke. Otherwise pause
-the scheduler execute track at Phase 26.14 and keep the remaining browser click
-validation as a manual/local checklist.
+Implement Phase 27.1: Local Test Provider Browser Click Smoke Implementation,
+if the project wants to continue automation now. Otherwise keep the remaining
+full browser scheduler click validation as a manual/local checklist.
