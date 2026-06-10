@@ -52,6 +52,15 @@ Phase 19.1 note:
 - Task plan items remain non-executable until a later accepted implementation
   phase changes both plan executability and delegate side-effect coverage.
 
+Phase 19.2 note:
+
+- The rejection-only task delegate contract is accepted. Task plan items remain
+  non-executable until a later foreground implementation gate explicitly flips
+  owned active candidates to executable with tests for ownership, scope,
+  cancellation ordering, artifact evidence, and `SessionActivity` parity.
+- Worker, queue, automatic resume, frontend Run UI, migration, and
+  event/prose/React-derived truth remain out of scope.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

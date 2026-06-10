@@ -1620,3 +1620,23 @@ Phase 19.1 result:
   transitions, task messages, task results, or artifact evidence.
 - Owned active task candidates preserve scope and parent ownership evidence in
   the plan DTO, but remain non-executable.
+
+## 2026-06-10: Phase 19.2 Task Scheduler Execution Delegate Acceptance Gate
+
+Phase 19.2 accepts the backend rejection-only delegate contract.
+
+Frontend boundary:
+
+- Task scheduler plan items remain non-executable and backend-internal.
+- No task scheduler transport method, adapter method, worker, queue, automatic
+  resume, or Run management UI is accepted.
+- Events remain refresh triggers only and must not hydrate task lifecycle,
+  artifact evidence, permission/MCP actionability, or Run status in React
+  state.
+
+Phase 19.2 result:
+
+- The task delegate contract is stable enough to inform a later foreground
+  executability implementation gate.
+- The next frontend/backend risk is exposing any executable task plan path; it
+  must remain DTO-refresh based and parity-checked before UI/transport exposure.

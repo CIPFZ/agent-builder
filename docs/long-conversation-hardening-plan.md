@@ -6624,6 +6624,62 @@ Review conclusion:
 - The next safe task is Phase 19.2: Task Scheduler Execution Delegate
   Acceptance Gate.
 
+### Phase 19.2: Task Scheduler Execution Delegate Acceptance Gate
+
+Status: accepted as a review gate only.
+
+Scope:
+
+- Review Phase 19.1 before any task plan item becomes executable.
+- Confirm the new delegate helper is rejection-only and side-effect free.
+- Decide the next safe implementation boundary without adding a worker, queue,
+  automatic resume, frontend Run UI, database migration, or
+  transition/event/prose/React-derived lifecycle/actionability.
+
+Accepted review:
+
+- `runtimeRunSchedulerDelegateTaskTurn(...)` is accepted as the internal
+  preflight/delegate contract for future task execution.
+- The helper loads runtime plan/task evidence and rejects missing, unowned,
+  terminal, cancelled, interrupted, and currently non-accepted owned active
+  tasks without writing runtime events, run transitions, task messages, task
+  results, or artifact evidence.
+- Owned active task candidates preserve task scope and parent
+  Run/session/turn/tool ownership evidence in the plan DTO.
+- Task plan items remain non-executable with `task_scheduler_not_accepted`.
+- Cancellation remains owned by `CancelAgentTask(...)` or recorder terminal
+  evidence; events remain refresh triggers only.
+
+Next boundary decision:
+
+- The next safe task is Phase 20: Foreground Task Plan Executability
+  Implementation Gate.
+- Phase 20 may only consider a foreground, explicit, model/tool-triggered path
+  that flips owned active task plan items from rejection-only to executable
+  after proving side effects, task scope enforcement, cancellation ordering,
+  artifact evidence, and `SessionActivity` parity.
+- Phase 20 must not add a background worker, queue, poller, automatic resume,
+  frontend Run management UI, database migration, or event/prose/React-derived
+  source of truth.
+
+Validation:
+
+- Review confirmed Phase 19.1 added one internal helper, focused backend tests,
+  and docs.
+- Review confirmed no task execution path was enabled and no frontend adapter,
+  Run UI, migration, worker, queue, automatic resume, or source-of-truth
+  promotion was added.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 19.2 accepts the delegate contract as stable enough for a later
+  foreground executability implementation gate.
+- Task scheduler execution remains disabled until Phase 20 explicitly changes
+  the plan/delegate contract with tests.
+- The next safe task is Phase 20: Foreground Task Plan Executability
+  Implementation Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6671,8 +6727,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review and accept Phase 19.1 as Phase 19.2: Task Scheduler Execution Delegate
-Acceptance Gate. Confirm the delegate contract remains rejection-only until a
-later implementation phase flips task plan executability and proves execution
-side effects. Do not add a worker, queue, automatic resume, frontend Run UI,
-migration, or transition/event/prose/React-derived lifecycle/actionability.
+Start Phase 20: Foreground Task Plan Executability Implementation Gate. Define
+and implement only the minimum foreground path that can flip an owned active
+task plan candidate from rejection-only to executable after proving ownership,
+task scope enforcement, cancellation ordering, artifact evidence, and
+`SessionActivity` parity. Do not add a background worker, queue, poller,
+automatic resume, frontend Run UI, migration, or event/prose/React-derived
+source of truth.
