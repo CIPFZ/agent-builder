@@ -11257,10 +11257,11 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.6: Checkpoint Acknowledge/Discard Write Action Metadata
-Implementation. Add shared metadata to checkpoint acknowledge/discard only,
-preserve the existing `RuntimeRunResponse` payload, and keep checkpoint resume
-and permission decision for later focused phases.
+Implement Phase 37.7: Checkpoint Acknowledge/Discard Write Action Envelope
+Acceptance And Next Action Selection. Review the checkpoint acknowledge/discard
+metadata implementation, decide whether checkpoint resume or permission
+decision should adopt the envelope next, and keep action payloads as refresh
+metadata only.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -11921,3 +11922,56 @@ Review conclusion:
 - Phase 37.6 should implement checkpoint acknowledge/discard write-action
   metadata as the next narrow adopter, while leaving checkpoint resume and
   permission decision for later phases.
+
+## 2026-06-11: Phase 37.6 Checkpoint Acknowledge/Discard Write Action Metadata Implementation
+
+Phase 37.6 implements the shared write-action metadata envelope for
+checkpoint acknowledge/discard only. It preserves the existing `RuntimeRunResponse`
+payload and does not change checkpoint behavior, checkpoint resume, permission
+decision behavior, database schema, Run persistence, automatic resume,
+background scheduling, stale actionability recovery, or frontend Run UI.
+
+Implemented:
+
+- Added optional `action` metadata to `RuntimeRunResponse`.
+- Populated `action` only from `AcknowledgeRunCheckpoint(...)` and
+  `DiscardRunCheckpoint(...)`; ordinary `Run(...)` reads continue to omit it.
+- Preserved existing `run` and `projection` response fields.
+- Preserved durable checkpoint mutation semantics:
+  - acknowledge marks the checkpoint acknowledged and makes it non-resumable
+  - discard preserves prior acknowledgement and marks the checkpoint discarded
+  - ordinary Run detail reconciliation preserves the durable checkpoint markers
+- Used `idempotentBy="run_id+checkpoint_id"`, `backendOnly=true`,
+  `startsWorker=false`, and `sessionActivityParity=true`.
+- Reused the scheduler refresh target set so clients can re-read Run detail,
+  Run projection, turn/session activity, and scheduler plan evidence after the
+  checkpoint write.
+- Declared durable evidence names in metadata for Run rows, checkpoint
+  evidence, Run projection, scheduler plan, and session activity.
+- Added backend checkpoint tests and HTTP route contract assertions for
+  acknowledge/discard metadata.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run "TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation|TestRuntimeHTTPServerRoutesRunsToRuntimeService|TestRuntimeCancelAgentTask|TestRuntimeRunSchedulerExecuteTask" -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- The checkpoint acknowledge/discard envelope is additive and metadata-only.
+- Checkpoint state, Run projection, timeline rows, diagnostics, artifacts,
+  permission state, MCP actionability, and scheduler state remain durable
+  DTO/read concerns after the action.
+- The implementation does not add checkpoint resume metadata, a Run state
+  machine, Run store migration, background queue, automatic resume, stale
+  tool/permission/MCP recovery, frontend Run UI, React-owned checkpoint state,
+  event-payload state merging, or assistant-prose-derived refs/artifacts/
+  checkpoints/actionability.
+
+Remaining risk:
+
+- Checkpoint resume and permission decision responses still do not carry the
+  shared `action` metadata. Phase 37.7 should review the checkpoint
+  acknowledge/discard implementation and choose the next adopter deliberately.

@@ -71,6 +71,15 @@ Phase 37.5 note:
   persistence, migrations, background scheduling, automatic resume, and
   frontend Run UI remain outside the next implementation scope.
 
+Phase 37.6 note:
+
+- `RuntimeRunResponse` now has optional shared write-action metadata for
+  checkpoint acknowledge/discard.
+- Ordinary `Run(...)` reads omit `action`; checkpoint state remains durable Run
+  checkpoint evidence, not action payload state.
+- Checkpoint resume remains unchanged and still requires a separate review
+  because it creates a new user-triggered turn.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

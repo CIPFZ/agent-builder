@@ -238,6 +238,18 @@ func TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation(t *test
 	if ackCheckpoint.ID == "" || ackCheckpoint.AcknowledgedAt == 0 || ackCheckpoint.ResumeEligible {
 		t.Fatalf("acknowledged checkpoint marker missing after run detail refresh: %#v", acknowledged.Run.Checkpoints)
 	}
+	if acknowledged.Action == nil || !acknowledged.Action.Accepted || acknowledged.Action.Reason != runtimeRunCheckpointActionReasonAcknowledged || acknowledged.Action.Source.Action != runtimeRunCheckpointActionAcknowledge || acknowledged.Action.Source.IdempotentBy != "run_id+checkpoint_id" {
+		t.Fatalf("acknowledge action metadata = %#v", acknowledged.Action)
+	}
+	if acknowledged.Action.Source.Kind != runtimeRunCheckpointActionSourceKind || !acknowledged.Action.Source.BackendOnly || acknowledged.Action.Source.StartsWorker || !acknowledged.Action.Source.SessionActivityParity || len(acknowledged.Action.RefreshTargets) == 0 {
+		t.Fatalf("acknowledge action source/refresh metadata = %#v", acknowledged.Action)
+	}
+	if !slices.Contains(acknowledged.Action.Source.Evidence, "runtime_runs") ||
+		!slices.Contains(acknowledged.Action.Source.Evidence, "runtime_run_checkpoints") ||
+		!slices.Contains(acknowledged.Action.Source.Evidence, "runtime_run_projection") ||
+		!slices.Contains(acknowledged.Action.Source.Evidence, "session_activity") {
+		t.Fatalf("acknowledge action evidence = %#v", acknowledged.Action.Source.Evidence)
+	}
 
 	discarded, err := service.DiscardRunCheckpoint(context.Background(), runID, checkpointID)
 	if err != nil {
@@ -247,9 +259,15 @@ func TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation(t *test
 	if discardCheckpoint.ID == "" || discardCheckpoint.AcknowledgedAt != ackCheckpoint.AcknowledgedAt || discardCheckpoint.DiscardedAt == 0 || discardCheckpoint.ResumeEligible {
 		t.Fatalf("discarded checkpoint marker missing after run detail refresh: %#v", discarded.Run.Checkpoints)
 	}
+	if discarded.Action == nil || !discarded.Action.Accepted || discarded.Action.Reason != runtimeRunCheckpointActionReasonDiscarded || discarded.Action.Source.Action != runtimeRunCheckpointActionDiscard || discarded.Action.Source.IdempotentBy != "run_id+checkpoint_id" {
+		t.Fatalf("discard action metadata = %#v", discarded.Action)
+	}
 	refreshed, err := service.Run(context.Background(), runID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if refreshed.Action != nil {
+		t.Fatalf("plain run read should not carry action metadata: %#v", refreshed.Action)
 	}
 	refreshedCheckpoint := findRuntimeRunCheckpoint(refreshed.Run.Checkpoints, checkpointID)
 	if refreshedCheckpoint.AcknowledgedAt != ackCheckpoint.AcknowledgedAt || refreshedCheckpoint.DiscardedAt != discardCheckpoint.DiscardedAt {

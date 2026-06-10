@@ -178,8 +178,9 @@ type RuntimeRunsResponse struct {
 }
 
 type RuntimeRunResponse struct {
-	Run        RuntimeRun           `json:"run"`
-	Projection RuntimeRunProjection `json:"projection,omitempty"`
+	Run        RuntimeRun                  `json:"run"`
+	Projection RuntimeRunProjection        `json:"projection,omitempty"`
+	Action     *RuntimeWriteActionMetadata `json:"action,omitempty"`
 }
 
 type RuntimeRunResumeResponse struct {

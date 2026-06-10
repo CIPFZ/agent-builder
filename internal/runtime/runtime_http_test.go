@@ -623,6 +623,13 @@ func TestRuntimeHTTPServerRoutesRunsToRuntimeService(t *testing.T) {
 	if service.ackRunID != "run-1" || service.ackCheckpointID != "checkpoint-1" {
 		t.Fatalf("ack args = %q %q", service.ackRunID, service.ackCheckpointID)
 	}
+	var ack RuntimeRunResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &ack); err != nil {
+		t.Fatal(err)
+	}
+	if ack.Action == nil || !ack.Action.Accepted || ack.Action.Source.Action != runtimeRunCheckpointActionAcknowledge || ack.Action.Source.IdempotentBy != "run_id+checkpoint_id" {
+		t.Fatalf("ack action metadata = %#v", ack.Action)
+	}
 
 	req, err = http.NewRequest(http.MethodPost, "/v1/runs/run-1/checkpoints/checkpoint-1/discard", nil)
 	if err != nil {
@@ -635,6 +642,13 @@ func TestRuntimeHTTPServerRoutesRunsToRuntimeService(t *testing.T) {
 	}
 	if service.discardRunID != "run-1" || service.discardCheckpointID != "checkpoint-1" {
 		t.Fatalf("discard args = %q %q", service.discardRunID, service.discardCheckpointID)
+	}
+	var discard RuntimeRunResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &discard); err != nil {
+		t.Fatal(err)
+	}
+	if discard.Action == nil || !discard.Action.Accepted || discard.Action.Source.Action != runtimeRunCheckpointActionDiscard || discard.Action.Source.IdempotentBy != "run_id+checkpoint_id" {
+		t.Fatalf("discard action metadata = %#v", discard.Action)
 	}
 
 	req, err = http.NewRequest(http.MethodPost, "/v1/runs/run-1/checkpoints/checkpoint-1/resume", nil)

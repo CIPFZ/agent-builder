@@ -11,6 +11,16 @@ import (
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
+const (
+	runtimeRunCheckpointActionSourceKind = "run_checkpoint"
+
+	runtimeRunCheckpointActionAcknowledge = "acknowledge_checkpoint"
+	runtimeRunCheckpointActionDiscard     = "discard_checkpoint"
+
+	runtimeRunCheckpointActionReasonAcknowledged = "checkpoint_acknowledged"
+	runtimeRunCheckpointActionReasonDiscarded    = "checkpoint_discarded"
+)
+
 func (r *runtimeService) Runs(ctx context.Context) (RuntimeRunsResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeRunsResponse{}, err
@@ -72,7 +82,11 @@ func (r *runtimeService) AcknowledgeRunCheckpoint(ctx context.Context, runID, ch
 	if _, err := r.runs.AcknowledgeCheckpoint(ctx, runID, checkpointID); err != nil {
 		return RuntimeRunResponse{}, err
 	}
-	return r.Run(ctx, runID)
+	resp, err := r.Run(ctx, runID)
+	if err != nil {
+		return RuntimeRunResponse{}, err
+	}
+	return withRuntimeRunCheckpointAction(resp, runtimeRunCheckpointActionAcknowledge, runtimeRunCheckpointActionReasonAcknowledged), nil
 }
 
 func (r *runtimeService) DiscardRunCheckpoint(ctx context.Context, runID, checkpointID string) (RuntimeRunResponse, error) {
@@ -85,7 +99,35 @@ func (r *runtimeService) DiscardRunCheckpoint(ctx context.Context, runID, checkp
 	if _, err := r.runs.DiscardCheckpoint(ctx, runID, checkpointID); err != nil {
 		return RuntimeRunResponse{}, err
 	}
-	return r.Run(ctx, runID)
+	resp, err := r.Run(ctx, runID)
+	if err != nil {
+		return RuntimeRunResponse{}, err
+	}
+	return withRuntimeRunCheckpointAction(resp, runtimeRunCheckpointActionDiscard, runtimeRunCheckpointActionReasonDiscarded), nil
+}
+
+func withRuntimeRunCheckpointAction(resp RuntimeRunResponse, action, reason string) RuntimeRunResponse {
+	resp.Action = &RuntimeWriteActionMetadata{
+		Accepted:       true,
+		Reason:         reason,
+		RefreshTargets: runtimeRunSchedulerRefreshTargets(),
+		Source: RuntimeWriteActionSource{
+			Kind:                  runtimeRunCheckpointActionSourceKind,
+			Action:                action,
+			BackendOnly:           true,
+			StartsWorker:          false,
+			IdempotentBy:          "run_id+checkpoint_id",
+			SessionActivityParity: true,
+			Evidence: []string{
+				"runtime_runs",
+				"runtime_run_checkpoints",
+				"runtime_run_projection",
+				"runtime_run_scheduler_plan",
+				"session_activity",
+			},
+		},
+	}
+	return resp
 }
 
 func (r *runtimeService) ResumeRunCheckpoint(ctx context.Context, runID, checkpointID string) (RuntimeRunResumeResponse, error) {

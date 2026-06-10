@@ -2485,3 +2485,14 @@ Phase 37.5 note:
   from runtime DTO reads.
 - Checkpoint resume and permission decisions remain later focused phases; no
   frontend Run management UI or React-owned checkpoint state is accepted.
+
+Phase 37.6 note:
+
+- Checkpoint acknowledge/discard responses now include optional shared `action`
+  metadata on `RuntimeRunResponse`.
+- Frontend code may use checkpoint `action.refreshTargets` to choose durable
+  runtime rereads, but must still render checkpoint markers, Run projection,
+  timeline rows, diagnostics, artifacts, permission state, MCP actionability,
+  and scheduler state from runtime DTO reads.
+- Plain `Run(...)` reads omit `action`; checkpoint action metadata must not be
+  cached as React-owned Run/checkpoint state.

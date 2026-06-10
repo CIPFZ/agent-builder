@@ -3917,13 +3917,13 @@ func (s *recordingRuntimeService) Run(_ context.Context, id string) (RuntimeRunR
 func (s *recordingRuntimeService) AcknowledgeRunCheckpoint(_ context.Context, runID, checkpointID string) (RuntimeRunResponse, error) {
 	s.ackRunID = runID
 	s.ackCheckpointID = checkpointID
-	return s.run, nil
+	return withRuntimeRunCheckpointAction(s.run, runtimeRunCheckpointActionAcknowledge, runtimeRunCheckpointActionReasonAcknowledged), nil
 }
 
 func (s *recordingRuntimeService) DiscardRunCheckpoint(_ context.Context, runID, checkpointID string) (RuntimeRunResponse, error) {
 	s.discardRunID = runID
 	s.discardCheckpointID = checkpointID
-	return s.run, nil
+	return withRuntimeRunCheckpointAction(s.run, runtimeRunCheckpointActionDiscard, runtimeRunCheckpointActionReasonDiscarded), nil
 }
 
 func (s *recordingRuntimeService) ResumeRunCheckpoint(_ context.Context, runID, checkpointID string) (RuntimeRunResumeResponse, error) {
