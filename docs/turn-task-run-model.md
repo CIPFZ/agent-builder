@@ -361,6 +361,15 @@ Phase 26.5 note:
   diagnostics, artifacts, interrupted summaries, and terminal permission/MCP
   semantics.
 
+Phase 26.6 note:
+
+- The frontend now has hidden scheduler candidate DTO/read support under the
+  Run projection view model.
+- Candidate rows are hydrated from durable Run projection task IDs plus
+  `RunSchedulerPlan` reads and are keyed by stable `runID:taskID`.
+- No visible execution UI is implemented; future UI must still consume these
+  durable rows and re-read after any explicit action.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

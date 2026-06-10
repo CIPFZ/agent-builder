@@ -17,6 +17,8 @@ import type {
   RuntimePluginViewModel,
   RuntimeEventViewModel,
   RunProjectionViewModel,
+  RunSchedulerPlanRequestViewModel,
+  RunSchedulerTaskCandidateViewModel,
   RuntimeSkillViewModel,
   SettingsPermissionViewModel,
   WorkbenchAdapter,
@@ -453,6 +455,66 @@ interface RuntimeRunSchedulerExecuteTaskResponseDTO {
   refreshTargets?: string[];
 }
 
+interface RuntimeRunSchedulerPlanRequestDTO {
+  runId?: string;
+  sessionId?: string;
+  mode?: string;
+  turnId?: string;
+  checkpointId?: string;
+  taskId?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+interface RuntimeRunSchedulerPlanResponseDTO {
+  plan?: {
+    runId?: string;
+    primarySessionId?: string;
+    sessionIds?: string[];
+    objective?: string;
+    statusFromRunDetail?: string;
+    items?: RuntimeRunSchedulerPlanItemDTO[];
+    cancellationScope?: string;
+    diagnosticsRoute?: string;
+    refreshTargets?: string[];
+  };
+  source?: {
+    kind?: string;
+    readOnly?: boolean;
+    startsWorker?: boolean;
+    sessionActivityParity?: boolean;
+    evidence?: string[];
+  };
+}
+
+interface RuntimeRunSchedulerPlanItemDTO {
+  id?: string;
+  kind?: string;
+  orderKey?: string;
+  sessionId?: string;
+  turnId?: string;
+  checkpointId?: string;
+  taskId?: string;
+  canSchedule?: boolean;
+  preflightReason?: string;
+  ownershipVerified?: boolean;
+  requiredPreflight?: boolean;
+  refreshTargets?: string[];
+  cancellationScope?: string;
+  diagnosticsRoute?: string;
+  taskScope?: {
+    allowedTools?: string[];
+    capabilityScope?: string[];
+    cwd?: string;
+    worktree?: string;
+    role?: string;
+    provider?: string;
+    model?: string;
+    parentToolCallId?: string;
+    childSessionId?: string;
+  };
+}
+
 interface RuntimeSkillDTO {
   name: string;
   description?: string;
@@ -585,6 +647,7 @@ interface RuntimeBridgeModule {
   SessionActivityCursorWindow?: (sessionID: string, cursor: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
   TurnActivity?: (turnID: string) => Promise<RuntimeTurnActivityDTO>;
   RunProjection?: (req: RuntimeRunProjectionRequestDTO) => Promise<RuntimeRunProjectionResponseDTO>;
+  RunSchedulerPlan?: (req: RuntimeRunSchedulerPlanRequestDTO) => Promise<RuntimeRunSchedulerPlanResponseDTO>;
   ResumeRunCheckpoint?: (runID: string, checkpointID: string) => Promise<RuntimeRunResumeResponseDTO>;
   ExecuteRunTask?: (runID: string, taskID: string) => Promise<RuntimeRunSchedulerExecuteTaskResponseDTO>;
   Turn?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
@@ -1242,7 +1305,10 @@ function timelineKindRank(item: ConversationTimelineItemViewModel) {
   return 6;
 }
 
-function mapRunProjection(response?: RuntimeRunProjectionResponseDTO): RunProjectionViewModel | undefined {
+function mapRunProjection(
+  response?: RuntimeRunProjectionResponseDTO,
+  schedulerTaskCandidates?: RunSchedulerTaskCandidateViewModel[],
+): RunProjectionViewModel | undefined {
   const run = response?.run;
   if (!run?.id) {
     return undefined;
@@ -1287,8 +1353,73 @@ function mapRunProjection(response?: RuntimeRunProjectionResponseDTO): RunProjec
     sourceKind: run.source?.kind,
     sourceReadOnly: run.source?.readOnly,
     sessionActivityParity: run.source?.sessionActivityParity,
+    schedulerTaskCandidates,
     updatedAt: run.updatedAt,
     finishedAt: run.finishedAt,
+  };
+}
+
+function mapRunSchedulerPlanCandidates(response?: RuntimeRunSchedulerPlanResponseDTO): RunSchedulerTaskCandidateViewModel[] {
+  const plan = response?.plan;
+  const runID = plan?.runId;
+  if (!runID || !Array.isArray(plan?.items)) {
+    return [];
+  }
+  return plan.items
+    .map((item) => mapRunSchedulerPlanItem(runID, item))
+    .filter((item): item is RunSchedulerTaskCandidateViewModel => Boolean(item));
+}
+
+function mapRunSchedulerPlanItem(runID: string, item: RuntimeRunSchedulerPlanItemDTO): RunSchedulerTaskCandidateViewModel | undefined {
+  const taskID = item.taskId?.trim();
+  if (!taskID) {
+    return undefined;
+  }
+  const scope = item.taskScope;
+  return {
+    id: item.id || `task:${taskID}`,
+    runID,
+    taskID,
+    kind: item.kind || 'task_turn',
+    orderKey: item.orderKey,
+    sessionID: item.sessionId,
+    turnID: item.turnId,
+    title: taskID,
+    source: scope?.role,
+    status: item.canSchedule ? 'ready' : 'blocked',
+    executeEligible: item.canSchedule === true,
+    disabledReason: item.canSchedule ? undefined : item.preflightReason,
+    ownershipVerified: item.ownershipVerified === true,
+    requiredPreflight: item.requiredPreflight !== false,
+    refreshTargets: item.refreshTargets,
+    cancellationScope: item.cancellationScope,
+    diagnosticsRoute: item.diagnosticsRoute,
+    taskScope: scope
+      ? {
+          allowedTools: scope.allowedTools,
+          capabilityScope: scope.capabilityScope,
+          cwd: scope.cwd,
+          worktree: scope.worktree,
+          role: scope.role,
+          provider: scope.provider,
+          model: scope.model,
+          parentToolCallID: scope.parentToolCallId,
+          childSessionID: scope.childSessionId,
+        }
+      : undefined,
+  };
+}
+
+function toRunSchedulerPlanRequestDTO(request: RunSchedulerPlanRequestViewModel): RuntimeRunSchedulerPlanRequestDTO {
+  return {
+    runId: request.runID,
+    sessionId: request.sessionID,
+    mode: request.mode,
+    turnId: request.turnID,
+    checkpointId: request.checkpointID,
+    taskId: request.taskID,
+    cursor: request.cursor,
+    limit: request.limit,
   };
 }
 
@@ -1418,6 +1549,34 @@ async function hydrateNarrowActivityFromHint(bridge: RuntimeBridgeModule, active
   return undefined;
 }
 
+async function hydrateRunSchedulerTaskCandidates(
+  bridge: RuntimeBridgeModule,
+  runProjection?: RuntimeRunProjectionResponseDTO,
+): Promise<RunSchedulerTaskCandidateViewModel[] | undefined> {
+  const runID = runProjection?.run?.id;
+  const taskIDs = runProjection?.run?.taskIds?.filter((taskID) => taskID.trim());
+  if (!runID || !taskIDs?.length || !bridge.RunSchedulerPlan) {
+    return undefined;
+  }
+  const plans = await Promise.all(
+    taskIDs.map((taskID) =>
+      optionalRuntimeRequest(() =>
+        bridge.RunSchedulerPlan?.({
+          runId: runID,
+          taskId: taskID,
+          mode: 'task_turn',
+        }) ?? Promise.resolve(undefined),
+      ),
+    ),
+  );
+  const candidates = plans.flatMap((plan) => mapRunSchedulerPlanCandidates(plan));
+  const byKey = new Map<string, RunSchedulerTaskCandidateViewModel>();
+  candidates.forEach((candidate) => {
+    byKey.set(`${candidate.runID}:${candidate.taskID}`, candidate);
+  });
+  return Array.from(byKey.values()).sort((left, right) => (left.orderKey || left.taskID).localeCompare(right.orderKey || right.taskID));
+}
+
 async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBridgeModule) {
   const [status, sessionsResponse, modelsResponse, providerCatalog, configuredProvidersResponse, activeTurnsResponse, skillsResponse, pluginsResponse, mcpServersResponse] = await Promise.all([
     optionalRuntimeRequest(() => bridge.Status()),
@@ -1436,6 +1595,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const runProjection = activeSessionID && bridge.RunProjection
     ? await optionalRuntimeRequest(() => bridge.RunProjection?.({ sessionId: activeSessionID, limit: 24 }) ?? Promise.resolve(undefined))
     : undefined;
+  const schedulerTaskCandidates = await hydrateRunSchedulerTaskCandidates(bridge, runProjection);
   const messagesResponse = activity
     ? { messages: Array.isArray(activity.messages) ? activity.messages : [] }
     : activeSessionID
@@ -1482,7 +1642,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     timeline,
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
     interruptedTurn: activity ? selectInterruptedTurn(activity, sessionActiveTurn?.id) : current.interruptedTurn,
-    runProjection: mapRunProjection(runProjection) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
+    runProjection: mapRunProjection(runProjection, schedulerTaskCandidates) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
     pendingPermissions,
     composer: {
       ...current.composer,
@@ -1930,6 +2090,35 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
       `/v1/sessions/${encodeURIComponent(req.sessionId)}/run-projection${query ? `?${query}` : ''}`,
     );
   },
+  RunSchedulerPlan: (req) => {
+    const params = new URLSearchParams();
+    if (req.runId) {
+      params.set('run_id', req.runId);
+    }
+    if (req.sessionId) {
+      params.set('session_id', req.sessionId);
+    }
+    if (req.mode) {
+      params.set('mode', req.mode);
+    }
+    if (req.turnId) {
+      params.set('turn_id', req.turnId);
+    }
+    if (req.checkpointId) {
+      params.set('checkpoint_id', req.checkpointId);
+    }
+    if (req.taskId) {
+      params.set('task_id', req.taskId);
+    }
+    if (req.cursor) {
+      params.set('cursor', req.cursor);
+    }
+    if (typeof req.limit === 'number') {
+      params.set('limit', String(req.limit));
+    }
+    const query = params.toString();
+    return runtimeFetch<RuntimeRunSchedulerPlanResponseDTO>(`/v1/run-scheduler-plan${query ? `?${query}` : ''}`);
+  },
   ResumeRunCheckpoint: (runID, checkpointID) =>
     runtimeFetch<RuntimeRunResumeResponseDTO>(
       `/v1/runs/${encodeURIComponent(runID)}/checkpoints/${encodeURIComponent(checkpointID)}/resume`,
@@ -2341,6 +2530,17 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       },
       () => staticWorkbenchAdapter.resumeRunCheckpoint(current, runID, checkpointID),
     );
+  },
+  async readRunSchedulerPlan(current, request) {
+    const bridge = await loadRuntimeBridge();
+    if (hasProviderSettingsBridge(bridge) && bridge.RunSchedulerPlan) {
+      return mapRunSchedulerPlanCandidates(await bridge.RunSchedulerPlan(toRunSchedulerPlanRequestDTO(request)));
+    }
+    const httpBridge = await loadRuntimeHTTPBridge();
+    if (httpBridge?.RunSchedulerPlan) {
+      return mapRunSchedulerPlanCandidates(await httpBridge.RunSchedulerPlan(toRunSchedulerPlanRequestDTO(request)));
+    }
+    return staticWorkbenchAdapter.readRunSchedulerPlan(current, request);
   },
   async executeRunTask(current, runID, taskID) {
     return withBridge(

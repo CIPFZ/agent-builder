@@ -8830,7 +8830,7 @@ Existing backend contract:
 - Runtime already exposes a read-only scheduler plan transport:
 
   ```text
-  GET /v1/runs/{run_id}/scheduler/plan
+  GET /v1/run-scheduler-plan?run_id=...&task_id=...
   ```
 
 - `RuntimeRunSchedulerPlan` includes durable source evidence, refresh targets,
@@ -8934,6 +8934,54 @@ Review conclusion:
   Implementation. It should add hidden frontend adapter/read-model support and
   smoke coverage, while keeping visible execution controls out of scope.
 
+## 2026-06-10: Phase 26.6 Scheduler Task Candidate Read Model Implementation
+
+Phase 26.6 implements hidden frontend scheduler task candidate read-model
+support. It does not add visible execute controls, background workers,
+automatic resume, database migrations, stale actionability recovery, frontend
+Run state ownership, or full Run executor behavior.
+
+Implemented:
+
+- Added `RunSchedulerTaskCandidateViewModel`,
+  `RunSchedulerTaskScopeViewModel`, and `RunSchedulerPlanRequestViewModel`.
+- Added hidden `WorkbenchAdapter.readRunSchedulerPlan(current, request)`.
+- Added `RunProjectionViewModel.schedulerTaskCandidates` as an additive hidden
+  field for durable task candidate rows.
+- Added optional Wails bridge typing for `RunSchedulerPlan(...)`.
+- Added browser/Vite HTTP fallback for:
+
+  ```text
+  GET /v1/run-scheduler-plan
+  ```
+
+- During workbench hydration, the adapter now reads scheduler plan rows for
+  durable task IDs from the current Run projection and maps them into stable
+  candidate rows.
+- Candidate rows dedupe by stable `runID:taskID`.
+- `executeEligible` maps only from durable `item.canSchedule`.
+- `disabledReason` maps only from durable `item.preflightReason` when the item
+  is not executable.
+- `RunProjectionPreview` and `WorkbenchShell` remain unchanged; no visible UI
+  calls `readRunSchedulerPlan` or `executeRunTask`.
+
+Validation:
+
+```text
+npm run smoke:phase266
+npm run build
+```
+
+Review conclusion:
+
+- Phase 26.6 accepts hidden frontend durable scheduler candidate hydration.
+- Actionability still comes from durable scheduler plan reads, not events,
+  action responses, assistant prose, or React-local state.
+- The next safe task is Phase 26.7: Scheduler Candidate Browser/Wails Contract
+  Smoke. It should add targeted browser/bridge-level coverage for event-
+  triggered candidate refresh and duplicate terminal/event non-resurrection
+  before any visible execute control is implemented.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8981,8 +9029,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.6: Scheduler Task Candidate Read Model Implementation. Add
-hidden frontend DTO/view-model and adapter read support for durable scheduler
-task candidates, plus smoke coverage proving no visible execute control,
-event-payload state merge, background worker, automatic resume, migration,
-stale actionability recovery, or full Run executor behavior is introduced.
+Implement Phase 26.7: Scheduler Candidate Browser/Wails Contract Smoke. Add
+targeted browser/bridge-level coverage for event-triggered durable scheduler
+candidate refresh and duplicate terminal/event non-resurrection before any
+visible execute control is implemented. Do not add background workers,
+automatic resume, database migrations, stale actionability recovery, frontend
+Run state ownership, or full Run executor behavior.

@@ -2005,3 +2005,15 @@ Phase 26.5 note:
 - Runtime events may request scheduler-plan refreshes, but event payloads must
   not merge candidate rows, task status, permission/MCP actionability,
   diagnostics, artifact evidence, or Run state into React.
+
+Phase 26.6 note:
+
+- Hidden frontend support now maps durable `RunSchedulerPlan` task items into
+  `RunProjectionViewModel.schedulerTaskCandidates`.
+- The Wails bridge method remains optional and the browser/Vite path reads
+  `/v1/run-scheduler-plan`.
+- Workbench hydration reads scheduler candidates from durable Run projection
+  task IDs and dedupes rows by `runID:taskID`.
+- No visible React component calls `readRunSchedulerPlan` or `executeRunTask`;
+  visible scheduler execution remains gated on later browser/Wails smoke and UI
+  acceptance.

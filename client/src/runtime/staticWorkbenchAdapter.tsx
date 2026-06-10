@@ -137,6 +137,9 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   async resumeRunCheckpoint() {
     return runtimeUnavailable();
   },
+  async readRunSchedulerPlan() {
+    return runtimeUnavailable();
+  },
   async executeRunTask() {
     return runtimeUnavailable();
   },
