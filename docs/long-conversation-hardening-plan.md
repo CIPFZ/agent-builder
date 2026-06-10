@@ -8746,6 +8746,78 @@ Review conclusion:
   background workers, auto-resume, migrations, full Run executor behavior, or
   stale actionability recovery.
 
+## 2026-06-10: Phase 26.4 Explicit Scheduler Execute UI Gate
+
+Phase 26.4 accepts the visible scheduler execute UI contract as a design gate
+only. It does not add React controls, new runtime actions, generated Wails
+bindings, database migrations, background workers, automatic resume, stale
+actionability recovery, or full Run executor behavior.
+
+Current frontend/runtime finding:
+
+- `RunProjectionPreview` currently renders aggregate Run evidence and the
+  already-accepted checkpoint resume action.
+- `RunProjectionViewModel` does not yet carry durable scheduler task candidate
+  rows, task ownership proof, queue state, execution eligibility, or execution
+  denial reasons.
+- The hidden `WorkbenchAdapter.executeRunTask(...)` method exists, but no
+  React component calls it.
+- Therefore a visible execute button cannot be safely added from the existing
+  aggregate projection alone. The UI would otherwise have to infer
+  actionability from counts, events, or React-local state, which is explicitly
+  out of scope.
+
+Accepted future UI contract:
+
+- The visible control may appear in `RunProjectionPreview` only after a durable
+  read model exposes scheduler task candidates as explicit rows.
+- Each row must include stable `runID`, `taskID`, display title/source,
+  scheduler status, ownership/session evidence, `executeEligible`, and a
+  non-secret disabled/denial reason.
+- The control should be a restrained icon+label action on the task row, enabled
+  only when the durable row says execution is eligible. Aggregate counters,
+  runtime events, action responses, assistant prose, and React state must not
+  synthesize eligibility.
+- On click, React may call `WorkbenchAdapter.executeRunTask(current, runID,
+  taskID)`, but the adapter action response remains metadata only. The adapter
+  must rehydrate durable DTOs before the UI updates.
+- Event envelopes may choose which durable DTO/window to refresh. Event payloads
+  must not directly merge timeline, diagnostics, artifact evidence,
+  permission/MCP actionability, scheduler task state, or Run status.
+- Duplicate lifecycle/permission/artifact/ref/terminal events must be absorbed
+  by durable rereads and stable row IDs; they must not duplicate timeline items
+  or resurrect stale permission/MCP/actionability state.
+
+Required implementation gate before visible controls:
+
+- Add a transport-neutral scheduler task candidate read model to the workbench
+  DTO/view model, preserving full `SessionActivity` and Run projection parity
+  as the oracle.
+- Add browser/Vite and Wails/bridge contract coverage proving event-triggered
+  refresh uses durable reads, hidden execute actions rehydrate before display,
+  fallback full `SessionActivity` remains valid, and duplicate terminal events
+  do not resurrect stale actionability.
+- Keep the implementation additive and read-model first; do not introduce a
+  runtime Run store, database migration, background scheduler, auto-resume, or
+  frontend-owned Run state.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 26.4 accepts the UI location and refresh/action contract, but rejects a
+  visible execute control until durable scheduler task candidate rows exist.
+- The next safe task is Phase 26.5: Scheduler Task Candidate Read Model Gate.
+  It should define the exact DTO and transport contract that a future visible
+  execute control can consume without making React/events/action responses the
+  source of truth.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8793,9 +8865,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.4: Explicit Scheduler Execute UI Gate. Decide whether and
-where a visible execute control should appear for accepted scheduler task
-candidates, and define the exact UI/refresh contract before implementation. Do
-not add background workers, automatic resume, database migrations, stale
-actionability recovery, full Run executor behavior, or event/prose/React
-source-of-truth behavior.
+Implement Phase 26.5: Scheduler Task Candidate Read Model Gate. Define the
+durable DTO/view-model fields and transport-neutral refresh behavior required
+before any visible scheduler execute control can be implemented. Do not add
+background workers, automatic resume, database migrations, stale actionability
+recovery, full Run executor behavior, or event/prose/React source-of-truth
+behavior.

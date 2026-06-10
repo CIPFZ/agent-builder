@@ -1976,3 +1976,17 @@ Phase 26.3 note:
   client build.
 - No visible React control calls `executeRunTask`; action response payloads are
   ignored as UI state and durable hydration remains authoritative.
+
+Phase 26.4 note:
+
+- The visible scheduler execute UI is accepted as a design location/contract
+  only, not as an implementation.
+- `RunProjectionPreview` is the intended future surface, but it must consume
+  explicit durable scheduler task candidate rows before showing any execute
+  action.
+- Aggregate Run counters, runtime events, action responses, assistant prose,
+  and React-local state must not synthesize task execution eligibility.
+- A future click handler may call the hidden adapter method only after the row
+  itself provides durable `runID`, `taskID`, ownership evidence, scheduler
+  status, `executeEligible`, and a non-secret disabled reason. The adapter must
+  rehydrate durable DTOs before the UI updates.

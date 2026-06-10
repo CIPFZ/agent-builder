@@ -340,6 +340,16 @@ Phase 26.3 note:
 - The adapter calls the action and then rehydrates durable DTOs; visible UI
   controls remain unimplemented.
 
+Phase 26.4 note:
+
+- The future scheduler execute control is accepted only after a durable
+  scheduler task candidate read model exists.
+- The row, not React state/events/action responses, must provide execution
+  eligibility, scheduler status, ownership evidence, and non-secret denial
+  reason.
+- Visible controls remain out of scope until that read model is defined and
+  proven to preserve `SessionActivity`/Run projection parity.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
