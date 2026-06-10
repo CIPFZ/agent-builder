@@ -132,6 +132,12 @@ Phase 22.1 note:
 - Duplicate calls are idempotent before execution implementation and must not
   duplicate turns, task messages/results, refs, events, or lifecycle evidence.
 
+Phase 22.2 note:
+
+- The internal execute contract is accepted. Future foreground execution must
+  preserve its revalidation, idempotency, and no-stale-actionability semantics.
+- Transport and frontend exposure remain unaccepted.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

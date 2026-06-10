@@ -7114,6 +7114,56 @@ Review conclusion:
 - The next safe task is Phase 22.2 acceptance, or Phase 22.3 to implement the
   foreground execution body behind the backend-only contract after acceptance.
 
+## 2026-06-10: Phase 22.2 Foreground Task Execute Backend Contract Acceptance
+
+Phase 22.2 accepts the Phase 22.1 backend-only execute contract as the stable
+entry point for a future foreground task execution implementation.
+
+Acceptance review:
+
+- Confirmed `runtimeRunSchedulerExecuteTask(...)` is internal runtime code
+  only.
+- Confirmed no `RuntimeService` method, HTTP route, dev module route, Wails
+  bridge method, generated binding, frontend adapter method, or UI control was
+  added.
+- Confirmed accepted responses report `executionStarted=false`,
+  `startsWorker=false`, `backendOnly=true`, and `idempotentByTaskId=true`.
+- Confirmed the contract revalidates via
+  `runtimeRunSchedulerDelegateTaskTurn(...)` and re-reads durable Run/task
+  evidence before accepting a candidate.
+- Confirmed duplicate calls do not mutate task rows or duplicate task
+  messages/results, refs, events, transitions, or lifecycle evidence.
+- Confirmed rejected unowned/terminal candidates do not write evidence or
+  resurrect stale actionability.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeRunSchedulerExecuteTask|TestRuntimeRunSchedulerDelegateTaskTurn" -count=1`
+  passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1`
+  passed.
+- `git diff --check` passed.
+
+Accepted contract:
+
+- Future foreground execution must be implemented behind
+  `runtimeRunSchedulerExecuteTask(...)` or an equivalent backend-only contract
+  that preserves the same revalidation and idempotency semantics.
+- The first execution implementation may flip `executionStarted=true` only
+  after tests prove no duplicate turns/messages/results/refs/events,
+  cancellation ordering, permission/MCP behavior, and completed-output-only
+  artifact evidence.
+- Transport/frontend exposure remains unaccepted until the foreground execution
+  body is implemented and accepted.
+
+Next safe boundary:
+
+- Phase 22.3 should implement the foreground execution body behind the internal
+  contract, still without HTTP/Wails/client exposure.
+- Phase 22.3 must not add background scheduling, automatic resume, database
+  migrations, stale actionability recovery, frontend Run UI, or
+  event/prose/React-derived truth.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7161,7 +7211,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 22.1, then plan the next implementation gate for the
-foreground execution body. Do not expose frontend controls, background workers,
-automatic resume, database migrations, stale actionability recovery, or
-event/prose/React-derived source of truth.
+Implement Phase 22.3: Foreground Task Execute Body Behind Backend Contract.
+Keep it internal runtime-only until accepted. Do not expose frontend controls,
+HTTP/Wails transport, background workers, automatic resume, database
+migrations, stale actionability recovery, or event/prose/React-derived source
+of truth.

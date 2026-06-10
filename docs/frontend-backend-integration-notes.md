@@ -1774,3 +1774,11 @@ Phase 22.1 note:
   delegate and returns source metadata, but it currently returns
   `executionStarted=false` and `startsWorker=false`.
 - No HTTP/dev/Wails/client adapter surface is exposed in this phase.
+
+Phase 22.2 note:
+
+- The backend-only execute contract is accepted as the future foreground
+  execution entry point.
+- Frontend and transport exposure remain rejected until the execution body has
+  contract coverage for idempotency, cancellation ordering, permission/MCP
+  semantics, and completed-output-only artifact evidence.
