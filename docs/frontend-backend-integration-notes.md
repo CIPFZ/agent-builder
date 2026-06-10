@@ -2379,3 +2379,15 @@ Phase 35.2 note:
   gate.
 - Packaged WebView clicking must not be solved with production debug endpoints,
   React-owned fixtures, event-payload state, or runtime source-of-truth changes.
+
+Phase 36 note:
+
+- A packaged WebView automation channel is accepted only as build-tagged,
+  test-only desktop infrastructure for local smoke runs.
+- Any CDP/remote-debug port, WebView user-data path, logs, pids, screenshots,
+  and generated automation files must be scoped to `tmp/runtime-dev` and must
+  not exist in untagged production builds.
+- Packaged click smokes must still click the visible UI and then re-read
+  durable runtime DTOs. Event payloads, action responses, React state, and
+  assistant prose remain invalid sources for scheduler state, diagnostics,
+  artifacts, permissions, MCP actionability, interrupted state, or Run state.

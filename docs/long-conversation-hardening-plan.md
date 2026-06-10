@@ -11257,6 +11257,79 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 36: Packaged WebView Test Automation Channel Gate. Decide
-whether a test-only Wails/WebView2 automation surface can support packaged
-Execute clicking without production debug endpoints or runtime state changes.
+Implement Phase 36.1: Packaged WebView Test Automation Channel Prototype. Add
+a build-tagged, test-only Wails/WebView2 automation channel that can expose a
+local CDP remote-debug port for packaged scheduler click smoke runs without
+production debug endpoints, runtime state changes, frontend-owned fixtures, or
+event-payload-derived state.
+
+## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
+
+Phase 36 decides whether true packaged WebView2 scheduler Execute clicking can
+be automated safely. It is a design gate only. It does not add packaged click
+automation, production seed/debug endpoints, runtime state changes, frontend
+Run state, background scheduling, automatic resume, or stale actionability
+recovery.
+
+Findings:
+
+- The current packaged desktop entrypoint (`desktop/main.go`) creates one Wails
+  app and one static `/` WebView window. It has no automation/debug service and
+  no test-only WebView configuration path.
+- Wails v3 exposes application-level Windows `AdditionalBrowserArgs`, including
+  browser flags such as `--remote-debugging-port=...`, and window-level
+  `DevToolsEnabled`/`OpenInspectorOnStartup` options.
+- The Windows build task already supports `EXTRA_TAGS`, so a dedicated
+  test-only build tag can compile automation options without affecting normal
+  production or development builds.
+- Existing Phase 6.2 and Phase 31.1 packaged smokes cover packaged startup and
+  Wails bridge DTO forwarding, but they still do not click inside the packaged
+  WebView2 surface.
+
+Accepted channel shape:
+
+- Add a build-tagged test-only desktop option layer, for example
+  `webview_test`, that is excluded from normal builds.
+- The test-only layer may read phase-scoped environment variables such as a
+  remote-debugging port and WebView user-data path, but all roots, logs, pids,
+  screenshots, and automation artifacts must stay under `tmp/runtime-dev`.
+- The channel may set Wails Windows `AdditionalBrowserArgs` for local CDP
+  automation and may enable DevTools only in the tagged test build.
+- The packaged click smoke must still use runtime-owned durable evidence and
+  post-click DTO rereads for projection, scheduler plan, activity/permissions,
+  task/result/ref evidence, and terminal semantics.
+- Event payloads and action responses remain refresh/request metadata only.
+  They must not become scheduler, timeline, diagnostic, artifact, permission,
+  MCP actionability, interrupted, or Run state.
+
+Rejected shortcuts:
+
+- No production remote-debug/CDP endpoint.
+- No always-on WebView debug port in `desktop/main.go`.
+- No production seed/debug endpoint.
+- No React-only scheduler candidate fixture or frontend-owned actionability.
+- No assistant-prose-derived refs, artifacts, checkpoints, or task state.
+- No credentials, hosted OAuth state, browser profiles, raw headers, auth URLs,
+  screenshots, or live provider logs in repo fixtures/docs/logs/React state.
+
+Validation acceptance for the future implementation:
+
+- Build/run a tagged packaged app with explicit runtime root and WebView user
+  data under `tmp/runtime-dev`.
+- Connect Playwright or another local CDP client only to the tagged test build,
+  click the visible scheduler Execute control, and verify state by re-reading
+  durable runtime DTOs.
+- Prove duplicate lifecycle/permission/artifact/ref/terminal events do not
+  duplicate timeline rows or resurrect stale permission/MCP actionability.
+- Confirm an untagged production build has no automation env handling, no
+  remote-debug browser args, and no WebView test service.
+
+Review conclusion:
+
+- Phase 36 accepts a test-only packaged WebView automation channel as the next
+  implementation target.
+- The accepted implementation is packaging/browser automation infrastructure
+  only. It must not change runtime source-of-truth semantics or add Run
+  persistence, migrations, auto resume, background scheduler behavior, frontend
+  Run UI, stale tool recovery, stale permission recovery, or stale MCP
+  auth/elicitation actionability.
