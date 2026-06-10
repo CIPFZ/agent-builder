@@ -408,6 +408,13 @@ Phase 26.11 note:
 - No production seed endpoint, migration, React fixture mode, background
   scheduler, or auto-resume behavior is accepted for this validation.
 
+Phase 26.12 note:
+
+- Runtime-owned durable seed coverage now verifies queued and terminal
+  AgentTask candidates through scheduler plan and execute transport.
+- The validation preserves Run projection readiness guards and leaves full
+  browser clicking for a normal ready runtime setup.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

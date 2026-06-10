@@ -9265,6 +9265,56 @@ Review conclusion:
   under `tmp/runtime-dev` constraints and keep production runtime behavior
   unchanged.
 
+## 2026-06-11: Phase 26.12 Live Scheduler Candidate Seed And Click Smoke Implementation
+
+Phase 26.12 implements the runtime-owned durable seed portion of the live
+scheduler candidate smoke. It does not add a production seed endpoint,
+background worker, automatic resume, database migration, stale actionability
+recovery, frontend Run state ownership, full scheduler UI, or full Run
+executor behavior.
+
+Implemented:
+
+- Added `internal/runtime/runtime_scheduler_ui_seed_test.go`.
+- The test seeds runtime-owned durable evidence through existing stores:
+  - one active persisted Run linked to one queued parent Turn;
+  - one queued owned AgentTask candidate;
+  - one terminal owned AgentTask candidate.
+- The test verifies through the runtime HTTP handler:
+  - queued task scheduler plan is executable and ownership verified;
+  - terminal task scheduler plan is disabled with durable `terminal_task`
+    preflight reason;
+  - explicit execute transport accepts the queued candidate once;
+  - post-execute durable task state becomes running with no artifact refs;
+  - scheduler execute source remains backend-only and idempotent by task ID.
+
+Validation:
+
+```text
+go test ./internal/runtime -run "TestRuntimeSchedulerUICandidateSeedExposesDurableHTTPPlanAndExecute|TestRuntimeRunSchedulerPlan|TestRuntimeRunSchedulerExecute" -count=1
+```
+
+Implementation note:
+
+- A direct HTTP `/v1/sessions/{id}/run-projection` read was not used in this
+  smoke because the production Run projection path calls runtime readiness
+  checks (`ensureStarted`) and therefore requires normal provider/model
+  configuration. The seed smoke intentionally avoids weakening that product
+  guard or introducing a dev-only bypass.
+
+Review conclusion:
+
+- Phase 26.12 accepts runtime-owned durable seed coverage for scheduler UI
+  candidates and explicit execute transport.
+- Remaining risk: a full browser click smoke still needs an end-to-end local
+  runtime/Vite setup with normal runtime readiness satisfied, so the UI can
+  render the candidate rows from `RunProjectionViewModel.schedulerTaskCandidates`
+  and click the visible button.
+- The next safe task is Phase 26.13: End-to-End Browser Scheduler Click Smoke
+  Gate. It should decide whether to satisfy runtime readiness with a local
+  test provider/config fixture, or keep the click smoke as a manual local
+  validation checklist.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9312,8 +9362,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.12: Live Scheduler Candidate Seed And Click Smoke
-Implementation. Add a local-only runtime-owned seed/click smoke under
-`tmp/runtime-dev` constraints, without adding background workers, automatic
-resume, database migrations, stale actionability recovery, frontend Run state
-ownership, full scheduler UI, or full Run executor behavior.
+Implement Phase 26.13: End-to-End Browser Scheduler Click Smoke Gate. Decide
+whether to satisfy runtime readiness with a local test provider/config fixture,
+or keep the browser click smoke as a manual local validation checklist. Do not
+add production seed endpoints, background workers, automatic resume, database
+migrations, stale actionability recovery, frontend Run state ownership, full
+scheduler UI, or full Run executor behavior.

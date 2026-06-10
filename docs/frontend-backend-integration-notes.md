@@ -2068,3 +2068,13 @@ Phase 26.11 note:
 - The smoke must prove visible rows, disabled terminal rows, single execute
   transport call, durable post-click hydration, and no stale permission/MCP
   actionability resurrection.
+
+Phase 26.12 note:
+
+- Runtime-owned scheduler seed coverage now exists in Go for HTTP plan and
+  execute transport.
+- The smoke avoids bypassing production Run projection readiness checks; a full
+  browser click still requires a normal ready runtime with provider/model
+  configuration.
+- Frontend candidate state must continue to come from durable runtime DTOs, not
+  a React-only fixture.
