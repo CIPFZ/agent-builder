@@ -3750,6 +3750,9 @@ type recordingRuntimeService struct {
 	transitionHistory     RuntimeRunTransitionHistoryResponse
 	runSchedulerPlanReq   RuntimeRunSchedulerPlanRequest
 	runSchedulerPlan      RuntimeRunSchedulerPlanResponse
+	executeRunID          string
+	executeTaskID         string
+	executeRunTask        RuntimeRunSchedulerExecuteTaskResponse
 	runs                  RuntimeRunsResponse
 	run                   RuntimeRunResponse
 	runID                 string
@@ -4124,6 +4127,22 @@ func (s *recordingRuntimeService) RunTransitionHistory(_ context.Context, req Ru
 func (s *recordingRuntimeService) RunSchedulerPlan(_ context.Context, req RuntimeRunSchedulerPlanRequest) (RuntimeRunSchedulerPlanResponse, error) {
 	s.runSchedulerPlanReq = req
 	return s.runSchedulerPlan, nil
+}
+
+func (s *recordingRuntimeService) ExecuteRunTask(_ context.Context, runID, taskID string) (RuntimeRunSchedulerExecuteTaskResponse, error) {
+	s.executeRunID = runID
+	s.executeTaskID = taskID
+	if s.executeRunTask.Source.Kind == "" {
+		s.executeRunTask.Source = RuntimeRunSchedulerExecuteTaskSource{
+			Kind:                  runtimeRunSchedulerExecuteTaskSourceKind,
+			Action:                runtimeRunSchedulerExecuteTaskAction,
+			BackendOnly:           true,
+			StartsWorker:          false,
+			IdempotentByTaskID:    true,
+			SessionActivityParity: true,
+		}
+	}
+	return s.executeRunTask, nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {

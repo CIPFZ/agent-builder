@@ -1952,3 +1952,11 @@ Phase 26 note:
 - Events and action response payloads must not become frontend source of truth
   for timeline, diagnostics, artifacts, permissions, MCP actionability, or Run
   state.
+
+Phase 26.1 note:
+
+- Backend/service HTTP and Wails transport now expose the explicit scheduler
+  task execute action.
+- The workbench adapter and visible UI still do not call it. A later adapter
+  contract must re-read durable Run/task/activity DTOs after action metadata
+  returns.

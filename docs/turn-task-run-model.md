@@ -317,6 +317,15 @@ Phase 26 note:
   stale actionability recovery, and frontend execution controls remain out of
   scope.
 
+Phase 26.1 note:
+
+- Backend/service HTTP and Wails transport now expose the explicit scheduler
+  task execute action.
+- The action delegates to the existing internal scheduler execute contract and
+  returns metadata plus refresh targets.
+- Browser/Wails workbench adapter exposure and visible frontend controls remain
+  unimplemented.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

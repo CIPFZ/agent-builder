@@ -319,6 +319,17 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 	if len(schedulerPlan.Plan.Items) != 1 || !schedulerPlan.Source.ReadOnly || schedulerPlan.Source.StartsWorker || !schedulerPlan.Source.SessionActivityParity {
 		t.Fatalf("scheduler plan = %#v", schedulerPlan)
 	}
+
+	execute, err := bridge.ExecuteRunTask(context.Background(), "run-1", "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.executeRunID != "run-1" || service.executeTaskID != "task-1" {
+		t.Fatalf("execute args = %q/%q", service.executeRunID, service.executeTaskID)
+	}
+	if execute.Source.StartsWorker || !execute.Source.BackendOnly || !execute.Source.IdempotentByTaskID || !execute.Source.SessionActivityParity {
+		t.Fatalf("execute response = %#v", execute)
+	}
 }
 
 func TestRuntimeBridgeForwardsDurableRunReads(t *testing.T) {
@@ -426,6 +437,9 @@ type recordingRuntimeService struct {
 	transitionHistory           RuntimeRunTransitionHistoryResponse
 	runSchedulerPlanReq         RuntimeRunSchedulerPlanRequest
 	runSchedulerPlan            RuntimeRunSchedulerPlanResponse
+	executeRunID                string
+	executeTaskID               string
+	executeRunTask              RuntimeRunSchedulerExecuteTaskResponse
 	runs                        RuntimeRunsResponse
 	run                         RuntimeRunResponse
 	runID                       string
@@ -737,6 +751,22 @@ func (s *recordingRuntimeService) RunTransitionHistory(_ context.Context, req Ru
 func (s *recordingRuntimeService) RunSchedulerPlan(_ context.Context, req RuntimeRunSchedulerPlanRequest) (RuntimeRunSchedulerPlanResponse, error) {
 	s.runSchedulerPlanReq = req
 	return s.runSchedulerPlan, nil
+}
+
+func (s *recordingRuntimeService) ExecuteRunTask(_ context.Context, runID, taskID string) (RuntimeRunSchedulerExecuteTaskResponse, error) {
+	s.executeRunID = runID
+	s.executeTaskID = taskID
+	if s.executeRunTask.Source.Kind == "" {
+		s.executeRunTask.Source = RuntimeRunSchedulerExecuteTaskSource{
+			Kind:                  "run_scheduler_execute_task",
+			Action:                "execute_task",
+			BackendOnly:           true,
+			StartsWorker:          false,
+			IdempotentByTaskID:    true,
+			SessionActivityParity: true,
+		}
+	}
+	return s.executeRunTask, nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {

@@ -8595,6 +8595,56 @@ Review conclusion:
   coverage for the explicit action, but must still keep frontend visible
   controls out of scope unless a later UI phase is accepted.
 
+## 2026-06-10: Phase 26.1 Explicit Scheduler Execute Transport Contract Implementation
+
+Phase 26.1 implements the accepted backend/service HTTP/Wails transport
+contract for explicit scheduler task execution. It does not add frontend
+visible controls, client adapter execute methods, generated bindings,
+background workers, automatic resume, database migrations, full Run executor
+behavior, or stale permission/MCP actionability recovery.
+
+Implemented contract:
+
+- Added `RuntimeService.ExecuteRunTask(ctx, runID, taskID)`.
+- Implemented `runtimeService.ExecuteRunTask(...)` as a thin wrapper over the
+  existing `runtimeRunSchedulerExecuteTask(...)` internal action.
+- Added direct HTTP route:
+
+  ```text
+  POST /v1/runs/{run_id}/tasks/{task_id}/execute
+  ```
+
+- Added dev-module route support for the same method/path.
+- Added `RuntimeBridge.ExecuteRunTask(ctx, runID, taskID)` and Wails-facing
+  DTO aliases for `RuntimeRunSchedulerExecuteTaskResponse`.
+- Kept response semantics as action metadata plus refresh targets. The route
+  does not merge action/event payloads into task, artifact, permission, MCP,
+  timeline, or Run state.
+
+Validation:
+
+- Focused transport/scheduler tests passed:
+
+  ```text
+  go test ./internal/runtime ./desktop -run "TestRuntimeHTTPServerRoutesRunSchedulerExecuteTaskToRuntimeService|TestRuntimeHTTPServerRoutesRunSchedulerPlanToRuntimeService|TestRuntimeRunSchedulerExecuteTask|TestRuntimeBridgeForwardsActivityWindowAndRunProjection|TestRuntimeBridgeForwardsDurableRunReads" -count=1
+  ```
+
+- Related package regression passed:
+
+  ```text
+  go test ./internal/agent ./internal/backend ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1
+  ```
+
+Review conclusion:
+
+- Phase 26.1 accepts backend/service HTTP/Wails transport for the explicit
+  scheduler task execute action.
+- The implementation still has no visible frontend control and no client
+  adapter execute method. Frontend reads remain durable DTO based.
+- The next safe task is Phase 26.2: Explicit Scheduler Execute Adapter
+  Contract Gate. It should decide whether to expose this transport through the
+  browser/Wails workbench adapter without adding visible UI controls yet.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8642,9 +8692,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.1: Explicit Scheduler Execute Transport Contract
-Implementation. Add only the accepted backend/service HTTP/Wails transport
-contract and tests for the explicit scheduler task execute action. Do not add
-frontend visible controls, background workers, automatic resume, database
-migrations, stale actionability recovery, full Run executor behavior, or event/
-prose/React source-of-truth behavior.
+Implement Phase 26.2: Explicit Scheduler Execute Adapter Contract Gate.
+Decide whether/how the browser/Wails workbench adapter may call the explicit
+execute transport and then re-read durable DTOs, without adding visible UI
+controls. Do not add background workers, automatic resume, database migrations,
+stale actionability recovery, full Run executor behavior, or event/prose/React
+source-of-truth behavior.

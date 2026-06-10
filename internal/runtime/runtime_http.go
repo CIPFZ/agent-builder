@@ -311,6 +311,10 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ids := runCheckpointResumePathIDs(r.URL.Path)
 		value, err := s.service.ResumeRunCheckpoint(r.Context(), ids.runID, ids.checkpointID)
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && runTaskExecutePathIDs(r.URL.Path).runID != "":
+		ids := runTaskExecutePathIDs(r.URL.Path)
+		value, err := s.service.ExecuteRunTask(r.Context(), ids.runID, ids.taskID)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/refs":
 		value, err := s.service.Refs(r.Context(), RuntimeRefListRequest{
 			SessionID:  r.URL.Query().Get("session_id"),
@@ -792,6 +796,10 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 		ids := runCheckpointResumePathIDs(path)
 		value, err := s.service.ResumeRunCheckpoint(r.Context(), ids.runID, ids.checkpointID)
 		return value, err, true
+	case method == http.MethodPost && runTaskExecutePathIDs(path).runID != "":
+		ids := runTaskExecutePathIDs(path)
+		value, err := s.service.ExecuteRunTask(r.Context(), ids.runID, ids.taskID)
+		return value, err, true
 	case method == http.MethodGet && turnPathID(path) != "":
 		value, err := s.service.Turn(r.Context(), turnPathID(path))
 		return value, err, true
@@ -1129,6 +1137,11 @@ type runCheckpointPathIDs struct {
 	checkpointID string
 }
 
+type runTaskPathIDs struct {
+	runID  string
+	taskID string
+}
+
 func runCheckpointAcknowledgePathIDs(path string) runCheckpointPathIDs {
 	return runCheckpointActionPathIDs(path, "acknowledge")
 }
@@ -1151,6 +1164,18 @@ func runCheckpointActionPathIDs(path, action string) runCheckpointPathIDs {
 		return runCheckpointPathIDs{}
 	}
 	return runCheckpointPathIDs{runID: parts[0], checkpointID: parts[2]}
+}
+
+func runTaskExecutePathIDs(path string) runTaskPathIDs {
+	prefix := "/v1/runs/"
+	if !strings.HasPrefix(path, prefix) {
+		return runTaskPathIDs{}
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) != 4 || parts[1] != "tasks" || parts[3] != "execute" || parts[0] == "" || parts[2] == "" {
+		return runTaskPathIDs{}
+	}
+	return runTaskPathIDs{runID: parts[0], taskID: parts[2]}
 }
 
 func turnCancelPathID(path string) string {

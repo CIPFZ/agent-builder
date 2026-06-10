@@ -131,6 +131,13 @@ func (r *runtimeService) runtimeRunSchedulerExecuteTask(ctx context.Context, req
 	}, nil
 }
 
+func (r *runtimeService) ExecuteRunTask(ctx context.Context, runID, taskID string) (RuntimeRunSchedulerExecuteTaskResponse, error) {
+	return r.runtimeRunSchedulerExecuteTask(ctx, RuntimeRunSchedulerExecuteTaskRequest{
+		RunID:  runID,
+		TaskID: taskID,
+	})
+}
+
 func runtimeRunSchedulerExecuteTaskSource() RuntimeRunSchedulerExecuteTaskSource {
 	return RuntimeRunSchedulerExecuteTaskSource{
 		Kind:                  runtimeRunSchedulerExecuteTaskSourceKind,

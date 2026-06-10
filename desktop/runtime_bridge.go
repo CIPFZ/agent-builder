@@ -88,12 +88,15 @@ type RuntimeRunTransitionHistoryResponse = runtime.RuntimeRunTransitionHistoryRe
 type RuntimeRunTransitionHistorySource = runtime.RuntimeRunTransitionHistorySource
 type RuntimeRunSchedulerPlanRequest = runtime.RuntimeRunSchedulerPlanRequest
 type RuntimeRunSchedulerPlanResponse = runtime.RuntimeRunSchedulerPlanResponse
+type RuntimeRunSchedulerExecuteTaskRequest = runtime.RuntimeRunSchedulerExecuteTaskRequest
+type RuntimeRunSchedulerExecuteTaskResponse = runtime.RuntimeRunSchedulerExecuteTaskResponse
 type RuntimeRunTransition = runtime.RuntimeRunTransition
 type RuntimeRunProjection = runtime.RuntimeRunProjection
 type RuntimeRunSchedulerPlan = runtime.RuntimeRunSchedulerPlan
 type RuntimeRunSchedulerPlanItem = runtime.RuntimeRunSchedulerPlanItem
 type RuntimeRunSchedulerTaskScope = runtime.RuntimeRunSchedulerTaskScope
 type RuntimeRunSchedulerPlanSource = runtime.RuntimeRunSchedulerPlanSource
+type RuntimeRunSchedulerExecuteTaskSource = runtime.RuntimeRunSchedulerExecuteTaskSource
 type RuntimeRunCheckpoint = runtime.RuntimeRunCheckpoint
 type RuntimeRunDiagnostics = runtime.RuntimeRunDiagnostics
 type RuntimeRunUserActions = runtime.RuntimeRunUserActions
@@ -537,6 +540,12 @@ func (r *RuntimeBridge) RunTransitionHistory(ctx context.Context, req RuntimeRun
 func (r *RuntimeBridge) RunSchedulerPlan(ctx context.Context, req RuntimeRunSchedulerPlanRequest) (RuntimeRunSchedulerPlanResponse, error) {
 
 	return r.service.RunSchedulerPlan(ctx, req)
+
+}
+
+func (r *RuntimeBridge) ExecuteRunTask(ctx context.Context, runID string, taskID string) (RuntimeRunSchedulerExecuteTaskResponse, error) {
+
+	return r.service.ExecuteRunTask(ctx, runID, taskID)
 
 }
 

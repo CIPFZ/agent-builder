@@ -472,6 +472,64 @@ func TestRuntimeHTTPServerRoutesRunSchedulerPlanToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesRunSchedulerExecuteTaskToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		executeRunTask: RuntimeRunSchedulerExecuteTaskResponse{
+			Accepted:         true,
+			ExecutionStarted: true,
+			Reason:           runtimeRunSchedulerExecuteTaskReasonForegroundExecutionStarted,
+			Task:             RuntimeAgentTask{ID: "task-1", Status: agentTaskStatusRunning},
+			RefreshTargets:   runtimeRunSchedulerRefreshTargets(),
+			Source: RuntimeRunSchedulerExecuteTaskSource{
+				Kind:                  runtimeRunSchedulerExecuteTaskSourceKind,
+				Action:                runtimeRunSchedulerExecuteTaskAction,
+				BackendOnly:           true,
+				StartsWorker:          false,
+				IdempotentByTaskID:    true,
+				SessionActivityParity: true,
+			},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodPost, "/v1/runs/run-1/tasks/task-1/execute", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.executeRunID != "run-1" || service.executeTaskID != "task-1" {
+		t.Fatalf("execute args = %q/%q", service.executeRunID, service.executeTaskID)
+	}
+	if service.chatCalls != 0 || service.cancelledTask != "" {
+		t.Fatalf("execute route caused side effects: chatCalls=%d cancelledTask=%q", service.chatCalls, service.cancelledTask)
+	}
+	var execute RuntimeRunSchedulerExecuteTaskResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &execute); err != nil {
+		t.Fatal(err)
+	}
+	if !execute.Accepted || !execute.ExecutionStarted || execute.Source.StartsWorker || !execute.Source.BackendOnly || !execute.Source.IdempotentByTaskID || !execute.Source.SessionActivityParity {
+		t.Fatalf("execute response = %#v", execute)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=POST&path=/v1/runs/run-2/tasks/task-2/execute", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("dev-module status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.executeRunID != "run-2" || service.executeTaskID != "task-2" {
+		t.Fatalf("dev-module execute args = %q/%q", service.executeRunID, service.executeTaskID)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesRunsToRuntimeService(t *testing.T) {
 	t.Parallel()
 

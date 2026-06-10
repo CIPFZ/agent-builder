@@ -80,6 +80,7 @@ type RuntimeService interface {
 	RunProjection(context.Context, RuntimeRunProjectionRequest) (RuntimeRunProjectionResponse, error)
 	RunTransitionHistory(context.Context, RuntimeRunTransitionHistoryRequest) (RuntimeRunTransitionHistoryResponse, error)
 	RunSchedulerPlan(context.Context, RuntimeRunSchedulerPlanRequest) (RuntimeRunSchedulerPlanResponse, error)
+	ExecuteRunTask(context.Context, string, string) (RuntimeRunSchedulerExecuteTaskResponse, error)
 	Messages(context.Context) (RuntimeMessagesResponse, error)
 	Permissions(context.Context) (RuntimePermissionsResponse, error)
 	GetPolicy(context.Context) (RuntimePolicyResponse, error)
