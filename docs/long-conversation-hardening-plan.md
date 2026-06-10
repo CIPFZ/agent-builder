@@ -9571,6 +9571,60 @@ Review conclusion:
   should decide whether to implement the process orchestration now or keep
   click validation manual.
 
+## 2026-06-11: Phase 27.2 Browser Scheduler Click Harness Gate
+
+Phase 27.2 reviews whether to implement full browser process orchestration for
+the scheduler Execute button now. It is a design gate only and does not add a
+browser harness, long-running process launcher, runtime readiness bypass,
+production seed endpoint, background worker, automatic resume, database
+migration, stale actionability recovery, frontend Run state ownership, full
+scheduler UI, or full Run executor behavior.
+
+Gate finding:
+
+- Phase 27.1 closes the critical runtime readiness gap through normal local
+  config and loopback fake provider.
+- A full click harness is materially broader than a source or Go smoke. It must
+  orchestrate:
+  - temp runtime root and temp runtime DB under `tmp/runtime-dev`;
+  - loopback fake provider;
+  - runtime HTTP server with known token;
+  - seeded durable Run/Turn/AgentTask evidence after readiness;
+  - Vite dev server with `VITE_AGENT_BUILDER_RUNTIME_URL` and token;
+  - in-app/browser automation against the Vite page;
+  - robust process cleanup on Windows.
+- Adding that directly without a harness contract risks flaky long-running
+  processes and stale ports/pids under the user's active development browser.
+
+Accepted next boundary:
+
+- Do not implement the browser process harness in this phase.
+- Keep the manual/local browser click checklist from Phase 26.13 as the current
+  full-click validation path.
+- Before implementation, define a small harness contract covering:
+  - fixed vs dynamic ports;
+  - pid/log paths under `tmp/runtime-dev`;
+  - cleanup on success/failure;
+  - how the browser selects the test session;
+  - how seeded candidate IDs are exposed without React fixtures;
+  - how screenshots/logs avoid secrets.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 27.2 accepts deferring browser process orchestration until a dedicated
+  harness contract exists.
+- The next safe task is Phase 27.3: Scheduler Execute Automation Track
+  Acceptance And Pause. It should summarize Phases 27-27.2 and decide whether
+  to pause or open a dedicated harness-contract phase.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9618,6 +9672,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 27.2: Browser Scheduler Click Harness Gate. Decide whether to
-implement local process orchestration for runtime HTTP plus Vite plus browser
-click validation now, or keep full click validation as a manual/local checklist.
+Implement Phase 27.3: Scheduler Execute Automation Track Acceptance And Pause.
+Summarize Phases 27-27.2 and decide whether to pause or open a dedicated
+browser harness-contract phase.
