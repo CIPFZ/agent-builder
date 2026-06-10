@@ -2178,3 +2178,15 @@ Phase 28.2 note:
   validation of completed scheduler output and produced refs, still sourced
   from runtime DTOs rather than action responses, event payloads, or React
   state.
+
+Phase 29 note:
+
+- Browser worker-completion validation is accepted as the next design target.
+- The future smoke should reuse the local-only harness with a test-only
+  foreground runner that records completion through
+  `runtimeSchedulerRecorder.AgentTaskCompleted(...)`.
+- Browser assertions must verify completed task/result/ref evidence by
+  re-reading runtime DTOs, not from action responses, event payloads, assistant
+  prose, or React state.
+- Packaged/Wails automation, background scheduling, automatic resume, and
+  production seed endpoints remain out of scope.

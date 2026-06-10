@@ -9930,6 +9930,72 @@ Review conclusion:
   produced refs without adding background scheduling, automatic resume,
   production seed endpoints, or frontend-owned scheduler state.
 
+## 2026-06-11: Phase 29 Scheduler Worker Completion Browser Smoke Gate
+
+Phase 29 defines the next browser automation boundary for completed scheduler
+output and produced refs. It is a design gate only and does not add code,
+packaged/Wails automation, production seed endpoints, runtime readiness
+bypasses, background workers, automatic resume, database migrations, stale
+actionability recovery, frontend Run state ownership, full scheduler UI, or
+full Run executor behavior.
+
+Current coverage:
+
+- Phase 28.1 proves a visible browser click can start a queued scheduler task
+  through runtime HTTP and then verify durable task DTO hydration.
+- The Phase 28.1 harness intentionally disables the foreground task runner, so
+  it validates explicit start/hydration only.
+- Existing Go tests already prove coordinator runner completion and
+  cancellation semantics, including `CompletionOnlyRefs=true`, no stale resume,
+  completed-output-only refs, and no artifact evidence for cancelled/partial
+  work.
+
+Gate finding:
+
+- The next browser coverage should not introduce an unattended scheduler or
+  real provider-backed child agent execution.
+- The correct browser-smoke implementation is a test-only foreground runner
+  installed by the local harness after normal runtime readiness.
+- That runner should complete the clicked task synchronously through
+  `runtimeSchedulerRecorder.AgentTaskCompleted(...)`, with a non-secret
+  synthetic artifact ref/content under `tmp/runtime-dev`.
+- The browser should verify completion by re-reading durable DTOs:
+  - task row is terminal completed;
+  - task result exists and is completed;
+  - produced refs are present only after completed recorder output;
+  - `RunProjection` artifact counts update from durable evidence;
+  - duplicate lifecycle/ref/artifact events do not duplicate UI rows or refs;
+  - permissions and MCP actionability remain non-resurrected.
+
+Accepted implementation constraints for a future Phase 29.1:
+
+- Reuse the Phase 28.1 local-only harness shape.
+- Keep all scripts, generated specs, logs, pids, screenshots, and synthetic
+  artifacts under `tmp/runtime-dev/phase29-worker-completion-browser-smoke/`.
+- Keep readiness through temp `model.json` plus loopback fake provider.
+- Do not add production seed endpoints, provider catalog entries, or readiness
+  bypasses.
+- Do not use action response payloads, runtime event payloads, assistant prose,
+  or React state as artifact/ref/task truth.
+- Do not run a background queue, poller, daemon, or automatic resume loop.
+- Do not add packaged/Wails automation in the same phase.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 29 accepts a browser worker-completion smoke design.
+- The next safe task is Phase 29.1: Local Browser Scheduler Worker Completion
+  Smoke Implementation. It should extend the local harness with a test-only
+  foreground completion runner and browser assertions for completed task
+  result/artifact refs.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9977,7 +10043,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 29: Scheduler Worker Completion Browser Smoke Gate. Decide how
-to validate completed scheduler output and produced refs from a browser flow
-without adding background scheduling, automatic resume, production seed
-endpoints, or frontend-owned scheduler state.
+Implement Phase 29.1: Local Browser Scheduler Worker Completion Smoke
+Implementation. Extend the local harness with a test-only foreground completion
+runner and browser assertions for completed task result/artifact refs.
