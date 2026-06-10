@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
 func TestRuntimeRunSchedulerExecuteTaskAcceptsOwnedActiveCandidateWithoutStartingWorker(t *testing.T) {
@@ -40,7 +42,7 @@ func TestRuntimeRunSchedulerExecuteTaskAcceptsOwnedActiveCandidateWithoutStartin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !resp.Accepted || resp.ExecutionStarted || resp.Reason != runtimeRunSchedulerExecuteTaskReasonAcceptedPendingImplementation {
+	if !resp.Accepted || resp.ExecutionStarted || resp.Reason != runtimeRunSchedulerExecuteTaskReasonAlreadyRunning {
 		t.Fatalf("execute response = %#v", resp)
 	}
 	if resp.Source.Kind != runtimeRunSchedulerExecuteTaskSourceKind || !resp.Source.BackendOnly || resp.Source.StartsWorker || !resp.Source.IdempotentByTaskID || !resp.Source.SessionActivityParity {
@@ -55,7 +57,7 @@ func TestRuntimeRunSchedulerExecuteTaskAcceptsOwnedActiveCandidateWithoutStartin
 	assertTaskDelegateNoSideEffects(t, service, run.ID, task.ID)
 }
 
-func TestRuntimeRunSchedulerExecuteTaskIsIdempotentBeforeExecutionImplementation(t *testing.T) {
+func TestRuntimeRunSchedulerExecuteTaskStartsQueuedTaskOnce(t *testing.T) {
 	t.Parallel()
 
 	service, release := runtimeRunTransitionWriterTestService(t)
@@ -82,17 +84,56 @@ func TestRuntimeRunSchedulerExecuteTaskIsIdempotentBeforeExecutionImplementation
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !first.Accepted || !second.Accepted || first.ExecutionStarted || second.ExecutionStarted {
+	if !first.Accepted || !first.ExecutionStarted || first.Reason != runtimeRunSchedulerExecuteTaskReasonForegroundExecutionStarted {
 		t.Fatalf("execute responses = %#v / %#v", first, second)
+	}
+	if !second.Accepted || second.ExecutionStarted || second.Reason != runtimeRunSchedulerExecuteTaskReasonAlreadyRunning {
+		t.Fatalf("duplicate execute response = %#v", second)
 	}
 	refreshed, err := service.agentTasks.Get(context.Background(), task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if refreshed.Status != task.Status || refreshed.StartedAt != task.StartedAt || len(refreshed.ArtifactRefs) != 0 {
+	if refreshed.Status != agentTaskStatusRunning || refreshed.Progress != 10 || refreshed.StartedAt != task.StartedAt || len(refreshed.ArtifactRefs) != 0 {
 		t.Fatalf("task mutated by duplicate execute contract calls = %#v", refreshed)
 	}
-	assertTaskDelegateNoSideEffects(t, service, run.ID, task.ID)
+	messages, err := newRuntimeAgentTaskMessageStore(service.turns.db).ListByTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 1 || messages[0].Kind != taskMessageKindInstruction || messages[0].Status != taskMessageStatusProcessed {
+		t.Fatalf("task start messages = %#v", messages)
+	}
+	if _, err := newRuntimeAgentTaskResultStore(service.turns.db).Get(context.Background(), task.ID); err == nil {
+		t.Fatal("task execute start created a result before completion")
+	}
+	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs.Refs) != 0 {
+		t.Fatalf("task execute start created artifact refs: %#v", refs.Refs)
+	}
+	events, err := service.Events(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	startEvents := 0
+	for _, event := range events.Events {
+		if event.Type == runtimeapi.EventTaskStarted && event.Payload["task_id"] == task.ID {
+			startEvents++
+		}
+	}
+	if startEvents != 1 {
+		t.Fatalf("task started events = %d events=%#v", startEvents, events.Events)
+	}
+	transitions, err := service.transitions.ListByRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(transitions) != 1 || transitions[0].Source != runtimeRunTransitionSourceTaskStarted || transitions[0].TaskID != task.ID {
+		t.Fatalf("task start transitions = %#v", transitions)
+	}
 }
 
 func TestRuntimeRunSchedulerExecuteTaskRejectsInvalidCandidatesWithoutSideEffects(t *testing.T) {

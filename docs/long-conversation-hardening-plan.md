@@ -7164,6 +7164,58 @@ Next safe boundary:
   migrations, stale actionability recovery, frontend Run UI, or
   event/prose/React-derived truth.
 
+## 2026-06-10: Phase 22.3 Foreground Task Execute Body Behind Backend Contract
+
+Phase 22.3 implements the first internal foreground execution body behind
+`runtimeRunSchedulerExecuteTask(...)`. This is still runtime-only and does not
+expose HTTP, Wails, generated bindings, frontend controls, or a background
+scheduler.
+
+Implemented:
+
+- `runtimeRunSchedulerExecuteTask(...)` now distinguishes accepted states:
+  - `queued` task: revalidated and moved to `running`;
+  - `running` task: accepted as an idempotent duplicate without writing new
+    evidence.
+- Queued task start writes one processed parent-to-child instruction message.
+- Queued task start records one `task_started` lifecycle event/audit entry.
+- Queued task start records one run transition with source `task_started`.
+- The response returns `executionStarted=true` only for the first queued task
+  start. Duplicate/running calls return `executionStarted=false`.
+
+Still not implemented:
+
+- No child agent execution body is started.
+- No result, completion, failed, cancelled, or artifact evidence is produced by
+  the start action.
+- No HTTP/dev/Wails/client transport or frontend UI is exposed.
+- No worker, queue, poller, automatic resume, database migration, stale
+  actionability recovery, or event/prose/React-derived source of truth is
+  introduced.
+
+Contract tests:
+
+- Running task execute calls remain idempotent and side-effect free.
+- Queued task execute calls start the task once, write exactly one instruction
+  message, one `task_started` event, and one task-start transition, and create
+  no result or artifact refs.
+- Duplicate queued-task execute calls become `already_running` without
+  duplicate messages/events/transitions.
+- Unowned and terminal tasks remain rejected without side effects.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeRunSchedulerExecuteTask" -count=1`
+  passed.
+
+Review conclusion:
+
+- Phase 22.3 implements a minimal foreground start body, not a complete task
+  runner.
+- Artifact evidence remains completed-output-only.
+- Transport/frontend exposure remains unaccepted until a later gate accepts
+  actual child-agent execution and its permission/MCP/cancellation behavior.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7211,8 +7263,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 22.3: Foreground Task Execute Body Behind Backend Contract.
-Keep it internal runtime-only until accepted. Do not expose frontend controls,
-HTTP/Wails transport, background workers, automatic resume, database
+Review/accept Phase 22.3, then plan the next gate for actual child-agent
+foreground execution behind the internal contract. Do not expose frontend
+controls, HTTP/Wails transport, background workers, automatic resume, database
 migrations, stale actionability recovery, or event/prose/React-derived source
 of truth.

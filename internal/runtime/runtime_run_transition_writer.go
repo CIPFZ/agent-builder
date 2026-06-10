@@ -14,6 +14,7 @@ const (
 	runtimeRunTransitionSourceInterruptedMarkedDone = "interrupted_marked_done"
 	runtimeRunTransitionSourceStartupRecovery       = "startup_recovery"
 	runtimeRunTransitionSourceCheckpointResume      = "checkpoint_resume"
+	runtimeRunTransitionSourceTaskStarted           = "task_started"
 )
 
 func (r *runtimeService) recordRunTransition(ctx context.Context, transition RuntimeRunTransition) {

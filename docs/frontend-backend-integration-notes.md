@@ -1782,3 +1782,13 @@ Phase 22.2 note:
 - Frontend and transport exposure remain rejected until the execution body has
   contract coverage for idempotency, cancellation ordering, permission/MCP
   semantics, and completed-output-only artifact evidence.
+
+Phase 22.3 note:
+
+- The internal execute contract can now start a queued task by moving it to
+  `running`, recording one instruction message, one `task_started` event, and
+  one task-start transition.
+- Duplicate calls for a running task remain idempotent and do not duplicate
+  evidence.
+- This remains internal runtime-only. No child agent runner, HTTP/dev/Wails
+  route, frontend adapter, or UI control is exposed.

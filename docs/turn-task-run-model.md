@@ -138,6 +138,14 @@ Phase 22.2 note:
   preserve its revalidation, idempotency, and no-stale-actionability semantics.
 - Transport and frontend exposure remain unaccepted.
 
+Phase 22.3 note:
+
+- Internal foreground task start now moves queued tasks to running and records
+  start evidence once.
+- Running tasks are treated as idempotent duplicates.
+- The start action does not produce task results or artifact refs; those remain
+  completion-only evidence.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
