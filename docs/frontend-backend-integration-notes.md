@@ -2530,3 +2530,13 @@ Phase 37.9 note:
   durable rereads, but must not derive resumed-turn state, checkpoint links,
   transition history, timeline rows, diagnostics, artifacts, permission state,
   MCP actionability, scheduler state, or Run projection from the action payload.
+
+Phase 37.10 note:
+
+- Permission decisions are accepted for the next metadata implementation using
+  optional `RuntimeStatus.action` populated only by `DecidePermission(...)`.
+- The existing frontend flow already calls `DecidePermission(...)` and then
+  hydrates the workbench; it must continue to render active/terminal permission
+  gates, tool calls, turns, diagnostics, timeline rows, and session activity
+  from runtime DTO reads rather than the decision response payload.
+- Plain status reads must not carry decision action metadata.

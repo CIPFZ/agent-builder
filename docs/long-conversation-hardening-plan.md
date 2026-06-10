@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.10: Checkpoint Resume Write Action Envelope Acceptance And
-Permission Decision Contract Gate. Review the top-level resume metadata
-implementation, then define whether permission decisions can adopt the shared
-envelope without making response payloads the source of active gate state.
+Implement Phase 37.11: Permission Decision Write Action Metadata
+Implementation. Add optional shared metadata to `RuntimeStatus` only when it is
+returned by `DecidePermission(...)`, preserve the existing decision signature,
+and keep active permission/tool/turn state owned by durable runtime reads.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12181,3 +12181,81 @@ Remaining risk:
 - Permission decision responses still do not carry the shared `action`
   metadata. Phase 37.10 should review the resume implementation and define a
   permission decision contract gate before any implementation.
+
+## 2026-06-11: Phase 37.10 Checkpoint Resume Write Action Envelope Acceptance And Permission Decision Contract Gate
+
+Phase 37.10 reviews the Phase 37.9 checkpoint resume metadata implementation
+and defines a narrow contract for permission decision metadata. It is an
+acceptance/design phase only. It does not change runtime behavior, database
+schema, Run persistence, automatic resume, background scheduling, stale
+permission/MCP actionability recovery, or frontend Run UI.
+
+Phase 37.9 acceptance:
+
+- `ResumeRunCheckpoint(...)` now returns optional top-level `action` metadata
+  on `RuntimeRunResumeResponse`.
+- The nested `RuntimeRunResponse` remains a durable Run detail payload and does
+  not carry resume action metadata.
+- Resume metadata intentionally leaves `idempotentBy` empty because repeated
+  explicit resume actions can create distinct resumed turns.
+- HTTP route coverage verifies top-level resume metadata and nested Run action
+  absence.
+- Frontend integration remains reread driven: action metadata may choose
+  refresh targets, but resumed-turn state, checkpoint links, transition
+  history, diagnostics, timeline rows, artifacts, permissions, MCP
+  actionability, scheduler state, and Run projection still come from runtime
+  DTO reads.
+
+Permission decision contract:
+
+- Keep the existing `DecidePermission(...)` service signature returning
+  `RuntimeStatus`. Do not introduce a new response DTO in this phase.
+- Add optional `action` metadata to `RuntimeStatus`, but populate it only in
+  the response returned by `DecidePermission(...)`.
+- Plain `Status(...)` reads, chat/status reads, policy writes, and unrelated
+  status responses must omit `action`.
+- Use source kind `permission_decision`; action should be the decision value:
+  `allow`, `allow_for_session`, or `deny`.
+- Use `backendOnly=true`, `startsWorker=false`, `idempotentBy="permission_id"`,
+  and `sessionActivityParity=true`.
+- Refresh targets must force durable rereads of permissions, relevant turn
+  activity/session activity, tool calls, diagnostics, and status. The action
+  payload must not restore or preserve active gate state.
+- Durable evidence names should include permission store rows, tool call rows,
+  turn rows, runtime events, audit, and session activity.
+- Deny semantics must continue to terminalize the relevant tool call/turn
+  evidence through existing durable paths. Allow semantics must continue to
+  remove the pending gate and let runtime-owned execution proceed.
+
+Accepted Phase 37.11 scope:
+
+- Add optional `Action *RuntimeWriteActionMetadata` to `RuntimeStatus`.
+- Populate it only at the end of `DecidePermission(...)` after existing
+  permission service, store, tool call, turn, audit, event, and status behavior
+  succeeds.
+- Extend backend and HTTP/dev route tests proving decision metadata is present
+  for permission decisions and absent from plain `Status(...)`.
+
+Rejected for Phase 37.11:
+
+- No frontend permission state ownership.
+- No stale permission recovery or resurrection.
+- No permission auto-decision, auto-resume, or background scheduler.
+- No full Run state machine, Run store expansion, migration, stale tool/MCP
+  recovery, or frontend Run management UI.
+- No event payload or action payload as active permission gate state.
+- No assistant-prose-derived refs, artifacts, checkpoints, or actionability.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Phase 37.9 is accepted.
+- Permission decisions can adopt shared write-action metadata next, but only as
+  optional `RuntimeStatus.action` populated by `DecidePermission(...)` and never
+  as the source of active permission/tool/turn state.

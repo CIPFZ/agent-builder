@@ -108,6 +108,14 @@ Phase 37.9 note:
   checkpoint-link, transition, timeline, diagnostic, artifact, permission, MCP,
   scheduler, or Run projection state.
 
+Phase 37.10 note:
+
+- The checkpoint resume envelope implementation is accepted.
+- Permission decisions are accepted for the next metadata implementation by
+  adding optional `RuntimeStatus.action` populated only by `DecidePermission(...)`.
+- Active permission gates, tool calls, turns, diagnostics, and session activity
+  remain durable runtime read state, not action payload state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
