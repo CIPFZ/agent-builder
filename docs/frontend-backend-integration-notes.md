@@ -2363,3 +2363,11 @@ Phase 35 note:
 - Do not store secrets, OAuth state, auth URLs, screenshots, raw headers, live
   provider logs, or browser profiles in repo docs, fixtures, logs, screenshots,
   or React state.
+
+Phase 35.1 note:
+
+- A refreshed redacted hosted provider/MCP manual checklist was written under
+  ignored `tmp/runtime-dev`.
+- It is a local operator checklist only, not a committed fixture.
+- Real hosted smoke was not executed because no safe operator credentials or
+  browser auth state were provided.

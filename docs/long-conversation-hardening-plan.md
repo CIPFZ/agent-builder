@@ -11111,6 +11111,54 @@ Review conclusion:
 - The next safe task is Phase 35.1: Redacted Hosted Provider MCP Checklist
   Artifact Refresh.
 
+## 2026-06-11: Phase 35.1 Redacted Hosted Provider MCP Checklist Artifact Refresh
+
+Phase 35.1 refreshes the local redacted hosted provider/MCP manual smoke
+checklist. It does not add code, live provider credentials, hosted OAuth
+automation, provider-specific secret fixtures, production seed/debug endpoints,
+runtime readiness bypasses, background workers, automatic resume, database
+migrations, stale actionability recovery, frontend Run state ownership,
+packaged WebView automation, full scheduler UI, or full Run executor behavior.
+
+Implemented:
+
+- Wrote a redacted local checklist at:
+
+  ```text
+  tmp/runtime-dev/phase-35.1-hosted-provider-mcp-smoke-redacted.md
+  ```
+
+- The checklist records:
+  - deterministic local substitute coverage from Phase 32.1, Phase 33.1, and
+    Phase 6.8/6.9;
+  - hosted provider completion/cancellation checks;
+  - hosted MCP auth/elicitation restart checks;
+  - explicit forbidden content: tokens, cookies, raw headers, auth URLs,
+    browser profile paths, screenshots with auth state, and live provider logs.
+
+Validation result:
+
+- Real hosted provider/OAuth/MCP smoke was not executed in this workspace
+  because no safe operator-held credentials or browser auth state were
+  provided.
+- No secrets, auth state, screenshots, raw headers, live provider logs, or
+  browser profiles were committed.
+- The local checklist remains under ignored `tmp/runtime-dev`.
+
+Validation:
+
+```text
+git status --short
+git diff --check
+```
+
+Review conclusion:
+
+- Phase 35.1 accepts the redacted local checklist refresh.
+- The hosted provider/MCP gap remains credential-gated manual validation.
+- The next safe task is Phase 35.2: Hosted Manual Smoke Acceptance And Next
+  Track Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -11158,6 +11206,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 35.1: Redacted Hosted Provider MCP Checklist Artifact Refresh.
-Write an ignored, redacted local checklist under `tmp/runtime-dev` reflecting
-the Phase 35 manual smoke boundary, without secrets or auth state.
+Implement Phase 35.2: Hosted Manual Smoke Acceptance And Next Track Gate.
+Accept the redacted manual checklist refresh and choose the next implementation
+or validation track.
