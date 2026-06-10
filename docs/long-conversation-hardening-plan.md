@@ -6811,6 +6811,89 @@ Review conclusion:
 - The next safe task is Phase 21: Task Scheduler Transport And UI Exposure
   Design Gate.
 
+### Phase 21: Task Scheduler Transport And UI Exposure Design Gate
+
+Status: accepted as a design gate only.
+
+Purpose:
+
+- Decide whether the internal foreground task schedulability signal should be
+  exposed through HTTP, Wails, generated bindings, runtime adapters, or React.
+- Preserve the current runtime source-of-truth boundary before any frontend
+  implementation.
+
+Accepted transport design:
+
+- Do not expose a task scheduler execute action yet.
+- Do not expose `runtimeRunSchedulerDelegateTaskTurn(...)` through HTTP or
+  Wails yet. It remains an internal backend preflight/delegate contract.
+- The next transport-safe step, if needed, is a read-only scheduler plan DTO
+  endpoint/method that returns `RuntimeRunSchedulerPlanResponse` for a Run and
+  candidate turn/checkpoint/task id.
+- A read-only transport plan response may include `CanSchedule`,
+  `OwnershipVerified`, `TaskScope`, `CancellationScope`, `DiagnosticsRoute`,
+  and `RefreshTargets`, but it must not start execution, cancel tasks, mutate
+  task rows, write refs, write task messages/results, or record transitions.
+- Event payloads may select refresh targets only. Frontend must refresh
+  runtime DTOs such as `RunProjection`, `TurnActivity`,
+  `SessionActivityCursorWindow`, full `SessionActivity`, task detail, task
+  result, and read-only scheduler plan. It must not merge event payloads into
+  lifecycle, diagnostics, artifact evidence, permission/MCP actionability, or
+  Run status.
+- Any future executable task action requires a separate implementation gate
+  after read-only transport coverage proves HTTP/Wails/browser parity.
+
+Frontend/UI decision:
+
+- No frontend Run management UI is accepted by this gate.
+- No executable task button/control is accepted by this gate.
+- If the frontend consumes read-only scheduler plan later, it may use it only
+  to decide refresh affordances/disabled states that are reconciled against
+  runtime DTOs. React state must not become task lifecycle or actionability
+  truth.
+
+Required implementation entry criteria for Phase 21.1:
+
+- Add transport-neutral RuntimeService/HTTP/dev/Wails read-only scheduler plan
+  exposure, or explicitly accept that no transport exposure is currently
+  needed.
+- If exposed, add contract tests for:
+  - user-turn, checkpoint, and task candidate request shapes;
+  - browser/dev HTTP and Wails bridge parity where generated bindings exist;
+  - no mutation of task rows, refs, messages, results, transitions, permission
+    state, MCP auth/elicitation state, or runtime events;
+  - event-triggered refresh choosing DTO reads rather than payload merging.
+- Keep full `SessionActivity` as fallback and parity oracle.
+
+Rejected behavior:
+
+- No task scheduler execute route, adapter method, generated binding, or React
+  action.
+- No background worker, queue, poller, or automatic resume.
+- No frontend Run management UI.
+- No database migration.
+- No stale permission/MCP actionability restore.
+- No event/prose/React-derived lifecycle, artifact evidence, permission/MCP
+  actionability, or Run status.
+
+Validation:
+
+- Design review only.
+- Reviewed existing frontend/backend integration notes, Wails bridge route
+  patterns, HTTP route history, and current internal scheduler plan/delegate
+  state.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 21 accepts read-only scheduler plan transport as the next safe exposure
+  boundary, not executable task scheduling.
+- The next safe task is Phase 21.1: Read-only Scheduler Plan Transport
+  Contract.
+- Phase 21.1 must not add execute/cancel actions, frontend Run management UI,
+  worker/queue/auto-resume behavior, database migration, or source-of-truth
+  promotion.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6858,9 +6941,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Start Phase 21: Task Scheduler Transport And UI Exposure Design Gate. Decide
-whether executable task plan/delegate signals should be exposed through
-HTTP/Wails/frontend adapters, and define the DTO refresh/source-of-truth
-constraints before implementation. Do not add a background worker, queue,
-poller, automatic resume, frontend Run management UI, database migration, or
-event/prose/React-derived source of truth.
+Implement Phase 21.1: Read-only Scheduler Plan Transport Contract. Expose only
+the read-only scheduler plan DTO through transport if needed, with tests proving
+HTTP/dev/Wails parity and no mutation or actionability side effects. Do not add
+task scheduler execute/cancel actions, frontend Run management UI, worker,
+queue, automatic resume, database migration, or event/prose/React-derived
+source of truth.

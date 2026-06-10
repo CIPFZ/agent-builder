@@ -83,6 +83,14 @@ Phase 20.2 note:
   exposure remain unaccepted until a separate design gate defines adapter DTOs,
   refresh behavior, and source-of-truth constraints.
 
+Phase 21 note:
+
+- The accepted transport boundary is read-only scheduler plan DTO exposure
+  only. The internal task delegate remains backend-only, and no execute/cancel
+  action or frontend Run management UI is accepted.
+- Event payloads may select DTO refreshes but must not become lifecycle,
+  artifact, permission/MCP actionability, or Run status truth.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

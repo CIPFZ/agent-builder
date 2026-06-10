@@ -1702,3 +1702,26 @@ Phase 20.2 result:
   transport/UI exposure design gate.
 - Transport and UI exposure remain unaccepted until Phase 21 defines the
   adapter and source-of-truth constraints.
+
+## 2026-06-10: Phase 21 Task Scheduler Transport And UI Exposure Design Gate
+
+Phase 21 defines the next transport-safe boundary for task scheduler planning.
+
+Frontend boundary:
+
+- No task scheduler execute action, adapter method, generated binding, or React
+  control is accepted.
+- No frontend Run management UI is accepted.
+- The only accepted next exposure is read-only scheduler plan DTO transport.
+- Events remain refresh triggers only; payloads may choose which DTO to refresh
+  but must not hydrate task lifecycle, artifact evidence, permission/MCP
+  actionability, or Run status in React state.
+
+Phase 21 result:
+
+- `runtimeRunSchedulerDelegateTaskTurn(...)` remains backend-internal.
+- A future read-only scheduler plan transport may expose
+  `RuntimeRunSchedulerPlanResponse` for user-turn, checkpoint, or task
+  candidates.
+- Any executable task action requires a later implementation gate after
+  read-only HTTP/Wails/browser parity is covered.
