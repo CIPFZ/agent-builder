@@ -1860,3 +1860,11 @@ Phase 23.3 note:
 - There is still no browser/Wails/React execute path. Any future transport
   exposure remains blocked until backend wiring proves durable prompt sourcing,
   terminal failure/cancellation behavior, and completion-only refs.
+
+Phase 23.4 note:
+
+- Runtime has an internal adapter contract and structured prompt-source
+  payload, but the adapter is not installed and no execute transport/UI exists.
+- Browser/Wails/React code remains read-only for task execution state and must
+  continue to refresh authoritative runtime DTOs rather than deriving state
+  from events or local UI memory.

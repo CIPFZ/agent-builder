@@ -355,6 +355,7 @@ type RuntimeAgentTaskExecutionRequest struct {
 	Kind                    string   `json:"kind,omitempty"`
 	Role                    string   `json:"role,omitempty"`
 	Name                    string   `json:"name,omitempty"`
+	Prompt                  string   `json:"prompt,omitempty"`
 	PromptSummary           string   `json:"promptSummary,omitempty"`
 	Provider                string   `json:"provider,omitempty"`
 	Model                   string   `json:"model,omitempty"`

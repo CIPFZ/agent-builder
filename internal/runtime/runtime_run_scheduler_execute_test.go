@@ -71,6 +71,7 @@ func TestRuntimeRunSchedulerExecuteTaskStartsQueuedTaskOnce(t *testing.T) {
 		ParentSessionID: "session-1",
 		ParentTurnID:    turn.ID,
 		ChildSessionID:  "session-child",
+		PromptSummary:   "summarize page",
 		Status:          agentTaskStatusQueued,
 		StartedAt:       1100,
 	})
@@ -105,6 +106,9 @@ func TestRuntimeRunSchedulerExecuteTaskStartsQueuedTaskOnce(t *testing.T) {
 	}
 	if len(messages) != 1 || messages[0].Kind != taskMessageKindInstruction || messages[0].Status != taskMessageStatusProcessed {
 		t.Fatalf("task start messages = %#v", messages)
+	}
+	if messages[0].Payload["prompt_source"] != "runtime_task_instruction" || messages[0].Payload["prompt"] != "summarize page" {
+		t.Fatalf("task start prompt payload = %#v", messages[0].Payload)
 	}
 	if _, err := newRuntimeAgentTaskResultStore(service.turns.db).Get(context.Background(), task.ID); err == nil {
 		t.Fatal("task execute start created a result before completion")

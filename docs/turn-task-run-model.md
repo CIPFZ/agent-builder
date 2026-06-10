@@ -215,6 +215,15 @@ Phase 23.3 note:
   coordinator ownership, use a durable structured prompt source, fail unknown
   roles terminally, and keep runtime durable re-reads as the source of truth.
 
+Phase 23.4 note:
+
+- Runtime now has an internal, uninstalled coordinator adapter contract.
+- Runtime task start writes a structured durable prompt source into the task
+  instruction message payload.
+- The adapter reads only explicit request prompt or durable instruction payload,
+  supports only `config.AgentTask`, and terminally fails unsupported roles or
+  missing prompt source without artifact refs.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

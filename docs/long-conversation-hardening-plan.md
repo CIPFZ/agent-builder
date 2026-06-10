@@ -7833,6 +7833,67 @@ Review conclusion:
 - Phase 23.4 must first resolve durable prompt sourcing and unsupported-role
   terminal failure behavior before connecting real task execution.
 
+## 2026-06-10: Phase 23.4 Runtime-to-coordinator Foreground Runner Adapter Contract
+
+Phase 23.4 implements the backend/internal runtime-side adapter contract for
+mapping started runtime tasks to the coordinator started-task execution shape.
+It does not install the adapter into `runtimeService`, does not resolve a real
+backend workspace/coordinator yet, and does not expose HTTP/dev/Wails,
+generated bindings, client adapters, frontend UI, background scheduling,
+automatic resume, database migrations, or stale actionability recovery.
+
+Implemented:
+
+- Added `Prompt` to `RuntimeAgentTaskExecutionRequest`.
+- `runtimeRunSchedulerExecuteTask(...)` now writes a structured durable prompt
+  source into the start instruction message payload:
+  `prompt_source=runtime_task_instruction` and `prompt=<start prompt>`.
+- Added `runtimeCoordinatorTaskRunner`, an internal runner contract that maps
+  `RuntimeAgentTaskExecutionRequest` to
+  `agent.StartedAgentTaskExecutionRequest` through an injected
+  `runtimeStartedAgentTaskExecutor`.
+- The adapter reads prompt text only from the explicit runtime request or from
+  the durable structured task instruction message. It does not infer prompt
+  text from assistant prose, events, transition history, or React state.
+- The adapter currently supports only `config.AgentTask` role. Unsupported
+  roles fail terminally through `runtimeSchedulerRecorder.AgentTaskFailed`
+  without calling the executor.
+- Missing executor or missing prompt source also fail terminally and leave no
+  artifact evidence.
+- Successful executor calls return metadata only; runtime remains responsible
+  for durable task/result/ref re-reads after runner return.
+
+Contract tests:
+
+- The runtime execute start path persists structured prompt source payload in
+  the instruction message.
+- The coordinator adapter reads the durable instruction prompt and maps
+  task/session/turn/source flags into the started-task executor request.
+- Unsupported roles fail terminally, do not call the executor, and do not
+  create artifact refs.
+- Missing prompt source fails terminally, does not call the executor, and does
+  not create artifact refs.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeCoordinatorTaskRunner|TestRuntimeRunSchedulerExecuteTask" -count=1`
+  passed.
+- `go test ./internal/agent ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1`
+  passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 23.4 resolves durable prompt sourcing for the adapter contract and
+  terminal failure behavior for unsupported roles/prompt gaps.
+- The adapter is still not installed into `runtimeService` and still does not
+  call a real backend workspace/coordinator.
+- No transport/frontend execution surface, background scheduler, automatic
+  resume, migration, stale actionability recovery, or event/prose/React source
+  of truth was added.
+- The next safe task is Phase 23.5 acceptance, then a later gate may install a
+  real backend/coordinator executor if accepted.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7880,8 +7941,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 23.4: Runtime-to-coordinator Foreground Runner Adapter
-Contract. Keep it backend/internal and test-covered first. Do not expose
-frontend controls, expose HTTP/Wails transport, add background workers, add
-automatic resume, write database migrations, restore stale actionability, or
-make event/prose/React state the source of truth.
+Review/accept Phase 23.5: Runtime-to-coordinator Foreground Runner Adapter
+Contract Acceptance. Do not install the real adapter yet, expose frontend
+controls, expose HTTP/Wails transport, add background workers, add automatic
+resume, write database migrations, restore stale actionability, or make event/
+prose/React state the source of truth.

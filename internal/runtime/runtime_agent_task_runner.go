@@ -6,7 +6,7 @@ type runtimeAgentTaskRunner interface {
 	ExecuteAgentTask(context.Context, RuntimeAgentTaskExecutionRequest) (RuntimeAgentTaskExecutionResult, error)
 }
 
-func runtimeAgentTaskExecutionRequest(run RuntimeRun, task RuntimeAgentTask) RuntimeAgentTaskExecutionRequest {
+func runtimeAgentTaskExecutionRequest(run RuntimeRun, task RuntimeAgentTask, prompt string) RuntimeAgentTaskExecutionRequest {
 	return RuntimeAgentTaskExecutionRequest{
 		RunID:                   run.ID,
 		TaskID:                  task.ID,
@@ -18,6 +18,7 @@ func runtimeAgentTaskExecutionRequest(run RuntimeRun, task RuntimeAgentTask) Run
 		Kind:                    task.Kind,
 		Role:                    task.Role,
 		Name:                    task.Name,
+		Prompt:                  prompt,
 		PromptSummary:           task.PromptSummary,
 		Provider:                task.Provider,
 		Model:                   task.Model,

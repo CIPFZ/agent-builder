@@ -79,15 +79,18 @@ func (r *runtimeService) runtimeRunSchedulerExecuteTask(ctx context.Context, req
 	if err != nil {
 		return RuntimeRunSchedulerExecuteTaskResponse{}, err
 	}
+	startPrompt := firstNonEmpty(started.PromptSummary, started.Title)
 	_, err = r.createAgentTaskMessage(ctx, started, RuntimeAgentTaskMessage{
 		Direction:         taskMessageDirectionParentToChild,
 		Kind:              taskMessageKindInstruction,
 		Status:            taskMessageStatusProcessed,
-		ContentSummary:    firstNonEmpty(started.PromptSummary, started.Title),
+		ContentSummary:    startPrompt,
 		RelatedToolCallID: started.ParentToolCallID,
 		Payload: map[string]any{
-			"action": "execute_task",
-			"run_id": run.ID,
+			"action":        "execute_task",
+			"run_id":        run.ID,
+			"prompt":        startPrompt,
+			"prompt_source": "runtime_task_instruction",
 		},
 	})
 	if err != nil {
@@ -96,7 +99,7 @@ func (r *runtimeService) runtimeRunSchedulerExecuteTask(ctx context.Context, req
 	r.recordAgentTaskLifecycle(ctx, runtimeapi.EventTaskStarted, "task_started", started)
 	r.recordRunTaskTransition(ctx, runtimeRunTransitionSourceTaskStarted, started, "", runtimeRunStatusActive, "foreground task execution started")
 	if r.agentTaskRunner != nil {
-		if _, err := r.agentTaskRunner.ExecuteAgentTask(ctx, runtimeAgentTaskExecutionRequest(run, started)); err != nil {
+		if _, err := r.agentTaskRunner.ExecuteAgentTask(ctx, runtimeAgentTaskExecutionRequest(run, started, startPrompt)); err != nil {
 			refreshed, refreshErr := r.agentTasks.Get(ctx, started.ID)
 			if refreshErr == nil {
 				started = refreshed
