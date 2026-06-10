@@ -201,6 +201,13 @@ Phase 23.1 note:
   outcomes.
 - Runtime is not wired to the real adapter yet.
 
+Phase 23.2 note:
+
+- The coordinator-side started-task execution contract is accepted.
+- Runtime-to-coordinator wiring is still pending and must first design agent
+  selection, prompt sourcing, permission/MCP behavior, cancellation ordering,
+  and durable re-read semantics.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

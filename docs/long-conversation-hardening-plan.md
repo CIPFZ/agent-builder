@@ -7669,6 +7669,61 @@ Review conclusion:
 - The next safe task is Phase 23.2 acceptance, followed by a later runtime
   adapter wiring gate if accepted.
 
+## 2026-06-10: Phase 23.2 Agent/coordinator Started Task Execution Contract Acceptance
+
+Phase 23.2 accepts the Phase 23.1 coordinator-side started-task execution
+contract as the stable agent-layer boundary for future runtime wiring.
+
+Acceptance review:
+
+- Confirmed `StartedAgentTaskExecutionRequest` and
+  `StartedAgentTaskExecutionResult` live in `internal/agent` and are not
+  exposed through runtime transport, generated bindings, client adapters, or
+  frontend UI.
+- Confirmed `coordinator.ExecuteStartedAgentTask(...)` requires
+  `StartAlreadyRecorded=true` and rejects calls without pre-recorded durable
+  start evidence.
+- Confirmed the method does not call `AgentTaskStarted` or
+  `AgentTaskProgress`, preserving runtime ownership of start evidence.
+- Confirmed active child registration is process-local and scoped to the
+  foreground call, enabling follow-up/cancel routing only while the child agent
+  is actually active.
+- Confirmed completion, provider/policy failure, agent failure, and context
+  cancellation write terminal recorder-compatible evidence and do not create
+  artifact refs from partial/cancelled output.
+- Confirmed runtime remains unwired: `runtimeAgentTaskRunner` is still
+  test-injected and no real coordinator adapter is installed.
+
+Validation:
+
+- `go test ./internal/agent -run "TestExecuteStartedAgentTask|TestRunSubAgent" -count=1`
+  passed.
+- `go test ./internal/agent ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1`
+  passed.
+- `git diff --check` passed.
+
+Accepted contract:
+
+- A future runtime adapter may map `RuntimeAgentTaskExecutionRequest` to
+  `StartedAgentTaskExecutionRequest` and call
+  `coordinator.ExecuteStartedAgentTask(...)`, but only after a separate wiring
+  design/implementation phase accepts agent selection, prompt sourcing,
+  permission/MCP behavior, cancellation ordering, and terminal evidence
+  coverage.
+- The runtime adapter must remain foreground/request-scoped and must let
+  runtime re-read durable task/result/ref DTOs after return.
+- Transport/frontend exposure remains blocked.
+
+Review conclusion:
+
+- Phase 23.2 accepts the coordinator-side started-task execution contract.
+- The next safe task is Phase 23.3: Runtime-to-coordinator Foreground Runner
+  Wiring Design Gate.
+- Phase 23.3 should design how runtime selects/builds the child agent and maps
+  request evidence to coordinator execution without adding transport/UI,
+  background scheduling, automatic resume, migrations, stale actionability
+  recovery, or event/prose/React-derived truth.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7716,8 +7771,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 23.2: Agent/coordinator Started Task Execution Contract
-Acceptance. Do not wire runtime to the real adapter yet, expose frontend
-controls, expose HTTP/Wails transport, add background workers, add automatic
-resume, write database migrations, restore stale actionability, or make event/
-prose/React state the source of truth.
+Plan Phase 23.3: Runtime-to-coordinator Foreground Runner Wiring Design Gate.
+Do not implement runtime wiring yet, expose frontend controls, expose
+HTTP/Wails transport, add background workers, add automatic resume, write
+database migrations, restore stale actionability, or make event/prose/React
+state the source of truth.

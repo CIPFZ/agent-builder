@@ -1846,3 +1846,10 @@ Phase 23.1 note:
   are still not wired to real task execution.
 - Frontend remains read/refresh only until runtime adapter wiring and transport
   exposure are separately accepted.
+
+Phase 23.2 note:
+
+- The coordinator started-task execution contract is accepted, but runtime
+  wiring and all transport/frontend execution affordances remain blocked.
+- Browser/Wails/React code must continue to treat task execution as unavailable
+  and use read-only scheduler/task/activity DTOs for state.
