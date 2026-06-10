@@ -6588,6 +6588,42 @@ Review conclusion:
   not add a worker, queue, automatic resume, frontend Run UI, migration, or
   source-of-truth promotion.
 
+### Phase 19.1: Task Scheduler Execution Delegate Contract Coverage
+
+Status: implemented.
+
+Implementation:
+
+- Added internal `runtimeRunSchedulerDelegateTaskTurn(...)` as a contract
+  helper for task execution preflight. It reads the scheduler plan and task
+  row, but does not start execution.
+- The helper rejects missing task items, unowned task rows, terminal task rows,
+  cancelled/interrupted task rows, and owned active task rows while task
+  scheduler execution remains unaccepted.
+- Added backend tests proving rejected task delegate candidates do not write
+  runtime events, run transitions, task messages, task results, or artifact
+  evidence.
+- Added backend tests proving owned active task candidates preserve parent
+  Run/session/turn/tool ownership and task scope evidence while remaining
+  non-executable with `task_scheduler_not_accepted`.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunSchedulerDelegate(TaskTurn|Allows|Rejects|Accepts)|TestRuntimeRunSchedulerPlanTaskItem"
+  -count=1` passed.
+
+Review conclusion:
+
+- Phase 19.1 adds delegate contract coverage only.
+- No task scheduler worker, queue, poller, automatic resume, frontend Run UI,
+  database migration, or transition/event/prose/React-derived lifecycle or
+  actionability source was added.
+- Task plan items remain non-executable until a later accepted implementation
+  phase changes both the plan contract and delegate side-effect coverage.
+- The next safe task is Phase 19.2: Task Scheduler Execution Delegate
+  Acceptance Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6635,11 +6671,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 19.1: Task Scheduler Execution Delegate Contract Coverage.
-Start with focused backend tests for the accepted task execution delegate
-boundary: reject unowned/terminal/missing/cancelled/stale tasks without side
-effects, preserve task scope and parent ownership for accepted candidates, keep
-cancellation owned by `CancelAgentTask(...)` or recorder terminal evidence,
-and prove completed structured task output is the only produced-ref path. Do
-not add a worker, queue, automatic resume, frontend Run UI, migration, or
-transition/event/prose/React-derived lifecycle/actionability.
+Review and accept Phase 19.1 as Phase 19.2: Task Scheduler Execution Delegate
+Acceptance Gate. Confirm the delegate contract remains rejection-only until a
+later implementation phase flips task plan executability and proves execution
+side effects. Do not add a worker, queue, automatic resume, frontend Run UI,
+migration, or transition/event/prose/React-derived lifecycle/actionability.

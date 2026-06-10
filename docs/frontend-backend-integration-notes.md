@@ -1599,3 +1599,24 @@ Phase 19 result:
 - Completed structured task/tool output is the only accepted produced-ref path.
 - Phase 19.1 should add backend contract coverage before any transport or UI
   exposure is considered.
+
+## 2026-06-10: Phase 19.1 Task Scheduler Execution Delegate Contract Coverage
+
+Phase 19.1 adds backend-only task delegate contract coverage.
+
+Frontend boundary:
+
+- No task scheduler transport method, adapter method, worker, queue, or Run
+  management UI is added.
+- The new task delegate helper is internal and rejection-only while task plan
+  items remain non-executable.
+- Frontend task state remains DTO refresh based; events continue to be refresh
+  triggers only.
+
+Phase 19.1 result:
+
+- Missing, unowned, terminal, cancelled, interrupted, and currently
+  non-accepted owned task candidates are rejected without runtime events, run
+  transitions, task messages, task results, or artifact evidence.
+- Owned active task candidates preserve scope and parent ownership evidence in
+  the plan DTO, but remain non-executable.

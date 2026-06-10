@@ -43,6 +43,15 @@ Phase 19 note:
 - No worker, queue, automatic resume, frontend Run UI, or migration is accepted
   by this gate.
 
+Phase 19.1 note:
+
+- `runtimeRunSchedulerDelegateTaskTurn` now exists as an internal
+  rejection-only contract helper. It reads task plan/task row evidence and
+  rejects missing, unowned, terminal, cancelled, interrupted, and currently
+  non-accepted owned task candidates without execution side effects.
+- Task plan items remain non-executable until a later accepted implementation
+  phase changes both plan executability and delegate side-effect coverage.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
