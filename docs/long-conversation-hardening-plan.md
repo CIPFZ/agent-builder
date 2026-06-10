@@ -7446,6 +7446,65 @@ Review conclusion:
   then a later implementation gate can connect a real coordinator adapter if
   accepted.
 
+## 2026-06-10: Phase 22.7 Child-agent Foreground Runner Backend Contract Acceptance
+
+Phase 22.7 accepts the Phase 22.6 backend-internal runner contract as the
+stable boundary for future child-agent foreground execution work.
+
+Acceptance review:
+
+- Confirmed `runtimeAgentTaskRunner` is an unexported runtime dependency and is
+  only injected on `runtimeService` for internal execution/tests.
+- Confirmed `RuntimeAgentTaskExecutionRequest` and
+  `RuntimeAgentTaskExecutionResult` are not exposed through `RuntimeService`,
+  HTTP/dev routes, Wails bridge, generated bindings, client adapters, or React
+  UI.
+- Confirmed `runtimeRunSchedulerExecuteTask(...)` still revalidates durable
+  Run/task ownership through `runtimeRunSchedulerDelegateTaskTurn(...)` before
+  start or runner invocation.
+- Confirmed runner invocation happens only after queued-task start evidence is
+  recorded, and the request explicitly states
+  `startAlreadyRecorded=true`, `backendOnly=true`, and
+  `eventPayloadRefreshOnly=true`.
+- Confirmed no-runner behavior preserves the Phase 22.4 start-only contract.
+- Confirmed running duplicates return `task_already_running` without runner
+  invocation, and terminal/unowned candidates are rejected before runner
+  invocation.
+- Confirmed runtime re-reads the durable task after runner return instead of
+  trusting runner result payloads as lifecycle or artifact truth.
+- Confirmed fake-runner tests prove completed recorder evidence is the only
+  produced-ref path and cancelled/partial output produces no artifact refs.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeRunSchedulerExecuteTask" -count=1`
+  passed.
+- `go test ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1`
+  passed.
+- `git diff --check` passed.
+
+Accepted contract:
+
+- Future real coordinator integration must implement this backend-internal
+  runner boundary or an equivalent one that preserves the same source flags,
+  durable re-read semantics, idempotency, cancellation ordering, and
+  completion-only artifact evidence.
+- The real adapter must reuse coordinator/sub-agent execution semantics and
+  recorder-compatible terminal evidence; it must not clone coordinator logic in
+  runtime or bypass `AgentTaskRecorder`.
+- Transport/frontend exposure remains unaccepted until the real adapter is
+  implemented and accepted with permission/MCP, cancellation, failure,
+  completion, and artifact evidence coverage.
+
+Review conclusion:
+
+- Phase 22.7 accepts the backend runner contract.
+- The next safe task is Phase 23: Real Coordinator Foreground Runner Adapter
+  Design Gate.
+- Phase 23 should design, not yet implement, how to expose a narrow
+  coordinator/agent method that can execute an already-started runtime task
+  without duplicating task start evidence or restoring stale process state.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7493,8 +7552,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 22.7: Child-agent Foreground Runner Backend Contract
-Acceptance. Do not connect the real coordinator adapter, expose frontend
-controls, expose HTTP/Wails transport, add background workers, add automatic
-resume, write database migrations, restore stale actionability, or make event/
-prose/React state the source of truth.
+Plan Phase 23: Real Coordinator Foreground Runner Adapter Design Gate. Do not
+implement the adapter yet, expose frontend controls, expose HTTP/Wails
+transport, add background workers, add automatic resume, write database
+migrations, restore stale actionability, or make event/prose/React state the
+source of truth.

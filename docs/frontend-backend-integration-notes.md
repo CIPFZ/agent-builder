@@ -1820,3 +1820,12 @@ Phase 22.6 note:
 - Frontend behavior remains read/refresh only: event payloads can choose DTO
   refreshes, but task lifecycle, refs, permission/MCP actionability, and Run
   status must still come from runtime DTO reads.
+
+Phase 22.7 note:
+
+- The backend runner contract is accepted as internal-only.
+- There is still no execute transport or frontend action. Browser/Wails/React
+  code must continue to use read-only scheduler/task/activity DTOs and treat
+  events as refresh triggers.
+- A future coordinator adapter must be accepted before any transport or UI
+  affordance can call foreground task execution.

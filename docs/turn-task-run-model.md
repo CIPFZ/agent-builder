@@ -173,6 +173,15 @@ Phase 22.6 note:
   background worker, automatic resume, database migration, or stale
   actionability recovery is implemented.
 
+Phase 22.7 note:
+
+- The backend-internal runner contract is accepted.
+- A future real coordinator adapter must execute an already-started runtime
+  task through recorder-compatible evidence without duplicating start evidence
+  or restoring process-local child agent state after restart.
+- Transport/frontend exposure remains blocked until the real adapter is
+  implemented and separately accepted.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
