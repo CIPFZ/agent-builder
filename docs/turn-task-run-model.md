@@ -123,6 +123,15 @@ Phase 22 note:
   stale permission/MCP actionability recovery, and event/prose/React-derived
   truth remain rejected.
 
+Phase 22.1 note:
+
+- The backend now has an internal task execute contract that revalidates
+  scheduler delegate acceptance and returns backend-only source metadata.
+- The contract is intentionally non-executing for this phase:
+  `executionStarted=false` and `startsWorker=false`.
+- Duplicate calls are idempotent before execution implementation and must not
+  duplicate turns, task messages/results, refs, events, or lifecycle evidence.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

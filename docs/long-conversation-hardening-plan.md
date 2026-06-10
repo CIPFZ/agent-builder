@@ -7068,6 +7068,52 @@ Review conclusion:
   database migrations, frontend Run management UI, stale actionability
   resurrection, and event/prose/React-derived truth.
 
+## 2026-06-10: Phase 22.1 Foreground Task Execute Backend Contract
+
+Phase 22.1 adds the backend-only execute contract shape. It does not start task
+execution yet and does not expose HTTP, Wails, generated bindings, or frontend
+controls.
+
+Implemented:
+
+- Added `RuntimeRunSchedulerExecuteTaskRequest`,
+  `RuntimeRunSchedulerExecuteTaskResponse`, and
+  `RuntimeRunSchedulerExecuteTaskSource`.
+- Added internal `runtimeRunSchedulerExecuteTask(...)`.
+- The internal contract requires `runId` and `taskId`, re-reads the durable Run
+  and task row, and revalidates through
+  `runtimeRunSchedulerDelegateTaskTurn(...)`.
+- Accepted owned active candidates return `accepted=true`,
+  `executionStarted=false`, `startsWorker=false`, `backendOnly=true`, and
+  refresh targets.
+- Rejected candidates return the scheduler/delegate rejection reason and still
+  report `startsWorker=false`.
+
+Contract tests:
+
+- `TestRuntimeRunSchedulerExecuteTaskAcceptsOwnedActiveCandidateWithoutStartingWorker`
+  proves owned active candidates are accepted as backend contract evidence
+  without starting a worker or writing events/messages/results/refs.
+- `TestRuntimeRunSchedulerExecuteTaskIsIdempotentBeforeExecutionImplementation`
+  proves duplicate contract calls for the same task do not mutate task rows or
+  duplicate evidence.
+- `TestRuntimeRunSchedulerExecuteTaskRejectsInvalidCandidatesWithoutSideEffects`
+  proves unowned and terminal tasks are rejected without side effects.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeRunSchedulerExecuteTask|TestRuntimeRunSchedulerDelegateTaskTurn" -count=1`
+  passed.
+
+Review conclusion:
+
+- Phase 22.1 establishes the backend execute action contract, not execution.
+- No worker, queue, poller, automatic resume, database migration, HTTP/Wails
+  route, generated binding, frontend Run UI, stale actionability recovery, or
+  event/prose/React-derived truth was added.
+- The next safe task is Phase 22.2 acceptance, or Phase 22.3 to implement the
+  foreground execution body behind the backend-only contract after acceptance.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7115,7 +7161,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 22.1: Foreground Task Execute Backend Contract. Start with
-backend contract tests and runtime-only code. Do not expose frontend controls,
-background workers, automatic resume, database migrations, stale actionability
-recovery, or event/prose/React-derived source of truth.
+Review/accept Phase 22.1, then plan the next implementation gate for the
+foreground execution body. Do not expose frontend controls, background workers,
+automatic resume, database migrations, stale actionability recovery, or
+event/prose/React-derived source of truth.

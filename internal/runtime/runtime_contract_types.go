@@ -319,6 +319,31 @@ type RuntimeRunSchedulerPlanSource struct {
 	Evidence              []string `json:"evidence,omitempty"`
 }
 
+type RuntimeRunSchedulerExecuteTaskRequest struct {
+	RunID  string `json:"runId,omitempty"`
+	TaskID string `json:"taskId,omitempty"`
+}
+
+type RuntimeRunSchedulerExecuteTaskResponse struct {
+	Accepted         bool                                 `json:"accepted"`
+	ExecutionStarted bool                                 `json:"executionStarted"`
+	Reason           string                               `json:"reason,omitempty"`
+	Plan             RuntimeRunSchedulerPlanResponse      `json:"plan,omitempty"`
+	Task             RuntimeAgentTask                     `json:"task,omitempty"`
+	RefreshTargets   []string                             `json:"refreshTargets,omitempty"`
+	Source           RuntimeRunSchedulerExecuteTaskSource `json:"source"`
+}
+
+type RuntimeRunSchedulerExecuteTaskSource struct {
+	Kind                  string   `json:"kind"`
+	Action                string   `json:"action"`
+	BackendOnly           bool     `json:"backendOnly"`
+	StartsWorker          bool     `json:"startsWorker"`
+	IdempotentByTaskID    bool     `json:"idempotentByTaskId"`
+	SessionActivityParity bool     `json:"sessionActivityParity"`
+	Evidence              []string `json:"evidence,omitempty"`
+}
+
 type RuntimeRunTransitionHistorySource struct {
 	Kind                  string   `json:"kind"`
 	ReadOnly              bool     `json:"readOnly"`

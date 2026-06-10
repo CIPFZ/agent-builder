@@ -1764,3 +1764,13 @@ Phase 22 note:
 - Background scheduling, automatic resume, stale permission/MCP actionability
   recovery, database migrations, and frontend Run management UI remain out of
   scope.
+
+Phase 22.1 note:
+
+- Runtime now has an internal backend-only
+  `runtimeRunSchedulerExecuteTask(...)` contract and DTOs for a future
+  foreground task execute action.
+- The contract revalidates durable Run/task ownership through the scheduler
+  delegate and returns source metadata, but it currently returns
+  `executionStarted=false` and `startsWorker=false`.
+- No HTTP/dev/Wails/client adapter surface is exposed in this phase.
