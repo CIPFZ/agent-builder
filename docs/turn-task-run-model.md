@@ -306,6 +306,17 @@ Phase 25.2 note:
   define idempotent action metadata, durable rereads, refresh targets, and
   no event/prose/React source-of-truth behavior before any implementation.
 
+Phase 26 note:
+
+- Explicit scheduler task execution transport is accepted as a design only:
+  `POST /v1/runs/{run_id}/tasks/{task_id}/execute` and a matching Wails bridge
+  method may delegate to the existing internal scheduler execute request.
+- The action response must remain metadata plus refresh targets; clients must
+  re-read durable Run/task/activity DTOs.
+- Full Run execution, background scheduling, automatic resume, migrations,
+  stale actionability recovery, and frontend execution controls remain out of
+  scope.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

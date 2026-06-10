@@ -8519,6 +8519,82 @@ Review conclusion:
   Gate. It must remain design-only unless a later implementation phase is
   explicitly accepted.
 
+## 2026-06-10: Phase 26 Explicit Scheduler Execute Transport Design Gate
+
+Phase 26 designs, but does not implement, a transport contract for explicitly
+executing an already accepted scheduler task candidate through the internal
+backend runner. No HTTP/dev route, Wails binding, generated client adapter,
+frontend control, background worker, automatic resume, database migration, or
+stale actionability recovery is added in this phase.
+
+Accepted design direction:
+
+- Expose only the existing explicit scheduler task execution action, not a
+  general Run executor:
+
+  ```text
+  POST /v1/runs/{run_id}/tasks/{task_id}/execute
+  RuntimeBridge.ExecuteRunTask(ctx, runID, taskID)
+  ```
+
+- The action must delegate to
+  `runtimeRunSchedulerExecuteTask(ctx, RuntimeRunSchedulerExecuteTaskRequest)`
+  and return `RuntimeRunSchedulerExecuteTaskResponse`.
+- The response is action metadata plus refresh targets only. The UI/adapter
+  must re-read durable DTOs after the action:
+  - `Run(runID)` or `RunProjection(sessionID/runID)`
+  - `RunSchedulerPlan(runID, taskID)`
+  - `AgentTask(taskID)`
+  - `TurnActivity(parentTurnID)`
+  - `SessionActivityWindow` or full `SessionActivity` fallback
+- Idempotency is by durable `(run_id, task_id)` state:
+  - queued task: accepted and may start foreground execution once;
+  - running task: accepted, `ExecutionStarted=false`, no duplicate start
+    evidence;
+  - terminal/unowned/missing task: rejected by current preflight with no side
+    effects.
+- Transport must not start a worker, queue, poller, daemon, or automatic
+  resume. It is a foreground request only.
+- Transport event payloads remain refresh triggers only. They must not be
+  merged into timeline, diagnostics, task status, artifact evidence,
+  permission state, MCP auth/elicitation state, or Run state.
+- Frontend controls remain out of scope until a later implementation phase
+  accepts route/binding coverage and a separate UI behavior contract.
+
+Required implementation gate after this design:
+
+- Add service interface method and bridge aliases for
+  `RuntimeRunSchedulerExecuteTaskRequest/Response`.
+- Add HTTP direct route and dev-module route tests proving method/path/body
+  validation and service delegation.
+- Add Wails bridge tests proving method delegation and response shape.
+- Add client adapter contract tests only if adapter exposure is accepted in the
+  implementation phase; otherwise keep frontend unchanged.
+- Re-run scheduler execute tests proving no duplicate lifecycle evidence,
+  failed/cancelled no-artifact semantics, and completed-output-only refs.
+- Confirm no generated bindings/front-end controls are added unless explicitly
+  included by the implementation phase.
+
+Rejected shapes:
+
+- No full Run executor.
+- No runtime Run state machine or Run database migration.
+- No background scheduler/worker/poller/daemon.
+- No automatic resume.
+- No stale running/waiting tool recovery.
+- No stale permission gate or MCP auth/elicitation actionability recovery.
+- No React state, assistant prose, transition history, or event payload source
+  of truth.
+- No frontend Run/task execution UI in the design gate.
+
+Review conclusion:
+
+- Phase 26 accepts the explicit scheduler task execute transport design.
+- The next safe task is Phase 26.1: Explicit Scheduler Execute Transport
+  Contract Implementation. It may add backend/service HTTP/Wails transport
+  coverage for the explicit action, but must still keep frontend visible
+  controls out of scope unless a later UI phase is accepted.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8566,10 +8642,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26: Explicit Scheduler Execute Transport Design Gate. Keep it
-design-only: define whether/how an explicit scheduler execute action may be
-exposed through HTTP/Wails/client adapters after internal backend runner
-validation. Do not implement frontend controls, generated bindings, transport
-routes, background workers, automatic resume, database migrations, stale
-actionability recovery, or event/prose/React source-of-truth behavior in the
-design gate.
+Implement Phase 26.1: Explicit Scheduler Execute Transport Contract
+Implementation. Add only the accepted backend/service HTTP/Wails transport
+contract and tests for the explicit scheduler task execute action. Do not add
+frontend visible controls, background workers, automatic resume, database
+migrations, stale actionability recovery, full Run executor behavior, or event/
+prose/React source-of-truth behavior.

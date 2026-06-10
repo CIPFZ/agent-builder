@@ -1942,3 +1942,13 @@ Phase 25.2 note:
 - Do not add frontend controls, generated bindings, or adapter execute methods
   until the explicit scheduler execute transport contract is designed and
   accepted.
+
+Phase 26 note:
+
+- Explicit scheduler task execution transport is design-accepted only; no
+  frontend adapter or visible control is implemented in this phase.
+- If implemented later, the adapter must treat the execute response as action
+  metadata plus refresh targets and then re-read durable Run/task/activity DTOs.
+- Events and action response payloads must not become frontend source of truth
+  for timeline, diagnostics, artifacts, permissions, MCP actionability, or Run
+  state.
