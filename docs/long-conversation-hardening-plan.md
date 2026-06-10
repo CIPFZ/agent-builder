@@ -11257,11 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.5: Task Cancellation Write Action Envelope Acceptance And
-Next Action Selection. Review the `CancelAgentTask(...)` metadata
-implementation, decide whether checkpoint acknowledge/discard or permission
-decision should adopt the envelope next, and keep action payloads as refresh
-metadata only.
+Implement Phase 37.6: Checkpoint Acknowledge/Discard Write Action Metadata
+Implementation. Add shared metadata to checkpoint acknowledge/discard only,
+preserve the existing `RuntimeRunResponse` payload, and keep checkpoint resume
+and permission decision for later focused phases.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -11845,3 +11844,80 @@ Remaining risk:
 - Checkpoint acknowledge/discard/resume and permission decision responses still
   do not carry the shared `action` metadata. Phase 37.5 should review the task
   cancellation implementation and choose the next adopter deliberately.
+
+## 2026-06-11: Phase 37.5 Task Cancellation Write Action Envelope Acceptance And Next Action Selection
+
+Phase 37.5 reviews the Phase 37.4 task cancellation implementation and chooses
+the next explicit write action to adopt the shared metadata envelope. It is an
+acceptance/design phase only. It does not change runtime behavior, database
+schema, Run persistence, automatic resume, background scheduling, stale
+permission/MCP actionability recovery, or frontend Run UI.
+
+Phase 37.4 acceptance:
+
+- `CancelAgentTask(...)` now returns optional shared `action` metadata while
+  preserving the existing `task`, `messages`, and `result` fields.
+- Plain `AgentTask(...)` reads omit `action`, so the metadata is not a
+  persisted task field and not a frontend state source.
+- Active cancellation still terminalizes durable task/result/message/event
+  evidence.
+- Already-final cancellation remains rejected/idempotent, does not rewrite
+  completed task/result/artifact evidence, and uses `idempotentBy="task_id"`.
+- Frontend integration remains reread driven: action metadata may choose
+  refresh targets, but task status, results, refs, diagnostics, permissions,
+  MCP actionability, timeline rows, scheduler state, and Run projection still
+  come from runtime DTO reads.
+
+Next-action review:
+
+- Checkpoint acknowledge/discard are the accepted next adopters. They are
+  explicit user actions, already durable Run checkpoint mutations, return
+  `RuntimeRunResponse`, and do not create a new turn, worker, permission gate,
+  or scheduler loop.
+- Checkpoint resume remains later. It creates a new user-triggered turn and
+  records a resume transition, so its action metadata needs a separate review
+  after acknowledge/discard are stable.
+- Permission decisions remain later. They interact with live permission
+  services and actionability; the envelope must not make a permission decision
+  payload the source of truth for active gates.
+- Provider/config/MCP admin writes remain outside this scheduler/Run write
+  envelope track until the task/run path is stable.
+
+Accepted Phase 37.6 scope:
+
+- Add optional shared `action` metadata to `RuntimeRunResponse`.
+- Populate it from `AcknowledgeRunCheckpoint(...)` and
+  `DiscardRunCheckpoint(...)` only.
+- Preserve the existing `run` and `projection` response payload.
+- Use `idempotentBy="run_id+checkpoint_id"`.
+- Use refresh targets that force durable rereads of Run detail, Run projection,
+  turn activity/session activity where applicable, and scheduler plan evidence.
+- Treat action metadata as refresh/request metadata only; do not derive
+  checkpoint state, Run projection, timeline rows, diagnostics, artifacts,
+  permissions, MCP actionability, or scheduler state from it.
+- Add/extend backend and HTTP contract tests proving metadata parity with
+  durable checkpoint evidence.
+
+Rejected for Phase 37.6:
+
+- No checkpoint resume metadata yet.
+- No full Run state machine, Run store expansion, migration, background queue,
+  automatic resume, stale task/tool recovery, stale permission/MCP recovery, or
+  frontend Run management UI.
+- No React-owned checkpoint state.
+- No event payload or action payload as a source of truth.
+- No assistant-prose-derived refs, artifacts, checkpoints, or actionability.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Phase 37.4 is accepted.
+- Phase 37.6 should implement checkpoint acknowledge/discard write-action
+  metadata as the next narrow adopter, while leaving checkpoint resume and
+  permission decision for later phases.

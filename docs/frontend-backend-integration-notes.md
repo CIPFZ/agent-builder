@@ -2473,3 +2473,15 @@ Phase 37.4 note:
   actionability, scheduler state, and Run projection from durable runtime reads.
 - Plain `AgentTask(...)` reads omit `action`; cancellation metadata is not a
   persistent task field and must not be cached as React-owned task state.
+
+Phase 37.5 note:
+
+- Task cancellation action metadata is accepted as additive refresh/request
+  metadata only.
+- Checkpoint acknowledge/discard are the next selected adopters. Frontend code
+  may use their future `action.refreshTargets` to choose durable rereads, but
+  must still render checkpoint state, Run projection, timeline rows,
+  diagnostics, artifacts, permissions, MCP actionability, and scheduler state
+  from runtime DTO reads.
+- Checkpoint resume and permission decisions remain later focused phases; no
+  frontend Run management UI or React-owned checkpoint state is accepted.

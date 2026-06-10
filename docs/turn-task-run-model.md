@@ -61,6 +61,16 @@ Phase 37.4 note:
 - Already-final task cancellation remains rejected/idempotent and does not
   rewrite completed task/result/artifact evidence.
 
+Phase 37.5 note:
+
+- The task cancellation envelope implementation is accepted as the second
+  adopter.
+- Checkpoint acknowledge/discard are the next selected adopters because they
+  are narrow durable Run checkpoint writes and do not create new turns.
+- Checkpoint resume, permission decisions, MCP/admin writes, full Run
+  persistence, migrations, background scheduling, automatic resume, and
+  frontend Run UI remain outside the next implementation scope.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
