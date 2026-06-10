@@ -350,6 +350,17 @@ Phase 26.4 note:
 - Visible controls remain out of scope until that read model is defined and
   proven to preserve `SessionActivity`/Run projection parity.
 
+Phase 26.5 note:
+
+- Scheduler task candidates are accepted as read-only view-model rows derived
+  from durable `RunSchedulerPlan` items.
+- `executeEligible` maps only from durable `canSchedule`; terminal or failed
+  preflight rows remain non-actionable diagnostics and must not resurrect stale
+  permission/MCP actionability.
+- Full `SessionActivity` remains the fallback and parity oracle for timeline,
+  diagnostics, artifacts, interrupted summaries, and terminal permission/MCP
+  semantics.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

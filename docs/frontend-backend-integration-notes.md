@@ -1990,3 +1990,18 @@ Phase 26.4 note:
   itself provides durable `runID`, `taskID`, ownership evidence, scheduler
   status, `executeEligible`, and a non-secret disabled reason. The adapter must
   rehydrate durable DTOs before the UI updates.
+
+Phase 26.5 note:
+
+- The frontend scheduler execute read model is accepted as hidden DTO/adapter
+  support first.
+- Candidate rows should map from durable `RunSchedulerPlan` items into
+  `RunSchedulerTaskCandidateViewModel`; `executeEligible` comes only from
+  `canSchedule`, and disabled copy comes only from durable preflight/read
+  reasons.
+- Browser/Vite must read the HTTP plan endpoint and Wails may read the bridge
+  method when present. Both paths must produce the same view model and must
+  preserve full `SessionActivity` as fallback/parity oracle.
+- Runtime events may request scheduler-plan refreshes, but event payloads must
+  not merge candidate rows, task status, permission/MCP actionability,
+  diagnostics, artifact evidence, or Run state into React.

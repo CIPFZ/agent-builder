@@ -8818,6 +8818,122 @@ Review conclusion:
   execute control can consume without making React/events/action responses the
   source of truth.
 
+## 2026-06-10: Phase 26.5 Scheduler Task Candidate Read Model Gate
+
+Phase 26.5 defines the read-model contract required before a visible scheduler
+execute control can exist. It does not implement React controls, background
+execution, automatic resume, database migrations, stale actionability recovery,
+or a full Run state machine.
+
+Existing backend contract:
+
+- Runtime already exposes a read-only scheduler plan transport:
+
+  ```text
+  GET /v1/runs/{run_id}/scheduler/plan
+  ```
+
+- `RuntimeRunSchedulerPlan` includes durable source evidence, refresh targets,
+  `SessionActivity` parity, and `RuntimeRunSchedulerPlanItem` rows.
+- A task plan item already carries `runID` through the enclosing plan plus
+  item-level `taskID`, `sessionID`, `turnID`, `kind`, `orderKey`,
+  `canSchedule`, `preflightReason`, `ownershipVerified`, `requiredPreflight`,
+  `refreshTargets`, `cancellationScope`, `diagnosticsRoute`, and `taskScope`.
+- The backend plan source remains read-only and `StartsWorker=false`.
+
+Accepted frontend read model:
+
+```ts
+interface RunSchedulerTaskCandidateViewModel {
+  id: string;
+  runID: string;
+  taskID: string;
+  kind: string;
+  orderKey?: string;
+  sessionID?: string;
+  turnID?: string;
+  title?: string;
+  source?: string;
+  status?: string;
+  executeEligible: boolean;
+  disabledReason?: string;
+  ownershipVerified: boolean;
+  requiredPreflight: boolean;
+  refreshTargets?: string[];
+  cancellationScope?: string;
+  diagnosticsRoute?: string;
+  taskScope?: {
+    allowedTools?: string[];
+    capabilityScope?: string[];
+    cwd?: string;
+    worktree?: string;
+    role?: string;
+    provider?: string;
+    model?: string;
+    parentToolCallID?: string;
+    childSessionID?: string;
+  };
+}
+```
+
+Mapping rules:
+
+- `executeEligible` maps only from durable `item.canSchedule`.
+- `disabledReason` maps only from durable `item.preflightReason` or a
+  transport/read error message surfaced outside actionability state.
+- `ownershipVerified` maps only from durable `item.ownershipVerified`.
+- `title`, `source`, and `status` may be derived from durable task/plan fields
+  if present; they must not be inferred from assistant prose or event payloads.
+- Task rows must keep stable `id` and `taskID` keys so duplicate lifecycle,
+  permission, artifact/ref, or terminal events cannot create duplicate rows.
+- Terminal task rows may remain visible for diagnostics, but must map to
+  `executeEligible=false` and must not resurrect stale permission, MCP auth, or
+  elicitation actionability.
+
+Accepted adapter/read contract:
+
+- Additive adapter support may expose a hidden read method such as
+  `readRunSchedulerPlan(current, request)` or hydrate candidates through the
+  existing workbench hydration path.
+- Browser/Vite must use the HTTP fallback. Wails may call `RunSchedulerPlan`
+  only when available. Both paths must produce the same view model.
+- Runtime events may request a scheduler-plan refresh target, but the payload
+  may only choose the durable read; it must not merge candidate rows or
+  actionability into React state.
+- After `executeRunTask(...)`, the adapter must re-read durable workbench/run
+  DTOs and scheduler plan rows before the UI can change.
+- Full `SessionActivity` remains fallback and parity oracle for messages, tool
+  calls, permissions, diagnostics, artifact evidence, interrupted summaries,
+  and terminal permission/MCP semantics.
+
+Required implementation criteria for the next phase:
+
+- Add TS DTO/view-model types for the scheduler plan and candidate rows.
+- Add hidden adapter read support for `RunSchedulerPlan` in browser HTTP and
+  optional Wails bridge paths.
+- Map plan items to `RunSchedulerTaskCandidateViewModel` without React-owned
+  actionability or action-response state.
+- Add source/contract smoke coverage proving candidates are durable-read based,
+  event payloads only trigger refreshes, and `RunProjectionPreview` still has
+  no visible execute button.
+- Run the client build or equivalent TS validation.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 26.5 accepts the candidate read model and transport-neutral adapter
+  contract.
+- The next safe task is Phase 26.6: Scheduler Task Candidate Read Model
+  Implementation. It should add hidden frontend adapter/read-model support and
+  smoke coverage, while keeping visible execution controls out of scope.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8865,9 +8981,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.5: Scheduler Task Candidate Read Model Gate. Define the
-durable DTO/view-model fields and transport-neutral refresh behavior required
-before any visible scheduler execute control can be implemented. Do not add
-background workers, automatic resume, database migrations, stale actionability
-recovery, full Run executor behavior, or event/prose/React source-of-truth
-behavior.
+Implement Phase 26.6: Scheduler Task Candidate Read Model Implementation. Add
+hidden frontend DTO/view-model and adapter read support for durable scheduler
+task candidates, plus smoke coverage proving no visible execute control,
+event-payload state merge, background worker, automatic resume, migration,
+stale actionability recovery, or full Run executor behavior is introduced.
