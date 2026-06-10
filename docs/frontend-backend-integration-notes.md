@@ -2449,3 +2449,16 @@ Phase 37.2 note:
 - The frontend adapter remains unchanged and still ignores action payloads as
   state, re-reading durable runtime DTOs after execute.
 - Other write actions are intentionally unchanged until later focused phases.
+
+Phase 37.3 note:
+
+- Scheduler execute action metadata is accepted as additive refresh/request
+  metadata only.
+- `CancelAgentTask(...)` is the next selected adopter. Frontend code may use the
+  future shared cancellation metadata to choose durable DTO refreshes, but must
+  still render task terminal state, task results, refs, diagnostics, artifacts,
+  permission state, MCP actionability, timeline rows, and Run projection from
+  runtime reads.
+- Checkpoint resume/ack/discard and permission decisions remain later focused
+  phases; no frontend Run management UI or React-owned cancellation state is
+  accepted.

@@ -41,6 +41,16 @@ Phase 37.2 note:
   results, refs, Run projection, scheduler plan, and `SessionActivity` remain
   durable read sources after the explicit action.
 
+Phase 37.3 note:
+
+- The scheduler execute envelope implementation is accepted as the first
+  adopter.
+- `CancelAgentTask(...)` is the next accepted adopter because cancellation is
+  already durable-task-evidence driven and idempotent by `task_id`.
+- Checkpoint actions, permission decisions, MCP/admin writes, full Run
+  persistence, migrations, background scheduling, automatic resume, and
+  frontend Run UI remain outside the next implementation scope.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

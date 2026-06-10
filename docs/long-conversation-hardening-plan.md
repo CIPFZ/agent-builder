@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.3: Runtime Write Action Envelope Acceptance And Next Action
-Selection. Review the scheduler execute metadata implementation, decide which
-explicit action should adopt the envelope next, and keep the scope limited to
-metadata-only responses plus durable DTO rereads.
+Implement Phase 37.4: Task Cancellation Write Action Metadata Implementation.
+Add the shared metadata envelope to `CancelAgentTask(...)` only, preserve the
+existing task/result/message response shape, and verify cancellation state from
+durable DTO rereads rather than the action payload.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -11712,3 +11712,82 @@ Remaining risk:
 - Other explicit actions still return specialized responses without the shared
   `action` metadata. Phase 37.3 should choose the next action deliberately
   rather than broad-retrofitting all write responses.
+
+## 2026-06-11: Phase 37.3 Runtime Write Action Envelope Acceptance And Next Action Selection
+
+Phase 37.3 reviews the Phase 37.2 scheduler execute implementation and chooses
+the next explicit write action to adopt the shared metadata envelope. It is an
+acceptance/design phase only. It does not change runtime behavior, database
+schema, Run persistence, automatic resume, background scheduling, stale
+permission/MCP actionability recovery, or frontend Run UI.
+
+Phase 37.2 acceptance:
+
+- Scheduler execute now exposes additive shared `action` metadata while
+  preserving all existing scheduler-specific fields.
+- The shared metadata mirrors already-existing action facts:
+  `accepted`, `reason`, `refreshTargets`, source kind/action, backend-only
+  execution, worker-start semantics, idempotency, parity expectation, and
+  durable evidence names.
+- The implementation is response metadata only. Task lifecycle, task results,
+  refs, Run projection, scheduler plan, activity rows, diagnostics, artifacts,
+  interrupted summaries, permission state, and MCP actionability still come from
+  durable runtime DTO rereads.
+- The frontend adapter remains unchanged and does not merge the action payload
+  into timeline, diagnostics, artifact, permission, MCP, interrupted, scheduler,
+  or Run state.
+
+Next-action review:
+
+- `CancelAgentTask(...)` is the accepted next adopter. It is an explicit user
+  action with stable idempotency by `task_id`, existing durable task/result/
+  message evidence, and focused cancellation tests. It can carry metadata
+  without approving any new scheduler behavior.
+- Checkpoint acknowledge/discard/resume remain later candidates. Acknowledge and
+  discard are small, but they are tied to Run checkpoint semantics; resume
+  creates a new turn and has a larger lifecycle surface. They should not be the
+  second adopter while the task-cancel contract still lacks shared metadata.
+- Permission decisions remain later candidates because they affect live
+  permission services and actionability. The envelope must not accidentally
+  make permission response payloads the source of truth for active gates.
+- Provider/config/MCP admin writes remain outside this runtime scheduler/action
+  track until the task/run interaction path has a stable pattern.
+
+Accepted Phase 37.4 scope:
+
+- Add optional shared `action` metadata to `RuntimeAgentTaskResponse`.
+- Populate it from `CancelAgentTask(...)` for both accepted cancellation and
+  already-final rejected/idempotent cases.
+- Keep the existing `task`, `messages`, and `result` fields unchanged.
+- Use `idempotentBy="task_id"`.
+- Use refresh targets that force durable rereads of task evidence, scheduler/
+  Run projection evidence, and session activity evidence.
+- Treat action metadata as refresh/request metadata only; do not derive task
+  terminal state, artifact refs, diagnostics, permission state, MCP
+  actionability, or timeline rows from it.
+- Add/extend backend tests proving metadata parity with durable
+  `CancelAgentTask(...)` evidence and no rewrite of already-final evidence.
+
+Rejected for Phase 37.4:
+
+- No full Run state machine, Run store expansion, migration, background queue,
+  automatic resume, stale task/tool recovery, stale permission/MCP recovery, or
+  frontend Run management UI.
+- No broad retrofit of every write response.
+- No React-owned task cancellation state.
+- No event payload or action payload as a source of truth.
+- No assistant-prose-derived refs, artifacts, checkpoints, or actionability.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Phase 37.2 is accepted.
+- Phase 37.4 should implement task cancellation write-action metadata as the
+  second adopter, using the same additive envelope pattern and durable reread
+  source-of-truth rule.
