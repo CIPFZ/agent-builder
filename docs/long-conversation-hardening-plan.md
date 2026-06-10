@@ -9783,6 +9783,86 @@ Review conclusion:
   background scheduling, automatic resume, database migrations, or
   frontend-owned scheduler state.
 
+## 2026-06-11: Phase 28.1 Local Browser Scheduler Click Harness Implementation
+
+Phase 28.1 implements the local-only Vite/browser scheduler click harness. It
+does not add production seed endpoints, runtime readiness bypasses, background
+workers, automatic resume, database migrations, stale actionability recovery,
+frontend Run state ownership, full scheduler UI, packaged/Wails automation, or
+full Run executor behavior.
+
+Implemented:
+
+- Added `internal/runtime/runtime_browser_scheduler_harness_test.go`.
+  - The helper is skipped by default and runs only when
+    `AGENT_BUILDER_PHASE281_BROWSER_HARNESS=1`.
+  - It uses `AGENT_BUILDER_DESKTOP_ROOT` under
+    `tmp/runtime-dev/phase28-browser-scheduler-click/`.
+  - It starts a loopback fake OpenAI-compatible provider and writes temp
+    `model.json` with a dummy non-secret token.
+  - It reaches readiness through normal `Status(...)` / `ensureStarted`.
+  - It creates a normal runtime session, selects it through runtime service,
+    seeds durable Run/Turn/AgentTask evidence, starts runtime HTTP on
+    loopback, and writes a redacted harness manifest under the phase temp dir.
+  - It disables the test-only foreground task runner after readiness so the
+    browser click validates explicit scheduler start/hydration without running
+    a background agent worker.
+- Added `client/scripts/phase281-browser-scheduler-click-harness.mjs` and
+  `npm run smoke:phase281`.
+  - The script starts the Go helper, local Vite, and Playwright.
+  - It writes pid/log/spec/config/screenshot output under
+    `tmp/runtime-dev/phase28-browser-scheduler-click/`.
+  - It uses local `@playwright/test` as a dev dependency instead of relying on
+    global npx state.
+  - The generated Playwright spec verifies:
+    - backend `RunProjection` contains the queued and terminal task IDs;
+    - backend `RunSchedulerPlan` marks the queued task schedulable and the
+      terminal task blocked;
+    - the visible `RunProjectionPreview` renders exactly two durable scheduler
+      candidate rows despite duplicate terminal refresh events;
+    - the queued row has an enabled Execute button;
+    - the terminal row is disabled;
+    - one browser click starts the queued task through runtime HTTP;
+    - post-click status is verified by re-reading durable task DTOs;
+    - no pending permission actionability is resurrected.
+- Fixed the integration gap found by the harness:
+  - Workbench hydrates `RunProjection` with `limit=24`.
+  - Bounded projections intentionally must not mutate persisted Run detail.
+  - Before this phase, bounded projections returned synthetic
+    `run:session:<id>` IDs even when a durable Run already existed, causing UI
+    `RunSchedulerPlan` calls to fail ownership checks.
+  - `RunProjection` now read-only binds a bounded projection to the existing
+    durable run ID when a run/session link exists, without backfilling or
+    mutating persisted Run state.
+  - Added a regression assertion to
+    `TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail`.
+
+Validation:
+
+```text
+go test ./internal/runtime -run "TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail|TestPhase281BrowserSchedulerClickHarnessServer|TestRuntimeLocalModelConfigReadinessAllowsSchedulerCandidateProjection|TestRuntimeSchedulerUICandidateSeedExposesDurableHTTPPlanAndExecute" -count=1
+go test ./internal/runtime -run "TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail|TestPhase281BrowserSchedulerClickHarnessServer|TestRuntimeLocalModelConfigReadinessAllowsSchedulerCandidateProjection|TestRuntimeSchedulerUICandidateSeedExposesDurableHTTPPlanAndExecute|TestRuntimeRunSchedulerPlan|TestRuntimeRunSchedulerExecute" -count=1
+npm run lint
+npm run build
+npm run smoke:phase263
+npm run smoke:phase266
+npm run smoke:phase267
+npm run smoke:phase269
+npm run smoke:phase2610
+npm run smoke:phase281
+```
+
+Review conclusion:
+
+- Phase 28.1 accepts the local Vite/browser scheduler click harness.
+- Full packaged/Wails click validation remains unimplemented.
+- The browser smoke validates explicit scheduler start and durable DTO
+  hydration, not real coordinator worker completion.
+- The next safe task is Phase 28.2: Browser Scheduler Harness Acceptance And
+  Packaged/Wails Gate. It should review Phase 28.1 and decide whether to add a
+  packaged/Wails smoke that reuses the same runtime-owned seed and redaction
+  rules.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9830,6 +9910,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 28.1: Local Browser Scheduler Click Harness Implementation.
-Add a local-only harness that follows the Phase 28 contract and proves the
-visible scheduler Execute button against durable runtime evidence.
+Implement Phase 28.2: Browser Scheduler Harness Acceptance And Packaged/Wails
+Gate. Review Phase 28.1 and decide whether packaged/Wails click validation is
+needed now, using the same runtime-owned seed and redaction rules.

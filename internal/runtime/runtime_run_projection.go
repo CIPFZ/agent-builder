@@ -44,6 +44,10 @@ func (r *runtimeService) RunProjection(ctx context.Context, req RuntimeRunProjec
 		if persisted, err := r.runs.UpsertFromProjection(ctx, run, runtimeRunSourceBackfill); err == nil {
 			run.ID = persisted.ID
 		}
+	} else if r.runs.db != nil {
+		if persisted, err := r.runs.GetBySession(ctx, sessionID); err == nil {
+			run.ID = persisted.ID
+		}
 	}
 	return RuntimeRunProjectionResponse{Run: run}, nil
 }

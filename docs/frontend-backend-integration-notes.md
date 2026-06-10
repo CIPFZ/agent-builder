@@ -2149,3 +2149,20 @@ Phase 28 note:
   candidate, permission, MCP, diagnostic, artifact, or interrupted state.
 - Packaged/Wails smoke may reuse the same runtime-owned seed only after the
   Vite/browser harness contract is stable.
+
+Phase 28.1 note:
+
+- Local Vite/browser scheduler click automation now exists as
+  `npm run smoke:phase281`.
+- The harness starts a loopback fake provider, normally ready runtime HTTP,
+  Vite, and Playwright with all outputs under
+  `tmp/runtime-dev/phase28-browser-scheduler-click/`.
+- The smoke selects a durable runtime session, renders durable scheduler
+  candidates, clicks one queued Execute button, and verifies post-click state
+  by re-reading runtime DTOs.
+- The harness found and fixed a real integration issue: bounded
+  `RunProjection(limit=24)` now read-only binds to an existing durable Run ID
+  when a run/session link exists, so frontend scheduler plan reads do not use a
+  synthetic `run:session:<id>` identity.
+- Packaged/Wails click validation remains a separate gate; this smoke does not
+  validate real coordinator worker completion.

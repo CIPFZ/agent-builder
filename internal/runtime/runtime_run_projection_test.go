@@ -207,6 +207,9 @@ func TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail(t *testing.T)
 	if windowed.Run.ActivityWindow.FromStart && windowed.Run.ActivityWindow.ToEnd {
 		t.Fatalf("fixture did not produce a bounded projection window: %#v", windowed.Run.ActivityWindow)
 	}
+	if windowed.Run.ID != runID {
+		t.Fatalf("bounded projection run id = %q, want durable run id %q", windowed.Run.ID, runID)
+	}
 	after, err := service.runs.Get(context.Background(), runID)
 	if err != nil {
 		t.Fatal(err)

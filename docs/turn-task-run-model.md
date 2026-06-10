@@ -468,6 +468,17 @@ Phase 28 note:
 - The contract does not change Run persistence, lifecycle semantics,
   scheduler ownership, or frontend source-of-truth boundaries.
 
+Phase 28.1 note:
+
+- The local browser scheduler click harness is implemented.
+- Bounded Run projection reads now preserve an existing durable Run ID when a
+  run/session link exists, without mutating persisted Run detail.
+- This keeps windowed DTO hydration compatible with scheduler ownership checks
+  while preserving SessionActivity parity and read-only projection semantics.
+- The harness validates explicit scheduler start/hydration only; it does not
+  add a Run state machine, migration, background scheduler, automatic resume,
+  frontend-owned scheduler state, or packaged/Wails validation.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
