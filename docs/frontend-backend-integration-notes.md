@@ -2308,3 +2308,12 @@ Phase 33 note:
   diagnostics, and actionability assertions must come from runtime DTO reads.
 - No production seed/debug endpoint, React-owned fixture, or hosted credential
   automation is accepted for this combined smoke.
+
+Phase 33.1 note:
+
+- `npm run smoke:phase331` validates visible browser Execute click through the
+  real scheduler execute route, installed backend runner, real coordinator
+  configured task-agent path, and loopback OpenAI-compatible SSE fake provider.
+- The smoke re-reads runtime DTOs for completion, result summary, refs,
+  projection, and permissions; event payloads remain refresh triggers only.
+- Provider text alone is verified to create zero artifact refs/runtime refs.

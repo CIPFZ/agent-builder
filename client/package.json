@@ -18,7 +18,8 @@
     "smoke:phase269": "node scripts/phase269-scheduler-execute-ui-smoke.mjs",
     "smoke:phase2610": "node scripts/phase2610-scheduler-ui-runtime-fixture-smoke.mjs",
     "smoke:phase281": "node scripts/phase281-browser-scheduler-click-harness.mjs",
-    "smoke:phase291": "node scripts/phase291-browser-scheduler-worker-completion-smoke.mjs"
+    "smoke:phase291": "node scripts/phase291-browser-scheduler-worker-completion-smoke.mjs",
+    "smoke:phase331": "node scripts/phase331-browser-provider-completion-smoke.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.3",

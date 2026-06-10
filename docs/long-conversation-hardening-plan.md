@@ -10756,6 +10756,54 @@ Review conclusion:
 - The next safe task is Phase 33.1: Browser Click To Loopback Provider
   Completion Smoke.
 
+## 2026-06-11: Phase 33.1 Browser Click To Loopback Provider Completion Smoke
+
+Phase 33.1 adds combined browser Execute click plus loopback provider-backed
+child-agent completion smoke coverage. It does not add live provider
+credentials, hosted OAuth automation, production seed/debug endpoints, runtime
+readiness bypasses, background workers, automatic resume, database migrations,
+stale actionability recovery, frontend Run state ownership, packaged WebView
+automation, full scheduler UI, or full Run executor behavior.
+
+Implemented:
+
+- Added `client/scripts/phase331-browser-provider-completion-smoke.mjs` and
+  `npm run smoke:phase331`.
+  - Reuses the shared browser scheduler harness from Phase 30.1.
+  - Clicks the visible browser Execute button.
+  - Polls durable runtime DTOs for task completion.
+  - Verifies result summary comes from loopback provider output.
+  - Verifies provider text alone creates zero artifact refs/runtime refs.
+  - Verifies terminal candidate remains disabled and no pending permissions are
+    resurrected.
+- Added `TestPhase331BrowserProviderCompletionHarnessServer`.
+  - Uses phase-scoped `tmp/runtime-dev` runtime root.
+  - Writes temp `model.json` to a loopback OpenAI-compatible SSE fake provider.
+  - Writes temp `policy.json` under the phase root so the smoke tests provider
+    execution instead of blocking on interactive permission approval.
+  - Starts real runtime service, runtime HTTP, installed backend runner, backend
+    workspace routing, real coordinator configured task-agent path, and
+    loopback provider.
+  - Seeds durable Run/Turn/AgentTask evidence through runtime-owned stores and
+    creates a real child task session through the backend workspace session
+    service.
+
+Validation:
+
+```text
+go test ./internal/runtime -run TestPhase331BrowserProviderCompletionHarnessServer -count=1 -v
+npm run smoke:phase331
+```
+
+Review conclusion:
+
+- Phase 33.1 closes the combined browser click plus deterministic
+  provider-backed completion gap.
+- Remaining validation risks are true packaged WebView2 click automation and
+  credential-gated hosted provider/OAuth/MCP manual smoke.
+- The next safe task is Phase 33.2: Browser Provider Completion Smoke
+  Acceptance And Next Risk Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10803,7 +10851,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 33.1: Browser Click To Loopback Provider Completion Smoke.
-Combine the accepted browser scheduler harness with the real
-coordinator/loopback provider path while keeping runtime DTOs as source of
-truth.
+Implement Phase 33.2: Browser Provider Completion Smoke Acceptance And Next
+Risk Gate. Review Phase 33.1 coverage and choose the next validation target
+without adding production debug endpoints, secrets, auto-resume, or
+frontend-owned Run state.
