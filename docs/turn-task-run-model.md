@@ -108,6 +108,21 @@ Phase 21.2 note:
   with explicit ownership, idempotency, cancellation, artifact, permission/MCP,
   and refresh semantics.
 
+Phase 22 note:
+
+- A future task execute action may exist only as an explicit foreground
+  user-triggered backend action. It must revalidate scheduler plan/preflight,
+  parent Run/session/turn/task ownership, task scope, and cancellation state
+  before starting.
+- Task execution must be idempotent by task id and must not duplicate turns,
+  task messages/results, refs, or lifecycle events.
+- Completed structured task output remains the only produced-ref source.
+  Cancelled, partial, unfinished, or disconnected task execution must not
+  create artifact evidence.
+- Background workers, automatic resume, database migrations, frontend Run UI,
+  stale permission/MCP actionability recovery, and event/prose/React-derived
+  truth remain rejected.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

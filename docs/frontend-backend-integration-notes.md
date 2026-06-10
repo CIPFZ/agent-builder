@@ -1749,3 +1749,18 @@ Phase 21.2 note:
   refresh semantics.
 - The next safe boundary is an explicit foreground task execute action design
   gate, not a background scheduler or automatic resume implementation.
+
+Phase 22 note:
+
+- A future task execute action is accepted only as an explicit foreground
+  user-triggered path. It must re-read runtime DTO/state at execution time and
+  cannot rely on scheduler plan data cached in React.
+- Frontend exposure remains rejected until backend idempotency, cancellation,
+  artifact evidence, permission/MCP semantics, and refresh behavior have
+  contract tests.
+- Events may trigger refreshes for scheduler plan, task detail/result, activity
+  windows, RunProjection, Run detail, refs, permissions, and MCP requests, but
+  event payloads must not merge into lifecycle or actionability state.
+- Background scheduling, automatic resume, stale permission/MCP actionability
+  recovery, database migrations, and frontend Run management UI remain out of
+  scope.

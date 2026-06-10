@@ -6987,6 +6987,87 @@ Next safe boundary:
   migrations, stale actionability restoration, and frontend-owned lifecycle
   truth unless separately accepted.
 
+## 2026-06-10: Phase 22 Explicit Foreground Task Execute Action Design Gate
+
+Phase 22 defines the first acceptable shape for task execution transport. It is
+a design gate only; no execute route, bridge method, frontend button, worker,
+queue, or scheduler implementation is added by this phase.
+
+Accepted execution shape:
+
+- A future execute action may be explicit, foreground, and user-triggered only.
+- The action may target one owned active task candidate that already appears in
+  `RunSchedulerPlan` with `canSchedule=true` and `ownershipVerified=true`.
+- The action must run through backend runtime code, not React state or event
+  payload data.
+- The backend must re-read task row, parent Run/session/turn ownership,
+  scheduler plan/preflight, effective scope, and current cancellation state at
+  execution time.
+- The action must be idempotent by task id. Duplicate execute requests for the
+  same active task must not create duplicate child turns, duplicate task
+  messages/results, duplicate refs, or duplicate lifecycle events.
+- Cancellation remains owned by `CancelAgentTask(...)` and recorder terminal
+  evidence. Execute must observe cancellation before start and during
+  foreground execution.
+- Completed structured task/tool output is the only produced-ref source.
+  Partial, unfinished, disconnected, or cancelled task work must not create
+  artifact evidence.
+- Permission and MCP auth/elicitation decisions must come from current runtime
+  DTO/state only. Execute must not resurrect stale permission gates or stale
+  MCP auth/elicitation requests after restart.
+- Runtime events emitted by execution may only trigger DTO refreshes:
+  `RunSchedulerPlan`, task detail/result, `TurnActivity`,
+  `SessionActivityCursorWindow`, full `SessionActivity`, `RunProjection`, Run
+  detail, refs, permissions, and MCP requests.
+
+Rejected execution shape:
+
+- No background worker, queue, poller, daemon, unattended scheduler, or batch
+  task execution.
+- No automatic resume after restart.
+- No stale running/waiting tool recovery.
+- No stale actionable permission gate recovery.
+- No stale actionable MCP auth/elicitation recovery.
+- No database migration or new persisted Run state machine field.
+- No frontend Run management UI and no React-owned task lifecycle state.
+- No event-payload, transition-history, assistant-prose, or React-state merge
+  into lifecycle, artifact evidence, permission/MCP actionability, or Run
+  status.
+
+Required implementation entry criteria for Phase 22.1:
+
+- Define a backend-only execute contract that calls
+  `runtimeRunSchedulerDelegateTaskTurn(...)` or equivalent revalidation before
+  starting work.
+- Define the child turn/session linkage and task result/message ownership that
+  prevents duplicate evidence.
+- Define idempotency behavior for already-running, already-completed,
+  cancelled, interrupted, missing, and unowned task rows.
+- Define permission/MCP behavior for foreground execution without restoring
+  stale actionability after restart.
+- Define artifact evidence rules proving only completed scheduler output can
+  produce refs.
+- Define transport response source metadata that explicitly says whether the
+  response is an action result, whether a worker was started, and which DTOs
+  callers must refresh.
+- Add tests before any frontend exposure.
+
+Validation:
+
+- Design review only.
+- Reviewed Phase 21.1/21.2 scheduler plan transport, internal scheduler
+  delegate, task cancellation ownership, and current source-of-truth rules.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 22 accepts the concept of a future explicit foreground task execute
+  action, but not its implementation.
+- The next safe task is Phase 22.1: Foreground Task Execute Backend Contract.
+- Phase 22.1 must still avoid background scheduling, automatic resume,
+  database migrations, frontend Run management UI, stale actionability
+  resurrection, and event/prose/React-derived truth.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7034,8 +7115,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Plan Phase 22: Explicit Foreground Task Execute Action Design Gate. Do not
-implement execution yet. The gate must define ownership, idempotency,
-cancellation ordering, artifact evidence, permission/MCP semantics, refresh
-behavior, and source-of-truth constraints before any execute transport or UI is
-added.
+Implement Phase 22.1: Foreground Task Execute Backend Contract. Start with
+backend contract tests and runtime-only code. Do not expose frontend controls,
+background workers, automatic resume, database migrations, stale actionability
+recovery, or event/prose/React-derived source of truth.
