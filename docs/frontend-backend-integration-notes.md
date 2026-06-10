@@ -1868,3 +1868,10 @@ Phase 23.4 note:
 - Browser/Wails/React code remains read-only for task execution state and must
   continue to refresh authoritative runtime DTOs rather than deriving state
   from events or local UI memory.
+
+Phase 23.5 note:
+
+- The internal runtime-side adapter contract is accepted, but real executor
+  installation and all transport/frontend execution affordances remain blocked.
+- Frontend behavior is unchanged: read scheduler/task/activity DTOs and treat
+  runtime events as refresh triggers only.

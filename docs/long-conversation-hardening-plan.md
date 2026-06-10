@@ -7894,6 +7894,55 @@ Review conclusion:
 - The next safe task is Phase 23.5 acceptance, then a later gate may install a
   real backend/coordinator executor if accepted.
 
+## 2026-06-10: Phase 23.5 Runtime-to-coordinator Foreground Runner Adapter Contract Acceptance
+
+Phase 23.5 accepts the Phase 23.4 runtime-side coordinator adapter contract as
+the stable backend/internal mapping boundary for future real executor wiring.
+
+Acceptance review:
+
+- Confirmed `runtimeCoordinatorTaskRunner` is internal runtime code and is not
+  installed into `runtimeService`.
+- Confirmed no `RuntimeService` method, HTTP/dev route, Wails bridge,
+  generated binding, client adapter, or React UI execution affordance was
+  added.
+- Confirmed task start now persists a structured prompt source in the
+  instruction message payload and does not rely on assistant prose.
+- Confirmed the adapter reads prompt text only from the explicit request or
+  the durable `runtime_task_instruction` payload.
+- Confirmed unsupported roles, missing executor, and missing prompt source
+  fail terminally through recorder-compatible task failure evidence and produce
+  no artifact refs.
+- Confirmed successful adapter calls return metadata only; runtime still
+  re-reads durable task/result/ref DTOs after runner return.
+- Confirmed events remain refresh triggers only and do not hydrate lifecycle,
+  artifacts, permission/MCP actionability, or Run status.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeCoordinatorTaskRunner|TestRuntimeRunSchedulerExecuteTask" -count=1`
+  passed.
+- `go test ./internal/agent ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1`
+  passed.
+- `git diff --check` passed.
+
+Accepted contract:
+
+- A future real executor may be installed behind this adapter only after a
+  separate design/implementation gate proves backend workspace resolution,
+  coordinator readiness, task-agent selection, cancellation ordering, and
+  completed-output-only produced refs.
+- The first real executor must remain backend/internal and foreground-scoped.
+- Transport/frontend exposure remains blocked.
+
+Review conclusion:
+
+- Phase 23.5 accepts the runtime-side adapter contract.
+- The next safe task is Phase 24: Real Backend/coordinator Executor Install
+  Design Gate.
+- Phase 24 must design how to resolve backend workspace/coordinator and build
+  the task agent without recreating coordinator logic in runtime.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7941,8 +7990,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 23.5: Runtime-to-coordinator Foreground Runner Adapter
-Contract Acceptance. Do not install the real adapter yet, expose frontend
-controls, expose HTTP/Wails transport, add background workers, add automatic
-resume, write database migrations, restore stale actionability, or make event/
-prose/React state the source of truth.
+Plan Phase 24: Real Backend/coordinator Executor Install Design Gate. Do not
+install the real executor yet, expose frontend controls, expose HTTP/Wails
+transport, add background workers, add automatic resume, write database
+migrations, restore stale actionability, or make event/prose/React state the
+source of truth.

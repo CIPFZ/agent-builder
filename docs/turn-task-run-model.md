@@ -224,6 +224,13 @@ Phase 23.4 note:
   supports only `config.AgentTask`, and terminally fails unsupported roles or
   missing prompt source without artifact refs.
 
+Phase 23.5 note:
+
+- The runtime-side coordinator adapter contract is accepted.
+- Real backend/coordinator executor installation is still pending and must
+  prove workspace/coordinator readiness, task-agent selection, cancellation
+  ordering, and completed-output-only refs before any transport/UI exposure.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
