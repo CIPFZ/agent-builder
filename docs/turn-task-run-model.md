@@ -515,6 +515,12 @@ Phase 29.2 note:
   packaged/Wails clicking, real provider-backed child-agent execution, and
   duplicated local harness orchestration.
 
+Phase 30 note:
+
+- Harness consolidation is accepted as validation infrastructure cleanup only.
+- It must not change Run, task, ref, scheduler, or frontend source-of-truth
+  semantics.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

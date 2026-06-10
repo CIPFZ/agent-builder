@@ -2213,3 +2213,12 @@ Phase 29.2 note:
   execution remain separate validation targets.
 - Future work should either consolidate duplicated harness orchestration or
   open a dedicated packaged/provider-backed validation gate.
+
+Phase 30 note:
+
+- The next accepted validation investment is local harness consolidation.
+- Packaged/Wails scheduler clicking and provider-backed child-agent validation
+  remain deferred until the shared Vite/browser harness base is less
+  duplicated.
+- The refactor should preserve the existing DTO source-of-truth assertions in
+  `smoke:phase281` and `smoke:phase291`.

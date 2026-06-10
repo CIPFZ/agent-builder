@@ -10122,6 +10122,68 @@ Review conclusion:
   Validation Gate, if the project wants to reduce duplication or choose the
   next validation target.
 
+## 2026-06-11: Phase 30 Scheduler Harness Consolidation Or Packaged Validation Gate
+
+Phase 30 chooses the next validation investment after the accepted browser
+scheduler harness track. It is a design gate only and does not add code,
+packaged/Wails automation, provider-backed child-agent validation, production
+seed endpoints, runtime readiness bypasses, background workers, automatic
+resume, database migrations, stale actionability recovery, frontend Run state
+ownership, full scheduler UI, or full Run executor behavior.
+
+Options reviewed:
+
+1. Add packaged/Wails scheduler click validation now.
+   - Useful for release confidence, but it needs packaged app lifecycle,
+     runtime root/config injection, webview automation, cleanup, and redaction
+     rules that differ from the Vite harness.
+   - It should not be layered onto the current duplicated scripts without a
+     shared harness base.
+2. Add provider-backed child-agent validation now.
+   - Useful for end-to-end execution confidence, but it requires provider/model
+     credentials or a deeper fake provider/child-agent contract.
+   - It risks mixing provider behavior with scheduler UI/source-of-truth
+     validation.
+3. Consolidate local harness orchestration first.
+   - The Phase 28.1 and 29.1 scripts duplicate process orchestration, port
+     allocation, pid/log handling, Playwright config/spec generation, cleanup,
+     redaction, and local CLI path resolution.
+   - Consolidation reduces drift before adding packaged or provider-backed
+     validation.
+
+Gate decision:
+
+- Consolidate the local browser harness scripts first.
+- Keep the existing smoke semantics unchanged:
+  - `npm run smoke:phase281` validates visible Execute start/hydration.
+  - `npm run smoke:phase291` validates completion/ref evidence.
+- Do not add packaged/Wails or provider-backed child-agent validation in Phase
+  30.
+
+Required constraints for Phase 30.1:
+
+- Extract only script-side harness orchestration into a shared local helper.
+- Keep all generated output under each phase-specific `tmp/runtime-dev/...`
+  directory.
+- Keep phase-specific Go helpers and Playwright assertions explicit.
+- Do not weaken redaction or process cleanup.
+- Do not add production runtime endpoints or frontend fixtures.
+- Re-run both browser smokes plus lint/build after refactor.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 30 accepts local harness consolidation as the next task.
+- The next safe task is Phase 30.1: Scheduler Browser Harness Shared Helper
+  Refactor.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10169,6 +10231,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 30: Scheduler Harness Consolidation Or Packaged Validation
-Gate. Decide whether to consolidate local harness code, add packaged/Wails
-scheduler click validation, or open provider-backed child-agent validation.
+Implement Phase 30.1: Scheduler Browser Harness Shared Helper Refactor. Extract
+common local process orchestration from Phase 28.1 and 29.1 scripts without
+changing smoke semantics.
