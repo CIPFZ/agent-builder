@@ -88,6 +88,7 @@ type Coordinator interface {
 	Model() Model
 	UpdateModels(ctx context.Context) error
 	RefreshSkills(ctx context.Context) error
+	ExecuteConfiguredStartedAgentTask(context.Context, StartedAgentTaskExecutionRequest) (StartedAgentTaskExecutionResult, error)
 }
 
 type coordinator struct {
@@ -115,6 +116,8 @@ type coordinator struct {
 	agentTaskRecorder  AgentTaskRecorder
 	childAgentsMu      sync.RWMutex
 	childAgents        map[string]SessionAgent
+
+	startedTaskAgentBuilder func(context.Context) (SessionAgent, []string, error)
 }
 
 type SchedulerRecorder interface {
@@ -1848,6 +1851,21 @@ func (c *coordinator) ExecuteStartedAgentTask(ctx context.Context, req StartedAg
 	}, nil
 }
 
+func (c *coordinator) ExecuteConfiguredStartedAgentTask(ctx context.Context, req StartedAgentTaskExecutionRequest) (StartedAgentTaskExecutionResult, error) {
+	if strings.TrimSpace(req.Role) != config.AgentTask {
+		return c.failStartedAgentTask(ctx, req, Model{}, "unsupported started task role: "+strings.TrimSpace(req.Role)), nil
+	}
+	taskAgent, allowedTools, err := c.configuredStartedTaskAgent(ctx)
+	if err != nil {
+		return c.failStartedAgentTask(ctx, req, Model{}, err.Error()), err
+	}
+	req.Agent = taskAgent
+	req.Role = config.AgentTask
+	req.Name = firstNonEmpty(req.Name, AgentToolName)
+	req.AllowedTools = append([]string(nil), allowedTools...)
+	return c.ExecuteStartedAgentTask(ctx, req)
+}
+
 func (c *coordinator) failStartedAgentTask(ctx context.Context, req StartedAgentTaskExecutionRequest, model Model, errorText string) StartedAgentTaskExecutionResult {
 	taskRecord := c.startedAgentTaskRecord(req, model)
 	taskRecord.Status = "failed"
@@ -1865,6 +1883,25 @@ func (c *coordinator) failStartedAgentTask(ctx context.Context, req StartedAgent
 		NoStaleResume:      true,
 		CompletionOnlyRefs: true,
 	}
+}
+
+func (c *coordinator) configuredStartedTaskAgent(ctx context.Context) (SessionAgent, []string, error) {
+	if c.startedTaskAgentBuilder != nil {
+		return c.startedTaskAgentBuilder(ctx)
+	}
+	agentCfg, ok := c.cfg.Config().Agents[config.AgentTask]
+	if !ok {
+		return nil, nil, errors.New("task agent not configured")
+	}
+	promptSpec, err := taskPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
+	if err != nil {
+		return nil, nil, err
+	}
+	taskAgent, err := c.buildAgent(ctx, promptSpec, agentCfg, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	return taskAgent, append([]string(nil), agentCfg.AllowedTools...), nil
 }
 
 func (c *coordinator) evaluateSubAgentPolicy(ctx context.Context, params subAgentParams, parentTurnID string) (fantasy.ToolResponse, bool, error) {

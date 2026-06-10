@@ -1882,3 +1882,11 @@ Phase 24 note:
 - There is still no execute transport or frontend action; future backend work
   must first keep task-agent construction coordinator-owned and prove terminal
   evidence/cancellation semantics.
+
+Phase 24.1 note:
+
+- The coordinator configured started-task executor exists internally, but
+  runtime is not wired to it and no transport/frontend execution affordance is
+  available.
+- Frontend behavior remains read-only with runtime DTO refreshes as the source
+  of truth.

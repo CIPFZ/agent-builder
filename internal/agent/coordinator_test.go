@@ -651,6 +651,108 @@ func TestExecuteStartedAgentTask(t *testing.T) {
 	})
 }
 
+func TestExecuteConfiguredStartedAgentTask(t *testing.T) {
+	const providerID = "test-provider"
+	providerCfg := config.ProviderConfig{ID: providerID}
+
+	t.Run("builds configured task agent and skips duplicate start evidence", func(t *testing.T) {
+		env := testEnv(t)
+		coord := newTestCoordinator(t, env, providerID, providerCfg)
+		recorder := &recordingAgentTaskRecorder{}
+		coord.agentTaskRecorder = recorder
+
+		parent, err := env.sessions.Create(t.Context(), "Parent")
+		require.NoError(t, err)
+		child, err := env.sessions.CreateTaskSession(t.Context(), "child-configured-1", parent.ID, "Task")
+		require.NoError(t, err)
+
+		builderCalls := 0
+		taskAgent := newMockAgent(providerID, 4096, func(_ context.Context, call SessionAgentCall) (*fantasy.AgentResult, error) {
+			assert.Equal(t, child.ID, call.SessionID)
+			assert.Equal(t, "turn-configured-1", call.TurnID)
+			assert.Equal(t, "configured prompt", call.Prompt)
+			assert.True(t, call.NonInteractive)
+			return agentResultWithText("configured done"), nil
+		})
+		coord.startedTaskAgentBuilder = func(context.Context) (SessionAgent, []string, error) {
+			builderCalls++
+			return taskAgent, []string{"view", "grep"}, nil
+		}
+
+		result, err := coord.ExecuteConfiguredStartedAgentTask(t.Context(), StartedAgentTaskExecutionRequest{
+			TaskID:               "task-configured-1",
+			ParentSessionID:      parent.ID,
+			ParentTurnID:         "turn-configured-1",
+			ParentToolCallID:     "tool-configured-1",
+			ChildSessionID:       child.ID,
+			Role:                 config.AgentTask,
+			Prompt:               "configured prompt",
+			StartAlreadyRecorded: true,
+			BackendOnly:          true,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 1, builderCalls)
+		assert.Equal(t, "completed", result.Status)
+		require.Empty(t, recorder.started)
+		require.Empty(t, recorder.progress)
+		require.Len(t, recorder.completed, 1)
+		assert.Equal(t, []string{"view", "grep"}, recorder.completed[0].AllowedTools)
+		assert.Equal(t, config.AgentTask, recorder.completed[0].Role)
+		assert.Equal(t, "agent", recorder.completed[0].Name)
+	})
+
+	t.Run("unsupported role fails terminally without building agent", func(t *testing.T) {
+		env := testEnv(t)
+		coord := newTestCoordinator(t, env, providerID, providerCfg)
+		recorder := &recordingAgentTaskRecorder{}
+		coord.agentTaskRecorder = recorder
+		coord.startedTaskAgentBuilder = func(context.Context) (SessionAgent, []string, error) {
+			t.Fatal("builder should not run for unsupported role")
+			return nil, nil, nil
+		}
+
+		result, err := coord.ExecuteConfiguredStartedAgentTask(t.Context(), StartedAgentTaskExecutionRequest{
+			TaskID:               "task-configured-unsupported",
+			ParentSessionID:      "session-parent",
+			ParentTurnID:         "turn-configured-unsupported",
+			ChildSessionID:       "session-child",
+			Role:                 "reviewer",
+			Prompt:               "prompt",
+			StartAlreadyRecorded: true,
+			BackendOnly:          true,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "failed", result.Status)
+		require.Len(t, recorder.failed, 1)
+		assert.Contains(t, recorder.failed[0].Error, "unsupported started task role")
+		assert.Empty(t, recorder.failed[0].ArtifactRefs)
+	})
+
+	t.Run("missing task agent config fails terminally", func(t *testing.T) {
+		env := testEnv(t)
+		coord := newTestCoordinator(t, env, providerID, providerCfg)
+		recorder := &recordingAgentTaskRecorder{}
+		coord.agentTaskRecorder = recorder
+		delete(coord.cfg.Config().Agents, config.AgentTask)
+
+		result, err := coord.ExecuteConfiguredStartedAgentTask(t.Context(), StartedAgentTaskExecutionRequest{
+			TaskID:               "task-configured-missing",
+			ParentSessionID:      "session-parent",
+			ParentTurnID:         "turn-configured-missing",
+			ChildSessionID:       "session-child",
+			Role:                 config.AgentTask,
+			Prompt:               "prompt",
+			StartAlreadyRecorded: true,
+			BackendOnly:          true,
+		})
+		require.Error(t, err)
+		assert.Equal(t, "failed", result.Status)
+		require.Len(t, recorder.failed, 1)
+		assert.Contains(t, recorder.failed[0].Error, "task agent not configured")
+		assert.Empty(t, recorder.failed[0].ArtifactRefs)
+	})
+}
+
 type denyingSchedulerRecorder struct{}
 
 func (denyingSchedulerRecorder) EvaluateToolCall(context.Context, SchedulerToolCall) (SchedulerToolPolicyDecision, error) {

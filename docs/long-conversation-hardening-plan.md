@@ -8038,6 +8038,59 @@ Review conclusion:
 - Phase 24.1 must keep agent construction in coordinator code and leave
   runtime adapter installation for a later accepted phase.
 
+## 2026-06-10: Phase 24.1 Coordinator Configured Started Task Executor Contract
+
+Phase 24.1 implements the coordinator-owned configured started-task executor.
+It does not install the runtime adapter, does not add backend transport, and
+does not expose HTTP/dev/Wails, generated bindings, client adapters, frontend
+UI, background scheduling, automatic resume, database migrations, or stale
+actionability recovery.
+
+Implemented:
+
+- Added `Coordinator.ExecuteConfiguredStartedAgentTask(...)`.
+- Added coordinator-side configured task-agent construction through the
+  existing `config.AgentTask`, `taskPrompt(...)`, and `buildAgent(...)` path.
+- Added an internal test hook for task-agent construction so contract tests can
+  avoid real provider calls while production code still uses coordinator-owned
+  agent construction.
+- The configured executor rejects unsupported roles terminally before building
+  an agent and does not fall back to the coder agent.
+- Missing task agent config/build failures are mapped to failed terminal
+  recorder-compatible evidence for the already-started task.
+- On success, the configured executor injects the constructed task agent and
+  delegates to `ExecuteStartedAgentTask(...)`, preserving no duplicate start/
+  progress writes and foreground-only child registration semantics.
+
+Contract tests:
+
+- Configured execution builds the task agent through the coordinator-owned
+  builder, skips duplicate start/progress evidence, writes one completed
+  record, and applies configured allowed tools.
+- Unsupported roles fail terminally without invoking the task-agent builder and
+  produce no artifact refs.
+- Missing task agent config fails terminally and produces no artifact refs.
+
+Validation:
+
+- `go test ./internal/agent -run "TestExecuteConfiguredStartedAgentTask|TestExecuteStartedAgentTask|TestRunSubAgent" -count=1`
+  passed.
+- `go test ./internal/agent ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1`
+  passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 24.1 establishes the coordinator-owned configured started-task executor
+  contract.
+- Runtime remains unwired; `runtimeCoordinatorTaskRunner` still uses only an
+  injected executor in tests.
+- No transport/frontend execution surface, background scheduler, automatic
+  resume, migration, stale actionability recovery, or event/prose/React source
+  of truth was added.
+- The next safe task is Phase 24.2 acceptance, then a later backend/runtime
+  wiring gate if accepted.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8085,8 +8138,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 24.1: Coordinator Configured Started Task Executor Contract.
-Keep it backend/internal and coordinator-owned first. Do not install the
-runtime adapter yet, expose frontend controls, expose HTTP/Wails transport, add
-background workers, add automatic resume, write database migrations, restore
-stale actionability, or make event/prose/React state the source of truth.
+Review/accept Phase 24.2: Coordinator Configured Started Task Executor
+Contract Acceptance. Do not install the runtime adapter yet, expose frontend
+controls, expose HTTP/Wails transport, add background workers, add automatic
+resume, write database migrations, restore stale actionability, or make event/
+prose/React state the source of truth.

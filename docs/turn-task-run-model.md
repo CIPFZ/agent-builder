@@ -238,6 +238,14 @@ Phase 24 note:
   started-task executor; runtime must not duplicate `buildAgent` or fall back
   to the coder agent.
 
+Phase 24.1 note:
+
+- Coordinator now owns a configured started-task executor contract.
+- It builds the task agent through the existing `config.AgentTask` path,
+  rejects unsupported roles terminally, and delegates to the started-task
+  executor without duplicating start evidence.
+- Runtime adapter installation is still pending.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
