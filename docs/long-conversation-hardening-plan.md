@@ -8982,6 +8982,49 @@ Review conclusion:
   triggered candidate refresh and duplicate terminal/event non-resurrection
   before any visible execute control is implemented.
 
+## 2026-06-10: Phase 26.7 Scheduler Candidate Browser/Wails Contract Smoke
+
+Phase 26.7 adds frontend contract smoke coverage for event-triggered scheduler
+candidate refresh behavior. It does not add visible scheduler execute controls,
+background workers, automatic resume, database migrations, stale actionability
+recovery, frontend Run state ownership, or full Run executor behavior.
+
+Implemented:
+
+- Added `client/scripts/phase267-scheduler-refresh-contract-smoke.mjs`.
+- Added `npm run smoke:phase267`.
+- The smoke verifies:
+  - `WorkbenchShell` event handling only schedules `adapter.refresh(...)`.
+  - Event payloads are not merged into scheduler candidates, diagnostics,
+    artifacts, permission/MCP actionability, or Run state.
+  - Terminal turn/tool and artifact/ref events remain refresh triggers.
+  - Scheduler candidates are hydrated through durable `RunSchedulerPlan` reads.
+  - Duplicate events cannot duplicate candidate rows because rows dedupe by
+    stable `runID:taskID`.
+  - `executeEligible` and disabled state continue to map from durable
+    `canSchedule`/`preflightReason`.
+  - `RunProjectionPreview` and `WorkbenchShell` still do not expose
+    `readRunSchedulerPlan` or `executeRunTask` UI calls.
+
+Validation:
+
+```text
+npm run smoke:phase267
+npm run smoke:phase266
+npm run build
+```
+
+Review conclusion:
+
+- Phase 26.7 accepts the event-triggered durable refresh contract for hidden
+  scheduler candidates.
+- Browser/Wails source-of-truth boundaries remain intact: events choose
+  refresh timing, durable reads provide state.
+- The next safe task is Phase 26.8: Visible Scheduler Execute Control Gate. It
+  should decide whether the existing hidden candidate read model is sufficient
+  to add a visible restrained task-row control, or whether another runtime
+  contract gap remains.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9029,9 +9072,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 26.7: Scheduler Candidate Browser/Wails Contract Smoke. Add
-targeted browser/bridge-level coverage for event-triggered durable scheduler
-candidate refresh and duplicate terminal/event non-resurrection before any
-visible execute control is implemented. Do not add background workers,
-automatic resume, database migrations, stale actionability recovery, frontend
-Run state ownership, or full Run executor behavior.
+Implement Phase 26.8: Visible Scheduler Execute Control Gate. Decide whether
+the hidden scheduler candidate read model is sufficient to add a visible,
+restrained task-row execute control, or whether another runtime contract gap
+remains. Do not add background workers, automatic resume, database migrations,
+stale actionability recovery, frontend Run state ownership, or full Run
+executor behavior.

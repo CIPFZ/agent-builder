@@ -370,6 +370,14 @@ Phase 26.6 note:
 - No visible execution UI is implemented; future UI must still consume these
   durable rows and re-read after any explicit action.
 
+Phase 26.7 note:
+
+- Event-triggered scheduler candidate refresh is covered as a contract:
+  runtime events schedule durable rereads only.
+- Duplicate terminal or artifact/ref events must not duplicate candidate rows
+  or resurrect stale permission/MCP actionability because candidate state is
+  keyed and hydrated from durable reads.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

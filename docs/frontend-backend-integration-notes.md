@@ -2017,3 +2017,13 @@ Phase 26.6 note:
 - No visible React component calls `readRunSchedulerPlan` or `executeRunTask`;
   visible scheduler execution remains gated on later browser/Wails smoke and UI
   acceptance.
+
+Phase 26.7 note:
+
+- Added source-level browser/Wails contract smoke for scheduler candidate
+  refresh boundaries.
+- Events remain refresh triggers only; `WorkbenchShell` calls
+  `adapter.refresh(...)` and does not merge event payloads into candidate,
+  diagnostic, artifact, permission/MCP, or Run state.
+- Duplicate terminal/event evidence is constrained by durable rereads and
+  stable `runID:taskID` candidate keys.
