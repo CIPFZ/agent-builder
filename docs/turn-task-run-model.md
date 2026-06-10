@@ -289,6 +289,15 @@ Phase 25 note:
 - Live hosted/provider smoke remains credential-gated and must be redacted or
   manual unless covered by safe local fakes.
 
+Phase 25.1 note:
+
+- Real provider/hosted MCP live smoke remains a credential-gated manual gap.
+- A redacted local checklist was recorded under ignored `tmp/runtime-dev`;
+  durable runtime evidence and deterministic fake coverage remain the current
+  source of validation truth.
+- No Run persistence, transport/UI exposure, background execution, automatic
+  resume, migration, or stale actionability recovery was added.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

@@ -8412,6 +8412,60 @@ Review conclusion:
   and completed-output refs without storing secrets or adding UI/transport
   execution actions.
 
+## 2026-06-10: Phase 25.1 Real Provider/Hosted MCP Redacted Smoke Checklist And Gap Review
+
+Phase 25.1 reviews the live-provider/hosted-MCP validation gap after the
+internal backend runner smoke. It does not add code, transport routes, Wails
+bindings, frontend controls, background workers, automatic resume, migrations,
+or stale permission/MCP actionability recovery.
+
+Credential-safe result:
+
+- Real hosted provider execution, browser OAuth, and provider-specific hosted
+  MCP elicitation were not automated because this workspace has no safe
+  operator-held credentials or browser auth state available for automation.
+- A redacted local checklist was recorded at
+  `tmp/runtime-dev/phase-25.1-provider-hosted-smoke-redacted.md`. This path is
+  ignored by git and contains no secrets, OAuth tokens, cookies, browser
+  profiles, provider auth state, raw headers, screenshots, or live provider
+  logs.
+- Deterministic repo coverage remains the accepted validation substitute until
+  a credentialed operator can run the manual smoke:
+  - Phase 25 proves scheduler execution reaches the installed backend runner
+    and workspace coordinator path.
+  - Phase 25 proves completed backend runner evidence is the only task ref
+    source and failed/cancelled evidence produces zero artifact refs.
+  - Phase 6.8/6.9 coverage proves restart does not restore stale actionable
+    MCP auth or elicitation requests, replay export keeps redacted terminal
+    evidence, and narrow reads do not recreate actionability from events.
+
+Manual smoke checklist retained:
+
+- Use operator-held provider credentials outside repo fixtures.
+- Use an operator-controlled browser profile outside the workspace for OAuth.
+- Start a queued AgentTask through the internal scheduler path and verify the
+  prompt source is the durable `runtime_task_instruction` payload.
+- Verify completed child-agent/provider output creates refs only from terminal
+  completion recorder evidence.
+- Cancel during foreground child-agent/provider execution and verify terminal
+  cancelled evidence with zero artifact refs.
+- If permission, MCP auth, or elicitation is reached, record only redacted
+  request kind/status through runtime APIs.
+- Restart before answering hosted MCP auth/elicitation and verify
+  `RecoveryStatus`, activity DTOs, and replay export do not expose stale
+  actionability.
+
+Review conclusion:
+
+- Phase 25.1 accepts the provider/hosted MCP live-smoke gap as credential-
+  gated and safely redacted, not as a blocker for the internal backend runner
+  validation track.
+- No secrets or auth state were committed or written to repo docs.
+- The next safe task is Phase 25.2: Backend Runner Acceptance And Next Exposure
+  Gate. It should decide whether the backend runner is ready for a later
+  explicitly-approved transport/UI design gate, or whether more internal fake
+  provider coverage is needed first.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8459,10 +8513,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 25.1: Real Provider/Hosted MCP Redacted Smoke Checklist And
-Gap Review. Keep it credential-safe and validation-first: use fake local
-providers where possible, use redacted/manual checklists where real hosted
-credentials or browser OAuth are required, and do not expose frontend controls,
-expose HTTP/Wails transport, add background workers, add automatic resume,
-write database migrations, restore stale actionability, or make event/prose/
-React state the source of truth.
+Implement Phase 25.2: Backend Runner Acceptance And Next Exposure Gate. Decide
+whether the backend runner is ready for a later explicitly-approved transport/
+UI design gate, or whether more internal fake-provider coverage is needed
+first. Do not expose frontend controls, expose HTTP/Wails transport, add
+background workers, add automatic resume, write database migrations, restore
+stale actionability, or make event/prose/React state the source of truth.

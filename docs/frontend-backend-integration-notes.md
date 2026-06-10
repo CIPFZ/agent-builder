@@ -1926,3 +1926,11 @@ Phase 25 note:
 - The frontend still must not infer task completion, cancellation, artifacts,
   permission state, or MCP actionability from events or React state; durable
   runtime DTO reads remain authoritative.
+
+Phase 25.1 note:
+
+- Hosted/provider live smoke is recorded as a redacted manual gap because real
+  credentials or browser OAuth state are required.
+- Frontend behavior remains unchanged: no browser/Wails/React execution
+  controls, no event-payload actionability, and no React-owned task/provider
+  state.
