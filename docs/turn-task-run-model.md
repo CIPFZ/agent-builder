@@ -70,6 +70,13 @@ Phase 20 note:
 - Final, cancelled, interrupted, missing, or unowned task rows remain
   non-executable. Runtime stores/DTO reads remain the source of truth.
 
+Phase 20.1 note:
+
+- Foreground task schedulability now has parity/evidence coverage: delegate
+  preflight creates no refs by itself, recorder completed output creates task
+  artifact refs, cursor-window events match the full activity evidence, and
+  completed task rows become terminal/non-executable again.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

@@ -6726,6 +6726,39 @@ Review conclusion:
 - The next safe task is Phase 20.1: Foreground Task Executability Parity And
   Recorder Evidence Coverage.
 
+### Phase 20.1: Foreground Task Executability Parity And Recorder Evidence Coverage
+
+Status: implemented.
+
+Implementation:
+
+- Added backend coverage proving a foreground-schedulable owned active task
+  delegate candidate creates no refs before recorder evidence exists.
+- Added recorder completion coverage proving completed task output creates
+  task artifact refs through structured recorder evidence.
+- Added full `SessionActivity` plus cursor-window parity coverage for task
+  completion and task artifact events after recorder completion.
+- Added terminal precedence coverage proving the completed task plan becomes
+  `terminal_task` and non-executable after recorder terminal evidence.
+
+Validation:
+
+- `go test ./internal/runtime -run
+  "TestRuntimeRunSchedulerDelegateTaskTurn(ActivityParity|Allows|Rejects)|TestRuntimeRunSchedulerPlanTaskItem"
+  -count=1` passed.
+
+Review conclusion:
+
+- Phase 20.1 strengthens evidence/parity coverage for the Phase 20 foreground
+  schedulability flip.
+- Recorder completed output remains the produced-ref path; delegate preflight
+  alone does not write refs, task messages/results, runtime events, or
+  transitions.
+- Full `SessionActivity` remains the fallback and parity oracle; cursor-window
+  events remain additive refresh evidence.
+- The next safe task is Phase 20.2: Foreground Task Executability Acceptance
+  Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6773,10 +6806,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 20.1: Foreground Task Executability Parity And Recorder
-Evidence Coverage. Add focused backend coverage proving the foreground
-schedulable task candidate remains compatible with full `SessionActivity`
-fallback/parity, recorder completed output remains the only produced-ref path,
-and cancellation/terminal evidence still wins over executable plan refreshes.
-Do not add a background worker, queue, poller, automatic resume, frontend Run
-UI, migration, or event/prose/React-derived source of truth.
+Review and accept Phase 20.1 as Phase 20.2: Foreground Task Executability
+Acceptance Gate. Confirm the foreground schedulability flip is stable, recorder
+terminal evidence remains authoritative, and full `SessionActivity` remains the
+fallback/parity oracle. Do not add a background worker, queue, poller,
+automatic resume, frontend Run UI, migration, or event/prose/React-derived
+source of truth.

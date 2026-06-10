@@ -3,8 +3,15 @@ package runtime
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/charmbracelet/crush/internal/agent"
+	"github.com/charmbracelet/crush/internal/db"
+	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
 func TestRuntimeRunSchedulerDelegateAllowsLinkedUserTurn(t *testing.T) {
@@ -331,6 +338,156 @@ func TestRuntimeRunSchedulerDelegateTaskTurnAllowsOwnedActiveCandidateWithoutSid
 		t.Fatalf("owned task mutated = %#v", refreshed)
 	}
 	assertTaskDelegateNoSideEffects(t, service, run.ID, task.ID)
+}
+
+func TestRuntimeRunSchedulerDelegateTaskTurnActivityParityAndRecorderEvidence(t *testing.T) {
+	t.Parallel()
+
+	runtimeBackend, workspace := backendForSkillTest(t)
+	conn, err := db.Connect(context.Background(), workspace.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(workspace.DataDir)
+	})
+
+	service := newRuntimeService()
+	service.runtime = runtimeBackend
+	service.workspace = &workspace
+	service.turns = newRuntimeTurnStore(conn)
+	service.runs = newRuntimeRunStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+	service.refs = newRuntimeRefStore(conn, workspace.DataDir)
+
+	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "task parity")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := ws.Messages.Create(context.Background(), sess.ID, message.CreateMessageParams{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "run child task"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.runs.EnsureForSession(context.Background(), workspace.ID, sess.ID, "run child task", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:            "turn-task-parity",
+		SessionID:     sess.ID,
+		Status:        turnStatusQueued,
+		UserMessageID: msg.ID,
+		PromptPreview: "run child task",
+		StartedAt:     time.Now().Add(-time.Second).UnixMilli(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.runs.LinkTurn(context.Background(), run.ID, sess.ID, turn.ID, turn.StartedAt); err != nil {
+		t.Fatal(err)
+	}
+	task, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:               "task-parity",
+		ParentSessionID:  sess.ID,
+		ParentTurnID:     turn.ID,
+		ParentToolCallID: "tool-parent",
+		ChildSessionID:   "session-child",
+		Status:           agentTaskStatusRunning,
+		Role:             "reviewer",
+		AllowedTools:     []string{"view"},
+		CapabilityScope:  []string{workspace.Path},
+		CWD:              workspace.Path,
+		StartedAt:        turn.StartedAt + 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := service.runtimeRunSchedulerDelegateTaskTurn(context.Background(), run, task.ID)
+	if err != nil {
+		t.Fatalf("delegate should accept owned active task: %v plan=%#v", err, plan)
+	}
+	refsBefore, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refsBefore.Refs) != 0 {
+		t.Fatalf("delegate created refs before recorder evidence: %#v", refsBefore.Refs)
+	}
+
+	recorder := runtimeSchedulerRecorder{service: service}
+	record := agent.AgentTaskRecord{
+		ID:               task.ID,
+		ParentTurnID:     task.ParentTurnID,
+		ParentSessionID:  task.ParentSessionID,
+		ParentToolCallID: task.ParentToolCallID,
+		ChildSessionID:   task.ChildSessionID,
+		Title:            "Task parity",
+		Kind:             agentTaskKindSubagent,
+		Role:             task.Role,
+		PromptSummary:    "inspect child output",
+		AllowedTools:     task.AllowedTools,
+		CapabilityScope:  task.CapabilityScope,
+		CWD:              task.CWD,
+		Status:           agentTaskStatusCompleted,
+		Progress:         100,
+		ResultSummary:    "completed child output",
+		ArtifactRefs:     []string{"task-output.md"},
+		StartedAt:        task.StartedAt,
+		FinishedAt:       task.StartedAt + 100,
+	}
+	if err := recorder.AgentTaskCompleted(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	refsAfter, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID, Kind: runtimeRefKindTaskArtifact})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refsAfter.Refs) != 1 || refsAfter.Refs[0].TaskID != task.ID || refsAfter.Refs[0].TurnID != turn.ID {
+		t.Fatalf("task refs after recorder completion = %#v", refsAfter.Refs)
+	}
+	completedPlan, err := service.runtimeRunSchedulerPlan(context.Background(), RuntimeRunSchedulerPlanRequest{RunID: run.ID, TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(completedPlan.Plan.Items) != 1 || completedPlan.Plan.Items[0].CanSchedule || completedPlan.Plan.Items[0].PreflightReason != runtimeRunSchedulerPlanReasonTerminalTask {
+		t.Fatalf("completed task plan = %#v", completedPlan.Plan.Items)
+	}
+
+	full, err := service.SessionActivity(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullWindow, err := service.SessionActivityCursorWindow(context.Background(), sess.ID, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window, err := service.SessionActivityCursorWindow(context.Background(), sess.ID, "", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullTurn := findRuntimeTurn(full.Turns, turn.ID)
+	windowTurn := findRuntimeTurn(window.Turns, turn.ID)
+	if fullTurn.ID == "" || windowTurn.ID == "" || fullTurn.Diagnostics.LastRuntimeEventSequence != windowTurn.Diagnostics.LastRuntimeEventSequence {
+		t.Fatalf("activity parity full=%#v window=%#v", full.Turns, window.Turns)
+	}
+	if !runtimeActivityHasEvent(fullWindow.Events, runtimeapi.EventTaskCompleted, task.ID) || !runtimeActivityHasEvent(window.Events, runtimeapi.EventTaskCompleted, task.ID) {
+		t.Fatalf("task completed event parity fullWindow=%#v window=%#v", fullWindow.Events, window.Events)
+	}
+	if !runtimeActivityHasEvent(fullWindow.Events, runtimeapi.EventTaskArtifactCreated, task.ID) || !runtimeActivityHasEvent(window.Events, runtimeapi.EventTaskArtifactCreated, task.ID) {
+		t.Fatalf("task artifact event parity fullWindow=%#v window=%#v", fullWindow.Events, window.Events)
+	}
+}
+
+func runtimeActivityHasEvent(events []RuntimeEvent, eventType, taskID string) bool {
+	return slices.ContainsFunc(events, func(event RuntimeEvent) bool {
+		return event.Type == eventType && event.Payload["task_id"] == taskID
+	})
 }
 
 func assertTaskDelegateNoSideEffects(t *testing.T, service *runtimeService, runID, taskID string) {

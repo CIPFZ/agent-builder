@@ -1663,3 +1663,23 @@ Phase 20 result:
   rejected without side effects.
 - The delegate still does not start a worker or write runtime events, task
   messages/results, transitions, or artifact evidence by itself.
+
+## 2026-06-10: Phase 20.1 Foreground Task Executability Parity And Recorder Evidence
+
+Phase 20.1 adds backend coverage for the Phase 20 foreground schedulability
+flip.
+
+Frontend boundary:
+
+- Full `SessionActivity` remains the fallback and parity oracle.
+- Cursor-window task events remain additive refresh evidence; frontend state
+  must still come from DTO refreshes.
+- Delegate preflight alone does not create task refs, messages, results,
+  runtime events, or transitions.
+
+Phase 20.1 result:
+
+- Recorder completed output is covered as the produced-ref path for task
+  artifacts.
+- Completed task evidence wins over executable plan refreshes: completed task
+  items become `terminal_task` and non-executable.
