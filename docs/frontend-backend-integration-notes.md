@@ -1810,3 +1810,13 @@ Phase 22.5 note:
 - No execute transport, generated binding, adapter method, React control, or
   frontend-owned task lifecycle state is accepted until the backend runner
   contract is implemented and reviewed.
+
+Phase 22.6 note:
+
+- The backend now has an internal, test-injectable child-agent runner contract
+  behind `runtimeRunSchedulerExecuteTask`.
+- This does not add a `RuntimeService` method, HTTP/dev route, Wails bridge,
+  generated binding, frontend adapter method, or React control.
+- Frontend behavior remains read/refresh only: event payloads can choose DTO
+  refreshes, but task lifecycle, refs, permission/MCP actionability, and Run
+  status must still come from runtime DTO reads.

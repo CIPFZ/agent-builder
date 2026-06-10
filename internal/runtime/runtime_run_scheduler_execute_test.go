@@ -4,7 +4,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
@@ -136,6 +138,204 @@ func TestRuntimeRunSchedulerExecuteTaskStartsQueuedTaskOnce(t *testing.T) {
 	}
 }
 
+func TestRuntimeRunSchedulerExecuteTaskInvokesForegroundRunnerAndUsesCompletionEvidence(t *testing.T) {
+	t.Parallel()
+
+	service, release := runtimeRunTransitionWriterTestService(t)
+	defer release()
+
+	run, turn := runtimeRunSchedulerPlanLinkedTurnFixture(t, service, turnStatusQueued)
+	task, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:               "task-execute-runner-complete",
+		ParentSessionID:  "session-1",
+		ParentTurnID:     turn.ID,
+		ParentToolCallID: "tool-parent",
+		ChildSessionID:   "session-child",
+		Title:            "Review output",
+		Kind:             agentTaskKindSubagent,
+		Role:             "reviewer",
+		Name:             "agent",
+		PromptSummary:    "inspect child output",
+		Provider:         "provider-1",
+		Model:            "model-1",
+		AllowedTools:     []string{"view", "grep"},
+		CapabilityScope:  []string{"C:/work/project"},
+		CWD:              "C:/work/project",
+		Worktree:         "worktree-1",
+		Status:           agentTaskStatusQueued,
+		StartedAt:        1100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &recordingRuntimeAgentTaskRunner{}
+	service.agentTaskRunner = runner
+	runner.run = func(ctx context.Context, req RuntimeAgentTaskExecutionRequest) (RuntimeAgentTaskExecutionResult, error) {
+		if !req.StartAlreadyRecorded || !req.BackendOnly || !req.EventPayloadRefreshOnly {
+			t.Fatalf("runner request source flags = %#v", req)
+		}
+		if req.RunID != run.ID || req.TaskID != task.ID || req.ParentTurnID != turn.ID || req.ChildSessionID != task.ChildSessionID || req.Worktree != task.Worktree {
+			t.Fatalf("runner request ownership/scope = %#v", req)
+		}
+		recorder := runtimeSchedulerRecorder{service: service}
+		err := recorder.AgentTaskCompleted(ctx, agent.AgentTaskRecord{
+			ID:               req.TaskID,
+			ParentTurnID:     req.ParentTurnID,
+			ParentSessionID:  req.ParentSessionID,
+			ParentToolCallID: req.ParentToolCallID,
+			ChildSessionID:   req.ChildSessionID,
+			Title:            req.Title,
+			Kind:             req.Kind,
+			Role:             req.Role,
+			Name:             req.Name,
+			PromptSummary:    req.PromptSummary,
+			Model:            req.Model,
+			Provider:         req.Provider,
+			AllowedTools:     req.AllowedTools,
+			CapabilityScope:  req.CapabilityScope,
+			CWD:              req.CWD,
+			Worktree:         req.Worktree,
+			Status:           agentTaskStatusCompleted,
+			Progress:         100,
+			ResultSummary:    "runner completed",
+			ArtifactRefs:     []string{"artifact:file:runner-result.txt"},
+			StartedAt:        req.StartedAt,
+			FinishedAt:       time.Now().UnixMilli(),
+		})
+		return RuntimeAgentTaskExecutionResult{
+			TaskID:             req.TaskID,
+			Status:             agentTaskStatusCompleted,
+			Terminal:           true,
+			RefreshTargets:     runtimeRunSchedulerRefreshTargets(),
+			ArtifactRefs:       []string{"artifact:file:runner-result.txt"},
+			ResultSummary:      "runner completed",
+			NoStaleResume:      true,
+			CompletionOnlyRefs: true,
+		}, err
+	}
+
+	resp, err := service.runtimeRunSchedulerExecuteTask(context.Background(), RuntimeRunSchedulerExecuteTaskRequest{RunID: run.ID, TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Accepted || !resp.ExecutionStarted || resp.Task.Status != agentTaskStatusCompleted || resp.Task.ResultSummary != "runner completed" {
+		t.Fatalf("execute response = %#v", resp)
+	}
+	if runner.calls != 1 {
+		t.Fatalf("runner calls = %d", runner.calls)
+	}
+	messages, err := newRuntimeAgentTaskMessageStore(service.turns.db).ListByTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startMessages := 0
+	resultMessages := 0
+	for _, msg := range messages {
+		switch msg.Kind {
+		case taskMessageKindInstruction:
+			startMessages++
+		case taskMessageKindResult:
+			resultMessages++
+		}
+	}
+	if startMessages != 1 || resultMessages != 1 {
+		t.Fatalf("task messages start=%d result=%d messages=%#v", startMessages, resultMessages, messages)
+	}
+	result, err := newRuntimeAgentTaskResultStore(service.turns.db).Get(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != agentTaskStatusCompleted || len(result.ArtifactRefs) != 1 || !strings.HasPrefix(result.ArtifactRefs[0], "runtime://refs/") {
+		t.Fatalf("task result = %#v", result)
+	}
+	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs.Refs) != 1 {
+		t.Fatalf("completion refs = %#v", refs.Refs)
+	}
+	second, err := service.runtimeRunSchedulerExecuteTask(context.Background(), RuntimeRunSchedulerExecuteTaskRequest{RunID: run.ID, TaskID: task.ID})
+	if err == nil || !strings.Contains(err.Error(), runtimeRunSchedulerDelegateReasonTerminalTask) {
+		t.Fatalf("duplicate terminal execute err=%v resp=%#v", err, second)
+	}
+	if runner.calls != 1 {
+		t.Fatalf("duplicate terminal execute reran runner calls=%d", runner.calls)
+	}
+}
+
+func TestRuntimeRunSchedulerExecuteTaskRunnerCancellationDoesNotCreateArtifactEvidence(t *testing.T) {
+	t.Parallel()
+
+	service, release := runtimeRunTransitionWriterTestService(t)
+	defer release()
+
+	run, turn := runtimeRunSchedulerPlanLinkedTurnFixture(t, service, turnStatusQueued)
+	task, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
+		ID:              "task-execute-runner-cancelled",
+		ParentSessionID: "session-1",
+		ParentTurnID:    turn.ID,
+		ChildSessionID:  "session-child",
+		Status:          agentTaskStatusQueued,
+		StartedAt:       1100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &recordingRuntimeAgentTaskRunner{}
+	service.agentTaskRunner = runner
+	runner.run = func(ctx context.Context, req RuntimeAgentTaskExecutionRequest) (RuntimeAgentTaskExecutionResult, error) {
+		recorder := runtimeSchedulerRecorder{service: service}
+		err := recorder.AgentTaskFailed(ctx, agent.AgentTaskRecord{
+			ID:              req.TaskID,
+			ParentTurnID:    req.ParentTurnID,
+			ParentSessionID: req.ParentSessionID,
+			ChildSessionID:  req.ChildSessionID,
+			Status:          agentTaskStatusCancelled,
+			Progress:        100,
+			ResultSummary:   "partial output must not become an artifact",
+			ArtifactRefs:    nil,
+			StartedAt:       req.StartedAt,
+			FinishedAt:      time.Now().UnixMilli(),
+			Error:           "cancelled by foreground context",
+		})
+		return RuntimeAgentTaskExecutionResult{
+			TaskID:             req.TaskID,
+			Status:             agentTaskStatusCancelled,
+			Terminal:           true,
+			ResultSummary:      "partial output must not become an artifact",
+			Error:              "cancelled by foreground context",
+			NoStaleResume:      true,
+			CompletionOnlyRefs: true,
+		}, err
+	}
+
+	resp, err := service.runtimeRunSchedulerExecuteTask(context.Background(), RuntimeRunSchedulerExecuteTaskRequest{RunID: run.ID, TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Task.Status != agentTaskStatusCancelled || resp.Task.Progress != 100 || len(resp.Task.ArtifactRefs) != 0 {
+		t.Fatalf("cancelled runner response = %#v", resp)
+	}
+	result, err := newRuntimeAgentTaskResultStore(service.turns.db).Get(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != agentTaskStatusCancelled || len(result.ArtifactRefs) != 0 {
+		t.Fatalf("cancelled result created artifacts = %#v", result)
+	}
+	refs, err := service.Refs(context.Background(), RuntimeRefListRequest{TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs.Refs) != 0 {
+		t.Fatalf("cancelled runner created refs = %#v", refs.Refs)
+	}
+	if runner.calls != 1 {
+		t.Fatalf("runner calls = %d", runner.calls)
+	}
+}
+
 func TestRuntimeRunSchedulerExecuteTaskRejectsInvalidCandidatesWithoutSideEffects(t *testing.T) {
 	t.Parallel()
 
@@ -204,4 +404,23 @@ func TestRuntimeRunSchedulerExecuteTaskRejectsInvalidCandidatesWithoutSideEffect
 		t.Fatalf("terminal task mutated = %#v", refreshedTerminal)
 	}
 	assertTaskDelegateNoSideEffects(t, service, run.ID, terminal.ID)
+}
+
+type recordingRuntimeAgentTaskRunner struct {
+	calls int
+	run   func(context.Context, RuntimeAgentTaskExecutionRequest) (RuntimeAgentTaskExecutionResult, error)
+}
+
+func (r *recordingRuntimeAgentTaskRunner) ExecuteAgentTask(ctx context.Context, req RuntimeAgentTaskExecutionRequest) (RuntimeAgentTaskExecutionResult, error) {
+	r.calls++
+	if r.run == nil {
+		return RuntimeAgentTaskExecutionResult{
+			TaskID:             req.TaskID,
+			Status:             agentTaskStatusRunning,
+			RefreshTargets:     runtimeRunSchedulerRefreshTargets(),
+			NoStaleResume:      true,
+			CompletionOnlyRefs: true,
+		}, nil
+	}
+	return r.run(ctx, req)
 }

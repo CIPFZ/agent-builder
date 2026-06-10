@@ -162,6 +162,17 @@ Phase 22.5 note:
   automatic resume, transport/frontend exposure, stale actionability recovery,
   and event/prose/React-derived truth remain rejected.
 
+Phase 22.6 note:
+
+- A backend-internal, test-injectable child-agent runner contract now exists
+  behind `runtimeRunSchedulerExecuteTask`.
+- The contract receives durable run/task ownership and scope evidence after
+  scheduler revalidation and start recording; runtime re-reads durable task
+  state after runner return.
+- No real coordinator adapter, transport exposure, frontend Run UI,
+  background worker, automatic resume, database migration, or stale
+  actionability recovery is implemented.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

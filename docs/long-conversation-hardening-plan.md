@@ -7385,6 +7385,67 @@ Review conclusion:
   automatic resume, database migrations, stale actionability recovery, and
   event/prose/React-derived truth.
 
+## 2026-06-10: Phase 22.6 Child-agent Foreground Runner Backend Contract
+
+Phase 22.6 implements the backend-internal child-agent runner contract behind
+`runtimeRunSchedulerExecuteTask(...)`. It does not connect the real
+coordinator runner yet and does not expose HTTP, dev module, Wails, generated
+bindings, client adapter, or frontend controls.
+
+Implemented:
+
+- Added backend-internal `runtimeAgentTaskRunner` with
+  `ExecuteAgentTask(ctx, RuntimeAgentTaskExecutionRequest)`.
+- Added `RuntimeAgentTaskExecutionRequest` and
+  `RuntimeAgentTaskExecutionResult` DTOs for runtime/agent boundary evidence.
+  These DTOs are not added to `RuntimeService` or transport.
+- Added an internal request builder that copies fresh durable task/run evidence
+  after scheduler revalidation and start recording:
+  run/task ids, parent session/turn/tool call, child session, title/kind/role/
+  name, prompt summary, provider/model, allowed tools, capability scope,
+  cwd/worktree, and `StartedAt`.
+- The request explicitly marks `startAlreadyRecorded=true`,
+  `backendOnly=true`, and `eventPayloadRefreshOnly=true` so a future real
+  adapter must not duplicate start evidence or treat events as state truth.
+- `runtimeRunSchedulerExecuteTask(...)` now invokes the injected runner only
+  after queued-task start evidence is recorded. If no runner is injected, the
+  Phase 22.4 start-only behavior remains unchanged.
+- Duplicate/running and terminal/unowned candidates still return before runner
+  invocation, preserving task-id idempotency and no stale actionability
+  recovery.
+- After runner return, runtime re-reads the task from durable storage for the
+  response instead of trusting runner payload data.
+
+Contract tests:
+
+- Existing start-only tests still pass with no runner injected.
+- A fake foreground runner proves the runtime passes fresh ownership/scope
+  evidence and source flags into the runner.
+- The fake runner writes completion through `runtimeSchedulerRecorder` and
+  proves completed output produces exactly one result message and one runtime
+  artifact ref.
+- A duplicate execute after terminal completion is rejected before runner
+  invocation and does not duplicate child sessions/messages/results/refs.
+- A fake cancelled runner writes cancelled terminal evidence with partial
+  summary text and proves cancelled/partial output creates no artifact refs.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeRunSchedulerExecuteTask" -count=1`
+  passed.
+
+Review conclusion:
+
+- Phase 22.6 adds only a backend-internal, test-injectable runner contract.
+- It still does not implement the real coordinator adapter or expose execution
+  through transport/frontend.
+- Runtime durable DTOs remain the source of truth; runner result payloads and
+  events are not used to hydrate lifecycle, artifact, permission/MCP
+  actionability, or Run status directly.
+- The next safe task is Phase 22.7 acceptance of the backend runner contract,
+  then a later implementation gate can connect a real coordinator adapter if
+  accepted.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7432,8 +7493,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 22.6: Child-agent Foreground Runner Backend Contract. Keep it
-backend-internal and test-injectable first. Do not expose frontend controls,
-HTTP/Wails transport, background workers, automatic resume, database
-migrations, stale actionability recovery, or event/prose/React-derived source
-of truth.
+Review/accept Phase 22.7: Child-agent Foreground Runner Backend Contract
+Acceptance. Do not connect the real coordinator adapter, expose frontend
+controls, expose HTTP/Wails transport, add background workers, add automatic
+resume, write database migrations, restore stale actionability, or make event/
+prose/React state the source of truth.

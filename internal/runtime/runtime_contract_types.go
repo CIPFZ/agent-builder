@@ -344,6 +344,42 @@ type RuntimeRunSchedulerExecuteTaskSource struct {
 	Evidence              []string `json:"evidence,omitempty"`
 }
 
+type RuntimeAgentTaskExecutionRequest struct {
+	RunID                   string   `json:"runId"`
+	TaskID                  string   `json:"taskId"`
+	ParentSessionID         string   `json:"parentSessionId"`
+	ParentTurnID            string   `json:"parentTurnId"`
+	ParentToolCallID        string   `json:"parentToolCallId,omitempty"`
+	ChildSessionID          string   `json:"childSessionId,omitempty"`
+	Title                   string   `json:"title,omitempty"`
+	Kind                    string   `json:"kind,omitempty"`
+	Role                    string   `json:"role,omitempty"`
+	Name                    string   `json:"name,omitempty"`
+	PromptSummary           string   `json:"promptSummary,omitempty"`
+	Provider                string   `json:"provider,omitempty"`
+	Model                   string   `json:"model,omitempty"`
+	AllowedTools            []string `json:"allowedTools,omitempty"`
+	CapabilityScope         []string `json:"capabilityScope,omitempty"`
+	CWD                     string   `json:"cwd,omitempty"`
+	Worktree                string   `json:"worktree,omitempty"`
+	StartedAt               int64    `json:"startedAt,omitempty"`
+	StartAlreadyRecorded    bool     `json:"startAlreadyRecorded"`
+	BackendOnly             bool     `json:"backendOnly"`
+	EventPayloadRefreshOnly bool     `json:"eventPayloadRefreshOnly"`
+}
+
+type RuntimeAgentTaskExecutionResult struct {
+	TaskID             string   `json:"taskId"`
+	Status             string   `json:"status,omitempty"`
+	Terminal           bool     `json:"terminal"`
+	RefreshTargets     []string `json:"refreshTargets,omitempty"`
+	ArtifactRefs       []string `json:"artifactRefs,omitempty"`
+	ResultSummary      string   `json:"resultSummary,omitempty"`
+	Error              string   `json:"error,omitempty"`
+	NoStaleResume      bool     `json:"noStaleResume"`
+	CompletionOnlyRefs bool     `json:"completionOnlyRefs"`
+}
+
 type RuntimeRunTransitionHistorySource struct {
 	Kind                  string   `json:"kind"`
 	ReadOnly              bool     `json:"readOnly"`

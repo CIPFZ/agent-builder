@@ -95,6 +95,28 @@ func (r *runtimeService) runtimeRunSchedulerExecuteTask(ctx context.Context, req
 	}
 	r.recordAgentTaskLifecycle(ctx, runtimeapi.EventTaskStarted, "task_started", started)
 	r.recordRunTaskTransition(ctx, runtimeRunTransitionSourceTaskStarted, started, "", runtimeRunStatusActive, "foreground task execution started")
+	if r.agentTaskRunner != nil {
+		if _, err := r.agentTaskRunner.ExecuteAgentTask(ctx, runtimeAgentTaskExecutionRequest(run, started)); err != nil {
+			refreshed, refreshErr := r.agentTasks.Get(ctx, started.ID)
+			if refreshErr == nil {
+				started = refreshed
+			}
+			return RuntimeRunSchedulerExecuteTaskResponse{
+				Accepted:         true,
+				ExecutionStarted: true,
+				Reason:           err.Error(),
+				Plan:             plan,
+				Task:             started,
+				RefreshTargets:   runtimeRunSchedulerRefreshTargets(),
+				Source:           runtimeRunSchedulerExecuteTaskSource(),
+			}, err
+		}
+		refreshed, err := r.agentTasks.Get(ctx, started.ID)
+		if err != nil {
+			return RuntimeRunSchedulerExecuteTaskResponse{}, err
+		}
+		started = refreshed
+	}
 	return RuntimeRunSchedulerExecuteTaskResponse{
 		Accepted:         true,
 		ExecutionStarted: true,
