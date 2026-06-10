@@ -6894,6 +6894,53 @@ Review conclusion:
   worker/queue/auto-resume behavior, database migration, or source-of-truth
   promotion.
 
+## 2026-06-10: Phase 21.1 Read-only Scheduler Plan Transport Contract
+
+Phase 21.1 exposes the already accepted scheduler plan DTO as a read-only
+transport contract.
+
+Implemented:
+
+- Added `RuntimeService.RunSchedulerPlan(ctx, RuntimeRunSchedulerPlanRequest)`
+  as the transport-neutral read-only entry point.
+- Added `GET /v1/run-scheduler-plan` with `run_id`, `session_id`, `mode`,
+  `turn_id`, `checkpoint_id`, `task_id`, `cursor`, and `limit` query mapping.
+- Added dev module support for `/v1/run-scheduler-plan` using the same request
+  mapping.
+- Added Wails bridge aliases for scheduler plan DTOs and
+  `RuntimeBridge.RunSchedulerPlan(...)`.
+- Kept `runtimeRunSchedulerDelegateTaskTurn(...)` backend-internal and did not
+  add execute/cancel task transport actions.
+
+Contract tests:
+
+- HTTP route coverage proves request mapping for run/session/mode/turn/
+  checkpoint/task/cursor/limit and validates `source.readOnly=true`,
+  `source.startsWorker=false`, and `source.sessionActivityParity=true`.
+- Dev module coverage proves browser/dev transport can read scheduler plans
+  without special generated bindings.
+- Wails bridge coverage proves the request is forwarded unchanged and preserves
+  the read-only source contract.
+- Side-effect assertions verify scheduler plan transport does not call `Chat`
+  and does not call `CancelAgentTask`.
+
+Validation:
+
+- `go test ./internal/runtime -run "TestRuntimeHTTPServerRoutesRunSchedulerPlanToRuntimeService|TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy" -count=1`
+  passed.
+- `go test ./desktop -run "TestRuntimeBridgeNarrowActivityUsesRuntimeService" -count=1`
+  passed.
+
+Review conclusion:
+
+- Phase 21.1 is a read-only transport contract only.
+- No background worker, queue, poller, automatic resume, database migration,
+  frontend Run management UI, scheduler execute action, or scheduler cancel
+  action was introduced.
+- Runtime DTO reads remain the source of truth. Event payloads may only choose
+  refresh targets; they still cannot hydrate lifecycle, artifact evidence,
+  permission/MCP actionability, or Run status.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -6941,9 +6988,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 21.1: Read-only Scheduler Plan Transport Contract. Expose only
-the read-only scheduler plan DTO through transport if needed, with tests proving
-HTTP/dev/Wails parity and no mutation or actionability side effects. Do not add
-task scheduler execute/cancel actions, frontend Run management UI, worker,
-queue, automatic resume, database migration, or event/prose/React-derived
-source of truth.
+Review/accept Phase 21.1, then plan Phase 21.2 acceptance for read-only
+scheduler plan transport. Do not add task scheduler execute/cancel actions,
+frontend Run management UI, worker, queue, automatic resume, database
+migration, or event/prose/React-derived source of truth without a separate
+implementation gate.

@@ -61,6 +61,10 @@ func (r *runtimeService) runtimeRunSchedulerPlan(ctx context.Context, req Runtim
 	}, nil
 }
 
+func (r *runtimeService) RunSchedulerPlan(ctx context.Context, req RuntimeRunSchedulerPlanRequest) (RuntimeRunSchedulerPlanResponse, error) {
+	return r.runtimeRunSchedulerPlan(ctx, req)
+}
+
 func (r *runtimeService) runtimeRunSchedulerPlanItem(ctx context.Context, run RuntimeRun, req RuntimeRunSchedulerPlanRequest) RuntimeRunSchedulerPlanItem {
 	mode := firstNonEmpty(strings.TrimSpace(req.Mode), runtimeRunSchedulerPlanMode(req))
 	sessionID := firstNonEmpty(strings.TrimSpace(req.SessionID), run.PrimarySessionID)

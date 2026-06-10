@@ -3748,6 +3748,8 @@ type recordingRuntimeService struct {
 	runProjection         RuntimeRunProjectionResponse
 	transitionHistoryReq  RuntimeRunTransitionHistoryRequest
 	transitionHistory     RuntimeRunTransitionHistoryResponse
+	runSchedulerPlanReq   RuntimeRunSchedulerPlanRequest
+	runSchedulerPlan      RuntimeRunSchedulerPlanResponse
 	runs                  RuntimeRunsResponse
 	run                   RuntimeRunResponse
 	runID                 string
@@ -4117,6 +4119,11 @@ func (s *recordingRuntimeService) RunProjection(_ context.Context, req RuntimeRu
 func (s *recordingRuntimeService) RunTransitionHistory(_ context.Context, req RuntimeRunTransitionHistoryRequest) (RuntimeRunTransitionHistoryResponse, error) {
 	s.transitionHistoryReq = req
 	return s.transitionHistory, nil
+}
+
+func (s *recordingRuntimeService) RunSchedulerPlan(_ context.Context, req RuntimeRunSchedulerPlanRequest) (RuntimeRunSchedulerPlanResponse, error) {
+	s.runSchedulerPlanReq = req
+	return s.runSchedulerPlan, nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {

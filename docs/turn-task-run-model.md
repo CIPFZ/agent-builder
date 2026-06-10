@@ -40,8 +40,6 @@ Phase 19 note:
 - Event payloads, transition history, assistant prose, and React state remain
   refresh signals or presentation state only. They are not task lifecycle,
   artifact, permission/MCP actionability, or Run status truth.
-- No worker, queue, automatic resume, frontend Run UI, or migration is accepted
-  by this gate.
 
 Phase 19.1 note:
 
@@ -90,6 +88,17 @@ Phase 21 note:
   action or frontend Run management UI is accepted.
 - Event payloads may select DTO refreshes but must not become lifecycle,
   artifact, permission/MCP actionability, or Run status truth.
+
+Phase 21.1 note:
+
+- `RunSchedulerPlan(ctx, RuntimeRunSchedulerPlanRequest)` is now exposed as a
+  read-only RuntimeService/HTTP/dev/Wails DTO read.
+- It is planning evidence only: it does not start a worker, execute a task,
+  cancel a task, mutate task rows, or replace `SessionActivity`,
+  `RunProjection`, persisted Run detail, permission/MCP DTOs, or artifact
+  evidence as source of truth.
+- No worker, queue, automatic resume, frontend Run UI, or migration is accepted
+  by this gate.
 
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 

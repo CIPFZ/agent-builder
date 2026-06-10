@@ -1725,3 +1725,16 @@ Phase 21 result:
   candidates.
 - Any executable task action requires a later implementation gate after
   read-only HTTP/Wails/browser parity is covered.
+
+Phase 21.1 note:
+
+- The read-only scheduler plan DTO is now exposed through
+  `RuntimeService.RunSchedulerPlan(...)`, direct HTTP
+  `GET /v1/run-scheduler-plan`, dev module forwarding, and Wails
+  `RuntimeBridge.RunSchedulerPlan(...)`.
+- The route is a DTO read only. It does not start a worker, call `Chat`, call
+  `CancelAgentTask`, write scheduler evidence, or restore stale actionability.
+- Frontend code may use runtime events only to choose a scheduler plan refresh.
+  The scheduler plan response remains planning evidence and must not replace
+  `SessionActivity`, `RunProjection`, persisted Run detail, permission/MCP
+  DTOs, or artifact evidence as source of truth.

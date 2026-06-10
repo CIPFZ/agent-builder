@@ -260,6 +260,18 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Limit:     runtimeQueryLimit(r),
 		})
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/run-scheduler-plan":
+		value, err := s.service.RunSchedulerPlan(r.Context(), RuntimeRunSchedulerPlanRequest{
+			RunID:        r.URL.Query().Get("run_id"),
+			SessionID:    r.URL.Query().Get("session_id"),
+			Mode:         r.URL.Query().Get("mode"),
+			TurnID:       r.URL.Query().Get("turn_id"),
+			CheckpointID: r.URL.Query().Get("checkpoint_id"),
+			TaskID:       r.URL.Query().Get("task_id"),
+			Cursor:       runtimeQueryCursor(r),
+			Limit:        runtimeQueryLimit(r),
+		})
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionTodosPathID(r.URL.Path) != "":
 		value, err := s.service.SessionTodos(r.Context(), sessionTodosPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -727,6 +739,18 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 			TurnID:    pathQuery.Get("turn_id"),
 			Cursor:    runtimeDevModuleCursor(r, pathQuery),
 			Limit:     runtimeDevModuleLimit(r, pathQuery),
+		})
+		return value, err, true
+	case method == http.MethodGet && path == "/v1/run-scheduler-plan":
+		value, err := s.service.RunSchedulerPlan(r.Context(), RuntimeRunSchedulerPlanRequest{
+			RunID:        pathQuery.Get("run_id"),
+			SessionID:    pathQuery.Get("session_id"),
+			Mode:         pathQuery.Get("mode"),
+			TurnID:       pathQuery.Get("turn_id"),
+			CheckpointID: pathQuery.Get("checkpoint_id"),
+			TaskID:       pathQuery.Get("task_id"),
+			Cursor:       runtimeDevModuleCursor(r, pathQuery),
+			Limit:        runtimeDevModuleLimit(r, pathQuery),
 		})
 		return value, err, true
 	case method == http.MethodPost && sessionTurnsPathID(path) != "":

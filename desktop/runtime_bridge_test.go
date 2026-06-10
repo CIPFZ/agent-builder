@@ -233,6 +233,28 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 				AuditOnly: true,
 			},
 		},
+		runSchedulerPlan: RuntimeRunSchedulerPlanResponse{
+			Plan: RuntimeRunSchedulerPlan{
+				RunID:            "run-1",
+				PrimarySessionID: "session-window",
+				Items: []RuntimeRunSchedulerPlanItem{{
+					ID:                "task:task-1",
+					Kind:              "task_turn",
+					SessionID:         "session-window",
+					TurnID:            "turn-window",
+					TaskID:            "task-1",
+					CanSchedule:       true,
+					OwnershipVerified: true,
+					RequiredPreflight: true,
+				}},
+			},
+			Source: RuntimeRunSchedulerPlanSource{
+				Kind:                  "run_scheduler_plan",
+				ReadOnly:              true,
+				StartsWorker:          false,
+				SessionActivityParity: true,
+			},
+		},
 	}
 	bridge := &RuntimeBridge{service: service}
 
@@ -285,6 +307,17 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 	}
 	if len(transitionHistory.Transitions) != 1 || !transitionHistory.Source.ReadOnly || !transitionHistory.Source.AuditOnly {
 		t.Fatalf("transition history = %#v", transitionHistory)
+	}
+
+	schedulerPlan, err := bridge.RunSchedulerPlan(context.Background(), RuntimeRunSchedulerPlanRequest{RunID: "run-1", TaskID: "task-1", Cursor: "v1:plan", Limit: 6})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.runSchedulerPlanReq.RunID != "run-1" || service.runSchedulerPlanReq.TaskID != "task-1" || service.runSchedulerPlanReq.Cursor != "v1:plan" || service.runSchedulerPlanReq.Limit != 6 {
+		t.Fatalf("scheduler plan request = %#v", service.runSchedulerPlanReq)
+	}
+	if len(schedulerPlan.Plan.Items) != 1 || !schedulerPlan.Source.ReadOnly || schedulerPlan.Source.StartsWorker || !schedulerPlan.Source.SessionActivityParity {
+		t.Fatalf("scheduler plan = %#v", schedulerPlan)
 	}
 }
 
@@ -391,6 +424,8 @@ type recordingRuntimeService struct {
 	runProjection               RuntimeRunProjectionResponse
 	transitionHistoryReq        RuntimeRunTransitionHistoryRequest
 	transitionHistory           RuntimeRunTransitionHistoryResponse
+	runSchedulerPlanReq         RuntimeRunSchedulerPlanRequest
+	runSchedulerPlan            RuntimeRunSchedulerPlanResponse
 	runs                        RuntimeRunsResponse
 	run                         RuntimeRunResponse
 	runID                       string
@@ -697,6 +732,11 @@ func (s *recordingRuntimeService) RunProjection(_ context.Context, req RuntimeRu
 func (s *recordingRuntimeService) RunTransitionHistory(_ context.Context, req RuntimeRunTransitionHistoryRequest) (RuntimeRunTransitionHistoryResponse, error) {
 	s.transitionHistoryReq = req
 	return s.transitionHistory, nil
+}
+
+func (s *recordingRuntimeService) RunSchedulerPlan(_ context.Context, req RuntimeRunSchedulerPlanRequest) (RuntimeRunSchedulerPlanResponse, error) {
+	s.runSchedulerPlanReq = req
+	return s.runSchedulerPlan, nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {

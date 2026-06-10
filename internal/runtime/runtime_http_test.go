@@ -419,6 +419,59 @@ func TestRuntimeHTTPServerRoutesRunTransitionHistoryToRuntimeService(t *testing.
 	}
 }
 
+func TestRuntimeHTTPServerRoutesRunSchedulerPlanToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		runSchedulerPlan: RuntimeRunSchedulerPlanResponse{
+			Plan: RuntimeRunSchedulerPlan{
+				RunID:            "run-1",
+				PrimarySessionID: "session-1",
+				Items: []RuntimeRunSchedulerPlanItem{{
+					ID:                "task:task-1",
+					Kind:              runtimeRunSchedulerPlanModeTaskTurn,
+					SessionID:         "session-1",
+					TurnID:            "turn-1",
+					TaskID:            "task-1",
+					CanSchedule:       true,
+					OwnershipVerified: true,
+					RequiredPreflight: true,
+				}},
+			},
+			Source: RuntimeRunSchedulerPlanSource{
+				Kind:                  runtimeRunSchedulerPlanSourceKind,
+				ReadOnly:              true,
+				StartsWorker:          false,
+				SessionActivityParity: true,
+			},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/run-scheduler-plan?run_id=run-1&session_id=session-1&mode=task_turn&turn_id=turn-1&checkpoint_id=checkpoint-1&task_id=task-1&limit=3&cursor=v1%3Aplan", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.runSchedulerPlanReq.RunID != "run-1" || service.runSchedulerPlanReq.SessionID != "session-1" || service.runSchedulerPlanReq.Mode != "task_turn" || service.runSchedulerPlanReq.TurnID != "turn-1" || service.runSchedulerPlanReq.CheckpointID != "checkpoint-1" || service.runSchedulerPlanReq.TaskID != "task-1" || service.runSchedulerPlanReq.Limit != 3 || service.runSchedulerPlanReq.Cursor != "v1:plan" {
+		t.Fatalf("scheduler plan args = %#v", service.runSchedulerPlanReq)
+	}
+	if service.chatCalls != 0 || service.cancelledTask != "" {
+		t.Fatalf("scheduler plan route caused side effects: chatCalls=%d cancelledTask=%q", service.chatCalls, service.cancelledTask)
+	}
+	var plan RuntimeRunSchedulerPlanResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Plan.Items) != 1 || !plan.Source.ReadOnly || plan.Source.StartsWorker || !plan.Source.SessionActivityParity {
+		t.Fatalf("scheduler plan = %#v", plan)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesRunsToRuntimeService(t *testing.T) {
 	t.Parallel()
 
@@ -647,6 +700,18 @@ func TestRuntimeHTTPServerDevModuleRoutesToolPermissionAndPolicy(t *testing.T) {
 	resp = httptestResponse(server, req)
 	if resp.status != http.StatusOK || service.transitionHistoryReq.RunID != "run-1" || service.transitionHistoryReq.Limit != 7 || service.transitionHistoryReq.Cursor != "v1:transition" {
 		t.Fatalf("transition history status = %d body = %s args=%#v", resp.status, resp.body.String(), service.transitionHistoryReq)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/run-scheduler-plan%3Frun_id%3Drun-1%26task_id%3Dtask-1&limit=8&cursor=v1%3Aplan", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.runSchedulerPlanReq.RunID != "run-1" || service.runSchedulerPlanReq.TaskID != "task-1" || service.runSchedulerPlanReq.Limit != 8 || service.runSchedulerPlanReq.Cursor != "v1:plan" {
+		t.Fatalf("scheduler plan status = %d body = %s args=%#v", resp.status, resp.body.String(), service.runSchedulerPlanReq)
+	}
+	if service.chatCalls != 0 || service.cancelledTask != "" {
+		t.Fatalf("scheduler plan dev route caused side effects: chatCalls=%d cancelledTask=%q", service.chatCalls, service.cancelledTask)
 	}
 
 	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/turns/turn-1/activity", nil)

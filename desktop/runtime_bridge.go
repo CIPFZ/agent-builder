@@ -86,8 +86,14 @@ type RuntimeRunProjectionResponse = runtime.RuntimeRunProjectionResponse
 type RuntimeRunTransitionHistoryRequest = runtime.RuntimeRunTransitionHistoryRequest
 type RuntimeRunTransitionHistoryResponse = runtime.RuntimeRunTransitionHistoryResponse
 type RuntimeRunTransitionHistorySource = runtime.RuntimeRunTransitionHistorySource
+type RuntimeRunSchedulerPlanRequest = runtime.RuntimeRunSchedulerPlanRequest
+type RuntimeRunSchedulerPlanResponse = runtime.RuntimeRunSchedulerPlanResponse
 type RuntimeRunTransition = runtime.RuntimeRunTransition
 type RuntimeRunProjection = runtime.RuntimeRunProjection
+type RuntimeRunSchedulerPlan = runtime.RuntimeRunSchedulerPlan
+type RuntimeRunSchedulerPlanItem = runtime.RuntimeRunSchedulerPlanItem
+type RuntimeRunSchedulerTaskScope = runtime.RuntimeRunSchedulerTaskScope
+type RuntimeRunSchedulerPlanSource = runtime.RuntimeRunSchedulerPlanSource
 type RuntimeRunCheckpoint = runtime.RuntimeRunCheckpoint
 type RuntimeRunDiagnostics = runtime.RuntimeRunDiagnostics
 type RuntimeRunUserActions = runtime.RuntimeRunUserActions
@@ -525,6 +531,12 @@ func (r *RuntimeBridge) RunProjection(ctx context.Context, req RuntimeRunProject
 func (r *RuntimeBridge) RunTransitionHistory(ctx context.Context, req RuntimeRunTransitionHistoryRequest) (RuntimeRunTransitionHistoryResponse, error) {
 
 	return r.service.RunTransitionHistory(ctx, req)
+
+}
+
+func (r *RuntimeBridge) RunSchedulerPlan(ctx context.Context, req RuntimeRunSchedulerPlanRequest) (RuntimeRunSchedulerPlanResponse, error) {
+
+	return r.service.RunSchedulerPlan(ctx, req)
 
 }
 
