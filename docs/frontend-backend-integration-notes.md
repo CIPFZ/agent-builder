@@ -2222,3 +2222,13 @@ Phase 30 note:
   duplicated.
 - The refactor should preserve the existing DTO source-of-truth assertions in
   `smoke:phase281` and `smoke:phase291`.
+
+Phase 30.1 note:
+
+- Local scheduler browser harness orchestration is now shared in
+  `client/scripts/browserSchedulerHarness.mjs`.
+- `smoke:phase281` and `smoke:phase291` keep their phase-specific assertions
+  while sharing temp root setup, Go/Vite/Playwright process orchestration,
+  pid/log handling, redaction, and cleanup.
+- This is validation infrastructure cleanup only; frontend/runtime DTO
+  source-of-truth semantics are unchanged.

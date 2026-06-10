@@ -10184,6 +10184,53 @@ Review conclusion:
 - The next safe task is Phase 30.1: Scheduler Browser Harness Shared Helper
   Refactor.
 
+## 2026-06-11: Phase 30.1 Scheduler Browser Harness Shared Helper Refactor
+
+Phase 30.1 consolidates local browser scheduler harness orchestration. It does
+not add packaged/Wails automation, provider-backed child-agent validation,
+production seed endpoints, runtime readiness bypasses, background workers,
+automatic resume, database migrations, stale actionability recovery, frontend
+Run state ownership, full scheduler UI, or full Run executor behavior.
+
+Implemented:
+
+- Added `client/scripts/browserSchedulerHarness.mjs`.
+  - Owns common local harness orchestration:
+    - phase-scoped `tmp/runtime-dev/...` root setup;
+    - Go helper process start and manifest wait;
+    - loopback Vite start with runtime URL/token env;
+    - local Playwright config/spec generation;
+    - pid/log writing;
+    - bearer token log redaction;
+    - success/failure cleanup.
+- Refactored:
+  - `client/scripts/phase281-browser-scheduler-click-harness.mjs`;
+  - `client/scripts/phase291-browser-scheduler-worker-completion-smoke.mjs`.
+- Phase-specific scripts now keep only:
+  - Go helper/test/env names;
+  - phase temp directory name;
+  - phase success message;
+  - Playwright assertions.
+
+Validation:
+
+```text
+npm run smoke:phase281
+npm run smoke:phase291
+npm run lint
+npm run build
+go test ./internal/runtime -run "TestPhase281BrowserSchedulerClickHarnessServer|TestPhase291BrowserSchedulerWorkerCompletionHarnessServer|TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail|TestRuntimeRunSchedulerExecute|TestRuntimeRunSchedulerPlan" -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Phase 30.1 accepts the shared local scheduler browser harness helper.
+- Existing smoke semantics are unchanged.
+- Packaged/Wails and provider-backed child-agent validation remain deferred.
+- The next safe task is Phase 30.2: Scheduler Harness Consolidation Acceptance
+  And Next Validation Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10231,6 +10278,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 30.1: Scheduler Browser Harness Shared Helper Refactor. Extract
-common local process orchestration from Phase 28.1 and 29.1 scripts without
-changing smoke semantics.
+Implement Phase 30.2: Scheduler Harness Consolidation Acceptance And Next
+Validation Gate. Review Phase 30.1 and choose whether the next task is
+packaged/Wails validation, provider-backed child-agent validation, or pausing
+the scheduler validation track.
