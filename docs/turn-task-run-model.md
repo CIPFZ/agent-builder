@@ -527,6 +527,12 @@ Phase 30.1 note:
 - No Run/task/ref model semantics changed; the refactor only reduces duplicated
   local validation code.
 
+Phase 30.2 note:
+
+- Harness consolidation is accepted as complete.
+- The next packaged/Wails validation gate should remain transport-shell
+  validation and must not change Run/task/ref ownership semantics.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

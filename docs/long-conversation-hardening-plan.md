@@ -10231,6 +10231,57 @@ Review conclusion:
 - The next safe task is Phase 30.2: Scheduler Harness Consolidation Acceptance
   And Next Validation Gate.
 
+## 2026-06-11: Phase 30.2 Scheduler Harness Consolidation Acceptance And Next Validation Gate
+
+Phase 30.2 accepts the local harness consolidation and chooses the next
+validation target. It is a review/acceptance phase only and does not add code,
+packaged/Wails automation, provider-backed child-agent validation, production
+seed endpoints, runtime readiness bypasses, background workers, automatic
+resume, database migrations, stale actionability recovery, frontend Run state
+ownership, full scheduler UI, or full Run executor behavior.
+
+Reviewed scope:
+
+- `client/scripts/browserSchedulerHarness.mjs` now centralizes local process
+  orchestration, Playwright config/spec generation, pid/log handling,
+  redaction, and cleanup.
+- `smoke:phase281` and `smoke:phase291` keep phase-specific assertions while
+  sharing the harness.
+- The accepted Vite/browser scheduler track now covers:
+  - queued Execute start/hydration;
+  - terminal candidate disablement;
+  - completion-only task result/ref evidence;
+  - windowed Run projection durable identity;
+  - runtime DTOs as source of truth.
+
+Next validation target decision:
+
+- Provider-backed child-agent validation remains useful but heavier. It needs
+  provider behavior and child-agent execution contracts beyond scheduler UI
+  transport.
+- Packaged/Wails scheduler click validation is the better next gate because it
+  targets a different transport shell while reusing the same runtime-owned seed
+  and source-of-truth rules.
+- The shared helper should not be reused blindly for Wails. A packaged gate must
+  first define app lifecycle, runtime root/config injection, webview
+  automation, logs/pids/screenshots, cleanup, and redaction.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 30.2 accepts the shared local harness consolidation.
+- The next safe task is Phase 31: Packaged/Wails Scheduler Click Validation
+  Gate. It should design packaged validation without adding production seed
+  endpoints, runtime readiness bypasses, background scheduling, automatic
+  resume, or frontend-owned scheduler state.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10278,7 +10329,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 30.2: Scheduler Harness Consolidation Acceptance And Next
-Validation Gate. Review Phase 30.1 and choose whether the next task is
-packaged/Wails validation, provider-backed child-agent validation, or pausing
-the scheduler validation track.
+Implement Phase 31: Packaged/Wails Scheduler Click Validation Gate. Design
+packaged scheduler click validation using runtime-owned seed and redaction
+rules without adding production seed endpoints or scheduler ownership changes.

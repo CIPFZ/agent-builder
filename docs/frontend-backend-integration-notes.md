@@ -2232,3 +2232,11 @@ Phase 30.1 note:
   pid/log handling, redaction, and cleanup.
 - This is validation infrastructure cleanup only; frontend/runtime DTO
   source-of-truth semantics are unchanged.
+
+Phase 30.2 note:
+
+- Shared local harness consolidation is accepted.
+- The next validation target should be packaged/Wails scheduler click design,
+  not provider-backed child-agent execution.
+- Packaged validation must define its own app lifecycle, runtime root/config
+  injection, webview automation, cleanup, and redaction before implementation.
