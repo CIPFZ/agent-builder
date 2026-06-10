@@ -246,6 +246,12 @@ Phase 24.1 note:
   executor without duplicating start evidence.
 - Runtime adapter installation is still pending.
 
+Phase 24.2 note:
+
+- The coordinator configured executor contract is accepted.
+- Backend/runtime wiring may call this contract later, but runtime still must
+  not construct agents or expose execution through transport/UI.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

@@ -8091,6 +8091,53 @@ Review conclusion:
 - The next safe task is Phase 24.2 acceptance, then a later backend/runtime
   wiring gate if accepted.
 
+## 2026-06-10: Phase 24.2 Coordinator Configured Started Task Executor Contract Acceptance
+
+Phase 24.2 accepts the Phase 24.1 coordinator-owned configured started-task
+executor contract.
+
+Acceptance review:
+
+- Confirmed `Coordinator.ExecuteConfiguredStartedAgentTask(...)` is
+  backend/internal agent API only and is not exposed through runtime transport,
+  generated bindings, client adapters, or frontend UI.
+- Confirmed task-agent construction stays in coordinator code through the
+  existing `config.AgentTask`, `taskPrompt(...)`, and `buildAgent(...)` path.
+- Confirmed runtime does not build agents and the runtime adapter is still not
+  installed.
+- Confirmed unsupported roles fail terminally before agent construction and do
+  not fall back to the coder agent.
+- Confirmed missing task agent config/build failures write failed terminal
+  evidence for the already-started task.
+- Confirmed successful configured execution delegates to
+  `ExecuteStartedAgentTask(...)` and does not duplicate start/progress
+  evidence.
+
+Validation:
+
+- `go test ./internal/agent -run "TestExecuteConfiguredStartedAgentTask|TestExecuteStartedAgentTask|TestRunSubAgent" -count=1`
+  passed.
+- `go test ./internal/agent ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1`
+  passed.
+- `git diff --check` passed.
+
+Accepted contract:
+
+- A future backend/runtime wiring phase may call
+  `ExecuteConfiguredStartedAgentTask(...)` through a backend/workspace adapter.
+- Runtime must still use durable prompt source and re-read task/result/ref DTOs
+  after runner return.
+- Transport/frontend exposure remains blocked until backend/runtime wiring is
+  implemented and accepted.
+
+Review conclusion:
+
+- Phase 24.2 accepts the coordinator configured executor contract.
+- The next safe task is Phase 24.3: Backend/runtime Executor Wiring Design
+  Gate.
+- Phase 24.3 should design the backend workspace method and runtime install
+  path without implementing it yet.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8138,8 +8185,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 24.2: Coordinator Configured Started Task Executor
-Contract Acceptance. Do not install the runtime adapter yet, expose frontend
-controls, expose HTTP/Wails transport, add background workers, add automatic
-resume, write database migrations, restore stale actionability, or make event/
-prose/React state the source of truth.
+Plan Phase 24.3: Backend/runtime Executor Wiring Design Gate. Do not implement
+backend/runtime wiring yet, expose frontend controls, expose HTTP/Wails
+transport, add background workers, add automatic resume, write database
+migrations, restore stale actionability, or make event/prose/React state the
+source of truth.

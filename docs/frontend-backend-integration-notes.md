@@ -1890,3 +1890,9 @@ Phase 24.1 note:
   available.
 - Frontend behavior remains read-only with runtime DTO refreshes as the source
   of truth.
+
+Phase 24.2 note:
+
+- The coordinator configured executor contract is accepted, but backend/runtime
+  wiring and all browser/Wails/React execution affordances remain blocked.
+- Frontend behavior remains unchanged.
