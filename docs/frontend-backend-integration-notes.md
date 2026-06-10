@@ -2260,3 +2260,14 @@ Phase 31.1 note:
   creation, but it does not automate a true WebView2 Execute button click.
 - Event payloads remain refresh triggers only; scheduler state is still read
   from runtime DTOs after execute.
+
+Phase 31.2 note:
+
+- True packaged WebView2 scheduler click automation is deferred until a
+  test-only automation channel is designed.
+- Do not add production seed/debug endpoints, frontend fixtures, React-owned
+  scheduler state, or event-payload-derived actionability to make packaged
+  clicking automatable.
+- The accepted packaged coverage remains startup plus Wails bridge DTO
+  forwarding; visible click behavior is covered by the Vite/browser scheduler
+  smokes.

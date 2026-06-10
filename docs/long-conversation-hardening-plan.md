@@ -10426,6 +10426,72 @@ Review conclusion:
   Gate, unless the project chooses provider-backed child-agent validation
   first.
 
+## 2026-06-11: Phase 31.2 Packaged WebView Scheduler Click Feasibility Gate
+
+Phase 31.2 evaluates whether true packaged WebView2 scheduler Execute clicking
+can be added now. It is a design gate only and does not add WebView automation,
+production seed/debug endpoints, provider-backed child-agent execution, runtime
+readiness bypasses, background workers, automatic resume, database migrations,
+stale actionability recovery, frontend Run state ownership, full scheduler UI,
+or full Run executor behavior.
+
+Evidence reviewed:
+
+- `desktop/main.go` creates the Wails app and packaged webview with a static
+  `/` URL and no test automation/debug service.
+- `desktop/build/config.yml` and Windows packaging tasks do not expose a
+  packaged WebView2 CDP/remote-debug automation option.
+- Phase 6.2 and Phase 31.1 packaged smokes are process/bridge-layer smokes.
+- Phase 28.1 and Phase 29.1 Vite/browser smokes already cover visible scheduler
+  click behavior and completion/ref evidence through HTTP/dev transport.
+
+Feasibility decision:
+
+- Do not add true packaged WebView2 click automation in the current phase.
+- Do not add production seed/debug endpoints or frontend-owned fixtures just to
+  make packaged clicking automatable.
+- Treat Phase 31.1 as the accepted packaged startup plus Wails bridge scheduler
+  contract gate.
+- Keep true packaged WebView2 click automation as a validation-surface risk
+  until a test-only automation channel is explicitly designed.
+
+Acceptable future WebView automation shape:
+
+- Build-tagged or test-only app options, excluded from production packages.
+- Phase-scoped temp roots under `tmp/runtime-dev`.
+- Runtime-owned seed evidence, never React state.
+- Redacted logs/screenshots only under `tmp/runtime-dev`.
+- Durable runtime DTO assertions after click; event payloads remain refresh
+  triggers only.
+- No provider secrets, OAuth state, local browser profiles, or auth URLs in
+  repo fixtures, logs, screenshots, docs, or React state.
+
+Rejected automation shortcuts:
+
+- Production seed/debug endpoints.
+- Persisted frontend fixtures or React-owned scheduler state.
+- Event-payload-derived scheduler/actionability state.
+- Assistant-prose-derived artifact/ref/actionability state.
+- Readiness bypasses or automatic resume.
+- Stale pending permission/MCP auth/elicitation recovery.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 31.2 accepts deferring true packaged WebView2 clicking until a
+  test-only automation channel is designed.
+- The next safe task is Phase 32: Provider-backed Child-Agent Validation Gate,
+  because packaged startup/bridge and local browser scheduler click/completion
+  are already covered and provider-backed child-agent behavior is the remaining
+  high-value validation target.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10473,7 +10539,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 31.2: Packaged WebView Scheduler Click Feasibility Gate.
-Decide whether true packaged WebView2 click automation can be added without
-production seed endpoints, readiness bypasses, secret automation, or scheduler
-ownership changes.
+Implement Phase 32: Provider-backed Child-Agent Validation Gate. Decide the
+minimum non-secret provider-backed validation contract after the accepted local
+browser scheduler and packaged Wails bridge smokes.
