@@ -7609,6 +7609,66 @@ Review conclusion:
   add background scheduling, automatic resume, database migrations, stale
   actionability recovery, or event/prose/React-derived truth.
 
+## 2026-06-10: Phase 23.1 Agent/coordinator Started Task Execution Contract
+
+Phase 23.1 adds the backend/internal coordinator contract for executing an
+already-started agent task. It is not wired into runtime yet and does not add
+HTTP/dev/Wails transport, generated bindings, client adapters, frontend UI,
+background scheduling, automatic resume, database migrations, or stale
+actionability recovery.
+
+Implemented:
+
+- Added `StartedAgentTaskExecutionRequest` and
+  `StartedAgentTaskExecutionResult` in `internal/agent`.
+- Added `coordinator.ExecuteStartedAgentTask(...)` for backend/internal use.
+- The method requires pre-recorded start evidence via
+  `StartAlreadyRecorded=true` and rejects calls without it.
+- The method registers the child `SessionAgent` in the existing process-local
+  `childAgents` map only while the foreground call is active, preserving
+  follow-up/cancel routing during execution and unregistering after return.
+- The method reuses coordinator model/provider option resolution, CWD/worktree
+  context propagation, non-interactive `SessionAgent.Run`, parent session cost
+  propagation, and `AgentTaskRecorder` terminal evidence.
+- The method intentionally skips `AgentTaskStarted` and `AgentTaskProgress`
+  start writes because runtime already owns durable start evidence.
+- Agent run failures map to failed terminal recorder evidence; context
+  cancellation maps to cancelled terminal recorder evidence.
+- Policy denial after pre-recorded start evidence maps to failed terminal
+  recorder evidence without running the agent.
+- Completed runs write completed terminal recorder evidence and return terminal
+  result metadata with `NoStaleResume=true` and `CompletionOnlyRefs=true`.
+
+Contract tests:
+
+- Completed execution skips duplicate start/progress evidence and writes one
+  completed record for the existing task/child session.
+- Active foreground execution routes `SendToSession(...)` follow-up messages to
+  the child agent and unregisters the child after return.
+- Active foreground cancellation routes through `Coordinator.Cancel(...)` and
+  writes cancelled terminal evidence without artifact refs.
+- Policy denial writes failed terminal evidence without running the agent.
+- Calls without pre-recorded start evidence are rejected before agent run.
+
+Validation:
+
+- `go test ./internal/agent -run "TestExecuteStartedAgentTask|TestRunSubAgent" -count=1`
+  passed.
+- `go test ./internal/agent ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1`
+  passed.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 23.1 establishes the coordinator-side started-task execution contract.
+- Runtime is still not wired to this contract; `runtimeAgentTaskRunner` remains
+  test-injected only.
+- No transport/frontend execution surface, background scheduler, automatic
+  resume, migration, stale actionability recovery, or event/prose/React source
+  of truth was added.
+- The next safe task is Phase 23.2 acceptance, followed by a later runtime
+  adapter wiring gate if accepted.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7656,8 +7716,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 23.1: Agent/coordinator Started Task Execution Contract. Keep
-it backend/internal and contract-tested first. Do not expose frontend controls,
-expose HTTP/Wails transport, add background workers, add automatic resume,
-write database migrations, restore stale actionability, or make event/prose/
-React state the source of truth.
+Review/accept Phase 23.2: Agent/coordinator Started Task Execution Contract
+Acceptance. Do not wire runtime to the real adapter yet, expose frontend
+controls, expose HTTP/Wails transport, add background workers, add automatic
+resume, write database migrations, restore stale actionability, or make event/
+prose/React state the source of truth.

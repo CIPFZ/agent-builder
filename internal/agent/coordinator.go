@@ -1583,6 +1583,41 @@ type subAgentParams struct {
 	SessionSetup func(sessionID string)
 }
 
+type StartedAgentTaskExecutionRequest struct {
+	Agent                   SessionAgent
+	TaskID                  string
+	ParentSessionID         string
+	ParentTurnID            string
+	ParentToolCallID        string
+	ChildSessionID          string
+	Title                   string
+	Kind                    string
+	Role                    string
+	Name                    string
+	Prompt                  string
+	PromptSummary           string
+	Provider                string
+	Model                   string
+	AllowedTools            []string
+	CapabilityScope         []string
+	CWD                     string
+	Worktree                string
+	StartedAt               int64
+	StartAlreadyRecorded    bool
+	BackendOnly             bool
+	EventPayloadRefreshOnly bool
+}
+
+type StartedAgentTaskExecutionResult struct {
+	TaskID             string
+	Status             string
+	Terminal           bool
+	ResultSummary      string
+	Error              string
+	NoStaleResume      bool
+	CompletionOnlyRefs bool
+}
+
 // runSubAgent runs a sub-agent and handles session management and cost accumulation.
 // It creates a sub-session, runs the agent with the given prompt, and propagates
 // the cost to the parent session.
@@ -1696,6 +1731,142 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	return fantasy.NewTextResponse(content), nil
 }
 
+func (c *coordinator) ExecuteStartedAgentTask(ctx context.Context, req StartedAgentTaskExecutionRequest) (StartedAgentTaskExecutionResult, error) {
+	if req.Agent == nil {
+		return StartedAgentTaskExecutionResult{}, errors.New("agent is required")
+	}
+	if strings.TrimSpace(req.TaskID) == "" {
+		return StartedAgentTaskExecutionResult{}, errors.New("task id is required")
+	}
+	if strings.TrimSpace(req.ParentSessionID) == "" {
+		return StartedAgentTaskExecutionResult{}, errors.New("parent session id is required")
+	}
+	if strings.TrimSpace(req.ParentTurnID) == "" {
+		return StartedAgentTaskExecutionResult{}, errors.New("parent turn id is required")
+	}
+	if strings.TrimSpace(req.ChildSessionID) == "" {
+		return StartedAgentTaskExecutionResult{}, errors.New("child session id is required")
+	}
+	if !req.StartAlreadyRecorded {
+		return StartedAgentTaskExecutionResult{}, errors.New("started agent task execution requires pre-recorded start evidence")
+	}
+	if decisionResp, denied, err := c.evaluateSubAgentPolicy(ctx, startedAgentTaskSubAgentParams(req), req.ParentTurnID); err != nil || denied {
+		errorText := decisionResp.Content
+		if err != nil {
+			errorText = err.Error()
+		}
+		return c.failStartedAgentTask(ctx, req, req.Agent.Model(), errorText), err
+	}
+	c.childAgentsMu.Lock()
+	if c.childAgents == nil {
+		c.childAgents = make(map[string]SessionAgent)
+	}
+	c.childAgents[req.ChildSessionID] = req.Agent
+	c.childAgentsMu.Unlock()
+	defer func() {
+		c.childAgentsMu.Lock()
+		delete(c.childAgents, req.ChildSessionID)
+		c.childAgentsMu.Unlock()
+	}()
+
+	model := req.Agent.Model()
+	maxTokens := model.CatwalkCfg.DefaultMaxTokens
+	if model.ModelCfg.MaxTokens != 0 {
+		maxTokens = model.ModelCfg.MaxTokens
+	}
+	providerCfg, ok := c.cfg.Config().Providers.Get(model.ModelCfg.Provider)
+	if !ok {
+		return c.failStartedAgentTask(ctx, req, model, errModelProviderNotConfigured.Error()), errModelProviderNotConfigured
+	}
+	taskRecord := c.startedAgentTaskRecord(req, model)
+	runCtx := ctx
+	if taskRecord.Worktree != "" {
+		runCtx = context.WithValue(runCtx, tools.WorktreePathContextKey, taskRecord.Worktree)
+		runCtx = context.WithValue(runCtx, tools.EffectiveCWDContextKey, taskRecord.Worktree)
+	} else if taskRecord.CWD != "" {
+		runCtx = context.WithValue(runCtx, tools.EffectiveCWDContextKey, taskRecord.CWD)
+	}
+	result, err := req.Agent.Run(runCtx, SessionAgentCall{
+		SessionID:        req.ChildSessionID,
+		TurnID:           req.ParentTurnID,
+		Prompt:           req.Prompt,
+		MaxOutputTokens:  maxTokens,
+		ProviderOptions:  getProviderOptions(model, providerCfg),
+		Temperature:      model.ModelCfg.Temperature,
+		TopP:             model.ModelCfg.TopP,
+		TopK:             model.ModelCfg.TopK,
+		FrequencyPenalty: model.ModelCfg.FrequencyPenalty,
+		PresencePenalty:  model.ModelCfg.PresencePenalty,
+		NonInteractive:   true,
+	})
+	if err != nil {
+		status := "failed"
+		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			status = "cancelled"
+		}
+		taskRecord.Status = status
+		taskRecord.Progress = 100
+		taskRecord.FinishedAt = time.Now().UnixMilli()
+		taskRecord.Error = err.Error()
+		if c.agentTaskRecorder != nil {
+			_ = c.agentTaskRecorder.AgentTaskFailed(ctx, taskRecord)
+		}
+		return StartedAgentTaskExecutionResult{
+			TaskID:             req.TaskID,
+			Status:             status,
+			Terminal:           true,
+			Error:              err.Error(),
+			NoStaleResume:      true,
+			CompletionOnlyRefs: true,
+		}, nil
+	}
+	if err := c.updateParentSessionCost(ctx, req.ChildSessionID, req.ParentSessionID); err != nil {
+		taskRecord.Status = "failed"
+		taskRecord.Progress = 100
+		taskRecord.FinishedAt = time.Now().UnixMilli()
+		taskRecord.Error = err.Error()
+		if c.agentTaskRecorder != nil {
+			_ = c.agentTaskRecorder.AgentTaskFailed(ctx, taskRecord)
+		}
+		return StartedAgentTaskExecutionResult{}, err
+	}
+	content := result.Response.Content.Text()
+	taskRecord.Status = "completed"
+	taskRecord.Progress = 100
+	taskRecord.FinishedAt = time.Now().UnixMilli()
+	taskRecord.ResultSummary = content
+	if c.agentTaskRecorder != nil {
+		_ = c.agentTaskRecorder.AgentTaskCompleted(ctx, taskRecord)
+	}
+	return StartedAgentTaskExecutionResult{
+		TaskID:             req.TaskID,
+		Status:             "completed",
+		Terminal:           true,
+		ResultSummary:      content,
+		NoStaleResume:      true,
+		CompletionOnlyRefs: true,
+	}, nil
+}
+
+func (c *coordinator) failStartedAgentTask(ctx context.Context, req StartedAgentTaskExecutionRequest, model Model, errorText string) StartedAgentTaskExecutionResult {
+	taskRecord := c.startedAgentTaskRecord(req, model)
+	taskRecord.Status = "failed"
+	taskRecord.Progress = 100
+	taskRecord.FinishedAt = time.Now().UnixMilli()
+	taskRecord.Error = errorText
+	if c.agentTaskRecorder != nil {
+		_ = c.agentTaskRecorder.AgentTaskFailed(ctx, taskRecord)
+	}
+	return StartedAgentTaskExecutionResult{
+		TaskID:             req.TaskID,
+		Status:             "failed",
+		Terminal:           true,
+		Error:              errorText,
+		NoStaleResume:      true,
+		CompletionOnlyRefs: true,
+	}
+}
+
 func (c *coordinator) evaluateSubAgentPolicy(ctx context.Context, params subAgentParams, parentTurnID string) (fantasy.ToolResponse, bool, error) {
 	if c.schedulerRecorder == nil {
 		return fantasy.ToolResponse{}, false, nil
@@ -1744,6 +1915,49 @@ func (c *coordinator) evaluateSubAgentPolicy(ctx context.Context, params subAgen
 	resp := fantasy.NewTextErrorResponse(reason)
 	resp.StopTurn = true
 	return resp, true, nil
+}
+
+func startedAgentTaskSubAgentParams(req StartedAgentTaskExecutionRequest) subAgentParams {
+	return subAgentParams{
+		Agent:           req.Agent,
+		SessionID:       req.ParentSessionID,
+		ToolCallID:      req.ParentToolCallID,
+		Prompt:          firstNonEmpty(req.Prompt, req.PromptSummary, req.Title),
+		SessionTitle:    req.Title,
+		Kind:            req.Kind,
+		Role:            req.Role,
+		Name:            req.Name,
+		AllowedTools:    append([]string(nil), req.AllowedTools...),
+		CapabilityScope: append([]string(nil), req.CapabilityScope...),
+	}
+}
+
+func (c *coordinator) startedAgentTaskRecord(req StartedAgentTaskExecutionRequest, model Model) AgentTaskRecord {
+	startedAt := req.StartedAt
+	if startedAt == 0 {
+		startedAt = time.Now().UnixMilli()
+	}
+	return AgentTaskRecord{
+		ID:               req.TaskID,
+		ParentTurnID:     req.ParentTurnID,
+		ParentSessionID:  req.ParentSessionID,
+		ParentToolCallID: req.ParentToolCallID,
+		ChildSessionID:   req.ChildSessionID,
+		Title:            req.Title,
+		Kind:             req.Kind,
+		Role:             req.Role,
+		Name:             req.Name,
+		PromptSummary:    firstNonEmpty(req.PromptSummary, req.Prompt, req.Title),
+		Model:            firstNonEmpty(req.Model, model.ModelCfg.Model),
+		Provider:         firstNonEmpty(req.Provider, model.ModelCfg.Provider),
+		AllowedTools:     append([]string(nil), req.AllowedTools...),
+		CapabilityScope:  append([]string(nil), req.CapabilityScope...),
+		CWD:              req.CWD,
+		Worktree:         req.Worktree,
+		Status:           "running",
+		Progress:         10,
+		StartedAt:        startedAt,
+	}
 }
 
 func (c *coordinator) agentTaskID(params subAgentParams) string {

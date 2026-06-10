@@ -1837,3 +1837,12 @@ Phase 23 note:
   must first prove backend cancellation, permission/MCP, terminal evidence, and
   completion-only artifact semantics before any browser/Wails affordance is
   considered.
+
+Phase 23.1 note:
+
+- The coordinator started-task execution contract exists in backend/internal
+  code only.
+- Runtime, HTTP/dev, Wails, generated bindings, client adapters, and React UI
+  are still not wired to real task execution.
+- Frontend remains read/refresh only until runtime adapter wiring and transport
+  exposure are separately accepted.

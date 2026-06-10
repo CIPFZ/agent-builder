@@ -191,6 +191,16 @@ Phase 23 note:
 - Process-local child agent registration may support active foreground
   follow-up/cancel routing, but it must not become durable resume state.
 
+Phase 23.1 note:
+
+- `internal/agent` now has a started-task execution contract that runs an
+  already-started child task foreground-only.
+- It requires pre-recorded start evidence, skips duplicate start/progress
+  recorder writes, uses process-local child registration only during the active
+  call, and writes terminal recorder evidence for completed/failed/cancelled
+  outcomes.
+- Runtime is not wired to the real adapter yet.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

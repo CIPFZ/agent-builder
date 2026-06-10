@@ -438,6 +438,219 @@ func TestRunSubAgent(t *testing.T) {
 	})
 }
 
+func TestExecuteStartedAgentTask(t *testing.T) {
+	const providerID = "test-provider"
+	providerCfg := config.ProviderConfig{ID: providerID}
+
+	t.Run("completed execution skips duplicate start evidence", func(t *testing.T) {
+		env := testEnv(t)
+		coord := newTestCoordinator(t, env, providerID, providerCfg)
+		recorder := &recordingAgentTaskRecorder{}
+		coord.schedulerRecorder = recorder
+		coord.agentTaskRecorder = recorder
+
+		parent, err := env.sessions.Create(t.Context(), "Parent")
+		require.NoError(t, err)
+		child, err := env.sessions.CreateTaskSession(t.Context(), "child-task-1", parent.ID, "Task")
+		require.NoError(t, err)
+
+		agent := newMockAgent(providerID, 4096, func(ctx context.Context, call SessionAgentCall) (*fantasy.AgentResult, error) {
+			assert.Equal(t, child.ID, call.SessionID)
+			assert.Equal(t, "turn-1", call.TurnID)
+			assert.Equal(t, "review the output", call.Prompt)
+			assert.True(t, call.NonInteractive)
+			assert.Equal(t, "C:/work/project/.agent-builder/worktrees/wt-1", ctx.Value(tools.EffectiveCWDContextKey))
+			return agentResultWithText("completed summary"), nil
+		})
+
+		result, err := coord.ExecuteStartedAgentTask(t.Context(), StartedAgentTaskExecutionRequest{
+			Agent:                   agent,
+			TaskID:                  "task-started-1",
+			ParentSessionID:         parent.ID,
+			ParentTurnID:            "turn-1",
+			ParentToolCallID:        "tool-1",
+			ChildSessionID:          child.ID,
+			Title:                   "Review output",
+			Kind:                    "subagent",
+			Role:                    "reviewer",
+			Name:                    "agent",
+			Prompt:                  "review the output",
+			PromptSummary:           "review",
+			Provider:                providerID,
+			Model:                   "model-1",
+			AllowedTools:            []string{"view"},
+			CapabilityScope:         []string{"C:/work/project"},
+			CWD:                     "C:/work/project",
+			Worktree:                "C:/work/project/.agent-builder/worktrees/wt-1",
+			StartedAt:               1100,
+			StartAlreadyRecorded:    true,
+			BackendOnly:             true,
+			EventPayloadRefreshOnly: true,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "task-started-1", result.TaskID)
+		assert.Equal(t, "completed", result.Status)
+		assert.True(t, result.Terminal)
+		assert.True(t, result.NoStaleResume)
+		assert.True(t, result.CompletionOnlyRefs)
+		require.Empty(t, recorder.started)
+		require.Empty(t, recorder.progress)
+		require.Len(t, recorder.completed, 1)
+		assert.Equal(t, "task-started-1", recorder.completed[0].ID)
+		assert.Equal(t, child.ID, recorder.completed[0].ChildSessionID)
+		assert.Equal(t, "completed summary", recorder.completed[0].ResultSummary)
+	})
+
+	t.Run("active execution routes follow-up and unregisters after return", func(t *testing.T) {
+		env := testEnv(t)
+		coord := newTestCoordinator(t, env, providerID, providerCfg)
+		coord.childAgents = make(map[string]SessionAgent)
+
+		parent, err := env.sessions.Create(t.Context(), "Parent")
+		require.NoError(t, err)
+		child, err := env.sessions.CreateTaskSession(t.Context(), "child-task-2", parent.ID, "Task")
+		require.NoError(t, err)
+
+		ready := make(chan struct{}, 1)
+		release := make(chan struct{})
+		var followUpPrompt string
+		agent := newMockAgent(providerID, 4096, func(ctx context.Context, call SessionAgentCall) (*fantasy.AgentResult, error) {
+			if call.Prompt == "initial" {
+				ready <- struct{}{}
+				<-release
+				return agentResultWithText("initial done"), nil
+			}
+			followUpPrompt = call.Prompt
+			return agentResultWithText("follow-up done"), nil
+		})
+
+		done := make(chan error, 1)
+		go func() {
+			_, runErr := coord.ExecuteStartedAgentTask(t.Context(), StartedAgentTaskExecutionRequest{
+				Agent:                agent,
+				TaskID:               "task-started-2",
+				ParentSessionID:      parent.ID,
+				ParentTurnID:         "turn-2",
+				ParentToolCallID:     "tool-2",
+				ChildSessionID:       child.ID,
+				Prompt:               "initial",
+				StartAlreadyRecorded: true,
+				BackendOnly:          true,
+			})
+			done <- runErr
+		}()
+		<-ready
+		require.NoError(t, coord.SendToSession(t.Context(), child.ID, "turn-follow", "follow up"))
+		close(release)
+		require.NoError(t, <-done)
+		assert.Equal(t, "follow up", followUpPrompt)
+		assert.Error(t, coord.SendToSession(t.Context(), child.ID, "turn-after", "after return"))
+	})
+
+	t.Run("active execution routes cancellation and records cancelled terminal evidence", func(t *testing.T) {
+		env := testEnv(t)
+		coord := newTestCoordinator(t, env, providerID, providerCfg)
+		recorder := &recordingAgentTaskRecorder{}
+		coord.agentTaskRecorder = recorder
+		coord.childAgents = make(map[string]SessionAgent)
+
+		parent, err := env.sessions.Create(t.Context(), "Parent")
+		require.NoError(t, err)
+		child, err := env.sessions.CreateTaskSession(t.Context(), "child-task-3", parent.ID, "Task")
+		require.NoError(t, err)
+
+		ready := make(chan struct{}, 1)
+		release := make(chan struct{})
+		agent := newMockAgent(providerID, 4096, func(ctx context.Context, call SessionAgentCall) (*fantasy.AgentResult, error) {
+			ready <- struct{}{}
+			<-release
+			return nil, context.Canceled
+		})
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		done := make(chan error, 1)
+		go func() {
+			_, runErr := coord.ExecuteStartedAgentTask(ctx, StartedAgentTaskExecutionRequest{
+				Agent:                agent,
+				TaskID:               "task-started-3",
+				ParentSessionID:      parent.ID,
+				ParentTurnID:         "turn-3",
+				ChildSessionID:       child.ID,
+				Prompt:               "initial",
+				StartAlreadyRecorded: true,
+				BackendOnly:          true,
+			})
+			done <- runErr
+		}()
+		<-ready
+		coord.Cancel(child.ID)
+		cancel()
+		close(release)
+		require.NoError(t, <-done)
+		assert.Equal(t, []string{child.ID}, agent.cancelled)
+		require.Empty(t, recorder.started)
+		require.Len(t, recorder.failed, 1)
+		assert.Equal(t, "cancelled", recorder.failed[0].Status)
+		assert.Empty(t, recorder.failed[0].ArtifactRefs)
+	})
+
+	t.Run("policy denial records failed terminal evidence without running agent", func(t *testing.T) {
+		env := testEnv(t)
+		coord := newTestCoordinator(t, env, providerID, providerCfg)
+		recorder := &recordingAgentTaskRecorder{}
+		coord.schedulerRecorder = denyingSchedulerRecorder{}
+		coord.agentTaskRecorder = recorder
+
+		parent, err := env.sessions.Create(t.Context(), "Parent")
+		require.NoError(t, err)
+		child, err := env.sessions.CreateTaskSession(t.Context(), "child-task-4", parent.ID, "Task")
+		require.NoError(t, err)
+		agent := newMockAgent(providerID, 4096, func(context.Context, SessionAgentCall) (*fantasy.AgentResult, error) {
+			t.Fatal("agent should not run when policy denies started task execution")
+			return nil, nil
+		})
+
+		result, err := coord.ExecuteStartedAgentTask(t.Context(), StartedAgentTaskExecutionRequest{
+			Agent:                agent,
+			TaskID:               "task-started-4",
+			ParentSessionID:      parent.ID,
+			ParentTurnID:         "turn-4",
+			ParentToolCallID:     "tool-4",
+			ChildSessionID:       child.ID,
+			Prompt:               "initial",
+			StartAlreadyRecorded: true,
+			BackendOnly:          true,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "failed", result.Status)
+		require.Empty(t, recorder.started)
+		require.Len(t, recorder.failed, 1)
+		assert.Equal(t, "task-started-4", recorder.failed[0].ID)
+		assert.Equal(t, "failed", recorder.failed[0].Status)
+		assert.Empty(t, recorder.failed[0].ArtifactRefs)
+	})
+
+	t.Run("rejects missing pre-recorded start evidence", func(t *testing.T) {
+		env := testEnv(t)
+		coord := newTestCoordinator(t, env, providerID, providerCfg)
+		agent := newMockAgent(providerID, 4096, func(context.Context, SessionAgentCall) (*fantasy.AgentResult, error) {
+			t.Fatal("agent should not run without start evidence")
+			return nil, nil
+		})
+
+		_, err := coord.ExecuteStartedAgentTask(t.Context(), StartedAgentTaskExecutionRequest{
+			Agent:           agent,
+			TaskID:          "task-started-5",
+			ParentSessionID: "session-parent",
+			ParentTurnID:    "turn-5",
+			ChildSessionID:  "session-child",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pre-recorded start evidence")
+	})
+}
+
 type denyingSchedulerRecorder struct{}
 
 func (denyingSchedulerRecorder) EvaluateToolCall(context.Context, SchedulerToolCall) (SchedulerToolPolicyDecision, error) {
