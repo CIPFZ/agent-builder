@@ -2290,3 +2290,12 @@ Phase 32.1 note:
   local OpenAI-compatible SSE fake provider.
 - No frontend/Wails UI, production seed endpoint, event-payload state merge, or
   secret automation was added.
+
+Phase 32.2 note:
+
+- Phase 32.1 is accepted as provider-backed runtime validation.
+- Browser click/start and provider-backed completion are still separate gates;
+  the next validation should combine browser Execute click with loopback
+  provider-backed coordinator completion.
+- The combined smoke must still re-read runtime DTOs after events/actions and
+  must not make React state or event payloads the scheduler source of truth.

@@ -10624,6 +10624,69 @@ Review conclusion:
 - The next safe task is Phase 32.2: Provider-backed Child-Agent Smoke
   Acceptance And Next Risk Gate.
 
+## 2026-06-11: Phase 32.2 Provider-backed Child-Agent Smoke Acceptance And Next Risk Gate
+
+Phase 32.2 accepts the loopback provider-backed child-agent smoke and chooses
+the next validation target. It is a review/acceptance phase only and does not
+add code, live provider credentials, hosted OAuth automation, production
+seed/debug endpoints, runtime readiness bypasses, background workers,
+automatic resume, database migrations, stale actionability recovery, frontend
+Run state ownership, packaged WebView automation, full scheduler UI, or full
+Run executor behavior.
+
+Accepted coverage:
+
+- Phase 32.1 proves a deterministic repo-owned scheduler execution path can
+  reach the installed backend runner, backend workspace routing, real
+  coordinator configured task-agent path, and a loopback OpenAI-compatible
+  provider.
+- Completion is terminal and provider text alone does not create artifact refs.
+- Provider failure terminalizes the task as failed with zero task artifact refs
+  and zero runtime refs.
+- The smoke remains credential-free and writes only phase-scoped temp state
+  under `tmp/runtime-dev`.
+
+Remaining validation risks:
+
+- Browser Execute click and provider-backed child-agent completion are still
+  covered by separate tests:
+  - Phase 28.1 covers browser click/start;
+  - Phase 29.1 covers browser completion/ref evidence using a test runner;
+  - Phase 32.1 covers real coordinator/provider-backed execution from runtime.
+- True packaged WebView2 clicking remains deferred until a test-only automation
+  channel exists.
+- Real hosted provider/OAuth/MCP smoke remains credential-gated and manual.
+
+Next validation decision:
+
+- Combine the browser Execute click harness with the Phase 32.1 loopback
+  provider-backed coordinator path.
+- The next smoke should prove visible browser click can trigger the HTTP/dev
+  scheduler execute route and complete through the real backend/coordinator
+  runner with a loopback provider.
+- Keep the same constraints:
+  - phase-scoped temp roots under `tmp/runtime-dev`;
+  - no production seed/debug endpoints;
+  - runtime-owned durable Run/Turn/AgentTask evidence;
+  - no React state or event payload as source of truth;
+  - no hosted credentials or OAuth state;
+  - no background scheduler/worker/queue/poller;
+  - no auto-resume or stale actionability recovery.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 32.2 accepts Phase 32.1 as the provider-backed runtime smoke.
+- The next safe task is Phase 33: Browser Click To Loopback Provider Completion
+  Gate.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -10671,7 +10734,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 32.2: Provider-backed Child-Agent Smoke Acceptance And Next Risk
-Gate. Review Phase 32.1 coverage and choose the next validation target without
-adding secrets, production debug endpoints, auto-resume, or frontend-owned Run
-state.
+Implement Phase 33: Browser Click To Loopback Provider Completion Gate. Design
+the combined browser Execute click plus real coordinator/loopback provider
+completion smoke without adding production debug endpoints, secrets,
+auto-resume, or frontend-owned Run state.
