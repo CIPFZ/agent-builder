@@ -2410,3 +2410,13 @@ Phase 36.2 note:
   completed startup recovery, preserving stale-turn interruption semantics.
 - Post-click assertions re-read Wails runtime DTOs for scheduler plan,
   projection, permissions, task result, refs, and full `SessionActivity`.
+
+Phase 36.3 note:
+
+- `npm run smoke:scheduler` remains the local Vite/browser scheduler/provider
+  smoke group.
+- `npm run smoke:phase362` remains a separate Windows/package-specific Wails
+  WebView gate because it builds and starts the packaged desktop app.
+- Both smoke paths preserve the same source-of-truth rule: UI clicks and events
+  trigger actions/refreshes, while runtime DTO rereads provide scheduler,
+  diagnostic, artifact, permission, MCP, interrupted, and Run evidence.

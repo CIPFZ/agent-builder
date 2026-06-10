@@ -11257,10 +11257,12 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 36.3: Packaged WebView Scheduler Click Acceptance And Smoke
-Matrix Update. Review Phase 36.2, decide whether to include
-`npm run smoke:phase362` in the local scheduler smoke matrix or keep it as a
-separate Windows/package-specific gate, and record remaining risk.
+Implement Phase 37: Runtime Write-Semantics Readiness Gate. Review whether the
+read-only Run DTO, explicit scheduler execute action, Vite/browser smokes,
+provider-backed smokes, and packaged WebView smoke are enough to design the
+first narrow runtime write semantics without adding full Run persistence,
+database migrations, automatic resume, background scheduling, or frontend Run
+UI.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -11449,3 +11451,59 @@ Remaining risk:
 - `npm run smoke:phase362` is Windows/package/WebView2-specific and slower than
   local Vite smokes. The next gate should decide whether it stays separate or
   joins an explicit local scheduler smoke matrix.
+
+## 2026-06-11: Phase 36.3 Packaged WebView Scheduler Click Acceptance And Smoke Matrix Update
+
+Phase 36.3 accepts the Phase 36.2 packaged WebView scheduler click smoke and
+updates the smoke matrix. It is an acceptance/documentation gate only and does
+not add code paths, production debug endpoints, production seed endpoints,
+runtime Run persistence, database migrations, background scheduling, automatic
+resume, stale permission/MCP actionability recovery, frontend Run UI, or
+React-owned scheduler state.
+
+Decision:
+
+- Keep `npm run smoke:scheduler` as the explicit local Vite/browser
+  scheduler/provider smoke group:
+  `smoke:phase281`, `smoke:phase291`, and `smoke:phase331`.
+- Keep `npm run smoke:phase362` separate because it is
+  Windows/package/WebView2-specific, builds the packaged Wails app, starts a
+  desktop process, opens a test-only CDP port, and is slower than local Vite
+  smokes.
+- Run `npm run smoke:phase362` when touching Wails packaged transport,
+  WebView test automation, scheduler Execute bridge behavior, packaged DTO
+  hydration, or release validation that needs packaged UI coverage.
+
+Accepted coverage:
+
+- Vite/browser click: `npm run smoke:phase281`.
+- Vite/browser worker completion and artifact ref evidence:
+  `npm run smoke:phase291`.
+- Vite/browser click through real coordinator and loopback provider:
+  `npm run smoke:phase331`.
+- Packaged Wails/WebView click through test-only CDP and Wails DTO rereads:
+  `npm run smoke:phase362`.
+- Packaged startup plus Wails bridge contract:
+  `desktop/scripts/phase311-wails-packaged-scheduler-smoke.ps1`.
+
+Review conclusion:
+
+- The previous packaged WebView validation gap is closed for local
+  non-secret scheduler Execute coverage.
+- The matrix still intentionally keeps packaged WebView smoke out of the
+  default `smoke:scheduler` group to avoid making every local scheduler run
+  depend on Windows packaging and WebView2.
+- Runtime DTOs remain authoritative; event payloads, action responses, React
+  state, and assistant prose are not accepted as scheduler, diagnostic,
+  artifact, permission/MCP actionability, interrupted, or Run evidence.
+
+Remaining risk:
+
+- Hosted provider/MCP OAuth and provider-specific elicitation remain redacted
+  manual smoke territory unless operator credentials and browser auth state are
+  provided outside repo artifacts.
+- The next readiness question is no longer packaged scheduler clicking. It is
+  whether to move from read-only DTO plus explicit execute action into the
+  first narrow runtime write semantics, without jumping to full Run
+  persistence, migrations, auto resume, background scheduling, or frontend Run
+  UI.

@@ -73,3 +73,14 @@ This explicit local command runs `smoke:phase281`, `smoke:phase291`, and
 runtime DTO hydration, task result/ref evidence, or provider-backed child-agent
 completion. It is intentionally separate from build/lint and does not include
 packaged Wails smokes.
+
+Packaged WebView scheduler smoke:
+
+```bash
+npm run smoke:phase362
+```
+
+This Windows/package-specific smoke builds the Wails app with the test-only
+`webview_test` tag, clicks the packaged WebView scheduler Execute control, and
+re-reads Wails runtime DTOs after the click. Keep it separate from
+`smoke:scheduler` unless a release gate explicitly needs packaged coverage.
