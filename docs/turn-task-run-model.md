@@ -479,6 +479,15 @@ Phase 28.1 note:
   add a Run state machine, migration, background scheduler, automatic resume,
   frontend-owned scheduler state, or packaged/Wails validation.
 
+Phase 28.2 note:
+
+- The browser scheduler click harness is accepted at the explicit
+  start/hydration boundary.
+- Packaged/Wails click validation is deferred.
+- The next model risk is validating worker completion evidence and produced
+  refs without changing scheduler ownership or letting action/event payloads
+  become source-of-truth state.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

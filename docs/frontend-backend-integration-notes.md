@@ -2166,3 +2166,15 @@ Phase 28.1 note:
   synthetic `run:session:<id>` identity.
 - Packaged/Wails click validation remains a separate gate; this smoke does not
   validate real coordinator worker completion.
+
+Phase 28.2 note:
+
+- The local Vite/browser scheduler click harness is accepted as the current
+  automated UI gate.
+- Packaged/Wails scheduler clicking is deferred because it needs its own
+  packaged app lifecycle, runtime root/config injection, webview automation,
+  cleanup, and redaction contract.
+- The next frontend/backend gap is worker-completion evidence: browser
+  validation of completed scheduler output and produced refs, still sourced
+  from runtime DTOs rather than action responses, event payloads, or React
+  state.

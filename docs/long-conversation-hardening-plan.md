@@ -9863,6 +9863,73 @@ Review conclusion:
   packaged/Wails smoke that reuses the same runtime-owned seed and redaction
   rules.
 
+## 2026-06-11: Phase 28.2 Browser Scheduler Harness Acceptance And Packaged/Wails Gate
+
+Phase 28.2 accepts the Phase 28.1 local browser scheduler click harness and
+reviews whether to add packaged/Wails click automation immediately. It is a
+review/gate only and does not add packaged process orchestration, production
+seed endpoints, runtime readiness bypasses, background workers, automatic
+resume, database migrations, stale actionability recovery, frontend Run state
+ownership, full scheduler UI, or full Run executor behavior.
+
+Reviewed scope:
+
+- Phase 28.1 now covers the main frontend/backend integration risk with a real
+  React page, Vite dev transport, runtime HTTP, durable scheduler candidates,
+  one browser Execute click, post-click durable task DTO read, and no stale
+  pending permission resurrection.
+- Phase 28.1 also fixed the bounded `RunProjection(limit=24)` durable identity
+  gap that prevented frontend scheduler plan reads from satisfying ownership.
+- Existing Phase 6.2 packaged smoke already covers Wails packaged handoff/
+  recovery lifecycle at the bridge/runtime boundary, but it does not click the
+  scheduler Execute control.
+
+Gate finding:
+
+- A packaged/Wails scheduler click smoke is useful, but it should not be added
+  as an implicit extension of the Vite harness.
+- Packaged automation must define:
+  - how the packaged app receives the same temp runtime root and non-secret
+    model config;
+  - how runtime HTTP/token exposure is obtained without writing secrets;
+  - how the packaged browser/webview is driven and cleaned up on Windows;
+  - where screenshots/logs/pids live under `tmp/runtime-dev`;
+  - how to reuse the Phase 28.1 durable seed without adding a production seed
+    endpoint.
+- The more immediate coverage gap after Phase 28.1 is not Wails binding
+  transport; it is that the browser smoke intentionally disables the
+  foreground task runner and validates explicit scheduler start/hydration only,
+  not real coordinator worker completion.
+
+Accepted next boundary:
+
+- Do not add packaged/Wails click automation in Phase 28.2.
+- Keep `npm run smoke:phase281` as the accepted local browser scheduler click
+  gate.
+- Open a separate worker-completion design gate before broadening the browser
+  smoke to completed scheduler output and produced refs.
+- Packaged/Wails click validation may be revisited after the worker-completion
+  boundary is accepted, or if a release gate specifically requires packaged
+  scheduler Execute coverage.
+
+Validation:
+
+- Documentation-only gate reviewed with:
+
+  ```text
+  git diff --check
+  ```
+
+Review conclusion:
+
+- Phase 28.2 accepts the Vite/browser scheduler click harness as the current
+  automated UI gate.
+- Packaged/Wails scheduler clicking is deferred.
+- The next safe task is Phase 29: Scheduler Worker Completion Browser Smoke
+  Gate. It should decide how to validate completed scheduler output and
+  produced refs without adding background scheduling, automatic resume,
+  production seed endpoints, or frontend-owned scheduler state.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9910,6 +9977,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 28.2: Browser Scheduler Harness Acceptance And Packaged/Wails
-Gate. Review Phase 28.1 and decide whether packaged/Wails click validation is
-needed now, using the same runtime-owned seed and redaction rules.
+Implement Phase 29: Scheduler Worker Completion Browser Smoke Gate. Decide how
+to validate completed scheduler output and produced refs from a browser flow
+without adding background scheduling, automatic resume, production seed
+endpoints, or frontend-owned scheduler state.
