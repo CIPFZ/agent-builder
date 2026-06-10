@@ -2115,3 +2115,22 @@ Phase 27.1 note:
 - The smoke proves `RunProjection` and `RunSchedulerPlan` can read durable
   scheduler candidate evidence after normal readiness succeeds.
 - Browser/Vite click orchestration remains a separate gate.
+
+Phase 27.2 note:
+
+- Full browser scheduler click orchestration is deferred until a dedicated
+  harness contract exists.
+- The harness must define runtime HTTP, Vite, browser automation, port, pid,
+  log, cleanup, session-selection, and redaction rules before implementation.
+- The frontend must keep using durable scheduler DTO hydration; event payloads
+  and action responses must not become scheduler or Run state.
+
+Phase 27.3 note:
+
+- The scheduler execute automation track is accepted and paused at the current
+  boundary.
+- Runtime readiness is covered without secrets or `ensureStarted` bypasses, but
+  end-to-end browser clicking remains manual/local until the harness contract
+  is accepted.
+- The next frontend/backend boundary is a Browser Scheduler Click Harness
+  Contract Gate, not React-owned scheduler fixtures or a background scheduler.

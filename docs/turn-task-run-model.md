@@ -445,6 +445,20 @@ Phase 27.1 note:
 - This closes the RunProjection readiness part of browser click automation
   without adding frontend-owned candidates or new persistence semantics.
 
+Phase 27.2 note:
+
+- Browser scheduler click automation remains deferred until a dedicated harness
+  contract exists.
+- That contract must cover process orchestration and cleanup before any
+  runtime HTTP plus Vite plus browser click harness is implemented.
+
+Phase 27.3 note:
+
+- The scheduler execute automation track is accepted and paused.
+- The remaining gap is harness/process orchestration, not Run model semantics.
+- No Run state machine, migration, background scheduler, automatic resume, or
+  frontend-owned scheduler state is accepted by this track.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

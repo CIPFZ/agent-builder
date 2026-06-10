@@ -9625,6 +9625,61 @@ Review conclusion:
   Acceptance And Pause. It should summarize Phases 27-27.2 and decide whether
   to pause or open a dedicated harness-contract phase.
 
+## 2026-06-11: Phase 27.3 Scheduler Execute Automation Track Acceptance And Pause
+
+Phase 27.3 accepts the scheduler execute automation track through Phase 27.2.
+It is a review/acceptance phase only and does not add code, browser process
+orchestration, runtime readiness bypass, production seed endpoint, background
+worker, automatic resume, database migration, stale actionability recovery,
+frontend Run state ownership, full scheduler UI, or full Run executor behavior.
+
+Reviewed scope:
+
+- Phase 27 accepted a non-secret local readiness strategy for future browser
+  click automation.
+- Phase 27.1 implemented the readiness smoke through normal runtime config:
+  temp desktop `model.json`, loopback fake OpenAI-compatible provider, and
+  durable Run/Turn/AgentTask evidence under `tmp/runtime-dev`.
+- Phase 27.2 rejected direct browser process orchestration without a dedicated
+  harness contract.
+- Existing Phase 26 scheduler execute coverage remains the accepted execution
+  boundary: explicit user-triggered action, runtime revalidation, durable DTO
+  hydration, and no React-owned scheduler source state.
+
+Verification summary:
+
+- Runtime readiness is now automatable without secrets and without bypassing
+  `ensureStarted`.
+- Full browser clicking still needs runtime HTTP, Vite, browser automation,
+  port ownership, pid/log cleanup, and session selection rules.
+- That orchestration is too broad to add implicitly as part of scheduler
+  execution.
+- The manual/local browser click checklist remains valid until a harness
+  contract is accepted.
+
+Validation already run across the accepted implementation:
+
+```text
+go test ./internal/runtime -run "TestRuntimeLocalModelConfigReadinessAllowsSchedulerCandidateProjection|TestRuntimeSchedulerUICandidateSeedExposesDurableHTTPPlanAndExecute" -count=1
+git diff --check
+```
+
+Residual risks:
+
+- Full browser scheduler click automation is still not automated end to end.
+- A future harness can become flaky if it uses global ports, leaves child
+  processes running, writes logs outside `tmp/runtime-dev`, or depends on the
+  user's active development browser state.
+- Screenshots and logs must remain redacted because provider/auth state may be
+  present in local runtime configuration.
+
+Review conclusion:
+
+- Pause the scheduler execute automation track at Phase 27.3.
+- The next safe task is Phase 28: Browser Scheduler Click Harness Contract
+  Gate. It should define the harness contract before any process launcher,
+  browser automation, or packaged/Wails click smoke is implemented.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9672,6 +9727,7 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 27.3: Scheduler Execute Automation Track Acceptance And Pause.
-Summarize Phases 27-27.2 and decide whether to pause or open a dedicated
-browser harness-contract phase.
+Implement Phase 28: Browser Scheduler Click Harness Contract Gate. Define the
+local-only process orchestration contract for runtime HTTP, Vite, browser
+automation, ports, pids, logs, cleanup, session selection, and redaction before
+building the click harness.
