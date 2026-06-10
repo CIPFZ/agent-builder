@@ -8138,6 +8138,80 @@ Review conclusion:
 - Phase 24.3 should design the backend workspace method and runtime install
   path without implementing it yet.
 
+## 2026-06-10: Phase 24.3 Backend/runtime Executor Wiring Design Gate
+
+Phase 24.3 designs the backend/runtime wiring needed to install the accepted
+coordinator configured executor behind `runtimeCoordinatorTaskRunner`. It is a
+design gate only; no backend method, runtime installation, transport exposure,
+frontend control, background scheduling, automatic resume, database migration,
+or stale actionability recovery is added.
+
+Accepted wiring shape:
+
+- Add a backend-internal method in a later phase, for example:
+
+  ```text
+  ExecuteStartedAgentTask(ctx, workspaceID string, req agent.StartedAgentTaskExecutionRequest) (agent.StartedAgentTaskExecutionResult, error)
+  ```
+
+  It should resolve the workspace by id, require initialized
+  `AgentCoordinator`, call `ExecuteConfiguredStartedAgentTask(...)`, and return
+  terminal result metadata.
+- Add a thin runtime executor adapter that satisfies
+  `runtimeStartedAgentTaskExecutor` by calling the backend method. It should
+  not build agents, select models, or inspect frontend state.
+- Install `runtimeCoordinatorTaskRunner` into `runtimeService` only when
+  runtime has both a live backend pointer and active workspace id. Startup or
+  workspace changes must not auto-resume old tasks.
+- If backend, workspace, or coordinator is missing after runtime has already
+  recorded task start evidence, the runtime adapter must fail the task
+  terminally through recorder-compatible evidence and produce no artifact refs.
+- Runtime must keep durable re-read semantics after runner return. Runner or
+  backend result payloads may be action metadata only.
+- Cancellation remains owned by `CancelAgentTask(...)`. The installed runner
+  may rely on coordinator process-local cancel routing only during the active
+  foreground request.
+
+Required Phase 24.4 implementation entry criteria:
+
+- Add backend/internal method and runtime executor adapter only; do not expose
+  HTTP/dev/Wails/client/frontend execution actions.
+- Prove missing backend/workspace/coordinator terminally fails already-started
+  tasks without artifact refs.
+- Prove successful execution calls backend/coordinator once and does not
+  duplicate start/progress evidence.
+- Prove runtime re-reads durable task/result/ref DTOs after return.
+- Prove cancellation before/during execution terminalizes as cancelled and
+  produces no artifact refs.
+- Prove event payloads remain refresh triggers only.
+
+Rejected wiring shape:
+
+- No runtime-side task agent construction or model/provider selection.
+- No fallback to coder agent.
+- No prompt inference from assistant prose, events, transition history, or
+  React state.
+- No background worker, queue, poller, daemon, automatic resume, migration,
+  transport/frontend execution action, stale actionability recovery, or event/
+  prose/React source of truth.
+
+Validation:
+
+- Design review only.
+- Reviewed backend workspace ownership, app coordinator initialization,
+  coordinator configured executor contract, runtime adapter contract, and
+  runtime cancellation/recorder evidence paths.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 24.3 accepts the backend/runtime wiring direction but not
+  implementation.
+- The next safe task is Phase 24.4: Backend/runtime Executor Wiring Contract.
+- Phase 24.4 must remain backend/internal and must still avoid transport/UI
+  exposure, background scheduling, automatic resume, migrations, stale
+  actionability recovery, and event/prose/React-derived truth.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -8185,8 +8259,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Plan Phase 24.3: Backend/runtime Executor Wiring Design Gate. Do not implement
-backend/runtime wiring yet, expose frontend controls, expose HTTP/Wails
-transport, add background workers, add automatic resume, write database
-migrations, restore stale actionability, or make event/prose/React state the
-source of truth.
+Implement Phase 24.4: Backend/runtime Executor Wiring Contract. Keep it
+backend/internal and test-covered first. Do not expose frontend controls,
+expose HTTP/Wails transport, add background workers, add automatic resume,
+write database migrations, restore stale actionability, or make event/prose/
+React state the source of truth.

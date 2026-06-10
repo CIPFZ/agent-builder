@@ -252,6 +252,13 @@ Phase 24.2 note:
 - Backend/runtime wiring may call this contract later, but runtime still must
   not construct agents or expose execution through transport/UI.
 
+Phase 24.3 note:
+
+- Backend/runtime executor wiring is designed but not implemented.
+- Backend should resolve workspace/coordinator and call the configured
+  coordinator executor; runtime should install only a thin executor adapter and
+  keep durable re-read semantics after return.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

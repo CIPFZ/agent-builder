@@ -1896,3 +1896,9 @@ Phase 24.2 note:
 - The coordinator configured executor contract is accepted, but backend/runtime
   wiring and all browser/Wails/React execution affordances remain blocked.
 - Frontend behavior remains unchanged.
+
+Phase 24.3 note:
+
+- Backend/runtime executor wiring is design-only.
+- No browser/Wails/React execution affordance is accepted; frontend remains
+  read-only and refresh-driven.
