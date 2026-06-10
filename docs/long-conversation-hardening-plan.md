@@ -7724,6 +7724,115 @@ Review conclusion:
   background scheduling, automatic resume, migrations, stale actionability
   recovery, or event/prose/React-derived truth.
 
+## 2026-06-10: Phase 23.3 Runtime-to-coordinator Foreground Runner Wiring Design Gate
+
+Phase 23.3 designs how runtime should eventually wire
+`runtimeAgentTaskRunner` to the real coordinator started-task contract. It is a
+design gate only; no runtime wiring, coordinator adapter installation,
+transport exposure, frontend control, background worker, automatic resume,
+database migration, or stale actionability recovery is added.
+
+Reviewed wiring points:
+
+- Runtime owns `runtimeRunSchedulerExecuteTask(...)` and the durable
+  `RuntimeAgentTaskExecutionRequest` emitted after scheduler revalidation and
+  start evidence.
+- Agent owns `coordinator.ExecuteStartedAgentTask(...)`, which expects an
+  already-started task and requires a concrete `SessionAgent`.
+- Backend/workspace currently holds `Workspace.App.AgentCoordinator`, while
+  runtime holds `runtimeBackend` plus the active `workspaceID`.
+- The task agent configuration already exists as `config.AgentTask`; existing
+  `agent_tool` builds the task sub-agent from this config and allowed tools.
+
+Accepted wiring direction:
+
+- Add a small runtime-side adapter in a later phase, for example:
+
+  ```text
+  runtimeCoordinatorTaskRunner{
+      backend *backend.Backend
+      workspaceID string
+  }
+  ```
+
+  It should satisfy `runtimeAgentTaskRunner` by:
+  - resolving the current backend workspace by id;
+  - requiring an initialized `AgentCoordinator`;
+  - selecting/building the configured task agent through the coordinator/agent
+    package, not from runtime;
+  - mapping `RuntimeAgentTaskExecutionRequest` to
+    `agent.StartedAgentTaskExecutionRequest`;
+  - calling `ExecuteStartedAgentTask(...)`;
+  - returning only action metadata while runtime re-reads durable task/result/
+    ref DTOs after return.
+- Agent selection should initially support the existing `config.AgentTask`
+  subagent role only. Unknown or unsupported task roles must fail the already
+  started task with terminal failed evidence instead of guessing a model or
+  falling back to the coder agent.
+- Prompt sourcing must be explicit. Runtime task rows currently persist
+  `PromptSummary`, not a full durable prompt body. The wiring phase must decide
+  whether Phase 23.4 adds a durable task prompt field or limits execution to
+  tasks whose instruction message can be read as the prompt source. It must not
+  infer prompts from assistant prose.
+- Child session id must come from durable task evidence. The adapter must not
+  create a second child session for an already-started task.
+- Cancellation ordering remains runtime-first: `CancelAgentTask(...)` owns
+  durable cancellation; coordinator `Cancel(childSessionID)` is best-effort
+  active-process routing while the foreground call is running.
+- Permission/MCP actionability must be current-state only. The adapter may
+  rely on coordinator policy evaluation and runtime recorder state during the
+  foreground call, but must not restore stale permission gates or MCP auth/
+  elicitation requests from events, React state, assistant prose, or durable
+  task rows after restart.
+- The adapter must keep event payloads as refresh triggers only. Runtime must
+  re-read task detail/result, refs, activity, projection, permission, and MCP
+  DTOs after runner return.
+
+Required Phase 23.4 implementation entry criteria:
+
+- Add backend/internal adapter wiring only; do not expose HTTP/dev/Wails/client
+  or UI controls.
+- Prove missing backend/workspace/coordinator fails terminally without leaving
+  a started task running.
+- Prove unsupported role/model/prompt-source gaps fail terminally and do not
+  run the coder agent by accident.
+- Prove prompt source is durable and structured: task instruction message or a
+  newly accepted durable task prompt field, never assistant prose.
+- Prove successful runtime execution calls coordinator once, does not duplicate
+  start evidence, and re-reads durable task state after return.
+- Prove cancellation before/during runner execution terminalizes as cancelled
+  and produces no artifact refs.
+- Prove completed output remains the only produced-ref source.
+
+Rejected wiring shape:
+
+- No runtime-side recreation of task agent build logic beyond a thin call into
+  agent/coordinator code.
+- No fallback to coder agent for unknown task role.
+- No prompt reconstruction from assistant prose, event payloads, or React
+  state.
+- No child session recreation for already-started tasks.
+- No background worker, queue, daemon, poller, automatic resume, migration,
+  transport/frontend execute action, stale actionability recovery, or event/
+  prose/React state source of truth.
+
+Validation:
+
+- Design review only.
+- Reviewed runtime runner contract, coordinator started-task contract,
+  backend/workspace coordinator ownership, task agent config, and runtime task
+  cancellation/recorder evidence paths.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 23.3 accepts the runtime-to-coordinator wiring direction but not
+  implementation.
+- The next safe task is Phase 23.4: Runtime-to-coordinator Foreground Runner
+  Adapter Contract.
+- Phase 23.4 must first resolve durable prompt sourcing and unsupported-role
+  terminal failure behavior before connecting real task execution.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7771,8 +7880,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Plan Phase 23.3: Runtime-to-coordinator Foreground Runner Wiring Design Gate.
-Do not implement runtime wiring yet, expose frontend controls, expose
-HTTP/Wails transport, add background workers, add automatic resume, write
-database migrations, restore stale actionability, or make event/prose/React
-state the source of truth.
+Implement Phase 23.4: Runtime-to-coordinator Foreground Runner Adapter
+Contract. Keep it backend/internal and test-covered first. Do not expose
+frontend controls, expose HTTP/Wails transport, add background workers, add
+automatic resume, write database migrations, restore stale actionability, or
+make event/prose/React state the source of truth.

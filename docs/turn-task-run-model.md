@@ -208,6 +208,13 @@ Phase 23.2 note:
   selection, prompt sourcing, permission/MCP behavior, cancellation ordering,
   and durable re-read semantics.
 
+Phase 23.3 note:
+
+- Runtime-to-coordinator wiring is designed but not implemented.
+- The adapter must resolve a real task agent through backend/workspace/
+  coordinator ownership, use a durable structured prompt source, fail unknown
+  roles terminally, and keep runtime durable re-reads as the source of truth.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型

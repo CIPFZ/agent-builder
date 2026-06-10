@@ -1853,3 +1853,10 @@ Phase 23.2 note:
   wiring and all transport/frontend execution affordances remain blocked.
 - Browser/Wails/React code must continue to treat task execution as unavailable
   and use read-only scheduler/task/activity DTOs for state.
+
+Phase 23.3 note:
+
+- Runtime-to-coordinator wiring is design-only.
+- There is still no browser/Wails/React execute path. Any future transport
+  exposure remains blocked until backend wiring proves durable prompt sourcing,
+  terminal failure/cancellation behavior, and completion-only refs.
