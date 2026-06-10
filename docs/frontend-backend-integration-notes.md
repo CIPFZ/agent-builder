@@ -1875,3 +1875,10 @@ Phase 23.5 note:
   installation and all transport/frontend execution affordances remain blocked.
 - Frontend behavior is unchanged: read scheduler/task/activity DTOs and treat
   runtime events as refresh triggers only.
+
+Phase 24 note:
+
+- Real backend/coordinator executor installation is design-only.
+- There is still no execute transport or frontend action; future backend work
+  must first keep task-agent construction coordinator-owned and prove terminal
+  evidence/cancellation semantics.

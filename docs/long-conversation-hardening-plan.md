@@ -7943,6 +7943,101 @@ Review conclusion:
 - Phase 24 must design how to resolve backend workspace/coordinator and build
   the task agent without recreating coordinator logic in runtime.
 
+## 2026-06-10: Phase 24 Real Backend/coordinator Executor Install Design Gate
+
+Phase 24 designs how to install a real backend/coordinator executor behind the
+accepted runtime adapter contract. It is a design gate only; no executor is
+installed, no runtime service wiring is changed, and no transport/frontend
+execution surface is added.
+
+Reviewed install points:
+
+- `runtimeCoordinatorTaskRunner` already maps runtime task evidence and
+  durable prompt source into an injected started-task executor.
+- `agent.coordinator.ExecuteStartedAgentTask(...)` can execute an
+  already-started task, but its request currently requires a concrete
+  `SessionAgent`.
+- The existing `agent_tool` builds the configured task agent using
+  `config.AgentTask`, `taskPrompt(...)`, and `coordinator.buildAgent(...)`.
+- Runtime should not import or duplicate task-agent build logic. It currently
+  holds `backend.Backend` and workspace id, while backend/workspace owns
+  `Workspace.App.AgentCoordinator`.
+
+Accepted install direction:
+
+- Add an agent/coordinator-side configured executor method in a later phase,
+  for example:
+
+  ```text
+  ExecuteConfiguredStartedAgentTask(ctx, StartedAgentTaskExecutionRequest) (StartedAgentTaskExecutionResult, error)
+  ```
+
+  This method should:
+  - accept a started-task request without requiring runtime to supply
+    `SessionAgent`;
+  - reject non-`config.AgentTask` roles terminally;
+  - build the task agent using the same task prompt, task agent config,
+    allowed tools, provider/model, skills, permission, and recorder wiring as
+    `agent_tool`;
+  - call `ExecuteStartedAgentTask(...)` with the constructed child agent;
+  - avoid `AgentTaskStarted`/`AgentTaskProgress` duplicate start writes.
+- Add a backend/workspace method only after that coordinator method exists,
+  for example:
+
+  ```text
+  ExecuteStartedAgentTask(ctx, workspaceID string, req agent.StartedAgentTaskExecutionRequest)
+  ```
+
+  It should resolve workspace, require initialized coordinator, call the
+  configured coordinator method, and return terminal result metadata.
+- Install `runtimeCoordinatorTaskRunner` into `runtimeService` only after the
+  backend method is implemented and tested. Runtime should pass the backend
+  workspace id and a backend executor adapter; it should not build agents.
+- Missing backend, missing workspace, or uninitialized coordinator must fail
+  the already-started task terminally through runtime recorder evidence rather
+  than leaving it running.
+- Cancellation remains foreground/request-scoped: runtime durable
+  `CancelAgentTask(...)` owns cancellation, while backend/coordinator cancel
+  routing remains best-effort for an active child session only.
+
+Required Phase 24.1 implementation entry criteria:
+
+- First implement the coordinator configured started-task executor, not runtime
+  installation.
+- Add tests proving it builds the configured task agent path without duplicate
+  start evidence.
+- Add tests for missing task agent config, unsupported role, provider/model
+  failure, policy denial, cancellation, and completion terminal evidence.
+- Prove failed/cancelled/partial paths produce no artifact refs.
+- Keep everything backend/internal; do not add HTTP/dev/Wails/client/frontend
+  execution actions.
+
+Rejected install shape:
+
+- No runtime-side agent construction or copied `buildAgent`/`taskPrompt`
+  logic.
+- No direct fallback to coder agent.
+- No prompt inference from assistant prose/events/React state.
+- No background worker, queue, poller, daemon, automatic resume, migration,
+  transport/frontend execution action, stale actionability recovery, or event/
+  prose/React source of truth.
+
+Validation:
+
+- Design review only.
+- Reviewed runtime adapter contract, coordinator started-task contract,
+  app/backend workspace coordinator ownership, `agent_tool` task-agent build
+  path, and runtime cancellation/recorder evidence paths.
+- `git diff --check` passed.
+
+Review conclusion:
+
+- Phase 24 accepts the real executor install direction but not implementation.
+- The next safe task is Phase 24.1: Coordinator Configured Started Task
+  Executor Contract.
+- Phase 24.1 must keep agent construction in coordinator code and leave
+  runtime adapter installation for a later accepted phase.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -7990,8 +8085,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Plan Phase 24: Real Backend/coordinator Executor Install Design Gate. Do not
-install the real executor yet, expose frontend controls, expose HTTP/Wails
-transport, add background workers, add automatic resume, write database
-migrations, restore stale actionability, or make event/prose/React state the
-source of truth.
+Implement Phase 24.1: Coordinator Configured Started Task Executor Contract.
+Keep it backend/internal and coordinator-owned first. Do not install the
+runtime adapter yet, expose frontend controls, expose HTTP/Wails transport, add
+background workers, add automatic resume, write database migrations, restore
+stale actionability, or make event/prose/React state the source of truth.
