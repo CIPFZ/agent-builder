@@ -9530,6 +9530,47 @@ Review conclusion:
 - The next safe task is Phase 27.1: Local Test Provider Browser Click Smoke
   Implementation, if the project wants to continue automation now.
 
+## 2026-06-11: Phase 27.1 Local Test Provider Readiness Smoke Implementation
+
+Phase 27.1 implements the runtime readiness portion required before a full
+browser scheduler click smoke. It does not add a production provider catalog
+entry, production seed endpoint, runtime readiness bypass, background worker,
+automatic resume, database migration, stale actionability recovery, frontend
+Run state ownership, full scheduler UI, or full Run executor behavior.
+
+Implemented:
+
+- Added `internal/runtime/runtime_test_provider_readiness_test.go`.
+- The test creates a temp runtime root under `tmp/runtime-dev`.
+- It starts a loopback fake OpenAI-compatible provider.
+- It writes a temp desktop `model.json` with a dummy non-secret token pointing
+  at the loopback provider.
+- It starts runtime readiness through the normal `Status(...)` /
+  `ensureStarted` path.
+- After readiness succeeds, it seeds durable Run/Turn/AgentTask evidence
+  through existing runtime stores.
+- It verifies:
+  - `RunProjection(session-1)` succeeds without readiness bypass;
+  - the projection includes the durable AgentTask candidate;
+  - `RunSchedulerPlan(runID, taskID)` returns an executable,
+    ownership-verified candidate.
+
+Validation:
+
+```text
+go test ./internal/runtime -run "TestRuntimeLocalModelConfigReadinessAllowsSchedulerCandidateProjection|TestRuntimeSchedulerUICandidateSeedExposesDurableHTTPPlanAndExecute" -count=1
+```
+
+Review conclusion:
+
+- Phase 27.1 accepts local non-secret provider/config readiness coverage.
+- Remaining gap: browser/Vite click automation still needs a harness that
+  starts runtime HTTP and Vite against this ready temp runtime, then clicks the
+  visible Execute button.
+- The next safe task is Phase 27.2: Browser Scheduler Click Harness Gate. It
+  should decide whether to implement the process orchestration now or keep
+  click validation manual.
+
 ## Validation Scenarios
 
 Use these as recurring gates after each phase:
@@ -9577,6 +9618,6 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 27.1: Local Test Provider Browser Click Smoke Implementation,
-if the project wants to continue automation now. Otherwise keep the remaining
-full browser scheduler click validation as a manual/local checklist.
+Implement Phase 27.2: Browser Scheduler Click Harness Gate. Decide whether to
+implement local process orchestration for runtime HTTP plus Vite plus browser
+click validation now, or keep full click validation as a manual/local checklist.

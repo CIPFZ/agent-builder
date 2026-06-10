@@ -2107,3 +2107,11 @@ Phase 27 note:
   `ensureStarted` bypass.
 - Do not add test providers to the embedded provider catalog or commit auth
   state/config secrets.
+
+Phase 27.1 note:
+
+- Runtime readiness automation now has a Go smoke using temp `model.json` plus
+  a loopback fake provider under `tmp/runtime-dev`.
+- The smoke proves `RunProjection` and `RunSchedulerPlan` can read durable
+  scheduler candidate evidence after normal readiness succeeds.
+- Browser/Vite click orchestration remains a separate gate.

@@ -437,6 +437,14 @@ Phase 27 note:
   config and durable runtime evidence, not a readiness bypass or frontend-owned
   fixture state.
 
+Phase 27.1 note:
+
+- Local test-provider readiness is now covered through normal runtime config:
+  temp `model.json`, loopback fake provider, and durable Run/Turn/AgentTask
+  evidence.
+- This closes the RunProjection readiness part of browser click automation
+  without adding frontend-owned candidates or new persistence semantics.
+
 本文定义 Agent Builder 客户端化后的核心执行数据模型。目标是让客户端、runtime、audit、恢复机制对同一套对象达成一致。
 
 ## 为什么需要这层模型
