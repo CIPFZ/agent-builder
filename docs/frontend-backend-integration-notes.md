@@ -2803,3 +2803,9 @@ Phase 44 note:
 - Backend restart/read smoke now covers explicit Run status writer paths.
 - Frontend behavior remains unchanged: reload/reconnect should reread runtime
   DTOs instead of restoring Run status from browser memory.
+
+Phase 44.1 note:
+
+- Phase 44 backend smoke is accepted.
+- Next validation should prove HTTP/adapter rereads expose the same backend
+  status without requiring frontend state patches.

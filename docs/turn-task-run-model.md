@@ -376,6 +376,12 @@ Phase 44 note:
 - The smoke proves durable runtime DTO/full projection reads restore status
   without React state or event/action payload merging.
 
+Phase 44.1 note:
+
+- Phase 44 restart/read smoke is accepted.
+- The next validation boundary is HTTP/adapter reread semantics, not broader
+  persisted Run authority.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

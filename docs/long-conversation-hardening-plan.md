@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 44 and decide Phase 44.1: Run Status Writer Integrated
-Smoke Acceptance. Accept the restart/read smoke before broadening persisted Run
-authority.
+Implement Phase 45: Run Status Writer HTTP/Adapter Contract Smoke Gate. Prove
+runtime status writer results are exposed through transport DTO rereads without
+frontend/event payload state merging.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14022,3 +14022,37 @@ Remaining risk / next task:
 - This is Go runtime smoke coverage, not browser/Wails UI automation.
 - Phase 44.1 should accept the smoke result and decide whether the next boundary
   is UI/transport smoke or a new persisted Run authority design gate.
+
+## 2026-06-11: Phase 44.1 Run Status Writer Integrated Smoke Acceptance
+
+Phase 44.1 accepts the Phase 44 integrated restart/read smoke. It is an
+acceptance phase only. It does not implement a full Run state machine, runtime
+Run store expansion, database migration, automatic resume, background
+scheduler loop, stale actionability recovery, frontend Run UI, or React-owned
+runtime state.
+
+Accepted:
+
+- `TestRuntimeRunStatusWriterIntegratedRestartReadSmoke` covers durable
+  restart/read behavior for:
+  - turn active status written through `LinkTurn(...)` /
+    `writeRuntimeRunStatus(...)`;
+  - foreground task active status written through
+    `writeRuntimeRunStatus(...)`;
+  - terminal task completion reconciled through full `RunProjection(...)`.
+- The smoke uses a fresh runtime service instance over the same durable DB,
+  proving status survives loss of process-local runtime maps.
+- Runtime DTO/full projection reads remain the restoration path.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run TestRuntimeRunStatusWriterIntegratedRestartReadSmoke -count=1
+```
+
+Review conclusion:
+
+- Phase 44 is accepted.
+- The next boundary should be HTTP/adapter contract smoke for reread semantics.
+- Do not proceed to broader persisted Run authority, auto-resume, migrations,
+  or frontend Run UI yet.
