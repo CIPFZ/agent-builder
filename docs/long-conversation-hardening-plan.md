@@ -11257,11 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 41.1: Persisted Run Lifecycle Ownership Contract Gate. Review
-which existing persisted Run fields can become authoritative under explicit
-runtime writes while preserving `RunProjection`/`SessionActivity` parity and
-without adding migrations, auto-resume, background scheduling, or frontend Run
-UI.
+Implement Phase 41.2: Persisted Run Lifecycle Ownership Contract Test
+Hardening. Add focused tests for the accepted Run ownership matrix without
+adding migrations, auto-resume, background scheduling, stale actionability
+recovery, or frontend Run UI.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13265,3 +13264,84 @@ Review conclusion:
 - Future Run work must start with persisted lifecycle ownership boundaries,
   not with a full state machine or scheduler loop.
 - The next task is Phase 41.1: Persisted Run Lifecycle Ownership Contract Gate.
+
+## 2026-06-11: Phase 41.1 Persisted Run Lifecycle Ownership Contract Gate
+
+Phase 41.1 defines the ownership boundary for existing persisted Run fields.
+It is a contract/design phase only. It does not change runtime behavior,
+database schema, migrations, automatic resume, background scheduling, stale
+tool recovery, stale permission recovery, stale MCP auth/elicitation recovery,
+or frontend Run UI.
+
+Existing coverage reviewed:
+
+- `TestRuntimeRunStoreEnsuresGeneratedRunAndKeepsIdempotentSessionLink`
+  protects generated Run identity and idempotent session ownership.
+- `TestRuntimeRunStoreLinksTurnAndPreservesUserPromptSourceOnReconcile`
+  protects explicit turn linking and user-prompt source through projection
+  reconciliation.
+- `TestRuntimeRunStoreDoesNotCompleteActiveRunFromEmptyProjection` protects an
+  active persisted Run from being completed by an empty projection.
+- `TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail` protects
+  bounded projection/window reads from mutating persisted Run detail.
+- `TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation`
+  protects checkpoint acknowledgement/discard markers through Run detail
+  reconciliation.
+- Run transition writer and scenario harness tests protect explicit transition
+  ordering for started, terminal, cancellation, startup recovery, and
+  checkpoint-resume evidence.
+
+Accepted ownership matrix:
+
+- Persisted authoritative fields:
+  - Run identity: `id`, `workspace_id`, `primary_session_id`, source, created
+    time.
+  - Session membership and explicit `runtime_run_sessions.turn_id` links after
+    `EnsureForSession(...)` / `LinkTurn(...)`.
+  - Checkpoint user markers: acknowledged, discarded, resumed-turn links, and
+    discarded-at metadata written by explicit checkpoint actions.
+  - Transition history rows written by explicit runtime transition helpers.
+- Projection/parity-derived fields:
+  - Lifecycle status and finished time remain reconciled against full
+    `RunProjection` until a later implementation phase proves persisted Run
+    status can stand alone.
+  - Diagnostics, artifact evidence, produced refs, verified refs, tool call
+    counts, permission/MCP terminal/actionability state, interrupted summaries,
+    resume eligibility, and scheduler plan state remain derived from
+    `RunProjection`, `SessionActivity`, and other durable DTO reads.
+- Conditional fields:
+  - Persisted status may be updated by explicit writes such as `LinkTurn(...)`
+    and cancellation/terminal transition paths, but full `RunProjection` and
+    `Run(...)` reconciliation remain the parity guard.
+  - Bounded/windowed reads must stay read-only and must not reconcile persisted
+    status, timestamps, objective, session links, or checkpoint markers.
+
+Accepted Phase 41.2 scope:
+
+- Add focused tests that encode the ownership matrix directly.
+- Prefer tests over implementation unless a real uncovered behavior is found.
+- Keep all work inside the existing Run store/projection/transition contract.
+- Do not add migrations, new Run state machine, background scheduler loops,
+  automatic resume, stale actionability recovery, frontend Run UI, or React Run
+  state.
+
+Rejected:
+
+- Persisted Run detail is not yet the only source of Run lifecycle truth.
+- Runtime events, action metadata, assistant prose, and frontend state cannot
+  write or infer Run lifecycle/artifact/actionability state.
+- No full replacement of `SessionActivity` or `RunProjection` as parity oracle.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Existing durability foundations are strong enough to harden with explicit
+  ownership tests.
+- The next task is Phase 41.2: Persisted Run Lifecycle Ownership Contract Test
+  Hardening.

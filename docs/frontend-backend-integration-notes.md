@@ -2703,3 +2703,14 @@ Phase 41 note:
 - The frontend should continue to render Run/cancellation/interrupted/
   permission/MCP/timeline/diagnostic/artifact state from durable runtime DTO
   reads while backend ownership boundaries are reviewed.
+
+Phase 41.1 note:
+
+- Backend Run ownership is split intentionally: persisted identity/session
+  links/checkpoint user markers/transition rows may be authoritative after
+  explicit writes, while lifecycle projections, diagnostics, artifacts, refs,
+  actionability, interrupted summaries, and scheduler state still come from
+  durable DTO rereads.
+- The frontend contract does not change. React must not become a Run state
+  owner and must continue to treat action/event payloads as refresh metadata
+  only.

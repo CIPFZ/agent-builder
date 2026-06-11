@@ -254,6 +254,17 @@ Phase 41 note:
   should define persisted Run lifecycle ownership before any broader
   persistence or scheduler work.
 
+Phase 41.1 note:
+
+- Persisted Run identity, session/turn links, checkpoint user markers, and
+  transition rows are accepted as authoritative when written by explicit
+  runtime actions.
+- Lifecycle status, finished time, diagnostics, artifacts, refs,
+  permission/MCP actionability, interrupted summaries, resume eligibility, and
+  scheduler state remain projection/parity-derived.
+- The next implementation step should harden this matrix with tests, not add a
+  full Run state machine or migrations.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
