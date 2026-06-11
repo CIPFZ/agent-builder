@@ -11257,10 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 40.1: Frontend Action Refresh Selector Helper And Contract
-Coverage. Add a narrow adapter helper that can interpret write-action
-`refreshTargets` only as durable reread selection metadata, with full hydration
-as fallback and no React-owned runtime state.
+Review/accept Phase 40.1 and decide Phase 40.2: Frontend Action Refresh
+Selector Acceptance And Browser/Bridge Smoke Gate. Confirm selector behavior
+is source-of-truth safe before broadening frontend action consumption.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13067,3 +13066,58 @@ Review conclusion:
   adapter-local reread selector with full fallback.
 - The next task is Phase 40.1: Frontend Action Refresh Selector Helper And
   Contract Coverage.
+
+## 2026-06-11: Phase 40.1 Frontend Action Refresh Selector Helper And Contract Coverage
+
+Phase 40.1 implements the accepted adapter-local refresh selector. It keeps
+runtime DTO reads as the source of truth and does not add React-owned runtime
+state, frontend Run UI, runtime persistence, migrations, automatic resume,
+background scheduling, stale tool recovery, stale permission recovery, or stale
+MCP auth/elicitation recovery.
+
+Implemented:
+
+- Added `client/src/runtime/actionRefreshSelector.ts` with an allowlisted
+  `runtimeActionRefreshTargets(...)` helper.
+- The helper accepts only `response.action.refreshTargets` from accepted shared
+  action metadata and legacy scheduler `response.refreshTargets`.
+- Missing, rejected, malformed, empty, or unknown targets return `undefined`,
+  which keeps the full `hydrateWorkbench(...)` fallback.
+- Added shared action metadata DTO typing for runtime status, turn response,
+  checkpoint resume response, and scheduler execute response.
+- Added `hydrateWorkbenchForAction(...)` in the adapter. It uses the selector
+  only to choose durable rereads; it never merges action source/reason/evidence
+  into view state.
+- Action-aware hydrate keeps unrefreshed model, policy, conversation,
+  timeline, settings, and pending permission state from the current view model
+  instead of clearing or defaulting them.
+- Wired action-aware hydrate to permission decisions, turn cancellation,
+  interrupted acknowledgement, checkpoint resume, and scheduler task execution.
+- Added `client/scripts/phase401-action-refresh-selector-smoke.mjs` and
+  `npm run smoke:phase401` to exercise helper allowlist/fallback behavior and
+  statically verify the covered actions use action-aware hydration.
+
+Validation:
+
+```powershell
+cd client
+npm run smoke:phase401
+npm run lint
+npm run build
+```
+
+Review conclusion:
+
+- The selector remains adapter-local reread planning metadata.
+- Full hydration remains the fallback and parity oracle.
+- The implementation does not use runtime event payloads, action source/reason/
+  evidence, assistant prose, or React state as source of truth for task, Run,
+  permission, MCP, checkpoint, timeline, diagnostics, artifacts, cancellation,
+  or interrupted state.
+
+Remaining risk:
+
+- This phase has helper and build-level coverage, but not a real browser or
+  packaged bridge smoke proving the action-aware path under live Vite/Wails
+  transports. Phase 40.2 should perform that acceptance/smoke gate before
+  further adapter optimization.

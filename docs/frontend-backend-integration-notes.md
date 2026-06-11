@@ -2670,3 +2670,17 @@ Phase 40 note:
   never directly restore timeline, diagnostics, artifacts, refs, interrupted
   summaries, permissions, MCP actionability, scheduler state, cancellation
   state, checkpoint state, or Run state.
+
+Phase 40.1 note:
+
+- `client/src/runtime/actionRefreshSelector.ts` implements the allowlisted
+  refresh-target extraction helper.
+- `wailsWorkbenchAdapter.ts` uses action-aware hydration for permission
+  decisions, turn cancellation, interrupted acknowledgement, checkpoint resume,
+  and scheduler task execution.
+- The adapter still updates UI from durable runtime reads and keeps full
+  hydration as fallback for missing, rejected, malformed, or unknown metadata.
+- Current model, policy, conversation, timeline, settings, and pending
+  permission state are preserved when the selector does not choose those
+  durable rereads.
+- `npm run smoke:phase401`, `npm run lint`, and `npm run build` passed.

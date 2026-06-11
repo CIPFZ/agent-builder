@@ -24,9 +24,10 @@ import type {
   WorkbenchAdapter,
   WorkbenchViewModel,
 } from './workbenchTypes.ts';
+import { runtimeActionRefreshTargets, type RuntimeActionRefreshTarget, type RuntimeWriteActionResponseDTO } from './actionRefreshSelector.ts';
 import { getInitialWorkbenchViewModel, staticWorkbenchAdapter } from './staticWorkbenchAdapter.tsx';
 
-interface RuntimeStatusDTO {
+interface RuntimeStatusDTO extends RuntimeWriteActionResponseDTO {
   sessionId?: string;
   workingDir?: string;
   model?: string;
@@ -185,7 +186,7 @@ interface RuntimeMessagesResponseDTO {
   messages: RuntimeMessageDTO[];
 }
 
-interface RuntimeTurnResponseDTO {
+interface RuntimeTurnResponseDTO extends RuntimeWriteActionResponseDTO {
   turn: {
     id: string;
     status: string;
@@ -441,14 +442,14 @@ interface RuntimeRunProjectionResponseDTO {
   };
 }
 
-interface RuntimeRunResumeResponseDTO {
+interface RuntimeRunResumeResponseDTO extends RuntimeWriteActionResponseDTO {
   runId?: string;
   checkpointId?: string;
   sessionId?: string;
   turnId?: string;
 }
 
-interface RuntimeRunSchedulerExecuteTaskResponseDTO {
+interface RuntimeRunSchedulerExecuteTaskResponseDTO extends RuntimeWriteActionResponseDTO {
   accepted?: boolean;
   executionStarted?: boolean;
   reason?: string;
@@ -1577,32 +1578,67 @@ async function hydrateRunSchedulerTaskCandidates(
   return Array.from(byKey.values()).sort((left, right) => (left.orderKey || left.taskID).localeCompare(right.orderKey || right.taskID));
 }
 
-async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBridgeModule) {
+interface RuntimeHydrateOptions {
+  refreshTargets?: RuntimeActionRefreshTarget[];
+}
+
+function actionTargetsInclude(targets: RuntimeActionRefreshTarget[] | undefined, ...candidates: RuntimeActionRefreshTarget[]) {
+  if (!targets || targets.length === 0) {
+    return true;
+  }
+  return candidates.some((candidate) => targets.includes(candidate));
+}
+
+async function hydrateWorkbenchForAction(current: WorkbenchViewModel, bridge: RuntimeBridgeModule, response: unknown) {
+  const refreshTargets = runtimeActionRefreshTargets(response);
+  if (!refreshTargets) {
+    return hydrateWorkbench(current, bridge);
+  }
+  return hydrateWorkbench(current, bridge, { refreshTargets });
+}
+
+async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBridgeModule, hydrateOptions: RuntimeHydrateOptions = {}) {
+  const refreshTargets = hydrateOptions.refreshTargets;
+  const fullHydration = !refreshTargets || refreshTargets.length === 0;
+  const refreshActivity = actionTargetsInclude(
+    refreshTargets,
+    'turn_activity',
+    'session_activity_window',
+    'session_activity',
+    'tool_calls',
+    'diagnostics',
+    'permissions',
+    'mcp_requests',
+  );
+  const refreshRuns = actionTargetsInclude(refreshTargets, 'run', 'run_projection', 'run_transition_history', 'run_scheduler_plan');
+  const refreshPolicy = actionTargetsInclude(refreshTargets, 'permissions');
   const [status, sessionsResponse, modelsResponse, providerCatalog, configuredProvidersResponse, activeTurnsResponse, skillsResponse, pluginsResponse, mcpServersResponse] = await Promise.all([
     optionalRuntimeRequest(() => bridge.Status()),
     optionalRuntimeRequest(() => bridge.Sessions()),
-    bridge.Models().catch(() => undefined),
-    bridge.ProviderCatalog?.().catch(() => undefined),
-    bridge.ConfiguredProviders?.().catch(() => undefined),
+    fullHydration ? bridge.Models().catch(() => undefined) : Promise.resolve(undefined),
+    fullHydration ? bridge.ProviderCatalog?.().catch(() => undefined) : Promise.resolve(undefined),
+    fullHydration ? bridge.ConfiguredProviders?.().catch(() => undefined) : Promise.resolve(undefined),
     optionalRuntimeRequest(() => bridge.Turns?.('active') ?? Promise.resolve(undefined)),
-    optionalRuntimeRequest(() => bridge.Skills?.() ?? Promise.resolve(undefined)),
-    optionalRuntimeRequest(() => bridge.Plugins?.() ?? Promise.resolve(undefined)),
-    optionalRuntimeRequest(() => bridge.MCPServers?.() ?? Promise.resolve(undefined)),
+    fullHydration ? optionalRuntimeRequest(() => bridge.Skills?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
+    fullHydration ? optionalRuntimeRequest(() => bridge.Plugins?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
+    fullHydration ? optionalRuntimeRequest(() => bridge.MCPServers?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ]);
   const activeSessionID = status?.sessionId || sessionsResponse?.sessions?.find((session) => session.active)?.id;
-  const narrowActivity = activeSessionID ? await hydrateNarrowActivityFromHint(bridge, activeSessionID) : undefined;
-  const activity = narrowActivity ?? (activeSessionID ? await optionalRuntimeRequest(() => bridge.SessionActivity?.(activeSessionID) ?? Promise.resolve(undefined)) : undefined);
-  const runProjection = activeSessionID && bridge.RunProjection
+  const narrowActivity = activeSessionID && refreshActivity ? await hydrateNarrowActivityFromHint(bridge, activeSessionID) : undefined;
+  const activity = narrowActivity ?? (activeSessionID && refreshActivity ? await optionalRuntimeRequest(() => bridge.SessionActivity?.(activeSessionID) ?? Promise.resolve(undefined)) : undefined);
+  const runProjection = activeSessionID && bridge.RunProjection && refreshRuns
     ? await optionalRuntimeRequest(() => bridge.RunProjection?.({ sessionId: activeSessionID, limit: 24 }) ?? Promise.resolve(undefined))
     : undefined;
-  const schedulerTaskCandidates = await hydrateRunSchedulerTaskCandidates(bridge, runProjection);
+  const schedulerTaskCandidates = actionTargetsInclude(refreshTargets, 'run_scheduler_plan') ? await hydrateRunSchedulerTaskCandidates(bridge, runProjection) : [];
   const messagesResponse = activity
     ? { messages: Array.isArray(activity.messages) ? activity.messages : [] }
-    : activeSessionID
+    : activeSessionID && fullHydration
       ? await optionalRuntimeRequest(() => bridge.SessionMessages?.(activeSessionID) ?? Promise.resolve(undefined))
-    : await optionalRuntimeRequest(() => bridge.Messages?.() ?? Promise.resolve(undefined));
-  const options = modelOptions(modelsResponse);
-  const selectedModel = options.find((model) => model.selected);
+    : fullHydration
+      ? await optionalRuntimeRequest(() => bridge.Messages?.() ?? Promise.resolve(undefined))
+    : undefined;
+  const modelOptionList = modelsResponse ? modelOptions(modelsResponse) : current.composer.modelOptions;
+  const selectedModel = modelsResponse ? modelOptionList.find((model) => model.selected) : current.composer.selectedModel;
   const workingDir = status?.workingDir || current.currentProject.path;
   const activeTurns = Array.isArray(activeTurnsResponse?.turns) ? activeTurnsResponse.turns : [];
   const sessionActiveTurn =
@@ -1613,7 +1649,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       ? status.requests.sessionBusy
       : Boolean(sessionActiveTurn);
   const activeTurnId = status?.requests?.sessionRequestId || sessionActiveTurn?.id || (busy ? current.composer.activeTurnId : undefined);
-  const policy = activity?.policy ?? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy;
+  const policy = activity?.policy ?? (refreshPolicy ? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy : undefined);
   const permissions = (Array.isArray(activity?.permissions) ? activity.permissions : []).map(mapPermission);
   const timeline = activity
     ? narrowActivity
@@ -1622,14 +1658,20 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     : current.timeline;
   const conversation = activity && narrowActivity
     ? mergeConversationMessages(current.conversation, messagesResponse)
-    : mapConversation(messagesResponse);
+    : messagesResponse
+      ? mapConversation(messagesResponse)
+      : current.conversation;
   const pendingPermissions = activity && narrowActivity
     ? mergePendingPermissions(current.pendingPermissions, permissions)
-    : permissions.filter((permission) => permission.status === 'pending');
+    : activity
+      ? permissions.filter((permission) => permission.status === 'pending')
+      : current.pendingPermissions;
   const skills = mapSkills(skillsResponse) ?? current.settings.skills;
   const plugins = mapPlugins(pluginsResponse) ?? current.settings.plugins;
   const mcpServers = mapMCPServers(mcpServersResponse) ?? current.settings.mcpServers;
   const providers = mapProviderCatalogItems(providerCatalog) ?? current.settings.providers;
+  const nextPermissionMode = policy ? permissionMode(policy) : (current.composer.permissionMode ?? permissionMode());
+  const nextSettingsPermissionMode = policy ? permissionMode(policy) : (current.settings.permissionMode ?? permissionMode());
 
   return {
     ...current,
@@ -1646,21 +1688,21 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     pendingPermissions,
     composer: {
       ...current.composer,
-      permissionLabel: permissionMode(policy).label,
-      permissionMode: permissionMode(policy),
+      permissionLabel: nextPermissionMode.label,
+      permissionMode: nextPermissionMode,
       permissionOptions: permissionModeOptions,
       modelLabel: modelLabel(status, modelsResponse),
       capabilityLabel: capabilityLabel(skills, mcpServers),
       selectedModel,
-      modelOptions: options,
+      modelOptions: modelOptionList,
       busy,
       activeTurnId,
     },
     settings: {
       ...current.settings,
-      permissionMode: permissionMode(policy),
+      permissionMode: nextSettingsPermissionMode,
       permissionOptions: permissionModeOptions,
-      permissions: settingsPermissions(policy),
+      permissions: policy ? settingsPermissions(policy) : current.settings.permissions,
       providerTypes: providerCatalog?.providerTypes ?? current.settings.providerTypes,
       providers,
       configuredProviders: mapConfiguredProviders(configuredProvidersResponse) ?? current.settings.configuredProviders,
@@ -2391,8 +2433,8 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         if (!bridge.DecidePermission) {
           return staticWorkbenchAdapter.decidePermission(current, permissionID, action);
         }
-        await bridge.DecidePermission({ permissionId: permissionID, action });
-        return hydrateWorkbench(current, bridge);
+        const response = await bridge.DecidePermission({ permissionId: permissionID, action });
+        return hydrateWorkbenchForAction(current, bridge, response);
       },
       () => staticWorkbenchAdapter.decidePermission(current, permissionID, action),
     );
@@ -2483,15 +2525,17 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     return withBridge(
       async (bridge) => {
         const targetTurnID = turnID || current.composer.activeTurnId;
+        let response: RuntimeStatusDTO | undefined;
         if (targetTurnID && bridge.CancelTurn) {
-          await bridge.CancelTurn(targetTurnID);
+          response = await bridge.CancelTurn(targetTurnID);
         }
-        const hydrated = await hydrateWorkbench(
+        const hydrated = await hydrateWorkbenchForAction(
           {
             ...current,
             composer: { ...current.composer, busy: false, activeTurnId: undefined },
           },
           bridge,
+          response,
         );
         return {
           ...hydrated,
@@ -2507,13 +2551,14 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         if (!bridge.MarkInterruptedDone) {
           return staticWorkbenchAdapter.markInterruptedDone(current, turnID);
         }
-        await bridge.MarkInterruptedDone(turnID);
-        return hydrateWorkbench(
+        const response = await bridge.MarkInterruptedDone(turnID);
+        return hydrateWorkbenchForAction(
           {
             ...current,
             interruptedTurn: undefined,
           },
           bridge,
+          response,
         );
       },
       () => staticWorkbenchAdapter.markInterruptedDone(current, turnID),
@@ -2525,8 +2570,8 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         if (!bridge.ResumeRunCheckpoint) {
           return staticWorkbenchAdapter.resumeRunCheckpoint(current, runID, checkpointID);
         }
-        await bridge.ResumeRunCheckpoint(runID, checkpointID);
-        return hydrateWorkbench(current, bridge);
+        const response = await bridge.ResumeRunCheckpoint(runID, checkpointID);
+        return hydrateWorkbenchForAction(current, bridge, response);
       },
       () => staticWorkbenchAdapter.resumeRunCheckpoint(current, runID, checkpointID),
     );
@@ -2548,8 +2593,8 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         if (!bridge.ExecuteRunTask) {
           return staticWorkbenchAdapter.executeRunTask(current, runID, taskID);
         }
-        await bridge.ExecuteRunTask(runID, taskID);
-        return hydrateWorkbench(current, bridge);
+        const response = await bridge.ExecuteRunTask(runID, taskID);
+        return hydrateWorkbenchForAction(current, bridge, response);
       },
       () => staticWorkbenchAdapter.executeRunTask(current, runID, taskID),
     );

@@ -224,6 +224,16 @@ Phase 40 note:
   assistant prose, or React state as task, Run, permission, MCP, checkpoint,
   timeline, diagnostic, artifact, cancellation, or interrupted truth.
 
+Phase 40.1 note:
+
+- `runtimeActionRefreshTargets(...)` now validates shared action refresh
+  targets against an allowlist and returns `undefined` for fallback cases.
+- The frontend adapter uses action-aware hydration for already-covered explicit
+  write actions, but still rereads durable DTOs and preserves current view
+  fields that were not selected for refresh.
+- Smoke/build coverage verifies helper fallback behavior and confirms action
+  source/reason/evidence are not consumed as UI state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
