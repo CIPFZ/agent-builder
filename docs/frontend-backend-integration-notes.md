@@ -2940,3 +2940,9 @@ Phase 50.7 note:
 - Proposed marker transport is HTTP read-only list/detail routes.
 - Frontend adapter and UI use remain blocked until HTTP contracts and smoke are
   accepted.
+
+Phase 50.8 note:
+
+- Backend now has read-only HTTP marker routes with contract coverage.
+- Frontend adapter, Wails binding, `WorkbenchViewModel`, and UI marker surfaces
+  remain unimplemented.

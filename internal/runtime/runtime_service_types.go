@@ -35,6 +35,8 @@ type RuntimeService interface {
 	Runs(context.Context) (RuntimeRunsResponse, error)
 	RunSummaries(context.Context) (RuntimeRunSummariesResponse, error)
 	RunSummary(context.Context, string) (RuntimeRunSummaryResponse, error)
+	RunCheckpointMarkers(context.Context, string) (RuntimeRunCheckpointMarkersResponse, error)
+	RunCheckpointMarker(context.Context, string, string) (RuntimeRunCheckpointMarkerResponse, error)
 	Run(context.Context, string) (RuntimeRunResponse, error)
 	AcknowledgeRunCheckpoint(context.Context, string, string) (RuntimeRunResponse, error)
 	DiscardRunCheckpoint(context.Context, string, string) (RuntimeRunResponse, error)

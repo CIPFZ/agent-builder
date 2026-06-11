@@ -11257,8 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 50.7 and decide Phase 50.8: Checkpoint Marker HTTP Route
-Contract Gate. Add backend HTTP route tests before route implementation.
+Review/accept Phase 50.8 and decide Phase 50.9: Checkpoint Marker HTTP Route
+Acceptance Gate. Accept read-only marker transport before any frontend adapter
+surface.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -15162,3 +15163,53 @@ Review conclusion:
 
 - Read-only marker transport routes are designed.
 - The next step is HTTP route contract tests, not implementation.
+
+## 2026-06-11: Phase 50.8 Checkpoint Marker HTTP Route Contract Gate
+
+Phase 50.8 adds read-only HTTP route coverage and the minimum route
+implementation needed to satisfy that contract. It does not implement a full Run
+state machine, runtime Run store expansion, database migration, automatic
+resume, background scheduler loop, stale actionability recovery, frontend Run
+UI, checkpoint marker UI, Wails bindings, frontend adapter methods, or
+React-owned runtime state.
+
+Implemented:
+
+- Added runtime service read methods:
+  - `RunCheckpointMarkers(ctx, runID)`
+  - `RunCheckpointMarker(ctx, runID, checkpointID)`
+- Added HTTP routes:
+  - `GET /v1/runs/{run_id}/checkpoint-markers`
+  - `GET /v1/runs/{run_id}/checkpoint-markers/{checkpoint_id}`
+- Added dev-module routing for the same GET paths.
+- Added `TestRuntimeHTTPServerRoutesRunCheckpointMarkersToRuntimeService`.
+
+Contract coverage:
+
+- List/detail routes return marker-only DTO responses with marker source
+  metadata.
+- Marker responses exclude source evidence, projection payloads, action
+  metadata, and resume eligibility.
+- Route tests verify marker routes do not call projection, scheduler, or write
+  paths.
+
+Still not implemented:
+
+- No POST/PUT/PATCH/DELETE marker routes.
+- No Wails binding.
+- No frontend adapter method.
+- No view-model state or UI rendering.
+- No scheduler or resume behavior.
+- No checkpoint source evidence or actionability inference.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Read-only HTTP marker transport is covered.
+- The next step should accept HTTP transport before any frontend adapter surface.

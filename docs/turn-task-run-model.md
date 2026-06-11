@@ -521,6 +521,12 @@ Phase 50.7 note:
 - Routes must not write markers, reconcile projection, start workers, or infer
   eligibility/actionability.
 
+Phase 50.8 note:
+
+- Read-only HTTP marker routes are implemented and covered.
+- Routes return marker-only DTOs and do not expose action metadata, projection
+  payloads, source evidence, or resume eligibility.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

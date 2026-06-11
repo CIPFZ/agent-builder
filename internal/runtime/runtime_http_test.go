@@ -840,6 +840,105 @@ func TestRuntimeHTTPServerRoutesRunSummariesToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesRunCheckpointMarkersToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		runCheckpointMarkers: RuntimeRunCheckpointMarkersResponse{
+			Markers: []RuntimeRunCheckpointMarker{{
+				RunID:          "run-1",
+				CheckpointID:   "checkpoint-1",
+				TurnID:         "turn-1",
+				AcknowledgedAt: 1200,
+				ResumedTurnIDs: []string{"turn-resume-1"},
+			}},
+			Source: runtimeRunCheckpointMarkerSource(),
+		},
+		runCheckpointMarker: RuntimeRunCheckpointMarkerResponse{
+			Marker: RuntimeRunCheckpointMarker{
+				RunID:        "run-1",
+				CheckpointID: "checkpoint-1",
+				TurnID:       "turn-1",
+				DiscardedAt:  1300,
+			},
+			Source: runtimeRunCheckpointMarkerSource(),
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/runs/run-1/checkpoint-markers", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("markers status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.runCheckpointMarkersID != "run-1" {
+		t.Fatalf("marker list run id = %q", service.runCheckpointMarkersID)
+	}
+	var list RuntimeRunCheckpointMarkersResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Markers) != 1 || !list.Source.MarkerOnly || !list.Source.ProjectionRequiredForEligibility {
+		t.Fatalf("marker list = %#v", list)
+	}
+	var rawList map[string]any
+	if err := json.Unmarshal(resp.body.Bytes(), &rawList); err != nil {
+		t.Fatal(err)
+	}
+	rawMarkers, ok := rawList["markers"].([]any)
+	if !ok || len(rawMarkers) != 1 {
+		t.Fatalf("raw markers = %#v", rawList["markers"])
+	}
+	rawMarker, ok := rawMarkers[0].(map[string]any)
+	if !ok {
+		t.Fatalf("raw marker = %#v", rawMarkers[0])
+	}
+	for _, field := range []string{"status", "summary", "artifactRefs", "resumeEligible", "projection", "action"} {
+		if _, ok := rawMarker[field]; ok {
+			t.Fatalf("marker list leaked %q field: %s", field, resp.body.String())
+		}
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/runs/run-1/checkpoint-markers/checkpoint-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("marker status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.runCheckpointMarkerRunID != "run-1" || service.runCheckpointMarkerID != "checkpoint-1" {
+		t.Fatalf("marker detail ids = %q/%q", service.runCheckpointMarkerRunID, service.runCheckpointMarkerID)
+	}
+	var detail RuntimeRunCheckpointMarkerResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Marker.CheckpointID != "checkpoint-1" || !detail.Source.ReadOnly || !detail.Source.MarkerOnly {
+		t.Fatalf("marker detail = %#v", detail)
+	}
+	if service.runProjectionRequest.SessionID != "" || service.runSchedulerPlanReq.RunID != "" || service.ackRunID != "" || service.resumeRunID != "" {
+		t.Fatalf("marker routes called projection/scheduler/write paths: projection=%#v plan=%#v ack=%q resume=%q", service.runProjectionRequest, service.runSchedulerPlanReq, service.ackRunID, service.resumeRunID)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=GET&path=/v1/runs/run-2/checkpoint-markers/checkpoint-2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("dev-module marker status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.runCheckpointMarkerRunID != "run-2" || service.runCheckpointMarkerID != "checkpoint-2" {
+		t.Fatalf("dev-module marker ids = %q/%q", service.runCheckpointMarkerRunID, service.runCheckpointMarkerID)
+	}
+}
+
 func TestRuntimeHTTPServerRunStatusWriterRereadSmoke(t *testing.T) {
 	t.Parallel()
 

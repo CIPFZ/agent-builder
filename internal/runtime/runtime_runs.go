@@ -147,6 +147,34 @@ func (r *runtimeService) RunSummary(ctx context.Context, id string) (RuntimeRunS
 	return RuntimeRunSummaryResponse{Run: runtimeRunSummaryFromRun(run), Source: runtimeRunSummarySource()}, nil
 }
 
+func (r *runtimeService) RunCheckpointMarkers(ctx context.Context, runID string) (RuntimeRunCheckpointMarkersResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeRunCheckpointMarkersResponse{}, err
+	}
+	if r.runs.db == nil {
+		return RuntimeRunCheckpointMarkersResponse{}, errors.New("runtime run database is not available")
+	}
+	markers, err := r.runs.ListCheckpointMarkers(ctx, runID)
+	if err != nil {
+		return RuntimeRunCheckpointMarkersResponse{}, err
+	}
+	return RuntimeRunCheckpointMarkersResponse{Markers: markers, Source: runtimeRunCheckpointMarkerSource()}, nil
+}
+
+func (r *runtimeService) RunCheckpointMarker(ctx context.Context, runID, checkpointID string) (RuntimeRunCheckpointMarkerResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeRunCheckpointMarkerResponse{}, err
+	}
+	if r.runs.db == nil {
+		return RuntimeRunCheckpointMarkerResponse{}, errors.New("runtime run database is not available")
+	}
+	marker, err := r.runs.GetCheckpointMarker(ctx, runID, checkpointID)
+	if err != nil {
+		return RuntimeRunCheckpointMarkerResponse{}, err
+	}
+	return RuntimeRunCheckpointMarkerResponse{Marker: marker, Source: runtimeRunCheckpointMarkerSource()}, nil
+}
+
 func (r *runtimeService) Run(ctx context.Context, id string) (RuntimeRunResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeRunResponse{}, err

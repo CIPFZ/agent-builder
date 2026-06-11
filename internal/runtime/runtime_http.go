@@ -302,6 +302,13 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && runSummaryPathID(r.URL.Path) != "":
 		value, err := s.service.RunSummary(r.Context(), runSummaryPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && runCheckpointMarkersPathID(r.URL.Path) != "":
+		value, err := s.service.RunCheckpointMarkers(r.Context(), runCheckpointMarkersPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && runCheckpointMarkerPathIDs(r.URL.Path).runID != "":
+		ids := runCheckpointMarkerPathIDs(r.URL.Path)
+		value, err := s.service.RunCheckpointMarker(r.Context(), ids.runID, ids.checkpointID)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && runPathID(r.URL.Path) != "":
 		value, err := s.service.Run(r.Context(), runPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -793,6 +800,13 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 	case method == http.MethodGet && runSummaryPathID(path) != "":
 		value, err := s.service.RunSummary(r.Context(), runSummaryPathID(path))
 		return value, err, true
+	case method == http.MethodGet && runCheckpointMarkersPathID(path) != "":
+		value, err := s.service.RunCheckpointMarkers(r.Context(), runCheckpointMarkersPathID(path))
+		return value, err, true
+	case method == http.MethodGet && runCheckpointMarkerPathIDs(path).runID != "":
+		ids := runCheckpointMarkerPathIDs(path)
+		value, err := s.service.RunCheckpointMarker(r.Context(), ids.runID, ids.checkpointID)
+		return value, err, true
 	case method == http.MethodGet && runPathID(path) != "":
 		value, err := s.service.Run(r.Context(), runPathID(path))
 		return value, err, true
@@ -1150,6 +1164,30 @@ func runSummaryPathID(path string) string {
 		return ""
 	}
 	return id
+}
+
+func runCheckpointMarkersPathID(path string) string {
+	prefix := "/v1/runs/"
+	if !strings.HasPrefix(path, prefix) {
+		return ""
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] != "checkpoint-markers" {
+		return ""
+	}
+	return parts[0]
+}
+
+func runCheckpointMarkerPathIDs(path string) runCheckpointPathIDs {
+	prefix := "/v1/runs/"
+	if !strings.HasPrefix(path, prefix) {
+		return runCheckpointPathIDs{}
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) != 3 || parts[0] == "" || parts[1] != "checkpoint-markers" || parts[2] == "" {
+		return runCheckpointPathIDs{}
+	}
+	return runCheckpointPathIDs{runID: parts[0], checkpointID: parts[2]}
 }
 
 type runCheckpointPathIDs struct {
