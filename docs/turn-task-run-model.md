@@ -177,6 +177,14 @@ Phase 38.1 note:
   frontend action-payload state.
 - Adapter optimization remains a later gate.
 
+Phase 38.2 note:
+
+- Transport coverage is accepted and frontend adapter optimization is deferred.
+- The current full hydrate behavior remains the safe fallback.
+- The next contract gate should review turn cancellation and interrupted
+  acknowledgement action metadata without changing cancelled terminal
+  acknowledgement semantics.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

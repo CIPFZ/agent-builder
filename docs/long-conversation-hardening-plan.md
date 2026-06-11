@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 38.2: Write Action Envelope Transport Coverage Acceptance And
-Adapter Optimization Gate. Review the HTTP/transport coverage and decide
-whether adapters should continue full hydration or add a narrow
-`refreshTargets`-only refresh selector in a later phase.
+Implement Phase 39: Turn Cancellation And Interrupted Acknowledgement Write
+Action Envelope Contract Gate. Review `CancelTurn(...)`, `Cancel(...)`, and
+`MarkInterruptedDone(...)` for additive action metadata while preserving
+cancelled terminal acknowledgement semantics and no auto-resume.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12734,3 +12734,65 @@ Remaining risk:
   after actions. Phase 38.2 should decide whether that remains the correct
   behavior or whether a future narrow `refreshTargets` selector is worth the
   added complexity.
+
+## 2026-06-11: Phase 38.2 Write Action Envelope Transport Coverage Acceptance And Adapter Optimization Gate
+
+Phase 38.2 reviews the Phase 38.1 transport coverage and decides whether to
+move immediately into frontend adapter optimization. It is an acceptance/design
+phase only. It does not change frontend adapter code, runtime behavior,
+database schema, Run persistence, automatic resume, background scheduling,
+stale permission/MCP actionability recovery, or frontend Run UI.
+
+Phase 38.1 acceptance:
+
+- HTTP transport coverage now asserts shared `action` forwarding for scheduler
+  execute, task cancel, and MCP request decision.
+- Existing HTTP coverage already asserts action metadata for permission
+  decision and checkpoint acknowledge/discard/resume.
+- The recording runtime service test double mirrors real runtime action
+  metadata for the covered write paths.
+- `client/src/runtime/wailsWorkbenchAdapter.ts` was not modified.
+- Focused and full backend validation passed.
+
+Adapter optimization decision:
+
+- Keep the current full `hydrateWorkbench(...)` behavior for now.
+- Do not add a frontend `refreshTargets` selector yet. The current full hydrate
+  path is conservative, already source-of-truth safe, and avoids introducing
+  partial-refresh drift.
+- Future adapter optimization may use `action.refreshTargets` only as a reread
+  selector after a separate implementation phase with browser/Vite and Wails/
+  bridge coverage.
+- Missing action metadata must continue to fall back to full durable hydration.
+
+Next roadmap decision:
+
+- The next core write-action candidate is turn-level cancellation/
+  acknowledgement: `CancelTurn(...)`, global `Cancel(...)`, and
+  `MarkInterruptedDone(...)`.
+- This must start with a contract gate because interrupted acknowledgement must
+  preserve `MarkInterruptedDone` / cancelled terminal status semantics and must
+  not add persisted acknowledgement fields or auto-resume.
+
+Rejected:
+
+- No adapter optimization in Phase 38.2.
+- No edits to `client/src/runtime/wailsWorkbenchAdapter.ts`.
+- No React-owned task, Run, permission, MCP actionability, checkpoint,
+  diagnostic, artifact, or timeline state.
+- No partial-refresh implementation without dedicated browser/Wails coverage.
+- No automatic resume or stale actionability recovery.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Phase 38 transport coverage is accepted.
+- Adapter consumption optimization is deferred.
+- Phase 39 should review turn cancellation and interrupted acknowledgement
+  action metadata as a separate contract gate.

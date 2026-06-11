@@ -2615,3 +2615,12 @@ Phase 38.1 note:
   hydration after actions.
 - Any future adapter use of `action.refreshTargets` must remain a reread
   selector only and must not merge action payloads into React state.
+
+Phase 38.2 note:
+
+- Transport coverage is accepted.
+- Adapter optimization using `action.refreshTargets` is deferred; the current
+  full hydrate behavior remains the safe source-of-truth path.
+- `client/src/runtime/wailsWorkbenchAdapter.ts` remains unchanged. Future
+  partial-refresh work requires a dedicated phase with browser/Vite and
+  Wails/bridge coverage.
