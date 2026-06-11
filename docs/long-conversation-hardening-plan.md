@@ -11257,8 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 45 and decide Phase 45.1: Run Status Writer Transport
-Smoke Acceptance. Accept HTTP reread semantics before considering UI smoke.
+Implement Phase 46: Run Status Writer Frontend Adapter Reread Smoke Gate.
+Validate the frontend adapter keeps treating status writer events/actions as
+refresh triggers and rereads runtime DTOs.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14096,3 +14097,33 @@ Remaining risk / next task:
 - This does not click through browser/Vite or packaged Wails UI.
 - Phase 45.1 should accept HTTP smoke and decide whether UI transport smoke is
   valuable before moving to another backend design gate.
+
+## 2026-06-11: Phase 45.1 Run Status Writer Transport Smoke Acceptance
+
+Phase 45.1 accepts the Phase 45 HTTP/adapter contract smoke. It is an
+acceptance phase only. It does not implement frontend Run UI, React-owned Run
+state, a full Run state machine, runtime Run store expansion, database
+migration, automatic resume, background scheduler loop, or stale actionability
+recovery.
+
+Accepted:
+
+- `TestRuntimeHTTPServerRunStatusWriterRereadSmoke` proves HTTP transport
+  exposes Run status through backend DTO rereads.
+- A conflicting runtime event payload does not override completed Run status.
+- Plain `GET /v1/runs/{runID}` rereads do not carry write action metadata.
+- `GET /v1/sessions/{sessionID}/run-projection` preserves SessionActivity
+  parity.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run TestRuntimeHTTPServerRunStatusWriterRereadSmoke -count=1
+```
+
+Review conclusion:
+
+- Phase 45 is accepted.
+- The next useful boundary is frontend adapter smoke for refresh-trigger
+  behavior, not broader persisted Run authority.
+- Continue to reject event/action/prose/React-derived Run status.

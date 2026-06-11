@@ -388,6 +388,12 @@ Phase 45 note:
   through backend DTO rereads.
 - A conflicting runtime event payload does not change the returned Run status.
 
+Phase 45.1 note:
+
+- Phase 45 HTTP reread smoke is accepted.
+- The next boundary is frontend adapter refresh-trigger behavior, not broader
+  persisted Run authority.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
