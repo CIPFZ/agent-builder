@@ -2964,3 +2964,9 @@ Phase 50.11 note:
 
 - Low-level checkpoint marker adapter smoke is accepted.
 - Marker reads remain transport-only and are not UI state.
+
+Phase 51 note:
+
+- Checkpoint marker read workstream is closed.
+- The next boundary is Run lifecycle conflict display authority; frontend UI
+  remains out of scope until a separate ownership gate.

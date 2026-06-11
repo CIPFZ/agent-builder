@@ -11257,9 +11257,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 50.11 and decide Phase 51: Checkpoint Marker Read Workstream
-Closure And Next Authority Boundary Gate. Close marker read work before any UI
-or Wails product binding work.
+Review/accept Phase 51 and decide Phase 52: Run Lifecycle Conflict Display
+Authority Design Gate. Define lifecycle conflict rules before implementation.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -15358,3 +15357,77 @@ Review conclusion:
 
 - Phase 50.10 is accepted.
 - The next phase is closure/design, not implementation.
+
+## 2026-06-11: Phase 51 Checkpoint Marker Read Workstream Closure And Next Authority Boundary Gate
+
+Phase 51 closes the checkpoint marker read workstream and defines the next
+authority boundary. It is a design/closure phase only. It does not implement a
+full Run state machine, runtime Run store expansion, database migration,
+automatic resume, background scheduler loop, stale actionability recovery,
+frontend Run UI, checkpoint marker UI, Wails product binding rollout, or
+React-owned runtime state.
+
+Closed workstream:
+
+- Phase 50 accepted checkpoint marker authority only for durable user-action
+  marker facts.
+- Phase 50.1 accepted marker facts without checkpoint source evidence or
+  resume/actionability state.
+- Phase 50.2 designed a marker-only DTO.
+- Phase 50.3 added marker-only DTO contract tests.
+- Phase 50.4 accepted the DTO contract.
+- Phase 50.5 added backend-only marker helper coverage.
+- Phase 50.6 accepted backend helper behavior.
+- Phase 50.7 designed read-only marker HTTP transport.
+- Phase 50.8 added read-only HTTP routes and route coverage.
+- Phase 50.9 accepted HTTP transport.
+- Phase 50.10 added low-level adapter transport and static smoke.
+- Phase 50.11 accepted adapter smoke.
+
+Stable marker boundary:
+
+- Marker DTOs may expose only run/checkpoint identity, optional source turn ID,
+  acknowledgement timestamp, discard timestamp, and resumed-turn IDs.
+- Marker reads are explicit DTO rereads.
+- Marker reads are not checkpoint source evidence.
+- Marker reads are not resume eligibility.
+- Marker reads are not actionability.
+- Marker reads are not UI state.
+
+Still rejected:
+
+- Run state machine.
+- Runtime Run store expansion beyond accepted helpers.
+- Database migration.
+- Automatic resume.
+- Background scheduler loop.
+- Stale running/waiting tool recovery.
+- Stale permission/MCP auth/elicitation recovery.
+- Frontend Run UI or checkpoint marker UI.
+- Wails product binding rollout without a separate gate.
+- Event/action/prose/transition/browser-memory-derived lifecycle or
+  actionability state.
+
+Next authority boundary:
+
+- Phase 52 should design Run lifecycle conflict display authority.
+- The problem to solve is how read surfaces should present conflicts between
+  persisted Run status and full `RunProjection` / `SessionActivity` evidence.
+- The design must preserve full projection parity for terminal/recovery
+  lifecycle decisions.
+- The design must not make persisted Run status the sole source of lifecycle
+  truth.
+- The design must not add UI, migrations, auto-resume, scheduler loops, or stale
+  actionability recovery.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- Checkpoint marker read authority is closed as a complete narrow workstream.
+- The next phase is lifecycle conflict authority design, not implementation.

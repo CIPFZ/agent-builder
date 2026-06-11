@@ -543,6 +543,12 @@ Phase 50.11 note:
 - Low-level adapter marker smoke is accepted.
 - Future UI or Wails product binding work remains separately gated.
 
+Phase 51 note:
+
+- Checkpoint marker reads are closed as a narrow authority workstream.
+- The next candidate boundary is lifecycle conflict display authority between
+  persisted Run status and full projection/session evidence.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
