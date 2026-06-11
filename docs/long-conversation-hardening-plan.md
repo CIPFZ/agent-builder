@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 39.1 and decide Phase 39.2: Turn Action Metadata
-Acceptance And Next Write-Action Boundary. Confirm cancellation/interrupted
-acknowledgement metadata is transport-safe before selecting any further
-write-action adopter or frontend adapter optimization.
+Implement Phase 40: Frontend Action Refresh Selector Design Gate. Review
+whether adapters should consume `action.refreshTargets` as a durable reread
+selector now that core scheduler/task/checkpoint/permission/MCP/turn write
+actions have transport coverage, without moving runtime state into React.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12932,3 +12932,59 @@ Remaining risk:
 - Frontend adapters still perform broad hydration after these actions. Any
   future use of `action.refreshTargets` for partial rereads needs a separate
   adapter phase with browser/Vite and Wails/bridge coverage.
+
+## 2026-06-11: Phase 39.2 Turn Action Metadata Acceptance And Next Write-Action Boundary
+
+Phase 39.2 reviews and accepts the Phase 39.1 implementation. It is an
+acceptance/design phase only. It does not change frontend adapter behavior,
+runtime behavior, database schema, Run persistence, automatic resume,
+background scheduling, stale tool recovery, stale permission/MCP actionability
+recovery, or frontend Run UI.
+
+Phase 39.1 acceptance:
+
+- `RuntimeTurnResponse.action` is additive and only populated by
+  `MarkInterruptedDone(...)`.
+- `RuntimeStatus.action` is populated by `CancelTurn(...)` and inherited by
+  global `Cancel(...)` through delegation.
+- Ordinary `Turn(...)` reads remain action-free.
+- Cancelled terminal turn state, interrupted acknowledgement, tool-call
+  terminalization, runtime events, Run transition/projection evidence,
+  diagnostics, permission/MCP state, artifacts, refs, and timeline rows remain
+  owned by durable runtime reads.
+- HTTP direct and dev-module transport coverage forwards the action metadata
+  without making event payloads or action payloads source of truth.
+
+Next boundary decision:
+
+- The core explicit write-action metadata rollout is now broad enough to
+  revisit frontend consumption.
+- Phase 40 should be a frontend action refresh selector design gate.
+- Phase 40 may decide whether adapters should use `action.refreshTargets` to
+  choose durable rereads after write actions.
+- Phase 40 must not implement frontend-owned task, Run, permission, MCP,
+  checkpoint, timeline, diagnostic, artifact, cancellation, or interrupted
+  state.
+- Phase 40 must keep full hydration as the fallback when action metadata is
+  missing, unknown, rejected, or outside the selector contract.
+
+Rejected:
+
+- Do not migrate broad admin/config/session/worktree writes to shared metadata
+  without a concrete product need.
+- Do not implement partial frontend refresh in this acceptance phase.
+- Do not edit `client/src/runtime/wailsWorkbenchAdapter.ts` in this phase.
+- Do not add Run persistence, migrations, auto-resume, background scheduling,
+  or stale actionability recovery.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Phase 39.1 is accepted.
+- The next safe task is Phase 40: Frontend Action Refresh Selector Design Gate.

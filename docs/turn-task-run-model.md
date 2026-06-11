@@ -205,6 +205,15 @@ Phase 39.1 note:
   tool call rows, runtime events, Run transitions/projection, diagnostics,
   permissions/MCP reads, and `SessionActivity` remain the durable sources.
 
+Phase 39.2 note:
+
+- Turn cancellation/interrupted acknowledgement action metadata is accepted.
+- The next boundary is frontend action refresh selector design: adapters may
+  be reviewed for using `action.refreshTargets` to choose durable rereads.
+- Full hydration must remain the fallback, and frontend code must not own task,
+  Run, permission, MCP, checkpoint, timeline, diagnostic, artifact,
+  cancellation, or interrupted state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

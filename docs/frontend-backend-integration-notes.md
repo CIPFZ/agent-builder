@@ -2646,3 +2646,13 @@ Phase 39.1 note:
   only. They must continue to derive cancelled turns, interrupted summaries,
   terminal permission/MCP semantics, diagnostics, artifacts, refs, tool calls,
   timeline items, and Run state from runtime DTO reads.
+
+Phase 39.2 note:
+
+- Phase 39.1 is accepted.
+- The next frontend integration boundary is a design gate for consuming
+  `action.refreshTargets` as reread selection metadata.
+- Any future selector must keep full hydration as fallback and must not merge
+  action payloads, event payloads, assistant prose, or React state into the
+  source of truth for task, Run, permission, MCP, checkpoint, diagnostic,
+  artifact, cancellation, interrupted, or timeline state.
