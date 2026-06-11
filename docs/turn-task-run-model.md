@@ -527,6 +527,12 @@ Phase 50.8 note:
 - Routes return marker-only DTOs and do not expose action metadata, projection
   payloads, source evidence, or resume eligibility.
 
+Phase 50.9 note:
+
+- HTTP marker transport is accepted as read-only.
+- Frontend adapter smoke may be added next, but marker reads must not become UI
+  state or actionability state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

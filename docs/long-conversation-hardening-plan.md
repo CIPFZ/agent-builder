@@ -11257,9 +11257,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 50.8 and decide Phase 50.9: Checkpoint Marker HTTP Route
-Acceptance Gate. Accept read-only marker transport before any frontend adapter
-surface.
+Review/accept Phase 50.9 and decide Phase 50.10: Checkpoint Marker Adapter Smoke
+Gate. Add low-level adapter transport smoke without adding UI state.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -15213,3 +15212,49 @@ Review conclusion:
 
 - Read-only HTTP marker transport is covered.
 - The next step should accept HTTP transport before any frontend adapter surface.
+
+## 2026-06-11: Phase 50.9 Checkpoint Marker HTTP Route Acceptance Gate
+
+Phase 50.9 accepts read-only HTTP checkpoint marker transport and chooses the
+next adapter-smoke scope. It is a review/scope gate only. It does not implement
+a full Run state machine, runtime Run store expansion, database migration,
+automatic resume, background scheduler loop, stale actionability recovery,
+frontend Run UI, checkpoint marker UI, Wails bindings, frontend marker UI, or
+React-owned runtime state.
+
+Accepted:
+
+- HTTP marker list/detail routes are read-only DTO rereads.
+- Dev-module can read the same GET paths.
+- Route tests cover source metadata, excluded evidence, and no
+  projection/scheduler/write path calls.
+
+Still rejected:
+
+- Wails binding as product API before adapter smoke.
+- `WorkbenchViewModel` marker state.
+- Workspace or Run projection UI rendering.
+- Resume/actionability behavior.
+- Event/action metadata as marker state.
+- Marker data as checkpoint source evidence or eligibility.
+
+Chosen next scope:
+
+- Phase 50.10 should add low-level frontend adapter transport support and static
+  smoke.
+- Adapter support must remain explicit read-only transport.
+- Hydration must not call marker reads automatically.
+- No view-model, UI, scheduler, resume, or actionability behavior should be
+  added.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- Phase 50.8 is accepted.
+- The next safe step is adapter transport smoke only.

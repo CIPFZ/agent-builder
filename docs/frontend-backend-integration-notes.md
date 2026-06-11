@@ -2946,3 +2946,9 @@ Phase 50.8 note:
 - Backend now has read-only HTTP marker routes with contract coverage.
 - Frontend adapter, Wails binding, `WorkbenchViewModel`, and UI marker surfaces
   remain unimplemented.
+
+Phase 50.9 note:
+
+- Read-only HTTP marker transport is accepted.
+- Next frontend work is adapter smoke only; marker data must not enter
+  hydration, `WorkbenchViewModel`, or UI.
