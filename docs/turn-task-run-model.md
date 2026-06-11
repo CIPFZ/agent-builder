@@ -459,6 +459,13 @@ Phase 48.4 note:
 - Events and action metadata still only select refreshes; they do not merge Run
   summaries into lifecycle/actionability state.
 
+Phase 48.5 note:
+
+- The summary read DTO and adapter transport smoke are accepted.
+- Summary reads are not enough to render lifecycle or actionability.
+- The next Run authority step must be a closure/design gate before additional
+  implementation.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

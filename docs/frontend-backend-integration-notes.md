@@ -2877,3 +2877,10 @@ Phase 48.4 note:
 - Hydration and UI state still do not consume these DTOs.
 - Static smoke coverage rejects automatic summary merge, `WorkbenchViewModel`
   state, or workspace/preview rendering of summary DTOs.
+
+Phase 48.5 note:
+
+- Phase 48.4 is accepted.
+- Run summary DTOs remain transport-only and are not frontend UI state.
+- Any future UI use needs a separate ownership gate and must keep lifecycle and
+  actionability on full runtime DTO rereads.

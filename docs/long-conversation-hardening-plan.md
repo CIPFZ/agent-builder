@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 48.4 and decide Phase 48.5: Persisted Run Summary
-Acceptance And Next Read Surface Gate. Accept the transport/adapter smoke before
-any frontend UI usage.
+Review/accept Phase 48.5 and decide Phase 49: Persisted Run Summary Workstream
+Closure And Next Authority Boundary Gate. Close the summary read workstream
+before considering any additional Run authority.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14604,3 +14604,58 @@ Review conclusion:
   authority.
 - The next task should accept this smoke and choose whether the next read
   surface is another contract test or a guarded UI-free consumer.
+
+## 2026-06-11: Phase 48.5 Persisted Run Summary Acceptance And Next Read Surface Gate
+
+Phase 48.5 accepts the Phase 48.4 transport/adapter smoke and chooses not to add
+frontend UI usage yet. It is a review/scope gate only. It does not implement a
+full Run state machine, runtime Run store expansion, database migration,
+automatic resume, background scheduler loop, stale actionability recovery,
+frontend Run UI, or React-owned runtime state.
+
+Accepted:
+
+- `RuntimeRunSummary` is stable as a summary-only read DTO for:
+  - run ID;
+  - workspace ID;
+  - primary session ID;
+  - session membership;
+  - objective;
+  - source;
+  - created/updated timestamps.
+- Backend, HTTP, dev-module, and low-level frontend adapter reads are covered.
+- Static adapter smoke proves summary DTOs are not automatically merged into
+  hydration, `WorkbenchViewModel`, workspace UI, or Run projection preview UI.
+
+Rejected for the next step:
+
+- Adding summary DTO fields for lifecycle status or `finished_at`.
+- Rendering summary DTOs in the frontend.
+- Using summary DTOs for checkpoint, diagnostic, artifact, permission, MCP,
+  interrupted, scheduler, or transition state.
+- Inferring summary or lifecycle state from events, action metadata, assistant
+  prose, transition rows alone, bounded/windowed reads, or browser memory.
+
+Chosen next boundary:
+
+- Phase 49 should close the persisted Run summary read workstream.
+- Phase 49 should define the next authority boundary before any additional Run
+  implementation.
+- Candidate next boundaries remain design-gated:
+  - lifecycle display conflict handling with full projection parity;
+  - checkpoint marker read acceptance without checkpoint source evidence;
+  - scheduler/task read-only summaries;
+  - no frontend Run UI until a separate UI ownership gate exists.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- Phase 48.4 is accepted.
+- The summary read workstream should be closed before new authority work starts.
+- The next phase is a closure/design gate, not an implementation phase.
