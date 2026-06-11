@@ -11257,10 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 42.1: Persisted Run Status Authority Contract Test Gate. Add
-focused tests for the accepted narrow status-authority contract before any
-runtime behavior changes, migrations, auto-resume, scheduler loops, or
-frontend Run UI.
+Review/accept Phase 42.1 and decide Phase 42.2: Persisted Run Status Authority
+Test Acceptance And Next Runtime Boundary. Confirm status-authority tests are
+sufficient before selecting any behavior change.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13530,3 +13529,44 @@ Review conclusion:
   remains the parity oracle.
 - The next task is Phase 42.1: Persisted Run Status Authority Contract Test
   Gate.
+
+## 2026-06-11: Phase 42.1 Persisted Run Status Authority Contract Test Gate
+
+Phase 42.1 adds focused tests for the accepted narrow status-authority
+contract. It does not change runtime behavior, database schema, migrations,
+automatic resume, background scheduling, stale tool recovery, stale permission
+recovery, stale MCP auth/elicitation recovery, frontend Run UI, or React Run
+state.
+
+Implemented:
+
+- Added `TestRuntimeRunStoreDoesNotCompleteInterruptedRunFromEmptyProjection`.
+  It proves an empty completed projection cannot turn an existing interrupted
+  persisted Run into completed.
+- Extended `TestRuntimeRunStoreLinksCheckpointResumeTurnsWithoutMutatingEvidence`
+  to prove checkpoint resume metadata linking does not by itself mark the Run
+  active or clear the interrupted/unfinished status. Active status still
+  requires explicit resumed-turn/turn-link evidence.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run "TestRuntimeRunStoreDoesNotComplete(Active|Interrupted)RunFromEmptyProjection|TestRuntimeRunStoreLinksCheckpointResumeTurnsWithoutMutatingEvidence|TestRuntimeRunTransitionWriterRequiresResumedTurnBeforeCheckpointResume" -count=1
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Empty/stale projections are now covered for active and interrupted persisted
+  Runs.
+- Checkpoint resume marker/link metadata is covered as non-status evidence
+  unless paired with explicit resumed-turn/turn-link evidence.
+- No Run state machine, migration, auto-resume, background scheduler, stale
+  actionability recovery, frontend Run UI, or React Run state was added.
+
+Remaining risk:
+
+- Persisted status authority is still mostly a protected contract around
+  existing behavior. A separate implementation phase is required before
+  callers can rely on persisted Run status without full projection parity.

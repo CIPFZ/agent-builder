@@ -134,6 +134,53 @@ func TestRuntimeRunStoreDoesNotCompleteActiveRunFromEmptyProjection(t *testing.T
 	}
 }
 
+func TestRuntimeRunStoreDoesNotCompleteInterruptedRunFromEmptyProjection(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Release(dataDir); err != nil {
+			t.Fatalf("release db: %v", err)
+		}
+	})
+	store := newRuntimeRunStore(conn)
+	interrupted, err := store.Upsert(context.Background(), RuntimeRun{
+		ID:               "run-interrupted",
+		WorkspaceID:      "workspace-1",
+		PrimarySessionID: "session-1",
+		SessionIDs:       []string{"session-1"},
+		Objective:        "recover interrupted run",
+		Status:           runtimeRunStatusInterrupted,
+		Source:           runtimeRunSourceUserPrompt,
+		CreatedAt:        1000,
+		UpdatedAt:        2000,
+		FinishedAt:       2000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.UpsertFromProjection(context.Background(), RuntimeRunProjection{
+		ID:               runtimeRunProjectionID("session-1"),
+		WorkspaceID:      "workspace-1",
+		PrimarySessionID: "session-1",
+		SessionIDs:       []string{"session-1"},
+		Status:           runtimeRunStatusCompleted,
+		CreatedAt:        interrupted.CreatedAt,
+		UpdatedAt:        interrupted.UpdatedAt + 1,
+		FinishedAt:       interrupted.UpdatedAt + 1,
+	}, runtimeRunSourceBackfill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != interrupted.ID || updated.Status != runtimeRunStatusInterrupted || updated.FinishedAt != interrupted.FinishedAt {
+		t.Fatalf("empty projection completed interrupted run: updated=%#v interrupted=%#v", updated, interrupted)
+	}
+}
+
 func TestRuntimeRunStoreLinksTurnAndPreservesUserPromptSourceOnReconcile(t *testing.T) {
 	t.Parallel()
 
@@ -302,6 +349,9 @@ func TestRuntimeRunStoreLinksCheckpointResumeTurnsWithoutMutatingEvidence(t *tes
 	}
 	if !checkpoint.ResumeEligible {
 		t.Fatalf("resume link should not acknowledge/discard checkpoint: %#v", checkpoint)
+	}
+	if linked.Status != runtimeRunStatusInterrupted || linked.FinishedAt != 0 {
+		t.Fatalf("resume checkpoint link should not mark run active without resumed turn link: %#v", linked)
 	}
 }
 

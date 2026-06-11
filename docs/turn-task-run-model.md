@@ -293,6 +293,15 @@ Phase 42 note:
 - Read-only DTOs, bounded windows, transition history, events, action metadata,
   assistant prose, and frontend state must not infer or mutate Run status.
 
+Phase 42.1 note:
+
+- Added tests proving empty completed projections do not complete active or
+  interrupted persisted Runs.
+- Added coverage proving checkpoint resume marker/link metadata does not mark
+  a Run active without explicit resumed-turn/turn-link evidence.
+- Runtime behavior remains unchanged; this phase only hardens the status
+  authority contract.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

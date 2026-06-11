@@ -2738,3 +2738,11 @@ Phase 42 note:
 - Frontend code must not infer status from action metadata, runtime events,
   transition history rows, assistant prose, or React state.
 - Full hydration/action refresh selector behavior remains unchanged.
+
+Phase 42.1 note:
+
+- Backend status-authority tests were hardened around empty projections and
+  checkpoint resume marker/link evidence.
+- No frontend contract changed. The frontend must still treat persisted status
+  through durable runtime DTO reads and must not infer status from metadata,
+  events, transition history, prose, or React state.
