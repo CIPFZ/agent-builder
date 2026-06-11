@@ -121,6 +121,10 @@ type sessionAgent struct {
 
 	messageQueue   *csync.Map[string, []SessionAgentCall]
 	activeRequests *csync.Map[string, context.CancelFunc]
+
+	guard        *ToolResultGuard
+	microcompact *Microcompact
+	guardConfig  config.ToolResultGuardConfig
 }
 
 type SessionAgentOptions struct {
@@ -135,6 +139,7 @@ type SessionAgentOptions struct {
 	Messages             message.Service
 	Tools                []fantasy.AgentTool
 	Notify               pubsub.Publisher[notify.Notification]
+	GuardConfig          config.ToolResultGuardConfig
 }
 
 func NewSessionAgent(
@@ -154,6 +159,7 @@ func NewSessionAgent(
 		notify:               opts.Notify,
 		messageQueue:         csync.NewMap[string, []SessionAgentCall](),
 		activeRequests:       csync.NewMap[string, context.CancelFunc](),
+		guardConfig:          opts.GuardConfig,
 	}
 }
 
@@ -216,6 +222,18 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		return nil, fmt.Errorf("failed to get session: %w", err)
 	}
 
+	guardCfg := a.guardConfig
+	if !guardCfg.Enabled && guardCfg.MaxResultChars == 0 {
+		guardCfg = config.DefaultToolResultGuardConfig()
+	}
+	a.guard = NewToolResultGuard(guardCfg, currentSession.ID)
+	compactDur, parseErr := time.ParseDuration(guardCfg.CompactInterval)
+	if parseErr != nil {
+		compactDur = 5 * time.Minute
+	}
+	a.microcompact = NewMicrocompact(compactDur, guardCfg.KeepLastAssistants)
+	a.guard.CleanupOldFiles()
+
 	msgs, err := a.getSessionMessages(ctx, currentSession)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session messages: %w", err)
@@ -274,6 +292,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		TopK:             call.TopK,
 		FrequencyPenalty: call.FrequencyPenalty,
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
+			a.guard.ResetTurn()
 			prepared.Messages = options.Messages
 			for i := range prepared.Messages {
 				prepared.Messages[i].ProviderOptions = nil
@@ -406,12 +425,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		},
 		OnToolResult: func(result fantasy.ToolResultContent) error {
 			toolResult := a.convertToToolResult(result)
+			processed := a.guard.Process(toolResult)
 			// Use parent ctx instead of genCtx to ensure the message is created
 			// even if the request is canceled mid-stream
 			_, createMsgErr := a.messages.Create(ctx, currentAssistant.SessionID, message.CreateMessageParams{
 				Role: message.Tool,
 				Parts: []message.ContentPart{
-					toolResult,
+					processed,
 				},
 			})
 			return createMsgErr
@@ -870,6 +890,9 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
 }
 
 func (a *sessionAgent) preparePrompt(msgs []message.Message, supportsImages bool, attachments ...message.Attachment) ([]fantasy.Message, []fantasy.FilePart) {
+	if a.microcompact != nil {
+		msgs = a.microcompact.Compact(msgs)
+	}
 	var history []fantasy.Message
 	if !a.isSubAgent {
 		history = append(history, fantasy.NewUserMessage(

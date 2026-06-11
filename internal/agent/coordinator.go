@@ -836,6 +836,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		Messages:             c.messages,
 		Tools:                nil,
 		Notify:               c.notify,
+		GuardConfig:          c.cfg.Config().Options.ToolResultGuard,
 	})
 
 	c.readyWg.Go(func() error {

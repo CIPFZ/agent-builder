@@ -49,12 +49,12 @@ type Backend struct {
 // associated resources and state.
 type Workspace struct {
 	*app.App
-	ID     string
-	Path   string
+	ID      string
+	Path    string
 	DataDir string
-	Cfg    *config.ConfigStore
-	Env    []string
-	Skills *skills.Manager
+	Cfg     *config.ConfigStore
+	Env     []string
+	Skills  *skills.Manager
 }
 
 // New creates a new [Backend].
@@ -139,13 +139,13 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	}
 
 	ws := &Workspace{
-		App:    appWorkspace,
-		ID:     id,
-		Path:   args.Path,
+		App:     appWorkspace,
+		ID:      id,
+		Path:    args.Path,
 		DataDir: cfg.Config().Options.DataDirectory,
-		Cfg:    cfg,
-		Env:    args.Env,
-		Skills: skillsMgr,
+		Cfg:     cfg,
+		Env:     args.Env,
+		Skills:  skillsMgr,
 	}
 
 	b.workspaces.Set(id, ws)
