@@ -282,6 +282,17 @@ Phase 41.3 note:
 - Full `RunProjection` remains the parity oracle until a later phase proves a
   safer status ownership contract.
 
+Phase 42 note:
+
+- Persisted Run status is accepted as narrowly authoritative only after
+  explicit structured runtime writes such as turn start/terminalization,
+  cancellation, task start/terminalization, checkpoint resume with a linked
+  resumed turn, and startup recovery after stale evidence is terminalized.
+- Full `RunProjection` remains the parity oracle whenever persisted status and
+  durable evidence disagree.
+- Read-only DTOs, bounded windows, transition history, events, action metadata,
+  assistant prose, and frontend state must not infer or mutate Run status.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

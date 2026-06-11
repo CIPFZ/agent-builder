@@ -2729,3 +2729,12 @@ Phase 41.3 note:
 - The next backend boundary is persisted Run status authority design.
 - Frontend integration remains read-only DTO based; no frontend Run state or
   Run UI ownership is accepted.
+
+Phase 42 note:
+
+- Persisted Run status authority remains a backend contract. Frontend code must
+  continue to read Run status from durable DTOs such as `Run(...)`,
+  `RunProjection(...)`, and activity-derived views.
+- Frontend code must not infer status from action metadata, runtime events,
+  transition history rows, assistant prose, or React state.
+- Full hydration/action refresh selector behavior remains unchanged.

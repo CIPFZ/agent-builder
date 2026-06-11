@@ -11257,9 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 42: Persisted Run Status Authority Design Gate. Review whether
-persisted Run status can become authoritative for a narrow set of explicit
-runtime writes while full `RunProjection` remains the parity oracle.
+Implement Phase 42.1: Persisted Run Status Authority Contract Test Gate. Add
+focused tests for the accepted narrow status-authority contract before any
+runtime behavior changes, migrations, auto-resume, scheduler loops, or
+frontend Run UI.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13437,3 +13438,95 @@ Review conclusion:
 
 - Phase 41.2 is accepted.
 - The next task is Phase 42: Persisted Run Status Authority Design Gate.
+
+## 2026-06-11: Phase 42 Persisted Run Status Authority Design Gate
+
+Phase 42 reviews whether persisted Run status can become authoritative for a
+narrow set of explicit runtime writes. It is a design gate only. It does not
+change runtime behavior, database schema, migrations, automatic resume,
+background scheduling, stale tool recovery, stale permission recovery, stale
+MCP auth/elicitation recovery, frontend Run UI, or React Run state.
+
+Current behavior:
+
+- Persisted Run status is already written by explicit store paths such as
+  `EnsureForSession(...)`, `LinkTurn(...)`, checkpoint actions, turn
+  cancellation/mark-done reconciliation, task scheduler execution, and startup
+  recovery transition helpers.
+- Full `RunProjection` and `Run(...)` reconciliation can still update
+  persisted Run status from durable session/activity evidence.
+- Bounded/windowed projection reads and transition-history reads are protected
+  as read-only.
+- Transition history rows are audit evidence. They do not independently mutate
+  Run status or replace `RunProjection`/`SessionActivity`.
+
+Accepted narrow status authority:
+
+- Persisted Run status may be treated as authoritative only immediately after
+  explicit runtime writes that also write structured durable evidence:
+  - `LinkTurn(...)` / turn started: `active`.
+  - terminal turn completion paths after durable turn row update and full
+    projection reconciliation: `completed`, `failed`, `cancelled`, or
+    `interrupted` as projected.
+  - `CancelTurn(...)` and `MarkInterruptedDone(...)` after terminal turn/tool
+    evidence and projection reconciliation.
+  - scheduler task execution after durable task start evidence:
+    `active`.
+  - scheduler/task terminal evidence after durable task result/message/ref
+    evidence and projection reconciliation.
+  - checkpoint resume only after an explicit resumed turn is created and linked.
+  - startup recovery only after stale turns/tools/tasks/permissions/MCP
+    requests are terminalized/cancelled and full projection parity is checked.
+- Persisted Run status is not authoritative after read-only DTO access,
+  bounded activity/projection windows, transition-history reads, runtime event
+  delivery, action metadata delivery, assistant prose, or frontend state.
+
+Required fallback behavior:
+
+- Full `RunProjection` remains the parity oracle when persisted status and
+  structured evidence disagree.
+- If full projection cannot be built, callers may display the existing
+  persisted status as stale/diagnostic evidence only; they must not use it to
+  resume work or restore actionability.
+- Bounded/windowed reads must never reconcile persisted status.
+- Transition-history rows may explain why a status was written, but the status
+  itself must be backed by durable turn/task/checkpoint/recovery evidence.
+
+Accepted Phase 42.1 scope:
+
+- Add tests that encode this status authority contract before changing
+  behavior.
+- Focus on existing explicit write paths and read-only paths:
+  - explicit turn/task/checkpoint writes may update persisted status;
+  - bounded projections and transition history must not update status;
+  - empty/stale projections must not complete active/interrupted Runs;
+  - checkpoint resume status requires an explicit resumed turn link.
+- Prefer tests over implementation unless a real uncovered behavior is found.
+
+Rejected:
+
+- No full Run state machine.
+- No new runtime Run store semantics beyond the existing store/projection
+  boundary.
+- No database migration.
+- No automatic resume.
+- No background scheduler loop.
+- No stale permission/MCP/tool actionability recovery.
+- No frontend Run UI or React Run state.
+- No status inference from event payloads, action metadata, assistant prose, or
+  transition history alone.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Persisted Run status can be treated as narrowly authoritative only after
+  explicit structured runtime writes and only while full `RunProjection`
+  remains the parity oracle.
+- The next task is Phase 42.1: Persisted Run Status Authority Contract Test
+  Gate.
