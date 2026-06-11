@@ -2846,3 +2846,10 @@ Phase 48 note:
 - Frontend must still render status/evidence from runtime DTOs and must not
   infer Run state from events, action metadata, transition rows, or browser
   memory.
+
+Phase 48.1 note:
+
+- Backend tests now cover persisted Run identity/session/summary read
+  authority.
+- Frontend behavior remains unchanged: evidence-rich Run state still comes from
+  runtime DTO rereads.

@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 48 and decide Phase 48.1: Persisted Run Authority Contract
-Test Gate. Add tests for the accepted read-only authority boundary before any
-implementation.
+Review/accept Phase 48.1 and decide Phase 48.2: Persisted Run Authority
+Acceptance And Implementation Scope Gate. Accept the read-only authority tests
+before any implementation expansion.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14376,3 +14376,48 @@ Review conclusion:
   lifecycle, artifact, diagnostic, checkpoint, permission, MCP, and
   interrupted state.
 - The next task is Phase 48.1 contract tests.
+
+## 2026-06-11: Phase 48.1 Persisted Run Authority Contract Test Gate
+
+Phase 48.1 adds contract coverage for the accepted read-only persisted Run
+authority boundary. It does not implement a full Run state machine, runtime Run
+store expansion, database migration, automatic resume, background scheduler
+loop, stale actionability recovery, frontend Run UI, or React-owned runtime
+state.
+
+Implemented:
+
+- Added `TestRuntimeRunStoreReadsPersistedIdentityAndSummaryWithoutProjection`.
+- The test proves persisted Run store reads can authoritatively return:
+  - durable Run ID;
+  - workspace ID;
+  - primary session ID;
+  - session membership;
+  - objective;
+  - source;
+  - created/updated timestamps.
+- The test intentionally uses direct store reads (`Get`, `GetBySession`,
+  `List`) without rebuilding `RunProjection`.
+
+Existing coverage retained as part of Phase 48.1:
+
+- Empty/stale projections cannot complete active/interrupted Runs.
+- Bounded `RunProjection` reads cannot mutate persisted Run detail or
+  checkpoint markers.
+- Terminal status reconciliation still requires full projection parity.
+- Transition history alone cannot mutate persisted Run status.
+- Event/action metadata cannot become transition/status authority.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Persisted Run identity/session/summary read authority is now covered.
+- Evidence-rich lifecycle and actionability still remain behind full
+  `RunProjection` / `SessionActivity` parity.
+- The next task is Phase 48.2 acceptance and implementation scope selection.

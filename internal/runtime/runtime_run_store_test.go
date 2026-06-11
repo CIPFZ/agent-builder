@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -36,6 +37,60 @@ func TestRuntimeRunStoreEnsuresGeneratedRunAndKeepsIdempotentSessionLink(t *test
 	}
 	if second.ID != first.ID || len(second.SessionIDs) != 1 || second.SessionIDs[0] != "session-1" {
 		t.Fatalf("idempotent run = %#v want id %q", second, first.ID)
+	}
+}
+
+func TestRuntimeRunStoreReadsPersistedIdentityAndSummaryWithoutProjection(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Release(dataDir); err != nil {
+			t.Fatalf("release db: %v", err)
+		}
+	})
+	store := newRuntimeRunStore(conn)
+
+	run, err := store.Upsert(context.Background(), RuntimeRun{
+		ID:               "run-identity-summary",
+		WorkspaceID:      "workspace-1",
+		PrimarySessionID: "session-primary",
+		SessionIDs:       []string{"session-primary", "session-child"},
+		Objective:        "persisted read authority",
+		Status:           runtimeRunStatusActive,
+		Source:           runtimeRunSourceUserPrompt,
+		CreatedAt:        1000,
+		UpdatedAt:        1100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID, err := store.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bySession, err := store.GetBySession(context.Background(), "session-child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := store.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, got := range []RuntimeRun{byID, bySession, list[0]} {
+		if got.ID != run.ID || got.WorkspaceID != "workspace-1" || got.PrimarySessionID != "session-primary" {
+			t.Fatalf("persisted identity mismatch: %#v", got)
+		}
+		if got.Objective != "persisted read authority" || got.Source != runtimeRunSourceUserPrompt || got.CreatedAt != 1000 || got.UpdatedAt != 1100 {
+			t.Fatalf("persisted summary mismatch: %#v", got)
+		}
+		if len(got.SessionIDs) != 2 || !slices.Contains(got.SessionIDs, "session-primary") || !slices.Contains(got.SessionIDs, "session-child") {
+			t.Fatalf("persisted session membership mismatch: %#v", got.SessionIDs)
+		}
 	}
 }
 

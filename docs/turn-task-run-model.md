@@ -424,6 +424,13 @@ Phase 48 note:
   and transition interpretation still require full `RunProjection` /
   `SessionActivity` parity.
 
+Phase 48.1 note:
+
+- Contract coverage now proves persisted Run store reads can authoritatively
+  return identity, session membership, objective, source, and created/updated
+  timestamps without rebuilding projection.
+- Rich lifecycle/evidence authority remains projection-bound.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
