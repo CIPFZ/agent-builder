@@ -2797,3 +2797,9 @@ Phase 43.5 note:
 - Explicit Run status writer rollout is accepted on the backend.
 - Frontend integration remains reread-only for Run status: action/event
   payloads and transition history are still refresh hints, not state patches.
+
+Phase 44 note:
+
+- Backend restart/read smoke now covers explicit Run status writer paths.
+- Frontend behavior remains unchanged: reload/reconnect should reread runtime
+  DTOs instead of restoring Run status from browser memory.

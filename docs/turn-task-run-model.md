@@ -369,6 +369,13 @@ Phase 43.5 note:
   metadata, transition history alone, assistant prose, bounded reads, or
   frontend state.
 
+Phase 44 note:
+
+- Integrated runtime smoke now validates turn active, task active, and terminal
+  task completed status across fresh-service restart/read boundaries.
+- The smoke proves durable runtime DTO/full projection reads restore status
+  without React state or event/action payload merging.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

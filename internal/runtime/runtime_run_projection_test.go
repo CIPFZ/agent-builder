@@ -364,6 +364,138 @@ func TestRuntimeRunTerminalTaskCompletionReconcilesPersistedStatusFromFullProjec
 	}
 }
 
+func TestRuntimeRunStatusWriterIntegratedRestartReadSmoke(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runtimeBackend, workspace := backendForSkillTest(t)
+	conn, err := db.Connect(ctx, workspace.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(workspace.DataDir)
+	})
+	newService := func() *runtimeService {
+		service := newRuntimeService()
+		service.runtime = runtimeBackend
+		service.workspace = &workspace
+		service.turns = newRuntimeTurnStore(conn)
+		service.runs = newRuntimeRunStore(conn)
+		service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+		service.permissionStore = newRuntimePermissionStore(conn)
+		service.eventStore = newRuntimeEventStore(conn)
+		service.agentTasks = newRuntimeAgentTaskStore(conn)
+		return service
+	}
+	service := newService()
+
+	turnSession, err := runtimeBackend.CreateSession(ctx, workspace.ID, "status writer turn smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	turnRun, err := service.runs.EnsureForSession(ctx, workspace.ID, turnSession.ID, "status writer turn smoke", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, err := service.turns.Upsert(ctx, RuntimeTurn{ID: "turn-status-smoke", SessionID: turnSession.ID, Status: turnStatusQueued, StartedAt: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.runs.LinkTurn(ctx, turnRun.ID, turnSession.ID, turn.ID, turn.StartedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	taskSession, err := runtimeBackend.CreateSession(ctx, workspace.ID, "status writer task smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskRun, err := service.runs.EnsureForSession(ctx, workspace.ID, taskSession.ID, "status writer task smoke", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskTurn, err := service.turns.Upsert(ctx, RuntimeTurn{ID: "turn-task-status-smoke", SessionID: taskSession.ID, Status: turnStatusQueued, StartedAt: 2000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.runs.LinkTurn(ctx, taskRun.ID, taskSession.ID, taskTurn.ID, taskTurn.StartedAt); err != nil {
+		t.Fatal(err)
+	}
+	taskRun.Status = runtimeRunStatusInterrupted
+	taskRun.UpdatedAt = 2100
+	taskRun.FinishedAt = 2100
+	if _, err := service.runs.Upsert(ctx, taskRun); err != nil {
+		t.Fatal(err)
+	}
+	task, err := service.agentTasks.Upsert(ctx, RuntimeAgentTask{
+		ID:              "task-status-smoke",
+		ParentSessionID: taskSession.ID,
+		ParentTurnID:    taskTurn.ID,
+		ChildSessionID:  "child-status-smoke",
+		PromptSummary:   "task status smoke",
+		Status:          agentTaskStatusQueued,
+		StartedAt:       2200,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.runtimeRunSchedulerExecuteTask(ctx, RuntimeRunSchedulerExecuteTaskRequest{RunID: taskRun.ID, TaskID: task.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	terminalSession, err := runtimeBackend.CreateSession(ctx, workspace.ID, "status writer terminal task smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminalRun, err := service.runs.EnsureForSession(ctx, workspace.ID, terminalSession.ID, "status writer terminal task smoke", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := runtimeSchedulerRecorder{service: service}
+	if err := recorder.AgentTaskCompleted(ctx, agent.AgentTaskRecord{
+		ID:              "task-terminal-status-smoke",
+		ParentSessionID: terminalSession.ID,
+		Title:           "terminal task smoke",
+		Status:          agentTaskStatusCompleted,
+		Progress:        100,
+		ResultSummary:   "terminal smoke completed",
+		StartedAt:       3000,
+		FinishedAt:      3100,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := newService()
+	turnProjection, err := restarted.RunProjection(ctx, RuntimeRunProjectionRequest{SessionID: turnSession.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if turnProjection.Run.ID != turnRun.ID || turnProjection.Run.Status != runtimeRunStatusActive {
+		t.Fatalf("turn status did not survive restart/read: projection=%#v run=%#v", turnProjection.Run, turnRun)
+	}
+	taskPersisted, err := restarted.runs.Get(ctx, taskRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taskPersisted.Status != runtimeRunStatusActive || taskPersisted.FinishedAt != 0 {
+		t.Fatalf("task active status did not survive restart/read: %#v", taskPersisted)
+	}
+	refs, err := restarted.Refs(ctx, RuntimeRefListRequest{TaskID: task.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs.Refs) != 0 {
+		t.Fatalf("task start smoke created artifact refs: %#v", refs.Refs)
+	}
+	terminalDetail, err := restarted.Run(ctx, terminalRun.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if terminalDetail.Run.Status != runtimeRunStatusCompleted || terminalDetail.Projection.Status != runtimeRunStatusCompleted {
+		t.Fatalf("terminal task status did not survive restart/read: %#v", terminalDetail)
+	}
+}
+
 func TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation(t *testing.T) {
 	t.Parallel()
 

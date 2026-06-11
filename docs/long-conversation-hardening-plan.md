@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 43.5 and decide Phase 44: Run Status Writer Integrated
-Smoke Gate. Add end-to-end runtime smoke coverage for turn/task status writer
-paths across restart/read boundaries.
+Review/accept Phase 44 and decide Phase 44.1: Run Status Writer Integrated
+Smoke Acceptance. Accept the restart/read smoke before broadening persisted Run
+authority.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13979,3 +13979,46 @@ Review conclusion:
   coverage, not a new source of truth.
 - The next task should be an integrated smoke gate for restart/read boundaries
   before considering any broader persisted Run authority work.
+
+## 2026-06-11: Phase 44 Run Status Writer Integrated Smoke Gate
+
+Phase 44 adds integrated runtime smoke coverage for explicit Run status writer
+paths across restart/read boundaries. It does not implement a full Run state
+machine, runtime Run store expansion, database migration, automatic resume,
+background scheduler loop, stale actionability recovery, frontend Run UI, or
+React-owned runtime state.
+
+Implemented:
+
+- Added `TestRuntimeRunStatusWriterIntegratedRestartReadSmoke`.
+- The smoke uses a fresh `runtimeService` over the same durable DB to simulate
+  process-local runtime state loss.
+- It validates three persisted/read paths:
+  - turn start writes active Run status through `LinkTurn(...)` /
+    `writeRuntimeRunStatus(...)`, and a fresh service reads active status
+    through full `RunProjection(...)`;
+  - foreground task start writes active Run status through
+    `writeRuntimeRunStatus(...)`, survives a fresh service read, and does not
+    create artifact refs;
+  - terminal task completion reconciles through full `RunProjection(...)`, and
+    a fresh service `Run(...)` read returns completed persisted/projection
+    status parity.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Explicit status writer paths now have integrated restart/read smoke coverage.
+- Runtime DTO/full projection reads remain the source of truth after restart.
+- Event payloads/action metadata/React state are not used to restore status.
+
+Remaining risk / next task:
+
+- This is Go runtime smoke coverage, not browser/Wails UI automation.
+- Phase 44.1 should accept the smoke result and decide whether the next boundary
+  is UI/transport smoke or a new persisted Run authority design gate.
