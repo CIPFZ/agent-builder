@@ -515,6 +515,12 @@ Phase 50.6 note:
 - Backend-only marker helpers are accepted.
 - Transport remains design-gated and must stay read-only DTO rereads.
 
+Phase 50.7 note:
+
+- Proposed marker transport routes are read-only list/detail DTO rereads.
+- Routes must not write markers, reconcile projection, start workers, or infer
+  eligibility/actionability.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

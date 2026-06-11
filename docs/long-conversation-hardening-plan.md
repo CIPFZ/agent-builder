@@ -11257,8 +11257,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 50.6 and decide Phase 50.7: Checkpoint Marker Transport
-Design Gate. Design read-only transport routes before implementation.
+Review/accept Phase 50.7 and decide Phase 50.8: Checkpoint Marker HTTP Route
+Contract Gate. Add backend HTTP route tests before route implementation.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -15100,3 +15100,65 @@ Review conclusion:
 
 - Phase 50.5 is accepted.
 - The next step is transport design, not implementation.
+
+## 2026-06-11: Phase 50.7 Checkpoint Marker Transport Design Gate
+
+Phase 50.7 designs read-only checkpoint marker transport routes. It is a design
+gate only. It does not implement a full Run state machine, runtime Run store
+expansion, database migration, automatic resume, background scheduler loop,
+stale actionability recovery, frontend Run UI, checkpoint marker UI, HTTP
+routes, Wails bindings, or React-owned runtime state.
+
+Proposed HTTP routes:
+
+```text
+GET /v1/runs/{run_id}/checkpoint-markers
+GET /v1/runs/{run_id}/checkpoint-markers/{checkpoint_id}
+```
+
+Response contracts:
+
+- List route returns `RuntimeRunCheckpointMarkersResponse`.
+- Detail route returns `RuntimeRunCheckpointMarkerResponse`.
+- Both responses include `RuntimeRunCheckpointMarkerSource`.
+- Both responses are read-only DTO rereads.
+- Neither response includes action metadata.
+
+Route semantics:
+
+- The routes read existing persisted marker facts through backend helpers.
+- The routes do not write marker state.
+- The routes do not build or reconcile `RunProjection`.
+- The routes do not start workers.
+- The routes do not infer resume eligibility, scheduler candidates, permission
+  actionability, MCP actionability, interrupted summaries, diagnostics, artifact
+  evidence, or lifecycle state.
+
+Rejected transport semantics:
+
+- No POST/PUT/PATCH/DELETE marker route.
+- No auto-resume route.
+- No action metadata.
+- No event-payload merge semantics.
+- No frontend adapter or UI use in this phase.
+- No Wails binding until HTTP contract and smoke are accepted.
+
+Accepted Phase 50.8 scope:
+
+- Add backend HTTP route contract tests first.
+- Tests should verify routing, response source metadata, and excluded evidence.
+- Tests should verify list/detail routes do not call projection/scheduler/write
+  paths.
+- Do not implement the routes until tests define the contract.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- Read-only marker transport routes are designed.
+- The next step is HTTP route contract tests, not implementation.

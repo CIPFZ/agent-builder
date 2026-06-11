@@ -2934,3 +2934,9 @@ Phase 50.6 note:
 - Backend-only checkpoint marker helpers are accepted.
 - Next work is route design only; frontend adapter/UI usage remains out of
   scope.
+
+Phase 50.7 note:
+
+- Proposed marker transport is HTTP read-only list/detail routes.
+- Frontend adapter and UI use remain blocked until HTTP contracts and smoke are
+  accepted.
