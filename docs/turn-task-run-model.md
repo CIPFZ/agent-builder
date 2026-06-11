@@ -302,6 +302,14 @@ Phase 42.1 note:
 - Runtime behavior remains unchanged; this phase only hardens the status
   authority contract.
 
+Phase 42.2 note:
+
+- Phase 42.1 status-authority tests are accepted.
+- The next boundary is an explicit Run status writer design gate that
+  centralizes existing status writes without becoming a full Run state machine.
+- Persisted status remains guarded by full `RunProjection` parity for terminal
+  and recovery cases.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

@@ -2746,3 +2746,10 @@ Phase 42.1 note:
 - No frontend contract changed. The frontend must still treat persisted status
   through durable runtime DTO reads and must not infer status from metadata,
   events, transition history, prose, or React state.
+
+Phase 42.2 note:
+
+- Phase 42.1 is accepted.
+- The next backend boundary is an explicit Run status writer design gate.
+- Frontend integration remains unchanged: no frontend Run state ownership and
+  no status inference from metadata/events/prose/transition rows.

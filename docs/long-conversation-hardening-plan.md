@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 42.1 and decide Phase 42.2: Persisted Run Status Authority
-Test Acceptance And Next Runtime Boundary. Confirm status-authority tests are
-sufficient before selecting any behavior change.
+Implement Phase 43: Explicit Run Status Writer Design Gate. Design a narrow
+helper for explicit persisted Run status writes, but do not implement it until
+the helper contract and tests are accepted.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13570,3 +13570,52 @@ Remaining risk:
 - Persisted status authority is still mostly a protected contract around
   existing behavior. A separate implementation phase is required before
   callers can rely on persisted Run status without full projection parity.
+
+## 2026-06-11: Phase 42.2 Persisted Run Status Authority Test Acceptance And Next Runtime Boundary
+
+Phase 42.2 accepts the Phase 42.1 status-authority contract tests and selects
+the next runtime boundary. It is an acceptance/design phase only. It does not
+change runtime behavior, database schema, migrations, automatic resume,
+background scheduling, stale tool recovery, stale permission recovery, stale
+MCP auth/elicitation recovery, frontend Run UI, or React Run state.
+
+Phase 42.1 acceptance:
+
+- Empty/stale completed projections cannot complete active Runs.
+- Empty/stale completed projections cannot complete interrupted Runs.
+- Checkpoint resume marker/link metadata does not mark a Run active by itself.
+- Existing transition-writer coverage still requires an explicit resumed turn
+  before checkpoint-resume transition evidence is recorded.
+- Full `RunProjection` remains the parity oracle for lifecycle when persisted
+  status and structured runtime evidence disagree.
+
+Next boundary decision:
+
+- The next safe boundary is a design gate for an explicit Run status writer
+  helper.
+- The helper should centralize existing persisted status writes, not introduce
+  a full state machine.
+- It should accept only structured evidence inputs from existing explicit
+  runtime write paths and reject event/action/prose/frontend-derived status.
+- It should preserve current projection reconciliation and fallback behavior.
+- Implementation should wait until the helper contract and tests are accepted.
+
+Rejected:
+
+- Do not make persisted Run status the sole source of truth yet.
+- Do not add migrations, auto-resume, background scheduler loops, stale
+  actionability recovery, frontend Run UI, or React Run state.
+- Do not derive status from transition history alone.
+- Do not bypass full `RunProjection` parity for terminal/recovery paths.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Phase 42.1 is accepted.
+- The next task is Phase 43: Explicit Run Status Writer Design Gate.
