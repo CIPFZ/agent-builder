@@ -2624,3 +2624,13 @@ Phase 38.2 note:
 - `client/src/runtime/wailsWorkbenchAdapter.ts` remains unchanged. Future
   partial-refresh work requires a dedicated phase with browser/Vite and
   Wails/bridge coverage.
+
+Phase 39 note:
+
+- Turn cancellation and interrupted acknowledgement are accepted for the next
+  action metadata implementation.
+- Frontend code must still hydrate cancellation/interrupted state from runtime
+  DTOs after `CancelTurn(...)`, `Cancel(...)`, or `MarkInterruptedDone(...)`.
+- Action metadata must not become persisted acknowledgement state, React-owned
+  cancellation state, auto-resume state, or stale tool/permission/MCP
+  actionability.

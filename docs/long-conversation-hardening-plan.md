@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 39: Turn Cancellation And Interrupted Acknowledgement Write
-Action Envelope Contract Gate. Review `CancelTurn(...)`, `Cancel(...)`, and
-`MarkInterruptedDone(...)` for additive action metadata while preserving
-cancelled terminal acknowledgement semantics and no auto-resume.
+Implement Phase 39.1: Turn Cancellation And Interrupted Acknowledgement Action
+Metadata Implementation. Add additive action metadata to `CancelTurn(...)` /
+`Cancel(...)` status responses and `MarkInterruptedDone(...)` turn responses
+without changing cancelled terminal acknowledgement semantics.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12796,3 +12796,80 @@ Review conclusion:
 - Adapter consumption optimization is deferred.
 - Phase 39 should review turn cancellation and interrupted acknowledgement
   action metadata as a separate contract gate.
+
+## 2026-06-11: Phase 39 Turn Cancellation And Interrupted Acknowledgement Write Action Envelope Contract Gate
+
+Phase 39 reviews whether turn cancellation and interrupted acknowledgement can
+adopt shared write-action metadata. It is a contract/design phase only. It does
+not change runtime behavior, database schema, Run persistence, persisted
+interrupted acknowledgement fields, automatic resume, background scheduling,
+stale permission/MCP actionability recovery, or frontend Run UI.
+
+Current behavior:
+
+- `Cancel(...)` resolves the active turn for the selected session and delegates
+  to `CancelTurn(...)`.
+- `CancelTurn(...)` cancels the backend session, terminalizes the turn as
+  cancelled, cancels nonterminal tool calls, writes audit/event evidence, and
+  records Run turn cancellation transition evidence before returning
+  `RuntimeStatus`.
+- `MarkInterruptedDone(...)` applies only to interrupted turns, terminalizes the
+  turn as cancelled, records interrupted-marked-done transition/event evidence,
+  and returns `RuntimeTurnResponse`.
+- Interrupted acknowledgement remains represented by `MarkInterruptedDone(...)`
+  plus cancelled terminal turn status. There is no persisted acknowledgement
+  field.
+
+Accepted contract:
+
+- Add optional `action` metadata to `RuntimeTurnResponse`.
+- Populate `RuntimeStatus.action` from `CancelTurn(...)` and, by delegation,
+  `Cancel(...)`.
+- Populate `RuntimeTurnResponse.action` from `MarkInterruptedDone(...)`.
+- Use source kind `turn_action`.
+- Use action `cancel_turn` for `CancelTurn(...)` / `Cancel(...)`.
+- Use action `mark_interrupted_done` for `MarkInterruptedDone(...)`.
+- Use `backendOnly=true`, `startsWorker=false`,
+  `idempotentBy="turn_id"`, and `sessionActivityParity=true`.
+- Use refresh targets that force durable rereads of status, turn activity,
+  session activity, tool calls, Run projection/detail, transition history,
+  diagnostics, permissions/MCP actionability, and scheduler plan where
+  applicable.
+- Durable evidence names should include turn rows, tool call rows, runtime
+  events, audit, Run transitions, Run projection, and session activity.
+- Action metadata must not imply auto-resume, persisted acknowledgement fields,
+  stale tool recovery, stale permission recovery, or stale MCP auth/
+  elicitation recovery.
+
+Accepted Phase 39.1 scope:
+
+- Add optional `Action *RuntimeWriteActionMetadata` to `RuntimeTurnResponse`.
+- Populate action metadata only from `CancelTurn(...)` and
+  `MarkInterruptedDone(...)`.
+- Keep ordinary `Turn(...)` reads action-free.
+- Extend backend and HTTP contract tests proving action metadata is present for
+  cancellation/mark-done responses, ordinary reads omit it, and durable
+  cancelled terminal semantics remain unchanged.
+
+Rejected for Phase 39.1:
+
+- No persisted interrupted acknowledgement field.
+- No automatic resume.
+- No stale running/waiting tool recovery.
+- No stale permission or MCP auth/elicitation recovery.
+- No frontend Run UI or React-owned cancellation/interrupted state.
+- No event payload or action payload as source of truth.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- `CancelTurn(...)`, `Cancel(...)`, and `MarkInterruptedDone(...)` can adopt
+  shared write-action metadata next.
+- The implementation must preserve existing cancelled terminal acknowledgement
+  semantics and durable DTO/read source-of-truth boundaries.

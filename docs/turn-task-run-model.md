@@ -185,6 +185,15 @@ Phase 38.2 note:
   acknowledgement action metadata without changing cancelled terminal
   acknowledgement semantics.
 
+Phase 39 note:
+
+- Turn cancellation and interrupted acknowledgement are accepted for the next
+  metadata implementation.
+- `CancelTurn(...)` / `Cancel(...)` should use `RuntimeStatus.action`;
+  `MarkInterruptedDone(...)` should use `RuntimeTurnResponse.action`.
+- No persisted interrupted acknowledgement field, auto-resume, stale tool
+  recovery, or stale permission/MCP recovery is accepted.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
