@@ -2904,3 +2904,9 @@ Phase 50.1 note:
 - Checkpoint marker contract coverage is accepted.
 - Any future marker read DTO must stay marker-only and must not drive frontend
   resume/actionability state.
+
+Phase 50.2 note:
+
+- Proposed checkpoint marker DTOs are marker-only transport DTOs.
+- They must not be added to `WorkbenchViewModel` or UI until a separate
+  frontend ownership gate is accepted.

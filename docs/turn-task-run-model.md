@@ -487,6 +487,12 @@ Phase 50.1 note:
 - The next DTO design must exclude checkpoint source evidence, lifecycle
   status, and resume/actionability state.
 
+Phase 50.2 note:
+
+- Proposed marker-only DTO fields are run ID, checkpoint ID, optional turn ID,
+  acknowledgement timestamp, discard timestamp, and resumed-turn IDs.
+- Eligibility and checkpoint source evidence remain full projection concerns.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

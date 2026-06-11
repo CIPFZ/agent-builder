@@ -11257,8 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 50.1 and decide Phase 50.2: Checkpoint Marker Read DTO
-Design Gate. Design a marker-only read DTO before implementation.
+Review/accept Phase 50.2 and decide Phase 50.3: Checkpoint Marker Read DTO
+Contract Test Gate. Add contract tests for the accepted marker-only DTO shape
+before implementation.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14821,3 +14822,86 @@ Review conclusion:
 
 - Phase 50 is accepted.
 - The next safe step is marker-only DTO design, not implementation.
+
+## 2026-06-11: Phase 50.2 Checkpoint Marker Read DTO Design Gate
+
+Phase 50.2 designs a marker-only checkpoint read DTO. It is a design gate only.
+It does not implement a full Run state machine, runtime Run store expansion,
+database migration, automatic resume, background scheduler loop, stale
+actionability recovery, frontend Run UI, checkpoint marker UI, or React-owned
+runtime state.
+
+Proposed DTO:
+
+```text
+RuntimeRunCheckpointMarker
+  runId
+  checkpointId
+  turnId,omitempty
+  acknowledgedAt,omitempty
+  discardedAt,omitempty
+  resumedTurnIds,omitempty
+
+RuntimeRunCheckpointMarkerSource
+  kind = persisted_checkpoint_markers
+  readOnly = true
+  markerOnly = true
+  persistedRunAuthority = true
+  projectionRequiredForEligibility = true
+  excludedEvidence = [
+    status,
+    summary,
+    artifact_refs,
+    diagnostics,
+    resume_eligible,
+    permissions,
+    mcp_actionability,
+    interrupted_summaries,
+    scheduler_details,
+    transition_interpretation,
+    projection
+  ]
+```
+
+Accepted semantics:
+
+- Marker DTOs expose only durable user-action facts.
+- Empty marker fields mean no user marker has been recorded; they do not imply
+  resume eligibility or ineligibility.
+- `resumedTurnIds` is audit data for explicit resume attempts, not automatic
+  resume state.
+- Consumers must still reread full `RunProjection` / `SessionActivity` for
+  checkpoint source evidence, eligibility, diagnostics, artifacts, permission
+  state, MCP state, interrupted summaries, and scheduler state.
+
+Rejected semantics:
+
+- No checkpoint summary.
+- No artifact refs.
+- No checkpoint lifecycle/source status.
+- No resume eligibility.
+- No action metadata.
+- No automatic resume.
+- No frontend-owned checkpoint actionability.
+- No marker state from events, assistant prose, transition rows alone,
+  bounded/windowed reads, summary DTOs, or browser memory.
+
+Accepted Phase 50.3 scope:
+
+- Add contract tests for the DTO shape before implementation.
+- Tests should prove marker DTO JSON cannot include excluded evidence fields.
+- Tests should prove source metadata marks the DTO as marker-only and
+  projection-required for eligibility.
+- Do not add routes, Wails bindings, frontend UI, or scheduler behavior yet.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- A marker-only DTO shape is defined.
+- The next step is contract tests only.
