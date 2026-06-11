@@ -2928,3 +2928,9 @@ Phase 50.5 note:
 - Backend-only checkpoint marker read helpers are covered.
 - No HTTP, Wails, frontend adapter, `WorkbenchViewModel`, or UI surface was
   added for markers.
+
+Phase 50.6 note:
+
+- Backend-only checkpoint marker helpers are accepted.
+- Next work is route design only; frontend adapter/UI usage remains out of
+  scope.

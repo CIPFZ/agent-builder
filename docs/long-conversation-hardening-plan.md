@@ -11257,9 +11257,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 50.5 and decide Phase 50.6: Checkpoint Marker Backend Read
-Helper Acceptance Gate. Accept backend-only helper behavior before transport
-surface planning.
+Review/accept Phase 50.6 and decide Phase 50.7: Checkpoint Marker Transport
+Design Gate. Design read-only transport routes before implementation.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -15054,3 +15053,50 @@ Review conclusion:
 - Backend-only marker helper behavior is now covered.
 - The next step should accept helper behavior before planning any transport
   surface.
+
+## 2026-06-11: Phase 50.6 Checkpoint Marker Backend Read Helper Acceptance Gate
+
+Phase 50.6 accepts backend-only checkpoint marker helper behavior and chooses a
+transport design gate as the next scope. It is a review/scope gate only. It does
+not implement a full Run state machine, runtime Run store expansion, database
+migration, automatic resume, background scheduler loop, stale actionability
+recovery, frontend Run UI, checkpoint marker UI, HTTP routes, Wails bindings, or
+React-owned runtime state.
+
+Accepted:
+
+- Backend marker helpers can read list/detail marker DTOs from persisted
+  Run/checkpoint storage.
+- Helper reads are read-only and do not mutate lifecycle status, `finished_at`,
+  checkpoint source evidence, or resume eligibility.
+- Helper reads do not infer scheduler, resume, permission, MCP, interrupted, or
+  actionability state.
+
+Still rejected:
+
+- Exposing marker helpers over transport without a route contract.
+- Frontend adapter or UI usage.
+- Treating marker data as checkpoint evidence or resume eligibility.
+- Automatic resume or stale actionability restoration.
+- Event/action/prose/transition/browser-memory-derived marker state.
+
+Chosen next scope:
+
+- Phase 50.7 should design read-only marker transport routes.
+- Route design should remain backend DTO reread-only.
+- Routes must not accept writes, start workers, reconcile projections, or expose
+  action metadata.
+- Frontend adapter/UI work remains out of scope until transport contracts and
+  smoke are accepted.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- Phase 50.5 is accepted.
+- The next step is transport design, not implementation.

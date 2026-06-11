@@ -510,6 +510,11 @@ Phase 50.5 note:
 - Helper reads do not mutate lifecycle status, checkpoint source evidence, or
   resume eligibility.
 
+Phase 50.6 note:
+
+- Backend-only marker helpers are accepted.
+- Transport remains design-gated and must stay read-only DTO rereads.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
