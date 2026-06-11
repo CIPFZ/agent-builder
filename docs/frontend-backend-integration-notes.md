@@ -2910,3 +2910,9 @@ Phase 50.2 note:
 - Proposed checkpoint marker DTOs are marker-only transport DTOs.
 - They must not be added to `WorkbenchViewModel` or UI until a separate
   frontend ownership gate is accepted.
+
+Phase 50.3 note:
+
+- Backend marker-only DTO contract types and tests now exist.
+- No frontend adapter method, `WorkbenchViewModel` state, or UI rendering was
+  added for checkpoint markers.

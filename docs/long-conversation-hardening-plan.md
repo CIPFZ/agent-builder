@@ -11257,9 +11257,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 50.2 and decide Phase 50.3: Checkpoint Marker Read DTO
-Contract Test Gate. Add contract tests for the accepted marker-only DTO shape
-before implementation.
+Review/accept Phase 50.3 and decide Phase 50.4: Checkpoint Marker Read DTO
+Acceptance Gate. Accept marker DTO contract tests before adding a read surface.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14905,3 +14904,53 @@ Review conclusion:
 
 - A marker-only DTO shape is defined.
 - The next step is contract tests only.
+
+## 2026-06-11: Phase 50.3 Checkpoint Marker Read DTO Contract Test Gate
+
+Phase 50.3 adds contract coverage for the marker-only checkpoint read DTO shape.
+It does not implement a full Run state machine, runtime Run store expansion,
+database migration, automatic resume, background scheduler loop, stale
+actionability recovery, frontend Run UI, checkpoint marker UI, routes, Wails
+bindings, or React-owned runtime state.
+
+Implemented:
+
+- Added `RuntimeRunCheckpointMarker`,
+  `RuntimeRunCheckpointMarkersResponse`,
+  `RuntimeRunCheckpointMarkerResponse`, and
+  `RuntimeRunCheckpointMarkerSource`.
+- Added internal helpers:
+  - `runtimeRunCheckpointMarkerFromCheckpoint(...)`
+  - `runtimeRunCheckpointMarkerSource()`
+- Added `TestRuntimeRunCheckpointMarkerJSONExcludesSourceEvidenceAndActionability`.
+- Added `TestRuntimeRunCheckpointMarkerSourceRequiresProjectionForEligibility`.
+
+Contract coverage:
+
+- Marker DTO JSON includes only run/checkpoint identity and marker facts.
+- Marker DTO JSON excludes checkpoint source evidence, artifact refs,
+  lifecycle/source status, diagnostics, resume eligibility, permissions,
+  projection payloads, and actionability state.
+- Source metadata marks the DTO as read-only, marker-only, persisted Run
+  authority, and projection-required for eligibility.
+
+Still not implemented:
+
+- No HTTP route.
+- No Wails binding.
+- No frontend adapter method.
+- No UI state or rendering.
+- No scheduler behavior.
+- No resume/actionability behavior.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- The marker-only DTO contract is now covered.
+- The next step should accept this DTO contract before adding any read surface.

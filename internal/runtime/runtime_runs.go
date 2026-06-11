@@ -14,6 +14,7 @@ import (
 const (
 	runtimeRunCheckpointActionSourceKind = "run_checkpoint"
 	runtimeRunSummarySourceKind          = "persisted_run_summary"
+	runtimeRunCheckpointMarkerSourceKind = "persisted_checkpoint_markers"
 
 	runtimeRunCheckpointActionAcknowledge = "acknowledge_checkpoint"
 	runtimeRunCheckpointActionDiscard     = "discard_checkpoint"
@@ -56,6 +57,40 @@ func runtimeRunSummaryFromRun(run RuntimeRun) RuntimeRunSummary {
 		Source:           run.Source,
 		CreatedAt:        run.CreatedAt,
 		UpdatedAt:        run.UpdatedAt,
+	}
+}
+
+func runtimeRunCheckpointMarkerSource() RuntimeRunCheckpointMarkerSource {
+	return RuntimeRunCheckpointMarkerSource{
+		Kind:                             runtimeRunCheckpointMarkerSourceKind,
+		ReadOnly:                         true,
+		MarkerOnly:                       true,
+		PersistedRunAuthority:            true,
+		ProjectionRequiredForEligibility: true,
+		ExcludedEvidence: []string{
+			"status",
+			"summary",
+			"artifact_refs",
+			"diagnostics",
+			"resume_eligible",
+			"permissions",
+			"mcp_actionability",
+			"interrupted_summaries",
+			"scheduler_details",
+			"transition_interpretation",
+			"projection",
+		},
+	}
+}
+
+func runtimeRunCheckpointMarkerFromCheckpoint(runID string, checkpoint RuntimeRunCheckpoint) RuntimeRunCheckpointMarker {
+	return RuntimeRunCheckpointMarker{
+		RunID:          strings.TrimSpace(runID),
+		CheckpointID:   checkpoint.ID,
+		TurnID:         checkpoint.TurnID,
+		AcknowledgedAt: checkpoint.AcknowledgedAt,
+		DiscardedAt:    checkpoint.DiscardedAt,
+		ResumedTurnIDs: append([]string(nil), checkpoint.ResumedTurnIDs...),
 	}
 }
 

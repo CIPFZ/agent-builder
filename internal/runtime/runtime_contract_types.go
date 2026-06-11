@@ -189,6 +189,16 @@ type RuntimeRunSummaryResponse struct {
 	Source RuntimeRunSummarySource `json:"source"`
 }
 
+type RuntimeRunCheckpointMarkersResponse struct {
+	Markers []RuntimeRunCheckpointMarker     `json:"markers"`
+	Source  RuntimeRunCheckpointMarkerSource `json:"source"`
+}
+
+type RuntimeRunCheckpointMarkerResponse struct {
+	Marker RuntimeRunCheckpointMarker       `json:"marker"`
+	Source RuntimeRunCheckpointMarkerSource `json:"source"`
+}
+
 type RuntimeRunResponse struct {
 	Run        RuntimeRun                  `json:"run"`
 	Projection RuntimeRunProjection        `json:"projection,omitempty"`
@@ -238,6 +248,24 @@ type RuntimeRunSummarySource struct {
 	PersistedRunAuthority          bool     `json:"persistedRunAuthority"`
 	ProjectionRequiredForLifecycle bool     `json:"projectionRequiredForLifecycle"`
 	ExcludedEvidence               []string `json:"excludedEvidence,omitempty"`
+}
+
+type RuntimeRunCheckpointMarker struct {
+	RunID          string   `json:"runId"`
+	CheckpointID   string   `json:"checkpointId"`
+	TurnID         string   `json:"turnId,omitempty"`
+	AcknowledgedAt int64    `json:"acknowledgedAt,omitempty"`
+	DiscardedAt    int64    `json:"discardedAt,omitempty"`
+	ResumedTurnIDs []string `json:"resumedTurnIds,omitempty"`
+}
+
+type RuntimeRunCheckpointMarkerSource struct {
+	Kind                             string   `json:"kind"`
+	ReadOnly                         bool     `json:"readOnly"`
+	MarkerOnly                       bool     `json:"markerOnly"`
+	PersistedRunAuthority            bool     `json:"persistedRunAuthority"`
+	ProjectionRequiredForEligibility bool     `json:"projectionRequiredForEligibility"`
+	ExcludedEvidence                 []string `json:"excludedEvidence,omitempty"`
 }
 
 type RuntimeRunProjectionRequest struct {

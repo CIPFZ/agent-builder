@@ -177,6 +177,67 @@ func TestRuntimeRunSummaryJSONExcludesCheckpointMarkersAndActionability(t *testi
 	}
 }
 
+func TestRuntimeRunCheckpointMarkerJSONExcludesSourceEvidenceAndActionability(t *testing.T) {
+	t.Parallel()
+
+	marker := runtimeRunCheckpointMarkerFromCheckpoint("run-marker", RuntimeRunCheckpoint{
+		ID:             "checkpoint-1",
+		TurnID:         "turn-1",
+		TaskID:         "task-1",
+		Status:         runtimeRunCheckpointStatusResumable,
+		Summary:        "checkpoint evidence",
+		ArtifactRefs:   []string{"artifact://report"},
+		CreatedAt:      1000,
+		AcknowledgedAt: 1200,
+		DiscardedAt:    1300,
+		ResumedTurnIDs: []string{"turn-resume-1"},
+		ResumeEligible: true,
+	})
+	payload, err := json.Marshal(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{
+		"taskId",
+		"status",
+		"summary",
+		"artifactRefs",
+		"createdAt",
+		"resumeEligible",
+		"diagnostics",
+		"permissions",
+		"projection",
+	} {
+		if _, ok := raw[field]; ok {
+			t.Fatalf("checkpoint marker leaked evidence/actionability field %q: %s", field, string(payload))
+		}
+	}
+	if raw["runId"] != "run-marker" || raw["checkpointId"] != "checkpoint-1" || raw["turnId"] != "turn-1" {
+		t.Fatalf("marker lost accepted identity fields: %s", string(payload))
+	}
+	if raw["acknowledgedAt"] == nil || raw["discardedAt"] == nil || raw["resumedTurnIds"] == nil {
+		t.Fatalf("marker lost accepted marker fields: %s", string(payload))
+	}
+}
+
+func TestRuntimeRunCheckpointMarkerSourceRequiresProjectionForEligibility(t *testing.T) {
+	t.Parallel()
+
+	source := runtimeRunCheckpointMarkerSource()
+	if source.Kind != runtimeRunCheckpointMarkerSourceKind || !source.ReadOnly || !source.MarkerOnly || !source.PersistedRunAuthority || !source.ProjectionRequiredForEligibility {
+		t.Fatalf("marker source = %#v", source)
+	}
+	for _, evidence := range []string{"summary", "artifact_refs", "resume_eligible", "permissions", "mcp_actionability", "projection"} {
+		if !slices.Contains(source.ExcludedEvidence, evidence) {
+			t.Fatalf("marker source missing excluded evidence %q: %#v", evidence, source.ExcludedEvidence)
+		}
+	}
+}
+
 func TestRuntimeRunStoreBackfillsProjectionWithoutDuplicatingEvidence(t *testing.T) {
 	t.Parallel()
 

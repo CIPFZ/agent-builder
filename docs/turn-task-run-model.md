@@ -493,6 +493,11 @@ Phase 50.2 note:
   acknowledgement timestamp, discard timestamp, and resumed-turn IDs.
 - Eligibility and checkpoint source evidence remain full projection concerns.
 
+Phase 50.3 note:
+
+- Marker-only DTO contract types are covered by tests.
+- Marker DTOs exclude source evidence and resume/actionability fields.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
