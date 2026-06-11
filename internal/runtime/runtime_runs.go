@@ -13,6 +13,7 @@ import (
 
 const (
 	runtimeRunCheckpointActionSourceKind = "run_checkpoint"
+	runtimeRunSummarySourceKind          = "persisted_run_summary"
 
 	runtimeRunCheckpointActionAcknowledge = "acknowledge_checkpoint"
 	runtimeRunCheckpointActionDiscard     = "discard_checkpoint"
@@ -22,6 +23,41 @@ const (
 	runtimeRunCheckpointActionReasonDiscarded    = "checkpoint_discarded"
 	runtimeRunCheckpointActionReasonResumed      = "checkpoint_resume_started"
 )
+
+func runtimeRunSummarySource() RuntimeRunSummarySource {
+	return RuntimeRunSummarySource{
+		Kind:                           runtimeRunSummarySourceKind,
+		ReadOnly:                       true,
+		SummaryOnly:                    true,
+		PersistedRunAuthority:          true,
+		ProjectionRequiredForLifecycle: true,
+		ExcludedEvidence: []string{
+			"status",
+			"finished_at",
+			"checkpoints",
+			"diagnostics",
+			"artifacts",
+			"permissions",
+			"mcp_actionability",
+			"interrupted_summaries",
+			"scheduler_details",
+			"transition_interpretation",
+		},
+	}
+}
+
+func runtimeRunSummaryFromRun(run RuntimeRun) RuntimeRunSummary {
+	return RuntimeRunSummary{
+		ID:               run.ID,
+		WorkspaceID:      run.WorkspaceID,
+		PrimarySessionID: run.PrimarySessionID,
+		SessionIDs:       append([]string(nil), run.SessionIDs...),
+		Objective:        run.Objective,
+		Source:           run.Source,
+		CreatedAt:        run.CreatedAt,
+		UpdatedAt:        run.UpdatedAt,
+	}
+}
 
 func (r *runtimeService) Runs(ctx context.Context) (RuntimeRunsResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
@@ -38,6 +74,42 @@ func (r *runtimeService) Runs(ctx context.Context) (RuntimeRunsResponse, error) 
 		return RuntimeRunsResponse{}, err
 	}
 	return RuntimeRunsResponse{Runs: runs}, nil
+}
+
+func (r *runtimeService) RunSummaries(ctx context.Context) (RuntimeRunSummariesResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeRunSummariesResponse{}, err
+	}
+	if r.runs.db == nil {
+		return RuntimeRunSummariesResponse{}, errors.New("runtime run database is not available")
+	}
+	runs, err := r.runs.List(ctx)
+	if err != nil {
+		return RuntimeRunSummariesResponse{}, err
+	}
+	summaries := make([]RuntimeRunSummary, 0, len(runs))
+	for _, run := range runs {
+		summaries = append(summaries, runtimeRunSummaryFromRun(run))
+	}
+	return RuntimeRunSummariesResponse{Runs: summaries, Source: runtimeRunSummarySource()}, nil
+}
+
+func (r *runtimeService) RunSummary(ctx context.Context, id string) (RuntimeRunSummaryResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeRunSummaryResponse{}, err
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return RuntimeRunSummaryResponse{}, errors.New("run id is required")
+	}
+	if r.runs.db == nil {
+		return RuntimeRunSummaryResponse{}, errors.New("runtime run database is not available")
+	}
+	run, err := r.runs.Get(ctx, id)
+	if err != nil {
+		return RuntimeRunSummaryResponse{}, err
+	}
+	return RuntimeRunSummaryResponse{Run: runtimeRunSummaryFromRun(run), Source: runtimeRunSummarySource()}, nil
 }
 
 func (r *runtimeService) Run(ctx context.Context, id string) (RuntimeRunResponse, error) {

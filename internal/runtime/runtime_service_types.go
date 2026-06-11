@@ -33,6 +33,8 @@ type RuntimeService interface {
 	Turn(context.Context, string) (RuntimeTurnResponse, error)
 	Turns(context.Context, string) (RuntimeTurnsResponse, error)
 	Runs(context.Context) (RuntimeRunsResponse, error)
+	RunSummaries(context.Context) (RuntimeRunSummariesResponse, error)
+	RunSummary(context.Context, string) (RuntimeRunSummaryResponse, error)
 	Run(context.Context, string) (RuntimeRunResponse, error)
 	AcknowledgeRunCheckpoint(context.Context, string, string) (RuntimeRunResponse, error)
 	DiscardRunCheckpoint(context.Context, string, string) (RuntimeRunResponse, error)

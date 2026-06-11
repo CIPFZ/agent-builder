@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 48.2 and decide Phase 48.3: Persisted Run Summary Read DTO
-Contract Gate. Add a narrow read DTO/API contract only for accepted persisted
-identity/session/summary fields before implementation.
+Review/accept Phase 48.3 and decide Phase 48.4: Persisted Run Summary
+Transport/Adapter Smoke Gate. Validate the summary-only DTO remains reread-only
+and cannot carry lifecycle/actionability evidence.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14494,3 +14494,67 @@ Review conclusion:
   DTO/API contract.
 - Evidence-rich lifecycle and actionability remain outside persisted Run read
   authority.
+
+## 2026-06-11: Phase 48.3 Persisted Run Summary Read DTO Contract Gate
+
+Phase 48.3 implements the accepted summary-only persisted Run read contract. It
+does not implement a full Run state machine, runtime Run store expansion,
+database migration, automatic resume, background scheduler loop, stale
+actionability recovery, frontend Run UI, or React-owned runtime state.
+
+Implemented:
+
+- Added `RuntimeRunSummary`, `RuntimeRunSummariesResponse`,
+  `RuntimeRunSummaryResponse`, and `RuntimeRunSummarySource`.
+- Added backend read methods:
+  - `RunSummaries(ctx)`
+  - `RunSummary(ctx, runID)`
+- Added HTTP routes:
+  - `GET /v1/run-summaries`
+  - `GET /v1/run-summaries/{run_id}`
+- Added dev-module routing for the same read endpoints.
+- The summary DTO includes only:
+  - run ID;
+  - workspace ID;
+  - primary session ID;
+  - session membership;
+  - objective;
+  - source;
+  - created/updated timestamps.
+- The source metadata marks the DTO as read-only, summary-only, persisted Run
+  authority, and projection-required for lifecycle state.
+
+Explicitly excluded from the DTO:
+
+- Lifecycle status and `finished_at`.
+- Checkpoints.
+- Diagnostics.
+- Artifact evidence.
+- Permission actionability.
+- MCP actionability.
+- Interrupted summaries.
+- Scheduler details.
+- Transition interpretation.
+- Projection payloads.
+
+Coverage:
+
+- Backend contract coverage verifies summary mapping preserves only accepted
+  identity/session/summary fields.
+- HTTP route coverage verifies list/detail/dev-module summary reads and checks
+  the response does not leak lifecycle/evidence fields.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Persisted Run summary reads now have a dedicated contract and route surface.
+- Existing full `Run` and `RunProjection` routes remain unchanged.
+- The frontend is not wired to consume summary DTOs in this phase.
+- The next task should validate transport/adapter reread semantics before any
+  UI use.

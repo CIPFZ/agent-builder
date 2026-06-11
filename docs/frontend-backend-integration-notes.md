@@ -2862,3 +2862,11 @@ Phase 48.2 note:
 - Events, action metadata, transition rows, browser memory, and summary DTO
   fields must not restore lifecycle evidence or stale permission/MCP
   actionability.
+
+Phase 48.3 note:
+
+- Backend now exposes summary-only persisted Run read routes.
+- The frontend is not wired to consume these routes yet.
+- Future adapter work must treat summary responses as reread DTOs only and must
+  continue using full runtime DTOs for lifecycle, diagnostics, artifacts,
+  interrupted summaries, permissions, MCP actionability, and scheduler state.

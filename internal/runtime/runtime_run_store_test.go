@@ -94,6 +94,36 @@ func TestRuntimeRunStoreReadsPersistedIdentityAndSummaryWithoutProjection(t *tes
 	}
 }
 
+func TestRuntimeRunSummaryFromRunStripsLifecycleAndEvidence(t *testing.T) {
+	t.Parallel()
+
+	summary := runtimeRunSummaryFromRun(RuntimeRun{
+		ID:               "run-summary",
+		WorkspaceID:      "workspace-1",
+		PrimarySessionID: "session-1",
+		SessionIDs:       []string{"session-1", "session-child"},
+		Objective:        "summary only",
+		Status:           runtimeRunStatusInterrupted,
+		Source:           runtimeRunSourceUserPrompt,
+		Checkpoints: []RuntimeRunCheckpoint{{
+			ID:     "checkpoint-1",
+			Status: runtimeRunCheckpointStatusResumable,
+		}},
+		CreatedAt:  1000,
+		UpdatedAt:  1200,
+		FinishedAt: 1300,
+	})
+	if summary.ID != "run-summary" || summary.WorkspaceID != "workspace-1" || summary.PrimarySessionID != "session-1" {
+		t.Fatalf("summary identity = %#v", summary)
+	}
+	if summary.Objective != "summary only" || summary.Source != runtimeRunSourceUserPrompt || summary.CreatedAt != 1000 || summary.UpdatedAt != 1200 {
+		t.Fatalf("summary metadata = %#v", summary)
+	}
+	if len(summary.SessionIDs) != 2 || !slices.Contains(summary.SessionIDs, "session-child") {
+		t.Fatalf("summary sessions = %#v", summary.SessionIDs)
+	}
+}
+
 func TestRuntimeRunStoreBackfillsProjectionWithoutDuplicatingEvidence(t *testing.T) {
 	t.Parallel()
 

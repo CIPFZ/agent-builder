@@ -296,6 +296,12 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/runs":
 		value, err := s.service.Runs(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/run-summaries":
+		value, err := s.service.RunSummaries(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && runSummaryPathID(r.URL.Path) != "":
+		value, err := s.service.RunSummary(r.Context(), runSummaryPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && runPathID(r.URL.Path) != "":
 		value, err := s.service.Run(r.Context(), runPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -781,6 +787,12 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 	case method == http.MethodGet && path == "/v1/runs":
 		value, err := s.service.Runs(r.Context())
 		return value, err, true
+	case method == http.MethodGet && path == "/v1/run-summaries":
+		value, err := s.service.RunSummaries(r.Context())
+		return value, err, true
+	case method == http.MethodGet && runSummaryPathID(path) != "":
+		value, err := s.service.RunSummary(r.Context(), runSummaryPathID(path))
+		return value, err, true
 	case method == http.MethodGet && runPathID(path) != "":
 		value, err := s.service.Run(r.Context(), runPathID(path))
 		return value, err, true
@@ -1126,6 +1138,14 @@ func sessionPathID(path string) string {
 
 func runPathID(path string) string {
 	id := strings.TrimPrefix(path, "/v1/runs/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func runSummaryPathID(path string) string {
+	id := strings.TrimPrefix(path, "/v1/run-summaries/")
 	if id == path || id == "" || strings.Contains(id, "/") {
 		return ""
 	}

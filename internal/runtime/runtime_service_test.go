@@ -3786,6 +3786,9 @@ type recordingRuntimeService struct {
 	executeTaskID           string
 	executeRunTask          RuntimeRunSchedulerExecuteTaskResponse
 	runs                    RuntimeRunsResponse
+	runSummaries            RuntimeRunSummariesResponse
+	runSummary              RuntimeRunSummaryResponse
+	runSummaryID            string
 	run                     RuntimeRunResponse
 	runID                   string
 	ackRunID                string
@@ -3923,6 +3926,15 @@ func (s *recordingRuntimeService) Turns(_ context.Context, status string) (Runti
 
 func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, error) {
 	return s.runs, nil
+}
+
+func (s *recordingRuntimeService) RunSummaries(context.Context) (RuntimeRunSummariesResponse, error) {
+	return s.runSummaries, nil
+}
+
+func (s *recordingRuntimeService) RunSummary(_ context.Context, id string) (RuntimeRunSummaryResponse, error) {
+	s.runSummaryID = id
+	return s.runSummary, nil
 }
 
 func (s *recordingRuntimeService) Run(_ context.Context, id string) (RuntimeRunResponse, error) {

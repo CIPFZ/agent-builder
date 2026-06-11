@@ -441,6 +441,16 @@ Phase 48.2 note:
   artifacts, permissions, MCP actionability, interrupted summaries, scheduler
   details, and transition interpretation remain projection-bound.
 
+Phase 48.3 note:
+
+- `RuntimeRunSummary` is the first summary-only persisted Run read DTO.
+- It intentionally excludes lifecycle status, `finished_at`, checkpoints,
+  diagnostics, artifacts, permissions, MCP actionability, interrupted
+  summaries, scheduler details, transition interpretation, and projection
+  payloads.
+- Full `RunProjection` / `SessionActivity` parity remains required before any
+  lifecycle/actionability state can be rendered or reconciled.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

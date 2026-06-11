@@ -740,6 +740,106 @@ func TestRuntimeHTTPServerRoutesRunsToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesRunSummariesToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		runSummaries: RuntimeRunSummariesResponse{
+			Runs: []RuntimeRunSummary{{
+				ID:               "run-1",
+				WorkspaceID:      "workspace-1",
+				PrimarySessionID: "session-1",
+				SessionIDs:       []string{"session-1", "session-child"},
+				Objective:        "ship summaries",
+				Source:           runtimeRunSourceUserPrompt,
+				CreatedAt:        1000,
+				UpdatedAt:        1200,
+			}},
+			Source: runtimeRunSummarySource(),
+		},
+		runSummary: RuntimeRunSummaryResponse{
+			Run: RuntimeRunSummary{
+				ID:               "run-1",
+				WorkspaceID:      "workspace-1",
+				PrimarySessionID: "session-1",
+				SessionIDs:       []string{"session-1"},
+				Objective:        "ship summaries",
+				Source:           runtimeRunSourceUserPrompt,
+				CreatedAt:        1000,
+				UpdatedAt:        1200,
+			},
+			Source: runtimeRunSummarySource(),
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/run-summaries", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("summaries status = %d body = %s", resp.status, resp.body.String())
+	}
+	var list RuntimeRunSummariesResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Runs) != 1 || list.Runs[0].ID != "run-1" || !list.Source.SummaryOnly || !list.Source.ProjectionRequiredForLifecycle {
+		t.Fatalf("summaries = %#v", list)
+	}
+	var rawList map[string]any
+	if err := json.Unmarshal(resp.body.Bytes(), &rawList); err != nil {
+		t.Fatal(err)
+	}
+	rawRuns, ok := rawList["runs"].([]any)
+	if !ok || len(rawRuns) != 1 {
+		t.Fatalf("raw summary runs = %#v", rawList["runs"])
+	}
+	rawRun, ok := rawRuns[0].(map[string]any)
+	if !ok {
+		t.Fatalf("raw summary run = %#v", rawRuns[0])
+	}
+	for _, field := range []string{"status", "finishedAt", "checkpoints", "diagnostics", "artifacts", "permissions", "projection"} {
+		if _, ok := rawRun[field]; ok {
+			t.Fatalf("summary run leaked %q field: %s", field, resp.body.String())
+		}
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/run-summaries/run-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("summary status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.runSummaryID != "run-1" {
+		t.Fatalf("run summary id = %q, want run-1", service.runSummaryID)
+	}
+	var detail RuntimeRunSummaryResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Run.ID != "run-1" || !detail.Source.ReadOnly || !detail.Source.PersistedRunAuthority {
+		t.Fatalf("summary detail = %#v", detail)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=GET&path=/v1/run-summaries/run-2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("dev-module summary status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.runSummaryID != "run-2" {
+		t.Fatalf("dev-module run summary id = %q, want run-2", service.runSummaryID)
+	}
+}
+
 func TestRuntimeHTTPServerRunStatusWriterRereadSmoke(t *testing.T) {
 	t.Parallel()
 

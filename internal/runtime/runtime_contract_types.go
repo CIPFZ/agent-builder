@@ -179,6 +179,16 @@ type RuntimeRunsResponse struct {
 	Runs []RuntimeRun `json:"runs"`
 }
 
+type RuntimeRunSummariesResponse struct {
+	Runs   []RuntimeRunSummary     `json:"runs"`
+	Source RuntimeRunSummarySource `json:"source"`
+}
+
+type RuntimeRunSummaryResponse struct {
+	Run    RuntimeRunSummary       `json:"run"`
+	Source RuntimeRunSummarySource `json:"source"`
+}
+
 type RuntimeRunResponse struct {
 	Run        RuntimeRun                  `json:"run"`
 	Projection RuntimeRunProjection        `json:"projection,omitempty"`
@@ -208,6 +218,26 @@ type RuntimeRun struct {
 	UpdatedAt        int64                  `json:"updatedAt"`
 	FinishedAt       int64                  `json:"finishedAt,omitempty"`
 	DiscardedAt      int64                  `json:"discardedAt,omitempty"`
+}
+
+type RuntimeRunSummary struct {
+	ID               string   `json:"id"`
+	WorkspaceID      string   `json:"workspaceId"`
+	PrimarySessionID string   `json:"primarySessionId"`
+	SessionIDs       []string `json:"sessionIds,omitempty"`
+	Objective        string   `json:"objective,omitempty"`
+	Source           string   `json:"source"`
+	CreatedAt        int64    `json:"createdAt"`
+	UpdatedAt        int64    `json:"updatedAt"`
+}
+
+type RuntimeRunSummarySource struct {
+	Kind                           string   `json:"kind"`
+	ReadOnly                       bool     `json:"readOnly"`
+	SummaryOnly                    bool     `json:"summaryOnly"`
+	PersistedRunAuthority          bool     `json:"persistedRunAuthority"`
+	ProjectionRequiredForLifecycle bool     `json:"projectionRequiredForLifecycle"`
+	ExcludedEvidence               []string `json:"excludedEvidence,omitempty"`
 }
 
 type RuntimeRunProjectionRequest struct {
