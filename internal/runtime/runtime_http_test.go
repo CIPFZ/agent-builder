@@ -213,6 +213,16 @@ func TestRuntimeHTTPServerRoutesMCPRequestsToRuntimeService(t *testing.T) {
 	if service.mcpRequestDecision.RequestID != "mcp-req-1" || service.mcpRequestDecision.Action != "approve" {
 		t.Fatalf("decision = %#v", service.mcpRequestDecision)
 	}
+	var mcpDecision RuntimeMCPRequestResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &mcpDecision); err != nil {
+		t.Fatal(err)
+	}
+	if mcpDecision.Action == nil || !mcpDecision.Action.Accepted || mcpDecision.Action.Source.Action != "approve" || mcpDecision.Action.Source.IdempotentBy != "mcp_request_id" {
+		t.Fatalf("mcp decision action metadata = %#v", mcpDecision.Action)
+	}
+	if strings.Contains(strings.ToLower(resp.body.String()), "approved") {
+		t.Fatalf("mcp decision response copied response summary into transport payload: %s", resp.body.String())
+	}
 }
 
 func TestRuntimeHTTPServerRoutesPolicyToRuntimeService(t *testing.T) {
@@ -561,6 +571,9 @@ func TestRuntimeHTTPServerRoutesRunSchedulerExecuteTaskToRuntimeService(t *testi
 	}
 	if !execute.Accepted || !execute.ExecutionStarted || execute.Source.StartsWorker || !execute.Source.BackendOnly || !execute.Source.IdempotentByTaskID || !execute.Source.SessionActivityParity {
 		t.Fatalf("execute response = %#v", execute)
+	}
+	if execute.Action == nil || !execute.Action.Accepted || execute.Action.Source.Action != runtimeRunSchedulerExecuteTaskAction || execute.Action.Source.IdempotentBy != "task_id" {
+		t.Fatalf("execute action metadata = %#v", execute.Action)
 	}
 
 	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=POST&path=/v1/runs/run-2/tasks/task-2/execute", nil)
@@ -1545,6 +1558,26 @@ func TestRuntimeHTTPServerRoutesAgentTaskMessagingToRuntimeService(t *testing.T)
 	resp = httptestResponse(server, req)
 	if resp.status != http.StatusOK || !strings.Contains(resp.body.String(), "done") {
 		t.Fatalf("result status = %d body = %s", resp.status, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodPost, "/v1/tasks/task-1/cancel", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("cancel status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.cancelledTask != "task-1" {
+		t.Fatalf("cancelled task = %q", service.cancelledTask)
+	}
+	var cancel RuntimeAgentTaskResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &cancel); err != nil {
+		t.Fatal(err)
+	}
+	if cancel.Action == nil || !cancel.Action.Accepted || cancel.Action.Source.Action != runtimeAgentTaskCancelAction || cancel.Action.Source.IdempotentBy != "task_id" {
+		t.Fatalf("cancel action metadata = %#v", cancel.Action)
 	}
 }
 

@@ -2606,3 +2606,12 @@ Phase 38 note:
 - Phase 38.1 should add transport contract coverage before any adapter
   optimization. `client/src/runtime/wailsWorkbenchAdapter.ts` remains untouched
   in this gate.
+
+Phase 38.1 note:
+
+- HTTP transport tests now cover action metadata forwarding for scheduler
+  execute, task cancellation, and MCP request decision.
+- The frontend adapter remains unchanged and continues to rely on durable
+  hydration after actions.
+- Any future adapter use of `action.refreshTargets` must remain a reread
+  selector only and must not merge action payloads into React state.

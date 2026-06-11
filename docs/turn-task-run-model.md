@@ -169,6 +169,14 @@ Phase 38 note:
   payloads task, Run, permission, MCP, checkpoint, timeline, diagnostic, or
   artifact state.
 
+Phase 38.1 note:
+
+- HTTP transport coverage now asserts action metadata forwarding for scheduler
+  execute, task cancellation, and MCP request decision.
+- The tests keep durable DTO rereads as the state source and do not authorize
+  frontend action-payload state.
+- Adapter optimization remains a later gate.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

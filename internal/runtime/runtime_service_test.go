@@ -4046,7 +4046,10 @@ func (s *recordingRuntimeService) TurnAgentTasks(context.Context, string) (Runti
 
 func (s *recordingRuntimeService) CancelAgentTask(_ context.Context, taskID string) (RuntimeAgentTaskResponse, error) {
 	s.cancelledTask = taskID
-	return s.agentTask, nil
+	if s.agentTask.Task.ID == "" {
+		s.agentTask.Task = RuntimeAgentTask{ID: taskID, Status: agentTaskStatusCancelled}
+	}
+	return withRuntimeAgentTaskCancelAction(s.agentTask, true, "test cancellation requested"), nil
 }
 
 func (s *recordingRuntimeService) AgentRoles(context.Context) (RuntimeAgentRolesResponse, error) {
@@ -4175,7 +4178,7 @@ func (s *recordingRuntimeService) ExecuteRunTask(_ context.Context, runID, taskI
 			SessionActivityParity: true,
 		}
 	}
-	return s.executeRunTask, nil
+	return withRuntimeRunSchedulerExecuteTaskAction(s.executeRunTask), nil
 }
 
 func (s *recordingRuntimeService) Messages(context.Context) (RuntimeMessagesResponse, error) {
@@ -4299,7 +4302,7 @@ func (s *recordingRuntimeService) MCPRequest(context.Context, string) (RuntimeMC
 
 func (s *recordingRuntimeService) DecideMCPRequest(_ context.Context, req RuntimeMCPRequestDecision) (RuntimeMCPRequestResponse, error) {
 	s.mcpRequestDecision = req
-	return s.mcpRequest, nil
+	return withRuntimeMCPRequestDecisionAction(s.mcpRequest, true, req.Action, runtimeMCPRequestDecisionReasonAccepted), nil
 }
 
 func (s *recordingRuntimeService) RetryMCPServer(context.Context, string) (RuntimeMCPServersResponse, error) {

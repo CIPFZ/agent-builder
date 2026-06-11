@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 38.1: Write Action Envelope Transport Contract Coverage.
-Add backend/HTTP contract coverage proving the core write-action responses
-forward `action` metadata while frontend adapters continue to rely on durable
-rereads rather than action payload state.
+Implement Phase 38.2: Write Action Envelope Transport Coverage Acceptance And
+Adapter Optimization Gate. Review the HTTP/transport coverage and decide
+whether adapters should continue full hydration or add a narrow
+`refreshTargets`-only refresh selector in a later phase.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12690,3 +12690,47 @@ Review conclusion:
 - Phase 38 accepts a conservative transport-contract step next.
 - Adapter optimization using `action.refreshTargets` can be considered later,
   after transport coverage proves the metadata is stable and non-authoritative.
+
+## 2026-06-11: Phase 38.1 Write Action Envelope Transport Contract Coverage
+
+Phase 38.1 adds transport-level contract coverage for selected core
+write-action responses. It does not change frontend adapter code, runtime
+behavior, database schema, Run persistence, automatic resume, background
+scheduling, stale permission/MCP actionability recovery, or frontend Run UI.
+
+Implemented:
+
+- Extended the HTTP scheduler execute route test to assert forwarded shared
+  `action` metadata in addition to the scheduler-specific fields.
+- Extended the HTTP MCP request decision route test to assert forwarded
+  `RuntimeMCPRequestResponse.action` metadata and to prove response summaries
+  are not copied into the transport payload.
+- Extended the HTTP agent task route coverage with `/v1/tasks/{id}/cancel` and
+  asserted forwarded task-cancel `action` metadata.
+- Updated the recording runtime service test double to mirror real runtime
+  action metadata for scheduler execute, task cancel, and MCP request decision.
+- Left `client/src/runtime/wailsWorkbenchAdapter.ts` untouched.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run "TestRuntimeHTTPServerRoutes(MCPRequests|RunSchedulerExecuteTask|AgentTaskMessaging)ToRuntimeService" -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- The HTTP/dev transport forwards action metadata for the remaining core
+  write-action routes without requiring frontend state changes.
+- The tests still treat action payloads as response metadata. Durable reread
+  endpoints remain the source of truth for task, Run, permission, MCP,
+  checkpoint, timeline, diagnostic, artifact, and scheduler state.
+- No React-owned action state, frontend Run UI, automatic resume, stale
+  actionability recovery, or broad admin/config write migration was added.
+
+Remaining risk:
+
+- Frontend adapters still ignore action metadata and perform broad hydration
+  after actions. Phase 38.2 should decide whether that remains the correct
+  behavior or whether a future narrow `refreshTargets` selector is worth the
+  added complexity.
