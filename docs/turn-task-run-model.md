@@ -474,6 +474,13 @@ Phase 49 note:
 - These markers are not checkpoint source evidence and do not determine resume
   eligibility without full projection parity.
 
+Phase 50 note:
+
+- Contract coverage now proves summary reads cannot carry checkpoint marker or
+  resume actionability fields.
+- Marker authority remains limited to durable user-action markers and does not
+  replace checkpoint source evidence or full projection parity.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

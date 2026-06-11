@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 49 and decide Phase 50: Checkpoint Marker Read Authority
-Contract Gate. Add tests for durable checkpoint user-action markers without
-promoting checkpoint source evidence or resume actionability.
+Review/accept Phase 50 and decide Phase 50.1: Checkpoint Marker Read Authority
+Acceptance Gate. Accept marker boundary tests before any checkpoint marker read
+surface implementation.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14718,3 +14718,57 @@ Review conclusion:
 - Persisted Run summary reads are closed as a complete, narrow workstream.
 - The next phase is checkpoint marker authority tests, not UI or scheduler
   implementation.
+
+## 2026-06-11: Phase 50 Checkpoint Marker Read Authority Contract Gate
+
+Phase 50 adds a contract test for the next checkpoint marker authority boundary.
+It does not implement a full Run state machine, runtime Run store expansion,
+database migration, automatic resume, background scheduler loop, stale
+actionability recovery, frontend Run UI, checkpoint marker UI, or React-owned
+runtime state.
+
+Implemented:
+
+- Added `TestRuntimeRunSummaryJSONExcludesCheckpointMarkersAndActionability`.
+- The test builds a persisted Run with checkpoint evidence plus user-action
+  markers:
+  - acknowledgement timestamp;
+  - discard timestamp;
+  - resumed-turn IDs;
+  - resume eligibility;
+  - artifact refs and checkpoint summary evidence.
+- The test proves `RuntimeRunSummary` JSON still exposes only accepted summary
+  fields and does not leak checkpoint markers or actionability.
+
+Existing coverage retained for this boundary:
+
+- `AcknowledgeCheckpoint` and `DiscardCheckpoint` are idempotent.
+- `LinkCheckpointResume` records resumed-turn IDs without mutating checkpoint
+  source evidence.
+- Bounded `RunProjection` reads preserve persisted checkpoint markers and do
+  not mutate persisted Run detail.
+- Full Run detail reconciliation preserves checkpoint markers and does not
+  attach action metadata to plain reads.
+
+Still rejected:
+
+- Checkpoint markers as checkpoint source evidence.
+- Checkpoint markers as resume eligibility.
+- Checkpoint markers as automatic resume triggers.
+- Checkpoint markers as stale interrupted/actionability restoration.
+- Summary DTO, events, action metadata, assistant prose, transition rows alone,
+  bounded/windowed reads, or browser memory as checkpoint authority.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Checkpoint marker read authority remains narrower than checkpoint evidence or
+  actionability.
+- The next step should accept the contract before adding any marker-specific
+  read surface.

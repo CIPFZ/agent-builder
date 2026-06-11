@@ -2891,3 +2891,10 @@ Phase 49 note:
 - The next boundary is checkpoint marker read authority.
 - Frontend code must not treat checkpoint markers as resume/actionability state
   without full runtime DTO parity.
+
+Phase 50 note:
+
+- Backend tests now verify summary DTOs cannot leak checkpoint markers or
+  resume actionability.
+- Frontend code must still read checkpoint marker/actionability state from full
+  runtime DTOs, not summaries, events, or action metadata.

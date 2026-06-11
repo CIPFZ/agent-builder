@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -121,6 +122,58 @@ func TestRuntimeRunSummaryFromRunStripsLifecycleAndEvidence(t *testing.T) {
 	}
 	if len(summary.SessionIDs) != 2 || !slices.Contains(summary.SessionIDs, "session-child") {
 		t.Fatalf("summary sessions = %#v", summary.SessionIDs)
+	}
+}
+
+func TestRuntimeRunSummaryJSONExcludesCheckpointMarkersAndActionability(t *testing.T) {
+	t.Parallel()
+
+	summary := runtimeRunSummaryFromRun(RuntimeRun{
+		ID:               "run-summary",
+		WorkspaceID:      "workspace-1",
+		PrimarySessionID: "session-1",
+		SessionIDs:       []string{"session-1"},
+		Objective:        "summary only",
+		Status:           runtimeRunStatusInterrupted,
+		Source:           runtimeRunSourceUserPrompt,
+		Checkpoints: []RuntimeRunCheckpoint{{
+			ID:             "checkpoint-1",
+			TurnID:         "turn-1",
+			Status:         runtimeRunCheckpointStatusResumable,
+			Summary:        "checkpoint evidence",
+			ArtifactRefs:   []string{"artifact://report"},
+			AcknowledgedAt: 1200,
+			DiscardedAt:    1300,
+			ResumedTurnIDs: []string{"turn-resume-1"},
+			ResumeEligible: true,
+		}},
+		CreatedAt: 1000,
+		UpdatedAt: 1400,
+	})
+	payload, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{
+		"status",
+		"finishedAt",
+		"checkpoints",
+		"acknowledgedAt",
+		"discardedAt",
+		"resumedTurnIds",
+		"resumeEligible",
+		"artifactRefs",
+	} {
+		if _, ok := raw[field]; ok {
+			t.Fatalf("summary leaked checkpoint/actionability field %q: %s", field, string(payload))
+		}
+	}
+	if raw["id"] != "run-summary" || raw["primarySessionId"] != "session-1" {
+		t.Fatalf("summary lost accepted identity fields: %s", string(payload))
 	}
 }
 
