@@ -2952,3 +2952,10 @@ Phase 50.9 note:
 - Read-only HTTP marker transport is accepted.
 - Next frontend work is adapter smoke only; marker data must not enter
   hydration, `WorkbenchViewModel`, or UI.
+
+Phase 50.10 note:
+
+- Frontend adapter now has optional low-level marker read transport and static
+  smoke coverage.
+- Hydration, `WorkbenchViewModel`, workspace UI, and Run projection UI still do
+  not consume marker DTOs.

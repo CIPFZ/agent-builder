@@ -533,6 +533,11 @@ Phase 50.9 note:
 - Frontend adapter smoke may be added next, but marker reads must not become UI
   state or actionability state.
 
+Phase 50.10 note:
+
+- Low-level adapter marker transport is covered.
+- Marker DTOs remain explicit rereads and are not workbench/UI state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

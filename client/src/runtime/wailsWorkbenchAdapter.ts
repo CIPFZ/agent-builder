@@ -472,6 +472,34 @@ interface RuntimeRunSummaryResponseDTO {
   source?: RuntimeRunSummarySourceDTO;
 }
 
+interface RuntimeRunCheckpointMarkerDTO {
+  runId: string;
+  checkpointId: string;
+  turnId?: string;
+  acknowledgedAt?: number;
+  discardedAt?: number;
+  resumedTurnIds?: string[];
+}
+
+interface RuntimeRunCheckpointMarkerSourceDTO {
+  kind?: string;
+  readOnly?: boolean;
+  markerOnly?: boolean;
+  persistedRunAuthority?: boolean;
+  projectionRequiredForEligibility?: boolean;
+  excludedEvidence?: string[];
+}
+
+interface RuntimeRunCheckpointMarkersResponseDTO {
+  markers?: RuntimeRunCheckpointMarkerDTO[];
+  source?: RuntimeRunCheckpointMarkerSourceDTO;
+}
+
+interface RuntimeRunCheckpointMarkerResponseDTO {
+  marker?: RuntimeRunCheckpointMarkerDTO;
+  source?: RuntimeRunCheckpointMarkerSourceDTO;
+}
+
 interface RuntimeRunResumeResponseDTO extends RuntimeWriteActionResponseDTO {
   runId?: string;
   checkpointId?: string;
@@ -680,6 +708,8 @@ interface RuntimeBridgeModule {
   RunProjection?: (req: RuntimeRunProjectionRequestDTO) => Promise<RuntimeRunProjectionResponseDTO>;
   RunSummaries?: () => Promise<RuntimeRunSummariesResponseDTO>;
   RunSummary?: (runID: string) => Promise<RuntimeRunSummaryResponseDTO>;
+  RunCheckpointMarkers?: (runID: string) => Promise<RuntimeRunCheckpointMarkersResponseDTO>;
+  RunCheckpointMarker?: (runID: string, checkpointID: string) => Promise<RuntimeRunCheckpointMarkerResponseDTO>;
   RunSchedulerPlan?: (req: RuntimeRunSchedulerPlanRequestDTO) => Promise<RuntimeRunSchedulerPlanResponseDTO>;
   ResumeRunCheckpoint?: (runID: string, checkpointID: string) => Promise<RuntimeRunResumeResponseDTO>;
   ExecuteRunTask?: (runID: string, taskID: string) => Promise<RuntimeRunSchedulerExecuteTaskResponseDTO>;
@@ -2166,6 +2196,12 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
   },
   RunSummaries: () => runtimeFetch<RuntimeRunSummariesResponseDTO>('/v1/run-summaries'),
   RunSummary: (runID) => runtimeFetch<RuntimeRunSummaryResponseDTO>(`/v1/run-summaries/${encodeURIComponent(runID)}`),
+  RunCheckpointMarkers: (runID) =>
+    runtimeFetch<RuntimeRunCheckpointMarkersResponseDTO>(`/v1/runs/${encodeURIComponent(runID)}/checkpoint-markers`),
+  RunCheckpointMarker: (runID, checkpointID) =>
+    runtimeFetch<RuntimeRunCheckpointMarkerResponseDTO>(
+      `/v1/runs/${encodeURIComponent(runID)}/checkpoint-markers/${encodeURIComponent(checkpointID)}`,
+    ),
   RunSchedulerPlan: (req) => {
     const params = new URLSearchParams();
     if (req.runId) {

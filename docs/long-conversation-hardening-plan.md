@@ -11257,8 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 50.9 and decide Phase 50.10: Checkpoint Marker Adapter Smoke
-Gate. Add low-level adapter transport smoke without adding UI state.
+Review/accept Phase 50.10 and decide Phase 50.11: Checkpoint Marker Adapter
+Acceptance Gate. Accept low-level adapter smoke before any UI or Wails product
+binding work.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -15258,3 +15259,54 @@ Review conclusion:
 
 - Phase 50.8 is accepted.
 - The next safe step is adapter transport smoke only.
+
+## 2026-06-11: Phase 50.10 Checkpoint Marker Adapter Smoke Gate
+
+Phase 50.10 adds low-level frontend adapter transport support and static smoke
+for checkpoint marker reads. It does not implement a full Run state machine,
+runtime Run store expansion, database migration, automatic resume, background
+scheduler loop, stale actionability recovery, frontend Run UI, checkpoint marker
+UI, Wails product binding rollout, or React-owned runtime state.
+
+Implemented:
+
+- Added private TypeScript DTOs for marker-only checkpoint reads.
+- Added optional bridge methods:
+  - `RunCheckpointMarkers(runID)`
+  - `RunCheckpointMarker(runID, checkpointID)`
+- Added HTTP bridge reads for:
+  - `/v1/runs/{run_id}/checkpoint-markers`
+  - `/v1/runs/{run_id}/checkpoint-markers/{checkpoint_id}`
+- Added `client/scripts/phase5010-checkpoint-marker-adapter-smoke.mjs`.
+- Added `npm run smoke:phase5010`.
+
+Smoke coverage:
+
+- Adapter can explicitly reread marker list/detail DTOs from backend routes.
+- Hydration does not call marker reads automatically.
+- No `mapRunCheckpointMarker` path maps marker DTOs into frontend state.
+- `WorkbenchViewModel`, `Workspace`, and `RunProjectionPreview` do not render or
+  store marker DTOs.
+
+Still not implemented:
+
+- No Wails product binding rollout.
+- No view-model state.
+- No UI rendering.
+- No scheduler or resume behavior.
+- No event/action metadata merge semantics.
+
+Validation:
+
+```powershell
+cd client; npm run smoke:phase5010; npm run build
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Low-level adapter marker transport is covered by static smoke.
+- Marker DTOs remain explicit rereads and are not UI state.
+- The next step should accept adapter smoke before any UI or Wails product
+  binding work.
