@@ -2839,3 +2839,10 @@ Phase 47 note:
   reread coverage.
 - Future persisted Run authority work remains backend design-gated; frontend
   must continue to treat runtime DTOs as the status source.
+
+Phase 48 note:
+
+- Persisted Run authority is design-only and backend/read-only scoped.
+- Frontend must still render status/evidence from runtime DTOs and must not
+  infer Run state from events, action metadata, transition rows, or browser
+  memory.

@@ -414,6 +414,16 @@ Phase 47 note:
 - Broader persisted Run authority requires a separate design gate and must not
   start with migrations, auto-resume, background scheduling, or frontend Run UI.
 
+Phase 48 note:
+
+- Persisted Run authority is accepted only as a design gate.
+- Durable Run identity, session membership, and selected summary metadata are
+  candidates for read authority.
+- Terminal/recovery lifecycle, checkpoints, diagnostics, artifacts,
+  permissions, MCP actionability, interrupted summaries, scheduler candidates,
+  and transition interpretation still require full `RunProjection` /
+  `SessionActivity` parity.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

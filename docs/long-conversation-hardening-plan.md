@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 48: Persisted Run Authority Readiness Design Gate. Design the
-next read-only authority boundary before any Run persistence expansion,
-migration, auto-resume, scheduler loop, or frontend Run UI.
+Review/accept Phase 48 and decide Phase 48.1: Persisted Run Authority Contract
+Test Gate. Add tests for the accepted read-only authority boundary before any
+implementation.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14281,3 +14281,98 @@ Review conclusion:
 - The project has a narrow status writer plus backend/transport/frontend
   reread coverage.
 - Broader Run authority requires a separate design gate.
+
+## 2026-06-11: Phase 48 Persisted Run Authority Readiness Design Gate
+
+Phase 48 designs the next read-only persisted Run authority boundary. It is a
+design gate only. It does not implement a full Run state machine, runtime Run
+store expansion, database migration, automatic resume, background scheduler
+loop, stale actionability recovery, frontend Run UI, or React-owned runtime
+state.
+
+Problem:
+
+- Persisted Run rows now have a constrained status writer and restart/read
+  smoke coverage.
+- `RunProjection` and `SessionActivity` still provide richer evidence and
+  remain the parity oracle for terminal/recovery status, checkpoints,
+  diagnostics, artifacts, permissions, MCP actionability, and interrupted
+  summaries.
+- The next step should not make persisted Run rows globally authoritative.
+  Instead, it should define a narrow read-only authority boundary that can be
+  tested before implementation.
+
+Accepted persisted Run read authority:
+
+- Durable identity:
+  - `run.id`
+  - `workspace_id`
+  - `primary_session_id`
+  - `runtime_run_sessions` membership
+- User-facing summary metadata:
+  - `objective`
+  - `source`
+  - `created_at`
+  - `updated_at`
+  - `finished_at`, only when paired with a terminal status that passed helper
+    validation or full projection reconciliation.
+- Status for list/detail display when the read response also includes or can
+  cheaply verify full projection parity for terminal/recovery states.
+- Checkpoint acknowledgement/discard/resumed-turn markers as durable user
+  action markers, not as source checkpoint evidence replacement.
+
+Fields that still require full `RunProjection` / `SessionActivity` parity:
+
+- Terminal/recovery status when persisted status conflicts with structured
+  evidence.
+- Checkpoint source evidence: source turn/task IDs, summaries, artifact refs,
+  diagnostic refs, and resume eligibility.
+- Diagnostics counts and warnings.
+- Produced/verified/expected artifact evidence.
+- Permission and MCP actionability.
+- Interrupted summaries and resume/discard user actions.
+- Scheduler task candidates and preflight details.
+- Transition history interpretation.
+
+Rejected authority inputs:
+
+- Runtime event payloads.
+- Action metadata.
+- Assistant prose.
+- Frontend/React/browser memory.
+- Transition history rows alone.
+- Bounded/windowed projection reads.
+- Stale running/waiting tool state.
+- Stale permission/MCP auth/elicitation actionability.
+
+Accepted Phase 48.1 scope:
+
+- Add contract tests before implementation.
+- Tests should prove:
+  - persisted identity/session membership can be read without rebuilding the
+    entire projection;
+  - terminal/recovery display still reconciles or rejects conflicts using full
+    projection parity;
+  - checkpoint markers can be read durably without replacing source evidence;
+  - bounded/windowed reads cannot promote persisted status or checkpoint source
+    evidence;
+  - events/action metadata/transition-only evidence cannot become authority.
+- If tests expose a small missing guard, fix only that guard.
+- Do not add migrations, auto-resume, background scheduler loops, frontend Run
+  UI, or stale actionability recovery.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- Persisted Run rows may become authoritative for identity and selected summary
+  metadata.
+- Full `RunProjection` / `SessionActivity` remain required for evidence-rich
+  lifecycle, artifact, diagnostic, checkpoint, permission, MCP, and
+  interrupted state.
+- The next task is Phase 48.1 contract tests.
