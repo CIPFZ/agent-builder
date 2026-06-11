@@ -2572,3 +2572,15 @@ Phase 37.13 note:
   stale actionable auth/elicitation requests and must not contain response
   summaries, error text, tokens, raw headers, auth URLs, screenshots, browser
   profiles, provider logs, or OAuth/browser auth state.
+
+Phase 37.14 note:
+
+- `DecideMCPRequest(...)` responses now include optional
+  `RuntimeMCPRequestResponse.action` metadata.
+- Plain MCP request reads/lists omit action metadata.
+- Frontend code may use MCP decision `action.refreshTargets` to choose durable
+  rereads, but must not derive MCP auth/elicitation actionability from the
+  action payload and must not cache metadata as React-owned MCP state.
+- Action metadata must remain redacted and must not contain response summaries,
+  errors, tokens, raw headers, auth URLs, screenshots, browser profiles,
+  provider logs, or OAuth/browser auth state.

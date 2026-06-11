@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.14: MCP Request Decision Write Action Metadata
-Implementation. Add optional shared metadata to `RuntimeMCPRequestResponse`
-only when returned by `DecideMCPRequest(...)`, preserve terminal/stale
-non-actionability, and keep hosted secrets/auth state out of fixtures and logs.
+Implement Phase 37.15: Runtime Write Action Envelope Final Acceptance And Next
+Roadmap Gate. Review the completed scheduler/Run/permission/MCP decision
+metadata rollout, verify source-of-truth boundaries, and decide the next
+roadmap item outside broad write-response migration.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12488,3 +12488,60 @@ Review conclusion:
 - `DecideMCPRequest(...)` can adopt shared write-action metadata next, but only
   on `RuntimeMCPRequestResponse` and only as redacted request/refresh metadata.
 - Stale MCP auth/elicitation actionability remains forbidden after restart.
+
+## 2026-06-11: Phase 37.14 MCP Request Decision Write Action Metadata Implementation
+
+Phase 37.14 implements the shared write-action metadata envelope for
+`DecideMCPRequest(...)` only. It preserves existing MCP request decision
+behavior and does not change hosted OAuth behavior, MCP request storage,
+startup recovery, stale actionability semantics, database schema, Run
+persistence, automatic resume, background scheduling, or frontend Run UI.
+
+Implemented:
+
+- Added optional `action` metadata to `RuntimeMCPRequestResponse`.
+- Populated `action` only from `DecideMCPRequest(...)`.
+- Plain `MCPRequest(...)` reads and `MCPRequests(...)` lists continue to omit
+  action metadata.
+- Pending MCP auth/elicitation decisions return `accepted=true` metadata after
+  existing store mark, lifecycle publish, audit write, and retry-needed updates
+  succeed.
+- Already-terminal MCP requests return `accepted=false` with
+  `mcp_request_already_terminal`; they are not mutated and do not become
+  actionable again.
+- Used source kind `mcp_request_decision`, action equal to the requested MCP
+  decision value, `backendOnly=true`, `startsWorker=false`,
+  `idempotentBy="mcp_request_id"`, and `sessionActivityParity=true`.
+- Added refresh targets for MCP requests, MCP servers, session activity,
+  diagnostics, and status rereads.
+- Declared durable evidence names for MCP request rows, MCP server state,
+  runtime events, audit, and session activity.
+- Extended MCP request tests for accepted metadata, terminal/stale rejected
+  metadata, plain read omission, and no secret/error text copied into action
+  metadata.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run "TestRuntimeMCPRequest" -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- The MCP request decision envelope is additive and metadata-only.
+- MCP auth/elicitation actionability, terminal status, server retry-needed
+  state, diagnostics, session activity, and replay/audit evidence remain
+  durable DTO/read concerns after the action.
+- The implementation does not automate hosted OAuth credentials, recover stale
+  MCP auth/elicitation actionability, add frontend MCP actionability state
+  ownership, copy response summaries/errors/secrets into metadata, add a Run
+  state machine, add migrations, add background scheduling, add automatic
+  resume, or derive state from events/action payloads/assistant prose.
+
+Remaining risk:
+
+- The core write-action metadata rollout is now broad enough for the
+  scheduler/Run/permission/MCP decision path. Further admin/config/worktree/
+  session writes should not be migrated broadly without a specific product need
+  and focused gate.

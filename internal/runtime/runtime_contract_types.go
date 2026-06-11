@@ -1242,7 +1242,8 @@ type RuntimeMCPRequestsResponse struct {
 }
 
 type RuntimeMCPRequestResponse struct {
-	Request RuntimeMCPRequest `json:"request"`
+	Request RuntimeMCPRequest           `json:"request"`
+	Action  *RuntimeWriteActionMetadata `json:"action,omitempty"`
 }
 
 type RuntimeMCPRequestListRequest struct {

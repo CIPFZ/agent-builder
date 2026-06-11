@@ -11,6 +11,22 @@ import (
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
+const (
+	runtimeMCPRequestDecisionActionSourceKind      = "mcp_request_decision"
+	runtimeMCPRequestDecisionReasonAccepted        = "mcp_request_decision_recorded"
+	runtimeMCPRequestDecisionReasonAlreadyTerminal = "mcp_request_already_terminal"
+)
+
+func runtimeMCPRequestDecisionRefreshTargets() []string {
+	return []string{
+		"mcp_requests",
+		"mcp_servers",
+		"session_activity",
+		"diagnostics",
+		"status",
+	}
+}
+
 func (r *runtimeService) MCPRequests(ctx context.Context, filter RuntimeMCPRequestListRequest) (RuntimeMCPRequestsResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimeMCPRequestsResponse{}, err
@@ -47,7 +63,7 @@ func (r *runtimeService) DecideMCPRequest(ctx context.Context, decision RuntimeM
 		return RuntimeMCPRequestResponse{}, err
 	}
 	if mcpRequestStatusTerminal(req.Status) {
-		return RuntimeMCPRequestResponse{Request: req}, nil
+		return withRuntimeMCPRequestDecisionAction(RuntimeMCPRequestResponse{Request: req}, false, action, runtimeMCPRequestDecisionReasonAlreadyTerminal), nil
 	}
 	status := ""
 	errText := decision.Error
@@ -79,7 +95,31 @@ func (r *runtimeService) DecideMCPRequest(ctx context.Context, decision RuntimeM
 	if updated.Kind == mcpRequestKindElicitation && updated.Status == mcpRequestStatusCompleted {
 		r.markMCPServerRetryNeeded(updated.Server, "elicitation_completed")
 	}
-	return RuntimeMCPRequestResponse{Request: updated}, nil
+	return withRuntimeMCPRequestDecisionAction(RuntimeMCPRequestResponse{Request: updated}, true, action, runtimeMCPRequestDecisionReasonAccepted), nil
+}
+
+func withRuntimeMCPRequestDecisionAction(resp RuntimeMCPRequestResponse, accepted bool, action, reason string) RuntimeMCPRequestResponse {
+	resp.Action = &RuntimeWriteActionMetadata{
+		Accepted:       accepted,
+		Reason:         reason,
+		RefreshTargets: runtimeMCPRequestDecisionRefreshTargets(),
+		Source: RuntimeWriteActionSource{
+			Kind:                  runtimeMCPRequestDecisionActionSourceKind,
+			Action:                action,
+			BackendOnly:           true,
+			StartsWorker:          false,
+			IdempotentBy:          "mcp_request_id",
+			SessionActivityParity: true,
+			Evidence: []string{
+				"runtime_mcp_requests",
+				"runtime_mcp_servers",
+				"runtime_events",
+				"runtime_audit",
+				"session_activity",
+			},
+		},
+	}
+	return resp
 }
 
 func (r *runtimeService) RetryMCPServer(ctx context.Context, name string) (RuntimeMCPServersResponse, error) {

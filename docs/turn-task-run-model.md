@@ -142,6 +142,15 @@ Phase 37.13 note:
 - Terminal or stale MCP requests must not be mutated or made actionable again;
   metadata may only report a rejected/already-terminal decision attempt.
 
+Phase 37.14 note:
+
+- `RuntimeMCPRequestResponse` now has optional shared write-action metadata
+  populated only by `DecideMCPRequest(...)`.
+- Plain MCP request reads/lists omit action metadata.
+- Terminal/stale MCP auth or elicitation requests remain non-actionable; action
+  metadata does not contain response summaries, error text, secrets, or auth
+  state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

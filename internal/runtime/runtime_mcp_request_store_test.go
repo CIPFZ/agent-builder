@@ -276,6 +276,9 @@ func TestRuntimeMCPStartupCancelsStaleActionableAuthAndElicitationRequests(t *te
 	if resp.Request.Status != mcpRequestStatusCancelled {
 		t.Fatalf("terminal cancelled request became actionable again: %#v", resp.Request)
 	}
+	if resp.Action == nil || resp.Action.Accepted || resp.Action.Reason != runtimeMCPRequestDecisionReasonAlreadyTerminal || resp.Action.Source.Kind != runtimeMCPRequestDecisionActionSourceKind || resp.Action.Source.Action != "approve" || resp.Action.Source.IdempotentBy != "mcp_request_id" {
+		t.Fatalf("terminal decision action metadata = %#v", resp.Action)
+	}
 
 	replay, err := service.ReplayExport(context.Background(), RuntimeReplayExportRequest{SessionID: sess.ID, TurnID: turnID})
 	if err != nil {
@@ -351,6 +354,19 @@ func TestRuntimeMCPRequestDecisionsEmitAuditEventsAndReplay(t *testing.T) {
 	if resp.Request.Status != mcpRequestStatusCompleted {
 		t.Fatalf("decision response = %#v", resp)
 	}
+	if resp.Action == nil || !resp.Action.Accepted || resp.Action.Reason != runtimeMCPRequestDecisionReasonAccepted || resp.Action.Source.Kind != runtimeMCPRequestDecisionActionSourceKind || resp.Action.Source.Action != "approve" || resp.Action.Source.IdempotentBy != "mcp_request_id" {
+		t.Fatalf("mcp decision action metadata = %#v", resp.Action)
+	}
+	if len(resp.Action.RefreshTargets) == 0 || resp.Action.Source.StartsWorker || !resp.Action.Source.BackendOnly || !resp.Action.Source.SessionActivityParity {
+		t.Fatalf("mcp decision source/refresh metadata = %#v", resp.Action)
+	}
+	plain, err := service.MCPRequest(context.Background(), "mcp-req-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.Action != nil {
+		t.Fatalf("plain mcp request read should not carry decision action metadata: %#v", plain.Action)
+	}
 	events, err := service.Events(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -394,8 +410,16 @@ func TestRuntimeMCPRequestEventAuditReplayRedactsSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.DecideMCPRequest(context.Background(), RuntimeMCPRequestDecision{RequestID: req.ID, Action: "fail", Error: "Authorization: Bearer sk-secret"}); err != nil {
+	resp, err := service.DecideMCPRequest(context.Background(), RuntimeMCPRequestDecision{RequestID: req.ID, Action: "fail", Error: "Authorization: Bearer sk-secret"})
+	if err != nil {
 		t.Fatal(err)
+	}
+	actionData, err := json.Marshal(resp.Action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToLower(string(actionData)), "secret") || strings.Contains(strings.ToLower(string(actionData)), "bearer") {
+		t.Fatalf("mcp decision action metadata leaked secret: %s", actionData)
 	}
 	replay, err := service.ReplayExport(context.Background(), RuntimeReplayExportRequest{SessionID: "session-secret"})
 	if err != nil {
@@ -447,6 +471,9 @@ func TestRuntimeMCPRequestDeniedCancelledFailedPaths(t *testing.T) {
 		}
 		if resp.Request.Status != tc.status {
 			t.Fatalf("%s status = %#v", tc.id, resp.Request)
+		}
+		if resp.Action == nil || !resp.Action.Accepted || resp.Action.Source.Action != tc.action {
+			t.Fatalf("%s action metadata = %#v", tc.id, resp.Action)
 		}
 		if strings.Contains(strings.ToLower(resp.Request.Error), "secret") {
 			t.Fatalf("error leaked secret: %#v", resp.Request)
