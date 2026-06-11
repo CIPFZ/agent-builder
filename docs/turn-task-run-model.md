@@ -498,6 +498,12 @@ Phase 50.3 note:
 - Marker-only DTO contract types are covered by tests.
 - Marker DTOs exclude source evidence and resume/actionability fields.
 
+Phase 50.4 note:
+
+- Marker-only DTO contract is accepted.
+- The next allowed work is backend-only marker read helper coverage, not
+  transport, UI, scheduler, or resume behavior.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

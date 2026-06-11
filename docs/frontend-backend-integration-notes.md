@@ -2916,3 +2916,9 @@ Phase 50.3 note:
 - Backend marker-only DTO contract types and tests now exist.
 - No frontend adapter method, `WorkbenchViewModel` state, or UI rendering was
   added for checkpoint markers.
+
+Phase 50.4 note:
+
+- Marker-only DTO contract is accepted.
+- Next work remains backend-only helper coverage; no transport or frontend
+  marker surface is accepted yet.

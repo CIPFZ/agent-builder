@@ -11257,8 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 50.3 and decide Phase 50.4: Checkpoint Marker Read DTO
-Acceptance Gate. Accept marker DTO contract tests before adding a read surface.
+Review/accept Phase 50.4 and decide Phase 50.5: Checkpoint Marker Backend Read
+Helper Contract Gate. Add backend-only read helper tests before any transport
+surface.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14954,3 +14955,56 @@ Review conclusion:
 
 - The marker-only DTO contract is now covered.
 - The next step should accept this DTO contract before adding any read surface.
+
+## 2026-06-11: Phase 50.4 Checkpoint Marker Read DTO Acceptance Gate
+
+Phase 50.4 accepts the marker-only checkpoint DTO contract and chooses the next
+backend-only scope. It is a review/scope gate only. It does not implement a full
+Run state machine, runtime Run store expansion, database migration, automatic
+resume, background scheduler loop, stale actionability recovery, frontend Run
+UI, checkpoint marker UI, transport routes, Wails bindings, or React-owned
+runtime state.
+
+Accepted:
+
+- `RuntimeRunCheckpointMarker` is stable as a marker-only DTO.
+- Marker DTO fields are limited to:
+  - run ID;
+  - checkpoint ID;
+  - optional source turn ID;
+  - acknowledgement timestamp;
+  - discard timestamp;
+  - resumed-turn IDs.
+- `RuntimeRunCheckpointMarkerSource` correctly marks the DTO as read-only,
+  marker-only, persisted Run authority, and projection-required for eligibility.
+
+Still rejected:
+
+- HTTP route exposure.
+- Wails/frontend adapter exposure.
+- Workbench view-model state.
+- Checkpoint marker UI rendering.
+- Scheduler or resume behavior.
+- Checkpoint source evidence, resume eligibility, lifecycle status, diagnostics,
+  artifacts, permission/MCP actionability, interrupted summaries, transition
+  interpretation, or projection payloads in marker DTOs.
+
+Chosen next scope:
+
+- Phase 50.5 should add backend-only read helper contract tests.
+- The helper may read marker DTOs from persisted Run/checkpoint data.
+- The helper must not write, reconcile, infer eligibility, or start work.
+- No transport or frontend surface should be added until backend helper
+  behavior is accepted.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- Phase 50.3 is accepted.
+- The next safe step is backend-only marker read helper tests.
