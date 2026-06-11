@@ -2694,3 +2694,12 @@ Phase 40.2 note:
   passed.
 - Heavier packaged WebView2 click automation was not rerun and remains a
   separate validation surface.
+
+Phase 41 note:
+
+- The frontend action selector is accepted as the integration boundary for
+  shared write-action metadata.
+- Future Run persistence work must not require frontend Run state ownership.
+- The frontend should continue to render Run/cancellation/interrupted/
+  permission/MCP/timeline/diagnostic/artifact state from durable runtime DTO
+  reads while backend ownership boundaries are reviewed.

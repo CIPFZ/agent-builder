@@ -243,6 +243,17 @@ Phase 40.2 note:
 - The next gate should review readiness for any real Run persistence or
   scheduler broadening rather than implementing it by default.
 
+Phase 41 note:
+
+- The action metadata rollout is accepted across backend, transport, and
+  frontend selector consumption for the covered explicit actions.
+- Existing persisted Run detail/session links/checkpoints/transitions are real
+  durability foundations, but they are not yet a complete independent Run state
+  machine.
+- `RunProjection` and `SessionActivity` remain parity oracles; the next gate
+  should define persisted Run lifecycle ownership before any broader
+  persistence or scheduler work.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

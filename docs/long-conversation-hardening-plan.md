@@ -11257,10 +11257,11 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 41: Action Metadata Rollout Final Acceptance And Run
-Persistence Readiness Gate. Review the completed backend/transport/frontend
-selector rollout and decide what evidence is still required before any real
-Run persistence or scheduler broadening work.
+Implement Phase 41.1: Persisted Run Lifecycle Ownership Contract Gate. Review
+which existing persisted Run fields can become authoritative under explicit
+runtime writes while preserving `RunProjection`/`SessionActivity` parity and
+without adding migrations, auto-resume, background scheduling, or frontend Run
+UI.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13190,3 +13191,77 @@ Review conclusion:
 - Phase 40.1 is accepted.
 - The next task is Phase 41: Action Metadata Rollout Final Acceptance And Run
   Persistence Readiness Gate.
+
+## 2026-06-11: Phase 41 Action Metadata Rollout Final Acceptance And Run Persistence Readiness Gate
+
+Phase 41 accepts the completed backend/transport/frontend action metadata
+rollout and reviews readiness for future Run persistence work. It is a design
+gate only. It does not change runtime behavior, database schema, migrations,
+automatic resume, background scheduling, stale tool recovery, stale permission
+recovery, stale MCP auth/elicitation recovery, or frontend Run UI.
+
+Accepted action metadata rollout:
+
+- Backend explicit write actions now expose shared action metadata for
+  scheduler task execution, task cancellation, checkpoint acknowledge/discard/
+  resume, permission decisions, MCP request decisions, turn cancellation, and
+  interrupted acknowledgement.
+- HTTP direct/dev-module and desktop bridge tests cover forwarding for the core
+  action paths.
+- The frontend adapter now uses action metadata only as an allowlisted durable
+  reread selector with full hydration fallback.
+- Runtime events remain refresh triggers only. Action/event payloads are not
+  timeline, diagnostic, artifact, ref, interrupted, permission, MCP,
+  checkpoint, scheduler, cancellation, or Run state truth.
+
+Current Run persistence reality:
+
+- The project already has persisted Run tables/stores for Run detail,
+  session/turn links, checkpoints, and transition history.
+- Persisted Run detail is not yet a complete independent Run state machine.
+- `RunProjection` and `SessionActivity` remain the parity oracle for lifecycle,
+  diagnostics, artifacts, tool calls, permissions, MCP actionability, and
+  interrupted summaries.
+- Full `RunProjection` reads may reconcile persisted Run detail; bounded
+  projection/window reads are intentionally read-only and must not mutate Run
+  detail.
+- Explicit foreground actions such as checkpoint resume, scheduler task
+  execution, task cancellation, turn cancellation, and interrupted mark-done
+  already write structured durable evidence and transition records.
+
+Readiness assessment:
+
+- Ready: review a narrow ownership contract for existing persisted Run fields
+  that are already backed by explicit structured writes and transition
+  evidence.
+- Not ready: replacing `RunProjection`/`SessionActivity` with persisted Run
+  detail as the sole source of truth.
+- Not ready: implementing automatic resume, stale actionability recovery,
+  background scheduler loops, broad migration churn, or frontend Run management
+  UI.
+- Not ready: deriving Run lifecycle or produced refs from assistant prose,
+  runtime event payloads, frontend React state, or action metadata.
+
+Accepted Phase 41.1 scope:
+
+- Audit existing persisted Run lifecycle fields and transition sources.
+- Define which fields can be authoritative only after explicit runtime writes.
+- Define which fields must remain projection/parity-derived.
+- Add or update contract tests if the audit finds an unprotected edge in the
+  existing store/projection behavior.
+- Do not add database migrations unless the audit proves an unavoidable
+  durability gap and a separate implementation phase accepts it.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- The action metadata rollout is accepted for the covered explicit actions.
+- Future Run work must start with persisted lifecycle ownership boundaries,
+  not with a full state machine or scheduler loop.
+- The next task is Phase 41.1: Persisted Run Lifecycle Ownership Contract Gate.
