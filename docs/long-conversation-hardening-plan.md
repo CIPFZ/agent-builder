@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.12: Runtime Write Action Envelope Rollout Acceptance And
-Remaining Action Inventory. Review scheduler execute, task cancel, checkpoint
-ack/discard/resume, and permission decision metadata, then decide whether the
-remaining writes need focused envelope phases or should stay specialized.
+Implement Phase 37.13: MCP Request Decision Write Action Envelope Contract Gate.
+Review `DecideMCPRequest(...)` for auth/elicitation decision metadata, define a
+contract that cannot resurrect stale MCP actionability, and keep admin/config
+writes specialized unless a later focused phase accepts them.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12312,3 +12312,94 @@ Remaining risk:
   without shared `action` metadata. Phase 37.12 should review whether they need
   focused envelope phases or should remain specialized because they are outside
   the scheduler/Run/permission action track.
+
+## 2026-06-11: Phase 37.12 Runtime Write Action Envelope Rollout Acceptance And Remaining Action Inventory
+
+Phase 37.12 reviews the write-action envelope rollout across the core
+scheduler/Run/permission path and inventories remaining write actions. It is an
+acceptance/design phase only. It does not change runtime behavior, database
+schema, Run persistence, automatic resume, background scheduling, stale
+permission/MCP actionability recovery, or frontend Run UI.
+
+Accepted rollout coverage:
+
+- Scheduler task execute:
+  `RuntimeRunSchedulerExecuteTaskResponse.action`
+- Task cancellation:
+  `RuntimeAgentTaskResponse.action`
+- Checkpoint acknowledge/discard:
+  `RuntimeRunResponse.action`
+- Checkpoint resume:
+  top-level `RuntimeRunResumeResponse.action`
+- Permission decision:
+  `RuntimeStatus.action` only when returned by `DecidePermission(...)`
+
+Shared source-of-truth rule:
+
+- Action metadata describes acceptance, reason, source, refresh targets, worker
+  semantics, idempotency where applicable, and evidence names.
+- Action metadata is never the source of task lifecycle, Run projection,
+  checkpoint state, resumed-turn state, permission/tool/turn state, MCP
+  actionability, diagnostics, timeline rows, artifacts, refs, or interrupted
+  summaries.
+- Runtime events and action payloads may trigger or guide durable rereads, but
+  UI state still comes from runtime DTOs such as status, permissions, tool
+  calls, turn/session activity, Run detail/projection, scheduler plan,
+  transition history, refs, and audit-derived diagnostics.
+
+Remaining write inventory:
+
+- `DecideMCPRequest(...)`: candidate for the next contract gate. It is
+  analogous to permission decision, but touches MCP auth/elicitation
+  actionability and must explicitly preserve the no-stale-recovery rule.
+- `MarkInterruptedDone(...)` and `CancelTurn(...)`: terminal/interrupted
+  acknowledgement/cancellation actions. They are stable today, but need a
+  separate gate before adopting metadata because interrupted acknowledgement
+  must stay `MarkInterruptedDone` / cancelled terminal status semantics.
+- Agent task follow-up/message writes: keep specialized until child-agent
+  message UX needs shared refresh metadata.
+- Worktree lifecycle writes: keep specialized until worktree UI/actionability
+  needs shared refresh metadata.
+- Provider/model/config/policy/skills/plugin/MCP server admin writes: keep
+  specialized for now. They are admin/config surfaces rather than
+  scheduler/Run/permission actionability.
+- Session rename/delete/select/new chat: keep specialized for now. They affect
+  navigation/session selection, not the scheduler/Run action envelope track.
+
+Accepted Phase 37.13 scope:
+
+- Review `RuntimeMCPRequestResponse`, `DecideMCPRequest(...)`, hosted MCP
+  auth/elicitation semantics, restart cancellation, and existing stale
+  actionability tests.
+- Define whether MCP request decisions should carry shared metadata and where
+  it should live.
+- Require that metadata cannot restore stale actionable MCP auth/elicitation
+  requests after restart.
+- Keep secrets, auth state, raw headers, provider logs, screenshots, and OAuth
+  state out of fixtures/docs/logs/React state.
+
+Rejected for Phase 37.13:
+
+- No MCP request decision implementation yet.
+- No hosted OAuth automation with secrets.
+- No stale MCP auth/elicitation recovery.
+- No frontend MCP actionability state ownership.
+- No full Run state machine, Run store expansion, migration, background queue,
+  automatic resume, stale task/tool recovery, stale permission recovery, or
+  frontend Run management UI.
+- No event payload or action payload as source of truth.
+- No assistant-prose-derived refs, artifacts, checkpoints, or actionability.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Phase 37 core rollout is accepted for scheduler execute, task cancellation,
+  checkpoint acknowledge/discard/resume, and permission decision.
+- The next high-value candidate is an MCP request decision contract gate, not
+  broad migration of all admin/config writes.

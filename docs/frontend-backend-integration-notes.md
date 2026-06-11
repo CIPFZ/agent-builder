@@ -2551,3 +2551,14 @@ Phase 37.11 note:
   runtime DTO reads.
 - Decision action metadata must not be cached as React-owned permission state
   and must not resurrect stale permission gates.
+
+Phase 37.12 note:
+
+- Core write-action metadata rollout is accepted for scheduler execute, task
+  cancellation, checkpoint acknowledge/discard/resume, and permission decision.
+- Remaining admin/config/session/worktree writes stay specialized unless a
+  later focused phase accepts shared metadata for a specific action.
+- `DecideMCPRequest(...)` is the next contract-gate candidate. Any future MCP
+  decision metadata must not restore stale actionable auth/elicitation requests
+  and must not place secrets or auth state in fixtures, logs, screenshots, docs,
+  or React state.

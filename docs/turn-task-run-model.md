@@ -125,6 +125,15 @@ Phase 37.11 note:
   call, turn, diagnostic, timeline, MCP actionability, or session activity
   state.
 
+Phase 37.12 note:
+
+- Core write-action metadata rollout is accepted for scheduler execute, task
+  cancellation, checkpoint acknowledge/discard/resume, and permission decision.
+- Remaining admin/config/session/worktree writes stay specialized for now.
+- `DecideMCPRequest(...)` is the next contract-gate candidate because it touches
+  MCP auth/elicitation actionability and must preserve no-stale-recovery
+  semantics.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
