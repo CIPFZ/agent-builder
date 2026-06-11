@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 48.1 and decide Phase 48.2: Persisted Run Authority
-Acceptance And Implementation Scope Gate. Accept the read-only authority tests
-before any implementation expansion.
+Review/accept Phase 48.2 and decide Phase 48.3: Persisted Run Summary Read DTO
+Contract Gate. Add a narrow read DTO/API contract only for accepted persisted
+identity/session/summary fields before implementation.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14421,3 +14421,76 @@ Review conclusion:
 - Evidence-rich lifecycle and actionability still remain behind full
   `RunProjection` / `SessionActivity` parity.
 - The next task is Phase 48.2 acceptance and implementation scope selection.
+
+## 2026-06-11: Phase 48.2 Persisted Run Authority Acceptance And Implementation Scope Gate
+
+Phase 48.2 accepts the Phase 48.1 contract tests and chooses the next
+implementation boundary. It is a review/scope gate only. It does not implement a
+full Run state machine, runtime Run store expansion, database migration,
+automatic resume, background scheduler loop, stale actionability recovery,
+frontend Run UI, or React-owned runtime state.
+
+Accepted:
+
+- Persisted Run store reads are authoritative for:
+  - run ID;
+  - workspace ID;
+  - primary session ID;
+  - session membership;
+  - objective;
+  - source;
+  - created/updated timestamps.
+- `finished_at` may be displayed from persisted Run rows only with a terminal
+  status that came from the validated status writer or full projection
+  reconciliation.
+- Checkpoint acknowledgement/discard/resumed-turn markers remain durable user
+  action markers only.
+
+Still projection-bound:
+
+- Terminal/recovery status conflict handling.
+- Checkpoint source evidence and resume eligibility.
+- Diagnostics.
+- Produced/verified/expected artifact evidence.
+- Permission and MCP actionability.
+- Interrupted summaries.
+- Scheduler candidates and preflight details.
+- Transition history interpretation.
+
+Rejected implementation expansion:
+
+- Persisted status as sole lifecycle source.
+- Run persistence migration or schema expansion.
+- Automatic resume.
+- Background scheduler execution loop.
+- Stale running/waiting tool recovery.
+- Stale permission/MCP auth/elicitation recovery.
+- Frontend Run UI or React-owned Run state.
+- State from runtime event payloads, action metadata, assistant prose,
+  transition rows alone, bounded/windowed reads, or browser memory.
+
+Chosen next implementation scope:
+
+- Phase 48.3 should add a narrow read DTO/API contract for persisted Run
+  identity/session/summary fields.
+- The DTO must be explicitly named and documented as summary-only.
+- The DTO must not include diagnostics, artifacts, checkpoints source evidence,
+  interrupted summaries, scheduler details, permission actionability, or MCP
+  actionability.
+- Transport/frontend tests may verify reread behavior, but UI must continue to
+  use runtime DTO rereads and must not merge event payloads into Run state.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- Phase 48.1 is accepted.
+- The next safe implementation step is a summary-only persisted Run read
+  DTO/API contract.
+- Evidence-rich lifecycle and actionability remain outside persisted Run read
+  authority.

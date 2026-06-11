@@ -431,6 +431,16 @@ Phase 48.1 note:
   timestamps without rebuilding projection.
 - Rich lifecycle/evidence authority remains projection-bound.
 
+Phase 48.2 note:
+
+- Phase 48.1 is accepted.
+- The next implementation boundary is summary-only persisted Run reads:
+  identity, session membership, objective, source, and created/updated
+  timestamps.
+- Terminal/recovery lifecycle, checkpoint source evidence, diagnostics,
+  artifacts, permissions, MCP actionability, interrupted summaries, scheduler
+  details, and transition interpretation remain projection-bound.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

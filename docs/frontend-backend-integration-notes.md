@@ -2853,3 +2853,12 @@ Phase 48.1 note:
   authority.
 - Frontend behavior remains unchanged: evidence-rich Run state still comes from
   runtime DTO rereads.
+
+Phase 48.2 note:
+
+- The accepted next backend scope is a summary-only persisted Run read DTO/API
+  contract.
+- Frontend code must treat that DTO as identity/session/summary data only.
+- Events, action metadata, transition rows, browser memory, and summary DTO
+  fields must not restore lifecycle evidence or stale permission/MCP
+  actionability.
