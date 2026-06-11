@@ -11257,10 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 41.2: Persisted Run Lifecycle Ownership Contract Test
-Hardening. Add focused tests for the accepted Run ownership matrix without
-adding migrations, auto-resume, background scheduling, stale actionability
-recovery, or frontend Run UI.
+Review/accept Phase 41.2 and decide Phase 41.3: Persisted Run Ownership Test
+Acceptance And Next Runtime Boundary. Confirm the ownership matrix is protected
+before selecting any further Run persistence or scheduler work.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13345,3 +13344,44 @@ Review conclusion:
   ownership tests.
 - The next task is Phase 41.2: Persisted Run Lifecycle Ownership Contract Test
   Hardening.
+
+## 2026-06-11: Phase 41.2 Persisted Run Lifecycle Ownership Contract Test Hardening
+
+Phase 41.2 adds focused tests for the accepted persisted Run ownership matrix.
+It does not add runtime behavior, database schema, migrations, automatic
+resume, background scheduling, stale tool recovery, stale permission recovery,
+stale MCP auth/elicitation recovery, frontend Run UI, or React Run state.
+
+Implemented:
+
+- Added `TestRuntimeRunProjectionWindowPreservesPersistedCheckpointMarkers`.
+  It proves checkpoint acknowledgement/discard markers written by explicit
+  actions survive bounded `RunProjection(limit=...)` reads.
+- Added `TestRuntimeRunTransitionHistoryDoesNotMutatePersistedRunStatus`. It
+  proves transition history reads expose audit rows without mutating persisted
+  Run status, finished time, or updated time.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run "TestRuntimeRunProjectionWindow(PreservesPersistedCheckpointMarkers|DoesNotMutatePersistedRunDetail)|TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation|TestRuntimeRunTransitionHistory(DoesNotMutatePersistedRunStatus|DoesNotReplaceRunProjectionOrSessionActivity|ReturnsReadOnlyCursorWindow)" -count=1
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Persisted Run identity/session links/checkpoint user markers/transition rows
+  now have direct contract coverage for the key read-only projection/history
+  boundaries.
+- `RunProjection` and `SessionActivity` remain parity oracles for lifecycle,
+  diagnostics, artifacts, refs, permission/MCP actionability, interrupted
+  summaries, resume eligibility, and scheduler state.
+- No Run state machine, migration, auto-resume, stale actionability recovery,
+  background scheduler, frontend Run UI, or React Run state was added.
+
+Remaining risk:
+
+- Persisted Run status is still conditionally reconciled from full
+  `RunProjection`; a future implementation gate is required before it can
+  become independently authoritative.

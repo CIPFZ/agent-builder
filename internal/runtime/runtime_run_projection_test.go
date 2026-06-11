@@ -219,6 +219,46 @@ func TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail(t *testing.T)
 	}
 }
 
+func TestRuntimeRunProjectionWindowPreservesPersistedCheckpointMarkers(t *testing.T) {
+	t.Parallel()
+
+	service, sessionID, _ := newRuntimeRunProjectionFixture(t)
+
+	projection, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := projection.Run.ID
+	checkpointID := "turn:turn-run-new:interrupted"
+	acknowledged, err := service.AcknowledgeRunCheckpoint(context.Background(), runID, checkpointID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	discarded, err := service.DiscardRunCheckpoint(context.Background(), runID, checkpointID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := findRuntimeRunCheckpoint(discarded.Run.Checkpoints, checkpointID)
+	if before.AcknowledgedAt == 0 || before.DiscardedAt == 0 || before.ResumeEligible {
+		t.Fatalf("fixture checkpoint markers missing: %#v", before)
+	}
+
+	if _, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sessionID, Limit: 1}); err != nil {
+		t.Fatal(err)
+	}
+	afterRun, err := service.runs.Get(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := findRuntimeRunCheckpoint(afterRun.Checkpoints, checkpointID)
+	if after.AcknowledgedAt != before.AcknowledgedAt || after.DiscardedAt != before.DiscardedAt || after.ResumeEligible {
+		t.Fatalf("bounded projection mutated persisted checkpoint markers: before=%#v after=%#v", before, after)
+	}
+	if acknowledged.Action == nil || discarded.Action == nil {
+		t.Fatalf("checkpoint actions missing metadata: ack=%#v discard=%#v", acknowledged.Action, discarded.Action)
+	}
+}
+
 func TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation(t *testing.T) {
 	t.Parallel()
 

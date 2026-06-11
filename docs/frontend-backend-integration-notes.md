@@ -2714,3 +2714,11 @@ Phase 41.1 note:
 - The frontend contract does not change. React must not become a Run state
   owner and must continue to treat action/event payloads as refresh metadata
   only.
+
+Phase 41.2 note:
+
+- Backend tests now harden the persisted Run ownership matrix around bounded
+  projection reads and transition-history reads.
+- No frontend contract changed: UI state must still come from durable runtime
+  DTO rereads, not transition history rows, action metadata, event payloads, or
+  React-owned Run state.

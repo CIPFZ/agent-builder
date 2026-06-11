@@ -265,6 +265,15 @@ Phase 41.1 note:
 - The next implementation step should harden this matrix with tests, not add a
   full Run state machine or migrations.
 
+Phase 41.2 note:
+
+- Added tests proving bounded RunProjection reads preserve persisted checkpoint
+  acknowledgement/discard markers.
+- Added tests proving RunTransitionHistory reads do not mutate persisted Run
+  status or timestamps.
+- The ownership matrix is better protected without changing runtime behavior
+  or adding migrations.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

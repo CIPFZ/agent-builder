@@ -113,6 +113,48 @@ func TestRuntimeRunTransitionHistoryDoesNotReplaceRunProjectionOrSessionActivity
 	}
 }
 
+func TestRuntimeRunTransitionHistoryDoesNotMutatePersistedRunStatus(t *testing.T) {
+	t.Parallel()
+
+	service, release := runtimeRunTransitionWriterTestService(t)
+	defer release()
+	attachRuntimeTransitionHistoryBackend(t, service)
+	run, err := service.runs.EnsureForSession(context.Background(), "workspace-1", "session-1", "transition audit", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.transitions.Upsert(context.Background(), RuntimeRunTransition{
+		RunID:      run.ID,
+		SessionID:  "session-1",
+		TurnID:     "turn-audit-only",
+		FromStatus: runtimeRunStatusActive,
+		ToStatus:   runtimeRunStatusCancelled,
+		Source:     runtimeRunTransitionSourceTurnCancelled,
+		CreatedAt:  2000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := service.runs.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := service.RunTransitionHistory(context.Background(), RuntimeRunTransitionHistoryRequest{RunID: run.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := service.runs.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Transitions) != 1 || history.Transitions[0].ToStatus != runtimeRunStatusCancelled {
+		t.Fatalf("history = %#v", history)
+	}
+	if after.Status != before.Status || after.FinishedAt != before.FinishedAt || after.UpdatedAt != before.UpdatedAt {
+		t.Fatalf("transition history mutated persisted run: before=%#v after=%#v", before, after)
+	}
+}
+
 func attachRuntimeTransitionHistoryBackend(t *testing.T, service *runtimeService) {
 	t.Helper()
 	runtimeBackend, workspace := backendForSkillTest(t)
