@@ -504,6 +504,12 @@ Phase 50.4 note:
 - The next allowed work is backend-only marker read helper coverage, not
   transport, UI, scheduler, or resume behavior.
 
+Phase 50.5 note:
+
+- Backend-only marker list/detail helpers are covered.
+- Helper reads do not mutate lifecycle status, checkpoint source evidence, or
+  resume eligibility.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

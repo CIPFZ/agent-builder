@@ -2922,3 +2922,9 @@ Phase 50.4 note:
 - Marker-only DTO contract is accepted.
 - Next work remains backend-only helper coverage; no transport or frontend
   marker surface is accepted yet.
+
+Phase 50.5 note:
+
+- Backend-only checkpoint marker read helpers are covered.
+- No HTTP, Wails, frontend adapter, `WorkbenchViewModel`, or UI surface was
+  added for markers.

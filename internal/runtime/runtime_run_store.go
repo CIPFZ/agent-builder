@@ -329,6 +329,35 @@ func (s runtimeRunStore) List(ctx context.Context) ([]RuntimeRun, error) {
 	return runs, nil
 }
 
+func (s runtimeRunStore) ListCheckpointMarkers(ctx context.Context, runID string) ([]RuntimeRunCheckpointMarker, error) {
+	run, err := s.Get(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	markers := make([]RuntimeRunCheckpointMarker, 0, len(run.Checkpoints))
+	for _, checkpoint := range run.Checkpoints {
+		markers = append(markers, runtimeRunCheckpointMarkerFromCheckpoint(run.ID, checkpoint))
+	}
+	return markers, nil
+}
+
+func (s runtimeRunStore) GetCheckpointMarker(ctx context.Context, runID, checkpointID string) (RuntimeRunCheckpointMarker, error) {
+	checkpointID = strings.TrimSpace(checkpointID)
+	if checkpointID == "" {
+		return RuntimeRunCheckpointMarker{}, errors.New("checkpoint id is required")
+	}
+	markers, err := s.ListCheckpointMarkers(ctx, runID)
+	if err != nil {
+		return RuntimeRunCheckpointMarker{}, err
+	}
+	for _, marker := range markers {
+		if marker.CheckpointID == checkpointID {
+			return marker, nil
+		}
+	}
+	return RuntimeRunCheckpointMarker{}, errRuntimeRunCheckpointNotFound
+}
+
 func (s runtimeRunStore) AcknowledgeCheckpoint(ctx context.Context, runID, checkpointID string) (RuntimeRun, error) {
 	return s.markCheckpoint(ctx, runID, checkpointID, "acknowledged_at")
 }

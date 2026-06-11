@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 50.4 and decide Phase 50.5: Checkpoint Marker Backend Read
-Helper Contract Gate. Add backend-only read helper tests before any transport
-surface.
+Review/accept Phase 50.5 and decide Phase 50.6: Checkpoint Marker Backend Read
+Helper Acceptance Gate. Accept backend-only helper behavior before transport
+surface planning.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -15008,3 +15008,49 @@ Review conclusion:
 
 - Phase 50.3 is accepted.
 - The next safe step is backend-only marker read helper tests.
+
+## 2026-06-11: Phase 50.5 Checkpoint Marker Backend Read Helper Contract Gate
+
+Phase 50.5 adds backend-only helper coverage for checkpoint marker reads. It
+does not implement a full Run state machine, runtime Run store expansion,
+database migration, automatic resume, background scheduler loop, stale
+actionability recovery, frontend Run UI, checkpoint marker UI, HTTP routes,
+Wails bindings, or React-owned runtime state.
+
+Implemented:
+
+- Added `runtimeRunStore.ListCheckpointMarkers(ctx, runID)`.
+- Added `runtimeRunStore.GetCheckpointMarker(ctx, runID, checkpointID)`.
+- Added `TestRuntimeRunStoreReadsCheckpointMarkersWithoutEvidenceOrMutation`.
+
+Contract coverage:
+
+- Backend helper reads persisted marker facts from existing Run/checkpoint
+  storage.
+- Helper list/detail reads return run/checkpoint identity, source turn ID,
+  acknowledgement timestamp, discard timestamp, and resumed-turn IDs.
+- Helper reads do not mutate Run lifecycle status or `finished_at`.
+- Helper reads do not mutate checkpoint source evidence: status, summary,
+  artifact refs, or resume eligibility.
+
+Still not implemented:
+
+- No HTTP route.
+- No Wails binding.
+- No frontend adapter method.
+- No view-model state or UI rendering.
+- No scheduler or resume behavior.
+- No checkpoint source evidence or actionability inference.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Backend-only marker helper behavior is now covered.
+- The next step should accept helper behavior before planning any transport
+  surface.

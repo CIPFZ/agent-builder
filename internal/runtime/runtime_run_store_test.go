@@ -238,6 +238,84 @@ func TestRuntimeRunCheckpointMarkerSourceRequiresProjectionForEligibility(t *tes
 	}
 }
 
+func TestRuntimeRunStoreReadsCheckpointMarkersWithoutEvidenceOrMutation(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Release(dataDir); err != nil {
+			t.Fatalf("release db: %v", err)
+		}
+	})
+	store := newRuntimeRunStore(conn)
+	run, err := store.UpsertFromProjection(context.Background(), RuntimeRunProjection{
+		ID:               runtimeRunProjectionID("session-1"),
+		WorkspaceID:      "workspace-1",
+		PrimarySessionID: "session-1",
+		SessionIDs:       []string{"session-1"},
+		Status:           runtimeRunStatusInterrupted,
+		Checkpoints: []RuntimeRunCheckpoint{{
+			ID:             "turn:turn-1:interrupted",
+			TurnID:         "turn-1",
+			Status:         turnStatusInterrupted,
+			Summary:        "runtime restarted",
+			ArtifactRefs:   []string{"artifact://report"},
+			CreatedAt:      1200,
+			ResumeEligible: true,
+		}},
+		CreatedAt: 1000,
+		UpdatedAt: 1300,
+	}, runtimeRunSourceBackfill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ack, err := store.AcknowledgeCheckpoint(context.Background(), run.ID, "turn:turn-1:interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked, err := store.LinkCheckpointResume(context.Background(), run.ID, "turn:turn-1:interrupted", "turn-resume-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := linked.Checkpoints[0]
+	markers, err := store.ListCheckpointMarkers(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(markers) != 1 {
+		t.Fatalf("markers = %#v", markers)
+	}
+	marker := markers[0]
+	if marker.RunID != run.ID || marker.CheckpointID != "turn:turn-1:interrupted" || marker.TurnID != "turn-1" {
+		t.Fatalf("marker identity = %#v", marker)
+	}
+	if marker.AcknowledgedAt != ack.Checkpoints[0].AcknowledgedAt || marker.DiscardedAt != 0 || !slices.Equal(marker.ResumedTurnIDs, []string{"turn-resume-1"}) {
+		t.Fatalf("marker facts = %#v ack=%#v", marker, ack.Checkpoints[0])
+	}
+	detail, err := store.GetCheckpointMarker(context.Background(), run.ID, "turn:turn-1:interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.RunID != marker.RunID || detail.CheckpointID != marker.CheckpointID || detail.TurnID != marker.TurnID || detail.AcknowledgedAt != marker.AcknowledgedAt || detail.DiscardedAt != marker.DiscardedAt || !slices.Equal(detail.ResumedTurnIDs, marker.ResumedTurnIDs) {
+		t.Fatalf("detail marker = %#v list marker = %#v", detail, marker)
+	}
+	after, err := store.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterCheckpoint := after.Checkpoints[0]
+	if after.Status != runtimeRunStatusInterrupted || after.FinishedAt != 0 {
+		t.Fatalf("marker read mutated run lifecycle: %#v", after)
+	}
+	if afterCheckpoint.Status != before.Status || afterCheckpoint.Summary != before.Summary || !slices.Equal(afterCheckpoint.ArtifactRefs, before.ArtifactRefs) || afterCheckpoint.ResumeEligible != before.ResumeEligible {
+		t.Fatalf("marker read mutated checkpoint evidence: before=%#v after=%#v", before, afterCheckpoint)
+	}
+}
+
 func TestRuntimeRunStoreBackfillsProjectionWithoutDuplicatingEvidence(t *testing.T) {
 	t.Parallel()
 
