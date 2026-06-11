@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 38: Write Action Envelope Frontend/Transport Consumption Gate.
-Review how adapters may use `action.refreshTargets` to choose durable rereads
-without merging action payloads into React state, and decide whether any
-frontend or bridge contract tests should be added.
+Implement Phase 38.1: Write Action Envelope Transport Contract Coverage.
+Add backend/HTTP contract coverage proving the core write-action responses
+forward `action` metadata while frontend adapters continue to rely on durable
+rereads rather than action payload state.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12626,3 +12626,67 @@ Review conclusion:
   scheduler/Run/permission/MCP decision path.
 - Further write-response migrations require a specific product need and a
   focused gate.
+
+## 2026-06-11: Phase 38 Write Action Envelope Frontend/Transport Consumption Gate
+
+Phase 38 reviews how frontend and transport layers should consume the shared
+write-action metadata introduced in Phase 37. It is a design gate only. It does
+not change frontend adapter code, runtime behavior, database schema, Run
+persistence, automatic resume, background scheduling, stale permission/MCP
+actionability recovery, or frontend Run UI.
+
+Current frontend/transport behavior:
+
+- Existing action calls such as permission decision, checkpoint resume, and
+  scheduler task execute call the runtime and then hydrate durable runtime DTOs.
+- The frontend does not currently merge action payloads into timeline,
+  diagnostics, artifacts, permission state, MCP actionability, scheduler state,
+  Run projection, or checkpoint state.
+- Runtime events are still refresh triggers only.
+- The frontend adapter should not be changed in this gate, and
+  `client/src/runtime/wailsWorkbenchAdapter.ts` remains untouched.
+
+Accepted consumption contract:
+
+- Frontend/transport code may use `action.refreshTargets` only to choose which
+  runtime DTOs to reread.
+- Frontend/transport code must not use `action.accepted`, `action.reason`,
+  `action.source`, or action evidence lists as rendered task/Run/permission/
+  MCP/checkpoint/timeline state.
+- If action metadata is absent, adapters must continue the current safe full
+  hydrate/fallback behavior.
+- Action metadata must never resurrect stale permission gates or MCP
+  auth/elicitation actionability.
+- Action metadata must never bypass durable reads for refs, artifacts,
+  diagnostics, interrupted summaries, scheduler candidates, or Run projection.
+
+Accepted Phase 38.1 scope:
+
+- Add backend/HTTP contract coverage for the transport-visible action metadata
+  fields across the core write actions.
+- Prefer Go HTTP/bridge-layer tests over frontend adapter edits.
+- Prove action metadata is forwarded but remains response metadata; durable
+  reread endpoints remain the source of truth.
+- Do not edit `client/src/runtime/wailsWorkbenchAdapter.ts` in Phase 38.1.
+
+Rejected for Phase 38.1:
+
+- No React-owned action state.
+- No frontend Run UI.
+- No action-payload timeline/diagnostic/artifact/permission/MCP/checkpoint
+  state merging.
+- No automatic resume or stale actionability recovery.
+- No broad admin/config write migration.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Phase 38 accepts a conservative transport-contract step next.
+- Adapter optimization using `action.refreshTargets` can be considered later,
+  after transport coverage proves the metadata is stable and non-authoritative.

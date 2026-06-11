@@ -2596,3 +2596,13 @@ Phase 37.15 note:
   choose durable rereads. It must not introduce React-owned task, Run,
   permission, MCP actionability, artifact, diagnostic, timeline, or checkpoint
   state.
+
+Phase 38 note:
+
+- Frontend/transport code may use write-action `refreshTargets` only to choose
+  durable runtime rereads.
+- The current full `hydrateWorkbench(...)` pattern remains the safe fallback
+  when action metadata is missing or ignored.
+- Phase 38.1 should add transport contract coverage before any adapter
+  optimization. `client/src/runtime/wailsWorkbenchAdapter.ts` remains untouched
+  in this gate.

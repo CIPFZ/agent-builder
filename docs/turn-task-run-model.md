@@ -160,6 +160,15 @@ Phase 37.15 note:
 - Phase 38 should review frontend/transport use of `action.refreshTargets`
   without making action payloads UI state.
 
+Phase 38 note:
+
+- Frontend/transport consumption of write-action metadata is accepted only as a
+  durable reread selector.
+- Missing action metadata must keep the current full hydrate/fallback behavior.
+- Phase 38.1 should add transport contract coverage and must not make action
+  payloads task, Run, permission, MCP, checkpoint, timeline, diagnostic, or
+  artifact state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
