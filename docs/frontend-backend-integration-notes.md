@@ -2809,3 +2809,9 @@ Phase 44.1 note:
 - Phase 44 backend smoke is accepted.
 - Next validation should prove HTTP/adapter rereads expose the same backend
   status without requiring frontend state patches.
+
+Phase 45 note:
+
+- HTTP adapter smoke now validates Run status reread semantics.
+- Frontend adapters should continue treating events/action metadata as refresh
+  hints and reread `Run` / `RunProjection` DTOs for status.

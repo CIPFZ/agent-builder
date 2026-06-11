@@ -382,6 +382,12 @@ Phase 44.1 note:
 - The next validation boundary is HTTP/adapter reread semantics, not broader
   persisted Run authority.
 
+Phase 45 note:
+
+- HTTP adapter smoke now proves `Run` and `RunProjection` routes expose status
+  through backend DTO rereads.
+- A conflicting runtime event payload does not change the returned Run status.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

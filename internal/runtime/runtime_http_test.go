@@ -10,7 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/crush/internal/agent"
+	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/charmbracelet/crush/internal/tools/scheduler"
 )
 
 func TestRuntimeHTTPServerRequiresBearerToken(t *testing.T) {
@@ -734,6 +737,98 @@ func TestRuntimeHTTPServerRoutesRunsToRuntimeService(t *testing.T) {
 	}
 	if resume.Run.Action != nil {
 		t.Fatalf("nested run response should not carry resume action metadata: %#v", resume.Run.Action)
+	}
+}
+
+func TestRuntimeHTTPServerRunStatusWriterRereadSmoke(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runtimeBackend, workspace := backendForSkillTest(t)
+	conn, err := db.Connect(ctx, workspace.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(workspace.DataDir)
+	})
+	service := newRuntimeService()
+	service.runtime = runtimeBackend
+	service.workspace = &workspace
+	service.turns = newRuntimeTurnStore(conn)
+	service.runs = newRuntimeRunStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+
+	sess, err := runtimeBackend.CreateSession(ctx, workspace.ID, "http status writer reread")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.runs.EnsureForSession(ctx, workspace.ID, sess.ID, "http status writer reread", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := runtimeSchedulerRecorder{service: service}
+	if err := recorder.AgentTaskCompleted(ctx, agent.AgentTaskRecord{
+		ID:              "task-http-status-writer",
+		ParentSessionID: sess.ID,
+		Title:           "http status writer",
+		Status:          agentTaskStatusCompleted,
+		Progress:        100,
+		ResultSummary:   "http reread completed",
+		StartedAt:       run.CreatedAt + 100,
+		FinishedAt:      run.CreatedAt + 200,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service.storeRuntimeEvent(RuntimeEvent{
+		ID:        newRuntimeEventID(),
+		Type:      "run.status.payload_smoke",
+		SessionID: sess.ID,
+		Payload: map[string]any{
+			"run_id": run.ID,
+			"status": runtimeRunStatusFailed,
+		},
+	})
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/runs/"+run.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("run detail status = %d body = %s", resp.status, resp.body.String())
+	}
+	var detail RuntimeRunResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Run.Status != runtimeRunStatusCompleted || detail.Projection.Status != runtimeRunStatusCompleted {
+		t.Fatalf("HTTP run detail did not reread projection status: %#v", detail)
+	}
+	if detail.Action != nil {
+		t.Fatalf("plain HTTP reread should not carry write action metadata: %#v", detail.Action)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/sessions/"+sess.ID+"/run-projection", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("run projection status = %d body = %s", resp.status, resp.body.String())
+	}
+	var projection RuntimeRunProjectionResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &projection); err != nil {
+		t.Fatal(err)
+	}
+	if projection.Run.ID != run.ID || projection.Run.Status != runtimeRunStatusCompleted || !projection.Run.Source.SessionActivityParity {
+		t.Fatalf("HTTP projection did not preserve backend DTO parity: %#v", projection.Run)
 	}
 }
 

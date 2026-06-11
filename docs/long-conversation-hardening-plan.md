@@ -11257,9 +11257,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 45: Run Status Writer HTTP/Adapter Contract Smoke Gate. Prove
-runtime status writer results are exposed through transport DTO rereads without
-frontend/event payload state merging.
+Review/accept Phase 45 and decide Phase 45.1: Run Status Writer Transport
+Smoke Acceptance. Accept HTTP reread semantics before considering UI smoke.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14056,3 +14055,44 @@ Review conclusion:
 - The next boundary should be HTTP/adapter contract smoke for reread semantics.
 - Do not proceed to broader persisted Run authority, auto-resume, migrations,
   or frontend Run UI yet.
+
+## 2026-06-11: Phase 45 Run Status Writer HTTP/Adapter Contract Smoke Gate
+
+Phase 45 adds HTTP adapter smoke coverage for explicit Run status writer reread
+semantics. It does not implement frontend Run UI, React-owned Run state, a full
+Run state machine, runtime Run store expansion, database migration, automatic
+resume, background scheduler loop, or stale actionability recovery.
+
+Implemented:
+
+- Added `TestRuntimeHTTPServerRunStatusWriterRereadSmoke`.
+- The test uses a real runtime service behind `runtimeHTTPServer`.
+- It completes a terminal task, then stores a conflicting runtime event payload
+  claiming a failed Run status.
+- It verifies:
+  - `GET /v1/runs/{runID}` returns completed persisted/projection status from
+    backend DTO rereads;
+  - plain HTTP reread responses do not carry write action metadata;
+  - `GET /v1/sessions/{sessionID}/run-projection` returns completed projection
+    status with SessionActivity parity;
+  - the conflicting runtime event payload is not used as status authority.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run TestRuntimeHTTPServerRunStatusWriterRereadSmoke -count=1
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- HTTP transport exposes status through backend DTO rereads.
+- Event payloads remain refresh/audit evidence, not status patches.
+- Frontend adapters should continue to reread `Run`/`RunProjection` DTOs.
+
+Remaining risk / next task:
+
+- This does not click through browser/Vite or packaged Wails UI.
+- Phase 45.1 should accept HTTP smoke and decide whether UI transport smoke is
+  valuable before moving to another backend design gate.
