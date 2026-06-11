@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 48.3 and decide Phase 48.4: Persisted Run Summary
-Transport/Adapter Smoke Gate. Validate the summary-only DTO remains reread-only
-and cannot carry lifecycle/actionability evidence.
+Review/accept Phase 48.4 and decide Phase 48.5: Persisted Run Summary
+Acceptance And Next Read Surface Gate. Accept the transport/adapter smoke before
+any frontend UI usage.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14558,3 +14558,49 @@ Review conclusion:
 - The frontend is not wired to consume summary DTOs in this phase.
 - The next task should validate transport/adapter reread semantics before any
   UI use.
+
+## 2026-06-11: Phase 48.4 Persisted Run Summary Transport/Adapter Smoke Gate
+
+Phase 48.4 validates the summary-only persisted Run read transport and adapter
+boundary. It does not implement a full Run state machine, runtime Run store
+expansion, database migration, automatic resume, background scheduler loop,
+stale actionability recovery, frontend Run UI, or React-owned runtime state.
+
+Implemented:
+
+- Added private TypeScript DTOs for `RuntimeRunSummary`,
+  `RuntimeRunSummarySource`, and list/detail summary responses.
+- Added optional low-level bridge methods:
+  - `RunSummaries()`
+  - `RunSummary(runID)`
+- Added HTTP bridge reads:
+  - `/v1/run-summaries`
+  - `/v1/run-summaries/{run_id}`
+- Added `client/scripts/phase484-run-summary-adapter-smoke.mjs`.
+- Added `npm run smoke:phase484`.
+
+Smoke coverage:
+
+- The adapter can explicitly reread the backend summary routes.
+- Hydration does not call `bridge.RunSummaries` or `bridge.RunSummary`.
+- No `mapRunSummary` path maps summary DTOs into frontend state.
+- `WorkbenchViewModel`, `Workspace`, and `RunProjectionPreview` do not render or
+  store Run summary DTOs.
+- Existing Run projection surfaces remain projection DTO based.
+
+Validation:
+
+```powershell
+cd client; npm run smoke:phase484; npm run build
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Summary-only Run reads now have backend and adapter transport coverage.
+- The frontend can reach the DTO only through explicit low-level rereads.
+- No UI state, event payload, action metadata, or React memory became Run
+  authority.
+- The next task should accept this smoke and choose whether the next read
+  surface is another contract test or a guarded UI-free consumer.

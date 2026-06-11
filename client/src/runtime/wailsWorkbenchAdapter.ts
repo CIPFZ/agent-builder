@@ -442,6 +442,36 @@ interface RuntimeRunProjectionResponseDTO {
   };
 }
 
+interface RuntimeRunSummaryDTO {
+  id: string;
+  workspaceId?: string;
+  primarySessionId?: string;
+  sessionIds?: string[];
+  objective?: string;
+  source?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+interface RuntimeRunSummarySourceDTO {
+  kind?: string;
+  readOnly?: boolean;
+  summaryOnly?: boolean;
+  persistedRunAuthority?: boolean;
+  projectionRequiredForLifecycle?: boolean;
+  excludedEvidence?: string[];
+}
+
+interface RuntimeRunSummariesResponseDTO {
+  runs?: RuntimeRunSummaryDTO[];
+  source?: RuntimeRunSummarySourceDTO;
+}
+
+interface RuntimeRunSummaryResponseDTO {
+  run?: RuntimeRunSummaryDTO;
+  source?: RuntimeRunSummarySourceDTO;
+}
+
 interface RuntimeRunResumeResponseDTO extends RuntimeWriteActionResponseDTO {
   runId?: string;
   checkpointId?: string;
@@ -648,6 +678,8 @@ interface RuntimeBridgeModule {
   SessionActivityCursorWindow?: (sessionID: string, cursor: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
   TurnActivity?: (turnID: string) => Promise<RuntimeTurnActivityDTO>;
   RunProjection?: (req: RuntimeRunProjectionRequestDTO) => Promise<RuntimeRunProjectionResponseDTO>;
+  RunSummaries?: () => Promise<RuntimeRunSummariesResponseDTO>;
+  RunSummary?: (runID: string) => Promise<RuntimeRunSummaryResponseDTO>;
   RunSchedulerPlan?: (req: RuntimeRunSchedulerPlanRequestDTO) => Promise<RuntimeRunSchedulerPlanResponseDTO>;
   ResumeRunCheckpoint?: (runID: string, checkpointID: string) => Promise<RuntimeRunResumeResponseDTO>;
   ExecuteRunTask?: (runID: string, taskID: string) => Promise<RuntimeRunSchedulerExecuteTaskResponseDTO>;
@@ -2132,6 +2164,8 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
       `/v1/sessions/${encodeURIComponent(req.sessionId)}/run-projection${query ? `?${query}` : ''}`,
     );
   },
+  RunSummaries: () => runtimeFetch<RuntimeRunSummariesResponseDTO>('/v1/run-summaries'),
+  RunSummary: (runID) => runtimeFetch<RuntimeRunSummaryResponseDTO>(`/v1/run-summaries/${encodeURIComponent(runID)}`),
   RunSchedulerPlan: (req) => {
     const params = new URLSearchParams();
     if (req.runId) {

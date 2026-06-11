@@ -451,6 +451,14 @@ Phase 48.3 note:
 - Full `RunProjection` / `SessionActivity` parity remains required before any
   lifecycle/actionability state can be rendered or reconciled.
 
+Phase 48.4 note:
+
+- Frontend transport can explicitly reread Run summary DTOs.
+- The DTO is not part of `WorkbenchViewModel` and is not rendered by workspace
+  or Run projection UI.
+- Events and action metadata still only select refreshes; they do not merge Run
+  summaries into lifecycle/actionability state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

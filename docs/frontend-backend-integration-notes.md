@@ -2870,3 +2870,10 @@ Phase 48.3 note:
 - Future adapter work must treat summary responses as reread DTOs only and must
   continue using full runtime DTOs for lifecycle, diagnostics, artifacts,
   interrupted summaries, permissions, MCP actionability, and scheduler state.
+
+Phase 48.4 note:
+
+- The frontend adapter now has optional low-level bridge reads for Run summaries.
+- Hydration and UI state still do not consume these DTOs.
+- Static smoke coverage rejects automatic summary merge, `WorkbenchViewModel`
+  state, or workspace/preview rendering of summary DTOs.
