@@ -2791,3 +2791,9 @@ Phase 43.4 note:
   full projection reconciliation.
 - Frontend behavior remains unchanged: terminal task events should trigger
   runtime DTO rereads, not direct local Run status merges.
+
+Phase 43.5 note:
+
+- Explicit Run status writer rollout is accepted on the backend.
+- Frontend integration remains reread-only for Run status: action/event
+  payloads and transition history are still refresh hints, not state patches.

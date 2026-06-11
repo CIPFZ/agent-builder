@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 43.4 and decide Phase 43.5: Explicit Run Status Writer
-Acceptance And Residual Direct-Upsert Audit. Confirm remaining direct
-`UpsertFromProjection` usage is compatibility-only.
+Review/accept Phase 43.5 and decide Phase 44: Run Status Writer Integrated
+Smoke Gate. Add end-to-end runtime smoke coverage for turn/task status writer
+paths across restart/read boundaries.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13924,3 +13924,58 @@ Remaining risk / next task:
   full projection reconciliation/backfill fallback and tests.
 - Phase 43.5 should accept the writer rollout if remaining direct projection
   upserts are confirmed compatibility-only.
+
+## 2026-06-11: Phase 43.5 Explicit Run Status Writer Acceptance And Residual Direct-Upsert Audit
+
+Phase 43.5 accepts the explicit Run status writer rollout and audits remaining
+direct projection upsert usage. It is an acceptance/audit phase only. It does
+not implement a full Run state machine, runtime Run store expansion, database
+migration, automatic resume, background scheduler loop, stale actionability
+recovery, frontend Run UI, or React-owned runtime state.
+
+Residual `UpsertFromProjection(...)` audit:
+
+- Production call sites:
+  - `RunProjection(...)` uses `UpsertFromProjection(...)` only after the full
+    projection status write request validates the explicit writer contract.
+    The persisted status is then written through `writeRuntimeRunStatus(...)`
+    after durable Run identity is resolved.
+  - `backfillRuntimeRunSession(...)` keeps `UpsertFromProjection(...)` only as
+    a compatibility fallback when full projection reconciliation did not leave
+    a persisted Run for the session.
+- Store API:
+  - `runtimeRunStore.UpsertFromProjection(...)` remains a lower-level
+    compatibility/backfill API because it writes identity/session/checkpoint
+    evidence in addition to status.
+  - It is not exposed as a frontend/runtime event/action/prose source of truth.
+- Test call sites:
+  - Remaining direct calls are store, transition, and regression fixtures that
+    assert compatibility and guard stale/empty projection behavior.
+
+Accepted status writer authority:
+
+- Active turn writes go through `writeRuntimeRunStatus(...)` from
+  `LinkTurn(...)`.
+- Active foreground task writes go through `writeRuntimeRunStatus(...)`.
+- Terminal turn writes reconcile through full `RunProjection(...)`.
+- Terminal task writes reconcile through full `RunProjection(...)`.
+- Bounded/windowed reads cannot write persisted status.
+- Event payloads, action metadata, transition history alone, assistant prose,
+  and frontend/React state cannot write persisted status.
+
+Validation:
+
+```powershell
+rg "UpsertFromProjection\(" internal/runtime -n
+rg "SET status|writeRuntimeRunStatus|runtimeRunStatusWrite|Status: +runtimeRunStatus" internal/runtime -n
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- Phase 43.5 accepts the writer rollout.
+- Remaining direct projection upsert usage is compatibility/backfill/test
+  coverage, not a new source of truth.
+- The next task should be an integrated smoke gate for restart/read boundaries
+  before considering any broader persisted Run authority work.

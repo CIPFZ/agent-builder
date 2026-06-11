@@ -359,6 +359,16 @@ Phase 43.4 note:
   write terminal Run status.
 - Turn terminal paths were reviewed and already use full session reconcile.
 
+Phase 43.5 note:
+
+- The explicit Run status writer rollout is accepted.
+- Remaining direct `UpsertFromProjection` usage is limited to full projection
+  reconciliation, compatibility backfill fallback, store API compatibility,
+  and tests.
+- Persisted status is still not allowed to derive from events, action
+  metadata, transition history alone, assistant prose, bounded reads, or
+  frontend state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
