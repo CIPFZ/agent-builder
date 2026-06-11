@@ -406,6 +406,14 @@ Phase 46.1 note:
 - Browser/Wails click automation is deferred because no visible frontend
   behavior changed.
 
+Phase 47 note:
+
+- The explicit Run status writer workstream is closed.
+- Backend, restart/read, HTTP transport, and frontend adapter reread coverage
+  now protect the narrow writer contract.
+- Broader persisted Run authority requires a separate design gate and must not
+  start with migrations, auto-resume, background scheduling, or frontend Run UI.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

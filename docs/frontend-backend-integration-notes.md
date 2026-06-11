@@ -2832,3 +2832,10 @@ Phase 46.1 note:
 
 - Phase 46 adapter smoke is accepted.
 - Frontend Run status ownership remains backend DTO reread-only.
+
+Phase 47 note:
+
+- Run status writer workstream is closed with backend, HTTP, and adapter
+  reread coverage.
+- Future persisted Run authority work remains backend design-gated; frontend
+  must continue to treat runtime DTOs as the status source.

@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 47: Run Status Writer Workstream Closure And Next Authority
-Design Gate. Summarize accepted backend/transport/frontend smoke coverage and
-decide the next persisted Run authority boundary.
+Implement Phase 48: Persisted Run Authority Readiness Design Gate. Design the
+next read-only authority boundary before any Run persistence expansion,
+migration, auto-resume, scheduler loop, or frontend Run UI.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14206,3 +14206,78 @@ Review conclusion:
   frontend adapter reread coverage.
 - The next phase should close the workstream and define the next persisted Run
   authority boundary.
+
+## 2026-06-11: Phase 47 Run Status Writer Workstream Closure And Next Authority Design Gate
+
+Phase 47 closes the explicit Run status writer workstream and defines the next
+authority boundary. It is a design/closure phase only. It does not implement a
+full Run state machine, runtime Run store expansion, database migration,
+automatic resume, background scheduler loop, stale actionability recovery,
+frontend Run UI, or React-owned runtime state.
+
+Accepted coverage:
+
+- Backend contract tests:
+  - unknown/source-less status writes are rejected;
+  - terminal status writes require full projection parity;
+  - the writer updates only `runtime_runs.status`, `updated_at`, and
+    `finished_at`;
+  - bounded/windowed projections cannot reconcile persisted terminal status.
+- Backend rollout:
+  - active turn writes use the helper through `LinkTurn(...)`;
+  - active foreground task writes use the helper;
+  - terminal turn writes reconcile through full `RunProjection(...)`;
+  - terminal task writes reconcile through full `RunProjection(...)`.
+- Restart/read smoke:
+  - fresh runtime service reads recover turn active, task active, and terminal
+    task completed status from durable stores/full projection.
+- HTTP transport smoke:
+  - `Run` and `RunProjection` routes expose backend DTO rereads;
+  - conflicting event payload status does not override Run status.
+- Frontend adapter smoke:
+  - action/event metadata remains refresh-trigger-only;
+  - adapter refreshes by rereading `RunProjection` DTOs;
+  - `RunProjectionPreview` does not consume event hints or write-action
+    metadata as Run state.
+
+Still rejected:
+
+- No persisted Run status as sole source of truth.
+- No runtime Run state machine.
+- No database migration.
+- No automatic resume.
+- No background scheduler loop.
+- No stale tool/permission/MCP actionability recovery.
+- No frontend Run UI or React-owned Run state.
+- No status inference from event payloads, action metadata, transition history
+  alone, assistant prose, bounded/windowed reads, or frontend memory.
+
+Remaining compatibility surface:
+
+- `runtimeRunStore.UpsertFromProjection(...)` remains for full projection
+  reconciliation/backfill compatibility and tests.
+- Full `SessionActivity` / full `RunProjection` remain the parity oracle for
+  terminal and recovery status.
+
+Next authority boundary:
+
+- Phase 48 should be a readiness design gate for persisted Run authority.
+- The design must define which read-only DTOs can trust persisted Run fields,
+  which fields still require full projection parity, and which writes remain
+  forbidden.
+- Phase 48 must not add migrations, auto-resume, scheduler loops, frontend Run
+  UI, or stale actionability recovery.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- The explicit Run status writer workstream is closed.
+- The project has a narrow status writer plus backend/transport/frontend
+  reread coverage.
+- Broader Run authority requires a separate design gate.
