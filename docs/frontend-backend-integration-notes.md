@@ -2753,3 +2753,10 @@ Phase 42.2 note:
 - The next backend boundary is an explicit Run status writer design gate.
 - Frontend integration remains unchanged: no frontend Run state ownership and
   no status inference from metadata/events/prose/transition rows.
+
+Phase 43 note:
+
+- The proposed explicit Run status writer is backend-only.
+- Frontend adapter behavior remains unchanged: action refresh targets may
+  choose durable rereads, but status must still render from runtime DTOs and
+  cannot be inferred from action/event/transition/prose/React state.

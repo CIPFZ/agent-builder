@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 43: Explicit Run Status Writer Design Gate. Design a narrow
-helper for explicit persisted Run status writes, but do not implement it until
-the helper contract and tests are accepted.
+Review/accept Phase 43 and decide Phase 43.1: Explicit Run Status Writer
+Contract Test Gate. Add tests for the accepted writer contract before any
+helper implementation.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13619,3 +13619,92 @@ Review conclusion:
 
 - Phase 42.1 is accepted.
 - The next task is Phase 43: Explicit Run Status Writer Design Gate.
+
+## 2026-06-11: Phase 43 Explicit Run Status Writer Design Gate
+
+Phase 43 designs a narrow helper for explicit persisted Run status writes. It
+is a design gate only. It does not implement the helper, change runtime
+behavior, change database schema, add migrations, add automatic resume, add
+background scheduling, recover stale tool/permission/MCP actionability, add
+frontend Run UI, or add React Run state.
+
+Problem:
+
+- Persisted Run status writes currently happen through several existing paths:
+  `EnsureForSession(...)`, `LinkTurn(...)`, `UpsertFromProjection(...)`,
+  cancellation/interrupted acknowledgement reconciliation, terminal turn
+  reconciliation, task scheduler execution, checkpoint resume, and startup
+  recovery transition helpers.
+- The current behavior is mostly correct and now protected by tests, but the
+  ownership rules are spread across store/projection/transition code.
+- A future implementation should centralize the explicit status-write contract
+  before persisted status can become more independently authoritative.
+
+Accepted helper shape:
+
+```text
+writeRuntimeRunStatus(ctx, request)
+  request.runID or request.sessionID
+  request.status
+  request.source
+  request.reason
+  request.evidenceKind
+  request.turnID/taskID/checkpointID optional structured IDs
+  request.timestamp
+  request.requiresProjectionParity bool
+```
+
+Accepted helper rules:
+
+- Accept only known explicit sources:
+  `turn_started`, `turn_finished`, `turn_cancelled`,
+  `interrupted_marked_done`, `task_started`, task terminal sources,
+  `checkpoint_resume`, and `startup_recovery`.
+- Require structured evidence IDs appropriate to the source:
+  - turn sources require turn ID and session/run link.
+  - task sources require task ID and parent/child session evidence.
+  - checkpoint resume requires checkpoint ID plus existing resumed turn link.
+  - startup recovery requires already-terminalized stale turn/task evidence.
+- Terminal or recovery status writes must require full `RunProjection` parity.
+- Active status from turn/task start may be written immediately after durable
+  turn/task rows and Run links exist.
+- The helper may write persisted Run `status`, `updated_at`, and `finished_at`
+  only. It must not mutate checkpoints, refs, diagnostics, permissions, MCP
+  requests, scheduler state, or timeline state.
+- The helper must record or pair with transition evidence, but transition
+  history alone cannot authorize status writes.
+
+Rejected helper inputs:
+
+- Runtime event payloads.
+- Action metadata.
+- Assistant prose.
+- Frontend/React state.
+- Transition history rows without corresponding durable turn/task/checkpoint/
+  recovery evidence.
+- Bounded/windowed projection reads.
+
+Accepted Phase 43.1 scope:
+
+- Add tests that describe the helper contract before implementation.
+- Tests should be written against existing behavior where possible:
+  - known explicit sources can be validated by current write/reconcile paths;
+  - unknown/source-less status updates are rejected or remain impossible;
+  - checkpoint resume does not mark active without resumed turn link;
+  - terminal writes require full projection parity.
+- If tests expose a small missing guard, fix only that guard.
+- Do not introduce the helper implementation until the tests and API shape are
+  accepted.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- A narrow explicit Run status writer helper is the right next implementation
+  direction, but only after contract tests.
+- The next task is Phase 43.1: Explicit Run Status Writer Contract Test Gate.

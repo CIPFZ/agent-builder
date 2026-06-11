@@ -310,6 +310,16 @@ Phase 42.2 note:
 - Persisted status remains guarded by full `RunProjection` parity for terminal
   and recovery cases.
 
+Phase 43 note:
+
+- A future explicit Run status writer helper is accepted for design, but not
+  implementation yet.
+- The helper must accept only known structured runtime sources and IDs, and
+  terminal/recovery writes must require full `RunProjection` parity.
+- Events, action metadata, assistant prose, transition history alone,
+  bounded/windowed reads, and frontend state are rejected as status-write
+  inputs.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
