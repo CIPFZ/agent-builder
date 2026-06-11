@@ -2722,3 +2722,10 @@ Phase 41.2 note:
 - No frontend contract changed: UI state must still come from durable runtime
   DTO rereads, not transition history rows, action metadata, event payloads, or
   React-owned Run state.
+
+Phase 41.3 note:
+
+- Phase 41.2 is accepted.
+- The next backend boundary is persisted Run status authority design.
+- Frontend integration remains read-only DTO based; no frontend Run state or
+  Run UI ownership is accepted.

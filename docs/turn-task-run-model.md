@@ -274,6 +274,14 @@ Phase 41.2 note:
 - The ownership matrix is better protected without changing runtime behavior
   or adding migrations.
 
+Phase 41.3 note:
+
+- Phase 41.2 ownership tests are accepted.
+- The next unresolved boundary is persisted Run status authority under narrow
+  explicit runtime writes.
+- Full `RunProjection` remains the parity oracle until a later phase proves a
+  safer status ownership contract.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

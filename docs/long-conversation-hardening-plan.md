@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 41.2 and decide Phase 41.3: Persisted Run Ownership Test
-Acceptance And Next Runtime Boundary. Confirm the ownership matrix is protected
-before selecting any further Run persistence or scheduler work.
+Implement Phase 42: Persisted Run Status Authority Design Gate. Review whether
+persisted Run status can become authoritative for a narrow set of explicit
+runtime writes while full `RunProjection` remains the parity oracle.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13385,3 +13385,55 @@ Remaining risk:
 - Persisted Run status is still conditionally reconciled from full
   `RunProjection`; a future implementation gate is required before it can
   become independently authoritative.
+
+## 2026-06-11: Phase 41.3 Persisted Run Ownership Test Acceptance And Next Runtime Boundary
+
+Phase 41.3 accepts the Phase 41.2 ownership hardening tests and selects the
+next runtime boundary. It is an acceptance/design phase only. It does not
+change runtime behavior, database schema, migrations, automatic resume,
+background scheduling, stale tool recovery, stale permission recovery, stale
+MCP auth/elicitation recovery, or frontend Run UI.
+
+Phase 41.2 acceptance:
+
+- Bounded `RunProjection` reads are protected from mutating persisted
+  checkpoint acknowledgement/discard markers.
+- `RunTransitionHistory` reads are protected from mutating persisted Run
+  status and timestamps.
+- The tests encode the accepted ownership split: persisted identity/session
+  links/checkpoint markers/transition rows are explicit-write evidence, while
+  lifecycle projection, diagnostics, artifacts, refs, permission/MCP
+  actionability, interrupted summaries, resume eligibility, and scheduler state
+  remain durable DTO/parity-derived.
+
+Next boundary decision:
+
+- The next unresolved boundary is persisted Run status authority.
+- Phase 42 should decide whether persisted Run status can become authoritative
+  only for a narrow set of explicit runtime writes: turn started, turn
+  terminal, turn cancelled, task started/terminal, checkpoint resume, and
+  startup recovery records.
+- Full `RunProjection` must remain the parity oracle during Phase 42.
+- No implementation should start until Phase 42 defines rejection criteria,
+  fallback behavior, and tests for stale/incomplete evidence.
+
+Rejected:
+
+- No full Run state machine yet.
+- No migrations yet.
+- No automatic resume, background scheduler loops, stale actionability
+  recovery, frontend Run UI, or React Run state.
+- No deriving status from event payloads, action metadata, assistant prose, or
+  transition history alone.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Phase 41.2 is accepted.
+- The next task is Phase 42: Persisted Run Status Authority Design Gate.
