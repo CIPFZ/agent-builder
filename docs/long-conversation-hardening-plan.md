@@ -11257,9 +11257,8 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 50 and decide Phase 50.1: Checkpoint Marker Read Authority
-Acceptance Gate. Accept marker boundary tests before any checkpoint marker read
-surface implementation.
+Review/accept Phase 50.1 and decide Phase 50.2: Checkpoint Marker Read DTO
+Design Gate. Design a marker-only read DTO before implementation.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14772,3 +14771,53 @@ Review conclusion:
   actionability.
 - The next step should accept the contract before adding any marker-specific
   read surface.
+
+## 2026-06-11: Phase 50.1 Checkpoint Marker Read Authority Acceptance Gate
+
+Phase 50.1 accepts the checkpoint marker authority contract test and selects the
+next scope. It is a review/scope gate only. It does not implement a full Run
+state machine, runtime Run store expansion, database migration, automatic
+resume, background scheduler loop, stale actionability recovery, frontend Run
+UI, checkpoint marker UI, or React-owned runtime state.
+
+Accepted:
+
+- Durable checkpoint user-action markers may become a marker-only read surface:
+  - `acknowledged_at`;
+  - `discarded_at`;
+  - resumed-turn IDs.
+- Marker reads are only durable user-action facts.
+- Marker reads must remain separate from checkpoint source evidence and resume
+  eligibility.
+
+Still rejected:
+
+- Marker reads as checkpoint source evidence.
+- Marker reads as resume eligibility.
+- Marker reads as automatic resume triggers.
+- Marker reads as stale interrupted/actionability restoration.
+- Marker reads as frontend-owned checkpoint state.
+- Marker reads inferred from events, action metadata, assistant prose,
+  transition rows alone, bounded/windowed reads, summary DTOs, or browser
+  memory.
+
+Chosen next scope:
+
+- Phase 50.2 should design a marker-only read DTO.
+- The DTO must include only run/checkpoint identity and marker facts.
+- The DTO must exclude checkpoint summary, artifact refs, diagnostics,
+  lifecycle status, resume eligibility, permission/MCP actionability,
+  interrupted summaries, scheduler details, and projection payloads.
+- Implementation should wait until the DTO shape is accepted.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- Phase 50 is accepted.
+- The next safe step is marker-only DTO design, not implementation.

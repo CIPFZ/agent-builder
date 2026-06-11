@@ -2898,3 +2898,9 @@ Phase 50 note:
   resume actionability.
 - Frontend code must still read checkpoint marker/actionability state from full
   runtime DTOs, not summaries, events, or action metadata.
+
+Phase 50.1 note:
+
+- Checkpoint marker contract coverage is accepted.
+- Any future marker read DTO must stay marker-only and must not drive frontend
+  resume/actionability state.

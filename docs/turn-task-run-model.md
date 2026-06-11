@@ -481,6 +481,12 @@ Phase 50 note:
 - Marker authority remains limited to durable user-action markers and does not
   replace checkpoint source evidence or full projection parity.
 
+Phase 50.1 note:
+
+- Checkpoint marker read authority is accepted only for marker facts.
+- The next DTO design must exclude checkpoint source evidence, lifecycle
+  status, and resume/actionability state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
