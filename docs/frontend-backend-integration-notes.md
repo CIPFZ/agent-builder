@@ -2970,3 +2970,9 @@ Phase 51 note:
 - Checkpoint marker read workstream is closed.
 - The next boundary is Run lifecycle conflict display authority; frontend UI
   remains out of scope until a separate ownership gate.
+
+Usage-driven remaining roadmap note:
+
+- Remaining work is tracked in `docs/usage-driven-remaining-roadmap.md`.
+- Future UI changes should start from concrete user-visible workflows and must
+  keep backend runtime DTO rereads as the source of truth.

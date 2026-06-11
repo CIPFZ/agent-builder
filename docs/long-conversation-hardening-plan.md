@@ -11257,8 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 51 and decide Phase 52: Run Lifecycle Conflict Display
-Authority Design Gate. Define lifecycle conflict rules before implementation.
+Review `docs/usage-driven-remaining-roadmap.md`, then decide Phase 52: Run
+Lifecycle Conflict Display Authority Design Gate. Continue from user-visible
+behavior and define lifecycle conflict rules before implementation.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -15431,3 +15432,35 @@ Review conclusion:
 
 - Checkpoint marker read authority is closed as a complete narrow workstream.
 - The next phase is lifecycle conflict authority design, not implementation.
+
+## 2026-06-11: Usage-Driven Remaining Roadmap
+
+The remaining work is now recorded in
+`docs/usage-driven-remaining-roadmap.md`.
+
+Purpose:
+
+- Continue optimization from concrete user-visible behavior.
+- Keep backend DTOs and full parity reads as sources of truth.
+- Avoid premature Run state machine, migrations, automatic resume, background
+  scheduling, stale actionability recovery, or frontend-owned runtime state.
+
+Roadmap summary:
+
+- Phase 52 should design Run lifecycle conflict display authority.
+- Phase 52.x should add lifecycle conflict contracts before implementation.
+- Phase 53 should validate transport and adapter reread authority.
+- Phase 54 should gate any product binding or UI ownership decision.
+- Phase 55 should review usage-driven workflows such as reload, restart,
+  interrupted turns, tool result guard/persistence, artifacts/refs,
+  permissions, MCP requests, scheduler visibility, and checkpoint markers.
+- Phase 56 should consolidate browser/Vite and packaged Wails smoke coverage.
+- Final closure should happen only after remaining risks are product decisions,
+  not hidden runtime authority ambiguity.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/usage-driven-remaining-roadmap.md
+```
