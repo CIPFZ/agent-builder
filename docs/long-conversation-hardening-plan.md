@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.13: MCP Request Decision Write Action Envelope Contract Gate.
-Review `DecideMCPRequest(...)` for auth/elicitation decision metadata, define a
-contract that cannot resurrect stale MCP actionability, and keep admin/config
-writes specialized unless a later focused phase accepts them.
+Implement Phase 37.14: MCP Request Decision Write Action Metadata
+Implementation. Add optional shared metadata to `RuntimeMCPRequestResponse`
+only when returned by `DecideMCPRequest(...)`, preserve terminal/stale
+non-actionability, and keep hosted secrets/auth state out of fixtures and logs.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12403,3 +12403,88 @@ Review conclusion:
   checkpoint acknowledge/discard/resume, and permission decision.
 - The next high-value candidate is an MCP request decision contract gate, not
   broad migration of all admin/config writes.
+
+## 2026-06-11: Phase 37.13 MCP Request Decision Write Action Envelope Contract Gate
+
+Phase 37.13 reviews whether `DecideMCPRequest(...)` can safely adopt the
+shared write-action metadata envelope for MCP auth/elicitation decisions. It is
+a contract/design phase only. It does not change runtime behavior, database
+schema, Run persistence, automatic resume, background scheduling, stale MCP
+actionability recovery, hosted OAuth automation, or frontend Run UI.
+
+Current MCP request decision behavior:
+
+- `RuntimeMCPRequestResponse` returns a `request` payload.
+- `DecideMCPRequest(...)` validates the request id and action, reads the
+  current MCP request row, and returns terminal requests without mutation.
+- Pending auth/elicitation decisions mark the MCP request completed, denied,
+  cancelled, or failed through `runtimeMCPRequestStore.Mark(...)`.
+- Completed auth/elicitation decisions mark the server retry-needed so a later
+  explicit refresh/retry can proceed.
+- Startup recovery cancels stale actionable MCP auth/elicitation requests via
+  `CancelActionableOnStartup(...)`; stale cancelled/denied/failed/completed
+  requests must not become actionable again.
+- Existing stores/tests redact request text and decision error content so
+  secrets/auth state are not persisted in fixtures, docs, logs, or React state.
+
+Accepted contract:
+
+- Add optional `action` metadata to `RuntimeMCPRequestResponse`.
+- Populate it only from `DecideMCPRequest(...)`; plain `MCPRequest(...)` reads
+  and `MCPRequests(...)` lists must omit it.
+- For pending requests that are mutated by a decision, set `accepted=true`.
+- For already terminal requests, return `accepted=false` with a stable reason
+  such as `mcp_request_already_terminal`; do not mutate the request and do not
+  restore actionability.
+- Use source kind `mcp_request_decision`; action should be the requested
+  decision value (`approve`, `complete`, `answer`, `submit`, `deny`, `cancel`,
+  or `fail`).
+- Use `backendOnly=true`, `startsWorker=false`,
+  `idempotentBy="mcp_request_id"`, and `sessionActivityParity=true`.
+- Refresh targets should force durable rereads of MCP requests, MCP servers,
+  session activity, diagnostics/status, and relevant audit/event evidence.
+- Durable evidence names should include MCP request rows, MCP server state,
+  runtime events, audit, and session activity.
+- Action metadata must not contain response summaries, error text, auth URLs,
+  tokens, raw headers, browser profile paths, screenshots, provider logs, or
+  OAuth/browser auth state.
+- Action metadata must not become MCP actionability state. Current
+  actionability must remain determined by current nonterminal MCP request rows
+  after startup recovery and explicit rereads.
+
+Accepted Phase 37.14 scope:
+
+- Add optional `Action *RuntimeWriteActionMetadata` to
+  `RuntimeMCPRequestResponse`.
+- Populate it only in `DecideMCPRequest(...)` for accepted and already-terminal
+  decision attempts.
+- Extend MCP request store/runtime tests proving:
+  - accepted decisions carry metadata
+  - terminal/stale requests carry rejected metadata without mutation
+  - plain MCP request reads omit metadata
+  - no secret/error text is copied into metadata
+
+Rejected for Phase 37.14:
+
+- No hosted OAuth automation with credentials.
+- No stale MCP auth/elicitation recovery.
+- No frontend MCP actionability state ownership.
+- No MCP request response summaries or error text in action metadata.
+- No full Run state machine, Run store expansion, migration, background queue,
+  automatic resume, stale task/tool recovery, stale permission recovery, or
+  frontend Run management UI.
+- No event payload or action payload as source of truth.
+- No assistant-prose-derived refs, artifacts, checkpoints, or actionability.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- `DecideMCPRequest(...)` can adopt shared write-action metadata next, but only
+  on `RuntimeMCPRequestResponse` and only as redacted request/refresh metadata.
+- Stale MCP auth/elicitation actionability remains forbidden after restart.

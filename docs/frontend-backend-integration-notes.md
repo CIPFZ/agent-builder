@@ -2562,3 +2562,13 @@ Phase 37.12 note:
   decision metadata must not restore stale actionable auth/elicitation requests
   and must not place secrets or auth state in fixtures, logs, screenshots, docs,
   or React state.
+
+Phase 37.13 note:
+
+- MCP request decision metadata is accepted for implementation only on
+  `RuntimeMCPRequestResponse` returned by `DecideMCPRequest(...)`.
+- Plain MCP request reads/lists must omit action metadata.
+- Future MCP decision metadata may guide durable rereads, but must not restore
+  stale actionable auth/elicitation requests and must not contain response
+  summaries, error text, tokens, raw headers, auth URLs, screenshots, browser
+  profiles, provider logs, or OAuth/browser auth state.

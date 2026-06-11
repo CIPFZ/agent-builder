@@ -134,6 +134,14 @@ Phase 37.12 note:
   MCP auth/elicitation actionability and must preserve no-stale-recovery
   semantics.
 
+Phase 37.13 note:
+
+- `DecideMCPRequest(...)` is accepted for the next metadata implementation on
+  `RuntimeMCPRequestResponse`.
+- Plain MCP request reads/lists must omit action metadata.
+- Terminal or stale MCP requests must not be mutated or made actionable again;
+  metadata may only report a rejected/already-terminal decision attempt.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
