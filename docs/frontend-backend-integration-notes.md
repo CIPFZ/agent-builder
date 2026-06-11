@@ -2884,3 +2884,10 @@ Phase 48.5 note:
 - Run summary DTOs remain transport-only and are not frontend UI state.
 - Any future UI use needs a separate ownership gate and must keep lifecycle and
   actionability on full runtime DTO rereads.
+
+Phase 49 note:
+
+- The persisted Run summary read workstream is closed.
+- The next boundary is checkpoint marker read authority.
+- Frontend code must not treat checkpoint markers as resume/actionability state
+  without full runtime DTO parity.

@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 48.5 and decide Phase 49: Persisted Run Summary Workstream
-Closure And Next Authority Boundary Gate. Close the summary read workstream
-before considering any additional Run authority.
+Review/accept Phase 49 and decide Phase 50: Checkpoint Marker Read Authority
+Contract Gate. Add tests for durable checkpoint user-action markers without
+promoting checkpoint source evidence or resume actionability.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14659,3 +14659,62 @@ Review conclusion:
 - Phase 48.4 is accepted.
 - The summary read workstream should be closed before new authority work starts.
 - The next phase is a closure/design gate, not an implementation phase.
+
+## 2026-06-11: Phase 49 Persisted Run Summary Workstream Closure And Next Authority Boundary Gate
+
+Phase 49 closes the persisted Run summary read workstream and defines the next
+authority boundary. It is a design/closure phase only. It does not implement a
+full Run state machine, runtime Run store expansion, database migration,
+automatic resume, background scheduler loop, stale actionability recovery,
+frontend Run UI, or React-owned runtime state.
+
+Closed workstream:
+
+- Phase 48 accepted persisted Run authority only for identity/session/summary
+  fields.
+- Phase 48.1 added backend contract tests for persisted identity and summary
+  reads.
+- Phase 48.2 accepted the implementation scope.
+- Phase 48.3 added `RuntimeRunSummary` and backend/HTTP/dev-module summary
+  reads.
+- Phase 48.4 added adapter transport support and static smoke.
+- Phase 48.5 accepted that summary DTOs remain transport-only and not UI state.
+
+Stable summary boundary:
+
+- `RuntimeRunSummary` may be used for explicit summary-only rereads.
+- It must remain excluded from lifecycle/actionability rendering.
+- It must not gain lifecycle status, `finished_at`, checkpoint source evidence,
+  diagnostics, artifacts, permissions, MCP actionability, interrupted
+  summaries, scheduler details, transition interpretation, or projection
+  payloads without a separate gate.
+
+Next authority boundary:
+
+- Phase 50 should focus on checkpoint marker read authority.
+- The accepted candidate is narrow: persisted acknowledgement/discard/resumed
+  turn markers are durable user-action markers.
+- The rejected expansion remains broad: marker reads must not become checkpoint
+  source evidence, resume eligibility, automatic resume, stale actionable
+  interrupted state, or frontend-owned checkpoint state.
+
+Phase 50 should add tests before implementation:
+
+- Marker reads preserve acknowledged/discarded/resumed-turn timestamps/IDs.
+- Marker reads do not mutate checkpoint source evidence.
+- Marker reads do not infer resume eligibility without full projection parity.
+- Bounded/windowed reads, events, action metadata, assistant prose, transition
+  rows alone, and browser memory cannot restore checkpoint actionability.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- Persisted Run summary reads are closed as a complete, narrow workstream.
+- The next phase is checkpoint marker authority tests, not UI or scheduler
+  implementation.

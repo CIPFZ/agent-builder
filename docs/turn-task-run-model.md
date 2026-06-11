@@ -466,6 +466,14 @@ Phase 48.5 note:
 - The next Run authority step must be a closure/design gate before additional
   implementation.
 
+Phase 49 note:
+
+- Persisted Run summary reads are closed as a narrow workstream.
+- The next candidate authority is checkpoint user-action marker reads:
+  acknowledgement, discard, and resumed-turn markers.
+- These markers are not checkpoint source evidence and do not determine resume
+  eligibility without full projection parity.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
