@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/tools/scheduler"
@@ -301,6 +302,65 @@ func TestRuntimeRunProjectionWindowPreservesPersistedCheckpointMarkers(t *testin
 	}
 	if acknowledged.Action == nil || discarded.Action == nil {
 		t.Fatalf("checkpoint actions missing metadata: ack=%#v discard=%#v", acknowledged.Action, discarded.Action)
+	}
+}
+
+func TestRuntimeRunTerminalTaskCompletionReconcilesPersistedStatusFromFullProjection(t *testing.T) {
+	t.Parallel()
+
+	runtimeBackend, workspace := backendForSkillTest(t)
+	conn, err := db.Connect(context.Background(), workspace.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(workspace.DataDir)
+	})
+	service := newRuntimeService()
+	service.runtime = runtimeBackend
+	service.workspace = &workspace
+	service.turns = newRuntimeTurnStore(conn)
+	service.runs = newRuntimeRunStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+	service.agentTasks = newRuntimeAgentTaskStore(conn)
+
+	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "terminal task reconcile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.runs.EnsureForSession(context.Background(), workspace.ID, sess.ID, "terminal task reconcile", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := runtimeSchedulerRecorder{service: service}
+	if err := recorder.AgentTaskCompleted(context.Background(), agent.AgentTaskRecord{
+		ID:              "task-terminal-reconcile",
+		ParentSessionID: sess.ID,
+		Title:           "terminal task",
+		Status:          agentTaskStatusCompleted,
+		Progress:        100,
+		ResultSummary:   "terminal task completed",
+		StartedAt:       run.CreatedAt + 100,
+		FinishedAt:      run.CreatedAt + 200,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	persisted, err := service.runs.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != runtimeRunStatusCompleted || persisted.FinishedAt == 0 {
+		t.Fatalf("terminal task did not reconcile persisted run status: %#v", persisted)
+	}
+	projection, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sess.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.Run.Status != runtimeRunStatusCompleted || projection.Run.ID != run.ID {
+		t.Fatalf("projection parity mismatch after terminal task reconcile: %#v persisted=%#v", projection.Run, persisted)
 	}
 }
 

@@ -281,6 +281,22 @@ func (r *runtimeService) reconcileRuntimeRunForSession(ctx context.Context, sess
 	return resp.Run, nil
 }
 
+func (r *runtimeService) reconcileRuntimeRunForTerminalTask(ctx context.Context, task RuntimeAgentTask) {
+	if !isFinalAgentTaskStatus(task.Status) || strings.TrimSpace(task.ParentSessionID) == "" || r.runs.db == nil {
+		return
+	}
+	r.mu.Lock()
+	runtimeReady := r.runtime != nil
+	workspaceReady := r.workspace != nil
+	r.mu.Unlock()
+	if !runtimeReady || !workspaceReady {
+		return
+	}
+	if _, err := r.reconcileRuntimeRunForSession(ctx, task.ParentSessionID); err != nil {
+		slog.Warn("Failed to reconcile runtime run for terminal task", "task_id", task.ID, "session_id", task.ParentSessionID, "error", err)
+	}
+}
+
 func runtimeRunCheckpointByID(checkpoints []RuntimeRunCheckpoint, checkpointID string) (RuntimeRunCheckpoint, bool) {
 	for _, checkpoint := range checkpoints {
 		if checkpoint.ID == checkpointID {

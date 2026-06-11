@@ -117,6 +117,7 @@ func (r *runtimeService) CancelAgentTask(ctx context.Context, taskID string) (Ru
 		},
 	})
 	r.recordAgentTaskLifecycle(ctx, runtimeapi.EventTaskCancelled, "task_cancelled", task)
+	r.reconcileRuntimeRunForTerminalTask(ctx, task)
 	return withRuntimeAgentTaskCancelAction(RuntimeAgentTaskResponse{Task: task, Result: &result}, true, cancellationDetail), nil
 }
 
@@ -230,6 +231,7 @@ func (r *runtimeSchedulerRecorder) AgentTaskCompleted(ctx context.Context, task 
 		_, _ = r.service.upsertAgentTaskResult(ctx, result)
 	}
 	r.service.recordAgentTaskLifecycle(ctx, runtimeapi.EventTaskCompleted, "task_completed", stored)
+	r.service.reconcileRuntimeRunForTerminalTask(ctx, stored)
 	return nil
 }
 
@@ -287,6 +289,7 @@ func (r *runtimeSchedulerRecorder) AgentTaskFailed(ctx context.Context, task age
 		auditType = "task_cancelled"
 	}
 	r.service.recordAgentTaskLifecycle(ctx, eventType, auditType, stored)
+	r.service.reconcileRuntimeRunForTerminalTask(ctx, stored)
 	return nil
 }
 

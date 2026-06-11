@@ -350,6 +350,15 @@ Phase 43.3 note:
   found afterward.
 - Terminal task/turn status still depends on full projection parity.
 
+Phase 43.4 note:
+
+- Terminal agent task lifecycle now triggers best-effort full projection
+  reconciliation after durable terminal task evidence is written.
+- The reconciliation path still uses full `RunProjection` parity and the
+  explicit status writer helper; task events/action metadata do not directly
+  write terminal Run status.
+- Turn terminal paths were reviewed and already use full session reconcile.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

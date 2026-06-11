@@ -2784,3 +2784,10 @@ Phase 43.3 note:
 - Frontend behavior remains unchanged: task/run UI refreshes should reread
   runtime DTOs instead of merging action/event payloads into local Run state.
 - Terminal status still requires full projection parity.
+
+Phase 43.4 note:
+
+- Backend terminal task lifecycle now refreshes persisted Run status through
+  full projection reconciliation.
+- Frontend behavior remains unchanged: terminal task events should trigger
+  runtime DTO rereads, not direct local Run status merges.

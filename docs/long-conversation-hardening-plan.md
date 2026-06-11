@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 43.3 and decide Phase 43.4: Explicit Run Status Writer
-Terminal Call-Site Review Gate. Review terminal task/turn completion paths for
-eligible helper usage without weakening full projection parity.
+Review/accept Phase 43.4 and decide Phase 43.5: Explicit Run Status Writer
+Acceptance And Residual Direct-Upsert Audit. Confirm remaining direct
+`UpsertFromProjection` usage is compatibility-only.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13871,3 +13871,56 @@ Remaining risk / next task:
 - Terminal task/turn completion paths still rely on projection reconciliation.
 - Phase 43.4 should review terminal call sites and only move writes that can
   satisfy full projection parity without introducing a state machine.
+
+## 2026-06-11: Phase 43.4 Explicit Run Status Writer Terminal Call-Site Review Gate
+
+Phase 43.4 reviews terminal task/turn completion paths and adds the safe
+terminal task reconcile call site. It does not implement a full Run state
+machine, runtime Run store expansion, database migration, automatic resume,
+background scheduler loop, stale actionability recovery, frontend Run UI, or
+React-owned runtime state.
+
+Implemented:
+
+- Terminal agent task lifecycle paths now trigger best-effort full projection
+  reconciliation after durable terminal task evidence is written:
+  - `CancelAgentTask(...)`
+  - `runtimeSchedulerRecorder.AgentTaskCompleted(...)`
+  - `runtimeSchedulerRecorder.AgentTaskFailed(...)`
+- Added `reconcileRuntimeRunForTerminalTask(...)`.
+  - It runs only for final task statuses.
+  - It requires parent session evidence.
+  - It requires runtime/workspace/store availability.
+  - It delegates to full `RunProjection(...)` reconciliation, which uses the
+    explicit status writer helper and full SessionActivity parity.
+- Turn terminal paths were reviewed and already reconcile through
+  `reconcileRuntimeRunForSession(...)` after durable turn evidence is written.
+
+Tests:
+
+- Added `TestRuntimeRunTerminalTaskCompletionReconcilesPersistedStatusFromFullProjection`.
+  - A completed task with no active turn reconciles persisted Run status to
+    completed through full projection parity.
+  - The persisted Run ID remains the durable Run identity.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Terminal task status now reaches persisted Run status through the same full
+  projection/helper path as terminal turns.
+- Task event payloads, action metadata, and transition history still do not
+  directly write terminal Run status.
+- Bounded/windowed reads remain read-only.
+
+Remaining risk / next task:
+
+- `UpsertFromProjection(...)` remains a lower-level compatibility API used by
+  full projection reconciliation/backfill fallback and tests.
+- Phase 43.5 should accept the writer rollout if remaining direct projection
+  upserts are confirmed compatibility-only.
