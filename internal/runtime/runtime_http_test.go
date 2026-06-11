@@ -27,6 +27,52 @@ func TestRuntimeHTTPServerRequiresBearerToken(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesPermissionDecisionActionMetadata(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		status: RuntimeStatus{Ready: true, WorkspaceID: "workspace-1", SessionID: "session-1"},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodPost, "/v1/permissions/perm-1/decision", strings.NewReader(`{"action":"deny"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("decision status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.permissionDecision.PermissionID != "perm-1" || service.permissionDecision.Action != "deny" {
+		t.Fatalf("permission decision = %#v", service.permissionDecision)
+	}
+	var decision RuntimeStatus
+	if err := json.Unmarshal(resp.body.Bytes(), &decision); err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action == nil || !decision.Action.Accepted || decision.Action.Source.Kind != runtimePermissionDecisionActionSourceKind || decision.Action.Source.Action != "deny" || decision.Action.Source.IdempotentBy != "permission_id" {
+		t.Fatalf("decision action metadata = %#v", decision.Action)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/runtime/status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("plain status = %d body = %s", resp.status, resp.body.String())
+	}
+	var status RuntimeStatus
+	if err := json.Unmarshal(resp.body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Action != nil {
+		t.Fatalf("plain status should not carry decision action metadata: %#v", status.Action)
+	}
+}
+
 func TestRuntimeHTTPServerAllowsQueryTokenForEventSource(t *testing.T) {
 	t.Parallel()
 

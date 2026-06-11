@@ -116,6 +116,15 @@ Phase 37.10 note:
 - Active permission gates, tool calls, turns, diagnostics, and session activity
   remain durable runtime read state, not action payload state.
 
+Phase 37.11 note:
+
+- `RuntimeStatus` now has optional shared write-action metadata populated only
+  by `DecidePermission(...)`.
+- Plain `Status(...)` reads omit action metadata.
+- Permission decision metadata does not own active/terminal permission, tool
+  call, turn, diagnostic, timeline, MCP actionability, or session activity
+  state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

@@ -2540,3 +2540,14 @@ Phase 37.10 note:
   gates, tool calls, turns, diagnostics, timeline rows, and session activity
   from runtime DTO reads rather than the decision response payload.
 - Plain status reads must not carry decision action metadata.
+
+Phase 37.11 note:
+
+- `DecidePermission(...)` responses now include optional `RuntimeStatus.action`
+  metadata; plain status reads omit it.
+- Frontend code may use decision `action.refreshTargets` to choose durable
+  rereads, but must still render permission gates, tool calls, turns,
+  diagnostics, timeline rows, MCP actionability, and session activity from
+  runtime DTO reads.
+- Decision action metadata must not be cached as React-owned permission state
+  and must not resurrect stale permission gates.

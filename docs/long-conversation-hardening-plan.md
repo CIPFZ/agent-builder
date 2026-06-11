@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.11: Permission Decision Write Action Metadata
-Implementation. Add optional shared metadata to `RuntimeStatus` only when it is
-returned by `DecidePermission(...)`, preserve the existing decision signature,
-and keep active permission/tool/turn state owned by durable runtime reads.
+Implement Phase 37.12: Runtime Write Action Envelope Rollout Acceptance And
+Remaining Action Inventory. Review scheduler execute, task cancel, checkpoint
+ack/discard/resume, and permission decision metadata, then decide whether the
+remaining writes need focused envelope phases or should stay specialized.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12259,3 +12259,56 @@ Review conclusion:
 - Permission decisions can adopt shared write-action metadata next, but only as
   optional `RuntimeStatus.action` populated by `DecidePermission(...)` and never
   as the source of active permission/tool/turn state.
+
+## 2026-06-11: Phase 37.11 Permission Decision Write Action Metadata Implementation
+
+Phase 37.11 implements the shared write-action metadata envelope for
+`DecidePermission(...)` only. It preserves the existing `RuntimeStatus` response
+shape and does not change permission service behavior, permission storage, tool
+call/turn terminalization, database schema, Run persistence, automatic resume,
+background scheduling, stale actionability recovery, or frontend Run UI.
+
+Implemented:
+
+- Added optional `action` metadata to `RuntimeStatus`.
+- Populated `action` only from `DecidePermission(...)` after the existing
+  permission grant, pending-gate removal, permission store mark, tool call/turn
+  update, audit write, event write, and status refresh succeed.
+- Plain `Status(...)` reads continue to omit `action`.
+- Preserved the existing `DecidePermission(...)` signature and response type.
+- Used source kind `permission_decision`, action value equal to the requested
+  decision (`allow`, `allow_for_session`, or `deny`), `backendOnly=true`,
+  `startsWorker=false`, `idempotentBy="permission_id"`, and
+  `sessionActivityParity=true`.
+- Added refresh targets for status, permissions, tool calls, turn activity,
+  session activity window/full activity, and diagnostics rereads.
+- Declared durable evidence names for permission rows, tool call rows, turn
+  rows, runtime events, audit, and session activity.
+- Added backend and HTTP route coverage proving decision metadata is present on
+  permission decision responses and absent from plain status reads.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run "TestRuntimeSchedulerAskCreatesRecoverablePermission|TestRuntimeHTTPServerRoutesPermissionDecisionActionMetadata" -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- The permission decision envelope is additive and metadata-only.
+- Active/terminal permission gates, tool calls, turns, diagnostics, timeline
+  rows, session activity, MCP actionability, and status remain durable
+  DTO/read concerns after the action.
+- The implementation does not add frontend permission state ownership, stale
+  permission recovery/resurrection, permission auto-decision, automatic resume,
+  a background scheduler, a Run state machine, Run store migration, stale
+  tool/MCP recovery, frontend Run UI, event-payload state merging, or
+  assistant-prose-derived refs/artifacts/checkpoints/actionability.
+
+Remaining risk:
+
+- Several non-core admin/config writes still return specialized responses
+  without shared `action` metadata. Phase 37.12 should review whether they need
+  focused envelope phases or should remain specialized because they are outside
+  the scheduler/Run/permission action track.

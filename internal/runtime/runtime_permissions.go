@@ -12,6 +12,22 @@ import (
 	"github.com/charmbracelet/crush/internal/tools/scheduler"
 )
 
+const (
+	runtimePermissionDecisionActionSourceKind = "permission_decision"
+)
+
+func runtimePermissionDecisionRefreshTargets() []string {
+	return []string{
+		"status",
+		"permissions",
+		"tool_calls",
+		"turn_activity",
+		"session_activity_window",
+		"session_activity",
+		"diagnostics",
+	}
+}
+
 func (r *runtimeService) Permissions(ctx context.Context) (RuntimePermissionsResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		return RuntimePermissionsResponse{}, err
@@ -197,7 +213,36 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 		},
 	})
 
-	return r.Status(ctx)
+	status, err := r.Status(ctx)
+	if err != nil {
+		return RuntimeStatus{}, err
+	}
+	return withRuntimePermissionDecisionAction(status, action), nil
+}
+
+func withRuntimePermissionDecisionAction(status RuntimeStatus, action proto.PermissionAction) RuntimeStatus {
+	status.Action = &RuntimeWriteActionMetadata{
+		Accepted:       true,
+		Reason:         permissionStatusForDecision(action),
+		RefreshTargets: runtimePermissionDecisionRefreshTargets(),
+		Source: RuntimeWriteActionSource{
+			Kind:                  runtimePermissionDecisionActionSourceKind,
+			Action:                string(action),
+			BackendOnly:           true,
+			StartsWorker:          false,
+			IdempotentBy:          "permission_id",
+			SessionActivityParity: true,
+			Evidence: []string{
+				"runtime_permissions",
+				"runtime_tool_calls",
+				"runtime_turns",
+				"runtime_events",
+				"runtime_audit",
+				"session_activity",
+			},
+		},
+	}
+	return status
 }
 
 func toRuntimePermissionRequest(perm permission.PermissionRequest) RuntimePermissionRequest {

@@ -1,16 +1,17 @@
 package runtime
 
 type RuntimeStatus struct {
-	Ready       bool              `json:"ready"`
-	WorkspaceID string            `json:"workspaceId"`
-	SessionID   string            `json:"sessionId"`
-	WorkingDir  string            `json:"workingDir"`
-	Model       string            `json:"model"`
-	Provider    string            `json:"provider"`
-	Busy        bool              `json:"busy"`
-	Usage       RuntimeUsage      `json:"usage"`
-	Events      RuntimeEventStats `json:"events"`
-	Requests    RuntimeRequests   `json:"requests"`
+	Ready       bool                        `json:"ready"`
+	WorkspaceID string                      `json:"workspaceId"`
+	SessionID   string                      `json:"sessionId"`
+	WorkingDir  string                      `json:"workingDir"`
+	Model       string                      `json:"model"`
+	Provider    string                      `json:"provider"`
+	Busy        bool                        `json:"busy"`
+	Usage       RuntimeUsage                `json:"usage"`
+	Events      RuntimeEventStats           `json:"events"`
+	Requests    RuntimeRequests             `json:"requests"`
+	Action      *RuntimeWriteActionMetadata `json:"action,omitempty"`
 }
 
 type RuntimeModel struct {

@@ -668,8 +668,22 @@ func TestRuntimeSchedulerAskCreatesRecoverablePermission(t *testing.T) {
 	if perm.PolicyProfile != string(permission.PolicyProfileDefault) || perm.PolicyHeadless {
 		t.Fatalf("interactive permission profile = %#v", perm)
 	}
-	if _, err := service.DecidePermission(context.Background(), RuntimePermissionDecision{PermissionID: perm.ID, Action: string(proto.PermissionAllow)}); err != nil {
+	decisionStatus, err := service.DecidePermission(context.Background(), RuntimePermissionDecision{PermissionID: perm.ID, Action: string(proto.PermissionAllow)})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if decisionStatus.Action == nil || !decisionStatus.Action.Accepted || decisionStatus.Action.Source.Kind != runtimePermissionDecisionActionSourceKind || decisionStatus.Action.Source.Action != string(proto.PermissionAllow) || decisionStatus.Action.Source.IdempotentBy != "permission_id" {
+		t.Fatalf("permission decision action metadata = %#v", decisionStatus.Action)
+	}
+	if len(decisionStatus.Action.RefreshTargets) == 0 || decisionStatus.Action.Source.StartsWorker || !decisionStatus.Action.Source.BackendOnly || !decisionStatus.Action.Source.SessionActivityParity {
+		t.Fatalf("permission decision source/refresh metadata = %#v", decisionStatus.Action)
+	}
+	plainStatus, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plainStatus.Action != nil {
+		t.Fatalf("plain status should not carry decision action metadata: %#v", plainStatus.Action)
 	}
 
 	select {
@@ -3823,6 +3837,7 @@ type recordingRuntimeService struct {
 	updatedPolicyMode     string
 	updatedPolicyRules    []RuntimePolicyRule
 	updatedPolicyProfile  string
+	permissionDecision    RuntimePermissionDecision
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -4321,8 +4336,9 @@ func (s *recordingRuntimeService) ServeHTTP(context.Context, string, string) (Ru
 	return RuntimeAPIEndpointResponse{URL: "http://127.0.0.1:1", Token: "token"}, nil
 }
 
-func (s *recordingRuntimeService) DecidePermission(context.Context, RuntimePermissionDecision) (RuntimeStatus, error) {
-	return RuntimeStatus{}, nil
+func (s *recordingRuntimeService) DecidePermission(_ context.Context, req RuntimePermissionDecision) (RuntimeStatus, error) {
+	s.permissionDecision = req
+	return withRuntimePermissionDecisionAction(s.status, proto.PermissionAction(req.Action)), nil
 }
 
 func (s *recordingRuntimeService) Cancel(context.Context) (RuntimeStatus, error) {
