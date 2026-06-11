@@ -151,6 +151,15 @@ Phase 37.14 note:
   metadata does not contain response summaries, error text, secrets, or auth
   state.
 
+Phase 37.15 note:
+
+- Phase 37 write-action metadata rollout is accepted for the core
+  scheduler/Run/permission/MCP decision path.
+- Broad migration of admin/config/session/worktree writes is rejected without a
+  specific product need and focused gate.
+- Phase 38 should review frontend/transport use of `action.refreshTargets`
+  without making action payloads UI state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 37.15: Runtime Write Action Envelope Final Acceptance And Next
-Roadmap Gate. Review the completed scheduler/Run/permission/MCP decision
-metadata rollout, verify source-of-truth boundaries, and decide the next
-roadmap item outside broad write-response migration.
+Implement Phase 38: Write Action Envelope Frontend/Transport Consumption Gate.
+Review how adapters may use `action.refreshTargets` to choose durable rereads
+without merging action payloads into React state, and decide whether any
+frontend or bridge contract tests should be added.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12545,3 +12545,84 @@ Remaining risk:
   scheduler/Run/permission/MCP decision path. Further admin/config/worktree/
   session writes should not be migrated broadly without a specific product need
   and focused gate.
+
+## 2026-06-11: Phase 37.15 Runtime Write Action Envelope Final Acceptance And Next Roadmap Gate
+
+Phase 37.15 reviews the completed Phase 37 write-action metadata rollout and
+chooses the next roadmap item. It is an acceptance/design phase only. It does
+not change runtime behavior, database schema, Run persistence, automatic
+resume, background scheduling, stale permission/MCP actionability recovery, or
+frontend Run UI.
+
+Accepted implemented action metadata:
+
+- Scheduler task execute: `RuntimeRunSchedulerExecuteTaskResponse.action`
+  - idempotent by `task_id`
+  - metadata added without replacing scheduler-specific fields
+- Task cancellation: `RuntimeAgentTaskResponse.action`
+  - active cancellation accepted
+  - already-final cancellation rejected/idempotent without rewriting evidence
+- Checkpoint acknowledge/discard: `RuntimeRunResponse.action`
+  - idempotent by `run_id+checkpoint_id`
+  - ordinary `Run(...)` reads omit action metadata
+- Checkpoint resume: top-level `RuntimeRunResumeResponse.action`
+  - no `idempotentBy` claim because explicit resume creates a new turn
+  - nested `RuntimeRunResponse.action` remains unset for resume
+- Permission decision: `RuntimeStatus.action`
+  - populated only by `DecidePermission(...)`
+  - plain `Status(...)` reads omit action metadata
+- MCP request decision: `RuntimeMCPRequestResponse.action`
+  - populated only by `DecideMCPRequest(...)`
+  - plain MCP request reads/lists omit action metadata
+  - terminal/stale requests return rejected metadata without mutation or stale
+    actionability recovery
+
+Accepted source-of-truth boundary:
+
+- Action metadata can describe request acceptance, reason, source, refresh
+  targets, worker semantics, idempotency where applicable, and redacted
+  evidence names.
+- Action metadata can guide durable DTO rereads.
+- Action metadata cannot directly update or restore timeline rows, diagnostics,
+  artifacts, refs, Run projection, checkpoint state, task lifecycle, new-turn
+  state, permission gates, MCP auth/elicitation actionability, interrupted
+  summaries, or scheduler state.
+- Runtime events remain refresh triggers only.
+- Assistant prose remains non-authoritative for artifacts, refs, checkpoints,
+  or actionability.
+
+Validation accepted across Phase 37:
+
+- Targeted and full backend tests were run during implementation phases:
+  - `go test ./internal/runtime -count=1`
+  - `go test ./desktop -count=1`
+  - focused runtime tests for scheduler execute, task cancellation, checkpoint
+    ack/discard/resume, permission decision, and MCP request decision
+- Documentation-only acceptance phases used `git diff --check` and diff review.
+- No TypeScript/frontend files were changed in Phase 37.3 through 37.15.
+
+Rejected broad migrations:
+
+- Do not broadly migrate provider/model/config/policy/skills/plugin/MCP server
+  admin writes.
+- Do not broadly migrate worktree/session/navigation writes.
+- Do not add full Run state machine, Run store expansion, migrations,
+  background queue, automatic resume, stale task/tool recovery, stale
+  permission recovery, stale MCP auth/elicitation recovery, or frontend Run UI.
+- Do not make React state, event payloads, action payloads, or assistant prose
+  sources of truth.
+
+Next roadmap decision:
+
+- Phase 38 should review frontend/transport consumption of `action.refreshTargets`.
+- The gate should decide whether adapters should continue ignoring action
+  metadata entirely or use only `refreshTargets` to choose durable rereads.
+- Any frontend work must preserve the current rule: action payloads are not UI
+  state and cannot resurrect stale permission/MCP actionability.
+
+Review conclusion:
+
+- Phase 37 write-action metadata rollout is complete for the core
+  scheduler/Run/permission/MCP decision path.
+- Further write-response migrations require a specific product need and a
+  focused gate.

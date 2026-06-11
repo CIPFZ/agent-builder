@@ -2584,3 +2584,15 @@ Phase 37.14 note:
 - Action metadata must remain redacted and must not contain response summaries,
   errors, tokens, raw headers, auth URLs, screenshots, browser profiles,
   provider logs, or OAuth/browser auth state.
+
+Phase 37.15 note:
+
+- Phase 37 write-action metadata rollout is accepted for scheduler execute,
+  task cancellation, checkpoint acknowledge/discard/resume, permission
+  decision, and MCP request decision.
+- The frontend must continue to treat all action metadata as refresh/request
+  metadata only.
+- Phase 38 should review whether adapters should use `action.refreshTargets` to
+  choose durable rereads. It must not introduce React-owned task, Run,
+  permission, MCP actionability, artifact, diagnostic, timeline, or checkpoint
+  state.
