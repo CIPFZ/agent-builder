@@ -500,8 +500,24 @@ func TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := h.service.CancelTurn(h.ctx, turn.ID); err != nil {
+	status, err := h.service.CancelTurn(h.ctx, turn.ID)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if status.Action == nil {
+		t.Fatal("cancel turn action metadata missing")
+	}
+	if !status.Action.Accepted || status.Action.Reason != runtimeTurnActionReasonCancelled {
+		t.Fatalf("cancel action metadata = %#v", status.Action)
+	}
+	if status.Action.Source.Kind != runtimeTurnActionSourceKind || status.Action.Source.Action != runtimeTurnActionCancel {
+		t.Fatalf("cancel action source = %#v", status.Action.Source)
+	}
+	if !status.Action.Source.BackendOnly || status.Action.Source.StartsWorker || status.Action.Source.IdempotentBy != "turn_id" || !status.Action.Source.SessionActivityParity {
+		t.Fatalf("cancel action source semantics = %#v", status.Action.Source)
+	}
+	if len(status.Action.RefreshTargets) == 0 {
+		t.Fatal("cancel action refresh targets missing")
 	}
 	if !runtimeRunSessionLinkedToTurn(h.ctx, h.service.runs, run.ID, session.ID, turn.ID) {
 		t.Fatalf("cancel broke run turn link: run=%s turn=%s", run.ID, turn.ID)

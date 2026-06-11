@@ -1032,6 +1032,9 @@ func TestRuntimeHTTPServerRoutesTurnGetAndCancelToRuntimeService(t *testing.T) {
 	if turn.Turn.ID != "turn-1" || turn.Turn.Status != "running" {
 		t.Fatalf("turn = %#v", turn.Turn)
 	}
+	if turn.Action != nil {
+		t.Fatalf("ordinary turn read returned action metadata: %#v", turn.Action)
+	}
 
 	req, err = http.NewRequest(http.MethodPost, "/v1/turns/turn-1/cancel", nil)
 	if err != nil {
@@ -1044,6 +1047,30 @@ func TestRuntimeHTTPServerRoutesTurnGetAndCancelToRuntimeService(t *testing.T) {
 	}
 	if service.cancelledTurn != "turn-1" {
 		t.Fatalf("cancelledTurn = %q, want turn-1", service.cancelledTurn)
+	}
+	var status RuntimeStatus
+	if err := json.Unmarshal(resp.body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Action == nil || status.Action.Source.Action != runtimeTurnActionCancel || status.Action.Reason != runtimeTurnActionReasonCancelled {
+		t.Fatalf("cancel action metadata = %#v", status.Action)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, "/v1/turns/turn-1/interrupted/done", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("interrupted done status = %d body = %s", resp.status, resp.body.String())
+	}
+	var acknowledged RuntimeTurnResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &acknowledged); err != nil {
+		t.Fatal(err)
+	}
+	if acknowledged.Action == nil || acknowledged.Action.Source.Action != runtimeTurnActionMarkInterruptedDone || acknowledged.Action.Reason != runtimeTurnActionReasonInterruptedMarkedDone {
+		t.Fatalf("mark interrupted done action metadata = %#v", acknowledged.Action)
 	}
 }
 
@@ -1329,7 +1356,7 @@ func TestRuntimeHTTPServerDevModuleRoutesChatLoop(t *testing.T) {
 		method string
 		path   string
 		body   string
-		check  func(t *testing.T)
+		check  func(t *testing.T, resp httpRecorder)
 	}{
 		{
 			name:   "new chat",
@@ -1341,7 +1368,7 @@ func TestRuntimeHTTPServerDevModuleRoutesChatLoop(t *testing.T) {
 			name:   "select session",
 			method: http.MethodPost,
 			path:   "/v1/sessions/session-2/select",
-			check: func(t *testing.T) {
+			check: func(t *testing.T, resp httpRecorder) {
 				t.Helper()
 				if service.selectedSession != "session-2" {
 					t.Fatalf("selected session = %q, want session-2", service.selectedSession)
@@ -1352,7 +1379,7 @@ func TestRuntimeHTTPServerDevModuleRoutesChatLoop(t *testing.T) {
 			name:   "session messages",
 			method: http.MethodGet,
 			path:   "/v1/sessions/session-2/messages",
-			check: func(t *testing.T) {
+			check: func(t *testing.T, resp httpRecorder) {
 				t.Helper()
 				if service.messageSession != "session-2" {
 					t.Fatalf("message session = %q, want session-2", service.messageSession)
@@ -1364,7 +1391,7 @@ func TestRuntimeHTTPServerDevModuleRoutesChatLoop(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/v1/sessions/session-2/turns",
 			body:   `{"prompt":"hello"}`,
-			check: func(t *testing.T) {
+			check: func(t *testing.T, resp httpRecorder) {
 				t.Helper()
 				if service.chatCalls == 0 {
 					t.Fatal("chat was not called")
@@ -1375,15 +1402,40 @@ func TestRuntimeHTTPServerDevModuleRoutesChatLoop(t *testing.T) {
 			name:   "turn",
 			method: http.MethodGet,
 			path:   "/v1/turns/turn-1",
+			check: func(t *testing.T, resp httpRecorder) {
+				t.Helper()
+				if strings.Contains(resp.body.String(), `"action"`) {
+					t.Fatalf("ordinary turn read returned action metadata: %s", resp.body.String())
+				}
+			},
 		},
 		{
 			name:   "cancel turn",
 			method: http.MethodPost,
 			path:   "/v1/turns/turn-1/cancel",
-			check: func(t *testing.T) {
+			check: func(t *testing.T, resp httpRecorder) {
 				t.Helper()
 				if service.cancelledTurn != "turn-1" {
 					t.Fatalf("cancelled turn = %q, want turn-1", service.cancelledTurn)
+				}
+				body := resp.body.String()
+				if !strings.Contains(body, `"action":"`+runtimeTurnActionCancel+`"`) || !strings.Contains(body, `"reason":"`+runtimeTurnActionReasonCancelled+`"`) {
+					t.Fatalf("cancel action metadata missing: %s", body)
+				}
+			},
+		},
+		{
+			name:   "mark interrupted done",
+			method: http.MethodPost,
+			path:   "/v1/turns/turn-1/interrupted/done",
+			check: func(t *testing.T, resp httpRecorder) {
+				t.Helper()
+				if service.markInterruptedDoneTurn != "turn-1" {
+					t.Fatalf("mark interrupted done turn = %q, want turn-1", service.markInterruptedDoneTurn)
+				}
+				body := resp.body.String()
+				if !strings.Contains(body, `"action":"`+runtimeTurnActionMarkInterruptedDone+`"`) || !strings.Contains(body, `"reason":"`+runtimeTurnActionReasonInterruptedMarkedDone+`"`) {
+					t.Fatalf("mark interrupted done action metadata missing: %s", body)
 				}
 			},
 		},
@@ -1410,7 +1462,7 @@ func TestRuntimeHTTPServerDevModuleRoutesChatLoop(t *testing.T) {
 				t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
 			}
 			if tt.check != nil {
-				tt.check(t)
+				tt.check(t, resp)
 			}
 		})
 	}

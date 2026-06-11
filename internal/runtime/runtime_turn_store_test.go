@@ -245,6 +245,28 @@ func TestRuntimeServiceMarkInterruptedDoneCancelsInterruptedTurn(t *testing.T) {
 	if resp.Turn.Status != turnStatusCancelled || resp.Turn.Interrupted != nil {
 		t.Fatalf("turn response = %#v", resp.Turn)
 	}
+	if resp.Action == nil {
+		t.Fatal("mark interrupted done action metadata missing")
+	}
+	if !resp.Action.Accepted || resp.Action.Reason != runtimeTurnActionReasonInterruptedMarkedDone {
+		t.Fatalf("action metadata = %#v", resp.Action)
+	}
+	if resp.Action.Source.Kind != runtimeTurnActionSourceKind || resp.Action.Source.Action != runtimeTurnActionMarkInterruptedDone {
+		t.Fatalf("action source = %#v", resp.Action.Source)
+	}
+	if !resp.Action.Source.BackendOnly || resp.Action.Source.StartsWorker || resp.Action.Source.IdempotentBy != "turn_id" || !resp.Action.Source.SessionActivityParity {
+		t.Fatalf("action source semantics = %#v", resp.Action.Source)
+	}
+	if len(resp.Action.RefreshTargets) == 0 {
+		t.Fatal("action refresh targets missing")
+	}
+	plain, err := service.Turn(context.Background(), "turn-interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.Action != nil {
+		t.Fatalf("ordinary turn read returned action metadata: %#v", plain.Action)
+	}
 	stored, err := service.turns.Get(context.Background(), "turn-interrupted")
 	if err != nil {
 		t.Fatal(err)

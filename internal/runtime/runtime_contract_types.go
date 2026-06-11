@@ -167,7 +167,8 @@ type RuntimeTurn struct {
 }
 
 type RuntimeTurnResponse struct {
-	Turn RuntimeTurn `json:"turn"`
+	Turn   RuntimeTurn                 `json:"turn"`
+	Action *RuntimeWriteActionMetadata `json:"action,omitempty"`
 }
 
 type RuntimeTurnsResponse struct {

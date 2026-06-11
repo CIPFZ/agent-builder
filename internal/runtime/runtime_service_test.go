@@ -3744,100 +3744,101 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 }
 
 type recordingRuntimeService struct {
-	chatCalls             int
-	statusCalls           int
-	recoveryStatusCalls   int
-	skillsCalls           int
-	mcpServerCalls        int
-	status                RuntimeStatus
-	recoveryStatus        RuntimeRecoveryStatus
-	skills                RuntimeSkillsResponse
-	plugins               RuntimePluginsResponse
-	mcpServers            RuntimeMCPServersResponse
-	mcpRequests           RuntimeMCPRequestsResponse
-	mcpRequest            RuntimeMCPRequestResponse
-	mcpRequestDecision    RuntimeMCPRequestDecision
-	capabilities          RuntimeCapabilitiesResponse
-	contextSources        RuntimeContextSourcesResponse
-	refreshedCapability   string
-	toolSearchQuery       string
-	savedMCPServer        RuntimeMCPServerConfigRequest
-	toggledMCPServer      RuntimeMCPServerToggleRequest
-	toggledMCPTool        RuntimeMCPToolToggleRequest
-	selectedSession       string
-	renamedSession        RuntimeSessionUpdateRequest
-	deletedSession        string
-	messageSession        string
-	activitySession       string
-	activityWindowSession string
-	activityWindowCursor  string
-	activityWindowLimit   int
-	activity              RuntimeSessionActivityResponse
-	activityWindow        RuntimeSessionActivityWindowResponse
-	turnActivityID        string
-	turnActivity          RuntimeTurnActivityResponse
-	runProjectionRequest  RuntimeRunProjectionRequest
-	runProjection         RuntimeRunProjectionResponse
-	transitionHistoryReq  RuntimeRunTransitionHistoryRequest
-	transitionHistory     RuntimeRunTransitionHistoryResponse
-	runSchedulerPlanReq   RuntimeRunSchedulerPlanRequest
-	runSchedulerPlan      RuntimeRunSchedulerPlanResponse
-	executeRunID          string
-	executeTaskID         string
-	executeRunTask        RuntimeRunSchedulerExecuteTaskResponse
-	runs                  RuntimeRunsResponse
-	run                   RuntimeRunResponse
-	runID                 string
-	ackRunID              string
-	ackCheckpointID       string
-	discardRunID          string
-	discardCheckpointID   string
-	resumeRunID           string
-	resumeCheckpointID    string
-	resume                RuntimeRunResumeResponse
-	createdSkill          RuntimeSkillCreateRequest
-	addedSkillPath        string
-	cancelledTurn         string
-	turn                  RuntimeTurnResponse
-	turns                 RuntimeTurnsResponse
-	turnsStatus           string
-	toolCall              RuntimeToolCallResponse
-	toolCalls             RuntimeToolCallsResponse
-	hooks                 RuntimeHooksResponse
-	hookExecution         RuntimeHookExecutionResponse
-	hookExecutions        RuntimeHookExecutionsResponse
-	hookExecutionsReq     RuntimeHookExecutionsRequest
-	sandboxDecision       RuntimeSandboxDecisionResponse
-	sandboxDecisions      RuntimeSandboxDecisionsResponse
-	ref                   RuntimeRefResponse
-	refs                  RuntimeRefsResponse
-	refContent            RuntimeRefContentResponse
-	compactBoundaries     RuntimeCompactBoundariesResponse
-	worktrees             RuntimeWorktreesResponse
-	worktree              RuntimeWorktreeResponse
-	worktreeCreate        RuntimeWorktreeCreateRequest
-	worktreeAction        RuntimeWorktreeActionRequest
-	worktreeActionID      string
-	effectiveScope        RuntimeEffectiveScopeResponse
-	replayExport          RuntimeReplayExportResponse
-	replayExportRequest   RuntimeReplayExportRequest
-	agentTask             RuntimeAgentTaskResponse
-	agentTasks            RuntimeAgentTasksResponse
-	agentRoles            RuntimeAgentRolesResponse
-	agentRole             RuntimeAgentRoleResponse
-	agentTaskMessages     RuntimeAgentTaskMessagesResponse
-	agentTaskMessage      RuntimeAgentTaskMessageResponse
-	agentTaskResult       RuntimeAgentTaskResultResponse
-	cancelledTask         string
-	todos                 RuntimeTodosResponse
-	todoSession           string
-	todoTurn              string
-	policy                RuntimePolicyResponse
-	policyCalls           int
-	updatedPolicyMode     string
-	updatedPolicyRules    []RuntimePolicyRule
-	updatedPolicyProfile  string
-	permissionDecision    RuntimePermissionDecision
+	chatCalls               int
+	statusCalls             int
+	recoveryStatusCalls     int
+	skillsCalls             int
+	mcpServerCalls          int
+	status                  RuntimeStatus
+	recoveryStatus          RuntimeRecoveryStatus
+	skills                  RuntimeSkillsResponse
+	plugins                 RuntimePluginsResponse
+	mcpServers              RuntimeMCPServersResponse
+	mcpRequests             RuntimeMCPRequestsResponse
+	mcpRequest              RuntimeMCPRequestResponse
+	mcpRequestDecision      RuntimeMCPRequestDecision
+	capabilities            RuntimeCapabilitiesResponse
+	contextSources          RuntimeContextSourcesResponse
+	refreshedCapability     string
+	toolSearchQuery         string
+	savedMCPServer          RuntimeMCPServerConfigRequest
+	toggledMCPServer        RuntimeMCPServerToggleRequest
+	toggledMCPTool          RuntimeMCPToolToggleRequest
+	selectedSession         string
+	renamedSession          RuntimeSessionUpdateRequest
+	deletedSession          string
+	messageSession          string
+	activitySession         string
+	activityWindowSession   string
+	activityWindowCursor    string
+	activityWindowLimit     int
+	activity                RuntimeSessionActivityResponse
+	activityWindow          RuntimeSessionActivityWindowResponse
+	turnActivityID          string
+	turnActivity            RuntimeTurnActivityResponse
+	runProjectionRequest    RuntimeRunProjectionRequest
+	runProjection           RuntimeRunProjectionResponse
+	transitionHistoryReq    RuntimeRunTransitionHistoryRequest
+	transitionHistory       RuntimeRunTransitionHistoryResponse
+	runSchedulerPlanReq     RuntimeRunSchedulerPlanRequest
+	runSchedulerPlan        RuntimeRunSchedulerPlanResponse
+	executeRunID            string
+	executeTaskID           string
+	executeRunTask          RuntimeRunSchedulerExecuteTaskResponse
+	runs                    RuntimeRunsResponse
+	run                     RuntimeRunResponse
+	runID                   string
+	ackRunID                string
+	ackCheckpointID         string
+	discardRunID            string
+	discardCheckpointID     string
+	resumeRunID             string
+	resumeCheckpointID      string
+	resume                  RuntimeRunResumeResponse
+	createdSkill            RuntimeSkillCreateRequest
+	addedSkillPath          string
+	cancelledTurn           string
+	markInterruptedDoneTurn string
+	turn                    RuntimeTurnResponse
+	turns                   RuntimeTurnsResponse
+	turnsStatus             string
+	toolCall                RuntimeToolCallResponse
+	toolCalls               RuntimeToolCallsResponse
+	hooks                   RuntimeHooksResponse
+	hookExecution           RuntimeHookExecutionResponse
+	hookExecutions          RuntimeHookExecutionsResponse
+	hookExecutionsReq       RuntimeHookExecutionsRequest
+	sandboxDecision         RuntimeSandboxDecisionResponse
+	sandboxDecisions        RuntimeSandboxDecisionsResponse
+	ref                     RuntimeRefResponse
+	refs                    RuntimeRefsResponse
+	refContent              RuntimeRefContentResponse
+	compactBoundaries       RuntimeCompactBoundariesResponse
+	worktrees               RuntimeWorktreesResponse
+	worktree                RuntimeWorktreeResponse
+	worktreeCreate          RuntimeWorktreeCreateRequest
+	worktreeAction          RuntimeWorktreeActionRequest
+	worktreeActionID        string
+	effectiveScope          RuntimeEffectiveScopeResponse
+	replayExport            RuntimeReplayExportResponse
+	replayExportRequest     RuntimeReplayExportRequest
+	agentTask               RuntimeAgentTaskResponse
+	agentTasks              RuntimeAgentTasksResponse
+	agentRoles              RuntimeAgentRolesResponse
+	agentRole               RuntimeAgentRoleResponse
+	agentTaskMessages       RuntimeAgentTaskMessagesResponse
+	agentTaskMessage        RuntimeAgentTaskMessageResponse
+	agentTaskResult         RuntimeAgentTaskResultResponse
+	cancelledTask           string
+	todos                   RuntimeTodosResponse
+	todoSession             string
+	todoTurn                string
+	policy                  RuntimePolicyResponse
+	policyCalls             int
+	updatedPolicyMode       string
+	updatedPolicyRules      []RuntimePolicyRule
+	updatedPolicyProfile    string
+	permissionDecision      RuntimePermissionDecision
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -4350,11 +4351,12 @@ func (s *recordingRuntimeService) Cancel(context.Context) (RuntimeStatus, error)
 
 func (s *recordingRuntimeService) CancelTurn(_ context.Context, turnID string) (RuntimeStatus, error) {
 	s.cancelledTurn = turnID
-	return RuntimeStatus{}, nil
+	return withRuntimeTurnAction(s.status, runtimeTurnActionCancel, runtimeTurnActionReasonCancelled), nil
 }
 
-func (s *recordingRuntimeService) MarkInterruptedDone(context.Context, string) (RuntimeTurnResponse, error) {
-	return RuntimeTurnResponse{}, nil
+func (s *recordingRuntimeService) MarkInterruptedDone(_ context.Context, turnID string) (RuntimeTurnResponse, error) {
+	s.markInterruptedDoneTurn = turnID
+	return withRuntimeTurnResponseAction(s.turn, runtimeTurnActionMarkInterruptedDone, runtimeTurnActionReasonInterruptedMarkedDone), nil
 }
 
 func (s *recordingRuntimeService) NewChat(context.Context, string) (RuntimeStatus, error) {

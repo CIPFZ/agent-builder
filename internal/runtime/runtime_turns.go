@@ -13,6 +13,32 @@ import (
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
+const (
+	runtimeTurnActionSourceKind          = "turn_action"
+	runtimeTurnActionCancel              = "cancel_turn"
+	runtimeTurnActionMarkInterruptedDone = "mark_interrupted_done"
+
+	runtimeTurnActionReasonCancelled             = "turn_cancelled"
+	runtimeTurnActionReasonInterruptedMarkedDone = "interrupted_marked_done"
+)
+
+func runtimeTurnActionRefreshTargets() []string {
+	return []string{
+		"status",
+		"turn_activity",
+		"session_activity_window",
+		"session_activity",
+		"tool_calls",
+		"run",
+		"run_projection",
+		"run_transition_history",
+		"diagnostics",
+		"permissions",
+		"mcp_requests",
+		"run_scheduler_plan",
+	}
+}
+
 func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (RuntimeChatResponse, error) {
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
@@ -400,7 +426,46 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 			"status": "cancelled",
 		},
 	})
-	return r.Status(ctx)
+	status, err := r.Status(ctx)
+	if err != nil {
+		return RuntimeStatus{}, err
+	}
+	return withRuntimeTurnAction(status, runtimeTurnActionCancel, runtimeTurnActionReasonCancelled), nil
+}
+
+func withRuntimeTurnAction(status RuntimeStatus, action, reason string) RuntimeStatus {
+	status.Action = runtimeTurnActionMetadata(action, reason)
+	return status
+}
+
+func withRuntimeTurnResponseAction(resp RuntimeTurnResponse, action, reason string) RuntimeTurnResponse {
+	resp.Action = runtimeTurnActionMetadata(action, reason)
+	return resp
+}
+
+func runtimeTurnActionMetadata(action, reason string) *RuntimeWriteActionMetadata {
+	return &RuntimeWriteActionMetadata{
+		Accepted:       true,
+		Reason:         reason,
+		RefreshTargets: runtimeTurnActionRefreshTargets(),
+		Source: RuntimeWriteActionSource{
+			Kind:                  runtimeTurnActionSourceKind,
+			Action:                action,
+			BackendOnly:           true,
+			StartsWorker:          false,
+			IdempotentBy:          "turn_id",
+			SessionActivityParity: true,
+			Evidence: []string{
+				"runtime_turns",
+				"runtime_tool_calls",
+				"runtime_events",
+				"runtime_audit",
+				"runtime_run_transitions",
+				"runtime_run_projection",
+				"session_activity",
+			},
+		},
+	}
 }
 
 func (r *runtimeService) MarkInterruptedDone(ctx context.Context, turnID string) (RuntimeTurnResponse, error) {
@@ -443,7 +508,11 @@ func (r *runtimeService) MarkInterruptedDone(ctx context.Context, turnID string)
 			"reason": "interrupted_marked_done",
 		},
 	})
-	return r.Turn(ctx, stored.ID)
+	resp, err := r.Turn(ctx, stored.ID)
+	if err != nil {
+		return RuntimeTurnResponse{}, err
+	}
+	return withRuntimeTurnResponseAction(resp, runtimeTurnActionMarkInterruptedDone, runtimeTurnActionReasonInterruptedMarkedDone), nil
 }
 
 func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID, prompt string, start time.Time, usageBefore RuntimeUsage, provider, model string) {

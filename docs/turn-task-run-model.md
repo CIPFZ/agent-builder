@@ -194,6 +194,17 @@ Phase 39 note:
 - No persisted interrupted acknowledgement field, auto-resume, stale tool
   recovery, or stale permission/MCP recovery is accepted.
 
+Phase 39.1 note:
+
+- `CancelTurn(...)` / `Cancel(...)` responses now include optional
+  `RuntimeStatus.action` metadata with source kind `turn_action` and action
+  `cancel_turn`.
+- `MarkInterruptedDone(...)` responses now include optional
+  `RuntimeTurnResponse.action` metadata with action `mark_interrupted_done`.
+- Plain `Turn(...)` reads omit action metadata; cancelled terminal turn rows,
+  tool call rows, runtime events, Run transitions/projection, diagnostics,
+  permissions/MCP reads, and `SessionActivity` remain the durable sources.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

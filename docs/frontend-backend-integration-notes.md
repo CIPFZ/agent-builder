@@ -2634,3 +2634,15 @@ Phase 39 note:
 - Action metadata must not become persisted acknowledgement state, React-owned
   cancellation state, auto-resume state, or stale tool/permission/MCP
   actionability.
+
+Phase 39.1 note:
+
+- Turn cancellation and interrupted acknowledgement responses now carry
+  additive write-action metadata.
+- `CancelTurn(...)` / `Cancel(...)` use `RuntimeStatus.action`; `MarkInterruptedDone(...)`
+  uses `RuntimeTurnResponse.action`; ordinary `Turn(...)` reads stay
+  action-free.
+- Frontend adapters may treat the metadata as a future durable reread selector
+  only. They must continue to derive cancelled turns, interrupted summaries,
+  terminal permission/MCP semantics, diagnostics, artifacts, refs, tool calls,
+  timeline items, and Run state from runtime DTO reads.

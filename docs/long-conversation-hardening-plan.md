@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 39.1: Turn Cancellation And Interrupted Acknowledgement Action
-Metadata Implementation. Add additive action metadata to `CancelTurn(...)` /
-`Cancel(...)` status responses and `MarkInterruptedDone(...)` turn responses
-without changing cancelled terminal acknowledgement semantics.
+Review/accept Phase 39.1 and decide Phase 39.2: Turn Action Metadata
+Acceptance And Next Write-Action Boundary. Confirm cancellation/interrupted
+acknowledgement metadata is transport-safe before selecting any further
+write-action adopter or frontend adapter optimization.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12873,3 +12873,62 @@ Review conclusion:
   shared write-action metadata next.
 - The implementation must preserve existing cancelled terminal acknowledgement
   semantics and durable DTO/read source-of-truth boundaries.
+
+## 2026-06-11: Phase 39.1 Turn Cancellation And Interrupted Acknowledgement Action Metadata Implementation
+
+Phase 39.1 implements the accepted turn-action metadata contract for explicit
+turn cancellation and interrupted acknowledgement. It is additive only. It does
+not add persisted interrupted acknowledgement fields, database migrations, Run
+persistence, automatic resume, stale running/waiting tool recovery, stale
+permission/MCP actionability recovery, frontend Run UI, or frontend-owned
+action state.
+
+Implemented:
+
+- Added optional `RuntimeTurnResponse.action`.
+- Added shared `turn_action` metadata for `CancelTurn(...)` /
+  `Cancel(...)` status responses with action `cancel_turn`.
+- Added shared `turn_action` metadata for `MarkInterruptedDone(...)` turn
+  responses with action `mark_interrupted_done`.
+- Kept ordinary `Turn(...)` durable reads action-free.
+- Kept interrupted acknowledgement represented by `MarkInterruptedDone(...)`
+  plus cancelled terminal turn status.
+- Reused durable refresh targets across status, turn activity, session
+  activity/window, tool calls, Run detail/projection/transition history,
+  diagnostics, permissions, MCP requests, and scheduler plan.
+
+Coverage:
+
+- Extended interrupted acknowledgement storage tests to assert action metadata,
+  cancelled terminal semantics, event evidence, and action-free ordinary turn
+  reads.
+- Extended scenario cancellation coverage to assert action metadata while
+  preserving Run/session/turn ownership, cancelled tool calls, transition
+  evidence, and cancelled Run projection/detail.
+- Extended HTTP direct and dev-module route tests to assert cancellation and
+  interrupted-done action metadata is forwarded, while ordinary turn reads omit
+  action metadata.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -run "TestRuntimeServiceMarkInterruptedDoneCancelsInterruptedTurn|TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership|TestRuntimeHTTPServerDevModuleRoutesChatLoop|TestRuntimeHTTPServerRoutesTurnGetAndCancelToRuntimeService" -count=1
+go test ./internal/runtime -count=1
+go test ./desktop -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Action metadata remains response/request metadata only.
+- Durable runtime DTO reads remain authoritative for cancellation,
+  interrupted summaries, terminal permissions/MCP semantics, diagnostics,
+  artifacts, refs, timeline, tool calls, and Run state.
+- No event payload, assistant prose, action payload, or React state was made a
+  source of truth.
+
+Remaining risk:
+
+- Frontend adapters still perform broad hydration after these actions. Any
+  future use of `action.refreshTargets` for partial rereads needs a separate
+  adapter phase with browser/Vite and Wails/bridge coverage.
