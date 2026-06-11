@@ -41,8 +41,11 @@ func (r *runtimeService) RunProjection(ctx context.Context, req RuntimeRunProjec
 	tasks := r.runtimeRunProjectionTasks(ctx, sessionID)
 	run := buildRuntimeRunProjection(workspaceID, activity, tasks)
 	if r.runs.db != nil && runtimeRunProjectionCanReconcile(req) {
-		if persisted, err := r.runs.UpsertFromProjection(ctx, run, runtimeRunSourceBackfill); err == nil {
-			run.ID = persisted.ID
+		if err := validateRuntimeRunStatusWrite(runtimeRunProjectionStatusWriteRequest(run)); err == nil {
+			if persisted, err := r.runs.UpsertFromProjection(ctx, run, runtimeRunSourceBackfill); err == nil {
+				run.ID = persisted.ID
+				_, _ = r.runs.writeRuntimeRunStatus(ctx, runtimeRunProjectionStatusWriteRequest(run))
+			}
 		}
 	} else if r.runs.db != nil {
 		if persisted, err := r.runs.GetBySession(ctx, sessionID); err == nil {
@@ -54,6 +57,20 @@ func (r *runtimeService) RunProjection(ctx context.Context, req RuntimeRunProjec
 
 func runtimeRunProjectionCanReconcile(req RuntimeRunProjectionRequest) bool {
 	return strings.TrimSpace(req.Cursor) == "" && req.Limit <= 0
+}
+
+func runtimeRunProjectionStatusWriteRequest(projection RuntimeRunProjection) runtimeRunStatusWriteRequest {
+	return runtimeRunStatusWriteRequest{
+		RunID:                    projection.ID,
+		SessionID:                projection.PrimarySessionID,
+		Status:                   projection.Status,
+		Source:                   runtimeRunStatusWriteSourceProjectionReconcile,
+		Reason:                   "full run projection parity reconcile",
+		EvidenceKind:             runtimeRunStatusWriteEvidenceProjection,
+		Timestamp:                firstPositiveInt64(projection.FinishedAt, projection.UpdatedAt, projection.CreatedAt),
+		RequiresProjectionParity: true,
+		Projection:               &projection,
+	}
 }
 
 func (r *runtimeService) runtimeRunProjectionTasks(ctx context.Context, sessionID string) []RuntimeAgentTask {

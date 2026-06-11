@@ -329,6 +329,18 @@ Phase 43.1 note:
 - This remains a test/guard gate; the explicit writer helper is still not
   implemented.
 
+Phase 43.2 note:
+
+- The explicit status writer helper now exists and is wired into `LinkTurn`
+  active writes and full projection reconciliation.
+- The helper validates known backend sources, status values, structured IDs,
+  and full projection parity for terminal/recovery writes.
+- The helper writes only `runtime_runs.status`, `updated_at`, and `finished_at`;
+  checkpoint, diagnostic, permission, MCP, scheduler, transition, and timeline
+  evidence remain outside its write surface.
+- `UpsertFromProjection` remains a compatibility backfill/reconcile path and
+  has not been fully replaced.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

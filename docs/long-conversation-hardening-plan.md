@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 43.1 and decide Phase 43.2: Explicit Run Status Writer
-Implementation Gate. Implement the narrow writer helper only after the contract
-tests are accepted, without adding a full Run state machine.
+Review/accept Phase 43.2 and decide Phase 43.3: Explicit Run Status Writer
+Call-Site Rollout Gate. Continue moving eligible existing status writes behind
+the helper without changing runtime semantics.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13754,3 +13754,69 @@ Review conclusion:
 
 - Phase 43.1 is accepted as a test/guard gate once validation passes.
 - The next task is Phase 43.2: Explicit Run Status Writer Implementation Gate.
+
+## 2026-06-11: Phase 43.2 Explicit Run Status Writer Implementation Gate
+
+Phase 43.2 implements the narrow explicit Run status writer helper accepted in
+Phase 43 and protected by Phase 43.1 tests. It does not implement a full Run
+state machine, runtime Run store expansion, database migration, automatic
+resume, background scheduler loop, stale actionability recovery, frontend Run
+UI, or React-owned runtime state.
+
+Implemented:
+
+- Added `writeRuntimeRunStatus(ctx, request)` on `runtimeRunStore`.
+  - The helper resolves by run ID or session ID.
+  - It accepts only known structured backend sources.
+  - It validates known statuses.
+  - It writes only persisted Run `status`, `updated_at`, and `finished_at`.
+  - It does not mutate checkpoints, refs, diagnostics, permissions, MCP
+    requests, scheduler state, transition history, or timeline state.
+- Added helper validation for source-specific structured evidence.
+  - Turn status writes require a turn ID.
+  - Task status writes require a task ID.
+  - Checkpoint resume writes require checkpoint ID plus resumed turn ID.
+  - Startup recovery writes require turn or task evidence.
+  - Projection reconcile writes require projection evidence.
+- Added terminal/recovery parity validation.
+  - Terminal status writes require `RequiresProjectionParity`.
+  - The supplied projection must be a read-only `session_activity_projection`.
+  - The projection must preserve SessionActivity parity and represent a full
+    activity window, not a cursor/window subset.
+- Added `projection_reconcile` as the structured backend source for full
+  projection reconciliation writes.
+- Replaced the direct active-status SQL in `LinkTurn(...)` with
+  `writeRuntimeRunStatus(...)`.
+- Full `RunProjection(...)` reconciliation now validates the helper contract
+  before backfill/reconcile and writes final status through the helper after
+  the durable Run identity is resolved.
+
+Tests:
+
+- Added `TestRuntimeRunStatusWriterRejectsUnknownAndSourcelessInputs`.
+- Added `TestRuntimeRunStatusWriterRequiresProjectionParityForTerminalWrites`.
+- Added `TestRuntimeRunStatusWriterUpdatesOnlyStatusColumns`.
+- Existing Phase 43.1 tests continue covering bounded projection reads and
+  unknown transition sources.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Phase 43.2 centralizes the first eligible status writes behind a constrained
+  helper without changing the source-of-truth model.
+- Full `SessionActivity` / full `RunProjection` remain the parity oracle.
+- Bounded/windowed reads, events, action metadata, transition history alone,
+  assistant prose, and frontend state remain rejected as status-write inputs.
+
+Remaining risk / next task:
+
+- `UpsertFromProjection(...)` remains a compatibility backfill/reconcile path
+  that writes more than status columns while preserving existing behavior.
+- Phase 43.3 should continue call-site rollout and reduce direct status writes
+  where the helper contract can be applied without breaking backfill behavior.

@@ -163,13 +163,16 @@ WHERE run_id = ? AND session_id = ?`, turnID, runID, sessionID)
 		}
 		return RuntimeRun{}, errors.New("runtime run session link not found")
 	}
-	if _, err := s.db.ExecContext(ctx, `
-UPDATE runtime_runs
-SET status = ?, updated_at = ?, finished_at = NULL
-WHERE id = ?`, runtimeRunStatusActive, startedAt, runID); err != nil {
-		return RuntimeRun{}, fmt.Errorf("failed to mark runtime run active: %w", err)
-	}
-	return s.Get(ctx, runID)
+	return s.writeRuntimeRunStatus(ctx, runtimeRunStatusWriteRequest{
+		RunID:        runID,
+		SessionID:    sessionID,
+		Status:       runtimeRunStatusActive,
+		Source:       runtimeRunTransitionSourceTurnStarted,
+		Reason:       "turn linked to runtime run",
+		EvidenceKind: runtimeRunStatusWriteEvidenceTurn,
+		TurnID:       turnID,
+		Timestamp:    startedAt,
+	})
 }
 
 func runtimeRunSessionLinkedToTurn(ctx context.Context, store runtimeRunStore, runID, sessionID, turnID string) bool {

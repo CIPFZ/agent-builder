@@ -2768,3 +2768,12 @@ Phase 43.1 note:
 - Unknown transition sources are rejected server-side, so event payloads and
   action metadata remain refresh hints only.
 - No frontend transport or React state ownership changed in this phase.
+
+Phase 43.2 note:
+
+- Backend Run status writes now have a narrow helper for the first rollout
+  call sites.
+- This does not change frontend state ownership: UI still refreshes runtime
+  DTOs and must not infer status from event payloads, action metadata,
+  transition history, assistant prose, or React state.
+- Bounded/windowed reads remain read-only for persisted Run status.
