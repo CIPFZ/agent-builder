@@ -538,6 +538,11 @@ Phase 50.10 note:
 - Low-level adapter marker transport is covered.
 - Marker DTOs remain explicit rereads and are not workbench/UI state.
 
+Phase 50.11 note:
+
+- Low-level adapter marker smoke is accepted.
+- Future UI or Wails product binding work remains separately gated.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

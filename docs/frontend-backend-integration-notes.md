@@ -2959,3 +2959,8 @@ Phase 50.10 note:
   smoke coverage.
 - Hydration, `WorkbenchViewModel`, workspace UI, and Run projection UI still do
   not consume marker DTOs.
+
+Phase 50.11 note:
+
+- Low-level checkpoint marker adapter smoke is accepted.
+- Marker reads remain transport-only and are not UI state.

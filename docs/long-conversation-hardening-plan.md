@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 50.10 and decide Phase 50.11: Checkpoint Marker Adapter
-Acceptance Gate. Accept low-level adapter smoke before any UI or Wails product
-binding work.
+Review/accept Phase 50.11 and decide Phase 51: Checkpoint Marker Read Workstream
+Closure And Next Authority Boundary Gate. Close marker read work before any UI
+or Wails product binding work.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -15310,3 +15310,51 @@ Review conclusion:
 - Marker DTOs remain explicit rereads and are not UI state.
 - The next step should accept adapter smoke before any UI or Wails product
   binding work.
+
+## 2026-06-11: Phase 50.11 Checkpoint Marker Adapter Acceptance Gate
+
+Phase 50.11 accepts low-level adapter checkpoint marker smoke and chooses
+workstream closure as the next scope. It is a review/scope gate only. It does
+not implement a full Run state machine, runtime Run store expansion, database
+migration, automatic resume, background scheduler loop, stale actionability
+recovery, frontend Run UI, checkpoint marker UI, Wails product binding rollout,
+or React-owned runtime state.
+
+Accepted:
+
+- Marker-only DTOs are available through backend helpers, HTTP GET routes, and
+  low-level adapter transport.
+- Static adapter smoke proves marker reads are explicit rereads and are not
+  merged into hydration, `WorkbenchViewModel`, workspace UI, or Run projection
+  preview UI.
+- Marker routes and adapter methods remain read-only.
+
+Still rejected:
+
+- Wails product binding rollout.
+- UI rendering.
+- View-model marker state.
+- Scheduler/resume behavior.
+- Actionability from markers.
+- Marker state from events, action metadata, assistant prose, transition rows
+  alone, bounded/windowed reads, summary DTOs, or browser memory.
+
+Chosen next scope:
+
+- Phase 51 should close the checkpoint marker read workstream.
+- Phase 51 should define the next authority boundary before any UI, Wails
+  product binding, scheduler, or resume work.
+- Any future UI use needs a separate ownership gate that keeps full
+  `RunProjection` / `SessionActivity` as lifecycle and actionability authority.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+```
+
+Review conclusion:
+
+- Phase 50.10 is accepted.
+- The next phase is closure/design, not implementation.
