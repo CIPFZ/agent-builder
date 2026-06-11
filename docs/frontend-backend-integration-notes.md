@@ -2760,3 +2760,11 @@ Phase 43 note:
 - Frontend adapter behavior remains unchanged: action refresh targets may
   choose durable rereads, but status must still render from runtime DTOs and
   cannot be inferred from action/event/transition/prose/React state.
+
+Phase 43.1 note:
+
+- Contract coverage now verifies that bounded/windowed Run projections cannot
+  reconcile persisted terminal status.
+- Unknown transition sources are rejected server-side, so event payloads and
+  action metadata remain refresh hints only.
+- No frontend transport or React state ownership changed in this phase.

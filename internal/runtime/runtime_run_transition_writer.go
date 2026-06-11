@@ -24,6 +24,9 @@ func (r *runtimeService) recordRunTransition(ctx context.Context, transition Run
 	if strings.TrimSpace(transition.RunID) == "" || strings.TrimSpace(transition.ToStatus) == "" || strings.TrimSpace(transition.Source) == "" {
 		return
 	}
+	if !isKnownRuntimeRunTransitionSource(transition.Source) {
+		return
+	}
 	if transition.CreatedAt == 0 {
 		return
 	}
@@ -148,5 +151,20 @@ func transitionCreatedAtForSource(source string, turn RuntimeTurn) int64 {
 		return firstPositiveInt64(turn.StartedAt, turn.FinishedAt)
 	default:
 		return firstPositiveInt64(turn.FinishedAt, turn.StartedAt)
+	}
+}
+
+func isKnownRuntimeRunTransitionSource(source string) bool {
+	switch strings.TrimSpace(source) {
+	case runtimeRunTransitionSourceTurnStarted,
+		runtimeRunTransitionSourceTurnFinished,
+		runtimeRunTransitionSourceTurnCancelled,
+		runtimeRunTransitionSourceInterruptedMarkedDone,
+		runtimeRunTransitionSourceStartupRecovery,
+		runtimeRunTransitionSourceCheckpointResume,
+		runtimeRunTransitionSourceTaskStarted:
+		return true
+	default:
+		return false
 	}
 }

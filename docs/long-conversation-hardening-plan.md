@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 43 and decide Phase 43.1: Explicit Run Status Writer
-Contract Test Gate. Add tests for the accepted writer contract before any
-helper implementation.
+Review/accept Phase 43.1 and decide Phase 43.2: Explicit Run Status Writer
+Implementation Gate. Implement the narrow writer helper only after the contract
+tests are accepted, without adding a full Run state machine.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13708,3 +13708,49 @@ Review conclusion:
 - A narrow explicit Run status writer helper is the right next implementation
   direction, but only after contract tests.
 - The next task is Phase 43.1: Explicit Run Status Writer Contract Test Gate.
+
+## 2026-06-11: Phase 43.1 Explicit Run Status Writer Contract Test Gate
+
+Phase 43.1 adds tests for the accepted explicit Run status writer contract
+before implementing the helper. It includes one narrow guard for transition
+evidence source validation. It does not implement the writer helper, add a full
+Run state machine, add runtime Run store expansion, add database migrations,
+add automatic resume, add background scheduling, recover stale actionability,
+add frontend Run UI, or make React/action/event/prose state authoritative.
+
+Implemented:
+
+- Added `TestRuntimeRunTransitionWriterRejectsUnknownSources`.
+  - Unknown transition sources such as runtime event payloads and action
+    metadata are rejected before transition evidence is persisted.
+  - Rejected transition attempts do not mutate persisted Run status.
+- Added `TestRuntimeRunTerminalStatusWriteRequiresFullProjectionParity`.
+  - A bounded/windowed `RunProjection` can expose read-only evidence but cannot
+    reconcile a stale active persisted Run to terminal status.
+  - A full `Run(...)` detail read still performs full projection parity and can
+    reconcile terminal status from structured SessionActivity evidence.
+- Added `isKnownRuntimeRunTransitionSource(...)` and applied it in
+  `recordRunTransition(...)`.
+  - This is a contract guard for audit evidence only.
+  - It is not the explicit persisted Run status writer helper.
+
+Contract confirmed:
+
+- Full `RunProjection` remains the terminal/recovery parity oracle.
+- Windowed/bounded reads remain read-only for persisted Run detail.
+- Transition history remains audit/explanatory evidence and cannot authorize
+  status writes by itself.
+- Event payloads and action metadata cannot become transition/status source of
+  truth.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Phase 43.1 is accepted as a test/guard gate once validation passes.
+- The next task is Phase 43.2: Explicit Run Status Writer Implementation Gate.

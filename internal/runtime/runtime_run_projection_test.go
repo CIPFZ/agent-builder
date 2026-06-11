@@ -219,6 +219,51 @@ func TestRuntimeRunProjectionWindowDoesNotMutatePersistedRunDetail(t *testing.T)
 	}
 }
 
+func TestRuntimeRunTerminalStatusWriteRequiresFullProjectionParity(t *testing.T) {
+	t.Parallel()
+
+	service, sessionID, _ := newRuntimeRunProjectionFixture(t)
+
+	full, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.Run.Status != runtimeRunStatusInterrupted {
+		t.Fatalf("fixture full projection status = %q, want interrupted", full.Run.Status)
+	}
+	runID := full.Run.ID
+	stale, err := service.runs.LinkTurn(context.Background(), runID, sessionID, "turn-windowed-status", time.Now().UnixMilli())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale.Status != runtimeRunStatusActive || stale.FinishedAt != 0 {
+		t.Fatalf("fixture failed to create stale active run: %#v", stale)
+	}
+
+	windowed, err := service.RunProjection(context.Background(), RuntimeRunProjectionRequest{SessionID: sessionID, Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if windowed.Run.ActivityWindow.FromStart && windowed.Run.ActivityWindow.ToEnd {
+		t.Fatalf("fixture did not produce bounded projection: %#v", windowed.Run.ActivityWindow)
+	}
+	afterWindow, err := service.runs.Get(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterWindow.Status != runtimeRunStatusActive || afterWindow.FinishedAt != 0 {
+		t.Fatalf("bounded projection wrote terminal status: after=%#v windowed=%#v", afterWindow, windowed.Run)
+	}
+
+	detail, err := service.Run(context.Background(), runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Projection.Status != runtimeRunStatusInterrupted || detail.Run.Status != runtimeRunStatusInterrupted || detail.Run.FinishedAt == 0 {
+		t.Fatalf("full run detail did not reconcile terminal status from projection parity: %#v", detail)
+	}
+}
+
 func TestRuntimeRunProjectionWindowPreservesPersistedCheckpointMarkers(t *testing.T) {
 	t.Parallel()
 

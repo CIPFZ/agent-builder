@@ -320,6 +320,15 @@ Phase 43 note:
   bounded/windowed reads, and frontend state are rejected as status-write
   inputs.
 
+Phase 43.1 note:
+
+- Contract tests now require terminal status reconciliation to come from full
+  `RunProjection` parity, not bounded/windowed projection reads.
+- Transition evidence now rejects unknown sources such as event payload or
+  action metadata labels before persistence.
+- This remains a test/guard gate; the explicit writer helper is still not
+  implemented.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

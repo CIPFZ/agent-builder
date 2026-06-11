@@ -119,6 +119,55 @@ func TestRuntimeRunTransitionWriterRequiresRunTurnLinkBeforeStartedTransition(t 
 	}
 }
 
+func TestRuntimeRunTransitionWriterRejectsUnknownSources(t *testing.T) {
+	t.Parallel()
+
+	service, release := runtimeRunTransitionWriterTestService(t)
+	defer release()
+
+	run, err := service.runs.EnsureForSession(context.Background(), "workspace-1", "session-1", "write report", runtimeRunSourceUserPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:        "turn-unknown-source",
+		SessionID: "session-1",
+		Status:    turnStatusQueued,
+		StartedAt: 1000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.runs.LinkTurn(context.Background(), run.ID, "session-1", turn.ID, turn.StartedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	service.recordRunTurnTransition(context.Background(), "runtime_event_payload", turn, "", runtimeRunStatusActive, "event payload attempted status write")
+	service.recordRunTransition(context.Background(), RuntimeRunTransition{
+		RunID:     run.ID,
+		SessionID: "session-1",
+		TurnID:    turn.ID,
+		ToStatus:  runtimeRunStatusCancelled,
+		Source:    "action_metadata",
+		CreatedAt: 2000,
+	})
+
+	transitions, err := service.transitions.ListByRun(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(transitions) != 0 {
+		t.Fatalf("unknown transition sources should be rejected: %#v", transitions)
+	}
+	persisted, err := service.runs.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != runtimeRunStatusActive || persisted.FinishedAt != 0 {
+		t.Fatalf("unknown transition source mutated run status: %#v", persisted)
+	}
+}
+
 func TestRuntimeRunTransitionWriterMarkInterruptedDonePreservesCancelledSemantics(t *testing.T) {
 	t.Parallel()
 
