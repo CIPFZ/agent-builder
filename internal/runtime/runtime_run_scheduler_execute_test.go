@@ -87,6 +87,12 @@ func TestRuntimeRunSchedulerExecuteTaskStartsQueuedTaskOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	run.Status = runtimeRunStatusInterrupted
+	run.UpdatedAt = 1050
+	run.FinishedAt = 1050
+	if _, err := service.runs.Upsert(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
 
 	first, err := service.runtimeRunSchedulerExecuteTask(context.Background(), RuntimeRunSchedulerExecuteTaskRequest{RunID: run.ID, TaskID: task.ID})
 	if err != nil {
@@ -108,6 +114,13 @@ func TestRuntimeRunSchedulerExecuteTaskStartsQueuedTaskOnce(t *testing.T) {
 	}
 	if refreshed.Status != agentTaskStatusRunning || refreshed.Progress != 10 || refreshed.StartedAt != task.StartedAt || len(refreshed.ArtifactRefs) != 0 {
 		t.Fatalf("task mutated by duplicate execute contract calls = %#v", refreshed)
+	}
+	refreshedRun, err := service.runs.Get(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshedRun.Status != runtimeRunStatusActive || refreshedRun.FinishedAt != 0 {
+		t.Fatalf("task start did not write active run status through helper: %#v", refreshedRun)
 	}
 	messages, err := newRuntimeAgentTaskMessageStore(service.turns.db).ListByTask(context.Background(), task.ID)
 	if err != nil {

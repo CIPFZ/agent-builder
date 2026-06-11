@@ -2777,3 +2777,10 @@ Phase 43.2 note:
   DTOs and must not infer status from event payloads, action metadata,
   transition history, assistant prose, or React state.
 - Bounded/windowed reads remain read-only for persisted Run status.
+
+Phase 43.3 note:
+
+- Backend helper rollout now covers foreground task-start active status writes.
+- Frontend behavior remains unchanged: task/run UI refreshes should reread
+  runtime DTOs instead of merging action/event payloads into local Run state.
+- Terminal status still requires full projection parity.

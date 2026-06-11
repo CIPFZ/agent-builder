@@ -83,6 +83,16 @@ func (r *runtimeService) runtimeRunSchedulerExecuteTask(ctx context.Context, req
 	if err != nil {
 		return RuntimeRunSchedulerExecuteTaskResponse{}, err
 	}
+	_, _ = r.runs.writeRuntimeRunStatus(ctx, runtimeRunStatusWriteRequest{
+		RunID:        run.ID,
+		SessionID:    firstNonEmpty(started.ParentSessionID, started.ChildSessionID),
+		Status:       runtimeRunStatusActive,
+		Source:       runtimeRunTransitionSourceTaskStarted,
+		Reason:       "foreground task execution started",
+		EvidenceKind: runtimeRunStatusWriteEvidenceTask,
+		TaskID:       started.ID,
+		Timestamp:    firstPositiveInt64(started.StartedAt, started.UpdatedAt),
+	})
 	startPrompt := firstNonEmpty(started.PromptSummary, started.Title)
 	_, err = r.createAgentTaskMessage(ctx, started, RuntimeAgentTaskMessage{
 		Direction:         taskMessageDirectionParentToChild,

@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 43.2 and decide Phase 43.3: Explicit Run Status Writer
-Call-Site Rollout Gate. Continue moving eligible existing status writes behind
-the helper without changing runtime semantics.
+Review/accept Phase 43.3 and decide Phase 43.4: Explicit Run Status Writer
+Terminal Call-Site Review Gate. Review terminal task/turn completion paths for
+eligible helper usage without weakening full projection parity.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13820,3 +13820,54 @@ Remaining risk / next task:
   that writes more than status columns while preserving existing behavior.
 - Phase 43.3 should continue call-site rollout and reduce direct status writes
   where the helper contract can be applied without breaking backfill behavior.
+
+## 2026-06-11: Phase 43.3 Explicit Run Status Writer Call-Site Rollout Gate
+
+Phase 43.3 continues the helper rollout at existing eligible call sites. It
+does not implement a full Run state machine, runtime Run store expansion,
+database migration, automatic resume, background scheduler loop, stale
+actionability recovery, frontend Run UI, or React-owned runtime state.
+
+Implemented:
+
+- Foreground scheduler task start now writes active persisted Run status
+  through `writeRuntimeRunStatus(...)` with source `task_started`.
+  - The write requires task ID evidence.
+  - It only updates `status`, `updated_at`, and `finished_at`.
+  - It does not create task result, artifact refs, scheduler state, permission
+    state, MCP state, timeline items, or transition state.
+- `backfillRuntimeRunSession(...)` now lets full `RunProjection(...)`
+  reconcile first, then returns the persisted Run by session.
+  - The old `UpsertFromProjection(...)` call remains only as a compatibility
+    fallback if no persisted Run is found after projection reconciliation.
+  - This reduces one direct projection upsert call site without changing
+    backfill semantics.
+
+Tests:
+
+- Strengthened `TestRuntimeRunSchedulerExecuteTaskStartsQueuedTaskOnce`.
+  - The fixture now starts from an interrupted persisted Run.
+  - Starting a queued task must restore active status through the helper.
+  - The task-start path still does not create artifact refs or terminal result
+    evidence.
+
+Validation:
+
+```powershell
+go test ./internal/runtime -count=1
+git diff --check
+```
+
+Review conclusion:
+
+- Phase 43.3 moves another active-status write behind the helper and reduces a
+  duplicate direct backfill upsert.
+- Full `RunProjection` remains the parity oracle for terminal/recovery status.
+- `UpsertFromProjection(...)` still exists as a compatibility fallback and
+  lower-level store API; it has not been removed or made authoritative.
+
+Remaining risk / next task:
+
+- Terminal task/turn completion paths still rely on projection reconciliation.
+- Phase 43.4 should review terminal call sites and only move writes that can
+  satisfy full projection parity without introducing a state machine.

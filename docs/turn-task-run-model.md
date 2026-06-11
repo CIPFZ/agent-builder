@@ -341,6 +341,15 @@ Phase 43.2 note:
 - `UpsertFromProjection` remains a compatibility backfill/reconcile path and
   has not been fully replaced.
 
+Phase 43.3 note:
+
+- Foreground task start now writes active Run status through the explicit
+  status writer helper with task ID evidence.
+- Session backfill now lets full projection reconciliation create/update the
+  persisted Run first and only falls back to `UpsertFromProjection` if no Run is
+  found afterward.
+- Terminal task/turn status still depends on full projection parity.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

@@ -263,6 +263,9 @@ func (r *runtimeService) backfillRuntimeRunSession(ctx context.Context, sessionI
 	if err != nil {
 		return RuntimeRun{}, err
 	}
+	if run, err := r.runs.GetBySession(ctx, sessionID); err == nil {
+		return run, nil
+	}
 	return r.runs.UpsertFromProjection(ctx, projection.Run, runtimeRunSourceBackfill)
 }
 
