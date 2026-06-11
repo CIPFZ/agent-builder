@@ -32,10 +32,12 @@ import {
 import type { MenuProps } from 'antd';
 import type {
   ConfiguredProviderViewModel,
+  ProviderDraftDiscoveryRequestViewModel,
   ProviderCatalogItemViewModel,
   ProviderModelDiscoveryViewModel,
   ProviderTestViewModel,
   RuntimeMCPServerViewModel,
+  RuntimeModelOptionViewModel,
   SettingsViewModel,
   WorkbenchMode,
 } from '../../runtime/workbenchTypes.ts';
@@ -65,10 +67,12 @@ interface SettingsPanelProps {
   onSettingsRefresh: () => Promise<SettingsViewModel>;
   onProviderSave: (provider: ConfiguredProviderViewModel & { token?: string }) => Promise<ConfiguredProviderViewModel[]>;
   onProviderDelete: (providerID: string) => Promise<ConfiguredProviderViewModel[]>;
+  onProviderDiscoverDraftModels: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderModelDiscoveryViewModel>;
   onProviderDiscoverModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
   onProviderTest: (providerID: string) => Promise<ProviderTestViewModel>;
   onProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;
-  onPermissionModeSelect: (mode: string) => Promise<void>;
+  selectedModel?: RuntimeModelOptionViewModel;
+  onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
   onSkillRefresh: () => Promise<SettingsViewModel>;
   onSkillToggle: (name: string, enabled: boolean) => Promise<SettingsViewModel>;
   onMCPServerRefresh: (name: string) => Promise<SettingsViewModel>;
@@ -84,10 +88,12 @@ export function SettingsPanel({
   onSettingsRefresh,
   onProviderSave,
   onProviderDelete,
+  onProviderDiscoverDraftModels,
   onProviderDiscoverModels,
   onProviderTest,
   onProviderLatency,
-  onPermissionModeSelect,
+  selectedModel,
+  onModelSelect,
   onSkillRefresh,
   onSkillToggle,
   onMCPServerRefresh,
@@ -111,15 +117,16 @@ export function SettingsPanel({
           <ProvidersSettings
             settings={settings}
             onProviderDelete={onProviderDelete}
+            onProviderDiscoverDraftModels={onProviderDiscoverDraftModels}
             onProviderDiscoverModels={onProviderDiscoverModels}
             onProviderLatency={onProviderLatency}
             onProviderSave={onProviderSave}
             onProviderTest={onProviderTest}
+            selectedModel={selectedModel}
+            onModelSelect={onModelSelect}
             onSettingsRefresh={onSettingsRefresh}
           />
         );
-      case 'permissions':
-        return <PermissionsSettings settings={settings} onPermissionModeSelect={onPermissionModeSelect} />;
       case 'skills':
         return <SkillsSettings settings={settings} onSkillRefresh={onSkillRefresh} onSkillToggle={onSkillToggle} />;
       case 'mcp':
@@ -256,17 +263,23 @@ function ProvidersSettings({
   onSettingsRefresh,
   onProviderSave,
   onProviderDelete,
+  onProviderDiscoverDraftModels,
   onProviderDiscoverModels,
   onProviderTest,
   onProviderLatency,
+  selectedModel,
+  onModelSelect,
 }: {
   settings: SettingsViewModel;
   onSettingsRefresh: () => Promise<SettingsViewModel>;
   onProviderSave: (provider: ConfiguredProviderViewModel & { token?: string }) => Promise<ConfiguredProviderViewModel[]>;
   onProviderDelete: (providerID: string) => Promise<ConfiguredProviderViewModel[]>;
+  onProviderDiscoverDraftModels: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderModelDiscoveryViewModel>;
   onProviderDiscoverModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
   onProviderTest: (providerID: string) => Promise<ProviderTestViewModel>;
   onProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;
+  selectedModel?: RuntimeModelOptionViewModel;
+  onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
 }) {
   const [runtimeSettings, setRuntimeSettings] = useState<SettingsViewModel | null>(null);
   const [editingProvider, setEditingProvider] = useState<ConfiguredProviderViewModel | null>(null);
@@ -276,6 +289,7 @@ function ProvidersSettings({
   const activeSettings = runtimeSettings ?? settings;
   const providers = activeSettings.providers;
   const configuredProviders = activeSettings.configuredProviders;
+  const selectedProviderID = selectedModel?.configuredProviderId;
 
   const refreshProviderSettings = async () => {
     const nextSettings = await onSettingsRefresh();
@@ -319,8 +333,8 @@ function ProvidersSettings({
       setRuntimeSettings({ ...activeSettings, configuredProviders });
       setModalOpen(false);
       messageApi.success(editingProvider ? '服务商已保存' : '服务商已添加');
-    } catch {
-      messageApi.error('保存服务商失败');
+    } catch (error) {
+      messageApi.error(formatProviderSaveError(error));
     } finally {
       setSaving(false);
     }
@@ -328,10 +342,24 @@ function ProvidersSettings({
 
   const deleteProvider = async (providerID: string) => {
     try {
-      await onProviderDelete(providerID);
+      const configuredProviders = await onProviderDelete(providerID);
+      setRuntimeSettings({ ...activeSettings, configuredProviders });
       messageApi.success('服务商已删除');
     } catch {
       messageApi.error('删除服务商失败');
+    }
+  };
+
+  const selectDefaultProvider = async (provider: ConfiguredProviderViewModel) => {
+    if (!provider.defaultModel) {
+      messageApi.warning('请先为服务商选择默认模型');
+      return;
+    }
+    try {
+      await onModelSelect(provider.id, provider.defaultModel);
+      messageApi.success('默认模型已更新');
+    } catch {
+      messageApi.error('设置默认模型失败');
     }
   };
 
@@ -364,16 +392,23 @@ function ProvidersSettings({
             {configuredProviders.map((provider) => {
               const catalogProvider = providers.find((item) => item.id === provider.providerId);
               const providerProtocol = provider.protocol || catalogProvider?.type || 'openai-compat';
+              const isSelected = selectedProviderID === provider.id;
               return (
-                <div key={provider.id} className={styles.settingsListItem}>
+                <div key={provider.id} className={`${styles.settingsListItem} ${isSelected ? styles.selectedProviderItem : ''}`}>
                   <div className={styles.settingsListMeta}>
-                    <Text strong>{provider.name}</Text>
+                    <Flex align="center" gap={8} wrap>
+                      <Text strong>{provider.name}</Text>
+                      {isSelected && <Tag color="blue">默认</Tag>}
+                    </Flex>
                     <Text type="secondary">{provider.remark || `${catalogProvider?.name ?? provider.providerId} · ${providerProtocol}`}</Text>
+                    <Text type="secondary">模型：{provider.defaultModel || '未选择'}</Text>
                   </div>
                   <Flex className={styles.settingsListActions} align="center" gap={8}>
+                    <Button disabled={isSelected || !provider.defaultModel} onClick={() => selectDefaultProvider(provider)}>
+                      设为默认
+                    </Button>
                     <Button icon={<EditOutlined />} type="text" onClick={() => openEditProvider(provider)} />
                     <Button danger icon={<DeleteOutlined />} type="text" onClick={() => deleteProvider(provider.id)} />
-                    <Switch defaultChecked />
                   </Flex>
                 </div>
               );
@@ -388,6 +423,7 @@ function ProvidersSettings({
         providers={providers}
         saving={saving}
         onCancel={() => setModalOpen(false)}
+        onDiscoverDraftModels={onProviderDiscoverDraftModels}
         onDiscoverModels={onProviderDiscoverModels}
         onLatency={onProviderLatency}
         onSave={saveProvider}
@@ -404,6 +440,7 @@ function ProviderEditorModal({
   saving,
   onCancel,
   onSave,
+  onDiscoverDraftModels,
   onDiscoverModels,
   onTest,
   onLatency,
@@ -414,6 +451,7 @@ function ProviderEditorModal({
   saving: boolean;
   onCancel: () => void;
   onSave: (values: ProviderFormValues) => Promise<void>;
+  onDiscoverDraftModels: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderModelDiscoveryViewModel>;
   onDiscoverModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
   onTest: (providerID: string) => Promise<ProviderTestViewModel>;
   onLatency: (providerID: string) => Promise<ProviderTestViewModel>;
@@ -456,14 +494,22 @@ function ProviderEditorModal({
   };
 
   const refreshModels = async () => {
-    const providerID = requireSavedProvider();
-    if (!providerID) {
-      return;
-    }
     setActionLoading('models');
     try {
-      const result = await onDiscoverModels(providerID);
+      const values = await form.validateFields(['protocol', 'apiEndpoint', 'token', 'defaultModel', 'proxy']);
+      const token = typeof values.token === 'string' ? values.token.trim() : '';
+      const result =
+        editingProvider?.id && token === ''
+          ? await onDiscoverModels(editingProvider.id)
+          : await onDiscoverDraftModels({
+              protocol: values.protocol,
+              apiEndpoint: values.apiEndpoint,
+              token,
+              defaultModel: normalizeDefaultModel(values.defaultModel),
+              proxy: values.proxy,
+            });
       setRuntimeModels(result.models);
+      form.setFieldValue('models', result.models);
       if (result.models.length > 0 && !form.getFieldValue('defaultModel')) {
         form.setFieldValue('defaultModel', result.models[0]);
       }
@@ -541,8 +587,8 @@ function ProviderEditorModal({
         }
         if (editingProvider) {
           setSelectedProviderID(editingProvider.providerId);
-          setRuntimeModels([]);
-          form.setFieldsValue({ ...editingProvider, token: '' });
+          setRuntimeModels(editingProvider.models ?? []);
+          form.setFieldsValue(editingProvider);
           return;
         }
         applyPreset(defaultProviderID);
@@ -552,6 +598,9 @@ function ProviderEditorModal({
       <Form className={styles.providerForm} form={form} layout="vertical" preserve={false} requiredMark={false} onFinish={onSave}>
         <Form.Item name="providerId" hidden>
           <Input />
+        </Form.Item>
+        <Form.Item name="models" hidden>
+          <Select mode="multiple" />
         </Form.Item>
 
         <Card className={styles.formCard} styles={{ body: { padding: 18 } }}>
@@ -584,7 +633,7 @@ function ProviderEditorModal({
           <Form.Item label="API 密钥" name="token" rules={[{ required: !editingProvider, message: '请输入 API 密钥' }]}>
             <Input.Password
               iconRender={(visible) => (visible ? <EyeTwoTone /> : <EyeInvisibleOutlined />)}
-              placeholder={editingProvider?.tokenConfigured ? '已保存，留空则不修改' : 'sk-...'}
+              placeholder="sk-..."
             />
           </Form.Item>
 
@@ -625,8 +674,21 @@ function formatDuration(durationMs?: number) {
   return typeof durationMs === 'number' ? `，${durationMs}ms` : '';
 }
 
-function normalizeConfiguredProvider(values: ProviderFormValues, providers: ProviderCatalogItemViewModel[]): ConfiguredProviderViewModel & { token?: string } {
+function formatProviderSaveError(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  if (message.includes('configured provider name already exists')) {
+    return '已存在相同名称的服务商配置';
+  }
+  return '保存服务商失败';
+}
+
+function normalizeConfiguredProvider(
+  values: ProviderFormValues,
+  providers: ProviderCatalogItemViewModel[],
+): ConfiguredProviderViewModel & { token?: string } {
   const preset = providers.find((provider) => provider.id === values.providerId);
+  const defaultModel = normalizeDefaultModel(values.defaultModel);
+  const models = Array.from(new Set([...(values.models ?? []), defaultModel].filter((model): model is string => Boolean(model))));
   return {
     id: values.id || values.providerId,
     providerId: values.providerId,
@@ -634,7 +696,8 @@ function normalizeConfiguredProvider(values: ProviderFormValues, providers: Prov
     remark: values.remark,
     apiEndpoint: values.apiEndpoint,
     protocol: values.protocol || 'openai-compat',
-    defaultModel: normalizeDefaultModel(values.defaultModel),
+    defaultModel,
+    models,
     tokenConfigured: Boolean(values.token || values.tokenConfigured),
     token: values.token,
     proxy: values.proxy,
@@ -1092,43 +1155,6 @@ function stateTagColor(state?: string) {
     default:
       return 'blue';
   }
-}
-
-function PermissionsSettings({ settings, onPermissionModeSelect }: { settings: SettingsViewModel; onPermissionModeSelect: (mode: string) => Promise<void> }) {
-  const selectedMode = settings.permissionMode?.mode ?? settings.permissionOptions[0]?.mode;
-  return (
-    <>
-      <Title level={2}>权限</Title>
-      <section className={styles.section}>
-        <Title level={4}>权限模式</Title>
-        <Segmented
-          className={styles.permissionModeGroup}
-          options={settings.permissionOptions.map((option) => ({
-            disabled: option.disabled,
-            label: option.label,
-            value: option.mode,
-          }))}
-          value={selectedMode}
-          onChange={(value) => {
-            void onPermissionModeSelect(String(value));
-          }}
-        />
-        <Card styles={{ body: { padding: 0 } }}>
-          <Flex vertical>
-            {settings.permissions.map((item) => (
-              <Flex key={item.key} align="center" className={styles.listItem} gap={16} justify="space-between">
-                <Flex vertical>
-                  <Text strong>{item.title}</Text>
-                  <Text type="secondary">{item.description}</Text>
-                </Flex>
-                <Switch defaultChecked={item.enabled} />
-              </Flex>
-            ))}
-          </Flex>
-        </Card>
-      </section>
-    </>
-  );
 }
 
 function CommonSettings({ settings }: { settings: SettingsViewModel }) {

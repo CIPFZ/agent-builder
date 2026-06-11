@@ -79,19 +79,21 @@ type RuntimeProviderCatalogResponse struct {
 }
 
 type RuntimeConfiguredProvider struct {
-	ID              string `json:"id"`
-	ProviderID      string `json:"providerId"`
-	Name            string `json:"name"`
-	Remark          string `json:"remark,omitempty"`
-	Protocol        string `json:"protocol"`
-	APIEndpoint     string `json:"apiEndpoint"`
-	APIKeySecretRef string `json:"apiKeySecretRef,omitempty"`
-	HasAPIKey       bool   `json:"hasApiKey"`
-	Proxy           string `json:"proxy,omitempty"`
-	DefaultModel    string `json:"defaultModel,omitempty"`
-	Enabled         bool   `json:"enabled"`
-	CreatedAt       int64  `json:"createdAt"`
-	UpdatedAt       int64  `json:"updatedAt"`
+	ID              string   `json:"id"`
+	ProviderID      string   `json:"providerId"`
+	Name            string   `json:"name"`
+	Remark          string   `json:"remark,omitempty"`
+	Protocol        string   `json:"protocol"`
+	APIEndpoint     string   `json:"apiEndpoint"`
+	APIKeySecretRef string   `json:"apiKeySecretRef,omitempty"`
+	APIKey          string   `json:"apiKey,omitempty"`
+	HasAPIKey       bool     `json:"hasApiKey"`
+	Proxy           string   `json:"proxy,omitempty"`
+	DefaultModel    string   `json:"defaultModel,omitempty"`
+	Models          []string `json:"models,omitempty"`
+	Enabled         bool     `json:"enabled"`
+	CreatedAt       int64    `json:"createdAt"`
+	UpdatedAt       int64    `json:"updatedAt"`
 }
 
 type RuntimeConfiguredProvidersResponse struct {
@@ -99,16 +101,17 @@ type RuntimeConfiguredProvidersResponse struct {
 }
 
 type RuntimeConfiguredProviderRequest struct {
-	ID           string `json:"id,omitempty"`
-	ProviderID   string `json:"providerId"`
-	Name         string `json:"name"`
-	Remark       string `json:"remark,omitempty"`
-	Protocol     string `json:"protocol"`
-	APIEndpoint  string `json:"apiEndpoint"`
-	APIKey       string `json:"apiKey,omitempty"`
-	Proxy        string `json:"proxy,omitempty"`
-	DefaultModel string `json:"defaultModel,omitempty"`
-	Enabled      bool   `json:"enabled"`
+	ID           string   `json:"id,omitempty"`
+	ProviderID   string   `json:"providerId"`
+	Name         string   `json:"name"`
+	Remark       string   `json:"remark,omitempty"`
+	Protocol     string   `json:"protocol"`
+	APIEndpoint  string   `json:"apiEndpoint"`
+	APIKey       string   `json:"apiKey,omitempty"`
+	Proxy        string   `json:"proxy,omitempty"`
+	DefaultModel string   `json:"defaultModel,omitempty"`
+	Models       []string `json:"models,omitempty"`
+	Enabled      bool     `json:"enabled"`
 }
 
 type RuntimeConfiguredProviderResponse struct {

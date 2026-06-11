@@ -76,24 +76,23 @@ func (r *runtimeService) configuredProviderModels(ctx context.Context) ([]Runtim
 	}
 	models := make([]RuntimeModel, 0, len(providers))
 	for _, provider := range providers {
-		if !provider.Enabled {
+		providerModels := configuredProviderModelIDs(provider)
+		if len(providerModels) == 0 {
 			continue
 		}
-		model := strings.TrimSpace(provider.DefaultModel)
-		if model == "" {
-			continue
+		for _, model := range providerModels {
+			models = append(models, RuntimeModel{
+				ID:                   provider.ID + ":" + model,
+				Name:                 model,
+				Provider:             firstNonEmpty(provider.Name, provider.ProviderID, provider.ID),
+				ProviderID:           provider.ProviderID,
+				ConfiguredProviderID: provider.ID,
+				ConfiguredProvider:   provider.Name,
+				Selected: selectedErr == nil &&
+					selected.ConfiguredProviderID == provider.ID &&
+					selected.Model == model,
+			})
 		}
-		models = append(models, RuntimeModel{
-			ID:                   provider.ID + ":" + model,
-			Name:                 model,
-			Provider:             firstNonEmpty(provider.Name, provider.ProviderID, provider.ID),
-			ProviderID:           provider.ProviderID,
-			ConfiguredProviderID: provider.ID,
-			ConfiguredProvider:   provider.Name,
-			Selected: selectedErr == nil &&
-				selected.ConfiguredProviderID == provider.ID &&
-				selected.Model == model,
-		})
 	}
 	if selectedErr == nil {
 		for i := range models {
@@ -106,6 +105,10 @@ func (r *runtimeService) configuredProviderModels(ctx context.Context) ([]Runtim
 		models[0].Selected = true
 	}
 	return models, nil
+}
+
+func configuredProviderModelIDs(provider RuntimeConfiguredProvider) []string {
+	return compactModelIDs(append(provider.Models, strings.TrimSpace(provider.DefaultModel)))
 }
 
 func (r *runtimeService) GetModelConfig(ctx context.Context) (RuntimeConfigResponse, error) {

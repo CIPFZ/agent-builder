@@ -14,6 +14,7 @@ import (
 )
 
 var errConfiguredProviderNotFound = errors.New("configured provider not found")
+var errConfiguredProviderDuplicate = errors.New("configured provider name already exists")
 
 type runtimeProviderSettingsStore struct {
 	db *sql.DB
@@ -21,6 +22,18 @@ type runtimeProviderSettingsStore struct {
 
 func newRuntimeProviderSettingsStore(db *sql.DB) runtimeProviderSettingsStore {
 	return runtimeProviderSettingsStore{db: db}
+}
+
+func (s runtimeProviderSettingsStore) ensureConfiguredProviderColumns(ctx context.Context) error {
+	if s.db == nil {
+		return errors.New("provider settings database is not available")
+	}
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE configured_providers ADD COLUMN model_ids_json TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return fmt.Errorf("failed to ensure configured provider model column: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s runtimeProviderSettingsStore) SyncCatalog(ctx context.Context, providers []RuntimeProviderCatalogItem) error {
@@ -125,6 +138,9 @@ func (s runtimeProviderSettingsStore) ListConfigured(ctx context.Context) ([]Run
 	if s.db == nil {
 		return nil, errors.New("provider settings database is not available")
 	}
+	if err := s.ensureConfiguredProviderColumns(ctx); err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, configuredProviderSelectSQL()+` ORDER BY updated_at DESC, name ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list configured providers: %w", err)
@@ -145,9 +161,39 @@ func (s runtimeProviderSettingsStore) ListConfigured(ctx context.Context) ([]Run
 	return providers, nil
 }
 
+func (s runtimeProviderSettingsStore) ListConfiguredSecrets(ctx context.Context) ([]RuntimeConfiguredProvider, error) {
+	if s.db == nil {
+		return nil, errors.New("provider settings database is not available")
+	}
+	if err := s.ensureConfiguredProviderColumns(ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, configuredProviderSecretSelectSQL()+` ORDER BY updated_at DESC, name ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list configured providers: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var providers []RuntimeConfiguredProvider
+	for rows.Next() {
+		provider, _, err := scanConfiguredProviderSecret(rows)
+		if err != nil {
+			return nil, err
+		}
+		providers = append(providers, provider)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return providers, nil
+}
+
 func (s runtimeProviderSettingsStore) UpsertConfigured(ctx context.Context, req RuntimeConfiguredProviderRequest) (RuntimeConfiguredProvider, error) {
 	if s.db == nil {
 		return RuntimeConfiguredProvider{}, errors.New("provider settings database is not available")
+	}
+	if err := s.ensureConfiguredProviderColumns(ctx); err != nil {
+		return RuntimeConfiguredProvider{}, err
 	}
 	provider, err := normalizeConfiguredProviderRequest(req)
 	if err != nil {
@@ -168,8 +214,8 @@ func (s runtimeProviderSettingsStore) UpsertConfigured(ctx context.Context, req 
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO configured_providers (
     id, provider_id, name, remark, protocol, api_endpoint, api_key, api_key_secret_ref,
-    proxy, default_model, enabled, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    proxy, default_model, model_ids_json, enabled, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     provider_id = excluded.provider_id,
     name = excluded.name,
@@ -180,6 +226,7 @@ ON CONFLICT(id) DO UPDATE SET
     api_key_secret_ref = COALESCE(excluded.api_key_secret_ref, configured_providers.api_key_secret_ref),
     proxy = excluded.proxy,
     default_model = excluded.default_model,
+    model_ids_json = excluded.model_ids_json,
     enabled = excluded.enabled,
     updated_at = excluded.updated_at`,
 		provider.ID,
@@ -192,6 +239,7 @@ ON CONFLICT(id) DO UPDATE SET
 		nullableString(secretRef),
 		nullableString(provider.Proxy),
 		nullableString(provider.DefaultModel),
+		mustMarshalStringSlice(provider.Models),
 		boolInt(provider.Enabled),
 		provider.CreatedAt,
 		provider.UpdatedAt,
@@ -205,6 +253,9 @@ ON CONFLICT(id) DO UPDATE SET
 func (s runtimeProviderSettingsStore) GetConfigured(ctx context.Context, id string) (RuntimeConfiguredProvider, error) {
 	if s.db == nil {
 		return RuntimeConfiguredProvider{}, errors.New("provider settings database is not available")
+	}
+	if err := s.ensureConfiguredProviderColumns(ctx); err != nil {
+		return RuntimeConfiguredProvider{}, err
 	}
 	row := s.db.QueryRowContext(ctx, configuredProviderSelectSQL()+` WHERE id = ?`, strings.TrimSpace(id))
 	provider, err := scanConfiguredProvider(row)
@@ -233,7 +284,7 @@ func (r *runtimeService) ConfiguredProviders(ctx context.Context) (RuntimeConfig
 	if err != nil {
 		return RuntimeConfiguredProvidersResponse{}, err
 	}
-	providers, err := store.ListConfigured(ctx)
+	providers, err := store.ListConfiguredSecrets(ctx)
 	if err != nil {
 		return RuntimeConfiguredProvidersResponse{}, err
 	}
@@ -248,11 +299,43 @@ func (r *runtimeService) SaveConfiguredProvider(ctx context.Context, req Runtime
 	if err := r.syncProviderCatalog(ctx, store); err != nil {
 		return RuntimeConfiguredProviderResponse{}, err
 	}
+	if err := ensureConfiguredProviderNameIsUnique(ctx, store, req); err != nil {
+		return RuntimeConfiguredProviderResponse{}, err
+	}
 	provider, err := store.UpsertConfigured(ctx, req)
 	if err != nil {
 		return RuntimeConfiguredProviderResponse{}, err
 	}
+	if err := r.syncSelectedModelAfterProviderSave(ctx, store, provider); err != nil {
+		return RuntimeConfiguredProviderResponse{}, err
+	}
+	r.restart()
+	provider, _, err = store.GetConfiguredSecret(ctx, provider.ID)
+	if err != nil {
+		return RuntimeConfiguredProviderResponse{}, err
+	}
 	return RuntimeConfiguredProviderResponse{Provider: provider}, nil
+}
+
+func ensureConfiguredProviderNameIsUnique(ctx context.Context, store runtimeProviderSettingsStore, req RuntimeConfiguredProviderRequest) error {
+	candidate, err := normalizeConfiguredProviderRequest(req)
+	if err != nil {
+		return err
+	}
+	providers, err := store.ListConfigured(ctx)
+	if err != nil {
+		return err
+	}
+	candidateName := configuredProviderNameKey(candidate.Name)
+	for _, existing := range providers {
+		if existing.ID == candidate.ID {
+			continue
+		}
+		if configuredProviderNameKey(existing.Name) == candidateName {
+			return errConfiguredProviderDuplicate
+		}
+	}
+	return nil
 }
 
 func (r *runtimeService) DeleteConfiguredProvider(ctx context.Context, id string) (RuntimeConfiguredProvidersResponse, error) {
@@ -260,14 +343,84 @@ func (r *runtimeService) DeleteConfiguredProvider(ctx context.Context, id string
 	if err != nil {
 		return RuntimeConfiguredProvidersResponse{}, err
 	}
+	selectedStore := newRuntimeSelectedModelStore(store.db)
+	if err := selectedStore.DeleteForConfiguredProvider(ctx, id); err != nil {
+		return RuntimeConfiguredProvidersResponse{}, err
+	}
 	if err := store.DeleteConfigured(ctx, id); err != nil {
 		return RuntimeConfiguredProvidersResponse{}, err
 	}
-	providers, err := store.ListConfigured(ctx)
+	if err := r.ensureGlobalSelectedModel(ctx, store); err != nil {
+		return RuntimeConfiguredProvidersResponse{}, err
+	}
+	r.restart()
+	providers, err := store.ListConfiguredSecrets(ctx)
 	if err != nil {
 		return RuntimeConfiguredProvidersResponse{}, err
 	}
 	return RuntimeConfiguredProvidersResponse{Providers: providers}, nil
+}
+
+func (r *runtimeService) syncSelectedModelAfterProviderSave(ctx context.Context, store runtimeProviderSettingsStore, provider RuntimeConfiguredProvider) error {
+	selectedStore := newRuntimeSelectedModelStore(store.db)
+	selected, err := selectedStore.Get(ctx, "global", "", "")
+	if errors.Is(err, errSelectedModelMissing) {
+		if strings.TrimSpace(provider.DefaultModel) == "" {
+			return nil
+		}
+		_, err = selectedStore.Upsert(ctx, RuntimeSelectedModelRequest{
+			ConfiguredProviderID: provider.ID,
+			Model:                provider.DefaultModel,
+			Scope:                "global",
+		}, provider)
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	if selected.ConfiguredProviderID != provider.ID {
+		return nil
+	}
+	if strings.TrimSpace(provider.DefaultModel) == "" {
+		if err := selectedStore.DeleteForConfiguredProvider(ctx, provider.ID); err != nil {
+			return err
+		}
+		return r.ensureGlobalSelectedModel(ctx, store)
+	}
+	if selected.Model == provider.DefaultModel {
+		return nil
+	}
+	_, err = selectedStore.Upsert(ctx, RuntimeSelectedModelRequest{
+		ConfiguredProviderID: provider.ID,
+		Model:                provider.DefaultModel,
+		Scope:                "global",
+	}, provider)
+	return err
+}
+
+func (r *runtimeService) ensureGlobalSelectedModel(ctx context.Context, store runtimeProviderSettingsStore) error {
+	selectedStore := newRuntimeSelectedModelStore(store.db)
+	if _, err := selectedStore.Get(ctx, "global", "", ""); err == nil {
+		return nil
+	} else if !errors.Is(err, errSelectedModelMissing) {
+		return err
+	}
+	providers, err := store.ListConfigured(ctx)
+	if err != nil {
+		return err
+	}
+	for _, provider := range providers {
+		if strings.TrimSpace(provider.DefaultModel) == "" {
+			continue
+		}
+		_, err = selectedStore.Upsert(ctx, RuntimeSelectedModelRequest{
+			ConfiguredProviderID: provider.ID,
+			Model:                provider.DefaultModel,
+			Scope:                "global",
+		}, provider)
+		return err
+	}
+	return nil
 }
 
 func (r *runtimeService) providerSettingsStore(ctx context.Context) (runtimeProviderSettingsStore, error) {
@@ -285,14 +438,14 @@ func (r *runtimeService) syncProviderCatalog(ctx context.Context, store runtimeP
 func configuredProviderSelectSQL() string {
 	return `
 SELECT id, provider_id, name, remark, protocol, api_endpoint, api_key_secret_ref,
-       proxy, default_model, enabled, created_at, updated_at
+       proxy, default_model, model_ids_json, enabled, created_at, updated_at
 FROM configured_providers`
 }
 
 func configuredProviderSecretSelectSQL() string {
 	return `
 SELECT id, provider_id, name, remark, protocol, api_endpoint, api_key_secret_ref,
-       proxy, default_model, enabled, created_at, updated_at, api_key
+       proxy, default_model, model_ids_json, enabled, created_at, updated_at, api_key
 FROM configured_providers`
 }
 
@@ -301,6 +454,7 @@ func scanConfiguredProvider(scanner interface {
 }) (RuntimeConfiguredProvider, error) {
 	var provider RuntimeConfiguredProvider
 	var remark, secretRef, proxy, defaultModel sql.NullString
+	var modelIDsJSON string
 	var enabled int
 	if err := scanner.Scan(
 		&provider.ID,
@@ -312,6 +466,7 @@ func scanConfiguredProvider(scanner interface {
 		&secretRef,
 		&proxy,
 		&defaultModel,
+		&modelIDsJSON,
 		&enabled,
 		&provider.CreatedAt,
 		&provider.UpdatedAt,
@@ -323,6 +478,7 @@ func scanConfiguredProvider(scanner interface {
 	provider.HasAPIKey = secretRef.Valid && secretRef.String != ""
 	provider.Proxy = proxy.String
 	provider.DefaultModel = defaultModel.String
+	provider.Models = compactModelIDs(append(unmarshalStringSlice(modelIDsJSON), provider.DefaultModel))
 	provider.Enabled = enabled != 0
 	return provider, nil
 }
@@ -338,7 +494,8 @@ func normalizeConfiguredProviderRequest(req RuntimeConfiguredProviderRequest) (R
 		APIKeySecretRef: "",
 		Proxy:           strings.TrimSpace(req.Proxy),
 		DefaultModel:    strings.TrimSpace(req.DefaultModel),
-		Enabled:         req.Enabled,
+		Models:          compactModelIDs(append(req.Models, strings.TrimSpace(req.DefaultModel))),
+		Enabled:         true,
 	}
 	if provider.ProviderID == "" {
 		return RuntimeConfiguredProvider{}, errors.New("providerId is required")
@@ -358,9 +515,16 @@ func normalizeConfiguredProviderRequest(req RuntimeConfiguredProviderRequest) (R
 	return provider, nil
 }
 
+func configuredProviderNameKey(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
 func (s runtimeProviderSettingsStore) GetConfiguredSecret(ctx context.Context, id string) (RuntimeConfiguredProvider, string, error) {
 	if s.db == nil {
 		return RuntimeConfiguredProvider{}, "", errors.New("provider settings database is not available")
+	}
+	if err := s.ensureConfiguredProviderColumns(ctx); err != nil {
+		return RuntimeConfiguredProvider{}, "", err
 	}
 	row := s.db.QueryRowContext(ctx, configuredProviderSecretSelectSQL()+` WHERE id = ?`, strings.TrimSpace(id))
 	provider, apiKey, err := scanConfiguredProviderSecret(row)
@@ -375,6 +539,7 @@ func scanConfiguredProviderSecret(scanner interface {
 }) (RuntimeConfiguredProvider, string, error) {
 	var provider RuntimeConfiguredProvider
 	var remark, secretRef, proxy, defaultModel, apiKey sql.NullString
+	var modelIDsJSON string
 	var enabled int
 	if err := scanner.Scan(
 		&provider.ID,
@@ -386,6 +551,7 @@ func scanConfiguredProviderSecret(scanner interface {
 		&secretRef,
 		&proxy,
 		&defaultModel,
+		&modelIDsJSON,
 		&enabled,
 		&provider.CreatedAt,
 		&provider.UpdatedAt,
@@ -395,9 +561,11 @@ func scanConfiguredProviderSecret(scanner interface {
 	}
 	provider.Remark = remark.String
 	provider.APIKeySecretRef = secretRef.String
+	provider.APIKey = apiKey.String
 	provider.HasAPIKey = (secretRef.Valid && secretRef.String != "") || (apiKey.Valid && apiKey.String != "")
 	provider.Proxy = proxy.String
 	provider.DefaultModel = defaultModel.String
+	provider.Models = compactModelIDs(append(unmarshalStringSlice(modelIDsJSON), provider.DefaultModel))
 	provider.Enabled = enabled != 0
 	return provider, apiKey.String, nil
 }

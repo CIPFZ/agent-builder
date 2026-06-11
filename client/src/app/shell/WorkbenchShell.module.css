@@ -28,9 +28,11 @@
 
 .sidebarResizer {
   position: relative;
-  width: 1px;
+  z-index: 3;
+  width: 9px;
   height: 100%;
-  background: #e5e5e5;
+  margin: 0 -4px;
+  background: transparent;
   cursor: col-resize;
 }
 
@@ -38,15 +40,20 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -4px;
-  width: 9px;
+  left: 4px;
+  width: 1px;
+  background: #e5e5e5;
   content: "";
 }
 
 .sidebarResizer:hover,
 .sidebarResizer:focus-visible {
-  background: #bdbdbd;
   outline: none;
+}
+
+.sidebarResizer:hover::before,
+.sidebarResizer:focus-visible::before {
+  background: #bdbdbd;
 }
 
 .settingsShell {
@@ -83,6 +90,14 @@
 
 @media (max-width: 720px) {
   .shell {
+    grid-template-columns: var(--sidebar-width, 280px) 1px minmax(0, 1fr);
+  }
+
+  .settingsShell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebarCollapsed {
     grid-template-columns: minmax(0, 1fr);
   }
 }

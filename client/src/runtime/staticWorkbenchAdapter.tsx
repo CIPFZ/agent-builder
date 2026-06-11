@@ -10,7 +10,6 @@ import {
   FolderOutlined,
   GlobalOutlined,
   HistoryOutlined,
-  KeyOutlined,
   MessageOutlined,
   PlusSquareOutlined,
   SearchOutlined,
@@ -31,7 +30,6 @@ const settings = {
   navItems: [
     { key: 'general', label: '常规', icon: <SettingOutlined /> },
     { key: 'providers', label: '服务商', icon: <CloudServerOutlined /> },
-    { key: 'permissions', label: '权限', icon: <KeyOutlined /> },
     { key: 'common', label: '通用', icon: <ControlOutlined /> },
     { key: 'h5', label: 'H5 访问', icon: <GlobalOutlined /> },
     { key: 'im', label: 'IM 接入', icon: <MessageOutlined /> },
@@ -147,6 +145,9 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
     return runtimeUnavailable();
   },
   async deleteConfiguredProvider() {
+    return runtimeUnavailable();
+  },
+  async discoverProviderDraftModels() {
     return runtimeUnavailable();
   },
   async discoverConfiguredProviderModels() {

@@ -13,11 +13,28 @@ interface WorkbenchShellProps {
   viewModel: WorkbenchViewModel;
 }
 
+const SIDEBAR_DEFAULT_WIDTH = 280;
+const SIDEBAR_MIN_WIDTH = 260;
+const SIDEBAR_MAX_WIDTH = 380;
+const WORKSPACE_MIN_VISIBLE_WIDTH = 360;
+
+function getSidebarMaxWidth() {
+  if (typeof window === 'undefined') {
+    return SIDEBAR_MAX_WIDTH;
+  }
+  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, window.innerWidth - WORKSPACE_MIN_VISIBLE_WIDTH));
+}
+
+function clampSidebarWidth(width: number, maxWidth = getSidebarMaxWidth()) {
+  return Math.min(maxWidth, Math.max(SIDEBAR_MIN_WIDTH, width));
+}
+
 export function WorkbenchShell({ adapter, viewModel: initialViewModel }: WorkbenchShellProps) {
   const [viewModel, setViewModel] = useState<WorkbenchViewModel>(initialViewModel);
   const [mode, setMode] = useState<WorkbenchMode>(initialViewModel.mode);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(SIDEBAR_DEFAULT_WIDTH));
+  const [sidebarMaxWidth, setSidebarMaxWidth] = useState(() => getSidebarMaxWidth());
   const viewModelRef = useRef(viewModel);
   const modeRef = useRef(mode);
   const hasBusySession = viewModel.sessions.some((session) => session.busy);
@@ -25,6 +42,17 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   useEffect(() => {
     viewModelRef.current = viewModel;
   }, [viewModel]);
+
+  useEffect(() => {
+    const updateSidebarBounds = () => {
+      const nextMaxWidth = getSidebarMaxWidth();
+      setSidebarMaxWidth(nextMaxWidth);
+      setSidebarWidth((current) => clampSidebarWidth(current, nextMaxWidth));
+    };
+
+    window.addEventListener('resize', updateSidebarBounds);
+    return () => window.removeEventListener('resize', updateSidebarBounds);
+  }, []);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -325,6 +353,9 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
 
   const discoverConfiguredProviderModels = (providerID: string) => adapter.discoverConfiguredProviderModels(providerID);
 
+  const discoverProviderDraftModels = (request: Parameters<WorkbenchAdapter['discoverProviderDraftModels']>[0]) =>
+    adapter.discoverProviderDraftModels(request);
+
   const testConfiguredProvider = (providerID: string) => adapter.testConfiguredProvider(providerID);
 
   const measureConfiguredProviderLatency = (providerID: string) => adapter.measureConfiguredProviderLatency(providerID);
@@ -386,7 +417,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     target.setPointerCapture(pointerId);
 
     const updateSidebarWidth = (moveEvent: PointerEvent) => {
-      const nextWidth = Math.min(380, Math.max(280, startWidth + moveEvent.clientX - startX));
+      const nextWidth = clampSidebarWidth(startWidth + moveEvent.clientX - startX, sidebarMaxWidth);
       setSidebarWidth(nextWidth);
     };
 
@@ -409,16 +440,18 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           settings={workbenchViewModel.settings}
           onModeChange={changeMode}
           onProviderDelete={deleteConfiguredProvider}
+          onProviderDiscoverDraftModels={discoverProviderDraftModels}
           onProviderDiscoverModels={discoverConfiguredProviderModels}
           onProviderLatency={measureConfiguredProviderLatency}
           onProviderSave={saveConfiguredProvider}
           onProviderTest={testConfiguredProvider}
+          selectedModel={workbenchViewModel.composer.selectedModel}
+          onModelSelect={selectModel}
           onMCPServerDetailsLoad={loadMCPServerDetails}
           onMCPServerRefresh={refreshMCPServer}
           onMCPServerSave={saveMCPServer}
           onMCPServerToggle={setMCPServerEnabled}
           onMCPToolToggle={setMCPToolEnabled}
-          onPermissionModeSelect={selectPermissionMode}
           onSettingsRefresh={refreshSettings}
           onSkillRefresh={refreshSkills}
           onSkillToggle={setSkillEnabled}
@@ -449,8 +482,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           className={styles.sidebarResizer}
           role="separator"
           aria-orientation="vertical"
-          aria-valuemin={280}
-          aria-valuemax={380}
+          aria-valuemin={SIDEBAR_MIN_WIDTH}
+          aria-valuemax={sidebarMaxWidth}
           aria-valuenow={sidebarWidth}
           tabIndex={0}
           onPointerDown={startSidebarResize}

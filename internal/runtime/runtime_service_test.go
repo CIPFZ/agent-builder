@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -179,6 +180,219 @@ func TestSelectedModelStorePersistsGlobalSelection(t *testing.T) {
 	}
 	if loaded.Model != "deepseek-v4-pro" || loaded.ProviderID != "deepseek" {
 		t.Fatalf("loaded selected model = %#v", loaded)
+	}
+}
+
+func TestSaveConfiguredProviderMaintainsGlobalSelectedModel(t *testing.T) {
+	root := runtimeDevTestRoot(t, "selected-provider-save")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	service := newRuntimeService()
+
+	provider, err := service.SaveConfiguredProvider(context.Background(), RuntimeConfiguredProviderRequest{
+		ID:           "custom-main",
+		ProviderID:   "custom",
+		Name:         "Custom Main",
+		Protocol:     "openai-compat",
+		APIEndpoint:  "http://127.0.0.1:9999",
+		APIKey:       "test-key",
+		DefaultModel: "model-a",
+		Enabled:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.Provider.ID != "custom-main" {
+		t.Fatalf("provider = %#v", provider.Provider)
+	}
+
+	selected, err := service.SelectedModel(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.SelectedModel.ConfiguredProviderID != "custom-main" || selected.SelectedModel.Model != "model-a" {
+		t.Fatalf("selected model after create = %#v", selected.SelectedModel)
+	}
+
+	if _, err := service.SaveConfiguredProvider(context.Background(), RuntimeConfiguredProviderRequest{
+		ID:           "custom-main",
+		ProviderID:   "custom",
+		Name:         "Custom Main",
+		Protocol:     "openai-compat",
+		APIEndpoint:  "http://127.0.0.1:9998",
+		DefaultModel: "model-b",
+		Enabled:      true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	selected, err = service.SelectedModel(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.SelectedModel.ConfiguredProviderID != "custom-main" || selected.SelectedModel.Model != "model-b" {
+		t.Fatalf("selected model after update = %#v", selected.SelectedModel)
+	}
+}
+
+func TestSaveConfiguredProviderAlwaysNormalizesProviderEnabled(t *testing.T) {
+	root := runtimeDevTestRoot(t, "provider-enabled-normalized")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	service := newRuntimeService()
+
+	provider, err := service.SaveConfiguredProvider(context.Background(), RuntimeConfiguredProviderRequest{
+		ID:           "custom-main",
+		ProviderID:   "custom",
+		Name:         "Custom Main",
+		Protocol:     "openai-compat",
+		APIEndpoint:  "http://127.0.0.1:9999",
+		APIKey:       "test-key",
+		DefaultModel: "model-a",
+		Enabled:      false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !provider.Provider.Enabled {
+		t.Fatalf("provider enabled = false after save: %#v", provider.Provider)
+	}
+
+	selected, err := service.SelectedModel(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.SelectedModel.ConfiguredProviderID != "custom-main" || selected.SelectedModel.Model != "model-a" {
+		t.Fatalf("selected model after disabled request = %#v", selected.SelectedModel)
+	}
+}
+
+func TestConfiguredProvidersExposeSavedAPIKeyForSettingsEdit(t *testing.T) {
+	root := runtimeDevTestRoot(t, "provider-edit-api-key")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	service := newRuntimeService()
+
+	saved, err := service.SaveConfiguredProvider(context.Background(), RuntimeConfiguredProviderRequest{
+		ID:           "custom-main",
+		ProviderID:   "custom",
+		Name:         "Custom Main",
+		Protocol:     "openai-compat",
+		APIEndpoint:  "http://127.0.0.1:9999",
+		APIKey:       "test-secret-key",
+		DefaultModel: "model-a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Provider.APIKey != "test-secret-key" || !saved.Provider.HasAPIKey {
+		t.Fatalf("saved provider api key = %q has=%v", saved.Provider.APIKey, saved.Provider.HasAPIKey)
+	}
+
+	configured, err := service.ConfiguredProviders(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(configured.Providers) != 1 {
+		t.Fatalf("providers = %#v", configured.Providers)
+	}
+	if configured.Providers[0].APIKey != "test-secret-key" || !configured.Providers[0].HasAPIKey {
+		t.Fatalf("listed provider api key = %q has=%v", configured.Providers[0].APIKey, configured.Providers[0].HasAPIKey)
+	}
+}
+
+func TestConfiguredProviderModelsExposeSavedModelList(t *testing.T) {
+	root := runtimeDevTestRoot(t, "provider-saved-model-list")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	service := newRuntimeService()
+
+	if _, err := service.SaveConfiguredProvider(context.Background(), RuntimeConfiguredProviderRequest{
+		ID:           "deepseek-main",
+		ProviderID:   "deepseek",
+		Name:         "DeepSeek",
+		Protocol:     "openai-compat",
+		APIEndpoint:  "https://api.deepseek.com/v1",
+		APIKey:       "test-secret-key",
+		DefaultModel: "deepseek-v4-flash",
+		Models:       []string{"deepseek-v4-flash", "deepseek-v4-pro"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	models, err := service.Models(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models.Models) != 2 {
+		t.Fatalf("models = %#v", models.Models)
+	}
+	if models.Models[0].Name != "deepseek-v4-flash" || !models.Models[0].Selected {
+		t.Fatalf("first model = %#v", models.Models[0])
+	}
+	if models.Models[1].Name != "deepseek-v4-pro" || models.Models[1].ConfiguredProviderID != "deepseek-main" {
+		t.Fatalf("second model = %#v", models.Models[1])
+	}
+
+	if _, err := service.SaveSelectedModel(context.Background(), RuntimeSelectedModelRequest{
+		ConfiguredProviderID: "deepseek-main",
+		Model:                "deepseek-v4-pro",
+		Scope:                "global",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	models, err = service.Models(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !models.Models[1].Selected {
+		t.Fatalf("selected models = %#v", models.Models)
+	}
+}
+
+func TestSaveConfiguredProviderRejectsDuplicateName(t *testing.T) {
+	root := runtimeDevTestRoot(t, "provider-duplicate-name")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	service := newRuntimeService()
+
+	if _, err := service.SaveConfiguredProvider(context.Background(), RuntimeConfiguredProviderRequest{
+		ID:           "custom-main",
+		ProviderID:   "custom",
+		Name:         "Custom Main",
+		Protocol:     "openai-compat",
+		APIEndpoint:  "https://API.example.com/v1/",
+		APIKey:       "test-key",
+		DefaultModel: "model-a",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.SaveConfiguredProvider(context.Background(), RuntimeConfiguredProviderRequest{
+		ID:           "custom-duplicate",
+		ProviderID:   "custom",
+		Name:         "custom main",
+		Protocol:     "openai-compat",
+		APIEndpoint:  "https://api.example.com/v1",
+		APIKey:       "test-key",
+		DefaultModel: "model-a",
+	}); !errors.Is(err, errConfiguredProviderDuplicate) {
+		t.Fatalf("duplicate save error = %v, want %v", err, errConfiguredProviderDuplicate)
+	}
+	if _, err := service.SaveConfiguredProvider(context.Background(), RuntimeConfiguredProviderRequest{
+		ID:           "custom-main",
+		ProviderID:   "custom",
+		Name:         "Custom Main Renamed",
+		Protocol:     "openai-compat",
+		APIEndpoint:  "https://api.example.com/v1",
+		DefaultModel: "model-b",
+	}); err != nil {
+		t.Fatalf("same provider update failed: %v", err)
+	}
+	if _, err := service.SaveConfiguredProvider(context.Background(), RuntimeConfiguredProviderRequest{
+		ID:           "custom-secondary",
+		ProviderID:   "custom",
+		Name:         "Custom Secondary",
+		Protocol:     "openai-compat",
+		APIEndpoint:  "https://api.example.com/v1",
+		APIKey:       "different-test-key",
+		DefaultModel: "model-a",
+	}); err != nil {
+		t.Fatalf("same provider endpoint with a different name failed: %v", err)
 	}
 }
 

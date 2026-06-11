@@ -99,6 +99,17 @@ ON CONFLICT(id) DO UPDATE SET
 	return s.Get(ctx, selected.Scope, selected.ProjectID, selected.SessionID)
 }
 
+func (s runtimeSelectedModelStore) DeleteForConfiguredProvider(ctx context.Context, configuredProviderID string) error {
+	if s.db == nil {
+		return errors.New("selected model database is not available")
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM selected_models WHERE configured_provider_id = ?`, strings.TrimSpace(configuredProviderID))
+	if err != nil {
+		return fmt.Errorf("failed to delete selected model: %w", err)
+	}
+	return nil
+}
+
 func scanSelectedModel(scanner interface {
 	Scan(dest ...any) error
 }) (RuntimeSelectedModel, error) {
@@ -139,9 +150,6 @@ func (r *runtimeService) SaveSelectedModel(ctx context.Context, req RuntimeSelec
 	if err != nil {
 		return RuntimeSelectedModelResponse{}, err
 	}
-	if !provider.Enabled {
-		return RuntimeSelectedModelResponse{}, errors.New("configured provider is disabled")
-	}
 	selected, err := store.Upsert(ctx, req, provider)
 	if err != nil {
 		return RuntimeSelectedModelResponse{}, err
@@ -175,7 +183,7 @@ func (r *runtimeService) currentSelectedModel(ctx context.Context) (RuntimeSelec
 		return RuntimeSelectedModel{}, listErr
 	}
 	for _, provider := range providers {
-		if !provider.Enabled || strings.TrimSpace(provider.DefaultModel) == "" {
+		if strings.TrimSpace(provider.DefaultModel) == "" {
 			continue
 		}
 		return store.Upsert(ctx, RuntimeSelectedModelRequest{
@@ -199,9 +207,6 @@ func (r *runtimeService) applySelectedConfiguredModel(ctx context.Context, store
 	provider, apiKey, err := providerStore.GetConfiguredSecret(ctx, selected.ConfiguredProviderID)
 	if err != nil {
 		return RuntimeSelectedModel{}, localModelConfigResult{}, err
-	}
-	if !provider.Enabled {
-		return RuntimeSelectedModel{}, localModelConfigResult{}, errors.New("selected configured provider is disabled")
 	}
 	if strings.TrimSpace(apiKey) == "" {
 		return RuntimeSelectedModel{}, localModelConfigResult{}, errors.New("selected configured provider api key is required")

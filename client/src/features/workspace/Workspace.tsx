@@ -1,5 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowDownOutlined, CodeOutlined, ControlOutlined, CopyOutlined, DesktopOutlined, EditOutlined, MoreOutlined } from '@ant-design/icons';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  AuditOutlined,
+  ArrowDownOutlined,
+  CloseOutlined,
+  ConsoleSqlOutlined,
+  CopyOutlined,
+  EditOutlined,
+  FolderOpenOutlined,
+  LayoutOutlined,
+  LeftOutlined,
+  MoreOutlined,
+  PlusOutlined,
+  RightOutlined,
+} from '@ant-design/icons';
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { Button, Dropdown, Input, Modal, Tooltip, message as antdMessage } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
 import type { WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
@@ -8,6 +22,21 @@ import { RunProjectionPreview } from '../diagnostics/RunProjectionPreview.tsx';
 import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import styles from './Workspace.module.css';
+
+type RightPanelKind = 'review' | 'files' | 'terminal';
+
+const RIGHT_PANEL_DEFAULT_WIDTH = 360;
+const RIGHT_PANEL_MIN_WIDTH = 300;
+const RIGHT_PANEL_MAX_WIDTH = 720;
+const WORKSPACE_MIN_WIDTH_WITH_PANEL = 520;
+const RIGHT_PANEL_DRAWER_MARGIN = 72;
+
+interface RightPanelTabState {
+  id: string;
+  kind: RightPanelKind;
+  title: string;
+  lines?: string[];
+}
 
 interface WorkspaceProps {
   sidebarCollapsed?: boolean;
@@ -40,6 +69,15 @@ export function Workspace({
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameTitle, setRenameTitle] = useState('');
   const [renaming, setRenaming] = useState(false);
+  const [rightPanelVisible, setRightPanelVisible] = useState(false);
+  const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
+  const [rightPanelTabs, setRightPanelTabs] = useState<RightPanelTabState[]>([]);
+  const [activeRightPanelID, setActiveRightPanelID] = useState('');
+  const [terminalDrafts, setTerminalDrafts] = useState<Record<string, string>>({});
+  const [rightPanelTabsOverflow, setRightPanelTabsOverflow] = useState(false);
+  const terminalInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const rightPanelTabsRef = useRef<HTMLDivElement | null>(null);
+  const workspaceRef = useRef<HTMLElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
@@ -70,10 +108,171 @@ export function Workspace({
       behavior: 'smooth',
     });
   };
+  const rightPanelHasTabs = rightPanelTabs.length > 0;
+  const rightPanelOpen = rightPanelVisible;
+  const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
+  const terminalTabCount = rightPanelTabs.filter((tab) => tab.kind === 'terminal').length;
+  const terminalPrompt = terminalPromptFromProject(viewModel.currentProject);
+  const openSingletonPanel = (kind: Exclude<RightPanelKind, 'terminal'>) => {
+    setRightPanelVisible(true);
+    const existing = rightPanelTabs.find((tab) => tab.kind === kind);
+    if (existing) {
+      setActiveRightPanelID(existing.id);
+      return;
+    }
+    const tab: RightPanelTabState = {
+      id: kind,
+      kind,
+      title: kind === 'review' ? '审查' : '文件',
+    };
+    setRightPanelTabs((current) => [...current, tab]);
+    setActiveRightPanelID(tab.id);
+  };
+  const toggleRightPanel = () => {
+    if (rightPanelOpen) {
+      setRightPanelVisible(false);
+      return;
+    }
+    setRightPanelVisible(true);
+  };
+  const addTerminalTab = () => {
+    setRightPanelVisible(true);
+    const nextIndex = terminalTabCount + 1;
+    const id = `terminal-${Date.now()}`;
+    const tab: RightPanelTabState = {
+      id,
+      kind: 'terminal',
+      title: `终端 ${nextIndex}`,
+      lines: [],
+    };
+    setRightPanelTabs((current) => [...current, tab]);
+    setActiveRightPanelID(id);
+  };
+  const closeRightPanelTab = (id: string) => {
+    setRightPanelTabs((current) => {
+      const index = current.findIndex((tab) => tab.id === id);
+      const next = current.filter((tab) => tab.id !== id);
+      if (next.length === 0) {
+        setRightPanelVisible(false);
+      }
+      if (activeRightPanelID === id) {
+        setActiveRightPanelID(next[Math.max(0, index - 1)]?.id ?? next[0]?.id ?? '');
+      }
+      return next;
+    });
+    setTerminalDrafts((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  };
+  const submitTerminalDraft = (id: string) => {
+    const draft = terminalDrafts[id] ?? '';
+    const command = draft.trim();
+    if (!command) {
+      return;
+    }
+    setRightPanelTabs((current) =>
+      current.map((tab) =>
+        tab.id === id
+          ? {
+              ...tab,
+              lines: [...terminalVisibleLines(tab.lines), `$ ${command}`, 'PTY runtime is not connected yet.'],
+            }
+          : tab,
+      ),
+    );
+    setTerminalDrafts((current) => ({ ...current, [id]: '' }));
+  };
+  const openRightPanelTool = (kind: RightPanelKind) => {
+    if (kind === 'terminal') {
+      addTerminalTab();
+    } else {
+      openSingletonPanel(kind);
+    }
+  };
+  const rightPanelMaxWidth = useCallback(() => {
+    const workspaceWidth = workspaceRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+    if (window.innerWidth >= 1280) {
+      return Math.min(RIGHT_PANEL_MAX_WIDTH, Math.max(RIGHT_PANEL_MIN_WIDTH, workspaceWidth - WORKSPACE_MIN_WIDTH_WITH_PANEL));
+    }
+    return Math.min(520, Math.max(260, window.innerWidth - RIGHT_PANEL_DRAWER_MARGIN));
+  }, []);
+  const clampRightPanelWidth = useCallback(
+    (width: number) => {
+      const maxWidth = rightPanelMaxWidth();
+      const minWidth = Math.min(RIGHT_PANEL_MIN_WIDTH, maxWidth);
+      return Math.min(maxWidth, Math.max(minWidth, width));
+    },
+    [rightPanelMaxWidth],
+  );
+  const startRightPanelResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const pointerID = event.pointerId;
+    const startX = event.clientX;
+    const startWidth = rightPanelWidth;
+    const target = event.currentTarget;
+
+    target.setPointerCapture(pointerID);
+
+    const updateRightPanelWidth = (moveEvent: PointerEvent) => {
+      setRightPanelWidth(clampRightPanelWidth(startWidth + startX - moveEvent.clientX));
+    };
+    const stopRightPanelResize = () => {
+      target.releasePointerCapture(pointerID);
+      window.removeEventListener('pointermove', updateRightPanelWidth);
+      window.removeEventListener('pointerup', stopRightPanelResize);
+      window.removeEventListener('pointercancel', stopRightPanelResize);
+    };
+
+    window.addEventListener('pointermove', updateRightPanelWidth);
+    window.addEventListener('pointerup', stopRightPanelResize);
+    window.addEventListener('pointercancel', stopRightPanelResize);
+  };
+  const scrollRightPanelTabs = (direction: -1 | 1) => {
+    const tabs = rightPanelTabsRef.current;
+    if (!tabs) {
+      return;
+    }
+    tabs.scrollBy({ left: direction * Math.max(140, tabs.clientWidth * 0.7), behavior: 'smooth' });
+  };
   useEffect(() => {
     const frame = window.requestAnimationFrame(updateJumpToBottomVisibility);
     return () => window.cancelAnimationFrame(frame);
   }, [updateJumpToBottomVisibility, viewModel.conversation.length, viewModel.timeline.length]);
+  useEffect(() => {
+    const activeTab = rightPanelTabsRef.current?.querySelector<HTMLElement>('[data-active="true"]');
+    activeTab?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [activeRightPanelID, rightPanelTabs.length]);
+  useEffect(() => {
+    const tabs = rightPanelTabsRef.current;
+    if (!tabs) {
+      setRightPanelTabsOverflow(false);
+      return;
+    }
+    const updateOverflow = () => {
+      setRightPanelTabsOverflow(tabs.scrollWidth > tabs.clientWidth + 1);
+    };
+    updateOverflow();
+    window.addEventListener('resize', updateOverflow);
+    return () => window.removeEventListener('resize', updateOverflow);
+  }, [rightPanelTabs.length, rightPanelWidth, rightPanelOpen]);
+  useEffect(() => {
+    if (activeRightPanelTab?.kind === 'terminal') {
+      terminalInputRefs.current[activeRightPanelTab.id]?.focus();
+    }
+  }, [activeRightPanelTab?.id, activeRightPanelTab?.kind]);
+  useEffect(() => {
+    const updateRightPanelBounds = () => {
+      setRightPanelWidth((current) => clampRightPanelWidth(current));
+    };
+    window.addEventListener('resize', updateRightPanelBounds);
+    return () => window.removeEventListener('resize', updateRightPanelBounds);
+  }, [clampRightPanelWidth]);
+  useEffect(() => {
+    setRightPanelWidth((current) => clampRightPanelWidth(current));
+  }, [clampRightPanelWidth, rightPanelOpen, sidebarCollapsed]);
   const openRenameDialog = () => {
     if (!activeSession) {
       void messageApi.warning('请先选择一个对话');
@@ -125,10 +324,12 @@ export function Workspace({
 
   return (
     <section
-      className={styles.workspace}
+      ref={workspaceRef}
+      className={`${styles.workspace} ${rightPanelOpen ? styles.workspaceWithPanel : ''}`}
       data-has-conversation={hasConversation}
       data-mode={viewModel.mode}
       data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}
+      style={{ '--right-panel-width': `${rightPanelWidth}px` } as CSSProperties}
     >
       {messageContextHolder}
       <header className={styles.sessionHeader}>
@@ -149,14 +350,14 @@ export function Workspace({
           </Dropdown>
         </div>
         <div className={styles.headerActions} aria-label="工作区面板">
-          <Tooltip title="打开代码面板">
-            <Button aria-label="打开代码面板" className={styles.headerIconButton} icon={<CodeOutlined />} type="text" />
-          </Tooltip>
-          <Tooltip title="打开任务列表">
-            <Button aria-label="打开任务列表" className={styles.headerIconButton} icon={<ControlOutlined />} type="text" />
-          </Tooltip>
-          <Tooltip title="打开右侧面板">
-            <Button aria-label="打开右侧面板" className={styles.headerIconButton} icon={<DesktopOutlined />} type="text" />
+          <Tooltip title={rightPanelOpen ? '关闭右侧面板' : '打开右侧面板'}>
+            <Button
+              aria-label={rightPanelOpen ? '关闭右侧面板' : '打开右侧面板'}
+              className={`${styles.headerIconButton} ${rightPanelOpen ? styles.headerIconButtonActive : ''}`}
+              icon={<LayoutOutlined />}
+              type="text"
+              onClick={toggleRightPanel}
+            />
           </Tooltip>
         </div>
       </header>
@@ -186,70 +387,288 @@ export function Workspace({
           }}
         />
       </Modal>
-      <div
-        ref={hasConversation ? scrollContainerRef : undefined}
-        className={hasConversation ? styles.chatContent : styles.content}
-        onScroll={hasConversation ? updateJumpToBottomVisibility : undefined}
-      >
-        {viewModel.timeline.length > 0 ? (
-          <div className={styles.timelineLayout}>
-            <div className={styles.timelineColumn}>
-              <Timeline items={viewModel.timeline} onPermissionDecide={onPermissionDecide} />
+        <div
+          ref={hasConversation ? scrollContainerRef : undefined}
+          className={hasConversation ? styles.chatContent : styles.content}
+          onScroll={hasConversation ? updateJumpToBottomVisibility : undefined}
+        >
+          {viewModel.timeline.length > 0 ? (
+            <div className={styles.timelineLayout}>
+              <div className={styles.timelineColumn}>
+                <Timeline items={viewModel.timeline} onPermissionDecide={onPermissionDecide} />
+              </div>
             </div>
-            <div className={styles.diagnosticsColumn}>
-              <RunProjectionPreview run={viewModel.runProjection} onResumeCheckpoint={onRunCheckpointResume} onExecuteTask={onRunTaskExecute} />
-              <TurnDiagnosticsPanel
-                diagnostics={viewModel.turnDiagnostics}
-                interrupted={viewModel.interruptedTurn}
-                onInterruptedCopy={copyInterruptedSummary}
-                onInterruptedDone={markInterruptedDone}
-                onInterruptedFollowUp={startInterruptedFollowUp}
-              />
-            </div>
-          </div>
-        ) : hasConversation ? (
-          <Bubble.List
-            autoScroll
-            className={styles.conversation}
-            items={bubbleItems}
-            role={{
-              ai: {
-                placement: 'start',
-                variant: 'borderless',
-                className: styles.assistantBubble,
-              },
-              user: {
-                placement: 'end',
-                variant: 'filled',
-                className: styles.userBubble,
-              },
-            }}
+          ) : hasConversation ? (
+            <Bubble.List
+              autoScroll
+              className={styles.conversation}
+              items={bubbleItems}
+              role={{
+                ai: {
+                  placement: 'start',
+                  variant: 'borderless',
+                  className: styles.assistantBubble,
+                },
+                user: {
+                  placement: 'end',
+                  variant: 'filled',
+                  className: styles.userBubble,
+                },
+              }}
+            />
+          ) : (
+            <h1 className={styles.title}>{title}</h1>
+          )}
+          {hasConversation && showJumpToBottom && (
+            <button
+              aria-label="璺冲埌搴曢儴"
+              className={styles.jumpToBottomButton}
+              type="button"
+              onClick={jumpToBottom}
+            >
+              <ArrowDownOutlined />
+            </button>
+          )}
+          <Composer
+            composer={viewModel.composer}
+            project={viewModel.currentProject}
+            showProjectContext={viewModel.mode === 'project' && hasProjectContext && !hasConversation}
+            onModelSelect={onModelSelect}
+            onPermissionModeSelect={onPermissionModeSelect}
+            onCancel={onPromptCancel}
+            onSubmit={onPromptSubmit}
           />
-        ) : (
-          <h1 className={styles.title}>{title}</h1>
+        </div>
+        {rightPanelOpen && (
+          <aside className={`${styles.rightPanel} ${rightPanelHasTabs ? '' : styles.rightPanelNoTabs}`} aria-label="右侧工作区">
+            <div
+              aria-label="调整右侧栏宽度"
+              aria-orientation="vertical"
+              aria-valuemax={rightPanelMaxWidth()}
+              aria-valuemin={Math.min(RIGHT_PANEL_MIN_WIDTH, rightPanelMaxWidth())}
+              aria-valuenow={rightPanelWidth}
+              className={styles.rightPanelResizer}
+              role="separator"
+              tabIndex={0}
+              onPointerDown={startRightPanelResize}
+            />
+            {rightPanelHasTabs ? (
+              <div className={styles.terminalHeader}>
+                {rightPanelTabsOverflow ? (
+                  <Button
+                    aria-label="向左滚动标签"
+                    className={styles.terminalScrollButton}
+                    icon={<LeftOutlined />}
+                    size="small"
+                    type="text"
+                    onClick={() => scrollRightPanelTabs(-1)}
+                  />
+                ) : null}
+                <div
+                  ref={rightPanelTabsRef}
+                  className={`${styles.terminalTabs} ${rightPanelTabsOverflow ? styles.terminalTabsOverflow : ''}`}
+                  role="tablist"
+                  aria-label="右侧工作区标签"
+                  onWheel={(event) => {
+                    if (!rightPanelTabsOverflow || !rightPanelTabsRef.current) {
+                      return;
+                    }
+                    event.preventDefault();
+                    rightPanelTabsRef.current.scrollLeft += event.deltaX || event.deltaY;
+                  }}
+                >
+                  {rightPanelTabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      className={`${styles.terminalTab} ${activeRightPanelID === tab.id ? styles.terminalTabActive : ''}`}
+                      type="button"
+                      role="tab"
+                      data-active={activeRightPanelID === tab.id ? 'true' : undefined}
+                      aria-selected={activeRightPanelID === tab.id}
+                      onClick={() => setActiveRightPanelID(tab.id)}
+                    >
+                      {tab.kind === 'review' ? <AuditOutlined /> : tab.kind === 'files' ? <FolderOpenOutlined /> : <ConsoleSqlOutlined />}
+                      <span>{tab.title}</span>
+                      <CloseOutlined
+                        className={styles.terminalTabClose}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          closeRightPanelTab(tab.id);
+                        }}
+                      />
+                    </button>
+                  ))}
+                </div>
+                {rightPanelTabsOverflow ? (
+                  <Button
+                    aria-label="向右滚动标签"
+                    className={styles.terminalScrollButton}
+                    icon={<RightOutlined />}
+                    size="small"
+                    type="text"
+                    onClick={() => scrollRightPanelTabs(1)}
+                  />
+                ) : null}
+                <RightPanelAddMenu
+                  className={styles.terminalAddButton}
+                  hasFilesTab={rightPanelTabs.some((tab) => tab.kind === 'files')}
+                  hasReviewTab={rightPanelTabs.some((tab) => tab.kind === 'review')}
+                  onOpenTool={openRightPanelTool}
+                />
+              </div>
+            ) : null}
+            {!rightPanelHasTabs ? (
+              <div className={styles.rightPanelLauncher}>
+                <button className={styles.rightPanelLauncherItem} type="button" onClick={() => openRightPanelTool('review')}>
+                  <AuditOutlined />
+                  <span>审查</span>
+                  <kbd>Ctrl+Shift+G</kbd>
+                </button>
+                <button className={styles.rightPanelLauncherItem} type="button" onClick={() => openRightPanelTool('terminal')}>
+                  <ConsoleSqlOutlined />
+                  <span>终端</span>
+                  <kbd>Ctrl+`</kbd>
+                </button>
+                <button className={styles.rightPanelLauncherItem} type="button" onClick={() => openRightPanelTool('files')}>
+                  <FolderOpenOutlined />
+                  <span>文件</span>
+                  <kbd>Ctrl+P</kbd>
+                </button>
+              </div>
+            ) : activeRightPanelTab?.kind === 'terminal' ? (
+              <div
+                className={styles.terminalPane}
+                role="tabpanel"
+                onClick={() => terminalInputRefs.current[activeRightPanelTab.id]?.focus()}
+              >
+                <div className={styles.terminalScreen} role="application" aria-label={activeRightPanelTab.title}>
+                  <div className={styles.terminalPromptMeta}>
+                    <span className={styles.terminalUser}>{terminalPrompt.userHost}</span>
+                    <span className={styles.terminalShell}>{terminalPrompt.shell}</span>
+                    <span className={styles.terminalPath}>{terminalPrompt.path}</span>
+                    {terminalPrompt.branch ? <span className={styles.terminalBranch}>({terminalPrompt.branch})</span> : null}
+                  </div>
+                  {terminalVisibleLines(activeRightPanelTab.lines).map((line, index) => (
+                    <div key={`${activeRightPanelTab.id}-${index}`} className={styles.terminalHistoryLine}>
+                      {line}
+                    </div>
+                  ))}
+                  <label className={styles.terminalCommandLine}>
+                    <span>$</span>
+                    <input
+                      ref={(input) => {
+                        terminalInputRefs.current[activeRightPanelTab.id] = input;
+                      }}
+                      aria-label="终端命令"
+                      autoCapitalize="off"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      value={terminalDrafts[activeRightPanelTab.id] ?? ''}
+                      onChange={(event) => setTerminalDrafts((current) => ({ ...current, [activeRightPanelTab.id]: event.target.value }))}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          submitTerminalDraft(activeRightPanelTab.id);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            ) : activeRightPanelTab?.kind === 'files' ? (
+              <div className={styles.sideToolPane} role="tabpanel">
+                <div className={styles.sideToolTitle}>文件</div>
+                <div className={styles.sideToolEmpty}>File tree and file preview will be connected to the runtime workspace.</div>
+              </div>
+            ) : activeRightPanelTab?.kind === 'review' ? (
+              <div className={styles.sideToolPane} role="tabpanel">
+                <div className={styles.reviewStack}>
+                  <RunProjectionPreview run={viewModel.runProjection} onResumeCheckpoint={onRunCheckpointResume} onExecuteTask={onRunTaskExecute} />
+                  <TurnDiagnosticsPanel
+                    diagnostics={viewModel.turnDiagnostics}
+                    interrupted={viewModel.interruptedTurn}
+                    onInterruptedCopy={copyInterruptedSummary}
+                    onInterruptedDone={markInterruptedDone}
+                    onInterruptedFollowUp={startInterruptedFollowUp}
+                  />
+                  {!viewModel.runProjection && !viewModel.turnDiagnostics && !viewModel.interruptedTurn ? (
+                    <>
+                      <div className={styles.sideToolTitle}>审查</div>
+                      <div className={styles.sideToolEmpty}>Review findings, diffs, and approvals will appear here.</div>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </aside>
         )}
-        {hasConversation && showJumpToBottom && (
-          <button
-            aria-label="跳到底部"
-            className={styles.jumpToBottomButton}
-            type="button"
-            onClick={jumpToBottom}
-          >
-            <ArrowDownOutlined />
-          </button>
-        )}
-        <Composer
-          composer={viewModel.composer}
-          project={viewModel.currentProject}
-          showProjectContext={viewModel.mode === 'project' && hasProjectContext && !hasConversation}
-          onModelSelect={onModelSelect}
-          onPermissionModeSelect={onPermissionModeSelect}
-          onCancel={onPromptCancel}
-          onSubmit={onPromptSubmit}
-        />
-      </div>
     </section>
   );
+}
+
+function RightPanelAddMenu({
+  className,
+  hasFilesTab,
+  hasReviewTab,
+  onOpenTool,
+}: {
+  className: string;
+  hasFilesTab: boolean;
+  hasReviewTab: boolean;
+  onOpenTool: (kind: RightPanelKind) => void;
+}) {
+  const items = [
+    { key: 'terminal', icon: <ConsoleSqlOutlined />, label: '新建终端' },
+    hasFilesTab ? null : { key: 'files', icon: <FolderOpenOutlined />, label: '打开文件' },
+    hasReviewTab ? null : { key: 'review', icon: <AuditOutlined />, label: '打开审查' },
+  ].filter((item): item is Exclude<typeof item, null> => Boolean(item));
+
+  return (
+    <Dropdown
+      menu={{
+        items,
+        onClick: ({ key }) => {
+          if (key === 'terminal' || key === 'files' || key === 'review') {
+            onOpenTool(key);
+          }
+        },
+      }}
+      placement="bottomRight"
+      trigger={['click']}
+    >
+      <Button aria-label="添加右侧工具" className={className} icon={<PlusOutlined />} size="small" type="text" />
+    </Dropdown>
+  );
+}
+
+function terminalPromptFromProject(project: WorkbenchViewModel['currentProject']) {
+  return {
+    userHost: 'agent@localhost',
+    shell: 'MINGW64',
+    path: formatTerminalPath(project.path || project.name || '~'),
+    branch: project.branch,
+  };
+}
+
+function formatTerminalPath(path: string) {
+  const normalized = path.replace(/\\/g, '/').trim();
+  if (!normalized || normalized === '~') {
+    return '~';
+  }
+  const workIndex = normalized.toLowerCase().indexOf('/work/');
+  if (workIndex >= 0) {
+    return `~${normalized.slice(workIndex)}`;
+  }
+  const driveMatch = normalized.match(/^([A-Za-z]):\/(.*)$/);
+  if (driveMatch) {
+    return `/${driveMatch[1].toLowerCase()}/${driveMatch[2]}`;
+  }
+  return normalized;
+}
+
+function terminalVisibleLines(lines?: string[]) {
+  return (lines ?? []).filter((line) => line !== 'Agent Builder terminal' && line !== 'Runtime PTY integration pending.');
 }
 
 function MessageActions({

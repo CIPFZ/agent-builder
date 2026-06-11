@@ -147,6 +147,10 @@
   border-block-end: 0;
 }
 
+.selectedProviderItem {
+  background: #f5f9ff;
+}
+
 .settingsListMeta {
   display: flex;
   flex: 1 1 auto;

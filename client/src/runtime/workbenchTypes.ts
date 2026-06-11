@@ -405,7 +405,9 @@ export interface ConfiguredProviderViewModel {
   authVariable?: string;
   protocol?: string;
   defaultModel?: string;
+  models?: string[];
   tokenConfigured?: boolean;
+  token?: string;
   proxy?: string;
   enabled?: boolean;
   mainModel?: string;
@@ -426,6 +428,14 @@ export interface ProviderTestViewModel {
   model?: string;
   durationMs?: number;
   error?: string;
+}
+
+export interface ProviderDraftDiscoveryRequestViewModel {
+  protocol?: string;
+  apiEndpoint?: string;
+  token?: string;
+  defaultModel?: string;
+  proxy?: string;
 }
 
 export interface RuntimeSkillViewModel {
@@ -581,6 +591,7 @@ export interface WorkbenchAdapter {
     provider: ConfiguredProviderViewModel & { token?: string },
   ) => Promise<WorkbenchViewModel>;
   deleteConfiguredProvider: (current: WorkbenchViewModel, providerID: string) => Promise<WorkbenchViewModel>;
+  discoverProviderDraftModels: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderModelDiscoveryViewModel>;
   discoverConfiguredProviderModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
   testConfiguredProvider: (providerID: string) => Promise<ProviderTestViewModel>;
   measureConfiguredProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;

@@ -47,7 +47,7 @@ export function Sidebar({
 
   const runSidebarAction = (action: SidebarActionViewModel) => {
     if (action.id === 'new-chat') {
-      onModeChange('new-chat');
+      onSessionCreate();
       return;
     }
     if (action.id === 'plugins') {

@@ -5,6 +5,7 @@ import type {
   InterruptedTurnViewModel,
   PermissionModeOptionViewModel,
   PermissionRequestViewModel,
+  ProviderDraftDiscoveryRequestViewModel,
   ProviderModelDiscoveryViewModel,
   ProviderTestViewModel,
   ProviderCatalogItemViewModel,
@@ -98,9 +99,11 @@ interface RuntimeConfiguredProviderDTO {
   remark?: string;
   protocol: string;
   apiEndpoint: string;
+  apiKey?: string;
   hasApiKey?: boolean;
   proxy?: string;
   defaultModel?: string;
+  models?: string[];
   enabled: boolean;
 }
 
@@ -114,6 +117,7 @@ interface RuntimeConfiguredProviderRequestDTO {
   apiKey?: string;
   proxy?: string;
   defaultModel?: string;
+  models?: string[];
   enabled: boolean;
 }
 
@@ -123,6 +127,21 @@ interface RuntimeConfiguredProvidersResponseDTO {
 
 interface RuntimeConfiguredProviderResponseDTO {
   provider: RuntimeConfiguredProviderDTO;
+}
+
+interface RuntimeModelConfigRequestDTO {
+  protocol?: string;
+  url?: string;
+  apiKey?: string;
+  model?: string;
+  proxy?: string;
+}
+
+interface RuntimeModelDiscoveryResponseDTO {
+  protocol?: string;
+  model?: string;
+  models?: string[];
+  error?: string;
 }
 
 type RuntimeProviderModelDiscoveryResponseDTO = ProviderModelDiscoveryViewModel;
@@ -689,6 +708,7 @@ interface RuntimeBridgeModule {
   ConfiguredProviders?: () => Promise<RuntimeConfiguredProvidersResponseDTO>;
   SaveConfiguredProvider?: (req: RuntimeConfiguredProviderRequestDTO) => Promise<RuntimeConfiguredProviderResponseDTO>;
   DeleteConfiguredProvider?: (providerID: string) => Promise<RuntimeConfiguredProvidersResponseDTO>;
+  DiscoverModelConfig?: (req: RuntimeModelConfigRequestDTO) => Promise<RuntimeModelDiscoveryResponseDTO>;
   DiscoverConfiguredProviderModels?: (providerID: string) => Promise<RuntimeProviderModelDiscoveryResponseDTO>;
   TestConfiguredProvider?: (providerID: string) => Promise<RuntimeProviderTestResponseDTO>;
   MeasureConfiguredProviderLatency?: (providerID: string) => Promise<RuntimeProviderTestResponseDTO>;
@@ -853,7 +873,9 @@ function mapConfiguredProviders(response?: RuntimeConfiguredProvidersResponseDTO
     apiEndpoint: provider.apiEndpoint,
     protocol: provider.protocol,
     defaultModel: provider.defaultModel,
+    models: provider.models,
     tokenConfigured: provider.hasApiKey,
+    token: provider.apiKey,
     proxy: provider.proxy,
     enabled: provider.enabled,
   }));
@@ -1584,7 +1606,26 @@ function toConfiguredProviderRequest(provider: ConfiguredProviderViewModel & { t
     apiKey: provider.token,
     proxy: provider.proxy,
     defaultModel: provider.defaultModel,
-    enabled: provider.enabled ?? true,
+    models: provider.models,
+    enabled: true,
+  };
+}
+
+function toRuntimeModelConfigRequest(request: ProviderDraftDiscoveryRequestViewModel): RuntimeModelConfigRequestDTO {
+  return {
+    protocol: request.protocol === 'anthropic' ? 'anthropic' : 'openai',
+    url: request.apiEndpoint,
+    apiKey: request.token,
+    model: request.defaultModel,
+    proxy: request.proxy,
+  };
+}
+
+function mapDraftModelDiscovery(response: RuntimeModelDiscoveryResponseDTO): ProviderModelDiscoveryViewModel {
+  return {
+    providerId: 'draft',
+    models: Array.isArray(response.models) ? response.models : [],
+    error: response.error,
   };
 }
 
@@ -2139,6 +2180,11 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
     runtimeFetch<RuntimeConfiguredProvidersResponseDTO>(`/v1/config/configured-providers/${encodeURIComponent(providerID)}`, {
       method: 'DELETE',
     }),
+  DiscoverModelConfig: (req) =>
+    runtimeFetch<RuntimeModelDiscoveryResponseDTO>('/v1/config/model/discover', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }),
   DiscoverConfiguredProviderModels: (providerID) =>
     runtimeFetch<RuntimeProviderModelDiscoveryResponseDTO>(`/v1/config/configured-providers/${encodeURIComponent(providerID)}/models`, {
       method: 'POST',
@@ -2692,6 +2738,16 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       },
       () => staticWorkbenchAdapter.deleteConfiguredProvider(current, providerID),
     );
+  },
+  async discoverProviderDraftModels(request) {
+    const bridge = await loadRuntimeBridge();
+    if (bridge?.DiscoverModelConfig) {
+      return mapDraftModelDiscovery(await bridge.DiscoverModelConfig(toRuntimeModelConfigRequest(request)));
+    }
+    if (runtimeHTTPBridge.DiscoverModelConfig) {
+      return mapDraftModelDiscovery(await runtimeHTTPBridge.DiscoverModelConfig(toRuntimeModelConfigRequest(request)));
+    }
+    return staticWorkbenchAdapter.discoverProviderDraftModels(request);
   },
   async discoverConfiguredProviderModels(providerID) {
     const bridge = await loadRuntimeBridge();
