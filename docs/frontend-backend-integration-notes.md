@@ -2821,3 +2821,9 @@ Phase 45.1 note:
 - Phase 45 HTTP smoke is accepted.
 - Next frontend validation should focus on adapter refresh-trigger behavior,
   not local Run status ownership.
+
+Phase 46 note:
+
+- Added frontend adapter smoke for Run status reread semantics.
+- The adapter must continue to treat status writer actions/events as refresh
+  triggers and hydrate from `RunProjection` DTOs.

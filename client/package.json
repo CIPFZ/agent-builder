@@ -22,6 +22,7 @@
     "smoke:phase331": "node scripts/phase331-browser-provider-completion-smoke.mjs",
     "smoke:phase362": "node scripts/phase362-packaged-webview-scheduler-click-smoke.mjs",
     "smoke:phase401": "node scripts/phase401-action-refresh-selector-smoke.mjs",
+    "smoke:phase46": "node scripts/phase46-status-writer-adapter-reread-smoke.mjs",
     "smoke:scheduler": "npm run smoke:phase281 && npm run smoke:phase291 && npm run smoke:phase331"
   },
   "dependencies": {

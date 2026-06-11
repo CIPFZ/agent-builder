@@ -394,6 +394,12 @@ Phase 45.1 note:
 - The next boundary is frontend adapter refresh-trigger behavior, not broader
   persisted Run authority.
 
+Phase 46 note:
+
+- Frontend adapter smoke now validates Run status refresh-trigger behavior.
+- The adapter rereads `RunProjection` DTOs and does not merge action/event
+  payloads into frontend Run state.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 46: Run Status Writer Frontend Adapter Reread Smoke Gate.
-Validate the frontend adapter keeps treating status writer events/actions as
-refresh triggers and rereads runtime DTOs.
+Review/accept Phase 46 and decide Phase 46.1: Run Status Writer Frontend
+Adapter Smoke Acceptance. Accept adapter reread semantics before any UI click
+automation.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14127,3 +14127,45 @@ Review conclusion:
 - The next useful boundary is frontend adapter smoke for refresh-trigger
   behavior, not broader persisted Run authority.
 - Continue to reject event/action/prose/React-derived Run status.
+
+## 2026-06-11: Phase 46 Run Status Writer Frontend Adapter Reread Smoke Gate
+
+Phase 46 adds frontend adapter smoke coverage for status writer reread
+semantics. It does not implement frontend Run UI, React-owned Run state, a full
+Run state machine, runtime Run store expansion, database migration, automatic
+resume, background scheduler loop, or stale actionability recovery.
+
+Implemented:
+
+- Added `client/scripts/phase46-status-writer-adapter-reread-smoke.mjs`.
+- Added `npm run smoke:phase46`.
+- The smoke validates:
+  - `runtimeActionRefreshTargets(...)` allows `run_projection` refresh targets;
+  - `wailsWorkbenchAdapter` selects run refresh from allowlisted targets;
+  - the adapter rereads `RunProjection({ sessionId, limit: 24 })`;
+  - action responses only select refresh targets before hydration;
+  - the adapter does not merge `response.run` or `response.projection` into
+    frontend Run state;
+  - the adapter does not derive Run status from `payload.status`;
+  - `RunProjectionPreview` does not consume runtime event hints or write-action
+    metadata as Run state.
+
+Validation:
+
+```powershell
+npm run smoke:phase46
+npm run smoke:phase401
+git diff --check
+```
+
+Review conclusion:
+
+- Frontend adapter behavior remains reread-only for Run status.
+- Runtime events/action metadata remain refresh triggers, not state patches.
+
+Remaining risk / next task:
+
+- This is a static adapter smoke, not browser/Vite or packaged Wails click
+  automation.
+- Phase 46.1 should accept the smoke and decide whether a heavier UI click
+  smoke is worth the cost before moving to a new backend design gate.
