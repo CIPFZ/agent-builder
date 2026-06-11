@@ -214,6 +214,16 @@ Phase 39.2 note:
   Run, permission, MCP, checkpoint, timeline, diagnostic, artifact,
   cancellation, or interrupted state.
 
+Phase 40 note:
+
+- Frontend `action.refreshTargets` consumption is accepted only as an
+  adapter-local durable reread selector.
+- Unknown, missing, rejected, or malformed metadata must fall back to full
+  hydration.
+- The selector must not use action source/reason/evidence, runtime events,
+  assistant prose, or React state as task, Run, permission, MCP, checkpoint,
+  timeline, diagnostic, artifact, cancellation, or interrupted truth.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

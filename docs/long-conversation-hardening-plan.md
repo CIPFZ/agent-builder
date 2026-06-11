@@ -11257,10 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Implement Phase 40: Frontend Action Refresh Selector Design Gate. Review
-whether adapters should consume `action.refreshTargets` as a durable reread
-selector now that core scheduler/task/checkpoint/permission/MCP/turn write
-actions have transport coverage, without moving runtime state into React.
+Implement Phase 40.1: Frontend Action Refresh Selector Helper And Contract
+Coverage. Add a narrow adapter helper that can interpret write-action
+`refreshTargets` only as durable reread selection metadata, with full hydration
+as fallback and no React-owned runtime state.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -12988,3 +12988,82 @@ Review conclusion:
 
 - Phase 39.1 is accepted.
 - The next safe task is Phase 40: Frontend Action Refresh Selector Design Gate.
+
+## 2026-06-11: Phase 40 Frontend Action Refresh Selector Design Gate
+
+Phase 40 reviews whether frontend adapters should start consuming
+`action.refreshTargets` now that the core explicit write-action paths have
+backend/transport metadata coverage. It is a design gate only. It does not edit
+frontend adapter code, runtime behavior, database schema, Run persistence,
+automatic resume, background scheduling, stale actionability recovery, or
+frontend Run UI.
+
+Current adapter behavior:
+
+- `client/src/runtime/wailsWorkbenchAdapter.ts` performs broad
+  `hydrateWorkbench(...)` after permission decisions, turn cancellation,
+  interrupted acknowledgement, checkpoint resume, scheduler task execution,
+  provider/config writes, and related mutations.
+- Narrow activity hydration is already runtime DTO driven. Runtime events are
+  refresh triggers only.
+- Existing TS DTOs expose some action-adjacent `refreshTargets` fields, but the
+  adapter does not consume shared `RuntimeWriteActionMetadata.action`.
+- This behavior is source-of-truth safe but can reread more DTOs than needed
+  after explicit write actions.
+
+Accepted selector contract:
+
+- A future adapter helper may inspect only `response.action.refreshTargets` and
+  legacy scheduler `response.refreshTargets` as reread selection metadata.
+- The helper must use an allowlist of known target names. Unknown, missing,
+  rejected, or malformed metadata must fall back to full `hydrateWorkbench(...)`.
+- Selected targets may only call durable runtime read DTOs such as status,
+  session activity/window, turn activity, tool calls, Run projection/detail,
+  transition history, diagnostics, permissions, MCP requests, and scheduler
+  plan.
+- The helper must not merge action payload fields into timeline, diagnostics,
+  artifacts, refs, interrupted summaries, permission/MCP actionability,
+  scheduler state, cancellation state, checkpoint state, or Run state.
+- The helper must not use `action.reason`, `action.source`, evidence names,
+  runtime event payloads, or assistant prose as UI state.
+- Full hydration remains the fallback and parity oracle.
+
+Accepted Phase 40.1 scope:
+
+- Add frontend DTO typing for shared write-action metadata where needed.
+- Add a small adapter-local helper for extracting/validating refresh targets.
+- Use the helper only to choose between full durable hydration and a narrow
+  durable reread path for already-covered explicit write actions.
+- Keep existing mutation fallbacks and static adapter behavior intact.
+- Add Vite/browser-oriented unit or contract coverage proving:
+  - missing/unknown action metadata falls back to full hydration;
+  - known targets select durable rereads only;
+  - action/event payloads are not merged into timeline, diagnostics, artifacts,
+    refs, interrupted, permission, MCP, checkpoint, scheduler, cancellation, or
+    Run state;
+  - duplicate lifecycle/permission/artifact/ref/terminal events cannot create
+    duplicate UI items through the selector.
+
+Rejected:
+
+- Do not implement React-owned runtime state.
+- Do not implement frontend Run UI.
+- Do not add runtime Run persistence, migrations, auto-resume, background
+  scheduler, stale tool recovery, stale permission recovery, or stale MCP
+  auth/elicitation recovery.
+- Do not consume action metadata for admin/config/session/worktree writes that
+  have not adopted the shared contract.
+
+Validation:
+
+```powershell
+git diff --check
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+```
+
+Review conclusion:
+
+- Frontend refresh-target consumption is safe to prototype only as an
+  adapter-local reread selector with full fallback.
+- The next task is Phase 40.1: Frontend Action Refresh Selector Helper And
+  Contract Coverage.

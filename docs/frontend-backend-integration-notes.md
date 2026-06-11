@@ -2656,3 +2656,17 @@ Phase 39.2 note:
   action payloads, event payloads, assistant prose, or React state into the
   source of truth for task, Run, permission, MCP, checkpoint, diagnostic,
   artifact, cancellation, interrupted, or timeline state.
+
+Phase 40 note:
+
+- A frontend refresh-target selector is accepted for implementation only as an
+  adapter-local reread planner.
+- It may inspect `response.action.refreshTargets` and legacy scheduler
+  `response.refreshTargets`, validate them against an allowlist, and choose
+  durable runtime reads.
+- It must fall back to `hydrateWorkbench(...)` for missing, unknown, rejected,
+  or malformed metadata and must not cache action metadata as UI state.
+- Browser/Vite and bridge-oriented coverage must prove event/action payloads
+  never directly restore timeline, diagnostics, artifacts, refs, interrupted
+  summaries, permissions, MCP actionability, scheduler state, cancellation
+  state, checkpoint state, or Run state.
