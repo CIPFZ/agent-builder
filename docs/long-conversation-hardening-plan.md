@@ -11257,9 +11257,9 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 46 and decide Phase 46.1: Run Status Writer Frontend
-Adapter Smoke Acceptance. Accept adapter reread semantics before any UI click
-automation.
+Implement Phase 47: Run Status Writer Workstream Closure And Next Authority
+Design Gate. Summarize accepted backend/transport/frontend smoke coverage and
+decide the next persisted Run authority boundary.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -14169,3 +14169,40 @@ Remaining risk / next task:
   automation.
 - Phase 46.1 should accept the smoke and decide whether a heavier UI click
   smoke is worth the cost before moving to a new backend design gate.
+
+## 2026-06-11: Phase 46.1 Run Status Writer Frontend Adapter Smoke Acceptance
+
+Phase 46.1 accepts the Phase 46 frontend adapter reread smoke. It is an
+acceptance phase only. It does not implement frontend Run UI, React-owned Run
+state, browser/Wails click automation, a full Run state machine, runtime Run
+store expansion, database migration, automatic resume, background scheduler
+loop, or stale actionability recovery.
+
+Accepted:
+
+- `npm run smoke:phase46` validates adapter reread behavior for Run status.
+- `npm run lint` remains clean after adding the smoke.
+- Existing `npm run smoke:phase401` continues to cover action refresh selector
+  normalization.
+
+Decision:
+
+- Browser/Vite or packaged Wails click automation is not required before the
+  next backend design gate because no visible frontend behavior changed.
+- The adapter contract is protected by static smoke plus backend HTTP/runtime
+  smoke.
+
+Validation:
+
+```powershell
+npm run smoke:phase46
+npm run lint
+```
+
+Review conclusion:
+
+- Phase 46 is accepted.
+- The Run status writer workstream now has backend, HTTP transport, and
+  frontend adapter reread coverage.
+- The next phase should close the workstream and define the next persisted Run
+  authority boundary.

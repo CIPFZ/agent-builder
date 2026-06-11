@@ -2827,3 +2827,8 @@ Phase 46 note:
 - Added frontend adapter smoke for Run status reread semantics.
 - The adapter must continue to treat status writer actions/events as refresh
   triggers and hydrate from `RunProjection` DTOs.
+
+Phase 46.1 note:
+
+- Phase 46 adapter smoke is accepted.
+- Frontend Run status ownership remains backend DTO reread-only.

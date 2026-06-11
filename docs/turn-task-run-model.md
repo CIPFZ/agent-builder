@@ -400,6 +400,12 @@ Phase 46 note:
 - The adapter rereads `RunProjection` DTOs and does not merge action/event
   payloads into frontend Run state.
 
+Phase 46.1 note:
+
+- Phase 46 adapter smoke is accepted.
+- Browser/Wails click automation is deferred because no visible frontend
+  behavior changed.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:
