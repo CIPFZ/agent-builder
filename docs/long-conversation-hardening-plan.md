@@ -11257,9 +11257,10 @@ Use these as recurring gates after each phase:
 
 ## Immediate Next Step
 
-Review/accept Phase 40.1 and decide Phase 40.2: Frontend Action Refresh
-Selector Acceptance And Browser/Bridge Smoke Gate. Confirm selector behavior
-is source-of-truth safe before broadening frontend action consumption.
+Implement Phase 41: Action Metadata Rollout Final Acceptance And Run
+Persistence Readiness Gate. Review the completed backend/transport/frontend
+selector rollout and decide what evidence is still required before any real
+Run persistence or scheduler broadening work.
 
 ## 2026-06-11: Phase 36 Packaged WebView Test Automation Channel Gate
 
@@ -13121,3 +13122,71 @@ Remaining risk:
   packaged bridge smoke proving the action-aware path under live Vite/Wails
   transports. Phase 40.2 should perform that acceptance/smoke gate before
   further adapter optimization.
+
+## 2026-06-11: Phase 40.2 Frontend Action Refresh Selector Acceptance And Browser/Bridge Smoke Gate
+
+Phase 40.2 accepts Phase 40.1 after browser and bridge smoke validation. It is
+an acceptance/validation phase only. It does not change frontend adapter code,
+runtime behavior, database schema, Run persistence, automatic resume,
+background scheduling, stale tool recovery, stale permission recovery, stale
+MCP auth/elicitation recovery, or frontend Run UI.
+
+Phase 40.1 acceptance:
+
+- The selector is allowlisted and adapter-local.
+- Missing, rejected, malformed, empty, or unknown metadata falls back to full
+  hydration.
+- Covered explicit write actions use `hydrateWorkbenchForAction(...)`.
+- Action-aware hydrate chooses durable rereads only and preserves current view
+  fields that were not selected for refresh.
+- Action source/reason/evidence, runtime event payloads, assistant prose, and
+  React state are not used as state truth.
+
+Browser/Vite smoke:
+
+- Confirmed `http://localhost:5180/` was reachable.
+- Reloaded the current in-app browser page and opened a clean tab against the
+  same URL.
+- The workbench DOM rendered the expected Agent Builder/new-chat shell.
+- Filtering console errors to the fresh smoke window reported zero new errors.
+- Older Vite HMR errors were observed in the browser log buffer, but their
+  timestamps predated the fresh smoke window and the clean DOM rendered
+  normally.
+
+Bridge/transport validation:
+
+```powershell
+cd client
+npm run smoke:phase401
+npm run lint
+npm run build
+cd ..
+go test ./desktop -count=1
+go test ./internal/runtime -run "TestRuntimeHTTPServerRoutes.*ToRuntimeService|TestRuntimeHTTPServerDevModuleRoutesChatLoop" -count=1
+git diff --check
+```
+
+Remaining risk:
+
+- This phase did not run the heavier packaged WebView2 click automation. That
+  remains a separate Windows/package-specific validation surface.
+- Selector behavior is covered by helper smoke, browser load smoke, HTTP/dev
+  route contracts, and desktop bridge tests, but not by an end-to-end packaged
+  click that exercises every write action through generated Wails bindings.
+
+Next boundary decision:
+
+- The backend write-action metadata rollout plus frontend refresh selector is
+  now accepted for the covered explicit actions.
+- The next safe phase is not implementation of Run persistence. It should be a
+  readiness gate that reviews whether the project has enough evidence to
+  broaden runtime ownership toward real Run persistence/scheduling.
+- Any future Run persistence phase must still explicitly reject automatic
+  resume, stale actionability recovery, frontend Run UI, and migrations until
+  each is separately approved.
+
+Review conclusion:
+
+- Phase 40.1 is accepted.
+- The next task is Phase 41: Action Metadata Rollout Final Acceptance And Run
+  Persistence Readiness Gate.

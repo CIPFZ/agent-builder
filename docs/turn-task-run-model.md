@@ -234,6 +234,15 @@ Phase 40.1 note:
 - Smoke/build coverage verifies helper fallback behavior and confirms action
   source/reason/evidence are not consumed as UI state.
 
+Phase 40.2 note:
+
+- The frontend action refresh selector is accepted after Vite/browser load
+  smoke, desktop bridge tests, HTTP/dev transport tests, lint, build, and
+  selector smoke.
+- Full hydration remains the parity fallback.
+- The next gate should review readiness for any real Run persistence or
+  scheduler broadening rather than implementing it by default.
+
 Phase 18.1 note:
 
 - Backend contract coverage now validates task cancellation ownership:

@@ -2684,3 +2684,13 @@ Phase 40.1 note:
   permission state are preserved when the selector does not choose those
   durable rereads.
 - `npm run smoke:phase401`, `npm run lint`, and `npm run build` passed.
+
+Phase 40.2 note:
+
+- The selector is accepted after browser/Vite and bridge/transport validation.
+- `http://localhost:5180/` rendered the Agent Builder workbench in the in-app
+  browser with zero new console errors in the fresh smoke window.
+- `go test ./desktop -count=1` and HTTP/dev runtime route contract tests
+  passed.
+- Heavier packaged WebView2 click automation was not rerun and remains a
+  separate validation surface.
