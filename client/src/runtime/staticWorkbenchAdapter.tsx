@@ -141,6 +141,21 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   async executeRunTask() {
     return runtimeUnavailable();
   },
+  async createTerminal() {
+    return runtimeUnavailable();
+  },
+  async writeTerminalInput() {
+    return runtimeUnavailable();
+  },
+  async resizeTerminal() {
+    return runtimeUnavailable();
+  },
+  async subscribeTerminalEvents() {
+    return runtimeUnavailable();
+  },
+  async deleteTerminal() {
+    return runtimeUnavailable();
+  },
   async saveConfiguredProvider() {
     return runtimeUnavailable();
   },

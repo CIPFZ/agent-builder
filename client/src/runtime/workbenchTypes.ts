@@ -438,6 +438,37 @@ export interface ProviderDraftDiscoveryRequestViewModel {
   proxy?: string;
 }
 
+export interface TerminalViewModel {
+  id: string;
+  title?: string;
+  cwd: string;
+  shell: string;
+  shellPath?: string;
+  shellArgs?: string[];
+  columns?: number;
+  rows?: number;
+  status: string;
+  exitCode?: number;
+}
+
+export interface TerminalEventViewModel {
+  terminalId: string;
+  sequence: number;
+  chunks?: TerminalEventChunkViewModel[];
+  data?: string;
+  binaryBase64?: string;
+  final?: boolean;
+  status?: string;
+  exitCode?: number;
+  error?: string;
+  acknowledge?: () => void;
+}
+
+export interface TerminalEventChunkViewModel {
+  data?: string;
+  binaryBase64?: string;
+}
+
 export interface RuntimeSkillViewModel {
   name: string;
   description?: string;
@@ -586,6 +617,11 @@ export interface WorkbenchAdapter {
     request: RunSchedulerPlanRequestViewModel,
   ) => Promise<RunSchedulerTaskCandidateViewModel[]>;
   executeRunTask: (current: WorkbenchViewModel, runID: string, taskID: string) => Promise<WorkbenchViewModel>;
+  createTerminal: (request: { cwd?: string; columns?: number; rows?: number }) => Promise<TerminalViewModel>;
+  writeTerminalInput: (terminalID: string, data: string) => Promise<TerminalViewModel>;
+  resizeTerminal: (terminalID: string, columns: number, rows: number) => Promise<TerminalViewModel>;
+  subscribeTerminalEvents: (terminalID: string, onEvent: (event: TerminalEventViewModel) => void) => Promise<() => void> | (() => void);
+  deleteTerminal: (terminalID: string) => Promise<void>;
   saveConfiguredProvider: (
     current: WorkbenchViewModel,
     provider: ConfiguredProviderViewModel & { token?: string },

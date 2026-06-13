@@ -91,6 +91,8 @@ func (r *runtimeService) restart() {
 	r.startMu.Lock()
 	defer r.startMu.Unlock()
 
+	r.closeRuntimeTerminals("closed", "runtime restarted")
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -125,6 +127,7 @@ func (r *runtimeService) restart() {
 	r.permissions = make(map[string]pendingRuntimePermission)
 	r.policy = defaultRuntimePolicy()
 	r.capabilityLoads = make(map[string]runtimeCapabilityLoadRecord)
+	r.terminals = make(map[string]*runtimeTerminalState)
 	r.recovery = runtimeRecoveryRecord{}
 	r.events = nil
 }

@@ -17,11 +17,13 @@ import type {
   RuntimeModelOptionViewModel,
   RuntimePluginViewModel,
   RuntimeEventViewModel,
+  TerminalEventViewModel,
   RunProjectionViewModel,
   RunSchedulerPlanRequestViewModel,
   RunSchedulerTaskCandidateViewModel,
   RuntimeSkillViewModel,
   SettingsPermissionViewModel,
+  TerminalViewModel,
   WorkbenchAdapter,
   WorkbenchViewModel,
 } from './workbenchTypes.ts';
@@ -152,6 +154,43 @@ interface RuntimeChatResponseDTO {
   requestId?: string;
   turnId?: string;
   status: RuntimeStatusDTO;
+}
+
+interface RuntimeTerminalDTO {
+  id: string;
+  title?: string;
+  cwd: string;
+  shell: string;
+  shellPath?: string;
+  shellArgs?: string[];
+  columns?: number;
+  rows?: number;
+  status?: string;
+  exitCode?: number;
+}
+
+interface RuntimeTerminalResponseDTO {
+  terminal: RuntimeTerminalDTO;
+}
+
+interface RuntimeTerminalEventDTO {
+  terminalId?: string;
+  terminal_id?: string;
+  sequence?: number;
+  data?: string;
+  binaryBase64?: string;
+  binary_base64?: string;
+  final?: boolean;
+  status?: string;
+  exitCode?: number;
+  exit_code?: number;
+  error?: string;
+}
+
+interface RuntimeTerminalStreamMessageDTO {
+  type?: string;
+  events?: RuntimeTerminalEventDTO[];
+  error?: string;
 }
 
 interface RuntimeEventsEndpointDTO {
@@ -717,6 +756,8 @@ interface RuntimeBridgeModule {
   RenameSession?: (req: { sessionId: string; title: string }) => Promise<RuntimeSessionsResponseDTO>;
   DeleteSession?: (sessionID: string) => Promise<RuntimeSessionsResponseDTO>;
   Chat: (req: { prompt: string; sessionId?: string }) => Promise<RuntimeChatResponseDTO>;
+  CreateTerminal?: (req: { id?: string; cwd?: string; columns?: number; rows?: number }) => Promise<RuntimeTerminalResponseDTO>;
+  DeleteTerminal?: (terminalID: string) => Promise<RuntimeTerminalResponseDTO>;
   CancelTurn?: (turnID: string) => Promise<RuntimeStatusDTO>;
   MarkInterruptedDone?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
   Messages?: () => Promise<RuntimeMessagesResponseDTO>;
@@ -1823,6 +1864,15 @@ const runtimeHTTPURL = import.meta.env.DEV ? '/runtime-api' : import.meta.env.VI
 const runtimeHTTPToken = import.meta.env.VITE_AGENT_BUILDER_RUNTIME_TOKEN || 'agent-builder-dev';
 const runtimeOptionalRequestTimeoutMS = 3000;
 const runtimeMutationTimeoutMS = 15000;
+const terminalStreamPendingLimit = 256;
+
+interface TerminalStreamConnection {
+  closed: boolean;
+  pending: unknown[];
+  socket?: WebSocket;
+}
+
+const terminalStreams = new Map<string, TerminalStreamConnection>();
 
 async function optionalRuntimeRequest<T>(request: () => Promise<T>): Promise<T | undefined> {
   return Promise.race([
@@ -2134,6 +2184,122 @@ function parseRuntimeEventMessage(data: string): RuntimeEventViewModel {
   }
 }
 
+function subscribeHTTPRuntimeTerminalStream(terminalID: string, onEvent: (event: TerminalEventViewModel) => void) {
+  if (typeof window === 'undefined' || typeof window.WebSocket === 'undefined') {
+    throw new Error('terminal WebSocket transport is unavailable');
+  }
+  const url = runtimeTerminalStreamURL(terminalID);
+  if (!url) {
+    throw new Error('terminal WebSocket URL is unavailable');
+  }
+
+  let lastSequence = 0;
+  const connection: TerminalStreamConnection = {
+    closed: false,
+    pending: [],
+  };
+  terminalStreams.set(terminalID, connection);
+
+  const flushPending = () => {
+    const socket = connection.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    while (connection.pending.length > 0) {
+      socket.send(JSON.stringify(connection.pending.shift()));
+    }
+  };
+
+  const connect = () => {
+    if (connection.closed) {
+      return;
+    }
+    const socket = new window.WebSocket(lastSequence > 0 ? `${url}&after=${encodeURIComponent(String(lastSequence))}` : url);
+    connection.socket = socket;
+    socket.onopen = flushPending;
+    socket.onmessage = (message) => {
+      const events = parseTerminalStreamMessage(String(message.data));
+      let maxSequence = lastSequence;
+      for (const event of events) {
+        if (event.sequence > maxSequence) {
+          maxSequence = event.sequence;
+        }
+        onEvent({
+          ...event,
+          acknowledge: () => acknowledgeTerminalWebSocket(terminalID, event.sequence),
+        });
+      }
+      if (maxSequence > lastSequence) {
+        lastSequence = maxSequence;
+      }
+    };
+    socket.onclose = () => {
+      if (connection.socket === socket) {
+        connection.socket = undefined;
+      }
+      if (!connection.closed) {
+        window.setTimeout(connect, 500);
+      }
+    };
+    socket.onerror = () => {
+      socket?.close();
+    };
+  };
+
+  connect();
+
+  return () => {
+    connection.closed = true;
+    connection.pending = [];
+    if (terminalStreams.get(terminalID) === connection) {
+      terminalStreams.delete(terminalID);
+    }
+    connection.socket?.close();
+  };
+}
+
+function acknowledgeTerminalWebSocket(terminalID: string, sequence: number) {
+  if (!sequence || sequence <= 0) {
+    return false;
+  }
+  return sendTerminalWebSocketMessage(terminalID, { type: 'ack', sequence });
+}
+
+function parseTerminalStreamMessage(data: string): TerminalEventViewModel[] {
+  try {
+    const message = JSON.parse(data) as RuntimeTerminalStreamMessageDTO | RuntimeTerminalEventDTO;
+    if ('events' in message && Array.isArray(message.events)) {
+      return [mapTerminalEventBatch(message.events)];
+    }
+    return [mapTerminalEvent(message as RuntimeTerminalEventDTO)];
+  } catch {
+    return [];
+  }
+}
+
+function mapTerminalEventBatch(events: RuntimeTerminalEventDTO[]): TerminalEventViewModel {
+  const mapped = events.map(mapTerminalEvent);
+  if (mapped.length === 0) {
+    return {
+      terminalId: '',
+      sequence: 0,
+    };
+  }
+  const last = mapped[mapped.length - 1];
+  return {
+    terminalId: last.terminalId,
+    sequence: mapped.reduce((max, event) => Math.max(max, event.sequence), 0),
+    chunks: mapped.map((event) => ({
+      data: event.data,
+      binaryBase64: event.binaryBase64,
+    })),
+    final: mapped.some((event) => event.final),
+    status: last.status,
+    exitCode: last.exitCode,
+    error: mapped.map((event) => event.error).filter(Boolean).join('\n') || undefined,
+  };
+}
+
 function mapRuntimeEvent(event: RuntimeEventDTO): RuntimeEventViewModel {
   return {
     sequence: event.sequence,
@@ -2154,6 +2320,67 @@ function runtimeEventsPath(after?: number) {
     return '/v1/events';
   }
   return `/v1/events?after=${encodeURIComponent(String(after))}`;
+}
+
+function runtimeTerminalStreamURL(terminalID: string) {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  const streamPath = `/v1/terminals/${encodeURIComponent(terminalID)}/stream`;
+  const tokenQuery = `token=${encodeURIComponent(runtimeHTTPToken)}`;
+  if (runtimeHTTPURL.startsWith('/')) {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}${runtimeHTTPURL}${streamPath}?${tokenQuery}`;
+  }
+  const url = new URL(`${runtimeHTTPURL}${streamPath}`);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.searchParams.set('token', runtimeHTTPToken);
+  return url.toString();
+}
+
+function sendTerminalWebSocketMessage(terminalID: string, message: unknown) {
+  const connection = terminalStreams.get(terminalID);
+  if (!connection || connection.closed) {
+    return false;
+  }
+  const socket = connection.socket;
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(message));
+    return true;
+  }
+  if (connection.pending.length >= terminalStreamPendingLimit) {
+    return false;
+  }
+  connection.pending.push(message);
+  return true;
+}
+
+function mapTerminal(response: RuntimeTerminalResponseDTO): TerminalViewModel {
+  return {
+    id: response.terminal.id,
+    title: response.terminal.title,
+    cwd: response.terminal.cwd,
+    shell: response.terminal.shell,
+    shellPath: response.terminal.shellPath,
+    shellArgs: response.terminal.shellArgs,
+    columns: response.terminal.columns,
+    rows: response.terminal.rows,
+    status: response.terminal.status || 'running',
+    exitCode: response.terminal.exitCode,
+  };
+}
+
+function mapTerminalEvent(event: RuntimeTerminalEventDTO): TerminalEventViewModel {
+  return {
+    terminalId: event.terminalId ?? event.terminal_id ?? '',
+    sequence: event.sequence ?? 0,
+    data: event.data,
+    binaryBase64: event.binaryBase64 ?? event.binary_base64,
+    final: event.final,
+    status: event.status,
+    exitCode: event.exitCode ?? event.exit_code,
+    error: event.error,
+  };
 }
 
 const runtimeHTTPBridge: RuntimeBridgeModule = {
@@ -2366,6 +2593,15 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
       body: JSON.stringify(req),
     });
   },
+  CreateTerminal: (req) =>
+    runtimeFetch<RuntimeTerminalResponseDTO>('/v1/terminals', {
+      method: 'POST',
+      body: JSON.stringify(req ?? {}),
+    }),
+  DeleteTerminal: (terminalID) =>
+    runtimeFetch<RuntimeTerminalResponseDTO>(`/v1/terminals/${encodeURIComponent(terminalID)}`, {
+      method: 'DELETE',
+    }),
 };
 
 async function loadRuntimeHTTPBridge() {
@@ -2714,6 +2950,61 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       },
       () => staticWorkbenchAdapter.executeRunTask(current, runID, taskID),
     );
+  },
+  async createTerminal(request) {
+    const bridge = await loadRuntimeBridge();
+    if (bridge?.CreateTerminal) {
+      return mapTerminal(await bridge.CreateTerminal(request));
+    }
+    const httpBridge = await loadRuntimeHTTPBridge();
+    if (httpBridge?.CreateTerminal) {
+      return mapTerminal(await httpBridge.CreateTerminal(request));
+    }
+    return staticWorkbenchAdapter.createTerminal(request);
+  },
+  async writeTerminalInput(terminalID, data) {
+    if (sendTerminalWebSocketMessage(terminalID, { type: 'input', data })) {
+      return {
+        id: terminalID,
+        cwd: '',
+        shell: '',
+        status: 'running',
+      };
+    }
+    throw new Error('terminal stream is not connected');
+  },
+  async resizeTerminal(terminalID, columns, rows) {
+    if (sendTerminalWebSocketMessage(terminalID, { type: 'resize', columns, rows })) {
+      return {
+        id: terminalID,
+        cwd: '',
+        shell: '',
+        columns,
+        rows,
+        status: 'running',
+      };
+    }
+    throw new Error('terminal stream is not connected');
+  },
+  async subscribeTerminalEvents(terminalID, onEvent) {
+    const httpBridge = await loadRuntimeHTTPBridge();
+    if (httpBridge?.CreateTerminal) {
+      return subscribeHTTPRuntimeTerminalStream(terminalID, onEvent);
+    }
+    throw new Error('terminal stream is not connected');
+  },
+  async deleteTerminal(terminalID) {
+    const bridge = await loadRuntimeBridge();
+    if (bridge?.DeleteTerminal) {
+      await bridge.DeleteTerminal(terminalID);
+      return;
+    }
+    const httpBridge = await loadRuntimeHTTPBridge();
+    if (httpBridge?.DeleteTerminal) {
+      await httpBridge.DeleteTerminal(terminalID);
+      return;
+    }
+    return staticWorkbenchAdapter.deleteTerminal(terminalID);
   },
   async saveConfiguredProvider(current, provider) {
     return withBridge(

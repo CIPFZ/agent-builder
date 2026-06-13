@@ -147,6 +147,69 @@ type RuntimeChatResponse struct {
 	Status    RuntimeStatus `json:"status"`
 }
 
+type RuntimeTerminal struct {
+	ID        string   `json:"id"`
+	Title     string   `json:"title,omitempty"`
+	CWD       string   `json:"cwd"`
+	Shell     string   `json:"shell"`
+	ShellPath string   `json:"shellPath,omitempty"`
+	ShellArgs []string `json:"shellArgs,omitempty"`
+	Columns   int      `json:"columns,omitempty"`
+	Rows      int      `json:"rows,omitempty"`
+	Status    string   `json:"status"`
+	ExitCode  *int     `json:"exitCode,omitempty"`
+}
+
+type RuntimeTerminalCreateRequest struct {
+	ID        string   `json:"id,omitempty"`
+	CWD       string   `json:"cwd,omitempty"`
+	ProfileID string   `json:"profileId,omitempty"`
+	ShellPath string   `json:"shellPath,omitempty"`
+	ShellArgs []string `json:"shellArgs,omitempty"`
+	Columns   int      `json:"columns,omitempty"`
+	Rows      int      `json:"rows,omitempty"`
+}
+
+type RuntimeTerminalInputRequest struct {
+	Data      string `json:"data,omitempty"`
+	BinaryB64 string `json:"binaryBase64,omitempty"`
+}
+
+type RuntimeTerminalResizeRequest struct {
+	Columns int `json:"columns"`
+	Rows    int `json:"rows"`
+}
+
+type RuntimeTerminalEvent struct {
+	TerminalID string `json:"terminalId"`
+	Sequence   int64  `json:"sequence"`
+	Data       string `json:"data,omitempty"`
+	BinaryB64  string `json:"binaryBase64,omitempty"`
+	Final      bool   `json:"final,omitempty"`
+	Status     string `json:"status,omitempty"`
+	ExitCode   *int   `json:"exitCode,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type RuntimeTerminalResponse struct {
+	Terminal RuntimeTerminal `json:"terminal"`
+}
+
+type RuntimeTerminalStreamRequest struct {
+	Type      string `json:"type"`
+	Data      string `json:"data,omitempty"`
+	BinaryB64 string `json:"binaryBase64,omitempty"`
+	Columns   int    `json:"columns,omitempty"`
+	Rows      int    `json:"rows,omitempty"`
+	Sequence  int64  `json:"sequence,omitempty"`
+}
+
+type RuntimeTerminalStreamMessage struct {
+	Type   string                 `json:"type"`
+	Events []RuntimeTerminalEvent `json:"events,omitempty"`
+	Error  string                 `json:"error,omitempty"`
+}
+
 type RuntimeTurn struct {
 	ID                       string                     `json:"id"`
 	SessionID                string                     `json:"sessionId"`

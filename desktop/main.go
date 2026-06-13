@@ -36,7 +36,7 @@ func main() {
 		Width:            1180,
 		Height:           820,
 		Frameless:        false,
-		MinWidth:         1040,
+		MinWidth:         1080,
 		MinHeight:        760,
 		InitialPosition:  application.WindowCentered,
 		BackgroundColour: application.NewRGB(255, 255, 255),

@@ -33,6 +33,7 @@ func newRuntimeService() *runtimeService {
 		policy:          defaultRuntimePolicy(),
 		capabilityLoads: make(map[string]runtimeCapabilityLoadRecord),
 		toolDiscovery:   newRuntimeToolDiscoveryState(),
+		terminals:       make(map[string]*runtimeTerminalState),
 
 		eventStream: newRuntimeSSEServer(),
 	}

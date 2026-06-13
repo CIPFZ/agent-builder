@@ -6,14 +6,17 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/runtimeapi"
 	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/gorilla/websocket"
 )
 
 func TestRuntimeHTTPServerRequiresBearerToken(t *testing.T) {
@@ -589,6 +592,212 @@ func TestRuntimeHTTPServerRoutesRunSchedulerExecuteTaskToRuntimeService(t *testi
 	}
 	if service.executeRunID != "run-2" || service.executeTaskID != "task-2" {
 		t.Fatalf("dev-module execute args = %q/%q", service.executeRunID, service.executeTaskID)
+	}
+}
+
+func TestRuntimeHTTPServerRoutesTerminalLifecycleToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		terminalResponse: RuntimeTerminalResponse{Terminal: RuntimeTerminal{
+			ID:      "term-1",
+			CWD:     "C:\\work",
+			Shell:   "PowerShell",
+			Columns: 100,
+			Rows:    24,
+			Status:  "running",
+		}},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodPost, "/v1/terminals", strings.NewReader(`{"id":"term-1","cwd":"C:\\work"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("create status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.createdTerminal.ID != "term-1" || service.createdTerminal.CWD != "C:\\work" {
+		t.Fatalf("created terminal = %#v", service.createdTerminal)
+	}
+
+	for _, legacyPath := range []string{
+		"/v1/terminals/term-1/input",
+		"/v1/terminals/term-1/resize",
+		"/v1/terminals/term-1/execute",
+		"/v1/terminals/term-1/events",
+	} {
+		req, err = http.NewRequest(http.MethodPost, legacyPath, strings.NewReader(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+server.Token())
+		resp = httptestResponse(server, req)
+		if resp.status != http.StatusNotFound {
+			t.Fatalf("legacy terminal path %s status = %d body = %s", legacyPath, resp.status, resp.body.String())
+		}
+	}
+
+	req, err = http.NewRequest(http.MethodDelete, "/v1/terminals/term-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("delete status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.deletedTerminalID != "term-1" {
+		t.Fatalf("deleted terminal = %q", service.deletedTerminalID)
+	}
+}
+
+func TestRuntimeHTTPServerTerminalWebSocketRoutesInputAndResize(t *testing.T) {
+	t.Parallel()
+
+	inputSeen := make(chan RuntimeTerminalInputRequest, 1)
+	resizeSeen := make(chan RuntimeTerminalResizeRequest, 1)
+	service := &recordingRuntimeService{
+		terminalInputSeen:  inputSeen,
+		terminalResizeSeen: resizeSeen,
+	}
+	runtimeServer := newRuntimeHTTPServer(service)
+	httpServer := httptest.NewServer(runtimeServer)
+	defer httpServer.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http") + "/v1/terminals/term-1/stream?token=" + runtimeServer.Token()
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(RuntimeTerminalStreamRequest{Type: "input", Data: "pwd\r"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case req := <-inputSeen:
+		if req.Data != "pwd\r" {
+			t.Fatalf("input request = %#v", req)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for terminal websocket input")
+	}
+
+	if err := conn.WriteJSON(RuntimeTerminalStreamRequest{Type: "resize", Columns: 120, Rows: 32}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case req := <-resizeSeen:
+		if req.Columns != 120 || req.Rows != 32 {
+			t.Fatalf("resize request = %#v", req)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for terminal websocket resize")
+	}
+}
+
+func TestRuntimeHTTPServerTerminalWebSocketWaitsForAckBeforeNextOutput(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan RuntimeTerminalEvent, 4)
+	service := &recordingRuntimeService{terminalEvents: events}
+	runtimeServer := newRuntimeHTTPServer(service)
+	httpServer := httptest.NewServer(runtimeServer)
+	defer httpServer.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http") + "/v1/terminals/term-1/stream?token=" + runtimeServer.Token()
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	events <- RuntimeTerminalEvent{TerminalID: "term-1", Sequence: 1, Data: "first"}
+	var first RuntimeTerminalStreamMessage
+	if err := conn.ReadJSON(&first); err != nil {
+		t.Fatal(err)
+	}
+	if first.Type != "output" || len(first.Events) != 1 || first.Events[0].Sequence != 1 || first.Events[0].Data != "first" {
+		t.Fatalf("first websocket output = %#v", first)
+	}
+
+	events <- RuntimeTerminalEvent{TerminalID: "term-1", Sequence: 2, Data: "second"}
+	secondRead := make(chan RuntimeTerminalStreamMessage, 1)
+	secondErr := make(chan error, 1)
+	go func() {
+		var message RuntimeTerminalStreamMessage
+		err := conn.ReadJSON(&message)
+		if err != nil {
+			secondErr <- err
+			return
+		}
+		secondRead <- message
+	}()
+	select {
+	case message := <-secondRead:
+		t.Fatalf("received output before ack: %#v", message)
+	case err := <-secondErr:
+		t.Fatalf("read failed before ack: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	if err := conn.WriteJSON(RuntimeTerminalStreamRequest{Type: "ack", Sequence: 1}); err != nil {
+		t.Fatal(err)
+	}
+	var second RuntimeTerminalStreamMessage
+	select {
+	case second = <-secondRead:
+	case err := <-secondErr:
+		t.Fatal(err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second output after ack")
+	}
+	if second.Type != "output" || len(second.Events) != 1 || second.Events[0].Sequence != 2 || second.Events[0].Data != "second" {
+		t.Fatalf("second websocket output = %#v", second)
+	}
+}
+
+func TestRuntimeHTTPServerTerminalWebSocketMissingTerminalSendsFinalError(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	runtimeServer := newRuntimeHTTPServer(service)
+	httpServer := httptest.NewServer(runtimeServer)
+	defer httpServer.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http") + "/v1/terminals/missing/stream?token=" + runtimeServer.Token()
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	var message RuntimeTerminalStreamMessage
+	if err := conn.ReadJSON(&message); err != nil {
+		t.Fatal(err)
+	}
+	if message.Type != "final" || len(message.Events) != 1 || !message.Events[0].Final || message.Events[0].Error == "" {
+		t.Fatalf("missing terminal websocket output = %#v", message)
+	}
+}
+
+func TestRuntimeTerminalStreamBatchRespectsByteLimit(t *testing.T) {
+	t.Parallel()
+
+	events := make(chan RuntimeTerminalEvent, 3)
+	events <- RuntimeTerminalEvent{Sequence: 1, Data: strings.Repeat("a", runtimeTerminalStreamBatchBytes/2)}
+	events <- RuntimeTerminalEvent{Sequence: 2, Data: strings.Repeat("b", runtimeTerminalStreamBatchBytes/2)}
+	events <- RuntimeTerminalEvent{Sequence: 3, Data: "tail"}
+
+	batch, ok := nextRuntimeTerminalStreamBatch(context.Background(), events)
+	if !ok {
+		t.Fatal("expected terminal stream batch")
+	}
+	if len(batch) != 2 || batch[0].Sequence != 1 || batch[1].Sequence != 2 {
+		t.Fatalf("batch = %#v", batch)
 	}
 }
 

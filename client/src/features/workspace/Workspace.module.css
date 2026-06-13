@@ -515,8 +515,10 @@
 }
 
 .terminalPane {
+  display: flex;
   min-width: 0;
   min-height: 0;
+  padding: 10px 12px;
   overflow: hidden;
   color: #111111;
   background: #ffffff;
@@ -526,13 +528,29 @@
 }
 
 .terminalScreen {
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
+  width: 100%;
   height: 100%;
-  padding: 18px 20px;
-  overflow: auto;
+  overflow: hidden;
   cursor: text;
   scrollbar-color: #d8d8d8 transparent;
+}
+
+.terminalScreen :global(.xterm) {
+  width: 100%;
+  height: 100%;
+}
+
+.terminalScreen :global(.xterm-viewport) {
+  overflow-y: auto;
+  background: #ffffff !important;
+  scrollbar-color: #d8d8d8 transparent;
+}
+
+.terminalScreen :global(.xterm-screen) {
+  background: #ffffff;
 }
 
 .terminalPromptMeta,
@@ -569,6 +587,19 @@
 
 .terminalHistoryLine {
   color: #111111;
+}
+
+.terminalHistoryLineCommand {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.terminalHistoryLineError {
+  color: #b42318;
+}
+
+.terminalHistoryLineSystem {
+  color: rgba(0, 0, 0, 0.52);
 }
 
 .terminalCommandLine {
@@ -632,22 +663,20 @@
   border-radius: 6px;
 }
 
-@media (min-width: 1280px) {
-  .workspaceWithPanel {
-    grid-template-columns: minmax(520px, 1fr) minmax(300px, var(--right-panel-width, 360px));
-  }
+.workspacePanelDocked {
+  grid-template-columns: minmax(480px, 1fr) minmax(300px, var(--right-panel-width, 360px));
+}
 
-  .rightPanel {
-    position: relative;
-    top: auto;
-    right: auto;
-    bottom: auto;
-    grid-column: 2;
-    grid-row: 1 / 3;
-    width: auto;
-    height: 100%;
-    box-shadow: none;
-  }
+.workspacePanelDocked .rightPanel {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  grid-column: 2;
+  grid-row: 1 / 3;
+  width: auto;
+  height: 100%;
+  box-shadow: none;
 }
 
 @media (max-width: 1279px) {

@@ -16,11 +16,12 @@ import {
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { Button, Dropdown, Input, Modal, Tooltip, message as antdMessage } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
-import type { WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
+import type { TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { RunProjectionPreview } from '../diagnostics/RunProjectionPreview.tsx';
 import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
+import { TerminalPane } from './TerminalPane.tsx';
 import styles from './Workspace.module.css';
 
 type RightPanelKind = 'review' | 'files' | 'terminal';
@@ -28,19 +29,21 @@ type RightPanelKind = 'review' | 'files' | 'terminal';
 const RIGHT_PANEL_DEFAULT_WIDTH = 360;
 const RIGHT_PANEL_MIN_WIDTH = 300;
 const RIGHT_PANEL_MAX_WIDTH = 720;
-const WORKSPACE_MIN_WIDTH_WITH_PANEL = 520;
+const WORKSPACE_MIN_WIDTH_WITH_PANEL = 480;
+const RIGHT_PANEL_DOCKED_MIN_WORKSPACE_WIDTH = WORKSPACE_MIN_WIDTH_WITH_PANEL + RIGHT_PANEL_MIN_WIDTH;
 const RIGHT_PANEL_DRAWER_MARGIN = 72;
 
 interface RightPanelTabState {
   id: string;
   kind: RightPanelKind;
   title: string;
-  lines?: string[];
+  terminal?: TerminalViewModel;
 }
 
 interface WorkspaceProps {
   sidebarCollapsed?: boolean;
   viewModel: WorkbenchViewModel;
+  onMinimumWorkspaceWidthChange?: (width: number) => void;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
   onPermissionDecide: (permissionID: string, action: 'allow' | 'allow_for_session' | 'deny') => Promise<void>;
   onPermissionModeSelect: (mode: string) => Promise<void>;
@@ -50,11 +53,17 @@ interface WorkspaceProps {
   onInterruptedDone: (turnID: string) => Promise<void>;
   onRunCheckpointResume?: (runID: string, checkpointID: string) => Promise<void>;
   onRunTaskExecute?: (runID: string, taskID: string) => Promise<void>;
+  onTerminalCreate: (request: { cwd?: string; columns?: number; rows?: number }) => Promise<TerminalViewModel>;
+  onTerminalDelete: (terminalID: string) => Promise<void>;
+  onTerminalInput: (terminalID: string, data: string) => Promise<TerminalViewModel>;
+  onTerminalResize: (terminalID: string, columns: number, rows: number) => Promise<TerminalViewModel>;
+  onTerminalSubscribe: (terminalID: string, onEvent: (event: TerminalEventViewModel) => void) => Promise<() => void> | (() => void);
 }
 
 export function Workspace({
   sidebarCollapsed = false,
   viewModel,
+  onMinimumWorkspaceWidthChange,
   onModelSelect,
   onPermissionDecide,
   onPermissionModeSelect,
@@ -64,6 +73,11 @@ export function Workspace({
   onInterruptedDone,
   onRunCheckpointResume,
   onRunTaskExecute,
+  onTerminalCreate,
+  onTerminalDelete,
+  onTerminalInput,
+  onTerminalResize,
+  onTerminalSubscribe,
 }: WorkspaceProps) {
   const [messageApi, messageContextHolder] = antdMessage.useMessage();
   const [renameOpen, setRenameOpen] = useState(false);
@@ -73,9 +87,8 @@ export function Workspace({
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH);
   const [rightPanelTabs, setRightPanelTabs] = useState<RightPanelTabState[]>([]);
   const [activeRightPanelID, setActiveRightPanelID] = useState('');
-  const [terminalDrafts, setTerminalDrafts] = useState<Record<string, string>>({});
   const [rightPanelTabsOverflow, setRightPanelTabsOverflow] = useState(false);
-  const terminalInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [rightPanelDocked, setRightPanelDocked] = useState(false);
   const rightPanelTabsRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -112,7 +125,6 @@ export function Workspace({
   const rightPanelOpen = rightPanelVisible;
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
   const terminalTabCount = rightPanelTabs.filter((tab) => tab.kind === 'terminal').length;
-  const terminalPrompt = terminalPromptFromProject(viewModel.currentProject);
   const openSingletonPanel = (kind: Exclude<RightPanelKind, 'terminal'>) => {
     setRightPanelVisible(true);
     const existing = rightPanelTabs.find((tab) => tab.kind === kind);
@@ -135,20 +147,25 @@ export function Workspace({
     }
     setRightPanelVisible(true);
   };
-  const addTerminalTab = () => {
+  const addTerminalTab = async () => {
     setRightPanelVisible(true);
     const nextIndex = terminalTabCount + 1;
-    const id = `terminal-${Date.now()}`;
-    const tab: RightPanelTabState = {
-      id,
-      kind: 'terminal',
-      title: `终端 ${nextIndex}`,
-      lines: [],
-    };
-    setRightPanelTabs((current) => [...current, tab]);
-    setActiveRightPanelID(id);
+    try {
+      const terminal = await onTerminalCreate({ cwd: viewModel.currentProject.path, columns: 100, rows: 24 });
+      const tab: RightPanelTabState = {
+        id: terminal.id,
+        kind: 'terminal',
+        title: `终端 ${nextIndex}`,
+        terminal,
+      };
+      setRightPanelTabs((current) => [...current, tab]);
+      setActiveRightPanelID(tab.id);
+    } catch (error) {
+      void messageApi.error(runtimePanelErrorMessage(error, '创建终端失败'));
+    }
   };
   const closeRightPanelTab = (id: string) => {
+    const closingTerminalID = rightPanelTabs.find((tab) => tab.id === id && tab.kind === 'terminal')?.terminal?.id;
     setRightPanelTabs((current) => {
       const index = current.findIndex((tab) => tab.id === id);
       const next = current.filter((tab) => tab.id !== id);
@@ -160,40 +177,25 @@ export function Workspace({
       }
       return next;
     });
-    setTerminalDrafts((current) => {
-      const next = { ...current };
-      delete next[id];
-      return next;
-    });
-  };
-  const submitTerminalDraft = (id: string) => {
-    const draft = terminalDrafts[id] ?? '';
-    const command = draft.trim();
-    if (!command) {
-      return;
+    if (closingTerminalID) {
+      void onTerminalDelete(closingTerminalID).catch(() => undefined);
     }
-    setRightPanelTabs((current) =>
-      current.map((tab) =>
-        tab.id === id
-          ? {
-              ...tab,
-              lines: [...terminalVisibleLines(tab.lines), `$ ${command}`, 'PTY runtime is not connected yet.'],
-            }
-          : tab,
-      ),
-    );
-    setTerminalDrafts((current) => ({ ...current, [id]: '' }));
   };
+  const updateTerminalTab = useCallback((terminal: TerminalViewModel) => {
+    setRightPanelTabs((current) =>
+      current.map((tab) => (tab.kind === 'terminal' && tab.terminal?.id === terminal.id ? { ...tab, terminal } : tab)),
+    );
+  }, []);
   const openRightPanelTool = (kind: RightPanelKind) => {
     if (kind === 'terminal') {
-      addTerminalTab();
+      void addTerminalTab();
     } else {
       openSingletonPanel(kind);
     }
   };
   const rightPanelMaxWidth = useCallback(() => {
     const workspaceWidth = workspaceRef.current?.getBoundingClientRect().width ?? window.innerWidth;
-    if (window.innerWidth >= 1280) {
+    if (workspaceWidth >= RIGHT_PANEL_DOCKED_MIN_WORKSPACE_WIDTH) {
       return Math.min(RIGHT_PANEL_MAX_WIDTH, Math.max(RIGHT_PANEL_MIN_WIDTH, workspaceWidth - WORKSPACE_MIN_WIDTH_WITH_PANEL));
     }
     return Math.min(520, Math.max(260, window.innerWidth - RIGHT_PANEL_DRAWER_MARGIN));
@@ -259,11 +261,6 @@ export function Workspace({
     return () => window.removeEventListener('resize', updateOverflow);
   }, [rightPanelTabs.length, rightPanelWidth, rightPanelOpen]);
   useEffect(() => {
-    if (activeRightPanelTab?.kind === 'terminal') {
-      terminalInputRefs.current[activeRightPanelTab.id]?.focus();
-    }
-  }, [activeRightPanelTab?.id, activeRightPanelTab?.kind]);
-  useEffect(() => {
     const updateRightPanelBounds = () => {
       setRightPanelWidth((current) => clampRightPanelWidth(current));
     };
@@ -271,8 +268,35 @@ export function Workspace({
     return () => window.removeEventListener('resize', updateRightPanelBounds);
   }, [clampRightPanelWidth]);
   useEffect(() => {
+    const updateDockedState = () => {
+      const workspaceWidth = workspaceRef.current?.getBoundingClientRect().width ?? window.innerWidth;
+      setRightPanelDocked(workspaceWidth >= RIGHT_PANEL_DOCKED_MIN_WORKSPACE_WIDTH);
+    };
+    updateDockedState();
+
+    const workspaceElement = workspaceRef.current;
+    const observer =
+      typeof ResizeObserver === 'undefined' || !workspaceElement
+        ? undefined
+        : new ResizeObserver(() => {
+            updateDockedState();
+          });
+    if (workspaceElement) {
+      observer?.observe(workspaceElement);
+    }
+    window.addEventListener('resize', updateDockedState);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateDockedState);
+    };
+  }, []);
+  useEffect(() => {
     setRightPanelWidth((current) => clampRightPanelWidth(current));
-  }, [clampRightPanelWidth, rightPanelOpen, sidebarCollapsed]);
+  }, [clampRightPanelWidth, rightPanelDocked, rightPanelOpen, sidebarCollapsed]);
+  useEffect(() => {
+    onMinimumWorkspaceWidthChange?.(rightPanelOpen ? RIGHT_PANEL_DOCKED_MIN_WORKSPACE_WIDTH : 0);
+    return () => onMinimumWorkspaceWidthChange?.(0);
+  }, [onMinimumWorkspaceWidthChange, rightPanelOpen]);
   const openRenameDialog = () => {
     if (!activeSession) {
       void messageApi.warning('请先选择一个对话');
@@ -325,7 +349,7 @@ export function Workspace({
   return (
     <section
       ref={workspaceRef}
-      className={`${styles.workspace} ${rightPanelOpen ? styles.workspaceWithPanel : ''}`}
+      className={`${styles.workspace} ${rightPanelOpen && rightPanelDocked ? styles.workspacePanelDocked : ''}`}
       data-has-conversation={hasConversation}
       data-mode={viewModel.mode}
       data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}
@@ -536,46 +560,15 @@ export function Workspace({
                 </button>
               </div>
             ) : activeRightPanelTab?.kind === 'terminal' ? (
-              <div
-                className={styles.terminalPane}
-                role="tabpanel"
-                onClick={() => terminalInputRefs.current[activeRightPanelTab.id]?.focus()}
-              >
-                <div className={styles.terminalScreen} role="application" aria-label={activeRightPanelTab.title}>
-                  <div className={styles.terminalPromptMeta}>
-                    <span className={styles.terminalUser}>{terminalPrompt.userHost}</span>
-                    <span className={styles.terminalShell}>{terminalPrompt.shell}</span>
-                    <span className={styles.terminalPath}>{terminalPrompt.path}</span>
-                    {terminalPrompt.branch ? <span className={styles.terminalBranch}>({terminalPrompt.branch})</span> : null}
-                  </div>
-                  {terminalVisibleLines(activeRightPanelTab.lines).map((line, index) => (
-                    <div key={`${activeRightPanelTab.id}-${index}`} className={styles.terminalHistoryLine}>
-                      {line}
-                    </div>
-                  ))}
-                  <label className={styles.terminalCommandLine}>
-                    <span>$</span>
-                    <input
-                      ref={(input) => {
-                        terminalInputRefs.current[activeRightPanelTab.id] = input;
-                      }}
-                      aria-label="终端命令"
-                      autoCapitalize="off"
-                      autoComplete="off"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      value={terminalDrafts[activeRightPanelTab.id] ?? ''}
-                      onChange={(event) => setTerminalDrafts((current) => ({ ...current, [activeRightPanelTab.id]: event.target.value }))}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault();
-                          submitTerminalDraft(activeRightPanelTab.id);
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              </div>
+              <TerminalPane
+                key={activeRightPanelTab.terminal?.id ?? activeRightPanelTab.id}
+                terminal={activeRightPanelTab.terminal}
+                title={activeRightPanelTab.title}
+                onInput={onTerminalInput}
+                onResize={onTerminalResize}
+                onSubscribe={onTerminalSubscribe}
+                onTerminalChange={updateTerminalTab}
+              />
             ) : activeRightPanelTab?.kind === 'files' ? (
               <div className={styles.sideToolPane} role="tabpanel">
                 <div className={styles.sideToolTitle}>文件</div>
@@ -642,33 +635,11 @@ function RightPanelAddMenu({
   );
 }
 
-function terminalPromptFromProject(project: WorkbenchViewModel['currentProject']) {
-  return {
-    userHost: 'agent@localhost',
-    shell: 'MINGW64',
-    path: formatTerminalPath(project.path || project.name || '~'),
-    branch: project.branch,
-  };
-}
-
-function formatTerminalPath(path: string) {
-  const normalized = path.replace(/\\/g, '/').trim();
-  if (!normalized || normalized === '~') {
-    return '~';
+function runtimePanelErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
   }
-  const workIndex = normalized.toLowerCase().indexOf('/work/');
-  if (workIndex >= 0) {
-    return `~${normalized.slice(workIndex)}`;
-  }
-  const driveMatch = normalized.match(/^([A-Za-z]):\/(.*)$/);
-  if (driveMatch) {
-    return `/${driveMatch[1].toLowerCase()}/${driveMatch[2]}`;
-  }
-  return normalized;
-}
-
-function terminalVisibleLines(lines?: string[]) {
-  return (lines ?? []).filter((line) => line !== 'Agent Builder terminal' && line !== 'Runtime PTY integration pending.');
+  return fallback;
 }
 
 function MessageActions({

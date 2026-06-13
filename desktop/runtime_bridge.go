@@ -24,6 +24,10 @@ type RuntimeProviderTestResponse = runtime.RuntimeProviderTestResponse
 type RuntimeConfigResponse = runtime.RuntimeConfigResponse
 type RuntimeChatRequest = runtime.RuntimeChatRequest
 type RuntimeChatResponse = runtime.RuntimeChatResponse
+type RuntimeTerminal = runtime.RuntimeTerminal
+type RuntimeTerminalCreateRequest = runtime.RuntimeTerminalCreateRequest
+type RuntimeTerminalResponse = runtime.RuntimeTerminalResponse
+type RuntimeTerminalEvent = runtime.RuntimeTerminalEvent
 type RuntimeTurn = runtime.RuntimeTurn
 type RuntimeTurnResponse = runtime.RuntimeTurnResponse
 type RuntimeTurnsResponse = runtime.RuntimeTurnsResponse
@@ -98,6 +102,9 @@ type RuntimeRunSchedulerTaskScope = runtime.RuntimeRunSchedulerTaskScope
 type RuntimeRunSchedulerPlanSource = runtime.RuntimeRunSchedulerPlanSource
 type RuntimeRunSchedulerExecuteTaskSource = runtime.RuntimeRunSchedulerExecuteTaskSource
 type RuntimeRunCheckpoint = runtime.RuntimeRunCheckpoint
+type RuntimeRunCheckpointMarker = runtime.RuntimeRunCheckpointMarker
+type RuntimeRunCheckpointMarkersResponse = runtime.RuntimeRunCheckpointMarkersResponse
+type RuntimeRunCheckpointMarkerResponse = runtime.RuntimeRunCheckpointMarkerResponse
 type RuntimeRunDiagnostics = runtime.RuntimeRunDiagnostics
 type RuntimeRunUserActions = runtime.RuntimeRunUserActions
 type RuntimeRunUserAction = runtime.RuntimeRunUserAction
@@ -279,6 +286,18 @@ func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (Runti
 
 }
 
+func (r *RuntimeBridge) CreateTerminal(ctx context.Context, req RuntimeTerminalCreateRequest) (RuntimeTerminalResponse, error) {
+
+	return r.service.CreateTerminal(ctx, req)
+
+}
+
+func (r *RuntimeBridge) DeleteTerminal(ctx context.Context, terminalID string) (RuntimeTerminalResponse, error) {
+
+	return r.service.DeleteTerminal(ctx, terminalID)
+
+}
+
 func (r *RuntimeBridge) Turn(ctx context.Context, turnID string) (RuntimeTurnResponse, error) {
 
 	return r.service.Turn(ctx, turnID)
@@ -300,6 +319,18 @@ func (r *RuntimeBridge) Runs(ctx context.Context) (RuntimeRunsResponse, error) {
 func (r *RuntimeBridge) Run(ctx context.Context, runID string) (RuntimeRunResponse, error) {
 
 	return r.service.Run(ctx, runID)
+
+}
+
+func (r *RuntimeBridge) RunCheckpointMarkers(ctx context.Context, runID string) (RuntimeRunCheckpointMarkersResponse, error) {
+
+	return r.service.RunCheckpointMarkers(ctx, runID)
+
+}
+
+func (r *RuntimeBridge) RunCheckpointMarker(ctx context.Context, runID string, checkpointID string) (RuntimeRunCheckpointMarkerResponse, error) {
+
+	return r.service.RunCheckpointMarker(ctx, runID, checkpointID)
 
 }
 

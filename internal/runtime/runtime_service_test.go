@@ -4061,6 +4061,16 @@ type recordingRuntimeService struct {
 	updatedPolicyRules       []RuntimePolicyRule
 	updatedPolicyProfile     string
 	permissionDecision       RuntimePermissionDecision
+	terminalResponse         RuntimeTerminalResponse
+	createdTerminal          RuntimeTerminalCreateRequest
+	executedTerminalID       string
+	executedTerminalInput    RuntimeTerminalInputRequest
+	terminalInputSeen        chan RuntimeTerminalInputRequest
+	resizedTerminalID        string
+	resizedTerminal          RuntimeTerminalResizeRequest
+	terminalResizeSeen       chan RuntimeTerminalResizeRequest
+	terminalEvents           chan RuntimeTerminalEvent
+	deletedTerminalID        string
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -4127,6 +4137,43 @@ func (s *recordingRuntimeService) DiscoverModelConfig(context.Context, RuntimeMo
 
 func (s *recordingRuntimeService) VerifyModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelVerifyResponse, error) {
 	return RuntimeModelVerifyResponse{OK: true, Model: "test-model", Protocol: "openai"}, nil
+}
+
+func (s *recordingRuntimeService) CreateTerminal(_ context.Context, req RuntimeTerminalCreateRequest) (RuntimeTerminalResponse, error) {
+	s.createdTerminal = req
+	return s.terminalResponse, nil
+}
+
+func (s *recordingRuntimeService) WriteTerminalInput(_ context.Context, terminalID string, req RuntimeTerminalInputRequest) (RuntimeTerminalResponse, error) {
+	s.executedTerminalID = terminalID
+	s.executedTerminalInput = req
+	if s.terminalInputSeen != nil {
+		s.terminalInputSeen <- req
+	}
+	return s.terminalResponse, nil
+}
+
+func (s *recordingRuntimeService) ResizeTerminal(_ context.Context, terminalID string, req RuntimeTerminalResizeRequest) (RuntimeTerminalResponse, error) {
+	s.resizedTerminalID = terminalID
+	s.resizedTerminal = req
+	if s.terminalResizeSeen != nil {
+		s.terminalResizeSeen <- req
+	}
+	return s.terminalResponse, nil
+}
+
+func (s *recordingRuntimeService) SubscribeTerminalEvents(context.Context, string, ...int64) (<-chan RuntimeTerminalEvent, func()) {
+	if s.terminalEvents != nil {
+		return s.terminalEvents, func() {}
+	}
+	ch := make(chan RuntimeTerminalEvent)
+	close(ch)
+	return ch, func() {}
+}
+
+func (s *recordingRuntimeService) DeleteTerminal(_ context.Context, terminalID string) (RuntimeTerminalResponse, error) {
+	s.deletedTerminalID = terminalID
+	return s.terminalResponse, nil
 }
 
 func (s *recordingRuntimeService) Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error) {

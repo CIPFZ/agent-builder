@@ -21,6 +21,34 @@ func TestRuntimeBridgeDelegatesToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsTerminalLifecycle(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		terminalResponse: RuntimeTerminalResponse{Terminal: RuntimeTerminal{
+			ID:     "term-1",
+			CWD:    "C:\\work",
+			Shell:  "PowerShell",
+			Status: "running",
+		}},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	if _, err := bridge.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{ID: "term-1", CWD: "C:\\work"}); err != nil {
+		t.Fatal(err)
+	}
+	if service.createdTerminal.ID != "term-1" || service.createdTerminal.CWD != "C:\\work" {
+		t.Fatalf("created terminal = %#v", service.createdTerminal)
+	}
+
+	if _, err := bridge.DeleteTerminal(context.Background(), "term-1"); err != nil {
+		t.Fatal(err)
+	}
+	if service.deletedTerminalID != "term-1" {
+		t.Fatalf("deleted terminal = %q", service.deletedTerminalID)
+	}
+}
+
 func TestRuntimeBridgeForwardsCapabilityRefresh(t *testing.T) {
 	t.Parallel()
 
@@ -582,6 +610,11 @@ type recordingRuntimeService struct {
 	executeTaskID               string
 	executeRunTask              RuntimeRunSchedulerExecuteTaskResponse
 	runs                        RuntimeRunsResponse
+	runCheckpointMarkersID      string
+	runCheckpointMarkers        RuntimeRunCheckpointMarkersResponse
+	runCheckpointMarkerRunID    string
+	runCheckpointMarkerID       string
+	runCheckpointMarker         RuntimeRunCheckpointMarkerResponse
 	run                         RuntimeRunResponse
 	runID                       string
 	ackRunID                    string
@@ -593,6 +626,13 @@ type recordingRuntimeService struct {
 	resume                      RuntimeRunResumeResponse
 	markInterruptedDoneID       string
 	markInterruptedDoneResponse RuntimeTurnResponse
+	terminalResponse            RuntimeTerminalResponse
+	createdTerminal             RuntimeTerminalCreateRequest
+	terminalInputID             string
+	terminalInput               runtime.RuntimeTerminalInputRequest
+	terminalResizeID            string
+	terminalResize              runtime.RuntimeTerminalResizeRequest
+	deletedTerminalID           string
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -659,6 +699,34 @@ func (s *recordingRuntimeService) VerifyModelConfig(context.Context, RuntimeMode
 	return RuntimeModelVerifyResponse{}, nil
 }
 
+func (s *recordingRuntimeService) CreateTerminal(_ context.Context, req RuntimeTerminalCreateRequest) (RuntimeTerminalResponse, error) {
+	s.createdTerminal = req
+	return s.terminalResponse, nil
+}
+
+func (s *recordingRuntimeService) WriteTerminalInput(_ context.Context, terminalID string, req runtime.RuntimeTerminalInputRequest) (RuntimeTerminalResponse, error) {
+	s.terminalInputID = terminalID
+	s.terminalInput = req
+	return s.terminalResponse, nil
+}
+
+func (s *recordingRuntimeService) ResizeTerminal(_ context.Context, terminalID string, req runtime.RuntimeTerminalResizeRequest) (RuntimeTerminalResponse, error) {
+	s.terminalResizeID = terminalID
+	s.terminalResize = req
+	return s.terminalResponse, nil
+}
+
+func (s *recordingRuntimeService) SubscribeTerminalEvents(context.Context, string, ...int64) (<-chan RuntimeTerminalEvent, func()) {
+	ch := make(chan RuntimeTerminalEvent)
+	close(ch)
+	return ch, func() {}
+}
+
+func (s *recordingRuntimeService) DeleteTerminal(_ context.Context, terminalID string) (RuntimeTerminalResponse, error) {
+	s.deletedTerminalID = terminalID
+	return s.terminalResponse, nil
+}
+
 func (s *recordingRuntimeService) Chat(_ context.Context, req RuntimeChatRequest) (RuntimeChatResponse, error) {
 	s.chatCalls++
 	s.chatRequests = append(s.chatRequests, req)
@@ -675,6 +743,25 @@ func (s *recordingRuntimeService) Turns(context.Context, string) (RuntimeTurnsRe
 
 func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, error) {
 	return s.runs, nil
+}
+
+func (s *recordingRuntimeService) RunSummaries(context.Context) (runtime.RuntimeRunSummariesResponse, error) {
+	return runtime.RuntimeRunSummariesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) RunSummary(context.Context, string) (runtime.RuntimeRunSummaryResponse, error) {
+	return runtime.RuntimeRunSummaryResponse{}, nil
+}
+
+func (s *recordingRuntimeService) RunCheckpointMarkers(_ context.Context, runID string) (RuntimeRunCheckpointMarkersResponse, error) {
+	s.runCheckpointMarkersID = runID
+	return s.runCheckpointMarkers, nil
+}
+
+func (s *recordingRuntimeService) RunCheckpointMarker(_ context.Context, runID, checkpointID string) (RuntimeRunCheckpointMarkerResponse, error) {
+	s.runCheckpointMarkerRunID = runID
+	s.runCheckpointMarkerID = checkpointID
+	return s.runCheckpointMarker, nil
 }
 
 func (s *recordingRuntimeService) Run(_ context.Context, runID string) (RuntimeRunResponse, error) {

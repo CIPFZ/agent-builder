@@ -47,6 +47,7 @@ Thumbs.db
 .direnv/
 
 **/.crush/**
+.codex-run/
 
 /crush
 /tmp/

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 type RuntimeAPIEndpointResponse struct {
@@ -29,6 +31,19 @@ type runtimeHTTPServer struct {
 	url      string
 	token    string
 }
+
+var runtimeTerminalWebSocketUpgrader = websocket.Upgrader{
+	CheckOrigin: func(*http.Request) bool {
+		return true
+	},
+}
+
+const (
+	runtimeTerminalStreamBatchBytes = 64 * 1024
+	runtimeTerminalStreamBatchWait  = 8 * time.Millisecond
+	runtimeTerminalStreamAckTimeout = 15 * time.Second
+	runtimeTerminalStreamReadLimit  = 1024 * 1024
+)
 
 func newRuntimeHTTPServer(service RuntimeService) *runtimeHTTPServer {
 	return &runtimeHTTPServer{
@@ -289,6 +304,18 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		value, err := s.service.Chat(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/terminals":
+		var req RuntimeTerminalCreateRequest
+		if r.Body != nil && r.ContentLength != 0 && !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.CreateTerminal(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && terminalStreamPathID(r.URL.Path) != "":
+		s.handleTerminalStream(w, r, terminalStreamPathID(r.URL.Path))
+	case r.Method == http.MethodDelete && terminalPathID(r.URL.Path) != "":
+		value, err := s.service.DeleteTerminal(r.Context(), terminalPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/turns":
 		value, err := s.service.Turns(r.Context(), r.URL.Query().Get("status"))
@@ -785,6 +812,18 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 		}
 		value, err := s.service.Chat(r.Context(), req)
 		return value, err, true
+	case method == http.MethodPost && path == "/v1/terminals":
+		var req RuntimeTerminalCreateRequest
+		if strings.TrimSpace(body) != "" {
+			if err := json.Unmarshal([]byte(body), &req); err != nil {
+				return nil, err, true
+			}
+		}
+		value, err := s.service.CreateTerminal(r.Context(), req)
+		return value, err, true
+	case method == http.MethodDelete && terminalPathID(path) != "":
+		value, err := s.service.DeleteTerminal(r.Context(), terminalPathID(path))
+		return value, err, true
 	case method == http.MethodPost && turnCancelPathID(path) != "":
 		value, err := s.service.CancelTurn(r.Context(), turnCancelPathID(path))
 		return value, err, true
@@ -977,6 +1016,128 @@ func (s *runtimeHTTPServer) handleEvents(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+func (s *runtimeHTTPServer) handleTerminalStream(w http.ResponseWriter, r *http.Request, terminalID string) {
+	after, err := parseRuntimeSequence(r.URL.Query().Get("after"))
+	if err != nil {
+		writeRuntimeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	conn, err := runtimeTerminalWebSocketUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	conn.SetReadLimit(runtimeTerminalStreamReadLimit)
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	events, unsubscribe := s.service.SubscribeTerminalEvents(ctx, terminalID, after)
+	defer unsubscribe()
+
+	ackCh := make(chan int64, 16)
+	writeDone := make(chan struct{})
+	go func() {
+		defer close(writeDone)
+		for {
+			batch, ok := nextRuntimeTerminalStreamBatch(ctx, events)
+			if !ok {
+				return
+			}
+			messageType := "output"
+			if batch[len(batch)-1].Final {
+				messageType = "final"
+			}
+			if err := conn.WriteJSON(RuntimeTerminalStreamMessage{Type: messageType, Events: batch}); err != nil {
+				cancel()
+				return
+			}
+			if !waitRuntimeTerminalStreamAck(ctx, ackCh, batch[len(batch)-1].Sequence) {
+				cancel()
+				return
+			}
+		}
+	}()
+
+	for {
+		var req RuntimeTerminalStreamRequest
+		if err := conn.ReadJSON(&req); err != nil {
+			cancel()
+			<-writeDone
+			return
+		}
+		switch strings.TrimSpace(req.Type) {
+		case "input":
+			_, _ = s.service.WriteTerminalInput(ctx, terminalID, RuntimeTerminalInputRequest{
+				Data:      req.Data,
+				BinaryB64: req.BinaryB64,
+			})
+		case "resize":
+			_, _ = s.service.ResizeTerminal(ctx, terminalID, RuntimeTerminalResizeRequest{
+				Columns: req.Columns,
+				Rows:    req.Rows,
+			})
+		case "ack":
+			select {
+			case ackCh <- req.Sequence:
+			default:
+			}
+		case "close":
+			_, _ = s.service.DeleteTerminal(ctx, terminalID)
+		case "ping", "":
+		default:
+		}
+	}
+}
+
+func nextRuntimeTerminalStreamBatch(ctx context.Context, events <-chan RuntimeTerminalEvent) ([]RuntimeTerminalEvent, bool) {
+	var batch []RuntimeTerminalEvent
+	batchBytes := 0
+	timer := time.NewTimer(runtimeTerminalStreamBatchWait)
+	defer timer.Stop()
+
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return batch, len(batch) > 0
+			}
+			batch = append(batch, event)
+			batchBytes += runtimeTerminalEventSize(event)
+			if event.Final || batchBytes >= runtimeTerminalStreamBatchBytes {
+				return batch, true
+			}
+		case <-timer.C:
+			if len(batch) > 0 {
+				return batch, true
+			}
+			timer.Reset(runtimeTerminalStreamBatchWait)
+		case <-ctx.Done():
+			return nil, false
+		}
+	}
+}
+
+func waitRuntimeTerminalStreamAck(ctx context.Context, ackCh <-chan int64, sequence int64) bool {
+	if sequence <= 0 {
+		return true
+	}
+	timer := time.NewTimer(runtimeTerminalStreamAckTimeout)
+	defer timer.Stop()
+	for {
+		select {
+		case ack := <-ackCh:
+			if ack >= sequence {
+				return true
+			}
+		case <-timer.C:
+			return false
+		case <-ctx.Done():
+			return false
+		}
+	}
+}
+
 func parseRuntimeSequence(value string) (int64, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -1004,6 +1165,9 @@ func writeRuntimeError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, errSelectedModelMissing) {
 		status = http.StatusPreconditionRequired
+	}
+	if errors.Is(err, errRuntimeTerminalMissing) {
+		status = http.StatusNotFound
 	}
 	writeRuntimeJSON(w, status, map[string]string{"error": err.Error()})
 }
@@ -1105,6 +1269,21 @@ func configuredProviderTestPathID(path string) string {
 
 func configuredProviderLatencyPathID(path string) string {
 	return trimPathID(path, "/v1/config/configured-providers/", "/latency")
+}
+
+func terminalPathID(path string) string {
+	if strings.HasSuffix(path, "/stream") {
+		return ""
+	}
+	id := strings.TrimPrefix(path, "/v1/terminals/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func terminalStreamPathID(path string) string {
+	return trimPathID(path, "/v1/terminals/", "/stream")
 }
 
 func mcpRequestPathID(path string) string {
@@ -1290,6 +1469,15 @@ func runtimeDevModuleLimit(r *http.Request, pathQuery url.Values) int {
 
 func runtimeDevModuleCursor(r *http.Request, pathQuery url.Values) string {
 	return strings.TrimSpace(firstNonEmpty(pathQuery.Get("cursor"), r.URL.Query().Get("cursor")))
+}
+
+func runtimeDevModuleAfter(r *http.Request, pathQuery url.Values) int64 {
+	value := strings.TrimSpace(firstNonEmpty(pathQuery.Get("after"), r.URL.Query().Get("after")))
+	after, _ := strconv.ParseInt(value, 10, 64)
+	if after < 0 {
+		return 0
+	}
+	return after
 }
 
 func sessionCompactPathID(path string) string {

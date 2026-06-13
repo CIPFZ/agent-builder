@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import type { WorkbenchAdapter, WorkbenchMode, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
@@ -17,12 +17,18 @@ const SIDEBAR_DEFAULT_WIDTH = 280;
 const SIDEBAR_MIN_WIDTH = 260;
 const SIDEBAR_MAX_WIDTH = 380;
 const WORKSPACE_MIN_VISIBLE_WIDTH = 360;
+const SHELL_RESIZE_GUTTER_WIDTH = 2;
+const SHELL_MIN_WIDTH = 1080;
 
-function getSidebarMaxWidth() {
+function getLayoutWidth() {
   if (typeof window === 'undefined') {
-    return SIDEBAR_MAX_WIDTH;
+    return SHELL_MIN_WIDTH;
   }
-  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, window.innerWidth - WORKSPACE_MIN_VISIBLE_WIDTH));
+  return Math.max(window.innerWidth, SHELL_MIN_WIDTH);
+}
+
+function getSidebarMaxWidth(workspaceMinVisibleWidth = WORKSPACE_MIN_VISIBLE_WIDTH) {
+  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, getLayoutWidth() - workspaceMinVisibleWidth - SHELL_RESIZE_GUTTER_WIDTH));
 }
 
 function clampSidebarWidth(width: number, maxWidth = getSidebarMaxWidth()) {
@@ -34,25 +40,41 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const [mode, setMode] = useState<WorkbenchMode>(initialViewModel.mode);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(SIDEBAR_DEFAULT_WIDTH));
+  const [workspaceMinVisibleWidth, setWorkspaceMinVisibleWidth] = useState(WORKSPACE_MIN_VISIBLE_WIDTH);
   const [sidebarMaxWidth, setSidebarMaxWidth] = useState(() => getSidebarMaxWidth());
+  const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 0 : window.innerWidth));
   const viewModelRef = useRef(viewModel);
   const modeRef = useRef(mode);
   const hasBusySession = viewModel.sessions.some((session) => session.busy);
+  const sidebarForceCollapsed =
+    !sidebarCollapsed &&
+    workspaceMinVisibleWidth > WORKSPACE_MIN_VISIBLE_WIDTH &&
+    viewportWidth > 0 &&
+    getLayoutWidth() < SIDEBAR_MIN_WIDTH + SHELL_RESIZE_GUTTER_WIDTH + workspaceMinVisibleWidth;
+  const effectiveSidebarCollapsed = sidebarCollapsed || sidebarForceCollapsed;
 
   useEffect(() => {
     viewModelRef.current = viewModel;
   }, [viewModel]);
 
   useEffect(() => {
+    const updateViewportWidth = () => setViewportWidth(window.innerWidth);
+    updateViewportWidth();
+    window.addEventListener('resize', updateViewportWidth);
+    return () => window.removeEventListener('resize', updateViewportWidth);
+  }, []);
+
+  useEffect(() => {
     const updateSidebarBounds = () => {
-      const nextMaxWidth = getSidebarMaxWidth();
+      const nextMaxWidth = getSidebarMaxWidth(workspaceMinVisibleWidth);
       setSidebarMaxWidth(nextMaxWidth);
       setSidebarWidth((current) => clampSidebarWidth(current, nextMaxWidth));
     };
 
+    updateSidebarBounds();
     window.addEventListener('resize', updateSidebarBounds);
     return () => window.removeEventListener('resize', updateSidebarBounds);
-  }, []);
+  }, [workspaceMinVisibleWidth]);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -304,6 +326,17 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setViewModel(nextViewModel);
   };
 
+  const createTerminal = (request: { cwd?: string; columns?: number; rows?: number }) => adapter.createTerminal(request);
+
+  const writeTerminalInput = (terminalID: string, data: string) => adapter.writeTerminalInput(terminalID, data);
+
+  const resizeTerminal = (terminalID: string, columns: number, rows: number) => adapter.resizeTerminal(terminalID, columns, rows);
+
+  const subscribeTerminalEvents = (terminalID: string, onEvent: Parameters<typeof adapter.subscribeTerminalEvents>[1]) =>
+    adapter.subscribeTerminalEvents(terminalID, onEvent);
+
+  const deleteTerminal = (terminalID: string) => adapter.deleteTerminal(terminalID);
+
   const selectModel = async (configuredProviderID: string, model: string) => {
     const nextViewModel = await adapter.selectModel({ ...viewModel, mode }, configuredProviderID, model);
     setViewModel(nextViewModel);
@@ -406,6 +439,9 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     ...viewModel,
     mode,
   };
+  const handleMinimumWorkspaceWidthChange = useCallback((width: number) => {
+    setWorkspaceMinVisibleWidth(Math.max(WORKSPACE_MIN_VISIBLE_WIDTH, Math.ceil(width)));
+  }, []);
 
   const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -462,12 +498,12 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
 
   return (
     <main
-      className={`${styles.shell} ${sidebarCollapsed ? styles.sidebarCollapsed : ''}`}
+      className={`${styles.shell} ${effectiveSidebarCollapsed ? styles.sidebarCollapsed : ''}`}
       data-testid="workbench-shell"
       style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
     >
       <Sidebar
-        collapsed={sidebarCollapsed}
+        collapsed={effectiveSidebarCollapsed}
         viewModel={workbenchViewModel}
         onCollapsedChange={setSidebarCollapsed}
         onModeChange={changeMode}
@@ -476,7 +512,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         onSessionDelete={deleteSession}
         onSessionSelect={selectSession}
       />
-      {!sidebarCollapsed && (
+      {!effectiveSidebarCollapsed && (
         <div
           aria-label="调整侧栏宽度"
           className={styles.sidebarResizer}
@@ -491,15 +527,16 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       )}
       {mode === 'plugins' ? (
         <PluginCenter
-          sidebarCollapsed={sidebarCollapsed}
+          sidebarCollapsed={effectiveSidebarCollapsed}
           settings={workbenchViewModel.settings}
           onSettingsRefresh={refreshCurrentSettings}
           onSkillToggle={setSkillEnabled}
         />
       ) : (
         <Workspace
-          sidebarCollapsed={sidebarCollapsed}
+          sidebarCollapsed={effectiveSidebarCollapsed}
           viewModel={workbenchViewModel}
+          onMinimumWorkspaceWidthChange={handleMinimumWorkspaceWidthChange}
           onModelSelect={selectModel}
           onPermissionDecide={decidePermission}
           onPermissionModeSelect={selectPermissionMode}
@@ -509,6 +546,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onInterruptedDone={markInterruptedDone}
           onRunCheckpointResume={resumeRunCheckpoint}
           onRunTaskExecute={executeRunTask}
+          onTerminalCreate={createTerminal}
+          onTerminalDelete={deleteTerminal}
+          onTerminalInput={writeTerminalInput}
+          onTerminalResize={resizeTerminal}
+          onTerminalSubscribe={subscribeTerminalEvents}
         />
       )}
     </main>

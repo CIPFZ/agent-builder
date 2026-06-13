@@ -29,6 +29,11 @@ type RuntimeService interface {
 	SaveModelConfig(context.Context, RuntimeModelConfig) (RuntimeConfigResponse, error)
 	DiscoverModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelDiscoveryResponse, error)
 	VerifyModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelVerifyResponse, error)
+	CreateTerminal(context.Context, RuntimeTerminalCreateRequest) (RuntimeTerminalResponse, error)
+	WriteTerminalInput(context.Context, string, RuntimeTerminalInputRequest) (RuntimeTerminalResponse, error)
+	ResizeTerminal(context.Context, string, RuntimeTerminalResizeRequest) (RuntimeTerminalResponse, error)
+	SubscribeTerminalEvents(context.Context, string, ...int64) (<-chan RuntimeTerminalEvent, func())
+	DeleteTerminal(context.Context, string) (RuntimeTerminalResponse, error)
 	Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error)
 	Turn(context.Context, string) (RuntimeTurnResponse, error)
 	Turns(context.Context, string) (RuntimeTurnsResponse, error)
@@ -159,6 +164,7 @@ type runtimeService struct {
 	policy            RuntimePolicy
 	capabilityLoads   map[string]runtimeCapabilityLoadRecord
 	toolDiscovery     runtimeToolDiscoveryState
+	terminals         map[string]*runtimeTerminalState
 	recovery          runtimeRecoveryRecord
 	events            []RuntimeEvent
 	nextEventSequence int64

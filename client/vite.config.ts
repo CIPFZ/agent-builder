@@ -37,6 +37,7 @@ export default defineConfig({
       '/runtime-api': {
         target: runtimeProxyTarget,
         changeOrigin: true,
+        ws: true,
         rewrite: (path) => path.replace(/^\/runtime-api/, ''),
       },
     },
