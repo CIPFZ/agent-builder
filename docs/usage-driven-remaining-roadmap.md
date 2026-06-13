@@ -96,6 +96,8 @@ Review real app behavior around the workflows the user asks about:
 - Permission and MCP request recovery.
 - Scheduler task visibility.
 - Checkpoint acknowledgement/discard/resume marker visibility.
+- Project/session/terminal ownership and right-panel tool scoping. See
+  `docs/project-session-terminal-ownership-design.md`.
 
 Each workflow should be handled with a small gate:
 
