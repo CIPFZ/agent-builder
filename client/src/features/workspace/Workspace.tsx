@@ -94,6 +94,7 @@ export function Workspace({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
+  const canUseProjectSideTools = viewModel.mode === 'project';
   const hasConversation = viewModel.conversation.length > 0;
   const activeSession = viewModel.sessions.find((session) => session.active);
   const sessionTitle = activeSession?.title || viewModel.currentProject.name || '新对话';
@@ -126,6 +127,10 @@ export function Workspace({
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
   const terminalTabCount = rightPanelTabs.filter((tab) => tab.kind === 'terminal').length;
   const openSingletonPanel = (kind: Exclude<RightPanelKind, 'terminal'>) => {
+    if (!canUseProjectSideTools) {
+      void messageApi.warning('文件和审查只在项目中可用');
+      return;
+    }
     setRightPanelVisible(true);
     const existing = rightPanelTabs.find((tab) => tab.kind === kind);
     if (existing) {
@@ -247,6 +252,23 @@ export function Workspace({
     const activeTab = rightPanelTabsRef.current?.querySelector<HTMLElement>('[data-active="true"]');
     activeTab?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }, [activeRightPanelID, rightPanelTabs.length]);
+  useEffect(() => {
+    if (canUseProjectSideTools) {
+      return;
+    }
+    setRightPanelTabs((current) => current.filter((tab) => tab.kind === 'terminal'));
+  }, [canUseProjectSideTools]);
+  useEffect(() => {
+    if (rightPanelTabs.length === 0) {
+      if (activeRightPanelID) {
+        setActiveRightPanelID('');
+      }
+      return;
+    }
+    if (!rightPanelTabs.some((tab) => tab.id === activeRightPanelID)) {
+      setActiveRightPanelID(rightPanelTabs[0].id);
+    }
+  }, [activeRightPanelID, rightPanelTabs]);
   useEffect(() => {
     const tabs = rightPanelTabsRef.current;
     if (!tabs) {
@@ -535,6 +557,7 @@ export function Workspace({
                 ) : null}
                 <RightPanelAddMenu
                   className={styles.terminalAddButton}
+                  canUseProjectSideTools={canUseProjectSideTools}
                   hasFilesTab={rightPanelTabs.some((tab) => tab.kind === 'files')}
                   hasReviewTab={rightPanelTabs.some((tab) => tab.kind === 'review')}
                   onOpenTool={openRightPanelTool}
@@ -543,21 +566,25 @@ export function Workspace({
             ) : null}
             {!rightPanelHasTabs ? (
               <div className={styles.rightPanelLauncher}>
-                <button className={styles.rightPanelLauncherItem} type="button" onClick={() => openRightPanelTool('review')}>
-                  <AuditOutlined />
-                  <span>审查</span>
-                  <kbd>Ctrl+Shift+G</kbd>
-                </button>
+                {canUseProjectSideTools ? (
+                  <button className={styles.rightPanelLauncherItem} type="button" onClick={() => openRightPanelTool('review')}>
+                    <AuditOutlined />
+                    <span>审查</span>
+                    <kbd>Ctrl+Shift+G</kbd>
+                  </button>
+                ) : null}
                 <button className={styles.rightPanelLauncherItem} type="button" onClick={() => openRightPanelTool('terminal')}>
                   <ConsoleSqlOutlined />
                   <span>终端</span>
                   <kbd>Ctrl+`</kbd>
                 </button>
-                <button className={styles.rightPanelLauncherItem} type="button" onClick={() => openRightPanelTool('files')}>
-                  <FolderOpenOutlined />
-                  <span>文件</span>
-                  <kbd>Ctrl+P</kbd>
-                </button>
+                {canUseProjectSideTools ? (
+                  <button className={styles.rightPanelLauncherItem} type="button" onClick={() => openRightPanelTool('files')}>
+                    <FolderOpenOutlined />
+                    <span>文件</span>
+                    <kbd>Ctrl+P</kbd>
+                  </button>
+                ) : null}
               </div>
             ) : activeRightPanelTab?.kind === 'terminal' ? (
               <TerminalPane
@@ -602,19 +629,21 @@ export function Workspace({
 
 function RightPanelAddMenu({
   className,
+  canUseProjectSideTools,
   hasFilesTab,
   hasReviewTab,
   onOpenTool,
 }: {
   className: string;
+  canUseProjectSideTools: boolean;
   hasFilesTab: boolean;
   hasReviewTab: boolean;
   onOpenTool: (kind: RightPanelKind) => void;
 }) {
   const items = [
     { key: 'terminal', icon: <ConsoleSqlOutlined />, label: '新建终端' },
-    hasFilesTab ? null : { key: 'files', icon: <FolderOpenOutlined />, label: '打开文件' },
-    hasReviewTab ? null : { key: 'review', icon: <AuditOutlined />, label: '打开审查' },
+    canUseProjectSideTools && !hasFilesTab ? { key: 'files', icon: <FolderOpenOutlined />, label: '打开文件' } : null,
+    canUseProjectSideTools && !hasReviewTab ? { key: 'review', icon: <AuditOutlined />, label: '打开审查' } : null,
   ].filter((item): item is Exclude<typeof item, null> => Boolean(item));
 
   return (
