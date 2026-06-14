@@ -111,11 +111,6 @@ func writeRuntimeDevModelConfig(t *testing.T, root, providerURL string) {
 	}
 }
 
-func isPathInside(root, target string) bool {
-	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(target))
-	return err == nil && rel != "." && rel != ".." && !filepath.IsAbs(rel) && len(rel) >= 2 && rel[:2] != ".."
-}
-
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

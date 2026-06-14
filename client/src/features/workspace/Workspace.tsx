@@ -53,7 +53,8 @@ interface WorkspaceProps {
   onInterruptedDone: (turnID: string) => Promise<void>;
   onRunCheckpointResume?: (runID: string, checkpointID: string) => Promise<void>;
   onRunTaskExecute?: (runID: string, taskID: string) => Promise<void>;
-  onTerminalCreate: (request: { cwd?: string; columns?: number; rows?: number }) => Promise<TerminalViewModel>;
+  onSessionTerminalsList: (sessionID: string) => Promise<TerminalViewModel[]>;
+  onTerminalCreate: (request: { sessionId: string; cwd?: string; columns?: number; rows?: number }) => Promise<TerminalViewModel>;
   onTerminalDelete: (terminalID: string) => Promise<void>;
   onTerminalInput: (terminalID: string, data: string) => Promise<TerminalViewModel>;
   onTerminalResize: (terminalID: string, columns: number, rows: number) => Promise<TerminalViewModel>;
@@ -73,6 +74,7 @@ export function Workspace({
   onInterruptedDone,
   onRunCheckpointResume,
   onRunTaskExecute,
+  onSessionTerminalsList,
   onTerminalCreate,
   onTerminalDelete,
   onTerminalInput,
@@ -94,7 +96,7 @@ export function Workspace({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
-  const canUseProjectSideTools = viewModel.mode === 'project';
+  const canUseProjectSideTools = hasProjectContext;
   const hasConversation = viewModel.conversation.length > 0;
   const activeSession = viewModel.sessions.find((session) => session.active);
   const sessionTitle = activeSession?.title || viewModel.currentProject.name || '新对话';
@@ -125,7 +127,39 @@ export function Workspace({
   const rightPanelHasTabs = rightPanelTabs.length > 0;
   const rightPanelOpen = rightPanelVisible;
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
-  const terminalTabCount = rightPanelTabs.filter((tab) => tab.kind === 'terminal').length;
+  const activeSessionID = activeSession?.id ?? '';
+  const replaceTerminalTabs = useCallback((terminals: TerminalViewModel[]) => {
+    setRightPanelTabs((current) => {
+      const projectTabs = current.filter((tab) => tab.kind !== 'terminal');
+      const terminalTabs = terminals.map((terminal, index) => ({
+        id: terminal.id,
+        kind: 'terminal' as const,
+        title: terminal.title || `终端 ${index + 1}`,
+        terminal,
+      }));
+      const next = [...projectTabs, ...terminalTabs];
+      setActiveRightPanelID((activeID) => {
+        if (!activeID) {
+          return next[0]?.id ?? '';
+        }
+        if (next.some((tab) => tab.id === activeID)) {
+          return activeID;
+        }
+        if (current.some((tab) => tab.id === activeID && tab.kind === 'terminal')) {
+          return terminalTabs[0]?.id ?? projectTabs[0]?.id ?? '';
+        }
+        return next[0]?.id ?? '';
+      });
+      return next;
+    });
+  }, []);
+  const refreshSessionTerminals = useCallback(
+    async (sessionID: string) => {
+      const terminals = await onSessionTerminalsList(sessionID);
+      replaceTerminalTabs(terminals.filter((terminal) => terminal.sessionId === sessionID));
+    },
+    [onSessionTerminalsList, replaceTerminalTabs],
+  );
   const openSingletonPanel = (kind: Exclude<RightPanelKind, 'terminal'>) => {
     if (!canUseProjectSideTools) {
       void messageApi.warning('文件和审查只在项目中可用');
@@ -153,24 +187,32 @@ export function Workspace({
     setRightPanelVisible(true);
   };
   const addTerminalTab = async () => {
+    if (!activeSession?.id) {
+      void messageApi.warning('请先进入会话再创建终端');
+      return;
+    }
     setRightPanelVisible(true);
-    const nextIndex = terminalTabCount + 1;
     try {
-      const terminal = await onTerminalCreate({ cwd: viewModel.currentProject.path, columns: 100, rows: 24 });
-      const tab: RightPanelTabState = {
-        id: terminal.id,
-        kind: 'terminal',
-        title: `终端 ${nextIndex}`,
-        terminal,
-      };
-      setRightPanelTabs((current) => [...current, tab]);
-      setActiveRightPanelID(tab.id);
+      const terminal = await onTerminalCreate({ sessionId: activeSession.id, columns: 100, rows: 24 });
+      await refreshSessionTerminals(activeSession.id);
+      setActiveRightPanelID(terminal.id);
     } catch (error) {
       void messageApi.error(runtimePanelErrorMessage(error, '创建终端失败'));
     }
   };
-  const closeRightPanelTab = (id: string) => {
+  const closeRightPanelTab = async (id: string) => {
     const closingTerminalID = rightPanelTabs.find((tab) => tab.id === id && tab.kind === 'terminal')?.terminal?.id;
+    if (closingTerminalID) {
+      try {
+        await onTerminalDelete(closingTerminalID);
+        if (activeSession?.id) {
+          await refreshSessionTerminals(activeSession.id);
+        }
+      } catch (error) {
+        void messageApi.error(runtimePanelErrorMessage(error, '关闭终端失败'));
+      }
+      return;
+    }
     setRightPanelTabs((current) => {
       const index = current.findIndex((tab) => tab.id === id);
       const next = current.filter((tab) => tab.id !== id);
@@ -182,9 +224,6 @@ export function Workspace({
       }
       return next;
     });
-    if (closingTerminalID) {
-      void onTerminalDelete(closingTerminalID).catch(() => undefined);
-    }
   };
   const updateTerminalTab = useCallback((terminal: TerminalViewModel) => {
     setRightPanelTabs((current) =>
@@ -244,6 +283,30 @@ export function Workspace({
     }
     tabs.scrollBy({ left: direction * Math.max(140, tabs.clientWidth * 0.7), behavior: 'smooth' });
   };
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeSessionID) {
+      replaceTerminalTabs([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+    onSessionTerminalsList(activeSessionID)
+      .then((terminals) => {
+        if (!cancelled) {
+          replaceTerminalTabs(terminals.filter((terminal) => terminal.sessionId === activeSessionID));
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          void messageApi.error(runtimePanelErrorMessage(error, '读取终端列表失败'));
+          replaceTerminalTabs([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionID, messageApi, onSessionTerminalsList, replaceTerminalTabs]);
   useEffect(() => {
     const frame = window.requestAnimationFrame(updateJumpToBottomVisibility);
     return () => window.cancelAnimationFrame(frame);
@@ -539,7 +602,7 @@ export function Workspace({
                         className={styles.terminalTabClose}
                         onClick={(event) => {
                           event.stopPropagation();
-                          closeRightPanelTab(tab.id);
+                          void closeRightPanelTab(tab.id);
                         }}
                       />
                     </button>

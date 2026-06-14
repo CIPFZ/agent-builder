@@ -78,12 +78,20 @@ func (p *ResultPersister) checkSessionSpace(sessionDir string, newBytes int64) e
 
 // CleanupOldFiles removes tool result files older than ttlDays.
 func (p *ResultPersister) CleanupOldFiles() {
-	cutoff := time.Now().Add(-time.Duration(p.ttlDays) * 24 * time.Hour)
-
 	entries, err := os.ReadDir(p.resultsDir)
 	if err != nil {
 		return
 	}
+	if p.ttlDays <= 0 {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				os.RemoveAll(filepath.Join(p.resultsDir, entry.Name()))
+			}
+		}
+		return
+	}
+
+	cutoff := time.Now().Add(-time.Duration(p.ttlDays) * 24 * time.Hour)
 
 	for _, entry := range entries {
 		if !entry.IsDir() {

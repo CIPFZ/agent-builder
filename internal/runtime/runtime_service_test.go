@@ -46,6 +46,352 @@ func TestLocalModelConfigUsesDesktopConfigPath(t *testing.T) {
 	}
 }
 
+func TestRuntimeOpenProjectCreatesSwitchesAndClosesTerminals(t *testing.T) {
+	root := runtimeDevTestRoot(t, "open-project")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+	oldProject := filepath.Join(t.TempDir(), "old-project")
+	newProject := filepath.Join(t.TempDir(), "new-project")
+	if err := os.MkdirAll(oldProject, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	service := newRuntimeService()
+	opened, err := service.OpenProject(context.Background(), RuntimeOpenProjectRequest{Path: oldProject})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened.Project.Path != oldProject || !opened.Project.Current || opened.Status.WorkingDir != oldProject {
+		t.Fatalf("opened project = %#v", opened)
+	}
+	service.mu.Lock()
+	workspaceID := service.workspace.ID
+	service.mu.Unlock()
+	sess, err := service.runtime.CreateSession(context.Background(), workspaceID, "Terminal owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: sess.ID, ID: "term-project-switch"}); err != nil {
+		t.Fatal(err)
+	}
+
+	opened, err = service.OpenProject(context.Background(), RuntimeOpenProjectRequest{Path: newProject, CreateMissing: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opened.Project.Path != newProject || opened.Project.Name != filepath.Base(newProject) || opened.Status.WorkingDir != newProject {
+		t.Fatalf("switched project = %#v", opened)
+	}
+	if _, err := os.Stat(newProject); err != nil {
+		t.Fatalf("new project was not created: %v", err)
+	}
+	sessions, err := service.Sessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions.Sessions) != 0 {
+		t.Fatalf("new project should not list old project sessions: %#v", sessions.Sessions)
+	}
+	if _, err := service.WriteTerminalInput(context.Background(), "term-project-switch", RuntimeTerminalInputRequest{Data: terminalTestCommand("echo stale")}); err == nil {
+		t.Fatal("terminal should be closed after project switch")
+	}
+	service.mu.Lock()
+	terminalCount := len(service.terminalsByID)
+	ownershipCount := len(service.terminalIDsBySession)
+	service.mu.Unlock()
+	if terminalCount != 0 || ownershipCount != 0 {
+		t.Fatalf("terminal maps after project switch = terminals:%d ownership:%d, want 0/0", terminalCount, ownershipCount)
+	}
+}
+
+func TestRuntimeCreateProjectUsesDesktopDataProjectsDirectory(t *testing.T) {
+	root := runtimeDevTestRoot(t, "create-project")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+
+	service := newRuntimeService()
+	created, err := service.CreateProject(context.Background(), RuntimeCreateProjectRequest{Name: "Blank Project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantPath := filepath.Join(root, "data", "projects", "Blank Project")
+	if created.Project.Path != wantPath || created.Status.WorkingDir != wantPath {
+		t.Fatalf("created project path = %#v status=%#v, want %s", created.Project, created.Status, wantPath)
+	}
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("project directory was not created: %v", err)
+	}
+}
+
+func TestRuntimeCreateProjectRejectsInvalidOrExistingName(t *testing.T) {
+	root := runtimeDevTestRoot(t, "create-project-invalid")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+
+	service := newRuntimeService()
+	for _, name := range []string{"", ".", "..", "nested/project", `nested\project`, "bad:name", "trailing.", "CON", "nul.txt", "COM1", "LPT9"} {
+		if _, err := service.CreateProject(context.Background(), RuntimeCreateProjectRequest{Name: name}); err == nil {
+			t.Fatalf("CreateProject(%q) succeeded, want error", name)
+		}
+	}
+
+	existing := filepath.Join(root, "data", "projects", "Existing")
+	if err := os.MkdirAll(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateProject(context.Background(), RuntimeCreateProjectRequest{Name: "Existing"}); err == nil {
+		t.Fatal("CreateProject existing directory succeeded, want error")
+	}
+}
+
+func TestRuntimeCreateProjectSucceedsWithoutConfiguredModel(t *testing.T) {
+	root := runtimeDevTestRoot(t, "create-project-no-model")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+
+	service := newRuntimeService()
+	created, err := service.CreateProject(context.Background(), RuntimeCreateProjectRequest{Name: "No Model Project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantPath := filepath.Join(root, "data", "projects", "No Model Project")
+	if created.Status.Ready {
+		t.Fatalf("created status ready = true, want false without configured model")
+	}
+	if created.Project.Path != wantPath || created.Status.WorkingDir != wantPath || created.Project.ID == "" {
+		t.Fatalf("created project = %#v status=%#v, want path %s with fallback ID", created.Project, created.Status, wantPath)
+	}
+
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Ready || status.WorkingDir != wantPath || status.WorkspaceID != created.Project.ID {
+		t.Fatalf("fallback status = %#v, created project ID %q", status, created.Project.ID)
+	}
+}
+
+func TestRuntimeRenameProjectRenamesDirectoryMigratesSessionsAndClosesTerminals(t *testing.T) {
+	root := runtimeDevTestRoot(t, "rename-project")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+
+	service := newRuntimeService()
+	created, err := service.CreateProject(context.Background(), RuntimeCreateProjectRequest{Name: "Before Rename"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPath := created.Project.Path
+	oldDataDir := runtimeProjectDataDir(filepath.Join(root, "data"), oldPath)
+
+	service.mu.Lock()
+	workspaceID := service.workspace.ID
+	service.mu.Unlock()
+	session, err := service.runtime.CreateSession(context.Background(), workspaceID, "Keep me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: session.ID, ID: "rename-terminal"}); err != nil {
+		t.Fatal(err)
+	}
+
+	renamed, err := service.RenameProject(context.Background(), RuntimeRenameProjectRequest{
+		ProjectID: created.Project.ID,
+		Name:      "After Rename",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantPath := filepath.Join(root, "data", "projects", "After Rename")
+	if renamed.Project.Name != "After Rename" || renamed.Project.Path != wantPath || renamed.Status.WorkingDir != wantPath {
+		t.Fatalf("renamed project = %#v status=%#v, want path %s", renamed.Project, renamed.Status, wantPath)
+	}
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("old project path still exists or stat failed unexpectedly: %v", err)
+	}
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Fatalf("renamed project path missing: %v", err)
+	}
+	if _, err := os.Stat(oldDataDir); !os.IsNotExist(err) {
+		t.Fatalf("old project data dir still exists or stat failed unexpectedly: %v", err)
+	}
+	if _, err := os.Stat(runtimeProjectDataDir(filepath.Join(root, "data"), wantPath)); err != nil {
+		t.Fatalf("renamed project data dir missing: %v", err)
+	}
+
+	sessions, err := service.Sessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions.Sessions) != 1 || sessions.Sessions[0].ID != session.ID || sessions.Sessions[0].Title != "Keep me" {
+		t.Fatalf("sessions after rename = %#v", sessions.Sessions)
+	}
+	if _, err := service.WriteTerminalInput(context.Background(), "rename-terminal", RuntimeTerminalInputRequest{Data: terminalTestCommand("echo stale")}); err == nil {
+		t.Fatal("terminal should be closed after project rename")
+	}
+	service.mu.Lock()
+	terminalCount := len(service.terminalsByID)
+	ownershipCount := len(service.terminalIDsBySession)
+	service.mu.Unlock()
+	if terminalCount != 0 || ownershipCount != 0 {
+		t.Fatalf("terminal maps after project rename = terminals:%d ownership:%d, want 0/0", terminalCount, ownershipCount)
+	}
+}
+
+func TestRuntimeRenameProjectRejectsInvalidExistingOrNonCurrentProject(t *testing.T) {
+	root := runtimeDevTestRoot(t, "rename-project-invalid")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+
+	service := newRuntimeService()
+	created, err := service.CreateProject(context.Background(), RuntimeCreateProjectRequest{Name: "Current"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RenameProject(context.Background(), RuntimeRenameProjectRequest{ProjectID: created.Project.ID, Name: "bad/name"}); err == nil {
+		t.Fatal("RenameProject accepted invalid name")
+	}
+	if _, err := service.RenameProject(context.Background(), RuntimeRenameProjectRequest{ProjectID: "not-current", Name: "Other"}); err == nil {
+		t.Fatal("RenameProject accepted non-current project id")
+	}
+	existing := filepath.Join(root, "data", "projects", "Existing")
+	if err := os.MkdirAll(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RenameProject(context.Background(), RuntimeRenameProjectRequest{ProjectID: created.Project.ID, Name: "Existing"}); err == nil {
+		t.Fatal("RenameProject overwrote existing directory")
+	}
+}
+
+func TestRuntimeOpenProjectInExplorerUsesCurrentProjectPath(t *testing.T) {
+	root := runtimeDevTestRoot(t, "open-project-explorer")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+
+	service := newRuntimeService()
+	created, err := service.CreateProject(context.Background(), RuntimeCreateProjectRequest{Name: "Explorer Project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var openedPath string
+	previous := runtimeOpenPathInFileManager
+	runtimeOpenPathInFileManager = func(path string) error {
+		openedPath = path
+		return nil
+	}
+	t.Cleanup(func() {
+		runtimeOpenPathInFileManager = previous
+	})
+
+	response, err := service.OpenProjectInExplorer(context.Background(), RuntimeProjectActionRequest{ProjectID: created.Project.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if openedPath != created.Project.Path {
+		t.Fatalf("opened path = %q, want %q", openedPath, created.Project.Path)
+	}
+	if response.Project.ID != created.Project.ID || response.Status.WorkingDir != created.Project.Path {
+		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestRuntimeOpenProjectInExplorerRejectsNonCurrentProject(t *testing.T) {
+	root := runtimeDevTestRoot(t, "open-project-explorer-invalid")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+
+	service := newRuntimeService()
+	if _, err := service.CreateProject(context.Background(), RuntimeCreateProjectRequest{Name: "Explorer Project"}); err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	previous := runtimeOpenPathInFileManager
+	runtimeOpenPathInFileManager = func(path string) error {
+		called = true
+		return nil
+	}
+	t.Cleanup(func() {
+		runtimeOpenPathInFileManager = previous
+	})
+
+	if _, err := service.OpenProjectInExplorer(context.Background(), RuntimeProjectActionRequest{ProjectID: "not-current"}); err == nil {
+		t.Fatal("OpenProjectInExplorer accepted non-current project id")
+	}
+	if called {
+		t.Fatal("OpenProjectInExplorer called file manager for non-current project")
+	}
+}
+
+func TestRuntimeRemoveProjectArchivesAppDataKeepsProjectDirectoryAndClosesTerminals(t *testing.T) {
+	root := runtimeDevTestRoot(t, "remove-project")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+
+	service := newRuntimeService()
+	created, err := service.CreateProject(context.Background(), RuntimeCreateProjectRequest{Name: "Remove Me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectPath := created.Project.Path
+	projectDataDir := runtimeProjectDataDir(filepath.Join(root, "data"), projectPath)
+
+	service.mu.Lock()
+	workspaceID := service.workspace.ID
+	service.mu.Unlock()
+	session, err := service.runtime.CreateSession(context.Background(), workspaceID, "Remove terminal owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: session.ID, ID: "remove-terminal"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(projectDataDir); err != nil {
+		t.Fatalf("project data dir missing before remove: %v", err)
+	}
+
+	removed, err := service.RemoveProject(context.Background(), RuntimeProjectActionRequest{ProjectID: created.Project.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(projectPath); err != nil {
+		t.Fatalf("project directory should be kept: %v", err)
+	}
+	if _, err := os.Stat(projectDataDir); !os.IsNotExist(err) {
+		t.Fatalf("project data dir still exists or stat failed unexpectedly: %v", err)
+	}
+	if removed.Status.WorkingDir == projectPath {
+		t.Fatalf("remove response still points at removed project: %#v", removed.Status)
+	}
+	if _, err := service.WriteTerminalInput(context.Background(), "remove-terminal", RuntimeTerminalInputRequest{Data: terminalTestCommand("echo stale")}); err == nil {
+		t.Fatal("terminal should be closed after project remove")
+	}
+	service.mu.Lock()
+	terminalCount := len(service.terminalsByID)
+	ownershipCount := len(service.terminalIDsBySession)
+	service.mu.Unlock()
+	if terminalCount != 0 || ownershipCount != 0 {
+		t.Fatalf("terminal maps after project remove = terminals:%d ownership:%d, want 0/0", terminalCount, ownershipCount)
+	}
+}
+
+func TestRuntimeRemoveProjectRejectsNonCurrentProject(t *testing.T) {
+	root := runtimeDevTestRoot(t, "remove-project-invalid")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+
+	service := newRuntimeService()
+	if _, err := service.CreateProject(context.Background(), RuntimeCreateProjectRequest{Name: "Remove Current"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RemoveProject(context.Background(), RuntimeProjectActionRequest{ProjectID: "not-current"}); err == nil {
+		t.Fatal("RemoveProject accepted non-current project id")
+	}
+}
+
 func TestApplyLocalModelConfigConfiguresProvider(t *testing.T) {
 	t.Parallel()
 
@@ -2283,6 +2629,37 @@ func TestRuntimeNewChatUsesDraftSessionAndPreservesRecents(t *testing.T) {
 	}
 }
 
+func TestRuntimeCreateSessionPersistsAndSelectsSession(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	runtimeBackend, workspace := backendForSkillTest(t)
+	service.runtime = runtimeBackend
+	service.workspace = &proto.Workspace{ID: workspace.ID}
+
+	created, err := service.CreateSession(context.Background(), RuntimeSessionCreateRequest{Title: "Pinned chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Session.ID == "" || created.Session.Title != "Pinned chat" || !created.Session.Active {
+		t.Fatalf("created session = %#v", created.Session)
+	}
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.SessionID != created.Session.ID {
+		t.Fatalf("status session = %q, want %q", status.SessionID, created.Session.ID)
+	}
+	sessions, err := service.Sessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions.Sessions) != 1 || sessions.Sessions[0].ID != created.Session.ID || !sessions.Sessions[0].Active {
+		t.Fatalf("sessions = %#v", sessions.Sessions)
+	}
+}
+
 func TestRuntimeDeleteActiveSessionReturnsToDraft(t *testing.T) {
 	t.Parallel()
 
@@ -3965,6 +4342,13 @@ type recordingRuntimeService struct {
 	mcpServerCalls           int
 	status                   RuntimeStatus
 	recoveryStatus           RuntimeRecoveryStatus
+	openProjectReq           RuntimeOpenProjectRequest
+	createProjectReq         RuntimeCreateProjectRequest
+	renameProjectReq         RuntimeRenameProjectRequest
+	openProjectInExplorerReq RuntimeProjectActionRequest
+	removeProjectReq         RuntimeProjectActionRequest
+	openProject              RuntimeOpenProjectResponse
+	createSessionReq         RuntimeSessionCreateRequest
 	skills                   RuntimeSkillsResponse
 	plugins                  RuntimePluginsResponse
 	mcpServers               RuntimeMCPServersResponse
@@ -4062,6 +4446,8 @@ type recordingRuntimeService struct {
 	updatedPolicyProfile     string
 	permissionDecision       RuntimePermissionDecision
 	terminalResponse         RuntimeTerminalResponse
+	sessionTerminals         RuntimeSessionTerminalsResponse
+	sessionTerminalsID       string
 	createdTerminal          RuntimeTerminalCreateRequest
 	executedTerminalID       string
 	executedTerminalInput    RuntimeTerminalInputRequest
@@ -4081,6 +4467,31 @@ func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error)
 func (s *recordingRuntimeService) RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error) {
 	s.recoveryStatusCalls++
 	return s.recoveryStatus, nil
+}
+
+func (s *recordingRuntimeService) OpenProject(_ context.Context, req RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error) {
+	s.openProjectReq = req
+	return s.openProject, nil
+}
+
+func (s *recordingRuntimeService) CreateProject(_ context.Context, req RuntimeCreateProjectRequest) (RuntimeOpenProjectResponse, error) {
+	s.createProjectReq = req
+	return s.openProject, nil
+}
+
+func (s *recordingRuntimeService) RenameProject(_ context.Context, req RuntimeRenameProjectRequest) (RuntimeOpenProjectResponse, error) {
+	s.renameProjectReq = req
+	return s.openProject, nil
+}
+
+func (s *recordingRuntimeService) OpenProjectInExplorer(_ context.Context, req RuntimeProjectActionRequest) (RuntimeOpenProjectResponse, error) {
+	s.openProjectInExplorerReq = req
+	return s.openProject, nil
+}
+
+func (s *recordingRuntimeService) RemoveProject(_ context.Context, req RuntimeProjectActionRequest) (RuntimeOpenProjectResponse, error) {
+	s.removeProjectReq = req
+	return s.openProject, nil
 }
 
 func (s *recordingRuntimeService) Models(context.Context) (RuntimeModelsResponse, error) {
@@ -4142,6 +4553,14 @@ func (s *recordingRuntimeService) VerifyModelConfig(context.Context, RuntimeMode
 func (s *recordingRuntimeService) CreateTerminal(_ context.Context, req RuntimeTerminalCreateRequest) (RuntimeTerminalResponse, error) {
 	s.createdTerminal = req
 	return s.terminalResponse, nil
+}
+
+func (s *recordingRuntimeService) SessionTerminals(_ context.Context, sessionID string) (RuntimeSessionTerminalsResponse, error) {
+	s.sessionTerminalsID = sessionID
+	if s.sessionTerminals.SessionID == "" {
+		s.sessionTerminals.SessionID = sessionID
+	}
+	return s.sessionTerminals, nil
 }
 
 func (s *recordingRuntimeService) WriteTerminalInput(_ context.Context, terminalID string, req RuntimeTerminalInputRequest) (RuntimeTerminalResponse, error) {
@@ -4385,6 +4804,12 @@ func (s *recordingRuntimeService) Sessions(context.Context) (RuntimeSessionsResp
 
 func (s *recordingRuntimeService) Session(context.Context, string) (RuntimeSessionResponse, error) {
 	return RuntimeSessionResponse{Session: RuntimeSession{ID: s.status.SessionID, Title: "Test chat", Active: true}}, nil
+}
+
+func (s *recordingRuntimeService) CreateSession(_ context.Context, req RuntimeSessionCreateRequest) (RuntimeSessionResponse, error) {
+	s.createSessionReq = req
+	sessionID := firstNonEmpty(s.status.SessionID, "session-created")
+	return RuntimeSessionResponse{Session: RuntimeSession{ID: sessionID, Title: firstNonEmpty(req.Title, "New chat"), Active: true}}, nil
 }
 
 func (s *recordingRuntimeService) SelectSession(_ context.Context, sessionID string) (RuntimeStatus, error) {

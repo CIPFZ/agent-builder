@@ -16,7 +16,7 @@ import (
 )
 
 func (r *runtimeService) Sessions(ctx context.Context) (RuntimeSessionsResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeSessionsResponse{}, err
 	}
 	r.mu.Lock()
@@ -32,7 +32,7 @@ func (r *runtimeService) Sessions(ctx context.Context) (RuntimeSessionsResponse,
 }
 
 func (r *runtimeService) Session(ctx context.Context, sessionID string) (RuntimeSessionResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeSessionResponse{}, err
 	}
 	sessionID = strings.TrimSpace(sessionID)
@@ -51,8 +51,39 @@ func (r *runtimeService) Session(ctx context.Context, sessionID string) (Runtime
 	return RuntimeSessionResponse{Session: toRuntimeSession(sess, activeID)}, nil
 }
 
+func (r *runtimeService) CreateSession(ctx context.Context, req RuntimeSessionCreateRequest) (RuntimeSessionResponse, error) {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
+		return RuntimeSessionResponse{}, err
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = "New chat"
+	}
+	r.mu.Lock()
+	wsID := r.workspace.ID
+	r.mu.Unlock()
+	sess, err := r.runtime.CreateSession(ctx, wsID, title)
+	if err != nil {
+		return RuntimeSessionResponse{}, fmt.Errorf("failed to create Crush session: %w", err)
+	}
+	r.mu.Lock()
+	r.sessionID = sess.ID
+	r.mu.Unlock()
+	r.publishRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventSessionCreated,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID: sess.ID,
+		Payload: map[string]any{
+			"title":  sess.Title,
+			"active": true,
+		},
+	})
+	return RuntimeSessionResponse{Session: toRuntimeSession(sess, sess.ID)}, nil
+}
+
 func (r *runtimeService) SelectSession(ctx context.Context, sessionID string) (RuntimeStatus, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeStatus{}, err
 	}
 	sessionID = strings.TrimSpace(sessionID)
@@ -84,7 +115,7 @@ func (r *runtimeService) SelectSession(ctx context.Context, sessionID string) (R
 }
 
 func (r *runtimeService) RenameSession(ctx context.Context, req RuntimeSessionUpdateRequest) (RuntimeSessionsResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeSessionsResponse{}, err
 	}
 	sessionID := strings.TrimSpace(req.SessionID)
@@ -120,7 +151,7 @@ func (r *runtimeService) RenameSession(ctx context.Context, req RuntimeSessionUp
 }
 
 func (r *runtimeService) DeleteSession(ctx context.Context, sessionID string) (RuntimeSessionsResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeSessionsResponse{}, err
 	}
 	sessionID = strings.TrimSpace(sessionID)
@@ -132,6 +163,7 @@ func (r *runtimeService) DeleteSession(ctx context.Context, sessionID string) (R
 	activeID := r.sessionID
 	r.mu.Unlock()
 
+	r.closeRuntimeTerminalsForSession(sessionID, "closed", "session deleted")
 	if err := r.runtime.DeleteSession(ctx, wsID, sessionID); err != nil {
 		return RuntimeSessionsResponse{}, fmt.Errorf("failed to delete Crush session: %w", err)
 	}
@@ -150,7 +182,7 @@ func (r *runtimeService) DeleteSession(ctx context.Context, sessionID string) (R
 }
 
 func (r *runtimeService) SessionMessages(ctx context.Context, sessionID string) (RuntimeMessagesResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeMessagesResponse{}, err
 	}
 	sessionID = strings.TrimSpace(sessionID)
@@ -164,7 +196,7 @@ func (r *runtimeService) SessionMessages(ctx context.Context, sessionID string) 
 }
 
 func (r *runtimeService) SessionActivity(ctx context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeSessionActivityResponse{}, err
 	}
 	sessionID = strings.TrimSpace(sessionID)
@@ -190,7 +222,7 @@ func (r *runtimeService) SessionActivityWindow(ctx context.Context, sessionID st
 }
 
 func (r *runtimeService) SessionActivityCursorWindow(ctx context.Context, sessionID string, cursor string, limit int) (RuntimeSessionActivityWindowResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeSessionActivityWindowResponse{}, err
 	}
 	sessionID = strings.TrimSpace(sessionID)
@@ -201,7 +233,7 @@ func (r *runtimeService) SessionActivityCursorWindow(ctx context.Context, sessio
 }
 
 func (r *runtimeService) TurnActivity(ctx context.Context, turnID string) (RuntimeTurnActivityResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeTurnActivityResponse{}, err
 	}
 	turnID = strings.TrimSpace(turnID)
@@ -704,7 +736,7 @@ func (r *runtimeService) activityEventsByTurn(ctx context.Context, sessionID str
 }
 
 func (r *runtimeService) Messages(ctx context.Context) (RuntimeMessagesResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeMessagesResponse{}, err
 	}
 
@@ -740,7 +772,7 @@ func (r *runtimeService) sessionMessages(ctx context.Context, wsID, sessionID st
 }
 
 func (r *runtimeService) NewChat(ctx context.Context, title string) (RuntimeStatus, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeStatus{}, err
 	}
 

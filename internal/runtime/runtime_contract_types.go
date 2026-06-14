@@ -14,6 +14,38 @@ type RuntimeStatus struct {
 	Action      *RuntimeWriteActionMetadata `json:"action,omitempty"`
 }
 
+type RuntimeProject struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Path            string `json:"path"`
+	IsGitRepository bool   `json:"isGitRepository"`
+	Branch          string `json:"branch,omitempty"`
+	Current         bool   `json:"current"`
+}
+
+type RuntimeOpenProjectRequest struct {
+	Path          string `json:"path"`
+	CreateMissing bool   `json:"createMissing,omitempty"`
+}
+
+type RuntimeCreateProjectRequest struct {
+	Name string `json:"name"`
+}
+
+type RuntimeRenameProjectRequest struct {
+	ProjectID string `json:"projectId,omitempty"`
+	Name      string `json:"name"`
+}
+
+type RuntimeProjectActionRequest struct {
+	ProjectID string `json:"projectId,omitempty"`
+}
+
+type RuntimeOpenProjectResponse struct {
+	Project RuntimeProject `json:"project"`
+	Status  RuntimeStatus  `json:"status"`
+}
+
 type RuntimeModel struct {
 	ID                   string `json:"id"`
 	Name                 string `json:"name"`
@@ -148,19 +180,25 @@ type RuntimeChatResponse struct {
 }
 
 type RuntimeTerminal struct {
-	ID        string   `json:"id"`
-	Title     string   `json:"title,omitempty"`
-	CWD       string   `json:"cwd"`
-	Shell     string   `json:"shell"`
-	ShellPath string   `json:"shellPath,omitempty"`
-	ShellArgs []string `json:"shellArgs,omitempty"`
-	Columns   int      `json:"columns,omitempty"`
-	Rows      int      `json:"rows,omitempty"`
-	Status    string   `json:"status"`
-	ExitCode  *int     `json:"exitCode,omitempty"`
+	ID         string   `json:"id"`
+	ProjectID  string   `json:"projectId"`
+	SessionID  string   `json:"sessionId"`
+	Title      string   `json:"title,omitempty"`
+	CWD        string   `json:"cwd"`
+	InitialCWD string   `json:"initialCwd,omitempty"`
+	Shell      string   `json:"shell"`
+	ShellPath  string   `json:"shellPath,omitempty"`
+	ShellArgs  []string `json:"shellArgs,omitempty"`
+	Columns    int      `json:"columns,omitempty"`
+	Rows       int      `json:"rows,omitempty"`
+	Status     string   `json:"status"`
+	ExitCode   *int     `json:"exitCode,omitempty"`
+	CreatedAt  int64    `json:"createdAt"`
+	UpdatedAt  int64    `json:"updatedAt"`
 }
 
 type RuntimeTerminalCreateRequest struct {
+	SessionID string   `json:"sessionId"`
 	ID        string   `json:"id,omitempty"`
 	CWD       string   `json:"cwd,omitempty"`
 	ProfileID string   `json:"profileId,omitempty"`
@@ -193,6 +231,11 @@ type RuntimeTerminalEvent struct {
 
 type RuntimeTerminalResponse struct {
 	Terminal RuntimeTerminal `json:"terminal"`
+}
+
+type RuntimeSessionTerminalsResponse struct {
+	SessionID string            `json:"sessionId"`
+	Terminals []RuntimeTerminal `json:"terminals"`
 }
 
 type RuntimeTerminalStreamRequest struct {
@@ -1239,6 +1282,10 @@ type RuntimeSessionsResponse struct {
 
 type RuntimeSessionResponse struct {
 	Session RuntimeSession `json:"session"`
+}
+
+type RuntimeSessionCreateRequest struct {
+	Title string `json:"title"`
 }
 
 type RuntimeSessionUpdateRequest struct {

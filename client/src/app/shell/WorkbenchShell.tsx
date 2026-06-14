@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
-import type { WorkbenchAdapter, WorkbenchMode, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
+import type {
+  CreateProjectRequestViewModel,
+  OpenProjectRequestViewModel,
+  ProjectActionRequestViewModel,
+  RenameProjectRequestViewModel,
+  WorkbenchAdapter,
+  WorkbenchMode,
+  WorkbenchViewModel,
+} from '../../runtime/workbenchTypes.ts';
 import { runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
 import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
 import { Sidebar } from '../../features/sidebar/Sidebar.tsx';
@@ -215,9 +223,35 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     });
   };
 
-  const createProject = () => {
-    changeMode('project');
+  const openProject = async (request: OpenProjectRequestViewModel) => {
+    const nextViewModel = await adapter.openProject({ ...viewModel, mode }, request);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
   };
+
+  const createProject = async (request: CreateProjectRequestViewModel) => {
+    const nextViewModel = await adapter.createProject({ ...viewModel, mode }, request);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
+  const renameProject = async (request: RenameProjectRequestViewModel) => {
+    const nextViewModel = await adapter.renameProject({ ...viewModel, mode }, request);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
+  const openProjectInExplorer = async (request: ProjectActionRequestViewModel) => {
+    await adapter.openProjectInExplorer(request);
+  };
+
+  const removeProject = async (request: ProjectActionRequestViewModel) => {
+    const nextViewModel = await adapter.removeProject({ ...viewModel, mode }, request);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
+  const selectProjectDirectory = () => adapter.selectProjectDirectory();
 
   const selectSession = (sessionID: string) => {
     void adapter.selectSession({ ...viewModel, mode }, sessionID).then((nextViewModel) => {
@@ -326,16 +360,23 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setViewModel(nextViewModel);
   };
 
-  const createTerminal = (request: { cwd?: string; columns?: number; rows?: number }) => adapter.createTerminal(request);
+  const listSessionTerminals = useCallback((sessionID: string) => adapter.listSessionTerminals(sessionID), [adapter]);
 
-  const writeTerminalInput = (terminalID: string, data: string) => adapter.writeTerminalInput(terminalID, data);
+  const createTerminal = useCallback(
+    (request: { sessionId: string; cwd?: string; columns?: number; rows?: number }) => adapter.createTerminal(request),
+    [adapter],
+  );
 
-  const resizeTerminal = (terminalID: string, columns: number, rows: number) => adapter.resizeTerminal(terminalID, columns, rows);
+  const writeTerminalInput = useCallback((terminalID: string, data: string) => adapter.writeTerminalInput(terminalID, data), [adapter]);
 
-  const subscribeTerminalEvents = (terminalID: string, onEvent: Parameters<typeof adapter.subscribeTerminalEvents>[1]) =>
-    adapter.subscribeTerminalEvents(terminalID, onEvent);
+  const resizeTerminal = useCallback((terminalID: string, columns: number, rows: number) => adapter.resizeTerminal(terminalID, columns, rows), [adapter]);
 
-  const deleteTerminal = (terminalID: string) => adapter.deleteTerminal(terminalID);
+  const subscribeTerminalEvents = useCallback(
+    (terminalID: string, onEvent: Parameters<typeof adapter.subscribeTerminalEvents>[1]) => adapter.subscribeTerminalEvents(terminalID, onEvent),
+    [adapter],
+  );
+
+  const deleteTerminal = useCallback((terminalID: string) => adapter.deleteTerminal(terminalID), [adapter]);
 
   const selectModel = async (configuredProviderID: string, model: string) => {
     const nextViewModel = await adapter.selectModel({ ...viewModel, mode }, configuredProviderID, model);
@@ -389,7 +430,12 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const discoverProviderDraftModels = (request: Parameters<WorkbenchAdapter['discoverProviderDraftModels']>[0]) =>
     adapter.discoverProviderDraftModels(request);
 
+  const testProviderDraft = (request: Parameters<WorkbenchAdapter['testProviderDraft']>[0]) => adapter.testProviderDraft(request);
+
   const testConfiguredProvider = (providerID: string) => adapter.testConfiguredProvider(providerID);
+
+  const measureProviderDraftLatency = (request: Parameters<WorkbenchAdapter['measureProviderDraftLatency']>[0]) =>
+    adapter.measureProviderDraftLatency(request);
 
   const measureConfiguredProviderLatency = (providerID: string) => adapter.measureConfiguredProviderLatency(providerID);
 
@@ -478,6 +524,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onProviderDelete={deleteConfiguredProvider}
           onProviderDiscoverDraftModels={discoverProviderDraftModels}
           onProviderDiscoverModels={discoverConfiguredProviderModels}
+          onProviderDraftLatency={measureProviderDraftLatency}
+          onProviderDraftTest={testProviderDraft}
           onProviderLatency={measureConfiguredProviderLatency}
           onProviderSave={saveConfiguredProvider}
           onProviderTest={testConfiguredProvider}
@@ -508,6 +556,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         onCollapsedChange={setSidebarCollapsed}
         onModeChange={changeMode}
         onProjectCreate={createProject}
+        onProjectOpen={openProject}
+        onProjectRename={renameProject}
+        onProjectOpenInExplorer={openProjectInExplorer}
+        onProjectRemove={removeProject}
+        onProjectDirectorySelect={selectProjectDirectory}
         onSessionCreate={createSession}
         onSessionDelete={deleteSession}
         onSessionSelect={selectSession}
@@ -546,6 +599,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onInterruptedDone={markInterruptedDone}
           onRunCheckpointResume={resumeRunCheckpoint}
           onRunTaskExecute={executeRunTask}
+          onSessionTerminalsList={listSessionTerminals}
           onTerminalCreate={createTerminal}
           onTerminalDelete={deleteTerminal}
           onTerminalInput={writeTerminalInput}

@@ -206,22 +206,22 @@ tasks:
   frontend:dev:npm:
     dir: ../client
     cmds:
-      - npm run dev -- --port {{.VITE_PORT}} --strictPort
+      - npm run dev -- --host 127.0.0.1 --port {{.VITE_PORT}} --strictPort
 
   frontend:dev:yarn:
     dir: ../client
     cmds:
-      - yarn dev --port {{.VITE_PORT}} --strictPort
+      - yarn dev --host 127.0.0.1 --port {{.VITE_PORT}} --strictPort
 
   frontend:dev:pnpm:
     dir: ../client
     cmds:
-      - pnpm dev --port {{.VITE_PORT}} --strictPort
+      - pnpm dev --host 127.0.0.1 --port {{.VITE_PORT}} --strictPort
 
   frontend:dev:bun:
     dir: ../client
     cmds:
-      - bun run dev --port {{.VITE_PORT}} --strictPort
+      - bun run dev --host 127.0.0.1 --port {{.VITE_PORT}} --strictPort
 
   update:build-assets:
     summary: Updates the build assets

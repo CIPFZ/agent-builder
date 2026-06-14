@@ -1,18 +1,28 @@
 import { useState } from 'react';
-import { Button, ConfigProvider, Popconfirm, Tooltip } from 'antd';
+import { Alert, Button, ConfigProvider, Dropdown, Input, Modal, Popconfirm, Tooltip } from 'antd';
 import {
   CaretDownOutlined,
   CaretRightOutlined,
   DeleteOutlined,
   EditOutlined,
   FolderAddOutlined,
+  FolderOpenOutlined,
   FolderOutlined,
   LoadingOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MoreOutlined,
 } from '@ant-design/icons';
-import type { SidebarActionViewModel, WorkbenchMode, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
+import type {
+  CreateProjectRequestViewModel,
+  OpenProjectRequestViewModel,
+  ProjectActionRequestViewModel,
+  ProjectViewModel,
+  RenameProjectRequestViewModel,
+  SidebarActionViewModel,
+  WorkbenchMode,
+  WorkbenchViewModel,
+} from '../../runtime/workbenchTypes.ts';
 import { settingAction } from '../../runtime/staticWorkbenchAdapter.tsx';
 import styles from './Sidebar.module.css';
 
@@ -21,7 +31,12 @@ interface SidebarProps {
   viewModel: WorkbenchViewModel;
   onCollapsedChange: (collapsed: boolean) => void;
   onModeChange: (mode: WorkbenchMode) => void;
-  onProjectCreate: () => void;
+  onProjectCreate: (request: CreateProjectRequestViewModel) => Promise<void>;
+  onProjectOpen: (request: OpenProjectRequestViewModel) => Promise<void>;
+  onProjectRename: (request: RenameProjectRequestViewModel) => Promise<void>;
+  onProjectOpenInExplorer: (request: ProjectActionRequestViewModel) => Promise<void>;
+  onProjectRemove: (request: ProjectActionRequestViewModel) => Promise<void>;
+  onProjectDirectorySelect: () => Promise<string>;
   onSessionCreate: () => void;
   onSessionDelete: (sessionID: string) => void;
   onSessionSelect: (sessionID: string) => void;
@@ -33,12 +48,23 @@ export function Sidebar({
   onCollapsedChange,
   onModeChange,
   onProjectCreate,
+  onProjectOpen,
+  onProjectRename,
+  onProjectOpenInExplorer,
+  onProjectRemove,
+  onProjectDirectorySelect,
   onSessionCreate,
   onSessionDelete,
   onSessionSelect,
 }: SidebarProps) {
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [sessionsOpen, setSessionsOpen] = useState(true);
+  const [expandedProjectIDs, setExpandedProjectIDs] = useState<Record<string, boolean>>({});
+  const [projectDialogMode, setProjectDialogMode] = useState<'new' | 'rename' | undefined>();
+  const [projectDialogTarget, setProjectDialogTarget] = useState<ProjectViewModel | undefined>();
+  const [projectName, setProjectName] = useState('New project');
+  const [projectBusy, setProjectBusy] = useState(false);
+  const [projectError, setProjectError] = useState('');
   const newChatAction = viewModel.sidebarActions.find((action) => action.id === 'new-chat');
   const searchAction = viewModel.sidebarActions.find((action) => action.id === 'search');
   const primaryActions = viewModel.sidebarActions.filter((action) => action.id !== 'search');
@@ -53,6 +79,62 @@ export function Sidebar({
     if (action.id === 'plugins') {
       onModeChange('plugins');
     }
+  };
+  const submitProjectDialog = async () => {
+    const name = projectName.trim();
+    if (!projectDialogMode || !name) {
+      return;
+    }
+    if (!isValidProjectFolderName(name)) {
+      setProjectError('项目名称不能包含路径分隔符或 Windows 保留字符');
+      return;
+    }
+    setProjectBusy(true);
+    setProjectError('');
+    try {
+      if (projectDialogMode === 'rename') {
+        if (!projectDialogTarget) {
+          throw new Error('请选择要重命名的项目');
+        }
+        await onProjectRename({ projectId: projectDialogTarget.id, name });
+      } else {
+        await onProjectCreate({ name });
+      }
+      setProjectDialogMode(undefined);
+      setProjectDialogTarget(undefined);
+      setProjectName('New project');
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : projectDialogMode === 'rename' ? '重命名项目失败' : '创建项目失败');
+    } finally {
+      setProjectBusy(false);
+    }
+  };
+  const openExistingProject = async () => {
+    if (projectBusy) {
+      return;
+    }
+    setProjectBusy(true);
+    try {
+      const path = await onProjectDirectorySelect();
+      if (!path.trim()) {
+        return;
+      }
+      await onProjectOpen({ path: path.trim() });
+    } catch (error) {
+      Modal.error({
+        title: '无法选择文件夹',
+        content: error instanceof Error ? error.message : '打开项目失败',
+      });
+    } finally {
+      setProjectBusy(false);
+    }
+  };
+  const isProjectExpanded = (projectID: string) => Boolean(expandedProjectIDs[projectID]);
+  const toggleProjectSessions = (projectID: string) => {
+    setExpandedProjectIDs((current) => ({
+      ...current,
+      [projectID]: !current[projectID],
+    }));
   };
 
   if (collapsed) {
@@ -179,23 +261,126 @@ export function Sidebar({
                 />
                 <div className={styles.groupActions}>
                   <Button aria-label="项目更多操作" icon={<MoreOutlined />} size="small" type="text" />
-                  <Button aria-label="添加项目" icon={<FolderAddOutlined />} size="small" type="text" onClick={onProjectCreate} />
+                  <Dropdown
+                    trigger={['click']}
+                    menu={{
+                      items: [
+                        { key: 'new', disabled: projectBusy, icon: <FolderAddOutlined />, label: '新建空白项目' },
+                        { key: 'existing', disabled: projectBusy, icon: <FolderOpenOutlined />, label: '使用现有文件夹' },
+                      ],
+                      onClick: ({ key }) => {
+                        if (key === 'existing') {
+                          void openExistingProject();
+                          return;
+                        }
+                        setProjectDialogMode('new');
+                        setProjectDialogTarget(undefined);
+                        setProjectName('New project');
+                        setProjectError('');
+                      },
+                    }}
+                  >
+                    <Button aria-label="添加项目" icon={<FolderAddOutlined />} size="small" type="text" />
+                  </Dropdown>
                 </div>
               </div>
               {projectsOpen && (
                 <div className={styles.list} data-testid="project-list">
-                  {viewModel.projects.map((project) => (
-                    <Button
-                      key={project.id}
-                      className={`${styles.rowButton} ${project.current ? styles.currentRow : ''}`}
-                      block
-                      type="text"
-                      onClick={() => onModeChange('project')}
-                    >
-                      <FolderOutlined />
-                      <span className={styles.rowText}>{project.name}</span>
-                    </Button>
-                  ))}
+                  {viewModel.projects.map((project) => {
+                    const projectExpanded = isProjectExpanded(project.id);
+                    return (
+                      <div key={project.id} className={styles.projectBlock} data-project-id={project.id}>
+                        <div className={`${styles.projectRow} ${project.current ? styles.currentRow : ''}`}>
+                          <Button className={styles.projectMainButton} type="text" onClick={() => onModeChange('project')}>
+                            <FolderOutlined />
+                            <span className={styles.rowText}>{project.name}</span>
+                          </Button>
+                          <Button
+                            aria-label={projectExpanded ? `收起项目对话 ${project.name}` : `展开项目对话 ${project.name}`}
+                            aria-expanded={projectExpanded}
+                            className={styles.projectInlineButton}
+                            icon={projectExpanded ? <CaretDownOutlined /> : <CaretRightOutlined />}
+                            size="small"
+                            type="text"
+                            onClick={() => toggleProjectSessions(project.id)}
+                          />
+                          <div className={styles.projectRowActions}>
+                        <Dropdown
+                          trigger={['click']}
+                          menu={{
+                            items: [
+                              { key: 'rename', icon: <EditOutlined />, label: '重命名项目' },
+                              { key: 'open-explorer', icon: <FolderOpenOutlined />, label: '在资源管理器打开' },
+                              { type: 'divider' },
+                              { key: 'remove', danger: true, icon: <DeleteOutlined />, label: '移除' },
+                            ],
+                            onClick: ({ key }) => {
+                              if (key === 'rename') {
+                                setProjectDialogMode('rename');
+                                setProjectDialogTarget(project);
+                                setProjectName(project.name);
+                                setProjectError('');
+                                return;
+                              }
+                              if (key === 'open-explorer') {
+                                void onProjectOpenInExplorer({ projectId: project.id }).catch((error) => {
+                                  Modal.error({
+                                    title: '无法在资源管理器打开',
+                                    content: error instanceof Error ? error.message : '打开项目文件夹失败',
+                                  });
+                                });
+                                return;
+                              }
+                              if (key === 'remove') {
+                                Modal.confirm({
+                                  title: '移除项目',
+                                  content: '只会从应用中移除项目记录和相关会话数据，不会物理删除项目文件夹。',
+                                  okText: '移除',
+                                  cancelText: '取消',
+                                  okButtonProps: { danger: true },
+                                  onOk: () => onProjectRemove({ projectId: project.id }),
+                                });
+                                return;
+                              }
+                            },
+                          }}
+                        >
+                          <Button
+                            aria-label={`项目更多操作 ${project.name}`}
+                            className={styles.projectActionButton}
+                            icon={<MoreOutlined />}
+                            size="small"
+                            type="text"
+                          />
+                        </Dropdown>
+                        <Button
+                          aria-label={`在项目 ${project.name} 中新建对话`}
+                          className={styles.projectActionButton}
+                          icon={<EditOutlined />}
+                          size="small"
+                          type="text"
+                          onClick={onSessionCreate}
+                        />
+                          </div>
+                        </div>
+                        {projectExpanded && (
+                          <div className={styles.projectSessionList}>
+                            {viewModel.sessions.map((session) => (
+                              <Button
+                                key={session.id}
+                                className={`${styles.projectSessionButton} ${session.active ? styles.currentRow : ''}`}
+                                block
+                                type="text"
+                                onClick={() => onSessionSelect(session.id)}
+                              >
+                                <span className={styles.projectSessionTitle}>{session.title}</span>
+                              </Button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </section>
@@ -285,7 +470,50 @@ export function Sidebar({
             </Button>
           </Tooltip>
         </div>
+        <Modal
+          centered
+          className={styles.projectNameModal}
+          width={420}
+          title={
+            <div className={styles.projectNameTitleBlock}>
+              <div className={styles.projectNameTitle}>{projectDialogMode === 'rename' ? 'Rename project' : 'Name project'}</div>
+              <div className={styles.projectNameSubtitle}>{projectDialogMode === 'rename' ? 'Keep it short and recognizable' : 'Keep it short and recognizable'}</div>
+            </div>
+          }
+          open={Boolean(projectDialogMode)}
+          okText="保存"
+          cancelText="取消"
+          confirmLoading={projectBusy}
+          okButtonProps={{ disabled: !projectName.trim(), className: styles.projectNameSaveButton }}
+          cancelButtonProps={{ className: styles.projectNameCancelButton }}
+          onCancel={() => {
+            if (!projectBusy) {
+              setProjectDialogMode(undefined);
+              setProjectDialogTarget(undefined);
+              setProjectName('New project');
+              setProjectError('');
+            }
+          }}
+          onOk={submitProjectDialog}
+        >
+          <Input
+            autoFocus
+            className={styles.projectNameInput}
+            placeholder="New project"
+            value={projectName}
+            onChange={(event) => setProjectName(event.target.value)}
+            onPressEnter={() => {
+              void submitProjectDialog();
+            }}
+          />
+          <div className={styles.projectNameHint}>{projectDialogMode === 'rename' ? `Renames folder: ${projectDialogTarget?.path ?? ''}` : 'Creates under the desktop app data/projects directory.'}</div>
+          {projectError ? <Alert message={projectError} type="error" showIcon style={{ marginTop: 12 }} /> : null}
+        </Modal>
       </aside>
     </ConfigProvider>
   );
+}
+
+function isValidProjectFolderName(name: string) {
+  return Boolean(name.trim()) && !/[\\/:*?"<>|]/.test(name) && name !== '.' && name !== '..';
 }

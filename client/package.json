@@ -25,6 +25,7 @@
     "smoke:phase46": "node scripts/phase46-status-writer-adapter-reread-smoke.mjs",
     "smoke:phase484": "node scripts/phase484-run-summary-adapter-smoke.mjs",
     "smoke:phase5010": "node scripts/phase5010-checkpoint-marker-adapter-smoke.mjs",
+    "smoke:phase55-terminal": "node scripts/phase55-terminal-ownership-adapter-smoke.mjs",
     "smoke:scheduler": "npm run smoke:phase281 && npm run smoke:phase291 && npm run smoke:phase331"
   },
   "dependencies": {

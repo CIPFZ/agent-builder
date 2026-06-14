@@ -11,6 +11,24 @@ export interface ProjectViewModel {
   current?: boolean;
 }
 
+export interface OpenProjectRequestViewModel {
+  path: string;
+  createMissing?: boolean;
+}
+
+export interface CreateProjectRequestViewModel {
+  name: string;
+}
+
+export interface RenameProjectRequestViewModel {
+  projectId: string;
+  name: string;
+}
+
+export interface ProjectActionRequestViewModel {
+  projectId: string;
+}
+
 export interface SessionViewModel {
   id: string;
   title: string;
@@ -440,8 +458,11 @@ export interface ProviderDraftDiscoveryRequestViewModel {
 
 export interface TerminalViewModel {
   id: string;
+  projectId?: string;
+  sessionId: string;
   title?: string;
   cwd: string;
+  initialCwd?: string;
   shell: string;
   shellPath?: string;
   shellArgs?: string[];
@@ -449,6 +470,8 @@ export interface TerminalViewModel {
   rows?: number;
   status: string;
   exitCode?: number;
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 export interface TerminalEventViewModel {
@@ -601,6 +624,12 @@ export interface WorkbenchAdapter {
   loadInitialViewModel: (mode?: WorkbenchMode) => Promise<WorkbenchViewModel>;
   refresh: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
   subscribeRuntimeEvents?: (onEvent: (event: RuntimeEventViewModel) => void) => Promise<() => void> | (() => void);
+  openProject: (current: WorkbenchViewModel, request: OpenProjectRequestViewModel) => Promise<WorkbenchViewModel>;
+  createProject: (current: WorkbenchViewModel, request: CreateProjectRequestViewModel) => Promise<WorkbenchViewModel>;
+  renameProject: (current: WorkbenchViewModel, request: RenameProjectRequestViewModel) => Promise<WorkbenchViewModel>;
+  openProjectInExplorer: (request: ProjectActionRequestViewModel) => Promise<void>;
+  removeProject: (current: WorkbenchViewModel, request: ProjectActionRequestViewModel) => Promise<WorkbenchViewModel>;
+  selectProjectDirectory: () => Promise<string>;
   createSession: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
   selectSession: (current: WorkbenchViewModel, sessionID: string) => Promise<WorkbenchViewModel>;
   renameSession: (current: WorkbenchViewModel, sessionID: string, title: string) => Promise<WorkbenchViewModel>;
@@ -617,7 +646,8 @@ export interface WorkbenchAdapter {
     request: RunSchedulerPlanRequestViewModel,
   ) => Promise<RunSchedulerTaskCandidateViewModel[]>;
   executeRunTask: (current: WorkbenchViewModel, runID: string, taskID: string) => Promise<WorkbenchViewModel>;
-  createTerminal: (request: { cwd?: string; columns?: number; rows?: number }) => Promise<TerminalViewModel>;
+  listSessionTerminals: (sessionID: string) => Promise<TerminalViewModel[]>;
+  createTerminal: (request: { sessionId: string; cwd?: string; columns?: number; rows?: number }) => Promise<TerminalViewModel>;
   writeTerminalInput: (terminalID: string, data: string) => Promise<TerminalViewModel>;
   resizeTerminal: (terminalID: string, columns: number, rows: number) => Promise<TerminalViewModel>;
   subscribeTerminalEvents: (terminalID: string, onEvent: (event: TerminalEventViewModel) => void) => Promise<() => void> | (() => void);
@@ -629,7 +659,9 @@ export interface WorkbenchAdapter {
   deleteConfiguredProvider: (current: WorkbenchViewModel, providerID: string) => Promise<WorkbenchViewModel>;
   discoverProviderDraftModels: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderModelDiscoveryViewModel>;
   discoverConfiguredProviderModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
+  testProviderDraft: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   testConfiguredProvider: (providerID: string) => Promise<ProviderTestViewModel>;
+  measureProviderDraftLatency: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   measureConfiguredProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;
   refreshSkills: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
   setSkillEnabled: (current: WorkbenchViewModel, name: string, enabled: boolean) => Promise<WorkbenchViewModel>;

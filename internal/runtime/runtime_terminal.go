@@ -32,8 +32,11 @@ var errRuntimeTerminalMissing = errors.New("terminal session not found")
 type runtimeTerminalState struct {
 	mu          sync.Mutex
 	ID          string
+	ProjectID   string
+	SessionID   string
 	Title       string
 	CWD         string
+	InitialCWD  string
 	Shell       string
 	ShellPath   string
 	ShellArgs   []string
@@ -41,6 +44,8 @@ type runtimeTerminalState struct {
 	Rows        int
 	Status      string
 	ExitCode    *int
+	CreatedAt   int64
+	UpdatedAt   int64
 	Error       string
 	PTY         pty.Pty
 	Command     *pty.Cmd
@@ -91,9 +96,20 @@ func (s *runtimeTerminalSubscriber) close() {
 }
 
 func (r *runtimeService) CreateTerminal(ctx context.Context, req RuntimeTerminalCreateRequest) (RuntimeTerminalResponse, error) {
-	cwd, err := r.runtimeTerminalInitialCWD(ctx, req.CWD)
+	sessionID := strings.TrimSpace(req.SessionID)
+	if sessionID == "" {
+		return RuntimeTerminalResponse{}, errors.New("terminal session id is required")
+	}
+	projectID, projectPath, err := r.runtimeTerminalProject(ctx, sessionID)
 	if err != nil {
 		return RuntimeTerminalResponse{}, err
+	}
+	cwd, err := runtimeTerminalInitialCWD(projectPath, req.CWD)
+	if err != nil {
+		return RuntimeTerminalResponse{}, err
+	}
+	if !isPathInside(projectPath, cwd) {
+		return RuntimeTerminalResponse{}, fmt.Errorf("terminal cwd %s is outside project path %s", cwd, projectPath)
 	}
 	profile, err := runtimeTerminalProfile(req)
 	if err != nil {
@@ -125,16 +141,22 @@ func (r *runtimeService) CreateTerminal(ctx context.Context, req RuntimeTerminal
 		return RuntimeTerminalResponse{}, err
 	}
 
+	now := time.Now().UnixMilli()
 	state := &runtimeTerminalState{
 		ID:          id,
+		ProjectID:   projectID,
+		SessionID:   sessionID,
 		Title:       profile.title,
 		CWD:         cwd,
+		InitialCWD:  cwd,
 		Shell:       profile.name,
 		ShellPath:   profile.path,
 		ShellArgs:   append([]string(nil), profile.args...),
 		Columns:     columns,
 		Rows:        rows,
 		Status:      "running",
+		CreatedAt:   now,
+		UpdatedAt:   now,
 		PTY:         terminalPTY,
 		Command:     cmd,
 		Cancel:      cancel,
@@ -142,11 +164,21 @@ func (r *runtimeService) CreateTerminal(ctx context.Context, req RuntimeTerminal
 	}
 
 	r.mu.Lock()
-	if r.terminals == nil {
-		r.terminals = make(map[string]*runtimeTerminalState)
+	if r.terminalsByID == nil {
+		r.terminalsByID = make(map[string]*runtimeTerminalState)
 	}
-	previous := r.terminals[id]
-	r.terminals[id] = state
+	if r.terminalIDsBySession == nil {
+		r.terminalIDsBySession = make(map[string]map[string]struct{})
+	}
+	previous := r.terminalsByID[id]
+	if previous != nil {
+		r.removeRuntimeTerminalOwnershipLocked(previous.SessionID, id)
+	}
+	r.terminalsByID[id] = state
+	if r.terminalIDsBySession[sessionID] == nil {
+		r.terminalIDsBySession[sessionID] = make(map[string]struct{})
+	}
+	r.terminalIDsBySession[sessionID][id] = struct{}{}
 	r.mu.Unlock()
 	if previous != nil {
 		previous.close("closed", nil, "replaced by a new terminal with the same id")
@@ -156,6 +188,31 @@ func (r *runtimeService) CreateTerminal(ctx context.Context, req RuntimeTerminal
 	go state.waitLoop()
 
 	return RuntimeTerminalResponse{Terminal: state.dto()}, nil
+}
+
+func (r *runtimeService) SessionTerminals(ctx context.Context, sessionID string) (RuntimeSessionTerminalsResponse, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return RuntimeSessionTerminalsResponse{}, errors.New("session id is required")
+	}
+	if _, _, err := r.runtimeTerminalProject(ctx, sessionID); err != nil {
+		return RuntimeSessionTerminalsResponse{}, err
+	}
+
+	r.mu.Lock()
+	states := make([]*runtimeTerminalState, 0, len(r.terminalIDsBySession[sessionID]))
+	for id := range r.terminalIDsBySession[sessionID] {
+		if state := r.terminalsByID[id]; state != nil {
+			states = append(states, state)
+		}
+	}
+	r.mu.Unlock()
+
+	terminals := make([]RuntimeTerminal, 0, len(states))
+	for _, state := range states {
+		terminals = append(terminals, state.dto())
+	}
+	return RuntimeSessionTerminalsResponse{SessionID: sessionID, Terminals: terminals}, nil
 }
 
 func (r *runtimeService) WriteTerminalInput(_ context.Context, terminalID string, req RuntimeTerminalInputRequest) (RuntimeTerminalResponse, error) {
@@ -271,7 +328,8 @@ func (r *runtimeService) DeleteTerminal(_ context.Context, terminalID string) (R
 	state.close("closed", nil, "")
 
 	r.mu.Lock()
-	delete(r.terminals, strings.TrimSpace(terminalID))
+	delete(r.terminalsByID, strings.TrimSpace(terminalID))
+	r.removeRuntimeTerminalOwnershipLocked(state.SessionID, strings.TrimSpace(terminalID))
 	r.mu.Unlock()
 
 	return RuntimeTerminalResponse{Terminal: state.dto()}, nil
@@ -279,14 +337,36 @@ func (r *runtimeService) DeleteTerminal(_ context.Context, terminalID string) (R
 
 func (r *runtimeService) closeRuntimeTerminals(status, errorText string) {
 	r.mu.Lock()
-	terminals := make([]*runtimeTerminalState, 0, len(r.terminals))
-	for _, state := range r.terminals {
+	terminals := make([]*runtimeTerminalState, 0, len(r.terminalsByID))
+	for _, state := range r.terminalsByID {
 		terminals = append(terminals, state)
 	}
-	r.terminals = make(map[string]*runtimeTerminalState)
+	r.terminalsByID = make(map[string]*runtimeTerminalState)
+	r.terminalIDsBySession = make(map[string]map[string]struct{})
 	r.mu.Unlock()
 
 	for _, state := range terminals {
+		state.close(status, nil, errorText)
+	}
+}
+
+func (r *runtimeService) closeRuntimeTerminalsForSession(sessionID, status, errorText string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	r.mu.Lock()
+	states := make([]*runtimeTerminalState, 0, len(r.terminalIDsBySession[sessionID]))
+	for id := range r.terminalIDsBySession[sessionID] {
+		if state := r.terminalsByID[id]; state != nil {
+			states = append(states, state)
+		}
+		delete(r.terminalsByID, id)
+	}
+	delete(r.terminalIDsBySession, sessionID)
+	r.mu.Unlock()
+
+	for _, state := range states {
 		state.close(status, nil, errorText)
 	}
 }
@@ -297,7 +377,7 @@ func (r *runtimeService) runtimeTerminal(terminalID string) (*runtimeTerminalSta
 		return nil, errRuntimeTerminalMissing
 	}
 	r.mu.Lock()
-	state := r.terminals[terminalID]
+	state := r.terminalsByID[terminalID]
 	r.mu.Unlock()
 	if state == nil {
 		return nil, errRuntimeTerminalMissing
@@ -355,6 +435,7 @@ func (s *runtimeTerminalState) close(status string, exitCode *int, errorText str
 	s.Status = status
 	s.ExitCode = exitCode
 	s.Error = errorText
+	s.UpdatedAt = time.Now().UnixMilli()
 	cancel := s.Cancel
 	ptyHandle := s.PTY
 	process := s.Command.Process
@@ -429,16 +510,21 @@ func (s *runtimeTerminalState) dto() RuntimeTerminal {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return RuntimeTerminal{
-		ID:        s.ID,
-		Title:     s.Title,
-		CWD:       s.CWD,
-		Shell:     s.Shell,
-		ShellPath: s.ShellPath,
-		ShellArgs: append([]string(nil), s.ShellArgs...),
-		Columns:   s.Columns,
-		Rows:      s.Rows,
-		Status:    s.Status,
-		ExitCode:  s.ExitCode,
+		ID:         s.ID,
+		ProjectID:  s.ProjectID,
+		SessionID:  s.SessionID,
+		Title:      s.Title,
+		CWD:        s.CWD,
+		InitialCWD: s.InitialCWD,
+		Shell:      s.Shell,
+		ShellPath:  s.ShellPath,
+		ShellArgs:  append([]string(nil), s.ShellArgs...),
+		Columns:    s.Columns,
+		Rows:       s.Rows,
+		Status:     s.Status,
+		ExitCode:   s.ExitCode,
+		CreatedAt:  s.CreatedAt,
+		UpdatedAt:  s.UpdatedAt,
 	}
 }
 
@@ -446,25 +532,57 @@ func runtimeTerminalEventSize(event RuntimeTerminalEvent) int {
 	return len(event.Data) + len(event.BinaryB64) + len(event.Error)
 }
 
-func (r *runtimeService) runtimeTerminalInitialCWD(ctx context.Context, requested string) (string, error) {
+func (r *runtimeService) runtimeTerminalProject(ctx context.Context, sessionID string) (string, string, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return "", "", err
+	}
+	r.mu.Lock()
+	if r.workspace == nil || r.runtime == nil {
+		r.mu.Unlock()
+		return "", "", errors.New("runtime project is not initialized")
+	}
+	projectID := r.workspace.ID
+	projectPath := r.workspace.Path
+	backend := r.runtime
+	r.mu.Unlock()
+
+	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(projectPath) == "" {
+		return "", "", errors.New("runtime project is not initialized")
+	}
+	if _, err := backend.GetSession(ctx, projectID, sessionID); err != nil {
+		return "", "", fmt.Errorf("failed to read terminal session: %w", err)
+	}
+	projectPath, err := cleanTerminalCWD(projectPath)
+	if err != nil {
+		return "", "", err
+	}
+	return projectID, projectPath, nil
+}
+
+func runtimeTerminalInitialCWD(projectPath, requested string) (string, error) {
 	if strings.TrimSpace(requested) != "" {
 		return cleanTerminalCWD(requested)
 	}
-	r.mu.Lock()
-	if r.workspace != nil && strings.TrimSpace(r.workspace.Path) != "" {
-		cwd := r.workspace.Path
-		r.mu.Unlock()
-		return cleanTerminalCWD(cwd)
+	return cleanTerminalCWD(projectPath)
+}
+
+func (r *runtimeService) removeRuntimeTerminalOwnershipLocked(sessionID, terminalID string) {
+	if r.terminalIDsBySession == nil {
+		return
 	}
-	r.mu.Unlock()
-	status, err := r.Status(ctx)
-	if err == nil && strings.TrimSpace(status.WorkingDir) != "" {
-		return cleanTerminalCWD(status.WorkingDir)
+	sessionID = strings.TrimSpace(sessionID)
+	terminalID = strings.TrimSpace(terminalID)
+	if sessionID == "" || terminalID == "" {
+		return
 	}
-	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
-		return cleanTerminalCWD(cwd)
+	ids := r.terminalIDsBySession[sessionID]
+	if ids == nil {
+		return
 	}
-	return "", err
+	delete(ids, terminalID)
+	if len(ids) == 0 {
+		delete(r.terminalIDsBySession, sessionID)
+	}
 }
 
 func cleanTerminalCWD(cwd string) (string, error) {

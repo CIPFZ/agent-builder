@@ -15,6 +15,11 @@ import (
 type RuntimeService interface {
 	Status(context.Context) (RuntimeStatus, error)
 	RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error)
+	OpenProject(context.Context, RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error)
+	CreateProject(context.Context, RuntimeCreateProjectRequest) (RuntimeOpenProjectResponse, error)
+	RenameProject(context.Context, RuntimeRenameProjectRequest) (RuntimeOpenProjectResponse, error)
+	OpenProjectInExplorer(context.Context, RuntimeProjectActionRequest) (RuntimeOpenProjectResponse, error)
+	RemoveProject(context.Context, RuntimeProjectActionRequest) (RuntimeOpenProjectResponse, error)
 	Models(context.Context) (RuntimeModelsResponse, error)
 	SelectedModel(context.Context) (RuntimeSelectedModelResponse, error)
 	SaveSelectedModel(context.Context, RuntimeSelectedModelRequest) (RuntimeSelectedModelResponse, error)
@@ -29,6 +34,7 @@ type RuntimeService interface {
 	SaveModelConfig(context.Context, RuntimeModelConfig) (RuntimeConfigResponse, error)
 	DiscoverModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelDiscoveryResponse, error)
 	VerifyModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelVerifyResponse, error)
+	SessionTerminals(context.Context, string) (RuntimeSessionTerminalsResponse, error)
 	CreateTerminal(context.Context, RuntimeTerminalCreateRequest) (RuntimeTerminalResponse, error)
 	WriteTerminalInput(context.Context, string, RuntimeTerminalInputRequest) (RuntimeTerminalResponse, error)
 	ResizeTerminal(context.Context, string, RuntimeTerminalResizeRequest) (RuntimeTerminalResponse, error)
@@ -78,6 +84,7 @@ type RuntimeService interface {
 	TurnTodos(context.Context, string) (RuntimeTodosResponse, error)
 	Sessions(context.Context) (RuntimeSessionsResponse, error)
 	Session(context.Context, string) (RuntimeSessionResponse, error)
+	CreateSession(context.Context, RuntimeSessionCreateRequest) (RuntimeSessionResponse, error)
 	SelectSession(context.Context, string) (RuntimeStatus, error)
 	RenameSession(context.Context, RuntimeSessionUpdateRequest) (RuntimeSessionsResponse, error)
 	DeleteSession(context.Context, string) (RuntimeSessionsResponse, error)
@@ -134,42 +141,46 @@ type RuntimeService interface {
 
 // runtimeService owns workspace, session, and agent lifecycle.
 type runtimeService struct {
-	mu                sync.Mutex
-	startMu           sync.Mutex
-	starting          bool
-	runtime           *backend.Backend
-	workspace         *proto.Workspace
-	sessionID         string
-	runtimeCtx        context.Context
-	cancel            context.CancelFunc
-	eventStats        runtimeEventStats
-	requests          map[string]runtimeRequestState
-	sessionTurns      map[string]string
-	toolEvents        map[string]runtimeToolEventState
-	toolCalls         runtimeToolCallStore
-	refs              runtimeRefStore
-	compactBoundaries runtimeCompactBoundaryStore
-	worktrees         runtimeWorktreeStore
-	sandboxDecisions  runtimeSandboxDecisionStore
-	hookExecutions    runtimeHookExecutionStore
-	agentTasks        runtimeAgentTaskStore
-	turns             runtimeTurnStore
-	eventStore        runtimeEventStore
-	permissionStore   runtimePermissionStore
-	mcpRequestStore   runtimeMCPRequestStore
-	runs              runtimeRunStore
-	transitions       runtimeRunTransitionStore
-	agentTaskRunner   runtimeAgentTaskRunner
-	permissions       map[string]pendingRuntimePermission
-	policy            RuntimePolicy
-	capabilityLoads   map[string]runtimeCapabilityLoadRecord
-	toolDiscovery     runtimeToolDiscoveryState
-	terminals         map[string]*runtimeTerminalState
-	recovery          runtimeRecoveryRecord
-	events            []RuntimeEvent
-	nextEventSequence int64
-	eventStream       *runtimeSSEServer
-	httpAPI           *runtimeHTTPServer
+	mu                   sync.Mutex
+	startMu              sync.Mutex
+	starting             bool
+	runtime              *backend.Backend
+	workspace            *proto.Workspace
+	runtimeConfigured    bool
+	runtimeConfigKnown   bool
+	projectPath          string
+	sessionID            string
+	runtimeCtx           context.Context
+	cancel               context.CancelFunc
+	eventStats           runtimeEventStats
+	requests             map[string]runtimeRequestState
+	sessionTurns         map[string]string
+	toolEvents           map[string]runtimeToolEventState
+	toolCalls            runtimeToolCallStore
+	refs                 runtimeRefStore
+	compactBoundaries    runtimeCompactBoundaryStore
+	worktrees            runtimeWorktreeStore
+	sandboxDecisions     runtimeSandboxDecisionStore
+	hookExecutions       runtimeHookExecutionStore
+	agentTasks           runtimeAgentTaskStore
+	turns                runtimeTurnStore
+	eventStore           runtimeEventStore
+	permissionStore      runtimePermissionStore
+	mcpRequestStore      runtimeMCPRequestStore
+	runs                 runtimeRunStore
+	transitions          runtimeRunTransitionStore
+	agentTaskRunner      runtimeAgentTaskRunner
+	permissions          map[string]pendingRuntimePermission
+	policy               RuntimePolicy
+	capabilityLoads      map[string]runtimeCapabilityLoadRecord
+	toolDiscovery        runtimeToolDiscoveryState
+	terminalsByID        map[string]*runtimeTerminalState
+	terminalIDsBySession map[string]map[string]struct{}
+	recovery             runtimeRecoveryRecord
+	events               []RuntimeEvent
+	nextEventSequence    int64
+	eventStream          *runtimeSSEServer
+	httpAPI              *runtimeHTTPServer
 }
 
 type RuntimeEvent = runtimeapi.Event

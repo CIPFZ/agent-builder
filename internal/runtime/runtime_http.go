@@ -143,6 +143,38 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/runtime/status":
 		value, err := s.service.Status(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/projects/open":
+		var req RuntimeOpenProjectRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.OpenProject(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/projects":
+		var req RuntimeCreateProjectRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.CreateProject(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && projectRenamePathID(r.URL.Path) != "":
+		var req RuntimeRenameProjectRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		req.ProjectID = projectRenamePathID(r.URL.Path)
+		value, err := s.service.RenameProject(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && projectOpenExplorerPathID(r.URL.Path) != "":
+		value, err := s.service.OpenProjectInExplorer(r.Context(), RuntimeProjectActionRequest{
+			ProjectID: projectOpenExplorerPathID(r.URL.Path),
+		})
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodDelete && projectPathID(r.URL.Path) != "":
+		value, err := s.service.RemoveProject(r.Context(), RuntimeProjectActionRequest{
+			ProjectID: projectPathID(r.URL.Path),
+		})
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/recovery/status":
 		value, err := s.service.RecoveryStatus(r.Context())
 		writeRuntimeResult(w, value, err)
@@ -239,9 +271,14 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		value, err := s.service.DecidePermission(r.Context(), req)
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/sessions":
-		var req struct {
-			Title string `json:"title"`
+		var req RuntimeSessionCreateRequest
+		if r.Body != nil && r.ContentLength != 0 && !decodeRuntimeJSON(w, r, &req) {
+			return
 		}
+		value, err := s.service.CreateSession(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/runtime/new-chat":
+		var req RuntimeSessionCreateRequest
 		if r.Body != nil && r.ContentLength != 0 && !decodeRuntimeJSON(w, r, &req) {
 			return
 		}
@@ -258,6 +295,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionActivityWindowPathID(r.URL.Path) != "":
 		value, err := s.service.SessionActivityCursorWindow(r.Context(), sessionActivityWindowPathID(r.URL.Path), runtimeQueryCursor(r), runtimeQueryLimit(r))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionTerminalsPathID(r.URL.Path) != "":
+		value, err := s.service.SessionTerminals(r.Context(), sessionTerminalsPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionRunProjectionPathID(r.URL.Path) != "":
 		value, err := s.service.RunProjection(r.Context(), RuntimeRunProjectionRequest{
@@ -743,13 +783,58 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 	case method == http.MethodGet && path == "/v1/runtime/status":
 		value, err := s.service.Status(r.Context())
 		return value, err, true
+	case method == http.MethodPost && path == "/v1/projects/open":
+		var req RuntimeOpenProjectRequest
+		if strings.TrimSpace(body) != "" {
+			if err := json.Unmarshal([]byte(body), &req); err != nil {
+				return nil, err, true
+			}
+		}
+		value, err := s.service.OpenProject(r.Context(), req)
+		return value, err, true
+	case method == http.MethodPost && path == "/v1/projects":
+		var req RuntimeCreateProjectRequest
+		if strings.TrimSpace(body) != "" {
+			if err := json.Unmarshal([]byte(body), &req); err != nil {
+				return nil, err, true
+			}
+		}
+		value, err := s.service.CreateProject(r.Context(), req)
+		return value, err, true
+	case method == http.MethodPost && projectRenamePathID(path) != "":
+		var req RuntimeRenameProjectRequest
+		if strings.TrimSpace(body) != "" {
+			if err := json.Unmarshal([]byte(body), &req); err != nil {
+				return nil, err, true
+			}
+		}
+		req.ProjectID = projectRenamePathID(path)
+		value, err := s.service.RenameProject(r.Context(), req)
+		return value, err, true
+	case method == http.MethodPost && projectOpenExplorerPathID(path) != "":
+		value, err := s.service.OpenProjectInExplorer(r.Context(), RuntimeProjectActionRequest{
+			ProjectID: projectOpenExplorerPathID(path),
+		})
+		return value, err, true
+	case method == http.MethodDelete && projectPathID(path) != "":
+		value, err := s.service.RemoveProject(r.Context(), RuntimeProjectActionRequest{
+			ProjectID: projectPathID(path),
+		})
+		return value, err, true
 	case method == http.MethodGet && path == "/v1/sessions":
 		value, err := s.service.Sessions(r.Context())
 		return value, err, true
 	case method == http.MethodPost && path == "/v1/sessions":
-		var req struct {
-			Title string `json:"title"`
+		var req RuntimeSessionCreateRequest
+		if strings.TrimSpace(body) != "" {
+			if err := json.Unmarshal([]byte(body), &req); err != nil {
+				return nil, err, true
+			}
 		}
+		value, err := s.service.CreateSession(r.Context(), req)
+		return value, err, true
+	case method == http.MethodPost && path == "/v1/runtime/new-chat":
+		var req RuntimeSessionCreateRequest
 		if strings.TrimSpace(body) != "" {
 			if err := json.Unmarshal([]byte(body), &req); err != nil {
 				return nil, err, true
@@ -768,6 +853,9 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 		return value, err, true
 	case method == http.MethodGet && sessionActivityWindowPathID(path) != "":
 		value, err := s.service.SessionActivityCursorWindow(r.Context(), sessionActivityWindowPathID(path), runtimeDevModuleCursor(r, pathQuery), runtimeDevModuleLimit(r, pathQuery))
+		return value, err, true
+	case method == http.MethodGet && sessionTerminalsPathID(path) != "":
+		value, err := s.service.SessionTerminals(r.Context(), sessionTerminalsPathID(path))
 		return value, err, true
 	case method == http.MethodGet && sessionRunProjectionPathID(path) != "":
 		value, err := s.service.RunProjection(r.Context(), RuntimeRunProjectionRequest{
@@ -1282,6 +1370,25 @@ func terminalPathID(path string) string {
 	return id
 }
 
+func projectRenamePathID(path string) string {
+	return trimPathID(path, "/v1/projects/", "/rename")
+}
+
+func projectOpenExplorerPathID(path string) string {
+	return trimPathID(path, "/v1/projects/", "/open-explorer")
+}
+
+func projectPathID(path string) string {
+	if strings.HasSuffix(path, "/rename") || strings.HasSuffix(path, "/open-explorer") {
+		return ""
+	}
+	id := strings.TrimPrefix(path, "/v1/projects/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
 func terminalStreamPathID(path string) string {
 	return trimPathID(path, "/v1/terminals/", "/stream")
 }
@@ -1307,6 +1414,10 @@ func sessionActivityPathID(path string) string {
 
 func sessionActivityWindowPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/activity-window")
+}
+
+func sessionTerminalsPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/terminals")
 }
 
 func sessionRunProjectionPathID(path string) string {

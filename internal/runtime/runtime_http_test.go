@@ -33,6 +33,226 @@ func TestRuntimeHTTPServerRequiresBearerToken(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesOpenProjectToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		openProject: RuntimeOpenProjectResponse{
+			Project: RuntimeProject{ID: "workspace-1", Name: "repo", Path: "C:\\work\\repo", Current: true},
+			Status:  RuntimeStatus{WorkspaceID: "workspace-1", WorkingDir: "C:\\work\\repo", Ready: true},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodPost, "/v1/projects/open", strings.NewReader(`{"path":"C:\\work\\repo","createMissing":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("open project status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.openProjectReq.Path != "C:\\work\\repo" || !service.openProjectReq.CreateMissing {
+		t.Fatalf("open project request = %#v", service.openProjectReq)
+	}
+	var opened RuntimeOpenProjectResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &opened); err != nil {
+		t.Fatal(err)
+	}
+	if opened.Project.ID != "workspace-1" || opened.Status.WorkingDir != "C:\\work\\repo" {
+		t.Fatalf("open project response = %#v", opened)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=POST&path=/v1/projects/open&body=%7B%22path%22%3A%22C%3A%5C%5Cwork%5C%5Crepo%22%7D", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("dev-module open project status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.openProjectReq.Path != "C:\\work\\repo" {
+		t.Fatalf("dev-module open project request = %#v", service.openProjectReq)
+	}
+}
+
+func TestRuntimeHTTPServerRoutesCreateProjectToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		openProject: RuntimeOpenProjectResponse{
+			Project: RuntimeProject{ID: "workspace-1", Name: "Blank", Path: "C:\\app\\data\\projects\\Blank", Current: true},
+			Status:  RuntimeStatus{WorkspaceID: "workspace-1", WorkingDir: "C:\\app\\data\\projects\\Blank", Ready: true},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodPost, "/v1/projects", strings.NewReader(`{"name":"Blank"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("create project status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.createProjectReq.Name != "Blank" {
+		t.Fatalf("create project request = %#v", service.createProjectReq)
+	}
+	var created RuntimeOpenProjectResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Project.Name != "Blank" || created.Status.WorkingDir == "" {
+		t.Fatalf("create project response = %#v", created)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=POST&path=/v1/projects&body=%7B%22name%22%3A%22Blank%22%7D", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("dev-module create project status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.createProjectReq.Name != "Blank" {
+		t.Fatalf("dev-module create project request = %#v", service.createProjectReq)
+	}
+}
+
+func TestRuntimeHTTPServerRoutesRenameProjectToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		openProject: RuntimeOpenProjectResponse{
+			Project: RuntimeProject{ID: "workspace-1", Name: "Renamed", Path: "C:\\app\\data\\projects\\Renamed", Current: true},
+			Status:  RuntimeStatus{WorkspaceID: "workspace-1", WorkingDir: "C:\\app\\data\\projects\\Renamed", Ready: true},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodPost, "/v1/projects/workspace-1/rename", strings.NewReader(`{"name":"Renamed"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("rename project status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.renameProjectReq.ProjectID != "workspace-1" || service.renameProjectReq.Name != "Renamed" {
+		t.Fatalf("rename project request = %#v", service.renameProjectReq)
+	}
+	var renamed RuntimeOpenProjectResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &renamed); err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Project.Name != "Renamed" || renamed.Status.WorkingDir == "" {
+		t.Fatalf("rename project response = %#v", renamed)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=POST&path=/v1/projects/workspace-1/rename&body=%7B%22name%22%3A%22Again%22%7D", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("dev-module rename project status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.renameProjectReq.ProjectID != "workspace-1" || service.renameProjectReq.Name != "Again" {
+		t.Fatalf("dev-module rename project request = %#v", service.renameProjectReq)
+	}
+}
+
+func TestRuntimeHTTPServerRoutesOpenProjectInExplorerToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		openProject: RuntimeOpenProjectResponse{
+			Project: RuntimeProject{ID: "workspace-1", Name: "repo", Path: "C:\\work\\repo", Current: true},
+			Status:  RuntimeStatus{WorkspaceID: "workspace-1", WorkingDir: "C:\\work\\repo", Ready: true},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodPost, "/v1/projects/workspace-1/open-explorer", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("open explorer status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.openProjectInExplorerReq.ProjectID != "workspace-1" {
+		t.Fatalf("open explorer request = %#v", service.openProjectInExplorerReq)
+	}
+	var opened RuntimeOpenProjectResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &opened); err != nil {
+		t.Fatal(err)
+	}
+	if opened.Project.ID != "workspace-1" || opened.Status.WorkingDir != "C:\\work\\repo" {
+		t.Fatalf("open explorer response = %#v", opened)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=POST&path=/v1/projects/workspace-1/open-explorer", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("dev-module open explorer status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.openProjectInExplorerReq.ProjectID != "workspace-1" {
+		t.Fatalf("dev-module open explorer request = %#v", service.openProjectInExplorerReq)
+	}
+}
+
+func TestRuntimeHTTPServerRoutesRemoveProjectToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		openProject: RuntimeOpenProjectResponse{
+			Project: RuntimeProject{ID: "workspace-next", Name: "next", Path: "C:\\work\\next", Current: true},
+			Status:  RuntimeStatus{WorkspaceID: "workspace-next", WorkingDir: "C:\\work\\next", Ready: true},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodDelete, "/v1/projects/workspace-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("remove project status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.removeProjectReq.ProjectID != "workspace-1" {
+		t.Fatalf("remove project request = %#v", service.removeProjectReq)
+	}
+	var removed RuntimeOpenProjectResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &removed); err != nil {
+		t.Fatal(err)
+	}
+	if removed.Project.ID != "workspace-next" || removed.Status.WorkingDir != "C:\\work\\next" {
+		t.Fatalf("remove project response = %#v", removed)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=DELETE&path=/v1/projects/workspace-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("dev-module remove project status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.removeProjectReq.ProjectID != "workspace-1" {
+		t.Fatalf("dev-module remove project request = %#v", service.removeProjectReq)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesPermissionDecisionActionMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -600,17 +820,22 @@ func TestRuntimeHTTPServerRoutesTerminalLifecycleToRuntimeService(t *testing.T) 
 
 	service := &recordingRuntimeService{
 		terminalResponse: RuntimeTerminalResponse{Terminal: RuntimeTerminal{
-			ID:      "term-1",
-			CWD:     "C:\\work",
-			Shell:   "PowerShell",
-			Columns: 100,
-			Rows:    24,
-			Status:  "running",
+			ID:        "term-1",
+			SessionID: "session-1",
+			CWD:       "C:\\work",
+			Shell:     "PowerShell",
+			Columns:   100,
+			Rows:      24,
+			Status:    "running",
 		}},
+		sessionTerminals: RuntimeSessionTerminalsResponse{
+			SessionID: "session-1",
+			Terminals: []RuntimeTerminal{{ID: "term-1", SessionID: "session-1"}},
+		},
 	}
 	server := newRuntimeHTTPServer(service)
 
-	req, err := http.NewRequest(http.MethodPost, "/v1/terminals", strings.NewReader(`{"id":"term-1","cwd":"C:\\work"}`))
+	req, err := http.NewRequest(http.MethodPost, "/v1/terminals", strings.NewReader(`{"sessionId":"session-1","id":"term-1","cwd":"C:\\work"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -619,8 +844,37 @@ func TestRuntimeHTTPServerRoutesTerminalLifecycleToRuntimeService(t *testing.T) 
 	if resp.status != http.StatusOK {
 		t.Fatalf("create status = %d body = %s", resp.status, resp.body.String())
 	}
-	if service.createdTerminal.ID != "term-1" || service.createdTerminal.CWD != "C:\\work" {
+	if service.createdTerminal.SessionID != "session-1" || service.createdTerminal.ID != "term-1" || service.createdTerminal.CWD != "C:\\work" {
 		t.Fatalf("created terminal = %#v", service.createdTerminal)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/sessions/session-1/terminals", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("session terminals status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.sessionTerminalsID != "session-1" {
+		t.Fatalf("session terminals id = %q", service.sessionTerminalsID)
+	}
+	var list RuntimeSessionTerminalsResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if list.SessionID != "session-1" || len(list.Terminals) != 1 || list.Terminals[0].SessionID != "session-1" {
+		t.Fatalf("session terminals response = %#v", list)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/sessions/session-1/terminals", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("dev-module session terminals status = %d body = %s", resp.status, resp.body.String())
 	}
 
 	for _, legacyPath := range []string{
@@ -1804,6 +2058,23 @@ func TestRuntimeHTTPServerRoutesSessionManagementToRuntimeService(t *testing.T) 
 		t.Fatalf("sessions = %#v", sessions.Sessions)
 	}
 
+	req, err = http.NewRequest(http.MethodPost, "/v1/sessions", strings.NewReader(`{"title":"Created"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.createSessionReq.Title != "Created" {
+		t.Fatalf("create status = %d req = %#v body = %s", resp.status, service.createSessionReq, resp.body.String())
+	}
+	var created RuntimeSessionResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Session.ID == "" || !created.Session.Active {
+		t.Fatalf("created session = %#v", created.Session)
+	}
+
 	req, err = http.NewRequest(http.MethodPost, "/v1/sessions/session-2/select", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1862,9 +2133,21 @@ func TestRuntimeHTTPServerDevModuleRoutesChatLoop(t *testing.T) {
 		check  func(t *testing.T, resp httpRecorder)
 	}{
 		{
-			name:   "new chat",
+			name:   "create session",
 			method: http.MethodPost,
 			path:   "/v1/sessions",
+			body:   `{"title":"Draft"}`,
+			check: func(t *testing.T, resp httpRecorder) {
+				t.Helper()
+				if service.createSessionReq.Title != "Draft" {
+					t.Fatalf("create session req = %#v", service.createSessionReq)
+				}
+			},
+		},
+		{
+			name:   "new chat draft",
+			method: http.MethodPost,
+			path:   "/v1/runtime/new-chat",
 			body:   `{"title":"Draft"}`,
 		},
 		{
@@ -1989,8 +2272,8 @@ func TestRuntimeHTTPServerSmokeCoversSessionTurnAndInventory(t *testing.T) {
 	server := newRuntimeHTTPServer(service)
 	client := runtimeSmokeClient{server: server, token: server.Token()}
 
-	if status := client.postSession(t); status.SessionID != "session-1" {
-		t.Fatalf("new session status = %#v", status)
+	if session := client.postSession(t); session.Session.ID != "session-1" || !session.Session.Active {
+		t.Fatalf("new session response = %#v", session)
 	}
 	if response := client.postTurn(t, "session-1", "hello"); response.RequestID == "" {
 		t.Fatalf("turn response = %#v", response)
@@ -2601,15 +2884,15 @@ type runtimeSmokeClient struct {
 	token  string
 }
 
-func (c runtimeSmokeClient) postSession(t *testing.T) RuntimeStatus {
+func (c runtimeSmokeClient) postSession(t *testing.T) RuntimeSessionResponse {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, "/v1/sessions", strings.NewReader(`{"title":"Smoke"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var status RuntimeStatus
-	c.doJSON(t, req, &status)
-	return status
+	var response RuntimeSessionResponse
+	c.doJSON(t, req, &response)
+	return response
 }
 
 func (c runtimeSmokeClient) postTurn(t *testing.T, sessionID, prompt string) RuntimeChatResponse {

@@ -69,7 +69,9 @@ interface SettingsPanelProps {
   onProviderDelete: (providerID: string) => Promise<ConfiguredProviderViewModel[]>;
   onProviderDiscoverDraftModels: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderModelDiscoveryViewModel>;
   onProviderDiscoverModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
+  onProviderDraftTest: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   onProviderTest: (providerID: string) => Promise<ProviderTestViewModel>;
+  onProviderDraftLatency: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   onProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;
   selectedModel?: RuntimeModelOptionViewModel;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
@@ -90,7 +92,9 @@ export function SettingsPanel({
   onProviderDelete,
   onProviderDiscoverDraftModels,
   onProviderDiscoverModels,
+  onProviderDraftTest,
   onProviderTest,
+  onProviderDraftLatency,
   onProviderLatency,
   selectedModel,
   onModelSelect,
@@ -119,6 +123,8 @@ export function SettingsPanel({
             onProviderDelete={onProviderDelete}
             onProviderDiscoverDraftModels={onProviderDiscoverDraftModels}
             onProviderDiscoverModels={onProviderDiscoverModels}
+            onProviderDraftLatency={onProviderDraftLatency}
+            onProviderDraftTest={onProviderDraftTest}
             onProviderLatency={onProviderLatency}
             onProviderSave={onProviderSave}
             onProviderTest={onProviderTest}
@@ -265,7 +271,9 @@ function ProvidersSettings({
   onProviderDelete,
   onProviderDiscoverDraftModels,
   onProviderDiscoverModels,
+  onProviderDraftTest,
   onProviderTest,
+  onProviderDraftLatency,
   onProviderLatency,
   selectedModel,
   onModelSelect,
@@ -276,7 +284,9 @@ function ProvidersSettings({
   onProviderDelete: (providerID: string) => Promise<ConfiguredProviderViewModel[]>;
   onProviderDiscoverDraftModels: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderModelDiscoveryViewModel>;
   onProviderDiscoverModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
+  onProviderDraftTest: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   onProviderTest: (providerID: string) => Promise<ProviderTestViewModel>;
+  onProviderDraftLatency: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   onProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;
   selectedModel?: RuntimeModelOptionViewModel;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
@@ -425,6 +435,8 @@ function ProvidersSettings({
         onCancel={() => setModalOpen(false)}
         onDiscoverDraftModels={onProviderDiscoverDraftModels}
         onDiscoverModels={onProviderDiscoverModels}
+        onDraftLatency={onProviderDraftLatency}
+        onDraftTest={onProviderDraftTest}
         onLatency={onProviderLatency}
         onSave={saveProvider}
         onTest={onProviderTest}
@@ -442,7 +454,9 @@ function ProviderEditorModal({
   onSave,
   onDiscoverDraftModels,
   onDiscoverModels,
+  onDraftTest,
   onTest,
+  onDraftLatency,
   onLatency,
 }: {
   editingProvider: ConfiguredProviderViewModel | null;
@@ -453,7 +467,9 @@ function ProviderEditorModal({
   onSave: (values: ProviderFormValues) => Promise<void>;
   onDiscoverDraftModels: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderModelDiscoveryViewModel>;
   onDiscoverModels: (providerID: string) => Promise<ProviderModelDiscoveryViewModel>;
+  onDraftTest: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   onTest: (providerID: string) => Promise<ProviderTestViewModel>;
+  onDraftLatency: (request: ProviderDraftDiscoveryRequestViewModel) => Promise<ProviderTestViewModel>;
   onLatency: (providerID: string) => Promise<ProviderTestViewModel>;
 }) {
   const [form] = Form.useForm<ProviderFormValues>();
@@ -485,12 +501,19 @@ function ProviderEditorModal({
     });
   };
 
-  const requireSavedProvider = () => {
-    if (!editingProvider?.id) {
-      messageApi.warning('请先保存服务商');
-      return '';
-    }
-    return editingProvider.id;
+  const draftProviderRequest = async () => {
+    const values = await form.validateFields(['protocol', 'apiEndpoint', 'token', 'defaultModel', 'proxy']);
+    return {
+      protocol: values.protocol,
+      apiEndpoint: values.apiEndpoint,
+      token: typeof values.token === 'string' ? values.token.trim() : '',
+      defaultModel: normalizeDefaultModel(values.defaultModel),
+      proxy: values.proxy,
+    };
+  };
+
+  const shouldUseSavedProvider = (request: ProviderDraftDiscoveryRequestViewModel) => {
+    return Boolean(editingProvider?.id && !request.token);
   };
 
   const refreshModels = async () => {
@@ -526,13 +549,10 @@ function ProviderEditorModal({
   };
 
   const testProvider = async () => {
-    const providerID = requireSavedProvider();
-    if (!providerID) {
-      return;
-    }
     setActionLoading('test');
     try {
-      const result = await onTest(providerID);
+      const request = await draftProviderRequest();
+      const result = shouldUseSavedProvider(request) ? await onTest(editingProvider?.id ?? '') : await onDraftTest(request);
       if (result.ok) {
         messageApi.success(`测试通过${formatDuration(result.durationMs)}`);
       } else {
@@ -546,13 +566,10 @@ function ProviderEditorModal({
   };
 
   const measureLatency = async () => {
-    const providerID = requireSavedProvider();
-    if (!providerID) {
-      return;
-    }
     setActionLoading('latency');
     try {
-      const result = await onLatency(providerID);
+      const request = await draftProviderRequest();
+      const result = shouldUseSavedProvider(request) ? await onLatency(editingProvider?.id ?? '') : await onDraftLatency(request);
       if (result.ok) {
         messageApi.success(`测速 ${result.durationMs ?? 0}ms`);
       } else {

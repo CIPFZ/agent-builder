@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -52,6 +53,16 @@ func firstNonZero(values ...int64) int64 {
 		}
 	}
 	return 0
+}
+
+func isPathInside(root, target string) bool {
+	root = filepath.Clean(root)
+	target = filepath.Clean(target)
+	if root == target {
+		return true
+	}
+	rel, err := filepath.Rel(root, target)
+	return err == nil && rel != "." && rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func redactRuntimePayload(payload map[string]any) map[string]any {

@@ -2,11 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 
 	runtime "github.com/charmbracelet/crush/internal/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 type RuntimeStatus = runtime.RuntimeStatus
+type RuntimeProject = runtime.RuntimeProject
+type RuntimeOpenProjectRequest = runtime.RuntimeOpenProjectRequest
+type RuntimeCreateProjectRequest = runtime.RuntimeCreateProjectRequest
+type RuntimeRenameProjectRequest = runtime.RuntimeRenameProjectRequest
+type RuntimeProjectActionRequest = runtime.RuntimeProjectActionRequest
+type RuntimeOpenProjectResponse = runtime.RuntimeOpenProjectResponse
 type RuntimeModel = runtime.RuntimeModel
 type RuntimeModelsResponse = runtime.RuntimeModelsResponse
 type RuntimeSelectedModel = runtime.RuntimeSelectedModel
@@ -27,6 +35,7 @@ type RuntimeChatResponse = runtime.RuntimeChatResponse
 type RuntimeTerminal = runtime.RuntimeTerminal
 type RuntimeTerminalCreateRequest = runtime.RuntimeTerminalCreateRequest
 type RuntimeTerminalResponse = runtime.RuntimeTerminalResponse
+type RuntimeSessionTerminalsResponse = runtime.RuntimeSessionTerminalsResponse
 type RuntimeTerminalEvent = runtime.RuntimeTerminalEvent
 type RuntimeTurn = runtime.RuntimeTurn
 type RuntimeTurnResponse = runtime.RuntimeTurnResponse
@@ -79,6 +88,7 @@ type RuntimeMessagePart = runtime.RuntimeMessagePart
 type RuntimeSession = runtime.RuntimeSession
 type RuntimeSessionsResponse = runtime.RuntimeSessionsResponse
 type RuntimeSessionResponse = runtime.RuntimeSessionResponse
+type RuntimeSessionCreateRequest = runtime.RuntimeSessionCreateRequest
 type RuntimeSessionUpdateRequest = runtime.RuntimeSessionUpdateRequest
 type RuntimeMessagesResponse = runtime.RuntimeMessagesResponse
 type RuntimeSessionActivityResponse = runtime.RuntimeSessionActivityResponse
@@ -196,6 +206,50 @@ func (r *RuntimeBridge) RecoveryStatus(ctx context.Context) (RuntimeRecoveryStat
 
 }
 
+func (r *RuntimeBridge) OpenProject(ctx context.Context, req RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error) {
+
+	return r.service.OpenProject(ctx, req)
+
+}
+
+func (r *RuntimeBridge) CreateProject(ctx context.Context, req RuntimeCreateProjectRequest) (RuntimeOpenProjectResponse, error) {
+
+	return r.service.CreateProject(ctx, req)
+
+}
+
+func (r *RuntimeBridge) RenameProject(ctx context.Context, req RuntimeRenameProjectRequest) (RuntimeOpenProjectResponse, error) {
+
+	return r.service.RenameProject(ctx, req)
+
+}
+
+func (r *RuntimeBridge) OpenProjectInExplorer(ctx context.Context, req RuntimeProjectActionRequest) (RuntimeOpenProjectResponse, error) {
+
+	return r.service.OpenProjectInExplorer(ctx, req)
+
+}
+
+func (r *RuntimeBridge) RemoveProject(ctx context.Context, req RuntimeProjectActionRequest) (RuntimeOpenProjectResponse, error) {
+
+	return r.service.RemoveProject(ctx, req)
+
+}
+
+func (r *RuntimeBridge) SelectProjectDirectory(ctx context.Context) (string, error) {
+
+	app := application.Get()
+	if app == nil {
+		return "", errors.New("desktop application is not initialized")
+	}
+	return app.Dialog.OpenFile().
+		CanChooseDirectories(true).
+		CanChooseFiles(false).
+		SetTitle("选择项目文件夹").
+		PromptForSingleSelection()
+
+}
+
 func (r *RuntimeBridge) Models(ctx context.Context) (RuntimeModelsResponse, error) {
 
 	return r.service.Models(ctx)
@@ -289,6 +343,12 @@ func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (Runti
 func (r *RuntimeBridge) CreateTerminal(ctx context.Context, req RuntimeTerminalCreateRequest) (RuntimeTerminalResponse, error) {
 
 	return r.service.CreateTerminal(ctx, req)
+
+}
+
+func (r *RuntimeBridge) SessionTerminals(ctx context.Context, sessionID string) (RuntimeSessionTerminalsResponse, error) {
+
+	return r.service.SessionTerminals(ctx, sessionID)
 
 }
 
@@ -505,6 +565,12 @@ func (r *RuntimeBridge) Sessions(ctx context.Context) (RuntimeSessionsResponse, 
 func (r *RuntimeBridge) Session(ctx context.Context, sessionID string) (RuntimeSessionResponse, error) {
 
 	return r.service.Session(ctx, sessionID)
+
+}
+
+func (r *RuntimeBridge) CreateSession(ctx context.Context, req RuntimeSessionCreateRequest) (RuntimeSessionResponse, error) {
+
+	return r.service.CreateSession(ctx, req)
 
 }
 

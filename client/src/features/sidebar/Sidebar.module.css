@@ -197,7 +197,8 @@
 
 .navButton,
 .rowButton,
-.sessionButton {
+.sessionButton,
+.projectMainButton {
   height: 32px;
   padding-inline: 8px;
   font-size: 14px;
@@ -206,14 +207,16 @@
 
 .navButton :global(.ant-btn-icon),
 .rowButton :global(.ant-btn-icon),
-.sessionButton :global(.ant-btn-icon) {
+.sessionButton :global(.ant-btn-icon),
+.projectMainButton :global(.ant-btn-icon) {
   width: 18px;
   margin-inline-end: 10px;
   text-align: center;
 }
 
 .rowButton,
-.sessionButton {
+.sessionButton,
+.projectMainButton {
   display: flex;
   align-items: center;
   min-width: 0;
@@ -221,7 +224,8 @@
 }
 
 .rowButton :global(.anticon),
-.sessionButton :global(.anticon) {
+.sessionButton :global(.anticon),
+.projectMainButton :global(.anticon) {
   flex: 0 0 18px;
   margin-inline-end: 10px;
   color: rgba(0, 0, 0, 0.65);
@@ -240,6 +244,109 @@
 
 .currentRow {
   background: #f2f2f2;
+}
+
+.projectRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 32px;
+  border-radius: 6px;
+}
+
+.projectBlock {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.projectRow:hover {
+  background: #f6f6f6;
+}
+
+.projectRow.currentRow:hover {
+  background: #f2f2f2;
+}
+
+.projectMainButton {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  padding-right: 4px;
+  overflow: hidden;
+}
+
+.projectMainButton:hover,
+.projectMainButton:focus-visible {
+  background: transparent;
+}
+
+.projectMainButton .rowText {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.projectInlineButton,
+.projectActionButton {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 6px;
+  color: rgba(0, 0, 0, 0.62);
+}
+
+.projectInlineButton :global(.anticon),
+.projectActionButton :global(.anticon) {
+  margin-inline-end: 0;
+  font-size: 13px;
+}
+
+.projectRowActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms ease, visibility 120ms ease;
+}
+
+.projectRow:hover .projectRowActions,
+.projectRow:focus-within .projectRowActions,
+.projectRow.currentRow .projectRowActions {
+  opacity: 1;
+  visibility: visible;
+}
+
+.projectSessionList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 30px;
+}
+
+.projectSessionButton {
+  height: 28px;
+  padding-inline: 8px;
+  justify-content: flex-start;
+  font-size: 13px;
+}
+
+.projectSessionButton:hover,
+.projectSessionButton:focus-visible {
+  background: #f6f6f6;
+}
+
+.projectSessionTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(0, 0, 0, 0.62);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sessionRow {
@@ -312,4 +419,76 @@
 .footer {
   flex: 0 0 auto;
   margin-top: auto;
+}
+
+.projectNameModal :global(.ant-modal-content) {
+  padding: 20px;
+  border-radius: 12px;
+}
+
+.projectNameModal :global(.ant-modal-close) {
+  top: 14px;
+  right: 14px;
+}
+
+.projectNameModal :global(.ant-modal-header) {
+  margin-bottom: 14px;
+}
+
+.projectNameModal :global(.ant-modal-body) {
+  margin-bottom: 10px;
+}
+
+.projectNameModal :global(.ant-modal-footer) {
+  margin-top: 10px;
+}
+
+.projectNameTitleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.projectNameTitle {
+  color: rgba(0, 0, 0, 0.92);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.projectNameSubtitle {
+  color: rgba(0, 0, 0, 0.42);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.projectNameInput {
+  height: 40px;
+  padding-inline: 12px;
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+.projectNameHint {
+  margin-top: 8px;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.projectNameCancelButton,
+.projectNameSaveButton {
+  min-width: 72px;
+  height: 34px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.projectNameSaveButton,
+.projectNameSaveButton:hover,
+.projectNameSaveButton:focus-visible {
+  border-color: #111111;
+  background: #111111;
+  color: #ffffff;
 }

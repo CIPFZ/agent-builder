@@ -26,19 +26,32 @@ func TestRuntimeBridgeForwardsTerminalLifecycle(t *testing.T) {
 
 	service := &recordingRuntimeService{
 		terminalResponse: RuntimeTerminalResponse{Terminal: RuntimeTerminal{
-			ID:     "term-1",
-			CWD:    "C:\\work",
-			Shell:  "PowerShell",
-			Status: "running",
+			ID:        "term-1",
+			SessionID: "session-1",
+			CWD:       "C:\\work",
+			Shell:     "PowerShell",
+			Status:    "running",
 		}},
+		sessionTerminals: RuntimeSessionTerminalsResponse{
+			SessionID: "session-1",
+			Terminals: []RuntimeTerminal{{ID: "term-1", SessionID: "session-1"}},
+		},
 	}
 	bridge := &RuntimeBridge{service: service}
 
-	if _, err := bridge.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{ID: "term-1", CWD: "C:\\work"}); err != nil {
+	if _, err := bridge.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: "session-1", ID: "term-1", CWD: "C:\\work"}); err != nil {
 		t.Fatal(err)
 	}
-	if service.createdTerminal.ID != "term-1" || service.createdTerminal.CWD != "C:\\work" {
+	if service.createdTerminal.SessionID != "session-1" || service.createdTerminal.ID != "term-1" || service.createdTerminal.CWD != "C:\\work" {
 		t.Fatalf("created terminal = %#v", service.createdTerminal)
+	}
+
+	list, err := bridge.SessionTerminals(context.Background(), "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.sessionTerminalsID != "session-1" || len(list.Terminals) != 1 || list.Terminals[0].SessionID != "session-1" {
+		t.Fatalf("session terminals = %#v serviceID=%q", list, service.sessionTerminalsID)
 	}
 
 	if _, err := bridge.DeleteTerminal(context.Background(), "term-1"); err != nil {
@@ -46,6 +59,142 @@ func TestRuntimeBridgeForwardsTerminalLifecycle(t *testing.T) {
 	}
 	if service.deletedTerminalID != "term-1" {
 		t.Fatalf("deleted terminal = %q", service.deletedTerminalID)
+	}
+}
+
+func TestRuntimeBridgeForwardsCreateSession(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	bridge := &RuntimeBridge{service: service}
+
+	resp, err := bridge.CreateSession(context.Background(), RuntimeSessionCreateRequest{Title: "New runtime chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.createSessionReq.Title != "New runtime chat" {
+		t.Fatalf("create session req = %#v", service.createSessionReq)
+	}
+	if resp.Session.ID == "" || !resp.Session.Active {
+		t.Fatalf("create session response = %#v", resp)
+	}
+}
+
+func TestRuntimeBridgeForwardsOpenProject(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		openProject: RuntimeOpenProjectResponse{
+			Project: RuntimeProject{ID: "workspace-1", Name: "repo", Path: "C:\\work\\repo", Current: true},
+			Status:  RuntimeStatus{WorkspaceID: "workspace-1", WorkingDir: "C:\\work\\repo", Ready: true},
+		},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	resp, err := bridge.OpenProject(context.Background(), RuntimeOpenProjectRequest{Path: "C:\\work\\repo", CreateMissing: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.openProjectReq.Path != "C:\\work\\repo" || !service.openProjectReq.CreateMissing {
+		t.Fatalf("open project request = %#v", service.openProjectReq)
+	}
+	if resp.Project.ID != "workspace-1" || resp.Status.WorkingDir != "C:\\work\\repo" {
+		t.Fatalf("open project response = %#v", resp)
+	}
+}
+
+func TestRuntimeBridgeForwardsCreateProject(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		openProject: RuntimeOpenProjectResponse{
+			Project: RuntimeProject{ID: "workspace-1", Name: "Blank", Path: "C:\\app\\data\\projects\\Blank", Current: true},
+			Status:  RuntimeStatus{WorkspaceID: "workspace-1", WorkingDir: "C:\\app\\data\\projects\\Blank", Ready: true},
+		},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	resp, err := bridge.CreateProject(context.Background(), RuntimeCreateProjectRequest{Name: "Blank"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.createProjectReq.Name != "Blank" {
+		t.Fatalf("create project request = %#v", service.createProjectReq)
+	}
+	if resp.Project.ID != "workspace-1" || resp.Project.Name != "Blank" {
+		t.Fatalf("create project response = %#v", resp)
+	}
+}
+
+func TestRuntimeBridgeForwardsRenameProject(t *testing.T) {
+	service := &recordingRuntimeService{
+		openProject: RuntimeOpenProjectResponse{
+			Project: RuntimeProject{ID: "workspace-1", Name: "Renamed", Path: "C:\\app\\data\\projects\\Renamed", Current: true},
+			Status:  RuntimeStatus{WorkspaceID: "workspace-1", WorkingDir: "C:\\app\\data\\projects\\Renamed"},
+		},
+	}
+	bridge := RuntimeBridge{service: service}
+
+	resp, err := bridge.RenameProject(context.Background(), RuntimeRenameProjectRequest{ProjectID: "workspace-1", Name: "Renamed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.renameProjectReq.ProjectID != "workspace-1" || service.renameProjectReq.Name != "Renamed" {
+		t.Fatalf("rename project request = %#v", service.renameProjectReq)
+	}
+	if resp.Project.ID != "workspace-1" || resp.Project.Name != "Renamed" {
+		t.Fatalf("rename project response = %#v", resp)
+	}
+}
+
+func TestRuntimeBridgeForwardsOpenProjectInExplorer(t *testing.T) {
+	service := &recordingRuntimeService{
+		openProject: RuntimeOpenProjectResponse{
+			Project: RuntimeProject{ID: "workspace-1", Name: "repo", Path: "C:\\work\\repo", Current: true},
+			Status:  RuntimeStatus{WorkspaceID: "workspace-1", WorkingDir: "C:\\work\\repo"},
+		},
+	}
+	bridge := RuntimeBridge{service: service}
+
+	resp, err := bridge.OpenProjectInExplorer(context.Background(), RuntimeProjectActionRequest{ProjectID: "workspace-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.openProjectInExplorerReq.ProjectID != "workspace-1" {
+		t.Fatalf("open explorer request = %#v", service.openProjectInExplorerReq)
+	}
+	if resp.Project.ID != "workspace-1" || resp.Project.Name != "repo" {
+		t.Fatalf("open explorer response = %#v", resp)
+	}
+}
+
+func TestRuntimeBridgeForwardsRemoveProject(t *testing.T) {
+	service := &recordingRuntimeService{
+		openProject: RuntimeOpenProjectResponse{
+			Project: RuntimeProject{ID: "workspace-next", Name: "next", Path: "C:\\work\\next", Current: true},
+			Status:  RuntimeStatus{WorkspaceID: "workspace-next", WorkingDir: "C:\\work\\next"},
+		},
+	}
+	bridge := RuntimeBridge{service: service}
+
+	resp, err := bridge.RemoveProject(context.Background(), RuntimeProjectActionRequest{ProjectID: "workspace-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.removeProjectReq.ProjectID != "workspace-1" {
+		t.Fatalf("remove project request = %#v", service.removeProjectReq)
+	}
+	if resp.Project.ID != "workspace-next" || resp.Project.Name != "next" {
+		t.Fatalf("remove project response = %#v", resp)
+	}
+}
+
+func TestRuntimeBridgeSelectProjectDirectoryRequiresDesktopApp(t *testing.T) {
+	t.Parallel()
+
+	bridge := &RuntimeBridge{service: &recordingRuntimeService{}}
+	if path, err := bridge.SelectProjectDirectory(context.Background()); err == nil || path != "" {
+		t.Fatalf("SelectProjectDirectory path=%q err=%v, want empty path and error outside desktop app", path, err)
 	}
 }
 
@@ -590,11 +739,18 @@ type recordingRuntimeService struct {
 	mcpRequestDecision          runtime.RuntimeMCPRequestDecision
 	eventsAfter                 int64
 	status                      RuntimeStatus
+	openProjectReq              RuntimeOpenProjectRequest
+	createProjectReq            RuntimeCreateProjectRequest
+	renameProjectReq            RuntimeRenameProjectRequest
+	openProjectInExplorerReq    RuntimeProjectActionRequest
+	removeProjectReq            RuntimeProjectActionRequest
+	openProject                 RuntimeOpenProjectResponse
 	activity                    RuntimeSessionActivityResponse
 	activityWindow              RuntimeSessionActivityWindowResponse
 	turnActivity                RuntimeTurnActivityResponse
 	eventsResponse              RuntimeEventsResponse
 	newChatTitle                string
+	createSessionReq            RuntimeSessionCreateRequest
 	sessionActivityID           string
 	sessionActivityWindowID     string
 	sessionActivityWindowCursor string
@@ -627,6 +783,8 @@ type recordingRuntimeService struct {
 	markInterruptedDoneID       string
 	markInterruptedDoneResponse RuntimeTurnResponse
 	terminalResponse            RuntimeTerminalResponse
+	sessionTerminals            RuntimeSessionTerminalsResponse
+	sessionTerminalsID          string
 	createdTerminal             RuntimeTerminalCreateRequest
 	terminalInputID             string
 	terminalInput               runtime.RuntimeTerminalInputRequest
@@ -641,6 +799,31 @@ func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error)
 
 func (s *recordingRuntimeService) RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error) {
 	return RuntimeRecoveryStatus{}, nil
+}
+
+func (s *recordingRuntimeService) OpenProject(_ context.Context, req RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error) {
+	s.openProjectReq = req
+	return s.openProject, nil
+}
+
+func (s *recordingRuntimeService) CreateProject(_ context.Context, req RuntimeCreateProjectRequest) (RuntimeOpenProjectResponse, error) {
+	s.createProjectReq = req
+	return s.openProject, nil
+}
+
+func (s *recordingRuntimeService) RenameProject(_ context.Context, req RuntimeRenameProjectRequest) (RuntimeOpenProjectResponse, error) {
+	s.renameProjectReq = req
+	return s.openProject, nil
+}
+
+func (s *recordingRuntimeService) OpenProjectInExplorer(_ context.Context, req RuntimeProjectActionRequest) (RuntimeOpenProjectResponse, error) {
+	s.openProjectInExplorerReq = req
+	return s.openProject, nil
+}
+
+func (s *recordingRuntimeService) RemoveProject(_ context.Context, req RuntimeProjectActionRequest) (RuntimeOpenProjectResponse, error) {
+	s.removeProjectReq = req
+	return s.openProject, nil
 }
 
 func (s *recordingRuntimeService) Models(context.Context) (RuntimeModelsResponse, error) {
@@ -702,6 +885,14 @@ func (s *recordingRuntimeService) VerifyModelConfig(context.Context, RuntimeMode
 func (s *recordingRuntimeService) CreateTerminal(_ context.Context, req RuntimeTerminalCreateRequest) (RuntimeTerminalResponse, error) {
 	s.createdTerminal = req
 	return s.terminalResponse, nil
+}
+
+func (s *recordingRuntimeService) SessionTerminals(_ context.Context, sessionID string) (RuntimeSessionTerminalsResponse, error) {
+	s.sessionTerminalsID = sessionID
+	if s.sessionTerminals.SessionID == "" {
+		s.sessionTerminals.SessionID = sessionID
+	}
+	return s.sessionTerminals, nil
 }
 
 func (s *recordingRuntimeService) WriteTerminalInput(_ context.Context, terminalID string, req runtime.RuntimeTerminalInputRequest) (RuntimeTerminalResponse, error) {
@@ -918,6 +1109,11 @@ func (s *recordingRuntimeService) Sessions(context.Context) (RuntimeSessionsResp
 
 func (s *recordingRuntimeService) Session(context.Context, string) (RuntimeSessionResponse, error) {
 	return RuntimeSessionResponse{}, nil
+}
+
+func (s *recordingRuntimeService) CreateSession(_ context.Context, req RuntimeSessionCreateRequest) (RuntimeSessionResponse, error) {
+	s.createSessionReq = req
+	return RuntimeSessionResponse{Session: RuntimeSession{ID: "session-created", Title: req.Title, Active: true}}, nil
 }
 
 func (s *recordingRuntimeService) SelectSession(context.Context, string) (RuntimeStatus, error) {

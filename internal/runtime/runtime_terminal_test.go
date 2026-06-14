@@ -12,25 +12,24 @@ import (
 )
 
 func TestRuntimeTerminalStreamsPersistentShellOutput(t *testing.T) {
-	t.Parallel()
-
-	service := newRuntimeService()
 	root := t.TempDir()
+	service, sessionA := runtimeTerminalTestService(t, "terminal-stream", root)
 	nested := filepath.Join(root, "nested")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	created, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{
-		ID:      "term-pty",
-		CWD:     root,
-		Columns: 100,
-		Rows:    24,
+		SessionID: sessionA,
+		ID:        "term-pty",
+		CWD:       root,
+		Columns:   100,
+		Rows:      24,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Terminal.ID != "term-pty" || created.Terminal.CWD != root || created.Terminal.Status != "running" {
+	if created.Terminal.ID != "term-pty" || created.Terminal.SessionID != sessionA || created.Terminal.CWD != root || created.Terminal.InitialCWD != root || created.Terminal.Status != "running" {
 		t.Fatalf("created terminal = %#v", created.Terminal)
 	}
 	defer func() {
@@ -59,14 +58,14 @@ func TestRuntimeTerminalStreamsPersistentShellOutput(t *testing.T) {
 }
 
 func TestRuntimeTerminalResizeAndClose(t *testing.T) {
-	t.Parallel()
-
-	service := newRuntimeService()
+	root := t.TempDir()
+	service, sessionA := runtimeTerminalTestService(t, "terminal-resize", root)
 	created, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{
-		ID:      "term-resize",
-		CWD:     t.TempDir(),
-		Columns: 80,
-		Rows:    20,
+		SessionID: sessionA,
+		ID:        "term-resize",
+		CWD:       root,
+		Columns:   80,
+		Rows:      20,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -141,12 +140,12 @@ func TestRuntimeTerminalOutputEventPreservesNonUTF8Bytes(t *testing.T) {
 }
 
 func TestRuntimeRestartClosesActiveTerminals(t *testing.T) {
-	t.Parallel()
-
-	service := newRuntimeService()
+	root := t.TempDir()
+	service, sessionA := runtimeTerminalTestService(t, "terminal-restart", root)
 	created, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{
-		ID:  "term-restart",
-		CWD: t.TempDir(),
+		SessionID: sessionA,
+		ID:        "term-restart",
+		CWD:       root,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -161,11 +160,164 @@ func TestRuntimeRestartClosesActiveTerminals(t *testing.T) {
 		t.Fatal("WriteTerminalInput should fail after runtime restart closes terminals")
 	}
 	service.mu.Lock()
-	terminalCount := len(service.terminals)
+	terminalCount := len(service.terminalsByID)
+	ownershipCount := len(service.terminalIDsBySession)
 	service.mu.Unlock()
-	if terminalCount != 0 {
-		t.Fatalf("terminal count after restart = %d, want 0", terminalCount)
+	if terminalCount != 0 || ownershipCount != 0 {
+		t.Fatalf("terminal maps after restart = terminals:%d ownership:%d, want 0/0", terminalCount, ownershipCount)
 	}
+}
+
+func TestRuntimeTerminalRequiresSessionOwnership(t *testing.T) {
+	root := t.TempDir()
+	service, sessionA := runtimeTerminalTestService(t, "terminal-ownership", root)
+	sessionB := runtimeTerminalCreateSession(t, service, "Session B")
+
+	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{ID: "missing-session", CWD: root}); err == nil {
+		t.Fatal("CreateTerminal without sessionId should fail")
+	}
+	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: "missing", ID: "unknown", CWD: root}); err == nil {
+		t.Fatal("CreateTerminal with unknown sessionId should fail")
+	}
+
+	created, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{
+		SessionID: sessionA,
+		ID:        "term-a",
+		CWD:       root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = service.DeleteTerminal(context.Background(), "term-a") }()
+	if created.Terminal.ProjectID == "" || created.Terminal.SessionID != sessionA {
+		t.Fatalf("created terminal ownership = %#v", created.Terminal)
+	}
+
+	listA, err := service.SessionTerminals(context.Background(), sessionA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listA.Terminals) != 1 || listA.Terminals[0].ID != "term-a" || listA.Terminals[0].SessionID != sessionA {
+		t.Fatalf("session A terminals = %#v", listA)
+	}
+	listB, err := service.SessionTerminals(context.Background(), sessionB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listB.Terminals) != 0 {
+		t.Fatalf("session B should not see session A terminal: %#v", listB)
+	}
+
+	if _, err := service.SelectSession(context.Background(), sessionB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.WriteTerminalInput(context.Background(), "term-a", RuntimeTerminalInputRequest{Data: terminalTestCommand("echo still-running")}); err != nil {
+		t.Fatal(err)
+	}
+	listA, err = service.SessionTerminals(context.Background(), sessionA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listA.Terminals) != 1 {
+		t.Fatalf("session switch closed terminal: %#v", listA)
+	}
+
+	if _, err := service.DeleteTerminal(context.Background(), "term-a"); err != nil {
+		t.Fatal(err)
+	}
+	listA, err = service.SessionTerminals(context.Background(), sessionA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listA.Terminals) != 0 {
+		t.Fatalf("deleted terminal remains in session list: %#v", listA)
+	}
+}
+
+func TestRuntimeTerminalSessionDeleteAndReplacementCleanOwnership(t *testing.T) {
+	root := t.TempDir()
+	service, sessionA := runtimeTerminalTestService(t, "terminal-session-delete", root)
+	sessionB := runtimeTerminalCreateSession(t, service, "Session B")
+
+	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: sessionA, ID: "shared", CWD: root}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: sessionB, ID: "shared", CWD: root}); err != nil {
+		t.Fatal(err)
+	}
+	listA, err := service.SessionTerminals(context.Background(), sessionA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listA.Terminals) != 0 {
+		t.Fatalf("replaced terminal left stale session A ownership: %#v", listA)
+	}
+	listB, err := service.SessionTerminals(context.Background(), sessionB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listB.Terminals) != 1 || listB.Terminals[0].ID != "shared" {
+		t.Fatalf("session B replacement ownership = %#v", listB)
+	}
+
+	if _, err := service.DeleteSession(context.Background(), sessionB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.WriteTerminalInput(context.Background(), "shared", RuntimeTerminalInputRequest{Data: terminalTestCommand("echo after-delete")}); err == nil {
+		t.Fatal("terminal should be closed when owning session is deleted")
+	}
+	service.mu.Lock()
+	terminalCount := len(service.terminalsByID)
+	ownershipCount := len(service.terminalIDsBySession)
+	service.mu.Unlock()
+	if terminalCount != 0 || ownershipCount != 0 {
+		t.Fatalf("terminal maps after session delete = terminals:%d ownership:%d, want 0/0", terminalCount, ownershipCount)
+	}
+}
+
+func TestRuntimeTerminalCWDDefaultsToProjectAndRejectsOutsideProject(t *testing.T) {
+	root := t.TempDir()
+	service, sessionA := runtimeTerminalTestService(t, "terminal-cwd", root)
+	outside := t.TempDir()
+
+	created, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: sessionA, ID: "term-default-cwd"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = service.DeleteTerminal(context.Background(), "term-default-cwd") }()
+	if created.Terminal.CWD != root || created.Terminal.InitialCWD != root {
+		t.Fatalf("default cwd = %#v, want %s", created.Terminal, root)
+	}
+	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: sessionA, ID: "term-outside", CWD: outside}); err == nil {
+		t.Fatal("CreateTerminal should reject cwd outside project path")
+	}
+}
+
+func runtimeTerminalTestService(t *testing.T, name, projectPath string) (*runtimeService, string) {
+	t.Helper()
+	root := runtimeDevTestRoot(t, name)
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+	service := newRuntimeService()
+	if _, err := service.Status(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	service.mu.Lock()
+	service.workspace.Path = projectPath
+	service.mu.Unlock()
+	return service, runtimeTerminalCreateSession(t, service, "Session A")
+}
+
+func runtimeTerminalCreateSession(t *testing.T, service *runtimeService, title string) string {
+	t.Helper()
+	service.mu.Lock()
+	workspaceID := service.workspace.ID
+	service.mu.Unlock()
+	sess, err := service.runtime.CreateSession(context.Background(), workspaceID, title)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sess.ID
 }
 
 func waitForTerminalChunk(t *testing.T, events <-chan RuntimeTerminalEvent, want string) bool {

@@ -104,6 +104,8 @@ func (r *runtimeService) restart() {
 	}
 	r.runtime = nil
 	r.workspace = nil
+	r.runtimeConfigured = false
+	r.runtimeConfigKnown = false
 	r.starting = false
 	r.sessionID = ""
 	r.runtimeCtx = nil
@@ -127,15 +129,25 @@ func (r *runtimeService) restart() {
 	r.permissions = make(map[string]pendingRuntimePermission)
 	r.policy = defaultRuntimePolicy()
 	r.capabilityLoads = make(map[string]runtimeCapabilityLoadRecord)
-	r.terminals = make(map[string]*runtimeTerminalState)
+	r.terminalsByID = make(map[string]*runtimeTerminalState)
+	r.terminalIDsBySession = make(map[string]map[string]struct{})
 	r.recovery = runtimeRecoveryRecord{}
 	r.events = nil
 }
 
 func (r *runtimeService) ensureStarted(ctx context.Context) error {
+	return r.ensureWorkspaceStarted(ctx, true)
+}
+
+func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConfigured bool) error {
 	r.mu.Lock()
 	if !r.starting && r.runtime != nil && r.workspace != nil {
+		configured := r.runtimeConfigured
+		configKnown := r.runtimeConfigKnown
 		r.mu.Unlock()
+		if requireConfigured && configKnown && !configured {
+			return errSelectedModelMissing
+		}
 		return nil
 	}
 	r.mu.Unlock()
@@ -145,7 +157,12 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 
 	r.mu.Lock()
 	if !r.starting && r.runtime != nil && r.workspace != nil {
+		configured := r.runtimeConfigured
+		configKnown := r.runtimeConfigKnown
 		r.mu.Unlock()
+		if requireConfigured && configKnown && !configured {
+			return errSelectedModelMissing
+		}
 		return nil
 	}
 	r.starting = true
@@ -165,22 +182,28 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	}
 	augmentDesktopPath(layout)
 
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to resolve working directory: %w", err)
+	r.mu.Lock()
+	workingDir := strings.TrimSpace(r.projectPath)
+	r.mu.Unlock()
+	if workingDir == "" {
+		workingDir = runtimeDefaultWorkingDir()
+		if workingDir == "" {
+			return fmt.Errorf("failed to resolve working directory")
+		}
 	}
 	workingDir = filepath.Clean(workingDir)
+	projectDataDir := runtimeProjectDataDir(layout.DataDir, workingDir)
 
-	cfg := config.NewRuntimeConfig(workingDir, layout.DataDir, false)
+	cfg := config.NewRuntimeConfig(workingDir, projectDataDir, false)
 	store := config.NewRuntimeStore(workingDir, cfg, layout.ModelConfigPath)
 	_, localResult, selectedModelErr := r.applySelectedConfiguredModel(ctx, store)
 	if selectedModelErr != nil {
 		localResult = applyLocalModelConfig(store, layout)
-		if localResult.Error != nil {
+		if localResult.Error != nil && requireConfigured {
 			return localResult.Error
 		}
 	}
-	if !store.Config().IsConfigured() {
+	if requireConfigured && !store.Config().IsConfigured() {
 		if errors.Is(selectedModelErr, errSelectedModelMissing) {
 			return errSelectedModelMissing
 		}
@@ -221,11 +244,12 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	_, workspaceLocalResult, workspaceSelectedModelErr := r.applySelectedConfiguredModel(ctx, wsRuntime.Cfg)
 	if workspaceSelectedModelErr != nil {
 		workspaceLocalResult = applyLocalModelConfig(wsRuntime.Cfg, layout)
-		if workspaceLocalResult.Error != nil {
+		if workspaceLocalResult.Error != nil && requireConfigured {
 			return workspaceLocalResult.Error
 		}
 	}
-	if !wsRuntime.Cfg.Config().IsConfigured() {
+	workspaceConfigured := wsRuntime.Cfg.Config().IsConfigured()
+	if requireConfigured && !workspaceConfigured {
 		if errors.Is(workspaceSelectedModelErr, errSelectedModelMissing) {
 			return errSelectedModelMissing
 		}
@@ -249,13 +273,17 @@ func (r *runtimeService) ensureStarted(ctx context.Context) error {
 	wsRuntime.Permissions.SetPolicy(runtimePermissionPolicy(policy), policyMode)
 	r.policy = policy
 	r.workspace = &ws
+	r.runtimeConfigured = workspaceConfigured
+	r.runtimeConfigKnown = true
 	go r.consumeRuntimeEvents(runtimeCtx, ws.ID)
 	go r.consumeDesktopPermissions(runtimeCtx, ws.ID, wsRuntime.Permissions)
 	go r.consumePermissionPolicyApplications(runtimeCtx, ws.ID, wsRuntime.Permissions)
 	go r.consumeTodoUpdates(runtimeCtx)
 
-	if err := r.runtime.UpdateAgent(runtimeCtx, ws.ID); err != nil {
-		return fmt.Errorf("failed to update Crush agent model: %w", err)
+	if workspaceConfigured {
+		if err := r.runtime.UpdateAgent(runtimeCtx, ws.ID); err != nil {
+			return fmt.Errorf("failed to update Crush agent model: %w", err)
+		}
 	}
 
 	conn, err := db.Connect(ctx, wsRuntime.Cfg.Config().Options.DataDirectory)

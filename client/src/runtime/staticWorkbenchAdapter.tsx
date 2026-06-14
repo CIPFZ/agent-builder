@@ -102,6 +102,24 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   async refresh(current) {
     return current;
   },
+  async openProject() {
+    return runtimeUnavailable();
+  },
+  async createProject() {
+    return runtimeUnavailable();
+  },
+  async renameProject() {
+    return runtimeUnavailable();
+  },
+  async openProjectInExplorer() {
+    return runtimeUnavailable();
+  },
+  async removeProject() {
+    return runtimeUnavailable();
+  },
+  async selectProjectDirectory() {
+    return runtimeUnavailable();
+  },
   async createSession() {
     return runtimeUnavailable();
   },
@@ -141,6 +159,9 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   async executeRunTask() {
     return runtimeUnavailable();
   },
+  async listSessionTerminals() {
+    return runtimeUnavailable();
+  },
   async createTerminal() {
     return runtimeUnavailable();
   },
@@ -168,7 +189,13 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   async discoverConfiguredProviderModels() {
     return runtimeUnavailable();
   },
+  async testProviderDraft() {
+    return runtimeUnavailable();
+  },
   async testConfiguredProvider() {
+    return runtimeUnavailable();
+  },
+  async measureProviderDraftLatency() {
     return runtimeUnavailable();
   },
   async measureConfiguredProviderLatency() {

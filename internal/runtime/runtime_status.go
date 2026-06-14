@@ -2,11 +2,15 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
 func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 	if err := r.ensureStarted(ctx); err != nil {
+		if errors.Is(err, errSelectedModelMissing) || errors.Is(err, errModelConfigMissing) {
+			return r.fallbackProjectStatus(), nil
+		}
 		return RuntimeStatus{}, err
 	}
 
@@ -82,4 +86,24 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 		Events:      events,
 		Requests:    requests,
 	}, nil
+}
+
+func (r *runtimeService) fallbackProjectStatus() RuntimeStatus {
+	r.mu.Lock()
+	projectPath := r.projectPath
+	sessionID := r.sessionID
+	events := r.eventStats.snapshot()
+	requests := r.runtimeRequestsLocked()
+	r.mu.Unlock()
+	if projectPath == "" {
+		projectPath = runtimeDefaultWorkingDir()
+	}
+	return RuntimeStatus{
+		Ready:       false,
+		WorkspaceID: runtimeFallbackWorkspaceID(projectPath),
+		SessionID:   sessionID,
+		WorkingDir:  projectPath,
+		Events:      events,
+		Requests:    requests,
+	}
 }

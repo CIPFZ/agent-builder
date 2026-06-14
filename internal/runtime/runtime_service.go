@@ -29,11 +29,12 @@ func newRuntimeService() *runtimeService {
 
 		agentTasks: runtimeAgentTaskStore{},
 
-		permissions:     make(map[string]pendingRuntimePermission),
-		policy:          defaultRuntimePolicy(),
-		capabilityLoads: make(map[string]runtimeCapabilityLoadRecord),
-		toolDiscovery:   newRuntimeToolDiscoveryState(),
-		terminals:       make(map[string]*runtimeTerminalState),
+		permissions:          make(map[string]pendingRuntimePermission),
+		policy:               defaultRuntimePolicy(),
+		capabilityLoads:      make(map[string]runtimeCapabilityLoadRecord),
+		toolDiscovery:        newRuntimeToolDiscoveryState(),
+		terminalsByID:        make(map[string]*runtimeTerminalState),
+		terminalIDsBySession: make(map[string]map[string]struct{}),
 
 		eventStream: newRuntimeSSEServer(),
 	}
