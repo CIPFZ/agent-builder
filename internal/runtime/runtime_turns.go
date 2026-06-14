@@ -53,14 +53,21 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 
 	r.mu.Lock()
 	wsID := r.workspace.ID
-	sessionID := firstNonEmpty(strings.TrimSpace(req.SessionID), r.sessionID)
+	requestSessionID := strings.TrimSpace(req.SessionID)
+	draftScope := strings.TrimSpace(req.Scope)
+	draftProjectID := strings.TrimSpace(req.ProjectID)
+	sessionID := requestSessionID
+	if sessionID == "" && draftScope == "" && draftProjectID == "" {
+		sessionID = r.sessionID
+	}
 	runCtx := r.runtimeCtx
 	if runCtx == nil {
 		runCtx = context.Background()
 	}
 	r.mu.Unlock()
 	if sessionID == "" {
-		sess, err := r.runtime.CreateSession(ctx, wsID, "New chat")
+		projectID, scope := normalizeRuntimeSessionOwnership(req.ProjectID, req.Scope, wsID)
+		sess, err := r.runtime.CreateSessionWithScope(ctx, wsID, "New chat", projectID, scope)
 		if err != nil {
 			return RuntimeChatResponse{}, fmt.Errorf("failed to create session: %w", err)
 		}
@@ -77,7 +84,7 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 				"title": sess.Title,
 			},
 		})
-	} else if strings.TrimSpace(req.SessionID) != "" {
+	} else if requestSessionID != "" {
 		if _, err := r.runtime.GetSession(ctx, wsID, sessionID); err != nil {
 			return RuntimeChatResponse{}, fmt.Errorf("failed to select Crush session: %w", err)
 		}

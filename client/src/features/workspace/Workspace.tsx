@@ -16,7 +16,7 @@ import {
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { Button, Dropdown, Input, Modal, Tooltip, message as antdMessage } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
-import type { TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
+import type { NewConversationDraftViewModel, TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { RunProjectionPreview } from '../diagnostics/RunProjectionPreview.tsx';
 import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
@@ -43,6 +43,7 @@ interface RightPanelTabState {
 interface WorkspaceProps {
   sidebarCollapsed?: boolean;
   viewModel: WorkbenchViewModel;
+  switchingSessionID?: string;
   onMinimumWorkspaceWidthChange?: (width: number) => void;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
   onPermissionDecide: (permissionID: string, action: 'allow' | 'allow_for_session' | 'deny') => Promise<void>;
@@ -50,6 +51,7 @@ interface WorkspaceProps {
   onPromptCancel: () => Promise<void>;
   onSessionRename: (sessionID: string, title: string) => Promise<void>;
   onPromptSubmit: (prompt: string) => Promise<void>;
+  onNewConversationDraftChange: (target: NewConversationDraftViewModel) => void;
   onInterruptedDone: (turnID: string) => Promise<void>;
   onRunCheckpointResume?: (runID: string, checkpointID: string) => Promise<void>;
   onRunTaskExecute?: (runID: string, taskID: string) => Promise<void>;
@@ -64,6 +66,7 @@ interface WorkspaceProps {
 export function Workspace({
   sidebarCollapsed = false,
   viewModel,
+  switchingSessionID = '',
   onMinimumWorkspaceWidthChange,
   onModelSelect,
   onPermissionDecide,
@@ -71,6 +74,7 @@ export function Workspace({
   onPromptCancel,
   onSessionRename,
   onPromptSubmit,
+  onNewConversationDraftChange,
   onInterruptedDone,
   onRunCheckpointResume,
   onRunTaskExecute,
@@ -99,6 +103,7 @@ export function Workspace({
   const canUseProjectSideTools = hasProjectContext;
   const hasConversation = viewModel.conversation.length > 0;
   const activeSession = viewModel.sessions.find((session) => session.active);
+  const isSessionSwitching = Boolean(switchingSessionID && activeSession?.id === switchingSessionID && !hasConversation && viewModel.timeline.length === 0);
   const sessionTitle = activeSession?.title || viewModel.currentProject.name || '新对话';
   const title =
     viewModel.mode === 'project' && hasProjectContext ? `我们应该在 ${viewModel.currentProject.name} 中构建什么？` : '我们该做什么？';
@@ -497,9 +502,9 @@ export function Workspace({
         />
       </Modal>
         <div
-          ref={hasConversation ? scrollContainerRef : undefined}
-          className={hasConversation ? styles.chatContent : styles.content}
-          onScroll={hasConversation ? updateJumpToBottomVisibility : undefined}
+          ref={hasConversation || isSessionSwitching ? scrollContainerRef : undefined}
+          className={hasConversation || isSessionSwitching ? styles.chatContent : styles.content}
+          onScroll={hasConversation || isSessionSwitching ? updateJumpToBottomVisibility : undefined}
         >
           {viewModel.timeline.length > 0 ? (
             <div className={styles.timelineLayout}>
@@ -525,6 +530,11 @@ export function Workspace({
                 },
               }}
             />
+          ) : isSessionSwitching ? (
+            <div className={styles.sessionLoading} role="status" aria-live="polite">
+              <span className={styles.sessionLoadingDot} />
+              <span>正在加载对话...</span>
+            </div>
           ) : (
             <h1 className={styles.title}>{title}</h1>
           )}
@@ -541,7 +551,10 @@ export function Workspace({
           <Composer
             composer={viewModel.composer}
             project={viewModel.currentProject}
+            projects={viewModel.projects}
+            newConversationDraft={viewModel.newConversationDraft}
             showProjectContext={viewModel.mode === 'project' && hasProjectContext && !hasConversation}
+            onNewConversationDraftChange={onNewConversationDraftChange}
             onModelSelect={onModelSelect}
             onPermissionModeSelect={onPermissionModeSelect}
             onCancel={onPromptCancel}

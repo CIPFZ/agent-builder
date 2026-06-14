@@ -7,10 +7,14 @@ INSERT INTO sessions (
     prompt_tokens,
     completion_tokens,
     cost,
+    project_id,
+    scope,
     summary_message_id,
     updated_at,
     created_at
 ) VALUES (
+    ?,
+    ?,
     ?,
     ?,
     ?,
@@ -48,6 +52,8 @@ SET
     completion_tokens = ?,
     summary_message_id = ?,
     cost = ?,
+    project_id = ?,
+    scope = ?,
     todos = ?
 WHERE id = ?
 RETURNING *;

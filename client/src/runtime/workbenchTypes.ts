@@ -33,9 +33,17 @@ export interface SessionViewModel {
   id: string;
   title: string;
   updatedLabel: string;
+  projectId?: string;
+  scope: 'project' | 'standalone';
   active?: boolean;
   busy?: boolean;
   activeTurnId?: string;
+}
+
+export interface NewConversationDraftViewModel {
+  active: boolean;
+  scope: 'project' | 'standalone';
+  projectId?: string;
 }
 
 export interface SidebarActionViewModel {
@@ -600,6 +608,7 @@ export interface WorkbenchViewModel {
   currentProject: ProjectViewModel;
   projects: ProjectViewModel[];
   sessions: SessionViewModel[];
+  newConversationDraft?: NewConversationDraftViewModel;
   sidebarActions: SidebarActionViewModel[];
   conversation: ConversationMessageViewModel[];
   timeline: ConversationTimelineItemViewModel[];
@@ -630,7 +639,7 @@ export interface WorkbenchAdapter {
   openProjectInExplorer: (request: ProjectActionRequestViewModel) => Promise<void>;
   removeProject: (current: WorkbenchViewModel, request: ProjectActionRequestViewModel) => Promise<WorkbenchViewModel>;
   selectProjectDirectory: () => Promise<string>;
-  createSession: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
+  createSession: (current: WorkbenchViewModel, target?: NewConversationDraftViewModel) => Promise<WorkbenchViewModel>;
   selectSession: (current: WorkbenchViewModel, sessionID: string) => Promise<WorkbenchViewModel>;
   renameSession: (current: WorkbenchViewModel, sessionID: string, title: string) => Promise<WorkbenchViewModel>;
   deleteSession: (current: WorkbenchViewModel, sessionID: string) => Promise<WorkbenchViewModel>;

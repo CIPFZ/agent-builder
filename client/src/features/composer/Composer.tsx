@@ -7,15 +7,19 @@ import {
   DownOutlined,
   FolderOpenOutlined,
   PlusOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
-import type { ComposerViewModel, ProjectViewModel } from '../../runtime/workbenchTypes.ts';
+import type { ComposerViewModel, NewConversationDraftViewModel, ProjectViewModel } from '../../runtime/workbenchTypes.ts';
 import { PermissionModeControl } from '../permissions/PermissionModeControl.tsx';
 import styles from './Composer.module.css';
 
 interface ComposerProps {
   composer: ComposerViewModel;
   project: ProjectViewModel;
+  projects: ProjectViewModel[];
+  newConversationDraft?: NewConversationDraftViewModel;
   showProjectContext: boolean;
+  onNewConversationDraftChange: (target: NewConversationDraftViewModel) => void;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
   onPermissionModeSelect: (mode: string) => Promise<void>;
   onCancel: () => Promise<void>;
@@ -34,7 +38,10 @@ const menu = {
 export function Composer({
   composer,
   project,
+  projects,
+  newConversationDraft,
   showProjectContext,
+  onNewConversationDraftChange,
   onModelSelect,
   onPermissionModeSelect,
   onCancel,
@@ -44,6 +51,15 @@ export function Composer({
   const [draft, setDraft] = useState('');
   const composerRef = useRef<HTMLDivElement | null>(null);
   const selectedProviderID = composer.selectedModel?.configuredProviderId;
+  const projectOptions = projects.length > 0 ? projects : project.id ? [project] : [];
+  const activeDraftTarget =
+    newConversationDraft ?? (project.id ? { active: true, scope: 'project' as const, projectId: project.id } : { active: true, scope: 'standalone' as const });
+  const selectedDraftProject = activeDraftTarget.scope === 'project'
+    ? projectOptions.find((item) => item.id === activeDraftTarget.projectId) ?? project
+    : undefined;
+  const draftTargetLabel = activeDraftTarget.scope === 'project'
+    ? selectedDraftProject?.name || project.name || 'Project'
+    : '不使用项目';
   const visibleModelOptions = selectedProviderID
     ? composer.modelOptions.filter((model) => model.configuredProviderId === selectedProviderID)
     : composer.modelOptions.filter((model) => model.configuredProviderId);
@@ -97,6 +113,32 @@ export function Composer({
         return;
       }
       void onModelSelect(option.configuredProviderId, option.name);
+    },
+  };
+  const projectTargetMenu = {
+    items: [
+      ...projectOptions.map((item) => ({
+        key: `project:${item.id}`,
+        label: item.name,
+        icon: <FolderOpenOutlined />,
+      })),
+      ...(projectOptions.length > 0 ? [{ type: 'divider' as const }] : []),
+      {
+        key: 'standalone',
+        label: '不使用项目',
+        icon: <StopOutlined />,
+      },
+    ],
+    onClick: ({ key }: { key: string }) => {
+      if (key === 'standalone') {
+        onNewConversationDraftChange({ active: true, scope: 'standalone' });
+        return;
+      }
+      const projectID = key.startsWith('project:') ? key.slice('project:'.length) : '';
+      if (!projectID) {
+        return;
+      }
+      onNewConversationDraftChange({ active: true, scope: 'project', projectId: projectID });
     },
   };
   const footer = (
@@ -178,16 +220,16 @@ export function Composer({
           suffix={false}
           value={draft}
         />
-        {showProjectContext && (
+        {(showProjectContext || newConversationDraft) && (
           <div className={styles.limitBar} data-testid="composer-limit-bar">
-            <Dropdown menu={menu} trigger={['click']}>
+            <Dropdown menu={projectTargetMenu} trigger={['click']}>
               <Button className={styles.limitButton} type="text">
-                <FolderOpenOutlined />
-                <span>{project.name}</span>
+                {activeDraftTarget.scope === 'project' ? <FolderOpenOutlined /> : <StopOutlined />}
+                <span>{draftTargetLabel}</span>
                 <DownOutlined className={styles.chevron} />
               </Button>
             </Dropdown>
-            {project.isGitRepository && project.branch && (
+            {activeDraftTarget.scope === 'project' && project.isGitRepository && project.branch && (
               <Dropdown menu={menu} trigger={['click']}>
                 <Button className={styles.limitButton} type="text">
                   <BranchesOutlined />

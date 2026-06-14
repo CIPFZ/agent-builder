@@ -2660,6 +2660,53 @@ func TestRuntimeCreateSessionPersistsAndSelectsSession(t *testing.T) {
 	}
 }
 
+func TestRuntimeCreateSessionPersistsOwnership(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	runtimeBackend, workspace := backendForSkillTest(t)
+	service.runtime = runtimeBackend
+	service.workspace = &proto.Workspace{ID: workspace.ID}
+
+	projectSession, err := service.CreateSession(context.Background(), RuntimeSessionCreateRequest{
+		Title:     "Project chat",
+		ProjectID: workspace.ID,
+		Scope:     "project",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projectSession.Session.Scope != "project" || projectSession.Session.ProjectID != workspace.ID {
+		t.Fatalf("project session ownership = %#v", projectSession.Session)
+	}
+
+	standaloneSession, err := service.CreateSession(context.Background(), RuntimeSessionCreateRequest{
+		Title: "Standalone chat",
+		Scope: "standalone",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if standaloneSession.Session.Scope != "standalone" || standaloneSession.Session.ProjectID != "" {
+		t.Fatalf("standalone session ownership = %#v", standaloneSession.Session)
+	}
+
+	sessions, err := service.Sessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]RuntimeSession{}
+	for _, sess := range sessions.Sessions {
+		byID[sess.ID] = sess
+	}
+	if byID[projectSession.Session.ID].Scope != "project" || byID[projectSession.Session.ID].ProjectID != workspace.ID {
+		t.Fatalf("listed project session ownership = %#v", byID[projectSession.Session.ID])
+	}
+	if byID[standaloneSession.Session.ID].Scope != "standalone" || byID[standaloneSession.Session.ID].ProjectID != "" {
+		t.Fatalf("listed standalone session ownership = %#v", byID[standaloneSession.Session.ID])
+	}
+}
+
 func TestRuntimeDeleteActiveSessionReturnsToDraft(t *testing.T) {
 	t.Parallel()
 

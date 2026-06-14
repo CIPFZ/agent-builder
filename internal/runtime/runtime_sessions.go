@@ -28,7 +28,7 @@ func (r *runtimeService) Sessions(ctx context.Context) (RuntimeSessionsResponse,
 	if err != nil {
 		return RuntimeSessionsResponse{}, fmt.Errorf("failed to list Crush sessions: %w", err)
 	}
-	return RuntimeSessionsResponse{Sessions: toRuntimeSessions(sessions, activeID)}, nil
+	return RuntimeSessionsResponse{Sessions: toRuntimeSessions(sessions, activeID, wsID)}, nil
 }
 
 func (r *runtimeService) Session(ctx context.Context, sessionID string) (RuntimeSessionResponse, error) {
@@ -48,7 +48,7 @@ func (r *runtimeService) Session(ctx context.Context, sessionID string) (Runtime
 	if err != nil {
 		return RuntimeSessionResponse{}, fmt.Errorf("failed to read Crush session: %w", err)
 	}
-	return RuntimeSessionResponse{Session: toRuntimeSession(sess, activeID)}, nil
+	return RuntimeSessionResponse{Session: toRuntimeSession(sess, activeID, wsID)}, nil
 }
 
 func (r *runtimeService) CreateSession(ctx context.Context, req RuntimeSessionCreateRequest) (RuntimeSessionResponse, error) {
@@ -62,7 +62,8 @@ func (r *runtimeService) CreateSession(ctx context.Context, req RuntimeSessionCr
 	r.mu.Lock()
 	wsID := r.workspace.ID
 	r.mu.Unlock()
-	sess, err := r.runtime.CreateSession(ctx, wsID, title)
+	projectID, scope := normalizeRuntimeSessionOwnership(req.ProjectID, req.Scope, wsID)
+	sess, err := r.runtime.CreateSessionWithScope(ctx, wsID, title, projectID, scope)
 	if err != nil {
 		return RuntimeSessionResponse{}, fmt.Errorf("failed to create Crush session: %w", err)
 	}
@@ -79,7 +80,7 @@ func (r *runtimeService) CreateSession(ctx context.Context, req RuntimeSessionCr
 			"active": true,
 		},
 	})
-	return RuntimeSessionResponse{Session: toRuntimeSession(sess, sess.ID)}, nil
+	return RuntimeSessionResponse{Session: toRuntimeSession(sess, sess.ID, wsID)}, nil
 }
 
 func (r *runtimeService) SelectSession(ctx context.Context, sessionID string) (RuntimeStatus, error) {
@@ -135,6 +136,12 @@ func (r *runtimeService) RenameSession(ctx context.Context, req RuntimeSessionUp
 		return RuntimeSessionsResponse{}, fmt.Errorf("failed to read Crush session: %w", err)
 	}
 	sess.Title = title
+	if sess.Scope == "" {
+		sess.Scope = "project"
+	}
+	if sess.Scope == "project" && sess.ProjectID == "" {
+		sess.ProjectID = wsID
+	}
 	if _, err := r.runtime.SaveSession(ctx, wsID, sess); err != nil {
 		return RuntimeSessionsResponse{}, fmt.Errorf("failed to rename Crush session: %w", err)
 	}
@@ -829,24 +836,27 @@ func (r *runtimeService) sessionUsage(ctx context.Context, workspaceID, sessionI
 	}, nil
 }
 
-func toRuntimeSessions(sessions []session.Session, activeID string) []RuntimeSession {
+func toRuntimeSessions(sessions []session.Session, activeID, workspaceID string) []RuntimeSession {
 	out := make([]RuntimeSession, 0, len(sessions))
 	for _, sess := range sessions {
-		out = append(out, toRuntimeSession(sess, activeID))
+		out = append(out, toRuntimeSession(sess, activeID, workspaceID))
 	}
 	return out
 }
 
-func toRuntimeSession(sess session.Session, activeID string) RuntimeSession {
+func toRuntimeSession(sess session.Session, activeID, workspaceID string) RuntimeSession {
 	usage := RuntimeUsage{
 		PromptTokens:     sess.PromptTokens,
 		CompletionTokens: sess.CompletionTokens,
 		TotalTokens:      sess.PromptTokens + sess.CompletionTokens,
 		Cost:             sess.Cost,
 	}
+	projectID, scope := normalizeRuntimeSessionOwnership(sess.ProjectID, sess.Scope, workspaceID)
 	return RuntimeSession{
 		ID:               sess.ID,
 		Title:            firstNonEmpty(sess.Title, "New chat"),
+		ProjectID:        projectID,
+		Scope:            scope,
 		MessageCount:     sess.MessageCount,
 		PromptTokens:     sess.PromptTokens,
 		CompletionTokens: sess.CompletionTokens,
@@ -856,4 +866,16 @@ func toRuntimeSession(sess session.Session, activeID string) RuntimeSession {
 		Active:           sess.ID == activeID,
 		Usage:            usage,
 	}
+}
+
+func normalizeRuntimeSessionOwnership(projectID, scope, workspaceID string) (string, string) {
+	scope = strings.TrimSpace(scope)
+	projectID = strings.TrimSpace(projectID)
+	if scope == "standalone" {
+		return "", "standalone"
+	}
+	if projectID == "" {
+		projectID = workspaceID
+	}
+	return projectID, "project"
 }

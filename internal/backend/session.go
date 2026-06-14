@@ -10,12 +10,18 @@ import (
 
 // CreateSession creates a new session in the given workspace.
 func (b *Backend) CreateSession(ctx context.Context, workspaceID, title string) (session.Session, error) {
+	return b.CreateSessionWithScope(ctx, workspaceID, title, workspaceID, "project")
+}
+
+// CreateSessionWithScope creates a new session in the given workspace with
+// explicit product ownership metadata.
+func (b *Backend) CreateSessionWithScope(ctx context.Context, workspaceID, title, projectID, scope string) (session.Session, error) {
 	ws, err := b.GetWorkspace(workspaceID)
 	if err != nil {
 		return session.Session{}, err
 	}
 
-	return ws.Sessions.Create(ctx, title)
+	return ws.Sessions.CreateWithScope(ctx, title, projectID, scope)
 }
 
 // GetSession retrieves a session by workspace and session ID.

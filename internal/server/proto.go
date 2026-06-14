@@ -333,7 +333,11 @@ func (c *controllerV1) handlePostWorkspaceSessions(w http.ResponseWriter, r *htt
 		return
 	}
 
-	sess, err := c.backend.CreateSession(r.Context(), id, args.Title)
+	projectID := args.ProjectID
+	if projectID == "" && args.Scope != "standalone" {
+		projectID = id
+	}
+	sess, err := c.backend.CreateSessionWithScope(r.Context(), id, args.Title, projectID, args.Scope)
 	if err != nil {
 		c.handleError(w, r, err)
 		return

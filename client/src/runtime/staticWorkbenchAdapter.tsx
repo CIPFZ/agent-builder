@@ -71,6 +71,7 @@ export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): W
     },
     projects: [],
     sessions: [],
+    newConversationDraft: undefined,
     sidebarActions,
     conversation: [],
     timeline: [],

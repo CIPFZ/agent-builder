@@ -8,6 +8,7 @@ import type {
   WorkbenchAdapter,
   WorkbenchMode,
   WorkbenchViewModel,
+  NewConversationDraftViewModel,
 } from '../../runtime/workbenchTypes.ts';
 import { runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
 import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
@@ -51,8 +52,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const [workspaceMinVisibleWidth, setWorkspaceMinVisibleWidth] = useState(WORKSPACE_MIN_VISIBLE_WIDTH);
   const [sidebarMaxWidth, setSidebarMaxWidth] = useState(() => getSidebarMaxWidth());
   const [viewportWidth, setViewportWidth] = useState(() => (typeof window === 'undefined' ? 0 : window.innerWidth));
+  const [switchingSessionID, setSwitchingSessionID] = useState('');
   const viewModelRef = useRef(viewModel);
   const modeRef = useRef(mode);
+  const sessionMutationSeqRef = useRef(0);
+  const newConversationDraftSeqRef = useRef(0);
   const hasBusySession = viewModel.sessions.some((session) => session.busy);
   const sidebarForceCollapsed =
     !sidebarCollapsed &&
@@ -202,25 +206,73 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     }
   };
 
-  const createSession = () => {
+  const createSession = (target?: NewConversationDraftViewModel) => {
+    const draftSeq = ++newConversationDraftSeqRef.current;
+    const currentViewModel = viewModelRef.current;
+    const currentMode = modeRef.current;
+    const draftTarget = target ?? defaultDraftTarget(currentViewModel);
     const draftViewModel: WorkbenchViewModel = {
-      ...viewModel,
+      ...currentViewModel,
       mode: 'new-chat',
-      sessions: viewModel.sessions.map((session) => ({ ...session, active: false })),
+      newConversationDraft: draftTarget,
+      sessions: currentViewModel.sessions.map((session) => ({ ...session, active: false })),
       conversation: [],
       timeline: [],
       turnDiagnostics: undefined,
       interruptedTurn: undefined,
       runProjection: undefined,
       pendingPermissions: [],
-      composer: { ...viewModel.composer, busy: false, activeTurnId: undefined },
+      composer: { ...currentViewModel.composer, busy: false, activeTurnId: undefined },
     };
+    modeRef.current = 'new-chat';
+    viewModelRef.current = draftViewModel;
+    setSwitchingSessionID('');
     setMode('new-chat');
     setViewModel(draftViewModel);
-    void adapter.createSession(draftViewModel).then((nextViewModel) => {
-      setMode(nextViewModel.mode);
-      setViewModel(nextViewModel);
-    });
+    void adapter
+      .createSession(draftViewModel, draftTarget)
+      .then((nextViewModel) => {
+        if (newConversationDraftSeqRef.current !== draftSeq) {
+          return;
+        }
+        modeRef.current = nextViewModel.mode;
+        viewModelRef.current = nextViewModel;
+        setMode(nextViewModel.mode);
+        setViewModel(nextViewModel);
+      })
+      .catch((error) => {
+        if (newConversationDraftSeqRef.current !== draftSeq) {
+          return;
+        }
+        console.warn('[workbench] start new conversation draft failed', error);
+        modeRef.current = currentMode;
+        viewModelRef.current = currentViewModel;
+        setMode(currentMode);
+        setViewModel(currentViewModel);
+      });
+  };
+
+  const updateNewConversationDraft = (target: NewConversationDraftViewModel) => {
+    newConversationDraftSeqRef.current += 1;
+    const current = viewModelRef.current;
+    const next: WorkbenchViewModel = {
+      ...current,
+      mode: 'new-chat',
+      newConversationDraft: target,
+      sessions: current.sessions.map((session) => ({ ...session, active: false })),
+      conversation: current.sessions.some((session) => session.active) ? [] : current.conversation,
+      timeline: current.sessions.some((session) => session.active) ? [] : current.timeline,
+      turnDiagnostics: undefined,
+      interruptedTurn: undefined,
+      runProjection: undefined,
+      pendingPermissions: [],
+      composer: { ...current.composer, busy: false, activeTurnId: undefined },
+    };
+    modeRef.current = 'new-chat';
+    viewModelRef.current = next;
+    setSwitchingSessionID('');
+    setMode('new-chat');
+    setViewModel(next);
   };
 
   const openProject = async (request: OpenProjectRequestViewModel) => {
@@ -254,10 +306,50 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const selectProjectDirectory = () => adapter.selectProjectDirectory();
 
   const selectSession = (sessionID: string) => {
-    void adapter.selectSession({ ...viewModel, mode }, sessionID).then((nextViewModel) => {
-      setMode(nextViewModel.mode);
-      setViewModel(nextViewModel);
-    });
+    newConversationDraftSeqRef.current += 1;
+    const mutationSeq = ++sessionMutationSeqRef.current;
+    const currentViewModel = viewModelRef.current;
+    const optimisticViewModel: WorkbenchViewModel = {
+      ...currentViewModel,
+      mode: 'new-chat',
+      newConversationDraft: undefined,
+      sessions: currentViewModel.sessions.map((session) => ({ ...session, active: session.id === sessionID })),
+      conversation: [],
+      timeline: [],
+      turnDiagnostics: undefined,
+      interruptedTurn: undefined,
+      runProjection: undefined,
+      pendingPermissions: [],
+      composer: { ...currentViewModel.composer, busy: false, activeTurnId: undefined },
+    };
+    modeRef.current = 'new-chat';
+    viewModelRef.current = optimisticViewModel;
+    setSwitchingSessionID(sessionID);
+    setMode('new-chat');
+    setViewModel(optimisticViewModel);
+    void adapter
+      .selectSession(optimisticViewModel, sessionID)
+      .then((nextViewModel) => {
+        if (sessionMutationSeqRef.current !== mutationSeq) {
+          return;
+        }
+        setSwitchingSessionID('');
+        modeRef.current = nextViewModel.mode;
+        viewModelRef.current = { ...nextViewModel, newConversationDraft: undefined };
+        setMode(nextViewModel.mode);
+        setViewModel(viewModelRef.current);
+      })
+      .catch((error) => {
+        if (sessionMutationSeqRef.current !== mutationSeq) {
+          return;
+        }
+        console.warn('[workbench] select session failed', error);
+        setSwitchingSessionID('');
+        modeRef.current = mode;
+        viewModelRef.current = viewModel;
+        setMode(mode);
+        setViewModel(viewModel);
+      });
   };
 
   const renameSession = async (sessionID: string, title: string) => {
@@ -267,22 +359,64 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   };
 
   const deleteSession = (sessionID: string) => {
-    void adapter.deleteSession({ ...viewModel, mode }, sessionID).then((nextViewModel) => {
-      setMode(nextViewModel.mode);
-      setViewModel(nextViewModel);
-    });
+    newConversationDraftSeqRef.current += 1;
+    const mutationSeq = ++sessionMutationSeqRef.current;
+    const currentViewModel = viewModelRef.current;
+    const currentMode = modeRef.current;
+    const wasActive = currentViewModel.sessions.some((session) => session.id === sessionID && session.active);
+    const optimisticViewModel: WorkbenchViewModel = {
+      ...currentViewModel,
+      mode: wasActive ? 'new-chat' : currentMode,
+      newConversationDraft: wasActive ? defaultDraftTarget(currentViewModel) : currentViewModel.newConversationDraft,
+      sessions: currentViewModel.sessions.filter((session) => session.id !== sessionID),
+      conversation: wasActive ? [] : currentViewModel.conversation,
+      timeline: wasActive ? [] : currentViewModel.timeline,
+      turnDiagnostics: wasActive ? undefined : currentViewModel.turnDiagnostics,
+      interruptedTurn: wasActive ? undefined : currentViewModel.interruptedTurn,
+      runProjection: wasActive ? undefined : currentViewModel.runProjection,
+      pendingPermissions: wasActive ? [] : currentViewModel.pendingPermissions,
+      composer: wasActive ? { ...currentViewModel.composer, busy: false, activeTurnId: undefined } : currentViewModel.composer,
+    };
+    setSwitchingSessionID('');
+    modeRef.current = optimisticViewModel.mode;
+    viewModelRef.current = optimisticViewModel;
+    setMode(optimisticViewModel.mode);
+    setViewModel(optimisticViewModel);
+    void adapter
+      .deleteSession(optimisticViewModel, sessionID)
+      .then((nextViewModel) => {
+        if (sessionMutationSeqRef.current !== mutationSeq) {
+          return;
+        }
+        modeRef.current = nextViewModel.mode;
+        viewModelRef.current = nextViewModel;
+        setMode(nextViewModel.mode);
+        setViewModel(nextViewModel);
+      })
+      .catch((error) => {
+        if (sessionMutationSeqRef.current !== mutationSeq) {
+          return;
+        }
+        console.warn('[workbench] delete session failed', error);
+        modeRef.current = currentMode;
+        viewModelRef.current = currentViewModel;
+        setMode(currentMode);
+        setViewModel(currentViewModel);
+      });
   };
 
   const sendPrompt = async (prompt: string) => {
+    const currentViewModel = viewModelRef.current;
+    const currentMode = modeRef.current;
     const createdAt = Date.now();
     const userID = `local-${createdAt}`;
     const loadingID = `loading-${createdAt}`;
     const optimisticViewModel: WorkbenchViewModel = {
-      ...viewModel,
-      mode,
-      composer: { ...viewModel.composer, busy: true },
+      ...currentViewModel,
+      mode: currentMode,
+      composer: { ...currentViewModel.composer, busy: true },
       conversation: [
-        ...viewModel.conversation,
+        ...currentViewModel.conversation,
         {
           id: userID,
           role: 'user',
@@ -298,7 +432,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         },
       ],
       timeline: [
-        ...viewModel.timeline,
+        ...currentViewModel.timeline,
         {
           id: userID,
           kind: 'message',
@@ -316,9 +450,13 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         },
       ],
     };
+    viewModelRef.current = optimisticViewModel;
     setViewModel(optimisticViewModel);
     try {
       const nextViewModel = await adapter.sendPrompt(optimisticViewModel, prompt);
+      modeRef.current = nextViewModel.mode;
+      viewModelRef.current = nextViewModel;
+      setSwitchingSessionID('');
       setMode(nextViewModel.mode);
       setViewModel(nextViewModel);
     } catch (error) {
@@ -332,6 +470,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           item.id === loadingID ? { ...item, content: sendPromptErrorMessage(error), status: 'error', error: sendPromptErrorMessage(error) } : item,
         ),
       };
+      viewModelRef.current = failedViewModel;
+      setSwitchingSessionID('');
       setViewModel(failedViewModel);
     }
   };
@@ -562,6 +702,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         onProjectRemove={removeProject}
         onProjectDirectorySelect={selectProjectDirectory}
         onSessionCreate={createSession}
+        onSessionRename={renameSession}
         onSessionDelete={deleteSession}
         onSessionSelect={selectSession}
       />
@@ -589,6 +730,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         <Workspace
           sidebarCollapsed={effectiveSidebarCollapsed}
           viewModel={workbenchViewModel}
+          switchingSessionID={switchingSessionID}
           onMinimumWorkspaceWidthChange={handleMinimumWorkspaceWidthChange}
           onModelSelect={selectModel}
           onPermissionDecide={decidePermission}
@@ -596,6 +738,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onPromptCancel={cancelTurn}
           onSessionRename={renameSession}
           onPromptSubmit={sendPrompt}
+          onNewConversationDraftChange={updateNewConversationDraft}
           onInterruptedDone={markInterruptedDone}
           onRunCheckpointResume={resumeRunCheckpoint}
           onRunTaskExecute={executeRunTask}
@@ -635,6 +778,13 @@ function applyPermissionMode(current: WorkbenchViewModel, mode: string): Workben
       permissionMode,
     },
   };
+}
+
+function defaultDraftTarget(viewModel: WorkbenchViewModel): NewConversationDraftViewModel {
+  if (viewModel.currentProject.id) {
+    return { active: true, scope: 'project', projectId: viewModel.currentProject.id };
+  }
+  return { active: true, scope: 'standalone' };
 }
 
 function sendPromptErrorMessage(error: unknown) {

@@ -24,6 +24,10 @@ func (m *mockTodoSessionService) Create(context.Context, string) (session.Sessio
 	return session.Session{}, nil
 }
 
+func (m *mockTodoSessionService) CreateWithScope(context.Context, string, string, string) (session.Session, error) {
+	return session.Session{}, nil
+}
+
 func (m *mockTodoSessionService) CreateTitleSession(context.Context, string) (session.Session, error) {
 	return session.Session{}, nil
 }

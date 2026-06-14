@@ -162,6 +162,39 @@
   width: 100%;
 }
 
+.sessionLoading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: min(820px, calc(100% - 80px));
+  margin: 28px auto 0;
+  padding: 0 4px;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.sessionLoadingDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.28);
+  animation: session-loading-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes session-loading-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.82);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .chatContent > :global([data-testid='composer']) {
   position: sticky;
   z-index: 5;

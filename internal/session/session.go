@@ -57,6 +57,8 @@ type Session struct {
 	EstimatedUsage   bool
 	SummaryMessageID string
 	Cost             float64
+	ProjectID        string
+	Scope            string
 	Todos            []Todo
 	CreatedAt        int64
 	UpdatedAt        int64
@@ -65,6 +67,7 @@ type Session struct {
 type Service interface {
 	pubsub.Subscriber[Session]
 	Create(ctx context.Context, title string) (Session, error)
+	CreateWithScope(ctx context.Context, title, projectID, scope string) (Session, error)
 	CreateTitleSession(ctx context.Context, parentSessionID string) (Session, error)
 	CreateTaskSession(ctx context.Context, toolCallID, parentSessionID, title string) (Session, error)
 	Get(ctx context.Context, id string) (Session, error)
@@ -94,9 +97,15 @@ type service struct {
 }
 
 func (s *service) Create(ctx context.Context, title string) (Session, error) {
+	return s.CreateWithScope(ctx, title, "", "project")
+}
+
+func (s *service) CreateWithScope(ctx context.Context, title, projectID, scope string) (Session, error) {
 	dbSession, err := s.q.CreateSession(ctx, db.CreateSessionParams{
-		ID:    uuid.New().String(),
-		Title: title,
+		ID:        uuid.New().String(),
+		Title:     title,
+		ProjectID: strings.TrimSpace(projectID),
+		Scope:     normalizeSessionScope(scope),
 	})
 	if err != nil {
 		return Session{}, err
@@ -112,6 +121,7 @@ func (s *service) CreateTaskSession(ctx context.Context, toolCallID, parentSessi
 		ID:              toolCallID,
 		ParentSessionID: sql.NullString{String: parentSessionID, Valid: true},
 		Title:           title,
+		Scope:           "project",
 	})
 	if err != nil {
 		return Session{}, err
@@ -126,6 +136,7 @@ func (s *service) CreateTitleSession(ctx context.Context, parentSessionID string
 		ID:              "title-" + parentSessionID,
 		ParentSessionID: sql.NullString{String: parentSessionID, Valid: true},
 		Title:           "Generate a title",
+		Scope:           "project",
 	})
 	if err != nil {
 		return Session{}, err
@@ -203,7 +214,9 @@ func (s *service) Save(ctx context.Context, session Session) (Session, error) {
 			String: session.SummaryMessageID,
 			Valid:  session.SummaryMessageID != "",
 		},
-		Cost: session.Cost,
+		Cost:      session.Cost,
+		ProjectID: strings.TrimSpace(session.ProjectID),
+		Scope:     normalizeSessionScope(session.Scope),
 		Todos: sql.NullString{
 			String: todosJSON,
 			Valid:  todosJSON != "",
@@ -290,9 +303,20 @@ func (s *service) fromDBItem(item db.Session) Session {
 		CompletionTokens: item.CompletionTokens,
 		SummaryMessageID: item.SummaryMessageID.String,
 		Cost:             item.Cost,
+		ProjectID:        item.ProjectID,
+		Scope:            normalizeSessionScope(item.Scope),
 		Todos:            todos,
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,
+	}
+}
+
+func normalizeSessionScope(scope string) string {
+	switch strings.TrimSpace(scope) {
+	case "standalone":
+		return "standalone"
+	default:
+		return "project"
 	}
 }
 

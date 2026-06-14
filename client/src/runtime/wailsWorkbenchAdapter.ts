@@ -66,6 +66,8 @@ interface RuntimeOpenProjectResponseDTO {
 interface RuntimeSessionDTO {
   id: string;
   title: string;
+  projectId?: string;
+  scope?: 'project' | 'standalone' | string;
   updatedAt?: number;
   active?: boolean;
 }
@@ -800,11 +802,11 @@ interface RuntimeBridgeModule {
   TestConfiguredProvider?: (providerID: string) => Promise<RuntimeProviderTestResponseDTO>;
   MeasureConfiguredProviderLatency?: (providerID: string) => Promise<RuntimeProviderTestResponseDTO>;
   NewChat: (title: string) => Promise<RuntimeStatusDTO>;
-  CreateSession?: (req: { title?: string }) => Promise<RuntimeSessionResponseDTO>;
+  CreateSession?: (req: { title?: string; projectId?: string; scope?: 'project' | 'standalone' }) => Promise<RuntimeSessionResponseDTO>;
   SelectSession: (sessionID: string) => Promise<RuntimeStatusDTO>;
   RenameSession?: (req: { sessionId: string; title: string }) => Promise<RuntimeSessionsResponseDTO>;
   DeleteSession?: (sessionID: string) => Promise<RuntimeSessionsResponseDTO>;
-  Chat: (req: { prompt: string; sessionId?: string }) => Promise<RuntimeChatResponseDTO>;
+  Chat: (req: { prompt: string; sessionId?: string; projectId?: string; scope?: 'project' | 'standalone' }) => Promise<RuntimeChatResponseDTO>;
   SessionTerminals?: (sessionID: string) => Promise<RuntimeSessionTerminalsResponseDTO>;
   CreateTerminal?: (req: { sessionId: string; id?: string; cwd?: string; columns?: number; rows?: number }) => Promise<RuntimeTerminalResponseDTO>;
   DeleteTerminal?: (terminalID: string) => Promise<RuntimeTerminalResponseDTO>;
@@ -929,7 +931,7 @@ function modelLabel(status?: RuntimeStatusDTO, modelsResponse?: RuntimeModelsRes
   return model || '未配置模型';
 }
 
-function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: string, activeTurns?: RuntimeTurnDTO[]) {
+function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: string, activeTurns?: RuntimeTurnDTO[], currentProjectID?: string) {
   const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
   const activeTurnBySession = new Map(
     (Array.isArray(activeTurns) ? activeTurns : [])
@@ -940,6 +942,8 @@ function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: st
   return sessions.map((session) => ({
     id: session.id,
     title: session.title || '新对话',
+    projectId: session.scope === 'standalone' ? undefined : (session.projectId || currentProjectID),
+    scope: session.scope === 'standalone' ? 'standalone' as const : 'project' as const,
     updatedLabel: formatUpdatedLabel(session.updatedAt),
     active: session.active || session.id === activeSessionID,
     busy: activeTurnBySession.has(session.id),
@@ -958,6 +962,55 @@ function mapProjectFromStatus(status?: RuntimeStatusDTO, current?: WorkbenchView
     branch: current?.path === path ? current?.branch : undefined,
     current: Boolean(path),
   };
+}
+
+function defaultDraftTarget(current: WorkbenchViewModel): NonNullable<WorkbenchViewModel['newConversationDraft']> {
+  if (current.currentProject.id) {
+    return { active: true, scope: 'project', projectId: current.currentProject.id };
+  }
+  return { active: true, scope: 'standalone' };
+}
+
+function optimisticDraftSessionTitle(prompt: string) {
+  const title = prompt.trim().replace(/\s+/g, ' ');
+  return title.length > 32 ? `${title.slice(0, 32)}...` : title || 'New chat';
+}
+
+function sessionsAfterDraftSubmit(
+  current: WorkbenchViewModel,
+  sessionID: string | undefined,
+  prompt: string,
+  draftTarget: WorkbenchViewModel['newConversationDraft'],
+  turnID: string | undefined,
+) {
+  if (!sessionID) {
+    return current.sessions;
+  }
+  const busyAfterSubmit = Boolean(turnID);
+  const existing = current.sessions.find((session) => session.id === sessionID);
+  if (existing) {
+    return current.sessions.map((session) => ({
+      ...session,
+      active: session.id === sessionID,
+      busy: session.id === sessionID ? busyAfterSubmit : session.busy,
+      activeTurnId: session.id === sessionID && busyAfterSubmit ? turnID : session.activeTurnId,
+    }));
+  }
+  const scope = draftTarget?.scope === 'standalone' ? 'standalone' as const : 'project' as const;
+  const projectId = scope === 'project' ? (draftTarget?.projectId || current.currentProject.id) : undefined;
+  return [
+    {
+      id: sessionID,
+      title: optimisticDraftSessionTitle(prompt),
+      updatedLabel: '刚刚',
+      scope,
+      projectId,
+      active: true,
+      busy: busyAfterSubmit,
+      activeTurnId: busyAfterSubmit ? turnID : undefined,
+    },
+    ...current.sessions.map((session) => ({ ...session, active: false })),
+  ];
 }
 
 function projectNameFromPath(path: string) {
@@ -1911,7 +1964,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     ...current,
     currentProject,
     projects: currentProject.path ? [currentProject] : [],
-    sessions: mapSessions(sessionsResponse, status?.sessionId, activeTurns),
+    sessions: mapSessions(sessionsResponse, status?.sessionId, activeTurns, currentProject.id),
     conversation,
     timeline,
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
@@ -2935,17 +2988,26 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     }
     return subscribeRuntimeBridgeEvents(httpBridge, onEvent);
   },
-  async createSession(current) {
+  async createSession(current, target) {
     forceDraftChatSubmit = false;
     return withBridge(
       async (bridge) => {
-        if (bridge.CreateSession) {
-          await bridge.CreateSession({ title: 'New chat' });
-        } else {
-          await bridge.NewChat('');
-        }
-        const hydrated = await hydrateWorkbench({ ...current, mode: 'new-chat', conversation: [], timeline: [] }, bridge);
-        return { ...hydrated, mode: 'new-chat' };
+        await bridge.NewChat('');
+        const draft = target ?? current.newConversationDraft ?? defaultDraftTarget(current);
+        const hydrated = await hydrateWorkbench(
+          {
+            ...current,
+            mode: 'new-chat',
+            newConversationDraft: draft,
+            conversation: [],
+            timeline: [],
+            turnDiagnostics: undefined,
+            interruptedTurn: undefined,
+            runProjection: undefined,
+          },
+          bridge,
+        );
+        return { ...hydrated, mode: 'new-chat', newConversationDraft: draft };
       },
       () => staticWorkbenchAdapter.createSession(current),
     );
@@ -2955,7 +3017,11 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     return withBridge(
       async (bridge) => {
         await bridge.SelectSession(sessionID);
-        const hydrated = await hydrateWorkbench({ ...current, mode: 'new-chat', conversation: [], timeline: [] }, bridge);
+        const hydrated = await hydrateWorkbench(
+          { ...current, mode: 'new-chat', conversation: [], timeline: [] },
+          bridge,
+          { refreshTargets: ['session_activity', 'run_projection'] },
+        );
         return { ...hydrated, mode: 'new-chat' };
       },
       () => staticWorkbenchAdapter.selectSession(current, sessionID),
@@ -2985,6 +3051,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         const hydrated = await hydrateWorkbench(
           wasActive ? { ...current, mode: 'new-chat', conversation: [], timeline: [] } : current,
           bridge,
+          { refreshTargets: ['status'] },
         );
         return { ...hydrated, mode: wasActive ? 'new-chat' : current.mode };
       },
@@ -3028,7 +3095,8 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     );
   },
   async sendPrompt(current, prompt) {
-    const activeSessionID = forceDraftChatSubmit ? undefined : current.sessions.find((session) => session.active)?.id;
+    const activeSessionID = forceDraftChatSubmit || current.newConversationDraft ? undefined : current.sessions.find((session) => session.active)?.id;
+    const draftTarget = activeSessionID ? undefined : (current.newConversationDraft ?? defaultDraftTarget(current));
 
     return withBridge(
       async (bridge) => {
@@ -3063,7 +3131,13 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         };
         try {
           const response = await runtimeRequestWithTimeout(
-            () => bridge.Chat({ prompt, sessionId: activeSessionID }),
+            () =>
+              bridge.Chat({
+                prompt,
+                sessionId: activeSessionID,
+                projectId: draftTarget?.scope === 'project' ? draftTarget.projectId : undefined,
+                scope: draftTarget?.scope,
+              }),
             runtimeMutationTimeoutMS,
             '运行时响应超时，请稍后刷新会话查看结果。',
           );
@@ -3073,14 +3147,8 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
           return {
             ...optimistic,
             mode: 'new-chat',
-            sessions: responseSessionID
-              ? current.sessions.map((session) => ({
-                  ...session,
-                  active: session.id === responseSessionID,
-                  busy: session.id === responseSessionID ? busyAfterSubmit : session.busy,
-                  activeTurnId: session.id === responseSessionID && busyAfterSubmit ? response.turnId : session.activeTurnId,
-                }))
-              : current.sessions,
+            newConversationDraft: undefined,
+            sessions: sessionsAfterDraftSubmit(current, responseSessionID, prompt, draftTarget, response.turnId),
             composer: {
               ...optimistic.composer,
               busy: busyAfterSubmit,
@@ -3092,6 +3160,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
           return {
             ...optimistic,
             mode: 'new-chat',
+            newConversationDraft: draftTarget,
             conversation: optimistic.conversation.map((item) =>
               item.id === loadingID
                 ? {

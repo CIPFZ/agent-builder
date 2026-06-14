@@ -10,6 +10,8 @@ type Session struct {
 	CompletionTokens int64   `json:"completion_tokens"`
 	SummaryMessageID string  `json:"summary_message_id"`
 	Cost             float64 `json:"cost"`
+	ProjectID        string  `json:"project_id,omitempty"`
+	Scope            string  `json:"scope,omitempty"`
 	Todos            []Todo  `json:"todos,omitempty"`
 	CreatedAt        int64   `json:"created_at"`
 	UpdatedAt        int64   `json:"updated_at"`

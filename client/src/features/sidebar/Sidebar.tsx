@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Button, ConfigProvider, Dropdown, Input, Modal, Popconfirm, Tooltip } from 'antd';
+import { Alert, Button, ConfigProvider, Dropdown, Input, Modal, Tooltip } from 'antd';
 import {
   CaretDownOutlined,
   CaretRightOutlined,
@@ -15,6 +15,7 @@ import {
 } from '@ant-design/icons';
 import type {
   CreateProjectRequestViewModel,
+  NewConversationDraftViewModel,
   OpenProjectRequestViewModel,
   ProjectActionRequestViewModel,
   ProjectViewModel,
@@ -37,7 +38,8 @@ interface SidebarProps {
   onProjectOpenInExplorer: (request: ProjectActionRequestViewModel) => Promise<void>;
   onProjectRemove: (request: ProjectActionRequestViewModel) => Promise<void>;
   onProjectDirectorySelect: () => Promise<string>;
-  onSessionCreate: () => void;
+  onSessionCreate: (target?: NewConversationDraftViewModel) => void;
+  onSessionRename: (sessionID: string, title: string) => Promise<void>;
   onSessionDelete: (sessionID: string) => void;
   onSessionSelect: (sessionID: string) => void;
 }
@@ -54,6 +56,7 @@ export function Sidebar({
   onProjectRemove,
   onProjectDirectorySelect,
   onSessionCreate,
+  onSessionRename,
   onSessionDelete,
   onSessionSelect,
 }: SidebarProps) {
@@ -65,9 +68,14 @@ export function Sidebar({
   const [projectName, setProjectName] = useState('New project');
   const [projectBusy, setProjectBusy] = useState(false);
   const [projectError, setProjectError] = useState('');
+  const [sessionDialogTarget, setSessionDialogTarget] = useState<{ id: string; title: string } | undefined>();
+  const [sessionTitle, setSessionTitle] = useState('');
+  const [sessionBusy, setSessionBusy] = useState(false);
+  const [sessionError, setSessionError] = useState('');
   const newChatAction = viewModel.sidebarActions.find((action) => action.id === 'new-chat');
   const searchAction = viewModel.sidebarActions.find((action) => action.id === 'search');
   const primaryActions = viewModel.sidebarActions.filter((action) => action.id !== 'search');
+  const standaloneSessions = viewModel.sessions.filter((session) => session.scope === 'standalone');
   const showCollapsedShortcuts = viewModel.mode !== 'plugins';
   const isPrimaryActionCurrent = (action: SidebarActionViewModel) => action.id !== 'new-chat' && viewModel.mode === action.id;
 
@@ -129,13 +137,61 @@ export function Sidebar({
       setProjectBusy(false);
     }
   };
-  const isProjectExpanded = (projectID: string) => Boolean(expandedProjectIDs[projectID]);
-  const toggleProjectSessions = (projectID: string) => {
+  const isProjectExpanded = (project: ProjectViewModel) => expandedProjectIDs[project.id] ?? project.current;
+  const toggleProject = (project: ProjectViewModel) => {
     setExpandedProjectIDs((current) => ({
       ...current,
-      [projectID]: !current[projectID],
+      [project.id]: !(current[project.id] ?? project.current),
     }));
   };
+  const openSessionRenameDialog = (session: { id: string; title: string }) => {
+    setSessionDialogTarget({ id: session.id, title: session.title });
+    setSessionTitle(session.title);
+    setSessionError('');
+  };
+  const submitSessionRename = async () => {
+    const title = sessionTitle.trim();
+    if (!sessionDialogTarget || !title) {
+      return;
+    }
+    setSessionBusy(true);
+    setSessionError('');
+    try {
+      await onSessionRename(sessionDialogTarget.id, title);
+      setSessionDialogTarget(undefined);
+      setSessionTitle('');
+    } catch (error) {
+      setSessionError(error instanceof Error ? error.message : '重命名对话失败');
+    } finally {
+      setSessionBusy(false);
+    }
+  };
+  const confirmSessionDelete = (session: { id: string; title: string }) => {
+    Modal.confirm({
+      title: '删除对话',
+      content: `将删除“${session.title || '未命名对话'}”及其消息记录。`,
+      okText: '删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => onSessionDelete(session.id),
+    });
+  };
+  const sessionActionMenu = (session: { id: string; title: string }) => ({
+    items: [
+      { key: 'rename', icon: <EditOutlined />, label: '重命名' },
+      { type: 'divider' as const },
+      { key: 'delete', danger: true, icon: <DeleteOutlined />, label: '删除' },
+    ],
+    onClick: ({ key }: { key: string }) => {
+      if (key === 'rename') {
+        openSessionRenameDialog(session);
+        return;
+      }
+      if (key === 'delete') {
+        confirmSessionDelete(session);
+      }
+    },
+  });
 
   if (collapsed) {
     return (
@@ -287,94 +343,111 @@ export function Sidebar({
               {projectsOpen && (
                 <div className={styles.list} data-testid="project-list">
                   {viewModel.projects.map((project) => {
-                    const projectExpanded = isProjectExpanded(project.id);
+                    const projectExpanded = isProjectExpanded(project);
+                    const projectSessions = viewModel.sessions.filter((session) => session.scope === 'project' && session.projectId === project.id);
                     return (
                       <div key={project.id} className={styles.projectBlock} data-project-id={project.id}>
-                        <div className={`${styles.projectRow} ${project.current ? styles.currentRow : ''}`}>
-                          <Button className={styles.projectMainButton} type="text" onClick={() => onModeChange('project')}>
+                        <div className={`${styles.projectRow} ${project.current ? styles.currentRow : ''}`} onClick={() => toggleProject(project)}>
+                          <Button
+                            aria-expanded={projectExpanded}
+                            className={styles.projectMainButton}
+                            type="text"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleProject(project);
+                            }}
+                          >
                             <FolderOutlined />
                             <span className={styles.rowText}>{project.name}</span>
+                            <span className={styles.projectChevron}>{projectExpanded ? <CaretDownOutlined /> : <CaretRightOutlined />}</span>
                           </Button>
-                          <Button
-                            aria-label={projectExpanded ? `收起项目对话 ${project.name}` : `展开项目对话 ${project.name}`}
-                            aria-expanded={projectExpanded}
-                            className={styles.projectInlineButton}
-                            icon={projectExpanded ? <CaretDownOutlined /> : <CaretRightOutlined />}
-                            size="small"
-                            type="text"
-                            onClick={() => toggleProjectSessions(project.id)}
-                          />
-                          <div className={styles.projectRowActions}>
-                        <Dropdown
-                          trigger={['click']}
-                          menu={{
-                            items: [
-                              { key: 'rename', icon: <EditOutlined />, label: '重命名项目' },
-                              { key: 'open-explorer', icon: <FolderOpenOutlined />, label: '在资源管理器打开' },
-                              { type: 'divider' },
-                              { key: 'remove', danger: true, icon: <DeleteOutlined />, label: '移除' },
-                            ],
-                            onClick: ({ key }) => {
-                              if (key === 'rename') {
-                                setProjectDialogMode('rename');
-                                setProjectDialogTarget(project);
-                                setProjectName(project.name);
-                                setProjectError('');
-                                return;
-                              }
-                              if (key === 'open-explorer') {
-                                void onProjectOpenInExplorer({ projectId: project.id }).catch((error) => {
-                                  Modal.error({
-                                    title: '无法在资源管理器打开',
-                                    content: error instanceof Error ? error.message : '打开项目文件夹失败',
-                                  });
-                                });
-                                return;
-                              }
-                              if (key === 'remove') {
-                                Modal.confirm({
-                                  title: '移除项目',
-                                  content: '只会从应用中移除项目记录和相关会话数据，不会物理删除项目文件夹。',
-                                  okText: '移除',
-                                  cancelText: '取消',
-                                  okButtonProps: { danger: true },
-                                  onOk: () => onProjectRemove({ projectId: project.id }),
-                                });
-                                return;
-                              }
-                            },
-                          }}
-                        >
-                          <Button
-                            aria-label={`项目更多操作 ${project.name}`}
-                            className={styles.projectActionButton}
-                            icon={<MoreOutlined />}
-                            size="small"
-                            type="text"
-                          />
-                        </Dropdown>
-                        <Button
-                          aria-label={`在项目 ${project.name} 中新建对话`}
-                          className={styles.projectActionButton}
-                          icon={<EditOutlined />}
-                          size="small"
-                          type="text"
-                          onClick={onSessionCreate}
-                        />
+                          <div className={styles.projectRowActions} onClick={(event) => event.stopPropagation()}>
+                            <Dropdown
+                              trigger={['click']}
+                              menu={{
+                                items: [
+                                  { key: 'rename', icon: <EditOutlined />, label: '重命名项目' },
+                                  { key: 'open-explorer', icon: <FolderOpenOutlined />, label: '在资源管理器打开' },
+                                  { type: 'divider' },
+                                  { key: 'remove', danger: true, icon: <DeleteOutlined />, label: '移除' },
+                                ],
+                                onClick: ({ key }) => {
+                                  if (key === 'rename') {
+                                    setProjectDialogMode('rename');
+                                    setProjectDialogTarget(project);
+                                    setProjectName(project.name);
+                                    setProjectError('');
+                                    return;
+                                  }
+                                  if (key === 'open-explorer') {
+                                    void onProjectOpenInExplorer({ projectId: project.id }).catch((error) => {
+                                      Modal.error({
+                                        title: '无法在资源管理器打开',
+                                        content: error instanceof Error ? error.message : '打开项目文件夹失败',
+                                      });
+                                    });
+                                    return;
+                                  }
+                                  if (key === 'remove') {
+                                    Modal.confirm({
+                                      title: '移除项目',
+                                      content: '只会从应用中移除项目记录和相关会话数据，不会物理删除项目文件夹。',
+                                      okText: '移除',
+                                      cancelText: '取消',
+                                      okButtonProps: { danger: true },
+                                      onOk: () => onProjectRemove({ projectId: project.id }),
+                                    });
+                                    return;
+                                  }
+                                },
+                              }}
+                            >
+                              <Button
+                                aria-label={`项目更多操作 ${project.name}`}
+                                className={styles.projectActionButton}
+                                icon={<MoreOutlined />}
+                                size="small"
+                                type="text"
+                              />
+                            </Dropdown>
+                            <Button
+                              aria-label={`在项目 ${project.name} 中新建对话`}
+                              className={styles.projectActionButton}
+                              icon={<EditOutlined />}
+                              size="small"
+                              type="text"
+                              onClick={() => onSessionCreate({ active: true, scope: 'project', projectId: project.id })}
+                            />
                           </div>
                         </div>
-                        {projectExpanded && (
+                        {projectExpanded && projectSessions.length > 0 && (
                           <div className={styles.projectSessionList}>
-                            {viewModel.sessions.map((session) => (
-                              <Button
+                            {projectSessions.map((session) => (
+                              <div
                                 key={session.id}
-                                className={`${styles.projectSessionButton} ${session.active ? styles.currentRow : ''}`}
-                                block
-                                type="text"
-                                onClick={() => onSessionSelect(session.id)}
+                                className={`${styles.projectSessionRow} ${session.active ? styles.currentRow : ''}`}
+                                data-session-id={session.id}
+                                data-session-busy={session.busy ? 'true' : 'false'}
                               >
-                                <span className={styles.projectSessionTitle}>{session.title}</span>
-                              </Button>
+                                <Button className={styles.projectSessionButton} block type="text" onClick={() => onSessionSelect(session.id)}>
+                                  <span className={styles.projectSessionTitle}>{session.title}</span>
+                                  <span className={styles.projectSessionAge}>{session.updatedLabel}</span>
+                                </Button>
+                                {session.busy && (
+                                  <span className={styles.sessionSpinner} aria-label="会话执行中" title="会话执行中">
+                                    <LoadingOutlined spin />
+                                  </span>
+                                )}
+                                <Dropdown menu={sessionActionMenu(session)} trigger={['click']}>
+                                  <Button
+                                    aria-label={`对话更多操作 ${session.title}`}
+                                    className={styles.sessionActionsButton}
+                                    icon={<MoreOutlined />}
+                                    size="small"
+                                    type="text"
+                                  />
+                                </Dropdown>
+                              </div>
                             ))}
                           </div>
                         )}
@@ -410,12 +483,12 @@ export function Sidebar({
                 />
                 <div className={styles.groupActions}>
                   <Button aria-label="对话更多操作" icon={<MoreOutlined />} size="small" type="text" />
-                  <Button aria-label="新建对话" icon={<EditOutlined />} size="small" type="text" onClick={onSessionCreate} />
+                  <Button aria-label="新建对话" icon={<EditOutlined />} size="small" type="text" onClick={() => onSessionCreate({ active: true, scope: 'standalone' })} />
                 </div>
               </div>
               {sessionsOpen && (
                 <div className={styles.list} data-testid="session-list">
-                  {viewModel.sessions.map((session) => (
+                  {standaloneSessions.map((session) => (
                     <div
                       key={session.id}
                       className={`${styles.sessionRow} ${session.active ? styles.currentRow : ''}`}
@@ -431,24 +504,15 @@ export function Sidebar({
                           <LoadingOutlined spin />
                         </span>
                       )}
-                      <Popconfirm
-                        title="删除对话"
-                        description="此操作会删除该对话及其消息记录。"
-                        okText="删除"
-                        cancelText="取消"
-                        okButtonProps={{ danger: true }}
-                        onConfirm={() => onSessionDelete(session.id)}
-                      >
+                      <Dropdown menu={sessionActionMenu(session)} trigger={['click']}>
                         <Button
-                          aria-label={`删除对话 ${session.title}`}
-                          className={styles.sessionDeleteButton}
-                          danger
-                          icon={<DeleteOutlined />}
+                          aria-label={`对话更多操作 ${session.title}`}
+                          className={styles.sessionActionsButton}
+                          icon={<MoreOutlined />}
                           size="small"
-                          title="删除对话"
                           type="text"
                         />
-                      </Popconfirm>
+                      </Dropdown>
                     </div>
                   ))}
                 </div>
@@ -508,6 +572,43 @@ export function Sidebar({
           />
           <div className={styles.projectNameHint}>{projectDialogMode === 'rename' ? `Renames folder: ${projectDialogTarget?.path ?? ''}` : 'Creates under the desktop app data/projects directory.'}</div>
           {projectError ? <Alert message={projectError} type="error" showIcon style={{ marginTop: 12 }} /> : null}
+        </Modal>
+        <Modal
+          centered
+          className={styles.projectNameModal}
+          width={420}
+          title={
+            <div className={styles.projectNameTitleBlock}>
+              <div className={styles.projectNameTitle}>重命名对话</div>
+              <div className={styles.projectNameSubtitle}>用于在项目和对话列表中识别这次会话</div>
+            </div>
+          }
+          open={Boolean(sessionDialogTarget)}
+          okText="保存"
+          cancelText="取消"
+          confirmLoading={sessionBusy}
+          okButtonProps={{ disabled: !sessionTitle.trim(), className: styles.projectNameSaveButton }}
+          cancelButtonProps={{ className: styles.projectNameCancelButton }}
+          onCancel={() => {
+            if (!sessionBusy) {
+              setSessionDialogTarget(undefined);
+              setSessionTitle('');
+              setSessionError('');
+            }
+          }}
+          onOk={submitSessionRename}
+        >
+          <Input
+            autoFocus
+            className={styles.projectNameInput}
+            placeholder="New chat"
+            value={sessionTitle}
+            onChange={(event) => setSessionTitle(event.target.value)}
+            onPressEnter={() => {
+              void submitSessionRename();
+            }}
+          />
+          {sessionError ? <Alert message={sessionError} type="error" showIcon style={{ marginTop: 12 }} /> : null}
         </Modal>
       </aside>
     </ConfigProvider>

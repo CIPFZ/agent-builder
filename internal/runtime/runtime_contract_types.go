@@ -171,6 +171,8 @@ type RuntimeConfigResponse struct {
 type RuntimeChatRequest struct {
 	Prompt    string `json:"prompt"`
 	SessionID string `json:"sessionId,omitempty"`
+	ProjectID string `json:"projectId,omitempty"`
+	Scope     string `json:"scope,omitempty"`
 }
 
 type RuntimeChatResponse struct {
@@ -1266,6 +1268,8 @@ type RuntimeMessagePart struct {
 type RuntimeSession struct {
 	ID               string       `json:"id"`
 	Title            string       `json:"title"`
+	ProjectID        string       `json:"projectId,omitempty"`
+	Scope            string       `json:"scope,omitempty"`
 	MessageCount     int64        `json:"messageCount"`
 	PromptTokens     int64        `json:"promptTokens"`
 	CompletionTokens int64        `json:"completionTokens"`
@@ -1285,7 +1289,9 @@ type RuntimeSessionResponse struct {
 }
 
 type RuntimeSessionCreateRequest struct {
-	Title string `json:"title"`
+	Title     string `json:"title"`
+	ProjectID string `json:"projectId,omitempty"`
+	Scope     string `json:"scope,omitempty"`
 }
 
 type RuntimeSessionUpdateRequest struct {
