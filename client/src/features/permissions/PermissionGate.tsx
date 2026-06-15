@@ -1,27 +1,31 @@
 import { CheckOutlined, CloseCircleOutlined, LoadingOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { Button, Tag } from 'antd';
+import { Alert, Button, Tag } from 'antd';
 import { useState } from 'react';
 import type { PermissionRequestViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './PermissionGate.module.css';
 
 interface PermissionGateProps {
   permission: PermissionRequestViewModel;
-  onDecide: (permissionID: string, action: 'allow' | 'allow_for_session' | 'deny') => Promise<void>;
+  onDecide: (permissionID: string, action: 'allow' | 'allow_session' | 'deny') => Promise<void>;
 }
 
-type PermissionDecision = 'allow' | 'allow_for_session' | 'deny';
+type PermissionDecision = 'allow' | 'allow_session' | 'deny';
 
 export function PermissionGate({ permission, onDecide }: PermissionGateProps) {
   const pending = permission.status === 'pending';
   const [deciding, setDeciding] = useState<PermissionDecision | undefined>();
+  const [error, setError] = useState<string | undefined>();
 
   const decide = async (action: PermissionDecision) => {
     if (deciding) {
       return;
     }
+    setError(undefined);
     setDeciding(action);
     try {
       await onDecide(permission.id, action);
+    } catch (err) {
+      setError(permissionDecisionErrorMessage(err));
     } finally {
       setDeciding(undefined);
     }
@@ -56,7 +60,7 @@ export function PermissionGate({ permission, onDecide }: PermissionGateProps) {
           <Button type="primary" size="small" loading={deciding === 'allow'} disabled={Boolean(deciding)} onClick={() => void decide('allow')}>
             允许一次
           </Button>
-          <Button size="small" loading={deciding === 'allow_for_session'} disabled={Boolean(deciding)} onClick={() => void decide('allow_for_session')}>
+          <Button size="small" loading={deciding === 'allow_session'} disabled={Boolean(deciding)} onClick={() => void decide('allow_session')}>
             本会话允许
           </Button>
           <Button danger size="small" loading={deciding === 'deny'} disabled={Boolean(deciding)} onClick={() => void decide('deny')}>
@@ -64,6 +68,7 @@ export function PermissionGate({ permission, onDecide }: PermissionGateProps) {
           </Button>
         </div>
       )}
+      {error && <Alert className={styles.error} type="error" showIcon message={error} />}
     </section>
   );
 }
@@ -157,11 +162,18 @@ function actionLabel(action: string) {
   switch (action) {
     case 'allow':
       return '允许一次';
-    case 'allow_for_session':
+    case 'allow_session':
       return '本会话允许';
     case 'deny':
       return '拒绝';
     default:
       return action;
   }
+}
+
+function permissionDecisionErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return '\u6743\u9650\u51b3\u7b56\u5931\u8d25\uff0c\u8bf7\u5237\u65b0\u540e\u91cd\u8bd5';
 }

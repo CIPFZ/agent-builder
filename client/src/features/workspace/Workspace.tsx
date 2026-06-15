@@ -46,7 +46,7 @@ interface WorkspaceProps {
   switchingSessionID?: string;
   onMinimumWorkspaceWidthChange?: (width: number) => void;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
-  onPermissionDecide: (permissionID: string, action: 'allow' | 'allow_for_session' | 'deny') => Promise<void>;
+  onPermissionDecide: (permissionID: string, action: 'allow' | 'allow_session' | 'deny') => Promise<void>;
   onPermissionModeSelect: (mode: string) => Promise<void>;
   onPromptCancel: () => Promise<void>;
   onSessionRename: (sessionID: string, title: string) => Promise<void>;

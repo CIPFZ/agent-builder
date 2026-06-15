@@ -1287,7 +1287,8 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
     .flatMap((message) => {
       const timelineItems: ConversationTimelineItemViewModel[] = [];
       const content = runtimeMessageContent(message);
-      if (content.trim() || message.error || message.role === 'user') {
+      const isIntermediateAssistant = message.role === 'assistant' && runtimeMessageHasToolCalls(message);
+      if (!isIntermediateAssistant && (content.trim() || message.error || message.role === 'user')) {
         timelineItems.push({
           id: `message:${message.id}`,
           kind: 'message',
@@ -1369,15 +1370,20 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
     const rightTurn = right.turnId || turnIDForMessage(turnContext, right.messageId);
     const leftTime = timelineSortTime(left, leftTurn, turnContext);
     const rightTime = timelineSortTime(right, rightTurn, turnContext);
-    if (leftTime !== rightTime) {
-      return leftTime - rightTime;
-    }
     if (leftTurn && rightTurn && leftTurn === rightTurn) {
+      const leftOrder = timelineTurnOrder(left, messageOrder, turnContext);
+      const rightOrder = timelineTurnOrder(right, messageOrder, turnContext);
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
       const leftRank = timelineKindRank(left);
       const rightRank = timelineKindRank(right);
       if (leftRank !== rightRank) {
         return leftRank - rightRank;
       }
+    }
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
     }
     const leftMessageOrder = timelineMessageOrder(left, messageOrder);
     const rightMessageOrder = timelineMessageOrder(right, messageOrder);
@@ -1394,7 +1400,11 @@ function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], act
   const messageIDs = new Set((Array.isArray(activity.messages) ? activity.messages : []).map((message) => message.id).filter(Boolean));
   const toolCallIDs = new Set((Array.isArray(activity.toolCalls) ? activity.toolCalls : []).map((toolCall) => toolCall.id).filter(Boolean));
   const permissionIDs = new Set((Array.isArray(activity.permissions) ? activity.permissions : []).map((permission) => permission.id).filter(Boolean));
+  const hasRuntimeActivity = replacement.length > 0 || turnIDs.size > 0 || messageIDs.size > 0 || toolCallIDs.size > 0 || permissionIDs.size > 0;
   const kept = current.filter((item) => {
+    if (hasRuntimeActivity && isOptimisticTimelineItem(item)) {
+      return false;
+    }
     if (item.turnId && turnIDs.has(item.turnId)) {
       return false;
     }
@@ -1425,7 +1435,7 @@ function mergeConversationMessages(current: ConversationMessageViewModel[], resp
     return current;
   }
   const incomingIDs = new Set(incoming.map((message) => message.id));
-  return [...current.filter((message) => !incomingIDs.has(message.id)), ...incoming].sort((left, right) => {
+  return [...current.filter((message) => !incomingIDs.has(message.id) && !isOptimisticConversationMessage(message)), ...incoming].sort((left, right) => {
     const leftTime = normalizeTimestamp(left.createdAt ?? 0);
     const rightTime = normalizeTimestamp(right.createdAt ?? 0);
     if (leftTime !== rightTime) {
@@ -1433,6 +1443,14 @@ function mergeConversationMessages(current: ConversationMessageViewModel[], resp
     }
     return left.id.localeCompare(right.id);
   });
+}
+
+function isOptimisticConversationMessage(message: ConversationMessageViewModel) {
+  return message.status === 'loading' || message.id.startsWith('local-') || message.id.startsWith('loading-');
+}
+
+function isOptimisticTimelineItem(item: ConversationTimelineItemViewModel) {
+  return item.status === 'loading' || item.id.startsWith('local-') || item.id.startsWith('loading-');
 }
 
 function mergePendingPermissions(current: PermissionRequestViewModel[], permissions: PermissionRequestViewModel[]) {
@@ -1478,12 +1496,23 @@ function selectInterruptedTurn(activity?: RuntimeSessionActivityDTO, activeTurnI
 interface TimelineTurnContext {
   turnByID: Map<string, RuntimeTurnDTO>;
   turnIDByMessageID: Map<string, string>;
+  toolCallOrderByID: Map<string, number>;
 }
 
 function buildTurnContext(messages: RuntimeMessageDTO[], turns: RuntimeTurnDTO[]): TimelineTurnContext {
   const turnByID = new Map(turns.map((turn) => [turn.id, turn]));
   const turnIDByMessageID = new Map<string, string>();
+  const toolCallOrderByID = new Map<string, number>();
   const messageIndex = new Map(messages.map((message, index) => [message.id, index]));
+  let toolCallOrder = 0;
+  for (const message of messages) {
+    for (const part of message.parts ?? []) {
+      if (part.type === 'tool_call' && part.toolCallId && !toolCallOrderByID.has(part.toolCallId)) {
+        toolCallOrderByID.set(part.toolCallId, toolCallOrder);
+        toolCallOrder += 1;
+      }
+    }
+  }
   for (const turn of turns) {
     if (turn.userMessageId) {
       turnIDByMessageID.set(turn.userMessageId, turn.id);
@@ -1510,7 +1539,7 @@ function buildTurnContext(messages: RuntimeMessageDTO[], turns: RuntimeTurnDTO[]
       }
     }
   }
-  return { turnByID, turnIDByMessageID };
+  return { turnByID, turnIDByMessageID, toolCallOrderByID };
 }
 
 function timelineMessageOrder(item: ConversationTimelineItemViewModel, messageOrder: Map<string, number>) {
@@ -1545,22 +1574,57 @@ function timelineKindRank(item: ConversationTimelineItemViewModel) {
   if (item.kind === 'message' && item.role === 'user') {
     return 0;
   }
-  if (item.kind === 'thinking') {
+  if (item.kind === 'message' && item.role === 'assistant') {
     return 1;
   }
-  if (item.kind === 'tool_call') {
+  if (item.kind === 'thinking') {
     return 2;
   }
-  if (item.kind === 'permission') {
+  if (item.kind === 'tool_call') {
     return 3;
   }
-  if (item.kind === 'progress') {
+  if (item.kind === 'permission') {
     return 4;
   }
-  if (item.kind === 'diagnostic') {
+  if (item.kind === 'progress') {
     return 5;
   }
-  return 6;
+  if (item.kind === 'diagnostic') {
+    return 6;
+  }
+  return 7;
+}
+
+function timelineTurnOrder(item: ConversationTimelineItemViewModel, messageOrder: Map<string, number>, context: TimelineTurnContext) {
+  if (item.kind === 'message' && item.role === 'user') {
+    return 0 + timelineMessageOrder(item, messageOrder);
+  }
+  if (item.kind === 'thinking') {
+    return 50_000 + timelineMessageOrder(item, messageOrder);
+  }
+  if (item.kind === 'tool_call') {
+    return 100_000 + timelineToolCallOrder(item, context) * 10;
+  }
+  if (item.kind === 'permission') {
+    return 100_000 + timelineToolCallOrder(item, context) * 10 + 1;
+  }
+  if (item.kind === 'message' && item.role === 'assistant') {
+    return 800_000 + timelineMessageOrder(item, messageOrder);
+  }
+  if (item.kind === 'progress') {
+    return 900_000;
+  }
+  if (item.kind === 'diagnostic') {
+    return 910_000;
+  }
+  return 920_000;
+}
+
+function timelineToolCallOrder(item: ConversationTimelineItemViewModel, context: TimelineTurnContext) {
+  if (!item.toolCallId) {
+    return Number.MAX_SAFE_INTEGER / 10;
+  }
+  return context.toolCallOrderByID.get(item.toolCallId) ?? Number.MAX_SAFE_INTEGER / 10;
 }
 
 function mapRunProjection(
@@ -1691,6 +1755,10 @@ function runtimeMessageContent(message: RuntimeMessageDTO) {
     .map((part) => part.text || part.content || part.data || [part.message, part.details].filter(Boolean).join(': '))
     .filter(Boolean)
     .join('\n\n');
+}
+
+function runtimeMessageHasToolCalls(message: RuntimeMessageDTO) {
+  return Array.isArray(message.parts) && message.parts.some((part) => part.type === 'tool_call' && part.toolCallId);
 }
 
 function runtimeGroupedThinkingItems(messages: RuntimeMessageDTO[], sessionId: string, turnContext: TimelineTurnContext): ConversationTimelineItemViewModel[] {

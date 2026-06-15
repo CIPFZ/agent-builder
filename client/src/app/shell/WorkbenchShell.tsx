@@ -531,7 +531,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setViewModel(nextViewModel);
   };
 
-  const decidePermission = async (permissionID: string, action: 'allow' | 'allow_for_session' | 'deny') => {
+  const decidePermission = async (permissionID: string, action: 'allow' | 'allow_session' | 'deny') => {
     const nextViewModel = await adapter.decidePermission({ ...viewModel, mode }, permissionID, action);
     setMode(nextViewModel.mode);
     setViewModel(nextViewModel);

@@ -11,7 +11,7 @@ import styles from './Timeline.module.css';
 
 interface TimelineProps {
   items: ConversationTimelineItemViewModel[];
-  onPermissionDecide: (permissionID: string, action: 'allow' | 'allow_for_session' | 'deny') => Promise<void>;
+  onPermissionDecide: (permissionID: string, action: 'allow' | 'allow_session' | 'deny') => Promise<void>;
 }
 
 type RenderTimelineItem = ToolCallRenderItem | ToolCallGroupRenderItem;
@@ -60,9 +60,11 @@ export function Timeline({ items, onPermissionDecide }: TimelineProps) {
           return <ThinkingItem key={item.id} item={item} />;
         }
         if (item.kind === 'progress') {
+          const detail = progressDetail(item);
           return (
             <div key={item.id} className={styles.progress} data-testid="turn-progress" data-progress-status={item.status}>
-              {progressLabel(item.status)}
+              <div>{progressLabel(item.status)}</div>
+              {detail && <div className={styles.progressDetail}>{detail}</div>}
             </div>
           );
         }
@@ -379,6 +381,13 @@ function progressLabel(status?: string) {
     default:
       return status || '正在思考';
   }
+}
+
+function progressDetail(item: ConversationTimelineItemViewModel) {
+  if (item.status !== 'failed' && item.status !== 'cancelled') {
+    return '';
+  }
+  return item.error || item.summary || '';
 }
 
 function formatMissingArtifacts(paths: string[]) {

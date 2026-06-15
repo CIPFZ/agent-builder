@@ -645,7 +645,7 @@ export interface WorkbenchAdapter {
   deleteSession: (current: WorkbenchViewModel, sessionID: string) => Promise<WorkbenchViewModel>;
   selectModel: (current: WorkbenchViewModel, configuredProviderID: string, model: string) => Promise<WorkbenchViewModel>;
   selectPermissionMode: (current: WorkbenchViewModel, mode: string) => Promise<WorkbenchViewModel>;
-  decidePermission: (current: WorkbenchViewModel, permissionID: string, action: 'allow' | 'allow_for_session' | 'deny') => Promise<WorkbenchViewModel>;
+  decidePermission: (current: WorkbenchViewModel, permissionID: string, action: 'allow' | 'allow_session' | 'deny') => Promise<WorkbenchViewModel>;
   sendPrompt: (current: WorkbenchViewModel, prompt: string) => Promise<WorkbenchViewModel>;
   cancelTurn: (current: WorkbenchViewModel, turnID?: string) => Promise<WorkbenchViewModel>;
   markInterruptedDone: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;

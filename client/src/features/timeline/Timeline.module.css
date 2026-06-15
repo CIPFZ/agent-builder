@@ -81,6 +81,14 @@
   color: rgb(13 13 13 / 50%);
 }
 
+.progressDetail {
+  margin-top: 2px;
+  color: rgb(13 13 13 / 58%);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .toolProcessCluster {
   display: grid;
   gap: 4px;
