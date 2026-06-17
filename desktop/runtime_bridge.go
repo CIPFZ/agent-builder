@@ -40,6 +40,10 @@ type RuntimeTerminalEvent = runtime.RuntimeTerminalEvent
 type RuntimeTurn = runtime.RuntimeTurn
 type RuntimeTurnResponse = runtime.RuntimeTurnResponse
 type RuntimeTurnsResponse = runtime.RuntimeTurnsResponse
+type RuntimeReactCallchainResponse = runtime.RuntimeReactCallchainResponse
+type RuntimeReactCallNode = runtime.RuntimeReactCallNode
+type RuntimeReactCallSummary = runtime.RuntimeReactCallSummary
+type RuntimeReactCallSource = runtime.RuntimeReactCallSource
 type RuntimeRun = runtime.RuntimeRun
 type RuntimeRunsResponse = runtime.RuntimeRunsResponse
 type RuntimeRunResponse = runtime.RuntimeRunResponse
@@ -367,6 +371,18 @@ func (r *RuntimeBridge) Turn(ctx context.Context, turnID string) (RuntimeTurnRes
 func (r *RuntimeBridge) Turns(ctx context.Context, status string) (RuntimeTurnsResponse, error) {
 
 	return r.service.Turns(ctx, status)
+
+}
+
+func (r *RuntimeBridge) ReactCallchain(ctx context.Context, turnID string) (RuntimeReactCallchainResponse, error) {
+
+	return r.service.ReactCallchain(ctx, turnID)
+
+}
+
+func (r *RuntimeBridge) SessionReactCallchain(ctx context.Context, sessionID string, limit int) (RuntimeReactCallchainResponse, error) {
+
+	return r.service.SessionReactCallchain(ctx, sessionID, limit)
 
 }
 

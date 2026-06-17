@@ -248,6 +248,55 @@ export interface RunProjectionViewModel {
   finishedAt?: number;
 }
 
+export interface ReactCallchainViewModel {
+  sessionId: string;
+  turnId?: string;
+  nodes: ReactCallchainNodeViewModel[];
+  summary: ReactCallchainSummaryViewModel;
+  source: ReactCallchainSourceViewModel;
+}
+
+export interface ReactCallchainNodeViewModel {
+  id: string;
+  parentId?: string;
+  kind: string;
+  sessionId: string;
+  turnId?: string;
+  messageId?: string;
+  toolCallId?: string;
+  permissionId?: string;
+  hookExecutionId?: string;
+  sequence: number;
+  status?: string;
+  finishReason?: string;
+  title?: string;
+  summary?: string;
+  error?: string;
+  startedAt?: number;
+  finishedAt?: number;
+  evidence?: Record<string, string>;
+}
+
+export interface ReactCallchainSummaryViewModel {
+  hasFinalAssistant: boolean;
+  finalAssistantMessageId?: string;
+  lastAssistantFinishReason?: string;
+  toolCallCount: number;
+  permissionCount: number;
+  hookCount: number;
+  stopReason?: string;
+  missingEvidence: string[];
+}
+
+export interface ReactCallchainSourceViewModel {
+  sessionActivityParity: boolean;
+  usesMessages: boolean;
+  usesToolCalls: boolean;
+  usesPermissions: boolean;
+  usesHooks: boolean;
+  eventsAreRefreshOnly: boolean;
+}
+
 export interface RunSchedulerPlanRequestViewModel {
   runID: string;
   sessionID?: string;
@@ -615,6 +664,7 @@ export interface WorkbenchViewModel {
   turnDiagnostics?: TurnDiagnosticsViewModel;
   interruptedTurn?: InterruptedTurnViewModel;
   runProjection?: RunProjectionViewModel;
+  reactCallchain?: ReactCallchainViewModel;
   pendingPermissions: PermissionRequestViewModel[];
   composer: ComposerViewModel;
   settings: SettingsViewModel;

@@ -43,6 +43,8 @@ type RuntimeService interface {
 	Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error)
 	Turn(context.Context, string) (RuntimeTurnResponse, error)
 	Turns(context.Context, string) (RuntimeTurnsResponse, error)
+	ReactCallchain(context.Context, string) (RuntimeReactCallchainResponse, error)
+	SessionReactCallchain(context.Context, string, int) (RuntimeReactCallchainResponse, error)
 	Runs(context.Context) (RuntimeRunsResponse, error)
 	RunSummaries(context.Context) (RuntimeRunSummariesResponse, error)
 	RunSummary(context.Context, string) (RuntimeRunSummaryResponse, error)

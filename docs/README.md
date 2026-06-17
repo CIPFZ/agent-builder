@@ -27,6 +27,19 @@ material. Use this index to avoid following superseded phase plans.
   record for runtime-backed Skills and MCP management surfaces.
 - `plugin-skills-runtime-integration-plan.md`: active follow-up phase for
   runtime-backed plugin capability-bundle DTOs and plugin-center integration.
+- `react-agent-architecture-audit.md`: current backend-first ReAct architecture
+  audit after the project/session/terminal ownership work.
+- `react-agent-implementation-roadmap.md`: staged implementation roadmap for
+  runtime input normalization, callchain observability, tool/permission/result
+  hardening, context/compact/memory, hooks/recovery, tasks/subagents, and
+  React rendering.
+  - `react-agent-phase-01-callchain-observability.md`
+  - `react-agent-phase-02-input-normalization.md`
+  - `react-agent-phase-03-tool-permission-result-loop.md`
+  - `react-agent-phase-04-context-prompt-compact-memory.md`
+  - `react-agent-phase-05-hooks-error-recovery.md`
+  - `react-agent-phase-06-tasks-subagents-background.md`
+  - `react-agent-phase-07-frontend-react-workbench.md`
 
 ## Active Design Baselines
 

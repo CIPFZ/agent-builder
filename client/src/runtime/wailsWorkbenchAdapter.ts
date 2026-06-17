@@ -20,6 +20,7 @@ import type {
   RuntimeMCPToolViewModel,
   RuntimeModelOptionViewModel,
   RuntimePluginViewModel,
+  ReactCallchainViewModel,
   RuntimeEventViewModel,
   TerminalEventViewModel,
   RunProjectionViewModel,
@@ -478,6 +479,55 @@ interface RuntimeTurnActivityDTO extends RuntimeSessionActivityDTO {
   turnId: string;
 }
 
+interface RuntimeReactCallchainDTO {
+  sessionId: string;
+  turnId?: string;
+  nodes?: RuntimeReactCallNodeDTO[];
+  summary?: RuntimeReactCallSummaryDTO;
+  source?: RuntimeReactCallSourceDTO;
+}
+
+interface RuntimeReactCallNodeDTO {
+  id: string;
+  parentId?: string;
+  kind: string;
+  sessionId: string;
+  turnId?: string;
+  messageId?: string;
+  toolCallId?: string;
+  permissionId?: string;
+  hookExecutionId?: string;
+  sequence: number;
+  status?: string;
+  finishReason?: string;
+  title?: string;
+  summary?: string;
+  error?: string;
+  startedAt?: number;
+  finishedAt?: number;
+  evidence?: Record<string, string>;
+}
+
+interface RuntimeReactCallSummaryDTO {
+  hasFinalAssistant?: boolean;
+  finalAssistantMessageId?: string;
+  lastAssistantFinishReason?: string;
+  toolCallCount?: number;
+  permissionCount?: number;
+  hookCount?: number;
+  stopReason?: string;
+  missingEvidence?: string[];
+}
+
+interface RuntimeReactCallSourceDTO {
+  sessionActivityParity?: boolean;
+  usesMessages?: boolean;
+  usesToolCalls?: boolean;
+  usesPermissions?: boolean;
+  usesHooks?: boolean;
+  eventsAreRefreshOnly?: boolean;
+}
+
 interface RuntimeRunProjectionRequestDTO {
   sessionId: string;
   cursor?: string;
@@ -818,6 +868,8 @@ interface RuntimeBridgeModule {
   SessionActivityWindow?: (sessionID: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
   SessionActivityCursorWindow?: (sessionID: string, cursor: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
   TurnActivity?: (turnID: string) => Promise<RuntimeTurnActivityDTO>;
+  ReactCallchain?: (turnID: string) => Promise<RuntimeReactCallchainDTO>;
+  SessionReactCallchain?: (sessionID: string, limit: number) => Promise<RuntimeReactCallchainDTO>;
   RunProjection?: (req: RuntimeRunProjectionRequestDTO) => Promise<RuntimeRunProjectionResponseDTO>;
   RunSummaries?: () => Promise<RuntimeRunSummariesResponseDTO>;
   RunSummary?: (runID: string) => Promise<RuntimeRunSummaryResponseDTO>;
@@ -1681,6 +1733,60 @@ function mapRunProjection(
   };
 }
 
+function mapReactCallchain(callchain?: RuntimeReactCallchainDTO): ReactCallchainViewModel | undefined {
+  if (!callchain?.sessionId) {
+    return undefined;
+  }
+  const nodes = (Array.isArray(callchain.nodes) ? callchain.nodes : [])
+    .filter((node) => node.id && node.kind && typeof node.sequence === 'number')
+    .map((node) => ({
+      id: node.id,
+      parentId: node.parentId,
+      kind: node.kind,
+      sessionId: node.sessionId || callchain.sessionId,
+      turnId: node.turnId,
+      messageId: node.messageId,
+      toolCallId: node.toolCallId,
+      permissionId: node.permissionId,
+      hookExecutionId: node.hookExecutionId,
+      sequence: node.sequence,
+      status: node.status,
+      finishReason: node.finishReason,
+      title: node.title,
+      summary: node.summary,
+      error: node.error,
+      startedAt: node.startedAt,
+      finishedAt: node.finishedAt,
+      evidence: node.evidence,
+    }))
+    .sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id));
+  const summary = callchain.summary ?? {};
+  const source = callchain.source ?? {};
+  return {
+    sessionId: callchain.sessionId,
+    turnId: callchain.turnId,
+    nodes,
+    summary: {
+      hasFinalAssistant: Boolean(summary.hasFinalAssistant),
+      finalAssistantMessageId: summary.finalAssistantMessageId,
+      lastAssistantFinishReason: summary.lastAssistantFinishReason,
+      toolCallCount: summary.toolCallCount ?? 0,
+      permissionCount: summary.permissionCount ?? 0,
+      hookCount: summary.hookCount ?? 0,
+      stopReason: summary.stopReason,
+      missingEvidence: Array.isArray(summary.missingEvidence) ? summary.missingEvidence : [],
+    },
+    source: {
+      sessionActivityParity: Boolean(source.sessionActivityParity),
+      usesMessages: Boolean(source.usesMessages),
+      usesToolCalls: Boolean(source.usesToolCalls),
+      usesPermissions: Boolean(source.usesPermissions),
+      usesHooks: Boolean(source.usesHooks),
+      eventsAreRefreshOnly: Boolean(source.eventsAreRefreshOnly),
+    },
+  };
+}
+
 function mapRunSchedulerPlanCandidates(response?: RuntimeRunSchedulerPlanResponseDTO): RunSchedulerTaskCandidateViewModel[] {
   const plan = response?.plan;
   const runID = plan?.runId;
@@ -2004,6 +2110,9 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       ? status.requests.sessionBusy
       : Boolean(sessionActiveTurn);
   const activeTurnId = status?.requests?.sessionRequestId || sessionActiveTurn?.id || (busy ? current.composer.activeTurnId : undefined);
+  const reactCallchainDTO = activeSessionID && refreshActivity
+    ? await hydrateReactCallchain(bridge, activeSessionID, activeTurnId)
+    : undefined;
   const policy = activity?.policy ?? (refreshPolicy ? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy : undefined);
   const permissions = (Array.isArray(activity?.permissions) ? activity.permissions : []).map(mapPermission);
   const timeline = activity
@@ -2038,6 +2147,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
     interruptedTurn: activity ? selectInterruptedTurn(activity, sessionActiveTurn?.id) : current.interruptedTurn,
     runProjection: mapRunProjection(runProjection, schedulerTaskCandidates) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
+    reactCallchain: mapReactCallchain(reactCallchainDTO) ?? (current.reactCallchain?.sessionId === activeSessionID ? current.reactCallchain : undefined),
     pendingPermissions,
     composer: {
       ...current.composer,
@@ -2067,6 +2177,30 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       mcpPromptsByServer: current.settings.mcpPromptsByServer,
     },
   };
+}
+
+async function hydrateReactCallchain(bridge: RuntimeBridgeModule, sessionID: string, turnID?: string) {
+  const fromBridge = await readReactCallchain(bridge, sessionID, turnID);
+  if (fromBridge) {
+    return fromBridge;
+  }
+  if (bridge === runtimeHTTPBridge) {
+    return undefined;
+  }
+  const httpBridge = await loadRuntimeHTTPBridge();
+  if (!httpBridge) {
+    return undefined;
+  }
+  return readReactCallchain(httpBridge, sessionID, turnID);
+}
+
+async function readReactCallchain(bridge: RuntimeBridgeModule, sessionID: string, turnID?: string) {
+  return optionalRuntimeRequest(() => {
+    if (turnID && bridge.ReactCallchain) {
+      return bridge.ReactCallchain(turnID);
+    }
+    return bridge.SessionReactCallchain?.(sessionID, 6) ?? Promise.resolve(undefined);
+  });
 }
 
 const runtimeHTTPURL = import.meta.env.DEV ? '/runtime-api' : import.meta.env.VITE_AGENT_BUILDER_RUNTIME_URL || 'http://127.0.0.1:5183';
@@ -2710,6 +2844,8 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
     }
     return runtimeFetch<RuntimeSessionActivityWindowDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity-window?${params.toString()}`);
   },
+  SessionReactCallchain: (sessionID, limit) =>
+    runtimeFetch<RuntimeReactCallchainDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/react-callchain?limit=${encodeURIComponent(String(limit))}`),
   RunProjection: (req) => {
     const params = new URLSearchParams();
     if (typeof req.limit === 'number') {
@@ -2775,6 +2911,7 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
       },
     ),
   TurnActivity: (turnID) => runtimeFetch<RuntimeTurnActivityDTO>(`/v1/turns/${encodeURIComponent(turnID)}/activity`),
+  ReactCallchain: (turnID) => runtimeFetch<RuntimeReactCallchainDTO>(`/v1/turns/${encodeURIComponent(turnID)}/react-callchain`),
   Turn: (turnID) => runtimeFetch<RuntimeTurnResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}`),
   Turns: (status) => runtimeFetch<RuntimeTurnsResponseDTO>(`/v1/turns?status=${encodeURIComponent(status)}`),
   Permissions: () => runtimeFetch<{ permissions: RuntimePermissionDTO[] }>('/v1/permissions'),
@@ -2950,7 +3087,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     );
   },
   async openProject(current, request) {
-    const nextBase = { ...current, mode: 'project' as const, conversation: [], timeline: [], turnDiagnostics: undefined, interruptedTurn: undefined, runProjection: undefined };
+    const nextBase = { ...current, mode: 'project' as const, conversation: [], timeline: [], turnDiagnostics: undefined, interruptedTurn: undefined, runProjection: undefined, reactCallchain: undefined };
     const bridge = await loadRuntimeBridge();
     if (bridge?.OpenProject) {
       try {
@@ -2968,7 +3105,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     return staticWorkbenchAdapter.openProject(current, request);
   },
   async createProject(current, request) {
-    const nextBase = { ...current, mode: 'project' as const, conversation: [], timeline: [], turnDiagnostics: undefined, interruptedTurn: undefined, runProjection: undefined };
+    const nextBase = { ...current, mode: 'project' as const, conversation: [], timeline: [], turnDiagnostics: undefined, interruptedTurn: undefined, runProjection: undefined, reactCallchain: undefined };
     const bridge = await loadRuntimeBridge();
     if (bridge?.CreateProject) {
       try {
@@ -2986,7 +3123,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     return staticWorkbenchAdapter.createProject(current, request);
   },
   async renameProject(current, request) {
-    const nextBase = { ...current, mode: 'project' as const, conversation: [], timeline: [], turnDiagnostics: undefined, interruptedTurn: undefined, runProjection: undefined };
+    const nextBase = { ...current, mode: 'project' as const, conversation: [], timeline: [], turnDiagnostics: undefined, interruptedTurn: undefined, runProjection: undefined, reactCallchain: undefined };
     const bridge = await loadRuntimeBridge();
     if (bridge?.RenameProject) {
       try {
@@ -3021,7 +3158,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     return staticWorkbenchAdapter.openProjectInExplorer(request);
   },
   async removeProject(current, request) {
-    const nextBase = { ...current, mode: 'project' as const, conversation: [], timeline: [], turnDiagnostics: undefined, interruptedTurn: undefined, runProjection: undefined };
+    const nextBase = { ...current, mode: 'project' as const, conversation: [], timeline: [], turnDiagnostics: undefined, interruptedTurn: undefined, runProjection: undefined, reactCallchain: undefined };
     const bridge = await loadRuntimeBridge();
     if (bridge?.RemoveProject) {
       try {
@@ -3072,6 +3209,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
             turnDiagnostics: undefined,
             interruptedTurn: undefined,
             runProjection: undefined,
+            reactCallchain: undefined,
           },
           bridge,
         );

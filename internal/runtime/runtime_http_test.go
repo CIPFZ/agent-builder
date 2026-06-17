@@ -549,6 +549,110 @@ func TestRuntimeHTTPServerRoutesSessionActivityToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesReactCallchainToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		reactCallchain: RuntimeReactCallchainResponse{
+			SessionID: "session-1",
+			TurnID:    "turn-1",
+			Nodes: []RuntimeReactCallNode{{
+				ID:        "node-1",
+				Kind:      reactNodeAssistantFinal,
+				SessionID: "session-1",
+				TurnID:    "turn-1",
+				Sequence:  1,
+			}},
+			Source: RuntimeReactCallSource{SessionActivityParity: true, EventsAreRefreshOnly: true},
+		},
+		sessionReactCallchain: RuntimeReactCallchainResponse{
+			SessionID: "session-1",
+			Nodes: []RuntimeReactCallNode{{
+				ID:        "node-session",
+				Kind:      reactNodeUserInput,
+				SessionID: "session-1",
+				Sequence:  1,
+			}},
+			Source: RuntimeReactCallSource{SessionActivityParity: true, EventsAreRefreshOnly: true},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/turns/turn-1/react-callchain", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("turn status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.reactCallchainTurnID != "turn-1" {
+		t.Fatalf("turn id = %q", service.reactCallchainTurnID)
+	}
+	var turnCallchain RuntimeReactCallchainResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &turnCallchain); err != nil {
+		t.Fatal(err)
+	}
+	if turnCallchain.TurnID != "turn-1" || len(turnCallchain.Nodes) != 1 || !turnCallchain.Source.EventsAreRefreshOnly {
+		t.Fatalf("turn callchain = %#v", turnCallchain)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/sessions/session-1/react-callchain?limit=3", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("session status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.sessionReactCallchainID != "session-1" || service.sessionReactCallchainLimit != 3 {
+		t.Fatalf("session args = %q %d", service.sessionReactCallchainID, service.sessionReactCallchainLimit)
+	}
+	var sessionCallchain RuntimeReactCallchainResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &sessionCallchain); err != nil {
+		t.Fatal(err)
+	}
+	if sessionCallchain.SessionID != "session-1" || len(sessionCallchain.Nodes) != 1 {
+		t.Fatalf("session callchain = %#v", sessionCallchain)
+	}
+}
+
+func TestRuntimeHTTPServerDevModuleRoutesReactCallchain(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		reactCallchain:        RuntimeReactCallchainResponse{SessionID: "session-1", TurnID: "turn-1"},
+		sessionReactCallchain: RuntimeReactCallchainResponse{SessionID: "session-1"},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/dev/module?method=GET&path=%2Fv1%2Fturns%2Fturn-1%2Freact-callchain&token="+server.Token(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("turn module status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.reactCallchainTurnID != "turn-1" {
+		t.Fatalf("turn id = %q", service.reactCallchainTurnID)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?method=GET&path=%2Fv1%2Fsessions%2Fsession-1%2Freact-callchain%3Flimit%3D4&token="+server.Token(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("session module status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.sessionReactCallchainID != "session-1" || service.sessionReactCallchainLimit != 4 {
+		t.Fatalf("session args = %q %d", service.sessionReactCallchainID, service.sessionReactCallchainLimit)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService(t *testing.T) {
 	t.Parallel()
 

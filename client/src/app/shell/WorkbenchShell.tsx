@@ -221,6 +221,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       turnDiagnostics: undefined,
       interruptedTurn: undefined,
       runProjection: undefined,
+      reactCallchain: undefined,
       pendingPermissions: [],
       composer: { ...currentViewModel.composer, busy: false, activeTurnId: undefined },
     };
@@ -265,6 +266,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       turnDiagnostics: undefined,
       interruptedTurn: undefined,
       runProjection: undefined,
+      reactCallchain: undefined,
       pendingPermissions: [],
       composer: { ...current.composer, busy: false, activeTurnId: undefined },
     };
@@ -319,6 +321,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       turnDiagnostics: undefined,
       interruptedTurn: undefined,
       runProjection: undefined,
+      reactCallchain: undefined,
       pendingPermissions: [],
       composer: { ...currentViewModel.composer, busy: false, activeTurnId: undefined },
     };
@@ -374,6 +377,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       turnDiagnostics: wasActive ? undefined : currentViewModel.turnDiagnostics,
       interruptedTurn: wasActive ? undefined : currentViewModel.interruptedTurn,
       runProjection: wasActive ? undefined : currentViewModel.runProjection,
+      reactCallchain: wasActive ? undefined : currentViewModel.reactCallchain,
       pendingPermissions: wasActive ? [] : currentViewModel.pendingPermissions,
       composer: wasActive ? { ...currentViewModel.composer, busy: false, activeTurnId: undefined } : currentViewModel.composer,
     };

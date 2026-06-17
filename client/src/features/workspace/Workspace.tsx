@@ -19,6 +19,7 @@ import Bubble from '@ant-design/x/es/bubble';
 import type { NewConversationDraftViewModel, TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { RunProjectionPreview } from '../diagnostics/RunProjectionPreview.tsx';
+import { ReactCallchainInspector } from '../diagnostics/ReactCallchainInspector.tsx';
 import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
@@ -681,6 +682,7 @@ export function Workspace({
               <div className={styles.sideToolPane} role="tabpanel">
                 <div className={styles.reviewStack}>
                   <RunProjectionPreview run={viewModel.runProjection} onResumeCheckpoint={onRunCheckpointResume} onExecuteTask={onRunTaskExecute} />
+                  <ReactCallchainInspector callchain={viewModel.reactCallchain} />
                   <TurnDiagnosticsPanel
                     diagnostics={viewModel.turnDiagnostics}
                     interrupted={viewModel.interruptedTurn}
@@ -688,7 +690,7 @@ export function Workspace({
                     onInterruptedDone={markInterruptedDone}
                     onInterruptedFollowUp={startInterruptedFollowUp}
                   />
-                  {!viewModel.runProjection && !viewModel.turnDiagnostics && !viewModel.interruptedTurn ? (
+                  {!viewModel.runProjection && !viewModel.reactCallchain && !viewModel.turnDiagnostics && !viewModel.interruptedTurn ? (
                     <>
                       <div className={styles.sideToolTitle}>审查</div>
                       <div className={styles.sideToolEmpty}>Review findings, diffs, and approvals will appear here.</div>

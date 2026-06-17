@@ -4382,128 +4382,133 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 }
 
 type recordingRuntimeService struct {
-	chatCalls                int
-	statusCalls              int
-	recoveryStatusCalls      int
-	skillsCalls              int
-	mcpServerCalls           int
-	status                   RuntimeStatus
-	recoveryStatus           RuntimeRecoveryStatus
-	openProjectReq           RuntimeOpenProjectRequest
-	createProjectReq         RuntimeCreateProjectRequest
-	renameProjectReq         RuntimeRenameProjectRequest
-	openProjectInExplorerReq RuntimeProjectActionRequest
-	removeProjectReq         RuntimeProjectActionRequest
-	openProject              RuntimeOpenProjectResponse
-	createSessionReq         RuntimeSessionCreateRequest
-	skills                   RuntimeSkillsResponse
-	plugins                  RuntimePluginsResponse
-	mcpServers               RuntimeMCPServersResponse
-	mcpRequests              RuntimeMCPRequestsResponse
-	mcpRequest               RuntimeMCPRequestResponse
-	mcpRequestDecision       RuntimeMCPRequestDecision
-	capabilities             RuntimeCapabilitiesResponse
-	contextSources           RuntimeContextSourcesResponse
-	refreshedCapability      string
-	toolSearchQuery          string
-	savedMCPServer           RuntimeMCPServerConfigRequest
-	toggledMCPServer         RuntimeMCPServerToggleRequest
-	toggledMCPTool           RuntimeMCPToolToggleRequest
-	selectedSession          string
-	renamedSession           RuntimeSessionUpdateRequest
-	deletedSession           string
-	messageSession           string
-	activitySession          string
-	activityWindowSession    string
-	activityWindowCursor     string
-	activityWindowLimit      int
-	activity                 RuntimeSessionActivityResponse
-	activityWindow           RuntimeSessionActivityWindowResponse
-	turnActivityID           string
-	turnActivity             RuntimeTurnActivityResponse
-	runProjectionRequest     RuntimeRunProjectionRequest
-	runProjection            RuntimeRunProjectionResponse
-	transitionHistoryReq     RuntimeRunTransitionHistoryRequest
-	transitionHistory        RuntimeRunTransitionHistoryResponse
-	runSchedulerPlanReq      RuntimeRunSchedulerPlanRequest
-	runSchedulerPlan         RuntimeRunSchedulerPlanResponse
-	executeRunID             string
-	executeTaskID            string
-	executeRunTask           RuntimeRunSchedulerExecuteTaskResponse
-	runs                     RuntimeRunsResponse
-	runSummaries             RuntimeRunSummariesResponse
-	runSummary               RuntimeRunSummaryResponse
-	runSummaryID             string
-	runCheckpointMarkers     RuntimeRunCheckpointMarkersResponse
-	runCheckpointMarker      RuntimeRunCheckpointMarkerResponse
-	runCheckpointMarkersID   string
-	runCheckpointMarkerRunID string
-	runCheckpointMarkerID    string
-	run                      RuntimeRunResponse
-	runID                    string
-	ackRunID                 string
-	ackCheckpointID          string
-	discardRunID             string
-	discardCheckpointID      string
-	resumeRunID              string
-	resumeCheckpointID       string
-	resume                   RuntimeRunResumeResponse
-	createdSkill             RuntimeSkillCreateRequest
-	addedSkillPath           string
-	cancelledTurn            string
-	markInterruptedDoneTurn  string
-	turn                     RuntimeTurnResponse
-	turns                    RuntimeTurnsResponse
-	turnsStatus              string
-	toolCall                 RuntimeToolCallResponse
-	toolCalls                RuntimeToolCallsResponse
-	hooks                    RuntimeHooksResponse
-	hookExecution            RuntimeHookExecutionResponse
-	hookExecutions           RuntimeHookExecutionsResponse
-	hookExecutionsReq        RuntimeHookExecutionsRequest
-	sandboxDecision          RuntimeSandboxDecisionResponse
-	sandboxDecisions         RuntimeSandboxDecisionsResponse
-	ref                      RuntimeRefResponse
-	refs                     RuntimeRefsResponse
-	refContent               RuntimeRefContentResponse
-	compactBoundaries        RuntimeCompactBoundariesResponse
-	worktrees                RuntimeWorktreesResponse
-	worktree                 RuntimeWorktreeResponse
-	worktreeCreate           RuntimeWorktreeCreateRequest
-	worktreeAction           RuntimeWorktreeActionRequest
-	worktreeActionID         string
-	effectiveScope           RuntimeEffectiveScopeResponse
-	replayExport             RuntimeReplayExportResponse
-	replayExportRequest      RuntimeReplayExportRequest
-	agentTask                RuntimeAgentTaskResponse
-	agentTasks               RuntimeAgentTasksResponse
-	agentRoles               RuntimeAgentRolesResponse
-	agentRole                RuntimeAgentRoleResponse
-	agentTaskMessages        RuntimeAgentTaskMessagesResponse
-	agentTaskMessage         RuntimeAgentTaskMessageResponse
-	agentTaskResult          RuntimeAgentTaskResultResponse
-	cancelledTask            string
-	todos                    RuntimeTodosResponse
-	todoSession              string
-	todoTurn                 string
-	policy                   RuntimePolicyResponse
-	policyCalls              int
-	updatedPolicyMode        string
-	updatedPolicyRules       []RuntimePolicyRule
-	updatedPolicyProfile     string
-	permissionDecision       RuntimePermissionDecision
-	terminalResponse         RuntimeTerminalResponse
-	sessionTerminals         RuntimeSessionTerminalsResponse
-	sessionTerminalsID       string
-	createdTerminal          RuntimeTerminalCreateRequest
-	executedTerminalID       string
-	executedTerminalInput    RuntimeTerminalInputRequest
-	terminalInputSeen        chan RuntimeTerminalInputRequest
-	resizedTerminalID        string
-	resizedTerminal          RuntimeTerminalResizeRequest
-	terminalResizeSeen       chan RuntimeTerminalResizeRequest
-	terminalEvents           chan RuntimeTerminalEvent
-	deletedTerminalID        string
+	chatCalls                  int
+	statusCalls                int
+	recoveryStatusCalls        int
+	skillsCalls                int
+	mcpServerCalls             int
+	status                     RuntimeStatus
+	recoveryStatus             RuntimeRecoveryStatus
+	openProjectReq             RuntimeOpenProjectRequest
+	createProjectReq           RuntimeCreateProjectRequest
+	renameProjectReq           RuntimeRenameProjectRequest
+	openProjectInExplorerReq   RuntimeProjectActionRequest
+	removeProjectReq           RuntimeProjectActionRequest
+	openProject                RuntimeOpenProjectResponse
+	createSessionReq           RuntimeSessionCreateRequest
+	skills                     RuntimeSkillsResponse
+	plugins                    RuntimePluginsResponse
+	mcpServers                 RuntimeMCPServersResponse
+	mcpRequests                RuntimeMCPRequestsResponse
+	mcpRequest                 RuntimeMCPRequestResponse
+	mcpRequestDecision         RuntimeMCPRequestDecision
+	capabilities               RuntimeCapabilitiesResponse
+	contextSources             RuntimeContextSourcesResponse
+	refreshedCapability        string
+	toolSearchQuery            string
+	savedMCPServer             RuntimeMCPServerConfigRequest
+	toggledMCPServer           RuntimeMCPServerToggleRequest
+	toggledMCPTool             RuntimeMCPToolToggleRequest
+	selectedSession            string
+	renamedSession             RuntimeSessionUpdateRequest
+	deletedSession             string
+	messageSession             string
+	activitySession            string
+	activityWindowSession      string
+	activityWindowCursor       string
+	activityWindowLimit        int
+	activity                   RuntimeSessionActivityResponse
+	activityWindow             RuntimeSessionActivityWindowResponse
+	turnActivityID             string
+	turnActivity               RuntimeTurnActivityResponse
+	runProjectionRequest       RuntimeRunProjectionRequest
+	runProjection              RuntimeRunProjectionResponse
+	transitionHistoryReq       RuntimeRunTransitionHistoryRequest
+	transitionHistory          RuntimeRunTransitionHistoryResponse
+	runSchedulerPlanReq        RuntimeRunSchedulerPlanRequest
+	runSchedulerPlan           RuntimeRunSchedulerPlanResponse
+	executeRunID               string
+	executeTaskID              string
+	executeRunTask             RuntimeRunSchedulerExecuteTaskResponse
+	runs                       RuntimeRunsResponse
+	runSummaries               RuntimeRunSummariesResponse
+	runSummary                 RuntimeRunSummaryResponse
+	runSummaryID               string
+	runCheckpointMarkers       RuntimeRunCheckpointMarkersResponse
+	runCheckpointMarker        RuntimeRunCheckpointMarkerResponse
+	runCheckpointMarkersID     string
+	runCheckpointMarkerRunID   string
+	runCheckpointMarkerID      string
+	run                        RuntimeRunResponse
+	runID                      string
+	ackRunID                   string
+	ackCheckpointID            string
+	discardRunID               string
+	discardCheckpointID        string
+	resumeRunID                string
+	resumeCheckpointID         string
+	resume                     RuntimeRunResumeResponse
+	createdSkill               RuntimeSkillCreateRequest
+	addedSkillPath             string
+	cancelledTurn              string
+	markInterruptedDoneTurn    string
+	turn                       RuntimeTurnResponse
+	turns                      RuntimeTurnsResponse
+	turnsStatus                string
+	reactCallchain             RuntimeReactCallchainResponse
+	reactCallchainTurnID       string
+	sessionReactCallchain      RuntimeReactCallchainResponse
+	sessionReactCallchainID    string
+	sessionReactCallchainLimit int
+	toolCall                   RuntimeToolCallResponse
+	toolCalls                  RuntimeToolCallsResponse
+	hooks                      RuntimeHooksResponse
+	hookExecution              RuntimeHookExecutionResponse
+	hookExecutions             RuntimeHookExecutionsResponse
+	hookExecutionsReq          RuntimeHookExecutionsRequest
+	sandboxDecision            RuntimeSandboxDecisionResponse
+	sandboxDecisions           RuntimeSandboxDecisionsResponse
+	ref                        RuntimeRefResponse
+	refs                       RuntimeRefsResponse
+	refContent                 RuntimeRefContentResponse
+	compactBoundaries          RuntimeCompactBoundariesResponse
+	worktrees                  RuntimeWorktreesResponse
+	worktree                   RuntimeWorktreeResponse
+	worktreeCreate             RuntimeWorktreeCreateRequest
+	worktreeAction             RuntimeWorktreeActionRequest
+	worktreeActionID           string
+	effectiveScope             RuntimeEffectiveScopeResponse
+	replayExport               RuntimeReplayExportResponse
+	replayExportRequest        RuntimeReplayExportRequest
+	agentTask                  RuntimeAgentTaskResponse
+	agentTasks                 RuntimeAgentTasksResponse
+	agentRoles                 RuntimeAgentRolesResponse
+	agentRole                  RuntimeAgentRoleResponse
+	agentTaskMessages          RuntimeAgentTaskMessagesResponse
+	agentTaskMessage           RuntimeAgentTaskMessageResponse
+	agentTaskResult            RuntimeAgentTaskResultResponse
+	cancelledTask              string
+	todos                      RuntimeTodosResponse
+	todoSession                string
+	todoTurn                   string
+	policy                     RuntimePolicyResponse
+	policyCalls                int
+	updatedPolicyMode          string
+	updatedPolicyRules         []RuntimePolicyRule
+	updatedPolicyProfile       string
+	permissionDecision         RuntimePermissionDecision
+	terminalResponse           RuntimeTerminalResponse
+	sessionTerminals           RuntimeSessionTerminalsResponse
+	sessionTerminalsID         string
+	createdTerminal            RuntimeTerminalCreateRequest
+	executedTerminalID         string
+	executedTerminalInput      RuntimeTerminalInputRequest
+	terminalInputSeen          chan RuntimeTerminalInputRequest
+	resizedTerminalID          string
+	resizedTerminal            RuntimeTerminalResizeRequest
+	terminalResizeSeen         chan RuntimeTerminalResizeRequest
+	terminalEvents             chan RuntimeTerminalEvent
+	deletedTerminalID          string
 }
 
 func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error) {
@@ -4647,13 +4652,33 @@ func (s *recordingRuntimeService) Chat(context.Context, RuntimeChatRequest) (Run
 	return RuntimeChatResponse{RequestID: "request-1", TurnID: "request-1", Status: s.status}, nil
 }
 
-func (s *recordingRuntimeService) Turn(context.Context, string) (RuntimeTurnResponse, error) {
+func (s *recordingRuntimeService) Turn(_ context.Context, turnID string) (RuntimeTurnResponse, error) {
+	if s.turn.Turn.ID == "" {
+		s.turn.Turn.ID = turnID
+	}
 	return s.turn, nil
 }
 
 func (s *recordingRuntimeService) Turns(_ context.Context, status string) (RuntimeTurnsResponse, error) {
 	s.turnsStatus = status
 	return s.turns, nil
+}
+
+func (s *recordingRuntimeService) ReactCallchain(_ context.Context, turnID string) (RuntimeReactCallchainResponse, error) {
+	s.reactCallchainTurnID = turnID
+	if s.reactCallchain.TurnID == "" {
+		s.reactCallchain.TurnID = turnID
+	}
+	return s.reactCallchain, nil
+}
+
+func (s *recordingRuntimeService) SessionReactCallchain(_ context.Context, sessionID string, limit int) (RuntimeReactCallchainResponse, error) {
+	s.sessionReactCallchainID = sessionID
+	s.sessionReactCallchainLimit = limit
+	if s.sessionReactCallchain.SessionID == "" {
+		s.sessionReactCallchain.SessionID = sessionID
+	}
+	return s.sessionReactCallchain, nil
 }
 
 func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, error) {

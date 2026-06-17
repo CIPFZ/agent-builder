@@ -296,6 +296,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && sessionActivityWindowPathID(r.URL.Path) != "":
 		value, err := s.service.SessionActivityCursorWindow(r.Context(), sessionActivityWindowPathID(r.URL.Path), runtimeQueryCursor(r), runtimeQueryLimit(r))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionReactCallchainPathID(r.URL.Path) != "":
+		value, err := s.service.SessionReactCallchain(r.Context(), sessionReactCallchainPathID(r.URL.Path), runtimeQueryLimit(r))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionTerminalsPathID(r.URL.Path) != "":
 		value, err := s.service.SessionTerminals(r.Context(), sessionTerminalsPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -423,6 +426,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnToolCallsPathID(r.URL.Path) != "":
 		value, err := s.service.TurnToolCalls(r.Context(), turnToolCallsPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && turnReactCallchainPathID(r.URL.Path) != "":
+		value, err := s.service.ReactCallchain(r.Context(), turnReactCallchainPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnActivityPathID(r.URL.Path) != "":
 		value, err := s.service.TurnActivity(r.Context(), turnActivityPathID(r.URL.Path))
@@ -854,6 +860,9 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 	case method == http.MethodGet && sessionActivityWindowPathID(path) != "":
 		value, err := s.service.SessionActivityCursorWindow(r.Context(), sessionActivityWindowPathID(path), runtimeDevModuleCursor(r, pathQuery), runtimeDevModuleLimit(r, pathQuery))
 		return value, err, true
+	case method == http.MethodGet && sessionReactCallchainPathID(path) != "":
+		value, err := s.service.SessionReactCallchain(r.Context(), sessionReactCallchainPathID(path), runtimeDevModuleLimit(r, pathQuery))
+		return value, err, true
 	case method == http.MethodGet && sessionTerminalsPathID(path) != "":
 		value, err := s.service.SessionTerminals(r.Context(), sessionTerminalsPathID(path))
 		return value, err, true
@@ -961,6 +970,9 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 		return value, err, true
 	case method == http.MethodGet && turnToolCallsPathID(path) != "":
 		value, err := s.service.TurnToolCalls(r.Context(), turnToolCallsPathID(path))
+		return value, err, true
+	case method == http.MethodGet && turnReactCallchainPathID(path) != "":
+		value, err := s.service.ReactCallchain(r.Context(), turnReactCallchainPathID(path))
 		return value, err, true
 	case method == http.MethodGet && toolCallPathID(path) != "":
 		value, err := s.service.ToolCall(r.Context(), toolCallPathID(path))
@@ -1416,6 +1428,10 @@ func sessionActivityWindowPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/activity-window")
 }
 
+func sessionReactCallchainPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/react-callchain")
+}
+
 func sessionTerminalsPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/terminals")
 }
@@ -1535,7 +1551,7 @@ func turnInterruptedDonePathID(path string) string {
 }
 
 func turnPathID(path string) string {
-	if strings.HasSuffix(path, "/activity") || strings.HasSuffix(path, "/tool-calls") || strings.HasSuffix(path, "/todos") || strings.HasSuffix(path, "/compact") || strings.HasSuffix(path, "/interrupted/done") {
+	if strings.HasSuffix(path, "/activity") || strings.HasSuffix(path, "/tool-calls") || strings.HasSuffix(path, "/react-callchain") || strings.HasSuffix(path, "/todos") || strings.HasSuffix(path, "/compact") || strings.HasSuffix(path, "/interrupted/done") {
 		return ""
 	}
 	id := strings.TrimPrefix(path, "/v1/turns/")
@@ -1551,6 +1567,10 @@ func turnToolCallsPathID(path string) string {
 
 func turnActivityPathID(path string) string {
 	return trimPathID(path, "/v1/turns/", "/activity")
+}
+
+func turnReactCallchainPathID(path string) string {
+	return trimPathID(path, "/v1/turns/", "/react-callchain")
 }
 
 func turnCompactPathID(path string) string {

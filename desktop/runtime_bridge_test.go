@@ -21,6 +21,32 @@ func TestRuntimeBridgeDelegatesToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsReactCallchain(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		reactCallchain:        RuntimeReactCallchainResponse{SessionID: "session-1", TurnID: "turn-1"},
+		sessionReactCallchain: RuntimeReactCallchainResponse{SessionID: "session-1"},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	turnResp, err := bridge.ReactCallchain(context.Background(), "turn-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.reactCallchainTurnID != "turn-1" || turnResp.TurnID != "turn-1" {
+		t.Fatalf("turn callchain = %#v service turn=%q", turnResp, service.reactCallchainTurnID)
+	}
+
+	sessionResp, err := bridge.SessionReactCallchain(context.Background(), "session-1", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.sessionReactCallchainID != "session-1" || service.sessionReactCallchainLimit != 5 || sessionResp.SessionID != "session-1" {
+		t.Fatalf("session callchain = %#v service session=%q limit=%d", sessionResp, service.sessionReactCallchainID, service.sessionReactCallchainLimit)
+	}
+}
+
 func TestRuntimeBridgeForwardsTerminalLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -748,6 +774,11 @@ type recordingRuntimeService struct {
 	activity                    RuntimeSessionActivityResponse
 	activityWindow              RuntimeSessionActivityWindowResponse
 	turnActivity                RuntimeTurnActivityResponse
+	reactCallchain              RuntimeReactCallchainResponse
+	reactCallchainTurnID        string
+	sessionReactCallchain       RuntimeReactCallchainResponse
+	sessionReactCallchainID     string
+	sessionReactCallchainLimit  int
 	eventsResponse              RuntimeEventsResponse
 	newChatTitle                string
 	createSessionReq            RuntimeSessionCreateRequest
@@ -930,6 +961,23 @@ func (s *recordingRuntimeService) Turn(context.Context, string) (RuntimeTurnResp
 
 func (s *recordingRuntimeService) Turns(context.Context, string) (RuntimeTurnsResponse, error) {
 	return RuntimeTurnsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ReactCallchain(_ context.Context, turnID string) (RuntimeReactCallchainResponse, error) {
+	s.reactCallchainTurnID = turnID
+	if s.reactCallchain.TurnID == "" {
+		s.reactCallchain.TurnID = turnID
+	}
+	return s.reactCallchain, nil
+}
+
+func (s *recordingRuntimeService) SessionReactCallchain(_ context.Context, sessionID string, limit int) (RuntimeReactCallchainResponse, error) {
+	s.sessionReactCallchainID = sessionID
+	s.sessionReactCallchainLimit = limit
+	if s.sessionReactCallchain.SessionID == "" {
+		s.sessionReactCallchain.SessionID = sessionID
+	}
+	return s.sessionReactCallchain, nil
 }
 
 func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, error) {

@@ -181,6 +181,55 @@ type RuntimeChatResponse struct {
 	Status    RuntimeStatus `json:"status"`
 }
 
+type RuntimeReactCallchainResponse struct {
+	SessionID string                  `json:"sessionId"`
+	TurnID    string                  `json:"turnId,omitempty"`
+	Nodes     []RuntimeReactCallNode  `json:"nodes"`
+	Summary   RuntimeReactCallSummary `json:"summary"`
+	Source    RuntimeReactCallSource  `json:"source"`
+}
+
+type RuntimeReactCallNode struct {
+	ID              string            `json:"id"`
+	ParentID        string            `json:"parentId,omitempty"`
+	Kind            string            `json:"kind"`
+	SessionID       string            `json:"sessionId"`
+	TurnID          string            `json:"turnId,omitempty"`
+	MessageID       string            `json:"messageId,omitempty"`
+	ToolCallID      string            `json:"toolCallId,omitempty"`
+	PermissionID    string            `json:"permissionId,omitempty"`
+	HookExecutionID string            `json:"hookExecutionId,omitempty"`
+	Sequence        int               `json:"sequence"`
+	Status          string            `json:"status,omitempty"`
+	FinishReason    string            `json:"finishReason,omitempty"`
+	Title           string            `json:"title,omitempty"`
+	Summary         string            `json:"summary,omitempty"`
+	Error           string            `json:"error,omitempty"`
+	StartedAt       int64             `json:"startedAt,omitempty"`
+	FinishedAt      int64             `json:"finishedAt,omitempty"`
+	Evidence        map[string]string `json:"evidence,omitempty"`
+}
+
+type RuntimeReactCallSummary struct {
+	HasFinalAssistant         bool     `json:"hasFinalAssistant"`
+	FinalAssistantMessageID   string   `json:"finalAssistantMessageId,omitempty"`
+	LastAssistantFinishReason string   `json:"lastAssistantFinishReason,omitempty"`
+	ToolCallCount             int      `json:"toolCallCount"`
+	PermissionCount           int      `json:"permissionCount"`
+	HookCount                 int      `json:"hookCount"`
+	StopReason                string   `json:"stopReason,omitempty"`
+	MissingEvidence           []string `json:"missingEvidence,omitempty"`
+}
+
+type RuntimeReactCallSource struct {
+	SessionActivityParity bool `json:"sessionActivityParity"`
+	UsesMessages          bool `json:"usesMessages"`
+	UsesToolCalls         bool `json:"usesToolCalls"`
+	UsesPermissions       bool `json:"usesPermissions"`
+	UsesHooks             bool `json:"usesHooks"`
+	EventsAreRefreshOnly  bool `json:"eventsAreRefreshOnly"`
+}
+
 type RuntimeTerminal struct {
 	ID         string   `json:"id"`
 	ProjectID  string   `json:"projectId"`
