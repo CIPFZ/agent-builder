@@ -32,6 +32,14 @@ type RuntimeProviderTestResponse = runtime.RuntimeProviderTestResponse
 type RuntimeConfigResponse = runtime.RuntimeConfigResponse
 type RuntimeChatRequest = runtime.RuntimeChatRequest
 type RuntimeChatResponse = runtime.RuntimeChatResponse
+type RuntimeUserInputRequest = runtime.RuntimeUserInputRequest
+type RuntimeUserInputItem = runtime.RuntimeUserInputItem
+type RuntimeUserInputOptions = runtime.RuntimeUserInputOptions
+type RuntimeNormalizedInput = runtime.RuntimeNormalizedInput
+type RuntimeMessageDraft = runtime.RuntimeMessageDraft
+type RuntimeAttachmentDraft = runtime.RuntimeAttachmentDraft
+type RuntimeInputCommand = runtime.RuntimeInputCommand
+type RuntimeInputHookOutcome = runtime.RuntimeInputHookOutcome
 type RuntimeTerminal = runtime.RuntimeTerminal
 type RuntimeTerminalCreateRequest = runtime.RuntimeTerminalCreateRequest
 type RuntimeTerminalResponse = runtime.RuntimeTerminalResponse
@@ -341,6 +349,18 @@ func (r *RuntimeBridge) VerifyModelConfig(ctx context.Context, req RuntimeModelC
 func (r *RuntimeBridge) Chat(ctx context.Context, req RuntimeChatRequest) (RuntimeChatResponse, error) {
 
 	return r.service.Chat(ctx, req)
+
+}
+
+func (r *RuntimeBridge) SubmitUserInput(ctx context.Context, req RuntimeUserInputRequest) (RuntimeChatResponse, error) {
+
+	return r.service.SubmitUserInput(ctx, req)
+
+}
+
+func (r *RuntimeBridge) UserInput(ctx context.Context, inputID string) (RuntimeNormalizedInput, error) {
+
+	return r.service.UserInput(ctx, inputID)
 
 }
 

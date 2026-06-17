@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -616,6 +617,83 @@ func TestRuntimeHTTPServerRoutesReactCallchainToRuntimeService(t *testing.T) {
 	}
 	if sessionCallchain.SessionID != "session-1" || len(sessionCallchain.Nodes) != 1 {
 		t.Fatalf("session callchain = %#v", sessionCallchain)
+	}
+}
+
+func TestRuntimeHTTPServerRoutesUserInputToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		userInputResponse: RuntimeChatResponse{
+			RequestID: "turn-1",
+			TurnID:    "turn-1",
+			Status:    RuntimeStatus{SessionID: "session-1"},
+			NormalizedInput: &RuntimeNormalizedInput{
+				ID:          "input-1",
+				SessionID:   "session-1",
+				Mode:        runtimeInputModePrompt,
+				Prompt:      "hello",
+				ShouldQuery: true,
+			},
+		},
+		userInput: RuntimeNormalizedInput{
+			ID:        "input-1",
+			SessionID: "session-1",
+			Mode:      runtimeInputModePrompt,
+			Prompt:    "hello",
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodPost, "/v1/user-inputs", strings.NewReader(`{
+  "sessionId":"session-1",
+  "mode":"prompt",
+  "items":[{"type":"text","text":"hello"}],
+  "options":{"clientRequestId":"client-1"}
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("submit status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.userInputReq.SessionID != "session-1" || service.userInputReq.Mode != "prompt" || len(service.userInputReq.Items) != 1 || service.userInputReq.Options.ClientRequestID != "client-1" {
+		t.Fatalf("submit request = %#v", service.userInputReq)
+	}
+	var submitted RuntimeChatResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &submitted); err != nil {
+		t.Fatal(err)
+	}
+	if submitted.NormalizedInput == nil || submitted.NormalizedInput.ID != "input-1" {
+		t.Fatalf("submitted = %#v", submitted)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/user-inputs/input-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("get status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.userInputID != "input-1" {
+		t.Fatalf("user input id = %q", service.userInputID)
+	}
+
+	body := url.QueryEscape(`{"mode":"slash","items":[{"type":"text","text":"/status"}]}`)
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&method=POST&path=/v1/user-inputs&body="+body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("dev submit status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.userInputReq.Mode != "slash" {
+		t.Fatalf("dev submit request = %#v", service.userInputReq)
 	}
 }
 

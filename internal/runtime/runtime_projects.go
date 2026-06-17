@@ -197,6 +197,7 @@ func (r *runtimeService) RemoveProject(ctx context.Context, req RuntimeProjectAc
 	r.hookExecutions = runtimeHookExecutionStore{}
 	r.agentTasks = runtimeAgentTaskStore{}
 	r.turns = runtimeTurnStore{}
+	r.userInputs = runtimeUserInputStore{}
 	r.eventStore = runtimeEventStore{}
 	r.permissionStore = runtimePermissionStore{}
 	r.mcpRequestStore = runtimeMCPRequestStore{}
@@ -272,6 +273,7 @@ func (r *runtimeService) OpenProject(ctx context.Context, req RuntimeOpenProject
 	r.hookExecutions = runtimeHookExecutionStore{}
 	r.agentTasks = runtimeAgentTaskStore{}
 	r.turns = runtimeTurnStore{}
+	r.userInputs = runtimeUserInputStore{}
 	r.eventStore = runtimeEventStore{}
 	r.permissionStore = runtimePermissionStore{}
 	r.mcpRequestStore = runtimeMCPRequestStore{}

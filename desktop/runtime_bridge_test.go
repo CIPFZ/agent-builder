@@ -21,6 +21,48 @@ func TestRuntimeBridgeDelegatesToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsUserInput(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		userInputResponse: RuntimeChatResponse{
+			RequestID: "turn-1",
+			TurnID:    "turn-1",
+			Status:    RuntimeStatus{SessionID: "session-1"},
+			NormalizedInput: &RuntimeNormalizedInput{
+				ID:        "input-1",
+				SessionID: "session-1",
+				Mode:      "prompt",
+			},
+		},
+		userInput: RuntimeNormalizedInput{ID: "input-1", SessionID: "session-1", Mode: "prompt"},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	submitted, err := bridge.SubmitUserInput(context.Background(), RuntimeUserInputRequest{
+		SessionID: "session-1",
+		Mode:      "prompt",
+		Items:     []RuntimeUserInputItem{{Type: "text", Text: "hello"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.userInputReq.SessionID != "session-1" || service.userInputReq.Mode != "prompt" {
+		t.Fatalf("submit request = %#v", service.userInputReq)
+	}
+	if submitted.NormalizedInput == nil || submitted.NormalizedInput.ID != "input-1" {
+		t.Fatalf("submitted = %#v", submitted)
+	}
+
+	read, err := bridge.UserInput(context.Background(), "input-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.userInputID != "input-1" || read.ID != "input-1" {
+		t.Fatalf("read = %#v service id=%q", read, service.userInputID)
+	}
+}
+
 func TestRuntimeBridgeForwardsReactCallchain(t *testing.T) {
 	t.Parallel()
 
@@ -759,6 +801,10 @@ func TestRuntimeBridgeForwardsMCPRequestDecision(t *testing.T) {
 type recordingRuntimeService struct {
 	chatCalls                   int
 	chatRequests                []RuntimeChatRequest
+	userInputReq                RuntimeUserInputRequest
+	userInputResponse           RuntimeChatResponse
+	userInputID                 string
+	userInput                   RuntimeNormalizedInput
 	refreshedCapability         string
 	toolSearchQuery             string
 	replayExportRequest         runtime.RuntimeReplayExportRequest
@@ -953,6 +999,22 @@ func (s *recordingRuntimeService) Chat(_ context.Context, req RuntimeChatRequest
 	s.chatCalls++
 	s.chatRequests = append(s.chatRequests, req)
 	return RuntimeChatResponse{RequestID: "request-1", TurnID: "turn-new", Status: RuntimeStatus{SessionID: "session-new"}}, nil
+}
+
+func (s *recordingRuntimeService) SubmitUserInput(_ context.Context, req RuntimeUserInputRequest) (RuntimeChatResponse, error) {
+	s.userInputReq = req
+	if s.userInputResponse.RequestID == "" {
+		s.userInputResponse = RuntimeChatResponse{RequestID: "request-1", TurnID: "turn-new", Status: RuntimeStatus{SessionID: "session-new"}}
+	}
+	return s.userInputResponse, nil
+}
+
+func (s *recordingRuntimeService) UserInput(_ context.Context, inputID string) (RuntimeNormalizedInput, error) {
+	s.userInputID = inputID
+	if s.userInput.ID == "" {
+		s.userInput.ID = inputID
+	}
+	return s.userInput, nil
 }
 
 func (s *recordingRuntimeService) Turn(context.Context, string) (RuntimeTurnResponse, error) {

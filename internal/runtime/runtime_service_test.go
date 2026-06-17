@@ -4383,6 +4383,10 @@ func TestRuntimeSSEServerPublishesRuntimeEvents(t *testing.T) {
 
 type recordingRuntimeService struct {
 	chatCalls                  int
+	userInputReq               RuntimeUserInputRequest
+	userInputResponse          RuntimeChatResponse
+	userInputID                string
+	userInput                  RuntimeNormalizedInput
 	statusCalls                int
 	recoveryStatusCalls        int
 	skillsCalls                int
@@ -4650,6 +4654,22 @@ func (s *recordingRuntimeService) DeleteTerminal(_ context.Context, terminalID s
 func (s *recordingRuntimeService) Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error) {
 	s.chatCalls++
 	return RuntimeChatResponse{RequestID: "request-1", TurnID: "request-1", Status: s.status}, nil
+}
+
+func (s *recordingRuntimeService) SubmitUserInput(_ context.Context, req RuntimeUserInputRequest) (RuntimeChatResponse, error) {
+	s.userInputReq = req
+	if s.userInputResponse.RequestID == "" {
+		s.userInputResponse = RuntimeChatResponse{RequestID: "request-1", TurnID: "request-1", Status: s.status}
+	}
+	return s.userInputResponse, nil
+}
+
+func (s *recordingRuntimeService) UserInput(_ context.Context, inputID string) (RuntimeNormalizedInput, error) {
+	s.userInputID = inputID
+	if s.userInput.ID == "" {
+		s.userInput.ID = inputID
+	}
+	return s.userInput, nil
 }
 
 func (s *recordingRuntimeService) Turn(_ context.Context, turnID string) (RuntimeTurnResponse, error) {

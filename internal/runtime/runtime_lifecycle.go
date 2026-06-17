@@ -121,6 +121,7 @@ func (r *runtimeService) restart() {
 	r.agentTasks = runtimeAgentTaskStore{}
 	r.hookExecutions = runtimeHookExecutionStore{}
 	r.turns = runtimeTurnStore{}
+	r.userInputs = runtimeUserInputStore{}
 	r.eventStore = runtimeEventStore{}
 	r.permissionStore = runtimePermissionStore{}
 	r.mcpRequestStore = runtimeMCPRequestStore{}
@@ -292,6 +293,7 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 	}
 	startedAt := time.Now().UTC()
 	r.turns = newRuntimeTurnStore(conn)
+	r.userInputs = newRuntimeUserInputStore(conn)
 	r.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	r.refs = newRuntimeRefStore(conn, wsRuntime.Cfg.Config().Options.DataDirectory)
 	r.compactBoundaries = newRuntimeCompactBoundaryStore(conn)

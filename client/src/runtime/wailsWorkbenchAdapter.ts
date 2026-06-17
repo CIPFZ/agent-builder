@@ -26,6 +26,7 @@ import type {
   RunProjectionViewModel,
   RunSchedulerPlanRequestViewModel,
   RunSchedulerTaskCandidateViewModel,
+  RuntimeUserInputRequestViewModel,
   RuntimeSkillViewModel,
   SettingsPermissionViewModel,
   TerminalViewModel,
@@ -188,6 +189,72 @@ interface RuntimeChatResponseDTO {
   requestId?: string;
   turnId?: string;
   status: RuntimeStatusDTO;
+  normalizedInput?: RuntimeNormalizedInputDTO;
+}
+
+interface RuntimeUserInputRequestDTO {
+  sessionId?: string;
+  projectId?: string;
+  scope?: 'project' | 'standalone' | string;
+  mode: string;
+  items: RuntimeUserInputItemDTO[];
+  options?: RuntimeUserInputOptionsDTO;
+}
+
+interface RuntimeUserInputItemDTO {
+  type: string;
+  text?: string;
+  data?: string;
+  mimeType?: string;
+  fileName?: string;
+  sourcePath?: string;
+  metadata?: Record<string, string>;
+}
+
+interface RuntimeUserInputOptionsDTO {
+  isMeta?: boolean;
+  skipSlashCommands?: boolean;
+  bridgeOrigin?: boolean;
+  voiceSource?: string;
+  clientRequestId?: string;
+}
+
+interface RuntimeNormalizedInputDTO {
+  id: string;
+  sessionId?: string;
+  projectId?: string;
+  scope?: string;
+  mode?: string;
+  prompt?: string;
+  shouldQuery?: boolean;
+  createdAt?: number;
+  command?: {
+    name?: string;
+    known?: boolean;
+    runtime?: boolean;
+    shouldQuery?: boolean;
+    resultText?: string;
+    strategy?: string;
+    metadata?: Record<string, string>;
+  };
+  messages?: Array<{
+    role?: string;
+    content?: string;
+    hidden?: boolean;
+    mode?: string;
+    itemTypes?: string[];
+    metadata?: Record<string, string>;
+    attachmentIds?: string[];
+  }>;
+  attachments?: Array<{
+    id?: string;
+    type?: string;
+    mimeType?: string;
+    fileName?: string;
+    sourcePath?: string;
+    metadata?: Record<string, string>;
+    sizeBytes?: number;
+  }>;
 }
 
 interface RuntimeTerminalDTO {
@@ -377,6 +444,7 @@ interface RuntimeToolCallDTO {
   id: string;
   sessionId: string;
   turnId: string;
+  messageId?: string;
   name: string;
   source: string;
   command?: string;
@@ -857,6 +925,8 @@ interface RuntimeBridgeModule {
   RenameSession?: (req: { sessionId: string; title: string }) => Promise<RuntimeSessionsResponseDTO>;
   DeleteSession?: (sessionID: string) => Promise<RuntimeSessionsResponseDTO>;
   Chat: (req: { prompt: string; sessionId?: string; projectId?: string; scope?: 'project' | 'standalone' }) => Promise<RuntimeChatResponseDTO>;
+  SubmitUserInput?: (req: RuntimeUserInputRequestDTO) => Promise<RuntimeChatResponseDTO>;
+  UserInput?: (inputID: string) => Promise<RuntimeNormalizedInputDTO>;
   SessionTerminals?: (sessionID: string) => Promise<RuntimeSessionTerminalsResponseDTO>;
   CreateTerminal?: (req: { sessionId: string; id?: string; cwd?: string; columns?: number; rows?: number }) => Promise<RuntimeTerminalResponseDTO>;
   DeleteTerminal?: (terminalID: string) => Promise<RuntimeTerminalResponseDTO>;
@@ -910,6 +980,9 @@ let forceDraftChatSubmit = false;
 
 function loadRuntimeBridge() {
   if (typeof window === 'undefined') {
+    return Promise.resolve(null);
+  }
+  if (import.meta.env.DEV) {
     return Promise.resolve(null);
   }
 
@@ -1063,6 +1136,42 @@ function sessionsAfterDraftSubmit(
     },
     ...current.sessions.map((session) => ({ ...session, active: false })),
   ];
+}
+
+function toRuntimeUserInputRequest(
+  input: RuntimeUserInputRequestViewModel,
+  activeSessionID: string | undefined,
+  draftTarget: WorkbenchViewModel['newConversationDraft'],
+): RuntimeUserInputRequestDTO {
+  return {
+    sessionId: activeSessionID,
+    projectId: draftTarget?.scope === 'project' ? draftTarget.projectId : input.projectId,
+    scope: draftTarget?.scope ?? input.scope,
+    mode: input.mode || 'prompt',
+    items: input.items.map((item) => ({
+      type: item.type,
+      text: item.text,
+      data: item.data,
+      mimeType: item.mimeType,
+      fileName: item.fileName,
+      sourcePath: item.sourcePath,
+      metadata: item.metadata,
+    })),
+    options: input.options,
+  };
+}
+
+function promptToUserInput(prompt: string): RuntimeUserInputRequestViewModel {
+  const trimmed = prompt.trim();
+  return {
+    mode: trimmed.startsWith('/') ? 'slash' : 'prompt',
+    items: [
+      {
+        type: 'text',
+        text: prompt,
+      },
+    ],
+  };
 }
 
 function projectNameFromPath(path: string) {
@@ -1271,6 +1380,43 @@ function mapConversation(response?: RuntimeMessagesResponseDTO): ConversationMes
     }));
 }
 
+function mapNormalizedInputConversation(response: RuntimeChatResponseDTO, fallbackPrompt: string): ConversationMessageViewModel[] {
+  const normalized = response.normalizedInput;
+  if (!normalized || response.turnId || normalized.shouldQuery === true) {
+    return [];
+  }
+  const messages = Array.isArray(normalized.messages) ? normalized.messages : [];
+  const visibleMessages = messages.filter((message) => !message.hidden && (message.role === 'user' || message.role === 'assistant' || message.role === 'system'));
+  const conversation: ConversationMessageViewModel[] = visibleMessages.map((message, index) => ({
+    id: `${normalized.id || response.requestId || 'input'}-${index}`,
+    role: message.role === 'system' || message.role === 'assistant' ? 'assistant' as const : 'user' as const,
+    content: message.content || (message.role === 'user' ? fallbackPrompt : ''),
+    createdAt: normalized.createdAt,
+    status: 'success' as const,
+  }));
+  if (!conversation.some((message) => message.role === 'assistant') && normalized.command?.resultText) {
+    conversation.push({
+      id: `${normalized.id || response.requestId || 'input'}-command`,
+      role: 'assistant',
+      content: normalized.command.resultText,
+      createdAt: normalized.createdAt,
+      status: 'success',
+    });
+  }
+  return conversation;
+}
+
+function mapNormalizedInputTimeline(response: RuntimeChatResponseDTO, fallbackPrompt: string): ConversationTimelineItemViewModel[] {
+  return mapNormalizedInputConversation(response, fallbackPrompt).map((message) => ({
+    id: `timeline-${message.id}`,
+    kind: 'message',
+    role: message.role === 'assistant' || message.role === 'user' ? message.role : undefined,
+    content: message.content,
+    createdAt: message.createdAt,
+    status: message.status,
+  }));
+}
+
 const permissionModeOptions: PermissionModeOptionViewModel[] = [
   { value: 'ask', mode: 'ask', label: '\u9ed8\u8ba4\u6a21\u5f0f', description: '\u5de5\u5177\u8c03\u7528\u6309 runtime \u89c4\u5219\u8bf7\u6c42\u5ba1\u6279\u3002' },
   { value: 'auto_read', mode: 'auto_read', label: '\u81ea\u52a8\u5ba1\u67e5', description: '\u53ea\u8bfb\u5de5\u5177\u81ea\u52a8\u6267\u884c\uff0c\u5176\u4f59\u64cd\u4f5c\u8bf7\u6c42\u5ba1\u6279\u3002' },
@@ -1333,7 +1479,6 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
   const permissionsDTO = Array.isArray(activity.permissions) ? activity.permissions : [];
   const turnsDTO = Array.isArray(activity.turns) ? activity.turns : [];
   const turnContext = buildTurnContext(messagesDTO, turnsDTO);
-  const messageOrder = new Map(messagesDTO.map((message, index) => [message.id, index]));
   const messages: ConversationTimelineItemViewModel[] = messagesDTO
     .filter((message) => message.role === 'user' || message.role === 'assistant')
     .flatMap((message) => {
@@ -1364,6 +1509,7 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
     kind: 'tool_call',
     sessionId: toolCall.sessionId,
     turnId: toolCall.turnId,
+    messageId: toolCall.messageId,
     toolCallId: toolCall.id,
     title: toolCall.name,
     status: toolCall.status,
@@ -1417,7 +1563,54 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
       diagnostics: turn.diagnostics,
     }));
 
-  return [...messages, ...thinking, ...toolCalls, ...permissions, ...progress, ...diagnostics].sort((left, right) => {
+  return [...messages, ...thinking, ...toolCalls, ...permissions, ...progress, ...diagnostics].sort(compareActivityTimelineItems(messagesDTO, turnsDTO));
+}
+
+function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], activity: RuntimeSessionActivityDTO) {
+  const replacement = mapActivityTimeline(activity);
+  const activityMessages = Array.isArray(activity.messages) ? activity.messages : [];
+  const activityTurns = Array.isArray(activity.turns) ? activity.turns : [];
+  const activityTurnContext = buildTurnContext(activityMessages, activityTurns);
+  const turnIDs = new Set(activityTurns.map((turn) => turn.id).filter(Boolean));
+  replacement.forEach((item) => {
+    const turnID = item.turnId || turnIDForMessage(activityTurnContext, item.messageId);
+    if (turnID) {
+      turnIDs.add(turnID);
+    }
+  });
+  const messageIDs = new Set((Array.isArray(activity.messages) ? activity.messages : []).map((message) => message.id).filter(Boolean));
+  const toolCallIDs = new Set((Array.isArray(activity.toolCalls) ? activity.toolCalls : []).map((toolCall) => toolCall.id).filter(Boolean));
+  const permissionIDs = new Set((Array.isArray(activity.permissions) ? activity.permissions : []).map((permission) => permission.id).filter(Boolean));
+  const hasRuntimeActivity = replacement.length > 0 || turnIDs.size > 0 || messageIDs.size > 0 || toolCallIDs.size > 0 || permissionIDs.size > 0;
+  const kept = current.filter((item) => {
+    if (hasRuntimeActivity && isOptimisticTimelineItem(item)) {
+      return false;
+    }
+    if (item.turnId && turnIDs.has(item.turnId)) {
+      return false;
+    }
+    const inferredTurnID = turnIDForMessage(activityTurnContext, item.messageId);
+    if (inferredTurnID && turnIDs.has(inferredTurnID)) {
+      return false;
+    }
+    if (item.messageId && messageIDs.has(item.messageId)) {
+      return false;
+    }
+    if (item.toolCallId && toolCallIDs.has(item.toolCallId)) {
+      return false;
+    }
+    if (item.permission?.id && permissionIDs.has(item.permission.id)) {
+      return false;
+    }
+    return true;
+  });
+  return [...kept, ...replacement].sort(compareActivityTimelineItems(activityMessages, activityTurns));
+}
+
+function compareActivityTimelineItems(messages: RuntimeMessageDTO[], turns: RuntimeTurnDTO[]) {
+  const turnContext = buildTurnContext(messages, turns);
+  const messageOrder = new Map(messages.map((message, index) => [message.id, index]));
+  return (left: ConversationTimelineItemViewModel, right: ConversationTimelineItemViewModel) => {
     const leftTurn = left.turnId || turnIDForMessage(turnContext, left.messageId);
     const rightTurn = right.turnId || turnIDForMessage(turnContext, right.messageId);
     const leftTime = timelineSortTime(left, leftTurn, turnContext);
@@ -1434,6 +1627,11 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
         return leftRank - rightRank;
       }
     }
+    const leftSequence = timelineMessageSequenceOrder(left, messageOrder);
+    const rightSequence = timelineMessageSequenceOrder(right, messageOrder);
+    if (leftSequence !== rightSequence && leftSequence < Number.MAX_SAFE_INTEGER && rightSequence < Number.MAX_SAFE_INTEGER) {
+      return leftSequence - rightSequence;
+    }
     if (leftTime !== rightTime) {
       return leftTime - rightTime;
     }
@@ -1443,42 +1641,7 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
       return leftMessageOrder - rightMessageOrder;
     }
     return left.id.localeCompare(right.id);
-  });
-}
-
-function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], activity: RuntimeSessionActivityDTO) {
-  const replacement = mapActivityTimeline(activity);
-  const turnIDs = new Set((Array.isArray(activity.turns) ? activity.turns : []).map((turn) => turn.id).filter(Boolean));
-  const messageIDs = new Set((Array.isArray(activity.messages) ? activity.messages : []).map((message) => message.id).filter(Boolean));
-  const toolCallIDs = new Set((Array.isArray(activity.toolCalls) ? activity.toolCalls : []).map((toolCall) => toolCall.id).filter(Boolean));
-  const permissionIDs = new Set((Array.isArray(activity.permissions) ? activity.permissions : []).map((permission) => permission.id).filter(Boolean));
-  const hasRuntimeActivity = replacement.length > 0 || turnIDs.size > 0 || messageIDs.size > 0 || toolCallIDs.size > 0 || permissionIDs.size > 0;
-  const kept = current.filter((item) => {
-    if (hasRuntimeActivity && isOptimisticTimelineItem(item)) {
-      return false;
-    }
-    if (item.turnId && turnIDs.has(item.turnId)) {
-      return false;
-    }
-    if (item.messageId && messageIDs.has(item.messageId)) {
-      return false;
-    }
-    if (item.toolCallId && toolCallIDs.has(item.toolCallId)) {
-      return false;
-    }
-    if (item.permission?.id && permissionIDs.has(item.permission.id)) {
-      return false;
-    }
-    return true;
-  });
-  return [...kept, ...replacement].sort((left, right) => {
-    const leftTime = normalizeTimestamp(left.createdAt ?? left.updatedAt ?? 0);
-    const rightTime = normalizeTimestamp(right.createdAt ?? right.updatedAt ?? 0);
-    if (leftTime !== rightTime) {
-      return leftTime - rightTime;
-    }
-    return left.id.localeCompare(right.id);
-  });
+  };
 }
 
 function mergeConversationMessages(current: ConversationMessageViewModel[], response?: RuntimeMessagesResponseDTO) {
@@ -1601,6 +1764,29 @@ function timelineMessageOrder(item: ConversationTimelineItemViewModel, messageOr
   return messageOrder.get(item.messageId) ?? Number.MAX_SAFE_INTEGER;
 }
 
+function timelineMessageSequenceOrder(item: ConversationTimelineItemViewModel, messageOrder: Map<string, number>) {
+  const order = timelineMessageOrder(item, messageOrder);
+  if (order === Number.MAX_SAFE_INTEGER) {
+    return order;
+  }
+  if (item.kind === 'message' && item.role === 'user') {
+    return order * 10;
+  }
+  if (item.kind === 'thinking') {
+    return order * 10 + 2;
+  }
+  if (item.kind === 'tool_call') {
+    return order * 10 + 3;
+  }
+  if (item.kind === 'permission') {
+    return order * 10 + 4;
+  }
+  if (item.kind === 'message' && item.role === 'assistant') {
+    return order * 10 + 8;
+  }
+  return order * 10 + 9;
+}
+
 function turnIDForMessage(context: TimelineTurnContext, messageID?: string) {
   if (!messageID) {
     return undefined;
@@ -1655,10 +1841,10 @@ function timelineTurnOrder(item: ConversationTimelineItemViewModel, messageOrder
     return 50_000 + timelineMessageOrder(item, messageOrder);
   }
   if (item.kind === 'tool_call') {
-    return 100_000 + timelineToolCallOrder(item, context) * 10;
+    return 100_000 + Math.min(timelineToolCallOrder(item, context) * 10, timelineMessageOrder(item, messageOrder));
   }
   if (item.kind === 'permission') {
-    return 100_000 + timelineToolCallOrder(item, context) * 10 + 1;
+    return 100_000 + Math.min(timelineToolCallOrder(item, context) * 10, timelineMessageOrder(item, messageOrder)) + 1;
   }
   if (item.kind === 'message' && item.role === 'assistant') {
     return 800_000 + timelineMessageOrder(item, messageOrder);
@@ -1674,9 +1860,9 @@ function timelineTurnOrder(item: ConversationTimelineItemViewModel, messageOrder
 
 function timelineToolCallOrder(item: ConversationTimelineItemViewModel, context: TimelineTurnContext) {
   if (!item.toolCallId) {
-    return Number.MAX_SAFE_INTEGER / 10;
+    return 0;
   }
-  return context.toolCallOrderByID.get(item.toolCallId) ?? Number.MAX_SAFE_INTEGER / 10;
+  return context.toolCallOrderByID.get(item.toolCallId) ?? 0;
 }
 
 function mapRunProjection(
@@ -2315,11 +2501,11 @@ async function runtimeModule<T>(path: string, init?: RuntimeHTTPInit): Promise<T
     return module.default as T;
   } catch (error) {
     console.warn('[runtime] module fallback failed', path, error);
-    return runtimeJSONP<T>(path);
+    return runtimeJSONP<T>(path, init);
   }
 }
 
-function runtimeJSONP<T>(path: string): Promise<T> {
+function runtimeJSONP<T>(path: string, init?: RuntimeHTTPInit): Promise<T> {
   if (typeof document === 'undefined') {
     return Promise.reject(new Error('runtime HTTP request is unavailable'));
   }
@@ -2348,7 +2534,18 @@ function runtimeJSONP<T>(path: string): Promise<T> {
       cleanup();
       reject(new Error('runtime HTTP JSONP request failed'));
     };
-    script.src = `${runtimeHTTPURL}/v1/dev/jsonp?path=${encodeURIComponent(path)}&token=${encodeURIComponent(runtimeHTTPToken)}&callback=${encodeURIComponent(callback)}`;
+    const params = new URLSearchParams({
+      path,
+      token: runtimeHTTPToken,
+      callback,
+    });
+    if (init?.method) {
+      params.set('method', init.method);
+    }
+    if (init?.body) {
+      params.set('body', init.body);
+    }
+    script.src = `${runtimeHTTPURL}/v1/dev/jsonp?${params.toString()}`;
     document.head.appendChild(script);
   });
 }
@@ -2986,6 +3183,12 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
       body: JSON.stringify(req),
     });
   },
+  SubmitUserInput: (req) =>
+    runtimeFetch<RuntimeChatResponseDTO>('/v1/user-inputs', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }),
+  UserInput: (inputID) => runtimeFetch<RuntimeNormalizedInputDTO>(`/v1/user-inputs/${encodeURIComponent(inputID)}`),
   CreateTerminal: (req) =>
     runtimeFetch<RuntimeTerminalResponseDTO>('/v1/terminals', {
       method: 'POST',
@@ -3000,10 +3203,10 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
 
 async function loadRuntimeHTTPBridge() {
   try {
-    await runtimeHTTPBridge.ProviderCatalog?.();
+    await runtimeHTTPBridge.Status();
     return runtimeHTTPBridge;
   } catch (error) {
-    console.warn('[runtime] provider catalog unavailable', error);
+    console.warn('[runtime] HTTP bridge unavailable', error);
     return null;
   }
 }
@@ -3301,6 +3504,10 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     );
   },
   async sendPrompt(current, prompt) {
+    return wailsWorkbenchAdapter.submitUserInput?.(current, promptToUserInput(prompt)) ?? staticWorkbenchAdapter.sendPrompt(current, prompt);
+  },
+  async submitUserInput(current, input) {
+    const prompt = input.items.map((item) => item.text).filter(Boolean).join('\n\n').trim();
     const activeSessionID = forceDraftChatSubmit || current.newConversationDraft ? undefined : current.sessions.find((session) => session.active)?.id;
     const draftTarget = activeSessionID ? undefined : (current.newConversationDraft ?? defaultDraftTarget(current));
 
@@ -3338,23 +3545,33 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         try {
           const response = await runtimeRequestWithTimeout(
             () =>
-              bridge.Chat({
-                prompt,
-                sessionId: activeSessionID,
-                projectId: draftTarget?.scope === 'project' ? draftTarget.projectId : undefined,
-                scope: draftTarget?.scope,
-              }),
+              bridge.SubmitUserInput
+                ? bridge.SubmitUserInput(toRuntimeUserInputRequest(input, activeSessionID, draftTarget))
+                : bridge.Chat({
+                    prompt,
+                    sessionId: activeSessionID,
+                    projectId: draftTarget?.scope === 'project' ? draftTarget.projectId : undefined,
+                    scope: draftTarget?.scope,
+                  }),
             runtimeMutationTimeoutMS,
             '运行时响应超时，请稍后刷新会话查看结果。',
           );
           const responseSessionID = response.status.sessionId || activeSessionID;
           forceDraftChatSubmit = false;
           const busyAfterSubmit = Boolean(response.turnId);
+          const normalizedConversation = mapNormalizedInputConversation(response, prompt);
+          const normalizedTimeline = mapNormalizedInputTimeline(response, prompt);
+          const normalizedOnly = !response.turnId && response.normalizedInput;
           return {
             ...optimistic,
             mode: 'new-chat',
             newConversationDraft: undefined,
             sessions: sessionsAfterDraftSubmit(current, responseSessionID, prompt, draftTarget, response.turnId),
+            conversation:
+              normalizedOnly
+                ? [...current.conversation.filter((message) => message.status !== 'loading'), ...normalizedConversation]
+                : optimistic.conversation,
+            timeline: normalizedOnly ? [...current.timeline.filter((item) => item.status !== 'loading'), ...normalizedTimeline] : optimistic.timeline,
             composer: {
               ...optimistic.composer,
               busy: busyAfterSubmit,

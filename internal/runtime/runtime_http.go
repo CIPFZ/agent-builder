@@ -348,6 +348,13 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		value, err := s.service.Chat(r.Context(), req)
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/user-inputs":
+		var req RuntimeUserInputRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.SubmitUserInput(r.Context(), req)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/terminals":
 		var req RuntimeTerminalCreateRequest
 		if r.Body != nil && r.ContentLength != 0 && !decodeRuntimeJSON(w, r, &req) {
@@ -429,6 +436,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnReactCallchainPathID(r.URL.Path) != "":
 		value, err := s.service.ReactCallchain(r.Context(), turnReactCallchainPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && userInputPathID(r.URL.Path) != "":
+		value, err := s.service.UserInput(r.Context(), userInputPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnActivityPathID(r.URL.Path) != "":
 		value, err := s.service.TurnActivity(r.Context(), turnActivityPathID(r.URL.Path))
@@ -908,6 +918,16 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 			return nil, err, true
 		}
 		value, err := s.service.Chat(r.Context(), req)
+		return value, err, true
+	case method == http.MethodPost && path == "/v1/user-inputs":
+		var req RuntimeUserInputRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			return nil, err, true
+		}
+		value, err := s.service.SubmitUserInput(r.Context(), req)
+		return value, err, true
+	case method == http.MethodGet && userInputPathID(path) != "":
+		value, err := s.service.UserInput(r.Context(), userInputPathID(path))
 		return value, err, true
 	case method == http.MethodPost && path == "/v1/terminals":
 		var req RuntimeTerminalCreateRequest
@@ -1555,6 +1575,14 @@ func turnPathID(path string) string {
 		return ""
 	}
 	id := strings.TrimPrefix(path, "/v1/turns/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func userInputPathID(path string) string {
+	id := strings.TrimPrefix(path, "/v1/user-inputs/")
 	if id == path || id == "" || strings.Contains(id, "/") {
 		return ""
 	}

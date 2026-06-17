@@ -41,6 +41,8 @@ type RuntimeService interface {
 	SubscribeTerminalEvents(context.Context, string, ...int64) (<-chan RuntimeTerminalEvent, func())
 	DeleteTerminal(context.Context, string) (RuntimeTerminalResponse, error)
 	Chat(context.Context, RuntimeChatRequest) (RuntimeChatResponse, error)
+	SubmitUserInput(context.Context, RuntimeUserInputRequest) (RuntimeChatResponse, error)
+	UserInput(context.Context, string) (RuntimeNormalizedInput, error)
 	Turn(context.Context, string) (RuntimeTurnResponse, error)
 	Turns(context.Context, string) (RuntimeTurnsResponse, error)
 	ReactCallchain(context.Context, string) (RuntimeReactCallchainResponse, error)
@@ -166,6 +168,7 @@ type runtimeService struct {
 	hookExecutions       runtimeHookExecutionStore
 	agentTasks           runtimeAgentTaskStore
 	turns                runtimeTurnStore
+	userInputs           runtimeUserInputStore
 	eventStore           runtimeEventStore
 	permissionStore      runtimePermissionStore
 	mcpRequestStore      runtimeMCPRequestStore

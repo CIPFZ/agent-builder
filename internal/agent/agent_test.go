@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"charm.land/x/vcr"
 	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -839,6 +841,106 @@ func TestPreparePrompt_OrphanedToolUseMixed(t *testing.T) {
 	}
 	require.Equal(t, 1, syntheticCount, "expected exactly one synthetic result for the orphaned call")
 }
+
+func TestAgentContinuesAfterSchedulerPolicyDeny(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	stepCount := 0
+	model := &scriptedToolDenyModel{
+		streamFunc: func(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
+			stepCount++
+			return func(yield func(fantasy.StreamPart) bool) {
+				switch stepCount {
+				case 1:
+					if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolInputStart, ID: "tool-1", ToolCallName: "todos"}) {
+						return
+					}
+					if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolInputDelta, ID: "tool-1", Delta: `{"todos":[]}`}) {
+						return
+					}
+					if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolInputEnd, ID: "tool-1"}) {
+						return
+					}
+					if !yield(fantasy.StreamPart{
+						Type:          fantasy.StreamPartTypeToolCall,
+						ID:            "tool-1",
+						ToolCallName:  "todos",
+						ToolCallInput: `{"todos":[]}`,
+					}) {
+						return
+					}
+					yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonToolCalls})
+				case 2:
+					if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextStart, ID: "text-1"}) {
+						return
+					}
+					if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, ID: "text-1", Delta: "The todo tool was denied, so I will continue without it."}) {
+						return
+					}
+					yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonStop})
+				default:
+					t.Fatalf("unexpected model step %d", stepCount)
+				}
+			}, nil
+		},
+	}
+	recorder := &recordingSchedulerRecorder{
+		decision: SchedulerToolPolicyDecision{
+			Decision: string(permission.PolicyDeny),
+			Risk:     string(permission.RiskWrite),
+			Reason:   "Plan mode blocks write tools.",
+			Mode:     string(permission.PolicyModePlan),
+		},
+	}
+	tool := newSchedulerTool(&fakeTool{name: "todos"}, recorder)
+	agent := testSessionAgent(env, model, model, "test prompt", tool)
+
+	sess, err := env.sessions.Create(t.Context(), "test")
+	require.NoError(t, err)
+	_, err = env.messages.Create(t.Context(), sess.ID, message.CreateMessageParams{
+		Role:  message.User,
+		Parts: []message.ContentPart{message.TextContent{Text: "existing context"}},
+	})
+	require.NoError(t, err)
+	_, err = agent.Run(t.Context(), SessionAgentCall{
+		Prompt:    "make a todo and then reply",
+		SessionID: sess.ID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, stepCount)
+
+	msgs, err := env.messages.List(t.Context(), sess.ID)
+	require.NoError(t, err)
+	last := msgs[len(msgs)-1]
+	require.Equal(t, message.Assistant, last.Role)
+	require.Contains(t, last.Content().Text, "continue without it")
+	require.Equal(t, message.FinishReasonEndTurn, last.FinishReason())
+}
+
+type scriptedToolDenyModel struct {
+	streamFunc func(context.Context, fantasy.Call) (fantasy.StreamResponse, error)
+}
+
+func (m *scriptedToolDenyModel) Generate(context.Context, fantasy.Call) (*fantasy.Response, error) {
+	return nil, fmt.Errorf("Generate is not implemented")
+}
+
+func (m *scriptedToolDenyModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
+	return m.streamFunc(ctx, call)
+}
+
+func (m *scriptedToolDenyModel) GenerateObject(context.Context, fantasy.ObjectCall) (*fantasy.ObjectResponse, error) {
+	return nil, fmt.Errorf("GenerateObject is not implemented")
+}
+
+func (m *scriptedToolDenyModel) StreamObject(context.Context, fantasy.ObjectCall) (fantasy.ObjectStreamResponse, error) {
+	return nil, fmt.Errorf("StreamObject is not implemented")
+}
+
+func (m *scriptedToolDenyModel) Provider() string { return "test" }
+
+func (m *scriptedToolDenyModel) Model() string { return "test-model" }
 
 func TestProviderRetryLogFields(t *testing.T) {
 	t.Run("nil provider error", func(t *testing.T) {

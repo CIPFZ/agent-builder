@@ -65,6 +65,7 @@ export function Composer({
     : composer.modelOptions.filter((model) => model.configuredProviderId);
   const canSubmit = draft.trim().length > 0;
   const isBusy = Boolean(composer.busy);
+  const requiresSelectedModel = (prompt: string) => !prompt.trim().startsWith('/');
   const warnMissingModel = () => {
     void messageApi.warning('请先在 设置 - 服务商 中配置并选择模型后再使用');
   };
@@ -77,7 +78,7 @@ export function Composer({
     if (!prompt) {
       return;
     }
-    if (!composer.selectedModel?.configuredProviderId) {
+    if (requiresSelectedModel(prompt) && !composer.selectedModel?.configuredProviderId) {
       warnMissingModel();
       return;
     }
@@ -207,7 +208,7 @@ export function Composer({
             if (!prompt) {
               return;
             }
-            if (!composer.selectedModel?.configuredProviderId) {
+            if (requiresSelectedModel(prompt) && !composer.selectedModel?.configuredProviderId) {
               warnMissingModel();
               return;
             }

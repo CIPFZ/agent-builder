@@ -176,9 +176,93 @@ type RuntimeChatRequest struct {
 }
 
 type RuntimeChatResponse struct {
-	RequestID string        `json:"requestId"`
-	TurnID    string        `json:"turnId"`
-	Status    RuntimeStatus `json:"status"`
+	RequestID       string                  `json:"requestId"`
+	TurnID          string                  `json:"turnId"`
+	Status          RuntimeStatus           `json:"status"`
+	NormalizedInput *RuntimeNormalizedInput `json:"normalizedInput,omitempty"`
+}
+
+type RuntimeUserInputRequest struct {
+	SessionID string                  `json:"sessionId,omitempty"`
+	ProjectID string                  `json:"projectId,omitempty"`
+	Scope     string                  `json:"scope,omitempty"`
+	Mode      string                  `json:"mode"`
+	Items     []RuntimeUserInputItem  `json:"items"`
+	Options   RuntimeUserInputOptions `json:"options,omitempty"`
+}
+
+type RuntimeUserInputItem struct {
+	Type       string            `json:"type"`
+	Text       string            `json:"text,omitempty"`
+	Data       string            `json:"data,omitempty"`
+	MIMEType   string            `json:"mimeType,omitempty"`
+	FileName   string            `json:"fileName,omitempty"`
+	SourcePath string            `json:"sourcePath,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+}
+
+type RuntimeUserInputOptions struct {
+	IsMeta            bool   `json:"isMeta,omitempty"`
+	SkipSlashCommands bool   `json:"skipSlashCommands,omitempty"`
+	BridgeOrigin      bool   `json:"bridgeOrigin,omitempty"`
+	VoiceSource       string `json:"voiceSource,omitempty"`
+	ClientRequestID   string `json:"clientRequestId,omitempty"`
+}
+
+type RuntimeNormalizedInput struct {
+	ID                   string                   `json:"id"`
+	SessionID            string                   `json:"sessionId"`
+	ProjectID            string                   `json:"projectId,omitempty"`
+	Scope                string                   `json:"scope,omitempty"`
+	Mode                 string                   `json:"mode"`
+	Prompt               string                   `json:"prompt,omitempty"`
+	Messages             []RuntimeMessageDraft    `json:"messages"`
+	Attachments          []RuntimeAttachmentDraft `json:"attachments,omitempty"`
+	ShouldQuery          bool                     `json:"shouldQuery"`
+	Command              *RuntimeInputCommand     `json:"command,omitempty"`
+	HookOutcome          *RuntimeInputHookOutcome `json:"hookOutcome,omitempty"`
+	ModelOverride        string                   `json:"modelOverride,omitempty"`
+	AllowedToolsOverride []string                 `json:"allowedToolsOverride,omitempty"`
+	CreatedAt            int64                    `json:"createdAt"`
+}
+
+type RuntimeMessageDraft struct {
+	Role          string            `json:"role"`
+	Content       string            `json:"content,omitempty"`
+	Hidden        bool              `json:"hidden,omitempty"`
+	Mode          string            `json:"mode,omitempty"`
+	ItemTypes     []string          `json:"itemTypes,omitempty"`
+	Metadata      map[string]string `json:"metadata,omitempty"`
+	AttachmentIDs []string          `json:"attachmentIds,omitempty"`
+}
+
+type RuntimeAttachmentDraft struct {
+	ID         string            `json:"id"`
+	Type       string            `json:"type"`
+	MIMEType   string            `json:"mimeType,omitempty"`
+	FileName   string            `json:"fileName,omitempty"`
+	SourcePath string            `json:"sourcePath,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+	SizeBytes  int               `json:"sizeBytes,omitempty"`
+}
+
+type RuntimeInputCommand struct {
+	Name        string            `json:"name"`
+	Args        string            `json:"args,omitempty"`
+	Known       bool              `json:"known"`
+	Runtime     bool              `json:"runtime"`
+	ShouldQuery bool              `json:"shouldQuery"`
+	ResultText  string            `json:"resultText,omitempty"`
+	Strategy    string            `json:"strategy,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+}
+
+type RuntimeInputHookOutcome struct {
+	Status              string            `json:"status"`
+	PreventContinuation bool              `json:"preventContinuation,omitempty"`
+	Blocking            bool              `json:"blocking,omitempty"`
+	Reason              string            `json:"reason,omitempty"`
+	Metadata            map[string]string `json:"metadata,omitempty"`
 }
 
 type RuntimeReactCallchainResponse struct {

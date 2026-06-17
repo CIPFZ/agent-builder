@@ -256,7 +256,7 @@ func TestHookedTool_HookAllowCannotOverrideSchedulerPolicyDeny(t *testing.T) {
 	resp, err := tool.Run(t.Context(), fantasy.ToolCall{ID: "call-policy-deny", Name: "bash", Input: `{"command":"rm -rf nope"}`})
 	require.NoError(t, err)
 	require.True(t, resp.IsError)
-	require.True(t, resp.StopTurn)
+	require.False(t, resp.StopTurn)
 	require.False(t, inner.called)
 	require.Equal(t, "denied", schedulerRecorder.failed.Status)
 	require.Contains(t, schedulerRecorder.failed.PolicyReason, "headless ask fail-closed")

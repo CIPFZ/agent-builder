@@ -104,7 +104,6 @@ func (s *schedulerTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy
 		}
 		_ = s.recorder.ToolCallFailed(ctx, result)
 		resp := fantasy.NewTextErrorResponse(reason)
-		resp.StopTurn = true
 		return resp, nil
 	}
 	record.Command = shellCommandFromInput(call.Input)

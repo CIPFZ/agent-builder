@@ -91,11 +91,10 @@ func effectiveWorkingDir(ctx context.Context, fallback string) string {
 }
 
 // NewPermissionDeniedResponse returns a tool response indicating the user
-// denied permission, with StopTurn set so the agent loop does not retry.
+// denied permission. The agent loop should continue so the model can explain
+// the denied tool result and produce a final assistant response.
 func NewPermissionDeniedResponse() fantasy.ToolResponse {
-	resp := fantasy.NewTextErrorResponse("User denied permission")
-	resp.StopTurn = true
-	return resp
+	return fantasy.NewTextErrorResponse("User denied permission")
 }
 
 // ghAvailable indicates whether the `gh` CLI is available on PATH.

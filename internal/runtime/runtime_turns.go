@@ -44,6 +44,19 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 	if prompt == "" {
 		return RuntimeChatResponse{}, errors.New("prompt is required")
 	}
+	return r.SubmitUserInput(ctx, RuntimeUserInputRequest{
+		SessionID: req.SessionID,
+		ProjectID: req.ProjectID,
+		Scope:     req.Scope,
+		Mode:      runtimeInputModePrompt,
+		Items: []RuntimeUserInputItem{{
+			Type: runtimeInputItemText,
+			Text: prompt,
+		}},
+	})
+}
+
+func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized RuntimeNormalizedInput, items []RuntimeUserInputItem) (RuntimeChatResponse, error) {
 	if err := r.ensureStarted(ctx); err != nil {
 		if errors.Is(err, errSelectedModelMissing) {
 			return RuntimeChatResponse{}, errSelectedModelMissing
@@ -53,9 +66,9 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 
 	r.mu.Lock()
 	wsID := r.workspace.ID
-	requestSessionID := strings.TrimSpace(req.SessionID)
-	draftScope := strings.TrimSpace(req.Scope)
-	draftProjectID := strings.TrimSpace(req.ProjectID)
+	requestSessionID := strings.TrimSpace(normalized.SessionID)
+	draftScope := strings.TrimSpace(normalized.Scope)
+	draftProjectID := strings.TrimSpace(normalized.ProjectID)
 	sessionID := requestSessionID
 	if sessionID == "" && draftScope == "" && draftProjectID == "" {
 		sessionID = r.sessionID
@@ -66,7 +79,7 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 	}
 	r.mu.Unlock()
 	if sessionID == "" {
-		projectID, scope := normalizeRuntimeSessionOwnership(req.ProjectID, req.Scope, wsID)
+		projectID, scope := normalizeRuntimeSessionOwnership(normalized.ProjectID, normalized.Scope, wsID)
 		sess, err := r.runtime.CreateSessionWithScope(ctx, wsID, "New chat", projectID, scope)
 		if err != nil {
 			return RuntimeChatResponse{}, fmt.Errorf("failed to create session: %w", err)
@@ -92,6 +105,14 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		r.sessionID = sessionID
 		r.mu.Unlock()
 	}
+	normalized.SessionID = sessionID
+	normalized.ProjectID = draftProjectID
+	normalized.Scope = draftScope
+	prompt := strings.TrimSpace(normalized.Prompt)
+	if prompt == "" && len(normalized.Attachments) > 0 {
+		prompt = "[attachments]"
+		normalized.Prompt = prompt
+	}
 	if err := r.ensureSessionTitle(ctx, wsID, sessionID, prompt); err != nil {
 		slog.Warn("Failed to update desktop session title", "workspace_id", wsID, "session_id", sessionID, "error", err)
 	}
@@ -107,6 +128,7 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 
 	requestID := newRequestID()
 	start := time.Now()
+	normalized.CreatedAt = firstNonZeroInt64(normalized.CreatedAt, start.UnixMilli())
 	usageBefore, err := r.sessionUsage(ctx, wsID, sessionID)
 	if err != nil {
 		return RuntimeChatResponse{}, err
@@ -140,6 +162,13 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 	}
 	if _, err := r.turns.Upsert(ctx, startedTurn); err != nil {
 		return RuntimeChatResponse{}, err
+	}
+	if r.userInputs.db != nil {
+		stored, err := r.userInputs.Upsert(ctx, normalized, items, requestID)
+		if err != nil {
+			return RuntimeChatResponse{}, err
+		}
+		normalized = stored
 	}
 	if run.ID != "" {
 		if _, err := r.runs.LinkTurn(ctx, run.ID, sessionID, requestID, start.UnixMilli()); err != nil {
@@ -199,6 +228,8 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 			"model":          status.Model,
 			"prompt_length":  len(prompt),
 			"prompt_preview": preview(prompt, 160),
+			"input_id":       normalized.ID,
+			"input_mode":     normalized.Mode,
 			"usage_before":   usageBefore,
 		},
 	})
@@ -218,9 +249,10 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 	go r.runChat(runCtx, requestID, wsID, sessionID, prompt, start, usageBefore, status.Provider, status.Model)
 
 	return RuntimeChatResponse{
-		RequestID: requestID,
-		TurnID:    requestID,
-		Status:    status,
+		RequestID:       requestID,
+		TurnID:          requestID,
+		Status:          status,
+		NormalizedInput: &normalized,
 	}, nil
 }
 

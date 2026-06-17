@@ -66,6 +66,33 @@ export interface ComposerViewModel {
   activeTurnId?: string;
 }
 
+export interface RuntimeUserInputRequestViewModel {
+  sessionId?: string;
+  projectId?: string;
+  scope?: 'project' | 'standalone';
+  mode: 'prompt' | 'slash' | 'shell' | 'voice' | 'meta' | string;
+  items: RuntimeUserInputItemViewModel[];
+  options?: RuntimeUserInputOptionsViewModel;
+}
+
+export interface RuntimeUserInputItemViewModel {
+  type: 'text' | 'image' | 'audio_transcript' | 'file_ref' | 'ide_selection' | 'pasted_text' | string;
+  text?: string;
+  data?: string;
+  mimeType?: string;
+  fileName?: string;
+  sourcePath?: string;
+  metadata?: Record<string, string>;
+}
+
+export interface RuntimeUserInputOptionsViewModel {
+  isMeta?: boolean;
+  skipSlashCommands?: boolean;
+  bridgeOrigin?: boolean;
+  voiceSource?: string;
+  clientRequestId?: string;
+}
+
 export interface RuntimeModelOptionViewModel {
   id: string;
   name: string;
@@ -697,6 +724,7 @@ export interface WorkbenchAdapter {
   selectPermissionMode: (current: WorkbenchViewModel, mode: string) => Promise<WorkbenchViewModel>;
   decidePermission: (current: WorkbenchViewModel, permissionID: string, action: 'allow' | 'allow_session' | 'deny') => Promise<WorkbenchViewModel>;
   sendPrompt: (current: WorkbenchViewModel, prompt: string) => Promise<WorkbenchViewModel>;
+  submitUserInput?: (current: WorkbenchViewModel, input: RuntimeUserInputRequestViewModel) => Promise<WorkbenchViewModel>;
   cancelTurn: (current: WorkbenchViewModel, turnID?: string) => Promise<WorkbenchViewModel>;
   markInterruptedDone: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;
   resumeRunCheckpoint: (current: WorkbenchViewModel, runID: string, checkpointID: string) => Promise<WorkbenchViewModel>;
