@@ -324,7 +324,13 @@ func (r *runtimeService) Turn(ctx context.Context, turnID string) (RuntimeTurnRe
 		}
 		r.mu.Unlock()
 	}
-	turn.Diagnostics = buildRuntimeTurnDiagnostics(turn, messages, toolCalls, permissions, events)
+	var hooks []RuntimeHookExecution
+	if r.hookExecutions.db != nil {
+		if listed, err := r.hookExecutions.List(ctx, RuntimeHookExecutionsRequest{TurnID: turn.ID}); err == nil {
+			hooks = listed
+		}
+	}
+	turn.Diagnostics = buildRuntimeTurnDiagnostics(turn, messages, toolCalls, permissions, events, hooks)
 	turn.Interrupted = buildRuntimeInterruptedSummary(turn, turn.Diagnostics, toolCalls)
 	return RuntimeTurnResponse{Turn: turn}, nil
 }

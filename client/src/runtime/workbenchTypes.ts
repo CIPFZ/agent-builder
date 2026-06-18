@@ -162,6 +162,16 @@ export interface TurnDiagnosticsViewModel {
   cancelledToolCount?: number;
   nonzeroExitShellCount?: number;
   permissionCounts?: PermissionCountsViewModel;
+  stopReason?: string;
+  stopReasonMessage?: string;
+  hasFinalAssistant?: boolean;
+  finalAssistantMessageId?: string;
+  finalAssistantEmpty?: boolean;
+  lastAssistantFinishReason?: string;
+  missingFinalAssistant?: boolean;
+  toolResultDeliveries?: ToolResultDeliveryViewModel[];
+  deliveredToolResultCount?: number;
+  undeliveredToolResultCount?: number;
   lastToolId?: string;
   lastToolStatus?: string;
   lastToolTitle?: string;

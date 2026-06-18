@@ -427,6 +427,16 @@ interface RuntimeTurnDiagnosticsDTO {
     expired?: number;
     cancelled?: number;
   };
+  stopReason?: string;
+  stopReasonMessage?: string;
+  hasFinalAssistant?: boolean;
+  finalAssistantMessageId?: string;
+  finalAssistantEmpty?: boolean;
+  lastAssistantFinishReason?: string;
+  missingFinalAssistant?: boolean;
+  toolResultDeliveries?: RuntimeToolResultDeliveryDTO[];
+  deliveredToolResultCount?: number;
+  undeliveredToolResultCount?: number;
   lastToolId?: string;
   lastToolStatus?: string;
   lastToolTitle?: string;
@@ -558,9 +568,9 @@ interface RuntimeReactCallchainDTO {
 }
 
 interface RuntimeToolResultDeliveryDTO {
-  toolCallId?: string;
+  toolCallId: string;
   toolResultMessageId?: string;
-  deliveredToModel?: boolean;
+  deliveredToModel: boolean;
   deliveredAtStep?: number;
   synthetic?: boolean;
   reason?: string;

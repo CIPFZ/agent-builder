@@ -581,9 +581,21 @@ func (r *runtimeService) hydrateActivityForSelection(ctx context.Context, sessio
 	for _, perm := range permissions {
 		permissionsByTurn[perm.TurnID] = append(permissionsByTurn[perm.TurnID], perm)
 	}
+	hooksByTurn := map[string][]RuntimeHookExecution{}
+	if r.hookExecutions.db != nil {
+		sessionHooks, err := r.hookExecutions.List(ctx, RuntimeHookExecutionsRequest{SessionID: sessionID})
+		if err != nil {
+			return RuntimeSessionActivityWindowResponse{}, err
+		}
+		for _, hook := range sessionHooks {
+			if _, ok := selection.turnIDs[hook.TurnID]; ok {
+				hooksByTurn[hook.TurnID] = append(hooksByTurn[hook.TurnID], hook)
+			}
+		}
+	}
 	eventsByTurn, events := r.activityEventsByTurn(ctx, sessionID, selection)
 	for i := range turns {
-		turns[i].Diagnostics = buildRuntimeTurnDiagnostics(turns[i], messages.Messages, toolCallsByTurn[turns[i].ID], permissionsByTurn[turns[i].ID], eventsByTurn[turns[i].ID])
+		turns[i].Diagnostics = buildRuntimeTurnDiagnostics(turns[i], messages.Messages, toolCallsByTurn[turns[i].ID], permissionsByTurn[turns[i].ID], eventsByTurn[turns[i].ID], hooksByTurn[turns[i].ID])
 		turns[i].Interrupted = buildRuntimeInterruptedSummary(turns[i], turns[i].Diagnostics, toolCallsByTurn[turns[i].ID])
 	}
 

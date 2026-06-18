@@ -16,7 +16,7 @@ import (
 var explicitArtifactPathPattern = regexp.MustCompile(`(?i)(?:[A-Z]:[\\/]|/[A-Za-z0-9._ -]+[\\/])(?:[^\s"'<>|:*?]+[\\/])*[^\s"'<>|:*?]+\.(?:md|txt|json|yaml|yml|csv|tsv|html|css|js|jsx|ts|tsx|go|py|rs|java|kt|c|cc|cpp|h|hpp|cs|xml|toml|ini|sql|sh|ps1|bat|cmd|docx|xlsx|pptx|pdf)`)
 var shellRedirectArtifactPattern = regexp.MustCompile(`(?i)(?:^|[\s;&|])(?:>|>>|1>|1>>)\s*("[A-Z]:[\\/][^"<>\r\n|?*]+\.[A-Za-z0-9]{1,12}"|'[A-Z]:[\\/][^'<>\r\n|?*]+\.[A-Za-z0-9]{1,12}'|[A-Z]:[\\/][^\s"<>\r\n|?*]+\.[A-Za-z0-9]{1,12})`)
 
-func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, toolCalls []RuntimeToolCall, permissions []RuntimePermissionRequest, events []RuntimeEvent) RuntimeTurnDiagnostics {
+func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, toolCalls []RuntimeToolCall, permissions []RuntimePermissionRequest, events []RuntimeEvent, hooks ...[]RuntimeHookExecution) RuntimeTurnDiagnostics {
 	now := time.Now().UTC().UnixMilli()
 	diag := RuntimeTurnDiagnostics{
 		TurnID:             turn.ID,
@@ -105,6 +105,11 @@ func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, to
 
 	diag.PermissionCounts = permissionCountsForTurn(turn, permissions)
 	diag.LastRuntimeEventAt, diag.LastRuntimeEventSequence = lastRuntimeEventForTurn(events)
+	var hookExecutions []RuntimeHookExecution
+	if len(hooks) > 0 {
+		hookExecutions = hooks[0]
+	}
+	applyTurnLoopDiagnostics(&diag, turn, messages, toolCalls, permissions, hookExecutions)
 
 	diag.ExpectedArtifacts = sortedMapKeys(expectedSet)
 	diag.ProducedArtifacts = sortedMapKeys(producedSet)
@@ -140,6 +145,50 @@ func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, to
 		diag.ArtifactConfidenceSummary.UnknownNotDetected = len(diag.ExpectedArtifacts)
 	}
 	return diag
+}
+
+func applyTurnLoopDiagnostics(diag *RuntimeTurnDiagnostics, turn RuntimeTurn, messages []RuntimeMessage, toolCalls []RuntimeToolCall, permissions []RuntimePermissionRequest, hooks []RuntimeHookExecution) {
+	turnMessages := runtimeReactMessagesForTurns(messages, []RuntimeTurn{turn}, turn.ID)
+	deliveries := runtimeReactSortedDeliveries(runtimeReactToolResultDeliveries(turnMessages, toolCalls))
+	diag.ToolResultDeliveries = deliveries
+	for _, delivery := range deliveries {
+		if delivery.DeliveredToModel {
+			diag.DeliveredToolResultCount++
+		} else {
+			diag.UndeliveredToolResultCount++
+		}
+	}
+
+	summary := RuntimeReactCallSummary{
+		ToolCallCount:              len(toolCalls),
+		PermissionCount:            len(permissions),
+		ToolResultDeliveries:       deliveries,
+		DeliveredToolResultCount:   diag.DeliveredToolResultCount,
+		UndeliveredToolResultCount: diag.UndeliveredToolResultCount,
+	}
+	for _, msg := range turnMessages {
+		if msg.Role != "assistant" {
+			continue
+		}
+		if msg.FinishReason != "" {
+			summary.LastAssistantFinishReason = msg.FinishReason
+		}
+		if len(runtimeReactToolCallParts(msg)) > 0 {
+			continue
+		}
+		summary.HasFinalAssistant = true
+		summary.FinalAssistantMessageID = msg.ID
+		summary.FinalAssistantEmpty = runtimeReactAssistantEmpty(msg)
+	}
+	if isFinalRuntimeTurnStatus(turn.Status) && !summary.HasFinalAssistant {
+		diag.MissingFinalAssistant = true
+	}
+	diag.HasFinalAssistant = summary.HasFinalAssistant
+	diag.FinalAssistantMessageID = summary.FinalAssistantMessageID
+	diag.FinalAssistantEmpty = summary.FinalAssistantEmpty
+	diag.LastAssistantFinishReason = summary.LastAssistantFinishReason
+	diag.StopReason = runtimeReactStopReason([]RuntimeTurn{turn}, permissions, hooks, summary)
+	diag.StopReasonMessage = runtimeReactStopReasonMessage(diag.StopReason, summary)
 }
 
 func buildRuntimeInterruptedSummary(turn RuntimeTurn, diag RuntimeTurnDiagnostics, toolCalls []RuntimeToolCall) *RuntimeInterruptedSummary {

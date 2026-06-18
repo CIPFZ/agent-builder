@@ -304,6 +304,94 @@ func TestRuntimeTurnDiagnosticsNonzeroShellCompletedSignal(t *testing.T) {
 	}
 }
 
+func TestRuntimeTurnDiagnosticsIncludesStopReasonAndToolResultDelivery(t *testing.T) {
+	t.Parallel()
+
+	turn := RuntimeTurn{
+		ID:                       "turn-1",
+		SessionID:                "session-1",
+		Status:                   turnStatusCompleted,
+		UserMessageID:            "msg-user",
+		LatestAssistantMessageID: "msg-empty-final",
+		StartedAt:                1000,
+		FinishedAt:               2200,
+	}
+	messages := []RuntimeMessage{
+		{ID: "msg-user", SessionID: "session-1", Role: "user", Content: "inspect", CreatedAt: 1000},
+		{ID: "msg-step", SessionID: "session-1", Role: "assistant", CreatedAt: 1100, Finished: true, FinishReason: "tool_use", Parts: []RuntimeMessagePart{{Type: "tool_call", ToolCallID: "tool-1", Name: "bash", Input: "pwd"}}},
+		{ID: "msg-tool", SessionID: "session-1", Role: "tool", CreatedAt: 1200, Parts: []RuntimeMessagePart{{Type: "tool_result", ToolCallID: "tool-1", Name: "bash", Content: "C:/work", DeliveredToModel: true, DeliveredAtStep: 2, DeliveryReason: "included_in_model_input"}}},
+		{ID: "msg-empty-final", SessionID: "session-1", Role: "assistant", CreatedAt: 1300, UpdatedAt: 1300, Finished: true, FinishReason: "end_turn", Parts: []RuntimeMessagePart{{Type: "finish", Reason: "end_turn"}}},
+	}
+	toolCalls := []RuntimeToolCall{{
+		ID:        "tool-1",
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+		MessageID: "msg-step",
+		Name:      "bash",
+		Status:    string(scheduler.ToolCallCompleted),
+		StartedAt: 1150,
+	}}
+
+	diag := buildRuntimeTurnDiagnostics(turn, messages, toolCalls, nil, nil)
+	if diag.StopReason != "model_stop" || diag.StopReasonMessage != "Tool result delivered; final response is empty." {
+		t.Fatalf("stop reason = %q message=%q", diag.StopReason, diag.StopReasonMessage)
+	}
+	if !diag.HasFinalAssistant || !diag.FinalAssistantEmpty || diag.FinalAssistantMessageID != "msg-empty-final" || diag.LastAssistantFinishReason != "end_turn" {
+		t.Fatalf("final assistant diagnostics = %#v", diag)
+	}
+	if diag.DeliveredToolResultCount != 1 || diag.UndeliveredToolResultCount != 0 || len(diag.ToolResultDeliveries) != 1 {
+		t.Fatalf("delivery diagnostics = %#v", diag.ToolResultDeliveries)
+	}
+	delivery := diag.ToolResultDeliveries[0]
+	if delivery.ToolCallID != "tool-1" || delivery.ToolResultMessageID != "msg-tool" || !delivery.DeliveredToModel || delivery.DeliveredAtStep != 2 || delivery.Reason != "included_in_model_input" {
+		t.Fatalf("delivery = %#v", delivery)
+	}
+}
+
+func TestRuntimeTurnDiagnosticsPermissionDeniedStopReason(t *testing.T) {
+	t.Parallel()
+
+	turn := RuntimeTurn{ID: "turn-1", SessionID: "session-1", Status: turnStatusFailed, StartedAt: 1000, FinishedAt: 2000, Error: "permission denied"}
+	permissions := []RuntimePermissionRequest{{
+		ID:         "perm-1",
+		SessionID:  "session-1",
+		TurnID:     "turn-1",
+		ToolCallID: "tool-1",
+		Status:     permissionStatusDenied,
+		Decision:   "deny",
+	}}
+
+	diag := buildRuntimeTurnDiagnostics(turn, nil, nil, permissions, nil)
+	if diag.StopReason != "permission_denied" || diag.StopReasonMessage != "Stopped after permission denial." {
+		t.Fatalf("stop reason = %q message=%q", diag.StopReason, diag.StopReasonMessage)
+	}
+	if !diag.MissingFinalAssistant {
+		t.Fatalf("missing final assistant not recorded: %#v", diag)
+	}
+}
+
+func TestRuntimeTurnDiagnosticsHookHaltStopReason(t *testing.T) {
+	t.Parallel()
+
+	turn := RuntimeTurn{ID: "turn-1", SessionID: "session-1", Status: turnStatusFailed, StartedAt: 1000, FinishedAt: 2000, Error: "hook halted"}
+	hooks := []RuntimeHookExecution{{
+		ID:          "hook-1",
+		SessionID:   "session-1",
+		TurnID:      "turn-1",
+		ToolCallID:  "tool-1",
+		Event:       "PreToolUse",
+		Status:      hookStatusBlocked,
+		Reason:      "Turn halted by hook. Reason: blocked",
+		StartedAt:   1100,
+		CompletedAt: 1200,
+	}}
+
+	diag := buildRuntimeTurnDiagnostics(turn, nil, nil, nil, nil, hooks)
+	if diag.StopReason != "hook_halted" || diag.StopReasonMessage != "Stopped by hook." {
+		t.Fatalf("stop reason = %q message=%q", diag.StopReason, diag.StopReasonMessage)
+	}
+}
+
 func TestRuntimeInterruptedSummaryPreservesRecoverySignals(t *testing.T) {
 	t.Parallel()
 
@@ -611,6 +699,7 @@ func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.permissionStore = newRuntimePermissionStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
+	service.hookExecutions = newRuntimeHookExecutionStore(conn)
 
 	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "diagnostics")
 	if err != nil {
@@ -650,6 +739,19 @@ func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := service.hookExecutions.Upsert(context.Background(), RuntimeHookExecution{
+		ID:          "hook-diagnostics",
+		SessionID:   sess.ID,
+		TurnID:      "turn-diagnostics",
+		ToolCallID:  "tool-diagnostics",
+		Event:       "PreToolUse",
+		Status:      hookStatusBlocked,
+		Reason:      "Turn halted by hook. Reason: diagnostics",
+		StartedAt:   time.Now().Add(-500 * time.Millisecond).UnixMilli(),
+		CompletedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	service.storeRuntimeEvent(RuntimeEvent{
 		Type:      "tool.call.failed",
 		SessionID: sess.ID,
@@ -675,6 +777,9 @@ func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 	if diag.PermissionCounts.Denied != 1 {
 		t.Fatalf("permission counts were not restored from activity: %#v", diag.PermissionCounts)
 	}
+	if diag.StopReason != "permission_denied" || diag.StopReasonMessage != "Stopped after permission denial." || !diag.MissingFinalAssistant {
+		t.Fatalf("loop diagnostics were not restored from activity: %#v", diag)
+	}
 	if diag.LastRuntimeEventSequence == 0 || diag.LastRuntimeEventAt == 0 {
 		t.Fatalf("event diagnostics were not restored from activity: %#v", diag)
 	}
@@ -685,6 +790,9 @@ func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 	turnActivity, err := service.TurnActivity(context.Background(), "turn-diagnostics")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(turnActivity.Turns) != 1 || turnActivity.Turns[0].Diagnostics.StopReason != "permission_denied" {
+		t.Fatalf("turn activity diagnostics missing stop reason: %#v", turnActivity.Turns)
 	}
 	assertNarrowActivityMatchesFullTurn(t, activity, RuntimeSessionActivityWindowResponse{
 		SessionID:   turnActivity.SessionID,
@@ -703,6 +811,113 @@ func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 	assertNarrowActivityMatchesFullTurn(t, activity, window, "turn-diagnostics")
 }
 
+func TestRuntimeSessionActivityExposesHookHaltStopReason(t *testing.T) {
+	t.Parallel()
+
+	runtimeBackend, workspace := backendForSkillTest(t)
+	conn, err := db.Connect(context.Background(), workspace.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(workspace.DataDir)
+	})
+	service := newRuntimeService()
+	service.runtime = runtimeBackend
+	service.workspace = &workspace
+	service.turns = newRuntimeTurnStore(conn)
+	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
+	service.permissionStore = newRuntimePermissionStore(conn)
+	service.eventStore = newRuntimeEventStore(conn)
+	service.hookExecutions = newRuntimeHookExecutionStore(conn)
+
+	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "hook halt diagnostics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	userMessage, err := ws.Messages.Create(context.Background(), sess.ID, message.CreateMessageParams{
+		Role:  message.User,
+		Parts: []message.ContentPart{message.TextContent{Text: "run blocked hook"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
+		ID:            "turn-hook-halt",
+		SessionID:     sess.ID,
+		Status:        turnStatusFailed,
+		UserMessageID: userMessage.ID,
+		Error:         "hook halted",
+		StartedAt:     now.Add(-time.Second).UnixMilli(),
+		FinishedAt:    now.UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
+		ID:        "tool-hook-halt",
+		SessionID: sess.ID,
+		TurnID:    "turn-hook-halt",
+		Name:      "bash",
+		Source:    scheduler.ToolSourceShell,
+		Command:   "echo blocked",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
+		ToolCallID: "tool-hook-halt",
+		Status:     scheduler.ToolCallFailed,
+		Error:      "hook halted",
+		IsError:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.hookExecutions.Upsert(context.Background(), RuntimeHookExecution{
+		ID:          "hook-halt",
+		SessionID:   sess.ID,
+		TurnID:      "turn-hook-halt",
+		ToolCallID:  "tool-hook-halt",
+		Event:       "PreToolUse",
+		Status:      hookStatusBlocked,
+		Reason:      "Turn halted by hook. Reason: blocked",
+		StartedAt:   now.Add(-900 * time.Millisecond).UnixMilli(),
+		CompletedAt: now.Add(-800 * time.Millisecond).UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	activity, err := service.SessionActivity(context.Background(), sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(activity.Turns) != 1 {
+		t.Fatalf("turns = %#v", activity.Turns)
+	}
+	if activity.Turns[0].Diagnostics.StopReason != "hook_halted" || activity.Turns[0].Diagnostics.StopReasonMessage != "Stopped by hook." {
+		t.Fatalf("session activity hook diagnostics = %#v", activity.Turns[0].Diagnostics)
+	}
+
+	turnActivity, err := service.TurnActivity(context.Background(), "turn-hook-halt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turnActivity.Turns) != 1 || turnActivity.Turns[0].Diagnostics.StopReason != "hook_halted" {
+		t.Fatalf("turn activity hook diagnostics = %#v", turnActivity.Turns)
+	}
+
+	window, err := service.SessionActivityWindow(context.Background(), sess.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(window.Turns) != 1 || window.Turns[0].Diagnostics.StopReason != "hook_halted" {
+		t.Fatalf("activity window hook diagnostics = %#v", window.Turns)
+	}
+}
+
 func assertNarrowActivityMatchesFullTurn(t *testing.T, full RuntimeSessionActivityResponse, narrow RuntimeSessionActivityWindowResponse, turnID string) {
 	t.Helper()
 	fullTurn := findRuntimeTurn(full.Turns, turnID)
@@ -713,6 +928,9 @@ func assertNarrowActivityMatchesFullTurn(t *testing.T, full RuntimeSessionActivi
 	if narrowTurn.Diagnostics.Warning != fullTurn.Diagnostics.Warning ||
 		!slices.Equal(narrowTurn.Diagnostics.MissingArtifacts, fullTurn.Diagnostics.MissingArtifacts) ||
 		narrowTurn.Diagnostics.PermissionCounts != fullTurn.Diagnostics.PermissionCounts ||
+		narrowTurn.Diagnostics.StopReason != fullTurn.Diagnostics.StopReason ||
+		narrowTurn.Diagnostics.StopReasonMessage != fullTurn.Diagnostics.StopReasonMessage ||
+		narrowTurn.Diagnostics.MissingFinalAssistant != fullTurn.Diagnostics.MissingFinalAssistant ||
 		narrowTurn.Diagnostics.LastRuntimeEventSequence != fullTurn.Diagnostics.LastRuntimeEventSequence {
 		t.Fatalf("diagnostics mismatch full=%#v narrow=%#v", fullTurn.Diagnostics, narrowTurn.Diagnostics)
 	}
@@ -830,6 +1048,7 @@ func assertActivitySubsetMatchesFullTurn(t *testing.T, full RuntimeSessionActivi
 		!slices.Equal(narrowTurn.Diagnostics.ProducedArtifacts, fullTurn.Diagnostics.ProducedArtifacts) ||
 		narrowTurn.Diagnostics.ArtifactCounts != fullTurn.Diagnostics.ArtifactCounts ||
 		narrowTurn.Diagnostics.PermissionCounts != fullTurn.Diagnostics.PermissionCounts ||
+		narrowTurn.Diagnostics.StopReason != fullTurn.Diagnostics.StopReason ||
 		narrowTurn.Diagnostics.LastRuntimeEventSequence != fullTurn.Diagnostics.LastRuntimeEventSequence {
 		t.Fatalf("diagnostics mismatch full=%#v narrow=%#v", fullTurn.Diagnostics, narrowTurn.Diagnostics)
 	}

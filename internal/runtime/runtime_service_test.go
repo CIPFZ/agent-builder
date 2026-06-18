@@ -692,6 +692,49 @@ func TestConfiguredProviderModelsExposeSavedModelList(t *testing.T) {
 	}
 }
 
+func TestConfiguredProviderAnthropicTestUsesProviderRuntimePath(t *testing.T) {
+	t.Parallel()
+
+	seen := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/messages" {
+			t.Errorf("path = %q, want /v1/messages", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("x-api-key") != "test-key" {
+			t.Errorf("x-api-key header = %q", r.Header.Get("x-api-key"))
+		}
+		if r.Header.Get("anthropic-version") == "" {
+			t.Error("anthropic-version header missing")
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode payload: %v", err)
+		}
+		if payload["model"] != "model-a" {
+			t.Errorf("model = %#v, want model-a", payload["model"])
+		}
+		seen <- struct{}{}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	err := testProviderConnection(context.Background(), RuntimeConfiguredProvider{
+		ID:          "anthropic-main",
+		Protocol:    "anthropic",
+		APIEndpoint: server.URL,
+	}, "test-key", "model-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-seen:
+	case <-time.After(time.Second):
+		t.Fatal("provider test request was not observed")
+	}
+}
+
 func TestSaveConfiguredProviderRejectsDuplicateName(t *testing.T) {
 	root := runtimeDevTestRoot(t, "provider-duplicate-name")
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
