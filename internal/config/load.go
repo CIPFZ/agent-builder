@@ -987,6 +987,16 @@ func normalizeHookEvent(name string) string {
 		return "PostToolUse"
 	case "posttoolusefailure":
 		return "PostToolUseFailure"
+	case "userpromptsubmit":
+		return "UserPromptSubmit"
+	case "precompact":
+		return "PreCompact"
+	case "postcompact":
+		return "PostCompact"
+	case "postsampling":
+		return "PostSampling"
+	case "stop":
+		return "Stop"
 	default:
 		return name
 	}
@@ -1009,7 +1019,7 @@ func (c *Config) ValidateHooks() error {
 
 	for event, eventHooks := range c.Hooks {
 		switch event {
-		case "PreToolUse", "PostToolUse", "PostToolUseFailure":
+		case "PreToolUse", "PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "PreCompact", "PostCompact", "PostSampling", "Stop":
 		default:
 			return fmt.Errorf("hook %s: unknown event", event)
 		}

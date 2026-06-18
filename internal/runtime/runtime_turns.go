@@ -57,10 +57,8 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 }
 
 func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized RuntimeNormalizedInput, items []RuntimeUserInputItem) (RuntimeChatResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
-		if errors.Is(err, errSelectedModelMissing) {
-			return RuntimeChatResponse{}, errSelectedModelMissing
-		}
+	var err error
+	if err = r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeChatResponse{}, err
 	}
 
@@ -115,6 +113,43 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	}
 	if err := r.ensureSessionTitle(ctx, wsID, sessionID, prompt); err != nil {
 		slog.Warn("Failed to update desktop session title", "workspace_id", wsID, "session_id", sessionID, "error", err)
+	}
+	var prevented bool
+	normalized, prevented, err = r.applyUserPromptSubmitHooks(ctx, normalized, items)
+	if err != nil {
+		return RuntimeChatResponse{}, err
+	}
+	prompt = strings.TrimSpace(normalized.Prompt)
+	if prevented {
+		if r.userInputs.db != nil {
+			stored, err := r.userInputs.Upsert(ctx, normalized, items, "")
+			if err != nil {
+				return RuntimeChatResponse{}, err
+			}
+			normalized = stored
+		}
+		status, err := r.Status(ctx)
+		if err != nil {
+			return RuntimeChatResponse{}, err
+		}
+		return RuntimeChatResponse{
+			RequestID:       normalized.ID,
+			Status:          status,
+			NormalizedInput: &normalized,
+		}, nil
+	}
+	if r.userInputs.db != nil {
+		stored, err := r.userInputs.Upsert(ctx, normalized, items, "")
+		if err != nil {
+			return RuntimeChatResponse{}, err
+		}
+		normalized = stored
+	}
+	if err := r.ensureStarted(ctx); err != nil {
+		if errors.Is(err, errSelectedModelMissing) {
+			return RuntimeChatResponse{}, errSelectedModelMissing
+		}
+		return RuntimeChatResponse{}, err
 	}
 	var run RuntimeRun
 	if r.runs.db != nil {

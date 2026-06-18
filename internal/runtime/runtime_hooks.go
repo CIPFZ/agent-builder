@@ -35,6 +35,11 @@ var supportedRuntimeHookEvents = map[string]struct{}{
 	hooks.EventPreToolUse:         {},
 	hooks.EventPostToolUse:        {},
 	hooks.EventPostToolUseFailure: {},
+	hooks.EventUserPromptSubmit:   {},
+	hooks.EventPreCompact:         {},
+	hooks.EventPostCompact:        {},
+	hooks.EventPostSampling:       {},
+	hooks.EventStop:               {},
 }
 
 type runtimeHookExecutionStore struct {
@@ -326,7 +331,7 @@ func (r *runtimeService) Hooks(ctx context.Context) (RuntimeHooksResponse, error
 }
 
 func (r *runtimeService) HookExecutions(ctx context.Context, req RuntimeHookExecutionsRequest) (RuntimeHookExecutionsResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeHookExecutionsResponse{}, err
 	}
 	items, err := r.hookExecutions.List(ctx, req)
@@ -337,7 +342,7 @@ func (r *runtimeService) HookExecutions(ctx context.Context, req RuntimeHookExec
 }
 
 func (r *runtimeService) HookExecution(ctx context.Context, id string) (RuntimeHookExecutionResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeHookExecutionResponse{}, err
 	}
 	item, err := r.hookExecutions.Get(ctx, id)

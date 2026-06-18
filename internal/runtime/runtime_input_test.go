@@ -4,6 +4,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/hooks"
 )
 
 func TestRuntimeNormalizePromptInput(t *testing.T) {
@@ -151,6 +154,81 @@ func TestRuntimeSubmitPromptStillRequiresConfiguredModel(t *testing.T) {
 	})
 	if err == nil || err != errSelectedModelMissing {
 		t.Fatalf("err = %v, want errSelectedModelMissing", err)
+	}
+}
+
+func TestRuntimeUserPromptSubmitHookBlocksBeforeTurnExecution(t *testing.T) {
+	root := runtimeDevTestRoot(t, "phase05-prompt-hook-block")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	service := newRuntimeService()
+	if err := service.ensureWorkspaceStarted(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := service.runtime.GetWorkspace(service.workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.Cfg.Config().Hooks = map[string][]config.HookConfig{
+		hooks.EventUserPromptSubmit: {{Command: "echo blocked by prompt hook >&2; exit 2"}},
+	}
+	response, err := service.SubmitUserInput(context.Background(), RuntimeUserInputRequest{
+		Mode: runtimeInputModePrompt,
+		Items: []RuntimeUserInputItem{{
+			Type: runtimeInputItemText,
+			Text: "must not reach model",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.TurnID != "" {
+		t.Fatalf("blocked prompt hook created turn %q", response.TurnID)
+	}
+	if response.NormalizedInput == nil || response.NormalizedInput.HookOutcome == nil {
+		t.Fatalf("missing normalized hook outcome: %#v", response.NormalizedInput)
+	}
+	if !response.NormalizedInput.HookOutcome.PreventContinuation || !strings.Contains(response.NormalizedInput.HookOutcome.Reason, "blocked by prompt hook") {
+		t.Fatalf("hook outcome = %#v", response.NormalizedInput.HookOutcome)
+	}
+	hookResp, err := service.HookExecutions(context.Background(), RuntimeHookExecutionsRequest{Event: "UserPromptSubmit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hookResp.Executions) != 1 || hookResp.Executions[0].Status != "blocked" || hookResp.Executions[0].TurnID != "" {
+		t.Fatalf("hook executions = %#v", hookResp.Executions)
+	}
+}
+
+func TestRuntimeUserPromptSubmitHookRewritesInputEvidence(t *testing.T) {
+	root := runtimeDevTestRoot(t, "phase05-prompt-hook-rewrite")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	service := newRuntimeService()
+	if err := service.ensureWorkspaceStarted(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := service.runtime.GetWorkspace(service.workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.Cfg.Config().Hooks = map[string][]config.HookConfig{
+		hooks.EventUserPromptSubmit: {{Command: `printf '%s' '{"updated_prompt":"rewritten prompt"}'`}},
+	}
+	_, err = service.SubmitUserInput(context.Background(), RuntimeUserInputRequest{
+		Mode: runtimeInputModePrompt,
+		Items: []RuntimeUserInputItem{{
+			Type: runtimeInputItemText,
+			Text: "original prompt",
+		}},
+	})
+	if err == nil || err != errSelectedModelMissing {
+		t.Fatalf("err = %v, want errSelectedModelMissing after hook rewrite", err)
+	}
+	hookResp, err := service.HookExecutions(context.Background(), RuntimeHookExecutionsRequest{Event: "UserPromptSubmit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hookResp.Executions) != 1 || !hookResp.Executions[0].InputRewritten || hookResp.Executions[0].Status != "completed" {
+		t.Fatalf("hook executions = %#v", hookResp.Executions)
 	}
 }
 

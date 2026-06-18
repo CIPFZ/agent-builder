@@ -15,6 +15,11 @@ const (
 	EventPreToolUse         = "PreToolUse"
 	EventPostToolUse        = "PostToolUse"
 	EventPostToolUseFailure = "PostToolUseFailure"
+	EventUserPromptSubmit   = "UserPromptSubmit"
+	EventPreCompact         = "PreCompact"
+	EventPostCompact        = "PostCompact"
+	EventPostSampling       = "PostSampling"
+	EventStop               = "Stop"
 )
 
 // HaltExitCode is the exit code that halts the whole turn. 2 blocks the
@@ -69,22 +74,26 @@ func (d Decision) String() string {
 
 // HookResult holds the parsed output of a single hook execution.
 type HookResult struct {
-	Decision     Decision
-	Halt         bool   // If true, halt the whole turn.
-	Reason       string // Deny or halt reason (same field, different audience).
-	Context      string
-	UpdatedInput string // Shallow-merge patch against tool_input (opaque JSON).
+	Decision            Decision
+	Halt                bool   // If true, halt the whole turn.
+	Reason              string // Deny or halt reason (same field, different audience).
+	Context             string
+	UpdatedInput        string // Shallow-merge patch against tool_input (opaque JSON).
+	UpdatedPrompt       string // Full prompt replacement for UserPromptSubmit.
+	PreventContinuation bool   // Prevents model query for UserPromptSubmit.
 }
 
 // AggregateResult holds the combined outcome of all hooks for an event.
 type AggregateResult struct {
-	Decision     Decision
-	Halt         bool       // Any hook requested halt.
-	HookCount    int        // Number of hooks that ran.
-	Hooks        []HookInfo // Info about each hook that ran (config order).
-	Reason       string     // Concatenated deny/halt reasons (newline-separated).
-	Context      string     // Concatenated context from all hooks.
-	UpdatedInput string     // Merged tool_input JSON (empty if no patches).
+	Decision            Decision
+	Halt                bool       // Any hook requested halt.
+	HookCount           int        // Number of hooks that ran.
+	Hooks               []HookInfo // Info about each hook that ran (config order).
+	Reason              string     // Concatenated deny/halt reasons (newline-separated).
+	Context             string     // Concatenated context from all hooks.
+	UpdatedInput        string     // Merged tool_input JSON (empty if no patches).
+	UpdatedPrompt       string     // Last prompt replacement in config order.
+	PreventContinuation bool       // Any hook prevented the model query.
 }
 
 // aggregate merges multiple HookResults into a single AggregateResult.
@@ -145,6 +154,14 @@ func aggregate(results []HookResult, origToolInput string) AggregateResult {
 		Decision:  decision,
 		Halt:      halt,
 		HookCount: len(results),
+	}
+	for _, r := range results {
+		if r.UpdatedPrompt != "" {
+			agg.UpdatedPrompt = r.UpdatedPrompt
+		}
+		if r.PreventContinuation {
+			agg.PreventContinuation = true
+		}
 	}
 	if anyPatch {
 		agg.UpdatedInput = merged

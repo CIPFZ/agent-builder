@@ -256,6 +256,13 @@ interface RuntimeNormalizedInputDTO {
     metadata?: Record<string, string>;
     sizeBytes?: number;
   }>;
+  hookOutcome?: {
+    status?: string;
+    preventContinuation?: boolean;
+    blocking?: boolean;
+    reason?: string;
+    metadata?: Record<string, string>;
+  };
 }
 
 interface RuntimeTerminalDTO {
@@ -1527,11 +1534,20 @@ function mapConversation(response?: RuntimeMessagesResponseDTO): ConversationMes
 
 function mapNormalizedInputConversation(response: RuntimeChatResponseDTO, fallbackPrompt: string): ConversationMessageViewModel[] {
   const normalized = response.normalizedInput;
-  if (!normalized || response.turnId || normalized.shouldQuery === true) {
+  const hookPrevented = normalized?.hookOutcome?.preventContinuation || normalized?.hookOutcome?.status === 'blocked';
+  if (!normalized || response.turnId || (normalized.shouldQuery === true && !hookPrevented)) {
     return [];
   }
   const messages = Array.isArray(normalized.messages) ? normalized.messages : [];
-  const visibleMessages = messages.filter((message) => !message.hidden && (message.role === 'user' || message.role === 'assistant' || message.role === 'system'));
+  const visibleMessages = messages.filter((message) => {
+    if (message.hidden) {
+      return false;
+    }
+    if (hookPrevented && message.role === 'user') {
+      return false;
+    }
+    return message.role === 'user' || message.role === 'assistant' || message.role === 'system';
+  });
   const conversation: ConversationMessageViewModel[] = visibleMessages.map((message, index) => ({
     id: `${normalized.id || response.requestId || 'input'}-${index}`,
     role: message.role === 'system' || message.role === 'assistant' ? 'assistant' as const : 'user' as const,
@@ -1546,6 +1562,21 @@ function mapNormalizedInputConversation(response: RuntimeChatResponseDTO, fallba
       content: normalized.command.resultText,
       createdAt: normalized.createdAt,
       status: 'success',
+    });
+  }
+  if (hookPrevented) {
+    const hookOutcome = normalized.hookOutcome;
+    const reason = hookOutcome?.reason?.trim();
+    const event = hookOutcome?.metadata?.event || 'UserPromptSubmit';
+    conversation.push({
+      id: `${normalized.id || response.requestId || 'input'}-hook-blocked`,
+      role: 'assistant',
+      content: reason
+        ? `Prompt blocked by ${event} hook: ${reason}`
+        : `Prompt blocked by ${event} hook.`,
+      createdAt: normalized.createdAt,
+      status: 'error',
+      error: reason || 'Prompt blocked by hook.',
     });
   }
   return conversation;

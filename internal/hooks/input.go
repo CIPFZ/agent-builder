@@ -24,10 +24,11 @@ type Payload struct {
 	Event      string          `json:"event"`
 	SessionID  string          `json:"session_id"`
 	CWD        string          `json:"cwd"`
-	ToolName   string          `json:"tool_name"`
-	ToolInput  json.RawMessage `json:"tool_input"`
+	ToolName   string          `json:"tool_name,omitempty"`
+	ToolInput  json.RawMessage `json:"tool_input,omitempty"`
 	ToolOutput json.RawMessage `json:"tool_output,omitempty"`
 	ToolError  string          `json:"tool_error,omitempty"`
+	Prompt     string          `json:"prompt,omitempty"`
 }
 
 // BuildPayload constructs the JSON stdin payload for a hook command.
@@ -42,6 +43,9 @@ func BuildPayload(eventName, sessionID, cwd, toolName, toolInputJSON string, too
 		CWD:       cwd,
 		ToolName:  toolName,
 		ToolInput: toolInput,
+	}
+	if eventName == EventUserPromptSubmit {
+		p.Prompt = gjson.Get(toolInputJSON, "prompt").String()
 	}
 	if len(toolOutputJSON) > 0 && strings.TrimSpace(toolOutputJSON[0]) != "" {
 		output := strings.TrimSpace(toolOutputJSON[0])
@@ -83,6 +87,9 @@ func BuildEnv(eventName, toolName, sessionID, cwd, projectDir, toolInputJSON str
 		if fp := gjson.Get(toolInputJSON, "file_path"); fp.Exists() {
 			env = append(env, fmt.Sprintf("CRUSH_TOOL_INPUT_FILE_PATH=%s", fp.String()))
 		}
+		if prompt := gjson.Get(toolInputJSON, "prompt"); prompt.Exists() {
+			env = append(env, fmt.Sprintf("CRUSH_PROMPT=%s", prompt.String()))
+		}
 	}
 
 	return env
@@ -107,12 +114,14 @@ func parseStdout(stdout string) HookResult {
 	}
 
 	var parsed struct {
-		Version      int             `json:"version"`
-		Decision     string          `json:"decision"`
-		Halt         bool            `json:"halt"`
-		Reason       string          `json:"reason"`
-		Context      json.RawMessage `json:"context"`
-		UpdatedInput json.RawMessage `json:"updated_input"`
+		Version             int             `json:"version"`
+		Decision            string          `json:"decision"`
+		Halt                bool            `json:"halt"`
+		Reason              string          `json:"reason"`
+		Context             json.RawMessage `json:"context"`
+		UpdatedInput        json.RawMessage `json:"updated_input"`
+		UpdatedPrompt       string          `json:"updated_prompt"`
+		PreventContinuation bool            `json:"prevent_continuation"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
 		return HookResult{Decision: DecisionNone}
@@ -132,6 +141,8 @@ func parseStdout(stdout string) HookResult {
 	}
 	result.Decision = parseDecision(parsed.Decision)
 	result.UpdatedInput = rawToString(parsed.UpdatedInput)
+	result.UpdatedPrompt = strings.TrimSpace(parsed.UpdatedPrompt)
+	result.PreventContinuation = parsed.PreventContinuation
 	return result
 }
 

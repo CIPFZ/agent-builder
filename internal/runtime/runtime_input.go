@@ -3,12 +3,16 @@ package runtime
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"mime"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/crush/internal/hooks"
+	"github.com/charmbracelet/crush/internal/runtimeapi"
 )
 
 const (
@@ -57,12 +61,6 @@ func (r *runtimeService) SubmitUserInput(ctx context.Context, req RuntimeUserInp
 			NormalizedInput: &normalized,
 		}, nil
 	}
-	if err := r.ensureStarted(ctx); err != nil {
-		if errors.Is(err, errSelectedModelMissing) {
-			return RuntimeChatResponse{}, errSelectedModelMissing
-		}
-		return RuntimeChatResponse{}, err
-	}
 	return r.submitNormalizedInput(ctx, normalized, items)
 }
 
@@ -82,6 +80,134 @@ func (r *runtimeService) UserInput(ctx context.Context, inputID string) (Runtime
 		return RuntimeNormalizedInput{}, fmt.Errorf("user input %s was not found: %w", inputID, err)
 	}
 	return input, nil
+}
+
+func (r *runtimeService) applyUserPromptSubmitHooks(ctx context.Context, normalized RuntimeNormalizedInput, items []RuntimeUserInputItem) (RuntimeNormalizedInput, bool, error) {
+	r.mu.Lock()
+	runtimeBackend := r.runtime
+	workspaceID := ""
+	if r.workspace != nil {
+		workspaceID = r.workspace.ID
+	}
+	r.mu.Unlock()
+	if runtimeBackend == nil || workspaceID == "" {
+		return normalized, false, errors.New("runtime workspace is not started")
+	}
+	ws, err := runtimeBackend.GetWorkspace(workspaceID)
+	if err != nil {
+		return normalized, false, err
+	}
+	cfg := ws.Cfg
+	if len(cfg.Config().Hooks[hooks.EventUserPromptSubmit]) == 0 {
+		return normalized, false, nil
+	}
+	runner := hooks.NewRunnerForEvents(cfg.Config().Hooks, cfg.WorkingDir(), cfg.WorkingDir())
+	payload := map[string]any{
+		"prompt":      normalized.Prompt,
+		"mode":        normalized.Mode,
+		"input_id":    normalized.ID,
+		"session_id":  normalized.SessionID,
+		"item_count":  len(items),
+		"attachments": len(normalized.Attachments),
+	}
+	inputJSON, _ := json.Marshal(payload)
+	eventName := hooks.EventUserPromptSubmit
+	base := RuntimeHookExecution{
+		ID:           "hook_" + newRequestID() + "_userpromptsubmit",
+		HookID:       "aggregate:" + eventName + ":" + normalized.Mode,
+		HookName:     normalized.Mode,
+		HookSource:   hookSourceConfig,
+		Event:        eventName,
+		Status:       hookStatusRunning,
+		SessionID:    normalized.SessionID,
+		InputSummary: preview(normalized.Prompt, runtimePartPreviewLimit),
+		StartedAt:    time.Now().UnixMilli(),
+		Redacted:     true,
+	}
+	if !runner.HasMatchingHooks(eventName, normalized.Mode) {
+		base.Status = hookStatusSkipped
+		base.Reason = "no matching hooks"
+		base.CompletedAt = time.Now().UnixMilli()
+		base.DurationMS = base.CompletedAt - base.StartedAt
+		_, _ = r.hookExecutions.Upsert(ctx, base)
+		r.recordHookExecutionEvent(runtimeapi.EventHookExecutionSkipped, base)
+		r.auditHookExecution(ctx, base, "hook_execution_skipped")
+		return normalized, false, nil
+	}
+	_, _ = r.hookExecutions.Upsert(ctx, base)
+	r.recordHookExecutionEvent(runtimeapi.EventHookExecutionStarted, base)
+	r.auditHookExecution(ctx, base, "hook_execution_started")
+	result, runErr := runner.Run(ctx, eventName, normalized.SessionID, normalized.Mode, string(inputJSON))
+	completed := base
+	completed.CompletedAt = time.Now().UnixMilli()
+	completed.DurationMS = completed.CompletedAt - completed.StartedAt
+	completed.ContextInjected = strings.TrimSpace(result.Context) != ""
+	completed.InputRewritten = strings.TrimSpace(result.UpdatedPrompt) != ""
+	completed.ContextSummary = preview(result.Context, runtimePartPreviewLimit)
+	completed.Reason = result.Reason
+	prevent := result.Decision == hooks.DecisionDeny || result.Halt || result.PreventContinuation
+	switch {
+	case runErr != nil:
+		completed.Status = hookStatusFailed
+		completed.Error = runErr.Error()
+	case prevent:
+		completed.Status = hookStatusBlocked
+	default:
+		completed.Status = hookStatusCompleted
+	}
+	if result.UpdatedPrompt != "" && !prevent {
+		normalized.Prompt = strings.TrimSpace(result.UpdatedPrompt)
+		for i := range normalized.Messages {
+			if normalized.Messages[i].Role == "user" {
+				normalized.Messages[i].Content = normalized.Prompt
+				break
+			}
+		}
+	}
+	if result.Context != "" {
+		if len(normalized.Messages) > 0 {
+			if normalized.Messages[0].Metadata == nil {
+				normalized.Messages[0].Metadata = map[string]string{}
+			}
+			normalized.Messages[0].Metadata["hookContext"] = preview(result.Context, runtimePartPreviewLimit)
+		}
+	}
+	outcomeStatus := "allow"
+	if prevent {
+		outcomeStatus = "blocked"
+	}
+	normalized.HookOutcome = &RuntimeInputHookOutcome{
+		Status:              outcomeStatus,
+		PreventContinuation: prevent,
+		Blocking:            result.Decision == hooks.DecisionDeny || result.Halt,
+		Reason:              preview(result.Reason, auditPreviewLimit),
+		Metadata: map[string]string{
+			"event":             eventName,
+			"hookExecutionId":   completed.ID,
+			"hookCount":         fmt.Sprintf("%d", result.HookCount),
+			"contextInjected":   fmt.Sprintf("%t", completed.ContextInjected),
+			"promptRewritten":   fmt.Sprintf("%t", completed.InputRewritten),
+			"preventedByPolicy": fmt.Sprintf("%t", prevent),
+		},
+	}
+	if runErr != nil {
+		normalized.HookOutcome.Status = "failed_open"
+		normalized.HookOutcome.Reason = preview(runErr.Error(), auditPreviewLimit)
+	}
+	if _, err := r.hookExecutions.Upsert(ctx, completed); err == nil {
+		eventType := runtimeapi.EventHookExecutionCompleted
+		auditType := "hook_execution_completed"
+		if completed.Status == hookStatusBlocked {
+			eventType = runtimeapi.EventHookExecutionBlocked
+			auditType = "hook_execution_blocked"
+		} else if completed.Status == hookStatusFailed {
+			eventType = runtimeapi.EventHookExecutionFailed
+			auditType = "hook_execution_failed"
+		}
+		r.recordHookExecutionEvent(eventType, completed)
+		r.auditHookExecution(ctx, completed, auditType)
+	}
+	return normalized, prevent, nil
 }
 
 func (r *runtimeService) normalizeRuntimeUserInput(ctx context.Context, req RuntimeUserInputRequest, sessionID string) (RuntimeNormalizedInput, []RuntimeUserInputItem, error) {

@@ -459,6 +459,7 @@ func TestValidateHooksNormalizesEventNames(t *testing.T) {
 		{"snake_case", "pre_tool_use"},
 		{"upper_snake", "PRE_TOOL_USE"},
 		{"mixed_case", "preToolUse"},
+		{"prompt_submit", "user_prompt_submit"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -471,9 +472,27 @@ func TestValidateHooksNormalizesEventNames(t *testing.T) {
 				},
 			}
 			require.NoError(t, cfg.ValidateHooks())
-			require.Len(t, cfg.Hooks[EventPreToolUse], 1)
+			if tt.input == "user_prompt_submit" {
+				require.Len(t, cfg.Hooks[EventUserPromptSubmit], 1)
+			} else {
+				require.Len(t, cfg.Hooks[EventPreToolUse], 1)
+			}
 		})
 	}
+}
+
+func TestUserPromptSubmitParsesPromptOutcome(t *testing.T) {
+	hookCfg := config.HookConfig{
+		Command: `echo '{"updated_prompt":"rewritten prompt","context":"extra context","prevent_continuation":true}'`,
+	}
+	r := NewRunnerForEvents(map[string][]config.HookConfig{
+		EventUserPromptSubmit: {hookCfg},
+	}, t.TempDir(), t.TempDir())
+	result, err := r.Run(context.Background(), EventUserPromptSubmit, "sess", "prompt", `{"prompt":"original prompt"}`)
+	require.NoError(t, err)
+	require.Equal(t, "rewritten prompt", result.UpdatedPrompt)
+	require.Equal(t, "extra context", result.Context)
+	require.True(t, result.PreventContinuation)
 }
 
 func TestRunnerParallelExecution(t *testing.T) {
