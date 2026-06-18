@@ -307,6 +307,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && sessionReactCallchainPathID(r.URL.Path) != "":
 		value, err := s.service.SessionReactCallchain(r.Context(), sessionReactCallchainPathID(r.URL.Path), runtimeQueryLimit(r))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionPromptAssembliesPathID(r.URL.Path) != "":
+		value, err := s.service.PromptAssembliesBySession(r.Context(), sessionPromptAssembliesPathID(r.URL.Path), runtimeQueryLimit(r))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionTerminalsPathID(r.URL.Path) != "":
 		value, err := s.service.SessionTerminals(r.Context(), sessionTerminalsPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -453,6 +456,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnCompactPathID(r.URL.Path) != "":
 		value, err := s.service.TurnCompactBoundaries(r.Context(), turnCompactPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && turnPromptAssembliesPathID(r.URL.Path) != "":
+		value, err := s.service.PromptAssembliesByTurn(r.Context(), turnPromptAssembliesPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/hooks":
 		value, err := s.service.Hooks(r.Context())
@@ -936,6 +942,9 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 	case method == http.MethodGet && sessionReactCallchainPathID(path) != "":
 		value, err := s.service.SessionReactCallchain(r.Context(), sessionReactCallchainPathID(path), runtimeDevModuleLimit(r, pathQuery))
 		return value, err, true
+	case method == http.MethodGet && sessionPromptAssembliesPathID(path) != "":
+		value, err := s.service.PromptAssembliesBySession(r.Context(), sessionPromptAssembliesPathID(path), runtimeDevModuleLimit(r, pathQuery))
+		return value, err, true
 	case method == http.MethodGet && sessionTerminalsPathID(path) != "":
 		value, err := s.service.SessionTerminals(r.Context(), sessionTerminalsPathID(path))
 		return value, err, true
@@ -1045,9 +1054,6 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 		ids := runTaskExecutePathIDs(path)
 		value, err := s.service.ExecuteRunTask(r.Context(), ids.runID, ids.taskID)
 		return value, err, true
-	case method == http.MethodGet && turnPathID(path) != "":
-		value, err := s.service.Turn(r.Context(), turnPathID(path))
-		return value, err, true
 	case method == http.MethodGet && turnActivityPathID(path) != "":
 		value, err := s.service.TurnActivity(r.Context(), turnActivityPathID(path))
 		return value, err, true
@@ -1056,6 +1062,15 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 		return value, err, true
 	case method == http.MethodGet && turnReactCallchainPathID(path) != "":
 		value, err := s.service.ReactCallchain(r.Context(), turnReactCallchainPathID(path))
+		return value, err, true
+	case method == http.MethodGet && turnCompactPathID(path) != "":
+		value, err := s.service.TurnCompactBoundaries(r.Context(), turnCompactPathID(path))
+		return value, err, true
+	case method == http.MethodGet && turnPromptAssembliesPathID(path) != "":
+		value, err := s.service.PromptAssembliesByTurn(r.Context(), turnPromptAssembliesPathID(path))
+		return value, err, true
+	case method == http.MethodGet && turnPathID(path) != "":
+		value, err := s.service.Turn(r.Context(), turnPathID(path))
 		return value, err, true
 	case method == http.MethodGet && toolCallPathID(path) != "":
 		value, err := s.service.ToolCall(r.Context(), toolCallPathID(path))
@@ -1515,6 +1530,10 @@ func sessionReactCallchainPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/react-callchain")
 }
 
+func sessionPromptAssembliesPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/prompt-assemblies")
+}
+
 func sessionTerminalsPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/terminals")
 }
@@ -1634,7 +1653,7 @@ func turnInterruptedDonePathID(path string) string {
 }
 
 func turnPathID(path string) string {
-	if strings.HasSuffix(path, "/activity") || strings.HasSuffix(path, "/tool-calls") || strings.HasSuffix(path, "/react-callchain") || strings.HasSuffix(path, "/todos") || strings.HasSuffix(path, "/compact") || strings.HasSuffix(path, "/interrupted/done") {
+	if strings.HasSuffix(path, "/activity") || strings.HasSuffix(path, "/tool-calls") || strings.HasSuffix(path, "/react-callchain") || strings.HasSuffix(path, "/todos") || strings.HasSuffix(path, "/compact") || strings.HasSuffix(path, "/prompt-assemblies") || strings.HasSuffix(path, "/interrupted/done") {
 		return ""
 	}
 	id := strings.TrimPrefix(path, "/v1/turns/")
@@ -1666,6 +1685,10 @@ func turnReactCallchainPathID(path string) string {
 
 func turnCompactPathID(path string) string {
 	return trimPathID(path, "/v1/turns/", "/compact")
+}
+
+func turnPromptAssembliesPathID(path string) string {
+	return trimPathID(path, "/v1/turns/", "/prompt-assemblies")
 }
 
 func runtimeQueryLimit(r *http.Request) int {

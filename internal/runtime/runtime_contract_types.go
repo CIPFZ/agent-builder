@@ -1875,6 +1875,84 @@ type RuntimeBudgetBucket struct {
 	EstimatedTokens int `json:"estimatedTokens"`
 }
 
+type RuntimePromptAssembly struct {
+	ID             string                      `json:"id"`
+	SessionID      string                      `json:"sessionId"`
+	TurnID         string                      `json:"turnId"`
+	Step           int                         `json:"step"`
+	Model          string                      `json:"model"`
+	Provider       string                      `json:"provider"`
+	System         RuntimePromptSystemSummary  `json:"system"`
+	Messages       RuntimePromptMessageSummary `json:"messages"`
+	Tools          RuntimePromptToolSummary    `json:"tools"`
+	Skills         RuntimePromptSkillSummary   `json:"skills"`
+	MCP            RuntimePromptMCPSummary     `json:"mcp"`
+	ContextSources []RuntimeContextSource      `json:"contextSources,omitempty"`
+	Compact        []RuntimeCompactBoundary    `json:"compact,omitempty"`
+	Budget         RuntimeBudgetReport         `json:"budget"`
+	CreatedAt      int64                       `json:"createdAt"`
+}
+
+type RuntimePromptSystemSummary struct {
+	Source             string   `json:"source,omitempty"`
+	Hash               string   `json:"hash,omitempty"`
+	Length             int      `json:"length,omitempty"`
+	TokenEstimate      int      `json:"tokenEstimate,omitempty"`
+	PromptPrefix       bool     `json:"promptPrefix"`
+	PromptPrefixHash   string   `json:"promptPrefixHash,omitempty"`
+	PromptPrefixTokens int      `json:"promptPrefixTokens,omitempty"`
+	SourceRefs         []string `json:"sourceRefs,omitempty"`
+	Redacted           bool     `json:"redacted"`
+}
+
+type RuntimePromptMessageSummary struct {
+	Count                int            `json:"count"`
+	ByRole               map[string]int `json:"byRole,omitempty"`
+	ToolResultCount      int            `json:"toolResultCount,omitempty"`
+	DeliveredToolResults int            `json:"deliveredToolResults,omitempty"`
+	SyntheticToolResults int            `json:"syntheticToolResults,omitempty"`
+	AttachmentCount      int            `json:"attachmentCount,omitempty"`
+	ImageCount           int            `json:"imageCount,omitempty"`
+	TokenEstimate        int            `json:"tokenEstimate,omitempty"`
+	RawPromptStored      bool           `json:"rawPromptStored"`
+}
+
+type RuntimePromptToolSummary struct {
+	Selected         []string            `json:"selected,omitempty"`
+	Omitted          []string            `json:"omitted,omitempty"`
+	SelectedCount    int                 `json:"selectedCount"`
+	OmittedCount     int                 `json:"omittedCount"`
+	SelectedBudget   RuntimeBudgetBucket `json:"selectedBudget"`
+	OmittedBudget    RuntimeBudgetBucket `json:"omittedBudget"`
+	ResultCount      int                 `json:"resultCount,omitempty"`
+	PersistedResults int                 `json:"persistedResults,omitempty"`
+	CompactedResults int                 `json:"compactedResults,omitempty"`
+}
+
+type RuntimePromptSkillSummary struct {
+	AvailableCount   int      `json:"availableCount"`
+	LoadedCount      int      `json:"loadedCount"`
+	Names            []string `json:"names,omitempty"`
+	LoadedNames      []string `json:"loadedNames,omitempty"`
+	XMLPresent       bool     `json:"xmlPresent"`
+	XMLHash          string   `json:"xmlHash,omitempty"`
+	TokenEstimate    int      `json:"tokenEstimate,omitempty"`
+	RawContentStored bool     `json:"rawContentStored"`
+}
+
+type RuntimePromptMCPSummary struct {
+	ServerCount      int      `json:"serverCount"`
+	InstructionCount int      `json:"instructionCount"`
+	Servers          []string `json:"servers,omitempty"`
+	InstructionHash  string   `json:"instructionHash,omitempty"`
+	TokenEstimate    int      `json:"tokenEstimate,omitempty"`
+	RawContentStored bool     `json:"rawContentStored"`
+}
+
+type RuntimePromptAssembliesResponse struct {
+	Assemblies []RuntimePromptAssembly `json:"assemblies"`
+}
+
 type RuntimeEventsEndpointResponse struct {
 	URL   string `json:"url"`
 	Token string `json:"token,omitempty"`

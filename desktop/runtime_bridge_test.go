@@ -105,6 +105,70 @@ func TestRuntimeBridgeForwardsReactCallchain(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsPromptAssemblies(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		promptAssemblies: RuntimePromptAssembliesResponse{Assemblies: []RuntimePromptAssembly{{
+			ID:        "assembly-1",
+			SessionID: "session-1",
+			TurnID:    "turn-1",
+			Step:      1,
+			Provider:  "openai",
+			Model:     "test-model",
+			System: RuntimePromptSystemSummary{
+				Hash:     "sha256:system",
+				Redacted: true,
+			},
+			Messages: RuntimePromptMessageSummary{
+				Count:           2,
+				RawPromptStored: false,
+			},
+			Tools: RuntimePromptToolSummary{
+				Selected:      []string{"bash"},
+				SelectedCount: 1,
+			},
+			Skills: RuntimePromptSkillSummary{
+				LoadedNames:      []string{"crush-config"},
+				LoadedCount:      1,
+				RawContentStored: false,
+			},
+			MCP: RuntimePromptMCPSummary{
+				Servers:          []string{"docs"},
+				ServerCount:      1,
+				RawContentStored: false,
+			},
+			ContextSources: []RuntimeContextSource{{
+				ID:      "ctx-1",
+				Kind:    "project_memory",
+				Name:    "AGENTS.md",
+				Enabled: true,
+				State:   "loaded",
+			}},
+			Budget: RuntimeBudgetReport{
+				TotalEstimatedTokens: 42,
+			},
+		}}},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	turnResp, err := bridge.TurnPromptAssemblies(context.Background(), "turn-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.promptAssembliesTurnID != "turn-1" || len(turnResp.Assemblies) != 1 || turnResp.Assemblies[0].Messages.RawPromptStored {
+		t.Fatalf("turn assemblies = %#v service turn=%q", turnResp, service.promptAssembliesTurnID)
+	}
+
+	sessionResp, err := bridge.SessionPromptAssemblies(context.Background(), "session-1", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.promptAssembliesSessionID != "session-1" || service.promptAssembliesLimit != 4 || len(sessionResp.Assemblies) != 1 {
+		t.Fatalf("session assemblies = %#v service session=%q limit=%d", sessionResp, service.promptAssembliesSessionID, service.promptAssembliesLimit)
+	}
+}
+
 func TestRuntimeBridgeForwardsTerminalLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -841,6 +905,10 @@ type recordingRuntimeService struct {
 	sessionReactCallchain       RuntimeReactCallchainResponse
 	sessionReactCallchainID     string
 	sessionReactCallchainLimit  int
+	promptAssemblies            RuntimePromptAssembliesResponse
+	promptAssembliesTurnID      string
+	promptAssembliesSessionID   string
+	promptAssembliesLimit       int
 	eventsResponse              RuntimeEventsResponse
 	newChatTitle                string
 	createSessionReq            RuntimeSessionCreateRequest
@@ -1056,6 +1124,17 @@ func (s *recordingRuntimeService) SessionReactCallchain(_ context.Context, sessi
 		s.sessionReactCallchain.SessionID = sessionID
 	}
 	return s.sessionReactCallchain, nil
+}
+
+func (s *recordingRuntimeService) PromptAssembliesByTurn(_ context.Context, turnID string) (RuntimePromptAssembliesResponse, error) {
+	s.promptAssembliesTurnID = turnID
+	return s.promptAssemblies, nil
+}
+
+func (s *recordingRuntimeService) PromptAssembliesBySession(_ context.Context, sessionID string, limit int) (RuntimePromptAssembliesResponse, error) {
+	s.promptAssembliesSessionID = sessionID
+	s.promptAssembliesLimit = limit
+	return s.promptAssemblies, nil
 }
 
 func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, error) {

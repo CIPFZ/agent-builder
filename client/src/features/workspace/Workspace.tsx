@@ -20,6 +20,7 @@ import type { NewConversationDraftViewModel, TerminalEventViewModel, TerminalVie
 import { Composer } from '../composer/Composer.tsx';
 import { RunProjectionPreview } from '../diagnostics/RunProjectionPreview.tsx';
 import { ReactCallchainInspector } from '../diagnostics/ReactCallchainInspector.tsx';
+import { ContextDiagnosticsPanel } from '../diagnostics/ContextDiagnosticsPanel.tsx';
 import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
@@ -683,6 +684,7 @@ export function Workspace({
                 <div className={styles.reviewStack}>
                   <RunProjectionPreview run={viewModel.runProjection} onResumeCheckpoint={onRunCheckpointResume} onExecuteTask={onRunTaskExecute} />
                   <ReactCallchainInspector callchain={viewModel.reactCallchain} />
+                  <ContextDiagnosticsPanel diagnostics={viewModel.contextDiagnostics} />
                   <TurnDiagnosticsPanel
                     diagnostics={viewModel.turnDiagnostics}
                     interrupted={viewModel.interruptedTurn}
@@ -690,7 +692,7 @@ export function Workspace({
                     onInterruptedDone={markInterruptedDone}
                     onInterruptedFollowUp={startInterruptedFollowUp}
                   />
-                  {!viewModel.runProjection && !viewModel.reactCallchain && !viewModel.turnDiagnostics && !viewModel.interruptedTurn ? (
+                  {!viewModel.runProjection && !viewModel.reactCallchain && !viewModel.contextDiagnostics && !viewModel.turnDiagnostics && !viewModel.interruptedTurn ? (
                     <>
                       <div className={styles.sideToolTitle}>审查</div>
                       <div className={styles.sideToolEmpty}>Review findings, diffs, and approvals will appear here.</div>

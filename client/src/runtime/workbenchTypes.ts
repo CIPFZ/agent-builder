@@ -339,6 +339,117 @@ export interface ReactCallchainSourceViewModel {
   eventsAreRefreshOnly: boolean;
 }
 
+export interface ContextDiagnosticsViewModel {
+  sessionId: string;
+  turnId?: string;
+  step?: number;
+  provider?: string;
+  model?: string;
+  createdAt?: number;
+  system: {
+    source?: string;
+    hash?: string;
+    tokenEstimate?: number;
+    promptPrefix: boolean;
+    promptPrefixHash?: string;
+    sourceRefs: string[];
+    redacted: boolean;
+  };
+  messages: {
+    count: number;
+    byRole: Record<string, number>;
+    toolResultCount: number;
+    deliveredToolResults: number;
+    syntheticToolResults: number;
+    attachmentCount: number;
+    imageCount: number;
+    tokenEstimate?: number;
+    rawPromptStored: boolean;
+  };
+  tools: {
+    selected: string[];
+    omitted: string[];
+    selectedCount: number;
+    omittedCount: number;
+    resultCount: number;
+    persistedResults: number;
+    compactedResults: number;
+  };
+  skills: {
+    availableCount: number;
+    loadedCount: number;
+    names: string[];
+    loadedNames: string[];
+    xmlPresent: boolean;
+    xmlHash?: string;
+    tokenEstimate?: number;
+    rawContentStored: boolean;
+  };
+  mcp: {
+    serverCount: number;
+    instructionCount: number;
+    servers: string[];
+    instructionHash?: string;
+    tokenEstimate?: number;
+    rawContentStored: boolean;
+  };
+  contextSources: ContextSourceViewModel[];
+  compactBoundaries: CompactBoundaryViewModel[];
+  budget: PromptBudgetViewModel;
+  warnings: string[];
+}
+
+export interface ContextSourceViewModel {
+  id: string;
+  kind: string;
+  name: string;
+  path?: string;
+  uri?: string;
+  scope?: string;
+  enabled: boolean;
+  state: string;
+  reason?: string;
+  diagnostics?: string;
+  error?: string;
+  tokenEstimate?: number;
+  provenance?: string;
+  contentHash?: string;
+}
+
+export interface CompactBoundaryViewModel {
+  id: string;
+  kind: string;
+  trigger: string;
+  status: string;
+  summaryRef?: string;
+  messageRefs: string[];
+  toolCallRefCount: number;
+  reinjectedRefCount: number;
+  error?: string;
+  createdAt?: number;
+  completedAt?: number;
+}
+
+export interface PromptBudgetViewModel {
+  contextWindow?: number;
+  inputBudget?: BudgetBucketViewModel;
+  messages?: BudgetBucketViewModel;
+  contextSources?: BudgetBucketViewModel;
+  toolSchemas?: BudgetBucketViewModel;
+  skills?: BudgetBucketViewModel;
+  mcp?: BudgetBucketViewModel;
+  toolOutputs?: BudgetBucketViewModel;
+  selectedToolSchemas?: BudgetBucketViewModel;
+  omittedToolSchemas?: BudgetBucketViewModel;
+  totalEstimatedTokens: number;
+  updatedAt?: number;
+}
+
+export interface BudgetBucketViewModel {
+  count: number;
+  estimatedTokens: number;
+}
+
 export interface RunSchedulerPlanRequestViewModel {
   runID: string;
   sessionID?: string;
@@ -707,6 +818,7 @@ export interface WorkbenchViewModel {
   interruptedTurn?: InterruptedTurnViewModel;
   runProjection?: RunProjectionViewModel;
   reactCallchain?: ReactCallchainViewModel;
+  contextDiagnostics?: ContextDiagnosticsViewModel;
   pendingPermissions: PermissionRequestViewModel[];
   composer: ComposerViewModel;
   settings: SettingsViewModel;

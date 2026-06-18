@@ -109,13 +109,14 @@ type coordinator struct {
 	activeSkills []*skills.Skill // Post-filter: active skills only.
 	skillTracker *skills.Tracker
 
-	readyWg            errgroup.Group
-	schedulerRecorder  SchedulerRecorder
-	discoveryRecorder  ToolDiscoveryRecorder
-	capabilityRecorder CapabilityScopeRecorder
-	agentTaskRecorder  AgentTaskRecorder
-	childAgentsMu      sync.RWMutex
-	childAgents        map[string]SessionAgent
+	readyWg                errgroup.Group
+	schedulerRecorder      SchedulerRecorder
+	promptAssemblyRecorder PromptAssemblyRecorder
+	discoveryRecorder      ToolDiscoveryRecorder
+	capabilityRecorder     CapabilityScopeRecorder
+	agentTaskRecorder      AgentTaskRecorder
+	childAgentsMu          sync.RWMutex
+	childAgents            map[string]SessionAgent
 
 	startedTaskAgentBuilder func(context.Context) (SessionAgent, []string, error)
 }
@@ -521,6 +522,9 @@ func NewCoordinator(
 	}
 	if len(schedulerRecorder) > 0 {
 		c.schedulerRecorder = schedulerRecorder[0]
+		if recorder, ok := schedulerRecorder[0].(PromptAssemblyRecorder); ok {
+			c.promptAssemblyRecorder = recorder
+		}
 		if discoveryRecorder, ok := schedulerRecorder[0].(ToolDiscoveryRecorder); ok {
 			c.discoveryRecorder = discoveryRecorder
 		}
@@ -837,6 +841,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		Tools:                nil,
 		Notify:               c.notify,
 		GuardConfig:          c.cfg.Config().Options.ToolResultGuard,
+		AssemblyRecorder:     c.promptAssemblyRecorder,
 	})
 
 	c.readyWg.Go(func() error {

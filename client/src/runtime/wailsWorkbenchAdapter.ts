@@ -1,5 +1,6 @@
 import type {
   ConfiguredProviderViewModel,
+  ContextDiagnosticsViewModel,
   ConversationMessageViewModel,
   ConversationTimelineItemViewModel,
   CreateProjectRequestViewModel,
@@ -611,6 +612,123 @@ interface RuntimeReactCallSourceDTO {
   eventsAreRefreshOnly?: boolean;
 }
 
+interface RuntimePromptAssembliesResponseDTO {
+  assemblies?: RuntimePromptAssemblyDTO[];
+}
+
+interface RuntimePromptAssemblyDTO {
+  id?: string;
+  sessionId?: string;
+  turnId?: string;
+  step?: number;
+  model?: string;
+  provider?: string;
+  system?: {
+    source?: string;
+    hash?: string;
+    tokenEstimate?: number;
+    promptPrefix?: boolean;
+    promptPrefixHash?: string;
+    sourceRefs?: string[];
+    redacted?: boolean;
+  };
+  messages?: {
+    count?: number;
+    byRole?: Record<string, number>;
+    toolResultCount?: number;
+    deliveredToolResults?: number;
+    syntheticToolResults?: number;
+    attachmentCount?: number;
+    imageCount?: number;
+    tokenEstimate?: number;
+    rawPromptStored?: boolean;
+  };
+  tools?: {
+    selected?: string[];
+    omitted?: string[];
+    selectedCount?: number;
+    omittedCount?: number;
+    resultCount?: number;
+    persistedResults?: number;
+    compactedResults?: number;
+  };
+  skills?: {
+    availableCount?: number;
+    loadedCount?: number;
+    names?: string[];
+    loadedNames?: string[];
+    xmlPresent?: boolean;
+    xmlHash?: string;
+    tokenEstimate?: number;
+    rawContentStored?: boolean;
+  };
+  mcp?: {
+    serverCount?: number;
+    instructionCount?: number;
+    servers?: string[];
+    instructionHash?: string;
+    tokenEstimate?: number;
+    rawContentStored?: boolean;
+  };
+  contextSources?: RuntimeContextSourceDTO[];
+  compact?: RuntimeCompactBoundaryDTO[];
+  budget?: RuntimeBudgetReportDTO;
+  createdAt?: number;
+}
+
+interface RuntimeContextSourceDTO {
+  id?: string;
+  kind?: string;
+  name?: string;
+  path?: string;
+  uri?: string;
+  scope?: string;
+  enabled?: boolean;
+  state?: string;
+  reason?: string;
+  diagnostics?: string;
+  error?: string;
+  token_estimate?: number;
+  tokenEstimate?: number;
+  provenance?: string;
+  content_hash?: string;
+  contentHash?: string;
+}
+
+interface RuntimeCompactBoundaryDTO {
+  id?: string;
+  kind?: string;
+  trigger?: string;
+  status?: string;
+  summaryRef?: string;
+  messageRefs?: string[];
+  toolCallRefs?: unknown[];
+  reinjectedRefs?: unknown[];
+  error?: string;
+  createdAt?: number;
+  completedAt?: number;
+}
+
+interface RuntimeBudgetReportDTO {
+  contextWindow?: number;
+  inputBudget?: RuntimeBudgetBucketDTO;
+  messages?: RuntimeBudgetBucketDTO;
+  contextSources?: RuntimeBudgetBucketDTO;
+  toolSchemas?: RuntimeBudgetBucketDTO;
+  skills?: RuntimeBudgetBucketDTO;
+  mcp?: RuntimeBudgetBucketDTO;
+  toolOutputs?: RuntimeBudgetBucketDTO;
+  selectedToolSchemas?: RuntimeBudgetBucketDTO;
+  omittedToolSchemas?: RuntimeBudgetBucketDTO;
+  totalEstimatedTokens?: number;
+  updatedAt?: number;
+}
+
+interface RuntimeBudgetBucketDTO {
+  count?: number;
+  estimatedTokens?: number;
+}
+
 interface RuntimeRunProjectionRequestDTO {
   sessionId: string;
   cursor?: string;
@@ -955,6 +1073,8 @@ interface RuntimeBridgeModule {
   TurnActivity?: (turnID: string) => Promise<RuntimeTurnActivityDTO>;
   ReactCallchain?: (turnID: string) => Promise<RuntimeReactCallchainDTO>;
   SessionReactCallchain?: (sessionID: string, limit: number) => Promise<RuntimeReactCallchainDTO>;
+  TurnPromptAssemblies?: (turnID: string) => Promise<RuntimePromptAssembliesResponseDTO>;
+  SessionPromptAssemblies?: (sessionID: string, limit: number) => Promise<RuntimePromptAssembliesResponseDTO>;
   RunProjection?: (req: RuntimeRunProjectionRequestDTO) => Promise<RuntimeRunProjectionResponseDTO>;
   RunSummaries?: () => Promise<RuntimeRunSummariesResponseDTO>;
   RunSummary?: (runID: string) => Promise<RuntimeRunSummaryResponseDTO>;
@@ -2013,6 +2133,152 @@ function mapToolResultDeliveries(deliveries?: RuntimeToolResultDeliveryDTO[]) {
     }));
 }
 
+function mapContextDiagnostics(response?: RuntimePromptAssembliesResponseDTO): ContextDiagnosticsViewModel | undefined {
+  const assemblies = Array.isArray(response?.assemblies) ? response.assemblies : [];
+  const assembly = assemblies
+    .filter((item) => item?.sessionId)
+    .sort((left, right) => (right.step ?? 0) - (left.step ?? 0) || (right.createdAt ?? 0) - (left.createdAt ?? 0))[0];
+  if (!assembly?.sessionId) {
+    return undefined;
+  }
+
+  const system = assembly.system ?? {};
+  const messages = assembly.messages ?? {};
+  const tools = assembly.tools ?? {};
+  const skills = assembly.skills ?? {};
+  const mcp = assembly.mcp ?? {};
+  const contextSources = (Array.isArray(assembly.contextSources) ? assembly.contextSources : [])
+    .filter((source) => source.id || source.name)
+    .slice(0, 24)
+    .map((source) => ({
+      id: source.id || source.name || 'context-source',
+      kind: source.kind || 'context',
+      name: source.name || source.id || 'Context source',
+      path: source.path,
+      uri: source.uri,
+      scope: source.scope,
+      enabled: source.enabled !== false,
+      state: source.state || 'unknown',
+      reason: source.reason,
+      diagnostics: source.diagnostics,
+      error: source.error,
+      tokenEstimate: source.tokenEstimate ?? source.token_estimate,
+      provenance: source.provenance,
+      contentHash: source.contentHash ?? source.content_hash,
+    }));
+  const compactBoundaries = (Array.isArray(assembly.compact) ? assembly.compact : [])
+    .filter((boundary) => boundary.id || boundary.kind)
+    .slice(0, 12)
+    .map((boundary) => ({
+      id: boundary.id || `${boundary.kind || 'compact'}:${boundary.createdAt ?? 0}`,
+      kind: boundary.kind || 'compact',
+      trigger: boundary.trigger || 'unknown',
+      status: boundary.status || 'unknown',
+      summaryRef: boundary.summaryRef,
+      messageRefs: Array.isArray(boundary.messageRefs) ? boundary.messageRefs : [],
+      toolCallRefCount: Array.isArray(boundary.toolCallRefs) ? boundary.toolCallRefs.length : 0,
+      reinjectedRefCount: Array.isArray(boundary.reinjectedRefs) ? boundary.reinjectedRefs.length : 0,
+      error: boundary.error,
+      createdAt: boundary.createdAt,
+      completedAt: boundary.completedAt,
+    }));
+  const warnings = [
+    ...contextSources
+      .filter((source) => source.state === 'failed' || source.state === 'skipped' || Boolean(source.error))
+      .map((source) => `${source.name}: ${source.error || source.reason || source.state}`),
+    ...(messages.rawPromptStored ? ['Runtime reported raw prompt storage in prompt assembly metadata.'] : []),
+    ...(skills.rawContentStored ? ['Runtime reported raw skill content storage in prompt assembly metadata.'] : []),
+    ...(mcp.rawContentStored ? ['Runtime reported raw MCP instruction storage in prompt assembly metadata.'] : []),
+  ];
+
+  return {
+    sessionId: assembly.sessionId,
+    turnId: assembly.turnId,
+    step: assembly.step,
+    provider: assembly.provider,
+    model: assembly.model,
+    createdAt: assembly.createdAt,
+    system: {
+      source: system.source,
+      hash: system.hash,
+      tokenEstimate: system.tokenEstimate,
+      promptPrefix: Boolean(system.promptPrefix),
+      promptPrefixHash: system.promptPrefixHash,
+      sourceRefs: Array.isArray(system.sourceRefs) ? system.sourceRefs : [],
+      redacted: system.redacted !== false,
+    },
+    messages: {
+      count: messages.count ?? 0,
+      byRole: messages.byRole ?? {},
+      toolResultCount: messages.toolResultCount ?? 0,
+      deliveredToolResults: messages.deliveredToolResults ?? 0,
+      syntheticToolResults: messages.syntheticToolResults ?? 0,
+      attachmentCount: messages.attachmentCount ?? 0,
+      imageCount: messages.imageCount ?? 0,
+      tokenEstimate: messages.tokenEstimate,
+      rawPromptStored: Boolean(messages.rawPromptStored),
+    },
+    tools: {
+      selected: Array.isArray(tools.selected) ? tools.selected : [],
+      omitted: Array.isArray(tools.omitted) ? tools.omitted : [],
+      selectedCount: tools.selectedCount ?? tools.selected?.length ?? 0,
+      omittedCount: tools.omittedCount ?? tools.omitted?.length ?? 0,
+      resultCount: tools.resultCount ?? 0,
+      persistedResults: tools.persistedResults ?? 0,
+      compactedResults: tools.compactedResults ?? 0,
+    },
+    skills: {
+      availableCount: skills.availableCount ?? 0,
+      loadedCount: skills.loadedCount ?? skills.loadedNames?.length ?? 0,
+      names: Array.isArray(skills.names) ? skills.names : [],
+      loadedNames: Array.isArray(skills.loadedNames) ? skills.loadedNames : [],
+      xmlPresent: Boolean(skills.xmlPresent),
+      xmlHash: skills.xmlHash,
+      tokenEstimate: skills.tokenEstimate,
+      rawContentStored: Boolean(skills.rawContentStored),
+    },
+    mcp: {
+      serverCount: mcp.serverCount ?? mcp.servers?.length ?? 0,
+      instructionCount: mcp.instructionCount ?? 0,
+      servers: Array.isArray(mcp.servers) ? mcp.servers : [],
+      instructionHash: mcp.instructionHash,
+      tokenEstimate: mcp.tokenEstimate,
+      rawContentStored: Boolean(mcp.rawContentStored),
+    },
+    contextSources,
+    compactBoundaries,
+    budget: mapPromptBudget(assembly.budget),
+    warnings,
+  };
+}
+
+function mapPromptBudget(budget?: RuntimeBudgetReportDTO) {
+  return {
+    contextWindow: budget?.contextWindow,
+    inputBudget: mapBudgetBucket(budget?.inputBudget),
+    messages: mapBudgetBucket(budget?.messages),
+    contextSources: mapBudgetBucket(budget?.contextSources),
+    toolSchemas: mapBudgetBucket(budget?.toolSchemas),
+    skills: mapBudgetBucket(budget?.skills),
+    mcp: mapBudgetBucket(budget?.mcp),
+    toolOutputs: mapBudgetBucket(budget?.toolOutputs),
+    selectedToolSchemas: mapBudgetBucket(budget?.selectedToolSchemas),
+    omittedToolSchemas: mapBudgetBucket(budget?.omittedToolSchemas),
+    totalEstimatedTokens: budget?.totalEstimatedTokens ?? 0,
+    updatedAt: budget?.updatedAt,
+  };
+}
+
+function mapBudgetBucket(bucket?: RuntimeBudgetBucketDTO) {
+  if (!bucket) {
+    return undefined;
+  }
+  return {
+    count: bucket.count ?? 0,
+    estimatedTokens: bucket.estimatedTokens ?? 0,
+  };
+}
+
 function mapRunSchedulerPlanCandidates(response?: RuntimeRunSchedulerPlanResponseDTO): RunSchedulerTaskCandidateViewModel[] {
   const plan = response?.plan;
   const runID = plan?.runId;
@@ -2339,6 +2605,9 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const reactCallchainDTO = activeSessionID && refreshActivity
     ? await hydrateReactCallchain(bridge, activeSessionID, activeTurnId)
     : undefined;
+  const promptAssembliesDTO = activeSessionID && refreshActivity
+    ? await hydratePromptAssemblies(bridge, activeSessionID, activeTurnId)
+    : undefined;
   const policy = activity?.policy ?? (refreshPolicy ? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy : undefined);
   const permissions = (Array.isArray(activity?.permissions) ? activity.permissions : []).map(mapPermission);
   const timeline = activity
@@ -2374,6 +2643,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     interruptedTurn: activity ? selectInterruptedTurn(activity, sessionActiveTurn?.id) : current.interruptedTurn,
     runProjection: mapRunProjection(runProjection, schedulerTaskCandidates) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
     reactCallchain: mapReactCallchain(reactCallchainDTO) ?? (current.reactCallchain?.sessionId === activeSessionID ? current.reactCallchain : undefined),
+    contextDiagnostics: mapContextDiagnostics(promptAssembliesDTO) ?? (current.contextDiagnostics?.sessionId === activeSessionID ? current.contextDiagnostics : undefined),
     pendingPermissions,
     composer: {
       ...current.composer,
@@ -2426,6 +2696,30 @@ async function readReactCallchain(bridge: RuntimeBridgeModule, sessionID: string
       return bridge.ReactCallchain(turnID);
     }
     return bridge.SessionReactCallchain?.(sessionID, 6) ?? Promise.resolve(undefined);
+  });
+}
+
+async function hydratePromptAssemblies(bridge: RuntimeBridgeModule, sessionID: string, turnID?: string) {
+  const fromBridge = await readPromptAssemblies(bridge, sessionID, turnID);
+  if (fromBridge) {
+    return fromBridge;
+  }
+  if (bridge === runtimeHTTPBridge) {
+    return undefined;
+  }
+  const httpBridge = await loadRuntimeHTTPBridge();
+  if (!httpBridge) {
+    return undefined;
+  }
+  return readPromptAssemblies(httpBridge, sessionID, turnID);
+}
+
+async function readPromptAssemblies(bridge: RuntimeBridgeModule, sessionID: string, turnID?: string) {
+  return optionalRuntimeRequest(() => {
+    if (turnID && bridge.TurnPromptAssemblies) {
+      return bridge.TurnPromptAssemblies(turnID);
+    }
+    return bridge.SessionPromptAssemblies?.(sessionID, 6) ?? Promise.resolve(undefined);
   });
 }
 
@@ -3083,6 +3377,8 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
   },
   SessionReactCallchain: (sessionID, limit) =>
     runtimeFetch<RuntimeReactCallchainDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/react-callchain?limit=${encodeURIComponent(String(limit))}`),
+  SessionPromptAssemblies: (sessionID, limit) =>
+    runtimeFetch<RuntimePromptAssembliesResponseDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/prompt-assemblies?limit=${encodeURIComponent(String(limit))}`),
   RunProjection: (req) => {
     const params = new URLSearchParams();
     if (typeof req.limit === 'number') {
@@ -3149,6 +3445,7 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
     ),
   TurnActivity: (turnID) => runtimeFetch<RuntimeTurnActivityDTO>(`/v1/turns/${encodeURIComponent(turnID)}/activity`),
   ReactCallchain: (turnID) => runtimeFetch<RuntimeReactCallchainDTO>(`/v1/turns/${encodeURIComponent(turnID)}/react-callchain`),
+  TurnPromptAssemblies: (turnID) => runtimeFetch<RuntimePromptAssembliesResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}/prompt-assemblies`),
   Turn: (turnID) => runtimeFetch<RuntimeTurnResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}`),
   Turns: (status) => runtimeFetch<RuntimeTurnsResponseDTO>(`/v1/turns?status=${encodeURIComponent(status)}`),
   Permissions: () => runtimeFetch<{ permissions: RuntimePermissionDTO[] }>('/v1/permissions'),
@@ -3314,6 +3611,19 @@ async function hydratePluginSettings(current: WorkbenchViewModel, bridge: Runtim
   };
 }
 
+function resetConversationRuntimeState(current: WorkbenchViewModel): WorkbenchViewModel {
+  return {
+    ...current,
+    conversation: [],
+    timeline: [],
+    turnDiagnostics: undefined,
+    interruptedTurn: undefined,
+    runProjection: undefined,
+    reactCallchain: undefined,
+    contextDiagnostics: undefined,
+  };
+}
+
 export const wailsWorkbenchAdapter: WorkbenchAdapter = {
   async loadInitialViewModel(mode = 'project') {
     const initial = getInitialWorkbenchViewModel(mode);
@@ -3330,7 +3640,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     );
   },
   async openProject(current, request) {
-    const nextBase = { ...current, mode: 'project' as const, conversation: [], timeline: [], turnDiagnostics: undefined, interruptedTurn: undefined, runProjection: undefined, reactCallchain: undefined };
+    const nextBase = resetConversationRuntimeState({ ...current, mode: 'project' as const });
     const bridge = await loadRuntimeBridge();
     if (bridge?.OpenProject) {
       try {
@@ -3348,7 +3658,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     return staticWorkbenchAdapter.openProject(current, request);
   },
   async createProject(current, request) {
-    const nextBase = { ...current, mode: 'project' as const, conversation: [], timeline: [], turnDiagnostics: undefined, interruptedTurn: undefined, runProjection: undefined, reactCallchain: undefined };
+    const nextBase = resetConversationRuntimeState({ ...current, mode: 'project' as const });
     const bridge = await loadRuntimeBridge();
     if (bridge?.CreateProject) {
       try {
@@ -3366,7 +3676,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     return staticWorkbenchAdapter.createProject(current, request);
   },
   async renameProject(current, request) {
-    const nextBase = { ...current, mode: 'project' as const, conversation: [], timeline: [], turnDiagnostics: undefined, interruptedTurn: undefined, runProjection: undefined, reactCallchain: undefined };
+    const nextBase = resetConversationRuntimeState({ ...current, mode: 'project' as const });
     const bridge = await loadRuntimeBridge();
     if (bridge?.RenameProject) {
       try {
@@ -3401,7 +3711,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     return staticWorkbenchAdapter.openProjectInExplorer(request);
   },
   async removeProject(current, request) {
-    const nextBase = { ...current, mode: 'project' as const, conversation: [], timeline: [], turnDiagnostics: undefined, interruptedTurn: undefined, runProjection: undefined, reactCallchain: undefined };
+    const nextBase = resetConversationRuntimeState({ ...current, mode: 'project' as const });
     const bridge = await loadRuntimeBridge();
     if (bridge?.RemoveProject) {
       try {
@@ -3443,17 +3753,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         await bridge.NewChat('');
         const draft = target ?? current.newConversationDraft ?? defaultDraftTarget(current);
         const hydrated = await hydrateWorkbench(
-          {
-            ...current,
-            mode: 'new-chat',
-            newConversationDraft: draft,
-            conversation: [],
-            timeline: [],
-            turnDiagnostics: undefined,
-            interruptedTurn: undefined,
-            runProjection: undefined,
-            reactCallchain: undefined,
-          },
+          resetConversationRuntimeState({ ...current, mode: 'new-chat', newConversationDraft: draft }),
           bridge,
         );
         return { ...hydrated, mode: 'new-chat', newConversationDraft: draft };
@@ -3467,7 +3767,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       async (bridge) => {
         await bridge.SelectSession(sessionID);
         const hydrated = await hydrateWorkbench(
-          { ...current, mode: 'new-chat', conversation: [], timeline: [] },
+          resetConversationRuntimeState({ ...current, mode: 'new-chat' }),
           bridge,
           { refreshTargets: ['session_activity', 'run_projection'] },
         );

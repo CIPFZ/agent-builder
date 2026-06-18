@@ -75,6 +75,13 @@ type RuntimeRefContentResponse = runtime.RuntimeRefContentResponse
 type RuntimeCompactBoundary = runtime.RuntimeCompactBoundary
 type RuntimeCompactBoundariesResponse = runtime.RuntimeCompactBoundariesResponse
 type RuntimeCompactToolCallRef = runtime.RuntimeCompactToolCallRef
+type RuntimePromptAssembly = runtime.RuntimePromptAssembly
+type RuntimePromptAssembliesResponse = runtime.RuntimePromptAssembliesResponse
+type RuntimePromptSystemSummary = runtime.RuntimePromptSystemSummary
+type RuntimePromptMessageSummary = runtime.RuntimePromptMessageSummary
+type RuntimePromptToolSummary = runtime.RuntimePromptToolSummary
+type RuntimePromptSkillSummary = runtime.RuntimePromptSkillSummary
+type RuntimePromptMCPSummary = runtime.RuntimePromptMCPSummary
 type RuntimeBudgetReport = runtime.RuntimeBudgetReport
 type RuntimeBudgetBucket = runtime.RuntimeBudgetBucket
 type RuntimeWorktree = runtime.RuntimeWorktree
@@ -506,6 +513,18 @@ func (r *RuntimeBridge) TurnCompactBoundaries(ctx context.Context, turnID string
 func (r *RuntimeBridge) SessionCompactBoundaries(ctx context.Context, sessionID string) (RuntimeCompactBoundariesResponse, error) {
 
 	return r.service.SessionCompactBoundaries(ctx, sessionID)
+
+}
+
+func (r *RuntimeBridge) TurnPromptAssemblies(ctx context.Context, turnID string) (RuntimePromptAssembliesResponse, error) {
+
+	return r.service.PromptAssembliesByTurn(ctx, turnID)
+
+}
+
+func (r *RuntimeBridge) SessionPromptAssemblies(ctx context.Context, sessionID string, limit int) (RuntimePromptAssembliesResponse, error) {
+
+	return r.service.PromptAssembliesBySession(ctx, sessionID, limit)
 
 }
 

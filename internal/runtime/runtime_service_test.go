@@ -4467,6 +4467,10 @@ type recordingRuntimeService struct {
 	sessionReactCallchain      RuntimeReactCallchainResponse
 	sessionReactCallchainID    string
 	sessionReactCallchainLimit int
+	promptAssemblies           RuntimePromptAssembliesResponse
+	promptAssembliesTurnID     string
+	promptAssembliesSessionID  string
+	promptAssembliesLimit      int
 	toolCall                   RuntimeToolCallResponse
 	toolCalls                  RuntimeToolCallsResponse
 	hooks                      RuntimeHooksResponse
@@ -4702,6 +4706,17 @@ func (s *recordingRuntimeService) SessionReactCallchain(_ context.Context, sessi
 		s.sessionReactCallchain.SessionID = sessionID
 	}
 	return s.sessionReactCallchain, nil
+}
+
+func (s *recordingRuntimeService) PromptAssembliesByTurn(_ context.Context, turnID string) (RuntimePromptAssembliesResponse, error) {
+	s.promptAssembliesTurnID = turnID
+	return s.promptAssemblies, nil
+}
+
+func (s *recordingRuntimeService) PromptAssembliesBySession(_ context.Context, sessionID string, limit int) (RuntimePromptAssembliesResponse, error) {
+	s.promptAssembliesSessionID = sessionID
+	s.promptAssembliesLimit = limit
+	return s.promptAssemblies, nil
 }
 
 func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, error) {

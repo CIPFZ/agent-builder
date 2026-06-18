@@ -21,6 +21,7 @@ func newRuntimeService() *runtimeService {
 		toolCalls:         scheduler.New(NewRuntimeToolCallStore()),
 		refs:              runtimeRefStore{},
 		compactBoundaries: runtimeCompactBoundaryStore{},
+		promptAssemblies:  runtimePromptAssemblyStore{},
 		worktrees:         runtimeWorktreeStore{},
 		sandboxDecisions:  runtimeSandboxDecisionStore{},
 		hookExecutions:    runtimeHookExecutionStore{},

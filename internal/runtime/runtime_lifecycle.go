@@ -297,6 +297,7 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 	r.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	r.refs = newRuntimeRefStore(conn, wsRuntime.Cfg.Config().Options.DataDirectory)
 	r.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
+	r.promptAssemblies = newRuntimePromptAssemblyStore(conn)
 	r.worktrees = newRuntimeWorktreeStore(conn)
 	r.agentTasks = newRuntimeAgentTaskStore(conn)
 	r.hookExecutions = newRuntimeHookExecutionStore(conn)

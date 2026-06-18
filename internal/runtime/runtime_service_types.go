@@ -65,6 +65,8 @@ type RuntimeService interface {
 	ReadRefContent(context.Context, string) (RuntimeRefContentResponse, error)
 	TurnCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error)
 	SessionCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error)
+	PromptAssembliesByTurn(context.Context, string) (RuntimePromptAssembliesResponse, error)
+	PromptAssembliesBySession(context.Context, string, int) (RuntimePromptAssembliesResponse, error)
 	Hooks(context.Context) (RuntimeHooksResponse, error)
 	HookExecutions(context.Context, RuntimeHookExecutionsRequest) (RuntimeHookExecutionsResponse, error)
 	HookExecution(context.Context, string) (RuntimeHookExecutionResponse, error)
@@ -163,6 +165,7 @@ type runtimeService struct {
 	toolCalls            runtimeToolCallStore
 	refs                 runtimeRefStore
 	compactBoundaries    runtimeCompactBoundaryStore
+	promptAssemblies     runtimePromptAssemblyStore
 	worktrees            runtimeWorktreeStore
 	sandboxDecisions     runtimeSandboxDecisionStore
 	hookExecutions       runtimeHookExecutionStore

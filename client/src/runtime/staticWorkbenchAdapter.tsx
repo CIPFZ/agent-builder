@@ -79,6 +79,7 @@ export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): W
     interruptedTurn: undefined,
     runProjection: undefined,
     reactCallchain: undefined,
+    contextDiagnostics: undefined,
     pendingPermissions: [],
     composer: {
       placeholder: '请输入任务',

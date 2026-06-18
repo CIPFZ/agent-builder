@@ -687,6 +687,134 @@ func TestRuntimeHTTPServerRoutesReactCallchainToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesPromptAssembliesToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		promptAssemblies: RuntimePromptAssembliesResponse{Assemblies: []RuntimePromptAssembly{{
+			ID:        "assembly-1",
+			SessionID: "session-1",
+			TurnID:    "turn-1",
+			Step:      2,
+			Provider:  "openai",
+			Model:     "test-model",
+			System: RuntimePromptSystemSummary{
+				Source:        "runtime",
+				Hash:          "sha256:system",
+				PromptPrefix:  true,
+				SourceRefs:    []string{"system:runtime"},
+				Redacted:      true,
+				TokenEstimate: 24,
+			},
+			Messages: RuntimePromptMessageSummary{
+				Count:           3,
+				ByRole:          map[string]int{"user": 1, "assistant": 1, "tool": 1},
+				ToolResultCount: 1,
+				RawPromptStored: false,
+			},
+			Tools: RuntimePromptToolSummary{
+				Selected:      []string{"bash"},
+				Omitted:       []string{"webfetch"},
+				SelectedCount: 1,
+				OmittedCount:  1,
+			},
+			Skills: RuntimePromptSkillSummary{
+				LoadedCount:      1,
+				LoadedNames:      []string{"crush-config"},
+				XMLPresent:       true,
+				XMLHash:          "sha256:skills",
+				RawContentStored: false,
+			},
+			MCP: RuntimePromptMCPSummary{
+				ServerCount:      1,
+				InstructionCount: 1,
+				Servers:          []string{"docs"},
+				InstructionHash:  "sha256:mcp",
+				RawContentStored: false,
+			},
+			ContextSources: []RuntimeContextSource{{
+				ID:            "ctx-1",
+				Kind:          "project_memory",
+				Name:          "AGENTS.md",
+				Enabled:       true,
+				State:         "loaded",
+				ContentHash:   "sha256:context",
+				TokenEstimate: 32,
+			}},
+			Compact: []RuntimeCompactBoundary{{
+				ID:         "compact-1",
+				SessionID:  "session-1",
+				TurnID:     "turn-1",
+				Kind:       "microcompact",
+				Trigger:    "budget",
+				Status:     "completed",
+				SummaryRef: "ref-compact",
+			}},
+			Budget: RuntimeBudgetReport{
+				ContextSources:       RuntimeBudgetBucket{Count: 1, EstimatedTokens: 32},
+				SelectedToolSchemas:  RuntimeBudgetBucket{Count: 1, EstimatedTokens: 8},
+				TotalEstimatedTokens: 64,
+			},
+			CreatedAt: 1234,
+		}}},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/turns/turn-1/prompt-assemblies", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("turn assemblies status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.promptAssembliesTurnID != "turn-1" || service.turn.Turn.ID != "" {
+		t.Fatalf("turn prompt route args turn=%q genericTurn=%q", service.promptAssembliesTurnID, service.turn.Turn.ID)
+	}
+	var turnAssemblies RuntimePromptAssembliesResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &turnAssemblies); err != nil {
+		t.Fatal(err)
+	}
+	if len(turnAssemblies.Assemblies) != 1 || turnAssemblies.Assemblies[0].System.Hash == "" || turnAssemblies.Assemblies[0].Messages.RawPromptStored {
+		t.Fatalf("turn assemblies = %#v", turnAssemblies)
+	}
+	if strings.Contains(resp.body.String(), "full prompt") || strings.Contains(resp.body.String(), "secret") {
+		t.Fatalf("prompt assembly response leaked raw content: %s", resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/sessions/session-1/prompt-assemblies?limit=5", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("session assemblies status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.promptAssembliesSessionID != "session-1" || service.promptAssembliesLimit != 5 {
+		t.Fatalf("session prompt route args session=%q limit=%d", service.promptAssembliesSessionID, service.promptAssembliesLimit)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/turns/turn-2/prompt-assemblies", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.promptAssembliesTurnID != "turn-2" {
+		t.Fatalf("dev turn assemblies status = %d body = %s turn=%q", resp.status, resp.body.String(), service.promptAssembliesTurnID)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?token="+server.Token()+"&path=/v1/sessions/session-2/prompt-assemblies&limit=7", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || service.promptAssembliesSessionID != "session-2" || service.promptAssembliesLimit != 7 {
+		t.Fatalf("dev session assemblies status = %d body = %s session=%q limit=%d", resp.status, resp.body.String(), service.promptAssembliesSessionID, service.promptAssembliesLimit)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesUserInputToRuntimeService(t *testing.T) {
 	t.Parallel()
 

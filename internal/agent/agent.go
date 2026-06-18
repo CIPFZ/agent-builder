@@ -122,9 +122,10 @@ type sessionAgent struct {
 	messageQueue   *csync.Map[string, []SessionAgentCall]
 	activeRequests *csync.Map[string, context.CancelFunc]
 
-	guard        *ToolResultGuard
-	microcompact *Microcompact
-	guardConfig  config.ToolResultGuardConfig
+	guard            *ToolResultGuard
+	microcompact     *Microcompact
+	guardConfig      config.ToolResultGuardConfig
+	assemblyRecorder PromptAssemblyRecorder
 }
 
 type SessionAgentOptions struct {
@@ -140,6 +141,7 @@ type SessionAgentOptions struct {
 	Tools                []fantasy.AgentTool
 	Notify               pubsub.Publisher[notify.Notification]
 	GuardConfig          config.ToolResultGuardConfig
+	AssemblyRecorder     PromptAssemblyRecorder
 }
 
 func NewSessionAgent(
@@ -160,6 +162,7 @@ func NewSessionAgent(
 		messageQueue:         csync.NewMap[string, []SessionAgentCall](),
 		activeRequests:       csync.NewMap[string, context.CancelFunc](),
 		guardConfig:          opts.GuardConfig,
+		assemblyRecorder:     opts.AssemblyRecorder,
 	}
 }
 
@@ -188,12 +191,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	systemPrompt := a.systemPrompt.Get()
 	promptPrefix := a.systemPromptPrefix.Get()
 	var instructions strings.Builder
+	var mcpInstructionServers []string
 
 	for _, server := range mcp.GetStates() {
 		if server.State != mcp.StateConnected {
 			continue
 		}
 		if s := server.Client.InitializeResult().Instructions; s != "" {
+			mcpInstructionServers = append(mcpInstructionServers, server.Name)
 			instructions.WriteString(s)
 			instructions.WriteString("\n\n")
 		}
@@ -300,8 +305,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 
 			// Use latest tools (updated by SetTools when MCP tools change).
 			prepared.Tools = a.tools.Copy()
+			allToolNames := agentToolNames(prepared.Tools)
+			selectedToolNames := append([]string(nil), allToolNames...)
+			var omittedToolNames []string
 			if discoveryRecorder, ok := unwrapToolDiscoveryRecorder(prepared.Tools); ok {
-				prepared.Tools = selectToolsForPreparedStep(callContext, prepared.Tools, discoveryRecorder, call.SessionID, call.TurnID)
+				selected := selectToolsForPreparedStep(callContext, prepared.Tools, discoveryRecorder, call.SessionID, call.TurnID)
+				selectedToolNames = agentToolNames(selected)
+				omittedToolNames = omittedAgentToolNames(allToolNames, selectedToolNames)
+				prepared.Tools = selected
 			}
 
 			queuedCalls, _ := a.messageQueue.Get(call.SessionID)
@@ -335,6 +346,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			if promptPrefix != "" {
 				prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(promptPrefix)}, prepared.Messages...)
 			}
+
+			a.recordPromptAssembly(callContext, call, largeModel, systemPrompt, promptPrefix, mcpInstructionServers, prepared.Messages, prepared.Tools, selectedToolNames, omittedToolNames)
 
 			sessionLock.Lock()
 			stepMessages = cloneFantasyMessages(prepared.Messages)
@@ -667,6 +680,137 @@ func unwrapToolDiscoveryRecorder(agentTools []fantasy.AgentTool) (ToolDiscoveryR
 		}
 	}
 	return nil, false
+}
+
+func (a *sessionAgent) recordPromptAssembly(ctx context.Context, call SessionAgentCall, model Model, systemPrompt, promptPrefix string, mcpInstructionServers []string, messages []fantasy.Message, selectedTools []fantasy.AgentTool, selectedToolNames, omittedToolNames []string) {
+	if a.assemblyRecorder == nil {
+		return
+	}
+	step := stepNumber(messages)
+	systemSummary := PromptSystemSummary{
+		Source:             "coder_prompt",
+		Hash:               hashPromptText(systemPrompt),
+		Length:             len(systemPrompt),
+		TokenEstimate:      estimatePromptTokens(systemPrompt),
+		PromptPrefix:       strings.TrimSpace(promptPrefix) != "",
+		PromptPrefixHash:   hashPromptText(promptPrefix),
+		PromptPrefixTokens: estimatePromptTokens(promptPrefix),
+		SourceRefs:         []string{"runtime://system-prompt/coder"},
+		Redacted:           true,
+	}
+	skillSummary := promptSkillSummaryFromSystem(systemPrompt)
+	mcpSummary := PromptMCPSummary{
+		ServerCount:      len(mcpInstructionServers),
+		InstructionCount: len(mcpInstructionServers),
+		Servers:          append([]string(nil), mcpInstructionServers...),
+		InstructionHash:  hashPromptText(strings.Join(mcpInstructionServers, "\n")),
+		TokenEstimate:    estimatePromptTokens(strings.Join(mcpInstructionServers, "\n")),
+		RawContentStored: false,
+	}
+	toolSummary := PromptToolSummary{
+		Selected:      append([]string(nil), selectedToolNames...),
+		Omitted:       append([]string(nil), omittedToolNames...),
+		SelectedCount: len(selectedTools),
+		OmittedCount:  len(omittedToolNames),
+	}
+	_ = a.assemblyRecorder.RecordPromptAssembly(ctx, PromptAssemblySnapshot{
+		SessionID: call.SessionID,
+		TurnID:    call.TurnID,
+		Step:      step,
+		Provider:  model.ModelCfg.Provider,
+		Model:     model.ModelCfg.Model,
+		System:    systemSummary,
+		Messages:  buildPromptMessageSummary(messages, call.Attachments),
+		Tools:     toolSummary,
+		Skills:    skillSummary,
+		MCP:       mcpSummary,
+		CreatedAt: time.Now().UTC().UnixMilli(),
+	})
+}
+
+func agentToolNames(agentTools []fantasy.AgentTool) []string {
+	names := make([]string, 0, len(agentTools))
+	for _, tool := range agentTools {
+		name := strings.TrimSpace(tool.Info().Name)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func omittedAgentToolNames(allNames, selectedNames []string) []string {
+	selected := make(map[string]struct{}, len(selectedNames))
+	for _, name := range selectedNames {
+		selected[name] = struct{}{}
+	}
+	var omitted []string
+	for _, name := range allNames {
+		if _, ok := selected[name]; !ok {
+			omitted = append(omitted, name)
+		}
+	}
+	return omitted
+}
+
+func promptSkillSummaryFromSystem(systemPrompt string) PromptSkillSummary {
+	lower := strings.ToLower(systemPrompt)
+	xmlPresent := strings.Contains(lower, "<skills") || strings.Contains(lower, "<skill")
+	names := extractPromptSkillNames(systemPrompt)
+	return PromptSkillSummary{
+		AvailableCount:   len(names),
+		LoadedCount:      len(names),
+		Names:            names,
+		LoadedNames:      append([]string(nil), names...),
+		XMLPresent:       xmlPresent,
+		XMLHash:          hashPromptText(skillXMLSlice(systemPrompt)),
+		TokenEstimate:    estimatePromptTokens(skillXMLSlice(systemPrompt)),
+		RawContentStored: false,
+	}
+}
+
+func extractPromptSkillNames(systemPrompt string) []string {
+	seen := map[string]struct{}{}
+	var names []string
+	for _, marker := range []string{`name="`, `name='`} {
+		rest := systemPrompt
+		for {
+			idx := strings.Index(rest, marker)
+			if idx < 0 {
+				break
+			}
+			rest = rest[idx+len(marker):]
+			end := strings.IndexAny(rest, `"'`)
+			if end <= 0 {
+				break
+			}
+			name := strings.TrimSpace(rest[:end])
+			if name != "" {
+				if _, ok := seen[name]; !ok {
+					seen[name] = struct{}{}
+					names = append(names, name)
+				}
+			}
+			rest = rest[end+1:]
+		}
+	}
+	return names
+}
+
+func skillXMLSlice(systemPrompt string) string {
+	lower := strings.ToLower(systemPrompt)
+	start := strings.Index(lower, "<skills")
+	if start < 0 {
+		start = strings.Index(lower, "<skill")
+	}
+	if start < 0 {
+		return ""
+	}
+	end := strings.LastIndex(lower, "</skills>")
+	if end >= start {
+		return systemPrompt[start : end+len("</skills>")]
+	}
+	return systemPrompt[start:]
 }
 
 func selectToolsForPreparedStep(ctx context.Context, agentTools []fantasy.AgentTool, recorder ToolDiscoveryRecorder, sessionID, turnID string) []fantasy.AgentTool {
