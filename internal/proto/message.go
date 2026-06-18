@@ -151,13 +151,19 @@ func (ToolCall) isPart() {}
 
 // ToolResult represents the result of a tool call.
 type ToolResult struct {
-	ToolCallID string `json:"tool_call_id"`
-	Name       string `json:"name"`
-	Content    string `json:"content"`
-	Data       string `json:"data,omitempty"`
-	MIMEType   string `json:"mime_type,omitempty"`
-	Metadata   string `json:"metadata"`
-	IsError    bool   `json:"is_error"`
+	ToolCallID       string `json:"tool_call_id"`
+	Name             string `json:"name"`
+	Content          string `json:"content"`
+	Data             string `json:"data,omitempty"`
+	MIMEType         string `json:"mime_type,omitempty"`
+	Metadata         string `json:"metadata"`
+	IsError          bool   `json:"is_error"`
+	DeliveredToModel bool   `json:"delivered_to_model,omitempty"`
+	DeliveredAtStep  int    `json:"delivered_at_step,omitempty"`
+	DeliveryReason   string `json:"delivery_reason,omitempty"`
+	StoredPath       string `json:"stored_path,omitempty"`
+	OriginalSize     int64  `json:"original_size,omitempty"`
+	TruncatedBy      string `json:"truncated_by,omitempty"`
 }
 
 func (ToolResult) isPart() {}

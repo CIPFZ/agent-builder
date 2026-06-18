@@ -67,7 +67,20 @@ func TestRuntimeBridgeForwardsReactCallchain(t *testing.T) {
 	t.Parallel()
 
 	service := &recordingRuntimeService{
-		reactCallchain:        RuntimeReactCallchainResponse{SessionID: "session-1", TurnID: "turn-1"},
+		reactCallchain: RuntimeReactCallchainResponse{
+			SessionID: "session-1",
+			TurnID:    "turn-1",
+			Summary: RuntimeReactCallSummary{
+				StopReason:        "model_stop",
+				StopReasonMessage: "Tool result delivered; final response is empty.",
+			},
+			ToolResultDeliveries: []RuntimeToolResultDelivery{{
+				ToolCallID:          "tool-1",
+				ToolResultMessageID: "msg-tool",
+				DeliveredToModel:    true,
+				DeliveredAtStep:     2,
+			}},
+		},
 		sessionReactCallchain: RuntimeReactCallchainResponse{SessionID: "session-1"},
 	}
 	bridge := &RuntimeBridge{service: service}
@@ -78,6 +91,9 @@ func TestRuntimeBridgeForwardsReactCallchain(t *testing.T) {
 	}
 	if service.reactCallchainTurnID != "turn-1" || turnResp.TurnID != "turn-1" {
 		t.Fatalf("turn callchain = %#v service turn=%q", turnResp, service.reactCallchainTurnID)
+	}
+	if turnResp.Summary.StopReasonMessage == "" || len(turnResp.ToolResultDeliveries) != 1 || !turnResp.ToolResultDeliveries[0].DeliveredToModel {
+		t.Fatalf("turn delivery = %#v summary=%#v", turnResp.ToolResultDeliveries, turnResp.Summary)
 	}
 
 	sessionResp, err := bridge.SessionReactCallchain(context.Background(), "session-1", 5)

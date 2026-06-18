@@ -7,9 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -133,6 +136,11 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet && r.URL.Path == "/v1/dev/module" {
 		s.handleDevModule(w, r)
 		return
+	}
+	if r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/v1/") {
+		if s.handleClientAsset(w, r) {
+			return
+		}
 	}
 	if !s.authorized(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -716,6 +724,61 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (s *runtimeHTTPServer) handleClientAsset(w http.ResponseWriter, r *http.Request) bool {
+	distDir, ok := findClientDistDir()
+	if !ok {
+		return false
+	}
+	requestPath := strings.TrimPrefix(r.URL.Path, "/")
+	if requestPath == "" {
+		requestPath = "index.html"
+	}
+	cleanPath := filepath.Clean(filepath.FromSlash(requestPath))
+	if cleanPath == "." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) || cleanPath == ".." || filepath.IsAbs(cleanPath) {
+		http.NotFound(w, r)
+		return true
+	}
+	filePath := filepath.Join(distDir, cleanPath)
+	if info, err := os.Stat(filePath); err != nil || info.IsDir() {
+		filePath = filepath.Join(distDir, "index.html")
+	}
+	if contentType := mime.TypeByExtension(filepath.Ext(filePath)); contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	http.ServeFile(w, r, filePath)
+	return true
+}
+
+func findClientDistDir() (string, bool) {
+	if value := strings.TrimSpace(os.Getenv("AGENT_BUILDER_CLIENT_DIST")); value != "" {
+		if hasClientIndex(value) {
+			return value, true
+		}
+		return "", false
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	dir := wd
+	for {
+		candidate := filepath.Join(dir, "client", "dist")
+		if hasClientIndex(candidate) {
+			return candidate, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
+}
+
+func hasClientIndex(dir string) bool {
+	info, err := os.Stat(filepath.Join(dir, "index.html"))
+	return err == nil && !info.IsDir()
 }
 
 func (s *runtimeHTTPServer) authorized(r *http.Request) bool {

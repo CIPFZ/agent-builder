@@ -266,11 +266,21 @@ type RuntimeInputHookOutcome struct {
 }
 
 type RuntimeReactCallchainResponse struct {
-	SessionID string                  `json:"sessionId"`
-	TurnID    string                  `json:"turnId,omitempty"`
-	Nodes     []RuntimeReactCallNode  `json:"nodes"`
-	Summary   RuntimeReactCallSummary `json:"summary"`
-	Source    RuntimeReactCallSource  `json:"source"`
+	SessionID            string                      `json:"sessionId"`
+	TurnID               string                      `json:"turnId,omitempty"`
+	Nodes                []RuntimeReactCallNode      `json:"nodes"`
+	Summary              RuntimeReactCallSummary     `json:"summary"`
+	Source               RuntimeReactCallSource      `json:"source"`
+	ToolResultDeliveries []RuntimeToolResultDelivery `json:"toolResultDeliveries,omitempty"`
+}
+
+type RuntimeToolResultDelivery struct {
+	ToolCallID          string `json:"toolCallId"`
+	ToolResultMessageID string `json:"toolResultMessageId,omitempty"`
+	DeliveredToModel    bool   `json:"deliveredToModel"`
+	DeliveredAtStep     int    `json:"deliveredAtStep,omitempty"`
+	Synthetic           bool   `json:"synthetic,omitempty"`
+	Reason              string `json:"reason,omitempty"`
 }
 
 type RuntimeReactCallNode struct {
@@ -295,14 +305,19 @@ type RuntimeReactCallNode struct {
 }
 
 type RuntimeReactCallSummary struct {
-	HasFinalAssistant         bool     `json:"hasFinalAssistant"`
-	FinalAssistantMessageID   string   `json:"finalAssistantMessageId,omitempty"`
-	LastAssistantFinishReason string   `json:"lastAssistantFinishReason,omitempty"`
-	ToolCallCount             int      `json:"toolCallCount"`
-	PermissionCount           int      `json:"permissionCount"`
-	HookCount                 int      `json:"hookCount"`
-	StopReason                string   `json:"stopReason,omitempty"`
-	MissingEvidence           []string `json:"missingEvidence,omitempty"`
+	HasFinalAssistant          bool                        `json:"hasFinalAssistant"`
+	FinalAssistantMessageID    string                      `json:"finalAssistantMessageId,omitempty"`
+	FinalAssistantEmpty        bool                        `json:"finalAssistantEmpty,omitempty"`
+	LastAssistantFinishReason  string                      `json:"lastAssistantFinishReason,omitempty"`
+	ToolCallCount              int                         `json:"toolCallCount"`
+	PermissionCount            int                         `json:"permissionCount"`
+	HookCount                  int                         `json:"hookCount"`
+	StopReason                 string                      `json:"stopReason,omitempty"`
+	StopReasonMessage          string                      `json:"stopReasonMessage,omitempty"`
+	MissingEvidence            []string                    `json:"missingEvidence,omitempty"`
+	ToolResultDeliveries       []RuntimeToolResultDelivery `json:"toolResultDeliveries,omitempty"`
+	DeliveredToolResultCount   int                         `json:"deliveredToolResultCount,omitempty"`
+	UndeliveredToolResultCount int                         `json:"undeliveredToolResultCount,omitempty"`
 }
 
 type RuntimeReactCallSource struct {
@@ -1379,23 +1394,29 @@ type RuntimeMessage struct {
 }
 
 type RuntimeMessagePart struct {
-	Type       string `json:"type"`
-	Text       string `json:"text,omitempty"`
-	Thinking   string `json:"thinking,omitempty"`
-	StartedAt  int64  `json:"startedAt,omitempty"`
-	FinishedAt int64  `json:"finishedAt,omitempty"`
-	ToolCallID string `json:"toolCallId,omitempty"`
-	Name       string `json:"name,omitempty"`
-	Input      string `json:"input,omitempty"`
-	Finished   bool   `json:"finished,omitempty"`
-	Content    string `json:"content,omitempty"`
-	Data       string `json:"data,omitempty"`
-	MIMEType   string `json:"mimeType,omitempty"`
-	Metadata   string `json:"metadata,omitempty"`
-	IsError    bool   `json:"isError,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-	Message    string `json:"message,omitempty"`
-	Details    string `json:"details,omitempty"`
+	Type             string `json:"type"`
+	Text             string `json:"text,omitempty"`
+	Thinking         string `json:"thinking,omitempty"`
+	StartedAt        int64  `json:"startedAt,omitempty"`
+	FinishedAt       int64  `json:"finishedAt,omitempty"`
+	ToolCallID       string `json:"toolCallId,omitempty"`
+	Name             string `json:"name,omitempty"`
+	Input            string `json:"input,omitempty"`
+	Finished         bool   `json:"finished,omitempty"`
+	Content          string `json:"content,omitempty"`
+	Data             string `json:"data,omitempty"`
+	MIMEType         string `json:"mimeType,omitempty"`
+	Metadata         string `json:"metadata,omitempty"`
+	IsError          bool   `json:"isError,omitempty"`
+	DeliveredToModel bool   `json:"deliveredToModel,omitempty"`
+	DeliveredAtStep  int    `json:"deliveredAtStep,omitempty"`
+	DeliveryReason   string `json:"deliveryReason,omitempty"`
+	Reason           string `json:"reason,omitempty"`
+	Message          string `json:"message,omitempty"`
+	Details          string `json:"details,omitempty"`
+	StoredPath       string `json:"storedPath,omitempty"`
+	OriginalSize     int64  `json:"originalSize,omitempty"`
+	TruncatedBy      string `json:"truncatedBy,omitempty"`
 }
 
 type RuntimeSession struct {

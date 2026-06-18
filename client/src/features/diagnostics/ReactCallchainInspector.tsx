@@ -43,8 +43,17 @@ export function ReactCallchainInspector({ callchain }: ReactCallchainInspectorPr
 
       <div className={styles.statusLine}>
         <Text type="secondary">Stop</Text>
-        <Text className={styles.truncate}>{summary.stopReason || 'running'}</Text>
+        <Text className={styles.truncate}>{summary.stopReasonMessage || summary.stopReason || 'running'}</Text>
       </div>
+
+      {summary.toolResultDeliveries?.length ? (
+        <div className={styles.statusLine}>
+          <Text type="secondary">Tool results</Text>
+          <Text className={styles.truncate}>
+            {summary.deliveredToolResultCount ?? 0} fed back / {summary.undeliveredToolResultCount ?? 0} pending
+          </Text>
+        </div>
+      ) : null}
 
       <div className={styles.nodes}>
         {callchain.nodes.map((node) => (
@@ -89,7 +98,24 @@ function CallchainNodeRow({ node }: { node: ReactCallchainNodeViewModel }) {
         </Text>
         {node.summary ? <Text className={styles.nodeSummary}>{node.summary}</Text> : null}
         {node.error ? <Text type="danger" className={styles.nodeSummary}>{node.error}</Text> : null}
+        {node.kind === 'tool_result' ? <ToolResultEvidence node={node} /> : null}
       </div>
+    </div>
+  );
+}
+
+function ToolResultEvidence({ node }: { node: ReactCallchainNodeViewModel }) {
+  const delivered = node.evidence?.deliveredToModel;
+  const persisted = node.evidence?.persistedOutput;
+  if (!delivered && !persisted) {
+    return null;
+  }
+  return (
+    <div className={styles.nodeTags}>
+      {delivered ? <Tag color={delivered === 'true' ? 'success' : 'warning'}>{delivered === 'true' ? 'fed back to model' : 'not fed back'}</Tag> : null}
+      {node.evidence?.deliveryReason ? <Tag>{node.evidence.deliveryReason}</Tag> : null}
+      {persisted === 'true' ? <Tag color="blue">persisted output</Tag> : null}
+      {node.evidence?.truncatedBy ? <Tag>{node.evidence.truncatedBy}</Tag> : null}
     </div>
   );
 }

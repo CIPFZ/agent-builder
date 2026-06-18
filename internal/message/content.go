@@ -116,6 +116,11 @@ type ToolResult struct {
 	MIMEType   string `json:"mime_type"`
 	Metadata   string `json:"metadata"`
 	IsError    bool   `json:"is_error"`
+	// Delivery fields are set when a persisted result is included in the
+	// next model input.
+	DeliveredToModel bool   `json:"delivered_to_model,omitempty"`
+	DeliveredAtStep  int    `json:"delivered_at_step,omitempty"`
+	DeliveryReason   string `json:"delivery_reason,omitempty"`
 	// Guard fields (set by ToolResultGuard, omitempty for backward compat)
 	StoredPath   string `json:"stored_path,omitempty"`
 	OriginalSize int64  `json:"original_size,omitempty"`

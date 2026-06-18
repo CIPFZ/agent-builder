@@ -77,6 +77,18 @@ func toProtoMessage(msg message.Message) proto.Message {
 				Metadata: p.Metadata,
 
 				IsError: p.IsError,
+
+				DeliveredToModel: p.DeliveredToModel,
+
+				DeliveredAtStep: p.DeliveredAtStep,
+
+				DeliveryReason: p.DeliveryReason,
+
+				StoredPath: p.StoredPath,
+
+				OriginalSize: p.OriginalSize,
+
+				TruncatedBy: p.TruncatedBy,
 			})
 
 		case message.Finish:
@@ -317,6 +329,18 @@ func toRuntimeMessageParts(msg proto.Message) []RuntimeMessagePart {
 				Metadata: preview(p.Metadata, runtimePartPreviewLimit),
 
 				IsError: p.IsError,
+
+				DeliveredToModel: p.DeliveredToModel,
+
+				DeliveredAtStep: p.DeliveredAtStep,
+
+				DeliveryReason: p.DeliveryReason,
+
+				StoredPath: p.StoredPath,
+
+				OriginalSize: p.OriginalSize,
+
+				TruncatedBy: p.TruncatedBy,
 			})
 
 		case proto.Finish:

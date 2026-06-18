@@ -139,6 +139,7 @@ func buildRuntimeReactCallchain(input runtimeReactCallchainInput) RuntimeReactCa
 			}
 		}
 	}
+	toolResultDeliveryByCallID := runtimeReactToolResultDeliveries(messages, toolCalls)
 
 	builder := runtimeReactBuilder{
 		sessionID:     input.sessionID,
@@ -198,6 +199,7 @@ func buildRuntimeReactCallchain(input runtimeReactCallchainInput) RuntimeReactCa
 			if kind == reactNodeAssistantFinal {
 				builder.summary.HasFinalAssistant = true
 				builder.summary.FinalAssistantMessageID = msg.ID
+				builder.summary.FinalAssistantEmpty = runtimeReactAssistantEmpty(msg)
 			}
 			if msg.FinishReason != "" {
 				builder.summary.LastAssistantFinishReason = msg.FinishReason
@@ -262,7 +264,7 @@ func buildRuntimeReactCallchain(input runtimeReactCallchainInput) RuntimeReactCa
 					Error:      firstNonEmpty(call.Error, runtimeReactPartError(part)),
 					StartedAt:  msg.CreatedAt,
 					FinishedAt: msg.CreatedAt,
-					Evidence:   map[string]string{"messagePart": "tool_result"},
+					Evidence:   runtimeReactToolResultEvidence(part, toolResultDeliveryByCallID[part.ToolCallID]),
 				})
 				builder.toolResultIDs[part.ToolCallID] = struct{}{}
 			}
@@ -291,6 +293,27 @@ func buildRuntimeReactCallchain(input runtimeReactCallchainInput) RuntimeReactCa
 		}
 		if _, ok := toolResultByCallID[call.ID]; !ok && isFinalToolCallStatus(call.Status) && call.Status != "denied" && call.Status != "cancelled" {
 			builder.missing("assistant_tool_call_without_tool_result:" + call.ID)
+			if delivery, ok := toolResultDeliveryByCallID[call.ID]; ok && delivery.Synthetic {
+				builder.add(RuntimeReactCallNode{
+					ID:         "synthetic_recovery:" + call.ID,
+					ParentID:   parentID,
+					Kind:       reactNodeSyntheticRecovery,
+					SessionID:  call.SessionID,
+					TurnID:     call.TurnID,
+					MessageID:  call.MessageID,
+					ToolCallID: call.ID,
+					Status:     "synthetic",
+					Title:      firstNonEmpty(call.Display.Title, call.Name, "Synthetic recovery"),
+					Summary:    delivery.Reason,
+					StartedAt:  call.FinishedAt,
+					FinishedAt: call.FinishedAt,
+					Evidence: map[string]string{
+						"deliveredToModel": fmt.Sprint(delivery.DeliveredToModel),
+						"synthetic":        fmt.Sprint(delivery.Synthetic),
+						"reason":           delivery.Reason,
+					},
+				})
+			}
 		}
 		if _, ok := toolResultByCallID[call.ID]; ok && call.Status != "" && !runtimeReactToolResultStatusCompatible(call.Status) {
 			builder.missing("tool_call_status_conflicts_with_message_result:" + call.ID)
@@ -374,13 +397,23 @@ func buildRuntimeReactCallchain(input runtimeReactCallchainInput) RuntimeReactCa
 	if lastAssistant.FinishReason != "" {
 		builder.summary.LastAssistantFinishReason = lastAssistant.FinishReason
 	}
+	builder.summary.ToolResultDeliveries = runtimeReactSortedDeliveries(toolResultDeliveryByCallID)
+	for _, delivery := range builder.summary.ToolResultDeliveries {
+		if delivery.DeliveredToModel {
+			builder.summary.DeliveredToolResultCount++
+		} else {
+			builder.summary.UndeliveredToolResultCount++
+		}
+	}
 	builder.summary.StopReason = runtimeReactStopReason(turns, permissions, hooks, builder.summary)
+	builder.summary.StopReasonMessage = runtimeReactStopReasonMessage(builder.summary.StopReason, builder.summary)
 	builder.finish()
 	return RuntimeReactCallchainResponse{
-		SessionID: input.sessionID,
-		TurnID:    input.turnID,
-		Nodes:     builder.nodes,
-		Summary:   builder.summary,
+		SessionID:            input.sessionID,
+		TurnID:               input.turnID,
+		Nodes:                builder.nodes,
+		Summary:              builder.summary,
+		ToolResultDeliveries: builder.summary.ToolResultDeliveries,
 		Source: RuntimeReactCallSource{
 			SessionActivityParity: true,
 			UsesMessages:          true,
@@ -551,11 +584,112 @@ func runtimeReactAssistantStatus(msg RuntimeMessage) string {
 	return "running"
 }
 
+func runtimeReactAssistantEmpty(msg RuntimeMessage) bool {
+	if strings.TrimSpace(msg.Content) != "" {
+		return false
+	}
+	for _, part := range msg.Parts {
+		if strings.TrimSpace(part.Text) != "" || strings.TrimSpace(part.Thinking) != "" || strings.TrimSpace(part.Content) != "" {
+			return false
+		}
+	}
+	return true
+}
+
 func runtimeReactPartError(part RuntimeMessagePart) string {
 	if part.IsError {
 		return firstNonEmpty(part.Content, part.Data)
 	}
 	return ""
+}
+
+func runtimeReactToolResultEvidence(part RuntimeMessagePart, delivery RuntimeToolResultDelivery) map[string]string {
+	evidence := map[string]string{"messagePart": "tool_result"}
+	if part.StoredPath != "" {
+		evidence["storedPath"] = part.StoredPath
+		evidence["persistedOutput"] = "true"
+	}
+	if part.OriginalSize > 0 {
+		evidence["originalSize"] = fmt.Sprint(part.OriginalSize)
+	}
+	if part.TruncatedBy != "" {
+		evidence["truncatedBy"] = part.TruncatedBy
+	}
+	if delivery.ToolCallID != "" {
+		evidence["deliveredToModel"] = fmt.Sprint(delivery.DeliveredToModel)
+		if delivery.DeliveredAtStep > 0 {
+			evidence["deliveredAtStep"] = fmt.Sprint(delivery.DeliveredAtStep)
+		}
+		if delivery.Synthetic {
+			evidence["synthetic"] = "true"
+		}
+		if delivery.Reason != "" {
+			evidence["deliveryReason"] = delivery.Reason
+		}
+	}
+	return evidence
+}
+
+func runtimeReactToolResultDeliveries(messages []RuntimeMessage, toolCalls []RuntimeToolCall) map[string]RuntimeToolResultDelivery {
+	deliveries := map[string]RuntimeToolResultDelivery{}
+	for _, msg := range messages {
+		if msg.Role != string(message.Tool) {
+			continue
+		}
+		for _, part := range msg.Parts {
+			if part.Type != "tool_result" || part.ToolCallID == "" {
+				continue
+			}
+			deliveries[part.ToolCallID] = RuntimeToolResultDelivery{
+				ToolCallID:          part.ToolCallID,
+				ToolResultMessageID: msg.ID,
+				DeliveredToModel:    part.DeliveredToModel,
+				DeliveredAtStep:     part.DeliveredAtStep,
+				Synthetic:           runtimeReactToolResultSynthetic(part),
+				Reason:              part.DeliveryReason,
+			}
+		}
+	}
+	for _, call := range toolCalls {
+		if call.ID == "" {
+			continue
+		}
+		if _, ok := deliveries[call.ID]; ok {
+			continue
+		}
+		if isFinalToolCallStatus(call.Status) && call.Status != "denied" && call.Status != "cancelled" {
+			deliveries[call.ID] = RuntimeToolResultDelivery{
+				ToolCallID:       call.ID,
+				DeliveredToModel: false,
+				Synthetic:        true,
+				Reason:           "missing_tool_result_synthetic_recovery",
+			}
+		}
+	}
+	return deliveries
+}
+
+func runtimeReactToolResultSynthetic(part RuntimeMessagePart) bool {
+	if !part.IsError {
+		return false
+	}
+	text := strings.ToLower(firstNonEmpty(part.Content, part.Data))
+	return strings.Contains(text, "there was an error while executing the tool") ||
+		strings.Contains(text, "user cancelled assistant tool calling")
+}
+
+func runtimeReactSortedDeliveries(deliveries map[string]RuntimeToolResultDelivery) []RuntimeToolResultDelivery {
+	out := make([]RuntimeToolResultDelivery, 0, len(deliveries))
+	for _, delivery := range deliveries {
+		out = append(out, delivery)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].DeliveredAtStep != out[j].DeliveredAtStep {
+			return out[i].DeliveredAtStep < out[j].DeliveredAtStep
+		}
+		return out[i].ToolCallID < out[j].ToolCallID
+	})
+	return out
 }
 
 func runtimeReactToolResultStatusCompatible(status string) bool {
@@ -624,7 +758,7 @@ func runtimeReactStopReason(turns []RuntimeTurn, permissions []RuntimePermission
 		}
 	}
 	for _, hook := range hooks {
-		if hook.Status == hookStatusBlocked || hook.Status == hookStatusDenied {
+		if runtimeReactHookHaltedTurn(hook) {
 			return "hook_halted"
 		}
 	}
@@ -651,7 +785,49 @@ func runtimeReactStopReason(turns []RuntimeTurn, permissions []RuntimePermission
 		}
 	}
 	if runtimeReactTurnsTerminal(turns) {
-		return "completed_without_final_assistant"
+		return "model_stop"
 	}
 	return ""
+}
+
+func runtimeReactHookHaltedTurn(hook RuntimeHookExecution) bool {
+	if hook.Status != hookStatusBlocked && hook.Status != hookStatusDenied {
+		return false
+	}
+	if hook.Event == "PostToolUse" || hook.Event == "PostToolUseFailure" {
+		return true
+	}
+	reason := strings.ToLower(hook.Reason)
+	return strings.Contains(reason, "turn halted") || strings.Contains(reason, `"halt":true`)
+}
+
+func runtimeReactStopReasonMessage(reason string, summary RuntimeReactCallSummary) string {
+	switch reason {
+	case "permission_denied":
+		return "Stopped after permission denial."
+	case "hook_halted":
+		return "Stopped by hook."
+	case "provider_error":
+		if summary.DeliveredToolResultCount > 0 {
+			return "Provider failed after tool result."
+		}
+		return "Provider failed."
+	case "context_limit":
+		return "Stopped at context limit."
+	case "loop_detected":
+		return "Stopped after loop detection."
+	case "cancelled":
+		return "Cancelled."
+	case "interrupted":
+		return "Interrupted."
+	case "model_stop":
+		if summary.DeliveredToolResultCount > 0 && (!summary.HasFinalAssistant || summary.FinalAssistantEmpty) {
+			return "Tool result delivered; final response is empty."
+		}
+		return "Model stopped."
+	case "tool_use_followup":
+		return "Continuing after tool use."
+	default:
+		return ""
+	}
 }

@@ -918,6 +918,76 @@ func TestAgentContinuesAfterSchedulerPolicyDeny(t *testing.T) {
 	require.Equal(t, message.FinishReasonEndTurn, last.FinishReason())
 }
 
+func TestMarkDeliveredToolResultsPersistsPreparedModelInputEvidence(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	agent := testSessionAgent(env, nil, nil, "test prompt").(*sessionAgent)
+
+	sess, err := env.sessions.Create(t.Context(), "test")
+	require.NoError(t, err)
+	_, err = env.messages.Create(t.Context(), sess.ID, message.CreateMessageParams{
+		Role: message.Assistant,
+		Parts: []message.ContentPart{
+			message.ToolCall{ID: "tool-1", Name: "bash", Input: "{}", Finished: true},
+		},
+	})
+	require.NoError(t, err)
+	_, err = env.messages.Create(t.Context(), sess.ID, message.CreateMessageParams{
+		Role: message.Tool,
+		Parts: []message.ContentPart{
+			message.ToolResult{ToolCallID: "tool-1", Name: "bash", Content: "tool output"},
+			message.ToolResult{ToolCallID: "other-tool", Name: "bash", Content: "not delivered"},
+		},
+	})
+	require.NoError(t, err)
+
+	prepared := []fantasy.Message{
+		{
+			Role: fantasy.MessageRoleAssistant,
+			Content: []fantasy.MessagePart{
+				fantasy.ToolCallPart{ToolCallID: "tool-1", ToolName: "bash", Input: "{}"},
+			},
+		},
+		{
+			Role: fantasy.MessageRoleTool,
+			Content: []fantasy.MessagePart{
+				fantasy.ToolResultPart{
+					ToolCallID: "tool-1",
+					Output:     fantasy.ToolResultOutputContentText{Text: "tool output"},
+				},
+			},
+		},
+	}
+	require.NoError(t, agent.markDeliveredToolResults(t.Context(), sess.ID, prepared, 2))
+
+	msgs, err := env.messages.List(t.Context(), sess.ID)
+	require.NoError(t, err)
+	var result *message.ToolResult
+	var other *message.ToolResult
+	for _, msg := range msgs {
+		if msg.Role != message.Tool {
+			continue
+		}
+		for _, tr := range msg.ToolResults() {
+			if tr.ToolCallID == "tool-1" {
+				copy := tr
+				result = &copy
+			}
+			if tr.ToolCallID == "other-tool" {
+				copy := tr
+				other = &copy
+			}
+		}
+	}
+	require.NotNil(t, result)
+	require.True(t, result.DeliveredToModel)
+	require.Equal(t, 2, result.DeliveredAtStep)
+	require.Equal(t, "included_in_model_input", result.DeliveryReason)
+	require.NotNil(t, other)
+	require.False(t, other.DeliveredToModel)
+}
+
 type scriptedToolDenyModel struct {
 	streamFunc func(context.Context, fantasy.Call) (fantasy.StreamResponse, error)
 }

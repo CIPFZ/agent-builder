@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "smoke:phase02": "node scripts/phase02-input-normalization-adapter-smoke.mjs",
+    "smoke:phase03": "node scripts/phase03-tool-loop-diagnostics-smoke.mjs",
     "smoke:phase88": "node scripts/phase88-resume-control-smoke.mjs",
     "smoke:phase1010": "node scripts/phase1010-transition-binding-smoke.mjs",
     "smoke:phase263": "node scripts/phase263-execute-adapter-smoke.mjs",

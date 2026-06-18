@@ -281,6 +281,16 @@ export interface ReactCallchainViewModel {
   nodes: ReactCallchainNodeViewModel[];
   summary: ReactCallchainSummaryViewModel;
   source: ReactCallchainSourceViewModel;
+  toolResultDeliveries?: ToolResultDeliveryViewModel[];
+}
+
+export interface ToolResultDeliveryViewModel {
+  toolCallId: string;
+  toolResultMessageId?: string;
+  deliveredToModel: boolean;
+  deliveredAtStep?: number;
+  synthetic?: boolean;
+  reason?: string;
 }
 
 export interface ReactCallchainNodeViewModel {
@@ -307,12 +317,17 @@ export interface ReactCallchainNodeViewModel {
 export interface ReactCallchainSummaryViewModel {
   hasFinalAssistant: boolean;
   finalAssistantMessageId?: string;
+  finalAssistantEmpty?: boolean;
   lastAssistantFinishReason?: string;
   toolCallCount: number;
   permissionCount: number;
   hookCount: number;
   stopReason?: string;
+  stopReasonMessage?: string;
   missingEvidence: string[];
+  toolResultDeliveries?: ToolResultDeliveryViewModel[];
+  deliveredToolResultCount?: number;
+  undeliveredToolResultCount?: number;
 }
 
 export interface ReactCallchainSourceViewModel {

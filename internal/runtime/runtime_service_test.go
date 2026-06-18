@@ -2818,7 +2818,7 @@ func TestRuntimeMessagePartsExposeToolResults(t *testing.T) {
 		SessionID: "session-1",
 		Role:      proto.Tool,
 		Parts: []proto.ContentPart{
-			proto.ToolResult{ToolCallID: "tool-1", Name: "ls", Content: "file.txt", IsError: false},
+			proto.ToolResult{ToolCallID: "tool-1", Name: "ls", Content: "file.txt", IsError: false, DeliveredToModel: true, DeliveredAtStep: 2, DeliveryReason: "included_in_model_input"},
 		},
 	}
 
@@ -2834,6 +2834,9 @@ func TestRuntimeMessagePartsExposeToolResults(t *testing.T) {
 	}
 	if got.Parts[0].Type != "tool_result" || got.Parts[0].ToolCallID != "tool-1" || got.Parts[0].Content != "file.txt" {
 		t.Fatalf("tool result part not exposed: %#v", got.Parts[0])
+	}
+	if !got.Parts[0].DeliveredToModel || got.Parts[0].DeliveredAtStep != 2 || got.Parts[0].DeliveryReason != "included_in_model_input" {
+		t.Fatalf("tool result delivery not exposed: %#v", got.Parts[0])
 	}
 }
 

@@ -110,6 +110,12 @@
   overflow-wrap: anywhere;
 }
 
+.nodeTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 .source {
   display: flex;
   flex-wrap: wrap;

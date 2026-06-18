@@ -553,6 +553,16 @@ interface RuntimeReactCallchainDTO {
   nodes?: RuntimeReactCallNodeDTO[];
   summary?: RuntimeReactCallSummaryDTO;
   source?: RuntimeReactCallSourceDTO;
+  toolResultDeliveries?: RuntimeToolResultDeliveryDTO[];
+}
+
+interface RuntimeToolResultDeliveryDTO {
+  toolCallId?: string;
+  toolResultMessageId?: string;
+  deliveredToModel?: boolean;
+  deliveredAtStep?: number;
+  synthetic?: boolean;
+  reason?: string;
 }
 
 interface RuntimeReactCallNodeDTO {
@@ -579,12 +589,17 @@ interface RuntimeReactCallNodeDTO {
 interface RuntimeReactCallSummaryDTO {
   hasFinalAssistant?: boolean;
   finalAssistantMessageId?: string;
+  finalAssistantEmpty?: boolean;
   lastAssistantFinishReason?: string;
   toolCallCount?: number;
   permissionCount?: number;
   hookCount?: number;
   stopReason?: string;
+  stopReasonMessage?: string;
   missingEvidence?: string[];
+  toolResultDeliveries?: RuntimeToolResultDeliveryDTO[];
+  deliveredToolResultCount?: number;
+  undeliveredToolResultCount?: number;
 }
 
 interface RuntimeReactCallSourceDTO {
@@ -1948,6 +1963,9 @@ function mapReactCallchain(callchain?: RuntimeReactCallchainDTO): ReactCallchain
     .sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id));
   const summary = callchain.summary ?? {};
   const source = callchain.source ?? {};
+  const topLevelDeliveries = mapToolResultDeliveries(callchain.toolResultDeliveries);
+  const summaryDeliveries = mapToolResultDeliveries(summary.toolResultDeliveries);
+  const toolResultDeliveries = topLevelDeliveries.length ? topLevelDeliveries : summaryDeliveries;
   return {
     sessionId: callchain.sessionId,
     turnId: callchain.turnId,
@@ -1955,12 +1973,17 @@ function mapReactCallchain(callchain?: RuntimeReactCallchainDTO): ReactCallchain
     summary: {
       hasFinalAssistant: Boolean(summary.hasFinalAssistant),
       finalAssistantMessageId: summary.finalAssistantMessageId,
+      finalAssistantEmpty: Boolean(summary.finalAssistantEmpty),
       lastAssistantFinishReason: summary.lastAssistantFinishReason,
       toolCallCount: summary.toolCallCount ?? 0,
       permissionCount: summary.permissionCount ?? 0,
       hookCount: summary.hookCount ?? 0,
       stopReason: summary.stopReason,
+      stopReasonMessage: summary.stopReasonMessage,
       missingEvidence: Array.isArray(summary.missingEvidence) ? summary.missingEvidence : [],
+      toolResultDeliveries,
+      deliveredToolResultCount: summary.deliveredToolResultCount,
+      undeliveredToolResultCount: summary.undeliveredToolResultCount,
     },
     source: {
       sessionActivityParity: Boolean(source.sessionActivityParity),
@@ -1970,7 +1993,24 @@ function mapReactCallchain(callchain?: RuntimeReactCallchainDTO): ReactCallchain
       usesHooks: Boolean(source.usesHooks),
       eventsAreRefreshOnly: Boolean(source.eventsAreRefreshOnly),
     },
+    toolResultDeliveries,
   };
+}
+
+function mapToolResultDeliveries(deliveries?: RuntimeToolResultDeliveryDTO[]) {
+  if (!Array.isArray(deliveries)) {
+    return [];
+  }
+  return deliveries
+    .filter((delivery) => Boolean(delivery.toolCallId))
+    .map((delivery) => ({
+      toolCallId: delivery.toolCallId || '',
+      toolResultMessageId: delivery.toolResultMessageId,
+      deliveredToModel: Boolean(delivery.deliveredToModel),
+      deliveredAtStep: delivery.deliveredAtStep,
+      synthetic: Boolean(delivery.synthetic),
+      reason: delivery.reason,
+    }));
 }
 
 function mapRunSchedulerPlanCandidates(response?: RuntimeRunSchedulerPlanResponseDTO): RunSchedulerTaskCandidateViewModel[] {

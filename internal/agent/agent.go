@@ -350,6 +350,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			if err != nil {
 				return callContext, prepared, err
 			}
+			if err := a.markDeliveredToolResults(callContext, call.SessionID, prepared.Messages, stepNumber(prepared.Messages)); err != nil {
+				return callContext, prepared, err
+			}
 			callContext = context.WithValue(callContext, tools.MessageIDContextKey, assistantMsg.ID)
 			callContext = context.WithValue(callContext, tools.SupportsImagesContextKey, largeModel.CatwalkCfg.SupportsImages)
 			callContext = context.WithValue(callContext, tools.ModelNameContextKey, largeModel.CatwalkCfg.Name)
@@ -966,6 +969,75 @@ If not, please feel free to ignore. Again do not mention this message to the use
 	}
 
 	return history, files
+}
+
+func stepNumber(messages []fantasy.Message) int {
+	steps := 0
+	for _, msg := range messages {
+		if msg.Role == fantasy.MessageRoleAssistant {
+			steps++
+		}
+	}
+	if steps == 0 {
+		return 1
+	}
+	return steps
+}
+
+func (a *sessionAgent) markDeliveredToolResults(ctx context.Context, sessionID string, prepared []fantasy.Message, deliveredAtStep int) error {
+	deliveredIDs := toolResultIDsInPreparedMessages(prepared)
+	if len(deliveredIDs) == 0 {
+		return nil
+	}
+	msgs, err := a.messages.List(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	for _, msg := range msgs {
+		if msg.Role != message.Tool {
+			continue
+		}
+		parts := make([]message.ContentPart, len(msg.Parts))
+		copy(parts, msg.Parts)
+		updated := false
+		for i, part := range parts {
+			result, ok := part.(message.ToolResult)
+			if !ok {
+				continue
+			}
+			if _, ok := deliveredIDs[result.ToolCallID]; !ok || result.DeliveredToModel {
+				continue
+			}
+			result.DeliveredToModel = true
+			result.DeliveredAtStep = deliveredAtStep
+			result.DeliveryReason = "included_in_model_input"
+			parts[i] = result
+			updated = true
+		}
+		if !updated {
+			continue
+		}
+		msg.Parts = parts
+		if err := a.messages.Update(ctx, msg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func toolResultIDsInPreparedMessages(messages []fantasy.Message) map[string]struct{} {
+	ids := map[string]struct{}{}
+	for _, msg := range messages {
+		if msg.Role != fantasy.MessageRoleTool {
+			continue
+		}
+		for _, part := range msg.Content {
+			if tr, ok := fantasy.AsMessagePart[fantasy.ToolResultPart](part); ok && tr.ToolCallID != "" {
+				ids[tr.ToolCallID] = struct{}{}
+			}
+		}
+	}
+	return ids
 }
 
 // filterFileParts removes fantasy.FilePart entries from a slice of message

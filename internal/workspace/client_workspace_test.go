@@ -23,13 +23,19 @@ func TestProtoToMessageToolResult(t *testing.T) {
 		Role: proto.Tool,
 		Parts: []proto.ContentPart{
 			proto.ToolResult{
-				ToolCallID: "call-1",
-				Name:       "view",
-				Content:    "<file>\n  1| hi\n</file>",
-				Data:       "base64data",
-				MIMEType:   "image/png",
-				Metadata:   `{"file_path":"/tmp/x","content":"hi"}`,
-				IsError:    false,
+				ToolCallID:       "call-1",
+				Name:             "view",
+				Content:          "<file>\n  1| hi\n</file>",
+				Data:             "base64data",
+				MIMEType:         "image/png",
+				Metadata:         `{"file_path":"/tmp/x","content":"hi"}`,
+				IsError:          false,
+				DeliveredToModel: true,
+				DeliveredAtStep:  2,
+				DeliveryReason:   "included_in_model_input",
+				StoredPath:       ".crush/results/session/call-1.txt",
+				OriginalSize:     64000,
+				TruncatedBy:      "single",
 			},
 		},
 	}
@@ -45,6 +51,12 @@ func TestProtoToMessageToolResult(t *testing.T) {
 	require.Equal(t, "image/png", tr.MIMEType)
 	require.Equal(t, `{"file_path":"/tmp/x","content":"hi"}`, tr.Metadata)
 	require.False(t, tr.IsError)
+	require.True(t, tr.DeliveredToModel)
+	require.Equal(t, 2, tr.DeliveredAtStep)
+	require.Equal(t, "included_in_model_input", tr.DeliveryReason)
+	require.Equal(t, ".crush/results/session/call-1.txt", tr.StoredPath)
+	require.Equal(t, int64(64000), tr.OriginalSize)
+	require.Equal(t, "single", tr.TruncatedBy)
 }
 
 func TestProtoToSkillStates(t *testing.T) {

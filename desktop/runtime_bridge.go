@@ -52,6 +52,7 @@ type RuntimeReactCallchainResponse = runtime.RuntimeReactCallchainResponse
 type RuntimeReactCallNode = runtime.RuntimeReactCallNode
 type RuntimeReactCallSummary = runtime.RuntimeReactCallSummary
 type RuntimeReactCallSource = runtime.RuntimeReactCallSource
+type RuntimeToolResultDelivery = runtime.RuntimeToolResultDelivery
 type RuntimeRun = runtime.RuntimeRun
 type RuntimeRunsResponse = runtime.RuntimeRunsResponse
 type RuntimeRunResponse = runtime.RuntimeRunResponse

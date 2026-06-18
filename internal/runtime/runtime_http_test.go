@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -31,6 +33,48 @@ func TestRuntimeHTTPServerRequiresBearerToken(t *testing.T) {
 	resp := httptestResponse(server, req)
 	if resp.status != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", resp.status, http.StatusUnauthorized)
+	}
+}
+
+func TestRuntimeHTTPServerServesClientShellWithoutToken(t *testing.T) {
+	distDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte(`<!doctype html><title>Agent Builder</title><div id="root"></div>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(distDir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(distDir, "assets", "app.js"), []byte(`console.log("ok")`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENT_BUILDER_CLIENT_DIST", distDir)
+
+	server := newRuntimeHTTPServer(&recordingRuntimeService{})
+	req, err := http.NewRequest(http.MethodGet, "/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK || !strings.Contains(resp.body.String(), "Agent Builder") {
+		t.Fatalf("client shell status = %d body = %s", resp.status, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/assets/app.js", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || !strings.Contains(resp.body.String(), `console.log("ok")`) {
+		t.Fatalf("client asset status = %d body = %s", resp.status, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/runtime/status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusUnauthorized {
+		t.Fatalf("api status = %d, want unauthorized", resp.status)
 	}
 }
 
@@ -564,6 +608,26 @@ func TestRuntimeHTTPServerRoutesReactCallchainToRuntimeService(t *testing.T) {
 				TurnID:    "turn-1",
 				Sequence:  1,
 			}},
+			Summary: RuntimeReactCallSummary{
+				StopReason:                 "model_stop",
+				StopReasonMessage:          "Tool result delivered; final response is empty.",
+				DeliveredToolResultCount:   1,
+				UndeliveredToolResultCount: 0,
+				ToolResultDeliveries: []RuntimeToolResultDelivery{{
+					ToolCallID:          "tool-1",
+					ToolResultMessageID: "msg-tool",
+					DeliveredToModel:    true,
+					DeliveredAtStep:     2,
+					Reason:              "included_in_model_input",
+				}},
+			},
+			ToolResultDeliveries: []RuntimeToolResultDelivery{{
+				ToolCallID:          "tool-1",
+				ToolResultMessageID: "msg-tool",
+				DeliveredToModel:    true,
+				DeliveredAtStep:     2,
+				Reason:              "included_in_model_input",
+			}},
 			Source: RuntimeReactCallSource{SessionActivityParity: true, EventsAreRefreshOnly: true},
 		},
 		sessionReactCallchain: RuntimeReactCallchainResponse{
@@ -597,6 +661,9 @@ func TestRuntimeHTTPServerRoutesReactCallchainToRuntimeService(t *testing.T) {
 	}
 	if turnCallchain.TurnID != "turn-1" || len(turnCallchain.Nodes) != 1 || !turnCallchain.Source.EventsAreRefreshOnly {
 		t.Fatalf("turn callchain = %#v", turnCallchain)
+	}
+	if turnCallchain.Summary.StopReasonMessage != "Tool result delivered; final response is empty." || len(turnCallchain.ToolResultDeliveries) != 1 || !turnCallchain.ToolResultDeliveries[0].DeliveredToModel {
+		t.Fatalf("turn delivery = %#v summary=%#v", turnCallchain.ToolResultDeliveries, turnCallchain.Summary)
 	}
 
 	req, err = http.NewRequest(http.MethodGet, "/v1/sessions/session-1/react-callchain?limit=3", nil)
@@ -701,7 +768,15 @@ func TestRuntimeHTTPServerDevModuleRoutesReactCallchain(t *testing.T) {
 	t.Parallel()
 
 	service := &recordingRuntimeService{
-		reactCallchain:        RuntimeReactCallchainResponse{SessionID: "session-1", TurnID: "turn-1"},
+		reactCallchain: RuntimeReactCallchainResponse{
+			SessionID: "session-1",
+			TurnID:    "turn-1",
+			Summary: RuntimeReactCallSummary{
+				StopReason:        "model_stop",
+				StopReasonMessage: "Tool result delivered; final response is empty.",
+			},
+			ToolResultDeliveries: []RuntimeToolResultDelivery{{ToolCallID: "tool-1", DeliveredToModel: true}},
+		},
 		sessionReactCallchain: RuntimeReactCallchainResponse{SessionID: "session-1"},
 	}
 	server := newRuntimeHTTPServer(service)
@@ -716,6 +791,10 @@ func TestRuntimeHTTPServerDevModuleRoutesReactCallchain(t *testing.T) {
 	}
 	if service.reactCallchainTurnID != "turn-1" {
 		t.Fatalf("turn id = %q", service.reactCallchainTurnID)
+	}
+	body := resp.body.String()
+	if !strings.Contains(body, "Tool result delivered; final response is empty.") || !strings.Contains(body, "deliveredToModel") {
+		t.Fatalf("turn module body = %s", body)
 	}
 
 	req, err = http.NewRequest(http.MethodGet, "/v1/dev/module?method=GET&path=%2Fv1%2Fsessions%2Fsession-1%2Freact-callchain%3Flimit%3D4&token="+server.Token(), nil)
