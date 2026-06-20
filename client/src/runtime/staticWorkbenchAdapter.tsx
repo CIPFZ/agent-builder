@@ -78,6 +78,7 @@ export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): W
     turnDiagnostics: undefined,
     interruptedTurn: undefined,
     runProjection: undefined,
+    agentTasks: [],
     reactCallchain: undefined,
     contextDiagnostics: undefined,
     pendingPermissions: [],
@@ -160,6 +161,12 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
     return runtimeUnavailable();
   },
   async executeRunTask() {
+    return runtimeUnavailable();
+  },
+  async sendAgentTaskFollowUp() {
+    return runtimeUnavailable();
+  },
+  async cancelAgentTask() {
     return runtimeUnavailable();
   },
   async listSessionTerminals() {

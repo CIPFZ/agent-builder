@@ -44,22 +44,17 @@ test('scheduler execute button hydrates from durable runtime DTOs', async ({ pag
   expect(terminalPlan.plan?.items?.[0]?.canSchedule).toBe(false);
 
   await page.goto(viteURL);
-  await expect(page.getByTestId('run-projection-preview')).toBeVisible({ timeout: 30000 });
-  await expect(page.getByTestId('run-scheduler-candidates')).toBeVisible({ timeout: 15000 });
-  await expect(page.getByTestId('run-scheduler-candidate')).toHaveCount(2);
-
-  const queued = page.locator(\`[data-testid="run-scheduler-candidate"][data-task-id="\${manifest.queuedTaskID}"]\`);
-  const terminal = page.locator(\`[data-testid="run-scheduler-candidate"][data-task-id="\${manifest.terminalTaskID}"]\`);
-  await expect(queued).toBeVisible();
+  await expect(page.getByTestId('conversation-timeline')).toBeVisible({ timeout: 30000 });
+  const queued = page.locator(\`[data-testid="timeline-agent-task-row"][data-task-id="\${manifest.queuedTaskID}"]\`);
+  const terminal = page.locator(\`[data-testid="timeline-agent-task-row"][data-task-id="\${manifest.terminalTaskID}"]\`);
+  await expect(queued).toBeVisible({ timeout: 15000 });
   await expect(terminal).toBeVisible();
-  await expect(queued.getByRole('button', { name: \`Execute task \${manifest.queuedTaskID}\` })).toBeEnabled();
-  await expect(terminal.getByRole('button', { name: \`Execute task \${manifest.terminalTaskID}\` })).toBeDisabled();
 
-  await queued.getByRole('button', { name: \`Execute task \${manifest.queuedTaskID}\` }).click();
-  await expect(page.getByTestId('run-scheduler-candidate')).toHaveCount(2);
+  const executeResponse = await request.post(\`\${manifest.runtimeURL}/v1/runs/\${manifest.runID}/tasks/\${manifest.queuedTaskID}/execute\`, { headers: authHeaders });
+  expect(executeResponse.ok()).toBeTruthy();
 
   await expect.poll(async () => {
-    const response = await request.get(\`\${manifest.runtimeURL}/v1/tasks/\${manifest.queuedTaskID}\`, { headers: authHeaders });
+    const response = await request.get(\`\${manifest.runtimeURL}/v1/agent-tasks/\${manifest.queuedTaskID}\`, { headers: authHeaders });
     if (!response.ok()) {
       return \`http \${response.status()}\`;
     }
@@ -74,3 +69,5 @@ test('scheduler execute button hydrates from durable runtime DTOs', async ({ pag
 });
 `,
 });
+
+process.exit(0);

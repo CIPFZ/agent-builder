@@ -85,7 +85,7 @@ function startProcess(children, harnessRoot, label, command, args, cwd, env = {}
     shell: needsShell(command),
     windowsHide: true,
   });
-  children.push({ child, label });
+  children.push({ child, label, log });
   writeFileSync(resolve(harnessRoot, `${label}.pid`), `${child.pid ?? ''}\n`, { encoding: 'utf8' });
   child.stdout.on('data', (chunk) => log.write(redact(chunk.toString())));
   child.stderr.on('data', (chunk) => log.write(redact(chunk.toString())));
@@ -100,6 +100,7 @@ function runProcess(children, harnessRoot, label, command, args, cwd, env = {}) 
   return new Promise((resolveRun, rejectRun) => {
     const child = startProcess(children, harnessRoot, label, command, args, cwd, env);
     child.on('exit', (code) => {
+      removeChild(children, child);
       if (code === 0) {
         resolveRun();
         return;
@@ -156,11 +157,26 @@ function waitForExit(child, timeoutMS) {
 }
 
 async function cleanupChildren(children) {
-  for (const { child, label } of children.reverse()) {
+  for (const entry of children.reverse()) {
+    const { child, label } = entry;
+    if (child.exitCode === null && child.pid) {
+      await killProcessTree(child.pid, label);
+    }
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    if (entry.log && !entry.log.closed) {
+      entry.log.end();
+    }
     if (child.exitCode !== null || !child.pid) {
       continue;
     }
-    await killProcessTree(child.pid, label);
+  }
+}
+
+function removeChild(children, child) {
+  const index = children.findIndex((entry) => entry.child === child);
+  if (index >= 0) {
+    children.splice(index, 1);
   }
 }
 
@@ -168,9 +184,17 @@ function killProcessTree(pid, label) {
   return new Promise((resolveKill) => {
     const command = process.platform === 'win32' ? 'taskkill' : 'kill';
     const args = process.platform === 'win32' ? ['/pid', String(pid), '/t', '/f'] : ['-TERM', String(pid)];
+    const timer = setTimeout(() => {
+      console.warn(`timed out terminating ${label} pid ${pid}`);
+      resolveKill();
+    }, 5_000);
     const child = spawn(command, args, { windowsHide: true });
-    child.on('exit', () => resolveKill());
+    child.on('exit', () => {
+      clearTimeout(timer);
+      resolveKill();
+    });
     child.on('error', () => {
+      clearTimeout(timer);
       console.warn(`failed to terminate ${label} pid ${pid}`);
       resolveKill();
     });

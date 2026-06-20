@@ -115,6 +115,71 @@
   line-height: 1.5;
 }
 
+.agentTaskRow {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  width: min(760px, 100%);
+  margin: 8px 0 8px 34px;
+  padding: 10px 12px;
+  gap: 10px;
+  background: #ffffff;
+  border: 1px solid #e6e8eb;
+  border-radius: 8px;
+}
+
+.agentTaskIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: rgba(0, 0, 0, 0.58);
+  background: #f6f7f9;
+  border-radius: 6px;
+}
+
+.agentTaskBody {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 6px;
+}
+
+.agentTaskHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 8px;
+}
+
+.agentTaskHeader span,
+.agentTaskMeta,
+.agentTaskSummary,
+.agentTaskRefs {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentTaskHeader span {
+  color: rgba(0, 0, 0, 0.88);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.agentTaskMeta,
+.agentTaskRefs {
+  color: rgba(0, 0, 0, 0.48);
+  font-size: 12px;
+}
+
+.agentTaskSummary {
+  color: rgba(0, 0, 0, 0.72);
+  font-size: 12px;
+}
+
 .diagnosticIcon {
   margin-top: 2px;
   color: #d48806;

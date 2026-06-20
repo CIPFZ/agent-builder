@@ -4239,8 +4239,8 @@ func TestRuntimeAgentTaskFollowUpDeliveryAndRejection(t *testing.T) {
 	resp, err := service.SendAgentTaskFollowUp(context.Background(), "task-1", RuntimeAgentTaskMessageCreateRequest{
 		ContentSummary: "continue",
 	})
-	if err == nil {
-		t.Fatal("expected delivery error without runtime backend")
+	if err != nil {
+		t.Fatal(err)
 	}
 	if resp.Message.Status != taskMessageStatusRejected || resp.Message.Sequence != 1 || resp.Message.Error == "" {
 		t.Fatalf("rejected message = %#v", resp.Message)
@@ -4256,8 +4256,8 @@ func TestRuntimeAgentTaskFollowUpDeliveryAndRejection(t *testing.T) {
 	finalResp, err := service.SendAgentTaskFollowUp(context.Background(), "task-1", RuntimeAgentTaskMessageCreateRequest{
 		ContentSummary: "too late",
 	})
-	if err == nil {
-		t.Fatal("expected final task rejection")
+	if err != nil {
+		t.Fatal(err)
 	}
 	if finalResp.Message.Status != taskMessageStatusRejected || finalResp.Message.Sequence != 2 {
 		t.Fatalf("final rejected message = %#v", finalResp.Message)
@@ -4536,11 +4536,18 @@ type recordingRuntimeService struct {
 	replayExportRequest        RuntimeReplayExportRequest
 	agentTask                  RuntimeAgentTaskResponse
 	agentTasks                 RuntimeAgentTasksResponse
+	agentTaskSession           string
+	agentTaskTurn              string
 	agentRoles                 RuntimeAgentRolesResponse
 	agentRole                  RuntimeAgentRoleResponse
 	agentTaskMessages          RuntimeAgentTaskMessagesResponse
 	agentTaskMessage           RuntimeAgentTaskMessageResponse
+	agentTaskMessageCreateID   string
+	agentTaskMessageCreateReq  RuntimeAgentTaskMessageCreateRequest
+	agentTaskFollowUpID        string
+	agentTaskFollowUpReq       RuntimeAgentTaskMessageCreateRequest
 	agentTaskResult            RuntimeAgentTaskResultResponse
+	agentTaskOutput            RuntimeAgentTaskOutputResponse
 	cancelledTask              string
 	todos                      RuntimeTodosResponse
 	todoSession                string
@@ -4898,11 +4905,17 @@ func (s *recordingRuntimeService) AgentTask(context.Context, string) (RuntimeAge
 	return s.agentTask, nil
 }
 
+func (s *recordingRuntimeService) SessionAgentTasks(_ context.Context, sessionID string) (RuntimeAgentTasksResponse, error) {
+	s.agentTaskSession = sessionID
+	return s.agentTasks, nil
+}
+
 func (s *recordingRuntimeService) TaskEffectiveScope(context.Context, string) (RuntimeEffectiveScopeResponse, error) {
 	return s.effectiveScope, nil
 }
 
-func (s *recordingRuntimeService) TurnAgentTasks(context.Context, string) (RuntimeAgentTasksResponse, error) {
+func (s *recordingRuntimeService) TurnAgentTasks(_ context.Context, turnID string) (RuntimeAgentTasksResponse, error) {
+	s.agentTaskTurn = turnID
 	return s.agentTasks, nil
 }
 
@@ -4926,16 +4939,24 @@ func (s *recordingRuntimeService) AgentTaskMessages(context.Context, string) (Ru
 	return s.agentTaskMessages, nil
 }
 
-func (s *recordingRuntimeService) CreateAgentTaskMessage(context.Context, string, RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error) {
+func (s *recordingRuntimeService) CreateAgentTaskMessage(_ context.Context, taskID string, req RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error) {
+	s.agentTaskMessageCreateID = taskID
+	s.agentTaskMessageCreateReq = req
 	return s.agentTaskMessage, nil
 }
 
-func (s *recordingRuntimeService) SendAgentTaskFollowUp(context.Context, string, RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error) {
+func (s *recordingRuntimeService) SendAgentTaskFollowUp(_ context.Context, taskID string, req RuntimeAgentTaskMessageCreateRequest) (RuntimeAgentTaskMessageResponse, error) {
+	s.agentTaskFollowUpID = taskID
+	s.agentTaskFollowUpReq = req
 	return s.agentTaskMessage, nil
 }
 
 func (s *recordingRuntimeService) AgentTaskResult(context.Context, string) (RuntimeAgentTaskResultResponse, error) {
 	return s.agentTaskResult, nil
+}
+
+func (s *recordingRuntimeService) AgentTaskOutput(context.Context, string) (RuntimeAgentTaskOutputResponse, error) {
+	return s.agentTaskOutput, nil
 }
 
 func (s *recordingRuntimeService) SessionTodos(_ context.Context, sessionID string) (RuntimeTodosResponse, error) {

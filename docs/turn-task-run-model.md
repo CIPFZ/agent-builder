@@ -1877,7 +1877,7 @@ GET  /v1/audit/turns/{turn_id}
 后续扩展：
 
 ```text
-GET  /v1/tasks/{task_id}
+GET  /v1/agent-tasks/{task_id}
 GET  /v1/runs
 POST /v1/runs
 GET  /v1/runs/{run_id}

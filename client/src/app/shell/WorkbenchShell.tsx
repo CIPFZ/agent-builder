@@ -508,6 +508,18 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setViewModel(nextViewModel);
   };
 
+  const sendAgentTaskFollowUp = async (taskID: string, message: string) => {
+    const nextViewModel = await adapter.sendAgentTaskFollowUp({ ...viewModelRef.current, mode: modeRef.current }, taskID, message);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
+  const cancelAgentTask = async (taskID: string) => {
+    const nextViewModel = await adapter.cancelAgentTask({ ...viewModelRef.current, mode: modeRef.current }, taskID);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
   const listSessionTerminals = useCallback((sessionID: string) => adapter.listSessionTerminals(sessionID), [adapter]);
 
   const createTerminal = useCallback(
@@ -750,6 +762,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onInterruptedDone={markInterruptedDone}
           onRunCheckpointResume={resumeRunCheckpoint}
           onRunTaskExecute={executeRunTask}
+          onAgentTaskFollowUp={sendAgentTaskFollowUp}
+          onAgentTaskCancel={cancelAgentTask}
           onSessionTerminalsList={listSessionTerminals}
           onTerminalCreate={createTerminal}
           onTerminalDelete={deleteTerminal}

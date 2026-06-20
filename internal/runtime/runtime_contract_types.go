@@ -1173,6 +1173,21 @@ type RuntimeAgentTasksResponse struct {
 	Tasks []RuntimeAgentTask `json:"tasks"`
 }
 
+type RuntimeAgentTaskOutputResponse struct {
+	TaskID              string                    `json:"taskId"`
+	Status              string                    `json:"status"`
+	Summary             string                    `json:"summary,omitempty"`
+	Error               string                    `json:"error,omitempty"`
+	CancellationDetail  string                    `json:"cancellationDetail,omitempty"`
+	ArtifactRefs        []string                  `json:"artifactRefs,omitempty"`
+	OutputRefs          []string                  `json:"outputRefs,omitempty"`
+	RelatedMessageRefs  []string                  `json:"relatedMessageRefs,omitempty"`
+	RelatedToolCallRefs []string                  `json:"relatedToolCallRefs,omitempty"`
+	CompactBoundaryRefs []string                  `json:"compactBoundaryRefs,omitempty"`
+	Messages            []RuntimeAgentTaskMessage `json:"messages,omitempty"`
+	UpdatedAt           int64                     `json:"updatedAt,omitempty"`
+}
+
 type RuntimeWorktree struct {
 	ID             string            `json:"id"`
 	SessionID      string            `json:"sessionId"`

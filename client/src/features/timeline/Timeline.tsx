@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { CheckOutlined, CopyOutlined, WarningOutlined } from '@ant-design/icons';
-import { Button, Tag, Tooltip, message } from 'antd';
+import { BranchesOutlined, CheckOutlined, CopyOutlined, WarningOutlined } from '@ant-design/icons';
+import { Button, Progress, Tag, Tooltip, message } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
 import type { ConversationTimelineItemViewModel, PermissionRequestViewModel, ToolCallViewModel } from '../../runtime/workbenchTypes.ts';
 import { PermissionGate } from '../permissions/PermissionGate.tsx';
@@ -71,6 +71,9 @@ export function Timeline({ items, onPermissionDecide }: TimelineProps) {
         if (item.kind === 'diagnostic') {
           return <TurnDiagnosticWarning key={item.id} item={item} />;
         }
+        if (item.kind === 'agent_task' && item.agentTask) {
+          return <AgentTaskTimelineRow key={item.id} item={item} />;
+        }
         return (
           <Bubble
             key={item.id}
@@ -95,6 +98,50 @@ export function Timeline({ items, onPermissionDecide }: TimelineProps) {
       })}
     </div>
   );
+}
+
+function AgentTaskTimelineRow({ item }: { item: ConversationTimelineItemViewModel }) {
+  const task = item.agentTask;
+  if (!task) {
+    return null;
+  }
+  const refs = [...(task.outputRefs ?? []), ...(task.artifactRefs ?? [])];
+  return (
+    <div className={styles.agentTaskRow} data-testid="timeline-agent-task-row" data-task-id={task.id}>
+      <div className={styles.agentTaskIcon}>
+        <BranchesOutlined />
+      </div>
+      <div className={styles.agentTaskBody}>
+        <div className={styles.agentTaskHeader}>
+          <span>{task.title || task.id}</span>
+          <Tag color={agentTaskStatusColor(task.status)}>{task.status}</Tag>
+        </div>
+        <Progress percent={task.progress ?? 0} size="small" showInfo={false} />
+        <div className={styles.agentTaskMeta}>
+          {[task.role || task.kind, task.provider && task.model ? `${task.provider}/${task.model}` : task.model, task.childSessionId ? `child ${task.childSessionId}` : undefined]
+            .filter(Boolean)
+            .join(' · ')}
+        </div>
+        {task.resultSummary || task.promptSummary ? <div className={styles.agentTaskSummary}>{task.resultSummary || task.promptSummary}</div> : null}
+        {refs.length ? <div className={styles.agentTaskRefs}>{refs.slice(0, 3).join(' · ')}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function agentTaskStatusColor(status?: string) {
+  switch (status) {
+    case 'queued':
+    case 'running':
+      return 'processing';
+    case 'completed':
+      return 'success';
+    case 'failed':
+    case 'interrupted':
+      return 'error';
+    default:
+      return 'default';
+  }
 }
 
 function TurnDiagnosticWarning({ item }: { item: ConversationTimelineItemViewModel }) {

@@ -52,6 +52,18 @@ func (r *runtimeService) TurnAgentTasks(ctx context.Context, turnID string) (Run
 	return RuntimeAgentTasksResponse{Tasks: tasks}, nil
 }
 
+func (r *runtimeService) SessionAgentTasks(ctx context.Context, sessionID string) (RuntimeAgentTasksResponse, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return RuntimeAgentTasksResponse{}, errors.New("session id is required")
+	}
+	tasks, err := r.agentTasks.ListBySession(ctx, sessionID)
+	if err != nil {
+		return RuntimeAgentTasksResponse{}, err
+	}
+	return RuntimeAgentTasksResponse{Tasks: tasks}, nil
+}
+
 func (r *runtimeService) CancelAgentTask(ctx context.Context, taskID string) (RuntimeAgentTaskResponse, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
@@ -321,7 +333,7 @@ func (r *runtimeService) CreateAgentTaskMessage(ctx context.Context, taskID stri
 		if createErr != nil {
 			return RuntimeAgentTaskMessageResponse{}, createErr
 		}
-		return RuntimeAgentTaskMessageResponse{Message: msg}, errors.New("agent task is already final")
+		return RuntimeAgentTaskMessageResponse{Message: msg}, nil
 	}
 	msg, err := r.createAgentTaskMessage(ctx, task, RuntimeAgentTaskMessage{
 		Direction:         req.Direction,
@@ -369,7 +381,7 @@ func (r *runtimeService) SendAgentTaskFollowUp(ctx context.Context, taskID strin
 		if createErr != nil {
 			return RuntimeAgentTaskMessageResponse{}, createErr
 		}
-		return RuntimeAgentTaskMessageResponse{Message: msg}, errors.New("agent task is already final")
+		return RuntimeAgentTaskMessageResponse{Message: msg}, nil
 	}
 	msg, err := r.createAgentTaskMessage(ctx, task, RuntimeAgentTaskMessage{
 		Direction:         taskMessageDirectionParentToChild,
@@ -394,7 +406,7 @@ func (r *runtimeService) SendAgentTaskFollowUp(ctx context.Context, taskID strin
 		stored, _ := newRuntimeAgentTaskMessageStore(r.turns.db).UpdateStatus(ctx, msg.ID, taskMessageStatusRejected, "agent task child session is not deliverable")
 		r.storeRuntimeEvent(runtimeAgentTaskMessageStatusEvent(runtimeapi.EventTaskMessageRejected, stored))
 		r.writeAgentTaskMessageStatusAudit("task_message_rejected", task, stored)
-		return RuntimeAgentTaskMessageResponse{Message: stored}, errors.New("agent task child session is not deliverable")
+		return RuntimeAgentTaskMessageResponse{Message: stored}, nil
 	}
 	delivered, err := newRuntimeAgentTaskMessageStore(r.turns.db).UpdateStatus(ctx, msg.ID, taskMessageStatusDelivered, "")
 	if err != nil {
@@ -410,7 +422,7 @@ func (r *runtimeService) SendAgentTaskFollowUp(ctx context.Context, taskID strin
 		rejected, _ := newRuntimeAgentTaskMessageStore(r.turns.db).UpdateStatus(ctx, msg.ID, taskMessageStatusRejected, err.Error())
 		r.storeRuntimeEvent(runtimeAgentTaskMessageStatusEvent(runtimeapi.EventTaskMessageRejected, rejected))
 		r.writeAgentTaskMessageStatusAudit("task_message_rejected", task, rejected)
-		return RuntimeAgentTaskMessageResponse{Message: rejected}, err
+		return RuntimeAgentTaskMessageResponse{Message: rejected}, nil
 	}
 	processed, err := newRuntimeAgentTaskMessageStore(r.turns.db).UpdateStatus(ctx, msg.ID, taskMessageStatusProcessed, "")
 	if err != nil {
@@ -427,6 +439,44 @@ func (r *runtimeService) AgentTaskResult(ctx context.Context, taskID string) (Ru
 		return RuntimeAgentTaskResultResponse{}, err
 	}
 	return RuntimeAgentTaskResultResponse{Result: result}, nil
+}
+
+func (r *runtimeService) AgentTaskOutput(ctx context.Context, taskID string) (RuntimeAgentTaskOutputResponse, error) {
+	resp, err := r.AgentTask(ctx, taskID)
+	if err != nil {
+		return RuntimeAgentTaskOutputResponse{}, err
+	}
+	out := RuntimeAgentTaskOutputResponse{
+		TaskID:       resp.Task.ID,
+		Status:       resp.Task.Status,
+		Summary:      preview(firstNonEmpty(resp.Task.ResultSummary, resp.Task.PromptSummary), runtimePartPreviewLimit),
+		Error:        preview(resp.Task.Error, runtimePartPreviewLimit),
+		ArtifactRefs: append([]string(nil), resp.Task.ArtifactRefs...),
+		UpdatedAt:    resp.Task.UpdatedAt,
+	}
+	if resp.Result != nil {
+		out.Status = firstNonEmpty(resp.Result.Status, out.Status)
+		out.Summary = preview(firstNonEmpty(resp.Result.Summary, out.Summary), runtimePartPreviewLimit)
+		out.Error = preview(firstNonEmpty(resp.Result.ErrorDetail, out.Error), runtimePartPreviewLimit)
+		out.CancellationDetail = preview(resp.Result.CancellationDetail, runtimePartPreviewLimit)
+		out.ArtifactRefs = appendUniqueStrings(out.ArtifactRefs, resp.Result.ArtifactRefs...)
+		out.RelatedMessageRefs = append([]string(nil), resp.Result.RelatedMessageRefs...)
+		out.RelatedToolCallRefs = append([]string(nil), resp.Result.RelatedToolCallRefs...)
+		out.CompactBoundaryRefs = append([]string(nil), resp.Result.CompactBoundaryRefs...)
+		out.UpdatedAt = resp.Result.UpdatedAt
+	}
+	for _, msg := range resp.Messages {
+		if msg.Kind == taskMessageKindResult || msg.Kind == taskMessageKindArtifact {
+			out.Messages = append(out.Messages, msg)
+			out.ArtifactRefs = appendUniqueStrings(out.ArtifactRefs, msg.ArtifactRefs...)
+		}
+	}
+	if refs, err := r.Refs(ctx, RuntimeRefListRequest{TaskID: resp.Task.ID}); err == nil {
+		for _, ref := range refs.Refs {
+			out.OutputRefs = appendUniqueStrings(out.OutputRefs, ref.URI)
+		}
+	}
+	return out, nil
 }
 
 func (r *runtimeService) agentTaskMessages(ctx context.Context, taskID string) ([]RuntimeAgentTaskMessage, error) {

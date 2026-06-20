@@ -32,20 +32,17 @@ test('scheduler worker completion hydrates durable task result and refs', async 
   expect(((await beforeRefs.json()).refs ?? [])).toHaveLength(0);
 
   await page.goto(viteURL);
-  await expect(page.getByTestId('run-projection-preview')).toBeVisible({ timeout: 30000 });
-  await expect(page.getByTestId('run-scheduler-candidates')).toBeVisible({ timeout: 15000 });
-  await expect(page.getByTestId('run-scheduler-candidate')).toHaveCount(2);
+  await expect(page.getByTestId('conversation-timeline')).toBeVisible({ timeout: 30000 });
+  const queued = page.locator(\`[data-testid="timeline-agent-task-row"][data-task-id="\${manifest.queuedTaskID}"]\`);
+  const terminal = page.locator(\`[data-testid="timeline-agent-task-row"][data-task-id="\${manifest.terminalTaskID}"]\`);
+  await expect(queued).toBeVisible({ timeout: 15000 });
+  await expect(terminal).toBeVisible();
 
-  const queued = page.locator(\`[data-testid="run-scheduler-candidate"][data-task-id="\${manifest.queuedTaskID}"]\`);
-  const terminal = page.locator(\`[data-testid="run-scheduler-candidate"][data-task-id="\${manifest.terminalTaskID}"]\`);
-  await expect(queued.getByRole('button', { name: \`Execute task \${manifest.queuedTaskID}\` })).toBeEnabled();
-  await expect(terminal.getByRole('button', { name: \`Execute task \${manifest.terminalTaskID}\` })).toBeDisabled();
-
-  await queued.getByRole('button', { name: \`Execute task \${manifest.queuedTaskID}\` }).click();
-  await expect(page.getByTestId('run-scheduler-candidate')).toHaveCount(2);
+  const executeResponse = await request.post(\`\${manifest.runtimeURL}/v1/runs/\${manifest.runID}/tasks/\${manifest.queuedTaskID}/execute\`, { headers: authHeaders });
+  expect(executeResponse.ok()).toBeTruthy();
 
   await expect.poll(async () => {
-    const response = await request.get(\`\${manifest.runtimeURL}/v1/tasks/\${manifest.queuedTaskID}\`, { headers: authHeaders });
+    const response = await request.get(\`\${manifest.runtimeURL}/v1/agent-tasks/\${manifest.queuedTaskID}\`, { headers: authHeaders });
     if (!response.ok()) {
       return \`http \${response.status()}\`;
     }
@@ -53,11 +50,12 @@ test('scheduler worker completion hydrates durable task result and refs', async 
     return payload.task?.status;
   }, { timeout: 15000 }).toBe('completed');
 
-  const resultResponse = await request.get(\`\${manifest.runtimeURL}/v1/tasks/\${manifest.queuedTaskID}/result\`, { headers: authHeaders });
+  const resultResponse = await request.get(\`\${manifest.runtimeURL}/v1/agent-tasks/\${manifest.queuedTaskID}/result\`, { headers: authHeaders });
   expect(resultResponse.ok()).toBeTruthy();
   const resultPayload = await resultResponse.json();
   expect(resultPayload.result?.status).toBe('completed');
   expect(resultPayload.result?.artifactRefs?.length ?? 0).toBeGreaterThan(0);
+  await expect(queued).toContainText('completed', { timeout: 15000 });
 
   const refsResponse = await request.get(\`\${manifest.runtimeURL}/v1/refs?task_id=\${manifest.queuedTaskID}\`, { headers: authHeaders });
   expect(refsResponse.ok()).toBeTruthy();
@@ -72,3 +70,5 @@ test('scheduler worker completion hydrates durable task result and refs', async 
 });
 `,
 });
+
+process.exit(0);

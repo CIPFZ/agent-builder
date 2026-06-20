@@ -114,7 +114,7 @@ export interface ConversationMessageViewModel {
   error?: string;
 }
 
-export type ConversationTimelineKind = 'message' | 'thinking' | 'tool_call' | 'permission' | 'progress' | 'diagnostic';
+export type ConversationTimelineKind = 'message' | 'thinking' | 'tool_call' | 'permission' | 'progress' | 'diagnostic' | 'agent_task';
 
 export interface ConversationTimelineItemViewModel {
   id: string;
@@ -135,6 +135,7 @@ export interface ConversationTimelineItemViewModel {
   error?: string;
   toolCall?: ToolCallViewModel;
   permission?: PermissionRequestViewModel;
+  agentTask?: AgentTaskViewModel;
   diagnostics?: TurnDiagnosticsViewModel;
 }
 
@@ -504,6 +505,69 @@ export interface RunSchedulerTaskScopeViewModel {
   childSessionID?: string;
 }
 
+export interface AgentTaskMessageViewModel {
+  id: string;
+  taskId: string;
+  direction: string;
+  kind: string;
+  status: string;
+  sequence?: number;
+  contentSummary?: string;
+  relatedToolCallId?: string;
+  relatedMessageId?: string;
+  artifactRefs?: string[];
+  createdAt?: number;
+  deliveredAt?: number;
+  processedAt?: number;
+  error?: string;
+}
+
+export interface AgentTaskResultViewModel {
+  taskId: string;
+  status: string;
+  summary?: string;
+  errorDetail?: string;
+  cancellationDetail?: string;
+  artifactRefs?: string[];
+  relatedMessageRefs?: string[];
+  relatedToolCallRefs?: string[];
+  compactBoundaryRefs?: string[];
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface AgentTaskViewModel {
+  id: string;
+  parentSessionId: string;
+  parentTurnId?: string;
+  parentToolCallId?: string;
+  childSessionId?: string;
+  title: string;
+  kind: string;
+  role?: string;
+  name?: string;
+  promptSummary?: string;
+  model?: string;
+  provider?: string;
+  allowedTools?: string[];
+  capabilityScope?: string[];
+  cwd?: string;
+  worktree?: string;
+  status: string;
+  progress: number;
+  resultSummary?: string;
+  artifactRefs?: string[];
+  outputRefs?: string[];
+  compactBoundaryRefs?: string[];
+  cancellationDetail?: string;
+  messages?: AgentTaskMessageViewModel[];
+  result?: AgentTaskResultViewModel;
+  startedAt?: number;
+  updatedAt?: number;
+  finishedAt?: number;
+  error?: string;
+}
+
 export interface RunCheckpointViewModel {
   id: string;
   turnId?: string;
@@ -827,6 +891,7 @@ export interface WorkbenchViewModel {
   turnDiagnostics?: TurnDiagnosticsViewModel;
   interruptedTurn?: InterruptedTurnViewModel;
   runProjection?: RunProjectionViewModel;
+  agentTasks?: AgentTaskViewModel[];
   reactCallchain?: ReactCallchainViewModel;
   contextDiagnostics?: ContextDiagnosticsViewModel;
   pendingPermissions: PermissionRequestViewModel[];
@@ -870,6 +935,8 @@ export interface WorkbenchAdapter {
     request: RunSchedulerPlanRequestViewModel,
   ) => Promise<RunSchedulerTaskCandidateViewModel[]>;
   executeRunTask: (current: WorkbenchViewModel, runID: string, taskID: string) => Promise<WorkbenchViewModel>;
+  sendAgentTaskFollowUp: (current: WorkbenchViewModel, taskID: string, message: string) => Promise<WorkbenchViewModel>;
+  cancelAgentTask: (current: WorkbenchViewModel, taskID: string) => Promise<WorkbenchViewModel>;
   listSessionTerminals: (sessionID: string) => Promise<TerminalViewModel[]>;
   createTerminal: (request: { sessionId: string; cwd?: string; columns?: number; rows?: number }) => Promise<TerminalViewModel>;
   writeTerminalInput: (terminalID: string, data: string) => Promise<TerminalViewModel>;

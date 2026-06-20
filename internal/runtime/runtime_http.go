@@ -313,6 +313,9 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && sessionTerminalsPathID(r.URL.Path) != "":
 		value, err := s.service.SessionTerminals(r.Context(), sessionTerminalsPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionAgentTasksPathID(r.URL.Path) != "":
+		value, err := s.service.SessionAgentTasks(r.Context(), sessionAgentTasksPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionRunProjectionPathID(r.URL.Path) != "":
 		value, err := s.service.RunProjection(r.Context(), RuntimeRunProjectionRequest{
 			SessionID: sessionRunProjectionPathID(r.URL.Path),
@@ -510,8 +513,8 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && worktreePathID(r.URL.Path) != "":
 		value, err := s.service.Worktree(r.Context(), worktreePathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
-	case r.Method == http.MethodGet && turnTasksPathID(r.URL.Path) != "":
-		value, err := s.service.TurnAgentTasks(r.Context(), turnTasksPathID(r.URL.Path))
+	case r.Method == http.MethodGet && turnAgentTasksPathID(r.URL.Path) != "":
+		value, err := s.service.TurnAgentTasks(r.Context(), turnAgentTasksPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && turnTodosPathID(r.URL.Path) != "":
 		value, err := s.service.TurnTodos(r.Context(), turnTodosPathID(r.URL.Path))
@@ -525,34 +528,37 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && toolCallPathID(r.URL.Path) != "":
 		value, err := s.service.ToolCall(r.Context(), toolCallPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
-	case r.Method == http.MethodPost && taskCancelPathID(r.URL.Path) != "":
-		value, err := s.service.CancelAgentTask(r.Context(), taskCancelPathID(r.URL.Path))
+	case r.Method == http.MethodPost && agentTaskCancelPathID(r.URL.Path) != "":
+		value, err := s.service.CancelAgentTask(r.Context(), agentTaskCancelPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
-	case r.Method == http.MethodGet && taskMessagesPathID(r.URL.Path) != "":
-		value, err := s.service.AgentTaskMessages(r.Context(), taskMessagesPathID(r.URL.Path))
+	case r.Method == http.MethodGet && agentTaskMessagesPathID(r.URL.Path) != "":
+		value, err := s.service.AgentTaskMessages(r.Context(), agentTaskMessagesPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
-	case r.Method == http.MethodPost && taskMessagesPathID(r.URL.Path) != "":
+	case r.Method == http.MethodPost && agentTaskMessagesPathID(r.URL.Path) != "":
 		var req RuntimeAgentTaskMessageCreateRequest
 		if !decodeRuntimeJSON(w, r, &req) {
 			return
 		}
-		value, err := s.service.CreateAgentTaskMessage(r.Context(), taskMessagesPathID(r.URL.Path), req)
+		value, err := s.service.SendAgentTaskFollowUp(r.Context(), agentTaskMessagesPathID(r.URL.Path), req)
 		writeRuntimeResult(w, value, err)
-	case r.Method == http.MethodPost && taskFollowUpPathID(r.URL.Path) != "":
+	case r.Method == http.MethodPost && agentTaskFollowUpPathID(r.URL.Path) != "":
 		var req RuntimeAgentTaskMessageCreateRequest
 		if !decodeRuntimeJSON(w, r, &req) {
 			return
 		}
-		value, err := s.service.SendAgentTaskFollowUp(r.Context(), taskFollowUpPathID(r.URL.Path), req)
+		value, err := s.service.SendAgentTaskFollowUp(r.Context(), agentTaskFollowUpPathID(r.URL.Path), req)
 		writeRuntimeResult(w, value, err)
-	case r.Method == http.MethodGet && taskResultPathID(r.URL.Path) != "":
-		value, err := s.service.AgentTaskResult(r.Context(), taskResultPathID(r.URL.Path))
+	case r.Method == http.MethodGet && agentTaskResultPathID(r.URL.Path) != "":
+		value, err := s.service.AgentTaskResult(r.Context(), agentTaskResultPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
-	case r.Method == http.MethodGet && taskEffectiveScopePathID(r.URL.Path) != "":
-		value, err := s.service.TaskEffectiveScope(r.Context(), taskEffectiveScopePathID(r.URL.Path))
+	case r.Method == http.MethodGet && agentTaskOutputPathID(r.URL.Path) != "":
+		value, err := s.service.AgentTaskOutput(r.Context(), agentTaskOutputPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
-	case r.Method == http.MethodGet && taskPathID(r.URL.Path) != "":
-		value, err := s.service.AgentTask(r.Context(), taskPathID(r.URL.Path))
+	case r.Method == http.MethodGet && agentTaskEffectiveScopePathID(r.URL.Path) != "":
+		value, err := s.service.TaskEffectiveScope(r.Context(), agentTaskEffectiveScopePathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && agentTaskPathID(r.URL.Path) != "":
+		value, err := s.service.AgentTask(r.Context(), agentTaskPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/agent-roles":
 		value, err := s.service.AgentRoles(r.Context())
@@ -1538,6 +1544,10 @@ func sessionTerminalsPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/terminals")
 }
 
+func sessionAgentTasksPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/agent-tasks")
+}
+
 func sessionRunProjectionPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/run-projection")
 }
@@ -1729,8 +1739,8 @@ func sessionCompactPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/compact")
 }
 
-func turnTasksPathID(path string) string {
-	return trimPathID(path, "/v1/turns/", "/tasks")
+func turnAgentTasksPathID(path string) string {
+	return trimPathID(path, "/v1/turns/", "/agent-tasks")
 }
 
 func turnTodosPathID(path string) string {
@@ -1776,35 +1786,39 @@ func refPathID(path string) string {
 	return id
 }
 
-func taskCancelPathID(path string) string {
-	return trimPathID(path, "/v1/tasks/", "/cancel")
+func agentTaskCancelPathID(path string) string {
+	return trimPathID(path, "/v1/agent-tasks/", "/cancel")
 }
 
-func taskMessagesPathID(path string) string {
-	return trimPathID(path, "/v1/tasks/", "/messages")
+func agentTaskMessagesPathID(path string) string {
+	return trimPathID(path, "/v1/agent-tasks/", "/messages")
 }
 
-func taskResultPathID(path string) string {
-	return trimPathID(path, "/v1/tasks/", "/result")
+func agentTaskResultPathID(path string) string {
+	return trimPathID(path, "/v1/agent-tasks/", "/result")
 }
 
-func taskFollowUpPathID(path string) string {
-	return trimPathID(path, "/v1/tasks/", "/follow-up")
+func agentTaskOutputPathID(path string) string {
+	return trimPathID(path, "/v1/agent-tasks/", "/output")
 }
 
-func taskEffectiveScopePathID(path string) string {
-	return trimPathID(path, "/v1/tasks/", "/effective-scope")
+func agentTaskFollowUpPathID(path string) string {
+	return trimPathID(path, "/v1/agent-tasks/", "/follow-up")
 }
 
-func taskPathID(path string) string {
-	if strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/result") || strings.HasSuffix(path, "/cancel") || strings.HasSuffix(path, "/follow-up") || strings.HasSuffix(path, "/effective-scope") {
+func agentTaskEffectiveScopePathID(path string) string {
+	return trimPathID(path, "/v1/agent-tasks/", "/effective-scope")
+}
+
+func agentTaskPathID(path string) string {
+	if strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/result") || strings.HasSuffix(path, "/output") || strings.HasSuffix(path, "/cancel") || strings.HasSuffix(path, "/follow-up") || strings.HasSuffix(path, "/effective-scope") {
 		return ""
 	}
-	id := strings.TrimPrefix(path, "/v1/tasks/")
-	if id == path || id == "" || strings.Contains(id, "/") {
-		return ""
+	id := strings.TrimPrefix(path, "/v1/agent-tasks/")
+	if id != path && id != "" && !strings.Contains(id, "/") {
+		return id
 	}
-	return id
+	return ""
 }
 
 func worktreeEnterPathID(path string) string {

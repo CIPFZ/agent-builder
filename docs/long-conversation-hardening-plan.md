@@ -12704,7 +12704,7 @@ Implemented:
 - Extended the HTTP MCP request decision route test to assert forwarded
   `RuntimeMCPRequestResponse.action` metadata and to prove response summaries
   are not copied into the transport payload.
-- Extended the HTTP agent task route coverage with `/v1/tasks/{id}/cancel` and
+- Extended the HTTP agent task route coverage with `/v1/agent-tasks/{id}/cancel` and
   asserted forwarded task-cancel `action` metadata.
 - Updated the recording runtime service test double to mirror real runtime
   action metadata for scheduler execute, task cancel, and MCP request decision.

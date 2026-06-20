@@ -15,6 +15,7 @@ interface TerminalPaneProps {
 }
 
 export function TerminalPane({ terminal, title, onInput, onResize, onSubscribe, onTerminalChange }: TerminalPaneProps) {
+  const terminalID = terminal?.id;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<XtermTerminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -27,7 +28,7 @@ export function TerminalPane({ terminal, title, onInput, onResize, onSubscribe, 
 
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !terminal) {
+    if (!host || !terminalID) {
       return undefined;
     }
 
@@ -83,7 +84,7 @@ export function TerminalPane({ terminal, title, onInput, onResize, onSubscribe, 
         return;
       }
       inputFlushPromiseRef.current = inputFlushPromiseRef.current
-        .then(() => onInput(terminal.id, data).then(() => undefined))
+        .then(() => onInput(terminalID, data).then(() => undefined))
         .catch(() => undefined);
     };
     const scheduleInputFlush = () => {
@@ -126,7 +127,7 @@ export function TerminalPane({ terminal, title, onInput, onResize, onSubscribe, 
     });
 
     void Promise.resolve(
-      onSubscribe(terminal.id, (event) => {
+      onSubscribe(terminalID, (event) => {
         if (disposed) {
           return;
         }
@@ -154,7 +155,7 @@ export function TerminalPane({ terminal, title, onInput, onResize, onSubscribe, 
       const lastSize = lastSizeRef.current;
       if (columns > 0 && rows > 0 && (columns !== lastSize.columns || rows !== lastSize.rows)) {
         lastSizeRef.current = { columns, rows };
-        void onResize(terminal.id, columns, rows).catch(() => undefined);
+        void onResize(terminalID, columns, rows).catch(() => undefined);
       }
     };
 
@@ -186,11 +187,11 @@ export function TerminalPane({ terminal, title, onInput, onResize, onSubscribe, 
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [onInput, onResize, onSubscribe, onTerminalChange, terminal?.id]);
+  }, [onInput, onResize, onSubscribe, onTerminalChange, terminal, terminalID]);
 
   useEffect(() => {
     terminalRef.current?.focus();
-  }, [terminal?.id]);
+  }, [terminalID]);
 
   return (
     <div className={styles.terminalPane} role="tabpanel">

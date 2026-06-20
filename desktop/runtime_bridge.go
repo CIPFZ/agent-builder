@@ -103,6 +103,7 @@ type RuntimeAgentTaskMessageCreateRequest = runtime.RuntimeAgentTaskMessageCreat
 type RuntimeAgentTaskMessageResponse = runtime.RuntimeAgentTaskMessageResponse
 type RuntimeAgentTaskResult = runtime.RuntimeAgentTaskResult
 type RuntimeAgentTaskResultResponse = runtime.RuntimeAgentTaskResultResponse
+type RuntimeAgentTaskOutputResponse = runtime.RuntimeAgentTaskOutputResponse
 type RuntimeMessage = runtime.RuntimeMessage
 type RuntimeMessagePart = runtime.RuntimeMessagePart
 type RuntimeSession = runtime.RuntimeSession
@@ -570,6 +571,12 @@ func (r *RuntimeBridge) AgentTask(ctx context.Context, taskID string) (RuntimeAg
 
 }
 
+func (r *RuntimeBridge) SessionAgentTasks(ctx context.Context, sessionID string) (RuntimeAgentTasksResponse, error) {
+
+	return r.service.SessionAgentTasks(ctx, sessionID)
+
+}
+
 func (r *RuntimeBridge) TaskEffectiveScope(ctx context.Context, taskID string) (RuntimeEffectiveScopeResponse, error) {
 
 	return r.service.TaskEffectiveScope(ctx, taskID)
@@ -610,6 +617,10 @@ func (r *RuntimeBridge) AgentTaskFollowUp(ctx context.Context, taskID string, re
 
 func (r *RuntimeBridge) AgentTaskResult(ctx context.Context, taskID string) (RuntimeAgentTaskResultResponse, error) {
 	return r.service.AgentTaskResult(ctx, taskID)
+}
+
+func (r *RuntimeBridge) AgentTaskOutput(ctx context.Context, taskID string) (RuntimeAgentTaskOutputResponse, error) {
+	return r.service.AgentTaskOutput(ctx, taskID)
 }
 
 func (r *RuntimeBridge) Sessions(ctx context.Context) (RuntimeSessionsResponse, error) {

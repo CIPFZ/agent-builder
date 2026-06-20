@@ -737,8 +737,8 @@ func TestRuntimeScenarioHarnessAgentTaskMessageOrderingRejectAndReplay(t *testin
 		t.Fatal(err)
 	}
 	second, err := h.service.SendAgentTaskFollowUp(h.ctx, task.ID, RuntimeAgentTaskMessageCreateRequest{ContentSummary: "please continue"})
-	if err == nil {
-		t.Fatal("expected undeliverable follow-up to be rejected")
+	if err != nil {
+		t.Fatal(err)
 	}
 	if first.Message.Sequence != 1 || second.Message.Sequence != 2 || second.Message.Status != taskMessageStatusRejected || second.Message.Error == "" {
 		t.Fatalf("message ordering/rejection failed: first=%#v second=%#v err=%v", first.Message, second.Message, err)

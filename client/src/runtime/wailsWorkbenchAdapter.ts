@@ -1,4 +1,7 @@
 import type {
+  AgentTaskMessageViewModel,
+  AgentTaskResultViewModel,
+  AgentTaskViewModel,
   ConfiguredProviderViewModel,
   ContextDiagnosticsViewModel,
   ConversationMessageViewModel,
@@ -883,6 +886,95 @@ interface RuntimeRunSchedulerExecuteTaskResponseDTO extends RuntimeWriteActionRe
   refreshTargets?: string[];
 }
 
+interface RuntimeAgentTaskDTO {
+  id: string;
+  parentSessionId?: string;
+  parentTurnId?: string;
+  parentToolCallId?: string;
+  childSessionId?: string;
+  title?: string;
+  kind?: string;
+  role?: string;
+  name?: string;
+  promptSummary?: string;
+  model?: string;
+  provider?: string;
+  allowedTools?: string[];
+  capabilityScope?: string[];
+  cwd?: string;
+  worktree?: string;
+  status?: string;
+  progress?: number;
+  resultSummary?: string;
+  artifactRefs?: string[];
+  startedAt?: number;
+  updatedAt?: number;
+  finishedAt?: number;
+  error?: string;
+  cancellationDetail?: string;
+  result?: RuntimeAgentTaskResultDTO;
+}
+
+interface RuntimeAgentTasksResponseDTO {
+  tasks?: RuntimeAgentTaskDTO[];
+}
+
+interface RuntimeAgentTaskMessageDTO {
+  id: string;
+  taskId?: string;
+  direction?: string;
+  kind?: string;
+  status?: string;
+  sequence?: number;
+  contentSummary?: string;
+  relatedToolCallId?: string;
+  relatedMessageId?: string;
+  artifactRefs?: string[];
+  createdAt?: number;
+  deliveredAt?: number;
+  processedAt?: number;
+  error?: string;
+}
+
+interface RuntimeAgentTaskResultDTO {
+  taskId?: string;
+  status?: string;
+  summary?: string;
+  errorDetail?: string;
+  cancellationDetail?: string;
+  artifactRefs?: string[];
+  relatedMessageRefs?: string[];
+  relatedToolCallRefs?: string[];
+  compactBoundaryRefs?: string[];
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+interface RuntimeAgentTaskResponseDTO extends RuntimeWriteActionResponseDTO {
+  task?: RuntimeAgentTaskDTO;
+  messages?: RuntimeAgentTaskMessageDTO[];
+  result?: RuntimeAgentTaskResultDTO;
+}
+
+interface RuntimeAgentTaskMessageResponseDTO {
+  message?: RuntimeAgentTaskMessageDTO;
+}
+
+interface RuntimeAgentTaskOutputResponseDTO {
+  taskId?: string;
+  status?: string;
+  summary?: string;
+  error?: string;
+  cancellationDetail?: string;
+  artifactRefs?: string[];
+  outputRefs?: string[];
+  relatedMessageRefs?: string[];
+  relatedToolCallRefs?: string[];
+  compactBoundaryRefs?: string[];
+  messages?: RuntimeAgentTaskMessageDTO[];
+  updatedAt?: number;
+}
+
 interface RuntimeRunSchedulerPlanRequestDTO {
   runId?: string;
   sessionId?: string;
@@ -1100,6 +1192,11 @@ interface RuntimeBridgeModule {
   RunSchedulerPlan?: (req: RuntimeRunSchedulerPlanRequestDTO) => Promise<RuntimeRunSchedulerPlanResponseDTO>;
   ResumeRunCheckpoint?: (runID: string, checkpointID: string) => Promise<RuntimeRunResumeResponseDTO>;
   ExecuteRunTask?: (runID: string, taskID: string) => Promise<RuntimeRunSchedulerExecuteTaskResponseDTO>;
+  SessionAgentTasks?: (sessionID: string) => Promise<RuntimeAgentTasksResponseDTO>;
+  AgentTask?: (taskID: string) => Promise<RuntimeAgentTaskResponseDTO>;
+  AgentTaskFollowUp?: (taskID: string, req: { direction: string; kind: string; contentSummary: string }) => Promise<RuntimeAgentTaskMessageResponseDTO>;
+  CancelAgentTask?: (taskID: string) => Promise<RuntimeAgentTaskResponseDTO>;
+  AgentTaskOutput?: (taskID: string) => Promise<RuntimeAgentTaskOutputResponseDTO>;
   Turn?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
   Turns?: (status: string) => Promise<RuntimeTurnsResponseDTO>;
   Permissions?: () => Promise<{ permissions: RuntimePermissionDTO[] }>;
@@ -1781,6 +1878,45 @@ function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], act
     return true;
   });
   return [...kept, ...replacement].sort(compareActivityTimelineItems(activityMessages, activityTurns));
+}
+
+function attachAgentTasksToTimeline(items: ConversationTimelineItemViewModel[], tasks?: AgentTaskViewModel[]): ConversationTimelineItemViewModel[] {
+  if (!tasks?.length) {
+    return items;
+  }
+  const taskItems = tasks.map((task) => ({
+    id: `agent-task:${task.id}`,
+    kind: 'agent_task' as const,
+    sessionId: task.parentSessionId,
+    turnId: task.parentTurnId,
+    toolCallId: task.parentToolCallId,
+    title: task.title,
+    status: task.status,
+    summary: task.resultSummary || task.promptSummary,
+    createdAt: task.startedAt,
+    updatedAt: task.finishedAt || task.updatedAt,
+    error: task.error,
+    agentTask: task,
+  }));
+  const byTool = new Map<string, ConversationTimelineItemViewModel[]>();
+  const unplaced: ConversationTimelineItemViewModel[] = [];
+  taskItems.forEach((item) => {
+    if (item.toolCallId) {
+      byTool.set(item.toolCallId, [...(byTool.get(item.toolCallId) ?? []), item]);
+    } else {
+      unplaced.push(item);
+    }
+  });
+  const merged: ConversationTimelineItemViewModel[] = [];
+  items.forEach((item) => {
+    merged.push(item);
+    if (item.kind === 'tool_call' && item.toolCallId) {
+      merged.push(...(byTool.get(item.toolCallId) ?? []));
+      byTool.delete(item.toolCallId);
+    }
+  });
+  byTool.forEach((values) => unplaced.push(...values));
+  return [...merged, ...unplaced];
 }
 
 function compareActivityTimelineItems(messages: RuntimeMessageDTO[], turns: RuntimeTurnDTO[]) {
@@ -2571,6 +2707,116 @@ async function hydrateRunSchedulerTaskCandidates(
   return Array.from(byKey.values()).sort((left, right) => (left.orderKey || left.taskID).localeCompare(right.orderKey || right.taskID));
 }
 
+async function hydrateAgentTasks(bridge: RuntimeBridgeModule, sessionID?: string): Promise<AgentTaskViewModel[] | undefined> {
+  if (!sessionID || !bridge.SessionAgentTasks) {
+    return undefined;
+  }
+  const response = await optionalRuntimeRequest(() => bridge.SessionAgentTasks?.(sessionID) ?? Promise.resolve(undefined));
+  const tasks = Array.isArray(response?.tasks) ? response.tasks : [];
+  if (!tasks.length) {
+    return [];
+  }
+  const detailed = await Promise.all(
+    tasks.map(async (task) => {
+      const [detail, output] = await Promise.all([
+        optionalRuntimeRequest(() => bridge.AgentTask?.(task.id) ?? Promise.resolve(undefined)),
+        optionalRuntimeRequest(() => bridge.AgentTaskOutput?.(task.id) ?? Promise.resolve(undefined)),
+      ]);
+      return mapAgentTask(detail?.task ?? task, detail?.messages, detail?.result, output);
+    }),
+  );
+  return detailed.filter((task): task is AgentTaskViewModel => Boolean(task));
+}
+
+function mapAgentTask(
+  task?: RuntimeAgentTaskDTO,
+  messages?: RuntimeAgentTaskMessageDTO[],
+  result?: RuntimeAgentTaskResultDTO,
+  output?: RuntimeAgentTaskOutputResponseDTO,
+): AgentTaskViewModel | undefined {
+  if (!task?.id) {
+    return undefined;
+  }
+  const mappedResult = mapAgentTaskResult(result);
+  return {
+    id: task.id,
+    parentSessionId: task.parentSessionId ?? '',
+    parentTurnId: task.parentTurnId,
+    parentToolCallId: task.parentToolCallId,
+    childSessionId: task.childSessionId,
+    title: task.title || task.name || task.id,
+    kind: task.kind || 'subagent',
+    role: task.role,
+    name: task.name,
+    promptSummary: task.promptSummary,
+    model: task.model,
+    provider: task.provider,
+    allowedTools: task.allowedTools,
+    capabilityScope: task.capabilityScope,
+    cwd: task.cwd,
+    worktree: task.worktree,
+    status: output?.status || task.status || mappedResult?.status || 'unknown',
+    progress: typeof task.progress === 'number' ? task.progress : 0,
+    resultSummary: output?.summary || mappedResult?.summary || task.resultSummary,
+    artifactRefs: uniqueStrings([...(task.artifactRefs ?? []), ...(mappedResult?.artifactRefs ?? []), ...(output?.artifactRefs ?? [])]),
+    outputRefs: output?.outputRefs,
+    compactBoundaryRefs: output?.compactBoundaryRefs ?? mappedResult?.compactBoundaryRefs,
+    cancellationDetail: output?.cancellationDetail ?? mappedResult?.cancellationDetail ?? task.cancellationDetail,
+    messages: (output?.messages ?? messages)?.map(mapAgentTaskMessage).filter((message): message is AgentTaskMessageViewModel => Boolean(message)),
+    result: mappedResult,
+    startedAt: task.startedAt,
+    updatedAt: output?.updatedAt ?? task.updatedAt,
+    finishedAt: task.finishedAt,
+    error: output?.error || mappedResult?.errorDetail || task.error,
+  };
+}
+
+function mapAgentTaskMessage(message?: RuntimeAgentTaskMessageDTO): AgentTaskMessageViewModel | undefined {
+  if (!message?.id) {
+    return undefined;
+  }
+  return {
+    id: message.id,
+    taskId: message.taskId ?? '',
+    direction: message.direction ?? '',
+    kind: message.kind ?? '',
+    status: message.status ?? '',
+    sequence: message.sequence,
+    contentSummary: message.contentSummary,
+    relatedToolCallId: message.relatedToolCallId,
+    relatedMessageId: message.relatedMessageId,
+    artifactRefs: message.artifactRefs,
+    createdAt: message.createdAt,
+    deliveredAt: message.deliveredAt,
+    processedAt: message.processedAt,
+    error: message.error,
+  };
+}
+
+function mapAgentTaskResult(result?: RuntimeAgentTaskResultDTO): AgentTaskResultViewModel | undefined {
+  if (!result?.taskId) {
+    return undefined;
+  }
+  return {
+    taskId: result.taskId,
+    status: result.status ?? '',
+    summary: result.summary,
+    errorDetail: result.errorDetail,
+    cancellationDetail: result.cancellationDetail,
+    artifactRefs: result.artifactRefs,
+    relatedMessageRefs: result.relatedMessageRefs,
+    relatedToolCallRefs: result.relatedToolCallRefs,
+    compactBoundaryRefs: result.compactBoundaryRefs,
+    createdAt: result.createdAt,
+    updatedAt: result.updatedAt,
+  };
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] | undefined {
+  const out = Array.from(new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))));
+  return out.length ? out : undefined;
+}
+
 interface RuntimeHydrateOptions {
   refreshTargets?: RuntimeActionRefreshTarget[];
 }
@@ -2623,6 +2869,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     ? await optionalRuntimeRequest(() => bridge.RunProjection?.({ sessionId: activeSessionID, limit: 24 }) ?? Promise.resolve(undefined))
     : undefined;
   const schedulerTaskCandidates = actionTargetsInclude(refreshTargets, 'run_scheduler_plan') ? await hydrateRunSchedulerTaskCandidates(bridge, runProjection) : [];
+  const agentTasks = activeSessionID ? await hydrateAgentTasks(bridge, activeSessionID) : undefined;
   const messagesResponse = activity
     ? { messages: Array.isArray(activity.messages) ? activity.messages : [] }
     : activeSessionID && fullHydration
@@ -2651,11 +2898,12 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     : undefined;
   const policy = activity?.policy ?? (refreshPolicy ? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy : undefined);
   const permissions = (Array.isArray(activity?.permissions) ? activity.permissions : []).map(mapPermission);
-  const timeline = activity
+  const baseTimeline = activity
     ? narrowActivity
       ? mergeActivityTimeline(current.timeline, activity)
       : mapActivityTimeline(activity)
     : current.timeline;
+  const timeline = attachAgentTasksToTimeline(baseTimeline, agentTasks);
   const conversation = activity && narrowActivity
     ? mergeConversationMessages(current.conversation, messagesResponse)
     : messagesResponse
@@ -2683,6 +2931,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
     interruptedTurn: activity ? selectInterruptedTurn(activity, sessionActiveTurn?.id) : current.interruptedTurn,
     runProjection: mapRunProjection(runProjection, schedulerTaskCandidates) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
+    agentTasks: agentTasks ?? (activeSessionID ? current.agentTasks?.filter((task) => task.parentSessionId === activeSessionID || task.childSessionId === activeSessionID) : []),
     reactCallchain: mapReactCallchain(reactCallchainDTO) ?? (current.reactCallchain?.sessionId === activeSessionID ? current.reactCallchain : undefined),
     contextDiagnostics: mapContextDiagnostics(promptAssembliesDTO) ?? (current.contextDiagnostics?.sessionId === activeSessionID ? current.contextDiagnostics : undefined),
     pendingPermissions,
@@ -3484,6 +3733,18 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
         method: 'POST',
       },
     ),
+  SessionAgentTasks: (sessionID) => runtimeFetch<RuntimeAgentTasksResponseDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/agent-tasks`),
+  AgentTask: (taskID) => runtimeFetch<RuntimeAgentTaskResponseDTO>(`/v1/agent-tasks/${encodeURIComponent(taskID)}`),
+  AgentTaskFollowUp: (taskID, req) =>
+    runtimeFetch<RuntimeAgentTaskMessageResponseDTO>(`/v1/agent-tasks/${encodeURIComponent(taskID)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }),
+  CancelAgentTask: (taskID) =>
+    runtimeFetch<RuntimeAgentTaskResponseDTO>(`/v1/agent-tasks/${encodeURIComponent(taskID)}/cancel`, {
+      method: 'POST',
+    }),
+  AgentTaskOutput: (taskID) => runtimeFetch<RuntimeAgentTaskOutputResponseDTO>(`/v1/agent-tasks/${encodeURIComponent(taskID)}/output`),
   TurnActivity: (turnID) => runtimeFetch<RuntimeTurnActivityDTO>(`/v1/turns/${encodeURIComponent(turnID)}/activity`),
   ReactCallchain: (turnID) => runtimeFetch<RuntimeReactCallchainDTO>(`/v1/turns/${encodeURIComponent(turnID)}/react-callchain`),
   TurnPromptAssemblies: (turnID) => runtimeFetch<RuntimePromptAssembliesResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}/prompt-assemblies`),
@@ -4058,6 +4319,34 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         return hydrateWorkbenchForAction(current, bridge, response);
       },
       () => staticWorkbenchAdapter.executeRunTask(current, runID, taskID),
+    );
+  },
+  async sendAgentTaskFollowUp(current, taskID, taskMessage) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.AgentTaskFollowUp) {
+          return staticWorkbenchAdapter.sendAgentTaskFollowUp(current, taskID, taskMessage);
+        }
+        await bridge.AgentTaskFollowUp(taskID, {
+          direction: 'parent_to_child',
+          kind: 'instruction',
+          contentSummary: taskMessage,
+        });
+        return hydrateWorkbench(current, bridge);
+      },
+      () => staticWorkbenchAdapter.sendAgentTaskFollowUp(current, taskID, taskMessage),
+    );
+  },
+  async cancelAgentTask(current, taskID) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.CancelAgentTask) {
+          return staticWorkbenchAdapter.cancelAgentTask(current, taskID);
+        }
+        const response = await bridge.CancelAgentTask(taskID);
+        return hydrateWorkbenchForAction(current, bridge, response);
+      },
+      () => staticWorkbenchAdapter.cancelAgentTask(current, taskID),
     );
   },
   async listSessionTerminals(sessionID) {

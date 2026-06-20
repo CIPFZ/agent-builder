@@ -18,6 +18,7 @@ import { Button, Dropdown, Input, Modal, Tooltip, message as antdMessage } from 
 import Bubble from '@ant-design/x/es/bubble';
 import type { NewConversationDraftViewModel, TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
+import { AgentTaskPanel } from '../diagnostics/AgentTaskPanel.tsx';
 import { RunProjectionPreview } from '../diagnostics/RunProjectionPreview.tsx';
 import { ReactCallchainInspector } from '../diagnostics/ReactCallchainInspector.tsx';
 import { ContextDiagnosticsPanel } from '../diagnostics/ContextDiagnosticsPanel.tsx';
@@ -57,6 +58,8 @@ interface WorkspaceProps {
   onInterruptedDone: (turnID: string) => Promise<void>;
   onRunCheckpointResume?: (runID: string, checkpointID: string) => Promise<void>;
   onRunTaskExecute?: (runID: string, taskID: string) => Promise<void>;
+  onAgentTaskFollowUp?: (taskID: string, message: string) => Promise<void>;
+  onAgentTaskCancel?: (taskID: string) => Promise<void>;
   onSessionTerminalsList: (sessionID: string) => Promise<TerminalViewModel[]>;
   onTerminalCreate: (request: { sessionId: string; cwd?: string; columns?: number; rows?: number }) => Promise<TerminalViewModel>;
   onTerminalDelete: (terminalID: string) => Promise<void>;
@@ -80,6 +83,8 @@ export function Workspace({
   onInterruptedDone,
   onRunCheckpointResume,
   onRunTaskExecute,
+  onAgentTaskFollowUp,
+  onAgentTaskCancel,
   onSessionTerminalsList,
   onTerminalCreate,
   onTerminalDelete,
@@ -97,6 +102,7 @@ export function Workspace({
   const [activeRightPanelID, setActiveRightPanelID] = useState('');
   const [rightPanelTabsOverflow, setRightPanelTabsOverflow] = useState(false);
   const [rightPanelDocked, setRightPanelDocked] = useState(false);
+  const [rightPanelMaxValue, setRightPanelMaxValue] = useState(RIGHT_PANEL_MAX_WIDTH);
   const rightPanelTabsRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -293,9 +299,14 @@ export function Workspace({
   useEffect(() => {
     let cancelled = false;
     if (!activeSessionID) {
-      replaceTerminalTabs([]);
+      const frame = window.requestAnimationFrame(() => {
+        if (!cancelled) {
+          replaceTerminalTabs([]);
+        }
+      });
       return () => {
         cancelled = true;
+        window.cancelAnimationFrame(frame);
       };
     }
     onSessionTerminalsList(activeSessionID)
@@ -326,18 +337,24 @@ export function Workspace({
     if (canUseProjectSideTools) {
       return;
     }
-    setRightPanelTabs((current) => current.filter((tab) => tab.kind === 'terminal'));
+    const frame = window.requestAnimationFrame(() => {
+      setRightPanelTabs((current) => current.filter((tab) => tab.kind === 'terminal'));
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [canUseProjectSideTools]);
   useEffect(() => {
-    if (rightPanelTabs.length === 0) {
-      if (activeRightPanelID) {
-        setActiveRightPanelID('');
+    const frame = window.requestAnimationFrame(() => {
+      if (rightPanelTabs.length === 0) {
+        if (activeRightPanelID) {
+          setActiveRightPanelID('');
+        }
+        return;
       }
-      return;
-    }
-    if (!rightPanelTabs.some((tab) => tab.id === activeRightPanelID)) {
-      setActiveRightPanelID(rightPanelTabs[0].id);
-    }
+      if (!rightPanelTabs.some((tab) => tab.id === activeRightPanelID)) {
+        setActiveRightPanelID(rightPanelTabs[0].id);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [activeRightPanelID, rightPanelTabs]);
   useEffect(() => {
     const tabs = rightPanelTabsRef.current;
@@ -354,11 +371,13 @@ export function Workspace({
   }, [rightPanelTabs.length, rightPanelWidth, rightPanelOpen]);
   useEffect(() => {
     const updateRightPanelBounds = () => {
+      const maxWidth = rightPanelMaxWidth();
+      setRightPanelMaxValue(maxWidth);
       setRightPanelWidth((current) => clampRightPanelWidth(current));
     };
     window.addEventListener('resize', updateRightPanelBounds);
     return () => window.removeEventListener('resize', updateRightPanelBounds);
-  }, [clampRightPanelWidth]);
+  }, [clampRightPanelWidth, rightPanelMaxWidth]);
   useEffect(() => {
     const updateDockedState = () => {
       const workspaceWidth = workspaceRef.current?.getBoundingClientRect().width ?? window.innerWidth;
@@ -383,8 +402,12 @@ export function Workspace({
     };
   }, []);
   useEffect(() => {
-    setRightPanelWidth((current) => clampRightPanelWidth(current));
-  }, [clampRightPanelWidth, rightPanelDocked, rightPanelOpen, sidebarCollapsed]);
+    const frame = window.requestAnimationFrame(() => {
+      setRightPanelMaxValue(rightPanelMaxWidth());
+      setRightPanelWidth((current) => clampRightPanelWidth(current));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [clampRightPanelWidth, rightPanelDocked, rightPanelMaxWidth, rightPanelOpen, sidebarCollapsed]);
   useEffect(() => {
     onMinimumWorkspaceWidthChange?.(rightPanelOpen ? RIGHT_PANEL_DOCKED_MIN_WORKSPACE_WIDTH : 0);
     return () => onMinimumWorkspaceWidthChange?.(0);
@@ -568,8 +591,8 @@ export function Workspace({
             <div
               aria-label="调整右侧栏宽度"
               aria-orientation="vertical"
-              aria-valuemax={rightPanelMaxWidth()}
-              aria-valuemin={Math.min(RIGHT_PANEL_MIN_WIDTH, rightPanelMaxWidth())}
+              aria-valuemax={rightPanelMaxValue}
+              aria-valuemin={Math.min(RIGHT_PANEL_MIN_WIDTH, rightPanelMaxValue)}
               aria-valuenow={rightPanelWidth}
               className={styles.rightPanelResizer}
               role="separator"
@@ -682,6 +705,7 @@ export function Workspace({
             ) : activeRightPanelTab?.kind === 'review' ? (
               <div className={styles.sideToolPane} role="tabpanel">
                 <div className={styles.reviewStack}>
+                  <AgentTaskPanel tasks={viewModel.agentTasks} onCancelTask={onAgentTaskCancel} onFollowUp={onAgentTaskFollowUp} />
                   <RunProjectionPreview run={viewModel.runProjection} onResumeCheckpoint={onRunCheckpointResume} onExecuteTask={onRunTaskExecute} />
                   <ReactCallchainInspector callchain={viewModel.reactCallchain} />
                   <ContextDiagnosticsPanel diagnostics={viewModel.contextDiagnostics} />
@@ -692,7 +716,7 @@ export function Workspace({
                     onInterruptedDone={markInterruptedDone}
                     onInterruptedFollowUp={startInterruptedFollowUp}
                   />
-                  {!viewModel.runProjection && !viewModel.reactCallchain && !viewModel.contextDiagnostics && !viewModel.turnDiagnostics && !viewModel.interruptedTurn ? (
+                  {!viewModel.agentTasks?.length && !viewModel.runProjection && !viewModel.reactCallchain && !viewModel.contextDiagnostics && !viewModel.turnDiagnostics && !viewModel.interruptedTurn ? (
                     <>
                       <div className={styles.sideToolTitle}>审查</div>
                       <div className={styles.sideToolEmpty}>Review findings, diffs, and approvals will appear here.</div>

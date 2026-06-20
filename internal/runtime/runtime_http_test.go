@@ -2750,10 +2750,17 @@ func TestRuntimeHTTPServerRoutesAgentTaskMessagingToRuntimeService(t *testing.T)
 
 	service := &recordingRuntimeService{
 		agentRoles: RuntimeAgentRolesResponse{Roles: []RuntimeAgentRoleDefinition{{ID: "task", Name: "task"}}},
+		agentTasks: RuntimeAgentTasksResponse{Tasks: []RuntimeAgentTask{{
+			ID: "task-1", ParentSessionID: "session-1", ParentTurnID: "turn-1", ParentToolCallID: "tool-1", ChildSessionID: "child-1", Status: agentTaskStatusRunning,
+		}}},
 		agentTaskMessages: RuntimeAgentTaskMessagesResponse{Messages: []RuntimeAgentTaskMessage{{
 			ID: "msg-1", TaskID: "task-1", Direction: taskMessageDirectionChildToParent, Kind: taskMessageKindProgress, Status: taskMessageStatusCreated, CreatedAt: 1,
 		}}},
+		agentTaskMessage: RuntimeAgentTaskMessageResponse{Message: RuntimeAgentTaskMessage{
+			ID: "msg-follow-up", TaskID: "task-1", Direction: taskMessageDirectionParentToChild, Kind: taskMessageKindInstruction, Status: taskMessageStatusRejected, ContentSummary: "check logs",
+		}},
 		agentTaskResult: RuntimeAgentTaskResultResponse{Result: RuntimeAgentTaskResult{TaskID: "task-1", Status: agentTaskStatusCompleted, Summary: "done"}},
+		agentTaskOutput: RuntimeAgentTaskOutputResponse{TaskID: "task-1", Status: agentTaskStatusCompleted, Summary: "done", OutputRefs: []string{"runtime://refs/ref-1"}},
 	}
 	server := newRuntimeHTTPServer(service)
 
@@ -2767,7 +2774,27 @@ func TestRuntimeHTTPServerRoutesAgentTaskMessagingToRuntimeService(t *testing.T)
 		t.Fatalf("roles status = %d body = %s", resp.status, resp.body.String())
 	}
 
-	req, err = http.NewRequest(http.MethodGet, "/v1/tasks/task-1/messages", nil)
+	req, err = http.NewRequest(http.MethodGet, "/v1/sessions/session-1/agent-tasks", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || !strings.Contains(resp.body.String(), "child-1") || service.agentTaskSession != "session-1" {
+		t.Fatalf("session agent tasks status = %d body = %s session=%q", resp.status, resp.body.String(), service.agentTaskSession)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/turns/turn-1/agent-tasks", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || !strings.Contains(resp.body.String(), "tool-1") || service.agentTaskTurn != "turn-1" {
+		t.Fatalf("turn agent tasks status = %d body = %s turn=%q", resp.status, resp.body.String(), service.agentTaskTurn)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/agent-tasks/task-1/messages", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2777,7 +2804,26 @@ func TestRuntimeHTTPServerRoutesAgentTaskMessagingToRuntimeService(t *testing.T)
 		t.Fatalf("messages status = %d body = %s", resp.status, resp.body.String())
 	}
 
-	req, err = http.NewRequest(http.MethodGet, "/v1/tasks/task-1/result", nil)
+	req, err = http.NewRequest(http.MethodPost, "/v1/agent-tasks/task-1/messages", strings.NewReader(`{"direction":"parent_to_child","kind":"instruction","contentSummary":"check logs"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("follow-up status = %d body = %s", resp.status, resp.body.String())
+	}
+	if !strings.Contains(resp.body.String(), "msg-follow-up") || !strings.Contains(resp.body.String(), taskMessageStatusRejected) {
+		t.Fatalf("follow-up body = %s", resp.body.String())
+	}
+	if service.agentTaskFollowUpID != "task-1" || service.agentTaskFollowUpReq.ContentSummary != "check logs" {
+		t.Fatalf("follow-up id=%q req=%#v", service.agentTaskFollowUpID, service.agentTaskFollowUpReq)
+	}
+	if service.agentTaskMessageCreateID != "" {
+		t.Fatalf("POST /messages used create path for task %q", service.agentTaskMessageCreateID)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/agent-tasks/task-1/result", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2787,7 +2833,17 @@ func TestRuntimeHTTPServerRoutesAgentTaskMessagingToRuntimeService(t *testing.T)
 		t.Fatalf("result status = %d body = %s", resp.status, resp.body.String())
 	}
 
-	req, err = http.NewRequest(http.MethodPost, "/v1/tasks/task-1/cancel", nil)
+	req, err = http.NewRequest(http.MethodGet, "/v1/agent-tasks/task-1/output", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK || !strings.Contains(resp.body.String(), "runtime://refs/ref-1") {
+		t.Fatalf("output status = %d body = %s", resp.status, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodPost, "/v1/agent-tasks/task-1/cancel", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2806,6 +2862,30 @@ func TestRuntimeHTTPServerRoutesAgentTaskMessagingToRuntimeService(t *testing.T)
 	if cancel.Action == nil || !cancel.Action.Accepted || cancel.Action.Source.Action != runtimeAgentTaskCancelAction || cancel.Action.Source.IdempotentBy != "task_id" {
 		t.Fatalf("cancel action metadata = %#v", cancel.Action)
 	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/"+legacyTaskRouteSegment()+"/task-1/output", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusNotFound {
+		t.Fatalf("legacy task output status = %d body = %s, want 404", resp.status, resp.body.String())
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/turns/turn-1/"+legacyTaskRouteSegment(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusNotFound {
+		t.Fatalf("legacy turn tasks status = %d body = %s, want 404", resp.status, resp.body.String())
+	}
+}
+
+func legacyTaskRouteSegment() string {
+	return "tasks"
 }
 
 func TestRuntimeHTTPServerRoutesSkillsToRuntimeService(t *testing.T) {

@@ -878,6 +878,37 @@ func TestRuntimeBridgeForwardsMCPRequestDecision(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsAgentTaskReadsAndOutput(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		agentTasks: RuntimeAgentTasksResponse{Tasks: []RuntimeAgentTask{{ID: "task-1", ParentSessionID: "session-1", ParentTurnID: "turn-1", Status: "running"}}},
+		agentTaskOutput: RuntimeAgentTaskOutputResponse{
+			TaskID:     "task-1",
+			Status:     "completed",
+			Summary:    "done",
+			OutputRefs: []string{"runtime://refs/ref-1"},
+		},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	sessionTasks, err := bridge.SessionAgentTasks(context.Background(), "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.agentTaskSessionID != "session-1" || len(sessionTasks.Tasks) != 1 || sessionTasks.Tasks[0].ID != "task-1" {
+		t.Fatalf("session tasks=%#v session=%q", sessionTasks, service.agentTaskSessionID)
+	}
+
+	output, err := bridge.AgentTaskOutput(context.Background(), "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.agentTaskOutputID != "task-1" || output.OutputRefs[0] != "runtime://refs/ref-1" {
+		t.Fatalf("output=%#v task=%q", output, service.agentTaskOutputID)
+	}
+}
+
 type recordingRuntimeService struct {
 	chatCalls                   int
 	chatRequests                []RuntimeChatRequest
@@ -926,6 +957,10 @@ type recordingRuntimeService struct {
 	executeRunID                string
 	executeTaskID               string
 	executeRunTask              RuntimeRunSchedulerExecuteTaskResponse
+	agentTaskSessionID          string
+	agentTasks                  RuntimeAgentTasksResponse
+	agentTaskOutputID           string
+	agentTaskOutput             RuntimeAgentTaskOutputResponse
 	runs                        RuntimeRunsResponse
 	runCheckpointMarkersID      string
 	runCheckpointMarkers        RuntimeRunCheckpointMarkersResponse
@@ -1264,6 +1299,11 @@ func (s *recordingRuntimeService) AgentTask(context.Context, string) (RuntimeAge
 	return RuntimeAgentTaskResponse{}, nil
 }
 
+func (s *recordingRuntimeService) SessionAgentTasks(_ context.Context, sessionID string) (RuntimeAgentTasksResponse, error) {
+	s.agentTaskSessionID = sessionID
+	return s.agentTasks, nil
+}
+
 func (s *recordingRuntimeService) TaskEffectiveScope(context.Context, string) (RuntimeEffectiveScopeResponse, error) {
 	return RuntimeEffectiveScopeResponse{}, nil
 }
@@ -1298,6 +1338,11 @@ func (s *recordingRuntimeService) SendAgentTaskFollowUp(context.Context, string,
 
 func (s *recordingRuntimeService) AgentTaskResult(context.Context, string) (RuntimeAgentTaskResultResponse, error) {
 	return RuntimeAgentTaskResultResponse{}, nil
+}
+
+func (s *recordingRuntimeService) AgentTaskOutput(_ context.Context, taskID string) (RuntimeAgentTaskOutputResponse, error) {
+	s.agentTaskOutputID = taskID
+	return s.agentTaskOutput, nil
 }
 
 func (s *recordingRuntimeService) SessionTodos(context.Context, string) (RuntimeTodosResponse, error) {
