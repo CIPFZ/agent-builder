@@ -39,6 +39,9 @@ export function ThinkingItem({ item }: { item: ConversationTimelineItemViewModel
 }
 
 function thinkingLabel(item: ConversationTimelineItemViewModel) {
+  if (item.title && item.source === 'react_callchain') {
+    return item.title;
+  }
   const duration = thinkingDuration(item);
   if (item.status === 'running') {
     return duration ? `正在思考 ${duration}` : '正在思考';

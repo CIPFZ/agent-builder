@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "smoke:phase04-context": "node scripts/phase04-context-diagnostics-browser-smoke.mjs",
+    "smoke:phase07": "node scripts/phase07-workbench-runtime-rendering-smoke.mjs",
     "smoke:phase02": "node scripts/phase02-input-normalization-adapter-smoke.mjs",
     "smoke:phase03": "node scripts/phase03-tool-loop-diagnostics-smoke.mjs",
     "smoke:phase88": "node scripts/phase88-resume-control-smoke.mjs",

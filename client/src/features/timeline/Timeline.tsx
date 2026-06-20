@@ -68,6 +68,9 @@ export function Timeline({ items, onPermissionDecide }: TimelineProps) {
             </div>
           );
         }
+        if (item.kind === 'turn_terminal') {
+          return <TurnTerminalMarker key={item.id} item={item} />;
+        }
         if (item.kind === 'diagnostic') {
           return <TurnDiagnosticWarning key={item.id} item={item} />;
         }
@@ -96,6 +99,16 @@ export function Timeline({ items, onPermissionDecide }: TimelineProps) {
           />
         );
       })}
+    </div>
+  );
+}
+
+function TurnTerminalMarker({ item }: { item: ConversationTimelineItemViewModel }) {
+  const missingFinal = item.diagnostics?.missingFinalAssistant || item.diagnostics?.hasFinalAssistant === false;
+  return (
+    <div className={missingFinal ? `${styles.terminalMarker} ${styles.terminalWarning}` : styles.terminalMarker} data-testid="turn-terminal-marker" data-turn-status={item.status}>
+      <span>{terminalLabel(item.status)}</span>
+      {item.summary ? <span className={styles.terminalDetail}>{item.summary}</span> : null}
     </div>
   );
 }
@@ -427,6 +440,23 @@ function progressLabel(status?: string) {
       return '执行失败';
     default:
       return status || '正在思考';
+  }
+}
+
+function terminalLabel(status?: string) {
+  switch (status) {
+    case 'completed':
+      return 'Turn completed';
+    case 'failed':
+      return 'Turn failed';
+    case 'cancelled':
+      return 'Turn cancelled';
+    case 'interrupted':
+      return 'Turn interrupted';
+    case 'waiting_permission':
+      return 'Turn waiting for permission';
+    default:
+      return status ? `Turn ${status}` : 'Turn ended';
   }
 }
 

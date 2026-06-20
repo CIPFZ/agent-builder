@@ -114,7 +114,7 @@ export interface ConversationMessageViewModel {
   error?: string;
 }
 
-export type ConversationTimelineKind = 'message' | 'thinking' | 'tool_call' | 'permission' | 'progress' | 'diagnostic' | 'agent_task';
+export type ConversationTimelineKind = 'message' | 'thinking' | 'tool_call' | 'permission' | 'progress' | 'diagnostic' | 'agent_task' | 'turn_terminal';
 
 export interface ConversationTimelineItemViewModel {
   id: string;
@@ -130,6 +130,8 @@ export interface ConversationTimelineItemViewModel {
   status?: string;
   createdAt?: number;
   updatedAt?: number;
+  sequence?: number;
+  source?: 'runtime_activity' | 'react_callchain' | 'runtime_fallback';
   provider?: string;
   model?: string;
   error?: string;
@@ -593,8 +595,6 @@ export interface ToolCallViewModel {
   status: string;
   inputSummary?: string;
   outputSummary?: string;
-  stdout?: string;
-  stderr?: string;
   error?: string;
   policyMode?: string;
   policyReason?: string;

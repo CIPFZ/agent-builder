@@ -444,7 +444,7 @@ function toolVisualStatus(toolCall: ToolCallViewModel) {
 }
 
 function readableToolOutput(toolCall: ToolCallViewModel) {
-  const output = toolCall.display?.stdoutExcerpt || toolCall.display?.outputExcerpt || extractWrappedOutput(toolCall.stdout) || extractWrappedOutput(toolCall.outputSummary);
+  const output = toolCall.display?.stdoutExcerpt || toolCall.display?.outputExcerpt || toolCall.outputSummary;
   if (output) {
     return output.trim();
   }
@@ -459,7 +459,7 @@ function toolFailureReason(toolCall: ToolCallViewModel) {
 }
 
 function toolStderr(toolCall: ToolCallViewModel) {
-  return (toolCall.display?.stderrExcerpt || extractWrappedOutput(toolCall.stderr) || '').trim();
+  return (toolCall.display?.stderrExcerpt || '').trim();
 }
 
 function toolTargets(toolCall: ToolCallViewModel) {
@@ -468,34 +468,6 @@ function toolTargets(toolCall: ToolCallViewModel) {
     return targets;
   }
   return [toolCall.display?.primaryTarget, toolCall.display?.target].filter((value): value is string => Boolean(value?.trim()));
-}
-
-function extractWrappedOutput(value?: string) {
-  const text = value?.trim();
-  if (!text) {
-    return '';
-  }
-
-  const parsed = parseJSON(text);
-  if (parsed && typeof parsed === 'object') {
-    const record = parsed as Record<string, unknown>;
-    for (const key of ['output', 'stdout', 'stderr', 'content', 'data']) {
-      const field = record[key];
-      if (typeof field === 'string' && field.trim()) {
-        return field.trim();
-      }
-    }
-  }
-
-  return text;
-}
-
-function parseJSON(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return undefined;
-  }
 }
 
 function statusLabel(status: string) {

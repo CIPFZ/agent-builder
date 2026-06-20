@@ -89,6 +89,36 @@
   overflow-wrap: anywhere;
 }
 
+.terminalMarker {
+  display: flex;
+  align-items: center;
+  width: min(720px, 94%);
+  min-width: 0;
+  gap: 8px;
+  padding: 4px 0;
+  color: rgb(13 13 13 / 48%);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.terminalMarker::before {
+  flex: 0 0 18px;
+  height: 1px;
+  background: rgb(13 13 13 / 14%);
+  content: '';
+}
+
+.terminalWarning {
+  color: #ad6800;
+}
+
+.terminalDetail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .toolProcessCluster {
   display: grid;
   gap: 4px;

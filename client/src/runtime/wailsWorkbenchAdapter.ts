@@ -30,6 +30,7 @@ import type {
   RunProjectionViewModel,
   RunSchedulerPlanRequestViewModel,
   RunSchedulerTaskCandidateViewModel,
+  ToolCallViewModel,
   RuntimeUserInputRequestViewModel,
   RuntimeSkillViewModel,
   SettingsPermissionViewModel,
@@ -359,6 +360,7 @@ interface RuntimeMessageDTO {
   provider?: string;
   model?: string;
   createdAt?: number;
+  updatedAt?: number;
   error?: string;
 }
 
@@ -548,6 +550,14 @@ interface RuntimeSessionActivityDTO {
   permissions: RuntimePermissionDTO[];
   events?: RuntimeEventDTO[];
   policy: RuntimePolicyDTO;
+}
+
+interface RuntimeTimelineOrder {
+  sequenceByMessageID: Map<string, number>;
+  sequenceByToolCallID: Map<string, number>;
+  sequenceByPermissionID: Map<string, number>;
+  terminalByTurnID: Map<string, RuntimeReactCallNodeDTO>;
+  assistantStepByMessageID: Map<string, RuntimeReactCallNodeDTO>;
 }
 
 interface RuntimeSessionActivityWindowDTO extends RuntimeSessionActivityDTO {
@@ -1743,10 +1753,95 @@ function mapPermission(permission: RuntimePermissionDTO): PermissionRequestViewM
   };
 }
 
-function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): ConversationTimelineItemViewModel[] {
+function mapToolCall(toolCall: RuntimeToolCallDTO): ToolCallViewModel {
+  const display = toolCall.display;
+  return {
+    id: toolCall.id,
+    sessionId: toolCall.sessionId,
+    turnId: toolCall.turnId,
+    name: toolCall.name,
+    source: toolCall.source,
+    command: toolCall.command,
+    risk: toolCall.risk,
+    status: toolCall.status,
+    inputSummary: toolCall.inputSummary,
+    outputSummary: toolCall.outputSummary,
+    error: toolCall.error,
+    policyMode: toolCall.policyMode,
+    policyReason: toolCall.policyReason,
+    policyTargetSummary: toolCall.policyTargetSummary,
+    display: display
+      ? {
+          kind: display.kind,
+          title: display.title,
+          detail: display.detail,
+          target: display.target,
+          primaryTarget: display.primaryTarget,
+          targets: display.targets,
+          workingDir: display.workingDir,
+          command: display.command,
+          exitCode: display.exitCode,
+          durationMs: display.durationMs,
+          stdoutExcerpt: display.stdoutExcerpt,
+          stderrExcerpt: display.stderrExcerpt,
+          inputExcerpt: display.inputExcerpt,
+          outputExcerpt: display.outputExcerpt,
+          failureReason: display.failureReason,
+          artifactCount: display.artifactCount,
+          diffCount: display.diffCount,
+          artifactRefs: display.artifactRefs,
+          diffRefs: display.diffRefs,
+          artifactSummary: display.artifactSummary,
+          diffSummary: display.diffSummary,
+        }
+      : undefined,
+    exitCode: toolCall.exitCode,
+    outputRefs: toolCall.outputRefs,
+    artifactRefs: toolCall.artifactRefs,
+    diffRefs: toolCall.diffRefs,
+    startedAt: toolCall.startedAt,
+    finishedAt: toolCall.finishedAt,
+  };
+}
+
+function buildRuntimeTimelineOrder(callchain?: RuntimeReactCallchainDTO): RuntimeTimelineOrder {
+  const order: RuntimeTimelineOrder = {
+    sequenceByMessageID: new Map(),
+    sequenceByToolCallID: new Map(),
+    sequenceByPermissionID: new Map(),
+    terminalByTurnID: new Map(),
+    assistantStepByMessageID: new Map(),
+  };
+  const nodes = Array.isArray(callchain?.nodes) ? callchain.nodes : [];
+  for (const node of nodes) {
+    if (typeof node.sequence !== 'number') {
+      continue;
+    }
+    if (node.messageId && (node.kind === 'user_input' || node.kind === 'assistant_final')) {
+      order.sequenceByMessageID.set(node.messageId, node.sequence);
+    }
+    if (node.messageId && node.kind === 'assistant_step') {
+      order.assistantStepByMessageID.set(node.messageId, node);
+      order.sequenceByMessageID.set(node.messageId, node.sequence);
+    }
+    if (node.toolCallId && node.kind === 'tool_call') {
+      order.sequenceByToolCallID.set(node.toolCallId, node.sequence);
+    }
+    if (node.permissionId && (node.kind === 'permission_request' || node.kind === 'permission_decision')) {
+      order.sequenceByPermissionID.set(node.permissionId, node.sequence);
+    }
+    if (node.turnId && node.kind === 'turn_terminal') {
+      order.terminalByTurnID.set(node.turnId, node);
+    }
+  }
+  return order;
+}
+
+function mapActivityTimeline(activity?: RuntimeSessionActivityDTO, callchain?: RuntimeReactCallchainDTO): ConversationTimelineItemViewModel[] {
   if (!activity) {
     return [];
   }
+  const runtimeOrder = buildRuntimeTimelineOrder(callchain);
   const messagesDTO = Array.isArray(activity.messages) ? activity.messages : [];
   const toolCallsDTO = Array.isArray(activity.toolCalls) ? activity.toolCalls : [];
   const permissionsDTO = Array.isArray(activity.permissions) ? activity.permissions : [];
@@ -1758,6 +1853,28 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
       const timelineItems: ConversationTimelineItemViewModel[] = [];
       const content = runtimeMessageContent(message);
       const isIntermediateAssistant = message.role === 'assistant' && runtimeMessageHasToolCalls(message);
+      const assistantStep = message.role === 'assistant' ? runtimeOrder.assistantStepByMessageID.get(message.id) : undefined;
+      if (assistantStep?.summary?.trim()) {
+        timelineItems.push({
+          id: `assistant-step:${message.id}`,
+          kind: 'thinking',
+          sessionId: activity.sessionId,
+          turnId: turnIDForMessage(turnContext, message.id) || assistantStep.turnId,
+          messageId: message.id,
+          role: 'assistant',
+          title: assistantStep.title || 'Assistant step',
+          content: assistantStep.summary,
+          summary: assistantStep.summary,
+          status: assistantStep.status || (message.error ? 'error' : 'success'),
+          createdAt: assistantStep.startedAt || message.createdAt,
+          updatedAt: assistantStep.finishedAt || message.updatedAt,
+          sequence: assistantStep.sequence,
+          source: 'react_callchain',
+          provider: message.provider,
+          model: message.model,
+          error: assistantStep.error || message.error,
+        });
+      }
       if (!isIntermediateAssistant && (content.trim() || message.error || message.role === 'user')) {
         timelineItems.push({
           id: `message:${message.id}`,
@@ -1769,6 +1886,9 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
           content,
           status: message.error ? 'error' : 'success',
           createdAt: message.createdAt,
+          updatedAt: message.updatedAt,
+          sequence: runtimeOrder.sequenceByMessageID.get(message.id),
+          source: runtimeOrder.sequenceByMessageID.has(message.id) ? 'react_callchain' : 'runtime_activity',
           provider: message.provider,
           model: message.model,
           error: message.error,
@@ -1789,10 +1909,10 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
     summary: toolCall.outputSummary || toolCall.inputSummary,
     createdAt: toolCall.startedAt,
     updatedAt: toolCall.finishedAt,
+    sequence: runtimeOrder.sequenceByToolCallID.get(toolCall.id),
+    source: runtimeOrder.sequenceByToolCallID.has(toolCall.id) ? 'react_callchain' : 'runtime_activity',
     error: toolCall.error,
-    toolCall: {
-      ...toolCall,
-    },
+    toolCall: mapToolCall(toolCall),
   }));
   const permissions: ConversationTimelineItemViewModel[] = permissionsDTO.map((permission) => ({
     id: `permission:${permission.id}`,
@@ -1805,6 +1925,8 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
     summary: permission.reason || permission.policyReason,
     createdAt: permission.createdAt,
     updatedAt: permission.decidedAt,
+    sequence: runtimeOrder.sequenceByPermissionID.get(permission.id),
+    source: runtimeOrder.sequenceByPermissionID.has(permission.id) ? 'react_callchain' : 'runtime_activity',
     permission: mapPermission(permission),
   }));
   const progress: ConversationTimelineItemViewModel[] = turnsDTO
@@ -1819,8 +1941,34 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
       summary: turn.error,
       createdAt: turn.startedAt,
       updatedAt: turn.finishedAt,
+      sequence: runtimeOrder.terminalByTurnID.get(turn.id)?.sequence,
+      source: runtimeOrder.terminalByTurnID.has(turn.id) ? 'react_callchain' : 'runtime_fallback',
       error: turn.error,
     }));
+  const terminals: ConversationTimelineItemViewModel[] = turnsDTO
+    .filter((turn) => isFinalTurnStatus(turn.status))
+    .map((turn) => {
+      const terminal = runtimeOrder.terminalByTurnID.get(turn.id);
+      const diagnostics = turn.diagnostics;
+      const missingFinal = diagnostics?.missingFinalAssistant || diagnostics?.hasFinalAssistant === false;
+      return {
+        id: `turn-terminal:${turn.id}`,
+        kind: 'turn_terminal' as const,
+        sessionId: turn.sessionId,
+        turnId: turn.id,
+        title: 'Turn terminal',
+        status: turn.status,
+        summary: missingFinal
+          ? diagnostics?.stopReasonMessage || diagnostics?.stopReason || terminal?.summary || turn.error || 'Turn ended without a final assistant message.'
+          : terminal?.summary || diagnostics?.stopReasonMessage || diagnostics?.stopReason || turn.error,
+        createdAt: turn.finishedAt || turn.startedAt,
+        updatedAt: turn.finishedAt,
+        sequence: terminal?.sequence,
+        source: terminal ? 'react_callchain' as const : 'runtime_fallback' as const,
+        error: turn.error,
+        diagnostics: turn.diagnostics,
+      };
+    });
   const diagnostics: ConversationTimelineItemViewModel[] = turnsDTO
     .filter((turn) => Boolean(turn.diagnostics?.warning))
     .map((turn) => ({
@@ -1833,14 +1981,15 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO): Conversation
       summary: turn.diagnostics?.warning,
       createdAt: turn.finishedAt || turn.startedAt,
       updatedAt: turn.finishedAt,
+      source: 'runtime_activity',
       diagnostics: turn.diagnostics,
     }));
 
-  return [...messages, ...thinking, ...toolCalls, ...permissions, ...progress, ...diagnostics].sort(compareActivityTimelineItems(messagesDTO, turnsDTO));
+  return [...messages, ...thinking, ...toolCalls, ...permissions, ...progress, ...terminals, ...diagnostics].sort(compareActivityTimelineItems(messagesDTO, turnsDTO));
 }
 
-function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], activity: RuntimeSessionActivityDTO) {
-  const replacement = mapActivityTimeline(activity);
+function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], activity: RuntimeSessionActivityDTO, callchain?: RuntimeReactCallchainDTO) {
+  const replacement = mapActivityTimeline(activity, callchain);
   const activityMessages = Array.isArray(activity.messages) ? activity.messages : [];
   const activityTurns = Array.isArray(activity.turns) ? activity.turns : [];
   const activityTurnContext = buildTurnContext(activityMessages, activityTurns);
@@ -1923,6 +2072,15 @@ function compareActivityTimelineItems(messages: RuntimeMessageDTO[], turns: Runt
   const turnContext = buildTurnContext(messages, turns);
   const messageOrder = new Map(messages.map((message, index) => [message.id, index]));
   return (left: ConversationTimelineItemViewModel, right: ConversationTimelineItemViewModel) => {
+    if (typeof left.sequence === 'number' && typeof right.sequence === 'number' && left.sequence !== right.sequence) {
+      return left.sequence - right.sequence;
+    }
+    if (typeof left.sequence === 'number' && typeof right.sequence !== 'number') {
+      return -1;
+    }
+    if (typeof left.sequence !== 'number' && typeof right.sequence === 'number') {
+      return 1;
+    }
     const leftTurn = left.turnId || turnIDForMessage(turnContext, left.messageId);
     const rightTurn = right.turnId || turnIDForMessage(turnContext, right.messageId);
     const leftTime = timelineSortTime(left, leftTurn, turnContext);
@@ -2139,10 +2297,13 @@ function timelineKindRank(item: ConversationTimelineItemViewModel) {
   if (item.kind === 'progress') {
     return 5;
   }
-  if (item.kind === 'diagnostic') {
+  if (item.kind === 'turn_terminal') {
     return 6;
   }
-  return 7;
+  if (item.kind === 'diagnostic') {
+    return 7;
+  }
+  return 8;
 }
 
 function timelineTurnOrder(item: ConversationTimelineItemViewModel, messageOrder: Map<string, number>, context: TimelineTurnContext) {
@@ -2163,6 +2324,9 @@ function timelineTurnOrder(item: ConversationTimelineItemViewModel, messageOrder
   }
   if (item.kind === 'progress') {
     return 900_000;
+  }
+  if (item.kind === 'turn_terminal') {
+    return 905_000;
   }
   if (item.kind === 'diagnostic') {
     return 910_000;
@@ -2900,8 +3064,8 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const permissions = (Array.isArray(activity?.permissions) ? activity.permissions : []).map(mapPermission);
   const baseTimeline = activity
     ? narrowActivity
-      ? mergeActivityTimeline(current.timeline, activity)
-      : mapActivityTimeline(activity)
+      ? mergeActivityTimeline(current.timeline, activity, reactCallchainDTO)
+      : mapActivityTimeline(activity, reactCallchainDTO)
     : current.timeline;
   const timeline = attachAgentTasksToTimeline(baseTimeline, agentTasks);
   const conversation = activity && narrowActivity
