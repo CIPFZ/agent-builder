@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 type runtimeScenarioHarness struct {
@@ -53,9 +53,9 @@ func newRuntimeScenarioHarness(t *testing.T) *runtimeScenarioHarness {
 
 func (h *runtimeScenarioHarness) attachBackend() {
 	h.t.Helper()
-	runtimeBackend, workspace := backendForSkillTest(h.t)
-	h.service.runtime = runtimeBackend
-	h.service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	runtimeWorkbench, workspace := workbenchForSkillTest(h.t)
+	h.service.runtime = runtimeWorkbench
+	h.service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 }
 
 func (h *runtimeScenarioHarness) restartedService() *runtimeService {
@@ -513,7 +513,7 @@ func TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership(t *testing.T) {
 	if status.Action.Source.Kind != runtimeTurnActionSourceKind || status.Action.Source.Action != runtimeTurnActionCancel {
 		t.Fatalf("cancel action source = %#v", status.Action.Source)
 	}
-	if !status.Action.Source.BackendOnly || status.Action.Source.StartsWorker || status.Action.Source.IdempotentBy != "turn_id" || !status.Action.Source.SessionActivityParity {
+	if !status.Action.Source.WorkbenchOnly || status.Action.Source.StartsWorker || status.Action.Source.IdempotentBy != "turn_id" || !status.Action.Source.SessionActivityParity {
 		t.Fatalf("cancel action source semantics = %#v", status.Action.Source)
 	}
 	if len(status.Action.RefreshTargets) == 0 {
@@ -596,7 +596,7 @@ func TestRuntimeScenarioHarnessPendingPermissionDecisionSurvivesReload(t *testin
 	if len(recovery.PendingPermissions) != 1 || recovery.PendingPermissions[0].ID != perm.ID {
 		t.Fatalf("pending permission recovery = %#v", recovery.PendingPermissions)
 	}
-	if _, err := restarted.DecidePermission(h.ctx, RuntimePermissionDecision{PermissionID: perm.ID, Action: string(proto.PermissionDeny)}); err != nil {
+	if _, err := restarted.DecidePermission(h.ctx, RuntimePermissionDecision{PermissionID: perm.ID, Action: string(apitypes.PermissionDeny)}); err != nil {
 		t.Fatal(err)
 	}
 	decided, err := restarted.permissionStore.Get(h.ctx, perm.ID)

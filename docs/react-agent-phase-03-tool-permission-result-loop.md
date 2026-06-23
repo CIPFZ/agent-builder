@@ -14,7 +14,7 @@ Users currently see permission cards and tool rows, but the UI can still feel
 out of order. When a command completes with no final assistant text, users
 cannot tell whether:
 
-- the backend stopped intentionally;
+- the runtime stopped intentionally;
 - the model failed after receiving the result;
 - permission was denied;
 - a hook halted the turn;
@@ -47,7 +47,7 @@ aggregate tool result budgets before subsequent model calls.
 - `internal/agent/tool_result_guard.go`
   - large result persistence and turn budget.
 
-## Backend Work
+## Runtime Work
 
 ### 1. Stop Reason Normalization
 
@@ -63,7 +63,7 @@ Add explicit stop reason fields to terminal turn/callchain diagnostics:
 - `cancelled`
 - `interrupted`
 
-The stop reason must be written by backend code, not inferred by React.
+The stop reason must be written by runtime code, not inferred by React.
 
 ### 2. Tool Result Delivery Evidence
 
@@ -153,7 +153,7 @@ Do not invent explanatory prose in React. Use runtime DTO fields.
 
 ## Tests
 
-Backend tests:
+Runtime tests:
 
 - allow once resumes tool and delivers result;
 - allow session grants repeated call without second prompt;
@@ -180,6 +180,6 @@ Browser smoke:
 ## Acceptance Criteria
 
 - A user can see why a turn stopped after a tool.
-- Permission decisions are reflected by backend rereads.
+- Permission decisions are reflected by runtime rereads.
 - Tool result visibility and delivery are runtime-owned.
 - React does not parse assistant prose or tool output to infer lifecycle.

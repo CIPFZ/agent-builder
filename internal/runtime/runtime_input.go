@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/hooks"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/hooks"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 const (
@@ -84,16 +84,16 @@ func (r *runtimeService) UserInput(ctx context.Context, inputID string) (Runtime
 
 func (r *runtimeService) applyUserPromptSubmitHooks(ctx context.Context, normalized RuntimeNormalizedInput, items []RuntimeUserInputItem) (RuntimeNormalizedInput, bool, error) {
 	r.mu.Lock()
-	runtimeBackend := r.runtime
+	runtimeWorkbench := r.runtime
 	workspaceID := ""
 	if r.workspace != nil {
 		workspaceID = r.workspace.ID
 	}
 	r.mu.Unlock()
-	if runtimeBackend == nil || workspaceID == "" {
+	if runtimeWorkbench == nil || workspaceID == "" {
 		return normalized, false, errors.New("runtime workspace is not started")
 	}
-	ws, err := runtimeBackend.GetWorkspace(workspaceID)
+	ws, err := runtimeWorkbench.GetWorkspace(workspaceID)
 	if err != nil {
 		return normalized, false, err
 	}

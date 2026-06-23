@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 const defaultRuntimeContextWindow = 200000
@@ -28,7 +28,7 @@ func (r *runtimeService) computeRuntimeBudget(ctx context.Context, sessionID, tu
 		if msgs, err := r.runtime.ListSessionMessages(ctx, r.workspace.ID, sessionID); err == nil {
 			report.Messages.Count = len(msgs)
 			for _, msg := range msgs {
-				runtimeMsg := toRuntimeMessage(toProtoMessage(msg))
+				runtimeMsg := toRuntimeMessage(toAPITypeMessage(msg))
 				report.Messages.EstimatedTokens += estimateRuntimeTokens(runtimeMsg.Content)
 				for _, part := range runtimeMsg.Parts {
 					report.Messages.EstimatedTokens += estimateRuntimeTokens(part.Text)

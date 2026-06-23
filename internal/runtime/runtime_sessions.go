@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/session"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/session"
 )
 
 func (r *runtimeService) Sessions(ctx context.Context) (RuntimeSessionsResponse, error) {
@@ -26,7 +26,7 @@ func (r *runtimeService) Sessions(ctx context.Context) (RuntimeSessionsResponse,
 
 	sessions, err := r.runtime.ListSessions(ctx, wsID)
 	if err != nil {
-		return RuntimeSessionsResponse{}, fmt.Errorf("failed to list Crush sessions: %w", err)
+		return RuntimeSessionsResponse{}, fmt.Errorf("failed to list Agent Builder sessions: %w", err)
 	}
 	return RuntimeSessionsResponse{Sessions: toRuntimeSessions(sessions, activeID, wsID)}, nil
 }
@@ -46,7 +46,7 @@ func (r *runtimeService) Session(ctx context.Context, sessionID string) (Runtime
 
 	sess, err := r.runtime.GetSession(ctx, wsID, sessionID)
 	if err != nil {
-		return RuntimeSessionResponse{}, fmt.Errorf("failed to read Crush session: %w", err)
+		return RuntimeSessionResponse{}, fmt.Errorf("failed to read Agent Builder session: %w", err)
 	}
 	return RuntimeSessionResponse{Session: toRuntimeSession(sess, activeID, wsID)}, nil
 }
@@ -65,7 +65,7 @@ func (r *runtimeService) CreateSession(ctx context.Context, req RuntimeSessionCr
 	projectID, scope := normalizeRuntimeSessionOwnership(req.ProjectID, req.Scope, wsID)
 	sess, err := r.runtime.CreateSessionWithScope(ctx, wsID, title, projectID, scope)
 	if err != nil {
-		return RuntimeSessionResponse{}, fmt.Errorf("failed to create Crush session: %w", err)
+		return RuntimeSessionResponse{}, fmt.Errorf("failed to create Agent Builder session: %w", err)
 	}
 	r.mu.Lock()
 	r.sessionID = sess.ID
@@ -97,7 +97,7 @@ func (r *runtimeService) SelectSession(ctx context.Context, sessionID string) (R
 
 	sess, err := r.runtime.GetSession(ctx, wsID, sessionID)
 	if err != nil {
-		return RuntimeStatus{}, fmt.Errorf("failed to select Crush session: %w", err)
+		return RuntimeStatus{}, fmt.Errorf("failed to select Agent Builder session: %w", err)
 	}
 	r.mu.Lock()
 	r.sessionID = sess.ID
@@ -133,7 +133,7 @@ func (r *runtimeService) RenameSession(ctx context.Context, req RuntimeSessionUp
 
 	sess, err := r.runtime.GetSession(ctx, wsID, sessionID)
 	if err != nil {
-		return RuntimeSessionsResponse{}, fmt.Errorf("failed to read Crush session: %w", err)
+		return RuntimeSessionsResponse{}, fmt.Errorf("failed to read Agent Builder session: %w", err)
 	}
 	sess.Title = title
 	if sess.Scope == "" {
@@ -143,7 +143,7 @@ func (r *runtimeService) RenameSession(ctx context.Context, req RuntimeSessionUp
 		sess.ProjectID = wsID
 	}
 	if _, err := r.runtime.SaveSession(ctx, wsID, sess); err != nil {
-		return RuntimeSessionsResponse{}, fmt.Errorf("failed to rename Crush session: %w", err)
+		return RuntimeSessionsResponse{}, fmt.Errorf("failed to rename Agent Builder session: %w", err)
 	}
 	r.publishRuntimeEvent(runtimeapi.Event{
 		ID:        newRuntimeEventID(),
@@ -172,7 +172,7 @@ func (r *runtimeService) DeleteSession(ctx context.Context, sessionID string) (R
 
 	r.closeRuntimeTerminalsForSession(sessionID, "closed", "session deleted")
 	if err := r.runtime.DeleteSession(ctx, wsID, sessionID); err != nil {
-		return RuntimeSessionsResponse{}, fmt.Errorf("failed to delete Crush session: %w", err)
+		return RuntimeSessionsResponse{}, fmt.Errorf("failed to delete Agent Builder session: %w", err)
 	}
 	if sessionID == activeID {
 		r.mu.Lock()
@@ -772,7 +772,7 @@ func (r *runtimeService) Messages(ctx context.Context) (RuntimeMessagesResponse,
 func (r *runtimeService) sessionMessages(ctx context.Context, wsID, sessionID string) (RuntimeMessagesResponse, error) {
 	messages, err := r.runtime.ListSessionMessages(ctx, wsID, sessionID)
 	if err != nil {
-		return RuntimeMessagesResponse{}, fmt.Errorf("failed to list Crush session messages: %w", err)
+		return RuntimeMessagesResponse{}, fmt.Errorf("failed to list Agent Builder session messages: %w", err)
 	}
 
 	runtimeMessages := make([]RuntimeMessage, 0, len(messages))
@@ -780,7 +780,7 @@ func (r *runtimeService) sessionMessages(ctx context.Context, wsID, sessionID st
 		if msg.IsSummaryMessage || msg.Role == message.System {
 			continue
 		}
-		runtimeMessage := toRuntimeMessage(toProtoMessage(msg))
+		runtimeMessage := toRuntimeMessage(toAPITypeMessage(msg))
 		if !isDisplayableRuntimeMessage(runtimeMessage) {
 			continue
 		}
@@ -838,7 +838,7 @@ func isDefaultRuntimeSessionTitle(title string) bool {
 func (r *runtimeService) sessionUsage(ctx context.Context, workspaceID, sessionID string) (RuntimeUsage, error) {
 	sess, err := r.runtime.GetSession(ctx, workspaceID, sessionID)
 	if err != nil {
-		return RuntimeUsage{}, fmt.Errorf("failed to read Crush session usage: %w", err)
+		return RuntimeUsage{}, fmt.Errorf("failed to read Agent Builder session usage: %w", err)
 	}
 	return RuntimeUsage{
 		PromptTokens:     sess.PromptTokens,

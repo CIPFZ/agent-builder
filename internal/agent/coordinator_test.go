@@ -9,8 +9,8 @@ import (
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
 	"charm.land/fantasy/providers/bedrock"
-	"github.com/charmbracelet/crush/internal/agent/tools"
-	"github.com/charmbracelet/crush/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/agent/tools"
+	"github.com/CIPFZ/agent-builder/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -484,7 +484,7 @@ func TestExecuteStartedAgentTask(t *testing.T) {
 			Worktree:                "C:/work/project/.agent-builder/worktrees/wt-1",
 			StartedAt:               1100,
 			StartAlreadyRecorded:    true,
-			BackendOnly:             true,
+			WorkbenchOnly:           true,
 			EventPayloadRefreshOnly: true,
 		})
 		require.NoError(t, err)
@@ -535,7 +535,7 @@ func TestExecuteStartedAgentTask(t *testing.T) {
 				ChildSessionID:       child.ID,
 				Prompt:               "initial",
 				StartAlreadyRecorded: true,
-				BackendOnly:          true,
+				WorkbenchOnly:        true,
 			})
 			done <- runErr
 		}()
@@ -579,7 +579,7 @@ func TestExecuteStartedAgentTask(t *testing.T) {
 				ChildSessionID:       child.ID,
 				Prompt:               "initial",
 				StartAlreadyRecorded: true,
-				BackendOnly:          true,
+				WorkbenchOnly:        true,
 			})
 			done <- runErr
 		}()
@@ -620,7 +620,7 @@ func TestExecuteStartedAgentTask(t *testing.T) {
 			ChildSessionID:       child.ID,
 			Prompt:               "initial",
 			StartAlreadyRecorded: true,
-			BackendOnly:          true,
+			WorkbenchOnly:        true,
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "failed", result.Status)
@@ -688,7 +688,7 @@ func TestExecuteConfiguredStartedAgentTask(t *testing.T) {
 			Role:                 config.AgentTask,
 			Prompt:               "configured prompt",
 			StartAlreadyRecorded: true,
-			BackendOnly:          true,
+			WorkbenchOnly:        true,
 		})
 		require.NoError(t, err)
 		assert.Equal(t, 1, builderCalls)
@@ -719,7 +719,7 @@ func TestExecuteConfiguredStartedAgentTask(t *testing.T) {
 			Role:                 "reviewer",
 			Prompt:               "prompt",
 			StartAlreadyRecorded: true,
-			BackendOnly:          true,
+			WorkbenchOnly:        true,
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "failed", result.Status)
@@ -743,7 +743,7 @@ func TestExecuteConfiguredStartedAgentTask(t *testing.T) {
 			Role:                 config.AgentTask,
 			Prompt:               "prompt",
 			StartAlreadyRecorded: true,
-			BackendOnly:          true,
+			WorkbenchOnly:        true,
 		})
 		require.Error(t, err)
 		assert.Equal(t, "failed", result.Status)

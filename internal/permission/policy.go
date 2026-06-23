@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 type PolicyMode string
@@ -343,7 +343,7 @@ func ClassifyRisk(toolName, inputSummary string) Risk {
 
 func isReadOnlyBuiltinTool(name string) bool {
 	switch name {
-	case "view", "ls", "grep", "glob", "rg", "diagnostics", "references", "crush_info", "crush_logs", "job_output", "list_mcp_resources", "read_mcp_resource", "context_activation":
+	case "view", "ls", "grep", "glob", "rg", "diagnostics", "references", "agent_builder_info", "agent_builder_logs", "job_output", "list_mcp_resources", "read_mcp_resource", "context_activation":
 		return true
 	default:
 		return false

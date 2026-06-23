@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/db"
-	crushlog "github.com/charmbracelet/crush/internal/log"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
-	"github.com/charmbracelet/crush/internal/version"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	agentbuilderlog "github.com/CIPFZ/agent-builder/internal/log"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/version"
+	"github.com/CIPFZ/agent-builder/internal/workbench"
 )
 
 func (r *runtimeService) workspaceConfig(ctx context.Context) (*config.ConfigStore, string, error) {
@@ -220,16 +220,16 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 	applyDesktopProxy(localResult)
 
 	logFile := filepath.Join(layout.LogsDir, "agent-builder.log")
-	crushlog.Setup(logFile, false)
+	agentbuilderlog.Setup(logFile, false)
 	logConfiguredModel(store)
 
 	runtimeCtx, cancel := context.WithCancel(context.Background())
 	r.runtimeCtx = runtimeCtx
 	r.cancel = cancel
 	recorder := &runtimeSchedulerRecorder{service: r}
-	r.runtime = backend.NewWithSchedulerRecorder(runtimeCtx, store, nil, recorder)
+	r.runtime = workbench.NewWithSchedulerRecorder(runtimeCtx, store, nil, recorder)
 
-	wsRuntime, ws, err := r.runtime.CreateWorkspace(proto.Workspace{
+	wsRuntime, ws, err := r.runtime.CreateWorkspace(apitypes.Workspace{
 		Path:    workingDir,
 		DataDir: layout.DataDir,
 		Version: version.Version,
@@ -240,7 +240,7 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 		cancel()
 		r.runtime = nil
 		r.cancel = nil
-		return fmt.Errorf("failed to create Crush workspace: %w", err)
+		return fmt.Errorf("failed to create Agent Builder workspace: %w", err)
 	}
 	_, workspaceLocalResult, workspaceSelectedModelErr := r.applySelectedConfiguredModel(ctx, wsRuntime.Cfg)
 	if workspaceSelectedModelErr != nil {
@@ -283,7 +283,7 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 
 	if workspaceConfigured {
 		if err := r.runtime.UpdateAgent(runtimeCtx, ws.ID); err != nil {
-			return fmt.Errorf("failed to update Crush agent model: %w", err)
+			return fmt.Errorf("failed to update Agent Builder agent model: %w", err)
 		}
 	}
 
@@ -306,7 +306,7 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 	r.mcpRequestStore = newRuntimeMCPRequestStore(conn)
 	r.runs = newRuntimeRunStore(conn)
 	r.transitions = newRuntimeRunTransitionStore(conn)
-	r.installBackendAgentTaskRunner(r.runtime, ws.ID)
+	r.installWorkbenchAgentTaskRunner(r.runtime, ws.ID)
 	if maxSequence, err := r.eventStore.MaxSequence(ctx); err != nil {
 		return fmt.Errorf("failed to recover runtime event sequence: %w", err)
 	} else if maxSequence > r.nextEventSequence {
@@ -493,7 +493,7 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 	if listErr == nil && len(last) > 0 {
 		r.sessionID = last[0].ID
 	} else if listErr != nil {
-		return fmt.Errorf("failed to restore Crush sessions: %w", listErr)
+		return fmt.Errorf("failed to restore Agent Builder sessions: %w", listErr)
 	}
 	return nil
 }

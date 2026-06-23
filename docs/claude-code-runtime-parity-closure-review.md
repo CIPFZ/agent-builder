@@ -52,7 +52,7 @@ Agent Builder code sampled across the required modules:
 
 - `internal/runtime/`
 - `internal/runtimeapi/`
-- `internal/backend/`
+- `internal/workbench/`
 - `internal/session/`
 - `internal/message/`
 - `internal/db/`
@@ -224,10 +224,10 @@ Evidence:
   records progress/completion/failure, applies CWD/worktree scope, and updates
   parent accounting.
 - Parent-child messages: `internal/runtime/runtime_agent_tasks.go` creates
-  messages, assigns status, delivers follow-up through backend
+  messages, assigns status, delivers follow-up through runtime
   `SendSessionMessage`, and records delivered, processed, or rejected outcomes.
 - Control: `internal/runtime/runtime_agent_tasks.go` cancels child sessions via
-  backend `CancelSession` when available and persists cancellation details.
+  runtime `CancelSession` when available and persists cancellation details.
 - Durable mailbox/results: `internal/runtime/runtime_agent_task_comm_store.go`
   and `internal/db/migrations/20260527000000_harden_agent_task_messages.sql`.
 - Scope/worktree/sandbox: `internal/runtime/runtime_agent_task_scope.go`,

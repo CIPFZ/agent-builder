@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
 )
 
 func TestRuntimeRunTransitionHistoryReturnsReadOnlyCursorWindow(t *testing.T) {
@@ -54,10 +54,10 @@ func TestRuntimeRunTransitionHistoryDoesNotReplaceRunProjectionOrSessionActivity
 
 	service, release := runtimeRunTransitionWriterTestService(t)
 	defer release()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "transition parity")
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "transition parity")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestRuntimeRunTransitionHistoryDoesNotMutatePersistedRunStatus(t *testing.T
 
 func attachRuntimeTransitionHistoryBackend(t *testing.T, service *runtimeService) {
 	t.Helper()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 }

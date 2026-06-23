@@ -12,6 +12,6 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 *.golden linguist-generated=true -text
-.github/crush-schema.json linguist-generated=true
+.github/agent-builder-schema.json linguist-generated=true
 internal/agent/hyper/provider.json linguist-generated=true
 internal/agent/testdata/**/*.yaml -diff linguist-generated=true

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 const (
@@ -93,10 +93,10 @@ func (r *runtimeService) CancelAgentTask(ctx context.Context, taskID string) (Ru
 	if r.workspace != nil {
 		workspaceID = r.workspace.ID
 	}
-	runtimeBackend := r.runtime
+	runtimeWorkbench := r.runtime
 	r.mu.Unlock()
-	if runtimeBackend != nil && workspaceID != "" && task.ChildSessionID != "" {
-		_ = runtimeBackend.CancelSession(workspaceID, task.ChildSessionID)
+	if runtimeWorkbench != nil && workspaceID != "" && task.ChildSessionID != "" {
+		_ = runtimeWorkbench.CancelSession(workspaceID, task.ChildSessionID)
 	}
 	task.Status = agentTaskStatusCancelled
 	task.Progress = 100
@@ -141,7 +141,7 @@ func withRuntimeAgentTaskCancelAction(resp RuntimeAgentTaskResponse, accepted bo
 		Source: RuntimeWriteActionSource{
 			Kind:                  runtimeAgentTaskCancelSourceKind,
 			Action:                runtimeAgentTaskCancelAction,
-			BackendOnly:           true,
+			WorkbenchOnly:         true,
 			StartsWorker:          false,
 			IdempotentBy:          "task_id",
 			SessionActivityParity: true,
@@ -400,9 +400,9 @@ func (r *runtimeService) SendAgentTaskFollowUp(ctx context.Context, taskID strin
 	if r.workspace != nil {
 		workspaceID = r.workspace.ID
 	}
-	runtimeBackend := r.runtime
+	runtimeWorkbench := r.runtime
 	r.mu.Unlock()
-	if runtimeBackend == nil || workspaceID == "" || task.ChildSessionID == "" {
+	if runtimeWorkbench == nil || workspaceID == "" || task.ChildSessionID == "" {
 		stored, _ := newRuntimeAgentTaskMessageStore(r.turns.db).UpdateStatus(ctx, msg.ID, taskMessageStatusRejected, "agent task child session is not deliverable")
 		r.storeRuntimeEvent(runtimeAgentTaskMessageStatusEvent(runtimeapi.EventTaskMessageRejected, stored))
 		r.writeAgentTaskMessageStatusAudit("task_message_rejected", task, stored)
@@ -414,7 +414,7 @@ func (r *runtimeService) SendAgentTaskFollowUp(ctx context.Context, taskID strin
 	}
 	r.storeRuntimeEvent(runtimeAgentTaskMessageStatusEvent(runtimeapi.EventTaskMessageDelivered, delivered))
 	r.writeAgentTaskMessageStatusAudit("task_message_delivered", task, delivered)
-	if err := runtimeBackend.SendSessionMessage(ctx, workspaceID, proto.AgentMessage{
+	if err := runtimeWorkbench.SendSessionMessage(ctx, workspaceID, apitypes.AgentMessage{
 		SessionID: task.ChildSessionID,
 		TurnID:    task.ParentTurnID,
 		Prompt:    content,

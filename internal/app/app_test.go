@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/CIPFZ/agent-builder/internal/pubsub"
 	"github.com/stretchr/testify/require"
 )
 

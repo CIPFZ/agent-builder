@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 const (
@@ -619,8 +619,8 @@ func builtinToolCapabilities() []RuntimeCapability {
 	return []RuntimeCapability{
 		{ID: "builtin:bash", Kind: "builtin_tool", Name: "bash", Enabled: true, Risk: "write", Description: "Run shell commands."},
 		{ID: "builtin:tool_search", Kind: "builtin_tool", Name: "tool_search", Enabled: true, Risk: "read", Description: "Search and select deferred runtime tools."},
-		{ID: "builtin:crush_info", Kind: "builtin_tool", Name: "crush_info", Enabled: true, Risk: "read", Description: "Inspect runtime configuration."},
-		{ID: "builtin:crush_logs", Kind: "builtin_tool", Name: "crush_logs", Enabled: true, Risk: "read", Description: "Inspect runtime logs."},
+		{ID: "builtin:agent_builder_info", Kind: "builtin_tool", Name: "agent_builder_info", Enabled: true, Risk: "read", Description: "Inspect runtime configuration."},
+		{ID: "builtin:agent_builder_logs", Kind: "builtin_tool", Name: "agent_builder_logs", Enabled: true, Risk: "read", Description: "Inspect runtime logs."},
 		{ID: "builtin:diagnostics", Kind: "builtin_tool", Name: "diagnostics", Enabled: true, Risk: "read", Description: "Read LSP diagnostics."},
 		{ID: "builtin:download", Kind: "builtin_tool", Name: "download", Enabled: true, Risk: "write", Description: "Download a URL to a file."},
 		{ID: "builtin:edit", Kind: "builtin_tool", Name: "edit", Enabled: true, Risk: "write", Description: "Edit a file."},

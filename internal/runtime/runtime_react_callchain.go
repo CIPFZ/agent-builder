@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/crush/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/message"
 )
 
 const (

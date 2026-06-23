@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/shell"
+	"github.com/CIPFZ/agent-builder/internal/shell"
 )
 
 const (

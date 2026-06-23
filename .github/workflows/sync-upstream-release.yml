@@ -32,7 +32,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          git remote add upstream https://github.com/charmbracelet/crush.git 2>/dev/null || git remote set-url upstream https://github.com/charmbracelet/crush.git
+          git remote add upstream https://github.com/CIPFZ/agent-builder.git 2>/dev/null || git remote set-url upstream https://github.com/CIPFZ/agent-builder.git
           git fetch upstream --tags --force
           git fetch origin upstream-stable || true
 
@@ -88,7 +88,7 @@ jobs:
             '{
               msg_type: "text",
               content: {
-                text: ("GitHub 自动化提醒：\nCrush upstream 发布了新稳定版 " + $tag + "。\n已同步到本仓库 upstream-stable 分支。\nUpstream commit: " + $sha + "\n注意：同步分支已剔除 upstream 的 .github/workflows，避免 GitHub App workflow 权限限制。\n下一步可以让 AI 分析 upstream-stable 与 main 的差异，筛选需要合并的修复和能力。")
+                text: ("GitHub 自动化提醒：\nAgent Builder upstream 发布了新稳定版 " + $tag + "。\n已同步到本仓库 upstream-stable 分支。\nUpstream commit: " + $sha + "\n注意：同步分支已剔除 upstream 的 .github/workflows，避免 GitHub App workflow 权限限制。\n下一步可以让 AI 分析 upstream-stable 与 main 的差异，筛选需要合并的修复和能力。")
               }
             }')"
 

@@ -9,37 +9,37 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
-	"github.com/charmbracelet/crush/internal/client"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/history"
-	"github.com/charmbracelet/crush/internal/lsp"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/oauth"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/CIPFZ/agent-builder/internal/agent/notify"
+	"github.com/CIPFZ/agent-builder/internal/agent/tools/mcp"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/client"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/history"
+	"github.com/CIPFZ/agent-builder/internal/lsp"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/oauth"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/pubsub"
+	"github.com/CIPFZ/agent-builder/internal/session"
+	"github.com/CIPFZ/agent-builder/internal/skills"
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 )
 
 // ClientWorkspace implements the Workspace interface by delegating all
 // operations to a remote server via the client SDK. It caches the
-// proto.Workspace returned at creation time and refreshes it after
+// apitypes.Workspace returned at creation time and refreshes it after
 // config-mutating operations.
 type ClientWorkspace struct {
 	client *client.Client
 
 	mu sync.RWMutex
-	ws proto.Workspace
+	ws apitypes.Workspace
 }
 
 // NewClientWorkspace creates a new ClientWorkspace that proxies all
 // operations through the given client SDK. The ws parameter is the
-// proto.Workspace snapshot returned by the server at creation time.
-func NewClientWorkspace(c *client.Client, ws proto.Workspace) *ClientWorkspace {
+// apitypes.Workspace snapshot returned by the server at creation time.
+func NewClientWorkspace(c *client.Client, ws apitypes.Workspace) *ClientWorkspace {
 	if ws.Config != nil {
 		ws.Config.SetupAgents()
 	}
@@ -66,7 +66,7 @@ func (w *ClientWorkspace) refreshWorkspace() {
 }
 
 // cached returns a snapshot of the cached workspace.
-func (w *ClientWorkspace) cached() proto.Workspace {
+func (w *ClientWorkspace) cached() apitypes.Workspace {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return w.ws
@@ -84,7 +84,7 @@ func (w *ClientWorkspace) CreateSession(ctx context.Context, title string) (sess
 	if err != nil {
 		return session.Session{}, err
 	}
-	return protoToSession(*sess), nil
+	return apiTypeToSession(*sess), nil
 }
 
 func (w *ClientWorkspace) GetSession(ctx context.Context, sessionID string) (session.Session, error) {
@@ -92,7 +92,7 @@ func (w *ClientWorkspace) GetSession(ctx context.Context, sessionID string) (ses
 	if err != nil {
 		return session.Session{}, err
 	}
-	return protoToSession(*sess), nil
+	return apiTypeToSession(*sess), nil
 }
 
 func (w *ClientWorkspace) ListSessions(ctx context.Context) ([]session.Session, error) {
@@ -102,17 +102,17 @@ func (w *ClientWorkspace) ListSessions(ctx context.Context) ([]session.Session, 
 	}
 	sessions := make([]session.Session, len(protoSessions))
 	for i, s := range protoSessions {
-		sessions[i] = protoToSession(s)
+		sessions[i] = apiTypeToSession(s)
 	}
 	return sessions, nil
 }
 
 func (w *ClientWorkspace) SaveSession(ctx context.Context, sess session.Session) (session.Session, error) {
-	saved, err := w.client.SaveSession(ctx, w.workspaceID(), sessionToProto(sess))
+	saved, err := w.client.SaveSession(ctx, w.workspaceID(), sessionToAPIType(sess))
 	if err != nil {
 		return session.Session{}, err
 	}
-	return protoToSession(*saved), nil
+	return apiTypeToSession(*saved), nil
 }
 
 func (w *ClientWorkspace) DeleteSession(ctx context.Context, sessionID string) error {
@@ -138,7 +138,7 @@ func (w *ClientWorkspace) ListMessages(ctx context.Context, sessionID string) ([
 	if err != nil {
 		return nil, err
 	}
-	return protoToMessages(msgs), nil
+	return apiTypeToMessages(msgs), nil
 }
 
 func (w *ClientWorkspace) ListUserMessages(ctx context.Context, sessionID string) ([]message.Message, error) {
@@ -146,7 +146,7 @@ func (w *ClientWorkspace) ListUserMessages(ctx context.Context, sessionID string
 	if err != nil {
 		return nil, err
 	}
-	return protoToMessages(msgs), nil
+	return apiTypeToMessages(msgs), nil
 }
 
 func (w *ClientWorkspace) ListAllUserMessages(ctx context.Context) ([]message.Message, error) {
@@ -154,7 +154,7 @@ func (w *ClientWorkspace) ListAllUserMessages(ctx context.Context) ([]message.Me
 	if err != nil {
 		return nil, err
 	}
-	return protoToMessages(msgs), nil
+	return apiTypeToMessages(msgs), nil
 }
 
 // -- Agent --
@@ -245,8 +245,8 @@ func (w *ClientWorkspace) GetDefaultSmallModel(providerID string) config.Selecte
 // -- Permissions --
 
 func (w *ClientWorkspace) PermissionGrant(perm permission.PermissionRequest) {
-	_ = w.client.GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
-		Permission: proto.PermissionRequest{
+	_ = w.client.GrantPermission(context.Background(), w.workspaceID(), apitypes.PermissionGrant{
+		Permission: apitypes.PermissionRequest{
 			ID:          perm.ID,
 			SessionID:   perm.SessionID,
 			ToolCallID:  perm.ToolCallID,
@@ -256,13 +256,13 @@ func (w *ClientWorkspace) PermissionGrant(perm permission.PermissionRequest) {
 			Path:        perm.Path,
 			Params:      perm.Params,
 		},
-		Action: proto.PermissionAllowForSession,
+		Action: apitypes.PermissionAllowForSession,
 	})
 }
 
 func (w *ClientWorkspace) PermissionGrantPersistent(perm permission.PermissionRequest) {
-	_ = w.client.GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
-		Permission: proto.PermissionRequest{
+	_ = w.client.GrantPermission(context.Background(), w.workspaceID(), apitypes.PermissionGrant{
+		Permission: apitypes.PermissionRequest{
 			ID:          perm.ID,
 			SessionID:   perm.SessionID,
 			ToolCallID:  perm.ToolCallID,
@@ -272,13 +272,13 @@ func (w *ClientWorkspace) PermissionGrantPersistent(perm permission.PermissionRe
 			Path:        perm.Path,
 			Params:      perm.Params,
 		},
-		Action: proto.PermissionAllow,
+		Action: apitypes.PermissionAllow,
 	})
 }
 
 func (w *ClientWorkspace) PermissionDeny(perm permission.PermissionRequest) {
-	_ = w.client.GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
-		Permission: proto.PermissionRequest{
+	_ = w.client.GrantPermission(context.Background(), w.workspaceID(), apitypes.PermissionGrant{
+		Permission: apitypes.PermissionRequest{
 			ID:          perm.ID,
 			SessionID:   perm.SessionID,
 			ToolCallID:  perm.ToolCallID,
@@ -288,7 +288,7 @@ func (w *ClientWorkspace) PermissionDeny(perm permission.PermissionRequest) {
 			Path:        perm.Path,
 			Params:      perm.Params,
 		},
-		Action: proto.PermissionDeny,
+		Action: apitypes.PermissionDeny,
 	})
 }
 
@@ -329,7 +329,7 @@ func (w *ClientWorkspace) ListSessionHistory(ctx context.Context, sessionID stri
 	if err != nil {
 		return nil, err
 	}
-	return protoToFiles(files), nil
+	return apiTypeToFiles(files), nil
 }
 
 // -- LSP --
@@ -564,10 +564,10 @@ func (w *ClientWorkspace) Shutdown() {
 	_ = w.client.DeleteWorkspace(context.Background(), w.workspaceID())
 }
 
-// translateEvent converts proto-typed SSE events into workspace domain events.
+// translateEvent converts API-typed SSE events into workspace domain events.
 func translateEvent(ev any) any {
 	switch e := ev.(type) {
-	case pubsub.Event[proto.LSPEvent]:
+	case pubsub.Event[apitypes.LSPEvent]:
 		return pubsub.Event[LSPEvent]{
 			Type: e.Type,
 			Payload: LSPEvent{
@@ -578,11 +578,11 @@ func translateEvent(ev any) any {
 				DiagnosticCount: e.Payload.DiagnosticCount,
 			},
 		}
-	case pubsub.Event[proto.MCPEvent]:
+	case pubsub.Event[apitypes.MCPEvent]:
 		return pubsub.Event[mcp.Event]{
 			Type: e.Type,
 			Payload: mcp.Event{
-				Type:  protoToMCPEventType(e.Payload.Type),
+				Type:  apiTypeToMCPEventType(e.Payload.Type),
 				Name:  e.Payload.Name,
 				State: mcp.State(e.Payload.State),
 				Error: e.Payload.Error,
@@ -593,7 +593,7 @@ func translateEvent(ev any) any {
 				},
 			},
 		}
-	case pubsub.Event[proto.PermissionRequest]:
+	case pubsub.Event[apitypes.PermissionRequest]:
 		return pubsub.Event[permission.PermissionRequest]{
 			Type: e.Type,
 			Payload: permission.PermissionRequest{
@@ -607,7 +607,7 @@ func translateEvent(ev any) any {
 				Params:      e.Payload.Params,
 			},
 		}
-	case pubsub.Event[proto.PermissionNotification]:
+	case pubsub.Event[apitypes.PermissionNotification]:
 		return pubsub.Event[permission.PermissionNotification]{
 			Type: e.Type,
 			Payload: permission.PermissionNotification{
@@ -616,22 +616,22 @@ func translateEvent(ev any) any {
 				Denied:     e.Payload.Denied,
 			},
 		}
-	case pubsub.Event[proto.Message]:
+	case pubsub.Event[apitypes.Message]:
 		return pubsub.Event[message.Message]{
 			Type:    e.Type,
-			Payload: protoToMessage(e.Payload),
+			Payload: apiTypeToMessage(e.Payload),
 		}
-	case pubsub.Event[proto.Session]:
+	case pubsub.Event[apitypes.Session]:
 		return pubsub.Event[session.Session]{
 			Type:    e.Type,
-			Payload: protoToSession(e.Payload),
+			Payload: apiTypeToSession(e.Payload),
 		}
-	case pubsub.Event[proto.File]:
+	case pubsub.Event[apitypes.File]:
 		return pubsub.Event[history.File]{
 			Type:    e.Type,
-			Payload: protoToFile(e.Payload),
+			Payload: apiTypeToFile(e.Payload),
 		}
-	case pubsub.Event[proto.AgentEvent]:
+	case pubsub.Event[apitypes.AgentEvent]:
 		return pubsub.Event[notify.Notification]{
 			Type: e.Type,
 			Payload: notify.Notification{
@@ -640,10 +640,10 @@ func translateEvent(ev any) any {
 				Type:         notify.Type(e.Payload.Type),
 			},
 		}
-	case pubsub.Event[proto.SkillsEvent]:
+	case pubsub.Event[apitypes.SkillsEvent]:
 		return pubsub.Event[skills.Event]{
 			Type:    e.Type,
-			Payload: skills.Event{States: protoToSkillStates(e.Payload.States)},
+			Payload: skills.Event{States: apiTypeToSkillStates(e.Payload.States)},
 		}
 	default:
 		slog.Warn("Unknown event type in translateEvent", "type", fmt.Sprintf("%T", ev))
@@ -651,7 +651,7 @@ func translateEvent(ev any) any {
 	}
 }
 
-func protoToSkillStates(in []proto.SkillState) []*skills.SkillState {
+func apiTypeToSkillStates(in []apitypes.SkillState) []*skills.SkillState {
 	if len(in) == 0 {
 		return nil
 	}
@@ -670,22 +670,22 @@ func protoToSkillStates(in []proto.SkillState) []*skills.SkillState {
 	return out
 }
 
-func protoToMCPEventType(t proto.MCPEventType) mcp.EventType {
+func apiTypeToMCPEventType(t apitypes.MCPEventType) mcp.EventType {
 	switch t {
-	case proto.MCPEventStateChanged:
+	case apitypes.MCPEventStateChanged:
 		return mcp.EventStateChanged
-	case proto.MCPEventToolsListChanged:
+	case apitypes.MCPEventToolsListChanged:
 		return mcp.EventToolsListChanged
-	case proto.MCPEventPromptsListChanged:
+	case apitypes.MCPEventPromptsListChanged:
 		return mcp.EventPromptsListChanged
-	case proto.MCPEventResourcesListChanged:
+	case apitypes.MCPEventResourcesListChanged:
 		return mcp.EventResourcesListChanged
 	default:
 		return mcp.EventStateChanged
 	}
 }
 
-func protoToSession(s proto.Session) session.Session {
+func apiTypeToSession(s apitypes.Session) session.Session {
 	return session.Session{
 		ID:               s.ID,
 		ParentSessionID:  s.ParentSessionID,
@@ -697,13 +697,13 @@ func protoToSession(s proto.Session) session.Session {
 		Cost:             s.Cost,
 		ProjectID:        s.ProjectID,
 		Scope:            s.Scope,
-		Todos:            protoToTodos(s.Todos),
+		Todos:            apiTypeToTodos(s.Todos),
 		CreatedAt:        s.CreatedAt,
 		UpdatedAt:        s.UpdatedAt,
 	}
 }
 
-func protoToTodos(todos []proto.Todo) []session.Todo {
+func apiTypeToTodos(todos []apitypes.Todo) []session.Todo {
 	if len(todos) == 0 {
 		return nil
 	}
@@ -718,7 +718,7 @@ func protoToTodos(todos []proto.Todo) []session.Todo {
 	return out
 }
 
-func protoToFile(f proto.File) history.File {
+func apiTypeToFile(f apitypes.File) history.File {
 	return history.File{
 		ID:        f.ID,
 		SessionID: f.SessionID,
@@ -730,7 +730,7 @@ func protoToFile(f proto.File) history.File {
 	}
 }
 
-func protoToMessage(m proto.Message) message.Message {
+func apiTypeToMessage(m apitypes.Message) message.Message {
 	msg := message.Message{
 		ID:        m.ID,
 		SessionID: m.SessionID,
@@ -743,23 +743,23 @@ func protoToMessage(m proto.Message) message.Message {
 
 	for _, p := range m.Parts {
 		switch v := p.(type) {
-		case proto.TextContent:
+		case apitypes.TextContent:
 			msg.Parts = append(msg.Parts, message.TextContent{Text: v.Text})
-		case proto.ReasoningContent:
+		case apitypes.ReasoningContent:
 			msg.Parts = append(msg.Parts, message.ReasoningContent{
 				Thinking:   v.Thinking,
 				Signature:  v.Signature,
 				StartedAt:  v.StartedAt,
 				FinishedAt: v.FinishedAt,
 			})
-		case proto.ToolCall:
+		case apitypes.ToolCall:
 			msg.Parts = append(msg.Parts, message.ToolCall{
 				ID:       v.ID,
 				Name:     v.Name,
 				Input:    v.Input,
 				Finished: v.Finished,
 			})
-		case proto.ToolResult:
+		case apitypes.ToolResult:
 			msg.Parts = append(msg.Parts, message.ToolResult{
 				ToolCallID:       v.ToolCallID,
 				Name:             v.Name,
@@ -775,16 +775,16 @@ func protoToMessage(m proto.Message) message.Message {
 				OriginalSize:     v.OriginalSize,
 				TruncatedBy:      v.TruncatedBy,
 			})
-		case proto.Finish:
+		case apitypes.Finish:
 			msg.Parts = append(msg.Parts, message.Finish{
 				Reason:  message.FinishReason(v.Reason),
 				Time:    v.Time,
 				Message: v.Message,
 				Details: v.Details,
 			})
-		case proto.ImageURLContent:
+		case apitypes.ImageURLContent:
 			msg.Parts = append(msg.Parts, message.ImageURLContent{URL: v.URL, Detail: v.Detail})
-		case proto.BinaryContent:
+		case apitypes.BinaryContent:
 			msg.Parts = append(msg.Parts, message.BinaryContent{Path: v.Path, MIMEType: v.MIMEType, Data: v.Data})
 		}
 	}
@@ -792,24 +792,24 @@ func protoToMessage(m proto.Message) message.Message {
 	return msg
 }
 
-func protoToMessages(msgs []proto.Message) []message.Message {
+func apiTypeToMessages(msgs []apitypes.Message) []message.Message {
 	out := make([]message.Message, len(msgs))
 	for i, m := range msgs {
-		out[i] = protoToMessage(m)
+		out[i] = apiTypeToMessage(m)
 	}
 	return out
 }
 
-func protoToFiles(files []proto.File) []history.File {
+func apiTypeToFiles(files []apitypes.File) []history.File {
 	out := make([]history.File, len(files))
 	for i, f := range files {
-		out[i] = protoToFile(f)
+		out[i] = apiTypeToFile(f)
 	}
 	return out
 }
 
-func sessionToProto(s session.Session) proto.Session {
-	return proto.Session{
+func sessionToAPIType(s session.Session) apitypes.Session {
+	return apitypes.Session{
 		ID:               s.ID,
 		ParentSessionID:  s.ParentSessionID,
 		Title:            s.Title,
@@ -820,19 +820,19 @@ func sessionToProto(s session.Session) proto.Session {
 		Cost:             s.Cost,
 		ProjectID:        s.ProjectID,
 		Scope:            s.Scope,
-		Todos:            todosToProto(s.Todos),
+		Todos:            todosToAPIType(s.Todos),
 		CreatedAt:        s.CreatedAt,
 		UpdatedAt:        s.UpdatedAt,
 	}
 }
 
-func todosToProto(todos []session.Todo) []proto.Todo {
+func todosToAPIType(todos []session.Todo) []apitypes.Todo {
 	if len(todos) == 0 {
 		return nil
 	}
-	out := make([]proto.Todo, len(todos))
+	out := make([]apitypes.Todo, len(todos))
 	for i, t := range todos {
-		out[i] = proto.Todo{
+		out[i] = apitypes.Todo{
 			Content:    t.Content,
 			Status:     string(t.Status),
 			ActiveForm: t.ActiveForm,

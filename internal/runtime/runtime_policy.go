@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/workbench"
 )
 
 var runtimePolicyModes = []string{
@@ -288,7 +288,7 @@ func (r *runtimeService) UpdatePolicy(ctx context.Context, req RuntimePolicyUpda
 		if err := r.applyPolicyToWorkspace(ctx, updated); err != nil {
 			return RuntimePolicyResponse{}, err
 		}
-		if err := r.runtime.UpdateAgent(ctx, r.workspace.ID); err != nil && !errors.Is(err, backend.ErrAgentNotInitialized) {
+		if err := r.runtime.UpdateAgent(ctx, r.workspace.ID); err != nil && !errors.Is(err, workbench.ErrAgentNotInitialized) {
 			return RuntimePolicyResponse{}, err
 		}
 	}

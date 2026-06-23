@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/message"
 )
 
 const clearedContent = "[Old tool result content cleared]"

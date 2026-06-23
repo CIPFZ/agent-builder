@@ -659,7 +659,7 @@ type RuntimeRunSchedulerExecuteTaskResponse struct {
 type RuntimeRunSchedulerExecuteTaskSource struct {
 	Kind                  string   `json:"kind"`
 	Action                string   `json:"action"`
-	BackendOnly           bool     `json:"backendOnly"`
+	WorkbenchOnly         bool     `json:"backendOnly"`
 	StartsWorker          bool     `json:"startsWorker"`
 	IdempotentByTaskID    bool     `json:"idempotentByTaskId"`
 	SessionActivityParity bool     `json:"sessionActivityParity"`
@@ -676,7 +676,7 @@ type RuntimeWriteActionMetadata struct {
 type RuntimeWriteActionSource struct {
 	Kind                  string   `json:"kind"`
 	Action                string   `json:"action"`
-	BackendOnly           bool     `json:"backendOnly"`
+	WorkbenchOnly         bool     `json:"backendOnly"`
 	StartsWorker          bool     `json:"startsWorker"`
 	IdempotentBy          string   `json:"idempotentBy,omitempty"`
 	SessionActivityParity bool     `json:"sessionActivityParity"`
@@ -704,7 +704,7 @@ type RuntimeAgentTaskExecutionRequest struct {
 	Worktree                string   `json:"worktree,omitempty"`
 	StartedAt               int64    `json:"startedAt,omitempty"`
 	StartAlreadyRecorded    bool     `json:"startAlreadyRecorded"`
-	BackendOnly             bool     `json:"backendOnly"`
+	WorkbenchOnly           bool     `json:"backendOnly"`
 	EventPayloadRefreshOnly bool     `json:"eventPayloadRefreshOnly"`
 }
 

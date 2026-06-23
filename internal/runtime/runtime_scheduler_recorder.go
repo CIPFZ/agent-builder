@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	agenttools "github.com/charmbracelet/crush/internal/agent/tools"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	agenttools "github.com/CIPFZ/agent-builder/internal/agent/tools"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 type runtimeSchedulerRecorder struct {
@@ -99,7 +99,7 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 	if r.service.workspace != nil {
 		workspaceID = r.service.workspace.ID
 	}
-	runtimeBackend := r.service.runtime
+	runtimeWorkbench := r.service.runtime
 	r.service.mu.Unlock()
 	source := scheduler.ToolSource(call.Source)
 	if source == "" {
@@ -222,7 +222,7 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 			HeadlessReason: result.HeadlessReason,
 		}, nil
 	}
-	if runtimeBackend == nil || workspaceID == "" {
+	if runtimeWorkbench == nil || workspaceID == "" {
 		result.Decision = permission.PolicyDeny
 		result.Headless = true
 		result.HeadlessReason = "Runtime policy requires approval, but no interactive permission service is available."
@@ -246,7 +246,7 @@ func (r *runtimeSchedulerRecorder) EvaluateToolCall(ctx context.Context, call ag
 			HeadlessReason: result.HeadlessReason,
 		}, nil
 	}
-	granted, err := runtimeBackend.GetWorkspace(workspaceID)
+	granted, err := runtimeWorkbench.GetWorkspace(workspaceID)
 	if err != nil {
 		return agent.SchedulerToolPolicyDecision{}, err
 	}

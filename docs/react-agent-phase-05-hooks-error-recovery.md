@@ -44,7 +44,7 @@ Relevant files:
 - `internal/agent/agent.go` error handling and synthetic tool result path.
 - `internal/runtime/runtime_recovery.go` startup recovery.
 
-## Backend Work
+## Runtime Work
 
 ### Hook Event Expansion
 
@@ -148,7 +148,7 @@ The UI should distinguish:
 
 ## Tests
 
-Backend tests:
+Runtime tests:
 
 - prompt submit hook blocks before turn execution;
 - prompt submit hook rewrites input and evidence is persisted;
@@ -173,7 +173,7 @@ Browser smoke:
 
 ## Acceptance Criteria
 
-- Hook outcomes and recovery decisions are durable backend facts.
+- Hook outcomes and recovery decisions are durable runtime facts.
 - Users can understand why a turn failed or stopped.
 - No stale actionability survives reload.
 

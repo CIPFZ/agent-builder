@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/db"
 )
 
 func TestRuntimeAuditStoreAppendAndListTurn(t *testing.T) {
@@ -148,7 +148,7 @@ func TestAuditPayloadIncludesSkillActivationSummary(t *testing.T) {
 	t.Parallel()
 
 	summary := runtimeTurnSkillSummary([]RuntimeSkill{
-		{Name: "docs", Builtin: true, Enabled: true, State: capabilityStateUnloaded, Path: "crush://skills/docs", SkillFilePath: "crush://skills/docs/SKILL.md", CapabilityID: "skill:docs"},
+		{Name: "docs", Builtin: true, Enabled: true, State: capabilityStateUnloaded, Path: "agent-builder://skills/docs", SkillFilePath: "agent-builder://skills/docs/SKILL.md", CapabilityID: "skill:docs"},
 		{Name: "disabled", Enabled: false, State: capabilityStateDisabled, Reason: "disabled_skill"},
 		{Name: "broken", Enabled: false, State: capabilityStateFailed, Error: "parse failed"},
 	}, "ask")

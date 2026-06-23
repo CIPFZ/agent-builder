@@ -13,7 +13,7 @@ the audit/doc refresh session.
 
 2026-06-03 update:
 
-- The frontend/backend tool, thinking, and permission integration milestone is
+- The frontend/runtime tool, thinking, and permission integration milestone is
   completed.
 - Runtime parity closure stabilization and scenario coverage is completed for
   the local desktop closure gate.

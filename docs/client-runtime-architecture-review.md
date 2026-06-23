@@ -1,6 +1,6 @@
 # Client Runtime Architecture Review
 
-本文是当前 docs 审计、客户端 runtime 架构确认，以及 Crush/fantasy 与
+本文是当前 docs 审计、客户端 runtime 架构确认，以及 Agent Builder/fantasy 与
 Claude Code QueryEngine 语义对齐的汇总入口。结论基于当前仓库状态：
 TUI/CLI 主路径已经移除或降级，React/Wails 桌面客户端是产品界面，Go
 runtime 是事实来源。
@@ -15,7 +15,7 @@ order, use:
 
 ## 结论摘要
 
-Agent Builder 不应继续沿用 Crush 的 TUI/CLI 产品形态，也不应复制 Claude
+Agent Builder 不应继续沿用 Agent Builder 的 TUI/CLI 产品形态，也不应复制 Claude
 Code 的 terminal UI。当前目标是：
 
 ```text
@@ -50,7 +50,7 @@ state recovery、task/subagent、capability inventory 和客户端可恢复状�
 | `docs/permission-policy-model.md` | active | Permission/Policy 模型升级方向。 |
 | `docs/frontend-runtime-ui-technical-plan.md` | active | 前端重构、Codex-like workbench、Ant Design X、API-as-truth、event cursor、active turn 恢复。 |
 | `docs/client-information-architecture.md` | active | 客户端信息架构，conversation-first。 |
-| `docs/legacy-crush-inventory.md` | active reference | 清理结果和遗留 surface 说明，需局部更新旧 wording。 |
+| `docs/legacy-agent-builder-inventory.md` | active reference | 清理结果和遗留 surface 说明，需局部更新旧 wording。 |
 | `docs/archive/dev-baseline.md` | historical reference | 本机 baseline 记录；不再是执行路线入口。 |
 | `docs/architecture-decisions.md` | partial active | ADR-004 到 ADR-008 仍有效；ADR-001 和旧 next steps 已过期。 |
 
@@ -73,9 +73,9 @@ state recovery、task/subagent、capability inventory 和客户端可恢复状�
 
 | 文档 | 用途 |
 | --- | --- |
-| `docs/archive/crush-claude-code-gap-analysis.md` | 历史 gap analysis，当前 review 已吸收核心结论。 |
+| `docs/archive/agent-builder-claude-code-gap-analysis.md` | 历史 gap analysis，当前 review 已吸收核心结论。 |
 | `docs/archive/reference-analysis/claude-code.md` | Claude Code reference analysis。 |
-| `docs/archive/reference-analysis/crush.md` | Crush reference analysis，含早期 TUI 状态。 |
+| `docs/archive/reference-analysis/agent-builder.md` | Agent Builder reference analysis，含早期 TUI 状态。 |
 | `docs/archive/reference-analysis/comparison.md` | 多项目横向比较，部分 TUI wording 已过期。 |
 | `docs/archive/reference-analysis/codex.md` | Codex reference analysis。 |
 | `docs/archive/reference-analysis/gemini-cli.md` | Gemini CLI reference analysis。 |
@@ -130,7 +130,7 @@ React 只拥有 UI 状态：
 - 折叠、排序、过滤、局部 loading state
 - optimistic visual hint，但必须可由 runtime refresh 覆盖
 
-## Crush / fantasy 能力基线
+## Agent Builder / fantasy 能力基线
 
 当前项目通过 `charm.land/fantasy v0.25.0` 使用以下底层能力：
 
@@ -169,7 +169,7 @@ Agent Builder 可以在 fantasy 上方保留的 provider policy 层包括：
 Claude Code `QueryEngine` 的价值不是 provider abstraction，而是 runtime
 orchestration。映射关系如下：
 
-| Claude Code QueryEngine 语义 | 当前 Crush/fantasy 基线 | Agent Builder 需要补齐 |
+| Claude Code QueryEngine 语义 | 当前 Agent Builder/fantasy 基线 | Agent Builder 需要补齐 |
 | --- | --- | --- |
 | conversation/turn lifecycle | `SessionAgent.Run` + session busy map | 持久 `Turn` object、status、cancel/resume API。 |
 | model streaming | fantasy `Agent.Stream` | 保留 fantasy，不重复实现。 |
@@ -178,7 +178,7 @@ orchestration。映射关系如下：
 | tool execution protocol | fantasy tool `Run` + current hooks | `ToolScheduler` 包装 lifecycle、validation、permission、audit。 |
 | context/memory | prompt template、context paths、skills XML、summary | layered instruction/memory loading、read-file state、compact lifecycle。 |
 | subagent/background task | `agent` tool creates child task session | persisted `AgentTask` with status/progress/cancel/resume/artifact。 |
-| event stream | app/backend pubsub + desktop runtime events | runtime-native event bus with sequence/cursor and stable schema。 |
+| event stream | app/workbench pubsub + desktop runtime events | runtime-native event bus with sequence/cursor and stable schema。 |
 | recovery/resume | SQLite sessions/messages + orphan repair | turn/tool/permission/audit store and interrupted recovery scan。 |
 | audit/telemetry | logs, session usage, desktop audit bridge | append-only runtime audit store as product contract。 |
 

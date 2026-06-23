@@ -4,10 +4,10 @@ import (
 	"context"
 	"sync"
 
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/workbench"
 )
 
 // RuntimeService is the transport-neutral runtime boundary used by Wails and
@@ -152,8 +152,8 @@ type runtimeService struct {
 	mu                   sync.Mutex
 	startMu              sync.Mutex
 	starting             bool
-	runtime              *backend.Backend
-	workspace            *proto.Workspace
+	runtime              *workbench.Service
+	workspace            *apitypes.Workspace
 	runtimeConfigured    bool
 	runtimeConfigKnown   bool
 	projectPath          string

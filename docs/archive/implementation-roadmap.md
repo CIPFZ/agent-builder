@@ -1,6 +1,6 @@
 # Implementation Roadmap
 
-本文记录从当前 Crush 代码库演进到 agentic operations client 的阶段性
+本文记录从当前 Agent Builder 代码库演进到 agentic operations client 的阶段性
 里程碑。路线原则是：先建立 baseline，再做 UI 原型和 runtime 边界，
 最后逐步补齐 operation、policy、scheduler、subagent、sandbox 和插件体系。
 
@@ -9,14 +9,14 @@
 最终目标是构建一个面向企业产品操作场景的 agentic operations client：
 
 - 用户通过自然语言下发目标。
-- Crush/Go runtime 调度 agent、工具和插件完成流程。
+- Agent Builder/Go runtime 调度 agent、工具和插件完成流程。
 - 客户端展示任务状态、工具调用、风险、审批、日志、artifact 和报告。
 - 支持长任务、失败恢复、审计、权限控制、插件扩展和后续 agent teams。
 
 ## 路线总览
 
 ```text
-Phase 0: Crush Baseline
+Phase 0: Agent Builder Baseline
 Phase 1: UI Prototype
 Phase 2: Runtime API Boundary
 Phase 3: Operation / Run Model
@@ -28,11 +28,11 @@ Phase 8: Plugin / Capability Package
 Phase 9: Enterprise Hardening
 ```
 
-## Phase 0: Crush Baseline
+## Phase 0: Agent Builder Baseline
 
 ### 目标
 
-保持 Crush 原状，先确认当前项目可以在本地稳定构建、测试和运行。
+保持 Agent Builder 原状，先确认当前项目可以在本地稳定构建、测试和运行。
 这一阶段不做架构改造。
 
 ### 主要任务
@@ -55,7 +55,7 @@ Phase 9: Enterprise Hardening
 
 - 知道当前代码在本机是否能构建。
 - 知道当前测试是否通过，失败原因是否记录。
-- 知道当前运行 Crush 需要哪些配置和 provider 条件。
+- 知道当前运行 Agent Builder 需要哪些配置和 provider 条件。
 - 后续改动有可对照的起点。
 
 ### 暂不做
@@ -69,7 +69,7 @@ Phase 9: Enterprise Hardening
 
 ### 目标
 
-先验证 agentic operations client 的信息架构和交互体验，不依赖真实 Crush
+先验证 agentic operations client 的信息架构和交互体验，不依赖真实 Agent Builder
 runtime 改造。Phase 1 结束时需要形成一个可供本地验收的客户端版本。
 
 ### 主要任务
@@ -99,13 +99,13 @@ runtime 改造。Phase 1 结束时需要形成一个可供本地验收的客户�
 - 能通过真实 DeepSeek API 完成基础对话。
 - `npm run build` 和 `npm run lint` 无错误、无告警。
 - 能验证 Claude Desktop 风格的基础交互是否满足第一阶段体验。
-- UI 与真实 Crush runtime 解耦。
+- UI 与真实 Agent Builder runtime 解耦。
 
 ### 暂不做
 
 - 不直接调用真实集群。
 - 不让真实模型驱动工具执行。
-- 不接真实 Crush 工具。
+- 不接真实 Agent Builder 工具。
 - 不执行真实高风险动作。
 
 ### Phase 1 子阶段
@@ -136,7 +136,7 @@ Phase 1.6 的验收构建包含桌面包基础：
 
 ### 目标
 
-稳定 Crush 的 headless runtime 边界，让 TUI、未来桌面端、Web 控制台和
+稳定 Agent Builder 的 headless runtime 边界，让 TUI、未来桌面端、Web 控制台和
 headless CLI 都能通过统一协议访问 runtime。
 
 ### 主要任务
@@ -324,7 +324,7 @@ headless CLI 都能通过统一协议访问 runtime。
 
 ### 目标
 
-将 React UI 包装成桌面客户端，并与本地 Crush runtime 连接。
+将 React UI 包装成桌面客户端，并与本地 Agent Builder runtime 连接。
 
 ### 主要任务
 
@@ -468,7 +468,7 @@ capability package。
 
 ## 近期执行建议
 
-短期不要大改 Crush。建议顺序是：
+短期不要大改 Agent Builder。建议顺序是：
 
 1. 做 Phase 0，建立 baseline。
 2. 并行做 Phase 1 的 UI mock prototype。
@@ -488,6 +488,6 @@ capability package。
 
 - 每个阶段都应有明确可运行产物。
 - 不在同一阶段同时大改 runtime、UI、插件和 sandbox。
-- 保持 TUI 可用，避免破坏原 Crush。
+- 保持 TUI 可用，避免破坏原 Agent Builder。
 - 参考项目只借鉴设计，不直接照搬代码。
 - 复杂企业能力分阶段引入，避免初期过度设计。

@@ -5,29 +5,29 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
-	"github.com/charmbracelet/crush/internal/app"
-	"github.com/charmbracelet/crush/internal/history"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/CIPFZ/agent-builder/internal/agent/notify"
+	"github.com/CIPFZ/agent-builder/internal/agent/tools/mcp"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/app"
+	"github.com/CIPFZ/agent-builder/internal/history"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/pubsub"
+	"github.com/CIPFZ/agent-builder/internal/session"
+	"github.com/CIPFZ/agent-builder/internal/skills"
 )
 
 // wrapEvent converts a raw app pubsub.Event[T] payload into a pubsub.Payload
-// envelope with the correct PayloadType discriminator and a proto-typed inner
+// envelope with the correct PayloadType discriminator and a API-typed inner
 // payload that has proper JSON tags. Returns nil if the event type is
 // unrecognized.
 func wrapEvent(ev any) *pubsub.Payload {
 	switch e := ev.(type) {
 	case pubsub.Event[app.LSPEvent]:
-		return envelope(pubsub.PayloadTypeLSPEvent, pubsub.Event[proto.LSPEvent]{
+		return envelope(pubsub.PayloadTypeLSPEvent, pubsub.Event[apitypes.LSPEvent]{
 			Type: e.Type,
-			Payload: proto.LSPEvent{
-				Type:            proto.LSPEventType(e.Payload.Type),
+			Payload: apitypes.LSPEvent{
+				Type:            apitypes.LSPEventType(e.Payload.Type),
 				Name:            e.Payload.Name,
 				State:           e.Payload.State,
 				Error:           e.Payload.Error,
@@ -35,20 +35,20 @@ func wrapEvent(ev any) *pubsub.Payload {
 			},
 		})
 	case pubsub.Event[mcp.Event]:
-		return envelope(pubsub.PayloadTypeMCPEvent, pubsub.Event[proto.MCPEvent]{
+		return envelope(pubsub.PayloadTypeMCPEvent, pubsub.Event[apitypes.MCPEvent]{
 			Type: e.Type,
-			Payload: proto.MCPEvent{
-				Type:      mcpEventTypeToProto(e.Payload.Type),
+			Payload: apitypes.MCPEvent{
+				Type:      mcpEventTypeToAPIType(e.Payload.Type),
 				Name:      e.Payload.Name,
-				State:     proto.MCPState(e.Payload.State),
+				State:     apitypes.MCPState(e.Payload.State),
 				Error:     e.Payload.Error,
 				ToolCount: e.Payload.Counts.Tools,
 			},
 		})
 	case pubsub.Event[permission.PermissionRequest]:
-		return envelope(pubsub.PayloadTypePermissionRequest, pubsub.Event[proto.PermissionRequest]{
+		return envelope(pubsub.PayloadTypePermissionRequest, pubsub.Event[apitypes.PermissionRequest]{
 			Type: e.Type,
-			Payload: proto.PermissionRequest{
+			Payload: apitypes.PermissionRequest{
 				ID:          e.Payload.ID,
 				SessionID:   e.Payload.SessionID,
 				ToolCallID:  e.Payload.ToolCallID,
@@ -60,42 +60,42 @@ func wrapEvent(ev any) *pubsub.Payload {
 			},
 		})
 	case pubsub.Event[permission.PermissionNotification]:
-		return envelope(pubsub.PayloadTypePermissionNotification, pubsub.Event[proto.PermissionNotification]{
+		return envelope(pubsub.PayloadTypePermissionNotification, pubsub.Event[apitypes.PermissionNotification]{
 			Type: e.Type,
-			Payload: proto.PermissionNotification{
+			Payload: apitypes.PermissionNotification{
 				ToolCallID: e.Payload.ToolCallID,
 				Granted:    e.Payload.Granted,
 				Denied:     e.Payload.Denied,
 			},
 		})
 	case pubsub.Event[message.Message]:
-		return envelope(pubsub.PayloadTypeMessage, pubsub.Event[proto.Message]{
+		return envelope(pubsub.PayloadTypeMessage, pubsub.Event[apitypes.Message]{
 			Type:    e.Type,
-			Payload: messageToProto(e.Payload),
+			Payload: messageToAPIType(e.Payload),
 		})
 	case pubsub.Event[session.Session]:
-		return envelope(pubsub.PayloadTypeSession, pubsub.Event[proto.Session]{
+		return envelope(pubsub.PayloadTypeSession, pubsub.Event[apitypes.Session]{
 			Type:    e.Type,
-			Payload: sessionToProto(e.Payload),
+			Payload: sessionToAPIType(e.Payload),
 		})
 	case pubsub.Event[history.File]:
-		return envelope(pubsub.PayloadTypeFile, pubsub.Event[proto.File]{
+		return envelope(pubsub.PayloadTypeFile, pubsub.Event[apitypes.File]{
 			Type:    e.Type,
-			Payload: fileToProto(e.Payload),
+			Payload: fileToAPIType(e.Payload),
 		})
 	case pubsub.Event[notify.Notification]:
-		return envelope(pubsub.PayloadTypeAgentEvent, pubsub.Event[proto.AgentEvent]{
+		return envelope(pubsub.PayloadTypeAgentEvent, pubsub.Event[apitypes.AgentEvent]{
 			Type: e.Type,
-			Payload: proto.AgentEvent{
+			Payload: apitypes.AgentEvent{
 				SessionID:    e.Payload.SessionID,
 				SessionTitle: e.Payload.SessionTitle,
-				Type:         proto.AgentEventType(e.Payload.Type),
+				Type:         apitypes.AgentEventType(e.Payload.Type),
 			},
 		})
 	case pubsub.Event[skills.Event]:
-		return envelope(pubsub.PayloadTypeSkillsEvent, pubsub.Event[proto.SkillsEvent]{
+		return envelope(pubsub.PayloadTypeSkillsEvent, pubsub.Event[apitypes.SkillsEvent]{
 			Type:    e.Type,
-			Payload: skillsEventToProto(e.Payload),
+			Payload: skillsEventToAPIType(e.Payload),
 		})
 	default:
 		slog.Warn("Unrecognized event type for SSE wrapping", "type", fmt.Sprintf("%T", ev))
@@ -116,23 +116,23 @@ func envelope(payloadType pubsub.PayloadType, inner any) *pubsub.Payload {
 	}
 }
 
-func mcpEventTypeToProto(t mcp.EventType) proto.MCPEventType {
+func mcpEventTypeToAPIType(t mcp.EventType) apitypes.MCPEventType {
 	switch t {
 	case mcp.EventStateChanged:
-		return proto.MCPEventStateChanged
+		return apitypes.MCPEventStateChanged
 	case mcp.EventToolsListChanged:
-		return proto.MCPEventToolsListChanged
+		return apitypes.MCPEventToolsListChanged
 	case mcp.EventPromptsListChanged:
-		return proto.MCPEventPromptsListChanged
+		return apitypes.MCPEventPromptsListChanged
 	case mcp.EventResourcesListChanged:
-		return proto.MCPEventResourcesListChanged
+		return apitypes.MCPEventResourcesListChanged
 	default:
-		return proto.MCPEventStateChanged
+		return apitypes.MCPEventStateChanged
 	}
 }
 
-func sessionToProto(s session.Session) proto.Session {
-	return proto.Session{
+func sessionToAPIType(s session.Session) apitypes.Session {
+	return apitypes.Session{
 		ID:               s.ID,
 		ParentSessionID:  s.ParentSessionID,
 		Title:            s.Title,
@@ -143,19 +143,19 @@ func sessionToProto(s session.Session) proto.Session {
 		Cost:             s.Cost,
 		ProjectID:        s.ProjectID,
 		Scope:            s.Scope,
-		Todos:            todosToProto(s.Todos),
+		Todos:            todosToAPIType(s.Todos),
 		CreatedAt:        s.CreatedAt,
 		UpdatedAt:        s.UpdatedAt,
 	}
 }
 
-func todosToProto(todos []session.Todo) []proto.Todo {
+func todosToAPIType(todos []session.Todo) []apitypes.Todo {
 	if len(todos) == 0 {
 		return nil
 	}
-	out := make([]proto.Todo, len(todos))
+	out := make([]apitypes.Todo, len(todos))
 	for i, t := range todos {
-		out[i] = proto.Todo{
+		out[i] = apitypes.Todo{
 			Content:    t.Content,
 			Status:     string(t.Status),
 			ActiveForm: t.ActiveForm,
@@ -164,8 +164,8 @@ func todosToProto(todos []session.Todo) []proto.Todo {
 	return out
 }
 
-func fileToProto(f history.File) proto.File {
-	return proto.File{
+func fileToAPIType(f history.File) apitypes.File {
+	return apitypes.File{
 		ID:        f.ID,
 		SessionID: f.SessionID,
 		Path:      f.Path,
@@ -176,16 +176,16 @@ func fileToProto(f history.File) proto.File {
 	}
 }
 
-func skillsEventToProto(e skills.Event) proto.SkillsEvent {
+func skillsEventToAPIType(e skills.Event) apitypes.SkillsEvent {
 	if len(e.States) == 0 {
-		return proto.SkillsEvent{}
+		return apitypes.SkillsEvent{}
 	}
-	out := proto.SkillsEvent{States: make([]proto.SkillState, len(e.States))}
+	out := apitypes.SkillsEvent{States: make([]apitypes.SkillState, len(e.States))}
 	for i, s := range e.States {
-		out.States[i] = proto.SkillState{
+		out.States[i] = apitypes.SkillState{
 			Name:  s.Name,
 			Path:  s.Path,
-			State: proto.SkillDiscoveryState(s.State),
+			State: apitypes.SkillDiscoveryState(s.State),
 		}
 		if s.Err != nil {
 			out.States[i].Error = s.Err.Error()
@@ -194,11 +194,11 @@ func skillsEventToProto(e skills.Event) proto.SkillsEvent {
 	return out
 }
 
-func messageToProto(m message.Message) proto.Message {
-	msg := proto.Message{
+func messageToAPIType(m message.Message) apitypes.Message {
+	msg := apitypes.Message{
 		ID:        m.ID,
 		SessionID: m.SessionID,
-		Role:      proto.MessageRole(m.Role),
+		Role:      apitypes.MessageRole(m.Role),
 		Model:     m.Model,
 		Provider:  m.Provider,
 		CreatedAt: m.CreatedAt,
@@ -208,23 +208,23 @@ func messageToProto(m message.Message) proto.Message {
 	for _, p := range m.Parts {
 		switch v := p.(type) {
 		case message.TextContent:
-			msg.Parts = append(msg.Parts, proto.TextContent{Text: v.Text})
+			msg.Parts = append(msg.Parts, apitypes.TextContent{Text: v.Text})
 		case message.ReasoningContent:
-			msg.Parts = append(msg.Parts, proto.ReasoningContent{
+			msg.Parts = append(msg.Parts, apitypes.ReasoningContent{
 				Thinking:   v.Thinking,
 				Signature:  v.Signature,
 				StartedAt:  v.StartedAt,
 				FinishedAt: v.FinishedAt,
 			})
 		case message.ToolCall:
-			msg.Parts = append(msg.Parts, proto.ToolCall{
+			msg.Parts = append(msg.Parts, apitypes.ToolCall{
 				ID:       v.ID,
 				Name:     v.Name,
 				Input:    v.Input,
 				Finished: v.Finished,
 			})
 		case message.ToolResult:
-			msg.Parts = append(msg.Parts, proto.ToolResult{
+			msg.Parts = append(msg.Parts, apitypes.ToolResult{
 				ToolCallID:       v.ToolCallID,
 				Name:             v.Name,
 				Content:          v.Content,
@@ -240,26 +240,26 @@ func messageToProto(m message.Message) proto.Message {
 				TruncatedBy:      v.TruncatedBy,
 			})
 		case message.Finish:
-			msg.Parts = append(msg.Parts, proto.Finish{
-				Reason:  proto.FinishReason(v.Reason),
+			msg.Parts = append(msg.Parts, apitypes.Finish{
+				Reason:  apitypes.FinishReason(v.Reason),
 				Time:    v.Time,
 				Message: v.Message,
 				Details: v.Details,
 			})
 		case message.ImageURLContent:
-			msg.Parts = append(msg.Parts, proto.ImageURLContent{URL: v.URL, Detail: v.Detail})
+			msg.Parts = append(msg.Parts, apitypes.ImageURLContent{URL: v.URL, Detail: v.Detail})
 		case message.BinaryContent:
-			msg.Parts = append(msg.Parts, proto.BinaryContent{Path: v.Path, MIMEType: v.MIMEType, Data: v.Data})
+			msg.Parts = append(msg.Parts, apitypes.BinaryContent{Path: v.Path, MIMEType: v.MIMEType, Data: v.Data})
 		}
 	}
 
 	return msg
 }
 
-func messagesToProto(msgs []message.Message) []proto.Message {
-	out := make([]proto.Message, len(msgs))
+func messagesToAPIType(msgs []message.Message) []apitypes.Message {
+	out := make([]apitypes.Message, len(msgs))
 	for i, m := range msgs {
-		out[i] = messageToProto(m)
+		out[i] = messageToAPIType(m)
 	}
 	return out
 }

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/log"
-	"github.com/charmbracelet/crush/internal/osprocess"
+	"github.com/CIPFZ/agent-builder/internal/log"
+	"github.com/CIPFZ/agent-builder/internal/osprocess"
 )
 
 var getRg = sync.OnceValue(func() string {

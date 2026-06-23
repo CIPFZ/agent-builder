@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 const (
@@ -156,7 +156,7 @@ func runtimeRunSchedulerExecuteTaskSource() RuntimeRunSchedulerExecuteTaskSource
 	return RuntimeRunSchedulerExecuteTaskSource{
 		Kind:                  runtimeRunSchedulerExecuteTaskSourceKind,
 		Action:                runtimeRunSchedulerExecuteTaskAction,
-		BackendOnly:           true,
+		WorkbenchOnly:         true,
 		StartsWorker:          false,
 		IdempotentByTaskID:    true,
 		SessionActivityParity: true,
@@ -175,7 +175,7 @@ func withRuntimeRunSchedulerExecuteTaskAction(resp RuntimeRunSchedulerExecuteTas
 		Source: RuntimeWriteActionSource{
 			Kind:                  resp.Source.Kind,
 			Action:                resp.Source.Action,
-			BackendOnly:           resp.Source.BackendOnly,
+			WorkbenchOnly:         resp.Source.WorkbenchOnly,
 			StartsWorker:          resp.Source.StartsWorker,
 			IdempotentBy:          "task_id",
 			SessionActivityParity: resp.Source.SessionActivityParity,

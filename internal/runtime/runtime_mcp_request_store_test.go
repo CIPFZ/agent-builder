@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/csync"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 func TestRuntimeMCPRequestStoreAuthCreateGetListUpdatePersistence(t *testing.T) {
@@ -124,9 +124,9 @@ func TestRuntimeMCPRequestsAppearInRecoveryAndPersistAcrossRestart(t *testing.T)
 	t.Cleanup(func() { _ = db.Release(dataDir) })
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.turns = newRuntimeTurnStore(conn)
 	service.permissionStore = newRuntimePermissionStore(conn)
 	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
@@ -169,9 +169,9 @@ func TestRuntimeMCPStartupCancelsStaleActionableAuthAndElicitationRequests(t *te
 	t.Cleanup(func() { _ = db.Release(dataDir) })
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.turns = newRuntimeTurnStore(conn)
 	service.permissionStore = newRuntimePermissionStore(conn)
 	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
@@ -179,11 +179,11 @@ func TestRuntimeMCPStartupCancelsStaleActionableAuthAndElicitationRequests(t *te
 	service.policy = defaultRuntimePolicy()
 	service.nextEventSequence = 0
 
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "mcp startup recovery")
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "mcp startup recovery")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,9 +321,9 @@ func TestRuntimeMCPRequestDecisionsEmitAuditEventsAndReplay(t *testing.T) {
 	t.Cleanup(func() { _ = db.Release(dataDir) })
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.sessionID = "session-1"
 	service.turns = newRuntimeTurnStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
@@ -357,7 +357,7 @@ func TestRuntimeMCPRequestDecisionsEmitAuditEventsAndReplay(t *testing.T) {
 	if resp.Action == nil || !resp.Action.Accepted || resp.Action.Reason != runtimeMCPRequestDecisionReasonAccepted || resp.Action.Source.Kind != runtimeMCPRequestDecisionActionSourceKind || resp.Action.Source.Action != "approve" || resp.Action.Source.IdempotentBy != "mcp_request_id" {
 		t.Fatalf("mcp decision action metadata = %#v", resp.Action)
 	}
-	if len(resp.Action.RefreshTargets) == 0 || resp.Action.Source.StartsWorker || !resp.Action.Source.BackendOnly || !resp.Action.Source.SessionActivityParity {
+	if len(resp.Action.RefreshTargets) == 0 || resp.Action.Source.StartsWorker || !resp.Action.Source.WorkbenchOnly || !resp.Action.Source.SessionActivityParity {
 		t.Fatalf("mcp decision source/refresh metadata = %#v", resp.Action)
 	}
 	plain, err := service.MCPRequest(context.Background(), "mcp-req-1")
@@ -393,9 +393,9 @@ func TestRuntimeMCPRequestEventAuditReplayRedactsSecrets(t *testing.T) {
 	t.Cleanup(func() { _ = db.Release(dataDir) })
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.sessionID = "session-secret"
 	service.turns = newRuntimeTurnStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
@@ -447,9 +447,9 @@ func TestRuntimeMCPRequestDeniedCancelledFailedPaths(t *testing.T) {
 	t.Cleanup(func() { _ = db.Release(dataDir) })
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
 	for _, tc := range []struct {
@@ -491,9 +491,9 @@ func TestRuntimeMCPPolicyAskCreatesPendingAuthAndHeadlessFailsClosed(t *testing.
 	t.Cleanup(func() { _ = db.Release(dataDir) })
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
 	decision := permission.PolicyResult{Decision: permission.PolicyAsk, Risk: permission.RiskSecret, Mode: permission.PolicyModeAsk, Reason: "needs auth"}

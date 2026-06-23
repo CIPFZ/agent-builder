@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 func TestRuntimeSQLiteToolCallStoreIdempotentUpsert(t *testing.T) {

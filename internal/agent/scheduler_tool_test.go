@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/permission"
 	"github.com/stretchr/testify/require"
 )
 

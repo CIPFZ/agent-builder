@@ -79,16 +79,16 @@ client/shared/
 
 ### 原因
 
-- 当前目标是和 Crush runtime 一起演进，不需要拆仓库。
+- 当前目标是和 Agent Builder runtime 一起演进，不需要拆仓库。
 - 方便共享 docs、mock event schema 和后续本地 API。
 - 方便 Wails desktop shell 后续复用同一套 React UI。
 - 目录名 `client` 比 `frontend` 更贴近最终多客户端形态。
 
-## Historical ADR-003: 先做本机 Crush Baseline
+## Historical ADR-003: 先做本机 Agent Builder Baseline
 
 ### 决策
 
-进入实现前，先在本机实际构建和测试当前 Crush：
+进入实现前，先在本机实际构建和测试当前 Agent Builder：
 
 - `go build .`
 - `go run . --help`
@@ -161,7 +161,7 @@ JSON-RPC over WebSocket
 
 ### 原因
 
-当前最重要的是快速打通本地客户端和 Crush runtime。HTTP + SSE 足够表达：
+当前最重要的是快速打通本地客户端和 Agent Builder runtime。HTTP + SSE 足够表达：
 
 - 创建 session/run。
 - 发送用户输入。
@@ -279,14 +279,14 @@ Wails 只是桌面壳，不是唯一客户端协议。
 
 ### 决策
 
-数据模型命名参考 Crush、Codex、Claude Code 和 Gemini CLI，但以 Crush
+数据模型命名参考 Agent Builder、Codex、Claude Code 和 Gemini CLI，但以 Agent Builder
 现有概念为主，减少认知跳跃。
 
 建议核心命名：
 
 | 名称 | 含义 |
 | --- | --- |
-| `Session` | 一段对话上下文，沿用 Crush 现有概念。 |
+| `Session` | 一段对话上下文，沿用 Agent Builder 现有概念。 |
 | `Turn` | 用户输入到 agent 完成一次响应的执行轮次。 |
 | `Message` | 用户、assistant、tool result 等消息。 |
 | `ToolCall` | 一次工具调用请求和结果。 |
@@ -317,7 +317,7 @@ Run
 
 ### 原因
 
-- `Session`、`Message` 与 Crush 现有模型一致。
+- `Session`、`Message` 与 Agent Builder 现有模型一致。
 - `Turn` 参考 Codex，更适合表达一次 agent loop。
 - `Run` 作为业务任务主线，比直接使用 session 更适合企业操作场景。
 - `AgentTask` 避免过早引入复杂 agent teams。
@@ -327,7 +327,7 @@ Run
 
 Historical startup conclusion:
 
-1. 做 Crush baseline，形成 `docs/archive/dev-baseline.md`。
+1. 做 Agent Builder baseline，形成 `docs/archive/dev-baseline.md`。
 2. 创建 `client/`，做 SSH 排障助手的 mock UI。
 3. 用 HTTP JSON API + SSE 作为第一版 runtime/client 协议。
 4. 第一版 plugin/capability 以 skill + script + MCP 为主。

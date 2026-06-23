@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
-	"github.com/charmbracelet/crush/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/config"
 )
 
 func resolveDesktopLayout() (desktopLayout, error) {

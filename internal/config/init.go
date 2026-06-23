@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/charmbracelet/crush/internal/fsext"
+	"github.com/CIPFZ/agent-builder/internal/fsext"
 )
 
 const (

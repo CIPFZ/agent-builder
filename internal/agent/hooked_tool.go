@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/agent/tools"
-	"github.com/charmbracelet/crush/internal/hooks"
+	"github.com/CIPFZ/agent-builder/internal/agent/tools"
+	"github.com/CIPFZ/agent-builder/internal/hooks"
 	"github.com/tidwall/sjson"
 )
 

@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/session"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/pubsub"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/session"
 )
 
 const runtimeEventLimit = 200
@@ -63,7 +63,7 @@ func (r *runtimeService) SubscribeEvents(_ context.Context, afterValues ...int64
 func (r *runtimeService) consumeRuntimeEvents(ctx context.Context, workspaceID string) {
 	events, err := r.runtime.SubscribeRawEvents(ctx, workspaceID)
 	if err != nil {
-		slog.Error("Failed to subscribe to Crush runtime events", "workspace_id", workspaceID, "error", err)
+		slog.Error("Failed to subscribe to Agent Builder runtime events", "workspace_id", workspaceID, "error", err)
 		return
 	}
 	for {
@@ -310,7 +310,7 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 	switch payload := event.Payload.(type) {
 	case pubsub.Event[message.Message]:
 		r.eventStats.messageEvents++
-		msg := toProtoMessage(payload.Payload)
+		msg := toAPITypeMessage(payload.Payload)
 		turnID := r.sessionTurns[msg.SessionID]
 		r.recordUserMessageForTurnLocked(context.Background(), msg, turnID)
 		r.recordToolCallsFromMessage(context.Background(), msg, turnID, now)
@@ -323,7 +323,7 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 		if payload.Payload.Role == message.Assistant {
 			r.eventStats.assistantEvents++
 		}
-	case pubsub.Event[proto.Message]:
+	case pubsub.Event[apitypes.Message]:
 		r.eventStats.messageEvents++
 		turnID := r.sessionTurns[payload.Payload.SessionID]
 		r.recordUserMessageForTurnLocked(context.Background(), payload.Payload, turnID)
@@ -334,10 +334,10 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 		for _, event := range newToolRuntimeEvents(now, payload.Payload, turnID, r.toolEvents) {
 			runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(event))
 		}
-		if payload.Payload.Role == proto.Assistant {
+		if payload.Payload.Role == apitypes.Assistant {
 			r.eventStats.assistantEvents++
 		}
-	case pubsub.Event[proto.Session]:
+	case pubsub.Event[apitypes.Session]:
 		r.eventStats.sessionEvents++
 		runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(newSessionRuntimeEvent(now, payload.Payload.ID, payload.Payload.Title)))
 	case pubsub.Event[session.Session]:
@@ -345,7 +345,7 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 		runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(newSessionRuntimeEvent(now, payload.Payload.ID, payload.Payload.Title)))
 	case pubsub.Event[permission.PermissionRequest]:
 		r.eventStats.permissionEvents++
-	case pubsub.Event[proto.PermissionRequest]:
+	case pubsub.Event[apitypes.PermissionRequest]:
 		r.eventStats.permissionEvents++
 	default:
 		r.eventStats.otherEvents++
@@ -356,8 +356,8 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 	}
 }
 
-func (r *runtimeService) recordUserMessageForTurnLocked(ctx context.Context, msg proto.Message, turnID string) {
-	if turnID == "" || msg.ID == "" || msg.Role != proto.User {
+func (r *runtimeService) recordUserMessageForTurnLocked(ctx context.Context, msg apitypes.Message, turnID string) {
+	if turnID == "" || msg.ID == "" || msg.Role != apitypes.User {
 		return
 	}
 	turn, err := r.turns.Get(ctx, turnID)
@@ -471,7 +471,7 @@ func newSnapshotRequiredEvent(after, firstSequence, lastSequence int64) RuntimeE
 	return event
 }
 
-func newMessageRuntimeEvent(createdAt time.Time, msg proto.Message) RuntimeEvent {
+func newMessageRuntimeEvent(createdAt time.Time, msg apitypes.Message) RuntimeEvent {
 	eventType := runtimeapi.EventMessageCreated
 	switch {
 	case msg.FinishPart() != nil:
@@ -524,7 +524,7 @@ func newTurnFinishedRuntimeEvent(createdAt time.Time, turnID, sessionID, status 
 	return event
 }
 
-func newToolRuntimeEvents(createdAt time.Time, msg proto.Message, turnID string, states map[string]runtimeToolEventState) []RuntimeEvent {
+func newToolRuntimeEvents(createdAt time.Time, msg apitypes.Message, turnID string, states map[string]runtimeToolEventState) []RuntimeEvent {
 	events := make([]RuntimeEvent, 0)
 	for _, call := range msg.ToolCalls() {
 		if call.ID == "" {

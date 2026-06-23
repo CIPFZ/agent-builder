@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 func TestRuntimeEventStoreAppendListAndRedactsSecrets(t *testing.T) {

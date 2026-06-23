@@ -1,7 +1,7 @@
 # Client UI Plan
 
 本文记录 agentic operations client 的客户端与 UI 技术选型。核心原则是：
-Crush/Go runtime 是执行核心，客户端只是控制平面和体验层。UI 不应该把
+Agent Builder/Go runtime 是执行核心，客户端只是控制平面和体验层。UI 不应该把
 runtime 绑死在某一个桌面框架上。
 
 ## 目标
@@ -25,7 +25,7 @@ runtime 绑死在某一个桌面框架上。
 ## 初步技术选型
 
 ```text
-Go / Crush Runtime
+Go / Agent Builder Runtime
   -> Local API / Event Stream
   -> Wails Desktop Shell
   -> React + Ant Design + Ant Design X
@@ -33,7 +33,7 @@ Go / Crush Runtime
 
 ### Runtime
 
-Runtime 继续基于 Crush/Go 演进。它负责：
+Runtime 继续基于 Agent Builder/Go 演进。它负责：
 
 - session / operation / run。
 - agent loop。
@@ -58,7 +58,7 @@ Wails 的价值是：
 
 但 Wails 不应该成为 runtime 架构中心。它应该是 thin shell：
 
-- 启动或嵌入本地 Crush runtime。
+- 启动或嵌入本地 Agent Builder runtime。
 - 提供必要的系统集成能力。
 - 承载 React UI。
 - 通过统一 API/Event Stream 与 runtime 通信。
@@ -131,7 +131,7 @@ Client Transport
   - same contract for Wails desktop and future Web console
 
 Go Runtime
-  - Crush agent runtime
+  - Agent Builder agent runtime
   - session / run / operation
   - tool scheduler
   - policy / permission
@@ -227,7 +227,7 @@ UI 上可以使用 Ant Design 的 Modal、Drawer、Descriptions、Alert、Steps
 
 ## MVP UI
 
-第一阶段先做 mock UI，不直接改 Crush runtime：
+第一阶段先做 mock UI，不直接改 Agent Builder runtime：
 
 1. 创建 React + Vite 前端原型。
 2. 使用 Ant Design 和 Ant Design X 搭建主界面。
@@ -240,15 +240,15 @@ UI 上可以使用 Ant Design 的 Modal、Drawer、Descriptions、Alert、Steps
    - 通过 mock MCP 搜索相关知识和故障模式。
    - 展示排障判断、可能原因和下一步建议。
    - 对潜在高风险修复动作只展示确认提示，不自动执行。
-5. 与 Crush runtime 先保持解耦。
+5. 与 Agent Builder runtime 先保持解耦。
 
 这个阶段的目标是验证信息架构和交互，而不是实现真实操作。
 
 ## 后续演进路线
 
-### 阶段 0：Crush Baseline
+### 阶段 0：Agent Builder Baseline
 
-- 保持 Crush 原状。
+- 保持 Agent Builder 原状。
 - 跑通 build / test / run。
 - 记录当前行为和问题。
 - 不做大规模 runtime 改造。
@@ -276,7 +276,7 @@ Phase 1 结束时需要形成一个可供本地验收的客户端版本：
 - 不执行真实 SSH 高风险操作。
 
 DeepSeek API 在 Phase 1 可用于基础聊天和报告总结，但不让模型自由决定工具
-调用，也不让模型执行真实命令。后续接入 Crush runtime 后，模型和工具调用
+调用，也不让模型执行真实命令。后续接入 Agent Builder runtime 后，模型和工具调用
 都应通过 Go runtime 的 provider、tool scheduler 和 permission/policy 层。
 
 Phase 1.6 先提供一个桌面验收壳：
@@ -291,7 +291,7 @@ Phase 1.6 先提供一个桌面验收壳：
 
 ### 阶段 2：Runtime API
 
-- 在 Crush 中稳定本地 API。
+- 在 Agent Builder 中稳定本地 API。
 - 定义 session / turn / tool / permission / event 协议。
 - UI 从 mock event stream 切换到真实 API。
 
@@ -323,11 +323,11 @@ React + Ant Design + Ant Design X 适合构建 agentic operations client 的
 依赖。正确边界是：
 
 ```text
-Crush/Go runtime 是核心
+Agent Builder/Go runtime 是核心
 React UI 是客户端
 Wails 是桌面壳
 HTTP/JSON-RPC + SSE/WebSocket 是长期协议
 ```
 
-先做 UI prototype 和 Crush baseline，再逐步连接真实 runtime，是当前风险
+先做 UI prototype 和 Agent Builder baseline，再逐步连接真实 runtime，是当前风险
 最低、演进空间最大的路线。

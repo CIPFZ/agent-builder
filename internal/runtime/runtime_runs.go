@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 const (
@@ -251,7 +251,7 @@ func withRuntimeRunCheckpointAction(resp RuntimeRunResponse, action, reason stri
 		Source: RuntimeWriteActionSource{
 			Kind:                  runtimeRunCheckpointActionSourceKind,
 			Action:                action,
-			BackendOnly:           true,
+			WorkbenchOnly:         true,
 			StartsWorker:          false,
 			IdempotentBy:          "run_id+checkpoint_id",
 			SessionActivityParity: true,
@@ -353,7 +353,7 @@ func withRuntimeRunCheckpointResumeAction(resp RuntimeRunResumeResponse) Runtime
 		Source: RuntimeWriteActionSource{
 			Kind:                  runtimeRunCheckpointActionSourceKind,
 			Action:                runtimeRunCheckpointActionResume,
-			BackendOnly:           true,
+			WorkbenchOnly:         true,
 			StartsWorker:          true,
 			SessionActivityParity: true,
 			Evidence: []string{

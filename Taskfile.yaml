@@ -43,7 +43,7 @@ tasks:
   build:
     desc: Run build
     vars:
-      LDFLAGS: '{{if .VERSION}}-ldflags="-X github.com/charmbracelet/crush/internal/version.Version={{.VERSION}}"{{end}}'
+      LDFLAGS: '{{if .VERSION}}-ldflags="-X github.com/CIPFZ/agent-builder/internal/version.Version={{.VERSION}}"{{end}}'
     cmds:
       - "go build -v {{if .RACE}}-race{{end}} {{.LDFLAGS}} ."
     sources:
@@ -53,7 +53,7 @@ tasks:
       - internal/agent/**/*.md.tpl
       - internal/agent/hyper/provider.json
     generates:
-      - crush{{exeExt}}
+      - agent-builder{{exeExt}}
 
   run:
     desc: Run build
@@ -72,8 +72,8 @@ tasks:
   run:onboarding:
     desc: Run build with custom config to test onboarding
     env:
-      CRUSH_GLOBAL_DATA: tmp/onboarding/data
-      CRUSH_GLOBAL_CONFIG: tmp/onboarding/config
+      AGENT_BUILDER_GLOBAL_DATA: tmp/onboarding/data
+      AGENT_BUILDER_GLOBAL_CONFIG: tmp/onboarding/config
     cmds:
       - task: build
       - rm -rf tmp/onboarding
@@ -104,14 +104,14 @@ tasks:
   dev:
     desc: Run with profiling enabled
     env:
-      CRUSH_PROFILE: true
+      AGENT_BUILDER_PROFILE: true
     cmds:
       - go run .
 
   install:
     desc: Install the application
     vars:
-      LDFLAGS: '{{if .VERSION}}-ldflags="-X github.com/charmbracelet/crush/internal/version.Version={{.VERSION}}"{{end}}'
+      LDFLAGS: '{{if .VERSION}}-ldflags="-X github.com/CIPFZ/agent-builder/internal/version.Version={{.VERSION}}"{{end}}'
     cmds:
       - task: fetch-tags
       - go install {{.LDFLAGS}} -v .
@@ -176,7 +176,7 @@ tasks:
       - go run github.com/swaggo/swag/cmd/swag@v1.16.6 init --generalInfo main.go --dir . --output internal/swagger --packageName swagger --parseDependency --parseInternal --parseDepth 5
     sources:
       - internal/server/*.go
-      - internal/proto/*.go
+      - internal/apitypes/*.go
       - main.go
     generates:
       - internal/swagger/docs.go

@@ -1,6 +1,6 @@
 # Workbench Runtime Feature Roadmap
 
-Status: active roadmap with Phase 1-6 frontend/backend/runtime workbench
+Status: active roadmap with Phase 1-6 frontend/runtime/runtime workbench
 milestones completed through Skills/MCP management.
 
 This document continues the provider-settings work and defines the next
@@ -29,7 +29,7 @@ Update 2026-06-03:
   [`workbench-skills-mcp-management-plan.md`](./workbench-skills-mcp-management-plan.md).
 - The next implementation stage is Projects and multi-session scope.
 
-The Settings -> 服务商 module now has the first real frontend/backend path:
+The Settings -> 服务商 module now has the first real frontend/runtime path:
 
 - Supported provider catalog comes from Go runtime, not frontend mock data.
 - User-configured providers are saved in SQLite.
@@ -74,7 +74,7 @@ Status: completed for the current desktop workbench milestone.
 Goal: send the composer prompt through the currently selected configured
 provider and model.
 
-Backend work:
+Runtime work:
 
 - Add a selected runtime model concept that references a configured provider:
 
@@ -125,7 +125,7 @@ Status: completed for the current desktop workbench milestone.
 
 Goal: sessions are durable and can use different providers/models.
 
-Backend work:
+Runtime work:
 
 - Confirm session tables can store project, provider, model, title, timestamps,
   status, and active marker.
@@ -170,7 +170,7 @@ Status: completed for the current desktop workbench milestone.
 
 Goal: the chat surface becomes a runtime timeline, not plain text.
 
-Backend work:
+Runtime work:
 
 - Ensure runtime exposes:
   - messages
@@ -239,7 +239,7 @@ Status: completed for the current desktop workbench milestone.
 
 Goal: permissions are runtime-enforced and recoverable.
 
-Backend work:
+Runtime work:
 
 - Use existing permission primitives as source of truth.
 - Ensure pending permissions are persisted and recoverable after refresh.
@@ -300,7 +300,7 @@ Status: completed for the 2026-06-03 management-surface milestone.
 
 Goal: skills and MCP are runtime capabilities available to turns.
 
-Backend work:
+Runtime work:
 
 - Keep skills and MCP configuration in runtime/SQLite/config files as currently
   appropriate, but expose runtime APIs as the UI boundary.
@@ -348,7 +348,7 @@ Completed scope:
 
 Goal: project is the workspace boundary and owns sessions.
 
-Backend work:
+Runtime work:
 
 - Define project records:
 
@@ -414,7 +414,7 @@ Each group needs:
 - Wails bridge method where desktop binding is used
 - TypeScript DTO
 - DTO-to-view-model mapper
-- focused backend tests
+- focused runtime tests
 - frontend build/lint verification
 - browser verification for local UI changes
 

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 const (
@@ -149,7 +149,7 @@ func (r *runtimeService) maybeFullCompact(ctx context.Context, sessionID, turnID
 		return after, r.recordFailedFullCompact(ctx, boundary, err)
 	}
 	for _, msg := range msgs {
-		runtimeMsg := toRuntimeMessage(toProtoMessage(msg))
+		runtimeMsg := toRuntimeMessage(toAPITypeMessage(msg))
 		if runtimeMsg.ID != "" {
 			boundary.MessageRefs = append(boundary.MessageRefs, runtimeMsg.ID)
 		}

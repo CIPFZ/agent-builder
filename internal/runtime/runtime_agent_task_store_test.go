@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/db"
 )
 
 func TestRuntimeAgentTaskStoreUpsertListGetAndInterrupt(t *testing.T) {

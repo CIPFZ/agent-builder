@@ -11,7 +11,7 @@ const bindingPath = resolve(
   'bindings',
   'github.com',
   'charmbracelet',
-  'crush',
+  'agent-builder',
   'desktop',
   'runtimebridge.js',
 );

@@ -2,7 +2,7 @@
 
 Status: completed for the 2026-06-03 runtime closure gate.
 
-This plan starts after the frontend/backend tool, thinking, and permission
+This plan starts after the frontend/runtime tool, thinking, and permission
 integration milestone. The goal is to prove that the runtime-owned primitives
 now visible in the desktop workbench are durable, recoverable, replayable, and
 safe across their cross-boundary interactions.

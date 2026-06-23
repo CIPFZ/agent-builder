@@ -186,7 +186,7 @@ Status: implemented for the Phase 3 display normalization surface.
 - File edit display uses diff refs when present and a conservative synthetic
   `diffCount` for structured edit summaries that expose additions/removals.
 - Runtime startup cancels unfinished persisted tool calls so old `running`
-  states do not survive a backend restart.
+  states do not survive a runtime restart.
 - Existing persisted fields remain the source of truth.
 - `ToolCallCard` displays runtime metadata first for command, cwd, targets,
   stdout/stderr excerpts, failure reason, artifact/diff counts, and refs.
@@ -237,8 +237,8 @@ Runtime/tool changes:
 Validation task:
 
 ```text
-梳理 C:\Users\ytq\work\ai\crush 的全量全模块全代码，并将结果放到
-C:\Users\ytq\work\ai\crush\docs。
+梳理 C:\Users\ytq\work\ai\agent-builder 的全量全模块全代码，并将结果放到
+C:\Users\ytq\work\ai\agent-builder\docs。
 ```
 
 Validation focus:
@@ -279,10 +279,10 @@ Validation focus:
 
 ### Long Task Checks
 
-- Start the crush full-code audit task.
+- Start the agent-builder full-code audit task.
 - Let it run through multiple tool phases.
 - Verify the timeline does not become unusable.
-- Verify final docs exist in `C:\Users\ytq\work\ai\crush\docs`.
+- Verify final docs exist in `C:\Users\ytq\work\ai\agent-builder\docs`.
 - Verify session can be reopened and still shows the process stream.
 
 ## Stress Validation

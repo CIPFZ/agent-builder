@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 func TestRuntimeTurnStoreUpsertListAndInterrupt(t *testing.T) {
@@ -78,9 +78,9 @@ func TestRuntimeServiceTurnReadsDurableStore(t *testing.T) {
 	})
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID}
 	service.turns = newRuntimeTurnStore(conn)
 	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
 		ID:        "turn-1",
@@ -113,9 +113,9 @@ func TestRuntimeStatusUsesDurableActiveTurnsWhenMemoryIsEmpty(t *testing.T) {
 	})
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.turns = newRuntimeTurnStore(conn)
 	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
 		ID:        "turn-1",
@@ -148,21 +148,21 @@ func TestRuntimeStatusScopesSessionBusyToSelectedSession(t *testing.T) {
 	})
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	otherSession, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "Other")
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	otherSession, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "Other")
 	if err != nil {
 		t.Fatal(err)
 	}
-	currentSession, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "Current")
+	currentSession, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "Current")
 	if err != nil {
 		t.Fatal(err)
 	}
-	idleSession, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "Idle")
+	idleSession, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "Idle")
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.turns = newRuntimeTurnStore(conn)
 	now := time.Now()
 	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
@@ -220,9 +220,9 @@ func TestRuntimeServiceMarkInterruptedDoneCancelsInterruptedTurn(t *testing.T) {
 	})
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.turns = newRuntimeTurnStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
@@ -254,7 +254,7 @@ func TestRuntimeServiceMarkInterruptedDoneCancelsInterruptedTurn(t *testing.T) {
 	if resp.Action.Source.Kind != runtimeTurnActionSourceKind || resp.Action.Source.Action != runtimeTurnActionMarkInterruptedDone {
 		t.Fatalf("action source = %#v", resp.Action.Source)
 	}
-	if !resp.Action.Source.BackendOnly || resp.Action.Source.StartsWorker || resp.Action.Source.IdempotentBy != "turn_id" || !resp.Action.Source.SessionActivityParity {
+	if !resp.Action.Source.WorkbenchOnly || resp.Action.Source.StartsWorker || resp.Action.Source.IdempotentBy != "turn_id" || !resp.Action.Source.SessionActivityParity {
 		t.Fatalf("action source semantics = %#v", resp.Action.Source)
 	}
 	if len(resp.Action.RefreshTargets) == 0 {

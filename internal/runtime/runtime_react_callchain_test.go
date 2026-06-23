@@ -144,7 +144,7 @@ func TestRuntimeReactCallchainFinalEmptyAfterToolResultExplainsDelivery(t *testi
 		messages: []RuntimeMessage{
 			{ID: "msg-user", SessionID: "session-1", Role: "user", Content: "inspect", CreatedAt: 1000},
 			{ID: "msg-step", SessionID: "session-1", Role: "assistant", CreatedAt: 1100, Finished: true, FinishReason: "tool_use", Parts: []RuntimeMessagePart{{Type: "tool_call", ToolCallID: "tool-1", Name: "bash", Input: "pwd"}}},
-			{ID: "msg-tool", SessionID: "session-1", Role: "tool", CreatedAt: 1200, Parts: []RuntimeMessagePart{{Type: "tool_result", ToolCallID: "tool-1", Name: "bash", Content: "<persisted-output>preview</persisted-output>", DeliveredToModel: true, DeliveredAtStep: 2, DeliveryReason: "included_in_model_input", StoredPath: ".crush/results/session-1/tool-1.txt", OriginalSize: 64000, TruncatedBy: "single"}}},
+			{ID: "msg-tool", SessionID: "session-1", Role: "tool", CreatedAt: 1200, Parts: []RuntimeMessagePart{{Type: "tool_result", ToolCallID: "tool-1", Name: "bash", Content: "<persisted-output>preview</persisted-output>", DeliveredToModel: true, DeliveredAtStep: 2, DeliveryReason: "included_in_model_input", StoredPath: ".agent-builder/results/session-1/tool-1.txt", OriginalSize: 64000, TruncatedBy: "single"}}},
 			{ID: "msg-empty-final", SessionID: "session-1", Role: "assistant", CreatedAt: 1300, UpdatedAt: 1300, Finished: true, FinishReason: "end_turn", Parts: []RuntimeMessagePart{{Type: "finish", Reason: "end_turn"}}},
 		},
 		toolCalls: []RuntimeToolCall{{

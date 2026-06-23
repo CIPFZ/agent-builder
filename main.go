@@ -16,13 +16,13 @@ import (
 	_ "net/http/pprof"
 	"os"
 
-	"github.com/charmbracelet/crush/internal/cmd"
-	_ "github.com/charmbracelet/crush/internal/dns"
+	"github.com/CIPFZ/agent-builder/internal/cmd"
+	_ "github.com/CIPFZ/agent-builder/internal/dns"
 	_ "github.com/joho/godotenv/autoload"
 )
 
 func main() {
-	if os.Getenv("CRUSH_PROFILE") != "" {
+	if os.Getenv("AGENT_BUILDER_PROFILE") != "" {
 		go func() {
 			slog.Info("Serving pprof at localhost:6060")
 			if httpErr := http.ListenAndServe("localhost:6060", nil); httpErr != nil {

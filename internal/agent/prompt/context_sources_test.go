@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/config"
 )
 
 func TestLoadContextSourcesPrecedenceAndDiscovery(t *testing.T) {
@@ -196,7 +196,7 @@ func TestLoadContextSourcesRejectsWorkspaceTraversal(t *testing.T) {
 }
 
 func testStore(workspace string, contextPaths []string) *config.ConfigStore {
-	cfg := config.NewRuntimeConfig(workspace, filepath.Join(workspace, ".crush"), false)
+	cfg := config.NewRuntimeConfig(workspace, filepath.Join(workspace, ".agent-builder"), false)
 	cfg.Options.ContextPaths = contextPaths
 	cfg.SetupAgents()
 	return config.NewRuntimeStore(workspace, cfg)

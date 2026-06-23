@@ -12,15 +12,15 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/server"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/server"
 )
 
 // DummyHost is used to satisfy the http.Client's requirement for a URL.
-const DummyHost = "api.crush.localhost"
+const DummyHost = "api.agent-builder.localhost"
 
-// Client represents an RPC client connected to a Crush server.
+// Client represents an RPC client connected to a Agent Builder server.
 type Client struct {
 	h       *http.Client
 	path    string
@@ -93,8 +93,8 @@ func (c *Client) Health(ctx context.Context) error {
 }
 
 // VersionInfo retrieves the server's version information.
-func (c *Client) VersionInfo(ctx context.Context) (*proto.VersionInfo, error) {
-	var vi proto.VersionInfo
+func (c *Client) VersionInfo(ctx context.Context) (*apitypes.VersionInfo, error) {
+	var vi apitypes.VersionInfo
 	rsp, err := c.get(ctx, "version", nil, nil)
 	if err != nil {
 		return nil, err
@@ -108,7 +108,7 @@ func (c *Client) VersionInfo(ctx context.Context) (*proto.VersionInfo, error) {
 
 // ShutdownServer sends a shutdown request to the server.
 func (c *Client) ShutdownServer(ctx context.Context) error {
-	rsp, err := c.post(ctx, "/control", nil, jsonBody(proto.ServerControl{
+	rsp, err := c.post(ctx, "/control", nil, jsonBody(apitypes.ServerControl{
 		Command: "shutdown",
 	}), nil)
 	if err != nil {

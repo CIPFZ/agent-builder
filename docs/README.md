@@ -12,14 +12,14 @@ material. Use this index to avoid following superseded phase plans.
 - `claude-code-alignment-module-priority.md`: short pointer to the current
   roadmap and parity audit.
 - `client-runtime-architecture-review.md`: current architecture boundary review.
-- `frontend-backend-integration-notes.md`: active frontend/backend integration
+- `frontend-runtime-integration-notes.md`: active frontend/runtime integration
   notes, including Wails vs Vite/browser transport constraints.
 - `frontend-runtime-ui-technical-plan.md`: active frontend rewrite technology,
   UI/runtime integration, reference analysis, and client recovery plan.
 - `workbench-runtime-feature-roadmap.md`: active handoff roadmap for main chat,
   sessions, model switching, timeline rendering, permissions, skills, MCP, and
   projects.
-- `tool-thinking-permission-integration-plan.md`: completed frontend/backend
+- `tool-thinking-permission-integration-plan.md`: completed frontend/runtime
   integration milestone for runtime tool calls, thinking, and permissions.
 - `runtime-parity-closure-stabilization-plan.md`: completed 2026-06-03 runtime
   closure scenario coverage and contract hardening record.
@@ -27,7 +27,7 @@ material. Use this index to avoid following superseded phase plans.
   record for runtime-backed Skills and MCP management surfaces.
 - `plugin-skills-runtime-integration-plan.md`: active follow-up phase for
   runtime-backed plugin capability-bundle DTOs and plugin-center integration.
-- `react-agent-architecture-audit.md`: current backend-first ReAct architecture
+- `react-agent-architecture-audit.md`: current runtime-first ReAct architecture
   audit after the project/session/terminal ownership work.
 - `react-agent-implementation-roadmap.md`: staged implementation roadmap for
   runtime input normalization, callchain observability, tool/permission/result
@@ -57,7 +57,7 @@ their checklists.
 - `frontend-runtime-ui-technical-plan.md`
 - `agentic-operations-client.md`
 - `architecture-decisions.md`
-- `legacy-crush-inventory.md`
+- `legacy-agent-builder-inventory.md`
 
 ## Historical Material
 
@@ -68,6 +68,6 @@ Notable archived baselines:
 
 - `archive/phase-2-runtime-api-boundary.md`
 - `archive/dev-baseline.md`
-- `archive/crush-claude-code-gap-analysis.md`
+- `archive/agent-builder-claude-code-gap-analysis.md`
 - `archive/reference-analysis/`
 - `archive/tui-removal-plan.md`

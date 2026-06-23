@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/charmbracelet/crush/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/config"
 )
 
 type desktopSkillConfig struct {

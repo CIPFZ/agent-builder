@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/db"
 )
 
 func TestRuntimeRunStoreEnsuresGeneratedRunAndKeepsIdempotentSessionLink(t *testing.T) {

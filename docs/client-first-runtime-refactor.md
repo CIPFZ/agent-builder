@@ -1,12 +1,12 @@
 # 客户端优先的 Runtime 改造与 CLI/TUI 裁剪方案
 
-本文补充 `docs/archive/crush-claude-code-gap-analysis.md` 中没有展开的一点：Agent Builder 的目标不是继续做一个 CLI/TUI agent，而是做一个客户端产品。因此，Crush 和 Claude Code 中大量为 CLI、TUI、终端 REPL、结构化 stdio、命令行交互适配的部分，不应该原样保留在产品主路径中。
+本文补充 `docs/archive/agent-builder-claude-code-gap-analysis.md` 中没有展开的一点：Agent Builder 的目标不是继续做一个 CLI/TUI agent，而是做一个客户端产品。因此，Agent Builder 和 Claude Code 中大量为 CLI、TUI、终端 REPL、结构化 stdio、命令行交互适配的部分，不应该原样保留在产品主路径中。
 
 ## 当前状态更新
 
 CLI/TUI 裁剪已经完成到删除阶段：`internal/ui/`、`internal/commands/` 已移除，
 `internal/cmd/` 只保留最小非 TUI stub。`internal/app` 和
-`internal/backend` 的事件订阅不再使用 `tea.Msg`，客户端 runtime 主路径消费
+`internal/workbench` 的事件订阅不再使用 `tea.Msg`，客户端 runtime 主路径消费
 `pubsub.Event[any]` 和 runtime event。后续客户端命令面板、diff、permission UI
 应在 React/Wails/runtime API 上重建，而不是复用终端 UI 模型。
 
@@ -24,7 +24,7 @@ Terminal UI -> CLI command loop -> Agent Runtime
 
 ## 核心判断
 
-Crush 和 Claude Code 都是从 CLI/TUI 场景成长出来的。它们的很多模块解决的是终端产品问题，而不是桌面客户端问题。
+Agent Builder 和 Claude Code 都是从 CLI/TUI 场景成长出来的。它们的很多模块解决的是终端产品问题，而不是桌面客户端问题。
 
 对 Agent Builder 来说，需要保留的是后台 agent runtime 能力：
 
@@ -57,7 +57,7 @@ Crush 和 Claude Code 都是从 CLI/TUI 场景成长出来的。它们的很多�
 
 客户端产品应该把 UI 状态和 runtime 状态彻底分开：Go runtime 只发布结构化事件，React 负责渲染和交互。
 
-## 当前 Crush 中需要区分的部分
+## 当前 Agent Builder 中需要区分的部分
 
 ### 应保留为 runtime core
 
@@ -65,8 +65,8 @@ Crush 和 Claude Code 都是从 CLI/TUI 场景成长出来的。它们的很多�
 
 | 模块 | 保留理由 |
 | --- | --- |
-| `internal/backend` | transport-agnostic workspace/session/agent 后端入口 |
-| `internal/app` | 当前 Crush workspace service 聚合点，但需要剥离 TUI 事件依赖 |
+| `internal/workbench` | transport-agnostic workspace/session/agent 后端入口 |
+| `internal/app` | 当前 Agent Builder workspace service 聚合点，但需要剥离 TUI 事件依赖 |
 | `internal/agent` | agent 主循环、provider、tools、subagent 基础 |
 | `internal/agent/tools` | 内置工具实现 |
 | `internal/permission` | approval 服务基础，后续升级为 policy engine |
@@ -86,14 +86,14 @@ Crush 和 Claude Code 都是从 CLI/TUI 场景成长出来的。它们的很多�
 | 模块/概念 | 建议处理 |
 | --- | --- |
 | `internal/ui/*` | 已删除；后续 UI 功能应在 React/runtime API 上重建 |
-| `tea.Msg` 作为事件载体 | 已从 app/backend/runtime 主路径移除 |
+| `tea.Msg` 作为事件载体 | 已从 app/workbench/runtime 主路径移除 |
 | TUI program subscription hook | 已删除 |
 | `internal/cmd/*` CLI command | 已降级为最小非 TUI stub |
-| `internal/commands` slash/custom command 终端形态 | 已删除；MCP prompt 获取逻辑保留在 backend/workspace 路径 |
+| `internal/commands` slash/custom command 终端形态 | 已删除；MCP prompt 获取逻辑保留在 runtime/workspace 路径 |
 | TUI-specific dialog/model/list/chat | 已删除 |
 | terminal compact/transparent settings | 已从核心 config、server API 和 OpenAPI schema 移除 |
 
-剩余工作不再是隔离 TUI，而是把 raw app/backend events 继续收敛成稳定 JSON runtime event schema。
+剩余工作不再是隔离 TUI，而是把 raw app/workbench events 继续收敛成稳定 JSON runtime event schema。
 
 ## Claude Code 中不应照搬的部分
 
@@ -164,7 +164,7 @@ internal/adapters
   wails adapter
 ```
 
-Crush 当前还没有 `internal/runtime` / `internal/adapters` 这样明确的边界。建议后续逐步演进，而不是一次性重构。
+Agent Builder 当前还没有 `internal/runtime` / `internal/adapters` 这样明确的边界。建议后续逐步演进，而不是一次性重构。
 
 ### 主路径
 
@@ -492,7 +492,7 @@ desktop -> same API
 
 - `desktop-runtime-boundary.md` 已说明 React 是薄展示层。
 - `docs/archive/phase-2-runtime-api-boundary.md` 已说明 HTTP/SSE 是长期边界。
-- `docs/archive/crush-claude-code-gap-analysis.md` 已说明 Crush 与 Claude Code 的能力差距。
+- `docs/archive/agent-builder-claude-code-gap-analysis.md` 已说明 Agent Builder 与 Claude Code 的能力差距。
 - 本文进一步明确：CLI/TUI 适配不是 Agent Builder 的产品主路径，应隔离并逐步从 runtime core 中剥离。
 
 ## 最小下一步

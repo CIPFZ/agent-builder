@@ -25,7 +25,7 @@ function assertNotIncludes(source, needle, message) {
 assertIncludes(
   selector,
   "'run_projection'",
-  'action refresh selector must allow backend run projection reread targets',
+  'action refresh selector must allow runtime run projection reread targets',
 );
 assertIncludes(
   adapter,

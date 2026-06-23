@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/session"
+	"github.com/CIPFZ/agent-builder/internal/pubsub"
+	"github.com/CIPFZ/agent-builder/internal/session"
 	"github.com/stretchr/testify/require"
 )
 

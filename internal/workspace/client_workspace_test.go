@@ -3,26 +3,26 @@ package workspace
 import (
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/pubsub"
+	"github.com/CIPFZ/agent-builder/internal/skills"
 	"github.com/stretchr/testify/require"
 )
 
-// TestProtoToMessageToolResult ensures that ToolResult metadata,
-// data, and MIME type survive the conversion from proto on the
+// TestAPITypeToMessageToolResult ensures that ToolResult metadata,
+// data, and MIME type survive the conversion from apitypes on the
 // client. Without these fields the TUI cannot render rich tool
 // output (e.g. syntax-highlighted code from view, diffs from edit,
 // images, etc.) and falls back to the raw LLM-facing string.
-func TestProtoToMessageToolResult(t *testing.T) {
+func TestAPITypeToMessageToolResult(t *testing.T) {
 	t.Parallel()
 
-	src := proto.Message{
+	src := apitypes.Message{
 		ID:   "m1",
-		Role: proto.Tool,
-		Parts: []proto.ContentPart{
-			proto.ToolResult{
+		Role: apitypes.Tool,
+		Parts: []apitypes.ContentPart{
+			apitypes.ToolResult{
 				ToolCallID:       "call-1",
 				Name:             "view",
 				Content:          "<file>\n  1| hi\n</file>",
@@ -33,14 +33,14 @@ func TestProtoToMessageToolResult(t *testing.T) {
 				DeliveredToModel: true,
 				DeliveredAtStep:  2,
 				DeliveryReason:   "included_in_model_input",
-				StoredPath:       ".crush/results/session/call-1.txt",
+				StoredPath:       ".agent-builder/results/session/call-1.txt",
 				OriginalSize:     64000,
 				TruncatedBy:      "single",
 			},
 		},
 	}
 
-	got := protoToMessage(src)
+	got := apiTypeToMessage(src)
 	require.Len(t, got.Parts, 1)
 	tr, ok := got.Parts[0].(message.ToolResult)
 	require.True(t, ok, "expected message.ToolResult, got %T", got.Parts[0])
@@ -54,17 +54,17 @@ func TestProtoToMessageToolResult(t *testing.T) {
 	require.True(t, tr.DeliveredToModel)
 	require.Equal(t, 2, tr.DeliveredAtStep)
 	require.Equal(t, "included_in_model_input", tr.DeliveryReason)
-	require.Equal(t, ".crush/results/session/call-1.txt", tr.StoredPath)
+	require.Equal(t, ".agent-builder/results/session/call-1.txt", tr.StoredPath)
 	require.Equal(t, int64(64000), tr.OriginalSize)
 	require.Equal(t, "single", tr.TruncatedBy)
 }
 
-func TestProtoToSkillStates(t *testing.T) {
+func TestAPITypeToSkillStates(t *testing.T) {
 	t.Parallel()
 
-	got := protoToSkillStates([]proto.SkillState{
-		{Name: "ok", Path: "/skills/ok", State: proto.SkillStateNormal},
-		{Name: "bad", Path: "/skills/bad", State: proto.SkillStateError, Error: "skill error"},
+	got := apiTypeToSkillStates([]apitypes.SkillState{
+		{Name: "ok", Path: "/skills/ok", State: apitypes.SkillStateNormal},
+		{Name: "bad", Path: "/skills/bad", State: apitypes.SkillStateError, Error: "skill error"},
 	})
 
 	require.Len(t, got, 2)
@@ -79,10 +79,10 @@ func TestProtoToSkillStates(t *testing.T) {
 func TestTranslateEventSkills(t *testing.T) {
 	t.Parallel()
 
-	ev := pubsub.Event[proto.SkillsEvent]{
+	ev := pubsub.Event[apitypes.SkillsEvent]{
 		Type: pubsub.UpdatedEvent,
-		Payload: proto.SkillsEvent{States: []proto.SkillState{
-			{Name: "from-server", Path: "/skills/from-server", State: proto.SkillStateNormal},
+		Payload: apitypes.SkillsEvent{States: []apitypes.SkillState{
+			{Name: "from-server", Path: "/skills/from-server", State: apitypes.SkillStateNormal},
 		}},
 	}
 

@@ -1,12 +1,12 @@
 # Reference Project Analysis
 
-This directory records architecture analysis for Crush and selected reference
-agent projects. The goal is to support future Crush-based runtime design, not
+This directory records architecture analysis for Agent Builder and selected reference
+agent projects. The goal is to support future Agent Builder-based runtime design, not
 to copy implementations across projects.
 
 ## Projects
 
-- [Crush](./crush.md)
+- [Agent Builder](./agent-builder.md)
 - [Claude Code](./claude-code.md)
 - [Codex](./codex.md)
 - [Gemini CLI](./gemini-cli.md)
@@ -31,13 +31,13 @@ Each project analysis follows the same structure:
 13. Observability, telemetry, tests, and evals.
 14. Designs worth borrowing.
 15. Gaps or risks for our target product.
-16. Implications for Crush-based implementation.
+16. Implications for Agent Builder-based implementation.
 
 ## Target Product Lens
 
 The analysis is evaluated against the planned product direction:
 
-- Crush remains the main implementation base.
+- Agent Builder remains the main implementation base.
 - The target is an agentic operations client for enterprise product workflows.
 - Runtime capabilities matter more than chat UI.
 - Key runtime capabilities include tool governance, permissions, sandboxing,

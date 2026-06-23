@@ -28,7 +28,7 @@ func runtimeAgentTaskExecutionRequest(run RuntimeRun, task RuntimeAgentTask, pro
 		Worktree:                task.Worktree,
 		StartedAt:               task.StartedAt,
 		StartAlreadyRecorded:    true,
-		BackendOnly:             true,
+		WorkbenchOnly:           true,
 		EventPayloadRefreshOnly: true,
 	}
 }

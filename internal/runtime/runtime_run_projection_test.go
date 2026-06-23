@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 func TestRuntimeRunProjectionDerivesFromSessionActivityEvidence(t *testing.T) {
@@ -308,7 +308,7 @@ func TestRuntimeRunProjectionWindowPreservesPersistedCheckpointMarkers(t *testin
 func TestRuntimeRunTerminalTaskCompletionReconcilesPersistedStatusFromFullProjection(t *testing.T) {
 	t.Parallel()
 
-	runtimeBackend, workspace := backendForSkillTest(t)
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	conn, err := db.Connect(context.Background(), workspace.DataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -317,7 +317,7 @@ func TestRuntimeRunTerminalTaskCompletionReconcilesPersistedStatusFromFullProjec
 		_ = db.Release(workspace.DataDir)
 	})
 	service := newRuntimeService()
-	service.runtime = runtimeBackend
+	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
 	service.turns = newRuntimeTurnStore(conn)
 	service.runs = newRuntimeRunStore(conn)
@@ -326,7 +326,7 @@ func TestRuntimeRunTerminalTaskCompletionReconcilesPersistedStatusFromFullProjec
 	service.eventStore = newRuntimeEventStore(conn)
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
 
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "terminal task reconcile")
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "terminal task reconcile")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,7 +368,7 @@ func TestRuntimeRunStatusWriterIntegratedRestartReadSmoke(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	runtimeBackend, workspace := backendForSkillTest(t)
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	conn, err := db.Connect(ctx, workspace.DataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -378,7 +378,7 @@ func TestRuntimeRunStatusWriterIntegratedRestartReadSmoke(t *testing.T) {
 	})
 	newService := func() *runtimeService {
 		service := newRuntimeService()
-		service.runtime = runtimeBackend
+		service.runtime = runtimeWorkbench
 		service.workspace = &workspace
 		service.turns = newRuntimeTurnStore(conn)
 		service.runs = newRuntimeRunStore(conn)
@@ -390,7 +390,7 @@ func TestRuntimeRunStatusWriterIntegratedRestartReadSmoke(t *testing.T) {
 	}
 	service := newService()
 
-	turnSession, err := runtimeBackend.CreateSession(ctx, workspace.ID, "status writer turn smoke")
+	turnSession, err := runtimeWorkbench.CreateSession(ctx, workspace.ID, "status writer turn smoke")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +406,7 @@ func TestRuntimeRunStatusWriterIntegratedRestartReadSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	taskSession, err := runtimeBackend.CreateSession(ctx, workspace.ID, "status writer task smoke")
+	taskSession, err := runtimeWorkbench.CreateSession(ctx, workspace.ID, "status writer task smoke")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ func TestRuntimeRunStatusWriterIntegratedRestartReadSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	terminalSession, err := runtimeBackend.CreateSession(ctx, workspace.ID, "status writer terminal task smoke")
+	terminalSession, err := runtimeWorkbench.CreateSession(ctx, workspace.ID, "status writer terminal task smoke")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +518,7 @@ func TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation(t *test
 	if acknowledged.Action == nil || !acknowledged.Action.Accepted || acknowledged.Action.Reason != runtimeRunCheckpointActionReasonAcknowledged || acknowledged.Action.Source.Action != runtimeRunCheckpointActionAcknowledge || acknowledged.Action.Source.IdempotentBy != "run_id+checkpoint_id" {
 		t.Fatalf("acknowledge action metadata = %#v", acknowledged.Action)
 	}
-	if acknowledged.Action.Source.Kind != runtimeRunCheckpointActionSourceKind || !acknowledged.Action.Source.BackendOnly || acknowledged.Action.Source.StartsWorker || !acknowledged.Action.Source.SessionActivityParity || len(acknowledged.Action.RefreshTargets) == 0 {
+	if acknowledged.Action.Source.Kind != runtimeRunCheckpointActionSourceKind || !acknowledged.Action.Source.WorkbenchOnly || acknowledged.Action.Source.StartsWorker || !acknowledged.Action.Source.SessionActivityParity || len(acknowledged.Action.RefreshTargets) == 0 {
 		t.Fatalf("acknowledge action source/refresh metadata = %#v", acknowledged.Action)
 	}
 	if !slices.Contains(acknowledged.Action.Source.Evidence, "runtime_runs") ||
@@ -555,7 +555,7 @@ func TestRuntimeRunDetailPreservesCheckpointMarkersThroughReconciliation(t *test
 func TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability(t *testing.T) {
 	t.Parallel()
 
-	runtimeBackend, workspace := backendForSkillTest(t)
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	conn, err := db.Connect(context.Background(), workspace.DataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -564,7 +564,7 @@ func TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability(t *test
 		_ = db.Release(workspace.DataDir)
 	})
 	service := newRuntimeService()
-	service.runtime = runtimeBackend
+	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
 	service.turns = newRuntimeTurnStore(conn)
 	service.runs = newRuntimeRunStore(conn)
@@ -574,11 +574,11 @@ func TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability(t *test
 	service.mcpRequestStore = newRuntimeMCPRequestStore(conn)
 	service.transitions = newRuntimeRunTransitionStore(conn)
 
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "run-envelope-restart")
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "run-envelope-restart")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -725,7 +725,7 @@ func TestRuntimeRunEnvelopeRestartReplayDoesNotRestoreStaleActionability(t *test
 func newRuntimeRunProjectionFixture(t *testing.T) (*runtimeService, string, string) {
 	t.Helper()
 
-	runtimeBackend, workspace := backendForSkillTest(t)
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	conn, err := db.Connect(context.Background(), workspace.DataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -734,7 +734,7 @@ func newRuntimeRunProjectionFixture(t *testing.T) (*runtimeService, string, stri
 		_ = db.Release(workspace.DataDir)
 	})
 	service := newRuntimeService()
-	service.runtime = runtimeBackend
+	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
 	service.turns = newRuntimeTurnStore(conn)
 	service.runs = newRuntimeRunStore(conn)
@@ -743,11 +743,11 @@ func newRuntimeRunProjectionFixture(t *testing.T) (*runtimeService, string, stri
 	service.eventStore = newRuntimeEventStore(conn)
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
 
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "run-projection")
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "run-projection")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

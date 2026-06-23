@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 const (
@@ -97,7 +97,7 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 		})
 	} else if requestSessionID != "" {
 		if _, err := r.runtime.GetSession(ctx, wsID, sessionID); err != nil {
-			return RuntimeChatResponse{}, fmt.Errorf("failed to select Crush session: %w", err)
+			return RuntimeChatResponse{}, fmt.Errorf("failed to select Agent Builder session: %w", err)
 		}
 		r.mu.Lock()
 		r.sessionID = sessionID
@@ -318,7 +318,7 @@ func (r *runtimeService) Turn(ctx context.Context, turnID string) (RuntimeTurnRe
 		}
 		for _, msg := range msgs {
 			if msg.ID == turn.LatestAssistantMessageID {
-				turn.LatestAssistant = toRuntimeMessage(toProtoMessage(msg))
+				turn.LatestAssistant = toRuntimeMessage(toAPITypeMessage(msg))
 				break
 			}
 		}
@@ -531,7 +531,7 @@ func runtimeTurnActionMetadata(action, reason string) *RuntimeWriteActionMetadat
 		Source: RuntimeWriteActionSource{
 			Kind:                  runtimeTurnActionSourceKind,
 			Action:                action,
-			BackendOnly:           true,
+			WorkbenchOnly:         true,
 			StartsWorker:          false,
 			IdempotentBy:          "turn_id",
 			SessionActivityParity: true,
@@ -596,7 +596,7 @@ func (r *runtimeService) MarkInterruptedDone(ctx context.Context, turnID string)
 }
 
 func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID, prompt string, start time.Time, usageBefore RuntimeUsage, provider, model string) {
-	err := r.runtime.SendMessage(ctx, wsID, proto.AgentMessage{
+	err := r.runtime.SendMessage(ctx, wsID, apitypes.AgentMessage{
 		SessionID: sessionID,
 		TurnID:    requestID,
 		Prompt:    prompt,
@@ -717,17 +717,17 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 	r.storeRuntimeEvent(newTurnFinishedRuntimeEvent(time.Now(), requestID, sessionID, entry.Event, duration, provider, model, usageDelta, entry.Error))
 }
 
-func (r *runtimeService) latestFinishedAssistantMessage(ctx context.Context, workspaceID, sessionID string) (proto.Message, error) {
+func (r *runtimeService) latestFinishedAssistantMessage(ctx context.Context, workspaceID, sessionID string) (apitypes.Message, error) {
 	msgs, err := r.runtime.ListSessionMessages(ctx, workspaceID, sessionID)
 	if err != nil {
-		return proto.Message{}, fmt.Errorf("failed to read session messages: %w", err)
+		return apitypes.Message{}, fmt.Errorf("failed to read session messages: %w", err)
 	}
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].Role == message.Assistant && msgs[i].FinishPart() != nil {
-			return toProtoMessage(msgs[i]), nil
+			return toAPITypeMessage(msgs[i]), nil
 		}
 	}
-	return proto.Message{}, errors.New("finished assistant response is not available")
+	return apitypes.Message{}, errors.New("finished assistant response is not available")
 }
 
 func (r *runtimeService) runtimeAuditInventory(ctx context.Context) ([]RuntimeSkill, []RuntimeMCPServer, []RuntimeMCPTool) {
@@ -749,9 +749,9 @@ func (r *runtimeService) auditToolCalls(ctx context.Context, workspaceID, sessio
 	byID := make(map[string]*auditToolCall)
 	var calls []auditToolCall
 	for _, msg := range msgs {
-		for _, part := range toProtoMessage(msg).Parts {
+		for _, part := range toAPITypeMessage(msg).Parts {
 			switch p := part.(type) {
-			case proto.ToolCall:
+			case apitypes.ToolCall:
 				call := auditToolCall{
 					ID:    p.ID,
 					Name:  p.Name,
@@ -761,7 +761,7 @@ func (r *runtimeService) auditToolCalls(ctx context.Context, workspaceID, sessio
 				if p.ID != "" {
 					byID[p.ID] = &calls[len(calls)-1]
 				}
-			case proto.ToolResult:
+			case apitypes.ToolResult:
 				if p.ToolCallID != "" {
 					if call := byID[p.ToolCallID]; call != nil {
 						if call.Name == "" {

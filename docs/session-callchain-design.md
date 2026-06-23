@@ -9,9 +9,9 @@
 
 ### 1.1 现状
 
-Crush 的会话数据完整存储在 SQLite `messages` 表中，包含 user/assistant/tool 消息及其全部 ContentPart（reasoning、text、tool_call、tool_result 等）。ToolResultGuard 将超大的工具结果溢出到 `.crush/results/{session_id}/{tool_call_id}.txt`。
+Agent Builder 的会话数据完整存储在 SQLite `messages` 表中，包含 user/assistant/tool 消息及其全部 ContentPart（reasoning、text、tool_call、tool_result 等）。ToolResultGuard 将超大的工具结果溢出到 `.agent-builder/results/{session_id}/{tool_call_id}.txt`。
 
-但**没有工具能把这些数据以调用链路的形式可视化出来**。现有 `crush session show` 是消息列表格式，不能展示模型与工具之间的前后交互逻辑。
+但**没有工具能把这些数据以调用链路的形式可视化出来**。现有 `agent-builder session show` 是消息列表格式，不能展示模型与工具之间的前后交互逻辑。
 
 ### 1.2 目标
 
@@ -27,7 +27,7 @@ Crush 的会话数据完整存储在 SQLite `messages` 表中，包含 user/assi
 ### 2.1 命令形式
 
 ```
-crush session callchain <session_id> [flags]
+agent-builder session callchain <session_id> [flags]
 ```
 
 | flag | 短名 | 默认值 | 说明 |
@@ -40,7 +40,7 @@ crush session callchain <session_id> [flags]
 
 ### 2.2 Session 发现
 
-复用现有 `crush session list` / `crush session ls` 列出所有 session（已实现）。
+复用现有 `agent-builder session list` / `agent-builder session ls` 列出所有 session（已实现）。
 
 ---
 
@@ -140,10 +140,10 @@ Duration: ~8.3s
     │ [text] "内存正常，检查 OOM 日志。"
     │ [tool_call] bash: journalctl -u myapp --since "10 min ago" | grep -i oom
     │ [tool_call] view: /etc/sysctl.conf
-    ▼ [5] tool: bash (45.2 KB · persisted → .crush/results/abc/def.txt · 0.3s)
+    ▼ [5] tool: bash (45.2 KB · persisted → .agent-builder/results/abc/def.txt · 0.3s)
       │ <persisted-output>
       │ This tool result was too large (45,678 characters, 44.6 KB).
-      │ Full output saved to: .crush/results/abc/def.txt
+      │ Full output saved to: .agent-builder/results/abc/def.txt
       │ Preview (head 200 + tail 100 chars):
       │   May 26 14:22:15 myapp kernel: oom-killer invoked...
       │   ...
@@ -240,7 +240,7 @@ cmd/session.go → callchain/tree.go → session.Service.ListMessages()
 ### 6.3 不变更
 
 - SQLite messages 表
-- `crush session list` 等现有命令
+- `agent-builder session list` 等现有命令
 - TUI UI 层
 - ToolResultGuard 持久化机制
 

@@ -39,7 +39,7 @@ Optional advanced field:
 
 - Proxy: HTTP proxy URL, for example `http://127.0.0.1:7890`.
 
-The backend saves the config to:
+The runtime saves the config to:
 
 ```text
 desktop/bin/config/model.json
@@ -53,7 +53,7 @@ returned by the Go runtime bridge.
 Use this prompt:
 
 ```text
-Reply exactly: runtime backend ok
+Reply exactly: runtime workbench ok
 ```
 
 Expected result:
@@ -97,7 +97,7 @@ The runtime database is stored under:
 desktop/bin/data/
 ```
 
-Message display must come from the Go/Crush session database through
+Message display must come from the Go/Agent Builder session database through
 `RuntimeBridge.Messages`, not from frontend-generated mock messages.
 
 ## Pass Criteria
@@ -107,8 +107,8 @@ Phase 1 acceptance passes when:
 - `AgentBuilder.exe` starts.
 - Missing model config is shown as a clear UI warning.
 - Model settings save to `bin/config/model.json`.
-- Chat works through the real Crush runtime.
-- Logs confirm a completed backend chat turn.
+- Chat works through the real Agent Builder runtime.
+- Logs confirm a completed runtime chat turn.
 - Permission requests are not unconditionally auto-approved.
 - Runtime event counts and recent event log come from the Go bridge.
 - No API key is printed in logs or committed files.

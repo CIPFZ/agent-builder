@@ -1,14 +1,14 @@
 ---
 name: skill-creator
-description: Use when creating, editing, evaluating, or validating Crush skills, including builtin skills, project skills, and skill discovery checks.
+description: Use when creating, editing, evaluating, or validating Agent Builder skills, including builtin skills, project skills, and skill discovery checks.
 ---
 
 # Skill Creator
 
 Use this skill when the user wants to create a new skill, improve an existing
-skill, or verify that skills are discoverable and useful in Crush.
+skill, or verify that skills are discoverable and useful in Agent Builder.
 
-This skill adapts the Anthropic skill-creator workflow for Crush. Keep skills
+This skill adapts the Anthropic skill-creator workflow for Agent Builder. Keep skills
 small, behavior-oriented, and testable. A skill should teach the agent how to do
 one kind of work better; it should not become a generic documentation dump.
 
@@ -25,9 +25,9 @@ one kind of work better; it should not become a generic documentation dump.
 Good skills are narrow enough that the trigger is obvious. If a skill would
 need many unrelated sections, split it into multiple skills.
 
-## Crush Skill Structure
+## Agent Builder Skill Structure
 
-Each Crush skill is a directory containing `SKILL.md`.
+Each Agent Builder skill is a directory containing `SKILL.md`.
 
 ```text
 <skills-path>/
@@ -74,7 +74,7 @@ Before considering a skill done, verify:
 - The skill name is valid and matches its directory.
 - The description clearly says when to use it.
 - The instructions are short enough to be read during context assembly.
-- Builtin discovery exposes `crush://skills/<name>` paths.
+- Builtin discovery exposes `agent-builder://skills/<name>` paths.
 - User skills with the same name override builtin skills.
 - Disabling the skill through runtime config excludes it from agent context.
 

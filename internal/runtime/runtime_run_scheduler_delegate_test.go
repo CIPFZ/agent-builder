@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 func TestRuntimeRunSchedulerDelegateAllowsLinkedUserTurn(t *testing.T) {
@@ -343,7 +343,7 @@ func TestRuntimeRunSchedulerDelegateTaskTurnAllowsOwnedActiveCandidateWithoutSid
 func TestRuntimeRunSchedulerDelegateTaskTurnActivityParityAndRecorderEvidence(t *testing.T) {
 	t.Parallel()
 
-	runtimeBackend, workspace := backendForSkillTest(t)
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	conn, err := db.Connect(context.Background(), workspace.DataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -353,7 +353,7 @@ func TestRuntimeRunSchedulerDelegateTaskTurnActivityParityAndRecorderEvidence(t 
 	})
 
 	service := newRuntimeService()
-	service.runtime = runtimeBackend
+	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
 	service.turns = newRuntimeTurnStore(conn)
 	service.runs = newRuntimeRunStore(conn)
@@ -361,11 +361,11 @@ func TestRuntimeRunSchedulerDelegateTaskTurnActivityParityAndRecorderEvidence(t 
 	service.eventStore = newRuntimeEventStore(conn)
 	service.refs = newRuntimeRefStore(conn, workspace.DataDir)
 
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "task parity")
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "task parity")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

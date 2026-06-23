@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/message"
 )
 
 type PromptAssemblyRecorder interface {

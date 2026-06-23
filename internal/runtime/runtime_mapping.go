@@ -3,19 +3,19 @@ package runtime
 import (
 	"strings"
 
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/message"
 )
 
-func toProtoMessage(msg message.Message) proto.Message {
+func toAPITypeMessage(msg message.Message) apitypes.Message {
 
-	out := proto.Message{
+	out := apitypes.Message{
 
 		ID: msg.ID,
 
 		SessionID: msg.SessionID,
 
-		Role: proto.MessageRole(msg.Role),
+		Role: apitypes.MessageRole(msg.Role),
 
 		Model: msg.Model,
 
@@ -32,11 +32,11 @@ func toProtoMessage(msg message.Message) proto.Message {
 
 		case message.TextContent:
 
-			out.Parts = append(out.Parts, proto.TextContent{Text: p.Text})
+			out.Parts = append(out.Parts, apitypes.TextContent{Text: p.Text})
 
 		case message.ReasoningContent:
 
-			out.Parts = append(out.Parts, proto.ReasoningContent{
+			out.Parts = append(out.Parts, apitypes.ReasoningContent{
 
 				Thinking: p.Thinking,
 
@@ -49,7 +49,7 @@ func toProtoMessage(msg message.Message) proto.Message {
 
 		case message.ToolCall:
 
-			out.Parts = append(out.Parts, proto.ToolCall{
+			out.Parts = append(out.Parts, apitypes.ToolCall{
 
 				ID: p.ID,
 
@@ -62,7 +62,7 @@ func toProtoMessage(msg message.Message) proto.Message {
 
 		case message.ToolResult:
 
-			out.Parts = append(out.Parts, proto.ToolResult{
+			out.Parts = append(out.Parts, apitypes.ToolResult{
 
 				ToolCallID: p.ToolCallID,
 
@@ -93,9 +93,9 @@ func toProtoMessage(msg message.Message) proto.Message {
 
 		case message.Finish:
 
-			out.Parts = append(out.Parts, proto.Finish{
+			out.Parts = append(out.Parts, apitypes.Finish{
 
-				Reason: proto.FinishReason(p.Reason),
+				Reason: apitypes.FinishReason(p.Reason),
 
 				Time: p.Time,
 
@@ -106,7 +106,7 @@ func toProtoMessage(msg message.Message) proto.Message {
 
 		case message.ImageURLContent:
 
-			out.Parts = append(out.Parts, proto.ImageURLContent{
+			out.Parts = append(out.Parts, apitypes.ImageURLContent{
 
 				URL: p.URL,
 
@@ -115,7 +115,7 @@ func toProtoMessage(msg message.Message) proto.Message {
 
 		case message.BinaryContent:
 
-			out.Parts = append(out.Parts, proto.BinaryContent{
+			out.Parts = append(out.Parts, apitypes.BinaryContent{
 
 				Path: p.Path,
 
@@ -132,7 +132,7 @@ func toProtoMessage(msg message.Message) proto.Message {
 
 }
 
-func assistantContent(msg proto.Message) string {
+func assistantContent(msg apitypes.Message) string {
 
 	content := strings.TrimSpace(msg.Content().String())
 
@@ -144,9 +144,9 @@ func assistantContent(msg proto.Message) string {
 
 	for _, part := range msg.Parts {
 
-		finish, ok := part.(proto.Finish)
+		finish, ok := part.(apitypes.Finish)
 
-		if !ok || finish.Reason != proto.FinishReasonError {
+		if !ok || finish.Reason != apitypes.FinishReasonError {
 
 			continue
 
@@ -178,7 +178,7 @@ func assistantContent(msg proto.Message) string {
 
 }
 
-func toRuntimeMessage(msg proto.Message) RuntimeMessage {
+func toRuntimeMessage(msg apitypes.Message) RuntimeMessage {
 
 	content := msg.Content().String()
 
@@ -190,7 +190,7 @@ func toRuntimeMessage(msg proto.Message) RuntimeMessage {
 
 	for _, part := range msg.Parts {
 
-		finish, ok := part.(proto.Finish)
+		finish, ok := part.(apitypes.Finish)
 
 		if !ok {
 
@@ -202,7 +202,7 @@ func toRuntimeMessage(msg proto.Message) RuntimeMessage {
 
 		finishReason = string(finish.Reason)
 
-		if finish.Reason != proto.FinishReasonError {
+		if finish.Reason != apitypes.FinishReasonError {
 
 			continue
 
@@ -265,7 +265,7 @@ func toRuntimeMessage(msg proto.Message) RuntimeMessage {
 
 }
 
-func toRuntimeMessageParts(msg proto.Message) []RuntimeMessagePart {
+func toRuntimeMessageParts(msg apitypes.Message) []RuntimeMessagePart {
 
 	parts := make([]RuntimeMessagePart, 0, len(msg.Parts))
 
@@ -273,7 +273,7 @@ func toRuntimeMessageParts(msg proto.Message) []RuntimeMessagePart {
 
 		switch p := part.(type) {
 
-		case proto.TextContent:
+		case apitypes.TextContent:
 
 			parts = append(parts, RuntimeMessagePart{
 
@@ -282,7 +282,7 @@ func toRuntimeMessageParts(msg proto.Message) []RuntimeMessagePart {
 				Text: p.Text,
 			})
 
-		case proto.ReasoningContent:
+		case apitypes.ReasoningContent:
 
 			parts = append(parts, RuntimeMessagePart{
 
@@ -295,7 +295,7 @@ func toRuntimeMessageParts(msg proto.Message) []RuntimeMessagePart {
 				FinishedAt: p.FinishedAt,
 			})
 
-		case proto.ToolCall:
+		case apitypes.ToolCall:
 
 			parts = append(parts, RuntimeMessagePart{
 
@@ -310,7 +310,7 @@ func toRuntimeMessageParts(msg proto.Message) []RuntimeMessagePart {
 				Finished: p.Finished,
 			})
 
-		case proto.ToolResult:
+		case apitypes.ToolResult:
 
 			parts = append(parts, RuntimeMessagePart{
 
@@ -343,7 +343,7 @@ func toRuntimeMessageParts(msg proto.Message) []RuntimeMessagePart {
 				TruncatedBy: p.TruncatedBy,
 			})
 
-		case proto.Finish:
+		case apitypes.Finish:
 
 			parts = append(parts, RuntimeMessagePart{
 
@@ -356,7 +356,7 @@ func toRuntimeMessageParts(msg proto.Message) []RuntimeMessagePart {
 				Details: p.Details,
 			})
 
-		case proto.ImageURLContent:
+		case apitypes.ImageURLContent:
 
 			parts = append(parts, RuntimeMessagePart{
 
@@ -365,7 +365,7 @@ func toRuntimeMessageParts(msg proto.Message) []RuntimeMessagePart {
 				Text: p.URL,
 			})
 
-		case proto.BinaryContent:
+		case apitypes.BinaryContent:
 
 			parts = append(parts, RuntimeMessagePart{
 
@@ -424,6 +424,6 @@ func isDisplayableRuntimeMessage(msg RuntimeMessage) bool {
 
 	}
 
-	return msg.Finished && msg.FinishReason == string(proto.FinishReasonError)
+	return msg.Finished && msg.FinishReason == string(apitypes.FinishReasonError)
 
 }

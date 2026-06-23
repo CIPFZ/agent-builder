@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 var explicitArtifactPathPattern = regexp.MustCompile(`(?i)(?:[A-Z]:[\\/]|/[A-Za-z0-9._ -]+[\\/])(?:[^\s"'<>|:*?]+[\\/])*[^\s"'<>|:*?]+\.(?:md|txt|json|yaml|yml|csv|tsv|html|css|js|jsx|ts|tsx|go|py|rs|java|kt|c|cc|cpp|h|hpp|cs|xml|toml|ini|sql|sh|ps1|bat|cmd|docx|xlsx|pptx|pdf)`)

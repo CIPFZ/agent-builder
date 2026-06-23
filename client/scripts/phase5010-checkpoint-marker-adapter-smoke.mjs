@@ -42,12 +42,12 @@ assertIncludes(
 assertIncludes(
   adapter,
   'runtimeFetch<RuntimeRunCheckpointMarkersResponseDTO>(`/v1/runs/${encodeURIComponent(runID)}/checkpoint-markers`)',
-  'HTTP bridge must reread marker lists from the backend route',
+  'HTTP bridge must reread marker lists from the runtime route',
 );
 assertIncludes(
   adapter,
   'runtimeFetch<RuntimeRunCheckpointMarkerResponseDTO>(',
-  'HTTP bridge must reread marker details from the backend route',
+  'HTTP bridge must reread marker details from the runtime route',
 );
 
 assertNotIncludes(

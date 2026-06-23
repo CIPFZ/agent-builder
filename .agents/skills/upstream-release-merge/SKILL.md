@@ -1,22 +1,22 @@
 ---
 name: upstream-release-merge
 description:
-  Use when comparing, evaluating, or merging a new Charm Crush upstream release
-  into Agent Builder, especially when the user mentions upstream Crush versions,
+  Use when comparing, evaluating, or merging a new Charm Agent Builder upstream release
+  into Agent Builder, especially when the user mentions upstream Agent Builder versions,
   release tags, upstream-stable, v0.x.x, or keeping the client project aligned
-  with Crush without reintroducing CLI/TUI-heavy changes.
+  with Agent Builder without reintroducing CLI/TUI-heavy changes.
 ---
 
 # Upstream Release Merge
 
-Use this workflow to bring useful changes from Charm Crush into Agent Builder
+Use this workflow to bring useful changes from Charm Agent Builder into Agent Builder
 while preserving Agent Builder's client-first architecture.
 
 ## Ground Rules
 
-- Treat Agent Builder as a desktop client project built on Crush runtime code,
-  not as a full Crush fork.
-- Preserve the original Crush license and upstream lineage.
+- Treat Agent Builder as a desktop client project built on Agent Builder runtime code,
+  not as a full Agent Builder fork.
+- Preserve the original Agent Builder license and upstream lineage.
 - Prefer small, traceable upstream commits over a bulk merge.
 - Use `cherry-pick -x` when applying upstream commits so future audits can
   trace the source commit.
@@ -77,11 +77,11 @@ Group upstream changes into these buckets:
   stability, tests for these areas.
 - **Desktop-client relevant**: changes that improve client-server mode,
   event streaming, session state, todo state, OAuth, provider discovery, or
-  backend reliability.
+  runtime reliability.
 - **CLI/TUI-only**: Bubble Tea rendering, terminal layout, terminal markdown,
   terminal input, terminal-only dialogs, terminal packaging.
 - **Upstream repo maintenance**: CLA signatures, upstream workflows,
-  release/snapshot/nightly automation, docs for installing Crush CLI,
+  release/snapshot/nightly automation, docs for installing Agent Builder CLI,
   package-manager metadata, Nix, labels, Dependabot.
 - **Risky broad mechanical changes**: large gofumpt-only sweeps or generated
   docs mixed with many unrelated files.
@@ -92,7 +92,7 @@ Default selection:
 - Skip CLI/TUI-only and upstream repo maintenance changes.
 - Apply provider and dependency updates only when they are needed by selected
   runtime commits or are low-risk.
-- Keep generated swagger updates only if selected API/proto changes require
+- Keep generated swagger updates only if selected API/apitypes changes require
   them.
 
 ## Applying Changes
@@ -103,10 +103,10 @@ Prefer cherry-picking individual upstream commits:
 git cherry-pick -x <commit1> <commit2> ...
 ```
 
-If a commit mixes useful backend code with unwanted README or workflow changes:
+If a commit mixes useful runtime code with unwanted README or workflow changes:
 
 1. Resolve conflicts by preserving Agent Builder files for project identity.
-2. Keep the backend/runtime parts.
+2. Keep the runtime/runtime parts.
 3. Drop upstream CLI docs and repository automation.
 4. Continue the cherry-pick.
 
@@ -172,11 +172,11 @@ Recommended final report:
 
 ## Example Decision
 
-For a Crush `v0.69.0` to `v0.70.0` update:
+For a Agent Builder `v0.69.0` to `v0.70.0` update:
 
 - Merge server panic recovery, network retry dependency updates,
   client-server OAuth support, event/todo state fixes, provider additions, and
   SSE hot-path logging improvements.
 - Skip fast TUI rendering/cache refactors unless the project still depends on
   that TUI path.
-- Preserve Agent Builder README instead of upstream Crush installation docs.
+- Preserve Agent Builder README instead of upstream Agent Builder installation docs.

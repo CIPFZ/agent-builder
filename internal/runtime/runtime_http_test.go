@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 	"github.com/gorilla/websocket"
 )
 
@@ -720,7 +720,7 @@ func TestRuntimeHTTPServerRoutesPromptAssembliesToRuntimeService(t *testing.T) {
 			},
 			Skills: RuntimePromptSkillSummary{
 				LoadedCount:      1,
-				LoadedNames:      []string{"crush-config"},
+				LoadedNames:      []string{"agent-builder-config"},
 				XMLPresent:       true,
 				XMLHash:          "sha256:skills",
 				RawContentStored: false,
@@ -1156,7 +1156,7 @@ func TestRuntimeHTTPServerRoutesRunSchedulerExecuteTaskToRuntimeService(t *testi
 			Source: RuntimeRunSchedulerExecuteTaskSource{
 				Kind:                  runtimeRunSchedulerExecuteTaskSourceKind,
 				Action:                runtimeRunSchedulerExecuteTaskAction,
-				BackendOnly:           true,
+				WorkbenchOnly:         true,
 				StartsWorker:          false,
 				IdempotentByTaskID:    true,
 				SessionActivityParity: true,
@@ -1184,7 +1184,7 @@ func TestRuntimeHTTPServerRoutesRunSchedulerExecuteTaskToRuntimeService(t *testi
 	if err := json.Unmarshal(resp.body.Bytes(), &execute); err != nil {
 		t.Fatal(err)
 	}
-	if !execute.Accepted || !execute.ExecutionStarted || execute.Source.StartsWorker || !execute.Source.BackendOnly || !execute.Source.IdempotentByTaskID || !execute.Source.SessionActivityParity {
+	if !execute.Accepted || !execute.ExecutionStarted || execute.Source.StartsWorker || !execute.Source.WorkbenchOnly || !execute.Source.IdempotentByTaskID || !execute.Source.SessionActivityParity {
 		t.Fatalf("execute response = %#v", execute)
 	}
 	if execute.Action == nil || !execute.Action.Accepted || execute.Action.Source.Action != runtimeRunSchedulerExecuteTaskAction || execute.Action.Source.IdempotentBy != "task_id" {
@@ -1795,7 +1795,7 @@ func TestRuntimeHTTPServerRunStatusWriterRereadSmoke(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	runtimeBackend, workspace := backendForSkillTest(t)
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	conn, err := db.Connect(ctx, workspace.DataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -1804,7 +1804,7 @@ func TestRuntimeHTTPServerRunStatusWriterRereadSmoke(t *testing.T) {
 		_ = db.Release(workspace.DataDir)
 	})
 	service := newRuntimeService()
-	service.runtime = runtimeBackend
+	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
 	service.turns = newRuntimeTurnStore(conn)
 	service.runs = newRuntimeRunStore(conn)
@@ -1813,7 +1813,7 @@ func TestRuntimeHTTPServerRunStatusWriterRereadSmoke(t *testing.T) {
 	service.eventStore = newRuntimeEventStore(conn)
 	service.agentTasks = newRuntimeAgentTaskStore(conn)
 
-	sess, err := runtimeBackend.CreateSession(ctx, workspace.ID, "http status writer reread")
+	sess, err := runtimeWorkbench.CreateSession(ctx, workspace.ID, "http status writer reread")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1879,7 +1879,7 @@ func TestRuntimeHTTPServerRunStatusWriterRereadSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	if projection.Run.ID != run.ID || projection.Run.Status != runtimeRunStatusCompleted || !projection.Run.Source.SessionActivityParity {
-		t.Fatalf("HTTP projection did not preserve backend DTO parity: %#v", projection.Run)
+		t.Fatalf("HTTP projection did not preserve API DTO parity: %#v", projection.Run)
 	}
 }
 
@@ -2649,13 +2649,13 @@ func TestRuntimeHTTPServerSmokeCoversSessionTurnAndInventory(t *testing.T) {
 	service := &recordingRuntimeService{
 		status: RuntimeStatus{Ready: true, SessionID: "session-1"},
 		skills: RuntimeSkillsResponse{
-			Skills: []RuntimeSkill{{Name: "crush-config", Builtin: true, Enabled: true, State: "normal"}},
+			Skills: []RuntimeSkill{{Name: "agent-builder-config", Builtin: true, Enabled: true, State: "normal"}},
 		},
 		mcpServers: RuntimeMCPServersResponse{
 			Servers: []RuntimeMCPServer{{Name: "docs", Type: "http", State: "connected"}},
 		},
 		capabilities: RuntimeCapabilitiesResponse{
-			Capabilities: []RuntimeCapability{{ID: "skill:crush-config", Kind: "skill", Name: "crush-config", Enabled: true}},
+			Capabilities: []RuntimeCapability{{ID: "skill:agent-builder-config", Kind: "skill", Name: "agent-builder-config", Enabled: true}},
 		},
 	}
 	server := newRuntimeHTTPServer(service)
@@ -2683,7 +2683,7 @@ func TestRuntimeHTTPServerRoutesCapabilityRefreshToRuntimeService(t *testing.T) 
 
 	service := &recordingRuntimeService{}
 	server := newRuntimeHTTPServer(service)
-	req, err := http.NewRequest(http.MethodPost, "/v1/capabilities/skill%3Acrush-config/refresh", nil)
+	req, err := http.NewRequest(http.MethodPost, "/v1/capabilities/skill%3Aagent-builder-config/refresh", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2693,7 +2693,7 @@ func TestRuntimeHTTPServerRoutesCapabilityRefreshToRuntimeService(t *testing.T) 
 	if resp.status != http.StatusOK {
 		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
 	}
-	if service.refreshedCapability != "skill:crush-config" {
+	if service.refreshedCapability != "skill:agent-builder-config" {
 		t.Fatalf("refreshed capability = %q", service.refreshedCapability)
 	}
 	var response RuntimeCapabilityResponse
@@ -2893,7 +2893,7 @@ func TestRuntimeHTTPServerRoutesSkillsToRuntimeService(t *testing.T) {
 
 	service := &recordingRuntimeService{
 		skills: RuntimeSkillsResponse{
-			Skills: []RuntimeSkill{{Name: "crush-config", Builtin: true, Enabled: true, State: "normal"}},
+			Skills: []RuntimeSkill{{Name: "agent-builder-config", Builtin: true, Enabled: true, State: "normal"}},
 		},
 	}
 	server := newRuntimeHTTPServer(service)
@@ -2914,7 +2914,7 @@ func TestRuntimeHTTPServerRoutesSkillsToRuntimeService(t *testing.T) {
 	if err := json.Unmarshal(resp.body.Bytes(), &skills); err != nil {
 		t.Fatal(err)
 	}
-	if len(skills.Skills) != 1 || skills.Skills[0].Name != "crush-config" {
+	if len(skills.Skills) != 1 || skills.Skills[0].Name != "agent-builder-config" {
 		t.Fatalf("skills = %#v", skills.Skills)
 	}
 }

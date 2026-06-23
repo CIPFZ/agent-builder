@@ -11,9 +11,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/config"
-	_ "github.com/charmbracelet/crush/internal/swagger"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	_ "github.com/CIPFZ/agent-builder/internal/swagger"
+	"github.com/CIPFZ/agent-builder/internal/workbench"
 	httpswagger "github.com/swaggo/http-swagger/v2"
 )
 
@@ -22,13 +22,13 @@ var ErrServerClosed = http.ErrServerClosed
 
 // ParseHostURL parses a host URL into a [url.URL].
 func ParseHostURL(host string) (*url.URL, error) {
-	proto, addr, ok := strings.Cut(host, "://")
+	scheme, addr, ok := strings.Cut(host, "://")
 	if !ok {
 		return nil, fmt.Errorf("invalid host format: %s", host)
 	}
 
 	var basePath string
-	if proto == "tcp" {
+	if scheme == "tcp" {
 		parsed, err := url.Parse("tcp://" + addr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid tcp address: %v", err)
@@ -37,7 +37,7 @@ func ParseHostURL(host string) (*url.URL, error) {
 		basePath = parsed.Path
 	}
 	return &url.URL{
-		Scheme: proto,
+		Scheme: scheme,
 		Host:   addr,
 		Path:   basePath,
 	}, nil
@@ -45,10 +45,10 @@ func ParseHostURL(host string) (*url.URL, error) {
 
 // DefaultHost returns the default server host.
 func DefaultHost() string {
-	sock := "crush.sock"
+	sock := "agent-builder.sock"
 	usr, err := user.Current()
 	if err == nil && usr.Uid != "" {
-		sock = fmt.Sprintf("crush-%s.sock", usr.Uid)
+		sock = fmt.Sprintf("agent-builder-%s.sock", usr.Uid)
 	}
 	if runtime.GOOS == "windows" {
 		return fmt.Sprintf("npipe:////./pipe/%s", sock)
@@ -56,7 +56,7 @@ func DefaultHost() string {
 	return fmt.Sprintf("unix:///tmp/%s", sock)
 }
 
-// Server represents a Crush server bound to a specific address.
+// Server represents a Agent Builder server bound to a specific address.
 type Server struct {
 	// Addr can be a TCP address, a Unix socket path, or a Windows named pipe.
 	Addr    string
@@ -65,8 +65,8 @@ type Server struct {
 	h  *http.Server
 	ln net.Listener
 
-	backend *backend.Backend
-	logger  *slog.Logger
+	workbench *workbench.Service
+	logger    *slog.Logger
 }
 
 // SetLogger sets the logger for the server.
@@ -89,10 +89,10 @@ func NewServer(cfg *config.ConfigStore, network, address string) *Server {
 	s.Addr = address
 	s.network = network
 
-	// The backend is created with a shutdown callback that triggers
+	// The runtime is created with a shutdown callback that triggers
 	// a graceful server shutdown (e.g. when the last workspace is
 	// removed).
-	s.backend = backend.New(context.Background(), cfg, func() {
+	s.workbench = workbench.New(context.Background(), cfg, func() {
 		go func() {
 			slog.Info("Shutting down server...")
 			if err := s.Shutdown(context.Background()); err != nil {
@@ -104,7 +104,7 @@ func NewServer(cfg *config.ConfigStore, network, address string) *Server {
 	var p http.Protocols
 	p.SetHTTP1(true)
 	p.SetUnencryptedHTTP2(true)
-	c := &controllerV1{backend: s.backend, server: s}
+	c := &controllerV1{workbench: s.workbench, server: s}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", c.handleGetHealth)
 	mux.HandleFunc("GET /v1/version", c.handleGetVersion)

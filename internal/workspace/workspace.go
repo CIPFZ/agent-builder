@@ -9,20 +9,20 @@ import (
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
-	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/history"
-	"github.com/charmbracelet/crush/internal/lsp"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/oauth"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/skills"
+	mcptools "github.com/CIPFZ/agent-builder/internal/agent/tools/mcp"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/history"
+	"github.com/CIPFZ/agent-builder/internal/lsp"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/oauth"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/session"
+	"github.com/CIPFZ/agent-builder/internal/skills"
 )
 
 // LSPClientInfo holds information about an LSP client's state. This is
 // the frontend-facing type; implementations translate from the
-// underlying app or proto representation.
+// underlying app or apitypes representation.
 type LSPClientInfo struct {
 	Name            string
 	State           lsp.ServerState

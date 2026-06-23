@@ -46,15 +46,15 @@ Thumbs.db
 # Nix/direnv
 .direnv/
 
-**/.crush/**
+**/.agent-builder/**
 .codex-run/
 
-/crush
+/agent-builder
 /tmp/
 /refer/
 /.playwright-mcp/
 
 manpages/
-completions/crush.*sh
+completions/agent-builder.*sh
 .prettierignore
 .task

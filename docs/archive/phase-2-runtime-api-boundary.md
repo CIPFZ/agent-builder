@@ -13,27 +13,27 @@ Use these current docs for planning:
 - `docs/client-runtime-architecture-review.md`
 
 The original Phase 2 plan follows. Phase 1 proved that the desktop client can
-talk to the real Crush runtime through Wails commands and a local SSE event
+talk to the real Agent Builder runtime through Wails commands and a local SSE event
 stream. Phase 2 turned that working bridge into a stable runtime API boundary
 and a usable assistant client baseline that can support the desktop client,
 future Web clients, headless clients, skills, and MCP.
 
 ## Goal
 
-Make Crush runtime-first:
+Make Agent Builder runtime-first:
 
 ```text
-Client/UI -> Runtime API + Event Stream -> Crush runtime
+Client/UI -> Runtime API + Event Stream -> Agent Builder runtime
 ```
 
 Wails remains a desktop adapter. It must not become the long-term product
 protocol. Runtime state, sessions, turns, messages, tools, permissions, skills,
-MCP, usage, and audit data must come from Go/Crush.
+MCP, usage, and audit data must come from Go/Agent Builder.
 
 The governing principle is:
 
 ```text
-Backend runtime first.
+Runtime runtime first.
 Frontend proves and exposes runtime capability.
 ```
 
@@ -64,7 +64,7 @@ observable, and usable through one runtime boundary.
 
 | Concept | Meaning |
 | --- | --- |
-| `Session` | Conversation state backed by Crush session storage. |
+| `Session` | Conversation state backed by Agent Builder session storage. |
 | `Turn` | One user input and the runtime work produced by it. |
 | `Message` | User, assistant, tool, thinking, or system-visible content. |
 | `MessagePart` | Structured content inside a message, including text, thinking, tool calls, tool results, and media. |
@@ -234,7 +234,7 @@ values.
 
 ## Skill Integration
 
-Crush already has a skill subsystem:
+Agent Builder already has a skill subsystem:
 
 - Skill discovery from built-in and configured paths.
 - `SKILL.md` parsing and validation.
@@ -251,7 +251,7 @@ Phase 2 should expose this through the runtime boundary.
 - The client can refresh skill discovery.
 - The runtime emits skill discovery events.
 - Skill metadata is available to audit and diagnostics views.
-- Disabled skills are persisted in Crush config, not in frontend state.
+- Disabled skills are persisted in Agent Builder config, not in frontend state.
 - Skill instructions stay runtime-owned. The frontend may display metadata, but
   it should not inject skill content into model context.
 - Phase 2 implements project-level enable and disable through
@@ -262,12 +262,12 @@ Phase 2 should expose this through the runtime boundary.
 
 ```json
 {
-  "name": "crush-config",
-  "description": "Use when the user needs help configuring Crush.",
+  "name": "agent-builder-config",
+  "description": "Use when the user needs help configuring Agent Builder.",
   "builtin": true,
   "enabled": true,
-  "path": "crush://skills/crush-config",
-  "skill_file_path": "crush://skills/crush-config/SKILL.md",
+  "path": "agent-builder://skills/agent-builder-config",
+  "skill_file_path": "agent-builder://skills/agent-builder-config/SKILL.md",
   "state": "normal",
   "error": ""
 }
@@ -283,7 +283,7 @@ Phase 2 should expose this through the runtime boundary.
 
 ## MCP Integration
 
-Crush already supports MCP server configuration and runtime clients:
+Agent Builder already supports MCP server configuration and runtime clients:
 
 - `stdio`, `http`, and `sse` MCP transports.
 - Server state tracking.

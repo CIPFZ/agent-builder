@@ -543,13 +543,13 @@ func (r *runtimeService) runtimeTerminalProject(ctx context.Context, sessionID s
 	}
 	projectID := r.workspace.ID
 	projectPath := r.workspace.Path
-	backend := r.runtime
+	workbenchService := r.runtime
 	r.mu.Unlock()
 
 	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(projectPath) == "" {
 		return "", "", errors.New("runtime project is not initialized")
 	}
-	if _, err := backend.GetSession(ctx, projectID, sessionID); err != nil {
+	if _, err := workbenchService.GetSession(ctx, projectID, sessionID); err != nil {
 		return "", "", fmt.Errorf("failed to read terminal session: %w", err)
 	}
 	projectPath, err := cleanTerminalCWD(projectPath)

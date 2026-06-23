@@ -98,7 +98,7 @@ Current `Chat(...)` already supports draft-first behavior. If no `sessionId`
 is supplied and no active session exists, it creates a real session lazily on
 first prompt submission.
 
-This means the backend already has the right primitive for "top-level new chat
+This means the runtime already has the right primitive for "top-level new chat
 does not create an empty session". The current empty-session problem is caused
 by frontend adapter behavior, not by `NewChat(...)`.
 
@@ -163,7 +163,7 @@ It should not be used for the unified "new conversation" entry.
 
 ### Feasible Immediately
 
-The empty-session bug can be fixed without backend schema changes:
+The empty-session bug can be fixed without runtime schema changes:
 
 - Change the top-level new conversation action to call `NewChat` / clear active
   session, not `CreateSession`.
@@ -362,7 +362,7 @@ export interface WorkbenchViewModel {
 }
 ```
 
-Backend:
+Runtime:
 
 ```go
 type RuntimeSession struct {
@@ -418,7 +418,7 @@ Tests/smoke:
 Goal: the UI can filter project sessions and standalone conversations from
 runtime-owned fields.
 
-Backend changes:
+Runtime changes:
 
 - Add `projectId` and `scope` to `RuntimeSession`.
 - Add ownership fields to `RuntimeSessionCreateRequest`.
@@ -507,7 +507,7 @@ Tests/smoke:
 
 Goal: match the full screenshot-style project picker with recent projects.
 
-Required backend contract:
+Required runtime contract:
 
 ```go
 type RuntimeProjectsResponse struct {

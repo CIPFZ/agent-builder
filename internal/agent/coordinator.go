@@ -20,23 +20,23 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/agent/hyper"
-	"github.com/charmbracelet/crush/internal/agent/notify"
-	"github.com/charmbracelet/crush/internal/agent/prompt"
-	"github.com/charmbracelet/crush/internal/agent/tools"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/event"
-	"github.com/charmbracelet/crush/internal/filetracker"
-	"github.com/charmbracelet/crush/internal/history"
-	"github.com/charmbracelet/crush/internal/hooks"
-	"github.com/charmbracelet/crush/internal/log"
-	"github.com/charmbracelet/crush/internal/lsp"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/oauth/copilot"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/CIPFZ/agent-builder/internal/agent/hyper"
+	"github.com/CIPFZ/agent-builder/internal/agent/notify"
+	"github.com/CIPFZ/agent-builder/internal/agent/prompt"
+	"github.com/CIPFZ/agent-builder/internal/agent/tools"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/event"
+	"github.com/CIPFZ/agent-builder/internal/filetracker"
+	"github.com/CIPFZ/agent-builder/internal/history"
+	"github.com/CIPFZ/agent-builder/internal/hooks"
+	"github.com/CIPFZ/agent-builder/internal/log"
+	"github.com/CIPFZ/agent-builder/internal/lsp"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/oauth/copilot"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/pubsub"
+	"github.com/CIPFZ/agent-builder/internal/session"
+	"github.com/CIPFZ/agent-builder/internal/skills"
 	"golang.org/x/sync/errgroup"
 
 	"charm.land/fantasy/providers/anthropic"
@@ -892,7 +892,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		}
 	}
 
-	logFile := filepath.Join(c.cfg.Config().Options.DataDirectory, "logs", "crush.log")
+	logFile := filepath.Join(c.cfg.Config().Options.DataDirectory, "logs", "agent-builder.log")
 
 	// Build hook runner if runtime hooks are configured.
 	var hookRunner *hooks.Runner
@@ -902,8 +902,8 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 
 	allTools = append(allTools,
 		tools.NewBashTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options.Attribution, modelID),
-		tools.NewCrushInfoTool(c.cfg, c.lspManager, c.allSkills, c.activeSkills, c.skillTracker),
-		tools.NewCrushLogsTool(logFile),
+		tools.NewAgentBuilderInfoTool(c.cfg, c.lspManager, c.allSkills, c.activeSkills, c.skillTracker),
+		tools.NewAgentBuilderLogsTool(logFile),
 		tools.NewJobOutputTool(),
 		tools.NewJobKillTool(),
 		tools.NewDownloadTool(c.permissions, c.cfg.WorkingDir(), nil),
@@ -1326,7 +1326,7 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 		switch providerCfg.ID {
 		case hyper.Name:
 			baseURL = hyper.BaseURL() + "/v1"
-			headers["x-crush-id"] = event.GetID()
+			headers["x-agent-builder-id"] = event.GetID()
 		case string(catwalk.InferenceProviderZAI):
 			if providerCfg.ExtraBody == nil {
 				providerCfg.ExtraBody = map[string]any{}
@@ -1613,7 +1613,7 @@ type StartedAgentTaskExecutionRequest struct {
 	Worktree                string
 	StartedAt               int64
 	StartAlreadyRecorded    bool
-	BackendOnly             bool
+	WorkbenchOnly           bool
 	EventPayloadRefreshOnly bool
 }
 

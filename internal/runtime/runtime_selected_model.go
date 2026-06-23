@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
-	"github.com/charmbracelet/crush/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/config"
 )
 
 var errSelectedModelMissing = errors.New("model is not selected. Configure a provider and select a model before chatting.")

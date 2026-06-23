@@ -7,7 +7,7 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/catwalk/pkg/embedded"
-	"github.com/charmbracelet/crush/internal/agent/hyper"
+	"github.com/CIPFZ/agent-builder/internal/agent/hyper"
 )
 
 func (r *runtimeService) ProviderCatalog(ctx context.Context) (RuntimeProviderCatalogResponse, error) {

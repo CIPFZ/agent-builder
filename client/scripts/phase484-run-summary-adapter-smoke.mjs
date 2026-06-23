@@ -42,12 +42,12 @@ assertIncludes(
 assertIncludes(
   adapter,
   "RunSummaries: () => runtimeFetch<RuntimeRunSummariesResponseDTO>('/v1/run-summaries')",
-  'HTTP bridge must reread run summaries from the backend route',
+  'HTTP bridge must reread run summaries from the runtime route',
 );
 assertIncludes(
   adapter,
   'RunSummary: (runID) => runtimeFetch<RuntimeRunSummaryResponseDTO>(`/v1/run-summaries/${encodeURIComponent(runID)}`)',
-  'HTTP bridge must reread a run summary from the backend route',
+  'HTTP bridge must reread a run summary from the runtime route',
 );
 
 assertNotIncludes(

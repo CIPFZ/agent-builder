@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/hooks"
-	"github.com/charmbracelet/crush/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/hooks"
+	"github.com/CIPFZ/agent-builder/internal/permission"
 	"github.com/stretchr/testify/require"
 )
 

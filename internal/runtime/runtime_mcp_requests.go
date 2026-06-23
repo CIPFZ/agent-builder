@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 const (
@@ -106,7 +106,7 @@ func withRuntimeMCPRequestDecisionAction(resp RuntimeMCPRequestResponse, accepte
 		Source: RuntimeWriteActionSource{
 			Kind:                  runtimeMCPRequestDecisionActionSourceKind,
 			Action:                action,
-			BackendOnly:           true,
+			WorkbenchOnly:         true,
 			StartsWorker:          false,
 			IdempotentBy:          "mcp_request_id",
 			SessionActivityParity: true,

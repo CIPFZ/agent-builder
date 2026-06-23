@@ -7,7 +7,7 @@ import (
 	"os"
 	"slices"
 
-	"github.com/charmbracelet/crush/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/config"
 )
 
 type desktopMCPConfig struct {

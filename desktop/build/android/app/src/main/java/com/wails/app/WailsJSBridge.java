@@ -7,7 +7,7 @@ import com.wails.app.BuildConfig;
 
 /**
  * WailsJSBridge provides the JavaScript interface that allows the web frontend
- * to communicate with the Go backend. This is exposed to JavaScript as the
+ * to communicate with the Go workbench. This is exposed to JavaScript as the
  * `window.wails` object.
  *
  * Similar to iOS's WKScriptMessageHandler but using Android's addJavascriptInterface.

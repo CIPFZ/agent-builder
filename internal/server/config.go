@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
 )
 
 // handlePostWorkspaceConfigSet sets a configuration field.
@@ -13,23 +13,23 @@ import (
 //	@Tags			config
 //	@Accept			json
 //	@Param			id		path	string					true	"Workspace ID"
-//	@Param			request	body	proto.ConfigSetRequest	true	"Config set request"
+//	@Param			request	body	apitypes.ConfigSetRequest	true	"Config set request"
 //	@Success		200
-//	@Failure		400	{object}	proto.Error
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Failure		400	{object}	apitypes.Error
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/config/set [post]
 func (c *controllerV1) handlePostWorkspaceConfigSet(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ConfigSetRequest
+	var req apitypes.ConfigSetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
 
-	if err := c.backend.SetConfigField(id, req.Scope, req.Key, req.Value); err != nil {
+	if err := c.workbench.SetConfigField(id, req.Scope, req.Key, req.Value); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
@@ -42,23 +42,23 @@ func (c *controllerV1) handlePostWorkspaceConfigSet(w http.ResponseWriter, r *ht
 //	@Tags			config
 //	@Accept			json
 //	@Param			id		path	string						true	"Workspace ID"
-//	@Param			request	body	proto.ConfigRemoveRequest	true	"Config remove request"
+//	@Param			request	body	apitypes.ConfigRemoveRequest	true	"Config remove request"
 //	@Success		200
-//	@Failure		400	{object}	proto.Error
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Failure		400	{object}	apitypes.Error
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/config/remove [post]
 func (c *controllerV1) handlePostWorkspaceConfigRemove(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ConfigRemoveRequest
+	var req apitypes.ConfigRemoveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
 
-	if err := c.backend.RemoveConfigField(id, req.Scope, req.Key); err != nil {
+	if err := c.workbench.RemoveConfigField(id, req.Scope, req.Key); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
@@ -71,23 +71,23 @@ func (c *controllerV1) handlePostWorkspaceConfigRemove(w http.ResponseWriter, r 
 //	@Tags			config
 //	@Accept			json
 //	@Param			id		path	string						true	"Workspace ID"
-//	@Param			request	body	proto.ConfigModelRequest	true	"Config model request"
+//	@Param			request	body	apitypes.ConfigModelRequest	true	"Config model request"
 //	@Success		200
-//	@Failure		400	{object}	proto.Error
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Failure		400	{object}	apitypes.Error
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/config/model [post]
 func (c *controllerV1) handlePostWorkspaceConfigModel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ConfigModelRequest
+	var req apitypes.ConfigModelRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
 
-	if err := c.backend.UpdatePreferredModel(id, req.Scope, req.ModelType, req.Model); err != nil {
+	if err := c.workbench.UpdatePreferredModel(id, req.Scope, req.ModelType, req.Model); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
@@ -100,16 +100,16 @@ func (c *controllerV1) handlePostWorkspaceConfigModel(w http.ResponseWriter, r *
 //	@Tags			config
 //	@Accept			json
 //	@Param			id		path	string							true	"Workspace ID"
-//	@Param			request	body	proto.ConfigProviderKeyRequest	true	"Config provider key request"
+//	@Param			request	body	apitypes.ConfigProviderKeyRequest	true	"Config provider key request"
 //	@Success		200
-//	@Failure		400	{object}	proto.Error
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Failure		400	{object}	apitypes.Error
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/config/provider-key [post]
 func (c *controllerV1) handlePostWorkspaceConfigProviderKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ConfigProviderKeyRequest
+	var req apitypes.ConfigProviderKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
@@ -123,7 +123,7 @@ func (c *controllerV1) handlePostWorkspaceConfigProviderKey(w http.ResponseWrite
 		return
 	}
 
-	if err := c.backend.SetProviderAPIKey(id, req.Scope, req.ProviderID, apiKey); err != nil {
+	if err := c.workbench.SetProviderAPIKey(id, req.Scope, req.ProviderID, apiKey); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
@@ -136,18 +136,18 @@ func (c *controllerV1) handlePostWorkspaceConfigProviderKey(w http.ResponseWrite
 //	@Tags			config
 //	@Produce		json
 //	@Param			id	path		string						true	"Workspace ID"
-//	@Success		200	{object}	proto.ImportCopilotResponse
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Success		200	{object}	apitypes.ImportCopilotResponse
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/config/import-copilot [post]
 func (c *controllerV1) handlePostWorkspaceConfigImportCopilot(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	token, ok, err := c.backend.ImportCopilot(id)
+	token, ok, err := c.workbench.ImportCopilot(id)
 	if err != nil {
 		c.handleError(w, r, err)
 		return
 	}
-	jsonEncode(w, proto.ImportCopilotResponse{Token: token, Success: ok})
+	jsonEncode(w, apitypes.ImportCopilotResponse{Token: token, Success: ok})
 }
 
 // handlePostWorkspaceConfigRefreshOAuth refreshes an OAuth token for a provider.
@@ -156,23 +156,23 @@ func (c *controllerV1) handlePostWorkspaceConfigImportCopilot(w http.ResponseWri
 //	@Tags			config
 //	@Accept			json
 //	@Param			id		path	string							true	"Workspace ID"
-//	@Param			request	body	proto.ConfigRefreshOAuthRequest	true	"Refresh OAuth request"
+//	@Param			request	body	apitypes.ConfigRefreshOAuthRequest	true	"Refresh OAuth request"
 //	@Success		200
-//	@Failure		400	{object}	proto.Error
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Failure		400	{object}	apitypes.Error
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/config/refresh-oauth [post]
 func (c *controllerV1) handlePostWorkspaceConfigRefreshOAuth(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ConfigRefreshOAuthRequest
+	var req apitypes.ConfigRefreshOAuthRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
 
-	if err := c.backend.RefreshOAuthToken(r.Context(), id, req.Scope, req.ProviderID); err != nil {
+	if err := c.workbench.RefreshOAuthToken(r.Context(), id, req.Scope, req.ProviderID); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
@@ -185,18 +185,18 @@ func (c *controllerV1) handlePostWorkspaceConfigRefreshOAuth(w http.ResponseWrit
 //	@Tags			project
 //	@Produce		json
 //	@Param			id	path		string							true	"Workspace ID"
-//	@Success		200	{object}	proto.ProjectNeedsInitResponse
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Success		200	{object}	apitypes.ProjectNeedsInitResponse
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/project/needs-init [get]
 func (c *controllerV1) handleGetWorkspaceProjectNeedsInit(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	needs, err := c.backend.ProjectNeedsInitialization(id)
+	needs, err := c.workbench.ProjectNeedsInitialization(id)
 	if err != nil {
 		c.handleError(w, r, err)
 		return
 	}
-	jsonEncode(w, proto.ProjectNeedsInitResponse{NeedsInit: needs})
+	jsonEncode(w, apitypes.ProjectNeedsInitResponse{NeedsInit: needs})
 }
 
 // handlePostWorkspaceProjectInit marks the project as initialized.
@@ -205,12 +205,12 @@ func (c *controllerV1) handleGetWorkspaceProjectNeedsInit(w http.ResponseWriter,
 //	@Tags			project
 //	@Param			id	path	string	true	"Workspace ID"
 //	@Success		200
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/project/init [post]
 func (c *controllerV1) handlePostWorkspaceProjectInit(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := c.backend.MarkProjectInitialized(id); err != nil {
+	if err := c.workbench.MarkProjectInitialized(id); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
@@ -223,18 +223,18 @@ func (c *controllerV1) handlePostWorkspaceProjectInit(w http.ResponseWriter, r *
 //	@Tags			project
 //	@Produce		json
 //	@Param			id	path		string							true	"Workspace ID"
-//	@Success		200	{object}	proto.ProjectInitPromptResponse
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Success		200	{object}	apitypes.ProjectInitPromptResponse
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/project/init-prompt [get]
 func (c *controllerV1) handleGetWorkspaceProjectInitPrompt(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	prompt, err := c.backend.InitializePrompt(id)
+	prompt, err := c.workbench.InitializePrompt(id)
 	if err != nil {
 		c.handleError(w, r, err)
 		return
 	}
-	jsonEncode(w, proto.ProjectInitPromptResponse{Prompt: prompt})
+	jsonEncode(w, apitypes.ProjectInitPromptResponse{Prompt: prompt})
 }
 
 // handleGetWorkspaceSkills returns the effective visible skills for a workspace.
@@ -243,13 +243,13 @@ func (c *controllerV1) handleGetWorkspaceProjectInitPrompt(w http.ResponseWriter
 //	@Tags			skills
 //	@Produce		json
 //	@Param			id	path		string				true	"Workspace ID"
-//	@Success		200	{array}		proto.SkillInfo
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Success		200	{array}		apitypes.SkillInfo
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/skills [get]
 func (c *controllerV1) handleGetWorkspaceSkills(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	skills, err := c.backend.ListSkills(id)
+	skills, err := c.workbench.ListSkills(id)
 	if err != nil {
 		c.handleError(w, r, err)
 		return
@@ -264,28 +264,28 @@ func (c *controllerV1) handleGetWorkspaceSkills(w http.ResponseWriter, r *http.R
 //	@Accept			json
 //	@Produce		json
 //	@Param			id		path		string						true	"Workspace ID"
-//	@Param			request	body		proto.ReadSkillRequest		true	"Read skill request"
-//	@Success		200		{object}	proto.ReadSkillResponse
-//	@Failure		400		{object}	proto.Error
-//	@Failure		404		{object}	proto.Error
-//	@Failure		500		{object}	proto.Error
+//	@Param			request	body		apitypes.ReadSkillRequest		true	"Read skill request"
+//	@Success		200		{object}	apitypes.ReadSkillResponse
+//	@Failure		400		{object}	apitypes.Error
+//	@Failure		404		{object}	apitypes.Error
+//	@Failure		500		{object}	apitypes.Error
 //	@Router			/workspaces/{id}/skills/read [post]
 func (c *controllerV1) handlePostWorkspaceSkillRead(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ReadSkillRequest
+	var req apitypes.ReadSkillRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
 
-	content, result, err := c.backend.ReadSkill(r.Context(), id, req.SkillID)
+	content, result, err := c.workbench.ReadSkill(r.Context(), id, req.SkillID)
 	if err != nil {
 		c.handleError(w, r, err)
 		return
 	}
-	jsonEncode(w, proto.ReadSkillResponse{Content: content, Result: result})
+	jsonEncode(w, apitypes.ReadSkillResponse{Content: content, Result: result})
 }
 
 // handlePostWorkspaceMCPEnableDocker enables the Docker MCP server.
@@ -294,12 +294,12 @@ func (c *controllerV1) handlePostWorkspaceSkillRead(w http.ResponseWriter, r *ht
 //	@Tags			mcp
 //	@Param			id	path	string	true	"Workspace ID"
 //	@Success		200
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/mcp/docker/enable [post]
 func (c *controllerV1) handlePostWorkspaceMCPEnableDocker(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := c.backend.EnableDockerMCP(r.Context(), id); err != nil {
+	if err := c.workbench.EnableDockerMCP(r.Context(), id); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
@@ -312,12 +312,12 @@ func (c *controllerV1) handlePostWorkspaceMCPEnableDocker(w http.ResponseWriter,
 //	@Tags			mcp
 //	@Param			id	path	string	true	"Workspace ID"
 //	@Success		200
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/mcp/docker/disable [post]
 func (c *controllerV1) handlePostWorkspaceMCPDisableDocker(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := c.backend.DisableDockerMCP(id); err != nil {
+	if err := c.workbench.DisableDockerMCP(id); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
@@ -330,23 +330,23 @@ func (c *controllerV1) handlePostWorkspaceMCPDisableDocker(w http.ResponseWriter
 //	@Tags			mcp
 //	@Accept			json
 //	@Param			id		path	string					true	"Workspace ID"
-//	@Param			request	body	proto.MCPNameRequest	true	"MCP name request"
+//	@Param			request	body	apitypes.MCPNameRequest	true	"MCP name request"
 //	@Success		200
-//	@Failure		400	{object}	proto.Error
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Failure		400	{object}	apitypes.Error
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/mcp/refresh-tools [post]
 func (c *controllerV1) handlePostWorkspaceMCPRefreshTools(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.MCPNameRequest
+	var req apitypes.MCPNameRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
 
-	if err := c.backend.RefreshMCPTools(r.Context(), id, req.Name); err != nil {
+	if err := c.workbench.RefreshMCPTools(r.Context(), id, req.Name); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
@@ -360,23 +360,23 @@ func (c *controllerV1) handlePostWorkspaceMCPRefreshTools(w http.ResponseWriter,
 //	@Accept			json
 //	@Produce		json
 //	@Param			id		path		string						true	"Workspace ID"
-//	@Param			request	body		proto.MCPReadResourceRequest	true	"MCP read resource request"
+//	@Param			request	body		apitypes.MCPReadResourceRequest	true	"MCP read resource request"
 //	@Success		200		{object}	object
-//	@Failure		400		{object}	proto.Error
-//	@Failure		404		{object}	proto.Error
-//	@Failure		500		{object}	proto.Error
+//	@Failure		400		{object}	apitypes.Error
+//	@Failure		404		{object}	apitypes.Error
+//	@Failure		500		{object}	apitypes.Error
 //	@Router			/workspaces/{id}/mcp/read-resource [post]
 func (c *controllerV1) handlePostWorkspaceMCPReadResource(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.MCPReadResourceRequest
+	var req apitypes.MCPReadResourceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
 
-	contents, err := c.backend.ReadMCPResource(r.Context(), id, req.Name, req.URI)
+	contents, err := c.workbench.ReadMCPResource(r.Context(), id, req.Name, req.URI)
 	if err != nil {
 		c.handleError(w, r, err)
 		return
@@ -391,28 +391,28 @@ func (c *controllerV1) handlePostWorkspaceMCPReadResource(w http.ResponseWriter,
 //	@Accept			json
 //	@Produce		json
 //	@Param			id		path		string						true	"Workspace ID"
-//	@Param			request	body		proto.MCPGetPromptRequest	true	"MCP get prompt request"
-//	@Success		200		{object}	proto.MCPGetPromptResponse
-//	@Failure		400		{object}	proto.Error
-//	@Failure		404		{object}	proto.Error
-//	@Failure		500		{object}	proto.Error
+//	@Param			request	body		apitypes.MCPGetPromptRequest	true	"MCP get prompt request"
+//	@Success		200		{object}	apitypes.MCPGetPromptResponse
+//	@Failure		400		{object}	apitypes.Error
+//	@Failure		404		{object}	apitypes.Error
+//	@Failure		500		{object}	apitypes.Error
 //	@Router			/workspaces/{id}/mcp/get-prompt [post]
 func (c *controllerV1) handlePostWorkspaceMCPGetPrompt(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.MCPGetPromptRequest
+	var req apitypes.MCPGetPromptRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
 
-	prompt, err := c.backend.GetMCPPrompt(id, req.ClientID, req.PromptID, req.Args)
+	prompt, err := c.workbench.GetMCPPrompt(id, req.ClientID, req.PromptID, req.Args)
 	if err != nil {
 		c.handleError(w, r, err)
 		return
 	}
-	jsonEncode(w, proto.MCPGetPromptResponse{Prompt: prompt})
+	jsonEncode(w, apitypes.MCPGetPromptResponse{Prompt: prompt})
 }
 
 // handleGetWorkspaceMCPStates returns the state of all MCP clients.
@@ -421,18 +421,18 @@ func (c *controllerV1) handlePostWorkspaceMCPGetPrompt(w http.ResponseWriter, r 
 //	@Tags			mcp
 //	@Produce		json
 //	@Param			id	path		string						true	"Workspace ID"
-//	@Success		200	{object}	map[string]proto.MCPClientInfo
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Success		200	{object}	map[string]apitypes.MCPClientInfo
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/mcp/states [get]
 func (c *controllerV1) handleGetWorkspaceMCPStates(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	states := c.backend.MCPGetStates(id)
-	result := make(map[string]proto.MCPClientInfo, len(states))
+	states := c.workbench.MCPGetStates(id)
+	result := make(map[string]apitypes.MCPClientInfo, len(states))
 	for k, v := range states {
-		result[k] = proto.MCPClientInfo{
+		result[k] = apitypes.MCPClientInfo{
 			Name:          v.Name,
-			State:         proto.MCPState(v.State),
+			State:         apitypes.MCPState(v.State),
 			Error:         v.Error,
 			ToolCount:     v.Counts.Tools,
 			PromptCount:   v.Counts.Prompts,
@@ -449,23 +449,23 @@ func (c *controllerV1) handleGetWorkspaceMCPStates(w http.ResponseWriter, r *htt
 //	@Tags			mcp
 //	@Accept			json
 //	@Param			id		path	string					true	"Workspace ID"
-//	@Param			request	body	proto.MCPNameRequest	true	"MCP name request"
+//	@Param			request	body	apitypes.MCPNameRequest	true	"MCP name request"
 //	@Success		200
-//	@Failure		400	{object}	proto.Error
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Failure		400	{object}	apitypes.Error
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/mcp/refresh-prompts [post]
 func (c *controllerV1) handlePostWorkspaceMCPRefreshPrompts(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.MCPNameRequest
+	var req apitypes.MCPNameRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
 
-	c.backend.MCPRefreshPrompts(r.Context(), id, req.Name)
+	c.workbench.MCPRefreshPrompts(r.Context(), id, req.Name)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -475,22 +475,22 @@ func (c *controllerV1) handlePostWorkspaceMCPRefreshPrompts(w http.ResponseWrite
 //	@Tags			mcp
 //	@Accept			json
 //	@Param			id		path	string					true	"Workspace ID"
-//	@Param			request	body	proto.MCPNameRequest	true	"MCP name request"
+//	@Param			request	body	apitypes.MCPNameRequest	true	"MCP name request"
 //	@Success		200
-//	@Failure		400	{object}	proto.Error
-//	@Failure		404	{object}	proto.Error
-//	@Failure		500	{object}	proto.Error
+//	@Failure		400	{object}	apitypes.Error
+//	@Failure		404	{object}	apitypes.Error
+//	@Failure		500	{object}	apitypes.Error
 //	@Router			/workspaces/{id}/mcp/refresh-resources [post]
 func (c *controllerV1) handlePostWorkspaceMCPRefreshResources(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.MCPNameRequest
+	var req apitypes.MCPNameRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
 
-	c.backend.MCPRefreshResources(r.Context(), id, req.Name)
+	c.workbench.MCPRefreshResources(r.Context(), id, req.Name)
 	w.WriteHeader(http.StatusOK)
 }

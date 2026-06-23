@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 var errRuntimeAgentRoleNotFound = errors.New("runtime agent role not found")
@@ -196,13 +196,13 @@ func normalizeRuntimeAgentRole(role RuntimeAgentRoleDefinition) RuntimeAgentRole
 
 func (r *runtimeService) ensureAgentRolesLoaded(ctx context.Context) error {
 	r.mu.Lock()
-	runtimeBackend := r.runtime
+	runtimeWorkbench := r.runtime
 	workspace := r.workspace
 	r.mu.Unlock()
-	if runtimeBackend == nil || workspace == nil {
+	if runtimeWorkbench == nil || workspace == nil {
 		return errors.New("runtime workspace is not started")
 	}
-	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
 	if err != nil {
 		return err
 	}

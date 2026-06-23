@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 const (
@@ -58,8 +58,8 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 		return RuntimeStatus{}, err
 	}
 
-	action := proto.PermissionAction(strings.TrimSpace(req.Action))
-	if action != proto.PermissionAllow && action != proto.PermissionAllowForSession && action != proto.PermissionDeny {
+	action := apitypes.PermissionAction(strings.TrimSpace(req.Action))
+	if action != apitypes.PermissionAllow && action != apitypes.PermissionAllowForSession && action != apitypes.PermissionDeny {
 		return RuntimeStatus{}, fmt.Errorf("invalid permission action: %s", req.Action)
 	}
 
@@ -105,8 +105,8 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 		return RuntimeStatus{}, fmt.Errorf("permission request %s is not pending", req.PermissionID)
 	}
 
-	if err := r.runtime.GrantPermission(wsID, proto.PermissionGrant{
-		Permission: toProtoPermissionRequest(pending.Raw),
+	if err := r.runtime.GrantPermission(wsID, apitypes.PermissionGrant{
+		Permission: toAPITypePermissionRequest(pending.Raw),
 		Action:     action,
 	}); err != nil {
 		return RuntimeStatus{}, fmt.Errorf("failed to decide permission: %w", err)
@@ -120,7 +120,7 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 	}
 	if r.toolCalls != nil {
 		switch action {
-		case proto.PermissionDeny:
+		case apitypes.PermissionDeny:
 			_, _ = r.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{
 				ToolCallID:    pending.Permission.ToolCallID,
 				Status:        scheduler.ToolCallDenied,
@@ -158,7 +158,7 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 	if pending.Permission.TurnID != "" {
 		if turn, err := r.turns.Get(ctx, pending.Permission.TurnID); err == nil && turn.Status == turnStatusWaitingPermission {
 			turn.Status = turnStatusRunning
-			if action == proto.PermissionDeny {
+			if action == apitypes.PermissionDeny {
 				turn.Status = turnStatusFailed
 				turn.FinishedAt = time.Now().UnixMilli()
 				turn.Error = "permission denied"
@@ -220,7 +220,7 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 	return withRuntimePermissionDecisionAction(status, action), nil
 }
 
-func withRuntimePermissionDecisionAction(status RuntimeStatus, action proto.PermissionAction) RuntimeStatus {
+func withRuntimePermissionDecisionAction(status RuntimeStatus, action apitypes.PermissionAction) RuntimeStatus {
 	status.Action = &RuntimeWriteActionMetadata{
 		Accepted:       true,
 		Reason:         permissionStatusForDecision(action),
@@ -228,7 +228,7 @@ func withRuntimePermissionDecisionAction(status RuntimeStatus, action proto.Perm
 		Source: RuntimeWriteActionSource{
 			Kind:                  runtimePermissionDecisionActionSourceKind,
 			Action:                string(action),
-			BackendOnly:           true,
+			WorkbenchOnly:         true,
 			StartsWorker:          false,
 			IdempotentBy:          "permission_id",
 			SessionActivityParity: true,
@@ -276,8 +276,8 @@ func toRuntimePermissionRequest(perm permission.PermissionRequest) RuntimePermis
 	}
 }
 
-func toProtoPermissionRequest(perm permission.PermissionRequest) proto.PermissionRequest {
-	return proto.PermissionRequest{
+func toAPITypePermissionRequest(perm permission.PermissionRequest) apitypes.PermissionRequest {
+	return apitypes.PermissionRequest{
 		ID:           perm.ID,
 		SessionID:    perm.SessionID,
 		TurnID:       perm.TurnID,
@@ -297,13 +297,13 @@ func toProtoPermissionRequest(perm permission.PermissionRequest) proto.Permissio
 	}
 }
 
-func permissionStatusForDecision(action proto.PermissionAction) string {
+func permissionStatusForDecision(action apitypes.PermissionAction) string {
 	switch action {
-	case proto.PermissionAllow:
+	case apitypes.PermissionAllow:
 		return permissionStatusAllowedOnce
-	case proto.PermissionAllowForSession:
+	case apitypes.PermissionAllowForSession:
 		return permissionStatusAllowedSession
-	case proto.PermissionDeny:
+	case apitypes.PermissionDeny:
 		return permissionStatusDenied
 	default:
 		return string(action)

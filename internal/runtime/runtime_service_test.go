@@ -15,19 +15,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	mcptools "github.com/CIPFZ/agent-builder/internal/agent/tools/mcp"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/csync"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/pubsub"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/session"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/workbench"
 )
 
 func TestLocalModelConfigUsesDesktopConfigPath(t *testing.T) {
@@ -947,14 +947,14 @@ func TestDiscoverModelConfigDoesNotRequireModel(t *testing.T) {
 func TestRuntimeMessagePartsExposeToolActivity(t *testing.T) {
 	t.Parallel()
 
-	msg := proto.Message{
+	msg := apitypes.Message{
 		ID:        "assistant-1",
 		SessionID: "session-1",
-		Role:      proto.Assistant,
-		Parts: []proto.ContentPart{
-			proto.ReasoningContent{Thinking: "Need to inspect files."},
-			proto.ToolCall{ID: "tool-1", Name: "ls", Input: `{"path":"."}`, Finished: true},
-			proto.Finish{Reason: proto.FinishReasonToolUse},
+		Role:      apitypes.Assistant,
+		Parts: []apitypes.ContentPart{
+			apitypes.ReasoningContent{Thinking: "Need to inspect files."},
+			apitypes.ToolCall{ID: "tool-1", Name: "ls", Input: `{"path":"."}`, Finished: true},
+			apitypes.Finish{Reason: apitypes.FinishReasonToolUse},
 		},
 	}
 
@@ -962,7 +962,7 @@ func TestRuntimeMessagePartsExposeToolActivity(t *testing.T) {
 	if !isDisplayableRuntimeMessage(got) {
 		t.Fatal("tool-use assistant message should be displayable")
 	}
-	if got.FinishReason != string(proto.FinishReasonToolUse) {
+	if got.FinishReason != string(apitypes.FinishReasonToolUse) {
 		t.Fatalf("FinishReason = %q", got.FinishReason)
 	}
 	if len(got.Parts) != 3 {
@@ -981,20 +981,20 @@ func TestRuntimeSkillsFromConfigIncludesBuiltinAndDisabledState(t *testing.T) {
 
 	store := config.NewTestStore(&config.Config{
 		Options: &config.Options{
-			DisabledSkills: []string{"crush-config"},
+			DisabledSkills: []string{"agent-builder-config"},
 		},
 	})
 
 	resp := runtimeSkillsFromConfig(store)
 	var found *RuntimeSkill
 	for i := range resp.Skills {
-		if resp.Skills[i].Name == "crush-config" {
+		if resp.Skills[i].Name == "agent-builder-config" {
 			found = &resp.Skills[i]
 			break
 		}
 	}
 	if found == nil {
-		t.Fatal("builtin crush-config skill was not exposed")
+		t.Fatal("builtin agent-builder-config skill was not exposed")
 	}
 	if !found.Builtin {
 		t.Fatalf("Builtin = false for %#v", found)
@@ -1096,8 +1096,8 @@ func TestRuntimePolicyApplicationEventAndAudit(t *testing.T) {
 	cfg := config.NewRuntimeConfig(workingDir, dataDir, false)
 	cfg.Options.AutoLSP = ptr(false)
 	store := config.NewRuntimeStore(workingDir, cfg)
-	runtimeBackend := backend.New(context.Background(), store, nil)
-	_, workspace, err := runtimeBackend.CreateWorkspace(proto.Workspace{
+	runtimeWorkbench := workbench.New(context.Background(), store, nil)
+	_, workspace, err := runtimeWorkbench.CreateWorkspace(apitypes.Workspace{
 		Path:    workingDir,
 		DataDir: dataDir,
 		Config:  store.Config(),
@@ -1105,15 +1105,15 @@ func TestRuntimePolicyApplicationEventAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 
 	permissions := permission.NewPermissionService(t.TempDir(), false, nil)
 	permissions.SetPolicyMode(permission.PolicyModePlan)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() {
 		cancel()
-		runtimeBackend.DeleteWorkspace(workspace.ID)
+		runtimeWorkbench.DeleteWorkspace(workspace.ID)
 		_ = conn.Close()
 		_ = db.Release(dataDir)
 	})
@@ -1196,8 +1196,8 @@ func TestRuntimeSchedulerAskCreatesRecoverablePermission(t *testing.T) {
 	cfg := config.NewRuntimeConfig(workingDir, dataDir, false)
 	cfg.Options.AutoLSP = ptr(false)
 	store := config.NewRuntimeStore(workingDir, cfg)
-	runtimeBackend := backend.New(context.Background(), store, nil)
-	_, workspace, err := runtimeBackend.CreateWorkspace(proto.Workspace{
+	runtimeWorkbench := workbench.New(context.Background(), store, nil)
+	_, workspace, err := runtimeWorkbench.CreateWorkspace(apitypes.Workspace{
 		Path:    workingDir,
 		DataDir: dataDir,
 		Config:  store.Config(),
@@ -1206,11 +1206,11 @@ func TestRuntimeSchedulerAskCreatesRecoverablePermission(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		runtimeBackend.DeleteWorkspace(workspace.ID)
+		runtimeWorkbench.DeleteWorkspace(workspace.ID)
 		_ = db.Release(dataDir)
 	})
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
 		ID:        "turn-1",
 		SessionID: "session-1",
@@ -1219,7 +1219,7 @@ func TestRuntimeSchedulerAskCreatesRecoverablePermission(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1271,14 +1271,14 @@ func TestRuntimeSchedulerAskCreatesRecoverablePermission(t *testing.T) {
 	if perm.PolicyProfile != string(permission.PolicyProfileDefault) || perm.PolicyHeadless {
 		t.Fatalf("interactive permission profile = %#v", perm)
 	}
-	decisionStatus, err := service.DecidePermission(context.Background(), RuntimePermissionDecision{PermissionID: perm.ID, Action: string(proto.PermissionAllow)})
+	decisionStatus, err := service.DecidePermission(context.Background(), RuntimePermissionDecision{PermissionID: perm.ID, Action: string(apitypes.PermissionAllow)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decisionStatus.Action == nil || !decisionStatus.Action.Accepted || decisionStatus.Action.Source.Kind != runtimePermissionDecisionActionSourceKind || decisionStatus.Action.Source.Action != string(proto.PermissionAllow) || decisionStatus.Action.Source.IdempotentBy != "permission_id" {
+	if decisionStatus.Action == nil || !decisionStatus.Action.Accepted || decisionStatus.Action.Source.Kind != runtimePermissionDecisionActionSourceKind || decisionStatus.Action.Source.Action != string(apitypes.PermissionAllow) || decisionStatus.Action.Source.IdempotentBy != "permission_id" {
 		t.Fatalf("permission decision action metadata = %#v", decisionStatus.Action)
 	}
-	if len(decisionStatus.Action.RefreshTargets) == 0 || decisionStatus.Action.Source.StartsWorker || !decisionStatus.Action.Source.BackendOnly || !decisionStatus.Action.Source.SessionActivityParity {
+	if len(decisionStatus.Action.RefreshTargets) == 0 || decisionStatus.Action.Source.StartsWorker || !decisionStatus.Action.Source.WorkbenchOnly || !decisionStatus.Action.Source.SessionActivityParity {
 		t.Fatalf("permission decision source/refresh metadata = %#v", decisionStatus.Action)
 	}
 	plainStatus, err := service.Status(context.Background())
@@ -1568,7 +1568,7 @@ func TestRuntimeMCPConfigFromRequestValidatesNameAndRequiredFields(t *testing.T)
 	}
 }
 
-func TestDesktopMCPConfigIsSeparateFromCrushConfig(t *testing.T) {
+func TestDesktopMCPConfigIsSeparateFromAgentBuilderConfig(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -1630,12 +1630,12 @@ func TestRuntimeCapabilitiesIncludeToolsSkillsAndMCP(t *testing.T) {
 	store := config.NewTestStore(&config.Config{
 		Options: &config.Options{
 			DisabledTools:  []string{"bash"},
-			DisabledSkills: []string{"crush-config"},
+			DisabledSkills: []string{"agent-builder-config"},
 		},
 	})
 	resp := runtimeCapabilities(
 		store,
-		RuntimeSkillsResponse{Skills: []RuntimeSkill{{Name: "crush-config", Enabled: false, Builtin: true, State: "normal"}}},
+		RuntimeSkillsResponse{Skills: []RuntimeSkill{{Name: "agent-builder-config", Enabled: false, Builtin: true, State: "normal"}}},
 		RuntimeMCPToolsResponse{Tools: []RuntimeMCPTool{{Server: "docs", Name: "search_docs", Enabled: true}}},
 		RuntimeMCPResourcesResponse{Resources: []RuntimeMCPResource{{Server: "docs", URI: "docs://intro"}}},
 		RuntimeMCPPromptsResponse{Prompts: []RuntimeMCPPrompt{{Server: "docs", Name: "summarize"}}},
@@ -1651,11 +1651,11 @@ func TestRuntimeCapabilitiesIncludeToolsSkillsAndMCP(t *testing.T) {
 	if byID["builtin:bash"].State != capabilityStateDisabled {
 		t.Fatalf("disabled builtin state = %#v", byID["builtin:bash"])
 	}
-	if byID["skill:crush-config"].Enabled {
-		t.Fatalf("disabled skill capability = %#v", byID["skill:crush-config"])
+	if byID["skill:agent-builder-config"].Enabled {
+		t.Fatalf("disabled skill capability = %#v", byID["skill:agent-builder-config"])
 	}
-	if byID["skill:crush-config"].State != capabilityStateDisabled {
-		t.Fatalf("disabled skill state = %#v", byID["skill:crush-config"])
+	if byID["skill:agent-builder-config"].State != capabilityStateDisabled {
+		t.Fatalf("disabled skill state = %#v", byID["skill:agent-builder-config"])
 	}
 	if byID["mcp:docs:search_docs"].Kind != "mcp_tool" {
 		t.Fatalf("mcp tool capability missing: %#v", byID["mcp:docs:search_docs"])
@@ -2015,12 +2015,12 @@ func TestRecordToolCallsFromMessageWaitsForToolResult(t *testing.T) {
 	service := newRuntimeService()
 	service.toolCalls = scheduler.New(scheduler.NewMemoryStore())
 
-	assistant := proto.Message{
+	assistant := apitypes.Message{
 		ID:        "assistant-1",
 		SessionID: "session-1",
-		Role:      proto.Assistant,
-		Parts: []proto.ContentPart{
-			proto.ToolCall{
+		Role:      apitypes.Assistant,
+		Parts: []apitypes.ContentPart{
+			apitypes.ToolCall{
 				ID:       "tool-1",
 				Name:     "write",
 				Input:    `{"file_path":"report.md","content":"ok"}`,
@@ -2038,12 +2038,12 @@ func TestRecordToolCallsFromMessageWaitsForToolResult(t *testing.T) {
 		t.Fatalf("tool call after input finish = %#v, want running without finished time", call)
 	}
 
-	result := proto.Message{
+	result := apitypes.Message{
 		ID:        "tool-result-1",
 		SessionID: "session-1",
-		Role:      proto.Tool,
-		Parts: []proto.ContentPart{
-			proto.ToolResult{
+		Role:      apitypes.Tool,
+		Parts: []apitypes.ContentPart{
+			apitypes.ToolResult{
 				ToolCallID: "tool-1",
 				Name:       "write",
 				Content:    "File successfully written: C:/Users/ytq/Desktop/report.md",
@@ -2545,7 +2545,7 @@ Use this skill from the desktop runtime.
 	t.Fatalf("desktop managed skill missing from %#v", resp.Skills)
 }
 
-func TestDesktopSkillConfigIsSeparateFromCrushConfig(t *testing.T) {
+func TestDesktopSkillConfigIsSeparateFromAgentBuilderConfig(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -2592,9 +2592,9 @@ func TestRefreshSkillsPublishesDiscoveryEvents(t *testing.T) {
 	t.Parallel()
 
 	service := newRuntimeService()
-	runtime, workspace := backendForSkillTest(t)
+	runtime, workspace := workbenchForSkillTest(t)
 	service.runtime = runtime
-	service.workspace = &proto.Workspace{ID: workspace.ID}
+	service.workspace = &apitypes.Workspace{ID: workspace.ID}
 	service.sessionID = "session-1"
 
 	events, unsubscribe := service.SubscribeEvents(context.Background())
@@ -2628,13 +2628,13 @@ func TestRuntimeNewChatUsesDraftSessionAndPreservesRecents(t *testing.T) {
 	t.Parallel()
 
 	service := newRuntimeService()
-	runtime, workspace := backendForSkillTest(t)
+	runtime, workspace := workbenchForSkillTest(t)
 	first, err := runtime.CreateSession(context.Background(), workspace.ID, "First chat")
 	if err != nil {
 		t.Fatal(err)
 	}
 	service.runtime = runtime
-	service.workspace = &proto.Workspace{ID: workspace.ID}
+	service.workspace = &apitypes.Workspace{ID: workspace.ID}
 	service.sessionID = first.ID
 
 	status, err := service.NewChat(context.Background(), "Second chat")
@@ -2676,9 +2676,9 @@ func TestRuntimeCreateSessionPersistsAndSelectsSession(t *testing.T) {
 	t.Parallel()
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID}
 
 	created, err := service.CreateSession(context.Background(), RuntimeSessionCreateRequest{Title: "Pinned chat"})
 	if err != nil {
@@ -2707,9 +2707,9 @@ func TestRuntimeCreateSessionPersistsOwnership(t *testing.T) {
 	t.Parallel()
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID}
 
 	projectSession, err := service.CreateSession(context.Background(), RuntimeSessionCreateRequest{
 		Title:     "Project chat",
@@ -2754,7 +2754,7 @@ func TestRuntimeDeleteActiveSessionReturnsToDraft(t *testing.T) {
 	t.Parallel()
 
 	service := newRuntimeService()
-	runtime, workspace := backendForSkillTest(t)
+	runtime, workspace := workbenchForSkillTest(t)
 	first, err := runtime.CreateSession(context.Background(), workspace.ID, "First chat")
 	if err != nil {
 		t.Fatal(err)
@@ -2764,7 +2764,7 @@ func TestRuntimeDeleteActiveSessionReturnsToDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	service.runtime = runtime
-	service.workspace = &proto.Workspace{ID: workspace.ID}
+	service.workspace = &apitypes.Workspace{ID: workspace.ID}
 	service.sessionID = first.ID
 
 	resp, err := service.DeleteSession(context.Background(), first.ID)
@@ -2790,13 +2790,13 @@ func TestRuntimeChatRenamesDefaultSessionTitle(t *testing.T) {
 	t.Parallel()
 
 	service := newRuntimeService()
-	runtime, workspace := backendForSkillTest(t)
+	runtime, workspace := workbenchForSkillTest(t)
 	sess, err := runtime.CreateSession(context.Background(), workspace.ID, "Untitled Session")
 	if err != nil {
 		t.Fatal(err)
 	}
 	service.runtime = runtime
-	service.workspace = &proto.Workspace{ID: workspace.ID}
+	service.workspace = &apitypes.Workspace{ID: workspace.ID}
 	service.sessionID = sess.ID
 
 	if err := service.ensureSessionTitle(context.Background(), workspace.ID, sess.ID, "Summarize runtime session behavior in one line."); err != nil {
@@ -2814,7 +2814,7 @@ func TestRuntimeChatRenamesDefaultSessionTitle(t *testing.T) {
 	}
 }
 
-func backendForSkillTest(t *testing.T) (*backend.Backend, proto.Workspace) {
+func workbenchForSkillTest(t *testing.T) (*workbench.Service, apitypes.Workspace) {
 	t.Helper()
 	workingDir := t.TempDir()
 	dataRoot, err := os.MkdirTemp("", "agent-builder-runtime-state-*")
@@ -2828,8 +2828,8 @@ func backendForSkillTest(t *testing.T) (*backend.Backend, proto.Workspace) {
 	cfg := config.NewRuntimeConfig(workingDir, dataDir, false)
 	cfg.Options.AutoLSP = ptr(false)
 	store := config.NewRuntimeStore(workingDir, cfg)
-	runtime := backend.New(context.Background(), store, nil)
-	_, workspace, err := runtime.CreateWorkspace(proto.Workspace{
+	runtime := workbench.New(context.Background(), store, nil)
+	_, workspace, err := runtime.CreateWorkspace(apitypes.Workspace{
 		Path:    workingDir,
 		DataDir: dataDir,
 		Config:  store.Config(),
@@ -2856,12 +2856,12 @@ func ptr[T any](value T) *T {
 func TestRuntimeMessagePartsExposeToolResults(t *testing.T) {
 	t.Parallel()
 
-	msg := proto.Message{
+	msg := apitypes.Message{
 		ID:        "tool-result-1",
 		SessionID: "session-1",
-		Role:      proto.Tool,
-		Parts: []proto.ContentPart{
-			proto.ToolResult{ToolCallID: "tool-1", Name: "ls", Content: "file.txt", IsError: false, DeliveredToModel: true, DeliveredAtStep: 2, DeliveryReason: "included_in_model_input"},
+		Role:      apitypes.Tool,
+		Parts: []apitypes.ContentPart{
+			apitypes.ToolResult{ToolCallID: "tool-1", Name: "ls", Content: "file.txt", IsError: false, DeliveredToModel: true, DeliveredAtStep: 2, DeliveryReason: "included_in_model_input"},
 		},
 	}
 
@@ -2905,7 +2905,7 @@ func TestIsDisplayableRuntimeMessageSkipsEmptyAssistantMessages(t *testing.T) {
 				Role:         "assistant",
 				Content:      "done",
 				Finished:     true,
-				FinishReason: string(proto.FinishReasonEndTurn),
+				FinishReason: string(apitypes.FinishReasonEndTurn),
 			},
 			want: true,
 		},
@@ -2914,7 +2914,7 @@ func TestIsDisplayableRuntimeMessageSkipsEmptyAssistantMessages(t *testing.T) {
 			msg: RuntimeMessage{
 				Role:         "assistant",
 				Finished:     true,
-				FinishReason: string(proto.FinishReasonToolUse),
+				FinishReason: string(apitypes.FinishReasonToolUse),
 			},
 			want: false,
 		},
@@ -2924,7 +2924,7 @@ func TestIsDisplayableRuntimeMessageSkipsEmptyAssistantMessages(t *testing.T) {
 				Role:         "assistant",
 				Parts:        []RuntimeMessagePart{{Type: "tool_call", ToolCallID: "tool-1", Name: "ls"}},
 				Finished:     true,
-				FinishReason: string(proto.FinishReasonToolUse),
+				FinishReason: string(apitypes.FinishReasonToolUse),
 			},
 			want: true,
 		},
@@ -2933,7 +2933,7 @@ func TestIsDisplayableRuntimeMessageSkipsEmptyAssistantMessages(t *testing.T) {
 			msg: RuntimeMessage{
 				Role:         "assistant",
 				Finished:     true,
-				FinishReason: string(proto.FinishReasonError),
+				FinishReason: string(apitypes.FinishReasonError),
 				Error:        "provider error",
 			},
 			want: true,
@@ -2976,9 +2976,9 @@ func TestRuntimePermissionRequestMapping(t *testing.T) {
 		t.Fatalf("runtime permission metadata failed: %#v", runtimePerm)
 	}
 
-	protoPerm := toProtoPermissionRequest(perm)
+	protoPerm := toAPITypePermissionRequest(perm)
 	if protoPerm.ID != perm.ID || protoPerm.ToolCallID != perm.ToolCallID || protoPerm.Path != perm.Path || protoPerm.TurnID != "turn-1" {
-		t.Fatalf("proto permission mapping failed: %#v", protoPerm)
+		t.Fatalf("API permission mapping failed: %#v", protoPerm)
 	}
 }
 
@@ -3151,13 +3151,13 @@ func TestRecordToolCallsBackfillDoesNotDowngradeSchedulerFinalState(t *testing.T
 		t.Fatal(err)
 	}
 
-	msg := proto.Message{
+	msg := apitypes.Message{
 		ID:        "message-1",
 		SessionID: "session-1",
-		Role:      proto.Assistant,
-		Parts: []proto.ContentPart{
-			proto.ToolCall{ID: "tool-1", Name: "bash", Input: `{"command":"pwd"}`, Finished: false},
-			proto.ToolResult{ToolCallID: "tool-1", Name: "bash", Content: "message success"},
+		Role:      apitypes.Assistant,
+		Parts: []apitypes.ContentPart{
+			apitypes.ToolCall{ID: "tool-1", Name: "bash", Input: `{"command":"pwd"}`, Finished: false},
+			apitypes.ToolResult{ToolCallID: "tool-1", Name: "bash", Content: "message success"},
 		},
 	}
 	service.recordToolCallsFromMessage(context.Background(), msg, "turn-1", time.Now())
@@ -3254,7 +3254,7 @@ func TestRuntimeToolCallDisplayExtractsFileTarget(t *testing.T) {
 	if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
 		ToolCallID:    "tool-read",
 		Status:        scheduler.ToolCallCompleted,
-		OutputSummary: "module github.com/charmbracelet/crush",
+		OutputSummary: "module github.com/CIPFZ/agent-builder",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -3593,8 +3593,8 @@ func TestRuntimeSessionActivityPreservesGroupedToolDisplayMetadata(t *testing.T)
 	cfg := config.NewRuntimeConfig(workingDir, dataDir, false)
 	cfg.Options.AutoLSP = ptr(false)
 	store := config.NewRuntimeStore(workingDir, cfg)
-	runtimeBackend := backend.New(context.Background(), store, nil)
-	_, workspace, err := runtimeBackend.CreateWorkspace(proto.Workspace{
+	runtimeWorkbench := workbench.New(context.Background(), store, nil)
+	_, workspace, err := runtimeWorkbench.CreateWorkspace(apitypes.Workspace{
 		Path:    workingDir,
 		DataDir: dataDir,
 		Config:  store.Config(),
@@ -3603,10 +3603,10 @@ func TestRuntimeSessionActivityPreservesGroupedToolDisplayMetadata(t *testing.T)
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		runtimeBackend.DeleteWorkspace(workspace.ID)
+		runtimeWorkbench.DeleteWorkspace(workspace.ID)
 	})
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	providerStore := newRuntimeProviderSettingsStore(conn)
 	if err := service.syncProviderCatalog(context.Background(), providerStore); err != nil {
 		t.Fatal(err)
@@ -3631,7 +3631,7 @@ func TestRuntimeSessionActivityPreservesGroupedToolDisplayMetadata(t *testing.T)
 	}, provider); err != nil {
 		t.Fatal(err)
 	}
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "Tool metadata")
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "Tool metadata")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3865,8 +3865,8 @@ func TestRuntimeAgentTaskRecorderEmitsEventsAndAudit(t *testing.T) {
 	cfg := config.NewRuntimeConfig(workingDir, dataDir, false)
 	cfg.Options.AutoLSP = ptr(false)
 	store := config.NewRuntimeStore(workingDir, cfg)
-	runtimeBackend := backend.New(context.Background(), store, nil)
-	_, workspace, err := runtimeBackend.CreateWorkspace(proto.Workspace{
+	runtimeWorkbench := workbench.New(context.Background(), store, nil)
+	_, workspace, err := runtimeWorkbench.CreateWorkspace(apitypes.Workspace{
 		Path:    workingDir,
 		DataDir: dataDir,
 		Config:  store.Config(),
@@ -3875,11 +3875,11 @@ func TestRuntimeAgentTaskRecorderEmitsEventsAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		runtimeBackend.DeleteWorkspace(workspace.ID)
+		runtimeWorkbench.DeleteWorkspace(workspace.ID)
 		_ = db.Release(dataDir)
 	})
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 
 	recorder := runtimeSchedulerRecorder{service: service}
 	record := agent.AgentTaskRecord{
@@ -3979,7 +3979,7 @@ func TestRuntimeCancelAgentTaskMarksFinalAndAuditsLimitation(t *testing.T) {
 	if resp.Action == nil || !resp.Action.Accepted || resp.Action.Source.Kind != runtimeAgentTaskCancelSourceKind || resp.Action.Source.Action != runtimeAgentTaskCancelAction || resp.Action.Source.IdempotentBy != "task_id" {
 		t.Fatalf("cancel action metadata = %#v", resp.Action)
 	}
-	if len(resp.Action.RefreshTargets) == 0 || !resp.Action.Source.BackendOnly || resp.Action.Source.StartsWorker || !resp.Action.Source.SessionActivityParity {
+	if len(resp.Action.RefreshTargets) == 0 || !resp.Action.Source.WorkbenchOnly || resp.Action.Source.StartsWorker || !resp.Action.Source.SessionActivityParity {
 		t.Fatalf("cancel action source/refresh metadata = %#v", resp.Action)
 	}
 	events, err := service.Events(context.Background())
@@ -5061,7 +5061,7 @@ func (s *recordingRuntimeService) ExecuteRunTask(_ context.Context, runID, taskI
 		s.executeRunTask.Source = RuntimeRunSchedulerExecuteTaskSource{
 			Kind:                  runtimeRunSchedulerExecuteTaskSourceKind,
 			Action:                runtimeRunSchedulerExecuteTaskAction,
-			BackendOnly:           true,
+			WorkbenchOnly:         true,
 			StartsWorker:          false,
 			IdempotentByTaskID:    true,
 			SessionActivityParity: true,
@@ -5204,7 +5204,7 @@ func (s *recordingRuntimeService) Capabilities(context.Context) (RuntimeCapabili
 
 func (s *recordingRuntimeService) RefreshCapability(_ context.Context, id string) (RuntimeCapabilityResponse, error) {
 	s.refreshedCapability = id
-	return RuntimeCapabilityResponse{Capability: RuntimeCapability{ID: id, Kind: "skill", Name: "crush-config", Enabled: true, State: "loaded"}}, nil
+	return RuntimeCapabilityResponse{Capability: RuntimeCapability{ID: id, Kind: "skill", Name: "agent-builder-config", Enabled: true, State: "loaded"}}, nil
 }
 
 func (s *recordingRuntimeService) SearchTools(_ context.Context, req RuntimeToolSearchRequest) (RuntimeToolSearchResponse, error) {
@@ -5230,7 +5230,7 @@ func (s *recordingRuntimeService) ServeHTTP(context.Context, string, string) (Ru
 
 func (s *recordingRuntimeService) DecidePermission(_ context.Context, req RuntimePermissionDecision) (RuntimeStatus, error) {
 	s.permissionDecision = req
-	return withRuntimePermissionDecisionAction(s.status, proto.PermissionAction(req.Action)), nil
+	return withRuntimePermissionDecisionAction(s.status, apitypes.PermissionAction(req.Action)), nil
 }
 
 func (s *recordingRuntimeService) Cancel(context.Context) (RuntimeStatus, error) {

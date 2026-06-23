@@ -10,7 +10,7 @@ Claude Code comparison source:
 - Local source: `C:\Users\ytq\work\ai\myclaw\claude-code`
 - Public learning reference: `shareAI-lab/learn-claude-code`
 
-This document records the backend-first review of the single-agent ReAct path.
+This document records the runtime-first review of the single-agent ReAct path.
 It intentionally starts from runtime correctness before UI rendering. The UI is
 still covered because a correct kernel that cannot explain itself to users is
 not a complete product.
@@ -28,7 +28,7 @@ not a complete product.
 
 ## Current Single-Agent Call Chain
 
-The current backend single-agent path is structurally valid:
+The current runtime single-agent path is structurally valid:
 
 ```text
 Runtime.Chat
@@ -77,7 +77,7 @@ Important Claude Code comparison evidence:
 
 ## ReAct Correctness Finding
 
-The backend is not fundamentally using the wrong ReAct model. The current
+The runtime is not fundamentally using the wrong ReAct model. The current
 model is still:
 
 ```text
@@ -153,7 +153,7 @@ DTOs before adding more UI behavior.
 | Subagent | AgentTask/task tools and child sessions exist. | Strong foundation; needs product-visible lifecycle and result return loop. |
 | Prompt dynamic assembly | system prompt, MCP instructions, skills XML, prompt prefix exist. | Good foundation; needs auditable prompt assembly snapshot. |
 | Error recovery | Orphan tool repair, provider error finish, startup stale cancellation exist. | Good foundation; fallback/tombstone/withheld recoverable errors are incomplete. |
-| Task system | Runtime AgentTask stores/messages/results/cancel exist. | Backend foundation exists; UI and scheduler ownership need phase gates. |
+| Task system | Runtime AgentTask stores/messages/results/cancel exist. | Runtime foundation exists; UI and scheduler ownership need phase gates. |
 | Background task | Shell background and AgentTask runner pieces exist. | Partial; no full scheduled/background task re-entry loop yet. |
 
 ## Current Risk

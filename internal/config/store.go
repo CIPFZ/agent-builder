@@ -10,11 +10,11 @@ import (
 	"slices"
 
 	"charm.land/catwalk/pkg/catwalk"
-	hyperp "github.com/charmbracelet/crush/internal/agent/hyper"
-	"github.com/charmbracelet/crush/internal/env"
-	"github.com/charmbracelet/crush/internal/oauth"
-	"github.com/charmbracelet/crush/internal/oauth/copilot"
-	"github.com/charmbracelet/crush/internal/oauth/hyper"
+	hyperp "github.com/CIPFZ/agent-builder/internal/agent/hyper"
+	"github.com/CIPFZ/agent-builder/internal/env"
+	"github.com/CIPFZ/agent-builder/internal/oauth"
+	"github.com/CIPFZ/agent-builder/internal/oauth/copilot"
+	"github.com/CIPFZ/agent-builder/internal/oauth/hyper"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -41,8 +41,8 @@ type ConfigStore struct {
 	config             *Config
 	workingDir         string
 	resolver           VariableResolver
-	globalDataPath     string   // ~/.local/share/crush/crush.json
-	workspacePath      string   // .crush/crush.json
+	globalDataPath     string   // ~/.local/share/agent-builder/agent-builder.json
+	workspacePath      string   // .agent-builder/agent-builder.json
 	loadedPaths        []string // config files that were successfully loaded
 	knownProviders     []catwalk.Provider
 	overrides          RuntimeOverrides
@@ -283,7 +283,7 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
 
 // RefreshOAuthToken refreshes the OAuth token for the given provider.
 // Before making an external refresh request, it checks the config file on
-// disk to see if another Crush session has already refreshed the token. If
+// disk to see if another Agent Builder session has already refreshed the token. If
 // a newer, unexpired token is found, it is used instead of refreshing. If
 // the exchange fails (e.g. because another session already rotated the
 // refresh token), the disk is re-checked to recover the other session's
@@ -465,7 +465,7 @@ func NewRuntimeStore(workingDir string, cfg *Config, loadedPaths ...string) *Con
 }
 
 // NewRuntimeConfig creates a defaulted in-memory config for embedders that
-// provide runtime configuration outside Crush's normal config files.
+// provide runtime configuration outside Agent Builder's normal config files.
 func NewRuntimeConfig(workingDir, dataDir string, debug bool) *Config {
 	cfg := &Config{}
 	cfg.setDefaults(workingDir, dataDir)

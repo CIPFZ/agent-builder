@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/message"
 	"github.com/stretchr/testify/require"
 )
 

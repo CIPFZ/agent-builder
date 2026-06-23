@@ -16,7 +16,7 @@ such as Bash, file edits, MCP tools, task tools, plan mode, and agent spawning.
 The core conversation runtime is pulled into `refer/claude-code/src/QueryEngine.ts`,
 which explicitly says it owns lifecycle and session state for headless/SDK use.
 
-For the planned Crush-based operations client, the reference value is less
+For the planned Agent Builder-based operations client, the reference value is less
 "copy Claude Code UI" and more "treat the agent as a governed execution
 runtime with multiple clients."
 
@@ -42,9 +42,9 @@ shape is broad and productized:
   `refer/claude-code/src/bridge/`, and `refer/claude-code/src/cli/transports/`:
   background and remote execution paths.
 
-Compared with Crush, which is Go-based with Bubble Tea, SQLite/sqlc, and
+Compared with Agent Builder, which is Go-based with Bubble Tea, SQLite/sqlc, and
 `charm.land/fantasy`, Claude Code has more product-side TypeScript surface,
-but the architectural boundaries map cleanly to Crush subsystems:
+but the architectural boundaries map cleanly to Agent Builder subsystems:
 `internal/agent`, `internal/agent/tools`, `internal/permission`,
 `internal/session`, `internal/hooks`, `internal/skills`, `internal/lsp`,
 and `internal/ui`.
@@ -85,7 +85,7 @@ tools into Anthropic beta message requests, applies betas and prompt-cache
 headers, streams events, updates usage, and logs API success/failure. It also
 tracks request IDs through bootstrap state.
 
-For Crush, `charm.land/fantasy` already gives a provider abstraction. The
+For Agent Builder, `charm.land/fantasy` already gives a provider abstraction. The
 lesson is to keep a second layer above provider calls for product policy:
 model aliases, capability gates, default model choice, per-mode model override,
 usage accounting, retry/fallback behavior, and provider-specific feature
@@ -187,7 +187,7 @@ truncates large descriptions and outputs; persists binary or large results;
 and maps MCP tools through `MCPTool`, `ListMcpResourcesTool`, and
 `ReadMcpResourceTool`.
 
-For Crush, the implication is to avoid making "extensions" a single plugin
+For Agent Builder, the implication is to avoid making "extensions" a single plugin
 interface. Skills, MCP servers, hooks, commands, LSP, and packaged plugins
 have different trust and lifecycle requirements.
 
@@ -305,7 +305,7 @@ Use a runtime-first architecture. `QueryEngine` is the shape to emulate:
 one stateful conversation engine that can be driven by TUI, SDK, remote,
 and tests.
 
-Make tools an execution protocol. Crush tools should carry permission context,
+Make tools an execution protocol. Agent Builder tools should carry permission context,
 progress, transcript semantics, UI rendering hints, persisted output handling,
 and resumability rather than being simple function calls.
 
@@ -329,12 +329,12 @@ memory compact is more operationally robust than waiting for context overflow.
 The reference code has a large amount of Anthropic-specific product coupling:
 feature gates, GrowthBook, subscription tiers, Claude.ai OAuth, first-party
 telemetry, model launch strings, ant-only branches, and provider-specific
-headers. Crush should borrow the architecture, not those assumptions.
+headers. Agent Builder should borrow the architecture, not those assumptions.
 
 The global bootstrap singleton is powerful but risky. `bootstrap/state.ts`
 centralizes too many concerns for an enterprise operations client that may
 need multiple concurrent sessions, stronger tenant isolation, and server-side
-runtime operation. Crush's service-oriented Go architecture and SQLite-backed
+runtime operation. Agent Builder's service-oriented Go architecture and SQLite-backed
 session model are a better base for explicit ownership.
 
 The extension surface is broad and therefore high-risk. Plugins can carry
@@ -343,13 +343,13 @@ enterprise operations, marketplace and plugin trust need a staged rollout:
 local skills and MCP first, signed/managed plugins later.
 
 The reference has many hidden feature gates. That makes product capability
-hard to reason about from code alone. Crush should expose runtime capabilities
+hard to reason about from code alone. Agent Builder should expose runtime capabilities
 through explicit config and admin policy, with diagnostics showing why a
 capability is unavailable.
 
-## Implications for Crush-based implementation
+## Implications for Agent Builder-based implementation
 
-Crush already has the right core pieces: Go runtime, provider abstraction via
+Agent Builder already has the right core pieces: Go runtime, provider abstraction via
 `charm.land/fantasy`, SQLite/sqlc sessions, tool interfaces under
 `internal/agent/tools`, hooks under `internal/hooks`, permissions under
 `internal/permission`, skills under `internal/skills`, LSP under `internal/lsp`,
@@ -380,8 +380,8 @@ The implementation direction should be:
    metadata discipline from Claude Code, but make sinks configurable and
    policy-controlled.
 
-The practical takeaway is that Crush should not become a Claude Code clone.
+The practical takeaway is that Agent Builder should not become a Claude Code clone.
 It should use Claude Code as evidence that the hard parts of an agentic
 operations client are governance, state, recovery, and execution boundaries;
-Crush's Go architecture is a good base if those concerns become first-class
+Agent Builder's Go architecture is a good base if those concerns become first-class
 runtime APIs rather than TUI side effects.

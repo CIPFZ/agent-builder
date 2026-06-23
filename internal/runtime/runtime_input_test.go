@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/hooks"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/hooks"
 )
 
 func TestRuntimeNormalizePromptInput(t *testing.T) {

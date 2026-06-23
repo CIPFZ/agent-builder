@@ -15,7 +15,7 @@ budget/context state.
 
 The UI should be conversation-first, project-aware, and runtime-aware. It
 should make agent execution state visible and recoverable without becoming a
-terminal transcript or a backend admin console.
+terminal transcript or a runtime admin console.
 
 ## Reference Boundaries
 

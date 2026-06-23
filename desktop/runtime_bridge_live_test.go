@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
 )
 
 func TestDesktopRuntimeBridgeLiveModelDiscovery(t *testing.T) {
@@ -84,7 +84,7 @@ func TestDesktopRuntimeBridgeLiveChat(t *testing.T) {
 		t.Fatal("runtime status did not expose session token usage")
 	}
 	if status.Events.MessageEvents == 0 || status.Events.AssistantEvents == 0 {
-		t.Fatalf("runtime status did not expose Crush message events: %#v", status.Events)
+		t.Fatalf("runtime status did not expose Agent Builder message events: %#v", status.Events)
 	}
 	t.Logf("request_id=%s provider=%s model=%s content=%q", resp.RequestID, latest.Provider, latest.Model, latest.Content)
 }
@@ -137,7 +137,7 @@ func TestDesktopRuntimeBridgeLiveToolPermission(t *testing.T) {
 			}
 			_, err := bridge.DecidePermission(ctx, RuntimePermissionDecision{
 				PermissionID: perm.ID,
-				Action:       string(proto.PermissionAllowForSession),
+				Action:       string(apitypes.PermissionAllowForSession),
 			})
 			if err != nil {
 				t.Fatal(err)

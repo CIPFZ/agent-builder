@@ -3,11 +3,10 @@
 ## Project Overview
 
 Agent Builder is a desktop agent client built in Go, Wails 3, and React.
-The runtime is being refactored around a client-first architecture with Crush
-as the backend base and Claude Code as the interaction design reference.
+The runtime is being refactored around a client-first architecture with Agent Builder
+as the runtime base and Claude Code as the interaction design reference.
 
-The module path is currently `github.com/charmbracelet/crush` and will be
-normalized as the runtime/client structure stabilizes.
+The module path is `github.com/CIPFZ/agent-builder`.
 
 ## Architecture
 
@@ -55,8 +54,8 @@ internal/adapters/           Wails/HTTP/CLI/TUI adapters
   making React or Ant Design X hooks the runtime state source.
 - Use Ant Design theme tokens and scoped CSS Modules for new UI surfaces; avoid
   expanding global CSS as the main styling mechanism.
-- For frontend/backend integration, keep the runtime adapter transport-neutral.
+- For frontend/runtime integration, keep the runtime adapter transport-neutral.
   Wails bindings are only valid inside the desktop Wails runtime; Vite/browser
   development must use the HTTP/dev transport fallback. Do not assume `fetch`,
   `XMLHttpRequest`, axios, or Wails generated bindings are always available in
-  the in-app browser. See `docs/frontend-backend-integration-notes.md`.
+  the in-app browser. See `docs/frontend-runtime-integration-notes.md`.

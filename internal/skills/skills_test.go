@@ -350,8 +350,8 @@ func TestToPromptXMLBuiltinType(t *testing.T) {
 	t.Parallel()
 
 	skills := []*Skill{
-		{Name: "builtin-skill", Description: "A builtin.", SkillFilePath: "crush://skills/builtin-skill/SKILL.md", Builtin: true},
-		{Name: "user-skill", Description: "A user skill.", SkillFilePath: "/home/user/.config/crush/skills/user-skill/SKILL.md"},
+		{Name: "builtin-skill", Description: "A builtin.", SkillFilePath: "agent-builder://skills/builtin-skill/SKILL.md", Builtin: true},
+		{Name: "user-skill", Description: "A user skill.", SkillFilePath: "/home/user/.config/agent-builder/skills/user-skill/SKILL.md"},
 	}
 	xml := ToPromptXML(skills)
 	require.Contains(t, xml, "<type>builtin</type>")
@@ -415,25 +415,25 @@ func TestDiscoverBuiltin(t *testing.T) {
 
 	var found bool
 	for _, s := range discovered {
-		if s.Name == "crush-config" {
+		if s.Name == "agent-builder-config" {
 			found = true
 			require.True(t, strings.HasPrefix(s.SkillFilePath, BuiltinPrefix))
 			require.True(t, strings.HasPrefix(s.Path, BuiltinPrefix))
-			require.Equal(t, "crush://skills/crush-config/SKILL.md", s.SkillFilePath)
-			require.Equal(t, "crush://skills/crush-config", s.Path)
+			require.Equal(t, "agent-builder://skills/agent-builder-config/SKILL.md", s.SkillFilePath)
+			require.Equal(t, "agent-builder://skills/agent-builder-config", s.Path)
 			require.NotEmpty(t, s.Description)
 			require.NotEmpty(t, s.Instructions)
 			require.True(t, s.Builtin)
 		}
 	}
-	require.True(t, found, "crush-config builtin skill not found")
+	require.True(t, found, "agent-builder-config builtin skill not found")
 
 	var foundJQ bool
 	for _, s := range discovered {
 		if s.Name == "jq" {
 			foundJQ = true
-			require.Equal(t, "crush://skills/jq/SKILL.md", s.SkillFilePath)
-			require.Equal(t, "crush://skills/jq", s.Path)
+			require.Equal(t, "agent-builder://skills/jq/SKILL.md", s.SkillFilePath)
+			require.Equal(t, "agent-builder://skills/jq", s.Path)
 			require.NotEmpty(t, s.Description)
 			require.NotEmpty(t, s.Instructions)
 			require.True(t, s.Builtin)
@@ -443,27 +443,27 @@ func TestDiscoverBuiltin(t *testing.T) {
 
 	var foundHooks bool
 	for _, s := range discovered {
-		if s.Name == "crush-hooks" {
+		if s.Name == "agent-builder-hooks" {
 			foundHooks = true
-			require.Equal(t, "crush://skills/crush-hooks/SKILL.md", s.SkillFilePath)
-			require.Equal(t, "crush://skills/crush-hooks", s.Path)
+			require.Equal(t, "agent-builder://skills/agent-builder-hooks/SKILL.md", s.SkillFilePath)
+			require.Equal(t, "agent-builder://skills/agent-builder-hooks", s.Path)
 			require.NotEmpty(t, s.Description)
 			require.NotEmpty(t, s.Instructions)
 			require.True(t, s.Builtin)
 		}
 	}
-	require.True(t, foundHooks, "crush-hooks builtin skill not found")
+	require.True(t, foundHooks, "agent-builder-hooks builtin skill not found")
 
 	var foundSkillCreator bool
 	for _, s := range discovered {
 		if s.Name == "skill-creator" {
 			foundSkillCreator = true
-			require.Equal(t, "crush://skills/skill-creator/SKILL.md", s.SkillFilePath)
-			require.Equal(t, "crush://skills/skill-creator", s.Path)
+			require.Equal(t, "agent-builder://skills/skill-creator/SKILL.md", s.SkillFilePath)
+			require.Equal(t, "agent-builder://skills/skill-creator", s.Path)
 			require.NotEmpty(t, s.Description)
 			require.NotEmpty(t, s.Instructions)
 			require.Contains(t, s.Instructions, "Evaluation Checklist")
-			require.Contains(t, s.Instructions, "Crush Skill Structure")
+			require.Contains(t, s.Instructions, "Agent Builder Skill Structure")
 			require.True(t, s.Builtin)
 		}
 	}
@@ -487,10 +487,10 @@ func TestDeduplicate(t *testing.T) {
 		},
 		{
 			name:     "user overrides builtin",
-			input:    []*Skill{{Name: "crush-config", Path: "crush://skills/crush-config"}, {Name: "crush-config", Path: "/user/crush-config"}},
+			input:    []*Skill{{Name: "agent-builder-config", Path: "agent-builder://skills/agent-builder-config"}, {Name: "agent-builder-config", Path: "/user/agent-builder-config"}},
 			wantLen:  1,
-			wantName: "crush-config",
-			wantPath: "/user/crush-config",
+			wantName: "agent-builder-config",
+			wantPath: "/user/agent-builder-config",
 		},
 		{
 			name:    "empty",

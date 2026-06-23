@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/shell"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/shell"
 	"github.com/stretchr/testify/require"
 )
 
@@ -188,20 +188,20 @@ func TestBuildEnv(t *testing.T) {
 		}
 	}
 
-	require.Equal(t, EventPreToolUse, envMap["CRUSH_EVENT"])
-	require.Equal(t, "bash", envMap["CRUSH_TOOL_NAME"])
-	require.Equal(t, "sess-1", envMap["CRUSH_SESSION_ID"])
-	require.Equal(t, "/work", envMap["CRUSH_CWD"])
-	require.Equal(t, "/project", envMap["CRUSH_PROJECT_DIR"])
-	require.Equal(t, "ls", envMap["CRUSH_TOOL_INPUT_COMMAND"])
-	require.Equal(t, "/tmp/f.txt", envMap["CRUSH_TOOL_INPUT_FILE_PATH"])
+	require.Equal(t, EventPreToolUse, envMap["AGENT_BUILDER_EVENT"])
+	require.Equal(t, "bash", envMap["AGENT_BUILDER_TOOL_NAME"])
+	require.Equal(t, "sess-1", envMap["AGENT_BUILDER_SESSION_ID"])
+	require.Equal(t, "/work", envMap["AGENT_BUILDER_CWD"])
+	require.Equal(t, "/project", envMap["AGENT_BUILDER_PROJECT_DIR"])
+	require.Equal(t, "ls", envMap["AGENT_BUILDER_TOOL_INPUT_COMMAND"])
+	require.Equal(t, "/tmp/f.txt", envMap["AGENT_BUILDER_TOOL_INPUT_FILE_PATH"])
 
-	// Shared Crush markers must be present so hook-authored scripts can
-	// detect they're running under Crush the same way bash-tool-invoked
+	// Shared Agent Builder markers must be present so hook-authored scripts can
+	// detect they're running under Agent Builder the same way bash-tool-invoked
 	// scripts can.
-	require.Equal(t, "1", envMap["CRUSH"])
-	require.Equal(t, "crush", envMap["AGENT"])
-	require.Equal(t, "crush", envMap["AI_AGENT"])
+	require.Equal(t, "1", envMap["AGENT_BUILDER"])
+	require.Equal(t, "agent-builder", envMap["AGENT"])
+	require.Equal(t, "agent-builder", envMap["AI_AGENT"])
 }
 
 func splitFirst(s, sep string) []string {
@@ -512,7 +512,7 @@ func TestRunnerParallelExecution(t *testing.T) {
 func TestRunnerEnvVarsPropagated(t *testing.T) {
 	t.Parallel()
 	hookCfg := config.HookConfig{
-		Command: `printf '{"decision":"allow","context":"%s"}' "$CRUSH_TOOL_NAME"`,
+		Command: `printf '{"decision":"allow","context":"%s"}' "$AGENT_BUILDER_TOOL_NAME"`,
 	}
 	r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
 	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
@@ -733,7 +733,7 @@ func TestParseStdoutClaudeCodeFormat(t *testing.T) {
 		require.Equal(t, DecisionNone, r.Decision)
 	})
 
-	t.Run("crush format still works", func(t *testing.T) {
+	t.Run("agent-builder format still works", func(t *testing.T) {
 		t.Parallel()
 		r := parseStdout(`{"decision":"allow","context":"hello"}`)
 		require.Equal(t, DecisionAllow, r.Decision)

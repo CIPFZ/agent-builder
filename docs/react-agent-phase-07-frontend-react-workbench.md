@@ -9,7 +9,7 @@ make the agent understandable without becoming the runtime source of truth.
 
 ## User Problem
 
-Even when backend state is correct, users judge the product through the UI.
+Even when runtime state is correct, users judge the product through the UI.
 The current UI can show confusing order, stale optimistic messages, or missing
 final assistant context. This phase aligns the workbench with runtime DTOs.
 
@@ -48,7 +48,7 @@ product UI, not copy Claude Code's terminal/Ink surfaces.
 - `internal/runtime/runtime_contract_types.go`
   - defines runtime DTOs consumed by the frontend.
 
-## Backend Prerequisites
+## Runtime Prerequisites
 
 This phase should start only after the relevant DTOs exist:
 
@@ -115,7 +115,7 @@ Rules:
 - missing final assistant is displayed as a runtime stop reason;
 - permission cards are nested under their tool call;
 - tool result output is summarized, never full unbounded content;
-- compact markers are backend rows.
+- compact markers are runtime rows.
 
 ## UI Surfaces
 
@@ -188,7 +188,7 @@ Frontend tests:
 - mapper uses DTO status for final assistant;
 - mapper drops stale optimistic rows after runtime hydration;
 - permission actionability comes from DTO;
-- callchain rows preserve backend sequence;
+- callchain rows preserve runtime sequence;
 - task and compact panels do not parse prose.
 
 Build:

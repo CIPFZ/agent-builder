@@ -51,7 +51,7 @@ Claude Code compact implementation lives under `src/services/compact/*`.
 - `internal/runtime/runtime_context.go`
   - context source reads.
 
-## Backend Contract
+## Runtime Contract
 
 Add a runtime prompt assembly snapshot:
 
@@ -79,7 +79,7 @@ Do not store raw full prompt text by default. Store redacted summaries, refs,
 hashes, counts, and token estimates. Add a developer-only prompt dump later if
 needed.
 
-## Backend Implementation
+## Runtime Implementation
 
 1. Introduce a `PromptAssemblyRecorder` used inside `PrepareStep`.
 2. Record one assembly snapshot per model step.
@@ -150,7 +150,7 @@ In the main timeline:
 
 ## Tests
 
-Backend tests:
+Runtime tests:
 
 - assembly snapshot exists for text-only turn;
 - tool turn records selected tools and tool result delivery;

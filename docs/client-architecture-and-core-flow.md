@@ -2,11 +2,11 @@
 
 本文是 Agent Builder 客户端化改造的主架构文档。它承接：
 
-- `docs/archive/crush-claude-code-gap-analysis.md`
+- `docs/archive/agent-builder-claude-code-gap-analysis.md`
 - `docs/client-first-runtime-refactor.md`
 - `docs/archive/phase-2-runtime-api-boundary.md`
 
-当前目标不是把 Crush 包一层桌面壳，也不是复刻 Claude Code 的 CLI/TUI，而是做一个 Codex 形态的桌面客户端：
+当前目标不是把 Agent Builder 包一层桌面壳，也不是复刻 Claude Code 的 CLI/TUI，而是做一个 Codex 形态的桌面客户端：
 
 ```text
 React/Wails Client -> Runtime API + Event Stream -> Go Agent Runtime
@@ -18,7 +18,7 @@ React/Wails Client -> Runtime API + Event Stream -> Go Agent Runtime
 
 Agent Builder 的主路径必须从 CLI/TUI 产品转为客户端产品。
 
-需要保留 Crush 的核心：
+需要保留 Agent Builder 的核心：
 
 - Go agent loop
 - provider/model 调用
@@ -378,7 +378,7 @@ Right Drawer / Modal
 | SSE 订阅 | `client/src/hooks/useRuntimeEventSubscription.ts` | 已有基础，需要 cursor/reconnect 语义 |
 | RuntimeService | `desktop/runtime_service_types.go` | 边界正确，但位置应迁移到 `internal/runtime` |
 | HTTP adapter | `desktop/runtime_http.go` | 已有基础，需与 contract 文档保持一致 |
-| Event translation | `desktop/runtime_events.go` | 可用过渡层，但仍依赖 Crush/TUI event 形态 |
+| Event translation | `desktop/runtime_events.go` | 可用过渡层，但仍依赖 Agent Builder/TUI event 形态 |
 | Permission bridge | `desktop/runtime_permissions.go` + `internal/permission` | 已有审批基础，需升级 policy model |
 | Audit | `desktop/runtime_audit*.go` | 已有基础，需从文件/内存走向 runtime audit store |
 

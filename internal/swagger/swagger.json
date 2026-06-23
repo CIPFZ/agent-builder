@@ -50,7 +50,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.ServerControl"
+                            "$ref": "#/definitions/apitypes.ServerControl"
                         }
                     }
                 ],
@@ -61,7 +61,7 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -93,7 +93,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.VersionInfo"
+                            "$ref": "#/definitions/apitypes.VersionInfo"
                         }
                     }
                 }
@@ -114,7 +114,7 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/proto.Workspace"
+                                "$ref": "#/definitions/apitypes.Workspace"
                             }
                         }
                     }
@@ -138,7 +138,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.Workspace"
+                            "$ref": "#/definitions/apitypes.Workspace"
                         }
                     }
                 ],
@@ -146,19 +146,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.Workspace"
+                            "$ref": "#/definitions/apitypes.Workspace"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -186,19 +186,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.Workspace"
+                            "$ref": "#/definitions/apitypes.Workspace"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -224,7 +224,7 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -252,19 +252,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.AgentInfo"
+                            "$ref": "#/definitions/apitypes.AgentInfo"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -291,7 +291,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.AgentMessage"
+                            "$ref": "#/definitions/apitypes.AgentMessage"
                         }
                     }
                 ],
@@ -302,19 +302,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -354,13 +354,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -388,13 +388,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -429,19 +429,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.AgentSession"
+                            "$ref": "#/definitions/apitypes.AgentSession"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -476,13 +476,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -517,13 +517,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -567,13 +567,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -614,13 +614,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -655,13 +655,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -689,13 +689,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -729,13 +729,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -763,19 +763,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.ImportCopilotResponse"
+                            "$ref": "#/definitions/apitypes.ImportCopilotResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -804,7 +804,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.ConfigModelRequest"
+                            "$ref": "#/definitions/apitypes.ConfigModelRequest"
                         }
                     }
                 ],
@@ -815,19 +815,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -856,7 +856,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.ConfigProviderKeyRequest"
+                            "$ref": "#/definitions/apitypes.ConfigProviderKeyRequest"
                         }
                     }
                 ],
@@ -867,19 +867,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -908,7 +908,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.ConfigRefreshOAuthRequest"
+                            "$ref": "#/definitions/apitypes.ConfigRefreshOAuthRequest"
                         }
                     }
                 ],
@@ -919,19 +919,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -960,7 +960,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.ConfigRemoveRequest"
+                            "$ref": "#/definitions/apitypes.ConfigRemoveRequest"
                         }
                     }
                 ],
@@ -971,19 +971,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1012,7 +1012,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.ConfigSetRequest"
+                            "$ref": "#/definitions/apitypes.ConfigSetRequest"
                         }
                     }
                 ],
@@ -1023,19 +1023,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1066,13 +1066,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1119,13 +1119,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1154,7 +1154,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.FileTrackerReadRequest"
+                            "$ref": "#/definitions/apitypes.FileTrackerReadRequest"
                         }
                     }
                 ],
@@ -1165,19 +1165,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1207,20 +1207,20 @@
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
-                                "$ref": "#/definitions/proto.LSPClientInfo"
+                                "$ref": "#/definitions/apitypes.LSPClientInfo"
                             }
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1249,7 +1249,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.LSPStartRequest"
+                            "$ref": "#/definitions/apitypes.LSPStartRequest"
                         }
                     }
                 ],
@@ -1260,19 +1260,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1300,13 +1300,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1347,13 +1347,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1381,13 +1381,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1415,13 +1415,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1453,7 +1453,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.MCPGetPromptRequest"
+                            "$ref": "#/definitions/apitypes.MCPGetPromptRequest"
                         }
                     }
                 ],
@@ -1461,25 +1461,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.MCPGetPromptResponse"
+                            "$ref": "#/definitions/apitypes.MCPGetPromptResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1511,7 +1511,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.MCPReadResourceRequest"
+                            "$ref": "#/definitions/apitypes.MCPReadResourceRequest"
                         }
                     }
                 ],
@@ -1525,19 +1525,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1566,7 +1566,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.MCPNameRequest"
+                            "$ref": "#/definitions/apitypes.MCPNameRequest"
                         }
                     }
                 ],
@@ -1577,19 +1577,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1618,7 +1618,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.MCPNameRequest"
+                            "$ref": "#/definitions/apitypes.MCPNameRequest"
                         }
                     }
                 ],
@@ -1629,19 +1629,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1670,7 +1670,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.MCPNameRequest"
+                            "$ref": "#/definitions/apitypes.MCPNameRequest"
                         }
                     }
                 ],
@@ -1681,19 +1681,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1723,20 +1723,20 @@
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
-                                "$ref": "#/definitions/proto.MCPClientInfo"
+                                "$ref": "#/definitions/apitypes.MCPClientInfo"
                             }
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1766,20 +1766,20 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/proto.Message"
+                                "$ref": "#/definitions/apitypes.Message"
                             }
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1808,7 +1808,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.PermissionGrant"
+                            "$ref": "#/definitions/apitypes.PermissionGrant"
                         }
                     }
                 ],
@@ -1819,19 +1819,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1859,19 +1859,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.PermissionSkipRequest"
+                            "$ref": "#/definitions/apitypes.PermissionSkipRequest"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1898,7 +1898,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.PermissionSkipRequest"
+                            "$ref": "#/definitions/apitypes.PermissionSkipRequest"
                         }
                     }
                 ],
@@ -1909,19 +1909,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1949,13 +1949,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -1983,19 +1983,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.ProjectInitPromptResponse"
+                            "$ref": "#/definitions/apitypes.ProjectInitPromptResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -2023,19 +2023,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.ProjectNeedsInitResponse"
+                            "$ref": "#/definitions/apitypes.ProjectNeedsInitResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -2069,13 +2069,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -2105,20 +2105,20 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/proto.Session"
+                                "$ref": "#/definitions/apitypes.Session"
                             }
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -2148,7 +2148,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.Session"
+                            "$ref": "#/definitions/apitypes.Session"
                         }
                     }
                 ],
@@ -2156,25 +2156,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.Session"
+                            "$ref": "#/definitions/apitypes.Session"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -2209,19 +2209,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.Session"
+                            "$ref": "#/definitions/apitypes.Session"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -2258,7 +2258,7 @@
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/proto.Session"
+                            "$ref": "#/definitions/apitypes.Session"
                         }
                     }
                 ],
@@ -2266,25 +2266,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/proto.Session"
+                            "$ref": "#/definitions/apitypes.Session"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -2317,13 +2317,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -2367,13 +2367,13 @@
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -2410,20 +2410,20 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/proto.File"
+                                "$ref": "#/definitions/apitypes.File"
                             }
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -2460,20 +2460,20 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/proto.Message"
+                                "$ref": "#/definitions/apitypes.Message"
                             }
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -2510,20 +2510,20 @@
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/proto.Message"
+                                "$ref": "#/definitions/apitypes.Message"
                             }
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/apitypes.Error"
                         }
                     }
                 }
@@ -2828,7 +2828,7 @@
                     }
                 },
                 "data_directory": {
-                    "description": "DataDirectory is where Crush keeps per-project state such as\nthe SQLite database and workspace overrides. Relative paths are\nresolved against the working directory; absolute paths are used\nverbatim. After defaulting the stored value is always absolute.",
+                    "description": "DataDirectory is where Agent Builder keeps per-project state such as\nthe SQLite database and workspace overrides. Relative paths are\nresolved against the working directory; absolute paths are used\nverbatim. After defaulting the stored value is always absolute.",
                     "type": "string"
                 },
                 "debug": {
@@ -3021,7 +3021,7 @@
                 "StateDisabled"
             ]
         },
-        "proto.APIKeyKind": {
+        "apitypes.APIKeyKind": {
             "type": "string",
             "enum": [
                 "string",
@@ -3032,7 +3032,7 @@
                 "APIKeyKindOAuth"
             ]
         },
-        "proto.AgentInfo": {
+        "apitypes.AgentInfo": {
             "type": "object",
             "properties": {
                 "is_busy": {
@@ -3049,13 +3049,13 @@
                 }
             }
         },
-        "proto.AgentMessage": {
+        "apitypes.AgentMessage": {
             "type": "object",
             "properties": {
                 "attachments": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/proto.Attachment"
+                        "$ref": "#/definitions/apitypes.Attachment"
                     }
                 },
                 "prompt": {
@@ -3066,7 +3066,7 @@
                 }
             }
         },
-        "proto.AgentSession": {
+        "apitypes.AgentSession": {
             "type": "object",
             "properties": {
                 "completion_tokens": {
@@ -3102,7 +3102,7 @@
                 "todos": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/proto.Todo"
+                        "$ref": "#/definitions/apitypes.Todo"
                     }
                 },
                 "updated_at": {
@@ -3110,7 +3110,7 @@
                 }
             }
         },
-        "proto.Attachment": {
+        "apitypes.Attachment": {
             "type": "object",
             "properties": {
                 "content": {
@@ -3130,7 +3130,7 @@
                 }
             }
         },
-        "proto.ConfigModelRequest": {
+        "apitypes.ConfigModelRequest": {
             "type": "object",
             "properties": {
                 "model": {
@@ -3144,7 +3144,7 @@
                 }
             }
         },
-        "proto.ConfigProviderKeyRequest": {
+        "apitypes.ConfigProviderKeyRequest": {
             "type": "object",
             "properties": {
                 "api_key": {
@@ -3154,7 +3154,7 @@
                     }
                 },
                 "kind": {
-                    "$ref": "#/definitions/proto.APIKeyKind"
+                    "$ref": "#/definitions/apitypes.APIKeyKind"
                 },
                 "provider_id": {
                     "type": "string"
@@ -3164,7 +3164,7 @@
                 }
             }
         },
-        "proto.ConfigRefreshOAuthRequest": {
+        "apitypes.ConfigRefreshOAuthRequest": {
             "type": "object",
             "properties": {
                 "provider_id": {
@@ -3175,7 +3175,7 @@
                 }
             }
         },
-        "proto.ConfigRemoveRequest": {
+        "apitypes.ConfigRemoveRequest": {
             "type": "object",
             "properties": {
                 "key": {
@@ -3186,7 +3186,7 @@
                 }
             }
         },
-        "proto.ConfigSetRequest": {
+        "apitypes.ConfigSetRequest": {
             "type": "object",
             "properties": {
                 "key": {
@@ -3198,7 +3198,7 @@
                 "value": {}
             }
         },
-        "proto.Error": {
+        "apitypes.Error": {
             "type": "object",
             "properties": {
                 "message": {
@@ -3206,7 +3206,7 @@
                 }
             }
         },
-        "proto.File": {
+        "apitypes.File": {
             "type": "object",
             "properties": {
                 "content": {
@@ -3232,7 +3232,7 @@
                 }
             }
         },
-        "proto.FileTrackerReadRequest": {
+        "apitypes.FileTrackerReadRequest": {
             "type": "object",
             "properties": {
                 "path": {
@@ -3243,7 +3243,7 @@
                 }
             }
         },
-        "proto.ImportCopilotResponse": {
+        "apitypes.ImportCopilotResponse": {
             "type": "object",
             "properties": {
                 "success": {
@@ -3252,7 +3252,7 @@
                 "token": {}
             }
         },
-        "proto.LSPClientInfo": {
+        "apitypes.LSPClientInfo": {
             "type": "object",
             "properties": {
                 "connected_at": {
@@ -3270,7 +3270,7 @@
                 }
             }
         },
-        "proto.LSPStartRequest": {
+        "apitypes.LSPStartRequest": {
             "type": "object",
             "properties": {
                 "path": {
@@ -3278,7 +3278,7 @@
                 }
             }
         },
-        "proto.MCPClientInfo": {
+        "apitypes.MCPClientInfo": {
             "type": "object",
             "properties": {
                 "connected_at": {
@@ -3295,14 +3295,14 @@
                     "type": "integer"
                 },
                 "state": {
-                    "$ref": "#/definitions/proto.MCPState"
+                    "$ref": "#/definitions/apitypes.MCPState"
                 },
                 "tool_count": {
                     "type": "integer"
                 }
             }
         },
-        "proto.MCPGetPromptRequest": {
+        "apitypes.MCPGetPromptRequest": {
             "type": "object",
             "properties": {
                 "args": {
@@ -3319,7 +3319,7 @@
                 }
             }
         },
-        "proto.MCPGetPromptResponse": {
+        "apitypes.MCPGetPromptResponse": {
             "type": "object",
             "properties": {
                 "prompt": {
@@ -3327,7 +3327,7 @@
                 }
             }
         },
-        "proto.MCPNameRequest": {
+        "apitypes.MCPNameRequest": {
             "type": "object",
             "properties": {
                 "name": {
@@ -3335,7 +3335,7 @@
                 }
             }
         },
-        "proto.MCPReadResourceRequest": {
+        "apitypes.MCPReadResourceRequest": {
             "type": "object",
             "properties": {
                 "name": {
@@ -3346,7 +3346,7 @@
                 }
             }
         },
-        "proto.MCPState": {
+        "apitypes.MCPState": {
             "type": "integer",
             "enum": [
                 0,
@@ -3361,7 +3361,7 @@
                 "MCPStateError"
             ]
         },
-        "proto.Message": {
+        "apitypes.Message": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -3381,7 +3381,7 @@
                     "type": "string"
                 },
                 "role": {
-                    "$ref": "#/definitions/proto.MessageRole"
+                    "$ref": "#/definitions/apitypes.MessageRole"
                 },
                 "session_id": {
                     "type": "string"
@@ -3391,7 +3391,7 @@
                 }
             }
         },
-        "proto.MessageRole": {
+        "apitypes.MessageRole": {
             "type": "string",
             "enum": [
                 "assistant",
@@ -3406,7 +3406,7 @@
                 "Tool"
             ]
         },
-        "proto.PermissionAction": {
+        "apitypes.PermissionAction": {
             "type": "string",
             "enum": [
                 "allow",
@@ -3419,18 +3419,18 @@
                 "PermissionDeny"
             ]
         },
-        "proto.PermissionGrant": {
+        "apitypes.PermissionGrant": {
             "type": "object",
             "properties": {
                 "action": {
-                    "$ref": "#/definitions/proto.PermissionAction"
+                    "$ref": "#/definitions/apitypes.PermissionAction"
                 },
                 "permission": {
-                    "$ref": "#/definitions/proto.PermissionRequest"
+                    "$ref": "#/definitions/apitypes.PermissionRequest"
                 }
             }
         },
-        "proto.PermissionRequest": {
+        "apitypes.PermissionRequest": {
             "type": "object",
             "properties": {
                 "action": {
@@ -3472,7 +3472,7 @@
                 }
             }
         },
-        "proto.PermissionSkipRequest": {
+        "apitypes.PermissionSkipRequest": {
             "type": "object",
             "properties": {
                 "skip": {
@@ -3480,7 +3480,7 @@
                 }
             }
         },
-        "proto.ProjectInitPromptResponse": {
+        "apitypes.ProjectInitPromptResponse": {
             "type": "object",
             "properties": {
                 "prompt": {
@@ -3488,7 +3488,7 @@
                 }
             }
         },
-        "proto.ProjectNeedsInitResponse": {
+        "apitypes.ProjectNeedsInitResponse": {
             "type": "object",
             "properties": {
                 "needs_init": {
@@ -3496,7 +3496,7 @@
                 }
             }
         },
-        "proto.ServerControl": {
+        "apitypes.ServerControl": {
             "type": "object",
             "properties": {
                 "command": {
@@ -3504,7 +3504,7 @@
                 }
             }
         },
-        "proto.Session": {
+        "apitypes.Session": {
             "type": "object",
             "properties": {
                 "completion_tokens": {
@@ -3537,7 +3537,7 @@
                 "todos": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/proto.Todo"
+                        "$ref": "#/definitions/apitypes.Todo"
                     }
                 },
                 "updated_at": {
@@ -3545,7 +3545,7 @@
                 }
             }
         },
-        "proto.Todo": {
+        "apitypes.Todo": {
             "type": "object",
             "properties": {
                 "active_form": {
@@ -3559,7 +3559,7 @@
                 }
             }
         },
-        "proto.VersionInfo": {
+        "apitypes.VersionInfo": {
             "type": "object",
             "properties": {
                 "build_id": {
@@ -3579,7 +3579,7 @@
                 }
             }
         },
-        "proto.Workspace": {
+        "apitypes.Workspace": {
             "type": "object",
             "properties": {
                 "config": {

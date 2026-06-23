@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,7 +31,7 @@ func TestRecoverHandler_PanicReturns500(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, body)
 
-	var perr proto.Error
+	var perr apitypes.Error
 	require.NoError(t, json.Unmarshal(body, &perr))
 	require.NotEmpty(t, perr.Message)
 }

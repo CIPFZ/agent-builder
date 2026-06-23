@@ -3,18 +3,18 @@ package server
 import (
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/skills"
 	"github.com/stretchr/testify/require"
 )
 
-// TestMessageToProtoToolResult ensures that ToolResult metadata,
-// data, and MIME type survive the conversion to proto. Without these
+// TestMessageToAPITypeToolResult ensures that ToolResult metadata,
+// data, and MIME type survive the conversion to apitypes. Without these
 // fields the TUI cannot render rich tool output (e.g. syntax-
 // highlighted code from view, diffs from edit, images, etc.) and
 // falls back to the raw LLM-facing string.
-func TestMessageToProtoToolResult(t *testing.T) {
+func TestMessageToAPITypeToolResult(t *testing.T) {
 	t.Parallel()
 
 	src := message.Message{
@@ -32,17 +32,17 @@ func TestMessageToProtoToolResult(t *testing.T) {
 				DeliveredToModel: true,
 				DeliveredAtStep:  2,
 				DeliveryReason:   "included_in_model_input",
-				StoredPath:       ".crush/results/session/call-1.txt",
+				StoredPath:       ".agent-builder/results/session/call-1.txt",
 				OriginalSize:     64000,
 				TruncatedBy:      "single",
 			},
 		},
 	}
 
-	got := messageToProto(src)
+	got := messageToAPIType(src)
 	require.Len(t, got.Parts, 1)
-	tr, ok := got.Parts[0].(proto.ToolResult)
-	require.True(t, ok, "expected proto.ToolResult, got %T", got.Parts[0])
+	tr, ok := got.Parts[0].(apitypes.ToolResult)
+	require.True(t, ok, "expected apitypes.ToolResult, got %T", got.Parts[0])
 	require.Equal(t, "call-1", tr.ToolCallID)
 	require.Equal(t, "view", tr.Name)
 	require.Equal(t, "<file>\n  1| hi\n</file>", tr.Content)
@@ -53,24 +53,24 @@ func TestMessageToProtoToolResult(t *testing.T) {
 	require.True(t, tr.DeliveredToModel)
 	require.Equal(t, 2, tr.DeliveredAtStep)
 	require.Equal(t, "included_in_model_input", tr.DeliveryReason)
-	require.Equal(t, ".crush/results/session/call-1.txt", tr.StoredPath)
+	require.Equal(t, ".agent-builder/results/session/call-1.txt", tr.StoredPath)
 	require.Equal(t, int64(64000), tr.OriginalSize)
 	require.Equal(t, "single", tr.TruncatedBy)
 }
 
-func TestSkillsEventToProto(t *testing.T) {
+func TestSkillsEventToAPIType(t *testing.T) {
 	t.Parallel()
 
-	got := skillsEventToProto(skills.Event{States: []*skills.SkillState{
+	got := skillsEventToAPIType(skills.Event{States: []*skills.SkillState{
 		{Name: "ok", Path: "/skills/ok", State: skills.StateNormal},
 		{Name: "bad", Path: "/skills/bad", State: skills.StateError, Err: errTestSkill},
 	}})
 
 	require.Len(t, got.States, 2)
 	require.Equal(t, "ok", got.States[0].Name)
-	require.Equal(t, proto.SkillStateNormal, got.States[0].State)
+	require.Equal(t, apitypes.SkillStateNormal, got.States[0].State)
 	require.Equal(t, "bad", got.States[1].Name)
-	require.Equal(t, proto.SkillStateError, got.States[1].State)
+	require.Equal(t, apitypes.SkillStateError, got.States[1].State)
 	require.Equal(t, "skill error", got.States[1].Error)
 }
 

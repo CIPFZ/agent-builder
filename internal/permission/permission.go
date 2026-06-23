@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/CIPFZ/agent-builder/internal/csync"
+	"github.com/CIPFZ/agent-builder/internal/pubsub"
 	"github.com/google/uuid"
 )
 

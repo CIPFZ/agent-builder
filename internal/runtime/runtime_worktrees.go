@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 var validRuntimeWorktreeSegment = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)

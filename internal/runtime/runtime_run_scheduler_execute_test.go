@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 func TestRuntimeRunSchedulerExecuteTaskAcceptsOwnedActiveCandidateWithoutStartingWorker(t *testing.T) {
@@ -50,13 +50,13 @@ func TestRuntimeRunSchedulerExecuteTaskAcceptsOwnedActiveCandidateWithoutStartin
 	if !resp.Accepted || resp.ExecutionStarted || resp.Reason != runtimeRunSchedulerExecuteTaskReasonAlreadyRunning {
 		t.Fatalf("execute response = %#v", resp)
 	}
-	if resp.Source.Kind != runtimeRunSchedulerExecuteTaskSourceKind || !resp.Source.BackendOnly || resp.Source.StartsWorker || !resp.Source.IdempotentByTaskID || !resp.Source.SessionActivityParity {
+	if resp.Source.Kind != runtimeRunSchedulerExecuteTaskSourceKind || !resp.Source.WorkbenchOnly || resp.Source.StartsWorker || !resp.Source.IdempotentByTaskID || !resp.Source.SessionActivityParity {
 		t.Fatalf("execute source = %#v", resp.Source)
 	}
 	if resp.Action == nil || !resp.Action.Accepted || resp.Action.Reason != resp.Reason || len(resp.Action.RefreshTargets) != len(resp.RefreshTargets) {
 		t.Fatalf("execute action metadata = %#v response=%#v", resp.Action, resp)
 	}
-	if resp.Action.Source.Kind != resp.Source.Kind || resp.Action.Source.Action != resp.Source.Action || !resp.Action.Source.BackendOnly || resp.Action.Source.StartsWorker || resp.Action.Source.IdempotentBy != "task_id" || !resp.Action.Source.SessionActivityParity {
+	if resp.Action.Source.Kind != resp.Source.Kind || resp.Action.Source.Action != resp.Source.Action || !resp.Action.Source.WorkbenchOnly || resp.Action.Source.StartsWorker || resp.Action.Source.IdempotentBy != "task_id" || !resp.Action.Source.SessionActivityParity {
 		t.Fatalf("execute action source = %#v response source=%#v", resp.Action.Source, resp.Source)
 	}
 	if resp.Task.ID != task.ID || len(resp.Plan.Plan.Items) != 1 || !resp.Plan.Plan.Items[0].CanSchedule || !resp.Plan.Plan.Items[0].OwnershipVerified {
@@ -197,7 +197,7 @@ func TestRuntimeRunSchedulerExecuteTaskInvokesForegroundRunnerAndUsesCompletionE
 	runner := &recordingRuntimeAgentTaskRunner{}
 	service.agentTaskRunner = runner
 	runner.run = func(ctx context.Context, req RuntimeAgentTaskExecutionRequest) (RuntimeAgentTaskExecutionResult, error) {
-		if !req.StartAlreadyRecorded || !req.BackendOnly || !req.EventPayloadRefreshOnly {
+		if !req.StartAlreadyRecorded || !req.WorkbenchOnly || !req.EventPayloadRefreshOnly {
 			t.Fatalf("runner request source flags = %#v", req)
 		}
 		if req.RunID != run.ID || req.TaskID != task.ID || req.ParentTurnID != turn.ID || req.ChildSessionID != task.ChildSessionID || req.Worktree != task.Worktree {
@@ -367,14 +367,14 @@ func TestRuntimeRunSchedulerExecuteTaskUsesBackendCoordinatorRunnerCompletion(t 
 
 	service, release := runtimeRunTransitionWriterTestService(t)
 	defer release()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
-	service.installBackendAgentTaskRunner(runtimeBackend, workspace.ID)
+	service.installWorkbenchAgentTaskRunner(runtimeWorkbench, workspace.ID)
 
 	run, turn := runtimeRunSchedulerPlanLinkedTurnFixture(t, service, turnStatusQueued)
 	task, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
-		ID:               "task-execute-backend-runner-complete",
+		ID:               "task-execute-workbench-runner-complete",
 		ParentSessionID:  "session-1",
 		ParentTurnID:     turn.ID,
 		ParentToolCallID: "tool-parent",
@@ -390,11 +390,11 @@ func TestRuntimeRunSchedulerExecuteTaskUsesBackendCoordinatorRunnerCompletion(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	wsRuntime, err := runtimeBackend.GetWorkspace(workspace.ID)
+	wsRuntime, err := runtimeWorkbench.GetWorkspace(workspace.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	coord := &phase25RuntimeBackendCoordinator{service: service}
+	coord := &phase25RuntimeWorkbenchCoordinator{service: service}
 	wsRuntime.AgentCoordinator = coord
 
 	resp, err := service.runtimeRunSchedulerExecuteTask(context.Background(), RuntimeRunSchedulerExecuteTaskRequest{RunID: run.ID, TaskID: task.ID})
@@ -404,7 +404,7 @@ func TestRuntimeRunSchedulerExecuteTaskUsesBackendCoordinatorRunnerCompletion(t 
 	if coord.calls != 1 || coord.last.TaskID != task.ID || coord.last.Prompt != "inspect child output" || !coord.last.StartAlreadyRecorded {
 		t.Fatalf("coordinator calls=%d last=%#v", coord.calls, coord.last)
 	}
-	if !resp.Accepted || !resp.ExecutionStarted || resp.Task.Status != agentTaskStatusCompleted || resp.Task.ResultSummary != "backend runner completed" {
+	if !resp.Accepted || !resp.ExecutionStarted || resp.Task.Status != agentTaskStatusCompleted || resp.Task.ResultSummary != "runtime runner completed" {
 		t.Fatalf("execute response = %#v", resp)
 	}
 	messages, err := newRuntimeAgentTaskMessageStore(service.turns.db).ListByTask(context.Background(), task.ID)
@@ -451,14 +451,14 @@ func TestRuntimeRunSchedulerExecuteTaskUsesBackendCoordinatorRunnerCancellation(
 
 	service, release := runtimeRunTransitionWriterTestService(t)
 	defer release()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
-	service.installBackendAgentTaskRunner(runtimeBackend, workspace.ID)
+	service.installWorkbenchAgentTaskRunner(runtimeWorkbench, workspace.ID)
 
 	run, turn := runtimeRunSchedulerPlanLinkedTurnFixture(t, service, turnStatusQueued)
 	task, err := service.agentTasks.Upsert(context.Background(), RuntimeAgentTask{
-		ID:              "task-execute-backend-runner-cancelled",
+		ID:              "task-execute-workbench-runner-cancelled",
 		ParentSessionID: "session-1",
 		ParentTurnID:    turn.ID,
 		ChildSessionID:  "session-child",
@@ -470,11 +470,11 @@ func TestRuntimeRunSchedulerExecuteTaskUsesBackendCoordinatorRunnerCancellation(
 	if err != nil {
 		t.Fatal(err)
 	}
-	wsRuntime, err := runtimeBackend.GetWorkspace(workspace.ID)
+	wsRuntime, err := runtimeWorkbench.GetWorkspace(workspace.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	coord := &phase25RuntimeBackendCoordinator{service: service, cancel: true}
+	coord := &phase25RuntimeWorkbenchCoordinator{service: service, cancel: true}
 	wsRuntime.AgentCoordinator = coord
 
 	resp, err := service.runtimeRunSchedulerExecuteTask(context.Background(), RuntimeRunSchedulerExecuteTaskRequest{RunID: run.ID, TaskID: task.ID})
@@ -499,7 +499,7 @@ func TestRuntimeRunSchedulerExecuteTaskUsesBackendCoordinatorRunnerCancellation(
 		t.Fatal(err)
 	}
 	if len(refs.Refs) != 0 {
-		t.Fatalf("cancelled backend runner created refs = %#v", refs.Refs)
+		t.Fatalf("cancelled runtime runner created refs = %#v", refs.Refs)
 	}
 }
 
@@ -592,31 +592,31 @@ func (r *recordingRuntimeAgentTaskRunner) ExecuteAgentTask(ctx context.Context, 
 	return r.run(ctx, req)
 }
 
-type phase25RuntimeBackendCoordinator struct {
+type phase25RuntimeWorkbenchCoordinator struct {
 	service *runtimeService
 	calls   int
 	last    agent.StartedAgentTaskExecutionRequest
 	cancel  bool
 }
 
-func (c *phase25RuntimeBackendCoordinator) Run(context.Context, string, string, string, ...message.Attachment) (*fantasy.AgentResult, error) {
+func (c *phase25RuntimeWorkbenchCoordinator) Run(context.Context, string, string, string, ...message.Attachment) (*fantasy.AgentResult, error) {
 	return nil, nil
 }
-func (c *phase25RuntimeBackendCoordinator) Cancel(string) {}
-func (c *phase25RuntimeBackendCoordinator) SendToSession(context.Context, string, string, string) error {
+func (c *phase25RuntimeWorkbenchCoordinator) Cancel(string) {}
+func (c *phase25RuntimeWorkbenchCoordinator) SendToSession(context.Context, string, string, string) error {
 	return nil
 }
-func (c *phase25RuntimeBackendCoordinator) CancelAll()                              {}
-func (c *phase25RuntimeBackendCoordinator) IsSessionBusy(string) bool               { return false }
-func (c *phase25RuntimeBackendCoordinator) IsBusy() bool                            { return false }
-func (c *phase25RuntimeBackendCoordinator) QueuedPrompts(string) int                { return 0 }
-func (c *phase25RuntimeBackendCoordinator) QueuedPromptsList(string) []string       { return nil }
-func (c *phase25RuntimeBackendCoordinator) ClearQueue(string)                       {}
-func (c *phase25RuntimeBackendCoordinator) Summarize(context.Context, string) error { return nil }
-func (c *phase25RuntimeBackendCoordinator) Model() agent.Model                      { return agent.Model{} }
-func (c *phase25RuntimeBackendCoordinator) UpdateModels(context.Context) error      { return nil }
-func (c *phase25RuntimeBackendCoordinator) RefreshSkills(context.Context) error     { return nil }
-func (c *phase25RuntimeBackendCoordinator) ExecuteConfiguredStartedAgentTask(ctx context.Context, req agent.StartedAgentTaskExecutionRequest) (agent.StartedAgentTaskExecutionResult, error) {
+func (c *phase25RuntimeWorkbenchCoordinator) CancelAll()                              {}
+func (c *phase25RuntimeWorkbenchCoordinator) IsSessionBusy(string) bool               { return false }
+func (c *phase25RuntimeWorkbenchCoordinator) IsBusy() bool                            { return false }
+func (c *phase25RuntimeWorkbenchCoordinator) QueuedPrompts(string) int                { return 0 }
+func (c *phase25RuntimeWorkbenchCoordinator) QueuedPromptsList(string) []string       { return nil }
+func (c *phase25RuntimeWorkbenchCoordinator) ClearQueue(string)                       {}
+func (c *phase25RuntimeWorkbenchCoordinator) Summarize(context.Context, string) error { return nil }
+func (c *phase25RuntimeWorkbenchCoordinator) Model() agent.Model                      { return agent.Model{} }
+func (c *phase25RuntimeWorkbenchCoordinator) UpdateModels(context.Context) error      { return nil }
+func (c *phase25RuntimeWorkbenchCoordinator) RefreshSkills(context.Context) error     { return nil }
+func (c *phase25RuntimeWorkbenchCoordinator) ExecuteConfiguredStartedAgentTask(ctx context.Context, req agent.StartedAgentTaskExecutionRequest) (agent.StartedAgentTaskExecutionResult, error) {
 	c.calls++
 	c.last = req
 	recorder := runtimeSchedulerRecorder{service: c.service}
@@ -629,18 +629,18 @@ func (c *phase25RuntimeBackendCoordinator) ExecuteConfiguredStartedAgentTask(ctx
 			Role:            req.Role,
 			Status:          agentTaskStatusCancelled,
 			Progress:        100,
-			ResultSummary:   "partial backend runner output must not become an artifact",
+			ResultSummary:   "partial runtime runner output must not become an artifact",
 			ArtifactRefs:    []string{"artifact:file:partial.txt"},
 			StartedAt:       req.StartedAt,
 			FinishedAt:      time.Now().UnixMilli(),
-			Error:           "cancelled by backend runner smoke",
+			Error:           "cancelled by runtime runner smoke",
 		})
 		return agent.StartedAgentTaskExecutionResult{
 			TaskID:             req.TaskID,
 			Status:             agentTaskStatusCancelled,
 			Terminal:           true,
-			ResultSummary:      "partial backend runner output must not become an artifact",
-			Error:              "cancelled by backend runner smoke",
+			ResultSummary:      "partial runtime runner output must not become an artifact",
+			Error:              "cancelled by runtime runner smoke",
 			NoStaleResume:      true,
 			CompletionOnlyRefs: true,
 		}, err
@@ -658,8 +658,8 @@ func (c *phase25RuntimeBackendCoordinator) ExecuteConfiguredStartedAgentTask(ctx
 		PromptSummary:    req.PromptSummary,
 		Status:           agentTaskStatusCompleted,
 		Progress:         100,
-		ResultSummary:    "backend runner completed",
-		ArtifactRefs:     []string{"artifact:file:backend-runner.txt"},
+		ResultSummary:    "runtime runner completed",
+		ArtifactRefs:     []string{"artifact:file:workbench-runner.txt"},
 		StartedAt:        req.StartedAt,
 		FinishedAt:       time.Now().UnixMilli(),
 	})
@@ -667,7 +667,7 @@ func (c *phase25RuntimeBackendCoordinator) ExecuteConfiguredStartedAgentTask(ctx
 		TaskID:             req.TaskID,
 		Status:             agentTaskStatusCompleted,
 		Terminal:           true,
-		ResultSummary:      "backend runner completed",
+		ResultSummary:      "runtime runner completed",
 		NoStaleResume:      true,
 		CompletionOnlyRefs: true,
 	}, err

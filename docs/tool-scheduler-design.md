@@ -15,7 +15,7 @@ Tool Scheduler 是客户端化 runtime 的关键模块。它把模型产生的�
 
 ## Historical Problem Statement
 
-Earlier Crush tool execution hid most lifecycle state in the agent loop and
+Earlier Agent Builder tool execution hid most lifecycle state in the agent loop and
 tool implementation, while the desktop client observed message parts and
 converted them into runtime events. The scheduler foundation now records
 ToolCall lifecycle, policy decisions, events, and audit. The remaining problems

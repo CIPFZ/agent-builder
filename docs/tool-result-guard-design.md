@@ -10,7 +10,7 @@
 
 ### 1.1 现状
 
-Crush 当前工具结果处理流程（[agent.go:410](internal/agent/agent.go#L410)）：
+Agent Builder 当前工具结果处理流程（[agent.go:410](internal/agent/agent.go#L410)）：
 
 ```
 OnToolResult → convertToToolResult → CreateMessage(SQLite)
@@ -22,7 +22,7 @@ OnToolResult → convertToToolResult → CreateMessage(SQLite)
 
 ### 1.2 问题
 
-Crush 运行时已经足够安全——所有 7 个核心工具都有尺寸防护：
+Agent Builder 运行时已经足够安全——所有 7 个核心工具都有尺寸防护：
 
 | 工具 | 限制 | 截断方式 |
 |---|---|---|
@@ -115,7 +115,7 @@ Crush 运行时已经足够安全——所有 7 个核心工具都有尺寸防�
 |---|---|---|
 | **Hermes** | 文件溢出架构、轮次预算、豁免白名单、容错回退 | head-only 预览（丢尾部）、/tmp 存储（不适合审计） |
 | **Claude Code** | 200K 消息预算、项目目录存储、原子写入 | 微压缩（v2）、上下文折叠（v1 过度复杂） |
-| **OpenClaw** | head+tail 截断、16K 默认阈值、截断标记格式 | JSONL 存储（Crush 已有 SQLite）、脱敏+钩子（v2） |
+| **OpenClaw** | head+tail 截断、16K 默认阈值、截断标记格式 | JSONL 存储（Agent Builder 已有 SQLite）、脱敏+钩子（v2） |
 
 ### 2.5 v1 vs v2 范围
 
@@ -153,7 +153,7 @@ Crush 运行时已经足够安全——所有 7 个核心工具都有尺寸防�
 ┌─────────────────────────────────────────────┐
 │ Layer 2: 单结果截断 + 溢出  ← Hermes 溢出 + OpenClaw h+t │
 │   超 16K → head+tail 截断                    │
-│   完整内容 → .crush/results/{id}.txt         │
+│   完整内容 → .agent-builder/results/{id}.txt         │
 └─────────────────────────────────────────────┘
     │
     ▼
@@ -275,7 +275,7 @@ flowchart TD
         L1 -->|"否"| L2{"Layer 2: 单结果阈值<br/>len(content) > max_result_chars?"}
 
         L2 -->|"否"| L3_ENTRY
-        L2 -->|"是"| TRUNC["head+tail 截断<br/>完整内容 → 溢出文件<br/>.crush/results/{sid}/{tool_use_id}.txt"]
+        L2 -->|"是"| TRUNC["head+tail 截断<br/>完整内容 → 溢出文件<br/>.agent-builder/results/{sid}/{tool_use_id}.txt"]
 
         TRUNC --> SPACE_CHECK{"兜底 1: 空间检查<br/>stat session_dir > per_session_max?"}
         SPACE_CHECK -->|"是"| REJECT["拒写文件<br/>标记 TruncatedBy: session_limit"]
@@ -336,7 +336,7 @@ flowchart TD
 
     TEXT --> MODEL(["发送给模型<br/>fantasy.Message.Role=Tool<br/>Content=截断预览 + StoredPath 引用"])
 
-    MODEL -->|"模型需要完整内容"| VIEW["模型调用 view 工具<br/>读取 .crush/results/{id}.txt<br/>（view 在豁免白名单，不触发 Guard）"]
+    MODEL -->|"模型需要完整内容"| VIEW["模型调用 view 工具<br/>读取 .agent-builder/results/{id}.txt<br/>（view 在豁免白名单，不触发 Guard）"]
 
     style COMPACT fill:#fff3cd,stroke:#ffc107
     style PREPARE_INTERNAL fill:#e8f5e9,stroke:#4caf50
@@ -422,7 +422,7 @@ result = "<persisted-output>\n"
 选择 `<persisted-output>` XML 格式的理由：
 - Hermes 和 Claude Code 都用同一种格式，模型训练数据中见过大量 `<persisted-output>` 块
 - XML 标签是明确的截断边界，`enforce_turn_budget()` 可直接判断是否已持久化
-- 选择 Hermes 风格的显式指令，因 Crush 使用 `view` 工具读文件（非 Hermes 的 `read_file`），需明确告知模型用哪个工具
+- 选择 Hermes 风格的显式指令，因 Agent Builder 使用 `view` 工具读文件（非 Hermes 的 `read_file`），需明确告知模型用哪个工具
 
 ---
 
@@ -454,7 +454,7 @@ type ToolResult struct {
 ### 6.2 文件路径
 
 ```
-.crush/results/{session_id}/{tool_call_id}.txt
+.agent-builder/results/{session_id}/{tool_call_id}.txt
 ```
 
 - 按 session 分目录，session 删除时可一并清理
@@ -473,7 +473,7 @@ type ToolResult struct {
 
 | | Hermes | Claude Code | OpenClaw | 本方案 |
 |---|---|---|---|---|
-| 存储位置 | `/tmp/hermes-results/` | `<project>/<session>/tool-results/` | `~/.openclaw/.../sessions/` | `.crush/results/` |
+| 存储位置 | `/tmp/hermes-results/` | `<project>/<session>/tool-results/` | `~/.openclaw/.../sessions/` | `.agent-builder/results/` |
 | 清理策略 | 无（OS 回收 /tmp） | 30 天 TTL（`cleanup.ts:unlinkIfOld`） | `maxDiskBytes`+`pruneAfter`+`maxEntries` | 写入时 per-session 限流 + 后台 30 天 TTL |
 | 原因 | /tmp 天然短命 | 项目目录需主动清理 | JSONL 无限增长 | 项目目录不是 /tmp，必须自己管 |
 
@@ -493,7 +493,7 @@ type ToolResult struct {
 cleanupOldResultFiles():
     cutoffDate = time.Now().Add(-ttlDays * 24h)
     
-    for each sessionDir in .crush/results/:
+    for each sessionDir in .agent-builder/results/:
         // Session 级目录按 mtime 判断
         if sessionDir.mtime < cutoffDate:
             os.RemoveAll(sessionDir)
@@ -508,7 +508,7 @@ cleanupOldResultFiles():
         tryRmdir(sessionDir)
 ```
 
-- 触发时机：Crush 启动时 + 会话结束时在后台 goroutine 执行（不阻塞 agent 循环）
+- 触发时机：Agent Builder 启动时 + 会话结束时在后台 goroutine 执行（不阻塞 agent 循环）
 - 清理粒度：按文件 `mtime`，非 LRU
 - 容错：目录不存在（ENOENT）静默跳过；单个文件删除失败不影响其他文件
 - Session 删除时级联清理整个 session 目录
@@ -544,7 +544,7 @@ type ToolResultGuardConfig struct {
 | `enabled` | `true` |
 | `max_result_chars` | `16000` |
 | `turn_budget` | `200000` |
-| `results_dir` | `.crush/results` |
+| `results_dir` | `.agent-builder/results` |
 | `per_session_max_bytes` | `524288000` (500 MB) |
 | `global_max_bytes` | `2147483648` (2 GB) |
 | `ttl_days` | `30`（超过此天数的工具结果文件被清理） |
@@ -629,7 +629,7 @@ tool_result_guard:
 
 - **轮次边界判断**：需要准确跟踪 assistant 消息中的 tool_use 数量，边界错误会导致预算统计不准确
 - **性能**：大结果（10MB+）写入文件时的 I/O 延迟 — 采用先写临时文件再 rename 的方式可保证原子性但不会减少延迟，超大数据写入可能阻塞 agent 循环
-- **磁盘管理**：与 Hermes 不同（写入 `/tmp` 依赖 OS 回收），本方案存储在 `.crush/results/` 下，必须主动管理空间。per-session 限流 + 后台 30 天 TTL 清理提供防护。TTL 清理在极端场景下仍可能清理掉正在被模型引用的文件（模型通过 `view` 读取溢出文件时），但因 TTL 窗口为 30 天，实际风险远低于 LRU
+- **磁盘管理**：与 Hermes 不同（写入 `/tmp` 依赖 OS 回收），本方案存储在 `.agent-builder/results/` 下，必须主动管理空间。per-session 限流 + 后台 30 天 TTL 清理提供防护。TTL 清理在极端场景下仍可能清理掉正在被模型引用的文件（模型通过 `view` 读取溢出文件时），但因 TTL 窗口为 30 天，实际风险远低于 LRU
 
 ### 后续迭代（v2）
 

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	mcptools "github.com/CIPFZ/agent-builder/internal/agent/tools/mcp"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 type runtimeToolCallStore = *scheduler.Scheduler
@@ -110,7 +110,7 @@ ORDER BY started_at ASC`)
 	return out, nil
 }
 
-func (r *runtimeService) recordToolCallsFromMessage(ctx context.Context, msg proto.Message, turnID string, createdAt time.Time) {
+func (r *runtimeService) recordToolCallsFromMessage(ctx context.Context, msg apitypes.Message, turnID string, createdAt time.Time) {
 	if r.toolCalls == nil {
 		return
 	}

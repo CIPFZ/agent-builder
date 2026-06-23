@@ -15,11 +15,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/filepathext"
-	"github.com/charmbracelet/crush/internal/home"
-	"github.com/charmbracelet/crush/internal/shell"
-	"github.com/charmbracelet/crush/internal/skills"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/filepathext"
+	"github.com/CIPFZ/agent-builder/internal/home"
+	"github.com/CIPFZ/agent-builder/internal/shell"
+	"github.com/CIPFZ/agent-builder/internal/skills"
 )
 
 // Prompt represents a template-based prompt generator.
@@ -223,7 +223,7 @@ func LoadContextSources(ctx context.Context, store *config.ConfigStore, activeSk
 			ID:             "skill:available",
 			Kind:           ContextSourceSkill,
 			Name:           "Available skills",
-			URI:            "crush://skills",
+			URI:            "agent-builder://skills",
 			Scope:          "runtime",
 			Enabled:        true,
 			State:          ContextStateLoaded,

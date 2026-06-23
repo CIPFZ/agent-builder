@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/agent/prompt"
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/agent/prompt"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/workbench"
 )
 
 func TestRuntimeContextEventsAndAuditSummary(t *testing.T) {
@@ -165,8 +165,8 @@ func serviceWithWorkspace(t *testing.T, service *runtimeService, workingDir, dat
 	cfg.Options.AutoLSP = ptr(false)
 	cfg.SetupAgents()
 	store := config.NewRuntimeStore(workingDir, cfg)
-	runtimeBackend := backend.New(context.Background(), store, nil)
-	_, workspace, err := runtimeBackend.CreateWorkspace(proto.Workspace{
+	runtimeWorkbench := workbench.New(context.Background(), store, nil)
+	_, workspace, err := runtimeWorkbench.CreateWorkspace(apitypes.Workspace{
 		Path:    workingDir,
 		DataDir: dataDir,
 		Config:  store.Config(),
@@ -175,10 +175,10 @@ func serviceWithWorkspace(t *testing.T, service *runtimeService, workingDir, dat
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		runtimeBackend.DeleteWorkspace(workspace.ID)
+		runtimeWorkbench.DeleteWorkspace(workspace.ID)
 	})
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 }
 
 func writeRuntimeFile(t *testing.T, path, content string) {

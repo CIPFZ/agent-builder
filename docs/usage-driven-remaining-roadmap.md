@@ -60,7 +60,7 @@ Implementation, if accepted, should be read-only and DTO-scoped.
 
 ### Phase 53: Transport And Adapter Authority Smoke
 
-Validate that lifecycle conflict display reads remain backend DTO rereads.
+Validate that lifecycle conflict display reads remain API DTO rereads.
 
 Expected coverage:
 
@@ -71,7 +71,7 @@ Expected coverage:
 
 ### Phase 54: Product Binding And UI Ownership Gate
 
-Only after backend/transport authority is stable, decide whether any user-facing
+Only after runtime/transport authority is stable, decide whether any user-facing
 UI should expose these read-only Run surfaces.
 
 Questions to answer from user experience:
@@ -109,7 +109,7 @@ Each workflow should be handled with a small gate:
 ### Phase 56: Packaged And Browser Smoke Consolidation
 
 Consolidate the critical browser/Vite and packaged Wails smoke tests that prove
-the user-visible app still follows backend DTO authority.
+the user-visible app still follows API DTO authority.
 
 Expected coverage:
 
@@ -138,11 +138,11 @@ Closure criteria:
 For each new user-facing concern:
 
 1. Start from the user-visible behavior.
-2. Identify which backend DTO or store is authoritative.
+2. Identify which API DTO or store is authoritative.
 3. Add a design gate if authority is unclear.
 4. Add contract tests before implementation.
 5. Add transport/adapter smoke before UI use.
-6. Keep UI state derived from backend DTO rereads.
+6. Keep UI state derived from API DTO rereads.
 
 This roadmap is intentionally conservative. It keeps the project aligned with
 Claude Code-inspired runtime discipline while avoiding premature persistence,

@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/charmbracelet/crush/internal/shell"
+	"github.com/CIPFZ/agent-builder/internal/shell"
 	"github.com/tidwall/gjson"
 )
 
@@ -70,25 +70,25 @@ func BuildPayload(eventName, sessionID, cwd, toolName, toolInputJSON string, too
 // It includes all current process env vars plus hook-specific ones.
 func BuildEnv(eventName, toolName, sessionID, cwd, projectDir, toolInputJSON string) []string {
 	env := os.Environ()
-	env = append(env, shell.CrushEnvMarkers()...)
+	env = append(env, shell.AgentBuilderEnvMarkers()...)
 	env = append(env,
-		fmt.Sprintf("CRUSH_EVENT=%s", eventName),
-		fmt.Sprintf("CRUSH_TOOL_NAME=%s", toolName),
-		fmt.Sprintf("CRUSH_SESSION_ID=%s", sessionID),
-		fmt.Sprintf("CRUSH_CWD=%s", cwd),
-		fmt.Sprintf("CRUSH_PROJECT_DIR=%s", projectDir),
+		fmt.Sprintf("AGENT_BUILDER_EVENT=%s", eventName),
+		fmt.Sprintf("AGENT_BUILDER_TOOL_NAME=%s", toolName),
+		fmt.Sprintf("AGENT_BUILDER_SESSION_ID=%s", sessionID),
+		fmt.Sprintf("AGENT_BUILDER_CWD=%s", cwd),
+		fmt.Sprintf("AGENT_BUILDER_PROJECT_DIR=%s", projectDir),
 	)
 
 	// Extract tool-specific env vars from the JSON input.
 	if toolInputJSON != "" {
 		if cmd := gjson.Get(toolInputJSON, "command"); cmd.Exists() {
-			env = append(env, fmt.Sprintf("CRUSH_TOOL_INPUT_COMMAND=%s", cmd.String()))
+			env = append(env, fmt.Sprintf("AGENT_BUILDER_TOOL_INPUT_COMMAND=%s", cmd.String()))
 		}
 		if fp := gjson.Get(toolInputJSON, "file_path"); fp.Exists() {
-			env = append(env, fmt.Sprintf("CRUSH_TOOL_INPUT_FILE_PATH=%s", fp.String()))
+			env = append(env, fmt.Sprintf("AGENT_BUILDER_TOOL_INPUT_FILE_PATH=%s", fp.String()))
 		}
 		if prompt := gjson.Get(toolInputJSON, "prompt"); prompt.Exists() {
-			env = append(env, fmt.Sprintf("CRUSH_PROMPT=%s", prompt.String()))
+			env = append(env, fmt.Sprintf("AGENT_BUILDER_PROMPT=%s", prompt.String()))
 		}
 	}
 
@@ -96,7 +96,7 @@ func BuildEnv(eventName, toolName, sessionID, cwd, projectDir, toolInputJSON str
 }
 
 // parseStdout parses the JSON output from a hook command's stdout.
-// Supports both Crush format and Claude Code format (hookSpecificOutput).
+// Supports both Agent Builder format and Claude Code format (hookSpecificOutput).
 func parseStdout(stdout string) HookResult {
 	stdout = strings.TrimSpace(stdout)
 	if stdout == "" {

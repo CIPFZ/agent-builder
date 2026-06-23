@@ -8,7 +8,7 @@ guide coding without re-opening the full architecture debate.
 
 The sequence is intentional:
 
-1. First prove and expose the backend call chain.
+1. First prove and expose the runtime call chain.
 2. Then introduce a runtime input contract.
 3. Then harden tool continuation and permission semantics.
 4. Then improve context, prompt, compact, and memory governance.
@@ -30,7 +30,7 @@ The sequence is intentional:
 
 ## Cross-Phase Rules
 
-- Add backend contract tests before UI.
+- Add runtime contract tests before UI.
 - Keep HTTP/dev transport and Wails bridge contract-compatible.
 - Runtime events are refresh triggers only.
 - React may keep local UI state for layout, active panel, expanded rows, and
@@ -45,7 +45,7 @@ The sequence is intentional:
 ## Why Not Start With UI
 
 The current user-visible timeline problems are symptoms. Fixing the UI first
-can hide backend ambiguity and make future recovery harder. Phase 1 gives the
+can hide runtime ambiguity and make future recovery harder. Phase 1 gives the
 frontend an explicit DTO that says:
 
 - which user input started the turn;

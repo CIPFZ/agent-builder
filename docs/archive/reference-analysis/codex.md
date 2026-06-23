@@ -87,8 +87,8 @@ installation ID, WebSocket fallback state, and telemetry configuration.
 connection plus the `x-codex-turn-state` sticky-routing token. The source is
 explicit that reusing a `ModelClientSession` across turns is invalid.
 
-For a Crush implementation, this argues for separating provider catalog/model
-metadata from the streaming turn client. Crush already uses `charm.land/fantasy`
+For a Agent Builder implementation, this argues for separating provider catalog/model
+metadata from the streaming turn client. Agent Builder already uses `charm.land/fantasy`
 as the provider abstraction; Codex suggests adding a layer above provider calls
 for model catalogs, capabilities, transport selection, sticky per-turn state,
 and request telemetry.
@@ -148,7 +148,7 @@ Core tool execution is layered:
 `ToolOutput` converts handler results back into model input items, with
 different shapes for function-call output, custom tool output, tool-search
 output, MCP output, apply-patch output, and aborted tools
-(`codex-rs/core/src/tools/context.rs`). This is a useful separation for Crush:
+(`codex-rs/core/src/tools/context.rs`). This is a useful separation for Agent Builder:
 tool implementations should return a structured result that the conversation
 layer formats into model-visible content and UI-visible events.
 
@@ -182,7 +182,7 @@ Safety is broader than prompt approval. The code includes:
 - Hook integration before permission requests and tool use in
   `codex-rs/core/src/hook_runtime.rs`.
 
-Crush already has permissions and hooks. The borrowable idea is a single
+Agent Builder already has permissions and hooks. The borrowable idea is a single
 tool-orchestration layer that owns approval, sandbox choice, retry semantics,
 telemetry, and hook evaluation instead of spreading those decisions across
 individual tools.
@@ -212,7 +212,7 @@ Codex has four extension lanes:
 
 Skill invocation has explicit and implicit paths. `core-skills/src/injection.rs`
 collects `$skill` mentions, structured skill inputs, plugin paths, and MCP path
-mentions, then injects selected `SKILL.md` bodies. This is close to Crush's
+mentions, then injects selected `SKILL.md` bodies. This is close to Agent Builder's
 current skill system, but Codex adds product policy, plugin provenance, tool
 dependencies, and UI toggles.
 
@@ -242,10 +242,10 @@ to be represented only as a chat thread.
 
 # Sandbox, process, and workspace isolation
 
-Codex supports multiple sandbox backends and abstracts them through
+Codex supports multiple sandbox runtimes and abstracts them through
 `codex-rs/sandboxing/src/lib.rs` and `SandboxManager`. Platform-specific
 backends include Linux Landlock/bubblewrap, macOS seatbelt, and Windows
-sandboxing. Windows has both legacy restricted-token and elevated backends for
+sandboxing. Windows has both legacy restricted-token and elevated runtimes for
 unified exec in `codex-rs/windows-sandbox-rs/src/unified_exec/mod.rs`.
 
 Process execution is in `codex-rs/core/src/exec.rs`. It defines `ExecParams`,
@@ -304,7 +304,7 @@ rollback, shell command, dynamic tools, environments, and permissions.
 `UserInput`, output schemas, model/effort overrides, and collaboration mode.
 
 The TUI consumes the same underlying core concepts and has extensive snapshot
-coverage under `codex-rs/tui/src/**/snapshots`. For Crush, an operations
+coverage under `codex-rs/tui/src/**/snapshots`. For Agent Builder, an operations
 client should probably not bind directly to Bubble Tea internals; a stable API
 layer around sessions, turns, tools, approvals, and events is the more durable
 boundary.
@@ -363,8 +363,8 @@ runtime, and UI tests over benchmark-style agent evals.
 # Gaps or risks for our target product
 
 - Complexity is high. Codex has many crates and feature gates; copying the
-  structure directly into Crush would likely slow delivery.
-- Provider abstraction is OpenAI Responses centric. Crush's provider matrix is
+  structure directly into Agent Builder would likely slow delivery.
+- Provider abstraction is OpenAI Responses centric. Agent Builder's provider matrix is
   broader through fantasy, so Codex's `ModelClient` design must be translated,
   not imported as-is.
 - The app-server is large and product-specific. Its account, ChatGPT, apps,
@@ -375,18 +375,18 @@ runtime, and UI tests over benchmark-style agent evals.
   and app connector policy. This is powerful but can be hard for users to
   predict.
 - The plugin marketplace model implies distribution, trust, update, and
-  provenance work. For Crush, local plugins/skills/MCP may be enough initially.
-- Windows sandboxing is substantial engineering. If Crush targets parity, this
+  provenance work. For Agent Builder, local plugins/skills/MCP may be enough initially.
+- Windows sandboxing is substantial engineering. If Agent Builder targets parity, this
   becomes a dedicated workstream, not a small feature.
 - Subagent concurrency needs operational limits. Codex has max threads, depth,
-  and timeout settings; Crush should avoid unbounded background agent spawning.
+  and timeout settings; Agent Builder should avoid unbounded background agent spawning.
 - JSONL plus SQLite plus history files create migration and repair concerns.
   The operational client should decide which state is authoritative before
   adding multiple persistence channels.
 
-# Implications for Crush-based implementation
+# Implications for Agent Builder-based implementation
 
-Crush already has useful primitives: Go implementation, Bubble Tea UI,
+Agent Builder already has useful primitives: Go implementation, Bubble Tea UI,
 SQLite/sqlc sessions, config service, built-in tools, hooks, permission
 checking, MCP integration, LSP support, and skills. The Codex reference suggests
 the next layer for an agentic operations client should be a stable core API
@@ -398,10 +398,10 @@ Recommended implementation direction:
 - Add a client-facing protocol boundary before adding another UI. A JSON-RPC or
   local socket API modeled after Codex `thread/*` and `turn/*` would let a web,
   desktop, or operations client attach without depending on TUI internals.
-- Keep Crush's provider abstraction, but add a capability/model metadata layer
+- Keep Agent Builder's provider abstraction, but add a capability/model metadata layer
   that exposes model features, context window, tool support, reasoning options,
   and transport behavior to the turn builder.
-- Refactor tool execution toward a central orchestrator. Crush's hooks and
+- Refactor tool execution toward a central orchestrator. Agent Builder's hooks and
   permissions should converge with sandbox selection, approval caching, output
   truncation, and telemetry in one path.
 - Treat subagents as sessions or child sessions, not a separate execution
@@ -410,14 +410,14 @@ Recommended implementation direction:
 - Start with local plugins/skills/MCP provenance, not marketplace sync. The
   important operational need is knowing which extension provided which tool,
   which permissions it needs, and whether it is enabled.
-- Preserve a compact event stream. Codex's event vocabulary is extensive; Crush
+- Preserve a compact event stream. Codex's event vocabulary is extensive; Agent Builder
   can start with session configured, turn started/completed, assistant/user
   message items, tool started/completed, approval requested/resolved,
   permission changes, MCP startup, warnings, and token usage.
-- Make environments/workspaces explicit. Even if Crush initially runs local
+- Make environments/workspaces explicit. Even if Agent Builder initially runs local
   only, the protocol should carry cwd, workspace roots, environment id, shell,
   and sandbox profile so remote workers or isolated workspaces fit later.
-- Use SQLite as the main operational state store. Crush already has sqlc
+- Use SQLite as the main operational state store. Agent Builder already has sqlc
   migrations; prefer extending that over adding separate authoritative JSONL
   thread stores unless JSONL is needed for interoperability or append-only
   audit export.

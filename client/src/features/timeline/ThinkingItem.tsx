@@ -1,5 +1,5 @@
 import { BulbOutlined, LoadingOutlined } from '@ant-design/icons';
-import { Collapse, Tag } from 'antd';
+import { Collapse } from 'antd';
 import type { ConversationTimelineItemViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './ThinkingItem.module.css';
 
@@ -8,7 +8,6 @@ export function ThinkingItem({ item }: { item: ConversationTimelineItemViewModel
     <span className={styles.label}>
       {item.status === 'running' ? <LoadingOutlined spin /> : <BulbOutlined />}
       {thinkingLabel(item)}
-      <Tag color="default">runtime</Tag>
     </span>
   );
 

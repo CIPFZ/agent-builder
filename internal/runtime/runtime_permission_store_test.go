@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 func TestRuntimePermissionStoreUpsertListAndMark(t *testing.T) {
@@ -94,9 +94,9 @@ func TestRuntimeRecoveryStatusExpiresInvalidPendingPermissions(t *testing.T) {
 	})
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.turns = newRuntimeTurnStore(conn)
 	service.permissionStore = newRuntimePermissionStore(conn)
 	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{
@@ -148,9 +148,9 @@ func TestRuntimePermissionsKeepsLivePendingRequest(t *testing.T) {
 	})
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.turns = newRuntimeTurnStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.permissionStore = newRuntimePermissionStore(conn)

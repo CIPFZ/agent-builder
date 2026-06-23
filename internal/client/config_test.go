@@ -9,9 +9,9 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/oauth"
-	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/oauth"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +29,7 @@ func captureClient(t *testing.T, srv *httptest.Server) *Client {
 func TestSetProviderAPIKeyStringSendsKind(t *testing.T) {
 	t.Parallel()
 
-	var got proto.ConfigProviderKeyRequest
+	var got apitypes.ConfigProviderKeyRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
@@ -41,7 +41,7 @@ func TestSetProviderAPIKeyStringSendsKind(t *testing.T) {
 	c := captureClient(t, srv)
 	require.NoError(t, c.SetProviderAPIKey(context.Background(), "ws1", config.ScopeGlobal, "openai", "sk-xyz"))
 
-	require.Equal(t, proto.APIKeyKindString, got.Kind)
+	require.Equal(t, apitypes.APIKeyKindString, got.Kind)
 	require.Equal(t, "openai", got.ProviderID)
 	require.Equal(t, config.ScopeGlobal, got.Scope)
 	decoded, err := got.DecodeAPIKey()
@@ -52,7 +52,7 @@ func TestSetProviderAPIKeyStringSendsKind(t *testing.T) {
 func TestSetProviderAPIKeyOAuthSendsKind(t *testing.T) {
 	t.Parallel()
 
-	var got proto.ConfigProviderKeyRequest
+	var got apitypes.ConfigProviderKeyRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestSetProviderAPIKeyOAuthSendsKind(t *testing.T) {
 	c := captureClient(t, srv)
 	require.NoError(t, c.SetProviderAPIKey(context.Background(), "ws1", config.ScopeGlobal, "hyper", tok))
 
-	require.Equal(t, proto.APIKeyKindOAuth, got.Kind)
+	require.Equal(t, apitypes.APIKeyKindOAuth, got.Kind)
 	decoded, err := got.DecodeAPIKey()
 	require.NoError(t, err)
 	require.Equal(t, tok, decoded.(*oauth.Token))

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 func TestRuntimeRunTransitionWriterRecordsTurnLifecycleIdempotently(t *testing.T) {
@@ -173,10 +173,10 @@ func TestRuntimeRunTransitionWriterMarkInterruptedDonePreservesCancelledSemantic
 
 	service, release := runtimeRunTransitionWriterTestService(t)
 	defer release()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "interrupted")
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "interrupted")
 	if err != nil {
 		t.Fatal(err)
 	}

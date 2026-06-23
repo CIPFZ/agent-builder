@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/oauth"
-	"github.com/charmbracelet/crush/internal/proto"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/oauth"
 )
 
 // SetConfigField sets a config key/value pair on the server.
@@ -67,12 +67,12 @@ func (c *Client) UpdatePreferredModel(ctx context.Context, id string, scope conf
 // information across the socket.
 func (c *Client) SetProviderAPIKey(ctx context.Context, id string, scope config.Scope, providerID string, apiKey any) error {
 	var (
-		kind proto.APIKeyKind
+		kind apitypes.APIKeyKind
 		raw  json.RawMessage
 	)
 	switch v := apiKey.(type) {
 	case string:
-		kind = proto.APIKeyKindString
+		kind = apitypes.APIKeyKindString
 		b, err := json.Marshal(v)
 		if err != nil {
 			return fmt.Errorf("failed to marshal api key string: %w", err)
@@ -82,7 +82,7 @@ func (c *Client) SetProviderAPIKey(ctx context.Context, id string, scope config.
 		if v == nil {
 			return fmt.Errorf("oauth token is nil")
 		}
-		kind = proto.APIKeyKindOAuth
+		kind = apitypes.APIKeyKindOAuth
 		b, err := json.Marshal(v)
 		if err != nil {
 			return fmt.Errorf("failed to marshal oauth token: %w", err)
@@ -92,7 +92,7 @@ func (c *Client) SetProviderAPIKey(ctx context.Context, id string, scope config.
 		return fmt.Errorf("unsupported api key type %T", apiKey)
 	}
 
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/config/provider-key", id), nil, jsonBody(proto.ConfigProviderKeyRequest{
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/config/provider-key", id), nil, jsonBody(apitypes.ConfigProviderKeyRequest{
 		Scope:      scope,
 		ProviderID: providerID,
 		Kind:       kind,
@@ -201,7 +201,7 @@ func (c *Client) GetInitializePrompt(ctx context.Context, id string) (string, er
 }
 
 // ListSkills retrieves the visible skills for a workspace.
-func (c *Client) ListSkills(ctx context.Context, id string) ([]proto.SkillInfo, error) {
+func (c *Client) ListSkills(ctx context.Context, id string) ([]apitypes.SkillInfo, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/skills", id), nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list skills: %w", err)
@@ -210,7 +210,7 @@ func (c *Client) ListSkills(ctx context.Context, id string) ([]proto.SkillInfo, 
 	if rsp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to list skills: status code %d", rsp.StatusCode)
 	}
-	var skills []proto.SkillInfo
+	var skills []apitypes.SkillInfo
 	if err := json.NewDecoder(rsp.Body).Decode(&skills); err != nil {
 		return nil, fmt.Errorf("failed to decode skills: %w", err)
 	}
@@ -218,8 +218,8 @@ func (c *Client) ListSkills(ctx context.Context, id string) ([]proto.SkillInfo, 
 }
 
 // ReadSkill reads a skill's content by ID from the server.
-func (c *Client) ReadSkill(ctx context.Context, id, skillID string) (*proto.ReadSkillResponse, error) {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/skills/read", id), nil, jsonBody(proto.ReadSkillRequest{
+func (c *Client) ReadSkill(ctx context.Context, id, skillID string) (*apitypes.ReadSkillResponse, error) {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/skills/read", id), nil, jsonBody(apitypes.ReadSkillRequest{
 		SkillID: skillID,
 	}), http.Header{"Content-Type": []string{"application/json"}})
 	if err != nil {
@@ -229,7 +229,7 @@ func (c *Client) ReadSkill(ctx context.Context, id, skillID string) (*proto.Read
 	if rsp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to read skill: status code %d", rsp.StatusCode)
 	}
-	var result proto.ReadSkillResponse
+	var result apitypes.ReadSkillResponse
 	if err := json.NewDecoder(rsp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode skill response: %w", err)
 	}

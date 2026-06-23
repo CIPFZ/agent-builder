@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/agent/tools"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/session"
+	"github.com/CIPFZ/agent-builder/internal/agent/tools"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/session"
 )
 
 func TestRuntimeTodoSummaryCountsStatuses(t *testing.T) {
@@ -68,12 +68,12 @@ func TestRuntimeTurnTodosUsesSessionStateForRecovery(t *testing.T) {
 	})
 
 	service := newRuntimeService()
-	runtimeBackend, workspace := backendForSkillTest(t)
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID}
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID}
 	service.turns = newRuntimeTurnStore(conn)
 
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "Todo session")
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "Todo session")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestRuntimeTurnTodosUsesSessionStateForRecovery(t *testing.T) {
 		Status:     session.TodoStatusInProgress,
 		ActiveForm: "Inspecting plan mode",
 	}}
-	if _, err := runtimeBackend.SaveSession(context.Background(), workspace.ID, sess); err != nil {
+	if _, err := runtimeWorkbench.SaveSession(context.Background(), workspace.ID, sess); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := service.turns.Upsert(context.Background(), RuntimeTurn{

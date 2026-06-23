@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	runtime "github.com/charmbracelet/crush/internal/runtime"
+	runtime "github.com/CIPFZ/agent-builder/internal/runtime"
 )
 
 func TestRuntimeBridgeDelegatesToRuntimeService(t *testing.T) {
@@ -129,7 +129,7 @@ func TestRuntimeBridgeForwardsPromptAssemblies(t *testing.T) {
 				SelectedCount: 1,
 			},
 			Skills: RuntimePromptSkillSummary{
-				LoadedNames:      []string{"crush-config"},
+				LoadedNames:      []string{"agent-builder-config"},
 				LoadedCount:      1,
 				RawContentStored: false,
 			},
@@ -652,7 +652,7 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 	if service.executeRunID != "run-1" || service.executeTaskID != "task-1" {
 		t.Fatalf("execute args = %q/%q", service.executeRunID, service.executeTaskID)
 	}
-	if execute.Source.StartsWorker || !execute.Source.BackendOnly || !execute.Source.IdempotentByTaskID || !execute.Source.SessionActivityParity {
+	if execute.Source.StartsWorker || !execute.Source.WorkbenchOnly || !execute.Source.IdempotentByTaskID || !execute.Source.SessionActivityParity {
 		t.Fatalf("execute response = %#v", execute)
 	}
 }
@@ -792,7 +792,7 @@ func TestRuntimeBridgePhase311PackagedSchedulerClickContract(t *testing.T) {
 			Source: RuntimeRunSchedulerExecuteTaskSource{
 				Kind:                  "run_scheduler_execute_task",
 				Action:                "execute_task",
-				BackendOnly:           true,
+				WorkbenchOnly:         true,
 				StartsWorker:          false,
 				IdempotentByTaskID:    true,
 				SessionActivityParity: true,
@@ -845,7 +845,7 @@ func TestRuntimeBridgePhase311PackagedSchedulerClickContract(t *testing.T) {
 	if !execute.Accepted || !execute.ExecutionStarted || execute.Task.Status != "running" {
 		t.Fatalf("execute = %#v", execute)
 	}
-	if !execute.Source.BackendOnly || execute.Source.StartsWorker || !execute.Source.IdempotentByTaskID || !execute.Source.SessionActivityParity {
+	if !execute.Source.WorkbenchOnly || execute.Source.StartsWorker || !execute.Source.IdempotentByTaskID || !execute.Source.SessionActivityParity {
 		t.Fatalf("execute source = %#v", execute.Source)
 	}
 
@@ -1434,7 +1434,7 @@ func (s *recordingRuntimeService) ExecuteRunTask(_ context.Context, runID, taskI
 		s.executeRunTask.Source = RuntimeRunSchedulerExecuteTaskSource{
 			Kind:                  "run_scheduler_execute_task",
 			Action:                "execute_task",
-			BackendOnly:           true,
+			WorkbenchOnly:         true,
 			StartsWorker:          false,
 			IdempotentByTaskID:    true,
 			SessionActivityParity: true,

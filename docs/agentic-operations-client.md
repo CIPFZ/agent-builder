@@ -1,6 +1,6 @@
 # Agentic Operations Client 设想
 
-本文记录一个基于 Crush 演进出的产品设想：面向企业产品操作场景，
+本文记录一个基于 Agent Builder 演进出的产品设想：面向企业产品操作场景，
 构建一个以 agent runtime 为核心的对话式客户端。它不是普通聊天工具，
 也不是简单的 Claude Code 桌面版，而是一个能通过 agent 调度、插件工具、
 权限控制和任务闭环来完成真实业务流程的操作客户端。
@@ -8,7 +8,7 @@
 ## 背景判断
 
 当前大量 AI coding assistant 和 agent 工具都采用 CLI 形态，例如
-Claude Code、Codex CLI、OpenCode、Crush 等。CLI 之所以常见，是因为
+Claude Code、Codex CLI、OpenCode、Agent Builder 等。CLI 之所以常见，是因为
 agent runtime 天然接近终端环境：它需要读写文件、运行命令、调用工具、
 感知工作目录、处理 git、展示 diff，并在执行前后做权限确认。
 
@@ -237,9 +237,9 @@ resource、skill、hook 和 UI extension。
 3. 支持跨系统 agent 协作。
 4. 支持更完整的审计、成本、质量和安全治理。
 
-## 与 Crush 的关系
+## 与 Agent Builder 的关系
 
-Crush 是一个合适的技术起点，因为它已经具备 Go 实现的 agent 基础设施：
+Agent Builder 是一个合适的技术起点，因为它已经具备 Go 实现的 agent 基础设施：
 
 - provider 抽象。
 - session 管理。
@@ -251,7 +251,7 @@ Crush 是一个合适的技术起点，因为它已经具备 Go 实现的 agent 
 - pub/sub。
 - TUI。
 
-可能的演进方向不是推倒重来，而是将 Crush 向 headless runtime 和多客户端
+可能的演进方向不是推倒重来，而是将 Agent Builder 向 headless runtime 和多客户端
 架构演进：
 
 ```text
@@ -298,16 +298,16 @@ agent 客户端承接。产品形态上，它应该是 agent runtime 驱动的�
 当前先不从零实现完整链路，而是基于优秀开源项目快速落地，再逐步补齐
 企业产品操作场景所需的能力。
 
-### 主开发底座：Crush
+### 主开发底座：Agent Builder
 
-Crush 作为主开发底座，原因是：
+Agent Builder 作为主开发底座，原因是：
 
 - Go 实现，适合做稳定、本地优先、低环境依赖的 runtime。
 - 已经具备 tools、MCP、skills、hooks、session、SQLite、pub/sub、TUI。
 - 当前代码已在本地，可直接改造和验证。
 - 更符合后续演进为 headless runtime、多客户端和企业插件体系的目标。
 
-Crush 当前更偏 terminal coding agent，还不是 enterprise operations runtime。
+Agent Builder 当前更偏 terminal coding agent，还不是 enterprise operations runtime。
 后续需要重点补齐 headless API、任务状态机、权限分级、审批、沙箱、多
 agent 调度、动态 agent 和客户端控制平面。
 
@@ -369,7 +369,7 @@ Gemini CLI 适合参考通用工具生态和大上下文场景，但不作为主
 
 ## 参考项目分析策略
 
-对 Crush、Claude Code、Codex、Gemini CLI 做全量分析是有必要的，但不应
+对 Agent Builder、Claude Code、Codex、Gemini CLI 做全量分析是有必要的，但不应
 理解为逐文件阅读和复刻。更合理的方式是分层全量分析：先建立整体地图，
 再围绕 runtime 核心能力深入。
 
@@ -379,7 +379,7 @@ Gemini CLI 适合参考通用工具生态和大上下文场景，但不作为主
 
 - 避免只看到 UI 或工具表面，漏掉真正的 runtime 边界。
 - 找出各项目在工具、权限、任务、上下文、沙箱和恢复上的成熟做法。
-- 判断哪些能力可以直接在 Crush 上补齐，哪些需要重构。
+- 判断哪些能力可以直接在 Agent Builder 上补齐，哪些需要重构。
 - 形成后续实现路线图，避免边做边推翻。
 - 为企业产品操作场景建立可对照的架构依据。
 
@@ -415,6 +415,6 @@ Gemini CLI 适合参考通用工具生态和大上下文场景，但不作为主
 - 插件与扩展。
 - 可借鉴设计。
 - 不适合作为底座的原因。
-- 对 Crush 改造的启发。
+- 对 Agent Builder 改造的启发。
 
-最后再产出一份横向对比文档，用于决定 Crush 的改造优先级。
+最后再产出一份横向对比文档，用于决定 Agent Builder 的改造优先级。

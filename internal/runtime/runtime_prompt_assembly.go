@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 func (r *runtimeSchedulerRecorder) RecordPromptAssembly(ctx context.Context, snapshot agent.PromptAssemblySnapshot) error {

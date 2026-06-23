@@ -5,26 +5,26 @@ Bubble Tea TUI from Agent Builder.
 
 ## Current Status
 
-The legacy Crush TUI has been removed from the active codebase. The current
+The legacy Agent Builder TUI has been removed from the active codebase. The current
 product path is:
 
 ```text
-React Client -> Wails Adapter -> Go Runtime / Backend -> Agent / Tools
+React Client -> Wails Adapter -> Go Runtime / Runtime -> Agent / Tools
 ```
 
 `internal/ui/` and `internal/commands/` are gone. `internal/cmd/` is reduced to
 a minimal non-TUI compatibility stub for the root `main.go` entry point. App and
-backend event subscription now expose raw application/runtime payloads through
+runtime event subscription now expose raw application/runtime payloads through
 `pubsub.Event[any]`; `tea.Msg` and `*tea.Program` are no longer part of the
 client runtime path.
 
 ## Goal
 
-Remove the complete Crush TUI surface from the product codebase and leave Agent
+Remove the complete Agent Builder TUI surface from the product codebase and leave Agent
 Builder with a client-first runtime path:
 
 ```text
-React Client -> Wails Adapter -> Go Runtime / Backend -> Agent / Tools
+React Client -> Wails Adapter -> Go Runtime / Runtime -> Agent / Tools
 ```
 
 The final codebase should not require Bubble Tea UI models, terminal chat
@@ -37,7 +37,7 @@ to build and run.
 - Do not keep terminal rendering as a hidden compatibility layer.
 - Do not keep TUI code only because tests still reference it; migrate or delete
   those tests with the TUI package.
-- Do not reintroduce upstream Crush CLI installation docs, release automation,
+- Do not reintroduce upstream Agent Builder CLI installation docs, release automation,
   or TUI-focused configuration.
 - Do not ask the user to decide each conflict during execution. Make pragmatic
   client-first decisions and complete the task end to end.
@@ -46,7 +46,7 @@ to build and run.
 
 Existing docs already mark the TUI as legacy:
 
-- `docs/legacy-crush-inventory.md` classifies `internal/ui/`,
+- `docs/legacy-agent-builder-inventory.md` classifies `internal/ui/`,
   `internal/cmd/`, and `internal/commands/` as legacy CLI/TUI surface.
 - `docs/desktop-runtime-boundary.md` defines Wails as an adapter and Go runtime
   as the source of truth.
@@ -58,7 +58,7 @@ Code-level TUI leakage currently exists in:
 
 - `internal/app/app.go`: `pubsub.Broker[tea.Msg]`,
   `Subscribe(program *tea.Program)`, and terminal spinner styling.
-- `internal/backend/events.go`: `SubscribeEvents(... tea.Msg)`.
+- `internal/workbench/events.go`: `SubscribeEvents(... tea.Msg)`.
 - `internal/workspace/workspace.go`: `Subscribe(program *tea.Program)`.
 - `internal/workspace/app_workspace.go` and
   `internal/workspace/client_workspace.go`: TUI/CLI workspace adapters.
@@ -77,12 +77,12 @@ The final repository state should satisfy:
   if root `main.go` still needs a temporary command entry.
 - `internal/commands/` is deleted unless a clearly runtime-owned subset is
   extracted first.
-- `internal/app`, `internal/backend`, `internal/workspace`, `desktop`, and
+- `internal/app`, `internal/workbench`, `internal/workspace`, `desktop`, and
   `internal/runtime` do not import:
   - `charm.land/bubbletea/v2`
   - `charm.land/lipgloss/v2`
   - `charm.land/glamour/v2`
-  - `github.com/charmbracelet/crush/internal/ui/...`
+  - `github.com/CIPFZ/agent-builder/internal/ui/...`
 - `go.mod` no longer has direct TUI-only dependencies unless another retained
   non-TUI package still requires them.
 - The desktop client remains the primary build target.
@@ -102,13 +102,13 @@ Recommended order:
    rg "internal/ui|bubbletea|lipgloss|glamour|tea\\.Msg|\\*tea\\.Program" internal desktop main.go go.mod
    ```
 
-2. Replace app/backend event transport with non-TUI types:
+2. Replace app/workbench event transport with non-TUI types:
 
    - Change `internal/app` event broker away from `pubsub.Broker[tea.Msg]`.
    - Remove or replace `App.Subscribe(program *tea.Program)`.
-   - Keep a runtime/raw event subscription suitable for backend, server, Wails,
+   - Keep a runtime/raw event subscription suitable for runtime, server, Wails,
      and desktop runtime use.
-   - Update `internal/backend/events.go` so non-TUI consumers no longer see
+   - Update `internal/workbench/events.go` so non-TUI consumers no longer see
      `tea.Msg`.
 
 3. Remove TUI workspace adapter shape:
@@ -122,7 +122,7 @@ Recommended order:
 4. Remove CLI/TUI entry points:
 
    - Delete TUI-starting command code under `internal/cmd`.
-   - Delete root CLI paths in `main.go` if they only exist for Crush TUI.
+   - Delete root CLI paths in `main.go` if they only exist for Agent Builder TUI.
    - If a temporary root command is needed, keep it minimal and desktop-safe,
      but do not import TUI packages.
 
@@ -152,7 +152,7 @@ Recommended order:
 
 8. Update docs that still describe the TUI as active:
 
-   - `docs/legacy-crush-inventory.md`
+   - `docs/legacy-agent-builder-inventory.md`
    - `docs/client-first-runtime-refactor.md`
    - `docs/archive/project-structure-refactor-plan.md`
    - `docs/desktop-runtime-boundary.md` if needed

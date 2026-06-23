@@ -15,7 +15,7 @@ starting runtime or client changes.
 Workspace:
 
 ```text
-C:\Users\ytq\work\ai\crush
+C:\Users\ytq\work\ai\agent-builder
 ```
 
 Git:
@@ -36,7 +36,7 @@ GOOS=windows
 GOARCH=amd64
 CGO_ENABLED=0
 GOEXPERIMENT=
-GOMOD=C:\Users\ytq\work\ai\crush\go.mod
+GOMOD=C:\Users\ytq\work\ai\agent-builder\go.mod
 ```
 
 Shell:
@@ -111,9 +111,9 @@ PASS
 Output:
 
 ```text
-C:\Users\ytq\.config\crush
-C:\Users\ytq\AppData\Local\crush
-C:\Users\ytq\work\ai\crush
+C:\Users\ytq\.config\agent-builder
+C:\Users\ytq\AppData\Local\agent-builder
+C:\Users\ytq\work\ai\agent-builder
 ```
 
 Command:
@@ -145,11 +145,11 @@ PASS
 Packages:
 
 ```text
-ok   github.com/charmbracelet/crush/internal/config     7.403s
-ok   github.com/charmbracelet/crush/internal/hooks      3.497s
-ok   github.com/charmbracelet/crush/internal/permission 0.983s
-ok   github.com/charmbracelet/crush/internal/skills     1.146s
-?    github.com/charmbracelet/crush/internal/session    [no test files]
+ok   github.com/CIPFZ/agent-builder/internal/config     7.403s
+ok   github.com/CIPFZ/agent-builder/internal/hooks      3.497s
+ok   github.com/CIPFZ/agent-builder/internal/permission 0.983s
+ok   github.com/CIPFZ/agent-builder/internal/skills     1.146s
+?    github.com/CIPFZ/agent-builder/internal/session    [no test files]
 ```
 
 Command:
@@ -196,8 +196,8 @@ FAIL
 Failing packages:
 
 ```text
-github.com/charmbracelet/crush/internal/agent/tools
-github.com/charmbracelet/crush/internal/shell
+github.com/CIPFZ/agent-builder/internal/agent/tools
+github.com/CIPFZ/agent-builder/internal/shell
 ```
 
 Failing tests in `internal/agent/tools`:

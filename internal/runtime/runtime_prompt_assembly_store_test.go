@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/db"
 )
 
 func TestRuntimePromptAssemblyStoreRoundTripAndOrders(t *testing.T) {
@@ -111,7 +111,7 @@ func TestRuntimeRecordPromptAssemblyStoresSummaryEventAndFailedContext(t *testin
 		Skills: agent.PromptSkillSummary{
 			AvailableCount: 1,
 			LoadedCount:    1,
-			LoadedNames:    []string{"crush-config"},
+			LoadedNames:    []string{"agent-builder-config"},
 			XMLPresent:     true,
 			XMLHash:        "sha256:skills",
 		},
@@ -193,7 +193,7 @@ func promptAssemblyFixture(id, sessionID, turnID string, step int, createdAt int
 		},
 		Skills: RuntimePromptSkillSummary{
 			LoadedCount:      1,
-			LoadedNames:      []string{"crush-config"},
+			LoadedNames:      []string{"agent-builder-config"},
 			XMLPresent:       true,
 			XMLHash:          "sha256:skills",
 			RawContentStored: false,

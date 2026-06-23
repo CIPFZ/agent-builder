@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 func TestStaticPolicyEvaluate(t *testing.T) {
@@ -88,7 +88,7 @@ func TestClassifyRiskPlanModeBlockedTools(t *testing.T) {
 func TestPlanModeOnlyAllowsKnownReadOnlyTools(t *testing.T) {
 	t.Parallel()
 
-	allowed := []string{"view", "ls", "grep", "glob", "rg", "diagnostics", "references", "crush_info", "crush_logs", "job_output", "list_mcp_resources", "read_mcp_resource", "context_activation"}
+	allowed := []string{"view", "ls", "grep", "glob", "rg", "diagnostics", "references", "agent_builder_info", "agent_builder_logs", "job_output", "list_mcp_resources", "read_mcp_resource", "context_activation"}
 	for _, name := range allowed {
 		result := NewPermissionPolicy(PolicyModePlan).Evaluate(scheduler.ToolCall{Name: name, Source: scheduler.ToolSourceBuiltin})
 		if result.Decision != PolicyAllow || result.Risk != RiskRead {

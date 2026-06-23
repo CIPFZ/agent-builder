@@ -5,8 +5,8 @@ import (
 	"iter"
 	"log/slog"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/csync"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/csync"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

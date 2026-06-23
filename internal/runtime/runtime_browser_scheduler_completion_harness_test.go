@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
 const phase291HarnessEnv = "AGENT_BUILDER_PHASE291_BROWSER_HARNESS"

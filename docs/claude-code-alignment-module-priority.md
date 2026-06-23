@@ -57,7 +57,7 @@ or P3 product work.
   auth/elicitation records, recovery, replay, and redaction.
 - Hooks lifecycle foundation with persistence, audit, replay, and recovery.
 - Local AgentTask/coordinator communication with model-facing task tools,
-  parent-child messages, backend follow-up delivery, stop/cancel, output and
+  parent-child messages, runtime follow-up delivery, stop/cancel, output and
   artifact refs, replay, recovery, scope, and worktree integration.
 - Worktree lifecycle, cleanup/recovery, task cwd scope, and sandbox decision
   boundary records.

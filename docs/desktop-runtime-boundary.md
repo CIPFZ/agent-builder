@@ -13,7 +13,7 @@ client. The Phase 1 baseline is summarized in
 
 The desktop client must keep React as a thin presentation layer. The source of
 truth for model config, session state, messages, provider selection, agent
-execution, tool calls, and future permissions is the Go/Crush runtime.
+execution, tool calls, and future permissions is the Go/Agent Builder runtime.
 
 The legacy Bubble Tea TUI has been removed. The desktop React client is now the
 active product interface, and Wails remains an adapter over the Go runtime.
@@ -27,22 +27,22 @@ Current implementation follows this boundary:
   opens settings.
 - Model settings are saved by Go to
   `desktop/bin/config/model.json`.
-- Chat execution goes through `RuntimeBridge.Chat`, which calls the real Crush
-  backend and waits for the assistant message.
+- Chat execution goes through `RuntimeBridge.Chat`, which calls the real Agent Builder
+  runtime and waits for the assistant message.
 - Message display is refreshed from `RuntimeBridge.Messages`, backed by the
-  Crush session database, instead of constructing user/assistant messages in
+  Agent Builder session database, instead of constructing user/assistant messages in
   React.
-- Permission requests are owned by Crush and exposed through
+- Permission requests are owned by Agent Builder and exposed through
   `RuntimeBridge.Permissions`; React can only allow once, allow for session, or
   deny a pending runtime request.
 - Runtime cancellation is exposed through `RuntimeBridge.Cancel`, backed by
-  `Backend.CancelSession`.
+  `Workbench service.CancelSession`.
 - Runtime events are exposed as a small queryable event log through
   `RuntimeBridge.Events` and pushed through a local `127.0.0.1` SSE endpoint
   returned by `RuntimeBridge.EventsEndpoint`.
-- Shell execution is owned by Crush. The desktop UI must present tool output,
+- Shell execution is owned by Agent Builder. The desktop UI must present tool output,
   not reinterpret shell semantics. The current `bash` tool name is
-  compatibility naming; the implementation is Crush's embedded portable shell,
+  compatibility naming; the implementation is Agent Builder's embedded portable shell,
   not a guarantee that system Bash, PowerShell, or cmd.exe is available.
 - Wails is only the desktop bridge and packaging layer. It is not the runtime
   architecture.
@@ -67,14 +67,14 @@ Earlier planning documents described Phase 1 as a pure UI/mock prototype. That
 is no longer the active baseline. The accepted Phase 1 foundation is:
 
 ```text
-React UI -> Wails adapter -> Go RuntimeBridge -> real Crush backend/session/message/permission services
+React UI -> Wails adapter -> Go RuntimeBridge -> real Agent Builder runtime/session/message/permission services
 React UI -> loopback SSE -> Go RuntimeBridge runtime events
 ```
 
 The long-term target is still a transport-neutral runtime API plus event stream:
 
 ```text
-React UI -> Client Transport -> HTTP/JSON-RPC + SSE/WebSocket -> Crush runtime
+React UI -> Client Transport -> HTTP/JSON-RPC + SSE/WebSocket -> Agent Builder runtime
 ```
 
 The Wails binding is acceptable for the first executable, but it must remain an

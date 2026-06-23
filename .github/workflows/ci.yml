@@ -39,5 +39,5 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code -- go.mod go.sum
-      - name: Test backend packages
+      - name: Test runtime packages
         run: go test -failfast -skip '^TestCoderAgent$' . ./internal/...

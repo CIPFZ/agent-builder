@@ -20,7 +20,7 @@ Subagents and background tasks are powerful only if users can see:
 - what result/artifacts it produced;
 - how cancellation works.
 
-Without clear UI, backend capability feels invisible or unreliable.
+Without clear UI, runtime capability feels invisible or unreliable.
 
 ## Claude Code Reference
 
@@ -49,7 +49,7 @@ Relevant Claude Code areas:
 - `internal/runtime/runtime_agent_task_scope.go`
 - `internal/agent/coordinator.go`
 
-## Backend Work
+## Runtime Work
 
 ### Task Lifecycle Contract
 
@@ -150,7 +150,7 @@ Timeline rendering:
 
 ## Tests
 
-Backend tests:
+Runtime tests:
 
 - task creation records parent/child ownership;
 - task scope denies disallowed tools;

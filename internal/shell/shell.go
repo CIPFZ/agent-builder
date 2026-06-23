@@ -4,7 +4,7 @@
 // working directory and environment. Each shell execution is independent.
 //
 // WINDOWS COMPATIBILITY:
-// This package uses Crush's embedded portable shell (mvdan.cc/sh/v3) on
+// This package uses Agent Builder's embedded portable shell (mvdan.cc/sh/v3) on
 // Windows too. It does not run the user's system Bash, PowerShell, or cmd.exe
 // as the command language. External commands are still resolved from PATH, so
 // OS-specific tools and arguments must be chosen deliberately.
@@ -35,17 +35,17 @@ const (
 	ShellTypePowerShell
 )
 
-// CrushEnvMarkers returns a fresh slice of the environment variables that
-// Crush unconditionally sets on every shell it spawns — both the interactive
+// AgentBuilderEnvMarkers returns a fresh slice of the environment variables that
+// Agent Builder unconditionally sets on every shell it spawns — both the interactive
 // bash tool's [Shell] and the hook runner's [Run] calls. Tools that want to
 // detect "am I being invoked by an AI agent?" can check any of these.
 // Keeping them in one place guarantees the two shell surfaces cannot drift.
 // A fresh slice is returned on every call so callers may append freely.
-func CrushEnvMarkers() []string {
+func AgentBuilderEnvMarkers() []string {
 	return []string{
-		"CRUSH=1",
-		"AGENT=crush",
-		"AI_AGENT=crush",
+		"AGENT_BUILDER=1",
+		"AGENT=agent-builder",
+		"AI_AGENT=agent-builder",
 	}
 }
 
@@ -95,8 +95,8 @@ func NewShell(opts *Options) *Shell {
 		env = os.Environ()
 	}
 
-	// Allow tools to detect execution by Crush.
-	env = append(env, CrushEnvMarkers()...)
+	// Allow tools to detect execution by Agent Builder.
+	env = append(env, AgentBuilderEnvMarkers()...)
 
 	logger := opts.Logger
 	if logger == nil {

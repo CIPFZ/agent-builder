@@ -79,7 +79,7 @@ Claude Code hook events beyond the local core are later unless a runtime
 workflow needs them.
 
 AgentTask/coordinator communication is complete as a local runtime primitive.
-The runtime owns task messages, delivery/processed/rejected status, backend
+The runtime owns task messages, delivery/processed/rejected status, runtime
 follow-up delivery to child sessions, stop/cancel control records, output and
 artifact refs, replay, recovery, HTTP/Wails DTOs, and model-facing task tools.
 Remote teammate/fleet/cloud semantics are P3.

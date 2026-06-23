@@ -11,7 +11,7 @@ import (
 )
 
 func TestHelperProcess(t *testing.T) {
-	if os.Getenv("CRUSH_TEST_HELPER_PROCESS") != "1" {
+	if os.Getenv("AGENT_BUILDER_TEST_HELPER_PROCESS") != "1" {
 		return
 	}
 	args := os.Args
@@ -52,7 +52,7 @@ func helperCommand(args ...string) string {
 	for _, arg := range args {
 		quoted = append(quoted, shellQuote(arg))
 	}
-	return "CRUSH_TEST_HELPER_PROCESS=1 " + strings.Join(quoted, " ")
+	return "AGENT_BUILDER_TEST_HELPER_PROCESS=1 " + strings.Join(quoted, " ")
 }
 
 func shellQuote(value string) string {

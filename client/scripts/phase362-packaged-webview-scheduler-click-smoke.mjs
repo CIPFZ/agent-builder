@@ -14,7 +14,7 @@ const manifestPath = resolve(harnessRoot, 'harness-manifest.json');
 const configRoot = resolve(harnessRoot, 'config');
 const webviewUserData = resolve(harnessRoot, 'webview-user-data');
 const exePath = resolve(desktopRoot, 'bin', 'AgentBuilder.exe');
-const bridgeModulePath = '/bindings/github.com/charmbracelet/crush/desktop/runtimebridge.js';
+const bridgeModulePath = '/bindings/github.com/CIPFZ/agent-builder/desktop/runtimebridge.js';
 const children = [];
 
 assertInside(runtimeDevRoot, harnessRoot);

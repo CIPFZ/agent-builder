@@ -2,20 +2,20 @@
 
 本文基于以下四份分析文档整理横向结论：
 
-- [Crush](./crush.md)
+- [Agent Builder](./agent-builder.md)
 - [Claude Code](./claude-code.md)
 - [Codex](./codex.md)
 - [Gemini CLI](./gemini-cli.md)
 
-目标不是选择“最强项目”，而是决定如何基于 Crush 快速落地一个面向企业
+目标不是选择“最强项目”，而是决定如何基于 Agent Builder 快速落地一个面向企业
 产品操作场景的 agentic operations client。
 
 ## 总体判断
 
-Crush 适合作为主开发底座。Claude Code、Codex、Gemini CLI 都不应直接替代
-Crush，而应作为 runtime 设计蓝图：
+Agent Builder 适合作为主开发底座。Claude Code、Codex、Gemini CLI 都不应直接替代
+Agent Builder，而应作为 runtime 设计蓝图：
 
-- Crush 提供 Go runtime、provider、tools、MCP、skills、hooks、session、
+- Agent Builder 提供 Go runtime、provider、tools、MCP、skills、hooks、session、
   SQLite、pub/sub、TUI 和初步 client/server 边界。
 - Claude Code 展示了成熟 agentic CLI 如何把工具、权限、plan mode、
   子代理、后台任务、上下文压缩和恢复语义组合成完整执行协议。
@@ -27,7 +27,7 @@ Crush，而应作为 runtime 设计蓝图：
 因此后续路线应该是：
 
 ```text
-Crush 作为代码底座
+Agent Builder 作为代码底座
   + Claude Code 的 runtime 产品语义
   + Codex 的 core protocol / app-server / sandbox 思路
   + Gemini CLI 的 scheduler / policy / extension / event stream 思路
@@ -35,27 +35,27 @@ Crush 作为代码底座
 
 ## 横向能力对比
 
-| 能力面 | Crush | Claude Code | Codex | Gemini CLI | 对我们的启发 |
+| 能力面 | Agent Builder | Claude Code | Codex | Gemini CLI | 对我们的启发 |
 | --- | --- | --- | --- | --- | --- |
-| 实现语言 | Go | TypeScript/Bun | Rust + TS/Python | TypeScript/Node | 继续用 Crush/Go 做底座，参考其他项目设计。 |
+| 实现语言 | Go | TypeScript/Bun | Rust + TS/Python | TypeScript/Node | 继续用 Agent Builder/Go 做底座，参考其他项目设计。 |
 | 产品形态 | TUI/CLI，初步 client/server | CLI/TUI + SDK/remote | TUI/exec/app-server/MCP/SDK | CLI/headless/ACP/A2A | 客户端应建立在 headless runtime API 上。 |
-| Provider | fantasy 多 provider | Anthropic 为主，多 provider 分支 | OpenAI Responses 为主 | Gemini 为主 | 保留 Crush 的 provider 优势，新增模型能力层。 |
-| Session | SQLite session/message | JSONL transcript + rich metadata | thread store + SQLite/log DB | JSONL chat recording + event trajectory | Crush 应扩展 operation/run 状态，而不是替换 SQLite。 |
-| Tool | Go tool registry + fantasy | 工具即执行协议 | typed tools + central orchestrator | declarative tools + scheduler | 需要在 Crush 中引入 central scheduler/orchestrator。 |
-| Permission | 本地 approval + allow list | mode/rule/plan/danger detection | permission profile + sandbox/approval | policy engine + TOML rules | Crush 需要从 approval 升级到 policy。 |
+| Provider | fantasy 多 provider | Anthropic 为主，多 provider 分支 | OpenAI Responses 为主 | Gemini 为主 | 保留 Agent Builder 的 provider 优势，新增模型能力层。 |
+| Session | SQLite session/message | JSONL transcript + rich metadata | thread store + SQLite/log DB | JSONL chat recording + event trajectory | Agent Builder 应扩展 operation/run 状态，而不是替换 SQLite。 |
+| Tool | Go tool registry + fantasy | 工具即执行协议 | typed tools + central orchestrator | declarative tools + scheduler | 需要在 Agent Builder 中引入 central scheduler/orchestrator。 |
+| Permission | 本地 approval + allow list | mode/rule/plan/danger detection | permission profile + sandbox/approval | policy engine + TOML rules | Agent Builder 需要从 approval 升级到 policy。 |
 | Hooks | PreToolUse | 多处 hooks + tool/runtime 语义 | hook runtime before tool/permission | BeforeAgent/AfterAgent/BeforeTool 等 | hooks 应成为 runtime extension point。 |
-| MCP | 已支持 stdio/http/sse | first-class MCP + OAuth/resource/tool | connection manager + approvals | MCP manager + restrictive merge | Crush MCP 基础好，但需补生命周期与来源治理。 |
+| MCP | 已支持 stdio/http/sse | first-class MCP + OAuth/resource/tool | connection manager + approvals | MCP manager + restrictive merge | Agent Builder MCP 基础好，但需补生命周期与来源治理。 |
 | Skills | SKILL.md discovery/injection | skills with metadata/tool hints | core-skills + provenance/policy | skills + activation tool + extensions | skills 应逐步具备 allowed tools、model、paths、hooks。 |
 | Plugins | MCP/skills/hooks 组合，没有包格式 | plugin package 很宽 | marketplace/plugin roots | extension package 很完整 | 先稳定 primitives，后做插件包。 |
 | Subagents | read-only task agent | AgentTool + background + isolation | subagents as threads | invoke_agent + registry + local/remote | 先把子 agent 变成持久任务，再做 teams。 |
-| Scheduler | 较弱 | AgentTool/task 语义强 | tools parallel/orchestrator | Scheduler 很清晰 | Crush 需要任务/工具调度层。 |
+| Scheduler | 较弱 | AgentTool/task 语义强 | tools parallel/orchestrator | Scheduler 很清晰 | Agent Builder 需要任务/工具调度层。 |
 | Sandbox | 基本无 OS sandbox | sandbox/worktree/remote/cwd 分离 | 多平台 sandbox | full-process + tool-level sandbox | 先做 tool-level sandbox 和 worktree，避免一步到位。 |
-| API 边界 | workspace/server 已有雏形 | QueryEngine/structured IO/remote | JSON-RPC app-server | AgentProtocol/event stream | Crush 应优先稳定 runtime API。 |
+| API 边界 | workspace/server 已有雏形 | QueryEngine/structured IO/remote | JSON-RPC app-server | AgentProtocol/event stream | Agent Builder 应优先稳定 runtime API。 |
 | Observability | logs/PostHog/pubsub | rich telemetry/cost/tool metrics | tracing/otel/log DB | OpenTelemetry + evals | operation audit/event log 是必须项。 |
 
-## Crush 的优势
+## Agent Builder 的优势
 
-Crush 的最大优势是适合继续演进为本地 runtime：
+Agent Builder 的最大优势是适合继续演进为本地 runtime：
 
 - Go 实现，部署和长期运行比 TS/Python 更可控。
 - 代码结构已经服务化：`internal/app`、`internal/agent`、
@@ -67,9 +67,9 @@ Crush 的最大优势是适合继续演进为本地 runtime：
 - MCP、skills、hooks、LSP、tools 已经存在，不需要从零搭建扩展体系。
 - 当前 TUI 可以继续作为一个客户端，而不是阻碍 headless runtime 演进。
 
-## Crush 的主要短板
+## Agent Builder 的主要短板
 
-对目标产品来说，Crush 当前短板集中在 runtime 治理层：
+对目标产品来说，Agent Builder 当前短板集中在 runtime 治理层：
 
 - 没有 durable operation/run/task 状态机。
 - permission 还停留在本地工具 approval 和 allow list。
@@ -81,7 +81,7 @@ Crush 的最大优势是适合继续演进为本地 runtime：
 - audit 不是一等模型，消息和工具结果还不能完整表达操作链路。
 - 插件还不是可分发、可治理、可审计的 capability package。
 
-这些短板不意味着 Crush 不适合。相反，它们正是后续改造清单。
+这些短板不意味着 Agent Builder 不适合。相反，它们正是后续改造清单。
 
 ## 应该借鉴 Claude Code 的部分
 
@@ -151,7 +151,7 @@ Gemini CLI 最值得借鉴的是 scheduler、policy 和 extension：
 
 ### P0：建立 runtime 边界
 
-第一阶段目标是让 Crush 从 TUI-first 变成 runtime-first：
+第一阶段目标是让 Agent Builder 从 TUI-first 变成 runtime-first：
 
 - 梳理并稳定 `workspace.Workspace` / `internal/server` 作为客户端边界。
 - 定义 machine-readable event stream。
@@ -274,11 +274,11 @@ Gemini CLI 最值得借鉴的是 scheduler、policy 和 extension：
 
 ## 最终结论
 
-继续使用 Crush 作为底座是正确的。它已经具备足够多的 agent runtime 基础，
+继续使用 Agent Builder 作为底座是正确的。它已经具备足够多的 agent runtime 基础，
 而且 Go 技术栈符合本地优先、低环境依赖和长期服务化的方向。
 
 Claude Code、Codex、Gemini CLI 共同证明：真正难的不是聊天 UI，而是
-runtime 的执行治理。后续 Crush 的核心改造应围绕：
+runtime 的执行治理。后续 Agent Builder 的核心改造应围绕：
 
 - runtime API。
 - operation/run 状态。

@@ -4,23 +4,23 @@
 
 ## 当前状态更新
 
-Crush TUI/终端 UI 遗留层已经从活动代码中移除：`internal/ui/`、
+Agent Builder TUI/终端 UI 遗留层已经从活动代码中移除：`internal/ui/`、
 `internal/commands/` 已删除，`internal/cmd/` 仅保留不依赖 Bubble Tea 的
-最小入口 stub。客户端主路径现在使用 Go runtime/backend 的原始事件和
+最小入口 stub。客户端主路径现在使用 Go runtime/workbench 的原始事件和
 runtime event，不再暴露 `tea.Msg` 或 `*tea.Program`。桌面 React client 是当前主界面。
 
 ## 背景判断
 
-当前项目仍保留大量 Crush 原始结构，同时叠加了 Wails3 + React 客户端 PoC。它已经证明了方向可行，但目录、文件归属和架构边界还不稳定。
+当前项目仍保留大量 Agent Builder 原始结构，同时叠加了 Wails3 + React 客户端 PoC。它已经证明了方向可行，但目录、文件归属和架构边界还不稳定。
 
 主要问题：
 
 - `desktop/runtime_*` 承担了通用 runtime 职责，但位于 desktop 目录下。
 - `desktop` 多套了一层目录，后续应改成单层 `desktop/`。
-- `internal` 中混合了 Crush core、CLI/TUI、runtime、平台工具、客户端边界等不同职责。
+- `internal` 中混合了 Agent Builder core、CLI/TUI、runtime、平台工具、客户端边界等不同职责。
 - CLI/TUI 相关代码仍容易污染客户端主路径。
 - React 客户端目前按技术层分组，后续应向 feature 分组演进。
-- 根目录仍有较多 Crush 遗留配置，需要逐项确认保留、迁移或删除。
+- 根目录仍有较多 Agent Builder 遗留配置，需要逐项确认保留、迁移或删除。
 
 ## 整理目标
 
@@ -81,7 +81,7 @@ adapter 不应拥有 session、turn、tool、permission、audit 的业务状态�
 
 ### Removed Legacy Surface
 
-Crush CLI/TUI 相关能力已经从活动代码中移除或降级：
+Agent Builder CLI/TUI 相关能力已经从活动代码中移除或降级：
 
 - `internal/ui` 已删除。
 - `internal/commands` 已删除。
@@ -116,11 +116,11 @@ agent-builder/
 
 | 文件 | 建议 |
 | --- | --- |
-| `CLA.md` | 判断是否仍是产品文档；若是 Crush 遗留，迁入 `docs/archive/` 或删除。 |
-| `crush.json` | 若仍用于 runtime 配置，保留并文档化；否则迁入示例配置。 |
-| `.goreleaser.yml` | 若桌面客户端不用原 Crush release，重写或删除。 |
+| `CLA.md` | 判断是否仍是产品文档；若是 Agent Builder 遗留，迁入 `docs/archive/` 或删除。 |
+| `agent-builder.json` | 若仍用于 runtime 配置，保留并文档化；否则迁入示例配置。 |
+| `.goreleaser.yml` | 若桌面客户端不用原 Agent Builder release，重写或删除。 |
 | `flake.nix` / `flake.lock` | 若团队不用 Nix，删除；否则保留并更新用途说明。 |
-| `schema.json` | 若仍服务 Crush config，保留到 `internal/config` 或 `docs/reference/`；否则归档。 |
+| `schema.json` | 若仍服务 Agent Builder config，保留到 `internal/config` 或 `docs/reference/`；否则归档。 |
 | `sqlc.yaml` | 若 DB 代码仍使用 sqlc，保留；否则删除。 |
 
 ### Desktop 目录
@@ -164,7 +164,7 @@ desktop/bridge.go -> internal/runtime.Service
 
 ### Internal 目录
 
-当前 `internal` 包较多，来自 Crush 原始结构。不要一次性全部移动，先按职责分层。
+当前 `internal` 包较多，来自 Agent Builder 原始结构。不要一次性全部移动，先按职责分层。
 
 目标方向：
 
@@ -284,12 +284,12 @@ git status --short
 输出：
 
 ```text
-docs/legacy-crush-inventory.md
+docs/legacy-agent-builder-inventory.md
 ```
 
 清点范围：
 
-- 根目录 Crush 遗留文件。
+- 根目录 Agent Builder 遗留文件。
 - `internal/ui` / `internal/cmd` / `internal/commands`。
 - `desktop` 内重复 module 文件。
 - 过时 docs。
@@ -455,9 +455,9 @@ npm run build
 - 不在 product path。
 - 不被测试和构建引用。
 - 不承担历史参考价值。
-- 已在 `legacy-crush-inventory.md` 标记为 delete。
+- 已在 `legacy-agent-builder-inventory.md` 标记为 delete。
 
-建议先归档后删除，特别是 Crush 原始文档和配置。
+建议先归档后删除，特别是 Agent Builder 原始文档和配置。
 
 ## 禁止事项
 
@@ -485,7 +485,7 @@ npm run build
 下一步先输出文件清点文档：
 
 ```text
-docs/legacy-crush-inventory.md
+docs/legacy-agent-builder-inventory.md
 ```
 
 然后从低风险开始执行：

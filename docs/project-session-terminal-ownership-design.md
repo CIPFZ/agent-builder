@@ -365,7 +365,7 @@ Interactive commands:
 - Terminal reads by session must not leak terminals from other sessions.
 - Terminal stream attach must require a valid runtime API token like the rest of
   the HTTP runtime API.
-- Shell path/profile override should remain backend-validated. Do not trust a
+- Shell path/profile override should remain runtime-validated. Do not trust a
   frontend-provided shell path blindly in enterprise mode.
 - Do not log terminal input/output by default. Terminal text may contain
   secrets.
@@ -375,7 +375,7 @@ Interactive commands:
 
 ## Contract Tests Before Implementation
 
-Backend runtime tests:
+Runtime tests:
 
 - Creating a terminal without `sessionId` fails.
 - Creating a terminal for an unknown session fails.
@@ -427,7 +427,7 @@ Browser smoke:
 
 ## Implementation Phases
 
-### Phase 1: Backend Contract Gate
+### Phase 1: Runtime Contract Gate
 
 - Add DTO fields and `RuntimeSessionTerminalsResponse`.
 - Add runtime tests for ownership and lifecycle.
@@ -464,7 +464,7 @@ Browser smoke:
 
 ### Phase 6: Stress And Lifecycle Validation
 
-- Run backend tests.
+- Run runtime tests.
 - Run client build.
 - Browser-smoke multi-session/multi-terminal behavior.
 - Stress test large output, reconnect, session switch, and deletion cleanup.

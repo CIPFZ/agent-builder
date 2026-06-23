@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/message"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 func TestRuntimeTurnDiagnosticsMissingExpectedArtifact(t *testing.T) {
@@ -684,7 +684,7 @@ func TestRuntimeInterruptedSummaryPhase51StructuredRefsOnly(t *testing.T) {
 func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 	t.Parallel()
 
-	runtimeBackend, workspace := backendForSkillTest(t)
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	conn, err := db.Connect(context.Background(), workspace.DataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -693,7 +693,7 @@ func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 		_ = db.Release(workspace.DataDir)
 	})
 	service := newRuntimeService()
-	service.runtime = runtimeBackend
+	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
 	service.turns = newRuntimeTurnStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
@@ -701,11 +701,11 @@ func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 	service.eventStore = newRuntimeEventStore(conn)
 	service.hookExecutions = newRuntimeHookExecutionStore(conn)
 
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "diagnostics")
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "diagnostics")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -814,7 +814,7 @@ func TestRuntimeSessionActivityExposesTurnDiagnosticsWarning(t *testing.T) {
 func TestRuntimeSessionActivityExposesHookHaltStopReason(t *testing.T) {
 	t.Parallel()
 
-	runtimeBackend, workspace := backendForSkillTest(t)
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	conn, err := db.Connect(context.Background(), workspace.DataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -823,7 +823,7 @@ func TestRuntimeSessionActivityExposesHookHaltStopReason(t *testing.T) {
 		_ = db.Release(workspace.DataDir)
 	})
 	service := newRuntimeService()
-	service.runtime = runtimeBackend
+	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
 	service.turns = newRuntimeTurnStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
@@ -831,11 +831,11 @@ func TestRuntimeSessionActivityExposesHookHaltStopReason(t *testing.T) {
 	service.eventStore = newRuntimeEventStore(conn)
 	service.hookExecutions = newRuntimeHookExecutionStore(conn)
 
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "hook halt diagnostics")
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "hook halt diagnostics")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -951,7 +951,7 @@ func assertNarrowActivityMatchesFullTurn(t *testing.T, full RuntimeSessionActivi
 func TestRuntimeSessionActivityCursorWindowPreservesMixedEvidenceParity(t *testing.T) {
 	t.Parallel()
 
-	runtimeBackend, workspace := backendForSkillTest(t)
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	conn, err := db.Connect(context.Background(), workspace.DataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -960,18 +960,18 @@ func TestRuntimeSessionActivityCursorWindowPreservesMixedEvidenceParity(t *testi
 		_ = db.Release(workspace.DataDir)
 	})
 	service := newRuntimeService()
-	service.runtime = runtimeBackend
+	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
 	service.turns = newRuntimeTurnStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.permissionStore = newRuntimePermissionStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
 
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "cursor-window")
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "cursor-window")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1099,7 +1099,7 @@ func findRuntimeTurn(turns []RuntimeTurn, turnID string) RuntimeTurn {
 func TestRuntimeSessionActivityRestoresInterruptedSummaryWithoutStaleRunningTool(t *testing.T) {
 	t.Parallel()
 
-	runtimeBackend, workspace := backendForSkillTest(t)
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	conn, err := db.Connect(context.Background(), workspace.DataDir)
 	if err != nil {
 		t.Fatal(err)
@@ -1108,18 +1108,18 @@ func TestRuntimeSessionActivityRestoresInterruptedSummaryWithoutStaleRunningTool
 		_ = db.Release(workspace.DataDir)
 	})
 	service := newRuntimeService()
-	service.runtime = runtimeBackend
+	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
 	service.turns = newRuntimeTurnStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.permissionStore = newRuntimePermissionStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
 
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "interrupted")
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "interrupted")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ws, err := runtimeBackend.GetWorkspace(workspace.ID)
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

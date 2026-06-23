@@ -1,7 +1,7 @@
 Execute shell commands; long-running commands automatically move to background and return a shell ID.
 
 <cross_platform>
-Uses Crush's embedded portable shell (`mvdan.cc/sh`). This is not the user's
+Uses Agent Builder's embedded portable shell (`mvdan.cc/sh`). This is not the user's
 system Bash, PowerShell, or cmd.exe.
 Use forward slashes for paths: "ls C:/foo/bar" not "ls C:\foo\bar".
 Use portable POSIX-style syntax for shell composition. Do not assume
@@ -76,14 +76,14 @@ When user asks to create git commit:
    Commit message here.
 
 {{ if .Attribution.GeneratedWith }}
-   💘 Generated with Crush
+   💘 Generated with Agent Builder
 {{ end}}
 {{if eq .Attribution.TrailerStyle "assisted-by" }}
 
-   Assisted-by: Crush:{{ .ModelID }}
+   Assisted-by: Agent Builder:{{ .ModelID }}
 {{ else if eq .Attribution.TrailerStyle "co-authored-by" }}
 
-   Co-Authored-By: Crush <crush@charm.land>
+   Co-Authored-By: Agent Builder <agent-builder@users.noreply.github.com>
 {{ end }}
 
    EOF
@@ -135,7 +135,7 @@ Use gh command for ALL GitHub tasks. When user asks to create PR:
    [Checklist of TODOs...]
 
 {{ if .Attribution.GeneratedWith}}
-   💘 Generated with Crush
+   💘 Generated with Agent Builder
 {{ end }}
 
    EOF

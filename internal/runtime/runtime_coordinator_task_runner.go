@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/workbench"
 )
 
 const (
@@ -26,29 +26,29 @@ type runtimeCoordinatorTaskRunner struct {
 	executor runtimeStartedAgentTaskExecutor
 }
 
-type runtimeBackendStartedAgentTaskExecutor struct {
-	backend     *backend.Backend
+type runtimeWorkbenchStartedAgentTaskExecutor struct {
+	workbench   *workbench.Service
 	workspaceID string
 }
 
-func (r *runtimeService) installBackendAgentTaskRunner(runtimeBackend *backend.Backend, workspaceID string) {
+func (r *runtimeService) installWorkbenchAgentTaskRunner(runtimeWorkbench *workbench.Service, workspaceID string) {
 	r.agentTaskRunner = runtimeCoordinatorTaskRunner{
 		service: r,
-		executor: runtimeBackendStartedAgentTaskExecutor{
-			backend:     runtimeBackend,
+		executor: runtimeWorkbenchStartedAgentTaskExecutor{
+			workbench:   runtimeWorkbench,
 			workspaceID: workspaceID,
 		},
 	}
 }
 
-func (e runtimeBackendStartedAgentTaskExecutor) ExecuteStartedAgentTask(ctx context.Context, req agent.StartedAgentTaskExecutionRequest) (agent.StartedAgentTaskExecutionResult, error) {
-	if e.backend == nil {
-		return agent.StartedAgentTaskExecutionResult{}, errors.New("runtime backend is not available")
+func (e runtimeWorkbenchStartedAgentTaskExecutor) ExecuteStartedAgentTask(ctx context.Context, req agent.StartedAgentTaskExecutionRequest) (agent.StartedAgentTaskExecutionResult, error) {
+	if e.workbench == nil {
+		return agent.StartedAgentTaskExecutionResult{}, errors.New("runtime workbench is not available")
 	}
 	if strings.TrimSpace(e.workspaceID) == "" {
 		return agent.StartedAgentTaskExecutionResult{}, errors.New("runtime workspace id is not available")
 	}
-	return e.backend.ExecuteStartedAgentTask(ctx, e.workspaceID, req)
+	return e.workbench.ExecuteStartedAgentTask(ctx, e.workspaceID, req)
 }
 
 func (r runtimeCoordinatorTaskRunner) ExecuteAgentTask(ctx context.Context, req RuntimeAgentTaskExecutionRequest) (RuntimeAgentTaskExecutionResult, error) {
@@ -86,7 +86,7 @@ func (r runtimeCoordinatorTaskRunner) ExecuteAgentTask(ctx context.Context, req 
 		Worktree:                req.Worktree,
 		StartedAt:               req.StartedAt,
 		StartAlreadyRecorded:    req.StartAlreadyRecorded,
-		BackendOnly:             req.BackendOnly,
+		WorkbenchOnly:           req.WorkbenchOnly,
 		EventPayloadRefreshOnly: req.EventPayloadRefreshOnly,
 	})
 	if err != nil && !result.Terminal {

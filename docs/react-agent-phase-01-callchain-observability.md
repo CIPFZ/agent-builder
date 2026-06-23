@@ -49,7 +49,7 @@ should expose the same underlying facts.
 - `internal/runtime/runtime_hooks.go`
   - Hook records explain pre/post tool decisions.
 
-## Backend Contract
+## Runtime Contract
 
 Add read-only DTOs:
 
@@ -117,7 +117,7 @@ Recommended `Source` fields:
 - `usesHooks: true`
 - `eventsAreRefreshOnly: true`
 
-## Backend Implementation
+## Runtime Implementation
 
 1. Add `runtime_react_callchain.go`.
 2. Build callchain from durable reads:
@@ -185,13 +185,13 @@ it should be allowed to call the callchain read for debugging.
 
 - React does not build the callchain from conversation messages.
 - React does not infer final assistant absence.
-- React does not re-order nodes except for stable rendering of the backend
+- React does not re-order nodes except for stable rendering of the runtime
   `sequence`.
 - Expansion/collapse state is local UI state and can stay in React.
 
 ## Tests
 
-Backend tests:
+Runtime tests:
 
 - single text-only assistant final;
 - assistant -> one tool -> final assistant;
@@ -223,8 +223,8 @@ Browser smoke:
 
 ## Acceptance Criteria
 
-- A backend DTO can explain the exact ReAct sequence for a turn.
-- The DTO can distinguish backend stop from frontend rendering failure.
+- A API DTO can explain the exact ReAct sequence for a turn.
+- The DTO can distinguish runtime stop from frontend rendering failure.
 - The UI can display the chain without message parsing.
 - No runtime state is derived from runtime event payloads or React state.
 

@@ -1,7 +1,7 @@
 # Agent Builder
 
 Agent Builder is a desktop agent client built with Go, Wails 3, and React.
-It uses Crush as the backend runtime base while moving the product experience
+It uses Agent Builder as the runtime runtime base while moving the product experience
 from CLI/TUI toward a Codex-like desktop client.
 
 ## Goals
@@ -70,7 +70,7 @@ Historical baselines that are still useful for context:
 ## Current Status
 
 The repository is mid-refactor. Some Go module paths, runtime package names,
-and legacy CLI/TUI packages still carry Crush naming until the runtime boundary
+and legacy CLI/TUI packages still carry Agent Builder naming until the runtime boundary
 is fully normalized.
 
 The current architecture target is:

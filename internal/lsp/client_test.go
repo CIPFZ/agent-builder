@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/env"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/csync"
+	"github.com/CIPFZ/agent-builder/internal/env"
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 	"github.com/stretchr/testify/require"
 )

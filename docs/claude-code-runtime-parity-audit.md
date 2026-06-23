@@ -46,7 +46,7 @@ Agent Builder current code evidence is concentrated in:
 
 - `internal/runtime/`
 - `internal/runtimeapi/`
-- `internal/backend/`
+- `internal/workbench/`
 - `internal/session/`
 - `internal/message/`
 - `internal/db/`

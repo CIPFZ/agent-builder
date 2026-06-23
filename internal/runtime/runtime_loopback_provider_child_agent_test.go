@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/config"
 )
 
 func TestPhase321LoopbackProviderChildAgentExecutionSmoke(t *testing.T) {

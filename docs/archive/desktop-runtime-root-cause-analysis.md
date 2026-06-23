@@ -6,7 +6,7 @@ This document records the current end-to-end analysis after the desktop UI
 reported:
 
 ```text
-failed to send message to Crush agent: context deadline exceeded
+failed to send message to Agent Builder agent: context deadline exceeded
 ```
 
 ## Current Call Chain
@@ -19,7 +19,7 @@ React App
   -> client/src/runtime/wailsRuntime.ts bridge.Chat()
   -> Wails generated binding
   -> desktop/runtime_bridge.go RuntimeBridge.Chat()
-  -> internal/backend/agent.go Backend.SendMessage()
+  -> internal/workbench/agent.go Workbench service.SendMessage()
   -> internal/agent/coordinator.go Coordinator.Run()
   -> internal/agent/agent.go sessionAgent.Run()
   -> fantasy.Agent.Stream()
@@ -42,14 +42,14 @@ React App
    - Real UI tests showed successful short prompts returning through
      `local-model/deepseek-v4-flash`.
 
-2. The Go bridge is connected to the real Crush runtime.
+2. The Go bridge is connected to the real Agent Builder runtime.
 
    Evidence:
 
    - `desktop/runtime_bridge.go:275` calls
      `r.runtime.SendMessage(...)`.
-   - `internal/backend/agent.go:22` calls `ws.AgentCoordinator.Run(...)`.
-   - Runtime logs show `Skill turn summary`, which is emitted by the Crush
+   - `internal/workbench/agent.go:22` calls `ws.AgentCoordinator.Run(...)`.
+   - Runtime logs show `Skill turn summary`, which is emitted by the Agent Builder
      agent coordinator, not by the React UI.
 
 3. The failure happens inside the synchronous agent run, not before runtime.
@@ -66,7 +66,7 @@ React App
    creates a hard `context.WithTimeout(ctx, chatTimeout)` with
    `chatTimeout = 2 * time.Minute`.
 
-4. Crush stores useful usage data, but desktop does not expose it.
+4. Agent Builder stores useful usage data, but desktop does not expose it.
 
    Evidence:
 
@@ -74,18 +74,18 @@ React App
      `CompletionTokens`, and `Cost`.
    - `internal/agent/agent.go:438` updates session usage from
      `stepResult.Usage`.
-   - `internal/proto/session.go` already has JSON fields for usage.
+   - `internal/apitypes/session.go` already has JSON fields for usage.
    - `RuntimeBridge.Chat()` and `RuntimeBridge.Messages()` do not return
      session usage.
 
-5. Crush has an event system, but desktop is not using it.
+5. Agent Builder has an event system, but desktop is not using it.
 
    Evidence:
 
    - `internal/app/app.go:473` subscribes sessions, messages, permissions,
      history, agent notifications, MCP, LSP, and skills into the app event
      broker.
-   - `internal/backend/events.go` exposes `SubscribeEvents`.
+   - `internal/workbench/events.go` exposes `SubscribeEvents`.
    - The desktop bridge does not subscribe to or stream those events to React.
    - React refreshes messages only after `Chat()` returns.
 
@@ -93,7 +93,7 @@ React App
 
 ### P0: Desktop chat is implemented as one blocking RPC
 
-`RuntimeBridge.Chat()` waits for the whole Crush agent turn to complete before
+`RuntimeBridge.Chat()` waits for the whole Agent Builder agent turn to complete before
 returning to React.
 
 Current behavior:
@@ -102,7 +102,7 @@ Current behavior:
 UI send -> Wails Chat() -> SendMessage() blocks -> UI waits
 ```
 
-This is not aligned with how Crush is designed. Crush writes messages and usage
+This is not aligned with how Agent Builder is designed. Agent Builder writes messages and usage
 progressively through message/session services and event brokers. The desktop UI
 should observe runtime state, not wait on one long RPC.
 
@@ -185,7 +185,7 @@ This means React cannot show:
 
 `RuntimeStatus` only includes ready/workspace/session/workingDir/model/provider
 and busy. It does not include usage. The user cannot see token movement even
-though Crush stores it.
+though Agent Builder stores it.
 
 ### P2: Local provider config is minimal and may not match provider behavior
 
@@ -220,7 +220,7 @@ harder.
 
    Short prompts have completed through the real bridge.
 
-4. It is not proof that Crush cannot call the model.
+4. It is not proof that Agent Builder cannot call the model.
 
    Logs show successful real calls before and after. The failing prompt hit the
    desktop bridge timeout.
@@ -267,16 +267,16 @@ Events stream -> later replace polling
 Cancel(sessionID) -> user can stop a long run
 ```
 
-### Step 3: Use Crush session usage in desktop response/status
+### Step 3: Use Agent Builder session usage in desktop response/status
 
-After each turn, read `Backend.GetSession(...)` and expose:
+After each turn, read `Workbench service.GetSession(...)` and expose:
 
 - prompt tokens
 - completion tokens
 - cost
 - deltas from before/after
 
-This proves the model call updated Crush runtime state.
+This proves the model call updated Agent Builder runtime state.
 
 ### Step 4: Use finish state when reading assistant messages
 
@@ -286,7 +286,7 @@ in use.
 
 ### Step 5: Move toward event-driven UI
 
-The long-term desktop path should use `Backend.SubscribeEvents(...)` or a
+The long-term desktop path should use `Workbench service.SubscribeEvents(...)` or a
 desktop-specific event bridge so React observes message/session updates instead
 of waiting for Wails `Chat()` to finish.
 
@@ -305,6 +305,6 @@ The architectural target remains:
 ```text
 React UI = display/input only
 Go desktop bridge = client adapter
-Crush backend/session/message/event services = runtime source of truth
+Agent Builder runtime/session/message/event services = runtime source of truth
 Provider/fantasy = model execution
 ```

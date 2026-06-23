@@ -436,7 +436,7 @@ Implemented:
   latest cursor.
 - Polling fallback requests `/v1/events?after=<sequence>` instead of fetching
   the whole event history each cycle.
-- Runtime event DTO mapping accepts the backend snake_case fields
+- Runtime event DTO mapping accepts the runtime snake_case fields
   `session_id`, `turn_id`, `tool_call_id`, and `created_at`.
 - Frontend refresh strategy now refreshes immediately for turn/tool/permission
   lifecycle and artifact/diagnostic-like events, while coalescing message,
@@ -791,7 +791,7 @@ Remaining risks:
 
 - The panel currently shows the active/latest turn, not an arbitrary selected
   historical turn inspector.
-- Browser validation covered denied/missing warning display and backend
+- Browser validation covered denied/missing warning display and runtime
   permission-count recovery; an interactive browser run that deliberately
   leaves a permission pending should be repeated when the policy test fixture is
   separated from the full-access fake-provider smoke.
@@ -1309,7 +1309,7 @@ Implemented:
 
 - Added a runtime test fixture that writes an external stdio MCP server script
   under `tmp/runtime-dev/phase61-tests`.
-- The fixture runs through the real runtime/backend/agent/scheduler/MCP tool
+- The fixture runs through the real runtime/workbench/agent/scheduler/MCP tool
   path:
   - a fake OpenAI-compatible provider requests the discovered
     `mcp_phase61_structured_artifact` tool
@@ -4055,7 +4055,7 @@ Review conclusion:
 - Transition rows still cannot make stale permission gates, MCP auth,
   elicitation requests, tools, checkpoints, artifacts, diagnostics, or
   interrupted summaries actionable.
-- Phase 10.4 is accepted as the backend-only transition-history wiring
+- Phase 10.4 is accepted as the workbench-only transition-history wiring
   foundation.
 
 ### Phase 10.5: Read-only Transition History DTO Design Gate
@@ -4457,7 +4457,7 @@ Accepted decision:
 - Existing user-visible diagnostics should continue to come from refreshed
   `SessionActivity`, `RunProjection`, and persisted Run detail DTOs.
 - Transition history remains a transport-accessible read-only audit stream for
-  backend tests, support debugging, and future operator diagnostics.
+  runtime tests, support debugging, and future operator diagnostics.
 - Generated binding availability from Phase 10.10 is validation evidence only;
   it does not authorize frontend consumption by itself.
 - Event payloads may select a transition-history refresh only in a future
@@ -5099,7 +5099,7 @@ Implementation notes:
 
 - Added `TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership`.
 - The test exercises real `CancelTurn` over the existing session-first runtime
-  path with a durable Run, linked turn, waiting tool call, and backend session.
+  path with a durable Run, linked turn, waiting tool call, and runtime session.
 - It proves cancellation:
   - preserves the `runtime_run_sessions` turn link;
   - terminalizes the turn and waiting tool call;
@@ -5730,7 +5730,7 @@ Scope:
 
 - Review the internal scheduler plan DTO before any transport or worker phase.
 - Decide whether the next safe boundary is read-only transport exposure,
-  another backend contract test, or a worker design gate.
+  another runtime contract test, or a worker design gate.
 - Keep this phase free of runtime behavior changes unless a focused contract
   gap is found.
 
@@ -5750,7 +5750,7 @@ Accepted review:
 Transport decision:
 
 - Read-only transport exposure is not required before a minimal scheduler worker
-  design. The plan is currently a backend-internal contract for future worker
+  design. The plan is currently a runtime-internal contract for future worker
   code, not a frontend surface.
 - If transport is added later, it must be read-only and must not create frontend
   Run management UI or event-payload-derived state.
@@ -5991,7 +5991,7 @@ Review conclusion:
 - Phase 15.2 accepts the foreground scheduler delegate.
 - The next safe task is Phase 16: Checkpoint Resume Scheduler Delegate
   Hardening.
-- Phase 16 may add focused backend coverage or narrow internal wiring, but it
+- Phase 16 may add focused runtime coverage or narrow internal wiring, but it
   must not add automatic resume, unattended background execution, frontend Run
   management UI, transition-derived actionability, React-owned lifecycle state,
   task execution scheduling, or database migration.
@@ -6059,7 +6059,7 @@ Scope:
 
 - Review the user-turn and checkpoint-resume foreground delegate slice.
 - Decide whether the next safe boundary is task scheduling design,
-  transport/read exposure, or more backend delegate coverage.
+  transport/read exposure, or more runtime delegate coverage.
 - Keep this phase free of runtime behavior changes unless a focused contract
   gap is found.
 
@@ -6169,7 +6169,7 @@ Out of scope:
 Implementation entry criteria for Phase 17.1:
 
 - Add read-only task scheduler plan/preflight coverage only, or another focused
-  backend contract test if a gap is found.
+  runtime contract test if a gap is found.
 - Prove task plan items cannot become executable without parent
   Run/session/turn ownership.
 - Prove task plan items preserve task scope and do not widen allowed tools,
@@ -6260,7 +6260,7 @@ Scope:
 
 - Review Phase 17.1 before any task execution scheduling.
 - Decide whether the next safe boundary is task cancellation ownership
-  hardening or another backend contract test.
+  hardening or another runtime contract test.
 - Keep this phase free of runtime behavior changes unless a focused contract
   gap is found.
 
@@ -6329,7 +6329,7 @@ Accepted cancellation ownership:
 - `CancelAgentTask(...)` remains the current cancellation entry point.
 - Cancellation truth is the terminal task row plus task result/message evidence.
 - When a child session exists, runtime may request child-session cancellation
-  through the backend, but the durable task row/result/message evidence remains
+  through the runtime, but the durable task row/result/message evidence remains
   the source of truth.
 - Run task transition audit may record cancellation ordering after task
   evidence is terminal, but transition rows cannot decide task lifecycle or
@@ -6367,7 +6367,7 @@ Out of scope:
 
 Implementation entry criteria for Phase 18.1:
 
-- Add focused backend coverage for active task cancellation ownership.
+- Add focused runtime coverage for active task cancellation ownership.
 - Prove `CancelAgentTask(...)` terminalizes task/result/message evidence and
   preserves parent Run/session/turn/task links.
 - Prove cancelling an already-final task does not rewrite final evidence.
@@ -6397,7 +6397,7 @@ Status: implemented.
 
 Implementation:
 
-- Added backend coverage proving active `CancelAgentTask(...)` terminalizes the
+- Added runtime coverage proving active `CancelAgentTask(...)` terminalizes the
   task row and durable task result/message evidence.
 - Added ownership assertions for parent Run/session/turn/tool/task links across
   the cancellation path.
@@ -6434,7 +6434,7 @@ Status: accepted as a review gate only.
 Scope:
 
 - Review Phase 18.1 before moving toward any scheduler-owned task execution.
-- Confirm task cancellation ownership is stable and remains backend/runtime
+- Confirm task cancellation ownership is stable and remains workbench/runtime
   owned.
 - Decide the next safe boundary without implementing task scheduler execution,
   automatic resume, unattended background execution, frontend Run management UI,
@@ -6461,7 +6461,7 @@ Next boundary decision:
 - Phase 19 must define the minimum accepted task scheduler execution boundary
   before implementation. It must explicitly address parent Run/session/turn/task
   ownership, task scope enforcement, cancellation ownership, evidence ordering,
-  and frontend/backend transport exposure.
+  and frontend/runtime transport exposure.
 - Phase 19 must not implement a task scheduler worker, automatic resume,
   unattended queue/poller, frontend Run management UI, database migration, or
   transition/event/prose/React-derived lifecycle/actionability.
@@ -6469,7 +6469,7 @@ Next boundary decision:
 Validation:
 
 - Review confirmed Phase 18.1 changed only cancellation detail propagation,
-  backend tests, and docs.
+  runtime tests, and docs.
 - Review confirmed no frontend adapter, Run UI, migration, task scheduler
   execution, automatic resume, unattended worker, or source-of-truth promotion
   was added.
@@ -6541,7 +6541,7 @@ Accepted design:
 
 Required implementation entry criteria for Phase 19.1:
 
-- Add focused backend tests for a task execution delegate contract before
+- Add focused runtime tests for a task execution delegate contract before
   enabling task plan executability.
 - Prove unowned, terminal, missing, cancelled, or stale task rows are rejected
   without execution side effects.
@@ -6583,7 +6583,7 @@ Review conclusion:
   implementation.
 - The next safe task is Phase 19.1: Task Scheduler Execution Delegate Contract
   Coverage.
-- Phase 19.1 must start with backend contract tests and may add only the
+- Phase 19.1 must start with runtime contract tests and may add only the
   narrowest internal helper needed to express the delegate contract. It must
   not add a worker, queue, automatic resume, frontend Run UI, migration, or
   source-of-truth promotion.
@@ -6600,10 +6600,10 @@ Implementation:
 - The helper rejects missing task items, unowned task rows, terminal task rows,
   cancelled/interrupted task rows, and owned active task rows while task
   scheduler execution remains unaccepted.
-- Added backend tests proving rejected task delegate candidates do not write
+- Added runtime tests proving rejected task delegate candidates do not write
   runtime events, run transitions, task messages, task results, or artifact
   evidence.
-- Added backend tests proving owned active task candidates preserve parent
+- Added runtime tests proving owned active task candidates preserve parent
   Run/session/turn/tool ownership and task scope evidence while remaining
   non-executable with `task_scheduler_not_accepted`.
 
@@ -6664,7 +6664,7 @@ Next boundary decision:
 
 Validation:
 
-- Review confirmed Phase 19.1 added one internal helper, focused backend tests,
+- Review confirmed Phase 19.1 added one internal helper, focused runtime tests,
   and docs.
 - Review confirmed no task execution path was enabled and no frontend adapter,
   Run UI, migration, worker, queue, automatic resume, or source-of-truth
@@ -6732,7 +6732,7 @@ Status: implemented.
 
 Implementation:
 
-- Added backend coverage proving a foreground-schedulable owned active task
+- Added runtime coverage proving a foreground-schedulable owned active task
   delegate candidate creates no refs before recorder evidence exists.
 - Added recorder completion coverage proving completed task output creates
   task artifact refs through structured recorder evidence.
@@ -6799,7 +6799,7 @@ Next boundary decision:
 Validation:
 
 - Review confirmed Phase 20/20.1 changed internal scheduler plan/delegate
-  behavior and backend tests only.
+  behavior and runtime tests only.
 - Review confirmed no worker, queue, poller, automatic resume, frontend Run UI,
   database migration, or event/prose/React-derived source of truth was added.
 - `git diff --check` passed.
@@ -6826,7 +6826,7 @@ Accepted transport design:
 
 - Do not expose a task scheduler execute action yet.
 - Do not expose `runtimeRunSchedulerDelegateTaskTurn(...)` through HTTP or
-  Wails yet. It remains an internal backend preflight/delegate contract.
+  Wails yet. It remains an internal runtime preflight/delegate contract.
 - The next transport-safe step, if needed, is a read-only scheduler plan DTO
   endpoint/method that returns `RuntimeRunSchedulerPlanResponse` for a Run and
   candidate turn/checkpoint/task id.
@@ -6879,7 +6879,7 @@ Rejected behavior:
 Validation:
 
 - Design review only.
-- Reviewed existing frontend/backend integration notes, Wails bridge route
+- Reviewed existing frontend/runtime integration notes, Wails bridge route
   patterns, HTTP route history, and current internal scheduler plan/delegate
   state.
 - `git diff --check` passed.
@@ -6909,7 +6909,7 @@ Implemented:
   mapping.
 - Added Wails bridge aliases for scheduler plan DTOs and
   `RuntimeBridge.RunSchedulerPlan(...)`.
-- Kept `runtimeRunSchedulerDelegateTaskTurn(...)` backend-internal and did not
+- Kept `runtimeRunSchedulerDelegateTaskTurn(...)` runtime-internal and did not
   add execute/cancel task transport actions.
 
 Contract tests:
@@ -6955,7 +6955,7 @@ Acceptance review:
   frontend Run management UI, background worker, queue, poller, automatic
   resume, or database migration was added.
 - Confirmed `runtimeRunSchedulerDelegateTaskTurn(...)` remains
-  backend-internal.
+  runtime-internal.
 - Confirmed scheduler plan reads carry explicit source metadata:
   `readOnly=true`, `startsWorker=false`, and `sessionActivityParity=true`.
 - Confirmed event payloads still select refresh targets only and do not become
@@ -6998,9 +6998,9 @@ Accepted execution shape:
 - A future execute action may be explicit, foreground, and user-triggered only.
 - The action may target one owned active task candidate that already appears in
   `RunSchedulerPlan` with `canSchedule=true` and `ownershipVerified=true`.
-- The action must run through backend runtime code, not React state or event
+- The action must run through runtime runtime code, not React state or event
   payload data.
-- The backend must re-read task row, parent Run/session/turn ownership,
+- The runtime must re-read task row, parent Run/session/turn ownership,
   scheduler plan/preflight, effective scope, and current cancellation state at
   execution time.
 - The action must be idempotent by task id. Duplicate execute requests for the
@@ -7036,7 +7036,7 @@ Rejected execution shape:
 
 Required implementation entry criteria for Phase 22.1:
 
-- Define a backend-only execute contract that calls
+- Define a workbench-only execute contract that calls
   `runtimeRunSchedulerDelegateTaskTurn(...)` or equivalent revalidation before
   starting work.
 - Define the child turn/session linkage and task result/message ownership that
@@ -7063,14 +7063,14 @@ Review conclusion:
 
 - Phase 22 accepts the concept of a future explicit foreground task execute
   action, but not its implementation.
-- The next safe task is Phase 22.1: Foreground Task Execute Backend Contract.
+- The next safe task is Phase 22.1: Foreground Task Execute Runtime Contract.
 - Phase 22.1 must still avoid background scheduling, automatic resume,
   database migrations, frontend Run management UI, stale actionability
   resurrection, and event/prose/React-derived truth.
 
-## 2026-06-10: Phase 22.1 Foreground Task Execute Backend Contract
+## 2026-06-10: Phase 22.1 Foreground Task Execute Runtime Contract
 
-Phase 22.1 adds the backend-only execute contract shape. It does not start task
+Phase 22.1 adds the workbench-only execute contract shape. It does not start task
 execution yet and does not expose HTTP, Wails, generated bindings, or frontend
 controls.
 
@@ -7092,7 +7092,7 @@ Implemented:
 Contract tests:
 
 - `TestRuntimeRunSchedulerExecuteTaskAcceptsOwnedActiveCandidateWithoutStartingWorker`
-  proves owned active candidates are accepted as backend contract evidence
+  proves owned active candidates are accepted as runtime contract evidence
   without starting a worker or writing events/messages/results/refs.
 - `TestRuntimeRunSchedulerExecuteTaskIsIdempotentBeforeExecutionImplementation`
   proves duplicate contract calls for the same task do not mutate task rows or
@@ -7107,16 +7107,16 @@ Validation:
 
 Review conclusion:
 
-- Phase 22.1 establishes the backend execute action contract, not execution.
+- Phase 22.1 establishes the runtime execute action contract, not execution.
 - No worker, queue, poller, automatic resume, database migration, HTTP/Wails
   route, generated binding, frontend Run UI, stale actionability recovery, or
   event/prose/React-derived truth was added.
 - The next safe task is Phase 22.2 acceptance, or Phase 22.3 to implement the
-  foreground execution body behind the backend-only contract after acceptance.
+  foreground execution body behind the workbench-only contract after acceptance.
 
-## 2026-06-10: Phase 22.2 Foreground Task Execute Backend Contract Acceptance
+## 2026-06-10: Phase 22.2 Foreground Task Execute Runtime Contract Acceptance
 
-Phase 22.2 accepts the Phase 22.1 backend-only execute contract as the stable
+Phase 22.2 accepts the Phase 22.1 workbench-only execute contract as the stable
 entry point for a future foreground task execution implementation.
 
 Acceptance review:
@@ -7147,7 +7147,7 @@ Validation:
 Accepted contract:
 
 - Future foreground execution must be implemented behind
-  `runtimeRunSchedulerExecuteTask(...)` or an equivalent backend-only contract
+  `runtimeRunSchedulerExecuteTask(...)` or an equivalent workbench-only contract
   that preserves the same revalidation and idempotency semantics.
 - The first execution implementation may flip `executionStarted=true` only
   after tests prove no duplicate turns/messages/results/refs/events,
@@ -7164,7 +7164,7 @@ Next safe boundary:
   migrations, stale actionability recovery, frontend Run UI, or
   event/prose/React-derived truth.
 
-## 2026-06-10: Phase 22.3 Foreground Task Execute Body Behind Backend Contract
+## 2026-06-10: Phase 22.3 Foreground Task Execute Body Behind Runtime Contract
 
 Phase 22.3 implements the first internal foreground execution body behind
 `runtimeRunSchedulerExecuteTask(...)`. This is still runtime-only and does not
@@ -7243,7 +7243,7 @@ Validation:
 Accepted contract:
 
 - Internal foreground task start is accepted as the first execution body behind
-  the backend-only execute contract.
+  the workbench-only execute contract.
 - Artifact refs remain completion-only and must come from completed structured
   scheduler/recorder output.
 - A later child-agent runner must preserve this idempotent start behavior and
@@ -7275,7 +7275,7 @@ Reviewed implementation points:
 - `Coordinator.SendToSession(...)` and `Coordinator.Cancel(...)` route active
   child sessions through `childAgents`; this routing is runtime process state
   and must not be treated as durable resume state after restart.
-- `runtimeRunSchedulerExecuteTask(...)` currently provides only backend-only
+- `runtimeRunSchedulerExecuteTask(...)` currently provides only workbench-only
   foreground start evidence: it revalidates ownership through
   `runtimeRunSchedulerDelegateTaskTurn(...)`, moves queued tasks to `running`,
   writes one instruction message, one `task_started` event, and one
@@ -7286,7 +7286,7 @@ Reviewed implementation points:
 
 Accepted runner shape:
 
-- The eventual foreground runner should be an explicit backend-internal
+- The eventual foreground runner should be an explicit runtime-internal
   dependency behind `runtimeRunSchedulerExecuteTask(...)`, not a HTTP/Wails/
   client/frontend action in the first implementation.
 - Runtime should depend on a narrow child-agent runner interface, for example
@@ -7339,7 +7339,7 @@ Accepted runner shape:
 
 Required implementation entry criteria for the next implementation phase:
 
-- Add a backend-internal child-agent runner interface and wire it into
+- Add a runtime-internal child-agent runner interface and wire it into
   `runtimeService` for tests without exposing transport or UI.
 - Preserve `runtimeRunSchedulerExecuteTask(...)` revalidation and start
   idempotency before invoking the runner.
@@ -7379,22 +7379,22 @@ Review conclusion:
 
 - Phase 22.5 accepts the foreground child-agent runner direction but not its
   implementation.
-- The next safe task is Phase 22.6: implement a backend-internal child-agent
+- The next safe task is Phase 22.6: implement a runtime-internal child-agent
   runner contract/fake-runner harness behind `runtimeRunSchedulerExecuteTask`.
 - Phase 22.6 must still avoid transport/frontend exposure, background workers,
   automatic resume, database migrations, stale actionability recovery, and
   event/prose/React-derived truth.
 
-## 2026-06-10: Phase 22.6 Child-agent Foreground Runner Backend Contract
+## 2026-06-10: Phase 22.6 Child-agent Foreground Runner Runtime Contract
 
-Phase 22.6 implements the backend-internal child-agent runner contract behind
+Phase 22.6 implements the runtime-internal child-agent runner contract behind
 `runtimeRunSchedulerExecuteTask(...)`. It does not connect the real
 coordinator runner yet and does not expose HTTP, dev module, Wails, generated
 bindings, client adapter, or frontend controls.
 
 Implemented:
 
-- Added backend-internal `runtimeAgentTaskRunner` with
+- Added runtime-internal `runtimeAgentTaskRunner` with
   `ExecuteAgentTask(ctx, RuntimeAgentTaskExecutionRequest)`.
 - Added `RuntimeAgentTaskExecutionRequest` and
   `RuntimeAgentTaskExecutionResult` DTOs for runtime/agent boundary evidence.
@@ -7436,19 +7436,19 @@ Validation:
 
 Review conclusion:
 
-- Phase 22.6 adds only a backend-internal, test-injectable runner contract.
+- Phase 22.6 adds only a runtime-internal, test-injectable runner contract.
 - It still does not implement the real coordinator adapter or expose execution
   through transport/frontend.
 - Runtime durable DTOs remain the source of truth; runner result payloads and
   events are not used to hydrate lifecycle, artifact, permission/MCP
   actionability, or Run status directly.
-- The next safe task is Phase 22.7 acceptance of the backend runner contract,
+- The next safe task is Phase 22.7 acceptance of the runtime runner contract,
   then a later implementation gate can connect a real coordinator adapter if
   accepted.
 
-## 2026-06-10: Phase 22.7 Child-agent Foreground Runner Backend Contract Acceptance
+## 2026-06-10: Phase 22.7 Child-agent Foreground Runner Runtime Contract Acceptance
 
-Phase 22.7 accepts the Phase 22.6 backend-internal runner contract as the
+Phase 22.7 accepts the Phase 22.6 runtime-internal runner contract as the
 stable boundary for future child-agent foreground execution work.
 
 Acceptance review:
@@ -7485,7 +7485,7 @@ Validation:
 
 Accepted contract:
 
-- Future real coordinator integration must implement this backend-internal
+- Future real coordinator integration must implement this runtime-internal
   runner boundary or an equivalent one that preserves the same source flags,
   durable re-read semantics, idempotency, cancellation ordering, and
   completion-only artifact evidence.
@@ -7498,7 +7498,7 @@ Accepted contract:
 
 Review conclusion:
 
-- Phase 22.7 accepts the backend runner contract.
+- Phase 22.7 accepts the runtime runner contract.
 - The next safe task is Phase 23: Real Coordinator Foreground Runner Adapter
   Design Gate.
 - Phase 23 should design, not yet implement, how to expose a narrow
@@ -7564,7 +7564,7 @@ Accepted adapter direction:
 
 Required Phase 23.1 implementation entry criteria:
 
-- Add only backend/internal agent/coordinator contract types and tests first.
+- Add only runtime/internal agent/coordinator contract types and tests first.
 - Prove an already-started task does not duplicate start evidence.
 - Prove active foreground registration enables follow-up/cancel routing during
   the call and is removed after return.
@@ -7605,13 +7605,13 @@ Review conclusion:
 - Phase 23 accepts the real adapter direction but not implementation.
 - The next safe task is Phase 23.1: Agent/coordinator Started Task Execution
   Contract.
-- Phase 23.1 must remain backend/internal and must not expose transport/UI or
+- Phase 23.1 must remain runtime/internal and must not expose transport/UI or
   add background scheduling, automatic resume, database migrations, stale
   actionability recovery, or event/prose/React-derived truth.
 
 ## 2026-06-10: Phase 23.1 Agent/coordinator Started Task Execution Contract
 
-Phase 23.1 adds the backend/internal coordinator contract for executing an
+Phase 23.1 adds the runtime/internal coordinator contract for executing an
 already-started agent task. It is not wired into runtime yet and does not add
 HTTP/dev/Wails transport, generated bindings, client adapters, frontend UI,
 background scheduling, automatic resume, database migrations, or stale
@@ -7621,7 +7621,7 @@ Implemented:
 
 - Added `StartedAgentTaskExecutionRequest` and
   `StartedAgentTaskExecutionResult` in `internal/agent`.
-- Added `coordinator.ExecuteStartedAgentTask(...)` for backend/internal use.
+- Added `coordinator.ExecuteStartedAgentTask(...)` for runtime/internal use.
 - The method requires pre-recorded start evidence via
   `StartAlreadyRecorded=true` and rejects calls without it.
 - The method registers the child `SessionAgent` in the existing process-local
@@ -7739,8 +7739,8 @@ Reviewed wiring points:
   start evidence.
 - Agent owns `coordinator.ExecuteStartedAgentTask(...)`, which expects an
   already-started task and requires a concrete `SessionAgent`.
-- Backend/workspace currently holds `Workspace.App.AgentCoordinator`, while
-  runtime holds `runtimeBackend` plus the active `workspaceID`.
+- Workbench/workspace currently holds `Workspace.App.AgentCoordinator`, while
+  runtime holds `runtimeWorkbench` plus the active `workspaceID`.
 - The task agent configuration already exists as `config.AgentTask`; existing
   `agent_tool` builds the task sub-agent from this config and allowed tools.
 
@@ -7750,13 +7750,13 @@ Accepted wiring direction:
 
   ```text
   runtimeCoordinatorTaskRunner{
-      backend *backend.Backend
+      runtime *workbench.Service
       workspaceID string
   }
   ```
 
   It should satisfy `runtimeAgentTaskRunner` by:
-  - resolving the current backend workspace by id;
+  - resolving the current runtime workspace by id;
   - requiring an initialized `AgentCoordinator`;
   - selecting/building the configured task agent through the coordinator/agent
     package, not from runtime;
@@ -7790,9 +7790,9 @@ Accepted wiring direction:
 
 Required Phase 23.4 implementation entry criteria:
 
-- Add backend/internal adapter wiring only; do not expose HTTP/dev/Wails/client
+- Add runtime/internal adapter wiring only; do not expose HTTP/dev/Wails/client
   or UI controls.
-- Prove missing backend/workspace/coordinator fails terminally without leaving
+- Prove missing runtime/workspace/coordinator fails terminally without leaving
   a started task running.
 - Prove unsupported role/model/prompt-source gaps fail terminally and do not
   run the coder agent by accident.
@@ -7820,7 +7820,7 @@ Validation:
 
 - Design review only.
 - Reviewed runtime runner contract, coordinator started-task contract,
-  backend/workspace coordinator ownership, task agent config, and runtime task
+  runtime/workspace coordinator ownership, task agent config, and runtime task
   cancellation/recorder evidence paths.
 - `git diff --check` passed.
 
@@ -7835,10 +7835,10 @@ Review conclusion:
 
 ## 2026-06-10: Phase 23.4 Runtime-to-coordinator Foreground Runner Adapter Contract
 
-Phase 23.4 implements the backend/internal runtime-side adapter contract for
+Phase 23.4 implements the runtime/internal runtime-side adapter contract for
 mapping started runtime tasks to the coordinator started-task execution shape.
 It does not install the adapter into `runtimeService`, does not resolve a real
-backend workspace/coordinator yet, and does not expose HTTP/dev/Wails,
+runtime workspace/coordinator yet, and does not expose HTTP/dev/Wails,
 generated bindings, client adapters, frontend UI, background scheduling,
 automatic resume, database migrations, or stale actionability recovery.
 
@@ -7887,17 +7887,17 @@ Review conclusion:
 - Phase 23.4 resolves durable prompt sourcing for the adapter contract and
   terminal failure behavior for unsupported roles/prompt gaps.
 - The adapter is still not installed into `runtimeService` and still does not
-  call a real backend workspace/coordinator.
+  call a real runtime workspace/coordinator.
 - No transport/frontend execution surface, background scheduler, automatic
   resume, migration, stale actionability recovery, or event/prose/React source
   of truth was added.
 - The next safe task is Phase 23.5 acceptance, then a later gate may install a
-  real backend/coordinator executor if accepted.
+  real runtime/coordinator executor if accepted.
 
 ## 2026-06-10: Phase 23.5 Runtime-to-coordinator Foreground Runner Adapter Contract Acceptance
 
 Phase 23.5 accepts the Phase 23.4 runtime-side coordinator adapter contract as
-the stable backend/internal mapping boundary for future real executor wiring.
+the stable runtime/internal mapping boundary for future real executor wiring.
 
 Acceptance review:
 
@@ -7929,23 +7929,23 @@ Validation:
 Accepted contract:
 
 - A future real executor may be installed behind this adapter only after a
-  separate design/implementation gate proves backend workspace resolution,
+  separate design/implementation gate proves runtime workspace resolution,
   coordinator readiness, task-agent selection, cancellation ordering, and
   completed-output-only produced refs.
-- The first real executor must remain backend/internal and foreground-scoped.
+- The first real executor must remain runtime/internal and foreground-scoped.
 - Transport/frontend exposure remains blocked.
 
 Review conclusion:
 
 - Phase 23.5 accepts the runtime-side adapter contract.
-- The next safe task is Phase 24: Real Backend/coordinator Executor Install
+- The next safe task is Phase 24: Real Workbench/coordinator Executor Install
   Design Gate.
-- Phase 24 must design how to resolve backend workspace/coordinator and build
+- Phase 24 must design how to resolve runtime workspace/coordinator and build
   the task agent without recreating coordinator logic in runtime.
 
-## 2026-06-10: Phase 24 Real Backend/coordinator Executor Install Design Gate
+## 2026-06-10: Phase 24 Real Workbench/coordinator Executor Install Design Gate
 
-Phase 24 designs how to install a real backend/coordinator executor behind the
+Phase 24 designs how to install a real runtime/coordinator executor behind the
 accepted runtime adapter contract. It is a design gate only; no executor is
 installed, no runtime service wiring is changed, and no transport/frontend
 execution surface is added.
@@ -7960,7 +7960,7 @@ Reviewed install points:
 - The existing `agent_tool` builds the configured task agent using
   `config.AgentTask`, `taskPrompt(...)`, and `coordinator.buildAgent(...)`.
 - Runtime should not import or duplicate task-agent build logic. It currently
-  holds `backend.Backend` and workspace id, while backend/workspace owns
+  holds `workbench.Service` and workspace id, while runtime/workspace owns
   `Workspace.App.AgentCoordinator`.
 
 Accepted install direction:
@@ -7981,7 +7981,7 @@ Accepted install direction:
     `agent_tool`;
   - call `ExecuteStartedAgentTask(...)` with the constructed child agent;
   - avoid `AgentTaskStarted`/`AgentTaskProgress` duplicate start writes.
-- Add a backend/workspace method only after that coordinator method exists,
+- Add a runtime/workspace method only after that coordinator method exists,
   for example:
 
   ```text
@@ -7991,13 +7991,13 @@ Accepted install direction:
   It should resolve workspace, require initialized coordinator, call the
   configured coordinator method, and return terminal result metadata.
 - Install `runtimeCoordinatorTaskRunner` into `runtimeService` only after the
-  backend method is implemented and tested. Runtime should pass the backend
-  workspace id and a backend executor adapter; it should not build agents.
-- Missing backend, missing workspace, or uninitialized coordinator must fail
+  runtime method is implemented and tested. Runtime should pass the runtime
+  workspace id and a runtime executor adapter; it should not build agents.
+- Missing runtime, missing workspace, or uninitialized coordinator must fail
   the already-started task terminally through runtime recorder evidence rather
   than leaving it running.
 - Cancellation remains foreground/request-scoped: runtime durable
-  `CancelAgentTask(...)` owns cancellation, while backend/coordinator cancel
+  `CancelAgentTask(...)` owns cancellation, while runtime/coordinator cancel
   routing remains best-effort for an active child session only.
 
 Required Phase 24.1 implementation entry criteria:
@@ -8009,7 +8009,7 @@ Required Phase 24.1 implementation entry criteria:
 - Add tests for missing task agent config, unsupported role, provider/model
   failure, policy denial, cancellation, and completion terminal evidence.
 - Prove failed/cancelled/partial paths produce no artifact refs.
-- Keep everything backend/internal; do not add HTTP/dev/Wails/client/frontend
+- Keep everything runtime/internal; do not add HTTP/dev/Wails/client/frontend
   execution actions.
 
 Rejected install shape:
@@ -8026,7 +8026,7 @@ Validation:
 
 - Design review only.
 - Reviewed runtime adapter contract, coordinator started-task contract,
-  app/backend workspace coordinator ownership, `agent_tool` task-agent build
+  app/workbench workspace coordinator ownership, `agent_tool` task-agent build
   path, and runtime cancellation/recorder evidence paths.
 - `git diff --check` passed.
 
@@ -8041,7 +8041,7 @@ Review conclusion:
 ## 2026-06-10: Phase 24.1 Coordinator Configured Started Task Executor Contract
 
 Phase 24.1 implements the coordinator-owned configured started-task executor.
-It does not install the runtime adapter, does not add backend transport, and
+It does not install the runtime adapter, does not add runtime transport, and
 does not expose HTTP/dev/Wails, generated bindings, client adapters, frontend
 UI, background scheduling, automatic resume, database migrations, or stale
 actionability recovery.
@@ -8088,7 +8088,7 @@ Review conclusion:
 - No transport/frontend execution surface, background scheduler, automatic
   resume, migration, stale actionability recovery, or event/prose/React source
   of truth was added.
-- The next safe task is Phase 24.2 acceptance, then a later backend/runtime
+- The next safe task is Phase 24.2 acceptance, then a later workbench/runtime
   wiring gate if accepted.
 
 ## 2026-06-10: Phase 24.2 Coordinator Configured Started Task Executor Contract Acceptance
@@ -8099,7 +8099,7 @@ executor contract.
 Acceptance review:
 
 - Confirmed `Coordinator.ExecuteConfiguredStartedAgentTask(...)` is
-  backend/internal agent API only and is not exposed through runtime transport,
+  runtime/internal agent API only and is not exposed through runtime transport,
   generated bindings, client adapters, or frontend UI.
 - Confirmed task-agent construction stays in coordinator code through the
   existing `config.AgentTask`, `taskPrompt(...)`, and `buildAgent(...)` path.
@@ -8123,32 +8123,32 @@ Validation:
 
 Accepted contract:
 
-- A future backend/runtime wiring phase may call
-  `ExecuteConfiguredStartedAgentTask(...)` through a backend/workspace adapter.
+- A future workbench/runtime wiring phase may call
+  `ExecuteConfiguredStartedAgentTask(...)` through a runtime/workspace adapter.
 - Runtime must still use durable prompt source and re-read task/result/ref DTOs
   after runner return.
-- Transport/frontend exposure remains blocked until backend/runtime wiring is
+- Transport/frontend exposure remains blocked until workbench/runtime wiring is
   implemented and accepted.
 
 Review conclusion:
 
 - Phase 24.2 accepts the coordinator configured executor contract.
-- The next safe task is Phase 24.3: Backend/runtime Executor Wiring Design
+- The next safe task is Phase 24.3: Workbench/runtime Executor Wiring Design
   Gate.
-- Phase 24.3 should design the backend workspace method and runtime install
+- Phase 24.3 should design the runtime workspace method and runtime install
   path without implementing it yet.
 
-## 2026-06-10: Phase 24.3 Backend/runtime Executor Wiring Design Gate
+## 2026-06-10: Phase 24.3 Workbench/runtime Executor Wiring Design Gate
 
-Phase 24.3 designs the backend/runtime wiring needed to install the accepted
+Phase 24.3 designs the runtime/runtime wiring needed to install the accepted
 coordinator configured executor behind `runtimeCoordinatorTaskRunner`. It is a
-design gate only; no backend method, runtime installation, transport exposure,
+design gate only; no runtime method, runtime installation, transport exposure,
 frontend control, background scheduling, automatic resume, database migration,
 or stale actionability recovery is added.
 
 Accepted wiring shape:
 
-- Add a backend-internal method in a later phase, for example:
+- Add a runtime-internal method in a later phase, for example:
 
   ```text
   ExecuteStartedAgentTask(ctx, workspaceID string, req agent.StartedAgentTaskExecutionRequest) (agent.StartedAgentTaskExecutionResult, error)
@@ -8158,27 +8158,27 @@ Accepted wiring shape:
   `AgentCoordinator`, call `ExecuteConfiguredStartedAgentTask(...)`, and return
   terminal result metadata.
 - Add a thin runtime executor adapter that satisfies
-  `runtimeStartedAgentTaskExecutor` by calling the backend method. It should
+  `runtimeStartedAgentTaskExecutor` by calling the runtime method. It should
   not build agents, select models, or inspect frontend state.
 - Install `runtimeCoordinatorTaskRunner` into `runtimeService` only when
-  runtime has both a live backend pointer and active workspace id. Startup or
+  runtime has both a live runtime pointer and active workspace id. Startup or
   workspace changes must not auto-resume old tasks.
-- If backend, workspace, or coordinator is missing after runtime has already
+- If runtime, workspace, or coordinator is missing after runtime has already
   recorded task start evidence, the runtime adapter must fail the task
   terminally through recorder-compatible evidence and produce no artifact refs.
 - Runtime must keep durable re-read semantics after runner return. Runner or
-  backend result payloads may be action metadata only.
+  runtime result payloads may be action metadata only.
 - Cancellation remains owned by `CancelAgentTask(...)`. The installed runner
   may rely on coordinator process-local cancel routing only during the active
   foreground request.
 
 Required Phase 24.4 implementation entry criteria:
 
-- Add backend/internal method and runtime executor adapter only; do not expose
+- Add runtime/internal method and runtime executor adapter only; do not expose
   HTTP/dev/Wails/client/frontend execution actions.
-- Prove missing backend/workspace/coordinator terminally fails already-started
+- Prove missing runtime/workspace/coordinator terminally fails already-started
   tasks without artifact refs.
-- Prove successful execution calls backend/coordinator once and does not
+- Prove successful execution calls runtime/coordinator once and does not
   duplicate start/progress evidence.
 - Prove runtime re-reads durable task/result/ref DTOs after return.
 - Prove cancellation before/during execution terminalizes as cancelled and
@@ -8198,23 +8198,23 @@ Rejected wiring shape:
 Validation:
 
 - Design review only.
-- Reviewed backend workspace ownership, app coordinator initialization,
+- Reviewed runtime workspace ownership, app coordinator initialization,
   coordinator configured executor contract, runtime adapter contract, and
   runtime cancellation/recorder evidence paths.
 - `git diff --check` passed.
 
 Review conclusion:
 
-- Phase 24.3 accepts the backend/runtime wiring direction but not
+- Phase 24.3 accepts the runtime/runtime wiring direction but not
   implementation.
-- The next safe task is Phase 24.4: Backend/runtime Executor Wiring Contract.
-- Phase 24.4 must remain backend/internal and must still avoid transport/UI
+- The next safe task is Phase 24.4: Workbench/runtime Executor Wiring Contract.
+- Phase 24.4 must remain runtime/internal and must still avoid transport/UI
   exposure, background scheduling, automatic resume, migrations, stale
   actionability recovery, and event/prose/React-derived truth.
 
-## 2026-06-10: Phase 24.4 Backend/runtime Executor Wiring Contract
+## 2026-06-10: Phase 24.4 Workbench/runtime Executor Wiring Contract
 
-Phase 24.4 implements the backend/internal executor wiring needed to connect
+Phase 24.4 implements the runtime/internal executor wiring needed to connect
 the accepted coordinator configured started-task executor to the runtime
 runner. It remains internal only: no HTTP/dev route, Wails binding, generated
 client adapter, React control, background worker, automatic resume, database
@@ -8222,19 +8222,19 @@ migration, or stale actionability recovery is added.
 
 Implemented contract:
 
-- Added `Backend.ExecuteStartedAgentTask(ctx, workspaceID, req)` as an
-  internal backend method. It resolves the workspace, requires an initialized
+- Added `Workbench service.ExecuteStartedAgentTask(ctx, workspaceID, req)` as an
+  internal runtime method. It resolves the workspace, requires an initialized
   `AgentCoordinator`, and delegates to
   `ExecuteConfiguredStartedAgentTask(...)`.
-- Added `runtimeBackendStartedAgentTaskExecutor` as a thin runtime adapter
-  around backend/workspace routing. It performs only availability checks and
+- Added `runtimeWorkbenchStartedAgentTaskExecutor` as a thin runtime adapter
+  around runtime/workspace routing. It performs only availability checks and
   delegates execution; it does not build agents, select models, inspect
   frontend state, or infer prompts.
 - Installed `runtimeCoordinatorTaskRunner` after runtime startup has a live
-  backend, workspace id, and DB-backed runtime stores. Installation does not
+  runtime, workspace id, and DB-backed runtime stores. Installation does not
   execute or resume tasks; it only gives later explicit scheduler execution a
-  backend/coordinator delegate.
-- Hardened `runtimeCoordinatorTaskRunner.ExecuteAgentTask(...)` so a backend
+  runtime/coordinator delegate.
+- Hardened `runtimeCoordinatorTaskRunner.ExecuteAgentTask(...)` so a runtime
   or coordinator error that returns no terminal result is converted into
   durable failed task evidence through the existing scheduler recorder path.
   The failure is terminal, refresh-target-only, no-stale-resume, and
@@ -8246,30 +8246,30 @@ Implemented contract:
 
 Validation:
 
-- Backend routing test proves the backend calls the workspace coordinator once
+- Runtime routing test proves the runtime calls the workspace coordinator once
   and returns terminal coordinator metadata.
-- Backend guard test proves missing workspace and missing coordinator return
+- Runtime guard test proves missing workspace and missing coordinator return
   errors instead of falling back to a coder agent.
 - Runtime installation test proves the service installs a coordinator runner
-  backed by the backend/workspace adapter, and adapter guard tests prove
-  missing backend or workspace id is rejected before delegation.
+  backed by the runtime/workspace adapter, and adapter guard tests prove
+  missing runtime or workspace id is rejected before delegation.
 - Runtime runner tests prove durable instruction prompt sourcing, unsupported
   role failure, missing prompt-source failure, and non-terminal executor error
   terminalization. These failure paths create no artifact refs.
 - Narrow test command passed:
 
   ```text
-  go test ./internal/backend ./internal/runtime -run "TestBackendExecuteStartedAgentTask|TestRuntimeCoordinatorTaskRunner|TestRuntimeBackendStartedAgentTaskExecutor|TestRuntimeServiceInstallsBackendAgentTaskRunner" -count=1
+  go test ./internal/workbench ./internal/runtime -run "TestBackendExecuteStartedAgentTask|TestRuntimeCoordinatorTaskRunner|TestRuntimeWorkbenchStartedAgentTaskExecutor|TestRuntimeServiceInstallsBackendAgentTaskRunner" -count=1
   ```
 - Related package regression passed:
 
   ```text
-  go test ./internal/agent ./internal/backend ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1
+  go test ./internal/agent ./internal/workbench ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1
   ```
 
 Review conclusion:
 
-- Phase 24.4 accepts backend/runtime executor wiring as internal-only.
+- Phase 24.4 accepts workbench/runtime executor wiring as internal-only.
 - The implementation keeps runtime DTO/durable re-read semantics as the source
   of truth; event payloads remain refresh triggers only.
 - Cancellation remains owned by existing runtime task cancellation paths; no
@@ -8277,22 +8277,22 @@ Review conclusion:
 - Remaining risk before any user-facing execution affordance: run broader
   related-package tests and perform an acceptance pass that reviews duplicate
   lifecycle/progress evidence, cancellation ordering, and transport boundaries.
-- The next safe task is Phase 24.5: Backend/runtime Executor Wiring Acceptance.
+- The next safe task is Phase 24.5: Workbench/runtime Executor Wiring Acceptance.
 
-## 2026-06-10: Phase 24.5 Backend/runtime Executor Wiring Acceptance
+## 2026-06-10: Phase 24.5 Workbench/runtime Executor Wiring Acceptance
 
-Phase 24.5 accepts the Phase 24.4 backend/runtime executor wiring contract.
+Phase 24.5 accepts the Phase 24.4 workbench/runtime executor wiring contract.
 This is an acceptance/review phase only; it does not add execution routes,
 client bindings, frontend controls, background workers, automatic resume,
 database migrations, or stale permission/MCP actionability recovery.
 
 Acceptance review:
 
-- `Backend.ExecuteStartedAgentTask(...)` is backend-internal and only resolves
+- `Workbench service.ExecuteStartedAgentTask(...)` is runtime-internal and only resolves
   workspace/coordinator before delegating to the coordinator-owned
   `ExecuteConfiguredStartedAgentTask(...)`.
 - `runtimeCoordinatorTaskRunner` is installed during runtime startup only
-  after a live backend, workspace id, and DB-backed runtime stores exist.
+  after a live runtime, workspace id, and DB-backed runtime stores exist.
   Installation does not execute queued work, resume interrupted tasks, or
   change startup recovery semantics.
 - Runtime still uses explicit prompt sources only:
@@ -8300,11 +8300,11 @@ Acceptance review:
   `runtime_task_instruction` task message payload. Assistant prose, runtime
   events, transition history, and React state remain rejected as prompt/state
   sources.
-- Backend/coordinator errors that return no terminal result are converted into
+- Workbench/coordinator errors that return no terminal result are converted into
   durable failed task evidence by the existing recorder path, with no artifact
   refs and no stale resume.
 - Existing task cancellation remains owned by `CancelAgentTask(...)` and
-  recorder terminal evidence. The backend runner installation does not add a
+  recorder terminal evidence. The runtime runner installation does not add a
   scheduler-owned cancellation source or process-recovery resume path.
 - No HTTP/dev route, Wails binding, generated frontend client action, React
   Run UI, runtime Run store migration, background queue/worker, poller, daemon,
@@ -8317,13 +8317,13 @@ Validation:
 - Phase 24.4 implementation tests passed:
 
   ```text
-  go test ./internal/backend ./internal/runtime -run "TestBackendExecuteStartedAgentTask|TestRuntimeCoordinatorTaskRunner|TestRuntimeBackendStartedAgentTaskExecutor|TestRuntimeServiceInstallsBackendAgentTaskRunner" -count=1
+  go test ./internal/workbench ./internal/runtime -run "TestBackendExecuteStartedAgentTask|TestRuntimeCoordinatorTaskRunner|TestRuntimeWorkbenchStartedAgentTaskExecutor|TestRuntimeServiceInstallsBackendAgentTaskRunner" -count=1
   ```
 
 - Related package regression passed:
 
   ```text
-  go test ./internal/agent ./internal/backend ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1
+  go test ./internal/agent ./internal/workbench ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1
   ```
 
 - Phase 24.5 acceptance diff review passed:
@@ -8336,7 +8336,7 @@ Validation:
 
 Review conclusion:
 
-- Phase 24.5 accepts Phase 24.4 as the first real internal backend/coordinator
+- Phase 24.5 accepts Phase 24.4 as the first real internal runtime/coordinator
   executor installation.
 - The implementation is still not a user-facing execution feature. It is a
   controlled internal delegate used only when existing explicit scheduler
@@ -8346,15 +8346,15 @@ Review conclusion:
   cancellation during a real provider call, and permission/MCP behavior during
   real child execution.
 - The next safe task is Phase 25: Real Child-agent Execution Smoke And
-  Cancellation Validation. It should validate the installed backend runner in
+  Cancellation Validation. It should validate the installed runtime runner in
   live/fake-provider smoke paths without adding frontend controls, transport
   execution routes, background workers, auto-resume, or migrations.
 
 ## 2026-06-10: Phase 25 Real Child-agent Execution Smoke And Cancellation Validation
 
-Phase 25 validates the installed backend/runtime executor with an internal
+Phase 25 validates the installed workbench/runtime executor with an internal
 fake-coordinator smoke path. It exercises the real runtime scheduler execution
-entry, installed `runtimeCoordinatorTaskRunner`, backend workspace routing, and
+entry, installed `runtimeCoordinatorTaskRunner`, runtime workspace routing, and
 coordinator interface without adding HTTP/dev routes, Wails bindings, frontend
 controls, background workers, automatic resume, database migrations, or stale
 actionability recovery.
@@ -8362,14 +8362,14 @@ actionability recovery.
 Implemented validation/hardening:
 
 - Added runtime scheduler execute smoke coverage for:
-  - queued AgentTask start through the installed backend runner;
-  - backend workspace `AgentCoordinator.ExecuteConfiguredStartedAgentTask(...)`
+  - queued AgentTask start through the installed runtime runner;
+  - runtime workspace `AgentCoordinator.ExecuteConfiguredStartedAgentTask(...)`
     invocation exactly once;
   - durable prompt sourcing from `runtime_task_instruction`;
-  - completed backend runner output producing artifact refs only through
+  - completed runtime runner output producing artifact refs only through
     completion recorder evidence;
   - no duplicate task-start message/event evidence;
-  - cancelled backend runner output producing terminal cancelled evidence with
+  - cancelled runtime runner output producing terminal cancelled evidence with
     zero artifact refs.
 - Hardened `runtimeSchedulerRecorder.AgentTaskFailed(...)` so failed and
   cancelled task evidence ignores incoming `ArtifactRefs`. This prevents
@@ -8390,7 +8390,7 @@ Validation:
 - Related package regression passed:
 
   ```text
-  go test ./internal/agent ./internal/backend ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1
+  go test ./internal/agent ./internal/workbench ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1
   ```
 
 Review conclusion:
@@ -8399,10 +8399,10 @@ Review conclusion:
   and the no-artifact-on-failed/cancelled hardening.
 - The test is intentionally credential-free and writes no secrets, OAuth
   state, provider auth state, screenshots, or live logs to the repository.
-- The implementation remains backend/internal. No client execution affordance,
+- The implementation remains runtime/internal. No client execution affordance,
   transport action, background scheduler loop, auto-resume path, Run migration,
   or stale permission/MCP actionability recovery was added.
-- Remaining risk: this phase validates the backend/coordinator interface with
+- Remaining risk: this phase validates the runtime/coordinator interface with
   fake coordinator evidence, not a real hosted/provider call. Provider-specific
   live smoke still requires credentials and must be redacted/manual unless a
   safe local fake provider can cover the behavior.
@@ -8415,7 +8415,7 @@ Review conclusion:
 ## 2026-06-10: Phase 25.1 Real Provider/Hosted MCP Redacted Smoke Checklist And Gap Review
 
 Phase 25.1 reviews the live-provider/hosted-MCP validation gap after the
-internal backend runner smoke. It does not add code, transport routes, Wails
+internal runtime runner smoke. It does not add code, transport routes, Wails
 bindings, frontend controls, background workers, automatic resume, migrations,
 or stale permission/MCP actionability recovery.
 
@@ -8431,9 +8431,9 @@ Credential-safe result:
   logs.
 - Deterministic repo coverage remains the accepted validation substitute until
   a credentialed operator can run the manual smoke:
-  - Phase 25 proves scheduler execution reaches the installed backend runner
+  - Phase 25 proves scheduler execution reaches the installed runtime runner
     and workspace coordinator path.
-  - Phase 25 proves completed backend runner evidence is the only task ref
+  - Phase 25 proves completed runtime runner evidence is the only task ref
     source and failed/cancelled evidence produces zero artifact refs.
   - Phase 6.8/6.9 coverage proves restart does not restore stale actionable
     MCP auth or elicitation requests, replay export keeps redacted terminal
@@ -8458,17 +8458,17 @@ Manual smoke checklist retained:
 Review conclusion:
 
 - Phase 25.1 accepts the provider/hosted MCP live-smoke gap as credential-
-  gated and safely redacted, not as a blocker for the internal backend runner
+  gated and safely redacted, not as a blocker for the internal runtime runner
   validation track.
 - No secrets or auth state were committed or written to repo docs.
-- The next safe task is Phase 25.2: Backend Runner Acceptance And Next Exposure
-  Gate. It should decide whether the backend runner is ready for a later
+- The next safe task is Phase 25.2: Workbench Runner Acceptance And Next Exposure
+  Gate. It should decide whether the runtime runner is ready for a later
   explicitly-approved transport/UI design gate, or whether more internal fake
   provider coverage is needed first.
 
-## 2026-06-10: Phase 25.2 Backend Runner Acceptance And Next Exposure Gate
+## 2026-06-10: Phase 25.2 Workbench Runner Acceptance And Next Exposure Gate
 
-Phase 25.2 accepts the internal backend runner validation track and defines the
+Phase 25.2 accepts the internal runtime runner validation track and defines the
 next exposure boundary. It does not implement transport exposure, Wails
 bindings, generated client adapters, frontend controls, background workers,
 automatic resume, database migrations, or stale actionability recovery.
@@ -8477,11 +8477,11 @@ Acceptance review:
 
 - Phase 24.4 installed the runtime coordinator runner behind the existing
   explicit scheduler execution path.
-- Phase 24.5 accepted the backend/runtime wiring as internal-only and confirmed
+- Phase 24.5 accepted the runtime/runtime wiring as internal-only and confirmed
   runtime still does not build agents, choose models, infer prompts from prose,
   or use event/React state as source of truth.
-- Phase 25 validated the installed backend runner through scheduler execution,
-  backend workspace routing, and coordinator interface evidence. Completion
+- Phase 25 validated the installed runtime runner through scheduler execution,
+  runtime workspace routing, and coordinator interface evidence. Completion
   refs come only from terminal completion evidence.
 - Phase 25 also hardened failed/cancelled recorder semantics so partial,
   failed, cancelled, or unfinished child work cannot create artifact refs.
@@ -8491,7 +8491,7 @@ Acceptance review:
 
 Exposure decision:
 
-- The backend runner is ready for a design gate for explicit transport exposure
+- The runtime runner is ready for a design gate for explicit transport exposure
   of the already-existing scheduler execute action.
 - It is not yet accepted for direct frontend implementation or visible Run/task
   controls.
@@ -8510,11 +8510,11 @@ Exposure decision:
 
 Review conclusion:
 
-- Phase 25.2 accepts internal backend runner readiness for a transport exposure
+- Phase 25.2 accepts internal runtime runner readiness for a transport exposure
   design gate only.
 - More internal fake-provider coverage is useful but not required before the
   design gate, because the current blocker is contract exposure semantics, not
-  backend runner installation.
+  runtime runner installation.
 - The next safe task is Phase 26: Explicit Scheduler Execute Transport Design
   Gate. It must remain design-only unless a later implementation phase is
   explicitly accepted.
@@ -8523,7 +8523,7 @@ Review conclusion:
 
 Phase 26 designs, but does not implement, a transport contract for explicitly
 executing an already accepted scheduler task candidate through the internal
-backend runner. No HTTP/dev route, Wails binding, generated client adapter,
+runtime runner. No HTTP/dev route, Wails binding, generated client adapter,
 frontend control, background worker, automatic resume, database migration, or
 stale actionability recovery is added in this phase.
 
@@ -8591,13 +8591,13 @@ Review conclusion:
 
 - Phase 26 accepts the explicit scheduler task execute transport design.
 - The next safe task is Phase 26.1: Explicit Scheduler Execute Transport
-  Contract Implementation. It may add backend/service HTTP/Wails transport
+  Contract Implementation. It may add runtime/service HTTP/Wails transport
   coverage for the explicit action, but must still keep frontend visible
   controls out of scope unless a later UI phase is accepted.
 
 ## 2026-06-10: Phase 26.1 Explicit Scheduler Execute Transport Contract Implementation
 
-Phase 26.1 implements the accepted backend/service HTTP/Wails transport
+Phase 26.1 implements the accepted runtime/service HTTP/Wails transport
 contract for explicit scheduler task execution. It does not add frontend
 visible controls, client adapter execute methods, generated bindings,
 background workers, automatic resume, database migrations, full Run executor
@@ -8632,12 +8632,12 @@ Validation:
 - Related package regression passed:
 
   ```text
-  go test ./internal/agent ./internal/backend ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1
+  go test ./internal/agent ./internal/workbench ./internal/runtime ./internal/db ./internal/runtimeapi ./desktop -count=1
   ```
 
 Review conclusion:
 
-- Phase 26.1 accepts backend/service HTTP/Wails transport for the explicit
+- Phase 26.1 accepts runtime/service HTTP/Wails transport for the explicit
   scheduler task execute action.
 - The implementation still has no visible frontend control and no client
   adapter execute method. Frontend reads remain durable DTO based.
@@ -8825,7 +8825,7 @@ execute control can exist. It does not implement React controls, background
 execution, automatic resume, database migrations, stale actionability recovery,
 or a full Run state machine.
 
-Existing backend contract:
+Existing runtime contract:
 
 - Runtime already exposes a read-only scheduler plan transport:
 
@@ -8839,7 +8839,7 @@ Existing backend contract:
   item-level `taskID`, `sessionID`, `turnID`, `kind`, `orderKey`,
   `canSchedule`, `preflightReason`, `ownershipVerified`, `requiredPreflight`,
   `refreshTargets`, `cancellationScope`, `diagnosticsRoute`, and `taskScope`.
-- The backend plan source remains read-only and `StartsWorker=false`.
+- The runtime plan source remains read-only and `StartsWorker=false`.
 
 Accepted frontend read model:
 
@@ -9211,7 +9211,7 @@ behavior.
 
 Existing reusable runtime evidence:
 
-- Backend runtime tests already create durable scheduler candidates with:
+- Runtime tests already create durable scheduler candidates with:
   - `runtimeRunSchedulerPlanLinkedTurnFixture(...)`;
   - `RuntimeRun`/`RuntimeTurn` links through the runtime stores;
   - `RuntimeAgentTask` rows written through `service.agentTasks.Upsert(...)`;
@@ -9286,7 +9286,7 @@ Implemented:
     preflight reason;
   - explicit execute transport accepts the queued candidate once;
   - post-execute durable task state becomes running with no artifact refs;
-  - scheduler execute source remains backend-only and idempotent by task ID.
+  - scheduler execute source remains workbench-only and idempotent by task ID.
 
 Validation:
 
@@ -9388,7 +9388,7 @@ executor behavior.
 
 Reviewed scope:
 
-- Backend/service HTTP and Wails transport for explicit scheduler task
+- Runtime/service HTTP and Wails transport for explicit scheduler task
   execution.
 - Frontend adapter action that executes and then rehydrates durable DTOs.
 - Durable scheduler task candidate read model mapped from `RunSchedulerPlan`.
@@ -9815,8 +9815,8 @@ Implemented:
   - It uses local `@playwright/test` as a dev dependency instead of relying on
     global npx state.
   - The generated Playwright spec verifies:
-    - backend `RunProjection` contains the queued and terminal task IDs;
-    - backend `RunSchedulerPlan` marks the queued task schedulable and the
+    - runtime `RunProjection` contains the queued and terminal task IDs;
+    - runtime `RunSchedulerPlan` marks the queued task schedulable and the
       terminal task blocked;
     - the visible `RunProjectionPreview` renders exactly two durable scheduler
       candidate rows despite duplicate terminal refresh events;
@@ -9874,7 +9874,7 @@ ownership, full scheduler UI, or full Run executor behavior.
 
 Reviewed scope:
 
-- Phase 28.1 now covers the main frontend/backend integration risk with a real
+- Phase 28.1 now covers the main frontend/runtime integration risk with a real
   React page, Vite dev transport, runtime HTTP, durable scheduler candidates,
   one browser Execute click, post-click durable task DTO read, and no stale
   pending permission resurrection.
@@ -10383,7 +10383,7 @@ Implemented:
   - Verifies Wails `RuntimeBridge` forwarding for:
     - read-only `RunProjection`;
     - read-only `RunSchedulerPlan`;
-    - backend-only/idempotent `ExecuteRunTask`;
+    - workbench-only/idempotent `ExecuteRunTask`;
     - no pending permission resurrection after execute.
   - Asserts projection/plan/execute source metadata remains
     `SessionActivity` parity-oriented and does not start workers from read-only
@@ -10503,9 +10503,9 @@ packaged WebView automation, full scheduler UI, or full Run executor behavior.
 
 Existing coverage reviewed:
 
-- Phase 24.4/24.5 installed and accepted the backend/coordinator runner behind
+- Phase 24.4/24.5 installed and accepted the runtime/coordinator runner behind
   the explicit scheduler execute path.
-- Phase 25 validated scheduler execution through the installed backend runner
+- Phase 25 validated scheduler execution through the installed runtime runner
   and fake coordinator evidence, including completion-only refs and
   no-artifact failed/cancelled semantics.
 - Phase 25.1 retained real hosted provider/MCP smoke as a redacted,
@@ -10534,7 +10534,7 @@ Accepted Phase 32.1 direction:
 - Seed durable Run/Turn/AgentTask evidence through runtime-owned test helpers,
   not production seed endpoints and not React state.
 - Execute the queued task through the existing scheduler execute path so the
-  installed backend runner calls the real coordinator path.
+  installed runtime runner calls the real coordinator path.
 - Verify completed child-agent output contributes produced refs only from
   terminal recorder evidence.
 - Verify unfinished, failed, cancelled, disconnected, or partial provider
@@ -10591,11 +10591,11 @@ Implemented:
     provider/coordinator execution rather than blocking on interactive
     permission approval.
   - Seeds durable Run/Turn/AgentTask evidence through runtime-owned stores.
-  - Creates a real child task session through the backend workspace session
+  - Creates a real child task session through the runtime workspace session
     service.
   - Executes the queued task through `service.ExecuteRunTask(...)`, reaching:
-    scheduler preflight, task start evidence, installed backend runner,
-    backend workspace routing, real coordinator configured task-agent path, and
+    scheduler preflight, task start evidence, installed runtime runner,
+    runtime workspace routing, real coordinator configured task-agent path, and
     loopback provider.
 - Completion case:
   - loopback provider returns an OpenAI chat-completions SSE stream;
@@ -10637,7 +10637,7 @@ Run executor behavior.
 Accepted coverage:
 
 - Phase 32.1 proves a deterministic repo-owned scheduler execution path can
-  reach the installed backend runner, backend workspace routing, real
+  reach the installed runtime runner, runtime workspace routing, real
   coordinator configured task-agent path, and a loopback OpenAI-compatible
   provider.
 - Completion is terminal and provider text alone does not create artifact refs.
@@ -10662,7 +10662,7 @@ Next validation decision:
 - Combine the browser Execute click harness with the Phase 32.1 loopback
   provider-backed coordinator path.
 - The next smoke should prove visible browser click can trigger the HTTP/dev
-  scheduler execute route and complete through the real backend/coordinator
+  scheduler execute route and complete through the real runtime/coordinator
   runner with a loopback provider.
 - Keep the same constraints:
   - phase-scoped temp roots under `tmp/runtime-dev`;
@@ -10705,7 +10705,7 @@ Existing inputs:
   runtime DTOs.
 - Phase 29.1 proves browser-visible completion/ref hydration, but with a
   test-only foreground runner.
-- Phase 32.1 proves scheduler execution can reach the real backend/coordinator
+- Phase 32.1 proves scheduler execution can reach the real runtime/coordinator
   configured task-agent path and loopback OpenAI-compatible provider, but
   without browser click.
 
@@ -10717,8 +10717,8 @@ Accepted Phase 33.1 contract:
   - writes temp `model.json` to a loopback OpenAI-compatible SSE fake provider;
   - writes temp `policy.json` only under the phase root so execution does not
     block on interactive permission approval;
-  - starts the real runtime service and installed backend runner;
-  - creates parent and child task sessions through runtime/backend-owned APIs;
+  - starts the real runtime service and installed runtime runner;
+  - creates parent and child task sessions through runtime/workbench-owned APIs;
   - seeds durable Run/Turn/AgentTask evidence through runtime-owned stores;
   - starts runtime HTTP on loopback.
 - The Playwright spec must:
@@ -10781,11 +10781,11 @@ Implemented:
   - Writes temp `model.json` to a loopback OpenAI-compatible SSE fake provider.
   - Writes temp `policy.json` under the phase root so the smoke tests provider
     execution instead of blocking on interactive permission approval.
-  - Starts real runtime service, runtime HTTP, installed backend runner, backend
+  - Starts real runtime service, runtime HTTP, installed runtime runner, runtime
     workspace routing, real coordinator configured task-agent path, and
     loopback provider.
   - Seeds durable Run/Turn/AgentTask evidence through runtime-owned stores and
-    creates a real child task session through the backend workspace session
+    creates a real child task session through the runtime workspace session
     service.
 
 Validation:
@@ -10818,7 +10818,7 @@ Accepted coverage:
 
 - Browser Execute click starts the queued task through the existing HTTP/dev
   scheduler execute route.
-- Completion reaches the installed backend runner, backend workspace routing,
+- Completion reaches the installed runtime runner, runtime workspace routing,
   real coordinator configured task-agent path, and loopback OpenAI-compatible
   SSE provider.
 - Completion/result/projection/refs/permissions are verified through runtime
@@ -11044,7 +11044,7 @@ packaged WebView automation, full scheduler UI, or full Run executor behavior.
 Current deterministic substitute coverage:
 
 - Phase 32.1 proves provider-backed child-agent execution can reach the real
-  scheduler, installed backend runner, backend workspace routing, real
+  scheduler, installed runtime runner, runtime workspace routing, real
   coordinator configured task-agent path, and loopback OpenAI-compatible
   provider without credentials.
 - Phase 33.1 proves visible browser Execute click can trigger the same
@@ -11569,7 +11569,7 @@ Acceptance criteria for Phase 37.1:
   rely on them.
 - Add contract tests proving action responses are metadata-only and durable
   DTO rereads remain authoritative.
-- Update frontend/backend notes so adapters continue to ignore action response
+- Update frontend/runtime notes so adapters continue to ignore action response
   payloads as state and use them only to select refreshes.
 
 Review conclusion:
@@ -11613,7 +11613,7 @@ RuntimeWriteActionMetadata
 RuntimeWriteActionSource
   kind: string
   action: string
-  backendOnly: bool
+  runtimeOnly: bool
   startsWorker: bool
   idempotentBy?: string
   sessionActivityParity: bool
@@ -11725,7 +11725,7 @@ Phase 37.2 acceptance:
 - Scheduler execute now exposes additive shared `action` metadata while
   preserving all existing scheduler-specific fields.
 - The shared metadata mirrors already-existing action facts:
-  `accepted`, `reason`, `refreshTargets`, source kind/action, backend-only
+  `accepted`, `reason`, `refreshTargets`, source kind/action, workbench-only
   execution, worker-start semantics, idempotency, parity expectation, and
   durable evidence names.
 - The implementation is response metadata only. Task lifecycle, task results,
@@ -11764,7 +11764,7 @@ Accepted Phase 37.4 scope:
 - Treat action metadata as refresh/request metadata only; do not derive task
   terminal state, artifact refs, diagnostics, permission state, MCP
   actionability, or timeline rows from it.
-- Add/extend backend tests proving metadata parity with durable
+- Add/extend runtime tests proving metadata parity with durable
   `CancelAgentTask(...)` evidence and no rewrite of already-final evidence.
 
 Rejected for Phase 37.4:
@@ -11781,7 +11781,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -11894,7 +11894,7 @@ Accepted Phase 37.6 scope:
 - Treat action metadata as refresh/request metadata only; do not derive
   checkpoint state, Run projection, timeline rows, diagnostics, artifacts,
   permissions, MCP actionability, or scheduler state from it.
-- Add/extend backend and HTTP contract tests proving metadata parity with
+- Add/extend runtime and HTTP contract tests proving metadata parity with
   durable checkpoint evidence.
 
 Rejected for Phase 37.6:
@@ -11911,7 +11911,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -11946,7 +11946,7 @@ Implemented:
   checkpoint write.
 - Declared durable evidence names in metadata for Run rows, checkpoint
   evidence, Run projection, scheduler plan, and session activity.
-- Added backend checkpoint tests and HTTP route contract assertions for
+- Added runtime checkpoint tests and HTTP route contract assertions for
   acknowledge/discard metadata.
 
 Validation:
@@ -12040,7 +12040,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -12098,7 +12098,7 @@ Accepted Phase 37.9 scope:
   `RuntimeRunResumeResponse`.
 - Populate it from `ResumeRunCheckpoint(...)` after the existing durable writes
   and Run reread succeed.
-- Extend backend and HTTP contract tests to assert top-level metadata and prove
+- Extend runtime and HTTP contract tests to assert top-level metadata and prove
   nested `Run.Action` remains nil unless a nested Run write action explicitly
   owns it.
 
@@ -12118,7 +12118,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -12232,7 +12232,7 @@ Accepted Phase 37.11 scope:
 - Populate it only at the end of `DecidePermission(...)` after existing
   permission service, store, tool call, turn, audit, event, and status behavior
   succeeds.
-- Extend backend and HTTP/dev route tests proving decision metadata is present
+- Extend runtime and HTTP/dev route tests proving decision metadata is present
   for permission decisions and absent from plain `Status(...)`.
 
 Rejected for Phase 37.11:
@@ -12249,7 +12249,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -12283,7 +12283,7 @@ Implemented:
   session activity window/full activity, and diagnostics rereads.
 - Declared durable evidence names for permission rows, tool call rows, turn
   rows, runtime events, audit, and session activity.
-- Added backend and HTTP route coverage proving decision metadata is present on
+- Added runtime and HTTP route coverage proving decision metadata is present on
   permission decision responses and absent from plain status reads.
 
 Validation:
@@ -12393,7 +12393,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -12479,7 +12479,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -12592,7 +12592,7 @@ Accepted source-of-truth boundary:
 
 Validation accepted across Phase 37:
 
-- Targeted and full backend tests were run during implementation phases:
+- Targeted and full runtime tests were run during implementation phases:
   - `go test ./internal/runtime -count=1`
   - `go test ./desktop -count=1`
   - focused runtime tests for scheduler execute, task cancellation, checkpoint
@@ -12661,7 +12661,7 @@ Accepted consumption contract:
 
 Accepted Phase 38.1 scope:
 
-- Add backend/HTTP contract coverage for the transport-visible action metadata
+- Add runtime/HTTP contract coverage for the transport-visible action metadata
   fields across the core write actions.
 - Prefer Go HTTP/bridge-layer tests over frontend adapter edits.
 - Prove action metadata is forwarded but remains response metadata; durable
@@ -12681,7 +12681,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -12751,7 +12751,7 @@ Phase 38.1 acceptance:
 - The recording runtime service test double mirrors real runtime action
   metadata for the covered write paths.
 - `client/src/runtime/wailsWorkbenchAdapter.ts` was not modified.
-- Focused and full backend validation passed.
+- Focused and full runtime validation passed.
 
 Adapter optimization decision:
 
@@ -12786,7 +12786,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -12808,7 +12808,7 @@ Current behavior:
 
 - `Cancel(...)` resolves the active turn for the selected session and delegates
   to `CancelTurn(...)`.
-- `CancelTurn(...)` cancels the backend session, terminalizes the turn as
+- `CancelTurn(...)` cancels the runtime session, terminalizes the turn as
   cancelled, cancels nonterminal tool calls, writes audit/event evidence, and
   records Run turn cancellation transition evidence before returning
   `RuntimeStatus`.
@@ -12846,7 +12846,7 @@ Accepted Phase 39.1 scope:
 - Populate action metadata only from `CancelTurn(...)` and
   `MarkInterruptedDone(...)`.
 - Keep ordinary `Turn(...)` reads action-free.
-- Extend backend and HTTP contract tests proving action metadata is present for
+- Extend runtime and HTTP contract tests proving action metadata is present for
   cancellation/mark-done responses, ordinary reads omit it, and durable
   cancelled terminal semantics remain unchanged.
 
@@ -12863,7 +12863,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -12980,7 +12980,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -12992,7 +12992,7 @@ Review conclusion:
 
 Phase 40 reviews whether frontend adapters should start consuming
 `action.refreshTargets` now that the core explicit write-action paths have
-backend/transport metadata coverage. It is a design gate only. It does not edit
+workbench/transport metadata coverage. It is a design gate only. It does not edit
 frontend adapter code, runtime behavior, database schema, Run persistence,
 automatic resume, background scheduling, stale actionability recovery, or
 frontend Run UI.
@@ -13057,7 +13057,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -13175,7 +13175,7 @@ Remaining risk:
 
 Next boundary decision:
 
-- The backend write-action metadata rollout plus frontend refresh selector is
+- The runtime write-action metadata rollout plus frontend refresh selector is
   now accepted for the covered explicit actions.
 - The next safe phase is not implementation of Run persistence. It should be a
   readiness gate that reviews whether the project has enough evidence to
@@ -13192,7 +13192,7 @@ Review conclusion:
 
 ## 2026-06-11: Phase 41 Action Metadata Rollout Final Acceptance And Run Persistence Readiness Gate
 
-Phase 41 accepts the completed backend/transport/frontend action metadata
+Phase 41 accepts the completed runtime/transport/frontend action metadata
 rollout and reviews readiness for future Run persistence work. It is a design
 gate only. It does not change runtime behavior, database schema, migrations,
 automatic resume, background scheduling, stale tool recovery, stale permission
@@ -13200,7 +13200,7 @@ recovery, stale MCP auth/elicitation recovery, or frontend Run UI.
 
 Accepted action metadata rollout:
 
-- Backend explicit write actions now expose shared action metadata for
+- Runtime explicit write actions now expose shared action metadata for
   scheduler task execution, task cancellation, checkpoint acknowledge/discard/
   resume, permission decisions, MCP request decisions, turn cancellation, and
   interrupted acknowledgement.
@@ -13254,7 +13254,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -13335,7 +13335,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -13430,7 +13430,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -13519,7 +13519,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -13612,7 +13612,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -13700,7 +13700,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/turn-task-run-model.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/turn-task-run-model.md
 ```
 
 Review conclusion:
@@ -13767,7 +13767,7 @@ Implemented:
 
 - Added `writeRuntimeRunStatus(ctx, request)` on `runtimeRunStore`.
   - The helper resolves by run ID or session ID.
-  - It accepts only known structured backend sources.
+  - It accepts only known structured runtime sources.
   - It validates known statuses.
   - It writes only persisted Run `status`, `updated_at`, and `finished_at`.
   - It does not mutate checkpoints, refs, diagnostics, permissions, MCP
@@ -13783,7 +13783,7 @@ Implemented:
   - The supplied projection must be a read-only `session_activity_projection`.
   - The projection must preserve SessionActivity parity and represent a full
     activity window, not a cursor/window subset.
-- Added `projection_reconcile` as the structured backend source for full
+- Added `projection_reconcile` as the structured runtime source for full
   projection reconciliation writes.
 - Replaced the direct active-status SQL in `LinkTurn(...)` with
   `writeRuntimeRunStatus(...)`.
@@ -13969,7 +13969,7 @@ Validation:
 rg "UpsertFromProjection\(" internal/runtime -n
 rg "SET status|writeRuntimeRunStatus|runtimeRunStatusWrite|Status: +runtimeRunStatus" internal/runtime -n
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
@@ -14072,7 +14072,7 @@ Implemented:
   claiming a failed Run status.
 - It verifies:
   - `GET /v1/runs/{runID}` returns completed persisted/projection status from
-    backend DTO rereads;
+    API DTO rereads;
   - plain HTTP reread responses do not carry write action metadata;
   - `GET /v1/sessions/{sessionID}/run-projection` returns completed projection
     status with SessionActivity parity;
@@ -14088,7 +14088,7 @@ git diff --check
 
 Review conclusion:
 
-- HTTP transport exposes status through backend DTO rereads.
+- HTTP transport exposes status through API DTO rereads.
 - Event payloads remain refresh/audit evidence, not status patches.
 - Frontend adapters should continue to reread `Run`/`RunProjection` DTOs.
 
@@ -14096,7 +14096,7 @@ Remaining risk / next task:
 
 - This does not click through browser/Vite or packaged Wails UI.
 - Phase 45.1 should accept HTTP smoke and decide whether UI transport smoke is
-  valuable before moving to another backend design gate.
+  valuable before moving to another runtime design gate.
 
 ## 2026-06-11: Phase 45.1 Run Status Writer Transport Smoke Acceptance
 
@@ -14109,7 +14109,7 @@ recovery.
 Accepted:
 
 - `TestRuntimeHTTPServerRunStatusWriterRereadSmoke` proves HTTP transport
-  exposes Run status through backend DTO rereads.
+  exposes Run status through API DTO rereads.
 - A conflicting runtime event payload does not override completed Run status.
 - Plain `GET /v1/runs/{runID}` rereads do not carry write action metadata.
 - `GET /v1/sessions/{sessionID}/run-projection` preserves SessionActivity
@@ -14168,7 +14168,7 @@ Remaining risk / next task:
 - This is a static adapter smoke, not browser/Vite or packaged Wails click
   automation.
 - Phase 46.1 should accept the smoke and decide whether a heavier UI click
-  smoke is worth the cost before moving to a new backend design gate.
+  smoke is worth the cost before moving to a new runtime design gate.
 
 ## 2026-06-11: Phase 46.1 Run Status Writer Frontend Adapter Smoke Acceptance
 
@@ -14188,8 +14188,8 @@ Accepted:
 Decision:
 
 - Browser/Vite or packaged Wails click automation is not required before the
-  next backend design gate because no visible frontend behavior changed.
-- The adapter contract is protected by static smoke plus backend HTTP/runtime
+  next runtime design gate because no visible frontend behavior changed.
+- The adapter contract is protected by static smoke plus runtime HTTP/runtime
   smoke.
 
 Validation:
@@ -14202,7 +14202,7 @@ npm run lint
 Review conclusion:
 
 - Phase 46 is accepted.
-- The Run status writer workstream now has backend, HTTP transport, and
+- The Run status writer workstream now has runtime, HTTP transport, and
   frontend adapter reread coverage.
 - The next phase should close the workstream and define the next persisted Run
   authority boundary.
@@ -14217,13 +14217,13 @@ frontend Run UI, or React-owned runtime state.
 
 Accepted coverage:
 
-- Backend contract tests:
+- Runtime contract tests:
   - unknown/source-less status writes are rejected;
   - terminal status writes require full projection parity;
   - the writer updates only `runtime_runs.status`, `updated_at`, and
     `finished_at`;
   - bounded/windowed projections cannot reconcile persisted terminal status.
-- Backend rollout:
+- Runtime rollout:
   - active turn writes use the helper through `LinkTurn(...)`;
   - active foreground task writes use the helper;
   - terminal turn writes reconcile through full `RunProjection(...)`;
@@ -14232,7 +14232,7 @@ Accepted coverage:
   - fresh runtime service reads recover turn active, task active, and terminal
     task completed status from durable stores/full projection.
 - HTTP transport smoke:
-  - `Run` and `RunProjection` routes expose backend DTO rereads;
+  - `Run` and `RunProjection` routes expose API DTO rereads;
   - conflicting event payload status does not override Run status.
 - Frontend adapter smoke:
   - action/event metadata remains refresh-trigger-only;
@@ -14272,13 +14272,13 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
 
 - The explicit Run status writer workstream is closed.
-- The project has a narrow status writer plus backend/transport/frontend
+- The project has a narrow status writer plus runtime/transport/frontend
   reread coverage.
 - Broader Run authority requires a separate design gate.
 
@@ -14365,7 +14365,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
@@ -14484,7 +14484,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
@@ -14506,7 +14506,7 @@ Implemented:
 
 - Added `RuntimeRunSummary`, `RuntimeRunSummariesResponse`,
   `RuntimeRunSummaryResponse`, and `RuntimeRunSummarySource`.
-- Added backend read methods:
+- Added runtime read methods:
   - `RunSummaries(ctx)`
   - `RunSummary(ctx, runID)`
 - Added HTTP routes:
@@ -14539,7 +14539,7 @@ Explicitly excluded from the DTO:
 
 Coverage:
 
-- Backend contract coverage verifies summary mapping preserves only accepted
+- Runtime contract coverage verifies summary mapping preserves only accepted
   identity/session/summary fields.
 - HTTP route coverage verifies list/detail/dev-module summary reads and checks
   the response does not leak lifecycle/evidence fields.
@@ -14581,7 +14581,7 @@ Implemented:
 
 Smoke coverage:
 
-- The adapter can explicitly reread the backend summary routes.
+- The adapter can explicitly reread the runtime summary routes.
 - Hydration does not call `bridge.RunSummaries` or `bridge.RunSummary`.
 - No `mapRunSummary` path maps summary DTOs into frontend state.
 - `WorkbenchViewModel`, `Workspace`, and `RunProjectionPreview` do not render or
@@ -14598,7 +14598,7 @@ git diff --check
 
 Review conclusion:
 
-- Summary-only Run reads now have backend and adapter transport coverage.
+- Summary-only Run reads now have runtime and adapter transport coverage.
 - The frontend can reach the DTO only through explicit low-level rereads.
 - No UI state, event payload, action metadata, or React memory became Run
   authority.
@@ -14623,7 +14623,7 @@ Accepted:
   - objective;
   - source;
   - created/updated timestamps.
-- Backend, HTTP, dev-module, and low-level frontend adapter reads are covered.
+- Runtime, HTTP, dev-module, and low-level frontend adapter reads are covered.
 - Static adapter smoke proves summary DTOs are not automatically merged into
   hydration, `WorkbenchViewModel`, workspace UI, or Run projection preview UI.
 
@@ -14651,7 +14651,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
@@ -14672,10 +14672,10 @@ Closed workstream:
 
 - Phase 48 accepted persisted Run authority only for identity/session/summary
   fields.
-- Phase 48.1 added backend contract tests for persisted identity and summary
+- Phase 48.1 added runtime contract tests for persisted identity and summary
   reads.
 - Phase 48.2 accepted the implementation scope.
-- Phase 48.3 added `RuntimeRunSummary` and backend/HTTP/dev-module summary
+- Phase 48.3 added `RuntimeRunSummary` and runtime/HTTP/dev-module summary
   reads.
 - Phase 48.4 added adapter transport support and static smoke.
 - Phase 48.5 accepted that summary DTOs remain transport-only and not UI state.
@@ -14710,7 +14710,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
@@ -14815,7 +14815,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
@@ -14898,7 +14898,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
@@ -14959,7 +14959,7 @@ Review conclusion:
 ## 2026-06-11: Phase 50.4 Checkpoint Marker Read DTO Acceptance Gate
 
 Phase 50.4 accepts the marker-only checkpoint DTO contract and chooses the next
-backend-only scope. It is a review/scope gate only. It does not implement a full
+workbench-only scope. It is a review/scope gate only. It does not implement a full
 Run state machine, runtime Run store expansion, database migration, automatic
 resume, background scheduler loop, stale actionability recovery, frontend Run
 UI, checkpoint marker UI, transport routes, Wails bindings, or React-owned
@@ -14991,27 +14991,27 @@ Still rejected:
 
 Chosen next scope:
 
-- Phase 50.5 should add backend-only read helper contract tests.
+- Phase 50.5 should add workbench-only read helper contract tests.
 - The helper may read marker DTOs from persisted Run/checkpoint data.
 - The helper must not write, reconcile, infer eligibility, or start work.
-- No transport or frontend surface should be added until backend helper
+- No transport or frontend surface should be added until runtime helper
   behavior is accepted.
 
 Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
 
 - Phase 50.3 is accepted.
-- The next safe step is backend-only marker read helper tests.
+- The next safe step is workbench-only marker read helper tests.
 
-## 2026-06-11: Phase 50.5 Checkpoint Marker Backend Read Helper Contract Gate
+## 2026-06-11: Phase 50.5 Checkpoint Marker Runtime Read Helper Contract Gate
 
-Phase 50.5 adds backend-only helper coverage for checkpoint marker reads. It
+Phase 50.5 adds workbench-only helper coverage for checkpoint marker reads. It
 does not implement a full Run state machine, runtime Run store expansion,
 database migration, automatic resume, background scheduler loop, stale
 actionability recovery, frontend Run UI, checkpoint marker UI, HTTP routes,
@@ -15025,7 +15025,7 @@ Implemented:
 
 Contract coverage:
 
-- Backend helper reads persisted marker facts from existing Run/checkpoint
+- Runtime helper reads persisted marker facts from existing Run/checkpoint
   storage.
 - Helper list/detail reads return run/checkpoint identity, source turn ID,
   acknowledgement timestamp, discard timestamp, and resumed-turn IDs.
@@ -15051,13 +15051,13 @@ git diff --check
 
 Review conclusion:
 
-- Backend-only marker helper behavior is now covered.
+- Runtime-only marker helper behavior is now covered.
 - The next step should accept helper behavior before planning any transport
   surface.
 
-## 2026-06-11: Phase 50.6 Checkpoint Marker Backend Read Helper Acceptance Gate
+## 2026-06-11: Phase 50.6 Checkpoint Marker Runtime Read Helper Acceptance Gate
 
-Phase 50.6 accepts backend-only checkpoint marker helper behavior and chooses a
+Phase 50.6 accepts workbench-only checkpoint marker helper behavior and chooses a
 transport design gate as the next scope. It is a review/scope gate only. It does
 not implement a full Run state machine, runtime Run store expansion, database
 migration, automatic resume, background scheduler loop, stale actionability
@@ -15066,7 +15066,7 @@ React-owned runtime state.
 
 Accepted:
 
-- Backend marker helpers can read list/detail marker DTOs from persisted
+- Runtime marker helpers can read list/detail marker DTOs from persisted
   Run/checkpoint storage.
 - Helper reads are read-only and do not mutate lifecycle status, `finished_at`,
   checkpoint source evidence, or resume eligibility.
@@ -15084,7 +15084,7 @@ Still rejected:
 Chosen next scope:
 
 - Phase 50.7 should design read-only marker transport routes.
-- Route design should remain backend DTO reread-only.
+- Route design should remain API DTO reread-only.
 - Routes must not accept writes, start workers, reconcile projections, or expose
   action metadata.
 - Frontend adapter/UI work remains out of scope until transport contracts and
@@ -15094,7 +15094,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
@@ -15127,7 +15127,7 @@ Response contracts:
 
 Route semantics:
 
-- The routes read existing persisted marker facts through backend helpers.
+- The routes read existing persisted marker facts through runtime helpers.
 - The routes do not write marker state.
 - The routes do not build or reconcile `RunProjection`.
 - The routes do not start workers.
@@ -15146,7 +15146,7 @@ Rejected transport semantics:
 
 Accepted Phase 50.8 scope:
 
-- Add backend HTTP route contract tests first.
+- Add runtime HTTP route contract tests first.
 - Tests should verify routing, response source metadata, and excluded evidence.
 - Tests should verify list/detail routes do not call projection/scheduler/write
   paths.
@@ -15156,7 +15156,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
@@ -15252,7 +15252,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
@@ -15282,7 +15282,7 @@ Implemented:
 
 Smoke coverage:
 
-- Adapter can explicitly reread marker list/detail DTOs from backend routes.
+- Adapter can explicitly reread marker list/detail DTOs from runtime routes.
 - Hydration does not call marker reads automatically.
 - No `mapRunCheckpointMarker` path maps marker DTOs into frontend state.
 - `WorkbenchViewModel`, `Workspace`, and `RunProjectionPreview` do not render or
@@ -15322,7 +15322,7 @@ or React-owned runtime state.
 
 Accepted:
 
-- Marker-only DTOs are available through backend helpers, HTTP GET routes, and
+- Marker-only DTOs are available through runtime helpers, HTTP GET routes, and
   low-level adapter transport.
 - Static adapter smoke proves marker reads are explicit rereads and are not
   merged into hydration, `WorkbenchViewModel`, workspace UI, or Run projection
@@ -15351,7 +15351,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
@@ -15377,8 +15377,8 @@ Closed workstream:
 - Phase 50.2 designed a marker-only DTO.
 - Phase 50.3 added marker-only DTO contract tests.
 - Phase 50.4 accepted the DTO contract.
-- Phase 50.5 added backend-only marker helper coverage.
-- Phase 50.6 accepted backend helper behavior.
+- Phase 50.5 added workbench-only marker helper coverage.
+- Phase 50.6 accepted runtime helper behavior.
 - Phase 50.7 designed read-only marker HTTP transport.
 - Phase 50.8 added read-only HTTP routes and route coverage.
 - Phase 50.9 accepted HTTP transport.
@@ -15425,7 +15425,7 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-backend-integration-notes.md
+git diff -- docs/long-conversation-hardening-plan.md docs/turn-task-run-model.md docs/frontend-runtime-integration-notes.md
 ```
 
 Review conclusion:
@@ -15441,7 +15441,7 @@ The remaining work is now recorded in
 Purpose:
 
 - Continue optimization from concrete user-visible behavior.
-- Keep backend DTOs and full parity reads as sources of truth.
+- Keep API DTOs and full parity reads as sources of truth.
 - Avoid premature Run state machine, migrations, automatic resume, background
   scheduling, stale actionability recovery, or frontend-owned runtime state.
 
@@ -15462,5 +15462,5 @@ Validation:
 
 ```powershell
 git diff --check
-git diff -- docs/long-conversation-hardening-plan.md docs/frontend-backend-integration-notes.md docs/usage-driven-remaining-roadmap.md
+git diff -- docs/long-conversation-hardening-plan.md docs/frontend-runtime-integration-notes.md docs/usage-driven-remaining-roadmap.md
 ```

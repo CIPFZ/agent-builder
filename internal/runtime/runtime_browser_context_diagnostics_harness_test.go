@@ -103,8 +103,8 @@ func TestPhase4BrowserContextDiagnosticsHarnessServer(t *testing.T) {
 		Skills: RuntimePromptSkillSummary{
 			AvailableCount:   2,
 			LoadedCount:      1,
-			Names:            []string{"crush-config", "openai-docs"},
-			LoadedNames:      []string{"crush-config"},
+			Names:            []string{"agent-builder-config", "openai-docs"},
+			LoadedNames:      []string{"agent-builder-config"},
 			XMLPresent:       true,
 			XMLHash:          "sha256:phase4-skills",
 			TokenEstimate:    12,

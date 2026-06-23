@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/charmbracelet/crush/internal/home"
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/CIPFZ/agent-builder/internal/home"
+	"github.com/CIPFZ/agent-builder/internal/pubsub"
 )
 
 // Manager owns per-workspace skill discovery state and events.

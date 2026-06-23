@@ -7,7 +7,7 @@
 根目录不需要粗暴清空，但需要分层处理：
 
 - **保留**：当前开发和构建仍依赖的文件。
-- **迁移/重写**：仍有价值，但内容和语义明显偏向旧 Crush。
+- **迁移/重写**：仍有价值，但内容和语义明显偏向旧 Agent Builder。
 - **归档**：历史参考、发布模板、法律/CI 遗留。
 - **删除**：确认无引用的 demo、生成物、旧模板残留。
 
@@ -16,14 +16,14 @@
 | Path | 建议 | 原因 |
 | --- | --- | --- |
 | `AGENTS.md` | keep | 当前开发指引。 |
-| `README.md` | migrate | 仍是 Crush 叙述为主，需要重写为 Agent Builder 产品 README。 |
+| `README.md` | migrate | 仍是 Agent Builder 叙述为主，需要重写为 Agent Builder 产品 README。 |
 | `LICENSE.md` | keep | 必需。 |
 | `go.mod` / `go.sum` | keep | 根模块仍是当前主构建入口。 |
 | `main.go` | keep | 仍是当前 Go 入口之一，后续若 CLI 彻底降级再迁移。 |
-| `Taskfile.yaml` | migrate | 内容混合了构建、生成、旧 Crush 任务，需要拆分整理。 |
+| `Taskfile.yaml` | migrate | 内容混合了构建、生成、旧 Agent Builder 任务，需要拆分整理。 |
 | `.gitignore` / `.gitattributes` | keep | 仓库卫生文件。 |
 | `.golangci.yml` | keep | 仍在 lint 流程里使用。 |
-| `crush.json` | migrate | 更像开发者/旧产品配置，不应继续以产品主配置语义存在。 |
+| `agent-builder.json` | migrate | 更像开发者/旧产品配置，不应继续以产品主配置语义存在。 |
 | `schema.json` | migrate | 生成物，建议改为按需生成或移到 reference。 |
 | `sqlc.yaml` | keep or migrate | 若仍由 sqlc 生成 DB 代码可保留；若不再依赖则迁移到 scripts。 |
 | `.goreleaser.yml` | archive | 旧发布链路，和当前桌面客户端目标不一致。 |
@@ -39,7 +39,7 @@
 | `.github/workflows/build.yml` | keep/migrate | 若仍用于产品构建则保留，但需确认路径和产物已指向 Agent Builder。 |
 | `.github/workflows/lint.yml` | keep/migrate | 仍可能有效。 |
 | `.github/workflows/schema-update.yml` | migrate | 依赖旧 schema 生成链路，需对齐新配置归属。 |
-| `.github/workflows/release.yml` | migrate/archive | 大概率仍偏旧 Crush release 流程。 |
+| `.github/workflows/release.yml` | migrate/archive | 大概率仍偏旧 Agent Builder release 流程。 |
 | `.github/workflows/nightly.yml` | archive | 多半是旧模板继承。 |
 | `.github/workflows/cla.yml` | archive | 若不继续维护 CLA 流程，应移除或归档。 |
 | `.github/workflows/labeler.yml` | delete | 低价值自动化，依赖旧标签规则和额外 token。 |
@@ -66,10 +66,10 @@
 
 - `README.md`
 - `Taskfile.yaml`
-- `crush.json`
+- `agent-builder.json`
 - 部分 `.github/workflows/*`
 
-这些文件的当前问题不是“存在”，而是仍然按 Crush 项目叙述、发布和配置。
+这些文件的当前问题不是“存在”，而是仍然按 Agent Builder 项目叙述、发布和配置。
 
 ## 建议删除对象
 
@@ -86,6 +86,6 @@
 
 1. 重写 `README.md`。
 2. 拆分 `Taskfile.yaml`。
-3. 清理 `.github/workflows` 中的旧 Crush 依赖。
+3. 清理 `.github/workflows` 中的旧 Agent Builder 依赖。
 4. 归档或删除 `CLA.md`、`cla-signatures.json`、旧发布模板。
-5. 评估 `crush.json`、`schema.json`、`flake.*` 是否还需要。
+5. 评估 `agent-builder.json`、`schema.json`、`flake.*` 是否还需要。

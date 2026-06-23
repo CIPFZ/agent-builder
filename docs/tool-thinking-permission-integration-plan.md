@@ -2,7 +2,7 @@
 
 Status: completed on 2026-06-03.
 
-This frontend/backend integration milestone is complete. The main conversation
+This frontend/runtime integration milestone is complete. The main conversation
 surface now consumes runtime-owned tool calls, safe thinking summaries, policy
 mode, permission requests, and active-turn state instead of using React-owned
 mock state.
@@ -97,7 +97,7 @@ runtime policy, but the runtime remains the source of truth.
 | --- | --- | --- | --- |
 | 默认模式 | Ask before non-preapproved tools | `ask` | Tool calls request approval unless a scoped runtime rule allows/denies them. |
 | 自动审查 | Allow read-only, ask for risky actions | `auto_read` | Read-only tools can run; execute/network/write/destructive/secret tools ask. |
-| 完全访问权限 | User explicitly permits broad tool execution | New product alias, likely `bypass_permissions` or `full_access` | Needs backend support before UI can enable it. Must still keep audit records and should not silently bypass destructive safeguards unless explicitly designed. |
+| 完全访问权限 | User explicitly permits broad tool execution | New product alias, likely `bypass_permissions` or `full_access` | Needs runtime support before UI can enable it. Must still keep audit records and should not silently bypass destructive safeguards unless explicitly designed. |
 
 Existing runtime modes are:
 
@@ -114,7 +114,7 @@ Implementation decision needed:
 Recommendation:
 
 1. Keep `ask` and `auto_read` as direct mappings.
-2. Add a dedicated runtime mode for full access only if backend policy, audit,
+2. Add a dedicated runtime mode for full access only if runtime policy, audit,
    recovery, and UI warnings can all represent it clearly.
 3. Until then, show "完全访问权限" disabled with an explanation that runtime
    support is pending.
@@ -141,7 +141,7 @@ ConversationTimelineItem
   updatedAt
 ```
 
-Minimum backend/frontend contract for Phase 1:
+Minimum runtime/frontend contract for Phase 1:
 
 - Extend frontend DTO mirrors for:
   - `RuntimeMessage.parts`
@@ -157,7 +157,7 @@ Minimum backend/frontend contract for Phase 1:
 - Keep polling as a short fallback while busy; event stream can replace it
   later.
 
-Backend gap to verify early:
+Runtime gap to verify early:
 
 - `RuntimeBridge` should expose `TurnToolCalls` and `ToolCall` if generated
   Wails bindings are expected to support the same surface as HTTP.
@@ -286,7 +286,7 @@ Secondary scenarios:
   - read-only tools run without prompt;
   - shell/network ping still asks unless runtime explicitly classifies it safe.
 - 完全访问权限:
-  - disabled until backend support exists, or runs without prompt only after
+  - disabled until runtime support exists, or runs without prompt only after
     explicit runtime mode support and audit coverage are implemented.
 - Deny:
   - permission denial marks the tool call denied/failed;
@@ -342,7 +342,7 @@ Frontend:
 - `cd client && npm run build`
 - `cd client && npm run lint`
 
-Backend when touching runtime/bridge:
+Runtime when touching runtime/bridge:
 
 - Focused runtime tests:
   - `go test ./internal/runtime -run "Permission|Policy|ToolCall|Turn" -count=1`
@@ -378,4 +378,4 @@ Add or extend tests for:
 - Permission mode shown in composer is loaded from runtime policy.
 - Tool and permission state survives browser refresh.
 - No mock tool, permission, or thinking data exists in React.
-- Build/lint pass, and relevant Go tests pass if backend or bridge code changed.
+- Build/lint pass, and relevant Go tests pass if runtime or bridge code changed.

@@ -9,10 +9,10 @@ workflows, IDE companion, MCP servers, and Agent2Agent remote agents
 (`README.md`, `docs/cli/headless.md`, `docs/ide-integration/index.md`,
 `docs/core/remote-agents.md`).
 
-For the planned Crush-based agentic operations client, the important
+For the planned Agent Builder-based agentic operations client, the important
 positioning is not just "coding assistant"; it is a locally anchored operations
 client that can run in a human terminal, a headless automation flow, an IDE
-bridge, or an agent-to-agent server. That maps closely to Crush's existing TUI,
+bridge, or an agent-to-agent server. That maps closely to Agent Builder's existing TUI,
 CLI, MCP, provider, hook, permission, and session primitives, but Gemini CLI has
 a broader product shape around policy, sandbox expansion, extension packaging,
 and structured event output.
@@ -74,7 +74,7 @@ chat history, and emits normalized `AgentEvent` values.
 # Model/provider abstraction
 
 Gemini CLI is Gemini-centered. The primary provider abstraction is not a
-multi-provider interface like Crush's `fantasy`; it is a Gemini content
+multi-provider interface like Agent Builder's `fantasy`; it is a Gemini content
 generator abstraction. Core config imports `createContentGenerator`,
 `createContentGeneratorConfig`, `ContentGenerator`, and auth types from
 `packages/core/src/core/contentGenerator.ts`, then `GeminiClient.generateContent()`
@@ -94,9 +94,9 @@ Model selection is richer than a static model string:
   scopes (`packages/core/src/services/modelConfigService.ts`,
   `packages/core/src/agents/registry.ts`).
 
-For Crush, the reusable idea is the runtime model configuration and routing
-layer, not the provider shape. Crush already has provider abstraction through
-`charm.land/fantasy`; a Crush implementation should keep providers generic and
+For Agent Builder, the reusable idea is the runtime model configuration and routing
+layer, not the provider shape. Agent Builder already has provider abstraction through
+`charm.land/fantasy`; a Agent Builder implementation should keep providers generic and
 add Gemini-style model routing, per-agent overrides, and fallback policy above
 that layer.
 
@@ -124,7 +124,7 @@ project temp `chats/` and subagent sessions under a parent session directory.
 It records messages, thoughts, token summaries, tool calls, summaries,
 directories, and can delete session artifacts or rewind to a message ID.
 
-Crush already has SQLite/sqlc session persistence. The event model is still
+Agent Builder already has SQLite/sqlc session persistence. The event model is still
 worth borrowing: a normalized stream/event protocol would give the TUI,
 headless JSON output, future API servers, and subagents the same observable
 contract instead of each consuming provider-specific message structures.
@@ -160,8 +160,8 @@ Execution is centralized in `Scheduler` (`packages/core/src/scheduler/scheduler.
   logs telemetry, and returns completed calls.
 
 The protocol distinction between tool request, live update, confirmation, final
-response, and model-facing function response is the most useful part for Crush.
-Crush has built-in tools and permission checks, but an explicit scheduler state
+response, and model-facing function response is the most useful part for Agent Builder.
+Agent Builder has built-in tools and permission checks, but an explicit scheduler state
 machine would make parallelism, policy, live progress, and retry behavior easier
 to reason about.
 
@@ -219,8 +219,8 @@ to the model (`packages/core/src/tools/activate-skill.ts`), and skills are
 included in prompt/context providers (`packages/core/src/prompts/promptProvider.ts`,
 `packages/core/src/services/memoryService.ts`).
 
-Crush already has MCP and skills. Gemini's extension packaging is broader than
-Crush's current local context-file model and would be valuable for agentic
+Agent Builder already has MCP and skills. Gemini's extension packaging is broader than
+Agent Builder's current local context-file model and would be valuable for agentic
 operations: teams can ship operational runbooks, MCP servers, policy, hooks,
 subagents, and UI themes as one installable artifact.
 
@@ -271,7 +271,7 @@ additional permissions to the tool args, and retry the command
 (`packages/core/src/scheduler/scheduler.ts`). `ShellTool` integrates with these
 policies for command execution (`packages/core/src/tools/shell.ts`).
 
-Crush currently has shell execution and permissions, but Gemini's dynamic
+Agent Builder currently has shell execution and permissions, but Gemini's dynamic
 sandbox expansion is a strong pattern for operations: start restricted, detect
 denied network/path access, ask for a scoped one-run grant, then retry without
 making the whole session unsafe.
@@ -328,7 +328,7 @@ Gemini CLI has a clearer boundary than many CLIs:
 - A2A server mode wraps the agent in an HTTP/task server
   (`packages/a2a-server/src/http/app.ts`, `packages/a2a-server/src/agent/task.ts`).
 
-For Crush, this suggests making the agent/session/event layer explicitly
+For Agent Builder, this suggests making the agent/session/event layer explicitly
 headless and UI-independent. The Bubble Tea TUI should consume the same event
 stream as an API client or JSON runner.
 
@@ -359,7 +359,7 @@ Testing is broad:
 - Memory and performance regression suites with baselines (`memory-tests/*`,
   `perf-tests/*`).
 
-Crush should borrow the test taxonomy: unit tests for core invariants,
+Agent Builder should borrow the test taxonomy: unit tests for core invariants,
 integration response snapshots for CLI behavior, resource/perf tests for
 long-running clients, and evals for agent behavior that unit tests cannot
 capture.
@@ -385,14 +385,14 @@ capture.
   settings, and hooks (`docs/extensions/reference.md`).
 - Coalesced MCP context refresh and restrictive merging of extension/user MCP
   configs (`packages/core/src/tools/mcp-client-manager.ts`).
-- Append-only session/event recording with rewind markers, even if Crush keeps
-  SQLite as the storage backend (`packages/core/src/services/chatRecordingService.ts`).
+- Append-only session/event recording with rewind markers, even if Agent Builder keeps
+  SQLite as the storage runtime (`packages/core/src/services/chatRecordingService.ts`).
 - OpenTelemetry events and metrics for every major agent/tool/model boundary
   (`docs/cli/telemetry.md`).
 
 # Gaps or risks for our target product
 
-- Provider abstraction is Gemini-specific. Crush should not copy this directly
+- Provider abstraction is Gemini-specific. Agent Builder should not copy this directly
   because it already supports multiple providers through `fantasy`.
 - The repository has a legacy/new split: `LegacyAgentProtocol` adapts the older
   Gemini loop into the new `AgentProtocol` (`packages/core/src/agent/legacy-agent-session.ts`).
@@ -404,7 +404,7 @@ capture.
   `docs/reference/policy-engine.md`, so this area has product and trust-model
   churn.
 - Full-process sandbox relaunch is tightly coupled to Node and local CLI
-  startup. Crush in Go should design sandboxing independently, likely around
+  startup. Agent Builder in Go should design sandboxing independently, likely around
   command/tool execution first.
 - Extension installation and execution carries supply-chain risk. Gemini
   mitigates with consent, trust folders, env sanitization, extension policy
@@ -415,35 +415,35 @@ capture.
   dedicated product treatment (`docs/core/subagents.md`,
   `packages/core/src/agents/browser/*`).
 - JSONL session storage is simple but may not fit multi-client, concurrent, or
-  query-heavy operational dashboards. Crush's SQLite base is better for that.
+  query-heavy operational dashboards. Agent Builder's SQLite base is better for that.
 - The codebase contains many feature flags and experimental paths, increasing
   integration ambiguity for anything copied wholesale.
 
-# Implications for Crush-based implementation
+# Implications for Agent Builder-based implementation
 
-Crush should keep its Go architecture and `fantasy` provider abstraction, but
+Agent Builder should keep its Go architecture and `fantasy` provider abstraction, but
 lift several architectural patterns:
 
 - Define a core agent event stream in Go that can drive Bubble Tea, headless
-  JSON/stream-json, future API servers, and subagents. Map existing Crush
+  JSON/stream-json, future API servers, and subagents. Map existing Agent Builder
   `message`, `session`, `pubsub`, and UI events into this contract rather than
   letting UI-specific structures become the API.
 - Introduce a scheduler layer between model tool calls and tool execution. It
   should own validation, hook execution, permission/policy decisions,
   confirmation, live updates, parallel batching, cancellation, telemetry, and
   final model responses.
-- Evolve Crush permissions into a mode-aware policy engine. Start smaller than
+- Evolve Agent Builder permissions into a mode-aware policy engine. Start smaller than
   Gemini: tool name, agent name, MCP server, command prefix/regex, args pattern,
   mode, and interactive/headless are enough for the first version.
-- Preserve Crush hooks, but align their placement with Gemini's BeforeAgent,
+- Preserve Agent Builder hooks, but align their placement with Gemini's BeforeAgent,
   AfterAgent, SessionStart/End, and BeforeTool separation so operational teams
   can inject policy/context without modifying providers.
-- Add subagents as isolated Crush agents exposed through a single delegation
+- Add subagents as isolated Agent Builder agents exposed through a single delegation
   tool. Use existing `internal/agent/coordinator.go` concepts, but add
   per-subagent tool/MCP/model limits and prevent recursive delegation by
   construction.
 - Prefer tool-level sandboxing and scoped sandbox expansion before attempting a
-  full-process sandbox relaunch. This fits Go/Crush and operations workflows
+  full-process sandbox relaunch. This fits Go/Agent Builder and operations workflows
   better.
 - Treat extensions as a later packaging layer over already-stable primitives:
   MCP servers, skills, hooks, policies, commands, and agents. Do not make

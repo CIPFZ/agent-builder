@@ -58,7 +58,7 @@ The current split means React/composer behavior can distinguish input modes
 before Go runtime has a durable normalized record. This phase moves that
 boundary into runtime.
 
-## Backend Contract
+## Runtime Contract
 
 Introduce a new request alongside the old `RuntimeChatRequest` during the
 transition:
@@ -129,7 +129,7 @@ type RuntimeNormalizedInput struct {
 }
 ```
 
-## Backend Implementation
+## Runtime Implementation
 
 1. Add `runtime_input.go` with pure normalization helpers.
 2. Preserve `Chat(...)` as a compatibility wrapper:
@@ -147,7 +147,7 @@ type RuntimeNormalizedInput struct {
    - runtime persists "voice transcript" as input evidence.
 6. Normalize slash commands:
    - parse slash at runtime;
-   - route known runtime commands to backend actions;
+   - route known runtime commands to runtime actions;
    - return `ShouldQuery=false` for local commands;
    - return `ShouldQuery=true` only when a command expands into a model prompt.
 7. Normalize shell mode:
@@ -228,7 +228,7 @@ UI expectations:
 
 ## Tests
 
-Backend tests:
+Runtime tests:
 
 - prompt string compatibility maps to normalized input;
 - image input produces attachment draft and input evidence;

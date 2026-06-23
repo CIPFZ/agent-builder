@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/workbench"
 )
 
 func TestRuntimeCoordinatorTaskRunnerUsesDurableInstructionPrompt(t *testing.T) {
@@ -65,7 +65,7 @@ func TestRuntimeCoordinatorTaskRunnerUsesDurableInstructionPrompt(t *testing.T) 
 	if got.TaskID != task.ID || got.ParentTurnID != turn.ID || got.ChildSessionID != task.ChildSessionID || got.Prompt != "durable full prompt" {
 		t.Fatalf("executor request = %#v", got)
 	}
-	if !got.StartAlreadyRecorded || !got.BackendOnly || !got.EventPayloadRefreshOnly {
+	if !got.StartAlreadyRecorded || !got.WorkbenchOnly || !got.EventPayloadRefreshOnly {
 		t.Fatalf("executor source flags = %#v", got)
 	}
 }
@@ -153,27 +153,27 @@ func TestRuntimeCoordinatorTaskRunnerMissingPromptSourceFailsTerminally(t *testi
 	}
 }
 
-func TestRuntimeBackendStartedAgentTaskExecutorRequiresBackendAndWorkspace(t *testing.T) {
+func TestRuntimeWorkbenchStartedAgentTaskExecutorRequiresServiceAndWorkspace(t *testing.T) {
 	t.Parallel()
 
-	_, err := runtimeBackendStartedAgentTaskExecutor{}.ExecuteStartedAgentTask(context.Background(), agent.StartedAgentTaskExecutionRequest{TaskID: "task-1"})
-	if err == nil || !strings.Contains(err.Error(), "runtime backend is not available") {
-		t.Fatalf("nil backend err = %v", err)
+	_, err := runtimeWorkbenchStartedAgentTaskExecutor{}.ExecuteStartedAgentTask(context.Background(), agent.StartedAgentTaskExecutionRequest{TaskID: "task-1"})
+	if err == nil || !strings.Contains(err.Error(), "runtime workbench is not available") {
+		t.Fatalf("nil workbench err = %v", err)
 	}
 
-	_, err = runtimeBackendStartedAgentTaskExecutor{backend: backend.New(context.Background(), nil, nil), workspaceID: " "}.ExecuteStartedAgentTask(context.Background(), agent.StartedAgentTaskExecutionRequest{TaskID: "task-1"})
+	_, err = runtimeWorkbenchStartedAgentTaskExecutor{workbench: workbench.New(context.Background(), nil, nil), workspaceID: " "}.ExecuteStartedAgentTask(context.Background(), agent.StartedAgentTaskExecutionRequest{TaskID: "task-1"})
 	if err == nil || !strings.Contains(err.Error(), "runtime workspace id is not available") {
 		t.Fatalf("empty workspace err = %v", err)
 	}
 }
 
-func TestRuntimeServiceInstallsBackendAgentTaskRunner(t *testing.T) {
+func TestRuntimeServiceInstallsWorkbenchAgentTaskRunner(t *testing.T) {
 	t.Parallel()
 
 	service := newRuntimeService()
-	runtimeBackend := backend.New(context.Background(), nil, nil)
+	runtimeWorkbench := workbench.New(context.Background(), nil, nil)
 
-	service.installBackendAgentTaskRunner(runtimeBackend, "workspace-1")
+	service.installWorkbenchAgentTaskRunner(runtimeWorkbench, "workspace-1")
 
 	runner, ok := service.agentTaskRunner.(runtimeCoordinatorTaskRunner)
 	if !ok {
@@ -182,11 +182,11 @@ func TestRuntimeServiceInstallsBackendAgentTaskRunner(t *testing.T) {
 	if runner.service != service {
 		t.Fatalf("runner service was not installed")
 	}
-	executor, ok := runner.executor.(runtimeBackendStartedAgentTaskExecutor)
+	executor, ok := runner.executor.(runtimeWorkbenchStartedAgentTaskExecutor)
 	if !ok {
 		t.Fatalf("executor type = %T", runner.executor)
 	}
-	if executor.backend != runtimeBackend || executor.workspaceID != "workspace-1" {
+	if executor.workbench != runtimeWorkbench || executor.workspaceID != "workspace-1" {
 		t.Fatalf("executor = %#v", executor)
 	}
 }

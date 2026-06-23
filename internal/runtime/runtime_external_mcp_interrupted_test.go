@@ -18,14 +18,14 @@ import (
 	"time"
 
 	"charm.land/catwalk/pkg/catwalk"
-	mcptools "github.com/charmbracelet/crush/internal/agent/tools/mcp"
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/db"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/runtimeapi"
-	"github.com/charmbracelet/crush/internal/tools/scheduler"
+	mcptools "github.com/CIPFZ/agent-builder/internal/agent/tools/mcp"
+	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/db"
+	"github.com/CIPFZ/agent-builder/internal/permission"
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
+	"github.com/CIPFZ/agent-builder/internal/workbench"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -112,8 +112,8 @@ func TestRuntimeExternalMCPInterruptedStructuredRefsFixture(t *testing.T) {
 
 	store := config.NewRuntimeStore(workingDir, cfg)
 	recorder := &runtimeSchedulerRecorder{service: service}
-	runtimeBackend := backend.NewWithSchedulerRecorder(ctx, store, nil, recorder)
-	_, workspace, err := runtimeBackend.CreateWorkspace(proto.Workspace{
+	runtimeWorkbench := workbench.NewWithSchedulerRecorder(ctx, store, nil, recorder)
+	_, workspace, err := runtimeWorkbench.CreateWorkspace(apitypes.Workspace{
 		Path:    workingDir,
 		DataDir: dataDir,
 		Config:  cfg,
@@ -123,7 +123,7 @@ func TestRuntimeExternalMCPInterruptedStructuredRefsFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { runtimeBackend.DeleteWorkspace(workspace.ID) })
+	t.Cleanup(func() { runtimeWorkbench.DeleteWorkspace(workspace.ID) })
 	if err := mcptools.InitializeSingle(ctx, "phase61", store); err != nil {
 		t.Fatalf("initialize phase61 mcp: %v", err)
 	}
@@ -131,11 +131,11 @@ func TestRuntimeExternalMCPInterruptedStructuredRefsFixture(t *testing.T) {
 	if err := mcptools.WaitForInit(ctx); err != nil {
 		t.Fatalf("mcp init failed: %v", err)
 	}
-	if err := runtimeBackend.UpdateAgent(ctx, workspace.ID); err != nil {
+	if err := runtimeWorkbench.UpdateAgent(ctx, workspace.ID); err != nil {
 		t.Fatalf("update agent with MCP tools: %v", err)
 	}
-	service.runtime = runtimeBackend
-	service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.runtimeCtx = ctx
 	service.cancel = cancel
 
@@ -164,8 +164,8 @@ func TestRuntimeExternalMCPInterruptedStructuredRefsFixture(t *testing.T) {
 
 	cancel()
 	restarted := newRuntimeService()
-	restarted.runtime = runtimeBackend
-	restarted.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+	restarted.runtime = runtimeWorkbench
+	restarted.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	restarted.turns = newRuntimeTurnStore(conn)
 	restarted.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	restarted.permissionStore = newRuntimePermissionStore(conn)
@@ -335,8 +335,8 @@ func TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture(t *testing.T) {
 
 			store := config.NewRuntimeStore(workingDir, cfg)
 			recorder := &runtimeSchedulerRecorder{service: service}
-			runtimeBackend := backend.NewWithSchedulerRecorder(ctx, store, nil, recorder)
-			_, workspace, err := runtimeBackend.CreateWorkspace(proto.Workspace{
+			runtimeWorkbench := workbench.NewWithSchedulerRecorder(ctx, store, nil, recorder)
+			_, workspace, err := runtimeWorkbench.CreateWorkspace(apitypes.Workspace{
 				Path:    workingDir,
 				DataDir: dataDir,
 				Config:  cfg,
@@ -346,7 +346,7 @@ func TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { runtimeBackend.DeleteWorkspace(workspace.ID) })
+			t.Cleanup(func() { runtimeWorkbench.DeleteWorkspace(workspace.ID) })
 			if err := mcptools.InitializeSingle(ctx, mcpName, store); err != nil {
 				t.Fatalf("initialize %s mcp: %v", mcpName, err)
 			}
@@ -354,11 +354,11 @@ func TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture(t *testing.T) {
 			if err := mcptools.WaitForInit(ctx); err != nil {
 				t.Fatalf("mcp init failed: %v", err)
 			}
-			if err := runtimeBackend.UpdateAgent(ctx, workspace.ID); err != nil {
+			if err := runtimeWorkbench.UpdateAgent(ctx, workspace.ID); err != nil {
 				t.Fatalf("update agent with MCP tools: %v", err)
 			}
-			service.runtime = runtimeBackend
-			service.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+			service.runtime = runtimeWorkbench
+			service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 			service.runtimeCtx = ctx
 			service.cancel = cancel
 
@@ -393,8 +393,8 @@ func TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture(t *testing.T) {
 			mcpServer.CloseClientConnections()
 
 			cancel()
-			restarted := newPhase66RuntimeService(conn, dataDir, runtimeBackend)
-			restarted.workspace = &proto.Workspace{ID: workspace.ID, Path: workspace.Path}
+			restarted := newPhase66RuntimeService(conn, dataDir, runtimeWorkbench)
+			restarted.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 			restarted.policy = service.policy
 			interrupted, err := restarted.turns.InterruptUnfinished(context.Background())
 			if err != nil {
@@ -496,8 +496,8 @@ func TestRuntimeMCPPartialStructuredOutputCancelledOnRestartDoesNotProduceArtifa
 	cfg.Options.AutoLSP = ptr(false)
 	cfg.Options.DisableAutoSummarize = true
 	store := config.NewRuntimeStore(workingDir, cfg)
-	runtimeBackend := backend.NewWithSchedulerRecorder(context.Background(), store, nil, nil)
-	_, workspace, err := runtimeBackend.CreateWorkspace(proto.Workspace{
+	runtimeWorkbench := workbench.NewWithSchedulerRecorder(context.Background(), store, nil, nil)
+	_, workspace, err := runtimeWorkbench.CreateWorkspace(apitypes.Workspace{
 		Path:    workingDir,
 		DataDir: dataDir,
 		Config:  cfg,
@@ -507,8 +507,8 @@ func TestRuntimeMCPPartialStructuredOutputCancelledOnRestartDoesNotProduceArtifa
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { runtimeBackend.DeleteWorkspace(workspace.ID) })
-	sess, err := runtimeBackend.CreateSession(context.Background(), workspace.ID, "phase66 partial")
+	t.Cleanup(func() { runtimeWorkbench.DeleteWorkspace(workspace.ID) })
+	sess, err := runtimeWorkbench.CreateSession(context.Background(), workspace.ID, "phase66 partial")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +521,7 @@ func TestRuntimeMCPPartialStructuredOutputCancelledOnRestartDoesNotProduceArtifa
 	t.Cleanup(func() { _ = db.Release(dataDir) })
 
 	service := newPhase66RuntimeService(conn, dataDir, nil)
-	service.runtime = runtimeBackend
+	service.runtime = runtimeWorkbench
 	service.workspace = &workspace
 	sessionID := sess.ID
 	turnID := "turn-phase66-partial"
@@ -556,7 +556,7 @@ func TestRuntimeMCPPartialStructuredOutputCancelledOnRestartDoesNotProduceArtifa
 		t.Fatal(err)
 	}
 
-	restarted := newPhase66RuntimeService(conn, dataDir, runtimeBackend)
+	restarted := newPhase66RuntimeService(conn, dataDir, runtimeWorkbench)
 	restarted.workspace = &workspace
 	interrupted, err := restarted.turns.InterruptUnfinished(context.Background())
 	if err != nil {
@@ -673,9 +673,9 @@ func newPhase66MCPHTTPServer(t *testing.T, structuredPath, transport string) *ph
 	return state
 }
 
-func newPhase66RuntimeService(conn *sql.DB, dataDir string, runtimeBackend *backend.Backend) *runtimeService {
+func newPhase66RuntimeService(conn *sql.DB, dataDir string, runtimeWorkbench *workbench.Service) *runtimeService {
 	service := newRuntimeService()
-	service.runtime = runtimeBackend
+	service.runtime = runtimeWorkbench
 	service.turns = newRuntimeTurnStore(conn)
 	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	service.permissionStore = newRuntimePermissionStore(conn)
