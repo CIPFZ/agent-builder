@@ -11,11 +11,18 @@ interface TimelineProps {
   items: ConversationTimelineItemViewModel[];
 }
 
-type RenderTimelineItem = ConversationTimelineItemViewModel | ToolCallGroupRenderItem;
+type RenderTimelineItem = ConversationTimelineItemViewModel | ToolCallGroupRenderItem | ToolCallSummaryRenderItem;
 
 interface ToolCallGroupRenderItem {
   id: string;
   kind: 'tool_call_group';
+  turnId?: string;
+  toolCalls: ToolCallViewModel[];
+}
+
+interface ToolCallSummaryRenderItem {
+  id: string;
+  kind: 'tool_call_summary';
   turnId?: string;
   toolCalls: ToolCallViewModel[];
 }
@@ -61,7 +68,7 @@ function TurnBlock({ block, messageApi }: { block: TimelineTurnBlock; messageApi
 
 function ProcessTrace({ block }: { block: TimelineTurnBlock }) {
   const traceLabel = processTraceSummary(block);
-  const groupedItems = groupAdjacentToolCalls(block.processItems);
+  const groupedItems = compactProcessItems(block.processItems);
   return (
     <section className={styles.processTrace} data-testid="process-trace" data-process-label={traceLabel} data-process-status={block.status}>
       <Collapse
@@ -99,6 +106,9 @@ function ProcessTraceLabel({ block }: { block: TimelineTurnBlock }) {
 }
 
 function TimelineProcessItem({ item }: { item: RenderTimelineItem }) {
+  if (item.kind === 'tool_call_summary') {
+    return <ToolRunSummary item={item} />;
+  }
   if (item.kind === 'tool_call_group') {
     return <ToolCallCard toolCalls={item.toolCalls} />;
   }
@@ -133,6 +143,23 @@ function TimelineProcessItem({ item }: { item: RenderTimelineItem }) {
     return <AssistantProcessNote item={item} />;
   }
   return null;
+}
+
+function ToolRunSummary({ item }: { item: ToolCallSummaryRenderItem }) {
+  const duration = toolCallsDuration(item.toolCalls);
+  const kinds = summarizeToolKinds(item.toolCalls);
+  return (
+    <details className={styles.toolRunSummary} data-testid="tool-run-summary">
+      <summary>
+        <span>已完成 {item.toolCalls.length} 个工具</span>
+        {duration && <span>{duration}</span>}
+        {kinds && <span>{kinds}</span>}
+      </summary>
+      <div>
+        <ToolCallCard toolCalls={item.toolCalls} />
+      </div>
+    </details>
+  );
 }
 
 function TimelineMessage({ item, messageApi }: { item: ConversationTimelineItemViewModel; messageApi: ReturnType<typeof message.useMessage>[0] }) {
@@ -292,7 +319,7 @@ function isProcessItem(item: ConversationTimelineItemViewModel) {
 }
 
 function isFinalAssistantMessage(item: ConversationTimelineItemViewModel) {
-  return item.role === 'assistant' && item.kind === 'message' && (item.content?.trim() || item.status === 'error');
+  return item.role === 'assistant' && item.kind === 'message' && item.phase !== 'intermediate' && (item.content?.trim() || item.status === 'error');
 }
 
 function shouldOpenProcessTrace(block: TimelineTurnBlock) {
@@ -363,7 +390,32 @@ function mergeTurnStatus(current?: string, next?: string) {
   return (rank[next] ?? 0) > (rank[current] ?? 0) ? next : current;
 }
 
-function groupAdjacentToolCalls(items: ConversationTimelineItemViewModel[]): RenderTimelineItem[] {
+function compactProcessItems(items: ConversationTimelineItemViewModel[]): RenderTimelineItem[] {
+  const compacted: RenderTimelineItem[] = [];
+  let quietSummary: ToolCallSummaryRenderItem | undefined;
+
+  for (const item of items) {
+    if (item.kind === 'tool_call' && item.toolCall && isQuietCompletedToolCall(item.toolCall)) {
+      if (!quietSummary) {
+        quietSummary = {
+          id: `tool-summary:${item.turnId || item.id}`,
+          kind: 'tool_call_summary',
+          turnId: item.turnId,
+          toolCalls: [],
+        };
+        compacted.push(quietSummary);
+      }
+      quietSummary.toolCalls.push(item.toolCall);
+      continue;
+    }
+    quietSummary = undefined;
+    compacted.push(item);
+  }
+
+  return groupAdjacentToolCalls(compacted);
+}
+
+function groupAdjacentToolCalls(items: RenderTimelineItem[]): RenderTimelineItem[] {
   const grouped: RenderTimelineItem[] = [];
   let pending: ConversationTimelineItemViewModel[] = [];
 
@@ -399,6 +451,47 @@ function groupAdjacentToolCalls(items: ConversationTimelineItemViewModel[]): Ren
   flush();
 
   return grouped;
+}
+
+function isQuietCompletedToolCall(toolCall: ToolCallViewModel) {
+  const status = toolCall.status;
+  return (status === 'completed' || status === 'success') && !toolCall.error;
+}
+
+function toolCallsDuration(toolCalls: ToolCallViewModel[]) {
+  const startedAt = toolCalls.reduce<number | undefined>((current, toolCall) => minDefined(current, toolCall.startedAt), undefined);
+  const finishedAt = toolCalls.reduce<number | undefined>((current, toolCall) => maxDefined(current, toolCall.finishedAt), undefined);
+  return startedAt && finishedAt ? formatDuration(startedAt, finishedAt) : '';
+}
+
+function summarizeToolKinds(toolCalls: ToolCallViewModel[]) {
+  const counts = new Map<string, number>();
+  for (const toolCall of toolCalls) {
+    const kind = timelineToolKind(toolCall);
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([kind, count]) => `${toolKindLabel(kind)} ${count}`)
+    .join(' / ');
+}
+
+function toolKindLabel(kind: string) {
+  switch (kind) {
+    case 'file_read':
+      return '读取';
+    case 'file_write':
+      return '写入';
+    case 'file_edit':
+      return '编辑';
+    case 'file_search':
+      return '搜索';
+    case 'shell':
+      return '命令';
+    default:
+      return '工具';
+  }
 }
 
 function timelineToolKind(toolCall?: ToolCallViewModel) {

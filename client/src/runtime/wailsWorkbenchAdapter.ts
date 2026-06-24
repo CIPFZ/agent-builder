@@ -1900,7 +1900,7 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO, callchain?: R
           error: assistantStep.error || message.error,
         });
       }
-      if (!isIntermediateAssistant && (content.trim() || message.error || message.role === 'user')) {
+      if ((content.trim() || message.error || message.role === 'user') && (!isIntermediateAssistant || content.trim() || message.error)) {
         timelineItems.push({
           id: `message:${message.id}`,
           kind: 'message',
@@ -1910,6 +1910,7 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO, callchain?: R
           role: message.role,
           content,
           status: messageStatus,
+          phase: isIntermediateAssistant ? 'intermediate' : 'final',
           createdAt: message.createdAt,
           updatedAt: message.updatedAt,
           sequence: runtimeOrder.sequenceByMessageID.get(message.id),

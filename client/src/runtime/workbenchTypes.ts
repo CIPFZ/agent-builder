@@ -129,6 +129,7 @@ export interface ConversationTimelineItemViewModel {
   content?: string;
   summary?: string;
   status?: string;
+  phase?: 'intermediate' | 'final';
   createdAt?: number;
   updatedAt?: number;
   sequence?: number;

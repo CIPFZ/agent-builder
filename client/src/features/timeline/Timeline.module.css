@@ -132,6 +132,31 @@
   white-space: pre-wrap;
 }
 
+.toolRunSummary {
+  width: min(720px, 94%);
+  color: rgb(13 13 13 / 64%);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.toolRunSummary summary {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: rgb(13 13 13 / 54%);
+}
+
+.toolRunSummary summary span + span {
+  color: rgb(13 13 13 / 40%);
+}
+
+.toolRunSummary > div {
+  margin-top: 8px;
+}
+
 .permissionTraceRow {
   display: flex;
   flex-wrap: wrap;
