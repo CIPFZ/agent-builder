@@ -1,116 +1,183 @@
 .gate {
   display: grid;
-  gap: 6px;
-  width: min(720px, 94%);
-  margin: 2px 0;
-  padding: 4px 0 4px 28px;
-  color: rgb(13 13 13 / 72%);
-}
-
-.pendingGate {
-  padding-top: 8px;
-  padding-right: 10px;
-  padding-bottom: 8px;
+  gap: 14px;
+  width: min(760px, 94%);
+  margin: 0;
+  padding: 16px 18px 14px;
+  border: 1px solid rgb(13 13 13 / 10%);
   border-radius: 8px;
-  background: #fff8ed;
+  background: #fff;
+  box-shadow: 0 12px 32px rgb(13 13 13 / 12%);
+  color: rgb(13 13 13 / 88%);
 }
 
-.summary,
-.title,
-.actions,
-.meta,
-.body,
-.allowedStatus {
+.actionSection,
+.policySection {
+  display: grid;
+  gap: 10px;
+}
+
+.header {
   display: flex;
-  align-items: center;
-}
-
-.summary {
-  min-height: 28px;
+  min-width: 0;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
 
 .title {
   min-width: 0;
-  gap: 8px;
-  color: rgb(13 13 13 / 66%);
-  font-size: 13px;
-  font-weight: 500;
+  color: #111;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.45;
 }
 
-.title :global(.anticon) {
+.expandButton {
   flex: 0 0 auto;
-  color: #b77900;
+  color: rgb(13 13 13 / 48%);
+  padding-inline: 0;
+}
+
+.expandButton:hover,
+.expandButton:focus-visible {
+  color: rgb(13 13 13 / 82%);
+}
+
+.previewCollapsed,
+.previewExpanded {
+  margin: 0;
+  padding: 0;
+  color: rgb(13 13 13 / 48%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.previewCollapsed {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.previewExpanded {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.options {
+  width: 100%;
+}
+
+.options :global(.ant-space) {
+  width: 100%;
+}
+
+.options :global(.ant-radio-wrapper) {
+  width: 100%;
+  margin-inline-end: 0;
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: rgb(13 13 13 / 82%);
+}
+
+.options :global(.ant-radio-wrapper:hover) {
+  background: rgb(13 13 13 / 5%);
+}
+
+.tellAgentOption {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  color: rgb(13 13 13 / 54%);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.tellAgentOption :global(.ant-checkbox-inner) {
+  border-radius: 4px;
+}
+
+.guidanceInput {
+  border-radius: 8px;
   font-size: 13px;
 }
 
-.body {
+.footer,
+.meta,
+.resolvedGate,
+.allowedStatus,
+.deniedStatus,
+.pendingStatus {
+  display: flex;
+  align-items: center;
+}
+
+.footer {
   min-width: 0;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.meta {
+  min-width: 0;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   gap: 6px;
-  padding-left: 21px;
 }
 
-.tool {
-  color: rgb(13 13 13 / 66%);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.target {
-  max-width: min(100%, 560px);
-  padding: 2px 6px;
+.meta code {
+  max-width: min(100%, 280px);
   overflow: hidden;
-  border-radius: 5px;
-  background: rgb(255 255 255 / 78%);
-  color: rgb(13 13 13 / 70%);
+  color: rgb(13 13 13 / 54%);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
-  line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.reason {
-  color: rgb(13 13 13 / 54%);
-  font-size: 12px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
+.submitButton {
+  height: 34px;
+  border-radius: 8px;
+  background: #111 !important;
+  box-shadow: none;
+  font-weight: 650;
 }
 
-.meta {
-  flex-wrap: wrap;
-  gap: 5px;
-  padding-left: 21px;
-}
-
-.actions {
-  flex-wrap: wrap;
-  gap: 6px;
-  padding-left: 21px;
-}
-
-.actions :global(.ant-btn) {
-  height: 26px;
-  border-radius: 6px;
-  font-size: 12px;
+.submitButton:hover,
+.submitButton:focus-visible {
+  background: #2a2a2a !important;
 }
 
 .error {
-  margin-left: 21px;
+  margin-top: 2px;
+}
+
+.resolvedGate {
+  gap: 8px;
+  width: min(720px, 94%);
+  margin: 2px 0 2px 28px;
+  color: rgb(13 13 13 / 52%);
+  font-size: 13px;
 }
 
 .allowedStatus {
-  flex: 0 0 auto;
-  gap: 4px;
-  color: rgb(13 13 13 / 46%);
-  font-size: 12px;
+  color: #2f8f5b;
 }
 
-.allowedStatus :global(.anticon) {
-  color: #2f8f5b;
-  font-size: 11px;
+.deniedStatus {
+  color: #cf1322;
+}
+
+.pendingStatus {
+  color: #d48806;
 }
 
 .gate :global(.ant-tag) {
@@ -123,12 +190,17 @@
 @media (max-width: 720px) {
   .gate {
     width: 100%;
-    padding-left: 18px;
+    margin-left: 0;
+    padding: 14px;
+    border-radius: 8px;
   }
 
-  .body,
-  .meta,
-  .actions {
-    padding-left: 18px;
+  .footer {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .meta {
+    flex-basis: 100%;
   }
 }

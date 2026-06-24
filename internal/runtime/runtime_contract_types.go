@@ -1561,6 +1561,7 @@ type RuntimePermissionsResponse struct {
 type RuntimePermissionDecision struct {
 	PermissionID string `json:"permissionId"`
 	Action       string `json:"action"`
+	Guidance     string `json:"guidance,omitempty"`
 }
 
 type RuntimeMCPRequest struct {

@@ -81,6 +81,62 @@ func TestRuntimePermissionStoreUpsertListAndMark(t *testing.T) {
 	}
 }
 
+func TestRuntimePermissionStoreCancelPendingByTurn(t *testing.T) {
+	t.Parallel()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(context.Background(), dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Release(dataDir)
+	})
+
+	store := newRuntimePermissionStore(conn)
+	for _, perm := range []RuntimePermissionRequest{
+		{ID: "perm-pending-1", SessionID: "session-1", TurnID: "turn-1", ToolCallID: "tool-1", ToolName: "bash", Action: "execute", Status: permissionStatusPending, CreatedAt: 1000},
+		{ID: "perm-pending-2", SessionID: "session-1", TurnID: "turn-1", ToolCallID: "tool-2", ToolName: "bash", Action: "execute", Status: permissionStatusPending, CreatedAt: 1001},
+		{ID: "perm-other-turn", SessionID: "session-1", TurnID: "turn-2", ToolCallID: "tool-3", ToolName: "bash", Action: "execute", Status: permissionStatusPending, CreatedAt: 1002},
+		{ID: "perm-decided", SessionID: "session-1", TurnID: "turn-1", ToolCallID: "tool-4", ToolName: "bash", Action: "execute", Status: permissionStatusDenied, CreatedAt: 1003, DecidedAt: 1500},
+	} {
+		if _, err := store.Upsert(context.Background(), perm); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cancelled, err := store.CancelPendingByTurn(context.Background(), "turn-1", 2000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cancelled) != 2 {
+		t.Fatalf("cancelled permissions = %#v", cancelled)
+	}
+	for _, id := range []string{"perm-pending-1", "perm-pending-2"} {
+		perm, err := store.Get(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm.Status != permissionStatusCancelled || perm.DecidedAt != 2000 {
+			t.Fatalf("permission %s = %#v", id, perm)
+		}
+	}
+	other, err := store.Get(context.Background(), "perm-other-turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.Status != permissionStatusPending {
+		t.Fatalf("other turn permission = %#v", other)
+	}
+	decided, err := store.Get(context.Background(), "perm-decided")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decided.Status != permissionStatusDenied || decided.DecidedAt != 1500 {
+		t.Fatalf("decided permission = %#v", decided)
+	}
+}
+
 func TestRuntimeRecoveryStatusExpiresInvalidPendingPermissions(t *testing.T) {
 	t.Parallel()
 

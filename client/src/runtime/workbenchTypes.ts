@@ -638,12 +638,20 @@ export interface PermissionRequestViewModel {
   turnId?: string;
   toolCallId: string;
   toolName: string;
+  description?: string;
   action: string;
   risk?: string;
   status: string;
+  path?: string;
   target?: string;
   reason?: string;
   policyMode?: string;
+  policyReason?: string;
+  policyRuleId?: string;
+  policyRuleSource?: string;
+  policyScopeKind?: string;
+  policyScopeValue?: string;
+  policyTargetSummary?: string;
   createdAt?: number;
   decidedAt?: number;
 }
@@ -924,7 +932,7 @@ export interface WorkbenchAdapter {
   deleteSession: (current: WorkbenchViewModel, sessionID: string) => Promise<WorkbenchViewModel>;
   selectModel: (current: WorkbenchViewModel, configuredProviderID: string, model: string) => Promise<WorkbenchViewModel>;
   selectPermissionMode: (current: WorkbenchViewModel, mode: string) => Promise<WorkbenchViewModel>;
-  decidePermission: (current: WorkbenchViewModel, permissionID: string, action: 'allow' | 'allow_session' | 'deny') => Promise<WorkbenchViewModel>;
+  decidePermission: (current: WorkbenchViewModel, permissionID: string, action: 'allow' | 'allow_session' | 'deny', guidance?: string) => Promise<WorkbenchViewModel>;
   sendPrompt: (current: WorkbenchViewModel, prompt: string) => Promise<WorkbenchViewModel>;
   submitUserInput?: (current: WorkbenchViewModel, input: RuntimeUserInputRequestViewModel) => Promise<WorkbenchViewModel>;
   cancelTurn: (current: WorkbenchViewModel, turnID?: string) => Promise<WorkbenchViewModel>;

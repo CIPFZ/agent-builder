@@ -520,6 +520,7 @@ interface RuntimePermissionDTO {
   turnId?: string;
   toolCallId: string;
   toolName: string;
+  description?: string;
   action: string;
   risk?: string;
   status: string;
@@ -528,6 +529,11 @@ interface RuntimePermissionDTO {
   reason?: string;
   policyReason?: string;
   policyMode?: string;
+  policyRuleId?: string;
+  policyRuleSource?: string;
+  policyScopeKind?: string;
+  policyScopeValue?: string;
+  policyTargetSummary?: string;
   createdAt?: number;
   decidedAt?: number;
 }
@@ -1212,7 +1218,7 @@ interface RuntimeBridgeModule {
   Permissions?: () => Promise<{ permissions: RuntimePermissionDTO[] }>;
   GetPolicy?: () => Promise<RuntimePolicyResponseDTO>;
   UpdatePolicy?: (req: { mode: string }) => Promise<RuntimePolicyResponseDTO>;
-  DecidePermission?: (req: { permissionId: string; action: string }) => Promise<RuntimeStatusDTO>;
+  DecidePermission?: (req: { permissionId: string; action: string; guidance?: string }) => Promise<RuntimeStatusDTO>;
   Skills?: () => Promise<RuntimeSkillsResponseDTO>;
   Plugins?: () => Promise<RuntimePluginsResponseDTO>;
   RefreshSkills?: () => Promise<RuntimeSkillsResponseDTO>;
@@ -1742,12 +1748,20 @@ function mapPermission(permission: RuntimePermissionDTO): PermissionRequestViewM
     turnId: permission.turnId,
     toolCallId: permission.toolCallId,
     toolName: permission.toolName,
+    description: permission.description,
     action: permission.action,
     risk: permission.risk,
     status: permission.status,
+    path: permission.path,
     target: permission.target || permission.path,
     reason: permission.reason || permission.policyReason,
+    policyReason: permission.policyReason,
     policyMode: permission.policyMode,
+    policyRuleId: permission.policyRuleId,
+    policyRuleSource: permission.policyRuleSource,
+    policyScopeKind: permission.policyScopeKind,
+    policyScopeValue: permission.policyScopeValue,
+    policyTargetSummary: permission.policyTargetSummary,
     createdAt: permission.createdAt,
     decidedAt: permission.decidedAt,
   };
@@ -4326,16 +4340,16 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       () => staticWorkbenchAdapter.selectPermissionMode(current, mode),
     );
   },
-  async decidePermission(current, permissionID, action) {
+  async decidePermission(current, permissionID, action, guidance) {
     return withBridge(
       async (bridge) => {
         if (!bridge.DecidePermission) {
-          return staticWorkbenchAdapter.decidePermission(current, permissionID, action);
+          return staticWorkbenchAdapter.decidePermission(current, permissionID, action, guidance);
         }
-        const response = await bridge.DecidePermission({ permissionId: permissionID, action });
+        const response = await bridge.DecidePermission({ permissionId: permissionID, action, guidance });
         return hydrateWorkbenchForAction(current, bridge, response);
       },
-      () => staticWorkbenchAdapter.decidePermission(current, permissionID, action),
+      () => staticWorkbenchAdapter.decidePermission(current, permissionID, action, guidance),
     );
   },
   async sendPrompt(current, prompt) {

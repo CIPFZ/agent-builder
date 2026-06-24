@@ -1,104 +1,174 @@
 import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
-import { BranchesOutlined, CheckOutlined, CopyOutlined, WarningOutlined } from '@ant-design/icons';
-import { Button, Progress, Tag, Tooltip, message } from 'antd';
+import { BranchesOutlined, CheckOutlined, CopyOutlined, DownOutlined, WarningOutlined } from '@ant-design/icons';
+import { Button, Collapse, Progress, Tag, Tooltip, message } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
-import type { ConversationTimelineItemViewModel, PermissionRequestViewModel, ToolCallViewModel } from '../../runtime/workbenchTypes.ts';
-import { PermissionGate } from '../permissions/PermissionGate.tsx';
+import type { ConversationTimelineItemViewModel, ToolCallViewModel } from '../../runtime/workbenchTypes.ts';
 import { ThinkingItem } from './ThinkingItem.tsx';
 import { ToolCallCard } from '../tools/ToolCallCard.tsx';
 import styles from './Timeline.module.css';
 
 interface TimelineProps {
   items: ConversationTimelineItemViewModel[];
-  onPermissionDecide: (permissionID: string, action: 'allow' | 'allow_session' | 'deny') => Promise<void>;
 }
 
-type RenderTimelineItem = ToolCallRenderItem | ToolCallGroupRenderItem;
-
-interface ToolCallRenderItem extends ConversationTimelineItemViewModel {
-  pendingPermissions?: PermissionRequestViewModel[];
-}
+type RenderTimelineItem = ConversationTimelineItemViewModel | ToolCallGroupRenderItem;
 
 interface ToolCallGroupRenderItem {
   id: string;
   kind: 'tool_call_group';
   turnId?: string;
   toolCalls: ToolCallViewModel[];
-  pendingPermissions?: PermissionRequestViewModel[];
 }
 
-export function Timeline({ items, onPermissionDecide }: TimelineProps) {
+interface TimelineTurnBlock {
+  id: string;
+  turnId?: string;
+  userMessage?: ConversationTimelineItemViewModel;
+  processItems: ConversationTimelineItemViewModel[];
+  finalMessage?: ConversationTimelineItemViewModel;
+  looseItems: ConversationTimelineItemViewModel[];
+  status?: string;
+  startedAt?: number;
+  finishedAt?: number;
+}
+
+export function Timeline({ items }: TimelineProps) {
   const [messageApi, messageContextHolder] = message.useMessage();
-  const renderItems = attachPendingPermissions(groupAdjacentToolCalls(items));
+  const blocks = buildTurnBlocks(items);
 
   return (
     <div className={styles.timeline} data-testid="conversation-timeline">
       {messageContextHolder}
-      {renderItems.map((item) => {
-        if (item.kind === 'tool_call_group') {
-          return (
-            <ToolProcessCluster key={item.id} pendingPermissions={item.pendingPermissions} onPermissionDecide={onPermissionDecide}>
-              <ToolCallCard toolCalls={item.toolCalls} />
-            </ToolProcessCluster>
-          );
-        }
-        if (item.kind === 'tool_call' && item.toolCall) {
-          return (
-            <ToolProcessCluster key={item.id} pendingPermissions={item.pendingPermissions} onPermissionDecide={onPermissionDecide}>
-              <ToolCallCard toolCall={item.toolCall} />
-            </ToolProcessCluster>
-          );
-        }
-        if (item.kind === 'permission' && item.permission) {
-          if (item.permission.status !== 'pending') {
-            return null;
-          }
-          return <PermissionGate key={item.id} permission={item.permission} onDecide={onPermissionDecide} />;
-        }
-        if (item.kind === 'thinking') {
-          return <ThinkingItem key={item.id} item={item} />;
-        }
-        if (item.kind === 'progress') {
-          const detail = progressDetail(item);
-          return (
-            <div key={item.id} className={styles.progress} data-testid="turn-progress" data-progress-status={item.status}>
-              <div>{progressLabel(item.status)}</div>
-              {detail && <div className={styles.progressDetail}>{detail}</div>}
-            </div>
-          );
-        }
-        if (item.kind === 'turn_terminal') {
-          return null;
-        }
-        if (item.kind === 'diagnostic') {
-          return <TurnDiagnosticWarning key={item.id} item={item} />;
-        }
-        if (item.kind === 'agent_task' && item.agentTask) {
-          return <AgentTaskTimelineRow key={item.id} item={item} />;
-        }
-        return (
-          <Bubble
-            key={item.id}
-            className={item.role === 'user' ? styles.userBubble : styles.assistantBubble}
-            content={item.content}
-            placement={item.role === 'user' ? 'end' : 'start'}
-            variant={item.role === 'user' ? 'filled' : 'borderless'}
-            footer={
-              (item.role === 'user' || item.role === 'assistant') && isCompleteMessage(item) ? (
-                <MessageFooter
-                  align={item.role === 'user' ? 'end' : 'start'}
-                  content={item.content ?? ''}
-                  createdAt={item.createdAt}
-                  messageApi={messageApi}
-                />
-              ) : item.status === 'error' ? (
-                <Tag color="error">失败</Tag>
-              ) : undefined
-            }
-          />
-        );
-      })}
+      {blocks.map((block) => (
+        <TurnBlock key={block.id} block={block} messageApi={messageApi} />
+      ))}
+    </div>
+  );
+}
+
+function TurnBlock({ block, messageApi }: { block: TimelineTurnBlock; messageApi: ReturnType<typeof message.useMessage>[0] }) {
+  return (
+    <section className={styles.turnBlock} data-testid="timeline-turn-block" data-turn-id={block.turnId}>
+      {block.userMessage && <TimelineMessage item={block.userMessage} messageApi={messageApi} />}
+      {block.processItems.length > 0 && <ProcessTrace block={block} />}
+      {block.finalMessage && <TimelineMessage item={block.finalMessage} messageApi={messageApi} />}
+      {block.looseItems.map((item) => (
+        <TimelineProcessItem key={item.id} item={item} />
+      ))}
+    </section>
+  );
+}
+
+function ProcessTrace({ block }: { block: TimelineTurnBlock }) {
+  const traceLabel = processTraceSummary(block);
+  return (
+    <section className={styles.processTrace} data-testid="process-trace" data-process-label={traceLabel} data-process-status={block.status}>
+      <Collapse
+        ghost
+        size="small"
+        defaultActiveKey={shouldOpenProcessTrace(block) ? ['trace'] : []}
+        expandIcon={({ isActive }) => <DownOutlined rotate={isActive ? 180 : 0} />}
+        items={[
+          {
+            key: 'trace',
+            label: <ProcessTraceLabel block={block} />,
+            children: (
+              <div className={styles.processSteps}>
+                {groupAdjacentToolCalls(block.processItems).map((item) => (
+                  <TimelineProcessItem key={item.id} item={item} />
+                ))}
+              </div>
+            ),
+          },
+        ]}
+      />
+    </section>
+  );
+}
+
+function ProcessTraceLabel({ block }: { block: TimelineTurnBlock }) {
+  const { duration, label, toolCount } = processTraceSummaryParts(block);
+  return (
+    <span className={styles.processTraceLabel}>
+      <span>{label}</span>
+      {duration && <span>{duration}</span>}
+      {toolCount > 0 && <span>{toolCount} 个工具</span>}
+    </span>
+  );
+}
+
+function TimelineProcessItem({ item }: { item: RenderTimelineItem }) {
+  if (item.kind === 'tool_call_group') {
+    return <ToolCallCard toolCalls={item.toolCalls} />;
+  }
+  if (item.kind === 'tool_call' && item.toolCall) {
+    return <ToolCallCard toolCall={item.toolCall} />;
+  }
+  if (item.kind === 'permission' && item.permission) {
+    return <PermissionTraceRow item={item} />;
+  }
+  if (item.kind === 'thinking') {
+    return <ThinkingItem item={item} />;
+  }
+  if (item.kind === 'progress') {
+    const detail = progressDetail(item);
+    return (
+      <div className={styles.progress} data-testid="turn-progress" data-progress-status={item.status}>
+        <div>{progressLabel(item.status)}</div>
+        {detail && <div className={styles.progressDetail}>{detail}</div>}
+      </div>
+    );
+  }
+  if (item.kind === 'turn_terminal') {
+    return null;
+  }
+  if (item.kind === 'diagnostic') {
+    return <TurnDiagnosticWarning item={item} />;
+  }
+  if (item.kind === 'agent_task' && item.agentTask) {
+    return <AgentTaskTimelineRow item={item} />;
+  }
+  if (item.kind === 'message') {
+    return <AssistantProcessNote item={item} />;
+  }
+  return null;
+}
+
+function TimelineMessage({ item, messageApi }: { item: ConversationTimelineItemViewModel; messageApi: ReturnType<typeof message.useMessage>[0] }) {
+  return (
+    <Bubble
+      className={item.role === 'user' ? styles.userBubble : styles.assistantBubble}
+      content={item.content}
+      placement={item.role === 'user' ? 'end' : 'start'}
+      variant={item.role === 'user' ? 'filled' : 'borderless'}
+      footer={
+        (item.role === 'user' || item.role === 'assistant') && isCompleteMessage(item) ? (
+          <MessageFooter align={item.role === 'user' ? 'end' : 'start'} content={item.content ?? ''} createdAt={item.createdAt} messageApi={messageApi} />
+        ) : item.status === 'error' ? (
+          <Tag color="error">失败</Tag>
+        ) : undefined
+      }
+    />
+  );
+}
+
+function AssistantProcessNote({ item }: { item: ConversationTimelineItemViewModel }) {
+  if (!item.content?.trim()) {
+    return null;
+  }
+  return <div className={styles.processNote}>{item.content}</div>;
+}
+
+function PermissionTraceRow({ item }: { item: ConversationTimelineItemViewModel }) {
+  const permission = item.permission;
+  if (!permission) {
+    return null;
+  }
+  return (
+    <div className={styles.permissionTraceRow} data-testid="permission-trace-row" data-permission-status={permission.status}>
+      <span>{permissionStatusLabel(permission.status)}</span>
+      <code>{permission.target || permission.path || permission.toolName}</code>
+      {permission.reason || permission.policyReason ? <span>{permission.reason || permission.policyReason}</span> : null}
     </div>
   );
 }
@@ -123,28 +193,13 @@ function AgentTaskTimelineRow({ item }: { item: ConversationTimelineItemViewMode
         <div className={styles.agentTaskMeta}>
           {[task.role || task.kind, task.provider && task.model ? `${task.provider}/${task.model}` : task.model, task.childSessionId ? `child ${task.childSessionId}` : undefined]
             .filter(Boolean)
-            .join(' · ')}
+            .join(' / ')}
         </div>
         {task.resultSummary || task.promptSummary ? <div className={styles.agentTaskSummary}>{task.resultSummary || task.promptSummary}</div> : null}
-        {refs.length ? <div className={styles.agentTaskRefs}>{refs.slice(0, 3).join(' · ')}</div> : null}
+        {refs.length ? <div className={styles.agentTaskRefs}>{refs.slice(0, 3).join(' / ')}</div> : null}
       </div>
     </div>
   );
-}
-
-function agentTaskStatusColor(status?: string) {
-  switch (status) {
-    case 'queued':
-    case 'running':
-      return 'processing';
-    case 'completed':
-      return 'success';
-    case 'failed':
-    case 'interrupted':
-      return 'error';
-    default:
-      return 'default';
-  }
 }
 
 function TurnDiagnosticWarning({ item }: { item: ConversationTimelineItemViewModel }) {
@@ -163,76 +218,126 @@ function TurnDiagnosticWarning({ item }: { item: ConversationTimelineItemViewMod
   );
 }
 
-function diagnosticWarningTitle(item: ConversationTimelineItemViewModel) {
-  switch (item.diagnostics?.warningReason) {
-    case 'produced_artifact_missing_on_disk':
-      return '工具已报告生成期望文件，但磁盘上不存在';
-    case 'expected_artifact_not_produced':
-      return '期望文件未由工具生成';
-    default:
-      return item.diagnostics?.warning ?? '期望产物警告';
-  }
-}
+function buildTurnBlocks(items: ConversationTimelineItemViewModel[]): TimelineTurnBlock[] {
+  const blocks: TimelineTurnBlock[] = [];
+  const blockByTurn = new Map<string, TimelineTurnBlock>();
 
-function ToolProcessCluster({
-  children,
-  onPermissionDecide,
-  pendingPermissions,
-}: {
-  children: ReactNode;
-  onPermissionDecide: TimelineProps['onPermissionDecide'];
-  pendingPermissions?: PermissionRequestViewModel[];
-}) {
-  if (!pendingPermissions?.length) {
-    return <>{children}</>;
-  }
-
-  return (
-    <div className={styles.toolProcessCluster} data-testid="tool-process-cluster">
-      {children}
-      <div className={styles.embeddedPermissions}>
-        {pendingPermissions.map((permission) => (
-          <PermissionGate key={permission.id} permission={permission} onDecide={onPermissionDecide} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function attachPendingPermissions(items: RenderTimelineItem[]): RenderTimelineItem[] {
-  const attached: RenderTimelineItem[] = [];
-  const seenPermissionIDs = new Set<string>();
+  const ensureBlock = (turnId?: string, fallbackId?: string) => {
+    const id = turnId || fallbackId || `loose:${blocks.length}`;
+    if (turnId && blockByTurn.has(turnId)) {
+      return blockByTurn.get(turnId)!;
+    }
+    const block: TimelineTurnBlock = {
+      id: turnId ? `turn:${turnId}` : id,
+      turnId,
+      processItems: [],
+      looseItems: [],
+    };
+    blocks.push(block);
+    if (turnId) {
+      blockByTurn.set(turnId, block);
+    }
+    return block;
+  };
 
   for (const item of items) {
-    if (item.kind === 'permission' && item.permission?.status === 'pending') {
-      if (seenPermissionIDs.has(item.permission.id)) {
-        continue;
-      }
-      seenPermissionIDs.add(item.permission.id);
-      const target = [...attached].reverse().find((candidate) => ownsToolCall(candidate, item.permission?.toolCallId));
-      if (target) {
-        const existing = target.pendingPermissions ?? [];
-        target.pendingPermissions = existing.some((permission) => permission.id === item.permission?.id) ? existing : [...existing, item.permission];
-        continue;
-      }
+    const block = ensureBlock(item.turnId, item.id);
+    block.startedAt = minDefined(block.startedAt, item.createdAt);
+    block.finishedAt = maxDefined(block.finishedAt, item.updatedAt || item.createdAt);
+    block.status = mergeTurnStatus(block.status, item.status);
+
+    if (item.kind === 'message' && item.role === 'user') {
+      block.userMessage = block.userMessage ?? item;
+      continue;
     }
-    attached.push(item);
+    if (item.kind === 'message' && item.role === 'assistant') {
+      if (isFinalAssistantMessage(item)) {
+        block.finalMessage = item;
+      } else {
+        block.processItems.push(item);
+      }
+      continue;
+    }
+    if (isProcessItem(item)) {
+      block.processItems.push(item);
+      continue;
+    }
+    block.looseItems.push(item);
   }
 
-  return attached;
+  return blocks.filter((block) => block.userMessage || block.finalMessage || block.processItems.length > 0 || block.looseItems.length > 0);
 }
 
-function ownsToolCall(item: RenderTimelineItem, toolCallID?: string) {
-  if (!toolCallID) {
-    return false;
-  }
-  if (item.kind === 'tool_call' && item.toolCall?.id === toolCallID) {
+function isProcessItem(item: ConversationTimelineItemViewModel) {
+  return item.kind === 'thinking' || item.kind === 'tool_call' || item.kind === 'permission' || item.kind === 'progress' || item.kind === 'diagnostic' || item.kind === 'agent_task' || item.kind === 'turn_terminal';
+}
+
+function isFinalAssistantMessage(item: ConversationTimelineItemViewModel) {
+  return item.role === 'assistant' && item.kind === 'message' && (item.content?.trim() || item.status === 'error');
+}
+
+function shouldOpenProcessTrace(block: TimelineTurnBlock) {
+  if (!block.finalMessage) {
     return true;
   }
-  if (item.kind === 'tool_call_group' && item.toolCalls.some((toolCall) => toolCall.id === toolCallID)) {
-    return true;
+  return block.processItems.some((item) => item.status === 'running' || item.status === 'queued' || item.status === 'waiting_permission' || item.status === 'failed' || item.status === 'denied');
+}
+
+function processTraceLabel(status?: string) {
+  switch (status) {
+    case 'running':
+    case 'queued':
+    case 'waiting_permission':
+      return '处理中';
+    case 'failed':
+      return '处理失败';
+    case 'denied':
+      return '已拒绝';
+    case 'cancelled':
+      return '已取消';
+    default:
+      return '已处理';
   }
-  return false;
+}
+
+function processTraceSummary(block: TimelineTurnBlock) {
+  const { duration, label, toolCount } = processTraceSummaryParts(block);
+  return [label, duration, toolCount > 0 ? `${toolCount} 个工具` : undefined, block.turnId].filter(Boolean).join(' ');
+}
+
+function processTraceSummaryParts(block: TimelineTurnBlock) {
+  return {
+    duration: blockDuration(block),
+    label: processTraceLabel(block.status),
+    toolCount: block.processItems.filter((item) => item.kind === 'tool_call').length,
+  };
+}
+
+function blockDuration(block: TimelineTurnBlock) {
+  if (!block.startedAt || !block.finishedAt) {
+    return '';
+  }
+  return formatDuration(block.startedAt, block.finishedAt);
+}
+
+function mergeTurnStatus(current?: string, next?: string) {
+  if (!next) {
+    return current;
+  }
+  const rank: Record<string, number> = {
+    denied: 5,
+    failed: 5,
+    waiting_permission: 4,
+    running: 3,
+    queued: 2,
+    cancelled: 1,
+    success: 0,
+    completed: 0,
+  };
+  if (!current) {
+    return next;
+  }
+  return (rank[next] ?? 0) > (rank[current] ?? 0) ? next : current;
 }
 
 function groupAdjacentToolCalls(items: ConversationTimelineItemViewModel[]): RenderTimelineItem[] {
@@ -306,6 +411,32 @@ function isSearchToolName(name: string) {
   return name === 'glob' || name === 'grep' || name === 'list' || name === 'ls' || name === 'dir' || name.includes('search') || name.includes('find');
 }
 
+function agentTaskStatusColor(status?: string) {
+  switch (status) {
+    case 'queued':
+    case 'running':
+      return 'processing';
+    case 'completed':
+      return 'success';
+    case 'failed':
+    case 'interrupted':
+      return 'error';
+    default:
+      return 'default';
+  }
+}
+
+function diagnosticWarningTitle(item: ConversationTimelineItemViewModel) {
+  switch (item.diagnostics?.warningReason) {
+    case 'produced_artifact_missing_on_disk':
+      return '工具已报告生成文件，但磁盘上不存在';
+    case 'expected_artifact_not_produced':
+      return '期望文件未由工具生成';
+    default:
+      return item.diagnostics?.warning ?? '产物警告';
+  }
+}
+
 function isCompleteMessage(item: ConversationTimelineItemViewModel) {
   return item.status === 'success' || item.status === 'error';
 }
@@ -367,7 +498,7 @@ async function copyText(text: string) {
       await withTimeout(navigator.clipboard.writeText(text), 300);
       return;
     } catch {
-      // Fall back to execCommand for embedded browsers that expose Clipboard API but reject writes.
+      // Embedded webviews can expose Clipboard API but reject writes.
     }
   }
   if (typeof document === 'undefined') {
@@ -414,7 +545,7 @@ function formatMessageTime(createdAt?: number) {
   if (!createdAt) {
     return '';
   }
-  const milliseconds = createdAt < 1_000_000_000_000 ? createdAt * 1000 : createdAt;
+  const milliseconds = normalizeTimestamp(createdAt);
   return new Intl.DateTimeFormat('zh-CN', {
     hour: '2-digit',
     minute: '2-digit',
@@ -427,13 +558,33 @@ function progressLabel(status?: string) {
       return '等待权限确认';
     case 'running':
     case 'queued':
-      return '正在思考';
+      return '正在处理';
     case 'cancelled':
       return '已取消';
     case 'failed':
       return '执行失败';
     default:
-      return status || '正在思考';
+      return status || '正在处理';
+  }
+}
+
+function permissionStatusLabel(status?: string) {
+  switch (status) {
+    case 'pending':
+      return '等待权限确认';
+    case 'allowed':
+    case 'allowed_once':
+      return '已允许';
+    case 'allowed_session':
+      return '本会话已允许';
+    case 'denied':
+      return '已拒绝';
+    case 'cancelled':
+      return '已取消';
+    case 'expired':
+      return '已过期';
+    default:
+      return status || '权限记录';
   }
 }
 
@@ -449,4 +600,39 @@ function formatMissingArtifacts(paths: string[]) {
     return paths[0];
   }
   return `${paths.length} 个文件缺失：${paths.join('、')}`;
+}
+
+function formatDuration(startedAt: number, finishedAt: number) {
+  const elapsed = Math.max(0, normalizeTimestamp(finishedAt) - normalizeTimestamp(startedAt));
+  if (elapsed < 1000) {
+    return '<1s';
+  }
+  if (elapsed < 60_000) {
+    return `${Math.round(elapsed / 1000)}s`;
+  }
+  return `${Math.floor(elapsed / 60_000)}m ${Math.round((elapsed % 60_000) / 1000)}s`;
+}
+
+function normalizeTimestamp(value: number) {
+  return value < 1_000_000_000_000 ? value * 1000 : value;
+}
+
+function minDefined(left?: number, right?: number) {
+  if (left === undefined) {
+    return right;
+  }
+  if (right === undefined) {
+    return left;
+  }
+  return Math.min(left, right);
+}
+
+function maxDefined(left?: number, right?: number) {
+  if (left === undefined) {
+    return right;
+  }
+  if (right === undefined) {
+    return left;
+  }
+  return Math.max(left, right);
 }

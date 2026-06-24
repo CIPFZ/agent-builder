@@ -62,6 +62,7 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 	if action != apitypes.PermissionAllow && action != apitypes.PermissionAllowForSession && action != apitypes.PermissionDeny {
 		return RuntimeStatus{}, fmt.Errorf("invalid permission action: %s", req.Action)
 	}
+	guidance := strings.TrimSpace(req.Guidance)
 
 	r.mu.Lock()
 	wsID := r.workspace.ID
@@ -167,7 +168,7 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 		}
 	}
 
-	r.writeAudit(auditEntry{
+	auditPayload := auditEntry{
 		RequestID:           pending.Permission.TurnID,
 		Event:               "permission_decided",
 		Timestamp:           time.Now().Format(time.RFC3339Nano),
@@ -188,7 +189,29 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 		PolicyTargetSummary: pending.Permission.PolicyTargetSummary,
 		PermissionID:        pending.Permission.ID,
 		ToolCallID:          pending.Permission.ToolCallID,
-	})
+	}
+	if guidance != "" {
+		auditPayload.Extra = map[string]any{"guidance": guidance}
+	}
+	r.writeAudit(auditPayload)
+	eventPayload := map[string]any{
+		"permission_id":       req.PermissionID,
+		"tool_name":           pending.Permission.ToolName,
+		"action":              string(action),
+		"path":                pending.Permission.Path,
+		"risk":                pending.Permission.Risk,
+		"reason":              firstNonEmpty(pending.Permission.Reason, pending.Permission.PolicyReason),
+		"mode":                pending.Permission.PolicyMode,
+		"matched_rule_id":     pending.Permission.PolicyRuleID,
+		"matched_rule_source": pending.Permission.PolicyRuleSource,
+		"scope_kind":          pending.Permission.PolicyScopeKind,
+		"scope_value":         pending.Permission.PolicyScopeValue,
+		"target_summary":      pending.Permission.PolicyTargetSummary,
+		"status":              permissionStatusForDecision(action),
+	}
+	if guidance != "" {
+		eventPayload["guidance"] = guidance
+	}
 	r.storeRuntimeEvent(runtimeapi.Event{
 		ID:         newRuntimeEventID(),
 		Type:       runtimeapi.EventPermissionDecided,
@@ -196,21 +219,7 @@ func (r *runtimeService) DecidePermission(ctx context.Context, req RuntimePermis
 		SessionID:  pending.Permission.SessionID,
 		TurnID:     firstNonEmpty(pending.Permission.TurnID, r.activeTurnForSession(pending.Permission.SessionID)),
 		ToolCallID: pending.Permission.ToolCallID,
-		Payload: map[string]any{
-			"permission_id":       req.PermissionID,
-			"tool_name":           pending.Permission.ToolName,
-			"action":              string(action),
-			"path":                pending.Permission.Path,
-			"risk":                pending.Permission.Risk,
-			"reason":              firstNonEmpty(pending.Permission.Reason, pending.Permission.PolicyReason),
-			"mode":                pending.Permission.PolicyMode,
-			"matched_rule_id":     pending.Permission.PolicyRuleID,
-			"matched_rule_source": pending.Permission.PolicyRuleSource,
-			"scope_kind":          pending.Permission.PolicyScopeKind,
-			"scope_value":         pending.Permission.PolicyScopeValue,
-			"target_summary":      pending.Permission.PolicyTargetSummary,
-			"status":              permissionStatusForDecision(action),
-		},
+		Payload:    eventPayload,
 	})
 
 	status, err := r.Status(ctx)

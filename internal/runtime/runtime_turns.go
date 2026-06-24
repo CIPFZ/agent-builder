@@ -486,6 +486,33 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 			})
 		}
 	}
+	cancelledPermissions := r.cancelPendingPermissionsForTurn(ctx, turnID, now)
+	for _, perm := range cancelledPermissions {
+		r.storeRuntimeEvent(runtimePermissionCancelledEvent(now, perm))
+		r.writeAudit(auditEntry{
+			RequestID:           turnID,
+			Event:               "permission_cancelled",
+			Timestamp:           now.Format(time.RFC3339Nano),
+			WorkspaceID:         wsID,
+			SessionID:           perm.SessionID,
+			PermissionTool:      perm.ToolName,
+			PermissionAction:    perm.Action,
+			PermissionPath:      perm.Path,
+			PermissionPolicy:    permissionStatusCancelled,
+			PermissionRisk:      perm.Risk,
+			PermissionReason:    firstNonEmpty(perm.Reason, perm.PolicyReason),
+			PolicyMode:          perm.PolicyMode,
+			PolicyProfile:       perm.PolicyProfile,
+			PolicyRuleID:        perm.PolicyRuleID,
+			PolicyRuleSource:    perm.PolicyRuleSource,
+			PolicyScopeKind:     perm.PolicyScopeKind,
+			PolicyScopeValue:    perm.PolicyScopeValue,
+			PolicyTargetSummary: perm.PolicyTargetSummary,
+			PermissionID:        perm.ID,
+			ToolCallID:          perm.ToolCallID,
+			Error:               "turn cancelled",
+		})
+	}
 	if projection, err := r.reconcileRuntimeRunForSession(ctx, turn.SessionID); err == nil {
 		r.recordRunTurnTransition(ctx, runtimeRunTransitionSourceTurnCancelled, turn, runStatusBefore, firstNonEmpty(projection.Status, runtimeRunStatusCancelled), "turn cancelled")
 	}
@@ -511,6 +538,65 @@ func (r *runtimeService) CancelTurn(ctx context.Context, turnID string) (Runtime
 		return RuntimeStatus{}, err
 	}
 	return withRuntimeTurnAction(status, runtimeTurnActionCancel, runtimeTurnActionReasonCancelled), nil
+}
+
+func (r *runtimeService) cancelPendingPermissionsForTurn(ctx context.Context, turnID string, now time.Time) []RuntimePermissionRequest {
+	var cancelled []RuntimePermissionRequest
+	if r.permissionStore.db != nil {
+		marked, err := r.permissionStore.CancelPendingByTurn(ctx, turnID, now.UnixMilli())
+		if err != nil {
+			slog.Warn("Failed to cancel pending runtime permissions", "turn_id", turnID, "error", err)
+			return nil
+		}
+		cancelled = append(cancelled, marked...)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	seen := make(map[string]struct{}, len(cancelled))
+	for _, perm := range cancelled {
+		seen[perm.ID] = struct{}{}
+		delete(r.permissions, perm.ID)
+	}
+	for id, pending := range r.permissions {
+		if pending.Permission.TurnID != turnID {
+			continue
+		}
+		perm := pending.Permission
+		perm.Status = permissionStatusCancelled
+		perm.DecidedAt = now.UnixMilli()
+		if _, ok := seen[perm.ID]; !ok {
+			cancelled = append(cancelled, perm)
+			seen[perm.ID] = struct{}{}
+		}
+		delete(r.permissions, id)
+	}
+	return cancelled
+}
+
+func runtimePermissionCancelledEvent(now time.Time, perm RuntimePermissionRequest) runtimeapi.Event {
+	return runtimeapi.Event{
+		ID:         newRuntimeEventID(),
+		Type:       runtimeapi.EventPermissionDecided,
+		CreatedAt:  now.UTC().Format(time.RFC3339Nano),
+		SessionID:  perm.SessionID,
+		TurnID:     perm.TurnID,
+		ToolCallID: perm.ToolCallID,
+		Payload: map[string]any{
+			"permission_id":       perm.ID,
+			"tool_name":           perm.ToolName,
+			"action":              "cancel",
+			"path":                perm.Path,
+			"risk":                perm.Risk,
+			"reason":              firstNonEmpty(perm.Reason, perm.PolicyReason, "turn cancelled"),
+			"mode":                perm.PolicyMode,
+			"matched_rule_id":     perm.PolicyRuleID,
+			"matched_rule_source": perm.PolicyRuleSource,
+			"scope_kind":          perm.PolicyScopeKind,
+			"scope_value":         perm.PolicyScopeValue,
+			"target_summary":      perm.PolicyTargetSummary,
+			"status":              permissionStatusCancelled,
+		},
+	}
 }
 
 func withRuntimeTurnAction(status RuntimeStatus, action, reason string) RuntimeStatus {

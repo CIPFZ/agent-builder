@@ -19,6 +19,7 @@ import Bubble from '@ant-design/x/es/bubble';
 import type { NewConversationDraftViewModel, TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { AgentTaskPanel } from '../diagnostics/AgentTaskPanel.tsx';
+import { PermissionGate } from '../permissions/PermissionGate.tsx';
 import { RunProjectionPreview } from '../diagnostics/RunProjectionPreview.tsx';
 import { ReactCallchainInspector } from '../diagnostics/ReactCallchainInspector.tsx';
 import { ContextDiagnosticsPanel } from '../diagnostics/ContextDiagnosticsPanel.tsx';
@@ -49,7 +50,7 @@ interface WorkspaceProps {
   switchingSessionID?: string;
   onMinimumWorkspaceWidthChange?: (width: number) => void;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
-  onPermissionDecide: (permissionID: string, action: 'allow' | 'allow_session' | 'deny') => Promise<void>;
+  onPermissionDecide: (permissionID: string, action: 'allow' | 'allow_session' | 'deny', guidance?: string) => Promise<void>;
   onPermissionModeSelect: (mode: string) => Promise<void>;
   onPromptCancel: () => Promise<void>;
   onSessionRename: (sessionID: string, title: string) => Promise<void>;
@@ -111,6 +112,7 @@ export function Workspace({
   const canUseProjectSideTools = hasProjectContext;
   const hasConversation = viewModel.conversation.length > 0;
   const activeSession = viewModel.sessions.find((session) => session.active);
+  const activePendingPermission = viewModel.pendingPermissions.find((permission) => !activeSession?.id || permission.sessionId === activeSession.id) ?? viewModel.pendingPermissions[0];
   const isSessionSwitching = Boolean(switchingSessionID && activeSession?.id === switchingSessionID && !hasConversation && viewModel.timeline.length === 0);
   const sessionTitle = activeSession?.title || viewModel.currentProject.name || '新对话';
   const title =
@@ -534,7 +536,7 @@ export function Workspace({
           {viewModel.timeline.length > 0 ? (
             <div className={styles.timelineLayout}>
               <div className={styles.timelineColumn}>
-                <Timeline items={viewModel.timeline} onPermissionDecide={onPermissionDecide} />
+                <Timeline items={viewModel.timeline} />
               </div>
             </div>
           ) : hasConversation ? (
@@ -573,18 +575,24 @@ export function Workspace({
               <ArrowDownOutlined />
             </button>
           )}
-          <Composer
-            composer={viewModel.composer}
-            project={viewModel.currentProject}
-            projects={viewModel.projects}
-            newConversationDraft={viewModel.newConversationDraft}
-            showProjectContext={viewModel.mode === 'project' && hasProjectContext && !hasConversation}
-            onNewConversationDraftChange={onNewConversationDraftChange}
-            onModelSelect={onModelSelect}
-            onPermissionModeSelect={onPermissionModeSelect}
-            onCancel={onPromptCancel}
-            onSubmit={onPromptSubmit}
-          />
+          {activePendingPermission ? (
+            <div className={styles.permissionDock} data-testid="permission-dock">
+              <PermissionGate permission={activePendingPermission} onDecide={onPermissionDecide} />
+            </div>
+          ) : (
+            <Composer
+              composer={viewModel.composer}
+              project={viewModel.currentProject}
+              projects={viewModel.projects}
+              newConversationDraft={viewModel.newConversationDraft}
+              showProjectContext={viewModel.mode === 'project' && hasProjectContext && !hasConversation}
+              onNewConversationDraftChange={onNewConversationDraftChange}
+              onModelSelect={onModelSelect}
+              onPermissionModeSelect={onPermissionModeSelect}
+              onCancel={onPromptCancel}
+              onSubmit={onPromptSubmit}
+            />
+          )}
         </div>
         {rightPanelOpen && (
           <aside className={`${styles.rightPanel} ${rightPanelHasTabs ? '' : styles.rightPanelNoTabs}`} aria-label="右侧工作区">

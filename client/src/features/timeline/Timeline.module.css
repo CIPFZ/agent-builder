@@ -1,10 +1,16 @@
 .timeline {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
   min-height: auto;
   padding: 8px 40px 48px;
   overflow: visible;
+}
+
+.turnBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .assistantBubble {
@@ -63,6 +69,85 @@
 .copyButton:focus-visible {
   color: #0d0d0d !important;
   background: rgb(13 13 13 / 6%) !important;
+}
+
+.processTrace {
+  width: min(760px, 94%);
+  color: rgb(13 13 13 / 58%);
+}
+
+.processTraceLabel {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: rgb(13 13 13 / 52%);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.processTraceLabel span + span {
+  color: rgb(13 13 13 / 42%);
+}
+
+.processSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.processNote {
+  width: min(720px, 94%);
+  color: rgb(13 13 13 / 76%);
+  font-size: 15px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.permissionTraceRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  width: min(720px, 94%);
+  gap: 6px;
+  color: rgb(13 13 13 / 48%);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.permissionTraceRow code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgb(13 13 13 / 6%);
+  color: rgb(13 13 13 / 68%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.processTrace :global(.ant-collapse-header) {
+  width: fit-content;
+  align-items: center !important;
+  padding: 2px 0 !important;
+  color: rgb(13 13 13 / 52%);
+}
+
+.processTrace :global(.ant-collapse-expand-icon) {
+  height: 24px !important;
+  padding-inline-end: 7px !important;
+  color: rgb(13 13 13 / 38%);
+}
+
+.processTrace :global(.ant-collapse-content) {
+  border-top: 1px solid rgb(13 13 13 / 8%) !important;
+}
+
+.processTrace :global(.ant-collapse-content-box) {
+  padding: 12px 0 0 !important;
+}
+
+.processTrace :global(.ant-collapse-item) {
+  border: 0 !important;
 }
 
 .progress {
@@ -196,4 +281,25 @@
 .diagnosticContent {
   overflow-wrap: anywhere;
   color: rgb(95 67 0 / 82%);
+}
+
+@media (max-width: 720px) {
+  .timeline {
+    padding-inline: 18px;
+  }
+
+  .assistantBubble,
+  .userBubble,
+  .processTrace,
+  .processNote,
+  .permissionTraceRow,
+  .progress,
+  .diagnosticWarning {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .userBubble {
+    max-width: 92%;
+  }
 }

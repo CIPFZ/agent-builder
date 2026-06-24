@@ -499,6 +499,15 @@ func TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership(t *testing.T) {
 	if _, err := h.service.toolCalls.MarkWaitingPermission(h.ctx, "tool-cancel-owned"); err != nil {
 		t.Fatal(err)
 	}
+	pendingPermission := RuntimePermissionRequest{
+		ID: "perm-cancel-owned", SessionID: session.ID, TurnID: turn.ID, ToolCallID: "tool-cancel-owned", ToolName: "bash",
+		Action: "execute", Risk: string(permission.RiskExecute), PolicyMode: string(permission.PolicyModeAutoRead),
+		PolicyReason: "Auto-read asks before non-read tool calls.", Status: permissionStatusPending, CreatedAt: startedAt,
+	}
+	if _, err := h.service.permissionStore.Upsert(h.ctx, pendingPermission); err != nil {
+		t.Fatal(err)
+	}
+	h.service.permissions[pendingPermission.ID] = pendingRuntimePermission{Permission: pendingPermission}
 
 	status, err := h.service.CancelTurn(h.ctx, turn.ID)
 	if err != nil {
@@ -536,6 +545,26 @@ func TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership(t *testing.T) {
 	if cancelledCall.Status != scheduler.ToolCallCancelled {
 		t.Fatalf("tool call was not cancelled: %#v", cancelledCall)
 	}
+	cancelledPermission, err := h.service.permissionStore.Get(h.ctx, pendingPermission.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancelledPermission.Status != permissionStatusCancelled || cancelledPermission.DecidedAt == 0 {
+		t.Fatalf("permission was not cancelled: %#v", cancelledPermission)
+	}
+	h.service.mu.Lock()
+	_, stillPending := h.service.permissions[pendingPermission.ID]
+	h.service.mu.Unlock()
+	if stillPending {
+		t.Fatal("permission remained pending in memory after turn cancellation")
+	}
+	permissions, err := h.service.Permissions(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(permissions.Permissions, func(perm RuntimePermissionRequest) bool { return perm.ID == pendingPermission.ID }) {
+		t.Fatalf("cancelled permission is still pending: %#v", permissions.Permissions)
+	}
 	transitions, err := h.service.transitions.ListByRun(h.ctx, run.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -554,6 +583,7 @@ func TestRuntimeScenarioHarnessCancelTurnPreservesRunOwnership(t *testing.T) {
 		t.Fatalf("run detail was not reconciled as cancelled: run=%#v projection=%#v", detail.Run, detail.Projection)
 	}
 	h.assertEventType(runtimeapi.EventTurnCancelled)
+	h.assertEventType(runtimeapi.EventPermissionDecided)
 }
 
 func TestRuntimeScenarioHarnessPendingPermissionDecisionSurvivesReload(t *testing.T) {
