@@ -61,6 +61,7 @@ function TurnBlock({ block, messageApi }: { block: TimelineTurnBlock; messageApi
 
 function ProcessTrace({ block }: { block: TimelineTurnBlock }) {
   const traceLabel = processTraceSummary(block);
+  const groupedItems = groupAdjacentToolCalls(block.processItems);
   return (
     <section className={styles.processTrace} data-testid="process-trace" data-process-label={traceLabel} data-process-status={block.status}>
       <Collapse
@@ -74,7 +75,7 @@ function ProcessTrace({ block }: { block: TimelineTurnBlock }) {
             label: <ProcessTraceLabel block={block} />,
             children: (
               <div className={styles.processSteps}>
-                {groupAdjacentToolCalls(block.processItems).map((item) => (
+                {groupedItems.map((item) => (
                   <TimelineProcessItem key={item.id} item={item} />
                 ))}
               </div>
@@ -153,10 +154,16 @@ function TimelineMessage({ item, messageApi }: { item: ConversationTimelineItemV
 }
 
 function AssistantProcessNote({ item }: { item: ConversationTimelineItemViewModel }) {
-  if (!item.content?.trim()) {
+  const content = item.content?.trim();
+  if (!content) {
     return null;
   }
-  return <div className={styles.processNote}>{item.content}</div>;
+  return (
+    <details className={styles.processNote} data-testid="timeline-process-note">
+      <summary>{summarizeProcessNote(content)}</summary>
+      <div>{content}</div>
+    </details>
+  );
 }
 
 function PermissionTraceRow({ item }: { item: ConversationTimelineItemViewModel }) {
@@ -179,6 +186,7 @@ function AgentTaskTimelineRow({ item }: { item: ConversationTimelineItemViewMode
     return null;
   }
   const refs = [...(task.outputRefs ?? []), ...(task.artifactRefs ?? [])];
+  const summary = task.resultSummary || task.promptSummary || '';
   return (
     <div className={styles.agentTaskRow} data-testid="timeline-agent-task-row" data-task-id={task.id}>
       <div className={styles.agentTaskIcon}>
@@ -195,7 +203,12 @@ function AgentTaskTimelineRow({ item }: { item: ConversationTimelineItemViewMode
             .filter(Boolean)
             .join(' / ')}
         </div>
-        {task.resultSummary || task.promptSummary ? <div className={styles.agentTaskSummary}>{task.resultSummary || task.promptSummary}</div> : null}
+        {summary ? (
+          <details className={styles.agentTaskSummary}>
+            <summary>{summarizeProcessNote(summary)}</summary>
+            <div>{summary}</div>
+          </details>
+        ) : null}
         {refs.length ? <div className={styles.agentTaskRefs}>{refs.slice(0, 3).join(' / ')}</div> : null}
       </div>
     </div>
@@ -265,6 +278,12 @@ function buildTurnBlocks(items: ConversationTimelineItemViewModel[]): TimelineTu
     block.looseItems.push(item);
   }
 
+  for (const block of blocks) {
+    if (block.finalMessage && !isActiveTurnStatus(block.status)) {
+      block.status = block.finalMessage.status === 'error' ? 'failed' : 'completed';
+    }
+  }
+
   return blocks.filter((block) => block.userMessage || block.finalMessage || block.processItems.length > 0 || block.looseItems.length > 0);
 }
 
@@ -280,7 +299,11 @@ function shouldOpenProcessTrace(block: TimelineTurnBlock) {
   if (!block.finalMessage) {
     return true;
   }
-  return block.processItems.some((item) => item.status === 'running' || item.status === 'queued' || item.status === 'waiting_permission' || item.status === 'failed' || item.status === 'denied');
+  return block.processItems.some((item) => isActiveTurnStatus(item.status));
+}
+
+function isActiveTurnStatus(status?: string) {
+  return status === 'running' || status === 'queued' || status === 'waiting_permission';
 }
 
 function processTraceLabel(status?: string) {
@@ -635,4 +658,12 @@ function maxDefined(left?: number, right?: number) {
     return left;
   }
   return Math.max(left, right);
+}
+
+function summarizeProcessNote(content: string) {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= 140) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 140)}...`;
 }

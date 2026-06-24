@@ -413,7 +413,7 @@ function hasToolDetails(toolCall: ToolCallViewModel, detail?: string, output?: s
 }
 
 function shouldOpenByDefault(toolCalls: ToolCallViewModel[]) {
-  return toolCalls.some((call) => ['failed', 'running', 'queued'].includes(toolVisualStatus(call)));
+  return toolCalls.some((call) => ['running', 'queued', 'waiting_permission'].includes(toolVisualStatus(call)));
 }
 
 function groupStatus(toolCalls: ToolCallViewModel[]) {
