@@ -17,6 +17,7 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 	r.mu.Lock()
 	ws := *r.workspace
 	sessionID := r.sessionID
+	explicitProject := r.projectPath != ""
 	events := r.eventStats.snapshot()
 	requests := r.runtimeRequestsLocked()
 	sessionRequestID := r.sessionTurns[sessionID]
@@ -30,16 +31,17 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 	r.mu.Unlock()
 	if sessionBusy {
 		return RuntimeStatus{
-			Ready:       true,
-			WorkspaceID: ws.ID,
-			SessionID:   sessionID,
-			WorkingDir:  ws.Path,
-			Model:       sessionRequest.Model,
-			Provider:    sessionRequest.Provider,
-			Busy:        true,
-			Usage:       sessionRequest.UsageBefore,
-			Events:      events,
-			Requests:    requests,
+			Ready:           true,
+			WorkspaceID:     ws.ID,
+			SessionID:       sessionID,
+			WorkingDir:      ws.Path,
+			ExplicitProject: explicitProject,
+			Model:           sessionRequest.Model,
+			Provider:        sessionRequest.Provider,
+			Busy:            true,
+			Usage:           sessionRequest.UsageBefore,
+			Events:          events,
+			Requests:        requests,
 		}, nil
 	}
 	if requests.Running == 0 {
@@ -75,22 +77,24 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 	}
 
 	return RuntimeStatus{
-		Ready:       info.IsReady,
-		WorkspaceID: ws.ID,
-		SessionID:   sessionID,
-		WorkingDir:  ws.Path,
-		Model:       info.ModelCfg.Model,
-		Provider:    info.ModelCfg.Provider,
-		Busy:        requests.SessionBusy,
-		Usage:       usage,
-		Events:      events,
-		Requests:    requests,
+		Ready:           info.IsReady,
+		WorkspaceID:     ws.ID,
+		SessionID:       sessionID,
+		WorkingDir:      ws.Path,
+		ExplicitProject: explicitProject,
+		Model:           info.ModelCfg.Model,
+		Provider:        info.ModelCfg.Provider,
+		Busy:            requests.SessionBusy,
+		Usage:           usage,
+		Events:          events,
+		Requests:        requests,
 	}, nil
 }
 
 func (r *runtimeService) fallbackProjectStatus() RuntimeStatus {
 	r.mu.Lock()
 	projectPath := r.projectPath
+	explicitProject := projectPath != ""
 	sessionID := r.sessionID
 	events := r.eventStats.snapshot()
 	requests := r.runtimeRequestsLocked()
@@ -99,11 +103,12 @@ func (r *runtimeService) fallbackProjectStatus() RuntimeStatus {
 		projectPath = runtimeDefaultWorkingDir()
 	}
 	return RuntimeStatus{
-		Ready:       false,
-		WorkspaceID: runtimeFallbackWorkspaceID(projectPath),
-		SessionID:   sessionID,
-		WorkingDir:  projectPath,
-		Events:      events,
-		Requests:    requests,
+		Ready:           false,
+		WorkspaceID:     runtimeFallbackWorkspaceID(projectPath),
+		SessionID:       sessionID,
+		WorkingDir:      projectPath,
+		ExplicitProject: explicitProject,
+		Events:          events,
+		Requests:        requests,
 	}
 }

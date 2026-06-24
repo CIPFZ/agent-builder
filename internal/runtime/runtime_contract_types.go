@@ -1,17 +1,20 @@
 package runtime
 
 type RuntimeStatus struct {
-	Ready       bool                        `json:"ready"`
-	WorkspaceID string                      `json:"workspaceId"`
-	SessionID   string                      `json:"sessionId"`
-	WorkingDir  string                      `json:"workingDir"`
-	Model       string                      `json:"model"`
-	Provider    string                      `json:"provider"`
-	Busy        bool                        `json:"busy"`
-	Usage       RuntimeUsage                `json:"usage"`
-	Events      RuntimeEventStats           `json:"events"`
-	Requests    RuntimeRequests             `json:"requests"`
-	Action      *RuntimeWriteActionMetadata `json:"action,omitempty"`
+	Ready       bool   `json:"ready"`
+	WorkspaceID string `json:"workspaceId"`
+	SessionID   string `json:"sessionId"`
+	WorkingDir  string `json:"workingDir"`
+	// ExplicitProject is true only after the user has opened or created a
+	// project. A default cwd workspace is not a desktop project selection.
+	ExplicitProject bool                        `json:"explicitProject"`
+	Model           string                      `json:"model"`
+	Provider        string                      `json:"provider"`
+	Busy            bool                        `json:"busy"`
+	Usage           RuntimeUsage                `json:"usage"`
+	Events          RuntimeEventStats           `json:"events"`
+	Requests        RuntimeRequests             `json:"requests"`
+	Action          *RuntimeWriteActionMetadata `json:"action,omitempty"`
 }
 
 type RuntimeProject struct {

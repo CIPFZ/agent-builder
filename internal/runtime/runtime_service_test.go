@@ -104,6 +104,62 @@ func TestRuntimeOpenProjectCreatesSwitchesAndClosesTerminals(t *testing.T) {
 	}
 }
 
+func TestRuntimeStatusDefaultWorkingDirIsNotExplicitProject(t *testing.T) {
+	root := runtimeDevTestRoot(t, "default-working-dir")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+
+	workingDir := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workingDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	})
+
+	service := newRuntimeService()
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.WorkingDir != workingDir {
+		t.Fatalf("status working dir = %s, want %s", status.WorkingDir, workingDir)
+	}
+	if status.ExplicitProject {
+		t.Fatalf("default cwd status explicit project = true, want false")
+	}
+}
+
+func TestRuntimeStatusOpenProjectIsExplicitProject(t *testing.T) {
+	root := runtimeDevTestRoot(t, "explicit-project")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
+
+	projectPath := filepath.Join(t.TempDir(), "project")
+	service := newRuntimeService()
+	opened, err := service.OpenProject(context.Background(), RuntimeOpenProjectRequest{Path: projectPath, CreateMissing: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opened.Status.ExplicitProject {
+		t.Fatalf("opened status explicit project = false, want true")
+	}
+
+	status, err := service.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.WorkingDir != projectPath || !status.ExplicitProject {
+		t.Fatalf("status = %#v, want explicit project at %s", status, projectPath)
+	}
+}
+
 func TestRuntimeCreateProjectUsesDesktopDataProjectsDirectory(t *testing.T) {
 	root := runtimeDevTestRoot(t, "create-project")
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)

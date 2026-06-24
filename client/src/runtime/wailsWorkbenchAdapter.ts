@@ -45,6 +45,7 @@ interface RuntimeStatusDTO extends RuntimeWriteActionResponseDTO {
   sessionId?: string;
   workingDir?: string;
   workspaceId?: string;
+  explicitProject?: boolean;
   model?: string;
   provider?: string;
   busy?: boolean;
@@ -1247,11 +1248,9 @@ function loadRuntimeBridge() {
   if (typeof window === 'undefined') {
     return Promise.resolve(null);
   }
-  if (import.meta.env.DEV) {
-    return Promise.resolve(null);
-  }
 
-  // Wails generates JavaScript bindings without TypeScript declarations.
+  // Wails dev also serves generated bindings through Vite. Try them first so
+  // the desktop WebView does not depend on the standalone HTTP runtime.
   runtimeBridgePromise ??= Promise.race([
     import(
       /* @vite-ignore */
@@ -1342,6 +1341,16 @@ function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: st
 }
 
 function mapProjectFromStatus(status?: RuntimeStatusDTO, current?: WorkbenchViewModel['currentProject']): WorkbenchViewModel['currentProject'] {
+  if (!status?.explicitProject) {
+    return {
+      id: '',
+      name: '',
+      path: '',
+      isGitRepository: false,
+      branch: undefined,
+      current: false,
+    };
+  }
   const path = status?.workingDir || current?.path || '';
   const id = status?.workspaceId || current?.id || '';
   return {
@@ -3087,6 +3096,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const modelOptionList = modelsResponse ? modelOptions(modelsResponse) : current.composer.modelOptions;
   const selectedModel = modelsResponse ? modelOptionList.find((model) => model.selected) : current.composer.selectedModel;
   const currentProject = mapProjectFromStatus(status, current.currentProject);
+  const currentProjectID = status?.explicitProject ? currentProject.id : undefined;
   const activeTurns = Array.isArray(activeTurnsResponse?.turns) ? activeTurnsResponse.turns : [];
   const activityTurns = Array.isArray(activity?.turns) ? activity.turns : [];
   const sessionActiveTurn =
@@ -3132,7 +3142,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     ...current,
     currentProject,
     projects: currentProject.path ? [currentProject] : [],
-    sessions: mapSessions(sessionsResponse, status?.sessionId, activeTurns, currentProject.id),
+    sessions: mapSessions(sessionsResponse, status?.sessionId, activeTurns, currentProjectID),
     conversation,
     timeline,
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
