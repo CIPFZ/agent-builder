@@ -108,6 +108,7 @@ export interface ConversationMessageViewModel {
   role: 'user' | 'assistant' | 'tool' | 'system';
   content: string;
   createdAt?: number;
+  clientRequestId?: string;
   provider?: string;
   model?: string;
   status?: 'loading' | 'success' | 'error';
@@ -131,6 +132,7 @@ export interface ConversationTimelineItemViewModel {
   createdAt?: number;
   updatedAt?: number;
   sequence?: number;
+  clientRequestId?: string;
   source?: 'runtime_activity' | 'react_callchain' | 'runtime_fallback';
   provider?: string;
   model?: string;

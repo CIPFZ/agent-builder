@@ -2025,12 +2025,12 @@ function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], act
       turnIDs.add(turnID);
     }
   });
-  const messageIDs = new Set((Array.isArray(activity.messages) ? activity.messages : []).map((message) => message.id).filter(Boolean));
+  const messageIDs = new Set(activityMessages.map((message) => message.id).filter(Boolean));
   const toolCallIDs = new Set((Array.isArray(activity.toolCalls) ? activity.toolCalls : []).map((toolCall) => toolCall.id).filter(Boolean));
   const permissionIDs = new Set((Array.isArray(activity.permissions) ? activity.permissions : []).map((permission) => permission.id).filter(Boolean));
-  const hasRuntimeActivity = replacement.length > 0 || turnIDs.size > 0 || messageIDs.size > 0 || toolCallIDs.size > 0 || permissionIDs.size > 0;
+  const hasRuntimeMessages = messageIDs.size > 0 || replacement.some((item) => item.kind === 'message' && item.messageId);
   const kept = current.filter((item) => {
-    if (hasRuntimeActivity && isOptimisticTimelineItem(item)) {
+    if (hasRuntimeMessages && isOptimisticTimelineItem(item)) {
       return false;
     }
     if (item.turnId && turnIDs.has(item.turnId)) {
@@ -2051,7 +2051,7 @@ function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], act
     }
     return true;
   });
-  return [...kept, ...replacement].sort(compareActivityTimelineItems(activityMessages, activityTurns));
+  return dedupeTimelineItems([...kept, ...replacement]).sort(compareActivityTimelineItems(activityMessages, activityTurns));
 }
 
 function attachAgentTasksToTimeline(items: ConversationTimelineItemViewModel[], tasks?: AgentTaskViewModel[]): ConversationTimelineItemViewModel[] {
@@ -2090,6 +2090,14 @@ function attachAgentTasksToTimeline(items: ConversationTimelineItemViewModel[], 
     }
   });
   byTool.forEach((values) => unplaced.push(...values));
+  unplaced.sort((left, right) => {
+    const leftTime = normalizeTimestamp(left.createdAt ?? 0);
+    const rightTime = normalizeTimestamp(right.createdAt ?? 0);
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+    return left.id.localeCompare(right.id);
+  });
   return [...merged, ...unplaced];
 }
 
@@ -2099,6 +2107,11 @@ function compareActivityTimelineItems(messages: RuntimeMessageDTO[], turns: Runt
   return (left: ConversationTimelineItemViewModel, right: ConversationTimelineItemViewModel) => {
     const leftTurn = left.turnId || turnIDForMessage(turnContext, left.messageId);
     const rightTurn = right.turnId || turnIDForMessage(turnContext, right.messageId);
+    const leftTurnSort = timelineTurnSortOrder(left, leftTurn, messageOrder, turnContext);
+    const rightTurnSort = timelineTurnSortOrder(right, rightTurn, messageOrder, turnContext);
+    if (leftTurnSort !== rightTurnSort) {
+      return leftTurnSort - rightTurnSort;
+    }
     const leftTime = timelineSortTime(left, leftTurn, turnContext);
     const rightTime = timelineSortTime(right, rightTurn, turnContext);
     if (leftTurn && rightTurn && leftTurn === rightTurn) {
@@ -2153,6 +2166,14 @@ function mergeConversationMessages(current: ConversationMessageViewModel[], resp
     }
     return left.id.localeCompare(right.id);
   });
+}
+
+function dedupeTimelineItems(items: ConversationTimelineItemViewModel[]) {
+  const byID = new Map<string, ConversationTimelineItemViewModel>();
+  items.forEach((item) => {
+    byID.set(item.id, item);
+  });
+  return [...byID.values()];
 }
 
 function isOptimisticConversationMessage(message: ConversationMessageViewModel) {
@@ -2328,6 +2349,44 @@ function timelineSortTime(item: ConversationTimelineItemViewModel, turnID: strin
     }
   }
   return 0;
+}
+
+function timelineTurnSortOrder(
+  item: ConversationTimelineItemViewModel,
+  turnID: string | undefined,
+  messageOrder: Map<string, number>,
+  context: TimelineTurnContext,
+) {
+  const messageIndex = timelineMessageOrder(item, messageOrder);
+  if (messageIndex < Number.MAX_SAFE_INTEGER) {
+    return messageIndex * 1_000;
+  }
+  if (turnID) {
+    const turn = context.turnByID.get(turnID);
+    if (turn?.userMessageId) {
+      const turnUserIndex = messageOrder.get(turn.userMessageId);
+      if (typeof turnUserIndex === 'number') {
+        return turnUserIndex * 1_000 + 500;
+      }
+    }
+    if (turn?.latestAssistantMessageId) {
+      const turnAssistantIndex = messageOrder.get(turn.latestAssistantMessageId);
+      if (typeof turnAssistantIndex === 'number') {
+        return turnAssistantIndex * 1_000;
+      }
+    }
+    if (turn?.startedAt) {
+      return normalizeTimestamp(turn.startedAt);
+    }
+  }
+  const itemTime = normalizeTimestamp(item.createdAt ?? 0);
+  if (itemTime > 0) {
+    return itemTime;
+  }
+  if (item.clientRequestId) {
+    return Number.MAX_SAFE_INTEGER - 2;
+  }
+  return Number.MAX_SAFE_INTEGER - 1;
 }
 
 function timelineKindRank(item: ConversationTimelineItemViewModel) {

@@ -110,7 +110,8 @@ export function Workspace({
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
   const canUseProjectSideTools = hasProjectContext;
-  const hasConversation = viewModel.conversation.length > 0;
+  const hasTimeline = viewModel.timeline.length > 0;
+  const hasConversation = viewModel.conversation.length > 0 || hasTimeline;
   const activeSession = viewModel.sessions.find((session) => session.active);
   const activePendingPermission = viewModel.pendingPermissions.find((permission) => !activeSession?.id || permission.sessionId === activeSession.id) ?? viewModel.pendingPermissions[0];
   const isSessionSwitching = Boolean(switchingSessionID && activeSession?.id === switchingSessionID && !hasConversation && viewModel.timeline.length === 0);
@@ -139,6 +140,8 @@ export function Workspace({
       behavior: 'smooth',
     });
   };
+  const timelineLastID = viewModel.timeline.at(-1)?.id ?? '';
+  const conversationLastID = viewModel.conversation.at(-1)?.id ?? '';
   const rightPanelHasTabs = rightPanelTabs.length > 0;
   const rightPanelOpen = rightPanelVisible;
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
@@ -331,6 +334,25 @@ export function Workspace({
     const frame = window.requestAnimationFrame(updateJumpToBottomVisibility);
     return () => window.cancelAnimationFrame(frame);
   }, [updateJumpToBottomVisibility, viewModel.conversation.length, viewModel.timeline.length]);
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || (!timelineLastID && !conversationLastID)) {
+      return undefined;
+    }
+    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const shouldFollow = distanceToBottom < 260 || viewModel.composer.busy;
+    if (!shouldFollow) {
+      return undefined;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: viewModel.composer.busy ? 'smooth' : 'auto',
+      });
+      updateJumpToBottomVisibility();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [conversationLastID, timelineLastID, updateJumpToBottomVisibility, viewModel.composer.busy]);
   useEffect(() => {
     const activeTab = rightPanelTabsRef.current?.querySelector<HTMLElement>('[data-active="true"]');
     activeTab?.scrollIntoView({ block: 'nearest', inline: 'center' });
@@ -533,13 +555,13 @@ export function Workspace({
           className={hasConversation || isSessionSwitching ? styles.chatContent : styles.content}
           onScroll={hasConversation || isSessionSwitching ? updateJumpToBottomVisibility : undefined}
         >
-          {viewModel.timeline.length > 0 ? (
+          {hasTimeline ? (
             <div className={styles.timelineLayout}>
               <div className={styles.timelineColumn}>
                 <Timeline items={viewModel.timeline} />
               </div>
             </div>
-          ) : hasConversation ? (
+          ) : viewModel.conversation.length > 0 ? (
             <Bubble.List
               autoScroll
               className={styles.conversation}

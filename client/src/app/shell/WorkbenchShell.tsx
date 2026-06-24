@@ -417,6 +417,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     const currentViewModel = viewModelRef.current;
     const currentMode = modeRef.current;
     const createdAt = Date.now();
+    const clientRequestId = `prompt-${createdAt}`;
     const userID = `local-${createdAt}`;
     const loadingID = `loading-${createdAt}`;
     const optimisticViewModel: WorkbenchViewModel = {
@@ -430,12 +431,15 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           role: 'user',
           content: prompt,
           createdAt,
+          clientRequestId,
           status: 'success',
         },
         {
           id: loadingID,
           role: 'assistant',
           content: '正在生成回复...',
+          createdAt,
+          clientRequestId,
           status: 'loading',
         },
       ],
@@ -447,6 +451,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           role: 'user',
           content: prompt,
           createdAt,
+          clientRequestId,
           status: 'success',
         },
         {
@@ -454,6 +459,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           kind: 'message',
           role: 'assistant',
           content: '正在生成回复...',
+          createdAt,
+          clientRequestId,
           status: 'loading',
         },
       ],
