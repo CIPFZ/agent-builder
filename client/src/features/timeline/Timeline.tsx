@@ -393,22 +393,26 @@ function mergeTurnStatus(current?: string, next?: string) {
 function compactProcessItems(items: ConversationTimelineItemViewModel[]): RenderTimelineItem[] {
   const compacted: RenderTimelineItem[] = [];
   let quietSummary: ToolCallSummaryRenderItem | undefined;
+  let quietSummaryRoundKey: string | undefined;
 
   for (const item of items) {
     if (item.kind === 'tool_call' && item.toolCall && isQuietCompletedToolCall(item.toolCall)) {
-      if (!quietSummary) {
+      const roundKey = toolCallRoundKey(item);
+      if (!quietSummary || quietSummaryRoundKey !== roundKey) {
         quietSummary = {
-          id: `tool-summary:${item.turnId || item.id}`,
+          id: `tool-summary:${roundKey}`,
           kind: 'tool_call_summary',
           turnId: item.turnId,
           toolCalls: [],
         };
+        quietSummaryRoundKey = roundKey;
         compacted.push(quietSummary);
       }
       quietSummary.toolCalls.push(item.toolCall);
       continue;
     }
     quietSummary = undefined;
+    quietSummaryRoundKey = undefined;
     compacted.push(item);
   }
 
@@ -456,6 +460,10 @@ function groupAdjacentToolCalls(items: RenderTimelineItem[]): RenderTimelineItem
 function isQuietCompletedToolCall(toolCall: ToolCallViewModel) {
   const status = toolCall.status;
   return (status === 'completed' || status === 'success') && !toolCall.error;
+}
+
+function toolCallRoundKey(item: ConversationTimelineItemViewModel) {
+  return item.messageId || item.toolCall?.id || item.toolCallId || item.id;
 }
 
 function toolCallsDuration(toolCalls: ToolCallViewModel[]) {
