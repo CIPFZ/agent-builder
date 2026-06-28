@@ -91,6 +91,18 @@ assert(timeline.some((item) => item.toolCallId === 'tool-running' && item.status
 assert(timeline.some((item) => item.kind === 'permission' && item.permission?.id === 'perm-1'), 'waiting permission remains visible');
 assert.equal(selectPendingPermissions(store).length, 1);
 
+const streamingStore = hydrateOutputStore({
+  sessionId: 'session-2',
+  messages: [
+    { id: 'msg-stream', sessionId: 'session-2', role: 'assistant', content: 'partial', finished: false, createdAt: 500 },
+  ],
+  assistantSteps: [
+    { id: 'step-stream', sessionId: 'session-2', turnId: 'turn-stream', messageId: 'msg-stream', index: 0, status: 'streaming', text: 'partial', startedAt: 500, updatedAt: 501 },
+  ],
+}, createOutputStore('session-2'));
+assert.equal(selectConversationMessages(streamingStore)[0].status, 'loading', 'streaming assistant conversation message is not complete');
+assert.equal(selectConversationTimeline(streamingStore).find((item) => item.id === 'assistant-step-stream')?.status, 'loading', 'streaming assistant timeline message is not complete');
+
 const nearBottomShouldFollow = (distanceToBottom, pinned) => pinned || distanceToBottom < 160;
 assert.equal(nearBottomShouldFollow(40, false), true, 'new output follows near bottom');
 assert.equal(nearBottomShouldFollow(900, false), false, 'history browsing does not force jump to bottom');

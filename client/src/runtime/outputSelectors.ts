@@ -27,7 +27,7 @@ export function selectConversationMessages(store: OutputStore): ConversationMess
         clientRequestId: message.clientRequestId,
         provider: message.provider,
         model: message.model,
-        status: message.error ? 'error' as const : 'success' as const,
+        status: conversationMessageStatus(message.role, message.error, message.finished),
         error: message.error,
       })),
   ].sort(compareConversationRows);
@@ -139,7 +139,7 @@ function pushAssistantStepItems(items: ConversationTimelineItemViewModel[], stor
       messageId: step.messageId,
       role: 'assistant',
       content: step.text,
-      status: step.status === 'failed' ? 'error' : 'success',
+      status: assistantStepMessageStatus(step.status),
       phase: step.status === 'completed' ? 'final' : 'intermediate',
       createdAt: step.startedAt,
       updatedAt: step.updatedAt,
@@ -302,6 +302,26 @@ function completedToolGroupTitle(group: RuntimeOutputToolCall[]) {
     return `Edited ${group.length} files`;
   }
   return `Completed ${group.length} tools`;
+}
+
+function conversationMessageStatus(role: string, error?: string, finished?: boolean) {
+  if (error) {
+    return 'error' as const;
+  }
+  if (role === 'assistant' && !finished) {
+    return 'loading' as const;
+  }
+  return 'success' as const;
+}
+
+function assistantStepMessageStatus(status: string) {
+  if (status === 'failed') {
+    return 'error';
+  }
+  if (status === 'completed') {
+    return 'success';
+  }
+  return 'loading';
 }
 
 function groupAssistantStepsByTurn(store: OutputStore) {

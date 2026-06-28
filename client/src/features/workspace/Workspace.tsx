@@ -124,7 +124,9 @@ export function Workspace({
     role: message.role === 'user' ? 'user' : 'ai',
     content: message.content,
     status: message.status,
-    footer: <MessageActions content={message.content} createdAt={message.createdAt} messageApi={messageApi} role={message.role} />,
+    footer: shouldShowMessageActions(message.role, message.status) ? (
+      <MessageActions content={message.content} createdAt={message.createdAt} messageApi={messageApi} role={message.role} />
+    ) : undefined,
   }));
   const updateJumpToBottomVisibility = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -837,6 +839,13 @@ function MessageActions({
       {sentAt && <span className={styles.messageTime}>{sentAt}</span>}
     </div>
   );
+}
+
+function shouldShowMessageActions(role: string, status?: string) {
+  if (role === 'user') {
+    return true;
+  }
+  return status === 'success' || status === 'error';
 }
 
 async function copyText(text: string) {
