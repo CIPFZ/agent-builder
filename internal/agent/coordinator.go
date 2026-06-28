@@ -76,6 +76,7 @@ type Coordinator interface {
 	// INFO: (kujtim) this is not used yet we will use this when we have multiple agents
 	// SetMainAgent(string)
 	Run(ctx context.Context, sessionID, turnID, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error)
+	RunWithMetadata(ctx context.Context, sessionID, turnID, prompt string, metadata map[string]string, attachments ...message.Attachment) (*fantasy.AgentResult, error)
 	Cancel(sessionID string)
 	SendToSession(ctx context.Context, sessionID, turnID, prompt string) error
 	CancelAll()
@@ -558,6 +559,11 @@ func NewCoordinator(
 
 // Run implements Coordinator.
 func (c *coordinator) Run(ctx context.Context, sessionID, turnID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
+	return c.RunWithMetadata(ctx, sessionID, turnID, prompt, nil, attachments...)
+}
+
+// RunWithMetadata implements Coordinator.
+func (c *coordinator) RunWithMetadata(ctx context.Context, sessionID, turnID string, prompt string, metadata map[string]string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
 	if err := c.readyWg.Wait(); err != nil {
 		return nil, err
 	}
@@ -602,6 +608,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID, turnID string, prompt 
 			SessionID:        sessionID,
 			TurnID:           turnID,
 			Prompt:           prompt,
+			MessageMetadata:  cloneAgentStringMap(metadata),
 			Attachments:      attachments,
 			MaxOutputTokens:  maxTokens,
 			ProviderOptions:  mergedOptions,

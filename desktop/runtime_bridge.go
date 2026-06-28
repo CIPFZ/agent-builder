@@ -112,6 +112,12 @@ type RuntimeSessionResponse = runtime.RuntimeSessionResponse
 type RuntimeSessionCreateRequest = runtime.RuntimeSessionCreateRequest
 type RuntimeSessionUpdateRequest = runtime.RuntimeSessionUpdateRequest
 type RuntimeMessagesResponse = runtime.RuntimeMessagesResponse
+type RuntimeAssistantStep = runtime.RuntimeAssistantStep
+type RuntimeToolResult = runtime.RuntimeToolResult
+type RuntimeOutputRequest = runtime.RuntimeOutputRequest
+type RuntimeOutputSnapshot = runtime.RuntimeOutputSnapshot
+type RuntimeOutputEvent = runtime.RuntimeOutputEvent
+type RuntimeOutputEventsResponse = runtime.RuntimeOutputEventsResponse
 type RuntimeSessionActivityResponse = runtime.RuntimeSessionActivityResponse
 type RuntimeActivityWindow = runtime.RuntimeActivityWindow
 type RuntimeSessionActivityWindowResponse = runtime.RuntimeSessionActivityWindowResponse
@@ -662,6 +668,18 @@ func (r *RuntimeBridge) DeleteSession(ctx context.Context, sessionID string) (Ru
 func (r *RuntimeBridge) SessionMessages(ctx context.Context, sessionID string) (RuntimeMessagesResponse, error) {
 
 	return r.service.SessionMessages(ctx, sessionID)
+
+}
+
+func (r *RuntimeBridge) SessionOutput(ctx context.Context, sessionID string, req RuntimeOutputRequest) (RuntimeOutputSnapshot, error) {
+
+	return r.service.SessionOutput(ctx, sessionID, req)
+
+}
+
+func (r *RuntimeBridge) SessionOutputEvents(ctx context.Context, sessionID string, after string) (RuntimeOutputEventsResponse, error) {
+
+	return r.service.SessionOutputEvents(ctx, sessionID, after)
 
 }
 

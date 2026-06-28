@@ -932,6 +932,9 @@ type RuntimeToolCall struct {
 	SessionID                      string                 `json:"sessionId"`
 	TurnID                         string                 `json:"turnId"`
 	MessageID                      string                 `json:"messageId,omitempty"`
+	AssistantStepID                string                 `json:"assistantStepId,omitempty"`
+	ResultIDs                      []string               `json:"resultIds,omitempty"`
+	LatestResultID                 string                 `json:"latestResultId,omitempty"`
 	Name                           string                 `json:"name"`
 	Source                         string                 `json:"source"`
 	CapabilityID                   string                 `json:"capabilityId,omitempty"`
@@ -1407,18 +1410,22 @@ type RuntimeTodosResponse struct {
 }
 
 type RuntimeMessage struct {
-	ID           string               `json:"id"`
-	SessionID    string               `json:"sessionId"`
-	Role         string               `json:"role"`
-	Content      string               `json:"content"`
-	Parts        []RuntimeMessagePart `json:"parts,omitempty"`
-	Provider     string               `json:"provider,omitempty"`
-	Model        string               `json:"model,omitempty"`
-	CreatedAt    int64                `json:"createdAt"`
-	UpdatedAt    int64                `json:"updatedAt"`
-	Finished     bool                 `json:"finished"`
-	FinishReason string               `json:"finishReason,omitempty"`
-	Error        string               `json:"error,omitempty"`
+	ID              string               `json:"id"`
+	SessionID       string               `json:"sessionId"`
+	Role            string               `json:"role"`
+	Content         string               `json:"content"`
+	Parts           []RuntimeMessagePart `json:"parts,omitempty"`
+	Metadata        map[string]string    `json:"metadata,omitempty"`
+	ClientRequestID string               `json:"clientRequestId,omitempty"`
+	InputMode       string               `json:"inputMode,omitempty"`
+	Hidden          bool                 `json:"hidden,omitempty"`
+	Provider        string               `json:"provider,omitempty"`
+	Model           string               `json:"model,omitempty"`
+	CreatedAt       int64                `json:"createdAt"`
+	UpdatedAt       int64                `json:"updatedAt"`
+	Finished        bool                 `json:"finished"`
+	FinishReason    string               `json:"finishReason,omitempty"`
+	Error           string               `json:"error,omitempty"`
 }
 
 type RuntimeMessagePart struct {
@@ -1483,6 +1490,78 @@ type RuntimeSessionUpdateRequest struct {
 
 type RuntimeMessagesResponse struct {
 	Messages []RuntimeMessage `json:"messages"`
+}
+
+type RuntimeAssistantStep struct {
+	ID              string   `json:"id"`
+	SessionID       string   `json:"sessionId"`
+	TurnID          string   `json:"turnId"`
+	MessageID       string   `json:"messageId"`
+	Index           int      `json:"index"`
+	Status          string   `json:"status"`
+	Text            string   `json:"text,omitempty"`
+	ThinkingSummary string   `json:"thinkingSummary,omitempty"`
+	ToolCallIDs     []string `json:"toolCallIds,omitempty"`
+	StartedAt       int64    `json:"startedAt"`
+	UpdatedAt       int64    `json:"updatedAt"`
+	FinishedAt      int64    `json:"finishedAt,omitempty"`
+}
+
+type RuntimeToolResult struct {
+	ID               string   `json:"id"`
+	SessionID        string   `json:"sessionId"`
+	TurnID           string   `json:"turnId"`
+	MessageID        string   `json:"messageId"`
+	ToolCallID       string   `json:"toolCallId"`
+	ToolName         string   `json:"toolName"`
+	Status           string   `json:"status"`
+	ContentPreview   string   `json:"contentPreview,omitempty"`
+	DataPreview      string   `json:"dataPreview,omitempty"`
+	Metadata         string   `json:"metadata,omitempty"`
+	ArtifactRefs     []string `json:"artifactRefs,omitempty"`
+	DiffRefs         []string `json:"diffRefs,omitempty"`
+	DeliveredToModel bool     `json:"deliveredToModel"`
+	CreatedAt        int64    `json:"createdAt"`
+}
+
+type RuntimeOutputSnapshot struct {
+	SessionID      string                     `json:"sessionId"`
+	Cursor         string                     `json:"cursor"`
+	Messages       []RuntimeMessage           `json:"messages"`
+	Turns          []RuntimeTurn              `json:"turns"`
+	AssistantSteps []RuntimeAssistantStep     `json:"assistantSteps"`
+	ToolCalls      []RuntimeToolCall          `json:"toolCalls"`
+	ToolResults    []RuntimeToolResult        `json:"toolResults"`
+	Permissions    []RuntimePermissionRequest `json:"permissions"`
+}
+
+type RuntimeOutputRequest struct {
+	Snapshot bool   `json:"snapshot,omitempty"`
+	Cursor   string `json:"cursor,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+}
+
+type RuntimeOutputEventsResponse struct {
+	SessionID string               `json:"sessionId"`
+	Cursor    string               `json:"cursor"`
+	Events    []RuntimeOutputEvent `json:"events"`
+}
+
+type RuntimeOutputEvent struct {
+	ID            string                    `json:"id"`
+	Sequence      int64                     `json:"sequence"`
+	SessionID     string                    `json:"sessionId"`
+	TurnID        string                    `json:"turnId,omitempty"`
+	Kind          string                    `json:"kind"`
+	EntityID      string                    `json:"entityId"`
+	Operation     string                    `json:"operation"`
+	CreatedAt     int64                     `json:"createdAt"`
+	Message       *RuntimeMessage           `json:"message,omitempty"`
+	AssistantStep *RuntimeAssistantStep     `json:"assistantStep,omitempty"`
+	ToolCall      *RuntimeToolCall          `json:"toolCall,omitempty"`
+	ToolResult    *RuntimeToolResult        `json:"toolResult,omitempty"`
+	Permission    *RuntimePermissionRequest `json:"permission,omitempty"`
+	Turn          *RuntimeTurn              `json:"turn,omitempty"`
 }
 
 type RuntimeSessionActivityResponse struct {

@@ -281,7 +281,8 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 		return RuntimeChatResponse{}, err
 	}
 
-	go r.runChat(runCtx, requestID, wsID, sessionID, prompt, start, usageBefore, status.Provider, status.Model)
+	userMessageMetadata := runtimeUserMessageMetadata(normalized)
+	go r.runChat(runCtx, requestID, wsID, sessionID, prompt, userMessageMetadata, start, usageBefore, status.Provider, status.Model)
 
 	return RuntimeChatResponse{
 		RequestID:       requestID,
@@ -681,11 +682,12 @@ func (r *runtimeService) MarkInterruptedDone(ctx context.Context, turnID string)
 	return withRuntimeTurnResponseAction(resp, runtimeTurnActionMarkInterruptedDone, runtimeTurnActionReasonInterruptedMarkedDone), nil
 }
 
-func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID, prompt string, start time.Time, usageBefore RuntimeUsage, provider, model string) {
+func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID, prompt string, userMessageMetadata map[string]string, start time.Time, usageBefore RuntimeUsage, provider, model string) {
 	err := r.runtime.SendMessage(ctx, wsID, apitypes.AgentMessage{
 		SessionID: sessionID,
 		TurnID:    requestID,
 		Prompt:    prompt,
+		Metadata:  userMessageMetadata,
 	})
 	duration := time.Since(start)
 	usageAfter, usageErr := r.sessionUsage(context.Background(), wsID, sessionID)

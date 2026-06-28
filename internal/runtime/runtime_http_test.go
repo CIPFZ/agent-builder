@@ -1025,6 +1025,64 @@ func TestRuntimeHTTPServerRoutesNarrowActivityToRuntimeService(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerRoutesSessionOutputToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		output: RuntimeOutputSnapshot{
+			SessionID: "session-1",
+			Cursor:    "3",
+			Messages:  []RuntimeMessage{{ID: "msg-1", SessionID: "session-1", Role: "user", ClientRequestID: "client-1"}},
+		},
+		outputEvents: RuntimeOutputEventsResponse{
+			SessionID: "session-1",
+			Cursor:    "4",
+			Events:    []RuntimeOutputEvent{{ID: "out-1", Sequence: 401, SessionID: "session-1", Kind: "message.created", EntityID: "msg-1", Operation: "append"}},
+		},
+	}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodGet, "/v1/sessions/session-1/output?limit=4&cursor=2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.outputSession != "session-1" || service.outputRequest.Limit != 4 || service.outputRequest.Cursor != "2" || !service.outputRequest.Snapshot {
+		t.Fatalf("output request = session:%q req:%#v", service.outputSession, service.outputRequest)
+	}
+	var snapshot RuntimeOutputSnapshot
+	if err := json.Unmarshal(resp.body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Cursor != "3" || snapshot.Messages[0].ClientRequestID != "client-1" {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, "/v1/sessions/session-1/output/events?cursor=3", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("events status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.outputEventsSession != "session-1" || service.outputEventsAfter != "3" {
+		t.Fatalf("output events request = session:%q after:%q", service.outputEventsSession, service.outputEventsAfter)
+	}
+	var events RuntimeOutputEventsResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &events); err != nil {
+		t.Fatal(err)
+	}
+	if events.Cursor != "4" || len(events.Events) != 1 {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
 func TestRuntimeHTTPServerRoutesRunTransitionHistoryToRuntimeService(t *testing.T) {
 	t.Parallel()
 

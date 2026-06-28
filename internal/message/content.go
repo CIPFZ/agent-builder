@@ -145,6 +145,7 @@ type Message struct {
 	Parts            []ContentPart
 	Model            string
 	Provider         string
+	Metadata         map[string]string
 	CreatedAt        int64
 	UpdatedAt        int64
 	IsSummaryMessage bool
@@ -427,7 +428,19 @@ func (m *Message) Clone() Message {
 	clone := *m
 	clone.Parts = make([]ContentPart, len(m.Parts))
 	copy(clone.Parts, m.Parts)
+	clone.Metadata = cloneMessageMetadata(m.Metadata)
 	return clone
+}
+
+func cloneMessageMetadata(metadata map[string]string) map[string]string {
+	if len(metadata) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(metadata))
+	for key, value := range metadata {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func (m *Message) AddFinish(reason FinishReason, message, details string) {

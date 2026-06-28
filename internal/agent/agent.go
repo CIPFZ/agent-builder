@@ -73,6 +73,7 @@ type SessionAgentCall struct {
 	Prompt           string
 	ProviderOptions  fantasy.ProviderOptions
 	Attachments      []message.Attachment
+	MessageMetadata  map[string]string
 	MaxOutputTokens  int64
 	Temperature      *float64
 	TopP             *float64
@@ -1027,13 +1028,25 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
 	}
 	parts = append(parts, attachmentParts...)
 	msg, err := a.messages.Create(ctx, call.SessionID, message.CreateMessageParams{
-		Role:  message.User,
-		Parts: parts,
+		Role:     message.User,
+		Parts:    parts,
+		Metadata: cloneAgentStringMap(call.MessageMetadata),
 	})
 	if err != nil {
 		return message.Message{}, fmt.Errorf("failed to create user message: %w", err)
 	}
 	return msg, nil
+}
+
+func cloneAgentStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }
 
 func (a *sessionAgent) preparePrompt(msgs []message.Message, supportsImages bool, attachments ...message.Attachment) ([]fantasy.Message, []fantasy.FilePart) {

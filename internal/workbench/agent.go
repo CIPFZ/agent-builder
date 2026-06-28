@@ -21,7 +21,7 @@ func (b *Service) SendMessage(ctx context.Context, workspaceID string, msg apity
 		return ErrAgentNotInitialized
 	}
 
-	_, err = ws.AgentCoordinator.Run(ctx, msg.SessionID, msg.TurnID, msg.Prompt, apitypes.AttachmentsToMessage(msg.Attachments)...)
+	_, err = ws.AgentCoordinator.RunWithMetadata(ctx, msg.SessionID, msg.TurnID, msg.Prompt, msg.Metadata, apitypes.AttachmentsToMessage(msg.Attachments)...)
 	return err
 }
 

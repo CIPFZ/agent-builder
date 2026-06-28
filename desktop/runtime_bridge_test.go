@@ -527,6 +527,16 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 			Turns:     []RuntimeTurn{{ID: "turn-window", SessionID: "session-window", Status: "running"}},
 			Window:    RuntimeActivityWindow{Limit: 2, ToEnd: true},
 		},
+		output: RuntimeOutputSnapshot{
+			SessionID: "session-window",
+			Cursor:    "7",
+			Messages:  []RuntimeMessage{{ID: "msg-output", SessionID: "session-window", Role: "user", ClientRequestID: "client-output"}},
+		},
+		outputEvents: RuntimeOutputEventsResponse{
+			SessionID: "session-window",
+			Cursor:    "8",
+			Events:    []RuntimeOutputEvent{{ID: "event-output", Sequence: 801, SessionID: "session-window", Kind: "message.created", EntityID: "msg-output", Operation: "append"}},
+		},
 		turnActivity: RuntimeTurnActivityResponse{
 			SessionID: "session-window",
 			TurnID:    "turn-window",
@@ -602,6 +612,21 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 	}
 	if cursorWindow.SessionID != "session-window" {
 		t.Fatalf("cursor window = %#v", cursorWindow)
+	}
+
+	output, err := bridge.SessionOutput(context.Background(), "session-window", RuntimeOutputRequest{Snapshot: true, Cursor: "6", Limit: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.outputSessionID != "session-window" || service.outputRequest.Cursor != "6" || service.outputRequest.Limit != 4 || output.Messages[0].ClientRequestID != "client-output" {
+		t.Fatalf("output = %#v request=%#v session=%q", output, service.outputRequest, service.outputSessionID)
+	}
+	outputEvents, err := bridge.SessionOutputEvents(context.Background(), "session-window", "7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.outputEventsSessionID != "session-window" || service.outputEventsAfter != "7" || outputEvents.Cursor != "8" || len(outputEvents.Events) != 1 {
+		t.Fatalf("output events = %#v session=%q after=%q", outputEvents, service.outputEventsSessionID, service.outputEventsAfter)
 	}
 
 	turnActivity, err := bridge.TurnActivity(context.Background(), "turn-window")
@@ -929,6 +954,12 @@ type recordingRuntimeService struct {
 	removeProjectReq            RuntimeProjectActionRequest
 	openProject                 RuntimeOpenProjectResponse
 	activity                    RuntimeSessionActivityResponse
+	output                      RuntimeOutputSnapshot
+	outputSessionID             string
+	outputRequest               RuntimeOutputRequest
+	outputEvents                RuntimeOutputEventsResponse
+	outputEventsSessionID       string
+	outputEventsAfter           string
 	activityWindow              RuntimeSessionActivityWindowResponse
 	turnActivity                RuntimeTurnActivityResponse
 	reactCallchain              RuntimeReactCallchainResponse
@@ -1380,6 +1411,24 @@ func (s *recordingRuntimeService) DeleteSession(context.Context, string) (Runtim
 
 func (s *recordingRuntimeService) SessionMessages(context.Context, string) (RuntimeMessagesResponse, error) {
 	return RuntimeMessagesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SessionOutput(_ context.Context, sessionID string, req RuntimeOutputRequest) (RuntimeOutputSnapshot, error) {
+	s.outputSessionID = sessionID
+	s.outputRequest = req
+	if s.output.SessionID == "" {
+		s.output.SessionID = sessionID
+	}
+	return s.output, nil
+}
+
+func (s *recordingRuntimeService) SessionOutputEvents(_ context.Context, sessionID string, after string) (RuntimeOutputEventsResponse, error) {
+	s.outputEventsSessionID = sessionID
+	s.outputEventsAfter = after
+	if s.outputEvents.SessionID == "" {
+		s.outputEvents.SessionID = sessionID
+	}
+	return s.outputEvents, nil
 }
 
 func (s *recordingRuntimeService) SessionActivity(_ context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {

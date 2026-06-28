@@ -107,6 +107,7 @@ export function Workspace({
   const rightPanelTabsRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const scrollPinnedRef = useRef(true);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
   const canUseProjectSideTools = hasProjectContext;
@@ -132,9 +133,11 @@ export function Workspace({
       return;
     }
     const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    scrollPinnedRef.current = distanceToBottom < 120;
     setShowJumpToBottom(distanceToBottom > 180);
   }, []);
   const jumpToBottom = () => {
+    scrollPinnedRef.current = true;
     scrollContainerRef.current?.scrollTo({
       top: scrollContainerRef.current.scrollHeight,
       behavior: 'smooth',
@@ -340,7 +343,7 @@ export function Workspace({
       return undefined;
     }
     const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    const shouldFollow = distanceToBottom < 260 || viewModel.composer.busy;
+    const shouldFollow = scrollPinnedRef.current || distanceToBottom < 160;
     if (!shouldFollow) {
       return undefined;
     }
@@ -563,7 +566,7 @@ export function Workspace({
             </div>
           ) : viewModel.conversation.length > 0 ? (
             <Bubble.List
-              autoScroll
+              autoScroll={false}
               className={styles.conversation}
               items={bubbleItems}
               role={{

@@ -13,22 +13,24 @@ import (
 
 // CreateMessageParams represents parameters for creating a message.
 type CreateMessageParams struct {
-	Role     MessageRole   `json:"role"`
-	Parts    []ContentPart `json:"parts"`
-	Model    string        `json:"model"`
-	Provider string        `json:"provider,omitempty"`
+	Role     MessageRole       `json:"role"`
+	Parts    []ContentPart     `json:"parts"`
+	Model    string            `json:"model"`
+	Provider string            `json:"provider,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 // Message represents a message in the apitypes layer.
 type Message struct {
-	ID        string        `json:"id"`
-	Role      MessageRole   `json:"role"`
-	SessionID string        `json:"session_id"`
-	Parts     []ContentPart `json:"parts"`
-	Model     string        `json:"model"`
-	Provider  string        `json:"provider"`
-	CreatedAt int64         `json:"created_at"`
-	UpdatedAt int64         `json:"updated_at"`
+	ID        string            `json:"id"`
+	Role      MessageRole       `json:"role"`
+	SessionID string            `json:"session_id"`
+	Parts     []ContentPart     `json:"parts"`
+	Model     string            `json:"model"`
+	Provider  string            `json:"provider"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+	CreatedAt int64             `json:"created_at"`
+	UpdatedAt int64             `json:"updated_at"`
 }
 
 // MessageRole represents the role of a message sender.

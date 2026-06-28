@@ -10,6 +10,9 @@ import type {
   WorkbenchViewModel,
   NewConversationDraftViewModel,
 } from '../../runtime/workbenchTypes.ts';
+import { addOptimisticUserSubmit } from '../../runtime/outputReducer.ts';
+import { createOutputStore } from '../../runtime/outputStore.ts';
+import { selectConversationMessages, selectConversationTimeline } from '../../runtime/outputSelectors.ts';
 import { runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
 import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
 import { Sidebar } from '../../features/sidebar/Sidebar.tsx';
@@ -420,11 +423,21 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     const clientRequestId = `prompt-${createdAt}`;
     const userID = `local-${createdAt}`;
     const loadingID = `loading-${createdAt}`;
+    const baseOutputStore = currentViewModel.outputStore ?? createOutputStore(currentViewModel.sessions.find((session) => session.active)?.id ?? '');
+    const optimisticOutputStore = addOptimisticUserSubmit(baseOutputStore, {
+      clientRequestId,
+      prompt,
+      createdAt,
+      status: 'submitting',
+    });
+    const outputConversation = optimisticOutputStore.sessionId ? selectConversationMessages(optimisticOutputStore) : undefined;
+    const outputTimeline = optimisticOutputStore.sessionId ? selectConversationTimeline(optimisticOutputStore) : undefined;
     const optimisticViewModel: WorkbenchViewModel = {
       ...currentViewModel,
       mode: currentMode,
       composer: { ...currentViewModel.composer, busy: true },
-      conversation: [
+      outputStore: optimisticOutputStore,
+      conversation: outputConversation ?? [
         ...currentViewModel.conversation,
         {
           id: userID,
@@ -443,7 +456,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           status: 'loading',
         },
       ],
-      timeline: [
+      timeline: outputTimeline ?? [
         ...currentViewModel.timeline,
         {
           id: userID,
@@ -468,20 +481,32 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     viewModelRef.current = optimisticViewModel;
     setViewModel(optimisticViewModel);
     try {
-      const nextViewModel = await adapter.sendPrompt(optimisticViewModel, prompt);
+      const nextViewModel = await adapter.sendPrompt(optimisticViewModel, prompt, { clientRequestId });
       modeRef.current = nextViewModel.mode;
       viewModelRef.current = nextViewModel;
       setSwitchingSessionID('');
       setMode(nextViewModel.mode);
       setViewModel(nextViewModel);
     } catch (error) {
+      const failedOutputStore = {
+        ...optimisticOutputStore,
+        optimisticByClientRequestId: {
+          ...optimisticOutputStore.optimisticByClientRequestId,
+          [clientRequestId]: {
+            ...optimisticOutputStore.optimisticByClientRequestId[clientRequestId],
+            status: 'error' as const,
+            error: sendPromptErrorMessage(error),
+          },
+        },
+      };
       const failedViewModel: WorkbenchViewModel = {
         ...optimisticViewModel,
+        outputStore: failedOutputStore,
         composer: { ...optimisticViewModel.composer, busy: false },
-        conversation: optimisticViewModel.conversation.map((message) =>
+        conversation: failedOutputStore.sessionId ? selectConversationMessages(failedOutputStore) : optimisticViewModel.conversation.map((message) =>
           message.id === loadingID ? { ...message, content: sendPromptErrorMessage(error), status: 'error', error: sendPromptErrorMessage(error) } : message,
         ),
-        timeline: optimisticViewModel.timeline.map((item) =>
+        timeline: failedOutputStore.sessionId ? selectConversationTimeline(failedOutputStore) : optimisticViewModel.timeline.map((item) =>
           item.id === loadingID ? { ...item, content: sendPromptErrorMessage(error), status: 'error', error: sendPromptErrorMessage(error) } : item,
         ),
       };

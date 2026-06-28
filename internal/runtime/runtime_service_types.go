@@ -97,6 +97,8 @@ type RuntimeService interface {
 	RenameSession(context.Context, RuntimeSessionUpdateRequest) (RuntimeSessionsResponse, error)
 	DeleteSession(context.Context, string) (RuntimeSessionsResponse, error)
 	SessionMessages(context.Context, string) (RuntimeMessagesResponse, error)
+	SessionOutput(context.Context, string, RuntimeOutputRequest) (RuntimeOutputSnapshot, error)
+	SessionOutputEvents(context.Context, string, string) (RuntimeOutputEventsResponse, error)
 	SessionActivity(context.Context, string) (RuntimeSessionActivityResponse, error)
 	SessionActivityWindow(context.Context, string, int) (RuntimeSessionActivityWindowResponse, error)
 	SessionActivityCursorWindow(context.Context, string, string, int) (RuntimeSessionActivityWindowResponse, error)

@@ -21,6 +21,8 @@ func toAPITypeMessage(msg message.Message) apitypes.Message {
 
 		Provider: msg.Provider,
 
+		Metadata: cloneStringMap(msg.Metadata),
+
 		CreatedAt: msg.CreatedAt,
 
 		UpdatedAt: msg.UpdatedAt,
@@ -247,6 +249,14 @@ func toRuntimeMessage(msg apitypes.Message) RuntimeMessage {
 		Content: content,
 
 		Parts: toRuntimeMessageParts(msg),
+
+		Metadata: cloneStringMap(msg.Metadata),
+
+		ClientRequestID: msg.Metadata["clientRequestId"],
+
+		InputMode: msg.Metadata["inputMode"],
+
+		Hidden: msg.Metadata["hidden"] == "true",
 
 		Provider: msg.Provider,
 

@@ -271,8 +271,10 @@ func (r *runtimeService) normalizeRuntimeUserInput(ctx context.Context, req Runt
 	if mode == runtimeInputModeShell {
 		metadata["shellMode"] = "agent_delegated"
 	}
+	metadata["inputMode"] = mode
 	if mode == runtimeInputModeMeta || req.Options.IsMeta {
 		metadata["isMeta"] = "true"
+		metadata["hidden"] = "true"
 	}
 	if req.Options.BridgeOrigin {
 		metadata["bridgeOrigin"] = "true"
@@ -328,6 +330,15 @@ func normalizeRuntimeInputMode(mode string, options RuntimeUserInputOptions) str
 	default:
 		return runtimeInputModePrompt
 	}
+}
+
+func runtimeUserMessageMetadata(normalized RuntimeNormalizedInput) map[string]string {
+	for _, msg := range normalized.Messages {
+		if msg.Role == "user" {
+			return cloneStringMap(msg.Metadata)
+		}
+	}
+	return nil
 }
 
 func normalizeRuntimeUserInputItems(items []RuntimeUserInputItem, mode string) []RuntimeUserInputItem {

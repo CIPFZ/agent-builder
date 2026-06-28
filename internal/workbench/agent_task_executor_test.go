@@ -63,6 +63,9 @@ type recordingStartedTaskCoordinator struct {
 func (c *recordingStartedTaskCoordinator) Run(context.Context, string, string, string, ...message.Attachment) (*fantasy.AgentResult, error) {
 	return nil, nil
 }
+func (c *recordingStartedTaskCoordinator) RunWithMetadata(ctx context.Context, sessionID, turnID, prompt string, _ map[string]string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
+	return c.Run(ctx, sessionID, turnID, prompt, attachments...)
+}
 func (c *recordingStartedTaskCoordinator) Cancel(string) {}
 func (c *recordingStartedTaskCoordinator) SendToSession(context.Context, string, string, string) error {
 	return nil

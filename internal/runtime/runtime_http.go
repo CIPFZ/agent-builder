@@ -298,6 +298,16 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && sessionMessagesPathID(r.URL.Path) != "":
 		value, err := s.service.SessionMessages(r.Context(), sessionMessagesPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionOutputEventsPathID(r.URL.Path) != "":
+		value, err := s.service.SessionOutputEvents(r.Context(), sessionOutputEventsPathID(r.URL.Path), runtimeQueryCursor(r))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionOutputPathID(r.URL.Path) != "":
+		value, err := s.service.SessionOutput(r.Context(), sessionOutputPathID(r.URL.Path), RuntimeOutputRequest{
+			Snapshot: true,
+			Cursor:   runtimeQueryCursor(r),
+			Limit:    runtimeQueryLimit(r),
+		})
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionActivityPathID(r.URL.Path) != "":
 		value, err := s.service.SessionActivity(r.Context(), sessionActivityPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
@@ -939,6 +949,16 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 	case method == http.MethodGet && sessionMessagesPathID(path) != "":
 		value, err := s.service.SessionMessages(r.Context(), sessionMessagesPathID(path))
 		return value, err, true
+	case method == http.MethodGet && sessionOutputEventsPathID(path) != "":
+		value, err := s.service.SessionOutputEvents(r.Context(), sessionOutputEventsPathID(path), runtimeDevModuleCursor(r, pathQuery))
+		return value, err, true
+	case method == http.MethodGet && sessionOutputPathID(path) != "":
+		value, err := s.service.SessionOutput(r.Context(), sessionOutputPathID(path), RuntimeOutputRequest{
+			Snapshot: true,
+			Cursor:   runtimeDevModuleCursor(r, pathQuery),
+			Limit:    runtimeDevModuleLimit(r, pathQuery),
+		})
+		return value, err, true
 	case method == http.MethodGet && sessionActivityPathID(path) != "":
 		value, err := s.service.SessionActivity(r.Context(), sessionActivityPathID(path))
 		return value, err, true
@@ -1522,6 +1542,14 @@ func mcpRequestPathID(path string) string {
 
 func sessionMessagesPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/messages")
+}
+
+func sessionOutputPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/output")
+}
+
+func sessionOutputEventsPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/output/events")
 }
 
 func sessionActivityPathID(path string) string {

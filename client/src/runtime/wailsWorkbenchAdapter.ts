@@ -39,6 +39,9 @@ import type {
   WorkbenchViewModel,
 } from './workbenchTypes.ts';
 import { runtimeActionRefreshTargets, type RuntimeActionRefreshTarget, type RuntimeWriteActionResponseDTO } from './actionRefreshSelector.ts';
+import { hydrateOutputStore } from './outputReducer.ts';
+import { selectConversationMessages, selectConversationTimeline, selectPendingPermissions } from './outputSelectors.ts';
+import type { RuntimeOutputEventsResponse, RuntimeOutputSnapshot } from './outputTypes.ts';
 import { getInitialWorkbenchViewModel, staticWorkbenchAdapter } from './staticWorkbenchAdapter.tsx';
 
 interface RuntimeStatusDTO extends RuntimeWriteActionResponseDTO {
@@ -363,6 +366,10 @@ interface RuntimeMessageDTO {
   createdAt?: number;
   updatedAt?: number;
   error?: string;
+  metadata?: Record<string, string>;
+  clientRequestId?: string;
+  inputMode?: string;
+  hidden?: boolean;
 }
 
 interface RuntimeMessagesResponseDTO {
@@ -1193,6 +1200,8 @@ interface RuntimeBridgeModule {
   MarkInterruptedDone?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
   Messages?: () => Promise<RuntimeMessagesResponseDTO>;
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
+  SessionOutput?: (sessionID: string, req: { snapshot?: boolean; cursor?: string; limit?: number }) => Promise<RuntimeOutputSnapshot>;
+  SessionOutputEvents?: (sessionID: string, after: string) => Promise<RuntimeOutputEventsResponse>;
   SessionActivity?: (sessionID: string) => Promise<RuntimeSessionActivityDTO>;
   SessionActivityWindow?: (sessionID: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
   SessionActivityCursorWindow?: (sessionID: string, cursor: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
@@ -1435,7 +1444,7 @@ function toRuntimeUserInputRequest(
   };
 }
 
-function promptToUserInput(prompt: string): RuntimeUserInputRequestViewModel {
+function promptToUserInput(prompt: string, clientRequestId?: string): RuntimeUserInputRequestViewModel {
   const trimmed = prompt.trim();
   return {
     mode: trimmed.startsWith('/') ? 'slash' : 'prompt',
@@ -1445,6 +1454,7 @@ function promptToUserInput(prompt: string): RuntimeUserInputRequestViewModel {
         text: prompt,
       },
     ],
+    options: clientRequestId ? { clientRequestId } : undefined,
   };
 }
 
@@ -1641,12 +1651,13 @@ function toMCPServerRequest(server: RuntimeMCPServerViewModel): RuntimeMCPServer
 function mapConversation(response?: RuntimeMessagesResponseDTO): ConversationMessageViewModel[] {
   const messages = Array.isArray(response?.messages) ? response.messages : [];
   return messages
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .filter((message) => !message.hidden && (message.role === 'user' || message.role === 'assistant'))
     .map((message) => ({
       id: message.id,
       role: message.role,
       content: runtimeMessageContent(message),
       createdAt: message.createdAt,
+      clientRequestId: message.clientRequestId ?? message.metadata?.clientRequestId,
       provider: message.provider,
       model: message.model,
       status: message.error ? 'error' : 'success',
@@ -1661,6 +1672,7 @@ function mapNormalizedInputConversation(response: RuntimeChatResponseDTO, fallba
     return [];
   }
   const messages = Array.isArray(normalized.messages) ? normalized.messages : [];
+  const clientRequestId = normalizedClientRequestId(normalized);
   const visibleMessages = messages.filter((message) => {
     if (message.hidden) {
       return false;
@@ -1675,6 +1687,7 @@ function mapNormalizedInputConversation(response: RuntimeChatResponseDTO, fallba
     role: message.role === 'system' || message.role === 'assistant' ? 'assistant' as const : 'user' as const,
     content: message.content || (message.role === 'user' ? fallbackPrompt : ''),
     createdAt: normalized.createdAt,
+    clientRequestId: message.role === 'user' ? clientRequestId : undefined,
     status: 'success' as const,
   }));
   if (!conversation.some((message) => message.role === 'assistant') && normalized.command?.resultText) {
@@ -1683,6 +1696,7 @@ function mapNormalizedInputConversation(response: RuntimeChatResponseDTO, fallba
       role: 'assistant',
       content: normalized.command.resultText,
       createdAt: normalized.createdAt,
+      clientRequestId,
       status: 'success',
     });
   }
@@ -1697,6 +1711,7 @@ function mapNormalizedInputConversation(response: RuntimeChatResponseDTO, fallba
         ? `Prompt blocked by ${event} hook: ${reason}`
         : `Prompt blocked by ${event} hook.`,
       createdAt: normalized.createdAt,
+      clientRequestId,
       status: 'error',
       error: reason || 'Prompt blocked by hook.',
     });
@@ -1711,8 +1726,16 @@ function mapNormalizedInputTimeline(response: RuntimeChatResponseDTO, fallbackPr
     role: message.role === 'assistant' || message.role === 'user' ? message.role : undefined,
     content: message.content,
     createdAt: message.createdAt,
+    clientRequestId: message.clientRequestId,
     status: message.status,
   }));
+}
+
+function normalizedClientRequestId(normalized?: RuntimeNormalizedInputDTO) {
+  if (!normalized) {
+    return undefined;
+  }
+  return normalized.messages?.find((message) => message.metadata?.clientRequestId)?.metadata?.clientRequestId;
 }
 
 const permissionModeOptions: PermissionModeOptionViewModel[] = [
@@ -2029,9 +2052,8 @@ function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], act
   const messageIDs = new Set(activityMessages.map((message) => message.id).filter(Boolean));
   const toolCallIDs = new Set((Array.isArray(activity.toolCalls) ? activity.toolCalls : []).map((toolCall) => toolCall.id).filter(Boolean));
   const permissionIDs = new Set((Array.isArray(activity.permissions) ? activity.permissions : []).map((permission) => permission.id).filter(Boolean));
-  const hasRuntimeMessages = messageIDs.size > 0 || replacement.some((item) => item.kind === 'message' && item.messageId);
   const kept = current.filter((item) => {
-    if (hasRuntimeMessages && isOptimisticTimelineItem(item)) {
+    if (isOptimisticTimelineItem(item) && hasRuntimeReplacementForOptimisticTimeline(item, replacement)) {
       return false;
     }
     if (item.turnId && turnIDs.has(item.turnId)) {
@@ -2159,7 +2181,43 @@ function mergeConversationMessages(current: ConversationMessageViewModel[], resp
     return current;
   }
   const incomingIDs = new Set(incoming.map((message) => message.id));
-  return [...current.filter((message) => !incomingIDs.has(message.id) && !isOptimisticConversationMessage(message)), ...incoming].sort((left, right) => {
+  return [...current.filter((message) => !incomingIDs.has(message.id) && !hasRuntimeReplacementForOptimisticConversation(message, incoming)), ...incoming].sort((left, right) => {
+    const leftTime = normalizeTimestamp(left.createdAt ?? 0);
+    const rightTime = normalizeTimestamp(right.createdAt ?? 0);
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function mergeNormalizedConversation(current: ConversationMessageViewModel[], incoming: ConversationMessageViewModel[]) {
+  if (incoming.length === 0) {
+    return current.filter((message) => message.status !== 'loading');
+  }
+  const incomingIDs = new Set(incoming.map((message) => message.id));
+  return [
+    ...current.filter((message) => message.status !== 'loading' && !incomingIDs.has(message.id) && !hasRuntimeReplacementForOptimisticConversation(message, incoming)),
+    ...incoming,
+  ].sort((left, right) => {
+    const leftTime = normalizeTimestamp(left.createdAt ?? 0);
+    const rightTime = normalizeTimestamp(right.createdAt ?? 0);
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+    return left.id.localeCompare(right.id);
+  });
+}
+
+function mergeNormalizedTimeline(current: ConversationTimelineItemViewModel[], incoming: ConversationTimelineItemViewModel[]) {
+  if (incoming.length === 0) {
+    return current.filter((item) => item.status !== 'loading');
+  }
+  const incomingIDs = new Set(incoming.map((item) => item.id));
+  return dedupeTimelineItems([
+    ...current.filter((item) => item.status !== 'loading' && !incomingIDs.has(item.id) && !hasRuntimeReplacementForOptimisticTimeline(item, incoming)),
+    ...incoming,
+  ]).sort((left, right) => {
     const leftTime = normalizeTimestamp(left.createdAt ?? 0);
     const rightTime = normalizeTimestamp(right.createdAt ?? 0);
     if (leftTime !== rightTime) {
@@ -2183,6 +2241,49 @@ function isOptimisticConversationMessage(message: ConversationMessageViewModel) 
 
 function isOptimisticTimelineItem(item: ConversationTimelineItemViewModel) {
   return item.status === 'loading' || item.id.startsWith('local-') || item.id.startsWith('loading-');
+}
+
+function hasRuntimeReplacementForOptimisticConversation(message: ConversationMessageViewModel, incoming: ConversationMessageViewModel[]) {
+  if (!isOptimisticConversationMessage(message)) {
+    return false;
+  }
+  if (message.clientRequestId && incoming.some((candidate) => candidate.clientRequestId === message.clientRequestId && candidate.role === message.role)) {
+    return true;
+  }
+  if (message.role === 'user') {
+    return incoming.some((candidate) => candidate.role === 'user' && sameDisplayContent(candidate.content, message.content));
+  }
+  if (message.status === 'loading' && message.role === 'assistant') {
+    return incoming.some((candidate) => candidate.role === 'assistant');
+  }
+  return incoming.some((candidate) => candidate.role === message.role && sameDisplayContent(candidate.content, message.content));
+}
+
+function hasRuntimeReplacementForOptimisticTimeline(item: ConversationTimelineItemViewModel, replacement: ConversationTimelineItemViewModel[]) {
+  if (item.clientRequestId && replacement.some((candidate) => candidate.clientRequestId === item.clientRequestId && candidate.kind === item.kind && candidate.role === item.role)) {
+    return true;
+  }
+  if (item.kind === 'message' && item.role === 'user') {
+    return replacement.some((candidate) => candidate.kind === 'message' && candidate.role === 'user' && sameDisplayContent(candidate.content, item.content));
+  }
+  if (item.kind === 'message' && item.role === 'assistant' && item.status === 'loading') {
+    return replacement.some((candidate) =>
+      candidate.role === 'assistant' ||
+      candidate.kind === 'thinking' ||
+      candidate.kind === 'tool_call' ||
+      candidate.kind === 'permission' ||
+      candidate.kind === 'progress',
+    );
+  }
+  return replacement.some((candidate) => candidate.kind === item.kind && candidate.role === item.role && sameDisplayContent(candidate.content || candidate.summary, item.content || item.summary));
+}
+
+function sameDisplayContent(left?: string, right?: string) {
+  return normalizeDisplayContent(left) !== '' && normalizeDisplayContent(left) === normalizeDisplayContent(right);
+}
+
+function normalizeDisplayContent(value?: string) {
+  return (value ?? '').replace(/\s+/g, ' ').trim();
 }
 
 function timelineMessageStatus(message: RuntimeMessageDTO, turnContext: TimelineTurnContext): 'loading' | 'success' | 'error' {
@@ -3139,6 +3240,10 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     fullHydration ? optionalRuntimeRequest(() => bridge.MCPServers?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ]);
   const activeSessionID = status?.sessionId || sessionsResponse?.sessions?.find((session) => session.active)?.id;
+  const outputSnapshot = activeSessionID && refreshActivity
+    ? await optionalRuntimeRequest(() => bridge.SessionOutput?.(activeSessionID, { snapshot: true, limit: fullHydration ? undefined : 64 }) ?? Promise.resolve(undefined))
+    : undefined;
+  const outputStore = outputSnapshot ? hydrateOutputStore(outputSnapshot, current.outputStore) : current.outputStore;
   const narrowActivity = activeSessionID && refreshActivity ? await hydrateNarrowActivityFromHint(bridge, activeSessionID) : undefined;
   const activity = narrowActivity ?? (activeSessionID && refreshActivity ? await optionalRuntimeRequest(() => bridge.SessionActivity?.(activeSessionID) ?? Promise.resolve(undefined)) : undefined);
   const runProjection = activeSessionID && bridge.RunProjection && refreshRuns
@@ -3175,22 +3280,26 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     : undefined;
   const policy = activity?.policy ?? (refreshPolicy ? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy : undefined);
   const permissions = (Array.isArray(activity?.permissions) ? activity.permissions : []).map(mapPermission);
-  const baseTimeline = activity
+  const activeOutputStore = outputStore?.sessionId === activeSessionID ? outputStore : undefined;
+  const outputTimeline = activeOutputStore ? selectConversationTimeline(activeOutputStore) : undefined;
+  const outputConversation = activeOutputStore ? selectConversationMessages(activeOutputStore) : undefined;
+  const outputPendingPermissions = activeOutputStore ? selectPendingPermissions(activeOutputStore) : undefined;
+  const baseTimeline = outputTimeline ?? (activity
     ? narrowActivity
       ? mergeActivityTimeline(current.timeline, activity, reactCallchainDTO)
       : mapActivityTimeline(activity, reactCallchainDTO)
-    : current.timeline;
+    : current.timeline);
   const timeline = attachAgentTasksToTimeline(baseTimeline, agentTasks);
-  const conversation = activity && narrowActivity
+  const conversation = outputConversation ?? (activity && narrowActivity
     ? mergeConversationMessages(current.conversation, messagesResponse)
     : messagesResponse
       ? mapConversation(messagesResponse)
-      : current.conversation;
-  const pendingPermissions = activity && narrowActivity
+      : current.conversation);
+  const pendingPermissions = outputPendingPermissions ?? (activity && narrowActivity
     ? mergePendingPermissions(current.pendingPermissions, permissions)
     : activity
       ? permissions.filter((permission) => permission.status === 'pending')
-      : current.pendingPermissions;
+      : current.pendingPermissions);
   const skills = mapSkills(skillsResponse) ?? current.settings.skills;
   const plugins = mapPlugins(pluginsResponse) ?? current.settings.plugins;
   const mcpServers = mapMCPServers(mcpServersResponse) ?? current.settings.mcpServers;
@@ -3205,6 +3314,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     sessions: mapSessions(sessionsResponse, status?.sessionId, activeTurns, currentProjectID),
     conversation,
     timeline,
+    outputStore,
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
     interruptedTurn: activity ? selectInterruptedTurn(activity, sessionActiveTurn?.id) : current.interruptedTurn,
     runProjection: mapRunProjection(runProjection, schedulerTaskCandidates) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
@@ -3932,6 +4042,28 @@ const runtimeHTTPBridge: RuntimeBridgeModule = {
       method: 'DELETE',
     }),
   SessionMessages: (sessionID) => runtimeFetch<RuntimeMessagesResponseDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/messages`),
+  SessionOutput: (sessionID, req) => {
+    const params = new URLSearchParams();
+    if (req?.snapshot) {
+      params.set('snapshot', 'true');
+    }
+    if (req?.cursor) {
+      params.set('cursor', req.cursor);
+    }
+    if (req?.limit) {
+      params.set('limit', String(req.limit));
+    }
+    const query = params.toString();
+    return runtimeFetch<RuntimeOutputSnapshot>(`/v1/sessions/${encodeURIComponent(sessionID)}/output${query ? `?${query}` : ''}`);
+  },
+  SessionOutputEvents: (sessionID, after) => {
+    const params = new URLSearchParams();
+    if (after) {
+      params.set('cursor', after);
+    }
+    const query = params.toString();
+    return runtimeFetch<RuntimeOutputEventsResponse>(`/v1/sessions/${encodeURIComponent(sessionID)}/output/events${query ? `?${query}` : ''}`);
+  },
   SessionActivity: (sessionID) => runtimeFetch<RuntimeSessionActivityDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity`),
   SessionActivityWindow: (sessionID, limit) =>
     runtimeFetch<RuntimeSessionActivityWindowDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity-window?limit=${encodeURIComponent(String(limit))}`),
@@ -4422,8 +4554,8 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       () => staticWorkbenchAdapter.decidePermission(current, permissionID, action, guidance),
     );
   },
-  async sendPrompt(current, prompt) {
-    return wailsWorkbenchAdapter.submitUserInput?.(current, promptToUserInput(prompt)) ?? staticWorkbenchAdapter.sendPrompt(current, prompt);
+  async sendPrompt(current, prompt, options) {
+    return wailsWorkbenchAdapter.submitUserInput?.(current, promptToUserInput(prompt, options?.clientRequestId)) ?? staticWorkbenchAdapter.sendPrompt(current, prompt);
   },
   async submitUserInput(current, input) {
     const prompt = input.items.map((item) => item.text).filter(Boolean).join('\n\n').trim();
@@ -4488,9 +4620,9 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
             sessions: sessionsAfterDraftSubmit(current, responseSessionID, prompt, draftTarget, response.turnId),
             conversation:
               normalizedOnly
-                ? [...current.conversation.filter((message) => message.status !== 'loading'), ...normalizedConversation]
+                ? mergeNormalizedConversation(current.conversation, normalizedConversation)
                 : optimistic.conversation,
-            timeline: normalizedOnly ? [...current.timeline.filter((item) => item.status !== 'loading'), ...normalizedTimeline] : optimistic.timeline,
+            timeline: normalizedOnly ? mergeNormalizedTimeline(current.timeline, normalizedTimeline) : optimistic.timeline,
             composer: {
               ...optimistic.composer,
               busy: busyAfterSubmit,

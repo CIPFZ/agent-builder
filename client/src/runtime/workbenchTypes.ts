@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { OutputStore } from './outputTypes.ts';
 
 export type WorkbenchMode = 'project' | 'new-chat' | 'settings' | 'plugins';
 
@@ -899,6 +900,7 @@ export interface WorkbenchViewModel {
   sidebarActions: SidebarActionViewModel[];
   conversation: ConversationMessageViewModel[];
   timeline: ConversationTimelineItemViewModel[];
+  outputStore?: OutputStore;
   turnDiagnostics?: TurnDiagnosticsViewModel;
   interruptedTurn?: InterruptedTurnViewModel;
   runProjection?: RunProjectionViewModel;
@@ -936,7 +938,7 @@ export interface WorkbenchAdapter {
   selectModel: (current: WorkbenchViewModel, configuredProviderID: string, model: string) => Promise<WorkbenchViewModel>;
   selectPermissionMode: (current: WorkbenchViewModel, mode: string) => Promise<WorkbenchViewModel>;
   decidePermission: (current: WorkbenchViewModel, permissionID: string, action: 'allow' | 'allow_session' | 'deny', guidance?: string) => Promise<WorkbenchViewModel>;
-  sendPrompt: (current: WorkbenchViewModel, prompt: string) => Promise<WorkbenchViewModel>;
+  sendPrompt: (current: WorkbenchViewModel, prompt: string, options?: { clientRequestId?: string }) => Promise<WorkbenchViewModel>;
   submitUserInput?: (current: WorkbenchViewModel, input: RuntimeUserInputRequestViewModel) => Promise<WorkbenchViewModel>;
   cancelTurn: (current: WorkbenchViewModel, turnID?: string) => Promise<WorkbenchViewModel>;
   markInterruptedDone: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;

@@ -602,6 +602,9 @@ type phase25RuntimeWorkbenchCoordinator struct {
 func (c *phase25RuntimeWorkbenchCoordinator) Run(context.Context, string, string, string, ...message.Attachment) (*fantasy.AgentResult, error) {
 	return nil, nil
 }
+func (c *phase25RuntimeWorkbenchCoordinator) RunWithMetadata(ctx context.Context, sessionID, turnID, prompt string, _ map[string]string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
+	return c.Run(ctx, sessionID, turnID, prompt, attachments...)
+}
 func (c *phase25RuntimeWorkbenchCoordinator) Cancel(string) {}
 func (c *phase25RuntimeWorkbenchCoordinator) SendToSession(context.Context, string, string, string) error {
 	return nil

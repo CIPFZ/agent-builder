@@ -17,6 +17,7 @@ type CreateMessageParams struct {
 	Parts            []ContentPart
 	Model            string
 	Provider         string
+	Metadata         map[string]string
 	IsSummaryMessage bool
 }
 
@@ -69,6 +70,10 @@ func (s *service) Create(ctx context.Context, sessionID string, params CreateMes
 	if err != nil {
 		return Message{}, err
 	}
+	metadataJSON, err := marshalMetadata(params.Metadata)
+	if err != nil {
+		return Message{}, err
+	}
 	isSummary := int64(0)
 	if params.IsSummaryMessage {
 		isSummary = 1
@@ -81,6 +86,7 @@ func (s *service) Create(ctx context.Context, sessionID string, params CreateMes
 		Model:            sql.NullString{String: string(params.Model), Valid: true},
 		Provider:         sql.NullString{String: params.Provider, Valid: params.Provider != ""},
 		IsSummaryMessage: isSummary,
+		MetadataJson:     sql.NullString{String: metadataJSON, Valid: metadataJSON != ""},
 	})
 	if err != nil {
 		return Message{}, err
@@ -201,10 +207,36 @@ func (s *service) fromDBItem(item db.Message) (Message, error) {
 		Parts:            parts,
 		Model:            item.Model.String,
 		Provider:         item.Provider.String,
+		Metadata:         metadataFromJSONString(item.MetadataJson.String),
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,
 		IsSummaryMessage: item.IsSummaryMessage != 0,
 	}, nil
+}
+
+func marshalMetadata(metadata map[string]string) (string, error) {
+	if len(metadata) == 0 {
+		return "", nil
+	}
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode message metadata: %w", err)
+	}
+	return string(data), nil
+}
+
+func metadataFromJSONString(raw string) map[string]string {
+	if raw == "" {
+		return nil
+	}
+	metadata := map[string]string{}
+	if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
+		return nil
+	}
+	if len(metadata) == 0 {
+		return nil
+	}
+	return metadata
 }
 
 type partType string

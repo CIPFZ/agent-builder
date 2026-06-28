@@ -4519,6 +4519,12 @@ type recordingRuntimeService struct {
 	renamedSession             RuntimeSessionUpdateRequest
 	deletedSession             string
 	messageSession             string
+	outputSession              string
+	outputRequest              RuntimeOutputRequest
+	output                     RuntimeOutputSnapshot
+	outputEventsSession        string
+	outputEventsAfter          string
+	outputEvents               RuntimeOutputEventsResponse
 	activitySession            string
 	activityWindowSession      string
 	activityWindowCursor       string
@@ -5060,6 +5066,24 @@ func (s *recordingRuntimeService) DeleteSession(_ context.Context, sessionID str
 func (s *recordingRuntimeService) SessionMessages(_ context.Context, sessionID string) (RuntimeMessagesResponse, error) {
 	s.messageSession = sessionID
 	return RuntimeMessagesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SessionOutput(_ context.Context, sessionID string, req RuntimeOutputRequest) (RuntimeOutputSnapshot, error) {
+	s.outputSession = sessionID
+	s.outputRequest = req
+	if s.output.SessionID == "" {
+		s.output.SessionID = sessionID
+	}
+	return s.output, nil
+}
+
+func (s *recordingRuntimeService) SessionOutputEvents(_ context.Context, sessionID string, after string) (RuntimeOutputEventsResponse, error) {
+	s.outputEventsSession = sessionID
+	s.outputEventsAfter = after
+	if s.outputEvents.SessionID == "" {
+		s.outputEvents.SessionID = sessionID
+	}
+	return s.outputEvents, nil
 }
 
 func (s *recordingRuntimeService) SessionActivity(_ context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {
