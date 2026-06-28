@@ -31,6 +31,7 @@
     "smoke:phase5010": "node scripts/phase5010-checkpoint-marker-adapter-smoke.mjs",
     "smoke:phase55-terminal": "node scripts/phase55-terminal-ownership-adapter-smoke.mjs",
     "smoke:conversation-output": "node scripts/conversation-output-store-smoke.mjs",
+    "smoke:markdown-message": "node scripts/markdown-message-smoke.mjs",
     "smoke:scheduler": "npm run smoke:phase281 && npm run smoke:phase291 && npm run smoke:phase331"
   },
   "dependencies": {
@@ -41,7 +42,9 @@
     "@xterm/xterm": "^6.0.0",
     "antd": "^6.4.2",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

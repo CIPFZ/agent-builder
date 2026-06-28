@@ -5,6 +5,7 @@ import Bubble from '@ant-design/x/es/bubble';
 import type { ConversationTimelineItemViewModel, ToolCallViewModel } from '../../runtime/workbenchTypes.ts';
 import { ThinkingItem } from './ThinkingItem.tsx';
 import { ToolCallCard } from '../tools/ToolCallCard.tsx';
+import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import styles from './Timeline.module.css';
 
 interface TimelineProps {
@@ -166,7 +167,7 @@ function TimelineMessage({ item, messageApi }: { item: ConversationTimelineItemV
   return (
     <Bubble
       className={item.role === 'user' ? styles.userBubble : styles.assistantBubble}
-      content={item.content}
+      content={<MarkdownMessage content={item.content} role={item.role} />}
       placement={item.role === 'user' ? 'end' : 'start'}
       variant={item.role === 'user' ? 'filled' : 'borderless'}
       footer={
@@ -188,7 +189,9 @@ function AssistantProcessNote({ item }: { item: ConversationTimelineItemViewMode
   return (
     <details className={styles.processNote} data-testid="timeline-process-note">
       <summary>{summarizeProcessNote(content)}</summary>
-      <div>{content}</div>
+      <div>
+        <MarkdownMessage content={content} role="assistant" />
+      </div>
     </details>
   );
 }

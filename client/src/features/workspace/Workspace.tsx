@@ -25,6 +25,7 @@ import { ReactCallchainInspector } from '../diagnostics/ReactCallchainInspector.
 import { ContextDiagnosticsPanel } from '../diagnostics/ContextDiagnosticsPanel.tsx';
 import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
+import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
 import styles from './Workspace.module.css';
 
@@ -122,7 +123,7 @@ export function Workspace({
   const bubbleItems = viewModel.conversation.map((message) => ({
     key: message.id,
     role: message.role === 'user' ? 'user' : 'ai',
-    content: message.content,
+    content: <MarkdownMessage content={message.content} role={message.role} />,
     status: message.status,
     footer: shouldShowMessageActions(message.role, message.status) ? (
       <MessageActions content={message.content} createdAt={message.createdAt} messageApi={messageApi} role={message.role} />
