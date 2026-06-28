@@ -12214,7 +12214,7 @@ Permission decision contract:
 - Plain `Status(...)` reads, chat/status reads, policy writes, and unrelated
   status responses must omit `action`.
 - Use source kind `permission_decision`; action should be the decision value:
-  `allow`, `allow_for_session`, or `deny`.
+  `allow`, `allow_session`, or `deny`.
 - Use `backendOnly=true`, `startsWorker=false`, `idempotentBy="permission_id"`,
   and `sessionActivityParity=true`.
 - Refresh targets must force durable rereads of permissions, relevant turn
@@ -12276,7 +12276,7 @@ Implemented:
 - Plain `Status(...)` reads continue to omit `action`.
 - Preserved the existing `DecidePermission(...)` signature and response type.
 - Used source kind `permission_decision`, action value equal to the requested
-  decision (`allow`, `allow_for_session`, or `deny`), `backendOnly=true`,
+  decision (`allow`, `allow_session`, or `deny`), `backendOnly=true`,
   `startsWorker=false`, `idempotentBy="permission_id"`, and
   `sessionActivityParity=true`.
 - Added refresh targets for status, permissions, tool calls, turn activity,

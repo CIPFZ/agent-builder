@@ -35,8 +35,13 @@ assert.match(inspectorSource, /node\.evidence\?\.deliveryReason/);
 assert.doesNotMatch(inspectorSource, /turn_completed_without_final_assistant/);
 
 assert.match(permissionSource, /type PermissionDecision = 'allow' \| 'allow_session' \| 'deny'/);
-assert.match(permissionSource, /decide\('allow'\)/);
-assert.match(permissionSource, /decide\('allow_session'\)/);
 assert.match(permissionSource, /decide\('deny'\)/);
+assert.match(permissionSource, /useState<PermissionDecision>\('allow'\)/);
+assert.match(permissionSource, /<Radio value="allow">/);
+assert.match(permissionSource, /<Radio value="allow_session">/);
+assert.match(permissionSource, /<Radio value="deny">/);
+assert.match(permissionSource, /onClick=\{\(\) => void decide\(\)\}/);
+assert.match(permissionSource, /permissionRequestActionLabel\(permission\.action\)/);
+assert.doesNotMatch(permissionSource, /allow_for_session/);
 
 console.log('phase03 tool loop diagnostics smoke passed');

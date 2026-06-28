@@ -92,7 +92,7 @@ export function PermissionGate({ permission, onDecide }: PermissionGateProps) {
         <div className={styles.meta}>
           <Tag>{riskLabel(permission.risk)}</Tag>
           <Tag>{policyModeLabel(permission.policyMode)}</Tag>
-          {permission.action && <Tag>{actionLabel(permission.action)}</Tag>}
+          {permission.action && <Tag>{permissionRequestActionLabel(permission.action)}</Tag>}
           {permission.policyTargetSummary && <Tag>{permission.policyTargetSummary}</Tag>}
           <code>{permission.toolName}</code>
         </div>
@@ -239,14 +239,8 @@ function policyModeLabel(mode?: string) {
   }
 }
 
-function actionLabel(action: string) {
+function permissionRequestActionLabel(action: string) {
   switch (action) {
-    case 'allow':
-      return '允许一次';
-    case 'allow_session':
-      return '本会话允许';
-    case 'deny':
-      return '拒绝';
     case 'execute':
       return '执行';
     case 'read':
