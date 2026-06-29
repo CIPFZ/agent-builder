@@ -166,6 +166,29 @@ Follow-up:
   session, timeline, diagnostics, and interrupted recovery state from
   `SessionActivity`.
 
+## 2026-06-29: Runtime Error Recovery Center
+
+Error recovery is now a runtime-first surface. SQLite-backed runtime DTOs are
+the source of truth, and React only consumes `RecoveryStatus`, recovered turn
+records, recoverable error records, and action metadata.
+
+Contract:
+
+- Recovery state hydrates from `GET /v1/recovery/status`; Wails exposes the
+  same contract through `RecoveryStatus`.
+- Interrupted turn actions use structured runtime methods:
+  `ResumeInterruptedTurn`, `DiscardInterruptedTurn`, and the narrowed
+  `MarkInterruptedDone`.
+- Provider recovery actions use `RetryRecoverableError`; prompt-too-long errors
+  may also trigger one bounded compact retry from persisted runtime input.
+- Runtime events with `recovery.*`, `turn.*`, `run.*`, `permission.*`, or
+  `mcp.*` prefixes only select refresh targets. Event payloads are audit and
+  diagnostic evidence, not frontend business state.
+- Recovery links are persisted as structured runtime recovery links and
+  metadata. The frontend must not parse assistant/message text to infer
+  recovery state, and resume links must not be written into ordinary message
+  prose.
+
 ## 2026-06-07: New Chat Active-Session Handoff
 
 Phase 5.1 fixed the stale active-session handoff observed during interrupted

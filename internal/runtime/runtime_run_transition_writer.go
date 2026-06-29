@@ -14,6 +14,8 @@ const (
 	runtimeRunTransitionSourceInterruptedMarkedDone = "interrupted_marked_done"
 	runtimeRunTransitionSourceStartupRecovery       = "startup_recovery"
 	runtimeRunTransitionSourceCheckpointResume      = "checkpoint_resume"
+	runtimeRunTransitionSourceRecoveryResume        = "recovery_resume"
+	runtimeRunTransitionSourceRecoveryDiscard       = "recovery_discard"
 	runtimeRunTransitionSourceTaskStarted           = "task_started"
 )
 
@@ -162,6 +164,8 @@ func isKnownRuntimeRunTransitionSource(source string) bool {
 		runtimeRunTransitionSourceInterruptedMarkedDone,
 		runtimeRunTransitionSourceStartupRecovery,
 		runtimeRunTransitionSourceCheckpointResume,
+		runtimeRunTransitionSourceRecoveryResume,
+		runtimeRunTransitionSourceRecoveryDiscard,
 		runtimeRunTransitionSourceTaskStarted:
 		return true
 	default:

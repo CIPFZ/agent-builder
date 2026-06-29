@@ -16,6 +16,9 @@ import (
 type RuntimeService interface {
 	Status(context.Context) (RuntimeStatus, error)
 	RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error)
+	ResumeInterruptedTurn(context.Context, string, RuntimeResumeInterruptedTurnRequest) (RuntimeTurnResponse, error)
+	DiscardInterruptedTurn(context.Context, string) (RuntimeTurnResponse, error)
+	RetryRecoverableError(context.Context, string) (RuntimeRecoveryRetryResponse, error)
 	OpenProject(context.Context, RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error)
 	CreateProject(context.Context, RuntimeCreateProjectRequest) (RuntimeOpenProjectResponse, error)
 	RenameProject(context.Context, RuntimeRenameProjectRequest) (RuntimeOpenProjectResponse, error)
@@ -196,6 +199,7 @@ type runtimeService struct {
 	mcpRequestStore      runtimeMCPRequestStore
 	runs                 runtimeRunStore
 	transitions          runtimeRunTransitionStore
+	recoveryLinks        runtimeRecoveryLinkStore
 	agentTaskRunner      runtimeAgentTaskRunner
 	permissions          map[string]pendingRuntimePermission
 	policy               RuntimePolicy

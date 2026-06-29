@@ -121,6 +121,7 @@ func buildRuntimeRunProjection(workspaceID string, activity RuntimeSessionActivi
 		mergeRunTurnDiagnostics(&run, turn)
 		if turn.Interrupted != nil {
 			run.Interrupted = turn.Interrupted
+			run.Recovery.InterruptedSourceTurns = appendUniqueString(run.Recovery.InterruptedSourceTurns, turn.ID)
 			run.Checkpoints = append(run.Checkpoints, runtimeRunCheckpointFromInterrupted(turn))
 			run.UserActions.Resume = append(run.UserActions.Resume, RuntimeRunUserAction{
 				ID:      "resume:" + turn.ID,
@@ -138,6 +139,13 @@ func buildRuntimeRunProjection(workspaceID string, activity RuntimeSessionActivi
 				Enabled: true,
 				Reason:  "acknowledges the projection without deleting evidence",
 			})
+		}
+		if turn.Diagnostics.ProviderError != nil {
+			run.Recovery.RecoverableErrors++
+		}
+		run.Recovery.RetryAttempts += len(turn.Diagnostics.RetryAttempts)
+		if turn.Diagnostics.CompactRetryResult != "" {
+			run.Recovery.CompactRetryCount++
 		}
 	}
 	for _, call := range activity.ToolCalls {

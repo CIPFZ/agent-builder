@@ -1,8 +1,7 @@
-import { AlertOutlined, CheckOutlined, ClockCircleOutlined, CopyOutlined, FileDoneOutlined, SearchOutlined, ToolOutlined } from '@ant-design/icons';
-import { Button, Tag, Tooltip, Typography } from 'antd';
-import { useState } from 'react';
+import { AlertOutlined, ClockCircleOutlined, FileDoneOutlined, ToolOutlined } from '@ant-design/icons';
+import { Tag, Tooltip, Typography } from 'antd';
 import type React from 'react';
-import type { HookExecutionSummaryViewModel, HookExecutionViewModel, InterruptedToolViewModel, InterruptedTurnViewModel, TurnDiagnosticsViewModel } from '../../runtime/workbenchTypes.ts';
+import type { HookExecutionSummaryViewModel, HookExecutionViewModel, TurnDiagnosticsViewModel } from '../../runtime/workbenchTypes.ts';
 import { HookExecutionsPanel } from '../hooks/HookExecutionsPanel.tsx';
 import styles from './TurnDiagnosticsPanel.module.css';
 
@@ -10,33 +9,23 @@ const { Text } = Typography;
 
 export function TurnDiagnosticsPanel({
   diagnostics,
-  interrupted,
-  onInterruptedCopy,
-  onInterruptedDone,
-  onInterruptedFollowUp,
   hookExecutions,
   onHookExecutionLoad,
 }: {
   diagnostics?: TurnDiagnosticsViewModel;
-  interrupted?: InterruptedTurnViewModel;
   hookExecutions?: HookExecutionSummaryViewModel;
   onHookExecutionLoad?: (executionId: string) => Promise<HookExecutionViewModel>;
-  onInterruptedCopy?: (summary: string) => Promise<void> | void;
-  onInterruptedDone?: (turnId: string) => Promise<void> | void;
-  onInterruptedFollowUp?: (summary: string) => Promise<void> | void;
 }) {
-  const [interruptedExpanded, setInterruptedExpanded] = useState(false);
-  if (!diagnostics && !interrupted && !hookExecutions) {
+  if (!diagnostics && !hookExecutions) {
     return null;
   }
-  const status = diagnostics?.status || interrupted?.status || 'unknown';
+  const status = diagnostics?.status || 'unknown';
   const failureSignals =
-    (diagnostics?.failedToolCount ?? interrupted?.failedToolCount ?? 0) +
-    (diagnostics?.deniedToolCount ?? interrupted?.deniedToolCount ?? 0) +
-    (diagnostics?.cancelledToolCount ?? interrupted?.cancelledToolCount ?? 0) +
-    (diagnostics?.nonzeroExitShellCount ?? interrupted?.nonzeroExitShellCount ?? 0);
-  const duration = diagnostics?.runningDurationMs || diagnostics?.durationMs || interrupted?.durationMs;
-  const interruptedSummary = interruptedSummaryText(interrupted);
+    (diagnostics?.failedToolCount ?? 0) +
+    (diagnostics?.deniedToolCount ?? 0) +
+    (diagnostics?.cancelledToolCount ?? 0) +
+    (diagnostics?.nonzeroExitShellCount ?? 0);
+  const duration = diagnostics?.runningDurationMs || diagnostics?.durationMs;
   return (
     <aside className={styles.panel} data-testid="turn-diagnostics-panel" aria-label="Turn diagnostics">
       <div className={styles.header}>
@@ -47,63 +36,20 @@ export function TurnDiagnosticsPanel({
         <Tag color={statusColor(status)}>{statusLabel(status)}</Tag>
       </div>
 
-      {interrupted ? (
-        <div className={styles.interrupted} data-testid="interrupted-recovery-surface">
-          <div className={styles.interruptedHeader}>
-            <div className={styles.interruptedTitle}>
-              <AlertOutlined />
-              <span>Interrupted recovery</span>
-            </div>
-            <Tag color="red">{statusLabel(interrupted.status || 'interrupted')}</Tag>
-          </div>
-          <Text type="secondary">{[interrupted.reason, interrupted.source].filter(Boolean).join(' / ') || 'runtime recovery'}</Text>
-          <div className={styles.compactRows}>
-            <CompactRow label="Last tool" value={toolSummary(interrupted.lastCompletedTool) || 'none'} />
-            <CompactRow label="Pending" value={toolSummary(interrupted.pendingTool) || 'none'} />
-            <CompactRow label="Signals" value={interruptedSignals(interrupted)} />
-            <CompactRow label="Artifacts" value={interruptedArtifacts(interrupted)} />
-            <CompactRow label="Permissions" value={interruptedPermissions(interrupted)} />
-            <CompactRow label="Last event" value={interruptedEvent(interrupted)} />
-          </div>
-          {interruptedExpanded ? (
-            <div className={styles.inspectBlock}>
-              <ToolInspect title="Last completed" tool={interrupted.lastCompletedTool} />
-              <ToolInspect title="Last failed" tool={interrupted.lastFailedTool} />
-              <ToolInspect title="Pending at interruption" tool={interrupted.pendingTool} />
-              {interrupted.missingArtifacts?.length ? <PathList paths={interrupted.missingArtifacts} /> : null}
-            </div>
-          ) : null}
-          <div className={styles.actions}>
-            <Button icon={<SearchOutlined />} size="small" onClick={() => setInterruptedExpanded((value) => !value)}>
-              Inspect
-            </Button>
-            <Button icon={<CopyOutlined />} size="small" onClick={() => onInterruptedCopy?.(interruptedSummary)}>
-              Copy
-            </Button>
-            <Button size="small" onClick={() => onInterruptedFollowUp?.(followUpPrompt(interruptedSummary))}>
-              Follow-up
-            </Button>
-            <Button icon={<CheckOutlined />} size="small" onClick={() => interrupted.turnId && onInterruptedDone?.(interrupted.turnId)}>
-              Mark done
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
       <div className={styles.grid}>
         <Metric icon={<ClockCircleOutlined />} label="Duration" value={formatDuration(duration)} />
         <Metric icon={<ToolOutlined />} label="Tools" value={formatCountMap(diagnostics?.toolCountsByStatus)} />
         <Metric icon={<ToolOutlined />} label="Kinds" value={formatCountMap(diagnostics?.toolCountsByKind)} />
-        <Metric icon={<FileDoneOutlined />} label="Artifacts" value={diagnostics ? artifactSummary(diagnostics) : interruptedArtifacts(interrupted)} />
+        <Metric icon={<FileDoneOutlined />} label="Artifacts" value={diagnostics ? artifactSummary(diagnostics) : 'none'} />
       </div>
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Signals</div>
         <div className={styles.tags}>
-          <SignalTag label="failed" value={diagnostics?.failedToolCount ?? interrupted?.failedToolCount} danger />
-          <SignalTag label="denied" value={diagnostics?.deniedToolCount ?? interrupted?.deniedToolCount} danger />
-          <SignalTag label="cancelled" value={diagnostics?.cancelledToolCount ?? interrupted?.cancelledToolCount} />
-          <SignalTag label="nonzero shell" value={diagnostics?.nonzeroExitShellCount ?? interrupted?.nonzeroExitShellCount} danger />
+          <SignalTag label="failed" value={diagnostics?.failedToolCount} danger />
+          <SignalTag label="denied" value={diagnostics?.deniedToolCount} danger />
+          <SignalTag label="cancelled" value={diagnostics?.cancelledToolCount} />
+          <SignalTag label="nonzero shell" value={diagnostics?.nonzeroExitShellCount} danger />
           {failureSignals === 0 ? <Tag>none</Tag> : null}
         </div>
       </div>
@@ -111,11 +57,11 @@ export function TurnDiagnosticsPanel({
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Permissions</div>
         <div className={styles.tags}>
-          <SignalTag label="pending" value={(diagnostics?.permissionCounts ?? interrupted?.permissionCounts)?.pending} />
-          <SignalTag label="allowed" value={(diagnostics?.permissionCounts ?? interrupted?.permissionCounts)?.allowed} />
-          <SignalTag label="denied" value={(diagnostics?.permissionCounts ?? interrupted?.permissionCounts)?.denied} danger />
-          <SignalTag label="expired" value={(diagnostics?.permissionCounts ?? interrupted?.permissionCounts)?.expired} />
-          <SignalTag label="cancelled" value={(diagnostics?.permissionCounts ?? interrupted?.permissionCounts)?.cancelled} />
+          <SignalTag label="pending" value={diagnostics?.permissionCounts?.pending} />
+          <SignalTag label="allowed" value={diagnostics?.permissionCounts?.allowed} />
+          <SignalTag label="denied" value={diagnostics?.permissionCounts?.denied} danger />
+          <SignalTag label="expired" value={diagnostics?.permissionCounts?.expired} />
+          <SignalTag label="cancelled" value={diagnostics?.permissionCounts?.cancelled} />
         </div>
       </div>
 
@@ -148,35 +94,9 @@ export function TurnDiagnosticsPanel({
       </div>
       <div className={styles.footer}>
         <Text type="secondary">Last event</Text>
-        <span className={styles.truncate}>{diagnostics ? eventSummary(diagnostics) : interruptedEvent(interrupted)}</span>
+        <span className={styles.truncate}>{diagnostics ? eventSummary(diagnostics) : 'none'}</span>
       </div>
     </aside>
-  );
-}
-
-function CompactRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className={styles.compactRow}>
-      <Text type="secondary">{label}</Text>
-      <span className={styles.truncate}>{value}</span>
-    </div>
-  );
-}
-
-function ToolInspect({ title, tool }: { title: string; tool?: InterruptedToolViewModel }) {
-  if (!tool?.id) {
-    return null;
-  }
-  return (
-    <div className={styles.toolInspect}>
-      <Text strong>{title}</Text>
-      <CompactRow label="Tool" value={toolSummary(tool)} />
-      {tool.command ? <CompactRow label="Command" value={tool.command} /> : null}
-      {tool.workingDir ? <CompactRow label="Cwd" value={tool.workingDir} /> : null}
-      {typeof tool.exitCode === 'number' ? <CompactRow label="Exit" value={String(tool.exitCode)} /> : null}
-      {tool.stderrExcerpt ? <CompactRow label="Stderr" value={tool.stderrExcerpt} /> : null}
-      {tool.target ? <CompactRow label="Target" value={tool.target} /> : null}
-    </div>
   );
 }
 
@@ -266,88 +186,4 @@ function eventSummary(diagnostics: TurnDiagnosticsViewModel) {
     return sequence;
   }
   return `${sequence} at ${new Date(diagnostics.lastRuntimeEventAt).toLocaleTimeString()}`;
-}
-
-function toolSummary(tool?: InterruptedToolViewModel) {
-  if (!tool?.id) {
-    return '';
-  }
-  const title = tool.display?.title || tool.name || tool.id;
-  const detail = tool.target || tool.command || tool.failureReason;
-  const status = tool.status ? ` ${tool.status}` : '';
-  return detail ? `${title}${status}: ${detail}` : `${title}${status}`;
-}
-
-function interruptedSignals(interrupted?: InterruptedTurnViewModel) {
-  if (!interrupted) {
-    return 'none';
-  }
-  const parts = [
-    countLabel('failed', interrupted.failedToolCount),
-    countLabel('denied', interrupted.deniedToolCount),
-    countLabel('cancelled', interrupted.cancelledToolCount),
-    countLabel('nonzero shell', interrupted.nonzeroExitShellCount),
-  ].filter(Boolean);
-  return parts.length ? parts.join(', ') : 'none';
-}
-
-function interruptedArtifacts(interrupted?: InterruptedTurnViewModel) {
-  const counts = interrupted?.artifactCounts;
-  return `expected ${counts?.expected ?? interrupted?.expectedArtifacts?.length ?? 0}, produced ${
-    counts?.produced ?? interrupted?.producedArtifacts?.length ?? 0
-  }, verified ${counts?.verified ?? interrupted?.verifiedArtifacts?.length ?? 0}, missing ${counts?.missing ?? interrupted?.missingArtifacts?.length ?? 0}`;
-}
-
-function interruptedPermissions(interrupted?: InterruptedTurnViewModel) {
-  const counts = interrupted?.permissionCounts;
-  const parts = [
-    countLabel('pending', counts?.pending),
-    countLabel('allowed', counts?.allowed),
-    countLabel('denied', counts?.denied),
-    countLabel('expired', counts?.expired),
-    countLabel('cancelled', counts?.cancelled),
-  ].filter(Boolean);
-  return parts.length ? parts.join(', ') : 'none';
-}
-
-function interruptedEvent(interrupted?: InterruptedTurnViewModel) {
-  const sequence = interrupted?.lastRuntimeEventSequence ? `#${interrupted.lastRuntimeEventSequence}` : 'none';
-  if (!interrupted?.lastRuntimeEventAt) {
-    return sequence;
-  }
-  return `${sequence} at ${new Date(interrupted.lastRuntimeEventAt).toLocaleTimeString()}`;
-}
-
-function interruptedSummaryText(interrupted?: InterruptedTurnViewModel) {
-  if (!interrupted) {
-    return '';
-  }
-  if (interrupted.summaryText?.trim()) {
-    return interrupted.summaryText;
-  }
-  return [
-    `Interrupted turn ${interrupted.turnId || ''}`.trim(),
-    interrupted.reason ? `Reason: ${interrupted.reason}` : '',
-    toolSummary(interrupted.lastCompletedTool) ? `Last completed tool: ${toolSummary(interrupted.lastCompletedTool)}` : '',
-    toolSummary(interrupted.lastFailedTool) ? `Last failed tool: ${toolSummary(interrupted.lastFailedTool)}` : '',
-    toolSummary(interrupted.pendingTool) ? `Pending tool: ${toolSummary(interrupted.pendingTool)}` : '',
-    `Artifacts: ${interruptedArtifacts(interrupted)}`,
-    `Permissions: ${interruptedPermissions(interrupted)}`,
-    `Signals: ${interruptedSignals(interrupted)}`,
-    `Last event: ${interruptedEvent(interrupted)}`,
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-function followUpPrompt(summary: string) {
-  return [
-    'Continue from this interrupted runtime state. Do not replay completed tools unless needed; inspect the current filesystem/state first.',
-    '',
-    summary,
-  ].join('\n');
-}
-
-function countLabel(label: string, value?: number) {
-  return value && value > 0 ? `${label} ${value}` : '';
 }

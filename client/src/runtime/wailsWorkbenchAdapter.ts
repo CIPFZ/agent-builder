@@ -4,6 +4,7 @@ import type {
   AgentTaskViewModel,
   AgentRoleViewModel,
   ConfiguredProviderViewModel,
+  CompactBoundaryViewModel,
   ContextDiagnosticsViewModel,
   ConversationMessageViewModel,
   ConversationTimelineItemViewModel,
@@ -11,7 +12,12 @@ import type {
   HookExecutionSummaryViewModel,
   HookExecutionViewModel,
   HookViewModel,
-  InterruptedTurnViewModel,
+  RecoveryActionViewModel,
+  RecoverableErrorViewModel,
+  RecoveredRuntimeTurnViewModel,
+  RecoveredTurnViewModel,
+  RecoveryStatusViewModel,
+  RuntimeMCPRequestViewModel,
   PermissionModeOptionViewModel,
   PermissionRequestViewModel,
   ProviderDraftDiscoveryRequestViewModel,
@@ -35,6 +41,7 @@ import type {
   RuntimePluginViewModel,
   ReactCallchainViewModel,
   RuntimeEventViewModel,
+  RunCheckpointViewModel,
   TerminalEventViewModel,
   RunProjectionViewModel,
   RunSchedulerPlanRequestViewModel,
@@ -597,10 +604,83 @@ interface RuntimeTurnDTO {
   finishedAt?: number;
   error?: string;
   diagnostics?: RuntimeTurnDiagnosticsDTO;
-  interrupted?: RuntimeInterruptedSummaryDTO;
 }
 
-type RuntimeInterruptedSummaryDTO = InterruptedTurnViewModel;
+interface RuntimeRecoveryStatusDTO {
+  runtime_started_at?: string;
+  last_event_sequence?: number;
+  active_turns?: RuntimeTurnDTO[];
+  interrupted_turns?: RuntimeRecoveredTurnDTO[];
+  recoverable_errors?: RuntimeRecoverableErrorDTO[];
+  compact_boundaries?: RuntimeCompactBoundaryDTO[];
+  pending_permissions?: RuntimePermissionDTO[];
+  pending_mcp_requests?: RuntimeMCPRequestDTO[];
+  actions?: RuntimeRecoveryActionDTO[];
+  snapshot_required?: boolean;
+}
+
+interface RuntimeRecoveredTurnDTO extends RuntimeTurnDTO {
+  interruption_kind?: string;
+  resume_eligible?: boolean;
+  discard_eligible?: boolean;
+  mark_done_eligible?: boolean;
+  reason?: string;
+  resume_hint?: string;
+  open_tool_calls?: RuntimeToolCallDTO[];
+  checkpoints?: RuntimeRunCheckpointDTO[];
+}
+
+interface RuntimeRecoverableErrorDTO {
+  id: string;
+  kind?: string;
+  severity?: string;
+  session_id?: string;
+  turn_id?: string;
+  run_id?: string;
+  provider?: string;
+  model?: string;
+  message?: string;
+  retry_eligible?: boolean;
+  compact_eligible?: boolean;
+  user_action?: string;
+  details?: Record<string, unknown>;
+  created_at?: string;
+}
+
+interface RuntimeRecoveryActionDTO {
+  id: string;
+  label?: string;
+  kind?: string;
+  session_id?: string;
+  turn_id?: string;
+  run_id?: string;
+  checkpoint_id?: string;
+  destructive?: boolean;
+  starts_worker?: boolean;
+  evidence?: string[];
+}
+
+interface RuntimeRecoveryRetryResponseDTO extends RuntimeWriteActionResponseDTO {
+  error_id?: string;
+  error?: RuntimeRecoverableErrorDTO;
+  chat?: RuntimeChatResponseDTO;
+}
+
+interface RuntimeMCPRequestDTO {
+  id?: string;
+  sessionId?: string;
+  session_id?: string;
+  turnId?: string;
+  turn_id?: string;
+  kind?: string;
+  status?: string;
+  server?: string;
+  tool?: string;
+  prompt?: string;
+  reason?: string;
+  createdAt?: number;
+  created_at?: number;
+}
 
 interface RuntimeTurnDiagnosticsDTO {
   turnId?: string;
@@ -1011,6 +1091,21 @@ interface RuntimeCompactBoundaryDTO {
   completedAt?: number;
 }
 
+interface RuntimeRunCheckpointDTO {
+  id?: string;
+  runId?: string;
+  turnId?: string;
+  taskId?: string;
+  status?: string;
+  summary?: string;
+  artifactRefs?: string[];
+  createdAt?: number;
+  acknowledgedAt?: number;
+  discardedAt?: number;
+  resumedTurnIds?: string[];
+  resumeEligible?: boolean;
+}
+
 interface RuntimeBudgetReportDTO {
   contextWindow?: number;
   inputBudget?: RuntimeBudgetBucketDTO;
@@ -1052,19 +1147,7 @@ interface RuntimeRunProjectionResponseDTO {
     expectedArtifacts?: string[];
     producedArtifacts?: string[];
     verifiedArtifacts?: string[];
-    checkpoints?: Array<{
-      id?: string;
-      turnId?: string;
-      taskId?: string;
-      status?: string;
-      summary?: string;
-      artifactRefs?: string[];
-      createdAt?: number;
-      acknowledgedAt?: number;
-      discardedAt?: number;
-      resumedTurnIds?: string[];
-      resumeEligible?: boolean;
-    }>;
+    checkpoints?: RuntimeRunCheckpointDTO[];
     diagnostics?: {
       turnCount?: number;
       taskCount?: number;
@@ -1473,6 +1556,10 @@ interface RuntimeMCPPromptsResponseDTO {
 
 interface RuntimeBridgeModule {
   Status: () => Promise<RuntimeStatusDTO>;
+  RecoveryStatus?: () => Promise<RuntimeRecoveryStatusDTO>;
+  ResumeInterruptedTurn?: (turnID: string, req: { mode?: string; prompt?: string; metadata?: Record<string, string> }) => Promise<RuntimeTurnResponseDTO>;
+  DiscardInterruptedTurn?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
+  RetryRecoverableError?: (errorID: string) => Promise<RuntimeRecoveryRetryResponseDTO>;
   OpenProject?: (req: OpenProjectRequestViewModel) => Promise<RuntimeOpenProjectResponseDTO>;
   CreateProject?: (req: CreateProjectRequestViewModel) => Promise<RuntimeOpenProjectResponseDTO>;
   RenameProject?: (req: RenameProjectRequestViewModel) => Promise<RuntimeOpenProjectResponseDTO>;
@@ -2842,23 +2929,126 @@ function selectTurnDiagnostics(activity?: RuntimeSessionActivityDTO, activeTurnI
   return selected?.diagnostics;
 }
 
-function selectInterruptedTurn(activity?: RuntimeSessionActivityDTO, activeTurnId?: string): InterruptedTurnViewModel | undefined {
-  const turns = Array.isArray(activity?.turns) ? activity.turns : [];
-  if (turns.length === 0) {
-    return undefined;
-  }
-  const interruptedTurns = turns.filter((turn) => turn.status === 'interrupted' && turn.interrupted?.turnId);
-  if (interruptedTurns.length === 0) {
-    return undefined;
-  }
-  const selected =
-    (activeTurnId ? interruptedTurns.find((turn) => turn.id === activeTurnId) : undefined) ??
-    [...interruptedTurns].sort((left, right) => {
-      const leftTime = left.interrupted?.interruptedAt || left.finishedAt || left.startedAt || 0;
-      const rightTime = right.interrupted?.interruptedAt || right.finishedAt || right.startedAt || 0;
-      return rightTime - leftTime;
-    })[0];
-  return selected?.interrupted;
+function mapRecoveryStatus(response?: RuntimeRecoveryStatusDTO): RecoveryStatusViewModel {
+  return {
+    runtimeStartedAt: response?.runtime_started_at,
+    lastEventSequence: response?.last_event_sequence,
+    activeTurns: (response?.active_turns ?? []).map(mapRecoveredRuntimeTurn),
+    interruptedTurns: (response?.interrupted_turns ?? []).map(mapRecoveredTurn),
+    recoverableErrors: (response?.recoverable_errors ?? []).map(mapRecoverableError),
+    pendingPermissions: (response?.pending_permissions ?? []).map(mapPermission),
+    pendingMCPRequests: (response?.pending_mcp_requests ?? []).map(mapMCPRequest),
+    compactBoundaries: (response?.compact_boundaries ?? []).map(mapCompactBoundary),
+    actions: (response?.actions ?? []).map(mapRecoveryAction),
+    snapshotRequired: response?.snapshot_required,
+  };
+}
+
+function mapRecoveredRuntimeTurn(turn: RuntimeTurnDTO): RecoveredRuntimeTurnViewModel {
+  return {
+    id: turn.id,
+    sessionId: turn.sessionId,
+    status: turn.status,
+    error: turn.error,
+    startedAt: turn.startedAt,
+    finishedAt: turn.finishedAt,
+  };
+}
+
+function mapRecoveredTurn(turn: RuntimeRecoveredTurnDTO): RecoveredTurnViewModel {
+  return {
+    ...mapRecoveredRuntimeTurn(turn),
+    interruptionKind: turn.interruption_kind || 'unknown',
+    resumeEligible: Boolean(turn.resume_eligible),
+    discardEligible: Boolean(turn.discard_eligible),
+    markDoneEligible: Boolean(turn.mark_done_eligible),
+    reason: turn.reason,
+    resumeHint: turn.resume_hint,
+    openToolCalls: (turn.open_tool_calls ?? []).map(mapToolCall),
+    checkpoints: (turn.checkpoints ?? []).map(mapRunCheckpoint),
+  };
+}
+
+function mapRecoverableError(error: RuntimeRecoverableErrorDTO): RecoverableErrorViewModel {
+  return {
+    id: error.id,
+    kind: error.kind || 'unknown',
+    severity: error.severity || 'error',
+    sessionId: error.session_id,
+    turnId: error.turn_id,
+    runId: error.run_id,
+    provider: error.provider,
+    model: error.model,
+    message: error.message || '',
+    retryEligible: Boolean(error.retry_eligible),
+    compactEligible: Boolean(error.compact_eligible),
+    userAction: error.user_action,
+    details: error.details,
+    createdAt: error.created_at,
+  };
+}
+
+function mapRecoveryAction(action: RuntimeRecoveryActionDTO): RecoveryActionViewModel {
+  return {
+    id: action.id,
+    label: action.label || action.kind || action.id,
+    kind: action.kind || '',
+    sessionId: action.session_id,
+    turnId: action.turn_id,
+    runId: action.run_id,
+    checkpointId: action.checkpoint_id,
+    destructive: Boolean(action.destructive),
+    startsWorker: Boolean(action.starts_worker),
+    evidence: action.evidence ?? [],
+  };
+}
+
+function mapCompactBoundary(boundary: RuntimeCompactBoundaryDTO): CompactBoundaryViewModel {
+  return {
+    id: boundary.id || `${boundary.kind || 'compact'}:${boundary.createdAt ?? 0}`,
+    kind: boundary.kind || 'compact',
+    trigger: boundary.trigger || 'unknown',
+    status: boundary.status || 'unknown',
+    summaryRef: boundary.summaryRef,
+    messageRefs: Array.isArray(boundary.messageRefs) ? boundary.messageRefs : [],
+    toolCallRefCount: Array.isArray(boundary.toolCallRefs) ? boundary.toolCallRefs.length : 0,
+    reinjectedRefCount: Array.isArray(boundary.reinjectedRefs) ? boundary.reinjectedRefs.length : 0,
+    error: boundary.error,
+    createdAt: boundary.createdAt,
+    completedAt: boundary.completedAt,
+  };
+}
+
+function mapRunCheckpoint(checkpoint: RuntimeRunCheckpointDTO): RunCheckpointViewModel {
+  return {
+    id: checkpoint.id || '',
+    runId: checkpoint.runId,
+    turnId: checkpoint.turnId,
+    taskId: checkpoint.taskId,
+    status: checkpoint.status,
+    summary: checkpoint.summary,
+    artifactRefs: checkpoint.artifactRefs,
+    createdAt: checkpoint.createdAt,
+    acknowledgedAt: checkpoint.acknowledgedAt,
+    discardedAt: checkpoint.discardedAt,
+    resumedTurnIds: checkpoint.resumedTurnIds,
+    resumeEligible: checkpoint.resumeEligible,
+  };
+}
+
+function mapMCPRequest(request: RuntimeMCPRequestDTO): RuntimeMCPRequestViewModel {
+  return {
+    id: request.id || '',
+    sessionId: request.sessionId ?? request.session_id,
+    turnId: request.turnId ?? request.turn_id,
+    kind: request.kind,
+    status: request.status,
+    server: request.server,
+    tool: request.tool,
+    prompt: request.prompt,
+    reason: request.reason,
+    createdAt: request.createdAt ?? request.created_at,
+  };
 }
 
 interface TimelineTurnContext {
@@ -3957,6 +4147,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const fullHydration = !refreshTargets || refreshTargets.length === 0;
   const refreshActivity = actionTargetsInclude(
     refreshTargets,
+    'recovery',
     'turn_activity',
     'session_activity_window',
     'session_activity',
@@ -3969,6 +4160,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const refreshPolicy = actionTargetsInclude(refreshTargets, 'permissions');
   const [
     status,
+    recoveryStatus,
     sessionsResponse,
     modelsResponse,
     providerCatalog,
@@ -3980,6 +4172,9 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     terminalSettingsResponse,
   ] = await Promise.all([
     optionalRuntimeRequest(() => bridge.Status()),
+    fullHydration || actionTargetsInclude(refreshTargets, 'recovery', 'turn_activity', 'permissions', 'mcp_requests', 'run')
+      ? optionalRuntimeRequest(() => bridge.RecoveryStatus?.() ?? Promise.resolve(undefined))
+      : Promise.resolve(undefined),
     optionalRuntimeRequest(() => bridge.Sessions()),
     fullHydration ? bridge.Models().catch(() => undefined) : Promise.resolve(undefined),
     fullHydration ? bridge.ProviderCatalog?.().catch(() => undefined) : Promise.resolve(undefined),
@@ -4072,13 +4267,13 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     timeline,
     outputStore,
     turnDiagnostics: activity ? selectTurnDiagnostics(activity, sessionActiveTurn?.id) : current.turnDiagnostics,
-    interruptedTurn: activity ? selectInterruptedTurn(activity, sessionActiveTurn?.id) : current.interruptedTurn,
     runProjection: mapRunProjection(runProjection, schedulerTaskCandidates) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
     agentTasks: agentTasks ?? (activeSessionID ? current.agentTasks?.filter((task) => task.parentSessionId === activeSessionID || task.childSessionId === activeSessionID) : []),
     agentRoles: agentRoles ?? current.agentRoles,
     todos: todos ?? (current.todos?.sessionId === activeSessionID ? current.todos : undefined),
     reactCallchain: mapReactCallchain(reactCallchainDTO, hookExecutions) ?? (current.reactCallchain?.sessionId === activeSessionID ? current.reactCallchain : undefined),
     contextDiagnostics,
+    recovery: recoveryStatus ? mapRecoveryStatus(recoveryStatus) : current.recovery,
     hooks: hooks ?? current.hooks ?? [],
     hookExecutions: hookExecutions ?? (activeSessionID ? undefined : summarizeHookExecutions([])),
     pendingPermissions,
@@ -4425,7 +4620,6 @@ function resetConversationRuntimeState(current: WorkbenchViewModel): WorkbenchVi
     conversation: [],
     timeline: [],
     turnDiagnostics: undefined,
-    interruptedTurn: undefined,
     runProjection: undefined,
     reactCallchain: undefined,
     contextDiagnostics: undefined,
@@ -4735,6 +4929,21 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       () => staticWorkbenchAdapter.cancelTurn(current, turnID),
     );
   },
+  async resumeInterruptedTurn(current, turnID, request) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.ResumeInterruptedTurn) {
+          return staticWorkbenchAdapter.resumeInterruptedTurn(current, turnID, request);
+        }
+        const response = await bridge.ResumeInterruptedTurn(turnID, {
+          mode: request?.mode ?? 'continue',
+          prompt: request?.prompt,
+        });
+        return hydrateWorkbenchForAction(current, bridge, response);
+      },
+      () => staticWorkbenchAdapter.resumeInterruptedTurn(current, turnID, request),
+    );
+  },
   async markInterruptedDone(current, turnID) {
     return withBridge(
       async (bridge) => {
@@ -4745,13 +4954,36 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         return hydrateWorkbenchForAction(
           {
             ...current,
-            interruptedTurn: undefined,
           },
           bridge,
           response,
         );
       },
       () => staticWorkbenchAdapter.markInterruptedDone(current, turnID),
+    );
+  },
+  async discardInterruptedTurn(current, turnID) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.DiscardInterruptedTurn) {
+          return staticWorkbenchAdapter.discardInterruptedTurn(current, turnID);
+        }
+        const response = await bridge.DiscardInterruptedTurn(turnID);
+        return hydrateWorkbenchForAction(current, bridge, response);
+      },
+      () => staticWorkbenchAdapter.discardInterruptedTurn(current, turnID),
+    );
+  },
+  async retryRecoverableError(current, errorID) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.RetryRecoverableError) {
+          return staticWorkbenchAdapter.retryRecoverableError(current, errorID);
+        }
+        const response = await bridge.RetryRecoverableError(errorID);
+        return hydrateWorkbenchForAction(current, bridge, response);
+      },
+      () => staticWorkbenchAdapter.retryRecoverableError(current, errorID),
     );
   },
   async manualCompact(current, reason) {

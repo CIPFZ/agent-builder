@@ -186,6 +186,11 @@ type RuntimeReplayExportRequest = runtime.RuntimeReplayExportRequest
 type RuntimeReplayExportResponse = runtime.RuntimeReplayExportResponse
 type RuntimeReplayExportSummary = runtime.RuntimeReplayExportSummary
 type RuntimeRecoveryStatus = runtime.RuntimeRecoveryStatus
+type RuntimeRecoveredTurn = runtime.RuntimeRecoveredTurn
+type RuntimeRecoverableError = runtime.RuntimeRecoverableError
+type RuntimeRecoveryAction = runtime.RuntimeRecoveryAction
+type RuntimeResumeInterruptedTurnRequest = runtime.RuntimeResumeInterruptedTurnRequest
+type RuntimeRecoveryRetryResponse = runtime.RuntimeRecoveryRetryResponse
 type RuntimeSkill = runtime.RuntimeSkill
 type RuntimeSkillsResponse = runtime.RuntimeSkillsResponse
 type RuntimePlugin = runtime.RuntimePlugin
@@ -264,6 +269,18 @@ func (r *RuntimeBridge) RecoveryStatus(ctx context.Context) (RuntimeRecoveryStat
 
 	return r.service.RecoveryStatus(ctx)
 
+}
+
+func (r *RuntimeBridge) ResumeInterruptedTurn(ctx context.Context, turnID string, req RuntimeResumeInterruptedTurnRequest) (RuntimeTurnResponse, error) {
+	return r.service.ResumeInterruptedTurn(ctx, turnID, req)
+}
+
+func (r *RuntimeBridge) DiscardInterruptedTurn(ctx context.Context, turnID string) (RuntimeTurnResponse, error) {
+	return r.service.DiscardInterruptedTurn(ctx, turnID)
+}
+
+func (r *RuntimeBridge) RetryRecoverableError(ctx context.Context, errorID string) (RuntimeRecoveryRetryResponse, error) {
+	return r.service.RetryRecoverableError(ctx, errorID)
 }
 
 func (r *RuntimeBridge) OpenProject(ctx context.Context, req RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error) {

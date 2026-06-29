@@ -87,13 +87,21 @@ export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): W
     conversation: [],
     timeline: [],
     turnDiagnostics: undefined,
-    interruptedTurn: undefined,
     runProjection: undefined,
     agentTasks: [],
     agentRoles: [],
     todos: undefined,
     reactCallchain: undefined,
     contextDiagnostics: undefined,
+    recovery: {
+      activeTurns: [],
+      interruptedTurns: [],
+      recoverableErrors: [],
+      pendingPermissions: [],
+      pendingMCPRequests: [],
+      compactBoundaries: [],
+      actions: [],
+    },
     hooks: [],
     hookExecutions: {
       items: [],
@@ -176,7 +184,16 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   async cancelTurn() {
     return runtimeUnavailable();
   },
+  async resumeInterruptedTurn() {
+    return runtimeUnavailable();
+  },
   async markInterruptedDone() {
+    return runtimeUnavailable();
+  },
+  async discardInterruptedTurn() {
+    return runtimeUnavailable();
+  },
+  async retryRecoverableError() {
     return runtimeUnavailable();
   },
   async manualCompact() {

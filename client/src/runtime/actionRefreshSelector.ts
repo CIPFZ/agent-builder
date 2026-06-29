@@ -1,5 +1,6 @@
 export type RuntimeActionRefreshTarget =
   | 'status'
+  | 'recovery'
   | 'turn_activity'
   | 'session_activity_window'
   | 'session_activity'
@@ -25,6 +26,7 @@ export interface RuntimeWriteActionResponseDTO {
 
 const runtimeActionRefreshTargetSet = new Set<RuntimeActionRefreshTarget>([
   'status',
+  'recovery',
   'turn_activity',
   'session_activity_window',
   'session_activity',

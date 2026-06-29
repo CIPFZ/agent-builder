@@ -25,6 +25,7 @@ import { RunProjectionPreview } from '../diagnostics/RunProjectionPreview.tsx';
 import { ReactCallchainInspector } from '../diagnostics/ReactCallchainInspector.tsx';
 import { ContextDiagnosticsPanel } from '../diagnostics/ContextDiagnosticsPanel.tsx';
 import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
+import { RecoveryCenter } from '../recovery/RecoveryCenter.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { TodoPanel } from '../todos/TodoPanel.tsx';
@@ -61,7 +62,10 @@ interface WorkspaceProps {
   onSessionRename: (sessionID: string, title: string) => Promise<void>;
   onPromptSubmit: (prompt: string) => Promise<void>;
   onNewConversationDraftChange: (target: NewConversationDraftViewModel) => void;
+  onInterruptedResume: (turnID: string) => Promise<void>;
   onInterruptedDone: (turnID: string) => Promise<void>;
+  onInterruptedDiscard: (turnID: string) => Promise<void>;
+  onRecoverableErrorRetry: (errorID: string) => Promise<void>;
   onManualCompact?: () => Promise<void>;
   onManualSnip?: () => Promise<void>;
   onRunCheckpointResume?: (runID: string, checkpointID: string) => Promise<void>;
@@ -89,7 +93,10 @@ export function Workspace({
   onSessionRename,
   onPromptSubmit,
   onNewConversationDraftChange,
+  onInterruptedResume,
   onInterruptedDone,
+  onInterruptedDiscard,
+  onRecoverableErrorRetry,
   onManualCompact,
   onManualSnip,
   onRunCheckpointResume,
@@ -498,22 +505,6 @@ export function Workspace({
       setRenaming(false);
     }
   };
-  const copyInterruptedSummary = async (summary: string) => {
-    try {
-      await copyText(summary);
-      void messageApi.success('Copied');
-    } catch {
-      void messageApi.error('Copy failed');
-    }
-  };
-  const startInterruptedFollowUp = async (prompt: string) => {
-    await onPromptSubmit(prompt);
-  };
-  const markInterruptedDone = async (turnID: string) => {
-    await onInterruptedDone(turnID);
-    void messageApi.success('Interrupted turn marked done');
-  };
-
   return (
     <section
       ref={workspaceRef}
@@ -774,24 +765,29 @@ export function Workspace({
               <div className={styles.sideToolPane} role="tabpanel">
                 <div className={styles.reviewStack}>
                   <AgentTaskPanel tasks={viewModel.agentTasks} onCancelTask={onAgentTaskCancel} onFollowUp={onAgentTaskFollowUp} />
+                  <RecoveryCenter
+                    recovery={viewModel.recovery}
+                    onResumeTurn={onInterruptedResume}
+                    onMarkDone={onInterruptedDone}
+                    onDiscardTurn={onInterruptedDiscard}
+                    onRetryError={onRecoverableErrorRetry}
+                    onResumeCheckpoint={(runID, checkpointID) => onRunCheckpointResume?.(runID, checkpointID) ?? Promise.resolve()}
+                  />
                   <RunProjectionPreview run={viewModel.runProjection} onResumeCheckpoint={onRunCheckpointResume} onExecuteTask={onRunTaskExecute} />
                   <ReactCallchainInspector callchain={viewModel.reactCallchain} onHookExecutionLoad={onHookExecutionLoad} />
                   <ContextDiagnosticsPanel diagnostics={viewModel.contextDiagnostics} onManualCompact={onManualCompact} onManualSnip={onManualSnip} />
                   <TurnDiagnosticsPanel
                     diagnostics={viewModel.turnDiagnostics}
                     hookExecutions={viewModel.hookExecutions}
-                    interrupted={viewModel.interruptedTurn}
                     onHookExecutionLoad={onHookExecutionLoad}
-                    onInterruptedCopy={copyInterruptedSummary}
-                    onInterruptedDone={markInterruptedDone}
-                    onInterruptedFollowUp={startInterruptedFollowUp}
                   />
                   {!viewModel.agentTasks?.length &&
                   !viewModel.runProjection &&
                   !viewModel.reactCallchain &&
                   !viewModel.contextDiagnostics &&
                   !viewModel.turnDiagnostics &&
-                  !viewModel.interruptedTurn &&
+                  !viewModel.recovery?.interruptedTurns.length &&
+                  !viewModel.recovery?.recoverableErrors.length &&
                   !viewModel.hookExecutions ? (
                     <>
                       <div className={styles.sideToolTitle}>审查</div>

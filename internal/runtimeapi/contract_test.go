@@ -12,6 +12,9 @@ func TestEndpointsFreezePhase2MinimalAPI(t *testing.T) {
 	expected := []Endpoint{
 		{Method: MethodGet, Path: "/v1/runtime/status"},
 		{Method: MethodGet, Path: "/v1/recovery/status"},
+		{Method: MethodPost, Path: "/v1/recovery/turns/{turn_id}/resume"},
+		{Method: MethodPost, Path: "/v1/recovery/turns/{turn_id}/discard"},
+		{Method: MethodPost, Path: "/v1/recovery/errors/{error_id}/retry"},
 		{Method: MethodGet, Path: "/v1/config/model"},
 		{Method: MethodPut, Path: "/v1/config/model"},
 		{Method: MethodPost, Path: "/v1/config/model/verify"},
@@ -117,6 +120,17 @@ func TestEventTypesFreezePhase2Schema(t *testing.T) {
 
 	for _, eventType := range []string{
 		EventRuntimeStarted,
+		EventRecoveryStatusChanged,
+		EventRecoveryTurnResumed,
+		EventRecoveryTurnDiscarded,
+		EventRecoveryErrorClassified,
+		EventRecoveryRetryStarted,
+		EventRecoveryRetryCompleted,
+		EventRecoveryRetryFailed,
+		EventRecoveryHistoryHygieneApplied,
+		EventRecoveryCompactRetryStarted,
+		EventRecoveryCompactRetryCompleted,
+		EventRecoveryCompactRetryFailed,
 		EventSessionCreated,
 		EventTurnStarted,
 		EventMessageCreated,

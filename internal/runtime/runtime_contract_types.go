@@ -871,6 +871,7 @@ type RuntimeRunProjection struct {
 	VerifiedArtifacts    []string                   `json:"verifiedArtifacts,omitempty"`
 	Checkpoints          []RuntimeRunCheckpoint     `json:"checkpoints,omitempty"`
 	Diagnostics          RuntimeRunDiagnostics      `json:"diagnostics,omitempty"`
+	Recovery             RuntimeRunRecovery         `json:"recovery,omitempty"`
 	Interrupted          *RuntimeInterruptedSummary `json:"interrupted,omitempty"`
 	UserActions          RuntimeRunUserActions      `json:"userActions,omitempty"`
 	EvidenceCursor       string                     `json:"evidenceCursor,omitempty"`
@@ -881,8 +882,16 @@ type RuntimeRunProjection struct {
 	FinishedAt           int64                      `json:"finishedAt,omitempty"`
 }
 
+type RuntimeRunRecovery struct {
+	InterruptedSourceTurns []string `json:"interruptedSourceTurns,omitempty"`
+	RetryAttempts          int      `json:"retryAttempts,omitempty"`
+	CompactRetryCount      int      `json:"compactRetryCount,omitempty"`
+	RecoverableErrors      int      `json:"recoverableErrors,omitempty"`
+}
+
 type RuntimeRunCheckpoint struct {
 	ID             string   `json:"id"`
+	RunID          string   `json:"runId,omitempty"`
 	TurnID         string   `json:"turnId,omitempty"`
 	TaskID         string   `json:"taskId,omitempty"`
 	Status         string   `json:"status"`
@@ -972,9 +981,31 @@ type RuntimeTurnDiagnostics struct {
 	LastToolTitle              string                      `json:"lastToolTitle,omitempty"`
 	LastRuntimeEventAt         int64                       `json:"lastRuntimeEventAt,omitempty"`
 	LastRuntimeEventSequence   int64                       `json:"lastRuntimeEventSequence,omitempty"`
+	HistoryHygieneDiagnostics  []HistoryHygieneDiagnostic  `json:"historyHygieneDiagnostics,omitempty"`
+	ProviderError              *RuntimeRecoverableError    `json:"providerErrorClassification,omitempty"`
+	RetryAttempts              []RuntimeRecoveryRetryEvent `json:"retryAttempts,omitempty"`
+	CompactRetryResult         string                      `json:"compactRetryResult,omitempty"`
 	Warning                    string                      `json:"warning,omitempty"`
 	WarningReason              string                      `json:"warningReason,omitempty"`
 	WarningSource              string                      `json:"warningSource,omitempty"`
+}
+
+type HistoryHygieneDiagnostic struct {
+	Kind       string `json:"kind"`
+	MessageID  string `json:"messageId,omitempty"`
+	ToolCallID string `json:"toolCallId,omitempty"`
+	ToolName   string `json:"toolName,omitempty"`
+	Action     string `json:"action"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type RuntimeRecoveryRetryEvent struct {
+	EventID   string `json:"eventId,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	ErrorID   string `json:"errorId,omitempty"`
+	Status    string `json:"status,omitempty"`
+	CreatedAt string `json:"createdAt,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 type RuntimeArtifactCounts struct {
@@ -2036,6 +2067,10 @@ type RuntimeReplayRecovery struct {
 	ActiveTurns        int   `json:"activeTurns,omitempty"`
 	InterruptedTurns   int   `json:"interruptedTurns,omitempty"`
 	LastEventSequence  int64 `json:"lastEventSequence,omitempty"`
+	ResumedTurns       int   `json:"resumedTurns,omitempty"`
+	DiscardedTurns     int   `json:"discardedTurns,omitempty"`
+	RetryAttempts      int   `json:"retryAttempts,omitempty"`
+	CompactRetries     int   `json:"compactRetries,omitempty"`
 }
 
 type RuntimeCompactBoundary struct {
@@ -2296,14 +2331,71 @@ type RuntimeRecoveryStatus struct {
 	RuntimeStartedAt   string                     `json:"runtime_started_at"`
 	LastEventSequence  int64                      `json:"last_event_sequence"`
 	ActiveTurns        []RuntimeTurn              `json:"active_turns"`
-	InterruptedTurns   []RuntimeTurn              `json:"interrupted_turns"`
+	InterruptedTurns   []RuntimeRecoveredTurn     `json:"interrupted_turns"`
+	RecoverableErrors  []RuntimeRecoverableError  `json:"recoverable_errors,omitempty"`
 	InterruptedTasks   []RuntimeAgentTask         `json:"interrupted_tasks,omitempty"`
 	CompactBoundaries  []RuntimeCompactBoundary   `json:"compact_boundaries,omitempty"`
 	Worktrees          []RuntimeWorktree          `json:"worktrees,omitempty"`
 	HookExecutions     []RuntimeHookExecution     `json:"hook_executions,omitempty"`
 	PendingPermissions []RuntimePermissionRequest `json:"pending_permissions"`
 	PendingMCPRequests []RuntimeMCPRequest        `json:"pending_mcp_requests,omitempty"`
+	Actions            []RuntimeRecoveryAction    `json:"actions,omitempty"`
 	SnapshotRequired   bool                       `json:"snapshot_required,omitempty"`
+}
+
+type RuntimeRecoveredTurn struct {
+	RuntimeTurn
+	InterruptionKind string                 `json:"interruption_kind"`
+	ResumeEligible   bool                   `json:"resume_eligible"`
+	DiscardEligible  bool                   `json:"discard_eligible"`
+	MarkDoneEligible bool                   `json:"mark_done_eligible"`
+	Reason           string                 `json:"reason,omitempty"`
+	ResumeHint       string                 `json:"resume_hint,omitempty"`
+	OpenToolCalls    []RuntimeToolCall      `json:"open_tool_calls,omitempty"`
+	Checkpoints      []RuntimeRunCheckpoint `json:"checkpoints,omitempty"`
+}
+
+type RuntimeRecoverableError struct {
+	ID              string         `json:"id"`
+	Kind            string         `json:"kind"`
+	Severity        string         `json:"severity"`
+	SessionID       string         `json:"session_id,omitempty"`
+	TurnID          string         `json:"turn_id,omitempty"`
+	RunID           string         `json:"run_id,omitempty"`
+	Provider        string         `json:"provider,omitempty"`
+	Model           string         `json:"model,omitempty"`
+	Message         string         `json:"message"`
+	RetryEligible   bool           `json:"retry_eligible"`
+	CompactEligible bool           `json:"compact_eligible"`
+	UserAction      string         `json:"user_action,omitempty"`
+	Details         map[string]any `json:"details,omitempty"`
+	CreatedAt       string         `json:"created_at"`
+}
+
+type RuntimeRecoveryAction struct {
+	ID           string   `json:"id"`
+	Label        string   `json:"label"`
+	Kind         string   `json:"kind"`
+	SessionID    string   `json:"session_id,omitempty"`
+	TurnID       string   `json:"turn_id,omitempty"`
+	RunID        string   `json:"run_id,omitempty"`
+	CheckpointID string   `json:"checkpoint_id,omitempty"`
+	Destructive  bool     `json:"destructive,omitempty"`
+	StartsWorker bool     `json:"starts_worker,omitempty"`
+	Evidence     []string `json:"evidence,omitempty"`
+}
+
+type RuntimeResumeInterruptedTurnRequest struct {
+	Mode     string            `json:"mode,omitempty"`
+	Prompt   string            `json:"prompt,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+type RuntimeRecoveryRetryResponse struct {
+	ErrorID string                      `json:"error_id"`
+	Error   RuntimeRecoverableError     `json:"error,omitempty"`
+	Chat    RuntimeChatResponse         `json:"chat,omitempty"`
+	Action  *RuntimeWriteActionMetadata `json:"action,omitempty"`
 }
 
 type RuntimeAuditTurnSummary struct {

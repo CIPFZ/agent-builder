@@ -553,6 +553,37 @@ func TestRuntimeBridgePhase62PackagedHandoffRecoveryContract(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsRecoveryActions(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	bridge := &RuntimeBridge{service: service}
+
+	resumed, err := bridge.ResumeInterruptedTurn(context.Background(), "turn-resume", RuntimeResumeInterruptedTurnRequest{Mode: "continue", Prompt: "keep going"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.resumeInterruptedTurnID != "turn-resume" || service.resumeInterruptedTurnReq.Prompt != "keep going" || resumed.Turn.ID != "turn-resume" {
+		t.Fatalf("resume = %#v id=%q req=%#v", resumed, service.resumeInterruptedTurnID, service.resumeInterruptedTurnReq)
+	}
+
+	discarded, err := bridge.DiscardInterruptedTurn(context.Background(), "turn-discard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.discardInterruptedTurnID != "turn-discard" || discarded.Turn.Status != "cancelled" {
+		t.Fatalf("discard = %#v id=%q", discarded, service.discardInterruptedTurnID)
+	}
+
+	retried, err := bridge.RetryRecoverableError(context.Background(), "turn:turn-failed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.retryRecoverableErrorID != "turn:turn-failed" || retried.ErrorID != "turn:turn-failed" {
+		t.Fatalf("retry = %#v id=%q", retried, service.retryRecoverableErrorID)
+	}
+}
+
 func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 	t.Parallel()
 
@@ -1047,6 +1078,10 @@ type recordingRuntimeService struct {
 	resume                      RuntimeRunResumeResponse
 	markInterruptedDoneID       string
 	markInterruptedDoneResponse RuntimeTurnResponse
+	resumeInterruptedTurnID     string
+	resumeInterruptedTurnReq    RuntimeResumeInterruptedTurnRequest
+	discardInterruptedTurnID    string
+	retryRecoverableErrorID     string
 	terminalResponse            RuntimeTerminalResponse
 	sessionTerminals            RuntimeSessionTerminalsResponse
 	sessionTerminalsID          string
@@ -1064,6 +1099,22 @@ func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error)
 
 func (s *recordingRuntimeService) RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error) {
 	return RuntimeRecoveryStatus{}, nil
+}
+
+func (s *recordingRuntimeService) ResumeInterruptedTurn(_ context.Context, turnID string, req RuntimeResumeInterruptedTurnRequest) (RuntimeTurnResponse, error) {
+	s.resumeInterruptedTurnID = turnID
+	s.resumeInterruptedTurnReq = req
+	return RuntimeTurnResponse{Turn: RuntimeTurn{ID: turnID, Status: "running", PromptPreview: req.Prompt}}, nil
+}
+
+func (s *recordingRuntimeService) DiscardInterruptedTurn(_ context.Context, turnID string) (RuntimeTurnResponse, error) {
+	s.discardInterruptedTurnID = turnID
+	return RuntimeTurnResponse{Turn: RuntimeTurn{ID: turnID, Status: "cancelled"}}, nil
+}
+
+func (s *recordingRuntimeService) RetryRecoverableError(_ context.Context, errorID string) (RuntimeRecoveryRetryResponse, error) {
+	s.retryRecoverableErrorID = errorID
+	return RuntimeRecoveryRetryResponse{ErrorID: errorID}, nil
 }
 
 func (s *recordingRuntimeService) OpenProject(_ context.Context, req RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error) {

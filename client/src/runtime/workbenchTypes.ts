@@ -257,51 +257,83 @@ export interface TurnDiagnosticsViewModel {
   warningSource?: string;
 }
 
-export interface InterruptedTurnViewModel {
-  turnId?: string;
-  sessionId?: string;
-  status?: string;
-  startedAt?: number;
-  interruptedAt?: number;
-  durationMs?: number;
-  reason?: string;
-  source?: string;
-  lastCompletedTool?: InterruptedToolViewModel;
-  lastFailedTool?: InterruptedToolViewModel;
-  pendingTool?: InterruptedToolViewModel;
-  expectedArtifacts?: string[];
-  producedArtifacts?: string[];
-  verifiedArtifacts?: string[];
-  missingArtifacts?: string[];
-  artifactCounts?: ArtifactCountsViewModel;
-  permissionCounts?: PermissionCountsViewModel;
-  failedToolCount?: number;
-  deniedToolCount?: number;
-  cancelledToolCount?: number;
-  nonzeroExitShellCount?: number;
-  lastRuntimeEventAt?: number;
-  lastRuntimeEventSequence?: number;
-  summaryText?: string;
+export interface RecoveryStatusViewModel {
+  runtimeStartedAt?: string;
+  lastEventSequence?: number;
+  activeTurns: RecoveredRuntimeTurnViewModel[];
+  interruptedTurns: RecoveredTurnViewModel[];
+  recoverableErrors: RecoverableErrorViewModel[];
+  pendingPermissions: PermissionRequestViewModel[];
+  pendingMCPRequests: RuntimeMCPRequestViewModel[];
+  compactBoundaries: CompactBoundaryViewModel[];
+  actions: RecoveryActionViewModel[];
+  snapshotRequired?: boolean;
 }
 
-export interface InterruptedToolViewModel {
-  id?: string;
-  name?: string;
-  source?: string;
-  status?: string;
+export interface RecoveredRuntimeTurnViewModel {
+  id: string;
+  sessionId?: string;
+  status: string;
+  provider?: string;
+  model?: string;
+  promptPreview?: string;
+  error?: string;
   startedAt?: number;
   finishedAt?: number;
-  command?: string;
-  workingDir?: string;
-  exitCode?: number;
-  target?: string;
-  targets?: string[];
-  stdoutExcerpt?: string;
-  stderrExcerpt?: string;
-  failureReason?: string;
-  artifactRefs?: string[];
-  diffRefs?: string[];
-  display?: ToolCallDisplayViewModel;
+}
+
+export interface RecoveredTurnViewModel extends RecoveredRuntimeTurnViewModel {
+  interruptionKind: string;
+  resumeEligible: boolean;
+  discardEligible: boolean;
+  markDoneEligible: boolean;
+  reason?: string;
+  resumeHint?: string;
+  openToolCalls: ToolCallViewModel[];
+  checkpoints: RunCheckpointViewModel[];
+}
+
+export interface RecoverableErrorViewModel {
+  id: string;
+  kind: string;
+  severity: string;
+  sessionId?: string;
+  turnId?: string;
+  runId?: string;
+  provider?: string;
+  model?: string;
+  message: string;
+  retryEligible: boolean;
+  compactEligible: boolean;
+  userAction?: string;
+  details?: Record<string, unknown>;
+  createdAt?: string;
+}
+
+export interface RecoveryActionViewModel {
+  id: string;
+  label: string;
+  kind: string;
+  sessionId?: string;
+  turnId?: string;
+  runId?: string;
+  checkpointId?: string;
+  destructive?: boolean;
+  startsWorker?: boolean;
+  evidence: string[];
+}
+
+export interface RuntimeMCPRequestViewModel {
+  id: string;
+  sessionId?: string;
+  turnId?: string;
+  kind?: string;
+  status?: string;
+  server?: string;
+  tool?: string;
+  prompt?: string;
+  reason?: string;
+  createdAt?: number;
 }
 
 export interface ArtifactCountsViewModel {
@@ -820,6 +852,7 @@ export interface AgentTaskViewModel {
 
 export interface RunCheckpointViewModel {
   id: string;
+  runId?: string;
   turnId?: string;
   taskId?: string;
   status?: string;
@@ -1158,13 +1191,13 @@ export interface WorkbenchViewModel {
   timeline: ConversationTimelineItemViewModel[];
   outputStore?: OutputStore;
   turnDiagnostics?: TurnDiagnosticsViewModel;
-  interruptedTurn?: InterruptedTurnViewModel;
   runProjection?: RunProjectionViewModel;
   agentTasks?: AgentTaskViewModel[];
   agentRoles?: AgentRoleViewModel[];
   todos?: TodoSummaryViewModel;
   reactCallchain?: ReactCallchainViewModel;
   contextDiagnostics?: ContextDiagnosticsViewModel;
+  recovery?: RecoveryStatusViewModel;
   hooks?: HookViewModel[];
   hookExecutions?: HookExecutionSummaryViewModel;
   pendingPermissions: PermissionRequestViewModel[];
@@ -1201,7 +1234,10 @@ export interface WorkbenchAdapter {
   sendPrompt: (current: WorkbenchViewModel, prompt: string, options?: { clientRequestId?: string }) => Promise<WorkbenchViewModel>;
   submitUserInput?: (current: WorkbenchViewModel, input: RuntimeUserInputRequestViewModel) => Promise<WorkbenchViewModel>;
   cancelTurn: (current: WorkbenchViewModel, turnID?: string) => Promise<WorkbenchViewModel>;
+  resumeInterruptedTurn: (current: WorkbenchViewModel, turnID: string, request?: { mode?: string; prompt?: string }) => Promise<WorkbenchViewModel>;
   markInterruptedDone: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;
+  discardInterruptedTurn: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;
+  retryRecoverableError: (current: WorkbenchViewModel, errorID: string) => Promise<WorkbenchViewModel>;
   manualCompact: (current: WorkbenchViewModel, reason?: string) => Promise<WorkbenchViewModel>;
   manualSnip: (current: WorkbenchViewModel, reason?: string) => Promise<WorkbenchViewModel>;
   resumeRunCheckpoint: (current: WorkbenchViewModel, runID: string, checkpointID: string) => Promise<WorkbenchViewModel>;

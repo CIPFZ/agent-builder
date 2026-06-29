@@ -196,6 +196,14 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 	for _, event := range events {
 		summary.EventCounts[event.Type]++
 		switch event.Type {
+		case runtimeapi.EventRecoveryTurnResumed:
+			summary.Recovery.ResumedTurns++
+		case runtimeapi.EventRecoveryTurnDiscarded:
+			summary.Recovery.DiscardedTurns++
+		case runtimeapi.EventRecoveryRetryStarted:
+			summary.Recovery.RetryAttempts++
+		case runtimeapi.EventRecoveryCompactRetryStarted:
+			summary.Recovery.CompactRetries++
 		case runtimeapi.EventToolSearchPerformed:
 			search := runtimeReplayToolSearchFromEvent(event)
 			summary.ToolSearches = append(summary.ToolSearches, search)

@@ -231,6 +231,19 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/recovery/status":
 		value, err := s.service.RecoveryStatus(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && recoveryTurnResumePathID(r.URL.Path) != "":
+		var req RuntimeResumeInterruptedTurnRequest
+		if r.Body != nil && r.ContentLength != 0 && !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.ResumeInterruptedTurn(r.Context(), recoveryTurnResumePathID(r.URL.Path), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && recoveryTurnDiscardPathID(r.URL.Path) != "":
+		value, err := s.service.DiscardInterruptedTurn(r.Context(), recoveryTurnDiscardPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && recoveryErrorRetryPathID(r.URL.Path) != "":
+		value, err := s.service.RetryRecoverableError(r.Context(), recoveryErrorRetryPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/config/model":
 		value, err := s.service.GetModelConfig(r.Context())
 		writeRuntimeResult(w, value, err)
@@ -1542,6 +1555,18 @@ func decodeRuntimeJSON(w http.ResponseWriter, r *http.Request, target any) bool 
 
 func permissionDecisionPath(path string) string {
 	return trimPathID(path, "/v1/permissions/", "/decision")
+}
+
+func recoveryTurnResumePathID(path string) string {
+	return trimPathID(path, "/v1/recovery/turns/", "/resume")
+}
+
+func recoveryTurnDiscardPathID(path string) string {
+	return trimPathID(path, "/v1/recovery/turns/", "/discard")
+}
+
+func recoveryErrorRetryPathID(path string) string {
+	return trimPathID(path, "/v1/recovery/errors/", "/retry")
 }
 
 func mcpRequestDecisionPathID(path string) string {

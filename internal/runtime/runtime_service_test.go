@@ -4491,6 +4491,10 @@ type recordingRuntimeService struct {
 	userInput                  RuntimeNormalizedInput
 	statusCalls                int
 	recoveryStatusCalls        int
+	resumeInterruptedTurnID    string
+	resumeInterruptedTurnReq   RuntimeResumeInterruptedTurnRequest
+	discardInterruptedTurnID   string
+	retryRecoverableErrorID    string
 	skillsCalls                int
 	mcpServerCalls             int
 	status                     RuntimeStatus
@@ -4642,6 +4646,22 @@ func (s *recordingRuntimeService) Status(context.Context) (RuntimeStatus, error)
 func (s *recordingRuntimeService) RecoveryStatus(context.Context) (RuntimeRecoveryStatus, error) {
 	s.recoveryStatusCalls++
 	return s.recoveryStatus, nil
+}
+
+func (s *recordingRuntimeService) ResumeInterruptedTurn(_ context.Context, turnID string, req RuntimeResumeInterruptedTurnRequest) (RuntimeTurnResponse, error) {
+	s.resumeInterruptedTurnID = turnID
+	s.resumeInterruptedTurnReq = req
+	return RuntimeTurnResponse{Turn: RuntimeTurn{ID: turnID, Status: turnStatusRunning, PromptPreview: req.Prompt}, Action: runtimeRecoveryActionMetadata(runtimeRecoveryActionResumeInterruptedTurn, runtimeRecoveryActionReasonResumed, "source_turn_id", true)}, nil
+}
+
+func (s *recordingRuntimeService) DiscardInterruptedTurn(_ context.Context, turnID string) (RuntimeTurnResponse, error) {
+	s.discardInterruptedTurnID = turnID
+	return RuntimeTurnResponse{Turn: RuntimeTurn{ID: turnID, Status: turnStatusCancelled}, Action: runtimeRecoveryActionMetadata(runtimeRecoveryActionDiscardInterruptedTurn, runtimeRecoveryActionReasonDiscarded, "turn_id", false)}, nil
+}
+
+func (s *recordingRuntimeService) RetryRecoverableError(_ context.Context, errorID string) (RuntimeRecoveryRetryResponse, error) {
+	s.retryRecoverableErrorID = errorID
+	return RuntimeRecoveryRetryResponse{ErrorID: errorID, Action: runtimeRecoveryActionMetadata(runtimeRecoveryActionRetryRecoverableError, runtimeRecoveryActionReasonRetryStarted, "error_id", true)}, nil
 }
 
 func (s *recordingRuntimeService) OpenProject(_ context.Context, req RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error) {

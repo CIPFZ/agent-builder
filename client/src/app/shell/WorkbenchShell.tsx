@@ -99,10 +99,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     if (!adapter.subscribeRuntimeEvents) {
       return undefined;
     }
-    if (!viewModel.composer.busy && !hasBusySession) {
-      return undefined;
-    }
-
     let cancelled = false;
     let refreshTimer: number | undefined;
     let refreshing = false;
@@ -160,7 +156,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       }
       unsubscribe?.();
     };
-  }, [adapter, viewModel.composer.busy, hasBusySession]);
+  }, [adapter]);
 
   useEffect(() => {
     if (!viewModel.composer.busy && !hasBusySession) {
@@ -232,7 +228,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       conversation: [],
       timeline: [],
       turnDiagnostics: undefined,
-      interruptedTurn: undefined,
       runProjection: undefined,
       reactCallchain: undefined,
       contextDiagnostics: undefined,
@@ -278,7 +273,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       conversation: current.sessions.some((session) => session.active) ? [] : current.conversation,
       timeline: current.sessions.some((session) => session.active) ? [] : current.timeline,
       turnDiagnostics: undefined,
-      interruptedTurn: undefined,
       runProjection: undefined,
       reactCallchain: undefined,
       contextDiagnostics: undefined,
@@ -334,7 +328,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       conversation: [],
       timeline: [],
       turnDiagnostics: undefined,
-      interruptedTurn: undefined,
       runProjection: undefined,
       reactCallchain: undefined,
       contextDiagnostics: undefined,
@@ -391,7 +384,6 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       conversation: wasActive ? [] : currentViewModel.conversation,
       timeline: wasActive ? [] : currentViewModel.timeline,
       turnDiagnostics: wasActive ? undefined : currentViewModel.turnDiagnostics,
-      interruptedTurn: wasActive ? undefined : currentViewModel.interruptedTurn,
       runProjection: wasActive ? undefined : currentViewModel.runProjection,
       reactCallchain: wasActive ? undefined : currentViewModel.reactCallchain,
       contextDiagnostics: wasActive ? undefined : currentViewModel.contextDiagnostics,
@@ -532,8 +524,26 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setViewModel(nextViewModel);
   };
 
+  const resumeInterruptedTurn = async (turnID: string) => {
+    const nextViewModel = await adapter.resumeInterruptedTurn({ ...viewModelRef.current, mode: modeRef.current }, turnID, { mode: 'continue' });
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
   const markInterruptedDone = async (turnID: string) => {
     const nextViewModel = await adapter.markInterruptedDone({ ...viewModel, mode }, turnID);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
+  const discardInterruptedTurn = async (turnID: string) => {
+    const nextViewModel = await adapter.discardInterruptedTurn({ ...viewModelRef.current, mode: modeRef.current }, turnID);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
+  const retryRecoverableError = async (errorID: string) => {
+    const nextViewModel = await adapter.retryRecoverableError({ ...viewModelRef.current, mode: modeRef.current }, errorID);
     setMode(nextViewModel.mode);
     setViewModel(nextViewModel);
   };
@@ -880,7 +890,10 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onSessionRename={renameSession}
           onPromptSubmit={sendPrompt}
           onNewConversationDraftChange={updateNewConversationDraft}
+          onInterruptedResume={resumeInterruptedTurn}
           onInterruptedDone={markInterruptedDone}
+          onInterruptedDiscard={discardInterruptedTurn}
+          onRecoverableErrorRetry={retryRecoverableError}
           onManualCompact={manualCompact}
           onManualSnip={manualSnip}
           onRunCheckpointResume={resumeRunCheckpoint}

@@ -71,18 +71,42 @@ func (r *runtimeService) RecoveryStatus(ctx context.Context) (RuntimeRecoverySta
 	if startedAt.IsZero() {
 		startedAt = time.Now().UTC()
 	}
+	if len(interruptedTurns) == 0 {
+		if listed, err := r.turns.List(ctx, turnStatusInterrupted); err == nil {
+			interruptedTurns = listed
+		}
+	}
+	recoveredTurns := make([]RuntimeRecoveredTurn, 0, len(interruptedTurns))
+	for _, turn := range interruptedTurns {
+		recovered := r.classifyInterruptedTurn(ctx, turn)
+		if r.runs.db != nil {
+			if projection, err := r.RunProjection(ctx, RuntimeRunProjectionRequest{SessionID: turn.SessionID, Limit: 64}); err == nil {
+				for _, checkpoint := range projection.Run.Checkpoints {
+					if checkpoint.TurnID == turn.ID {
+						checkpoint.RunID = projection.Run.ID
+						recovered.Checkpoints = append(recovered.Checkpoints, checkpoint)
+					}
+				}
+			}
+		}
+		recoveredTurns = append(recoveredTurns, recovered)
+	}
+	recoverableErrors := r.recoverableErrors(ctx)
 	compact := r.recoveryCompactBoundaries(ctx, activeTurns, interruptedTurns)
+	actions := runtimeRecoveryActionsForStatus(recoveredTurns, recoverableErrors)
 	return RuntimeRecoveryStatus{
 		RuntimeStartedAt:   startedAt.UTC().Format(time.RFC3339Nano),
 		LastEventSequence:  lastSequence,
 		ActiveTurns:        activeTurns,
-		InterruptedTurns:   interruptedTurns,
+		InterruptedTurns:   recoveredTurns,
+		RecoverableErrors:  recoverableErrors,
 		InterruptedTasks:   interruptedTasks,
 		CompactBoundaries:  compact,
 		Worktrees:          recoveredWorktrees,
 		HookExecutions:     interruptedHooks,
 		PendingPermissions: pendingPermissions,
 		PendingMCPRequests: pendingMCPRequests,
+		Actions:            actions,
 		SnapshotRequired:   snapshotRequired,
 	}, nil
 }
@@ -93,7 +117,10 @@ func (r *runtimeService) recoveryCompactBoundaries(ctx context.Context, activeTu
 	}
 	seen := map[string]struct{}{}
 	var out []RuntimeCompactBoundary
-	for _, turn := range append(append([]RuntimeTurn{}, activeTurns...), interruptedTurns...) {
+	var turns []RuntimeTurn
+	turns = append(turns, activeTurns...)
+	turns = append(turns, interruptedTurns...)
+	for _, turn := range turns {
 		if turn.ID == "" {
 			continue
 		}
@@ -108,6 +135,46 @@ func (r *runtimeService) recoveryCompactBoundaries(ctx context.Context, activeTu
 		out = append(out, boundaries...)
 	}
 	return out
+}
+
+func (r *runtimeService) recoverableErrors(ctx context.Context) []RuntimeRecoverableError {
+	failedTurns, err := r.turns.List(ctx, turnStatusFailed)
+	if err != nil {
+		return nil
+	}
+	var out []RuntimeRecoverableError
+	for _, turn := range failedTurns {
+		if recoverable, ok := classifyRuntimeRecoverableError(turn); ok {
+			out = append(out, recoverable)
+		}
+	}
+	return out
+}
+
+func runtimeRecoveryActionsForStatus(turns []RuntimeRecoveredTurn, errors []RuntimeRecoverableError) []RuntimeRecoveryAction {
+	var actions []RuntimeRecoveryAction
+	for _, turn := range turns {
+		if turn.ResumeEligible {
+			actions = append(actions, RuntimeRecoveryAction{ID: "resume:" + turn.ID, Label: "Continue", Kind: runtimeRecoveryActionResumeInterruptedTurn, SessionID: turn.SessionID, TurnID: turn.ID, StartsWorker: true, Evidence: []string{"runtime_turns", "runtime_recovery_links"}})
+		}
+		if turn.MarkDoneEligible {
+			actions = append(actions, RuntimeRecoveryAction{ID: "mark_done:" + turn.ID, Label: "Mark done", Kind: runtimeTurnActionMarkInterruptedDone, SessionID: turn.SessionID, TurnID: turn.ID, Destructive: true, Evidence: []string{"runtime_turns"}})
+		}
+		if turn.DiscardEligible {
+			actions = append(actions, RuntimeRecoveryAction{ID: "discard:" + turn.ID, Label: "Discard", Kind: runtimeRecoveryActionDiscardInterruptedTurn, SessionID: turn.SessionID, TurnID: turn.ID, Destructive: true, Evidence: []string{"runtime_turns", "runtime_events"}})
+		}
+		for _, checkpoint := range turn.Checkpoints {
+			if checkpoint.ResumeEligible {
+				actions = append(actions, RuntimeRecoveryAction{ID: "checkpoint:" + checkpoint.ID, Label: "Resume checkpoint", Kind: runtimeRunCheckpointActionResume, SessionID: turn.SessionID, TurnID: turn.ID, RunID: checkpoint.RunID, CheckpointID: checkpoint.ID, StartsWorker: true, Evidence: []string{"runtime_runs", "runtime_run_checkpoints"}})
+			}
+		}
+	}
+	for _, err := range errors {
+		if err.RetryEligible || err.CompactEligible {
+			actions = append(actions, RuntimeRecoveryAction{ID: "retry:" + err.ID, Label: "Retry", Kind: runtimeRecoveryActionRetryRecoverableError, SessionID: err.SessionID, TurnID: err.TurnID, RunID: err.RunID, StartsWorker: true, Evidence: []string{"runtime_turns", "runtime_events"}})
+		}
+	}
+	return actions
 }
 
 func (r *runtimeService) recoverWorktrees(ctx context.Context) ([]RuntimeWorktree, error) {

@@ -1,0 +1,48 @@
+.center {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ant-color-text);
+}
+
+.stack {
+  width: 100%;
+}
+
+.card {
+  border-radius: 8px;
+}
+
+.cardHeader {
+  width: 100%;
+}
+
+.cardIcon {
+  color: var(--ant-color-warning);
+  margin-top: 3px;
+}
+
+.cardMain {
+  min-width: 0;
+  width: 100%;
+}
+
+.reason {
+  margin: 6px 0 8px;
+}
+
+.metaLine {
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

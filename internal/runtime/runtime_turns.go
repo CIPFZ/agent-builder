@@ -652,7 +652,7 @@ func (r *runtimeService) MarkInterruptedDone(ctx context.Context, turnID string)
 	runStatusBefore := r.runtimeRunStatusForSession(ctx, turn.SessionID)
 	now := time.Now().UTC()
 	turn.Status = turnStatusCancelled
-	turn.Error = firstNonEmpty(turn.Error, "interrupted turn marked done")
+	turn.Error = firstNonEmpty(turn.Error, "interrupted turn marked done by user; no continuation required")
 	if turn.FinishedAt == 0 {
 		turn.FinishedAt = now.UnixMilli()
 	}
@@ -663,6 +663,18 @@ func (r *runtimeService) MarkInterruptedDone(ctx context.Context, turnID string)
 	if projection, err := r.reconcileRuntimeRunForSession(ctx, stored.SessionID); err == nil {
 		r.recordRunTurnTransition(ctx, runtimeRunTransitionSourceInterruptedMarkedDone, stored, runStatusBefore, firstNonEmpty(projection.Status, runtimeRunStatusCancelled), "interrupted turn marked done")
 	}
+	r.storeRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      runtimeapi.EventRecoveryTurnDiscarded,
+		CreatedAt: now.Format(time.RFC3339Nano),
+		SessionID: stored.SessionID,
+		TurnID:    stored.ID,
+		Payload: map[string]any{
+			"status": "cancelled",
+			"reason": "interrupted_marked_done",
+			"action": runtimeTurnActionMarkInterruptedDone,
+		},
+	})
 	r.storeRuntimeEvent(runtimeapi.Event{
 		ID:        newRuntimeEventID(),
 		Type:      runtimeapi.EventTurnCancelled,
@@ -790,6 +802,9 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 		Error:                    entry.Error,
 	}
 	_, _ = r.turns.Upsert(context.Background(), finishedTurn)
+	if recoverable, ok := r.publishRecoverableErrorClassified(finishedTurn); ok {
+		r.maybeStartReactiveProviderRecovery(context.Background(), finishedTurn, recoverable, userMessageMetadata)
+	}
 	if projection, err := r.reconcileRuntimeRunForSession(context.Background(), sessionID); err == nil {
 		r.recordRunTurnTransition(context.Background(), runtimeRunTransitionSourceTurnFinished, finishedTurn, runStatusBefore, firstNonEmpty(projection.Status, runtimeRunStatusCompleted), "turn "+entry.Event)
 	}

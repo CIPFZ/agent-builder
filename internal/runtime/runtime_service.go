@@ -27,6 +27,7 @@ func newRuntimeService() *runtimeService {
 		hookExecutions:    runtimeHookExecutionStore{},
 		runs:              runtimeRunStore{},
 		transitions:       runtimeRunTransitionStore{},
+		recoveryLinks:     runtimeRecoveryLinkStore{},
 
 		agentTasks: runtimeAgentTaskStore{},
 

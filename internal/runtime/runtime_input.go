@@ -228,6 +228,11 @@ func (r *runtimeService) normalizeRuntimeUserInput(ctx context.Context, req Runt
 			if text := strings.TrimSpace(item.Text); text != "" {
 				promptParts = append(promptParts, text)
 			}
+			for key, value := range item.Metadata {
+				if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
+					metadata[key] = value
+				}
+			}
 		case runtimeInputItemAudioTranscript:
 			if text := strings.TrimSpace(item.Text); text != "" {
 				promptParts = append(promptParts, text)

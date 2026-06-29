@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
@@ -105,6 +106,10 @@ func buildRuntimeTurnDiagnostics(turn RuntimeTurn, messages []RuntimeMessage, to
 
 	diag.PermissionCounts = permissionCountsForTurn(turn, permissions)
 	diag.LastRuntimeEventAt, diag.LastRuntimeEventSequence = lastRuntimeEventForTurn(events)
+	diag.RetryAttempts, diag.CompactRetryResult = recoveryDiagnosticsFromEvents(events)
+	if providerErr, ok := classifyRuntimeRecoverableError(turn); ok {
+		diag.ProviderError = &providerErr
+	}
 	var hookExecutions []RuntimeHookExecution
 	if len(hooks) > 0 {
 		hookExecutions = hooks[0]
@@ -374,6 +379,33 @@ func lastRuntimeEventForTurn(events []RuntimeEvent) (int64, int64) {
 		}
 	}
 	return lastAt, lastSequence
+}
+
+func recoveryDiagnosticsFromEvents(events []RuntimeEvent) ([]RuntimeRecoveryRetryEvent, string) {
+	var attempts []RuntimeRecoveryRetryEvent
+	compactResult := ""
+	for _, event := range events {
+		switch event.Type {
+		case runtimeapi.EventRecoveryRetryStarted, runtimeapi.EventRecoveryRetryCompleted, runtimeapi.EventRecoveryRetryFailed:
+			attempts = append(attempts, RuntimeRecoveryRetryEvent{
+				EventID:   event.ID,
+				Kind:      stringFromMap(event.Payload, "kind"),
+				ErrorID:   stringFromMap(event.Payload, "error_id"),
+				Status:    strings.TrimPrefix(event.Type, "recovery.retry."),
+				CreatedAt: event.CreatedAt,
+				Error:     stringFromMap(event.Payload, "error"),
+			})
+		case runtimeapi.EventRecoveryCompactRetryStarted:
+			if compactResult == "" {
+				compactResult = "started"
+			}
+		case runtimeapi.EventRecoveryCompactRetryCompleted:
+			compactResult = "completed"
+		case runtimeapi.EventRecoveryCompactRetryFailed:
+			compactResult = "failed"
+		}
+	}
+	return attempts, compactResult
 }
 
 func runtimeEventCreatedAtMillis(createdAt string) int64 {

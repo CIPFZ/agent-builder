@@ -309,6 +309,7 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 	r.mcpRequestStore = newRuntimeMCPRequestStore(conn)
 	r.runs = newRuntimeRunStore(conn)
 	r.transitions = newRuntimeRunTransitionStore(conn)
+	r.recoveryLinks = newRuntimeRecoveryLinkStore(conn)
 	r.installWorkbenchAgentTaskRunner(r.runtime, ws.ID)
 	if maxSequence, err := r.eventStore.MaxSequence(ctx); err != nil {
 		return fmt.Errorf("failed to recover runtime event sequence: %w", err)

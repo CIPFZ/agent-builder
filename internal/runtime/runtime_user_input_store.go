@@ -89,6 +89,30 @@ WHERE id = ?`, strings.TrimSpace(id))
 	return input, nil
 }
 
+func (s runtimeUserInputStore) GetByTurn(ctx context.Context, turnID string) (RuntimeNormalizedInput, error) {
+	if s.db == nil {
+		return RuntimeNormalizedInput{}, errors.New("runtime user input database is not available")
+	}
+	row := s.db.QueryRowContext(ctx, `
+SELECT normalized_json
+FROM runtime_user_inputs
+WHERE turn_id = ?
+ORDER BY created_at DESC
+LIMIT 1`, strings.TrimSpace(turnID))
+	var raw string
+	if err := row.Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return RuntimeNormalizedInput{}, errRuntimeUserInputNotFound
+		}
+		return RuntimeNormalizedInput{}, err
+	}
+	var input RuntimeNormalizedInput
+	if err := json.Unmarshal([]byte(raw), &input); err != nil {
+		return RuntimeNormalizedInput{}, fmt.Errorf("failed to decode runtime user input: %w", err)
+	}
+	return input, nil
+}
+
 func sanitizeRuntimeUserInputItems(items []RuntimeUserInputItem) []RuntimeUserInputItem {
 	sanitized := make([]RuntimeUserInputItem, 0, len(items))
 	for _, item := range items {

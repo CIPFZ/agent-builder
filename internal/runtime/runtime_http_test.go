@@ -398,7 +398,7 @@ func TestRuntimeHTTPServerRoutesRecoveryStatusToRuntimeService(t *testing.T) {
 			RuntimeStartedAt:  "2026-05-23T00:00:00Z",
 			LastEventSequence: 7,
 			ActiveTurns:       []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "running"}},
-			InterruptedTurns:  []RuntimeTurn{{ID: "turn-2", SessionID: "session-1", Status: "interrupted"}},
+			InterruptedTurns:  []RuntimeRecoveredTurn{{RuntimeTurn: RuntimeTurn{ID: "turn-2", SessionID: "session-1", Status: "interrupted"}, InterruptionKind: interruptionKindGeneration, ResumeEligible: true}},
 			PendingPermissions: []RuntimePermissionRequest{{
 				ID:         "perm-1",
 				SessionID:  "session-1",
@@ -432,6 +432,66 @@ func TestRuntimeHTTPServerRoutesRecoveryStatusToRuntimeService(t *testing.T) {
 	}
 	if recovery.LastEventSequence != 7 || len(recovery.ActiveTurns) != 1 || len(recovery.PendingPermissions) != 1 {
 		t.Fatalf("recovery = %#v", recovery)
+	}
+}
+
+func TestRuntimeHTTPServerRoutesRecoveryActionsToRuntimeService(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	server := newRuntimeHTTPServer(service)
+
+	req, err := http.NewRequest(http.MethodPost, "/v1/recovery/turns/turn-resume/resume", strings.NewReader(`{"mode":"continue","prompt":"keep going","metadata":{"source":"test"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp := httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("resume status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.resumeInterruptedTurnID != "turn-resume" || service.resumeInterruptedTurnReq.Prompt != "keep going" || service.resumeInterruptedTurnReq.Metadata["source"] != "test" {
+		t.Fatalf("resume request = id:%q req:%#v", service.resumeInterruptedTurnID, service.resumeInterruptedTurnReq)
+	}
+	var resumed RuntimeTurnResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &resumed); err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Action == nil || resumed.Action.Source.Action != runtimeRecoveryActionResumeInterruptedTurn || resumed.Action.Source.IdempotentBy != "source_turn_id" {
+		t.Fatalf("resume action = %#v", resumed.Action)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, "/v1/recovery/turns/turn-discard/discard", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("discard status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.discardInterruptedTurnID != "turn-discard" {
+		t.Fatalf("discard id = %q", service.discardInterruptedTurnID)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, "/v1/recovery/errors/turn:turn-failed/retry", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	resp = httptestResponse(server, req)
+	if resp.status != http.StatusOK {
+		t.Fatalf("retry status = %d body = %s", resp.status, resp.body.String())
+	}
+	if service.retryRecoverableErrorID != "turn:turn-failed" {
+		t.Fatalf("retry id = %q", service.retryRecoverableErrorID)
+	}
+	var retried RuntimeRecoveryRetryResponse
+	if err := json.Unmarshal(resp.body.Bytes(), &retried); err != nil {
+		t.Fatal(err)
+	}
+	if retried.Action == nil || retried.Action.Source.Action != runtimeRecoveryActionRetryRecoverableError || retried.Action.Source.IdempotentBy != "error_id" {
+		t.Fatalf("retry action = %#v", retried.Action)
 	}
 }
 
