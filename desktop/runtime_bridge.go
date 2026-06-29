@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
 
 	runtime "github.com/CIPFZ/agent-builder/internal/runtime"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -42,9 +46,19 @@ type RuntimeInputCommand = runtime.RuntimeInputCommand
 type RuntimeInputHookOutcome = runtime.RuntimeInputHookOutcome
 type RuntimeTerminal = runtime.RuntimeTerminal
 type RuntimeTerminalCreateRequest = runtime.RuntimeTerminalCreateRequest
+type RuntimeTerminalInputRequest = runtime.RuntimeTerminalInputRequest
+type RuntimeTerminalResizeRequest = runtime.RuntimeTerminalResizeRequest
 type RuntimeTerminalResponse = runtime.RuntimeTerminalResponse
 type RuntimeSessionTerminalsResponse = runtime.RuntimeSessionTerminalsResponse
 type RuntimeTerminalEvent = runtime.RuntimeTerminalEvent
+type RuntimeTerminalStreamStartRequest = runtime.RuntimeTerminalStreamStartRequest
+type RuntimeTerminalStreamAckRequest = runtime.RuntimeTerminalStreamAckRequest
+type RuntimeTerminalStreamStopRequest = runtime.RuntimeTerminalStreamStopRequest
+type RuntimeTerminalStreamMessage = runtime.RuntimeTerminalStreamMessage
+type RuntimeTerminalStreamResponse = runtime.RuntimeTerminalStreamResponse
+type RuntimeTerminalProfile = runtime.RuntimeTerminalProfile
+type RuntimeTerminalSettings = runtime.RuntimeTerminalSettings
+type RuntimeTerminalSettingsResponse = runtime.RuntimeTerminalSettingsResponse
 type RuntimeTurn = runtime.RuntimeTurn
 type RuntimeTurnResponse = runtime.RuntimeTurnResponse
 type RuntimeTurnsResponse = runtime.RuntimeTurnsResponse
@@ -209,14 +223,22 @@ type RuntimeEvent = runtime.RuntimeEvent
 // runtime.RuntimeService so desktop bindings do not become the business
 // boundary.
 type RuntimeBridge struct {
-	service runtime.RuntimeService
+	service         runtime.RuntimeService
+	terminalMu      sync.Mutex
+	terminalStreams map[string]*runtimeBridgeTerminalStream
+}
+
+type runtimeBridgeTerminalStream struct {
+	cancel context.CancelFunc
+	ackCh  chan int64
 }
 
 func NewRuntimeBridge() *RuntimeBridge {
 
 	return &RuntimeBridge{
 
-		service: runtime.NewRuntimeService(),
+		service:         runtime.NewRuntimeService(),
+		terminalStreams: make(map[string]*runtimeBridgeTerminalStream),
 	}
 
 }
@@ -385,6 +407,90 @@ func (r *RuntimeBridge) CreateTerminal(ctx context.Context, req RuntimeTerminalC
 
 }
 
+func (r *RuntimeBridge) TerminalSettings(ctx context.Context) (RuntimeTerminalSettingsResponse, error) {
+
+	return r.service.TerminalSettings(ctx)
+
+}
+
+func (r *RuntimeBridge) SaveTerminalSettings(ctx context.Context, req RuntimeTerminalSettings) (RuntimeTerminalSettingsResponse, error) {
+
+	return r.service.SaveTerminalSettings(ctx, req)
+
+}
+
+func (r *RuntimeBridge) WriteTerminalInput(ctx context.Context, terminalID string, req RuntimeTerminalInputRequest) (RuntimeTerminalResponse, error) {
+
+	return r.service.WriteTerminalInput(ctx, terminalID, req)
+
+}
+
+func (r *RuntimeBridge) ResizeTerminal(ctx context.Context, terminalID string, req RuntimeTerminalResizeRequest) (RuntimeTerminalResponse, error) {
+
+	return r.service.ResizeTerminal(ctx, terminalID, req)
+
+}
+
+func (r *RuntimeBridge) StartTerminalEventStream(ctx context.Context, req RuntimeTerminalStreamStartRequest) (RuntimeTerminalStreamResponse, error) {
+
+	app := application.Get()
+	if app == nil {
+		return RuntimeTerminalStreamResponse{}, errors.New("desktop application is not initialized")
+	}
+	terminalID := strings.TrimSpace(req.TerminalID)
+	if terminalID == "" {
+		return RuntimeTerminalStreamResponse{}, errors.New("terminal id is required")
+	}
+	streamID := strings.TrimSpace(req.StreamID)
+	if streamID == "" {
+		streamID = fmt.Sprintf("terminal-stream-%d", time.Now().UnixNano())
+	}
+	eventName := "agent-builder:terminal-stream"
+	streamCtx, cancel := context.WithCancel(context.Background())
+	events, unsubscribe := r.service.SubscribeTerminalEvents(streamCtx, terminalID, req.After)
+	stream := &runtimeBridgeTerminalStream{
+		cancel: func() {
+			cancel()
+			unsubscribe()
+		},
+		ackCh: make(chan int64, 16),
+	}
+
+	r.terminalMu.Lock()
+	if r.terminalStreams == nil {
+		r.terminalStreams = make(map[string]*runtimeBridgeTerminalStream)
+	}
+	r.terminalStreams[streamID] = stream
+	r.terminalMu.Unlock()
+
+	go r.runTerminalEventStream(streamCtx, app, eventName, streamID, terminalID, events, stream)
+
+	return RuntimeTerminalStreamResponse{StreamID: streamID, EventName: eventName}, nil
+
+}
+
+func (r *RuntimeBridge) AckTerminalEventStream(ctx context.Context, req RuntimeTerminalStreamAckRequest) (bool, error) {
+
+	r.terminalMu.Lock()
+	stream := r.terminalStreams[strings.TrimSpace(req.StreamID)]
+	r.terminalMu.Unlock()
+	if stream == nil {
+		return false, nil
+	}
+	select {
+	case stream.ackCh <- req.Sequence:
+	default:
+	}
+	return true, nil
+
+}
+
+func (r *RuntimeBridge) StopTerminalEventStream(ctx context.Context, req RuntimeTerminalStreamStopRequest) (bool, error) {
+
+	return r.stopTerminalEventStream(strings.TrimSpace(req.StreamID)), nil
+
+}
+
 func (r *RuntimeBridge) SessionTerminals(ctx context.Context, sessionID string) (RuntimeSessionTerminalsResponse, error) {
 
 	return r.service.SessionTerminals(ctx, sessionID)
@@ -395,6 +501,109 @@ func (r *RuntimeBridge) DeleteTerminal(ctx context.Context, terminalID string) (
 
 	return r.service.DeleteTerminal(ctx, terminalID)
 
+}
+
+const (
+	runtimeBridgeTerminalStreamBatchBytes = 64 * 1024
+	runtimeBridgeTerminalStreamBatchWait  = 8 * time.Millisecond
+	runtimeBridgeTerminalStreamAckTimeout = 5 * time.Second
+)
+
+func (r *RuntimeBridge) runTerminalEventStream(
+	ctx context.Context,
+	app *application.App,
+	eventName string,
+	streamID string,
+	terminalID string,
+	events <-chan RuntimeTerminalEvent,
+	stream *runtimeBridgeTerminalStream,
+) {
+	defer r.stopTerminalEventStream(streamID)
+	for {
+		batch, ok := nextRuntimeBridgeTerminalStreamBatch(ctx, events)
+		if !ok {
+			return
+		}
+		messageType := "output"
+		if batch[len(batch)-1].Final {
+			messageType = "final"
+		}
+		app.Event.Emit(eventName, RuntimeTerminalStreamMessage{
+			Type:       messageType,
+			StreamID:   streamID,
+			TerminalID: terminalID,
+			Events:     batch,
+		})
+		if !waitRuntimeBridgeTerminalStreamAck(ctx, stream.ackCh, batch[len(batch)-1].Sequence) {
+			return
+		}
+	}
+}
+
+func (r *RuntimeBridge) stopTerminalEventStream(streamID string) bool {
+	r.terminalMu.Lock()
+	stream := r.terminalStreams[streamID]
+	if stream != nil {
+		delete(r.terminalStreams, streamID)
+	}
+	r.terminalMu.Unlock()
+	if stream == nil {
+		return false
+	}
+	stream.cancel()
+	return true
+}
+
+func nextRuntimeBridgeTerminalStreamBatch(ctx context.Context, events <-chan RuntimeTerminalEvent) ([]RuntimeTerminalEvent, bool) {
+	var batch []RuntimeTerminalEvent
+	batchBytes := 0
+	timer := time.NewTimer(runtimeBridgeTerminalStreamBatchWait)
+	defer timer.Stop()
+
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return batch, len(batch) > 0
+			}
+			batch = append(batch, event)
+			batchBytes += runtimeBridgeTerminalEventSize(event)
+			if event.Final || batchBytes >= runtimeBridgeTerminalStreamBatchBytes {
+				return batch, true
+			}
+		case <-timer.C:
+			if len(batch) > 0 {
+				return batch, true
+			}
+			timer.Reset(runtimeBridgeTerminalStreamBatchWait)
+		case <-ctx.Done():
+			return nil, false
+		}
+	}
+}
+
+func waitRuntimeBridgeTerminalStreamAck(ctx context.Context, ackCh <-chan int64, sequence int64) bool {
+	if sequence <= 0 {
+		return true
+	}
+	timer := time.NewTimer(runtimeBridgeTerminalStreamAckTimeout)
+	defer timer.Stop()
+	for {
+		select {
+		case ack := <-ackCh:
+			if ack >= sequence {
+				return true
+			}
+		case <-timer.C:
+			return false
+		case <-ctx.Done():
+			return false
+		}
+	}
+}
+
+func runtimeBridgeTerminalEventSize(event RuntimeTerminalEvent) int {
+	return len(event.Data) + len(event.BinaryB64) + len(event.Error)
 }
 
 func (r *RuntimeBridge) Turn(ctx context.Context, turnID string) (RuntimeTurnResponse, error) {

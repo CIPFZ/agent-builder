@@ -27,6 +27,7 @@ import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
+import { disposeTerminalRuntime } from './terminalRuntime.ts';
 import styles from './Workspace.module.css';
 
 type RightPanelKind = 'review' | 'files' | 'terminal';
@@ -63,7 +64,7 @@ interface WorkspaceProps {
   onAgentTaskFollowUp?: (taskID: string, message: string) => Promise<void>;
   onAgentTaskCancel?: (taskID: string) => Promise<void>;
   onSessionTerminalsList: (sessionID: string) => Promise<TerminalViewModel[]>;
-  onTerminalCreate: (request: { sessionId: string; cwd?: string; columns?: number; rows?: number }) => Promise<TerminalViewModel>;
+  onTerminalCreate: (request: { sessionId: string; cwd?: string; profileId?: string; columns?: number; rows?: number }) => Promise<TerminalViewModel>;
   onTerminalDelete: (terminalID: string) => Promise<void>;
   onTerminalInput: (terminalID: string, data: string) => Promise<TerminalViewModel>;
   onTerminalResize: (terminalID: string, columns: number, rows: number) => Promise<TerminalViewModel>;
@@ -217,7 +218,12 @@ export function Workspace({
     }
     setRightPanelVisible(true);
     try {
-      const terminal = await onTerminalCreate({ sessionId: activeSession.id, columns: 100, rows: 24 });
+      const terminal = await onTerminalCreate({
+        sessionId: activeSession.id,
+        profileId: viewModel.settings.terminalProfile,
+        columns: 100,
+        rows: 24,
+      });
       await refreshSessionTerminals(activeSession.id);
       setActiveRightPanelID(terminal.id);
     } catch (error) {
@@ -228,6 +234,7 @@ export function Workspace({
     const closingTerminalID = rightPanelTabs.find((tab) => tab.id === id && tab.kind === 'terminal')?.terminal?.id;
     if (closingTerminalID) {
       try {
+        disposeTerminalRuntime(closingTerminalID);
         await onTerminalDelete(closingTerminalID);
         if (activeSession?.id) {
           await refreshSessionTerminals(activeSession.id);

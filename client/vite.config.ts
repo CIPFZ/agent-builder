@@ -5,7 +5,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { extname, normalize, resolve, sep } from 'node:path'
 
 const desktopBindingsDir = resolve(__dirname, '../desktop/frontend/bindings')
-const runtimeProxyTarget = process.env.VITE_AGENT_BUILDER_RUNTIME_URL || 'http://127.0.0.1:5183'
 
 function devBindingsPlugin() {
   return {
@@ -32,16 +31,6 @@ function devBindingsPlugin() {
 
 // https://vite.dev/config/
 export default defineConfig({
-  server: {
-    proxy: {
-      '/runtime-api': {
-        target: runtimeProxyTarget,
-        changeOrigin: true,
-        ws: true,
-        rewrite: (path) => path.replace(/^\/runtime-api/, ''),
-      },
-    },
-  },
   build: {
     target: 'chrome109',
     chunkSizeWarningLimit: 1200,

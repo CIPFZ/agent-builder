@@ -555,7 +555,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const listSessionTerminals = useCallback((sessionID: string) => adapter.listSessionTerminals(sessionID), [adapter]);
 
   const createTerminal = useCallback(
-    (request: { sessionId: string; cwd?: string; columns?: number; rows?: number }) => adapter.createTerminal(request),
+    (request: { sessionId: string; cwd?: string; profileId?: string; columns?: number; rows?: number }) => adapter.createTerminal(request),
     [adapter],
   );
 
@@ -581,6 +581,13 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setViewModel(optimisticViewModel);
     const nextViewModel = await adapter.selectPermissionMode(optimisticViewModel, permissionMode);
     setViewModel(nextViewModel);
+  };
+
+  const selectTerminalProfile = async (profileID: string) => {
+    const nextViewModel = await adapter.selectTerminalProfile({ ...viewModel, mode }, profileID);
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+    return nextViewModel.settings;
   };
 
   const decidePermission = async (permissionID: string, action: 'allow' | 'allow_session' | 'deny', guidance?: string) => {
@@ -723,6 +730,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onProviderTest={testConfiguredProvider}
           selectedModel={workbenchViewModel.composer.selectedModel}
           onModelSelect={selectModel}
+          onTerminalProfileSelect={selectTerminalProfile}
           onMCPServerDetailsLoad={loadMCPServerDetails}
           onMCPServerRefresh={refreshMCPServer}
           onMCPServerSave={saveMCPServer}

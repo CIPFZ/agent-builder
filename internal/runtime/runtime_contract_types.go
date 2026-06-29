@@ -391,6 +391,20 @@ type RuntimeSessionTerminalsResponse struct {
 	Terminals []RuntimeTerminal `json:"terminals"`
 }
 
+type RuntimeTerminalProfile struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type RuntimeTerminalSettings struct {
+	ProfileID string                   `json:"profileId"`
+	Profiles  []RuntimeTerminalProfile `json:"profiles"`
+}
+
+type RuntimeTerminalSettingsResponse struct {
+	Settings RuntimeTerminalSettings `json:"settings"`
+}
+
 type RuntimeTerminalStreamRequest struct {
 	Type      string `json:"type"`
 	Data      string `json:"data,omitempty"`
@@ -400,10 +414,32 @@ type RuntimeTerminalStreamRequest struct {
 	Sequence  int64  `json:"sequence,omitempty"`
 }
 
+type RuntimeTerminalStreamStartRequest struct {
+	TerminalID string `json:"terminalId"`
+	StreamID   string `json:"streamId"`
+	After      int64  `json:"after,omitempty"`
+}
+
+type RuntimeTerminalStreamAckRequest struct {
+	StreamID string `json:"streamId"`
+	Sequence int64  `json:"sequence"`
+}
+
+type RuntimeTerminalStreamStopRequest struct {
+	StreamID string `json:"streamId"`
+}
+
 type RuntimeTerminalStreamMessage struct {
-	Type   string                 `json:"type"`
-	Events []RuntimeTerminalEvent `json:"events,omitempty"`
-	Error  string                 `json:"error,omitempty"`
+	Type       string                 `json:"type"`
+	StreamID   string                 `json:"streamId,omitempty"`
+	TerminalID string                 `json:"terminalId,omitempty"`
+	Events     []RuntimeTerminalEvent `json:"events,omitempty"`
+	Error      string                 `json:"error,omitempty"`
+}
+
+type RuntimeTerminalStreamResponse struct {
+	StreamID  string `json:"streamId"`
+	EventName string `json:"eventName"`
 }
 
 type RuntimeTurn struct {

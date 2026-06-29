@@ -36,6 +36,8 @@ type RuntimeService interface {
 	VerifyModelConfig(context.Context, RuntimeModelConfig) (RuntimeModelVerifyResponse, error)
 	SessionTerminals(context.Context, string) (RuntimeSessionTerminalsResponse, error)
 	CreateTerminal(context.Context, RuntimeTerminalCreateRequest) (RuntimeTerminalResponse, error)
+	TerminalSettings(context.Context) (RuntimeTerminalSettingsResponse, error)
+	SaveTerminalSettings(context.Context, RuntimeTerminalSettings) (RuntimeTerminalSettingsResponse, error)
 	WriteTerminalInput(context.Context, string, RuntimeTerminalInputRequest) (RuntimeTerminalResponse, error)
 	ResizeTerminal(context.Context, string, RuntimeTerminalResizeRequest) (RuntimeTerminalResponse, error)
 	SubscribeTerminalEvents(context.Context, string, ...int64) (<-chan RuntimeTerminalEvent, func())

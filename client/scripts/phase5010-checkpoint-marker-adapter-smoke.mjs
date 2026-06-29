@@ -39,16 +39,8 @@ assertIncludes(
   'RunCheckpointMarker?: (runID: string, checkpointID: string) => Promise<RuntimeRunCheckpointMarkerResponseDTO>;',
   'Wails bridge must expose optional marker detail read transport',
 );
-assertIncludes(
-  adapter,
-  'runtimeFetch<RuntimeRunCheckpointMarkersResponseDTO>(`/v1/runs/${encodeURIComponent(runID)}/checkpoint-markers`)',
-  'HTTP bridge must reread marker lists from the runtime route',
-);
-assertIncludes(
-  adapter,
-  'runtimeFetch<RuntimeRunCheckpointMarkerResponseDTO>(',
-  'HTTP bridge must reread marker details from the runtime route',
-);
+assertNotIncludes(adapter, 'runtimeFetch<RuntimeRunCheckpointMarkersResponseDTO>', 'adapter must not use HTTP fetch for checkpoint marker lists');
+assertNotIncludes(adapter, 'runtimeFetch<RuntimeRunCheckpointMarkerResponseDTO>', 'adapter must not use HTTP fetch for checkpoint marker details');
 
 assertNotIncludes(
   adapter,

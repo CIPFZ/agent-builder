@@ -11,14 +11,15 @@ type localModelConfigResult struct {
 }
 
 type desktopLayout struct {
-	Root             string
-	ConfigDir        string
-	DataDir          string
-	LogsDir          string
-	ModelConfigPath  string
-	SkillConfigPath  string
-	MCPConfigPath    string
-	PolicyConfigPath string
+	Root               string
+	ConfigDir          string
+	DataDir            string
+	LogsDir            string
+	ModelConfigPath    string
+	SkillConfigPath    string
+	MCPConfigPath      string
+	PolicyConfigPath   string
+	TerminalConfigPath string
 }
 
 type runtimeRequestState struct {

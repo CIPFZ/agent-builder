@@ -16,7 +16,6 @@ assertIncludes(
   'Workbench adapter contract must expose runtime-owned user input submission',
 );
 assertIncludes(adapter, 'SubmitUserInput?: (req: RuntimeUserInputRequestDTO)', 'Wails bridge must expose SubmitUserInput');
-assertIncludes(adapter, "SubmitUserInput: (req) =>\n    runtimeFetch<RuntimeChatResponseDTO>('/v1/user-inputs'", 'HTTP bridge must post normalized input');
 assertIncludes(adapter, "mode: trimmed.startsWith('/') ? 'slash' : 'prompt'", 'composer slash text must be sent as slash mode');
 assertIncludes(
   adapter,
@@ -25,14 +24,13 @@ assertIncludes(
 );
 assertIncludes(adapter, ': bridge.Chat({', 'adapter may keep Chat only as legacy fallback');
 assertIncludes(adapter, 'function mapNormalizedInputConversation(response: RuntimeChatResponseDTO', 'UI may render runtime-returned normalized input results');
-assertIncludes(adapter, 'response.turnId || normalized.shouldQuery === true', 'normalized rendering must be limited to non-query runtime results');
-assertIncludes(adapter, 'await runtimeHTTPBridge.Status();', 'HTTP bridge availability must use runtime status, not provider/settings routes');
-assertIncludes(adapter, 'if (import.meta.env.DEV) {\n    return Promise.resolve(null);', 'Vite development must use HTTP transport instead of Wails bindings');
-assertIncludes(adapter, 'function runtimeJSONP<T>(path: string, init?: RuntimeHTTPInit)', 'JSONP fallback must preserve POST method/body for browser dev transport');
-assertIncludes(adapter, "params.set('body', init.body);", 'JSONP fallback must forward request bodies');
+assertIncludes(adapter, 'if (!normalized || response.turnId || (normalized.shouldQuery === true && !hookPrevented))', 'normalized rendering must be limited to non-query runtime results');
+assertIncludes(adapter, "const runtimeBridgePath = '/bindings/github.com/CIPFZ/agent-builder/desktop/runtimebridge.js';", 'adapter must load Wails generated bindings directly');
+assertNotIncludes(adapter, 'runtimeHTTPBridge', 'adapter must not use the legacy HTTP bridge');
+assertNotIncludes(adapter, 'runtimeFetch<', 'adapter must not call runtime HTTP routes');
 assertNotIncludes(adapter, 'action.metadata.normalized', 'React must not infer normalized evidence from action metadata');
 assertIncludes(adapter, 'function compareActivityTimelineItems(messages: RuntimeMessageDTO[], turns: RuntimeTurnDTO[])', 'activity timeline merge must preserve runtime turn ordering');
-assertIncludes(adapter, 'return [...kept, ...replacement].sort(compareActivityTimelineItems(activityMessages, activityTurns));', 'merged runtime activity must not fall back to timestamp/id-only sorting');
+assertIncludes(adapter, 'return dedupeTimelineItems([...kept, ...replacement]).sort(compareActivityTimelineItems(activityMessages, activityTurns));', 'merged runtime activity must not fall back to timestamp/id-only sorting');
 assertIncludes(adapter, 'const inferredTurnID = turnIDForMessage(activityTurnContext, item.messageId);', 'merged runtime activity must replace same-turn stale timeline items');
 assertNotIncludes(
   adapter,

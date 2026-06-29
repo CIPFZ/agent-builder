@@ -951,11 +951,12 @@ export interface WorkbenchAdapter {
   sendAgentTaskFollowUp: (current: WorkbenchViewModel, taskID: string, message: string) => Promise<WorkbenchViewModel>;
   cancelAgentTask: (current: WorkbenchViewModel, taskID: string) => Promise<WorkbenchViewModel>;
   listSessionTerminals: (sessionID: string) => Promise<TerminalViewModel[]>;
-  createTerminal: (request: { sessionId: string; cwd?: string; columns?: number; rows?: number }) => Promise<TerminalViewModel>;
+  createTerminal: (request: { sessionId: string; cwd?: string; profileId?: string; columns?: number; rows?: number }) => Promise<TerminalViewModel>;
   writeTerminalInput: (terminalID: string, data: string) => Promise<TerminalViewModel>;
   resizeTerminal: (terminalID: string, columns: number, rows: number) => Promise<TerminalViewModel>;
   subscribeTerminalEvents: (terminalID: string, onEvent: (event: TerminalEventViewModel) => void) => Promise<() => void> | (() => void);
   deleteTerminal: (terminalID: string) => Promise<void>;
+  selectTerminalProfile: (current: WorkbenchViewModel, profileID: string) => Promise<WorkbenchViewModel>;
   saveConfiguredProvider: (
     current: WorkbenchViewModel,
     provider: ConfiguredProviderViewModel & { token?: string },

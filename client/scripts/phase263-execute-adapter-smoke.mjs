@@ -18,7 +18,7 @@ assertIncludes(types, 'executeRunTask: (current: WorkbenchViewModel, runID: stri
 assertIncludes(adapter, 'ExecuteRunTask?: (runID: string, taskID: string)', 'runtime bridge module declares optional ExecuteRunTask');
 assertIncludes(adapter, 'await bridge.ExecuteRunTask(runID, taskID);', 'adapter calls explicit execute action');
 assertIncludes(adapter, 'return hydrateWorkbench(current, bridge);', 'adapter rehydrates durable DTOs after execute action');
-assertIncludes(adapter, '/v1/runs/${encodeURIComponent(runID)}/tasks/${encodeURIComponent(taskID)}/execute', 'HTTP fallback targets explicit execute route');
+assertNotIncludes(adapter, 'runtimeFetch<', 'adapter must not use runtime HTTP fallback routes');
 assertNotIncludes(preview, 'executeRunTask', 'RunProjectionPreview does not expose executeRunTask UI control');
 
 console.log('Phase 26.3 execute adapter smoke passed');

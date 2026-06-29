@@ -187,6 +187,9 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   async deleteTerminal() {
     return runtimeUnavailable();
   },
+  async selectTerminalProfile() {
+    return runtimeUnavailable();
+  },
   async saveConfiguredProvider() {
     return runtimeUnavailable();
   },

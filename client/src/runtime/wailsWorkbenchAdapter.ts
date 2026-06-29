@@ -33,6 +33,7 @@ import type {
   ToolCallViewModel,
   RuntimeUserInputRequestViewModel,
   RuntimeSkillViewModel,
+  SettingsOptionViewModel,
   SettingsPermissionViewModel,
   TerminalViewModel,
   WorkbenchAdapter,
@@ -300,6 +301,20 @@ interface RuntimeSessionTerminalsResponseDTO {
   terminals?: RuntimeTerminalDTO[];
 }
 
+interface RuntimeTerminalProfileDTO {
+  id: string;
+  label: string;
+}
+
+interface RuntimeTerminalSettingsDTO {
+  profileId?: string;
+  profiles?: RuntimeTerminalProfileDTO[];
+}
+
+interface RuntimeTerminalSettingsResponseDTO {
+  settings: RuntimeTerminalSettingsDTO;
+}
+
 interface RuntimeTerminalEventDTO {
   terminalId?: string;
   terminal_id?: string;
@@ -316,8 +331,36 @@ interface RuntimeTerminalEventDTO {
 
 interface RuntimeTerminalStreamMessageDTO {
   type?: string;
+  streamId?: string;
+  terminalId?: string;
   events?: RuntimeTerminalEventDTO[];
   error?: string;
+}
+
+interface RuntimeTerminalStreamResponseDTO {
+  streamId: string;
+  eventName: string;
+}
+
+interface RuntimeTerminalStreamStartRequestDTO {
+  terminalId: string;
+  streamId: string;
+  after?: number;
+}
+
+interface RuntimeTerminalStreamAckRequestDTO {
+  streamId: string;
+  sequence: number;
+}
+
+interface RuntimeTerminalStreamStopRequestDTO {
+  streamId: string;
+}
+
+interface WailsRuntimeModule {
+  Events: {
+    On: (eventName: string, callback: (event: { data: unknown }) => void) => () => void;
+  };
 }
 
 interface RuntimeEventsEndpointDTO {
@@ -1194,7 +1237,14 @@ interface RuntimeBridgeModule {
   SubmitUserInput?: (req: RuntimeUserInputRequestDTO) => Promise<RuntimeChatResponseDTO>;
   UserInput?: (inputID: string) => Promise<RuntimeNormalizedInputDTO>;
   SessionTerminals?: (sessionID: string) => Promise<RuntimeSessionTerminalsResponseDTO>;
-  CreateTerminal?: (req: { sessionId: string; id?: string; cwd?: string; columns?: number; rows?: number }) => Promise<RuntimeTerminalResponseDTO>;
+  CreateTerminal?: (req: { sessionId: string; id?: string; cwd?: string; profileId?: string; columns?: number; rows?: number }) => Promise<RuntimeTerminalResponseDTO>;
+  TerminalSettings?: () => Promise<RuntimeTerminalSettingsResponseDTO>;
+  SaveTerminalSettings?: (req: { profileId: string }) => Promise<RuntimeTerminalSettingsResponseDTO>;
+  WriteTerminalInput?: (terminalID: string, req: { data?: string; binaryBase64?: string }) => Promise<RuntimeTerminalResponseDTO>;
+  ResizeTerminal?: (terminalID: string, req: { columns: number; rows: number }) => Promise<RuntimeTerminalResponseDTO>;
+  StartTerminalEventStream?: (req: RuntimeTerminalStreamStartRequestDTO) => Promise<RuntimeTerminalStreamResponseDTO>;
+  AckTerminalEventStream?: (req: RuntimeTerminalStreamAckRequestDTO) => Promise<boolean>;
+  StopTerminalEventStream?: (req: RuntimeTerminalStreamStopRequestDTO) => Promise<boolean>;
   DeleteTerminal?: (terminalID: string) => Promise<RuntimeTerminalResponseDTO>;
   CancelTurn?: (turnID: string) => Promise<RuntimeStatusDTO>;
   MarkInterruptedDone?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
@@ -1248,10 +1298,12 @@ interface RuntimeBridgeModule {
 
 let runtimeBridgePromise: Promise<RuntimeBridgeModule | null> | undefined;
 const runtimeBridgePath = '/bindings/github.com/CIPFZ/agent-builder/desktop/runtimebridge.js';
+const wailsRuntimePath = '/wails/runtime.js';
 const runtimeBridgeTimeoutMS = 750;
 let runtimeLatestEventSequence = 0;
 let runtimeActivityRefreshHint: RuntimeEventViewModel | undefined;
 let forceDraftChatSubmit = false;
+let wailsRuntimePromise: Promise<WailsRuntimeModule> | undefined;
 
 function loadRuntimeBridge() {
   if (typeof window === 'undefined') {
@@ -1271,6 +1323,14 @@ function loadRuntimeBridge() {
   ]).catch(() => null);
 
   return runtimeBridgePromise;
+}
+
+function loadWailsRuntime() {
+  wailsRuntimePromise ??= import(
+    /* @vite-ignore */
+    wailsRuntimePath
+  ).then((module) => module as WailsRuntimeModule);
+  return wailsRuntimePromise;
 }
 
 function hasProviderSettingsBridge(bridge: RuntimeBridgeModule | null): bridge is RuntimeBridgeModule {
@@ -3228,7 +3288,18 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   );
   const refreshRuns = actionTargetsInclude(refreshTargets, 'run', 'run_projection', 'run_transition_history', 'run_scheduler_plan');
   const refreshPolicy = actionTargetsInclude(refreshTargets, 'permissions');
-  const [status, sessionsResponse, modelsResponse, providerCatalog, configuredProvidersResponse, activeTurnsResponse, skillsResponse, pluginsResponse, mcpServersResponse] = await Promise.all([
+  const [
+    status,
+    sessionsResponse,
+    modelsResponse,
+    providerCatalog,
+    configuredProvidersResponse,
+    activeTurnsResponse,
+    skillsResponse,
+    pluginsResponse,
+    mcpServersResponse,
+    terminalSettingsResponse,
+  ] = await Promise.all([
     optionalRuntimeRequest(() => bridge.Status()),
     optionalRuntimeRequest(() => bridge.Sessions()),
     fullHydration ? bridge.Models().catch(() => undefined) : Promise.resolve(undefined),
@@ -3238,6 +3309,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     fullHydration ? optionalRuntimeRequest(() => bridge.Skills?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     fullHydration ? optionalRuntimeRequest(() => bridge.Plugins?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     fullHydration ? optionalRuntimeRequest(() => bridge.MCPServers?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
+    fullHydration ? optionalRuntimeRequest(() => bridge.TerminalSettings?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ]);
   const activeSessionID = status?.sessionId || sessionsResponse?.sessions?.find((session) => session.active)?.id;
   const outputSnapshot = activeSessionID && refreshActivity
@@ -3342,6 +3414,8 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       providerTypes: providerCatalog?.providerTypes ?? current.settings.providerTypes,
       providers,
       configuredProviders: mapConfiguredProviders(configuredProvidersResponse) ?? current.settings.configuredProviders,
+      terminalProfile: terminalSettingsResponse?.settings?.profileId ?? current.settings.terminalProfile,
+      terminalOptions: mapTerminalProfileOptions(terminalSettingsResponse) ?? current.settings.terminalOptions,
       plugins,
       skills,
       mcpServers,
@@ -3353,18 +3427,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
 }
 
 async function hydrateReactCallchain(bridge: RuntimeBridgeModule, sessionID: string, turnID?: string) {
-  const fromBridge = await readReactCallchain(bridge, sessionID, turnID);
-  if (fromBridge) {
-    return fromBridge;
-  }
-  if (bridge === runtimeHTTPBridge) {
-    return undefined;
-  }
-  const httpBridge = await loadRuntimeHTTPBridge();
-  if (!httpBridge) {
-    return undefined;
-  }
-  return readReactCallchain(httpBridge, sessionID, turnID);
+  return readReactCallchain(bridge, sessionID, turnID);
 }
 
 async function readReactCallchain(bridge: RuntimeBridgeModule, sessionID: string, turnID?: string) {
@@ -3377,18 +3440,7 @@ async function readReactCallchain(bridge: RuntimeBridgeModule, sessionID: string
 }
 
 async function hydratePromptAssemblies(bridge: RuntimeBridgeModule, sessionID: string, turnID?: string) {
-  const fromBridge = await readPromptAssemblies(bridge, sessionID, turnID);
-  if (fromBridge) {
-    return fromBridge;
-  }
-  if (bridge === runtimeHTTPBridge) {
-    return undefined;
-  }
-  const httpBridge = await loadRuntimeHTTPBridge();
-  if (!httpBridge) {
-    return undefined;
-  }
-  return readPromptAssemblies(httpBridge, sessionID, turnID);
+  return readPromptAssemblies(bridge, sessionID, turnID);
 }
 
 async function readPromptAssemblies(bridge: RuntimeBridgeModule, sessionID: string, turnID?: string) {
@@ -3400,19 +3452,8 @@ async function readPromptAssemblies(bridge: RuntimeBridgeModule, sessionID: stri
   });
 }
 
-const runtimeHTTPURL = import.meta.env.DEV ? '/runtime-api' : import.meta.env.VITE_AGENT_BUILDER_RUNTIME_URL || 'http://127.0.0.1:5183';
-const runtimeHTTPToken = import.meta.env.VITE_AGENT_BUILDER_RUNTIME_TOKEN || 'agent-builder-dev';
 const runtimeOptionalRequestTimeoutMS = 3000;
 const runtimeMutationTimeoutMS = 15000;
-const terminalStreamPendingLimit = 256;
-
-interface TerminalStreamConnection {
-  closed: boolean;
-  pending: unknown[];
-  socket?: WebSocket;
-}
-
-const terminalStreams = new Map<string, TerminalStreamConnection>();
 
 async function optionalRuntimeRequest<T>(request: () => Promise<T>): Promise<T | undefined> {
   return Promise.race([
@@ -3432,253 +3473,8 @@ async function runtimeRequestWithTimeout<T>(request: () => Promise<T>, timeoutMS
   ]);
 }
 
-interface RuntimeHTTPInit {
-  body?: string;
-  headers?: Record<string, string>;
-  method?: string;
-}
-
-async function runtimeFetch<T>(path: string, init?: RuntimeHTTPInit): Promise<T> {
-  const url = `${runtimeHTTPURL}${path}`;
-  const runtimeGlobal = getRuntimeGlobal();
-  const headers = {
-    Authorization: `Bearer ${runtimeHTTPToken}`,
-    'Content-Type': 'application/json',
-    ...init?.headers,
-  };
-
-  if (typeof runtimeGlobal?.fetch !== 'function') {
-    if (typeof runtimeGlobal?.XMLHttpRequest !== 'function') {
-      return runtimeModule<T>(path, init);
-    }
-    return runtimeXHR<T>(url, {
-      body: init?.body,
-      headers,
-      method: init?.method,
-    });
-  }
-
-  const response = await runtimeGlobal.fetch(url, {
-    body: init?.body,
-    headers,
-    method: init?.method,
-  });
-  if (!response.ok) {
-    const detail = await runtimeHTTPErrorDetail(response);
-    throw new Error(detail || `runtime HTTP ${response.status}`);
-  }
-  return (await response.json()) as T;
-}
-
-async function runtimeHTTPErrorDetail(response: Response) {
-  try {
-    const payload = (await response.json()) as { error?: string };
-    return payload.error;
-  } catch {
-    return '';
-  }
-}
-
-function getRuntimeGlobal(): (Window & typeof globalThis) | undefined {
-  if (typeof globalThis !== 'undefined') {
-    return globalThis as Window & typeof globalThis;
-  }
-  if (typeof window !== 'undefined') {
-    return window as Window & typeof globalThis;
-  }
-  return undefined;
-}
-
-async function runtimeModule<T>(path: string, init?: RuntimeHTTPInit): Promise<T> {
-  try {
-    const params = new URLSearchParams({
-      path,
-      token: runtimeHTTPToken,
-      t: String(Date.now()),
-    });
-    if (init?.method) {
-      params.set('method', init.method);
-    }
-    if (init?.body) {
-      params.set('body', init.body);
-    }
-    const module = (await import(
-      /* @vite-ignore */
-      `${runtimeHTTPURL}/v1/dev/module?${params.toString()}`
-    )) as { default: T | { error?: string } };
-    if (typeof module.default === 'object' && module.default && 'error' in module.default) {
-      throw new Error(String(module.default.error));
-    }
-    return module.default as T;
-  } catch (error) {
-    console.warn('[runtime] module fallback failed', path, error);
-    return runtimeJSONP<T>(path, init);
-  }
-}
-
-function runtimeJSONP<T>(path: string, init?: RuntimeHTTPInit): Promise<T> {
-  if (typeof document === 'undefined') {
-    return Promise.reject(new Error('runtime HTTP request is unavailable'));
-  }
-  const runtimeGlobal = getRuntimeGlobal();
-  if (!runtimeGlobal) {
-    return Promise.reject(new Error('runtime HTTP request is unavailable'));
-  }
-  return new Promise((resolve, reject) => {
-    const callback = `__agentBuilderRuntimeJSONP_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const script = document.createElement('script');
-    const cleanup = () => {
-      delete (runtimeGlobal as unknown as Record<string, unknown>)[callback];
-      if (script.parentNode) {
-        script.parentNode.removeChild(script);
-      }
-    };
-    (runtimeGlobal as unknown as Record<string, unknown>)[callback] = (value: T | { error?: string }) => {
-      cleanup();
-      if (typeof value === 'object' && value && 'error' in value) {
-        reject(new Error(String(value.error)));
-        return;
-      }
-      resolve(value as T);
-    };
-    script.onerror = () => {
-      cleanup();
-      reject(new Error('runtime HTTP JSONP request failed'));
-    };
-    const params = new URLSearchParams({
-      path,
-      token: runtimeHTTPToken,
-      callback,
-    });
-    if (init?.method) {
-      params.set('method', init.method);
-    }
-    if (init?.body) {
-      params.set('body', init.body);
-    }
-    script.src = `${runtimeHTTPURL}/v1/dev/jsonp?${params.toString()}`;
-    document.head.appendChild(script);
-  });
-}
-
-function runtimeXHR<T>(
-  url: string,
-  init: {
-    body?: string | null;
-    headers: Record<string, string>;
-    method?: string;
-  },
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open(init.method ?? 'GET', url, true);
-    Object.entries(init.headers).forEach(([key, value]) => request.setRequestHeader(key, value));
-    request.onload = () => {
-      if (request.status < 200 || request.status >= 300) {
-        reject(new Error(`runtime HTTP ${request.status}`));
-        return;
-      }
-      try {
-        resolve(JSON.parse(request.responseText) as T);
-      } catch (error) {
-        reject(error instanceof Error ? error : new Error('failed to decode runtime response'));
-      }
-    };
-    request.onerror = () => reject(new Error('runtime HTTP request failed'));
-    request.send(init.body ?? null);
-  });
-}
-
-function runtimeHTTPEventsEndpoint(): RuntimeEventsEndpointDTO {
-  return {
-    url: `${runtimeHTTPURL}/v1/events`,
-    token: runtimeHTTPToken,
-  };
-}
-
-function runtimeEventSourceURL(endpoint: RuntimeEventsEndpointDTO, after?: number) {
-  const baseURL = typeof window !== 'undefined' ? window.location.href : 'http://127.0.0.1/';
-  try {
-    const url = new URL(endpoint.url, baseURL);
-    if (endpoint.token) {
-      url.searchParams.set('token', endpoint.token);
-    }
-    if (after && after > 0) {
-      url.searchParams.set('after', String(after));
-    }
-    return url.toString();
-  } catch {
-    const separator = endpoint.url.includes('?') ? '&' : '?';
-    const params = new URLSearchParams();
-    if (endpoint.token) {
-      params.set('token', endpoint.token);
-    }
-    if (after && after > 0) {
-      params.set('after', String(after));
-    }
-    return `${endpoint.url}${separator}${params.toString()}`;
-  }
-}
-
 async function subscribeRuntimeBridgeEvents(bridge: RuntimeBridgeModule, onEvent: (event: RuntimeEventViewModel) => void) {
-  if (typeof window === 'undefined' || typeof window.EventSource === 'undefined') {
-    return subscribeRuntimeEventsByPolling(bridge, onEvent);
-  }
-
-  let closed = false;
-  let reconnectTimer: number | undefined;
-  let source: EventSource | undefined;
-  let lastSequence = runtimeLatestEventSequence;
-
-  const closeSource = () => {
-    if (source) {
-      source.close();
-      source = undefined;
-    }
-  };
-
-  const connect = async () => {
-    try {
-      const endpoint = bridge.EventsEndpoint ? await bridge.EventsEndpoint() : runtimeHTTPEventsEndpoint();
-      if (closed) {
-        return;
-      }
-      closeSource();
-      source = new window.EventSource(runtimeEventSourceURL(endpoint, lastSequence));
-      const handleMessage = (message: MessageEvent<string>) => {
-        const event = parseRuntimeEventMessage(message.data);
-        const nextSequence = nextRuntimeEventCursor(lastSequence, event);
-        if (nextSequence > lastSequence) {
-          lastSequence = nextSequence;
-          runtimeLatestEventSequence = nextRuntimeEventCursor(runtimeLatestEventSequence, event);
-          runtimeActivityRefreshHint = event;
-          onEvent(event);
-        }
-      };
-      source.addEventListener('runtime-event', handleMessage);
-      source.onmessage = handleMessage;
-      source.onerror = () => {
-        closeSource();
-        if (!closed) {
-          reconnectTimer = window.setTimeout(connect, 2000);
-        }
-      };
-    } catch {
-      if (!closed) {
-        reconnectTimer = window.setTimeout(connect, 2000);
-      }
-    }
-  };
-
-  await connect();
-
-  return () => {
-    closed = true;
-    if (reconnectTimer) {
-      window.clearTimeout(reconnectTimer);
-    }
-    closeSource();
-  };
+  return subscribeRuntimeEventsByPolling(bridge, onEvent);
 }
 
 function subscribeRuntimeEventsByPolling(bridge: RuntimeBridgeModule, onEvent: (event: RuntimeEventViewModel) => void) {
@@ -3692,7 +3488,10 @@ function subscribeRuntimeEventsByPolling(bridge: RuntimeBridgeModule, onEvent: (
 
   const poll = async () => {
     try {
-      const response = bridge.Events ? await bridge.Events(lastSequence) : await runtimeFetch<RuntimeEventsResponseDTO>(runtimeEventsPath(lastSequence));
+      if (!bridge.Events) {
+        return;
+      }
+      const response = await bridge.Events(lastSequence);
       if (closed) {
         return;
       }
@@ -3726,106 +3525,65 @@ function subscribeRuntimeEventsByPolling(bridge: RuntimeBridgeModule, onEvent: (
   };
 }
 
-function parseRuntimeEventMessage(data: string): RuntimeEventViewModel {
-  try {
-    const event = JSON.parse(data) as RuntimeEventDTO;
-    return mapRuntimeEvent(event);
-  } catch {
-    return {};
-  }
-}
-
-function subscribeHTTPRuntimeTerminalStream(terminalID: string, onEvent: (event: TerminalEventViewModel) => void) {
-  if (typeof window === 'undefined' || typeof window.WebSocket === 'undefined') {
-    throw new Error('terminal WebSocket transport is unavailable');
-  }
-  const url = runtimeTerminalStreamURL(terminalID);
-  if (!url) {
-    throw new Error('terminal WebSocket URL is unavailable');
+async function subscribeWailsRuntimeTerminalStream(
+  bridge: RuntimeBridgeModule,
+  terminalID: string,
+  onEvent: (event: TerminalEventViewModel) => void,
+) {
+  if (!bridge.StartTerminalEventStream || !bridge.AckTerminalEventStream || !bridge.StopTerminalEventStream) {
+    throw new Error('terminal Wails stream bindings are unavailable');
   }
 
   let lastSequence = 0;
-  const connection: TerminalStreamConnection = {
-    closed: false,
-    pending: [],
-  };
-  terminalStreams.set(terminalID, connection);
-
-  const flushPending = () => {
-    const socket = connection.socket;
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
+  let closed = false;
+  const requestedStreamID = createTerminalStreamID(terminalID);
+  const eventName = 'agent-builder:terminal-stream';
+  const wailsRuntime = await loadWailsRuntime();
+  const off = wailsRuntime.Events.On(eventName, (event) => {
+    if (closed) {
       return;
     }
-    while (connection.pending.length > 0) {
-      socket.send(JSON.stringify(connection.pending.shift()));
-    }
-  };
-
-  const connect = () => {
-    if (connection.closed) {
+    const message = event.data as RuntimeTerminalStreamMessageDTO | undefined;
+    if (!message || message.streamId !== requestedStreamID || (message.terminalId && message.terminalId !== terminalID)) {
       return;
     }
-    const socket = new window.WebSocket(lastSequence > 0 ? `${url}&after=${encodeURIComponent(String(lastSequence))}` : url);
-    connection.socket = socket;
-    socket.onopen = flushPending;
-    socket.onmessage = (message) => {
-      const events = parseTerminalStreamMessage(String(message.data));
-      let maxSequence = lastSequence;
-      for (const event of events) {
-        if (event.sequence > maxSequence) {
-          maxSequence = event.sequence;
-        }
-        onEvent({
-          ...event,
-          acknowledge: () => acknowledgeTerminalWebSocket(terminalID, event.sequence),
-        });
-      }
-      if (maxSequence > lastSequence) {
-        lastSequence = maxSequence;
-      }
-    };
-    socket.onclose = () => {
-      if (connection.socket === socket) {
-        connection.socket = undefined;
-      }
-      if (!connection.closed) {
-        window.setTimeout(connect, 500);
-      }
-    };
-    socket.onerror = () => {
-      socket?.close();
-    };
-  };
-
-  connect();
+    const events = Array.isArray(message.events) ? message.events : [];
+    if (events.length === 0) {
+      return;
+    }
+    const mapped = mapTerminalEventBatch(events);
+    if (mapped.sequence > lastSequence) {
+      lastSequence = mapped.sequence;
+    }
+    onEvent({
+      ...mapped,
+      acknowledge: () => {
+        void bridge.AckTerminalEventStream?.({ streamId: requestedStreamID, sequence: mapped.sequence });
+      },
+    });
+  });
+  let stream: RuntimeTerminalStreamResponseDTO;
+  try {
+    stream = await bridge.StartTerminalEventStream({ terminalId: terminalID, streamId: requestedStreamID, after: lastSequence });
+  } catch (error) {
+    closed = true;
+    off();
+    throw error;
+  }
 
   return () => {
-    connection.closed = true;
-    connection.pending = [];
-    if (terminalStreams.get(terminalID) === connection) {
-      terminalStreams.delete(terminalID);
-    }
-    connection.socket?.close();
+    closed = true;
+    off();
+    void bridge.StopTerminalEventStream?.({ streamId: stream.streamId || requestedStreamID });
   };
 }
 
-function acknowledgeTerminalWebSocket(terminalID: string, sequence: number) {
-  if (!sequence || sequence <= 0) {
-    return false;
-  }
-  return sendTerminalWebSocketMessage(terminalID, { type: 'ack', sequence });
-}
-
-function parseTerminalStreamMessage(data: string): TerminalEventViewModel[] {
-  try {
-    const message = JSON.parse(data) as RuntimeTerminalStreamMessageDTO | RuntimeTerminalEventDTO;
-    if ('events' in message && Array.isArray(message.events)) {
-      return [mapTerminalEventBatch(message.events)];
-    }
-    return [mapTerminalEvent(message as RuntimeTerminalEventDTO)];
-  } catch {
-    return [];
-  }
+function createTerminalStreamID(terminalID: string) {
+  const random =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `terminal-stream:${terminalID}:${random}`;
 }
 
 function mapTerminalEventBatch(events: RuntimeTerminalEventDTO[]): TerminalEventViewModel {
@@ -3866,46 +3624,6 @@ function nextRuntimeEventCursor(current: number, event: RuntimeEventViewModel) {
   return typeof event.sequence === 'number' && Number.isFinite(event.sequence) && event.sequence > current ? event.sequence : current;
 }
 
-function runtimeEventsPath(after?: number) {
-  if (!after || after <= 0) {
-    return '/v1/events';
-  }
-  return `/v1/events?after=${encodeURIComponent(String(after))}`;
-}
-
-function runtimeTerminalStreamURL(terminalID: string) {
-  if (typeof window === 'undefined') {
-    return '';
-  }
-  const streamPath = `/v1/terminals/${encodeURIComponent(terminalID)}/stream`;
-  const tokenQuery = `token=${encodeURIComponent(runtimeHTTPToken)}`;
-  if (runtimeHTTPURL.startsWith('/')) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}${runtimeHTTPURL}${streamPath}?${tokenQuery}`;
-  }
-  const url = new URL(`${runtimeHTTPURL}${streamPath}`);
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  url.searchParams.set('token', runtimeHTTPToken);
-  return url.toString();
-}
-
-function sendTerminalWebSocketMessage(terminalID: string, message: unknown) {
-  const connection = terminalStreams.get(terminalID);
-  if (!connection || connection.closed) {
-    return false;
-  }
-  const socket = connection.socket;
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(message));
-    return true;
-  }
-  if (connection.pending.length >= terminalStreamPendingLimit) {
-    return false;
-  }
-  connection.pending.push(message);
-  return true;
-}
-
 function mapTerminalDTO(terminal: RuntimeTerminalDTO): TerminalViewModel {
   return {
     id: terminal.id,
@@ -3934,6 +3652,17 @@ function mapSessionTerminals(response?: RuntimeSessionTerminalsResponseDTO): Ter
   return Array.isArray(response?.terminals) ? response.terminals.map(mapTerminalDTO) : [];
 }
 
+function mapTerminalProfileOptions(response?: RuntimeTerminalSettingsResponseDTO): SettingsOptionViewModel[] | undefined {
+  const profiles = response?.settings?.profiles;
+  if (!Array.isArray(profiles)) {
+    return undefined;
+  }
+  return profiles.map((profile) => ({
+    label: profile.label || profile.id,
+    value: profile.id,
+  }));
+}
+
 function mapTerminalEvent(event: RuntimeTerminalEventDTO): TerminalEventViewModel {
   return {
     terminalId: event.terminalId ?? event.terminal_id ?? '',
@@ -3947,343 +3676,21 @@ function mapTerminalEvent(event: RuntimeTerminalEventDTO): TerminalEventViewMode
   };
 }
 
-const runtimeHTTPBridge: RuntimeBridgeModule = {
-  Status: () => runtimeFetch<RuntimeStatusDTO>('/v1/runtime/status'),
-  OpenProject: (req) =>
-    runtimeFetch<RuntimeOpenProjectResponseDTO>('/v1/projects/open', {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }),
-  CreateProject: (req) =>
-    runtimeFetch<RuntimeOpenProjectResponseDTO>('/v1/projects', {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }),
-  RenameProject: (req) =>
-    runtimeFetch<RuntimeOpenProjectResponseDTO>(`/v1/projects/${encodeURIComponent(req.projectId)}/rename`, {
-      method: 'POST',
-      body: JSON.stringify({ name: req.name }),
-    }),
-  OpenProjectInExplorer: (req) =>
-    runtimeFetch<RuntimeOpenProjectResponseDTO>(`/v1/projects/${encodeURIComponent(req.projectId)}/open-explorer`, {
-      method: 'POST',
-    }),
-  RemoveProject: (req) =>
-    runtimeFetch<RuntimeOpenProjectResponseDTO>(`/v1/projects/${encodeURIComponent(req.projectId)}`, {
-      method: 'DELETE',
-    }),
-  Sessions: () => runtimeFetch<RuntimeSessionsResponseDTO>('/v1/sessions'),
-  Models: () => runtimeFetch<RuntimeModelsResponseDTO>('/v1/config/models'),
-  SelectedModel: () => runtimeFetch<RuntimeSelectedModelResponseDTO>('/v1/config/selected-model'),
-  SaveSelectedModel: (req) =>
-    runtimeFetch<RuntimeSelectedModelResponseDTO>('/v1/config/selected-model', {
-      method: 'PUT',
-      body: JSON.stringify(req),
-    }),
-  ProviderCatalog: () => runtimeFetch<RuntimeProviderCatalogResponseDTO>('/v1/config/providers'),
-  ConfiguredProviders: () => runtimeFetch<RuntimeConfiguredProvidersResponseDTO>('/v1/config/configured-providers'),
-  async SaveConfiguredProvider(req) {
-    const method = req.id ? 'PUT' : 'POST';
-    const path = req.id ? `/v1/config/configured-providers/${encodeURIComponent(req.id)}` : '/v1/config/configured-providers';
-    return runtimeFetch<RuntimeConfiguredProviderResponseDTO>(path, {
-      method,
-      body: JSON.stringify(req),
-    });
-  },
-  DeleteConfiguredProvider: (providerID) =>
-    runtimeFetch<RuntimeConfiguredProvidersResponseDTO>(`/v1/config/configured-providers/${encodeURIComponent(providerID)}`, {
-      method: 'DELETE',
-    }),
-  DiscoverModelConfig: (req) =>
-    runtimeFetch<RuntimeModelDiscoveryResponseDTO>('/v1/config/model/discover', {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }),
-  VerifyModelConfig: (req) =>
-    runtimeFetch<RuntimeModelVerifyResponseDTO>('/v1/config/model/verify', {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }),
-  DiscoverConfiguredProviderModels: (providerID) =>
-    runtimeFetch<RuntimeProviderModelDiscoveryResponseDTO>(`/v1/config/configured-providers/${encodeURIComponent(providerID)}/models`, {
-      method: 'POST',
-    }),
-  TestConfiguredProvider: (providerID) =>
-    runtimeFetch<RuntimeProviderTestResponseDTO>(`/v1/config/configured-providers/${encodeURIComponent(providerID)}/test`, {
-      method: 'POST',
-    }),
-  MeasureConfiguredProviderLatency: (providerID) =>
-    runtimeFetch<RuntimeProviderTestResponseDTO>(`/v1/config/configured-providers/${encodeURIComponent(providerID)}/latency`, {
-      method: 'POST',
-    }),
-  async NewChat(title) {
-    return runtimeFetch<RuntimeStatusDTO>('/v1/runtime/new-chat', {
-      method: 'POST',
-      body: JSON.stringify({ title }),
-    });
-  },
-  async CreateSession(req) {
-    return runtimeFetch<RuntimeSessionResponseDTO>('/v1/sessions', {
-      method: 'POST',
-      body: JSON.stringify(req ?? {}),
-    });
-  },
-  SelectSession: (sessionID) =>
-    runtimeFetch<RuntimeStatusDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/select`, {
-      method: 'POST',
-    }),
-  RenameSession: (req) =>
-    runtimeFetch<RuntimeSessionsResponseDTO>(`/v1/sessions/${encodeURIComponent(req.sessionId)}`, {
-      method: 'PUT',
-      body: JSON.stringify(req),
-    }),
-  DeleteSession: (sessionID) =>
-    runtimeFetch<RuntimeSessionsResponseDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}`, {
-      method: 'DELETE',
-    }),
-  SessionMessages: (sessionID) => runtimeFetch<RuntimeMessagesResponseDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/messages`),
-  SessionOutput: (sessionID, req) => {
-    const params = new URLSearchParams();
-    if (req?.snapshot) {
-      params.set('snapshot', 'true');
-    }
-    if (req?.cursor) {
-      params.set('cursor', req.cursor);
-    }
-    if (req?.limit) {
-      params.set('limit', String(req.limit));
-    }
-    const query = params.toString();
-    return runtimeFetch<RuntimeOutputSnapshot>(`/v1/sessions/${encodeURIComponent(sessionID)}/output${query ? `?${query}` : ''}`);
-  },
-  SessionOutputEvents: (sessionID, after) => {
-    const params = new URLSearchParams();
-    if (after) {
-      params.set('cursor', after);
-    }
-    const query = params.toString();
-    return runtimeFetch<RuntimeOutputEventsResponse>(`/v1/sessions/${encodeURIComponent(sessionID)}/output/events${query ? `?${query}` : ''}`);
-  },
-  SessionActivity: (sessionID) => runtimeFetch<RuntimeSessionActivityDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity`),
-  SessionActivityWindow: (sessionID, limit) =>
-    runtimeFetch<RuntimeSessionActivityWindowDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity-window?limit=${encodeURIComponent(String(limit))}`),
-  SessionActivityCursorWindow: (sessionID, cursor, limit) => {
-    const params = new URLSearchParams({ limit: String(limit) });
-    if (cursor) {
-      params.set('cursor', cursor);
-    }
-    return runtimeFetch<RuntimeSessionActivityWindowDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/activity-window?${params.toString()}`);
-  },
-  SessionReactCallchain: (sessionID, limit) =>
-    runtimeFetch<RuntimeReactCallchainDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/react-callchain?limit=${encodeURIComponent(String(limit))}`),
-  SessionPromptAssemblies: (sessionID, limit) =>
-    runtimeFetch<RuntimePromptAssembliesResponseDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/prompt-assemblies?limit=${encodeURIComponent(String(limit))}`),
-  RunProjection: (req) => {
-    const params = new URLSearchParams();
-    if (typeof req.limit === 'number') {
-      params.set('limit', String(req.limit));
-    }
-    if (req.cursor) {
-      params.set('cursor', req.cursor);
-    }
-    const query = params.toString();
-    return runtimeFetch<RuntimeRunProjectionResponseDTO>(
-      `/v1/sessions/${encodeURIComponent(req.sessionId)}/run-projection${query ? `?${query}` : ''}`,
-    );
-  },
-  RunSummaries: () => runtimeFetch<RuntimeRunSummariesResponseDTO>('/v1/run-summaries'),
-  RunSummary: (runID) => runtimeFetch<RuntimeRunSummaryResponseDTO>(`/v1/run-summaries/${encodeURIComponent(runID)}`),
-  RunCheckpointMarkers: (runID) =>
-    runtimeFetch<RuntimeRunCheckpointMarkersResponseDTO>(`/v1/runs/${encodeURIComponent(runID)}/checkpoint-markers`),
-  RunCheckpointMarker: (runID, checkpointID) =>
-    runtimeFetch<RuntimeRunCheckpointMarkerResponseDTO>(
-      `/v1/runs/${encodeURIComponent(runID)}/checkpoint-markers/${encodeURIComponent(checkpointID)}`,
-    ),
-  RunSchedulerPlan: (req) => {
-    const params = new URLSearchParams();
-    if (req.runId) {
-      params.set('run_id', req.runId);
-    }
-    if (req.sessionId) {
-      params.set('session_id', req.sessionId);
-    }
-    if (req.mode) {
-      params.set('mode', req.mode);
-    }
-    if (req.turnId) {
-      params.set('turn_id', req.turnId);
-    }
-    if (req.checkpointId) {
-      params.set('checkpoint_id', req.checkpointId);
-    }
-    if (req.taskId) {
-      params.set('task_id', req.taskId);
-    }
-    if (req.cursor) {
-      params.set('cursor', req.cursor);
-    }
-    if (typeof req.limit === 'number') {
-      params.set('limit', String(req.limit));
-    }
-    const query = params.toString();
-    return runtimeFetch<RuntimeRunSchedulerPlanResponseDTO>(`/v1/run-scheduler-plan${query ? `?${query}` : ''}`);
-  },
-  ResumeRunCheckpoint: (runID, checkpointID) =>
-    runtimeFetch<RuntimeRunResumeResponseDTO>(
-      `/v1/runs/${encodeURIComponent(runID)}/checkpoints/${encodeURIComponent(checkpointID)}/resume`,
-      {
-        method: 'POST',
-      },
-    ),
-  ExecuteRunTask: (runID, taskID) =>
-    runtimeFetch<RuntimeRunSchedulerExecuteTaskResponseDTO>(
-      `/v1/runs/${encodeURIComponent(runID)}/tasks/${encodeURIComponent(taskID)}/execute`,
-      {
-        method: 'POST',
-      },
-    ),
-  SessionAgentTasks: (sessionID) => runtimeFetch<RuntimeAgentTasksResponseDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/agent-tasks`),
-  AgentTask: (taskID) => runtimeFetch<RuntimeAgentTaskResponseDTO>(`/v1/agent-tasks/${encodeURIComponent(taskID)}`),
-  AgentTaskFollowUp: (taskID, req) =>
-    runtimeFetch<RuntimeAgentTaskMessageResponseDTO>(`/v1/agent-tasks/${encodeURIComponent(taskID)}/messages`, {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }),
-  CancelAgentTask: (taskID) =>
-    runtimeFetch<RuntimeAgentTaskResponseDTO>(`/v1/agent-tasks/${encodeURIComponent(taskID)}/cancel`, {
-      method: 'POST',
-    }),
-  AgentTaskOutput: (taskID) => runtimeFetch<RuntimeAgentTaskOutputResponseDTO>(`/v1/agent-tasks/${encodeURIComponent(taskID)}/output`),
-  TurnActivity: (turnID) => runtimeFetch<RuntimeTurnActivityDTO>(`/v1/turns/${encodeURIComponent(turnID)}/activity`),
-  ReactCallchain: (turnID) => runtimeFetch<RuntimeReactCallchainDTO>(`/v1/turns/${encodeURIComponent(turnID)}/react-callchain`),
-  TurnPromptAssemblies: (turnID) => runtimeFetch<RuntimePromptAssembliesResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}/prompt-assemblies`),
-  Turn: (turnID) => runtimeFetch<RuntimeTurnResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}`),
-  Turns: (status) => runtimeFetch<RuntimeTurnsResponseDTO>(`/v1/turns?status=${encodeURIComponent(status)}`),
-  Permissions: () => runtimeFetch<{ permissions: RuntimePermissionDTO[] }>('/v1/permissions'),
-  GetPolicy: () => runtimeFetch<RuntimePolicyResponseDTO>('/v1/policy'),
-  UpdatePolicy: (req) =>
-    runtimeFetch<RuntimePolicyResponseDTO>('/v1/policy', {
-      method: 'PUT',
-      body: JSON.stringify(req),
-    }),
-  DecidePermission: (req) =>
-    runtimeFetch<RuntimeStatusDTO>(`/v1/permissions/${encodeURIComponent(req.permissionId)}/decision`, {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }),
-  Skills: () => runtimeFetch<RuntimeSkillsResponseDTO>('/v1/skills'),
-  Plugins: () => runtimeFetch<RuntimePluginsResponseDTO>('/v1/plugins'),
-  RefreshSkills: () =>
-    runtimeFetch<RuntimeSkillsResponseDTO>('/v1/skills/refresh', {
-      method: 'POST',
-    }),
-  SetSkillEnabled: (req) =>
-    runtimeFetch<RuntimeSkillsResponseDTO>(`/v1/skills/${encodeURIComponent(req.name)}/enabled`, {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }),
-  MCPServers: () => runtimeFetch<RuntimeMCPServersResponseDTO>('/v1/mcp/servers'),
-  SaveMCPServer: (req) =>
-    runtimeFetch<RuntimeMCPServersResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(req.name)}`, {
-      method: 'PUT',
-      body: JSON.stringify(req),
-    }),
-  SetMCPServerEnabled: (req) =>
-    runtimeFetch<RuntimeMCPServersResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(req.name)}/enabled`, {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }),
-  RefreshMCPServer: (name) =>
-    runtimeFetch<RuntimeMCPServersResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/refresh`, {
-      method: 'POST',
-    }),
-  RetryMCPServer: (name) =>
-    runtimeFetch<RuntimeMCPServersResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/retry`, {
-      method: 'POST',
-    }),
-  SetMCPToolEnabled: (req) =>
-    runtimeFetch<RuntimeMCPToolsResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(req.server)}/tools/${encodeURIComponent(req.tool)}/enabled`, {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }),
-  MCPTools: (name) => runtimeFetch<RuntimeMCPToolsResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/tools`),
-  MCPResources: (name) => runtimeFetch<RuntimeMCPResourcesResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/resources`),
-  MCPPrompts: (name) => runtimeFetch<RuntimeMCPPromptsResponseDTO>(`/v1/mcp/servers/${encodeURIComponent(name)}/prompts`),
-  EventsEndpoint: () => Promise.resolve(runtimeHTTPEventsEndpoint()),
-  Events: (after) => runtimeFetch<RuntimeEventsResponseDTO>(runtimeEventsPath(after)),
-  CancelTurn: (turnID) =>
-    runtimeFetch<RuntimeStatusDTO>(`/v1/turns/${encodeURIComponent(turnID)}/cancel`, {
-      method: 'POST',
-    }),
-  MarkInterruptedDone: (turnID) =>
-    runtimeFetch<RuntimeTurnResponseDTO>(`/v1/turns/${encodeURIComponent(turnID)}/interrupted/done`, {
-      method: 'POST',
-    }),
-  Chat: (req) => {
-    if (req.sessionId) {
-      return runtimeFetch<RuntimeChatResponseDTO>(`/v1/sessions/${encodeURIComponent(req.sessionId)}/turns`, {
-        method: 'POST',
-        body: JSON.stringify(req),
-      });
-    }
-    return runtimeFetch<RuntimeChatResponseDTO>('/v1/turns', {
-      method: 'POST',
-      body: JSON.stringify(req),
-    });
-  },
-  SubmitUserInput: (req) =>
-    runtimeFetch<RuntimeChatResponseDTO>('/v1/user-inputs', {
-      method: 'POST',
-      body: JSON.stringify(req),
-    }),
-  UserInput: (inputID) => runtimeFetch<RuntimeNormalizedInputDTO>(`/v1/user-inputs/${encodeURIComponent(inputID)}`),
-  CreateTerminal: (req) =>
-    runtimeFetch<RuntimeTerminalResponseDTO>('/v1/terminals', {
-      method: 'POST',
-      body: JSON.stringify(req ?? {}),
-    }),
-  SessionTerminals: (sessionID) => runtimeFetch<RuntimeSessionTerminalsResponseDTO>(`/v1/sessions/${encodeURIComponent(sessionID)}/terminals`),
-  DeleteTerminal: (terminalID) =>
-    runtimeFetch<RuntimeTerminalResponseDTO>(`/v1/terminals/${encodeURIComponent(terminalID)}`, {
-      method: 'DELETE',
-    }),
-};
-
-async function loadRuntimeHTTPBridge() {
-  try {
-    await runtimeHTTPBridge.Status();
-    return runtimeHTTPBridge;
-  } catch (error) {
-    console.warn('[runtime] HTTP bridge unavailable', error);
-    return null;
-  }
-}
-
 async function withBridge(
   run: (bridge: RuntimeBridgeModule) => Promise<WorkbenchViewModel>,
   fallback: () => Promise<WorkbenchViewModel>,
 ) {
   const bridge = await loadRuntimeBridge();
-  if (hasProviderSettingsBridge(bridge)) {
-    try {
-      return await run(bridge);
-    } catch (error) {
-      console.warn('[runtime] wails bridge failed, trying HTTP bridge', error);
-      // Continue to the HTTP runtime bridge below.
-    }
-  }
-
-  const httpBridge = await loadRuntimeHTTPBridge();
-  if (!httpBridge) {
-    return fallback();
+  if (!bridge?.Status) {
+    throw new Error('runtime Wails bindings are unavailable');
   }
   try {
-    return await run(httpBridge);
+    return await run(bridge);
   } catch (error) {
-    console.warn('[runtime] HTTP bridge failed, using static fallback', error);
-    if (httpBridge.ProviderCatalog && httpBridge.ConfiguredProviders) {
+    console.warn('[runtime] Wails bridge failed', error);
+    if (hasProviderSettingsBridge(bridge)) {
       try {
-        return await hydrateSettingsOnly(await fallback(), httpBridge);
+        return await hydrateSettingsOnly(await fallback(), bridge);
       } catch (settingsError) {
         console.warn('[runtime] provider settings fallback failed', settingsError);
       }
@@ -4354,90 +3761,45 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     const nextBase = resetConversationRuntimeState({ ...current, mode: 'project' as const });
     const bridge = await loadRuntimeBridge();
     if (bridge?.OpenProject) {
-      try {
-        await bridge.OpenProject(request);
-        return hydrateWorkbench(nextBase, bridge);
-      } catch (error) {
-        console.warn('[runtime] wails open project failed, trying HTTP bridge', error);
-      }
+      await bridge.OpenProject(request);
+      return hydrateWorkbench(nextBase, bridge);
     }
-    const httpBridge = await loadRuntimeHTTPBridge();
-    if (httpBridge?.OpenProject) {
-      await httpBridge.OpenProject(request);
-      return hydrateWorkbench(nextBase, httpBridge);
-    }
-    return staticWorkbenchAdapter.openProject(current, request);
+    throw new Error('open project Wails binding is unavailable');
   },
   async createProject(current, request) {
     const nextBase = resetConversationRuntimeState({ ...current, mode: 'project' as const });
     const bridge = await loadRuntimeBridge();
     if (bridge?.CreateProject) {
-      try {
-        await bridge.CreateProject(request);
-        return hydrateWorkbench(nextBase, bridge);
-      } catch (error) {
-        console.warn('[runtime] wails create project failed, trying HTTP bridge', error);
-      }
+      await bridge.CreateProject(request);
+      return hydrateWorkbench(nextBase, bridge);
     }
-    const httpBridge = await loadRuntimeHTTPBridge();
-    if (httpBridge?.CreateProject) {
-      await httpBridge.CreateProject(request);
-      return hydrateWorkbench(nextBase, httpBridge);
-    }
-    return staticWorkbenchAdapter.createProject(current, request);
+    throw new Error('create project Wails binding is unavailable');
   },
   async renameProject(current, request) {
     const nextBase = resetConversationRuntimeState({ ...current, mode: 'project' as const });
     const bridge = await loadRuntimeBridge();
     if (bridge?.RenameProject) {
-      try {
-        await bridge.RenameProject(request);
-        return hydrateWorkbench(nextBase, bridge);
-      } catch (error) {
-        console.warn('[runtime] wails rename project failed, trying HTTP bridge', error);
-      }
+      await bridge.RenameProject(request);
+      return hydrateWorkbench(nextBase, bridge);
     }
-    const httpBridge = await loadRuntimeHTTPBridge();
-    if (httpBridge?.RenameProject) {
-      await httpBridge.RenameProject(request);
-      return hydrateWorkbench(nextBase, httpBridge);
-    }
-    return staticWorkbenchAdapter.renameProject(current, request);
+    throw new Error('rename project Wails binding is unavailable');
   },
   async openProjectInExplorer(request) {
     const bridge = await loadRuntimeBridge();
     if (bridge?.OpenProjectInExplorer) {
-      try {
-        await bridge.OpenProjectInExplorer(request);
-        return;
-      } catch (error) {
-        console.warn('[runtime] wails open project in explorer failed, trying HTTP bridge', error);
-      }
-    }
-    const httpBridge = await loadRuntimeHTTPBridge();
-    if (httpBridge?.OpenProjectInExplorer) {
-      await httpBridge.OpenProjectInExplorer(request);
+      await bridge.OpenProjectInExplorer(request);
       return;
     }
-    return staticWorkbenchAdapter.openProjectInExplorer(request);
+    throw new Error('open project in explorer Wails binding is unavailable');
   },
   async removeProject(current, request) {
     const nextBase = resetConversationRuntimeState({ ...current, mode: 'project' as const });
     const bridge = await loadRuntimeBridge();
     if (bridge?.RemoveProject) {
-      try {
-        await bridge.RemoveProject(request);
-        return hydrateWorkbench(nextBase, bridge);
-      } catch (error) {
-        console.warn('[runtime] wails remove project failed, trying HTTP bridge', error);
-      }
+      await bridge.RemoveProject(request);
+      return hydrateWorkbench(nextBase, bridge);
     }
-    const httpBridge = await loadRuntimeHTTPBridge();
-    if (httpBridge?.RemoveProject) {
-      await httpBridge.RemoveProject(request);
-      return hydrateWorkbench(nextBase, httpBridge);
-    }
-    return staticWorkbenchAdapter.removeProject(current, request);
+    throw new Error('remove project Wails binding is unavailable');
   },
   async selectProjectDirectory() {
     const bridge = await loadRuntimeBridge();
@@ -4448,14 +3810,10 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
   },
   async subscribeRuntimeEvents(onEvent) {
     const bridge = await loadRuntimeBridge();
-    if (hasProviderSettingsBridge(bridge)) {
+    if (bridge?.Events || bridge?.EventsEndpoint) {
       return subscribeRuntimeBridgeEvents(bridge, onEvent);
     }
-    const httpBridge = await loadRuntimeHTTPBridge();
-    if (!httpBridge) {
-      return () => undefined;
-    }
-    return subscribeRuntimeBridgeEvents(httpBridge, onEvent);
+    return () => undefined;
   },
   async createSession(current, target) {
     forceDraftChatSubmit = false;
@@ -4709,12 +4067,8 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
   },
   async readRunSchedulerPlan(current, request) {
     const bridge = await loadRuntimeBridge();
-    if (hasProviderSettingsBridge(bridge) && bridge.RunSchedulerPlan) {
+    if (bridge?.RunSchedulerPlan) {
       return mapRunSchedulerPlanCandidates(await bridge.RunSchedulerPlan(toRunSchedulerPlanRequestDTO(request)));
-    }
-    const httpBridge = await loadRuntimeHTTPBridge();
-    if (httpBridge?.RunSchedulerPlan) {
-      return mapRunSchedulerPlanCandidates(await httpBridge.RunSchedulerPlan(toRunSchedulerPlanRequestDTO(request)));
     }
     return staticWorkbenchAdapter.readRunSchedulerPlan(current, request);
   },
@@ -4763,55 +4117,35 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     if (bridge?.SessionTerminals) {
       return mapSessionTerminals(await bridge.SessionTerminals(sessionID));
     }
-    const httpBridge = await loadRuntimeHTTPBridge();
-    if (httpBridge?.SessionTerminals) {
-      return mapSessionTerminals(await httpBridge.SessionTerminals(sessionID));
-    }
-    return staticWorkbenchAdapter.listSessionTerminals(sessionID);
+    throw new Error('terminal Wails bindings are unavailable');
   },
   async createTerminal(request) {
     const bridge = await loadRuntimeBridge();
     if (bridge?.CreateTerminal) {
       return mapTerminal(await bridge.CreateTerminal(request));
     }
-    const httpBridge = await loadRuntimeHTTPBridge();
-    if (httpBridge?.CreateTerminal) {
-      return mapTerminal(await httpBridge.CreateTerminal(request));
-    }
-    return staticWorkbenchAdapter.createTerminal(request);
+    throw new Error('terminal Wails bindings are unavailable');
   },
   async writeTerminalInput(terminalID, data) {
-    if (sendTerminalWebSocketMessage(terminalID, { type: 'input', data })) {
-      return {
-        id: terminalID,
-        sessionId: '',
-        cwd: '',
-        shell: '',
-        status: 'running',
-      };
+    const bridge = await loadRuntimeBridge();
+    if (bridge?.WriteTerminalInput) {
+      return mapTerminal(await bridge.WriteTerminalInput(terminalID, { data }));
     }
-    throw new Error('terminal stream is not connected');
+    throw new Error('terminal Wails input binding is unavailable');
   },
   async resizeTerminal(terminalID, columns, rows) {
-    if (sendTerminalWebSocketMessage(terminalID, { type: 'resize', columns, rows })) {
-      return {
-        id: terminalID,
-        sessionId: '',
-        cwd: '',
-        shell: '',
-        columns,
-        rows,
-        status: 'running',
-      };
+    const bridge = await loadRuntimeBridge();
+    if (bridge?.ResizeTerminal) {
+      return mapTerminal(await bridge.ResizeTerminal(terminalID, { columns, rows }));
     }
-    throw new Error('terminal stream is not connected');
+    throw new Error('terminal Wails resize binding is unavailable');
   },
   async subscribeTerminalEvents(terminalID, onEvent) {
-    const httpBridge = await loadRuntimeHTTPBridge();
-    if (httpBridge?.CreateTerminal) {
-      return subscribeHTTPRuntimeTerminalStream(terminalID, onEvent);
+    const bridge = await loadRuntimeBridge();
+    if (bridge?.StartTerminalEventStream) {
+      return subscribeWailsRuntimeTerminalStream(bridge, terminalID, onEvent);
     }
-    throw new Error('terminal stream is not connected');
+    throw new Error('terminal Wails stream binding is unavailable');
   },
   async deleteTerminal(terminalID) {
     const bridge = await loadRuntimeBridge();
@@ -4819,12 +4153,19 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       await bridge.DeleteTerminal(terminalID);
       return;
     }
-    const httpBridge = await loadRuntimeHTTPBridge();
-    if (httpBridge?.DeleteTerminal) {
-      await httpBridge.DeleteTerminal(terminalID);
-      return;
-    }
-    return staticWorkbenchAdapter.deleteTerminal(terminalID);
+    throw new Error('terminal Wails bindings are unavailable');
+  },
+  async selectTerminalProfile(current, profileID) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.SaveTerminalSettings) {
+          throw new Error('terminal settings Wails binding is unavailable');
+        }
+        await bridge.SaveTerminalSettings({ profileId: profileID });
+        return hydrateWorkbench(current, bridge);
+      },
+      () => staticWorkbenchAdapter.selectTerminalProfile(current, profileID),
+    );
   },
   async saveConfiguredProvider(current, provider) {
     return withBridge(
@@ -4873,9 +4214,6 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     if (bridge?.DiscoverModelConfig) {
       return mapDraftModelDiscovery(await bridge.DiscoverModelConfig(toRuntimeModelConfigRequest(request)));
     }
-    if (runtimeHTTPBridge.DiscoverModelConfig) {
-      return mapDraftModelDiscovery(await runtimeHTTPBridge.DiscoverModelConfig(toRuntimeModelConfigRequest(request)));
-    }
     return staticWorkbenchAdapter.discoverProviderDraftModels(request);
   },
   async discoverConfiguredProviderModels(providerID) {
@@ -4883,15 +4221,12 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     if (bridge?.DiscoverConfiguredProviderModels) {
       return bridge.DiscoverConfiguredProviderModels(providerID);
     }
-    return runtimeHTTPBridge.DiscoverConfiguredProviderModels?.(providerID) ?? staticWorkbenchAdapter.discoverConfiguredProviderModels(providerID);
+    return staticWorkbenchAdapter.discoverConfiguredProviderModels(providerID);
   },
   async testProviderDraft(request) {
     const bridge = await loadRuntimeBridge();
     if (bridge?.VerifyModelConfig) {
       return mapDraftProviderTest(await bridge.VerifyModelConfig(toRuntimeModelConfigRequest(request)));
-    }
-    if (runtimeHTTPBridge.VerifyModelConfig) {
-      return mapDraftProviderTest(await runtimeHTTPBridge.VerifyModelConfig(toRuntimeModelConfigRequest(request)));
     }
     return staticWorkbenchAdapter.testProviderDraft(request);
   },
@@ -4900,16 +4235,13 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     if (bridge?.TestConfiguredProvider) {
       return bridge.TestConfiguredProvider(providerID);
     }
-    return runtimeHTTPBridge.TestConfiguredProvider?.(providerID) ?? staticWorkbenchAdapter.testConfiguredProvider(providerID);
+    return staticWorkbenchAdapter.testConfiguredProvider(providerID);
   },
   async measureProviderDraftLatency(request) {
     const startedAt = performance.now();
     const bridge = await loadRuntimeBridge();
     if (bridge?.VerifyModelConfig) {
       return mapDraftProviderTest(await bridge.VerifyModelConfig(toRuntimeModelConfigRequest(request)), Math.round(performance.now() - startedAt));
-    }
-    if (runtimeHTTPBridge.VerifyModelConfig) {
-      return mapDraftProviderTest(await runtimeHTTPBridge.VerifyModelConfig(toRuntimeModelConfigRequest(request)), Math.round(performance.now() - startedAt));
     }
     return staticWorkbenchAdapter.measureProviderDraftLatency(request);
   },
@@ -4918,7 +4250,7 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
     if (bridge?.MeasureConfiguredProviderLatency) {
       return bridge.MeasureConfiguredProviderLatency(providerID);
     }
-    return runtimeHTTPBridge.MeasureConfiguredProviderLatency?.(providerID) ?? staticWorkbenchAdapter.measureConfiguredProviderLatency(providerID);
+    return staticWorkbenchAdapter.measureConfiguredProviderLatency(providerID);
   },
   async refreshSkills(current) {
     return withBridge(

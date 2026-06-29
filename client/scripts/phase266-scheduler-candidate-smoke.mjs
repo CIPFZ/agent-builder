@@ -18,7 +18,7 @@ assertIncludes(types, 'RunSchedulerTaskCandidateViewModel', 'candidate view mode
 assertIncludes(types, 'schedulerTaskCandidates?: RunSchedulerTaskCandidateViewModel[];', 'RunProjection carries hidden scheduler candidates');
 assertIncludes(types, 'readRunSchedulerPlan:', 'WorkbenchAdapter exposes hidden scheduler plan read');
 assertIncludes(adapter, 'RunSchedulerPlan?: (req: RuntimeRunSchedulerPlanRequestDTO)', 'runtime bridge declares optional RunSchedulerPlan');
-assertIncludes(adapter, '/v1/run-scheduler-plan', 'HTTP fallback targets durable scheduler plan endpoint');
+assertIncludes(adapter, 'return mapRunSchedulerPlanCandidates(await bridge.RunSchedulerPlan(toRunSchedulerPlanRequestDTO(request)));', 'adapter reads scheduler plans through Wails binding');
 assertIncludes(adapter, 'executeEligible: item.canSchedule === true', 'execute eligibility maps only from durable canSchedule');
 assertIncludes(adapter, 'disabledReason: item.canSchedule ? undefined : item.preflightReason', 'disabled reason maps from durable preflight reason');
 assertIncludes(adapter, 'await hydrateRunSchedulerTaskCandidates(bridge, runProjection)', 'workbench hydration rereads durable scheduler candidates');

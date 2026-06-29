@@ -75,6 +75,7 @@ interface SettingsPanelProps {
   onProviderLatency: (providerID: string) => Promise<ProviderTestViewModel>;
   selectedModel?: RuntimeModelOptionViewModel;
   onModelSelect: (configuredProviderID: string, model: string) => Promise<void>;
+  onTerminalProfileSelect: (profileID: string) => Promise<SettingsViewModel>;
   onSkillRefresh: () => Promise<SettingsViewModel>;
   onSkillToggle: (name: string, enabled: boolean) => Promise<SettingsViewModel>;
   onMCPServerRefresh: (name: string) => Promise<SettingsViewModel>;
@@ -98,6 +99,7 @@ export function SettingsPanel({
   onProviderLatency,
   selectedModel,
   onModelSelect,
+  onTerminalProfileSelect,
   onSkillRefresh,
   onSkillToggle,
   onMCPServerRefresh,
@@ -147,7 +149,7 @@ export function SettingsPanel({
           />
         );
       case 'common':
-        return <CommonSettings settings={settings} />;
+        return <CommonSettings settings={settings} onTerminalProfileSelect={onTerminalProfileSelect} />;
       default:
         return <GeneralSettings />;
     }
@@ -1174,9 +1176,36 @@ function stateTagColor(state?: string) {
   }
 }
 
-function CommonSettings({ settings }: { settings: SettingsViewModel }) {
+function CommonSettings({
+  settings,
+  onTerminalProfileSelect,
+}: {
+  settings: SettingsViewModel;
+  onTerminalProfileSelect: (profileID: string) => Promise<SettingsViewModel>;
+}) {
+  const [terminalProfile, setTerminalProfile] = useState(settings.terminalProfile);
+  const [savingTerminalProfile, setSavingTerminalProfile] = useState(false);
+  const [messageApi, messageContextHolder] = message.useMessage();
+  const selectedTerminalProfile = savingTerminalProfile ? terminalProfile : settings.terminalProfile || terminalProfile;
+
+  const saveTerminalProfile = async (profileID: string) => {
+    setTerminalProfile(profileID);
+    setSavingTerminalProfile(true);
+    try {
+      const nextSettings = await onTerminalProfileSelect(profileID);
+      setTerminalProfile(nextSettings.terminalProfile);
+      messageApi.success('终端配置已保存');
+    } catch (error) {
+      setTerminalProfile(settings.terminalProfile);
+      messageApi.error(error instanceof Error ? error.message : '终端配置保存失败');
+    } finally {
+      setSavingTerminalProfile(false);
+    }
+  };
+
   return (
     <>
+      {messageContextHolder}
       <Title level={2}>通用</Title>
       <section className={styles.section}>
         <Card styles={{ body: { padding: 0 } }}>
@@ -1200,11 +1229,13 @@ function CommonSettings({ settings }: { settings: SettingsViewModel }) {
                 <Text type="secondary">运行本地命令时使用的默认终端</Text>
               </Flex>
               <Select
-                defaultValue={settings.terminalProfile}
+                loading={savingTerminalProfile}
                 options={settings.terminalOptions}
                 popupMatchSelectWidth={false}
                 style={{ minWidth: 180 }}
+                value={selectedTerminalProfile}
                 variant="filled"
+                onChange={(value) => void saveTerminalProfile(value)}
               />
             </Flex>
           </Flex>

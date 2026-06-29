@@ -39,16 +39,8 @@ assertIncludes(
   'RunSummary?: (runID: string) => Promise<RuntimeRunSummaryResponseDTO>;',
   'Wails bridge must expose optional RunSummary read transport',
 );
-assertIncludes(
-  adapter,
-  "RunSummaries: () => runtimeFetch<RuntimeRunSummariesResponseDTO>('/v1/run-summaries')",
-  'HTTP bridge must reread run summaries from the runtime route',
-);
-assertIncludes(
-  adapter,
-  'RunSummary: (runID) => runtimeFetch<RuntimeRunSummaryResponseDTO>(`/v1/run-summaries/${encodeURIComponent(runID)}`)',
-  'HTTP bridge must reread a run summary from the runtime route',
-);
+assertNotIncludes(adapter, 'runtimeFetch<RuntimeRunSummariesResponseDTO>', 'adapter must not use HTTP fetch for run summaries');
+assertNotIncludes(adapter, 'runtimeFetch<RuntimeRunSummaryResponseDTO>', 'adapter must not use HTTP fetch for run summary details');
 
 assertNotIncludes(
   adapter,

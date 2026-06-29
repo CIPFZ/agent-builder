@@ -38,6 +38,7 @@ func resolveDesktopLayout() (desktopLayout, error) {
 	layout.SkillConfigPath = filepath.Join(layout.ConfigDir, "skills.json")
 	layout.MCPConfigPath = filepath.Join(layout.ConfigDir, "mcp.json")
 	layout.PolicyConfigPath = filepath.Join(layout.ConfigDir, "policy.json")
+	layout.TerminalConfigPath = filepath.Join(layout.ConfigDir, "terminal.json")
 	return layout, nil
 }
 

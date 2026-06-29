@@ -111,6 +111,13 @@ func (r *runtimeService) CreateTerminal(ctx context.Context, req RuntimeTerminal
 	if !isPathInside(projectPath, cwd) {
 		return RuntimeTerminalResponse{}, fmt.Errorf("terminal cwd %s is outside project path %s", cwd, projectPath)
 	}
+	if strings.TrimSpace(req.ProfileID) == "" {
+		settings, settingsErr := loadRuntimeTerminalSettings()
+		if settingsErr != nil {
+			return RuntimeTerminalResponse{}, settingsErr
+		}
+		req.ProfileID = settings.ProfileID
+	}
 	profile, err := runtimeTerminalProfile(req)
 	if err != nil {
 		return RuntimeTerminalResponse{}, err
@@ -620,6 +627,39 @@ func runtimeTerminalProfile(req RuntimeTerminalCreateRequest) (runtimeTerminalSh
 			path:  path,
 			args:  append([]string(nil), req.ShellArgs...),
 		}, nil
+	}
+	switch strings.TrimSpace(req.ProfileID) {
+	case "git-bash":
+		gitBash := runtimeTerminalLookPath(`C:\Program Files\Git\bin\bash.exe`, `C:\Program Files (x86)\Git\bin\bash.exe`)
+		if gitBash == "" {
+			return runtimeTerminalShellProfile{}, errors.New("Git Bash terminal profile is not available")
+		}
+		return runtimeTerminalShellProfile{
+			name:  "MINGW64",
+			title: "Git Bash",
+			path:  gitBash,
+			args:  []string{"--login", "-i"},
+		}, nil
+	case "powershell":
+		powershell := runtimeTerminalLookPath("pwsh.exe", "powershell.exe")
+		if powershell == "" {
+			return runtimeTerminalShellProfile{}, errors.New("PowerShell terminal profile is not available")
+		}
+		return runtimeTerminalShellProfile{
+			name:  "PowerShell",
+			title: "PowerShell",
+			path:  powershell,
+			args:  []string{"-NoLogo", "-NoProfile"},
+		}, nil
+	case "cmd":
+		cmd := runtimeTerminalLookPath("cmd.exe")
+		if cmd == "" {
+			return runtimeTerminalShellProfile{}, errors.New("cmd terminal profile is not available")
+		}
+		return runtimeTerminalShellProfile{name: "cmd", title: "cmd", path: cmd}, nil
+	case "":
+	default:
+		return runtimeTerminalShellProfile{}, fmt.Errorf("unsupported terminal profile %q", req.ProfileID)
 	}
 	if runtime.GOOS == "windows" {
 		if gitBash := runtimeTerminalLookPath(`C:\Program Files\Git\bin\bash.exe`, `C:\Program Files (x86)\Git\bin\bash.exe`); gitBash != "" {

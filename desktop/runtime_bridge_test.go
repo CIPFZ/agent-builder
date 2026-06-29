@@ -1114,6 +1114,14 @@ func (s *recordingRuntimeService) CreateTerminal(_ context.Context, req RuntimeT
 	return s.terminalResponse, nil
 }
 
+func (s *recordingRuntimeService) TerminalSettings(context.Context) (RuntimeTerminalSettingsResponse, error) {
+	return RuntimeTerminalSettingsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SaveTerminalSettings(context.Context, RuntimeTerminalSettings) (RuntimeTerminalSettingsResponse, error) {
+	return RuntimeTerminalSettingsResponse{}, nil
+}
+
 func (s *recordingRuntimeService) SessionTerminals(_ context.Context, sessionID string) (RuntimeSessionTerminalsResponse, error) {
 	s.sessionTerminalsID = sessionID
 	if s.sessionTerminals.SessionID == "" {
