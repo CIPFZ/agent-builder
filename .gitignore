@@ -53,6 +53,7 @@ Thumbs.db
 /tmp/
 /refer/
 /.playwright-mcp/
+desktop/build/windows/icon.ico
 
 manpages/
 completions/agent-builder.*sh
