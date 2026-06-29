@@ -139,6 +139,7 @@ type RuntimeSessionUpdateRequest = runtime.RuntimeSessionUpdateRequest
 type RuntimeMessagesResponse = runtime.RuntimeMessagesResponse
 type RuntimeAssistantStep = runtime.RuntimeAssistantStep
 type RuntimeToolResult = runtime.RuntimeToolResult
+type RuntimeConversationItem = runtime.RuntimeConversationItem
 type RuntimeOutputRequest = runtime.RuntimeOutputRequest
 type RuntimeOutputSnapshot = runtime.RuntimeOutputSnapshot
 type RuntimeOutputEvent = runtime.RuntimeOutputEvent

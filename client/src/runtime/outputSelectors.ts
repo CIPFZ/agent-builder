@@ -4,9 +4,12 @@ import type {
   PermissionRequestViewModel,
   ToolCallViewModel,
 } from './workbenchTypes.ts';
-import type { OutputStore, RuntimeOutputAssistantStep, RuntimeOutputToolCall, RuntimeOutputToolResult } from './outputTypes.ts';
+import type { OutputStore, RuntimeAgentTaskOutput, RuntimeConversationItem, RuntimeOutputAssistantStep, RuntimeOutputToolCall, RuntimeOutputToolResult, RuntimeToolResultView } from './outputTypes.ts';
 
 export function selectConversationMessages(store: OutputStore): ConversationMessageViewModel[] {
+  if (store.version && Object.keys(store.itemsById).length > 0) {
+    return selectConversationMessagesFromRuntimeItems(store);
+  }
   return [
     ...Object.values(store.optimisticByClientRequestId).map((optimistic) => ({
       id: `optimistic-${optimistic.clientRequestId}`,
@@ -46,6 +49,10 @@ export function selectActiveTurn(store: OutputStore) {
 }
 
 export function selectConversationTimeline(store: OutputStore): ConversationTimelineItemViewModel[] {
+  if (store.version && Object.keys(store.itemsById).length > 0) {
+    return selectRuntimeConversationTimeline(store);
+  }
+  // Diagnostics-only fallback for legacy snapshots that do not provide runtime-owned conversation items.
   const items: ConversationTimelineItemViewModel[] = [];
   const stepsByTurn = groupAssistantStepsByTurn(store);
   const turnIDByUserMessage = Object.fromEntries(Object.values(store.turnsById).filter((turn) => turn.userMessageId).map((turn) => [turn.userMessageId, turn.id]));
@@ -111,6 +118,198 @@ export function selectConversationTimeline(store: OutputStore): ConversationTime
   }
 
   return items.sort(compareTimelineRows);
+}
+
+function selectConversationMessagesFromRuntimeItems(store: OutputStore): ConversationMessageViewModel[] {
+  const optimistic = Object.values(store.optimisticByClientRequestId).filter((submit) => {
+    return !Object.values(store.itemsById).some((item) => item.role === 'user' && item.content === submit.prompt);
+  }).map((submit) => ({
+    id: `optimistic-${submit.clientRequestId}`,
+    role: 'user' as const,
+    content: submit.prompt,
+    createdAt: submit.createdAt,
+    clientRequestId: submit.clientRequestId,
+    status: submit.status === 'error' ? 'error' as const : 'loading' as const,
+    error: submit.error,
+  }));
+  const messages = Object.values(store.itemsById)
+    .filter((item) => item.kind === 'user_message' || item.kind === 'assistant_message')
+    .map((item) => {
+      const message = item.messageId ? store.messagesById[item.messageId] : undefined;
+      return {
+        id: item.id,
+        role: (item.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
+        content: item.content ?? '',
+        createdAt: item.createdAt,
+        clientRequestId: message?.clientRequestId,
+        provider: message?.provider,
+        model: message?.model,
+        status: item.status === 'streaming' ? 'loading' as const : item.error ? 'error' as const : 'success' as const,
+        error: item.error,
+      };
+    });
+  return [...optimistic, ...messages].sort(compareConversationRows);
+}
+
+function selectRuntimeConversationTimeline(store: OutputStore): ConversationTimelineItemViewModel[] {
+  const runtimeItems = Object.values(store.itemsById).sort((left, right) => compareNumbers(left.sequence, right.sequence) || left.id.localeCompare(right.id));
+  const optimistic = Object.values(store.optimisticByClientRequestId)
+    .filter((submit) => !runtimeItems.some((item) => item.kind === 'user_message' && item.content === submit.prompt))
+    .map((submit): ConversationTimelineItemViewModel => ({
+      id: `optimistic-${submit.clientRequestId}`,
+      kind: 'user_message',
+      sessionId: store.sessionId,
+      role: 'user',
+      content: submit.prompt,
+      status: submit.status === 'error' ? 'error' : 'loading',
+      createdAt: submit.createdAt,
+      clientRequestId: submit.clientRequestId,
+      error: submit.error,
+      source: 'runtime_activity',
+    }));
+  return [
+    ...optimistic,
+    ...runtimeItems.map((item) => runtimeConversationItemViewModel(item, store)),
+  ].sort((left, right) => compareNumbers(left.sequence, right.sequence) || compareNumbers(left.createdAt, right.createdAt) || left.id.localeCompare(right.id));
+}
+
+function runtimeConversationItemViewModel(item: RuntimeConversationItem, store: OutputStore): ConversationTimelineItemViewModel {
+  const toolCall = item.toolCallId ? store.toolCallsById[item.toolCallId] : undefined;
+  const permission = item.permissionId ? store.permissionsById[item.permissionId] : undefined;
+  return {
+    id: item.id,
+    kind: normalizeRuntimeTimelineKind(item.kind),
+    sessionId: item.sessionId,
+    turnId: item.turnId,
+    messageId: item.messageId,
+    toolCallId: item.toolCallId,
+    role: item.role === 'assistant' || item.role === 'user' || item.role === 'tool' || item.role === 'system' ? item.role : undefined,
+    title: item.title,
+    content: item.content,
+    summary: item.summary,
+    status: item.status,
+    phase: item.phase === 'final' ? 'final' : item.phase === 'intermediate' ? 'intermediate' : undefined,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    sequence: item.sequence,
+    source: 'runtime_activity',
+    error: item.error,
+    toolCall: toolCall ? toolCallViewModel(toolCall, toolCall.result ?? latestToolResult(toolCall, store), store) : item.toolCallIds?.length ? toolGroupViewModel(item, store) : undefined,
+    permission: permission ? runtimePermissionViewModel(permission) : undefined,
+    agentTask: item.agentTaskId ? runtimeAgentTaskViewModel(store.agentTasksById[item.agentTaskId], item) : undefined,
+  };
+}
+
+function normalizeRuntimeTimelineKind(kind: string): ConversationTimelineItemViewModel['kind'] {
+  if (kind === 'assistant_thinking') {
+    return 'assistant_thinking';
+  }
+  if (kind === 'permission_request') {
+    return 'permission_request';
+  }
+  if (kind === 'turn_progress') {
+    return 'turn_progress';
+  }
+  if (kind === 'diagnostic_warning') {
+    return 'diagnostic_warning';
+  }
+  return kind as ConversationTimelineItemViewModel['kind'];
+}
+
+function toolGroupViewModel(item: RuntimeConversationItem, store: OutputStore): ToolCallViewModel | undefined {
+  const first = (item.toolCallIds ?? []).map((id) => store.toolCallsById[id]).find(Boolean);
+  if (!first) {
+    return undefined;
+  }
+  return toolCallViewModel({
+    ...first,
+    id: item.id,
+    status: item.status ?? first.status,
+    kind: item.display?.kind ?? first.kind,
+    outputSummary: item.summary,
+    display: {
+      ...first.display,
+      kind: item.display?.kind ?? first.display?.kind,
+      title: item.title,
+      detail: item.summary,
+    },
+    groupKey: item.display?.groupKey,
+    groupable: item.display?.groupable,
+    quiet: item.display?.quiet,
+    defaultExpanded: item.display?.defaultExpanded,
+  }, undefined, store);
+}
+
+function runtimePermissionViewModel(permission: NonNullable<OutputStore['permissionsById'][string]>): PermissionRequestViewModel {
+  return {
+    id: permission.id,
+    sessionId: permission.sessionId,
+    turnId: permission.turnId,
+    toolCallId: permission.toolCallId,
+    toolName: permission.toolName,
+    description: permission.description,
+    action: permission.action,
+    risk: permission.risk,
+    status: permission.status,
+    path: permission.path,
+    target: permission.target,
+    reason: permission.reason,
+    policyMode: permission.policyMode,
+    policyReason: permission.policyReason,
+    policyTargetSummary: permission.policyTargetSummary,
+    createdAt: permission.createdAt,
+    decidedAt: permission.decidedAt,
+  };
+}
+
+function runtimeAgentTaskViewModel(task: RuntimeAgentTaskOutput | undefined, item?: RuntimeConversationItem) {
+  if (!task) {
+    if (!item?.agentTaskId) {
+      return undefined;
+    }
+    return {
+      id: item.agentTaskId,
+      parentSessionId: item.sessionId,
+      parentTurnId: item.turnId,
+      parentToolCallId: item.toolCallId,
+      title: item.title || item.agentTaskId,
+      kind: 'agent_task',
+      status: item.status || 'unknown',
+      progress: 0,
+      resultSummary: item.summary,
+      startedAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      error: item.error,
+    };
+  }
+  return {
+    id: task.id,
+    parentSessionId: task.parentSessionId,
+    parentTurnId: task.parentTurnId,
+    parentToolCallId: task.parentToolCallId,
+    childSessionId: task.childSessionId,
+    title: task.title,
+    kind: task.kind,
+    role: task.role,
+    name: task.name,
+    promptSummary: task.promptSummary,
+    model: task.model,
+    provider: task.provider,
+    allowedTools: task.allowedTools,
+    capabilityScope: task.capabilityScope,
+    cwd: task.cwd,
+    worktree: task.worktree,
+    status: task.status,
+    progress: task.progress ?? 0,
+    resultSummary: task.resultSummary,
+    artifactRefs: task.artifactRefs,
+    compactBoundaryRefs: task.compactBoundaryRefs,
+    cancellationDetail: task.cancellationDetail,
+    startedAt: task.startedAt,
+    updatedAt: task.updatedAt,
+    finishedAt: task.finishedAt,
+    error: task.error,
+  };
 }
 
 function pushAssistantStepItems(items: ConversationTimelineItemViewModel[], store: OutputStore, step: RuntimeOutputAssistantStep) {
@@ -190,7 +389,7 @@ function pushToolItems(items: ConversationTimelineItemViewModel[], store: Output
         name: first.name,
         status: 'completed',
         outputSummary: completedToolGroupTitle(group),
-      }, undefined),
+      }, undefined, store),
       source: 'runtime_activity',
     });
   }
@@ -204,7 +403,7 @@ function toolTimelineItem(
   bucket: string,
 ): ConversationTimelineItemViewModel {
   const result = latestToolResult(call, store);
-  const viewModel = toolCallViewModel(call, result);
+  const viewModel = toolCallViewModel(call, result, store);
   return {
     id: `tool-${step.id}-${call.id}`,
     kind: 'tool_call',
@@ -240,29 +439,37 @@ function permissionTimelineItem(step: RuntimeOutputAssistantStep, permission: Pe
   };
 }
 
-function toolCallViewModel(call: RuntimeOutputToolCall, result: RuntimeOutputToolResult | undefined): ToolCallViewModel {
+function toolCallViewModel(call: RuntimeOutputToolCall, result: RuntimeOutputToolResult | RuntimeToolResultView | undefined, store?: OutputStore): ToolCallViewModel {
+  const agentTask = Object.values(store?.agentTasksById ?? {}).find((task) => task.parentToolCallId === call.id);
   return {
     id: call.id,
     sessionId: call.sessionId,
     turnId: call.turnId,
     name: call.name,
     source: call.source,
+    kind: call.kind || call.display?.kind,
     command: call.command,
     risk: call.risk,
     status: call.status,
     inputSummary: call.inputSummary,
-    outputSummary: call.outputSummary || result?.contentPreview || result?.dataPreview,
-    error: call.error || (result?.status === 'error' ? result.contentPreview || result.dataPreview : undefined),
+    outputSummary: call.outputSummary || result?.contentPreview || result?.dataPreview || call.result?.contentPreview || call.result?.dataPreview,
+    error: call.error || (result?.status === 'error' ? result.contentPreview || result.dataPreview : undefined) || (call.result?.status === 'error' ? call.result.contentPreview || call.result.dataPreview : undefined),
     policyMode: call.policyMode,
     policyReason: call.policyReason,
     policyTargetSummary: call.policyTargetSummary,
     display: call.display,
     exitCode: call.exitCode,
     outputRefs: call.outputRefs,
-    artifactRefs: call.artifactRefs || result?.artifactRefs,
-    diffRefs: call.diffRefs || result?.diffRefs,
+    artifactRefs: call.artifactRefs || result?.artifactRefs || call.result?.artifactRefs,
+    diffRefs: call.diffRefs || result?.diffRefs || call.result?.diffRefs,
     startedAt: call.startedAt,
     finishedAt: call.finishedAt,
+    parentToolCallId: call.parentToolCallId,
+    groupKey: call.groupKey,
+    groupable: call.groupable,
+    quiet: call.quiet,
+    defaultExpanded: call.defaultExpanded,
+    agentTask: agentTask ? runtimeAgentTaskViewModel(agentTask) : undefined,
   };
 }
 

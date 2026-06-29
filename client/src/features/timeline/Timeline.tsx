@@ -87,7 +87,7 @@ function TurnBlock({
   onAgentTaskOpen?: (taskID: string) => void;
   onHookOpen?: (execution: HookExecutionViewModel) => void;
 }) {
-  const promptHooks = highSignalHooks(hookExecutions, block.turnId).filter((execution) => !execution.toolCallId);
+  const promptHooks = block.processItems.some((item) => item.kind === 'hook_run') ? [] : highSignalHooks(hookExecutions, block.turnId).filter((execution) => !execution.toolCallId);
   return (
     <section className={styles.turnBlock} data-testid="timeline-turn-block" data-turn-id={block.turnId}>
       {block.userMessage && <TimelineMessage item={block.userMessage} messageApi={messageApi} />}
@@ -176,7 +176,7 @@ function TimelineProcessItem({
       </>
     );
   }
-  if (item.kind === 'tool_call' && item.toolCall) {
+  if ((item.kind === 'tool_call' || item.kind === 'tool_group') && item.toolCall) {
     return (
       <>
         <ToolCallCard toolCall={item.toolCall} onAgentTaskOpen={onAgentTaskOpen} />
@@ -186,13 +186,13 @@ function TimelineProcessItem({
       </>
     );
   }
-  if (item.kind === 'permission' && item.permission) {
+  if ((item.kind === 'permission' || item.kind === 'permission_request') && item.permission) {
     return <PermissionTraceRow item={item} />;
   }
-  if (item.kind === 'thinking') {
+  if (item.kind === 'thinking' || item.kind === 'assistant_thinking') {
     return <ThinkingItem item={item} />;
   }
-  if (item.kind === 'progress') {
+  if (item.kind === 'progress' || item.kind === 'turn_progress') {
     const detail = progressDetail(item);
     return (
       <div className={styles.progress} data-testid="turn-progress" data-progress-status={item.status}>
@@ -202,21 +202,55 @@ function TimelineProcessItem({
     );
   }
   if (item.kind === 'turn_terminal') {
-    return null;
+    return <WorkflowNoticeRow item={item} />;
   }
-  if (item.kind === 'diagnostic') {
+  if (item.kind === 'diagnostic' || item.kind === 'diagnostic_warning') {
     return <TurnDiagnosticWarning item={item} />;
+  }
+  if (item.kind === 'hook_run' || item.kind === 'todo_summary' || item.kind === 'recovery_notice') {
+    return <WorkflowNoticeRow item={item} />;
   }
   if (isContextGovernanceItem(item)) {
     return <ContextGovernanceRow item={item} />;
   }
-  if (item.kind === 'agent_task' && item.agentTask) {
-    return <AgentTaskTimelineRow item={item} onAgentTaskOpen={onAgentTaskOpen} />;
+  if (item.kind === 'agent_task') {
+    return item.agentTask ? <AgentTaskTimelineRow item={item} onAgentTaskOpen={onAgentTaskOpen} /> : <WorkflowNoticeRow item={item} />;
   }
-  if (item.kind === 'message') {
+  if (item.kind === 'message' || item.kind === 'assistant_message') {
     return <AssistantProcessNote item={item} />;
   }
   return null;
+}
+
+function WorkflowNoticeRow({ item }: { item: ConversationTimelineItemViewModel }) {
+  const failed = item.status === 'failed' || item.status === 'interrupted' || Boolean(item.error);
+  return (
+    <div className={styles.contextGovernanceRow} data-testid="timeline-workflow-row" data-workflow-kind={item.kind} data-workflow-status={item.status}>
+      <span className={styles.contextGovernanceIcon}>{failed ? <WarningOutlined /> : <BranchesOutlined />}</span>
+      <div className={styles.contextGovernanceBody}>
+        <div className={styles.contextGovernanceTitle}>
+          <span>{item.title || workflowNoticeTitle(item.kind)}</span>
+          {item.status ? <Tag color={failed ? 'error' : 'default'}>{item.status}</Tag> : null}
+        </div>
+        {item.summary || item.error || item.content ? <div className={styles.contextGovernanceSummary}>{item.error || item.summary || item.content}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function workflowNoticeTitle(kind: string) {
+  switch (kind) {
+    case 'hook_run':
+      return 'Hook';
+    case 'todo_summary':
+      return 'Todo';
+    case 'recovery_notice':
+      return 'Recovery';
+    case 'turn_terminal':
+      return 'Turn ended';
+    default:
+      return 'Workflow';
+  }
 }
 
 function ContextGovernanceRow({ item }: { item: ConversationTimelineItemViewModel }) {
@@ -336,7 +370,7 @@ function AgentTaskTimelineRow({ item, onAgentTaskOpen }: { item: ConversationTim
 
 function TurnDiagnosticWarning({ item }: { item: ConversationTimelineItemViewModel }) {
   const missingArtifacts = item.diagnostics?.missingArtifacts ?? [];
-  if (!item.diagnostics?.warning || missingArtifacts.length === 0) {
+  if (!item.diagnostics?.warning && !item.summary && missingArtifacts.length === 0) {
     return null;
   }
   return (
@@ -344,7 +378,7 @@ function TurnDiagnosticWarning({ item }: { item: ConversationTimelineItemViewMod
       <WarningOutlined className={styles.diagnosticIcon} />
       <div className={styles.diagnosticBody}>
         <div className={styles.diagnosticTitle}>{diagnosticWarningTitle(item)}</div>
-        <div className={styles.diagnosticContent}>{formatMissingArtifacts(missingArtifacts)}</div>
+        <div className={styles.diagnosticContent}>{missingArtifacts.length > 0 ? formatMissingArtifacts(missingArtifacts) : item.summary}</div>
       </div>
     </div>
   );
@@ -378,11 +412,11 @@ function buildTurnBlocks(items: ConversationTimelineItemViewModel[]): TimelineTu
     block.finishedAt = maxDefined(block.finishedAt, item.updatedAt || item.createdAt);
     block.status = mergeTurnStatus(block.status, item.status);
 
-    if (item.kind === 'message' && item.role === 'user') {
+    if ((item.kind === 'message' || item.kind === 'user_message') && item.role === 'user') {
       block.userMessage = block.userMessage ?? item;
       continue;
     }
-    if (item.kind === 'message' && item.role === 'assistant') {
+    if ((item.kind === 'message' || item.kind === 'assistant_message') && item.role === 'assistant') {
       if (isFinalAssistantMessage(item)) {
         block.finalMessage = item;
       } else {
@@ -409,10 +443,18 @@ function buildTurnBlocks(items: ConversationTimelineItemViewModel[]): TimelineTu
 function isProcessItem(item: ConversationTimelineItemViewModel) {
   return (
     item.kind === 'thinking' ||
+    item.kind === 'assistant_thinking' ||
     item.kind === 'tool_call' ||
+    item.kind === 'tool_group' ||
     item.kind === 'permission' ||
+    item.kind === 'permission_request' ||
     item.kind === 'progress' ||
+    item.kind === 'turn_progress' ||
     item.kind === 'diagnostic' ||
+    item.kind === 'diagnostic_warning' ||
+    item.kind === 'hook_run' ||
+    item.kind === 'todo_summary' ||
+    item.kind === 'recovery_notice' ||
     item.kind === 'agent_task' ||
     item.kind === 'turn_terminal' ||
     isContextGovernanceItem(item)
@@ -445,7 +487,7 @@ function isHighSignalHook(execution: HookExecutionViewModel) {
 }
 
 function isFinalAssistantMessage(item: ConversationTimelineItemViewModel) {
-  return item.role === 'assistant' && item.kind === 'message' && item.phase !== 'intermediate' && (item.content?.trim() || item.status === 'error');
+  return item.role === 'assistant' && (item.kind === 'message' || item.kind === 'assistant_message') && item.phase !== 'intermediate' && (item.content?.trim() || item.status === 'error' || item.status === 'completed');
 }
 
 function shouldOpenProcessTrace(block: TimelineTurnBlock) {
@@ -465,7 +507,8 @@ function isContextGovernanceItem(item: ConversationTimelineItemViewModel) {
     item.kind === 'snip_boundary' ||
     item.kind === 'microcompact_marker' ||
     item.kind === 'reactive_compact_retry' ||
-    item.kind === 'tool_result_replacement'
+    item.kind === 'tool_result_replacement' ||
+    item.kind === 'context_source'
   );
 }
 
@@ -481,6 +524,8 @@ function contextGovernanceTitle(item: ConversationTimelineItemViewModel) {
       return `Reactive compact retry${item.title ? `: ${item.title}` : ''}`;
     case 'tool_result_replacement':
       return `Tool result replacement${item.toolCallId ? `: ${item.toolCallId}` : ''}`;
+    case 'context_source':
+      return `Context source${item.title ? `: ${item.title}` : ''}`;
     default:
       return item.title || 'Context governance';
   }
@@ -512,7 +557,7 @@ function processTraceSummaryParts(block: TimelineTurnBlock) {
   return {
     duration: blockDuration(block),
     label: processTraceLabel(block.status),
-    toolCount: block.processItems.filter((item) => item.kind === 'tool_call').length,
+    toolCount: block.processItems.filter((item) => item.kind === 'tool_call' || item.kind === 'tool_group').length,
   };
 }
 
@@ -612,7 +657,7 @@ function groupAdjacentToolCalls(items: RenderTimelineItem[]): RenderTimelineItem
 
 function isQuietCompletedToolCall(toolCall: ToolCallViewModel) {
   const status = toolCall.status;
-  return (status === 'completed' || status === 'success') && !toolCall.error;
+  return toolCall.quiet === true && (status === 'completed' || status === 'success') && !toolCall.error;
 }
 
 function toolCallRoundKey(item: ConversationTimelineItemViewModel) {
@@ -659,33 +704,7 @@ function timelineToolKind(toolCall?: ToolCallViewModel) {
   if (!toolCall) {
     return 'generic';
   }
-  if (toolCall.display?.kind) {
-    return toolCall.display.kind;
-  }
-  const name = toolCall.name.toLowerCase();
-  const summary = `${toolCall.inputSummary ?? ''} ${toolCall.command ?? ''}`.toLowerCase();
-  const source = toolCall.source?.toLowerCase() ?? '';
-  const shellNames = new Set(['bash', 'cmd', 'command', 'go', 'npm', 'node', 'python', 'powershell', 'pwsh', 'shell']);
-  if (toolCall.command || toolCall.risk === 'execute' || source.includes('shell') || shellNames.has(name) || name.includes('command')) {
-    return 'shell';
-  }
-  if (name.includes('edit') || name.includes('patch') || summary.includes('apply_patch')) {
-    return 'file_edit';
-  }
-  if (name.includes('write') || name.includes('create') || summary.includes('write')) {
-    return 'file_write';
-  }
-  if (name.includes('read') || name.includes('view') || name.includes('open') || summary.includes('read')) {
-    return 'file_read';
-  }
-  if (isSearchToolName(name) || summary.includes('glob') || summary.includes('grep') || summary.includes('search')) {
-    return 'file_search';
-  }
-  return 'generic';
-}
-
-function isSearchToolName(name: string) {
-  return name === 'glob' || name === 'grep' || name === 'list' || name === 'ls' || name === 'dir' || name.includes('search') || name.includes('find');
+  return toolCall.display?.kind || toolCall.kind || 'generic';
 }
 
 function agentTaskStatusColor(status?: string) {

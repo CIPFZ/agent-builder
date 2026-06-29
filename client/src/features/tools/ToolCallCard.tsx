@@ -227,7 +227,7 @@ function ToolIcon({ kind, status }: { kind: ToolKind; status: string }) {
   if (status === 'running' || status === 'queued' || status === 'waiting_permission') {
     return <LoadingOutlined spin />;
   }
-  if (status === 'failed' || status === 'denied' || status === 'cancelled') {
+  if (status === 'failed' || status === 'denied' || status === 'cancelled' || status === 'interrupted') {
     return <CloseCircleOutlined />;
   }
   switch (kind) {
@@ -254,7 +254,7 @@ function ToolStatus({ status }: { status: string }) {
       </span>
     );
   }
-  if (status === 'failed' || status === 'denied' || status === 'cancelled') {
+  if (status === 'failed' || status === 'denied' || status === 'cancelled' || status === 'interrupted') {
     return <Tag color="error">{statusLabel(status)}</Tag>;
   }
   return <Tag color={status === 'waiting_permission' ? 'warning' : 'processing'}>{statusLabel(status)}</Tag>;
@@ -364,32 +364,14 @@ function toolKind(toolCall: ToolCallViewModel): ToolKind {
   if (isToolKind(toolCall.display?.kind)) {
     return toolCall.display.kind;
   }
-  const name = toolCall.name.toLowerCase();
-  const summary = `${toolCall.inputSummary ?? ''} ${toolCall.command ?? ''}`.toLowerCase();
-  if (isShellTool(toolCall)) {
-    return 'shell';
-  }
-  if (name.includes('edit') || name.includes('patch') || summary.includes('apply_patch')) {
-    return 'file_edit';
-  }
-  if (name.includes('write') || name.includes('create') || summary.includes('write')) {
-    return 'file_write';
-  }
-  if (name.includes('read') || name.includes('view') || name.includes('open') || summary.includes('read')) {
-    return 'file_read';
-  }
-  if (isSearchToolName(name) || summary.includes('glob') || summary.includes('grep') || summary.includes('search')) {
-    return 'file_search';
+  if (isToolKind(toolCall.kind)) {
+    return toolCall.kind;
   }
   return 'generic';
 }
 
 function isToolKind(value?: string): value is ToolKind {
   return value === 'file_read' || value === 'file_write' || value === 'file_edit' || value === 'file_search' || value === 'shell' || value === 'generic';
-}
-
-function isSearchToolName(name: string) {
-  return name === 'glob' || name === 'grep' || name === 'list' || name === 'ls' || name === 'dir' || name.includes('search') || name.includes('find');
 }
 
 function toolDetail(toolCall: ToolCallViewModel) {
@@ -426,13 +408,6 @@ function toolDuration(toolCall: ToolCallViewModel) {
   return null;
 }
 
-function isShellTool(toolCall: ToolCallViewModel) {
-  const name = toolCall.name.toLowerCase();
-  const source = toolCall.source?.toLowerCase() ?? '';
-  const commonCommands = new Set(['bash', 'cmd', 'command', 'go', 'npm', 'node', 'python', 'powershell', 'pwsh', 'shell']);
-  return Boolean(toolCall.command || toolCall.risk === 'execute' || source.includes('shell') || commonCommands.has(name) || name.includes('command'));
-}
-
 function hasToolDetails(toolCall: ToolCallViewModel, detail?: string, output?: string) {
   return Boolean(
     toolCall.agentTask ||
@@ -466,11 +441,11 @@ function taskStatusColor(status?: string) {
 }
 
 function shouldOpenByDefault(toolCalls: ToolCallViewModel[]) {
-  return toolCalls.some((call) => ['running', 'queued', 'waiting_permission'].includes(toolVisualStatus(call)));
+  return toolCalls.some((call) => call.defaultExpanded || ['running', 'queued', 'waiting_permission', 'failed', 'denied', 'cancelled', 'interrupted'].includes(toolVisualStatus(call)));
 }
 
 function groupStatus(toolCalls: ToolCallViewModel[]) {
-  if (toolCalls.some((call) => ['failed', 'denied', 'cancelled'].includes(toolVisualStatus(call)))) {
+  if (toolCalls.some((call) => ['failed', 'denied', 'cancelled', 'interrupted'].includes(toolVisualStatus(call)))) {
     return 'failed';
   }
   if (toolCalls.some((call) => call.status === 'waiting_permission')) {
@@ -489,10 +464,6 @@ function groupStatus(toolCalls: ToolCallViewModel[]) {
 }
 
 function toolVisualStatus(toolCall: ToolCallViewModel) {
-  const exitCode = toolExitCode(toolCall);
-  if (toolKind(toolCall) === 'shell' && typeof exitCode === 'number' && exitCode !== 0) {
-    return 'failed';
-  }
   return toolCall.status;
 }
 

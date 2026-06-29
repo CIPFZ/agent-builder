@@ -62,10 +62,14 @@ export interface RuntimeOutputToolCall {
   turnId: string;
   messageId?: string;
   assistantStepId?: string;
+  assistantItemId?: string;
+  parentToolCallId?: string;
   resultIds?: string[];
   latestResultId?: string;
   name: string;
   source: string;
+  capabilityId?: string;
+  kind?: string;
   command?: string;
   risk?: string;
   status: string;
@@ -100,12 +104,45 @@ export interface RuntimeOutputToolCall {
     artifactSummary?: string;
     diffSummary?: string;
   };
+  result?: RuntimeToolResultView;
+  groupKey?: string;
+  groupable?: boolean;
+  quiet?: boolean;
+  defaultExpanded?: boolean;
   exitCode?: number;
   outputRefs?: string[];
   artifactRefs?: string[];
   diffRefs?: string[];
   startedAt?: number;
   finishedAt?: number;
+}
+
+export interface RuntimeConversationDisplay {
+  kind?: string;
+  title?: string;
+  detail?: string;
+  target?: string;
+  primaryTarget?: string;
+  targets?: string[];
+  groupKey?: string;
+  groupable?: boolean;
+  quiet?: boolean;
+  defaultExpanded?: boolean;
+  toolCallIds?: string[];
+}
+
+export interface RuntimeToolResultView {
+  id?: string;
+  messageId?: string;
+  status?: string;
+  contentPreview?: string;
+  dataPreview?: string;
+  deliveredToModel?: boolean;
+  synthetic?: boolean;
+  reason?: string;
+  artifactRefs?: string[];
+  diffRefs?: string[];
+  createdAt?: number;
 }
 
 export interface RuntimeOutputToolResult {
@@ -123,6 +160,61 @@ export interface RuntimeOutputToolResult {
   diffRefs?: string[];
   deliveredToModel?: boolean;
   createdAt?: number;
+}
+
+export interface RuntimeConversationItem {
+  id: string;
+  kind: string;
+  sessionId: string;
+  turnId?: string;
+  parentId?: string;
+  sequence: number;
+  role?: 'user' | 'assistant' | 'tool' | 'system' | string;
+  phase?: 'intermediate' | 'final' | string;
+  status?: string;
+  title?: string;
+  summary?: string;
+  content?: string;
+  error?: string;
+  messageId?: string;
+  toolCallId?: string;
+  toolCallIds?: string[];
+  permissionId?: string;
+  hookRunId?: string;
+  agentTaskId?: string;
+  contextId?: string;
+  display?: RuntimeConversationDisplay;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface RuntimeAgentTaskOutput {
+  id: string;
+  parentSessionId: string;
+  parentTurnId?: string;
+  parentToolCallId?: string;
+  childSessionId?: string;
+  title: string;
+  kind: string;
+  role?: string;
+  name?: string;
+  promptSummary?: string;
+  model?: string;
+  provider?: string;
+  allowedTools?: string[];
+  capabilityScope?: string[];
+  cwd?: string;
+  worktree?: string;
+  status: string;
+  progress: number;
+  resultSummary?: string;
+  artifactRefs?: string[];
+  compactBoundaryRefs?: string[];
+  cancellationDetail?: string;
+  startedAt?: number;
+  updatedAt?: number;
+  finishedAt?: number;
+  error?: string;
 }
 
 export interface RuntimeOutputPermission {
@@ -152,12 +244,18 @@ export interface RuntimeOutputPermission {
 export interface RuntimeOutputSnapshot {
   sessionId: string;
   cursor?: string;
+  version?: number;
+  items?: RuntimeConversationItem[];
   messages?: RuntimeOutputMessage[];
   turns?: RuntimeOutputTurn[];
   assistantSteps?: RuntimeOutputAssistantStep[];
   toolCalls?: RuntimeOutputToolCall[];
   toolResults?: RuntimeOutputToolResult[];
   permissions?: RuntimeOutputPermission[];
+  hooks?: unknown[];
+  agentTasks?: RuntimeAgentTaskOutput[];
+  todos?: unknown;
+  compact?: unknown[];
 }
 
 export interface RuntimeOutputEvent {
@@ -169,12 +267,17 @@ export interface RuntimeOutputEvent {
   entityId: string;
   operation: 'append' | 'update' | 'delete' | 'snapshot' | string;
   createdAt?: number;
+  item?: RuntimeConversationItem;
   message?: RuntimeOutputMessage;
   turn?: RuntimeOutputTurn;
   assistantStep?: RuntimeOutputAssistantStep;
   toolCall?: RuntimeOutputToolCall;
   toolResult?: RuntimeOutputToolResult;
   permission?: RuntimeOutputPermission;
+  hook?: unknown;
+  agentTask?: RuntimeAgentTaskOutput;
+  todos?: unknown;
+  compact?: unknown;
 }
 
 export interface RuntimeOutputEventsResponse {
@@ -194,13 +297,16 @@ export interface OptimisticUserSubmit {
 export interface OutputStore {
   sessionId: string;
   cursor?: string;
+  version?: number;
   lastSequence?: number;
+  itemsById: Record<string, RuntimeConversationItem>;
   messagesById: Record<string, RuntimeOutputMessage>;
   turnsById: Record<string, RuntimeOutputTurn>;
   assistantStepsById: Record<string, RuntimeOutputAssistantStep>;
   toolCallsById: Record<string, RuntimeOutputToolCall>;
   toolResultsById: Record<string, RuntimeOutputToolResult>;
   permissionsById: Record<string, RuntimeOutputPermission>;
+  agentTasksById: Record<string, RuntimeAgentTaskOutput>;
   optimisticByClientRequestId: Record<string, OptimisticUserSubmit>;
   appliedEventIds: Record<string, true>;
 }

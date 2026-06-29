@@ -14,6 +14,7 @@
 - [08-hooks-frontend-implementation-plan.md](08-hooks-frontend-implementation-plan.md)：Hook 前端展示与可观测性的完整实施方案。
 - [09-system-prompt-comparison-and-plan.md](09-system-prompt-comparison-and-plan.md)：System Prompt 机制梳理对比，以及按 Claude 式 section graph 拆分的目标方案和路线。
 - [10-error-recovery-implementation-plan.md](10-error-recovery-implementation-plan.md)：Error Recovery 机制完整实施方案，覆盖 runtime 恢复、request hygiene、显式续跑、reactive retry、前端 Recovery Center 和旧结构删除。
+- [11-conversation-output-rendering-refactor-plan.md](11-conversation-output-rendering-refactor-plan.md)：Conversation Output 与主对话展示的彻底重构实施方案，覆盖 runtime projection、tool/result/permission/hook/task 串联、前端输出合同和旧 activity 展示路径删除。
 
 ## 梳理原则
 

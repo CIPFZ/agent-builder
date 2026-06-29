@@ -91,6 +91,59 @@ assert(timeline.some((item) => item.toolCallId === 'tool-running' && item.status
 assert(timeline.some((item) => item.kind === 'permission' && item.permission?.id === 'perm-1'), 'waiting permission remains visible');
 assert.equal(selectPendingPermissions(store).length, 1);
 
+let runtimeStore = createOutputStore('session-runtime');
+runtimeStore = addOptimisticUserSubmit(runtimeStore, { clientRequestId: 'client-runtime', prompt: 'runtime prompt', createdAt: 1, status: 'submitting' });
+runtimeStore = hydrateOutputStore({
+  sessionId: 'session-runtime',
+  cursor: '20',
+  version: 1,
+  items: [
+    { id: 'item-user', kind: 'user_message', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 1, role: 'user', content: 'runtime prompt', messageId: 'msg-runtime-user', createdAt: 10 },
+    { id: 'item-tool-group', kind: 'tool_group', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 3, status: 'completed', title: 'Read 2 files', summary: 'Read 2 files', toolCallId: 'tool-read-1', toolCallIds: ['tool-read-1', 'tool-read-2'], display: { kind: 'file_read', quiet: true, groupable: true, defaultExpanded: false, toolCallIds: ['tool-read-1', 'tool-read-2'] }, createdAt: 20 },
+    { id: 'item-context', kind: 'context_source', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 4, status: 'injected', title: 'agents', summary: 'project instructions', contextId: 'project:/work/AGENTS.md', display: { kind: 'agents', target: '/work/AGENTS.md' }, createdAt: 25 },
+    { id: 'item-assistant-final', kind: 'assistant_message', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 5, role: 'assistant', phase: 'final', content: 'final answer', status: 'completed', messageId: 'msg-runtime-final', createdAt: 30 },
+  ],
+  messages: [
+    { id: 'msg-runtime-user', sessionId: 'session-runtime', role: 'user', content: 'runtime prompt', clientRequestId: 'client-runtime', createdAt: 10 },
+    { id: 'msg-runtime-final', sessionId: 'session-runtime', role: 'assistant', content: 'final answer', finished: true, createdAt: 30 },
+  ],
+  toolCalls: [
+    { id: 'tool-read-1', sessionId: 'session-runtime', turnId: 'turn-runtime', name: 'view', source: 'builtin', kind: 'file_read', status: 'completed', quiet: true, groupable: true, defaultExpanded: false, display: { kind: 'file_read', title: 'Read file' }, result: { id: 'result-1', messageId: 'tool-result-msg', status: 'success', contentPreview: 'file contents' }, startedAt: 20, finishedAt: 21 },
+    { id: 'tool-read-2', sessionId: 'session-runtime', turnId: 'turn-runtime', name: 'view', source: 'builtin', kind: 'file_read', status: 'completed', quiet: true, groupable: true, defaultExpanded: false, display: { kind: 'file_read', title: 'Read file' }, startedAt: 22, finishedAt: 23 },
+  ],
+  toolResults: [
+    { id: 'result-1', sessionId: 'session-runtime', turnId: 'turn-runtime', messageId: 'tool-result-msg', toolCallId: 'tool-read-1', toolName: 'view', status: 'success', contentPreview: 'file contents', createdAt: 21 },
+  ],
+}, runtimeStore);
+const runtimeTimeline = selectConversationTimeline(runtimeStore);
+assert.deepEqual(runtimeTimeline.map((item) => item.id), ['item-user', 'item-tool-group', 'item-context', 'item-assistant-final'], 'runtime sequence controls item ordering');
+assert.equal(runtimeTimeline.some((item) => item.kind === 'tool_result'), false, 'runtime tool result is not a standalone row');
+assert.equal(runtimeTimeline.find((item) => item.id === 'item-tool-group')?.kind, 'tool_group', 'runtime tool group is rendered directly');
+assert.equal(runtimeTimeline.find((item) => item.id === 'item-context')?.kind, 'context_source', 'runtime context governance is an explicit item');
+assert.equal(selectConversationMessages(runtimeStore).some((message) => message.id.startsWith('optimistic-')), false, 'runtime user item replaces optimistic submit');
+
+const replayed = applyOutputEvent(runtimeStore, {
+  id: 'runtime-event-1',
+  sequence: 2101,
+  sessionId: 'session-runtime',
+  turnId: 'turn-runtime',
+  kind: 'conversation_item.updated',
+  entityId: 'item-assistant-final',
+  operation: 'update',
+  item: { id: 'item-assistant-final', kind: 'assistant_message', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 5, role: 'assistant', phase: 'final', content: 'final answer updated', status: 'completed' },
+});
+const replayedAgain = applyOutputEvent(replayed, {
+  id: 'runtime-event-1',
+  sequence: 2101,
+  sessionId: 'session-runtime',
+  turnId: 'turn-runtime',
+  kind: 'conversation_item.updated',
+  entityId: 'item-assistant-final',
+  operation: 'update',
+  item: { id: 'item-assistant-final', kind: 'assistant_message', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 5, role: 'assistant', phase: 'final', content: 'should not apply twice', status: 'completed' },
+});
+assert.equal(selectConversationTimeline(replayedAgain).find((item) => item.id === 'item-assistant-final')?.content, 'final answer updated', 'output event replay is idempotent');
+
 const streamingStore = hydrateOutputStore({
   sessionId: 'session-2',
   messages: [

@@ -1093,12 +1093,14 @@ func TestRuntimeHTTPServerRoutesSessionOutputToRuntimeService(t *testing.T) {
 		output: RuntimeOutputSnapshot{
 			SessionID: "session-1",
 			Cursor:    "3",
+			Version:   1,
+			Items:     []RuntimeConversationItem{{ID: "item-1", Kind: "user_message", SessionID: "session-1", Sequence: 1, MessageID: "msg-1"}},
 			Messages:  []RuntimeMessage{{ID: "msg-1", SessionID: "session-1", Role: "user", ClientRequestID: "client-1"}},
 		},
 		outputEvents: RuntimeOutputEventsResponse{
 			SessionID: "session-1",
 			Cursor:    "4",
-			Events:    []RuntimeOutputEvent{{ID: "out-1", Sequence: 401, SessionID: "session-1", Kind: "message.created", EntityID: "msg-1", Operation: "append"}},
+			Events:    []RuntimeOutputEvent{{ID: "out-1", Sequence: 401, SessionID: "session-1", Kind: "conversation_item.created", EntityID: "item-1", Operation: "append", Item: &RuntimeConversationItem{ID: "item-1", Kind: "user_message", SessionID: "session-1", Sequence: 1, MessageID: "msg-1"}}},
 		},
 	}
 	server := newRuntimeHTTPServer(service)
@@ -1119,7 +1121,7 @@ func TestRuntimeHTTPServerRoutesSessionOutputToRuntimeService(t *testing.T) {
 	if err := json.Unmarshal(resp.body.Bytes(), &snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Cursor != "3" || snapshot.Messages[0].ClientRequestID != "client-1" {
+	if snapshot.Cursor != "3" || snapshot.Version != 1 || snapshot.Items[0].Kind != "user_message" || snapshot.Messages[0].ClientRequestID != "client-1" {
 		t.Fatalf("snapshot = %#v", snapshot)
 	}
 
@@ -1139,7 +1141,7 @@ func TestRuntimeHTTPServerRoutesSessionOutputToRuntimeService(t *testing.T) {
 	if err := json.Unmarshal(resp.body.Bytes(), &events); err != nil {
 		t.Fatal(err)
 	}
-	if events.Cursor != "4" || len(events.Events) != 1 {
+	if events.Cursor != "4" || len(events.Events) != 1 || events.Events[0].Item == nil {
 		t.Fatalf("events = %#v", events)
 	}
 }

@@ -208,6 +208,10 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		"sandbox_reason":         call.SandboxReason,
 		"sandbox_error":          call.SandboxError,
 	})
+	display := runtimeToolCallDisplay(call, redacted, finishedAt)
+	status := runtimeNormalizeToolStatus(string(call.Status), display.Kind, call.ExitCode, call.IsError, stringFromMap(redacted, "error"))
+	quiet := runtimeToolQuiet(display.Kind, status)
+	groupable := runtimeToolGroupable(display.Kind, status)
 	return RuntimeToolCall{
 		ID:                             call.ID,
 		SessionID:                      call.SessionID,
@@ -216,6 +220,7 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		Name:                           call.Name,
 		Source:                         string(call.Source),
 		CapabilityID:                   call.CapabilityID,
+		Kind:                           display.Kind,
 		JobID:                          call.JobID,
 		Command:                        stringFromMap(redacted, "command"),
 		Risk:                           call.Risk,
@@ -241,7 +246,7 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		JobStatus:                      call.JobStatus,
 		JobStartedAt:                   jobStartedAt,
 		JobFinishedAt:                  jobFinishedAt,
-		Status:                         string(call.Status),
+		Status:                         status,
 		InputSummary:                   stringFromMap(redacted, "input"),
 		OutputSummary:                  stringFromMap(redacted, "output"),
 		ModelContent:                   stringFromMap(redacted, "model_content"),
@@ -260,8 +265,43 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		StartedAt:                      call.StartedAt.UnixMilli(),
 		FinishedAt:                     finishedAt,
 		Error:                          stringFromMap(redacted, "error"),
-		Display:                        runtimeToolCallDisplay(call, redacted, finishedAt),
+		Display:                        display,
+		GroupKey:                       runtimeToolGroupKey(call.TurnID, call.MessageID, display.Kind),
+		Groupable:                      groupable,
+		Quiet:                          quiet,
+		DefaultExpanded:                runtimeToolDefaultExpanded(status),
 	}
+}
+
+func runtimeNormalizeToolStatus(status, kind string, exitCode int, isError bool, errText string) string {
+	if status == "" {
+		status = string(scheduler.ToolCallPending)
+	}
+	if status == string(scheduler.ToolCallCompleted) && (isError || errText != "" || (kind == "shell" && exitCode != 0)) {
+		return string(scheduler.ToolCallFailed)
+	}
+	return status
+}
+
+func runtimeToolDefaultExpanded(status string) bool {
+	switch status {
+	case string(scheduler.ToolCallRunning), string(scheduler.ToolCallWaitingPermission), string(scheduler.ToolCallFailed), string(scheduler.ToolCallDenied), string(scheduler.ToolCallCancelled), "interrupted":
+		return true
+	default:
+		return false
+	}
+}
+
+func runtimeToolQuiet(kind, status string) bool {
+	return status == string(scheduler.ToolCallCompleted) && (kind == "file_read" || kind == "file_search")
+}
+
+func runtimeToolGroupable(kind, status string) bool {
+	return runtimeToolQuiet(kind, status)
+}
+
+func runtimeToolGroupKey(turnID, messageID, kind string) string {
+	return strings.Join([]string{turnID, messageID, kind}, ":")
 }
 
 func runtimeToolCallDisplay(call scheduler.ToolCall, redacted map[string]any, finishedAt int64) RuntimeToolCallDisplay {

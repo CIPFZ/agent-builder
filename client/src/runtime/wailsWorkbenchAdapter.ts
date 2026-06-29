@@ -2472,6 +2472,7 @@ function buildRuntimeTimelineOrder(callchain?: RuntimeReactCallchainDTO): Runtim
   return order;
 }
 
+// Diagnostics-only fallback for legacy/no-output snapshots. The main timeline path is SessionOutput runtime items.
 function mapActivityTimeline(activity?: RuntimeSessionActivityDTO, callchain?: RuntimeReactCallchainDTO): ConversationTimelineItemViewModel[] {
   if (!activity) {
     return [];
@@ -2626,6 +2627,7 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO, callchain?: R
   return [...messages, ...thinking, ...toolCalls, ...permissions, ...progress, ...terminals, ...diagnostics].sort(compareActivityTimelineItems(messagesDTO, turnsDTO));
 }
 
+// Diagnostics-only fallback for legacy/no-output snapshots. Do not use this to construct the primary conversation path.
 function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], activity: RuntimeSessionActivityDTO, callchain?: RuntimeReactCallchainDTO) {
   const replacement = mapActivityTimeline(activity, callchain);
   const activityMessages = Array.isArray(activity.messages) ? activity.messages : [];
@@ -4235,12 +4237,15 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const outputTimeline = activeOutputStore ? selectConversationTimeline(activeOutputStore) : undefined;
   const outputConversation = activeOutputStore ? selectConversationMessages(activeOutputStore) : undefined;
   const outputPendingPermissions = activeOutputStore ? selectPendingPermissions(activeOutputStore) : undefined;
-  const baseTimeline = outputTimeline ?? (activity
+  // Diagnostics-only fallback: primary conversation rendering must come from SessionOutput runtime items.
+  const fallbackActivityTimeline = activity
     ? narrowActivity
       ? mergeActivityTimeline(current.timeline, activity, reactCallchainDTO)
       : mapActivityTimeline(activity, reactCallchainDTO)
-    : current.timeline);
-  const timeline = attachContextGovernanceToTimeline(attachAgentTasksToTimeline(baseTimeline, agentTasks), contextDiagnostics);
+    : current.timeline;
+  const timeline = outputTimeline
+    ? outputTimeline
+    : attachContextGovernanceToTimeline(attachAgentTasksToTimeline(fallbackActivityTimeline, agentTasks), contextDiagnostics);
   const conversation = outputConversation ?? (activity && narrowActivity
     ? mergeConversationMessages(current.conversation, messagesResponse)
     : messagesResponse

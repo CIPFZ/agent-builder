@@ -596,12 +596,14 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 		output: RuntimeOutputSnapshot{
 			SessionID: "session-window",
 			Cursor:    "7",
+			Version:   1,
+			Items:     []RuntimeConversationItem{{ID: "item-output", Kind: "user_message", SessionID: "session-window", Sequence: 1, MessageID: "msg-output"}},
 			Messages:  []RuntimeMessage{{ID: "msg-output", SessionID: "session-window", Role: "user", ClientRequestID: "client-output"}},
 		},
 		outputEvents: RuntimeOutputEventsResponse{
 			SessionID: "session-window",
 			Cursor:    "8",
-			Events:    []RuntimeOutputEvent{{ID: "event-output", Sequence: 801, SessionID: "session-window", Kind: "message.created", EntityID: "msg-output", Operation: "append"}},
+			Events:    []RuntimeOutputEvent{{ID: "event-output", Sequence: 801, SessionID: "session-window", Kind: "conversation_item.created", EntityID: "item-output", Operation: "append", Item: &RuntimeConversationItem{ID: "item-output", Kind: "user_message", SessionID: "session-window", Sequence: 1, MessageID: "msg-output"}}},
 		},
 		turnActivity: RuntimeTurnActivityResponse{
 			SessionID: "session-window",
@@ -684,14 +686,14 @@ func TestRuntimeBridgeNarrowActivityUsesRuntimeService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if service.outputSessionID != "session-window" || service.outputRequest.Cursor != "6" || service.outputRequest.Limit != 4 || output.Messages[0].ClientRequestID != "client-output" {
+	if service.outputSessionID != "session-window" || service.outputRequest.Cursor != "6" || service.outputRequest.Limit != 4 || output.Version != 1 || output.Items[0].Kind != "user_message" || output.Messages[0].ClientRequestID != "client-output" {
 		t.Fatalf("output = %#v request=%#v session=%q", output, service.outputRequest, service.outputSessionID)
 	}
 	outputEvents, err := bridge.SessionOutputEvents(context.Background(), "session-window", "7")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if service.outputEventsSessionID != "session-window" || service.outputEventsAfter != "7" || outputEvents.Cursor != "8" || len(outputEvents.Events) != 1 {
+	if service.outputEventsSessionID != "session-window" || service.outputEventsAfter != "7" || outputEvents.Cursor != "8" || len(outputEvents.Events) != 1 || outputEvents.Events[0].Item == nil {
 		t.Fatalf("output events = %#v session=%q after=%q", outputEvents, service.outputEventsSessionID, service.outputEventsAfter)
 	}
 

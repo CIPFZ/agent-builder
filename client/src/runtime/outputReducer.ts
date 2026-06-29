@@ -7,7 +7,11 @@ export function hydrateOutputStore(snapshot: RuntimeOutputSnapshot | undefined, 
   }
   const store = createOutputStore(snapshot.sessionId);
   store.cursor = snapshot.cursor;
+  store.version = snapshot.version;
   store.optimisticByClientRequestId = { ...(previous?.sessionId === snapshot.sessionId ? previous.optimisticByClientRequestId : {}) };
+  for (const item of snapshot.items ?? []) {
+    store.itemsById[item.id] = item;
+  }
   for (const message of snapshot.messages ?? []) {
     store.messagesById[message.id] = message;
     if (message.clientRequestId) {
@@ -29,6 +33,9 @@ export function hydrateOutputStore(snapshot: RuntimeOutputSnapshot | undefined, 
   for (const permission of snapshot.permissions ?? []) {
     store.permissionsById[permission.id] = permission;
   }
+  for (const task of snapshot.agentTasks ?? []) {
+    store.agentTasksById[task.id] = task;
+  }
   return store;
 }
 
@@ -40,23 +47,37 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
     ...store,
     cursor: event.sequence ? String(Math.floor(event.sequence / 100)) : store.cursor,
     lastSequence: Math.max(store.lastSequence ?? 0, event.sequence ?? 0),
+    itemsById: { ...store.itemsById },
     messagesById: { ...store.messagesById },
     turnsById: { ...store.turnsById },
     assistantStepsById: { ...store.assistantStepsById },
     toolCallsById: { ...store.toolCallsById },
     toolResultsById: { ...store.toolResultsById },
     permissionsById: { ...store.permissionsById },
+    agentTasksById: { ...store.agentTasksById },
     optimisticByClientRequestId: { ...store.optimisticByClientRequestId },
     appliedEventIds: { ...store.appliedEventIds, [event.id]: true },
   };
   if (event.operation === 'delete') {
+    delete next.itemsById[event.entityId];
     delete next.messagesById[event.entityId];
     delete next.turnsById[event.entityId];
     delete next.assistantStepsById[event.entityId];
     delete next.toolCallsById[event.entityId];
     delete next.toolResultsById[event.entityId];
     delete next.permissionsById[event.entityId];
+    delete next.agentTasksById[event.entityId];
     return next;
+  }
+  if (event.item) {
+    next.itemsById[event.item.id] = { ...next.itemsById[event.item.id], ...event.item };
+    if (event.item.role === 'user') {
+      for (const message of Object.values(next.messagesById)) {
+        if (message.id === event.item.messageId && message.clientRequestId) {
+          delete next.optimisticByClientRequestId[message.clientRequestId];
+        }
+      }
+    }
   }
   if (event.message) {
     next.messagesById[event.message.id] = { ...next.messagesById[event.message.id], ...event.message };
@@ -78,6 +99,9 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
   }
   if (event.permission) {
     next.permissionsById[event.permission.id] = { ...next.permissionsById[event.permission.id], ...event.permission };
+  }
+  if (event.agentTask) {
+    next.agentTasksById[event.agentTask.id] = { ...next.agentTasksById[event.agentTask.id], ...event.agentTask };
   }
   return next;
 }

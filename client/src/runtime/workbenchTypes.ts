@@ -175,9 +175,20 @@ export type ConversationTimelineKind =
   | 'message'
   | 'thinking'
   | 'tool_call'
+  | 'tool_group'
   | 'permission'
+  | 'permission_request'
   | 'progress'
+  | 'turn_progress'
   | 'diagnostic'
+  | 'diagnostic_warning'
+  | 'assistant_message'
+  | 'assistant_thinking'
+  | 'user_message'
+  | 'hook_run'
+  | 'todo_summary'
+  | 'recovery_notice'
+  | 'context_source'
   | 'agent_task'
   | 'turn_terminal'
   | 'compact_boundary'
@@ -874,6 +885,7 @@ export interface ToolCallViewModel {
   command?: string;
   risk?: string;
   status: string;
+  kind?: string;
   inputSummary?: string;
   outputSummary?: string;
   error?: string;
@@ -888,6 +900,11 @@ export interface ToolCallViewModel {
   startedAt?: number;
   finishedAt?: number;
   agentTask?: AgentTaskViewModel;
+  parentToolCallId?: string;
+  groupKey?: string;
+  groupable?: boolean;
+  quiet?: boolean;
+  defaultExpanded?: boolean;
 }
 
 export interface ToolCallDisplayViewModel {
