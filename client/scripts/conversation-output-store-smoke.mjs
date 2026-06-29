@@ -100,7 +100,7 @@ runtimeStore = hydrateOutputStore({
   items: [
     { id: 'item-user', kind: 'user_message', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 1, role: 'user', content: 'runtime prompt', messageId: 'msg-runtime-user', createdAt: 10 },
     { id: 'item-tool-group', kind: 'tool_group', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 3, status: 'completed', title: 'Read 2 files', summary: 'Read 2 files', toolCallId: 'tool-read-1', toolCallIds: ['tool-read-1', 'tool-read-2'], display: { kind: 'file_read', quiet: true, groupable: true, defaultExpanded: false, toolCallIds: ['tool-read-1', 'tool-read-2'] }, createdAt: 20 },
-    { id: 'item-context', kind: 'context_source', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 4, status: 'injected', title: 'agents', summary: 'project instructions', contextId: 'project:/work/AGENTS.md', display: { kind: 'agents', target: '/work/AGENTS.md' }, createdAt: 25 },
+    { id: 'item-context', kind: 'context_source', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 4, status: 'failed', title: 'file', summary: 'unreadable', error: 'unreadable', contextId: 'file:/work/broken.md', display: { kind: 'file', target: '/work/broken.md' }, createdAt: 25 },
     { id: 'item-assistant-final', kind: 'assistant_message', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 5, role: 'assistant', phase: 'final', content: 'final answer', status: 'completed', messageId: 'msg-runtime-final', createdAt: 30 },
   ],
   messages: [
@@ -119,7 +119,7 @@ const runtimeTimeline = selectConversationTimeline(runtimeStore);
 assert.deepEqual(runtimeTimeline.map((item) => item.id), ['item-user', 'item-tool-group', 'item-context', 'item-assistant-final'], 'runtime sequence controls item ordering');
 assert.equal(runtimeTimeline.some((item) => item.kind === 'tool_result'), false, 'runtime tool result is not a standalone row');
 assert.equal(runtimeTimeline.find((item) => item.id === 'item-tool-group')?.kind, 'tool_group', 'runtime tool group is rendered directly');
-assert.equal(runtimeTimeline.find((item) => item.id === 'item-context')?.kind, 'context_source', 'runtime context governance is an explicit item');
+assert.equal(runtimeTimeline.find((item) => item.id === 'item-context')?.kind, 'context_source', 'high-signal runtime context governance is an explicit item');
 assert.equal(selectConversationMessages(runtimeStore).some((message) => message.id.startsWith('optimistic-')), false, 'runtime user item replaces optimistic submit');
 
 const replayed = applyOutputEvent(runtimeStore, {

@@ -211,7 +211,6 @@ func TestRuntimeConversationProjectionGovernanceItems(t *testing.T) {
 	assertHasConversationKind(t, snapshot.Items, "hook_run")
 	assertHasConversationKind(t, snapshot.Items, "agent_task")
 	assertHasConversationKind(t, snapshot.Items, "todo_summary")
-	assertHasConversationKind(t, snapshot.Items, "context_source")
 	assertHasConversationKind(t, snapshot.Items, "microcompact_marker")
 	assertHasConversationKind(t, snapshot.Items, "tool_result_replacement")
 	assertHasConversationKind(t, snapshot.Items, "turn_terminal")
@@ -219,6 +218,9 @@ func TestRuntimeConversationProjectionGovernanceItems(t *testing.T) {
 	for _, item := range snapshot.Items {
 		if item.HookRunID == "hook-complete" {
 			t.Fatalf("low-signal completed hook leaked into timeline: %#v", item)
+		}
+		if item.Kind == "context_source" && item.Status == "injected" {
+			t.Fatalf("normal injected context source leaked into timeline: %#v", item)
 		}
 	}
 	task := findConversationItem(t, snapshot.Items, "agent_task")
@@ -261,6 +263,34 @@ func TestRuntimeConversationProjectionContextEventReplay(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("context item event missing: %#v", events)
+	}
+}
+
+func TestRuntimeConversationProjectionNormalContextInjectedHidden(t *testing.T) {
+	event := RuntimeEvent{
+		ID:        "event-context-injected",
+		Sequence:  10,
+		Type:      runtimeapi.EventContextSourceInjected,
+		SessionID: "session-1",
+		TurnID:    "turn-1",
+		CreatedAt: "2026-06-28T00:00:00Z",
+		Payload:   map[string]any{"source_id": "project:/work/AGENTS.md", "kind": "agents", "path": "/work/AGENTS.md", "reason": "runtime_selected"},
+	}
+	projection := buildRuntimeOutputProjection(RuntimeSessionActivityWindowResponse{
+		SessionID: "session-1",
+		Messages:  []RuntimeMessage{{ID: "user-1", SessionID: "session-1", Role: "user", Content: "hello", CreatedAt: 10}, {ID: "assistant-1", SessionID: "session-1", Role: "assistant", Parts: []RuntimeMessagePart{{Type: "text", Text: "Hi"}}, CreatedAt: 20, Finished: true, FinishReason: "end_turn"}},
+		Turns:     []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "completed", UserMessageID: "user-1", LatestAssistantMessageID: "assistant-1", StartedAt: 1, FinishedAt: 30}},
+		Events:    []RuntimeEvent{event},
+	})
+	for _, item := range projection.snapshot("session-1", "10").Items {
+		if item.Kind == "context_source" {
+			t.Fatalf("normal injected context source should be diagnostics-only: %#v", item)
+		}
+	}
+	for _, outputEvent := range projection.eventsFromRuntimeEvents([]RuntimeEvent{event}) {
+		if outputEvent.Item != nil && outputEvent.Item.Kind == "context_source" {
+			t.Fatalf("normal injected context source emitted item event: %#v", outputEvent)
+		}
 	}
 }
 

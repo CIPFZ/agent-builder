@@ -1076,7 +1076,7 @@ func runtimeConversationContextSourceItem(event RuntimeEvent) RuntimeConversatio
 	status := ""
 	switch event.Type {
 	case runtimeapi.EventContextSourceInjected:
-		status = "injected"
+		return RuntimeConversationItem{}
 	case runtimeapi.EventContextReinjected:
 		status = "reinjected"
 	case runtimeapi.EventContextSourceSkipped:
