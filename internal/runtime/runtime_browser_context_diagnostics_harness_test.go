@@ -114,6 +114,7 @@ func TestPhase4BrowserContextDiagnosticsHarnessServer(t *testing.T) {
 			ServerCount:      1,
 			InstructionCount: 1,
 			Servers:          []string{"docs"},
+			ServerListHash:   "sha256:phase4-mcp-servers",
 			InstructionHash:  "sha256:phase4-mcp",
 			TokenEstimate:    10,
 			RawContentStored: false,

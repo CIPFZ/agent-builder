@@ -232,6 +232,7 @@ func (r *runtimeService) recordPromptAssembly(ctx context.Context, snapshot agen
 		Step:         firstPositiveInt(snapshot.Step, 1),
 		Provider:     snapshot.Provider,
 		Model:        snapshot.Model,
+		Sections:     runtimePromptSectionSummaries(snapshot.Sections),
 		System: RuntimePromptSystemSummary{
 			Source:             snapshot.System.Source,
 			Hash:               snapshot.System.Hash,
@@ -269,6 +270,7 @@ func (r *runtimeService) recordPromptAssembly(ctx context.Context, snapshot agen
 			ServerCount:      snapshot.MCP.ServerCount,
 			InstructionCount: snapshot.MCP.InstructionCount,
 			Servers:          append([]string(nil), snapshot.MCP.Servers...),
+			ServerListHash:   snapshot.MCP.ServerListHash,
 			InstructionHash:  snapshot.MCP.InstructionHash,
 			TokenEstimate:    snapshot.MCP.TokenEstimate,
 			RawContentStored: false,
@@ -295,6 +297,7 @@ func (r *runtimeService) recordPromptAssembly(ctx context.Context, snapshot agen
 			"provider":               stored.Provider,
 			"model":                  stored.Model,
 			"total_estimated_tokens": stored.Budget.TotalEstimatedTokens,
+			"section_count":          len(stored.Sections),
 			"context_source_count":   len(stored.ContextSources),
 			"selected_tool_count":    stored.Tools.SelectedCount,
 			"omitted_tool_count":     stored.Tools.OmittedCount,
@@ -303,6 +306,33 @@ func (r *runtimeService) recordPromptAssembly(ctx context.Context, snapshot agen
 		},
 	})
 	return nil
+}
+
+func runtimePromptSectionSummaries(sections []agent.PromptSectionSummary) []RuntimePromptSectionSummary {
+	if len(sections) == 0 {
+		return nil
+	}
+	out := make([]RuntimePromptSectionSummary, 0, len(sections))
+	for _, section := range sections {
+		out = append(out, RuntimePromptSectionSummary{
+			ID:            section.ID,
+			Name:          section.Name,
+			Kind:          section.Kind,
+			Role:          section.Role,
+			Order:         section.Order,
+			CachePolicy:   section.CachePolicy,
+			Source:        section.Source,
+			SourceRefs:    append([]string(nil), section.SourceRefs...),
+			Scope:         section.Scope,
+			Hash:          section.Hash,
+			Length:        section.Length,
+			TokenEstimate: section.TokenEstimate,
+			Redacted:      true,
+			RawStored:     false,
+			Diagnostics:   section.Diagnostics,
+		})
+	}
+	return out
 }
 
 func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot agent.ModelInputSnapshot) (agent.ModelInputProjection, error) {

@@ -153,20 +153,27 @@ func NewPrompt(name, promptTemplate string, opts ...Option) (*Prompt, error) {
 }
 
 func (p *Prompt) Build(ctx context.Context, provider, model string, store *config.ConfigStore) (string, error) {
+	prompt, _, err := p.BuildSections(ctx, provider, model, store)
+	return prompt, err
+}
+
+func (p *Prompt) BuildSections(ctx context.Context, provider, model string, store *config.ConfigStore) (string, []PromptSection, error) {
 	t, err := template.New(p.name).Parse(p.template)
 	if err != nil {
-		return "", fmt.Errorf("parsing template: %w", err)
+		return "", nil, fmt.Errorf("parsing template: %w", err)
 	}
 	var sb strings.Builder
 	d, err := p.promptData(ctx, provider, model, store)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := t.Execute(&sb, d); err != nil {
-		return "", fmt.Errorf("executing template: %w", err)
+		return "", nil, fmt.Errorf("executing template: %w", err)
 	}
 
-	return sb.String(), nil
+	rendered := sb.String()
+	sections := p.promptSections(d, rendered)
+	return joinPromptSections(sections), sections, nil
 }
 
 func processFile(filePath string) *ContextFile {
@@ -941,4 +948,175 @@ func getGitRecentCommits(ctx context.Context, sh *shell.Shell) (string, error) {
 
 func (p *Prompt) Name() string {
 	return p.name
+}
+
+func (p *Prompt) promptSections(data PromptDat, rendered string) []PromptSection {
+	sections := make([]PromptSection, 0, 4+len(data.ContextFiles))
+	order := 0
+	add := func(spec sectionSpec) {
+		order++
+		spec.order = order
+		sections = append(sections, newSection(spec))
+	}
+
+	add(sectionSpec{
+		id:          "stable_base",
+		name:        "Stable base",
+		kind:        "stable_base",
+		role:        "system",
+		cachePolicy: CachePolicyStable,
+		source:      "embedded_template",
+		sourceRefs:  []string{"runtime://system-prompt/" + p.name},
+		scope:       "runtime",
+		content:     stableBaseSectionContent(rendered),
+	})
+
+	envContent := environmentSectionContent(data)
+	if strings.TrimSpace(envContent) != "" {
+		add(sectionSpec{
+			id:          "environment_info",
+			name:        "Environment",
+			kind:        "environment_info",
+			role:        "system",
+			cachePolicy: CachePolicyTurnDynamic,
+			source:      "runtime_environment",
+			sourceRefs:  []string{"runtime://environment"},
+			scope:       "runtime",
+			content:     envContent,
+		})
+	}
+
+	if strings.TrimSpace(data.GitStatus) != "" {
+		add(sectionSpec{
+			id:          "git_status",
+			name:        "Git status",
+			kind:        "git_status",
+			role:        "system",
+			cachePolicy: CachePolicyTurnDynamic,
+			source:      "git",
+			sourceRefs:  []string{"runtime://git/status"},
+			scope:       "project",
+			content:     data.GitStatus,
+			diagnostics: "snapshot; invalidated when git status changes",
+		})
+	}
+
+	if strings.TrimSpace(data.AvailSkillXML) != "" {
+		add(sectionSpec{
+			id:          "skill_catalog",
+			name:        "Skill catalog",
+			kind:        "skill_catalog",
+			role:        "system",
+			cachePolicy: CachePolicySessionCached,
+			source:      "skills",
+			sourceRefs:  []string{"agent-builder://skills/catalog"},
+			scope:       "runtime",
+			content:     data.AvailSkillXML,
+			diagnostics: "catalog only; skill bodies are loaded through runtime-controlled tool access",
+		})
+		if skillsUsage := extractTaggedSection(rendered, "skills_usage"); strings.TrimSpace(skillsUsage) != "" {
+			add(sectionSpec{
+				id:          "skill_activation",
+				name:        "Skill activation",
+				kind:        "skill_activation",
+				role:        "system",
+				cachePolicy: CachePolicySessionCached,
+				source:      "embedded_template",
+				sourceRefs:  []string{"runtime://system-prompt/" + p.name + "#skills_usage"},
+				scope:       "runtime",
+				content:     skillsUsage,
+				diagnostics: "activation instructions are cached separately from the skill catalog and skill bodies",
+			})
+		}
+	}
+
+	for i, file := range data.ContextFiles {
+		if strings.TrimSpace(file.Content) == "" {
+			continue
+		}
+		add(sectionSpec{
+			id:          fmt.Sprintf("context_file:%03d:%s", i+1, filepath.ToSlash(file.Path)),
+			name:        filepath.Base(file.Path),
+			kind:        "context_file",
+			role:        "system",
+			cachePolicy: CachePolicySessionCached,
+			source:      "context_file",
+			sourceRefs:  []string{filepath.ToSlash(file.Path)},
+			scope:       contextSectionScope(file.Path),
+			content:     contextFileSectionContent(file),
+			diagnostics: "invalidated when context file content changes",
+		})
+	}
+
+	return sections
+}
+
+func joinPromptSections(sections []PromptSection) string {
+	parts := make([]string, 0, len(sections))
+	for _, section := range sections {
+		if strings.TrimSpace(section.Content) != "" {
+			parts = append(parts, strings.TrimSpace(section.Content))
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func stableBaseSectionContent(rendered string) string {
+	marker := "\n<env>\n"
+	if idx := strings.Index(rendered, marker); idx >= 0 {
+		return strings.TrimSpace(rendered[:idx])
+	}
+	return strings.TrimSpace(rendered)
+}
+
+func environmentSectionContent(data PromptDat) string {
+	var sb strings.Builder
+	sb.WriteString("<env>\n")
+	fmt.Fprintf(&sb, "Working directory: %s\n", data.WorkingDir)
+	if data.IsGitRepo {
+		sb.WriteString("Is directory a git repo: yes\n")
+	} else {
+		sb.WriteString("Is directory a git repo: no\n")
+	}
+	fmt.Fprintf(&sb, "Platform: %s\n", data.Platform)
+	fmt.Fprintf(&sb, "Today's date: %s\n", data.Date)
+	sb.WriteString("</env>")
+	return sb.String()
+}
+
+func contextFileSectionContent(file ContextFile) string {
+	return fmt.Sprintf(`<memory>
+<file path="%s">
+%s
+</file>
+</memory>`, filepath.ToSlash(file.Path), file.Content)
+}
+
+func extractTaggedSection(content, tag string) string {
+	lower := strings.ToLower(content)
+	open := "<" + strings.ToLower(tag) + ">"
+	close := "</" + strings.ToLower(tag) + ">"
+	start := strings.Index(lower, open)
+	if start < 0 {
+		return ""
+	}
+	end := strings.Index(lower[start+len(open):], close)
+	if end < 0 {
+		return ""
+	}
+	end = start + len(open) + end + len(close)
+	return strings.TrimSpace(content[start:end])
+}
+
+func contextSectionScope(path string) string {
+	switch {
+	case isUserContextPath(path):
+		return "user"
+	case isLocalInstructionPath(path):
+		return "local"
+	case isProjectInstructionPath(path):
+		return "project"
+	default:
+		return "workspace"
+	}
 }

@@ -2027,6 +2027,7 @@ type RuntimePromptAssembly struct {
 	Step              int                             `json:"step"`
 	Model             string                          `json:"model"`
 	Provider          string                          `json:"provider"`
+	Sections          []RuntimePromptSectionSummary   `json:"sections,omitempty"`
 	System            RuntimePromptSystemSummary      `json:"system"`
 	Messages          RuntimePromptMessageSummary     `json:"messages"`
 	Tools             RuntimePromptToolSummary        `json:"tools"`
@@ -2040,6 +2041,24 @@ type RuntimePromptAssembly struct {
 	ReactiveAttempts  []RuntimeReactiveCompactAttempt `json:"reactiveAttempts,omitempty"`
 	Budget            RuntimeBudgetReport             `json:"budget"`
 	CreatedAt         int64                           `json:"createdAt"`
+}
+
+type RuntimePromptSectionSummary struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Kind          string   `json:"kind"`
+	Role          string   `json:"role"`
+	Order         int      `json:"order"`
+	CachePolicy   string   `json:"cachePolicy"`
+	Source        string   `json:"source,omitempty"`
+	SourceRefs    []string `json:"sourceRefs,omitempty"`
+	Scope         string   `json:"scope,omitempty"`
+	Hash          string   `json:"hash,omitempty"`
+	Length        int      `json:"length,omitempty"`
+	TokenEstimate int      `json:"tokenEstimate,omitempty"`
+	Redacted      bool     `json:"redacted"`
+	RawStored     bool     `json:"rawStored"`
+	Diagnostics   string   `json:"diagnostics,omitempty"`
 }
 
 type RuntimeContextBoundary struct {
@@ -2155,6 +2174,7 @@ type RuntimePromptMCPSummary struct {
 	ServerCount      int      `json:"serverCount"`
 	InstructionCount int      `json:"instructionCount"`
 	Servers          []string `json:"servers,omitempty"`
+	ServerListHash   string   `json:"serverListHash,omitempty"`
 	InstructionHash  string   `json:"instructionHash,omitempty"`
 	TokenEstimate    int      `json:"tokenEstimate,omitempty"`
 	RawContentStored bool     `json:"rawContentStored"`

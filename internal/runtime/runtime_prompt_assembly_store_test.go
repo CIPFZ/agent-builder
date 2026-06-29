@@ -49,6 +49,9 @@ func TestRuntimePromptAssemblyStoreRoundTripAndOrders(t *testing.T) {
 	if turnAssemblies[0].System.Hash == "" || len(turnAssemblies[0].ContextSources) != 1 || len(turnAssemblies[0].Compact) != 1 {
 		t.Fatalf("decoded assembly = %#v", turnAssemblies[0])
 	}
+	if len(turnAssemblies[0].Sections) != 2 || turnAssemblies[0].Sections[0].Kind != "stable_base" || turnAssemblies[0].Sections[1].CachePolicy != "turn_dynamic" {
+		t.Fatalf("sections round trip = %#v", turnAssemblies[0].Sections)
+	}
 
 	sessionAssemblies, err := store.ListBySession(context.Background(), "session-1", 2)
 	if err != nil {
@@ -91,6 +94,18 @@ func TestRuntimeRecordPromptAssemblyStoresSummaryEventAndFailedContext(t *testin
 		Step:      2,
 		Provider:  "openai",
 		Model:     "test-model",
+		Sections: []agent.PromptSectionSummary{{
+			ID:            "stable_base",
+			Name:          "Stable base",
+			Kind:          "stable_base",
+			Role:          "system",
+			Order:         1,
+			CachePolicy:   "stable",
+			Source:        "embedded_template",
+			Hash:          "sha256:stable",
+			TokenEstimate: 20,
+			Redacted:      true,
+		}},
 		System: agent.PromptSystemSummary{
 			Source:        "runtime",
 			Hash:          "sha256:system",
@@ -122,6 +137,7 @@ func TestRuntimeRecordPromptAssemblyStoresSummaryEventAndFailedContext(t *testin
 			ServerCount:      1,
 			InstructionCount: 1,
 			Servers:          []string{"docs"},
+			ServerListHash:   "sha256:mcp-servers",
 			InstructionHash:  "sha256:mcp",
 		},
 		CreatedAt: 1234,
@@ -152,6 +168,9 @@ func TestRuntimeRecordPromptAssemblyStoresSummaryEventAndFailedContext(t *testin
 	}
 	if assembly.Tools.SelectedCount != 1 || assembly.Tools.OmittedCount != 1 || assembly.System.Hash != "sha256:system" {
 		t.Fatalf("assembly summaries = %#v", assembly)
+	}
+	if len(assembly.Sections) != 1 || assembly.Sections[0].Kind != "stable_base" || assembly.Sections[0].RawStored {
+		t.Fatalf("assembly sections = %#v", assembly.Sections)
 	}
 
 	events, err := service.eventStore.ListTurn(context.Background(), "turn-1", 0)
@@ -261,6 +280,31 @@ func promptAssemblyFixture(id, sessionID, turnID string, step int, createdAt int
 		Step:         step,
 		Provider:     "openai",
 		Model:        "test-model",
+		Sections: []RuntimePromptSectionSummary{{
+			ID:            "stable_base",
+			Name:          "Stable base",
+			Kind:          "stable_base",
+			Role:          "system",
+			Order:         1,
+			CachePolicy:   "stable",
+			Source:        "embedded_template",
+			Hash:          "sha256:stable",
+			TokenEstimate: 20,
+			Redacted:      true,
+			RawStored:     false,
+		}, {
+			ID:            "environment_info",
+			Name:          "Environment",
+			Kind:          "environment_info",
+			Role:          "system",
+			Order:         2,
+			CachePolicy:   "turn_dynamic",
+			Source:        "runtime_environment",
+			Hash:          "sha256:env",
+			TokenEstimate: 8,
+			Redacted:      true,
+			RawStored:     false,
+		}},
 		System: RuntimePromptSystemSummary{
 			Source:        "runtime",
 			Hash:          "sha256:system",
@@ -291,6 +335,7 @@ func promptAssemblyFixture(id, sessionID, turnID string, step int, createdAt int
 			ServerCount:      1,
 			InstructionCount: 1,
 			Servers:          []string{"docs"},
+			ServerListHash:   "sha256:mcp-servers",
 			InstructionHash:  "sha256:mcp",
 			RawContentStored: false,
 		},

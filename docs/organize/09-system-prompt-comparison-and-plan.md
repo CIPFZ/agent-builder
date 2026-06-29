@@ -16,6 +16,31 @@
 - DeepSeek-GUI / Kun 的优势是 cache-first invariant：`KUN_SYSTEM_PROMPT` 是不可变 prefix，skills/memory/todo/plan 等动态事实作为后续 system messages 或 context instructions 注入，不污染稳定 prefix。
 - Agent Builder 应采用 Claude Code 的拆分模型作为产品目标，同时吸收 Kun 的稳定前缀约束：稳定基础 prompt 不随日期、git、MCP 连接、skills 变化、context files 改动而漂移。
 
+## 2026-06-29 实现状态
+
+本轮已将 system prompt 从纯字符串装配升级为 runtime-owned section graph，并保留 provider 不支持多 system block 时的 join 降级路径。
+
+已落地事实：
+
+- `internal/agent/prompt.PromptSection` 成为 prompt 装配的一等结构，section summary 包含 `id`、`name`、`kind`、`role`、`order`、`cachePolicy`、`source`、`sourceRefs`、`scope`、`hash`、`length`、`tokenEstimate`、`redacted`、`rawStored`、`diagnostics`。
+- 默认不持久化 raw prompt、raw section content、raw MCP instructions、raw skill body；runtime prompt assembly、HTTP/Wails DTO 和前端 diagnostics 只消费 summary。
+- `Prompt.BuildSections` 先生成 sections，再按 section 顺序 join 成 provider 兼容的 system prompt。当前 provider adapter 仍走 joined prompt；Go runtime 不丢失 section 边界。
+- stable base 从模板中 `<env>` 之前的稳定规则生成，`cachePolicy=stable`，不包含 cwd、date、git status、context files、skills catalog、MCP connected state 或 provider prefix。
+- `environment_info`、`git_status`、`skill_catalog`、`skill_activation`、`context_file`、`provider_prefix`、`mcp_instructions_delta` 已成为独立 sections。
+- `stable_base` hash 已有测试覆盖：cwd、日期、context file、skills 变化不会改变 stable base hash；动态 section hash 单独变化。
+- section cache policy 已支持 `stable`、`session_cached`、`turn_dynamic`、`uncached`。MCP delta 使用 `uncached` 并带 reason diagnostics；context/skills sections 标明 config reload、skills refresh、context file change、MCP reconnect 等 invalidation 语义。
+- AGENTS/CLAUDE/context 加载继续使用现有 loader：`AGENTS.md` 优先于同目录 `CLAUDE.md`，兼容 `.claude/CLAUDE.md`、`.claude/rules/*.md`、local variants、configured context paths、include、frontmatter、scope、失败诊断；每个加载文件进入独立 `context_file` section summary。
+- skills 注入已明确拆为 `skill_catalog` 和 `skill_activation`。catalog 只包含 name/description/location/type；skill body 仍通过 runtime-controlled View 工具加载，不进入 stable base。`deny_all` 下 `promptSkills()` 返回 nil，因此 skills 不注入 prompt。
+- MCP summary 的 `ServerListHash`、`InstructionHash`/token estimate 分别基于 server list 与 instruction content，不再用 server name 代替 instruction content；server 连接变化与 instruction 内容变化在 assembly/API/UI 中可区分。
+- provider `system_prompt_prefix` 不再只是隐式 prepend 的不可解释字符串，runtime assembly 会记录独立 `provider_prefix` section；实际发送仍按现有 provider 兼容路径作为前置 system message。
+- runtime prompt assembly store 增加 `sections_json` migration；旧数据读取兼容，sections 可为空。
+- client runtime DTO/view model 和 Context diagnostics panel 已展示 section list，包含 kind、role、cachePolicy、source、scope、tokenEstimate、hash、redacted、rawStored、diagnostics。
+
+当前边界：
+
+- provider adapter 层尚未为支持多 system block/cache metadata 的 provider 输出原生多 block；当前策略是 runtime 保留 section graph，provider 侧继续 join 输出并用 prompt assembly 解释 cache 命中/破坏原因。
+- explicit override、custom append prompt、coordinator/special mode 的 section 类型和优先级通道已在模型中保留，但当前配置层尚未暴露完整 append/override 字段；已有 provider prefix 路径已 section 化。
+
 ## Agent Builder 当前机制
 
 ### 主执行链路

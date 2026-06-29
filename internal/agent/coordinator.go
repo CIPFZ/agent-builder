@@ -857,11 +857,12 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 	})
 
 	c.readyWg.Go(func() error {
-		systemPrompt, err := prompt.Build(ctx, large.Model.Provider(), large.Model.Model(), c.cfg)
+		systemPrompt, sections, err := c.buildPromptSections(ctx, prompt, large)
 		if err != nil {
 			return err
 		}
 		result.SetSystemPrompt(systemPrompt)
+		result.SetSystemPromptSections(sections)
 		return nil
 	})
 
@@ -1472,6 +1473,13 @@ func (c *coordinator) UpdateModels(ctx context.Context) error {
 		return err
 	}
 	c.currentAgent.SetSystemPrompt(systemPrompt)
+	if p, err := coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()), prompt.WithSkills(c.promptSkills())); err == nil {
+		_, sections, buildErr := c.buildPromptSections(ctx, p, large)
+		if buildErr != nil {
+			return buildErr
+		}
+		c.currentAgent.SetSystemPromptSections(sections)
+	}
 	return nil
 }
 
@@ -1495,7 +1503,43 @@ func (c *coordinator) buildSystemPrompt(ctx context.Context, model Model) (strin
 	if err != nil {
 		return "", err
 	}
-	return p.Build(ctx, model.Model.Provider(), model.Model.Model(), c.cfg)
+	systemPrompt, _, err := c.buildPromptSections(ctx, p, model)
+	return systemPrompt, err
+}
+
+func (c *coordinator) buildPromptSections(ctx context.Context, p *prompt.Prompt, model Model) (string, []PromptSectionSummary, error) {
+	systemPrompt, promptSections, err := p.BuildSections(ctx, model.Model.Provider(), model.Model.Model(), c.cfg)
+	if err != nil {
+		return "", nil, err
+	}
+	return systemPrompt, promptSectionSummaries(promptSections), nil
+}
+
+func promptSectionSummaries(sections []prompt.PromptSection) []PromptSectionSummary {
+	if len(sections) == 0 {
+		return nil
+	}
+	out := make([]PromptSectionSummary, 0, len(sections))
+	for _, section := range sections {
+		out = append(out, PromptSectionSummary{
+			ID:            section.ID,
+			Name:          section.Name,
+			Kind:          section.Kind,
+			Role:          section.Role,
+			Order:         section.Order,
+			CachePolicy:   section.CachePolicy,
+			Source:        section.Source,
+			SourceRefs:    append([]string(nil), section.SourceRefs...),
+			Scope:         section.Scope,
+			Hash:          section.Hash,
+			Length:        section.Length,
+			TokenEstimate: section.TokenEstimate,
+			Redacted:      true,
+			RawStored:     false,
+			Diagnostics:   section.Diagnostics,
+		})
+	}
+	return out
 }
 
 func (c *coordinator) QueuedPrompts(sessionID string) int {

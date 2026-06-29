@@ -43,12 +43,31 @@ type PromptAssemblySnapshot struct {
 	Step         int
 	Provider     string
 	Model        string
+	Sections     []PromptSectionSummary
 	System       PromptSystemSummary
 	Messages     PromptMessageSummary
 	Tools        PromptToolSummary
 	Skills       PromptSkillSummary
 	MCP          PromptMCPSummary
 	CreatedAt    int64
+}
+
+type PromptSectionSummary struct {
+	ID            string
+	Name          string
+	Kind          string
+	Role          string
+	Order         int
+	CachePolicy   string
+	Source        string
+	SourceRefs    []string
+	Scope         string
+	Hash          string
+	Length        int
+	TokenEstimate int
+	Redacted      bool
+	RawStored     bool
+	Diagnostics   string
 }
 
 type PromptSystemSummary struct {
@@ -97,6 +116,7 @@ type PromptMCPSummary struct {
 	ServerCount      int
 	InstructionCount int
 	Servers          []string
+	ServerListHash   string
 	InstructionHash  string
 	TokenEstimate    int
 	RawContentStored bool

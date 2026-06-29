@@ -461,6 +461,7 @@ export interface ContextDiagnosticsViewModel {
   provider?: string;
   model?: string;
   createdAt?: number;
+  sections: PromptSectionViewModel[];
   system: {
     source?: string;
     hash?: string;
@@ -504,6 +505,7 @@ export interface ContextDiagnosticsViewModel {
     serverCount: number;
     instructionCount: number;
     servers: string[];
+    serverListHash?: string;
     instructionHash?: string;
     tokenEstimate?: number;
     rawContentStored: boolean;
@@ -515,6 +517,24 @@ export interface ContextDiagnosticsViewModel {
   reactiveAttempts: ReactiveCompactAttemptViewModel[];
   budget: PromptBudgetViewModel;
   warnings: string[];
+}
+
+export interface PromptSectionViewModel {
+  id: string;
+  name: string;
+  kind: string;
+  role: string;
+  order: number;
+  cachePolicy: string;
+  source?: string;
+  sourceRefs: string[];
+  scope?: string;
+  hash?: string;
+  length?: number;
+  tokenEstimate?: number;
+  redacted: boolean;
+  rawStored: boolean;
+  diagnostics?: string;
 }
 
 export interface ContextSourceViewModel {

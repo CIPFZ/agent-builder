@@ -8,8 +8,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/skills"
 )
 
 func TestLoadContextSourcesPrecedenceAndDiscovery(t *testing.T) {
@@ -193,6 +195,75 @@ func TestLoadContextSourcesRejectsWorkspaceTraversal(t *testing.T) {
 	if source.Content != "" || len(load.ContextFiles) != 0 {
 		t.Fatalf("outside content was loaded: %#v %#v", source, load.ContextFiles)
 	}
+}
+
+func TestPromptBuildSectionsStableBaseIgnoresDynamicInputs(t *testing.T) {
+	t.Parallel()
+
+	template := "stable rules\n<env>\n{{.WorkingDir}}\n{{.Date}}\n{{.GitStatus}}\n</env>\n{{.AvailSkillXML}}\n{{range .ContextFiles}}{{.Path}}={{.Content}}\n{{end}}"
+	workspaceA := t.TempDir()
+	workspaceB := t.TempDir()
+	writeFile(t, filepath.Join(workspaceA, "AGENTS.md"), "project A")
+	writeFile(t, filepath.Join(workspaceB, "AGENTS.md"), "project B")
+
+	promptA, err := NewPrompt("test", template,
+		WithWorkingDir(workspaceA),
+		WithTimeFunc(func() time.Time { return time.Date(2026, 6, 29, 0, 0, 0, 0, time.UTC) }),
+		WithSkills([]*skills.Skill{{Name: "alpha", Description: "Alpha skill", SkillFilePath: filepath.Join(workspaceA, "alpha", "SKILL.md")}}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sectionsA, err := promptA.BuildSections(context.Background(), "openai", "model-a", testStore(workspaceA, []string{"AGENTS.md"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	promptB, err := NewPrompt("test", template,
+		WithWorkingDir(workspaceB),
+		WithTimeFunc(func() time.Time { return time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC) }),
+		WithSkills([]*skills.Skill{{Name: "beta", Description: "Beta skill", SkillFilePath: filepath.Join(workspaceB, "beta", "SKILL.md")}}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sectionsB, err := promptB.BuildSections(context.Background(), "openai", "model-b", testStore(workspaceB, []string{"AGENTS.md"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stableA := findPromptSection(t, sectionsA, "stable_base")
+	stableB := findPromptSection(t, sectionsB, "stable_base")
+	if stableA.Hash == "" || stableA.Hash != stableB.Hash {
+		t.Fatalf("stable base hashes should match across dynamic inputs: %#v %#v", stableA, stableB)
+	}
+	if stableA.CachePolicy != CachePolicyStable || stableA.RawStored || !stableA.Redacted {
+		t.Fatalf("stable section policy/redaction = %#v", stableA)
+	}
+	envA := findPromptSection(t, sectionsA, "environment_info")
+	envB := findPromptSection(t, sectionsB, "environment_info")
+	if envA.Hash == envB.Hash {
+		t.Fatalf("environment section hash should change with cwd/date: %#v %#v", envA, envB)
+	}
+	skillA := findPromptSection(t, sectionsA, "skill_catalog")
+	if skillA.CachePolicy != CachePolicySessionCached || skillA.Source != "skills" {
+		t.Fatalf("skill catalog section = %#v", skillA)
+	}
+	contextA := findPromptSection(t, sectionsA, "context_file")
+	if contextA.SourceRefs[0] != filepath.ToSlash(filepath.Join(workspaceA, "AGENTS.md")) || contextA.Scope != "project" {
+		t.Fatalf("context section provenance = %#v", contextA)
+	}
+}
+
+func findPromptSection(t *testing.T, sections []PromptSection, kind string) PromptSection {
+	t.Helper()
+	for _, section := range sections {
+		if section.Kind == kind {
+			return section
+		}
+	}
+	t.Fatalf("section kind %q not found: %#v", kind, sections)
+	return PromptSection{}
 }
 
 func testStore(workspace string, contextPaths []string) *config.ConfigStore {

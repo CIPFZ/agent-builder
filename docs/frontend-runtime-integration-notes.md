@@ -87,6 +87,13 @@ Provider settings hydration must also be resilient:
 - Do not assume axios changes the underlying transport availability.
 - When a module has multiple runtime requests, isolate optional failures so one
   failing request does not wipe unrelated successfully loaded state.
+- Prompt assembly sections are runtime-owned diagnostics. The client consumes
+  `RuntimePromptAssembly.sections` through the existing workbench adapter and
+  maps it into a view model; components must not reconstruct prompt sections
+  from raw prompt text, Wails-only bindings, or frontend-only state.
+- MCP prompt diagnostics keep `serverListHash` and `instructionHash` separate
+  so server connection changes and instruction content changes remain
+  explainable without exposing raw MCP instructions.
 
 ## Debug Checklist
 

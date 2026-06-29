@@ -729,6 +729,7 @@ func TestRuntimeHTTPServerRoutesPromptAssembliesToRuntimeService(t *testing.T) {
 				ServerCount:      1,
 				InstructionCount: 1,
 				Servers:          []string{"docs"},
+				ServerListHash:   "sha256:mcp-servers",
 				InstructionHash:  "sha256:mcp",
 				RawContentStored: false,
 			},

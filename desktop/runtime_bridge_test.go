@@ -136,6 +136,7 @@ func TestRuntimeBridgeForwardsPromptAssemblies(t *testing.T) {
 			MCP: RuntimePromptMCPSummary{
 				Servers:          []string{"docs"},
 				ServerCount:      1,
+				ServerListHash:   "sha256:mcp-servers",
 				RawContentStored: false,
 			},
 			ContextSources: []RuntimeContextSource{{

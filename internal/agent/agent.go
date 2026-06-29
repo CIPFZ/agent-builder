@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,6 +83,7 @@ type SessionAgent interface {
 	SetModels(large Model, small Model)
 	SetTools(tools []fantasy.AgentTool)
 	SetSystemPrompt(systemPrompt string)
+	SetSystemPromptSections(sections []PromptSectionSummary)
 	Cancel(sessionID string)
 	CancelAll()
 	IsSessionBusy(sessionID string) bool
@@ -105,6 +107,7 @@ type sessionAgent struct {
 	smallModel         *csync.Value[Model]
 	systemPromptPrefix *csync.Value[string]
 	systemPrompt       *csync.Value[string]
+	systemSections     *csync.Slice[PromptSectionSummary]
 	tools              *csync.Slice[fantasy.AgentTool]
 
 	isSubAgent           bool
@@ -128,6 +131,7 @@ type SessionAgentOptions struct {
 	SmallModel           Model
 	SystemPromptPrefix   string
 	SystemPrompt         string
+	SystemPromptSections []PromptSectionSummary
 	IsSubAgent           bool
 	DisableAutoSummarize bool
 	IsYolo               bool
@@ -148,6 +152,7 @@ func NewSessionAgent(
 		smallModel:           csync.NewValue(opts.SmallModel),
 		systemPromptPrefix:   csync.NewValue(opts.SystemPromptPrefix),
 		systemPrompt:         csync.NewValue(opts.SystemPrompt),
+		systemSections:       csync.NewSliceFrom(opts.SystemPromptSections),
 		isSubAgent:           opts.IsSubAgent,
 		sessions:             opts.Sessions,
 		messages:             opts.Messages,
@@ -186,16 +191,20 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 	agentTools := a.tools.Copy()
 	largeModel := a.largeModel.Get()
 	systemPrompt := a.systemPrompt.Get()
+	systemSections := a.systemSections.Copy()
 	promptPrefix := a.systemPromptPrefix.Get()
 	var instructions strings.Builder
-	var mcpInstructionServers []string
+	var mcpInstructions []mcpInstructionSnapshot
 
 	for _, server := range mcp.GetStates() {
 		if server.State != mcp.StateConnected {
 			continue
 		}
 		if s := server.Client.InitializeResult().Instructions; s != "" {
-			mcpInstructionServers = append(mcpInstructionServers, server.Name)
+			mcpInstructions = append(mcpInstructions, mcpInstructionSnapshot{
+				Server:  server.Name,
+				Content: s,
+			})
 			instructions.WriteString(s)
 			instructions.WriteString("\n\n")
 		}
@@ -354,7 +363,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			projectionID = projection.ProjectionID
 			prepared.Messages = projectedMessages
 
-			a.recordPromptAssembly(callContext, call, projectionID, largeModel, systemPrompt, promptPrefix, mcpInstructionServers, prepared.Messages, prepared.Tools, selectedToolNames, omittedToolNames)
+			a.recordPromptAssembly(callContext, call, projectionID, largeModel, systemPrompt, systemSections, promptPrefix, mcpInstructions, prepared.Messages, prepared.Tools, selectedToolNames, omittedToolNames)
 
 			sessionLock.Lock()
 			stepMessages = cloneFantasyMessages(prepared.Messages)
@@ -651,11 +660,18 @@ func unwrapToolDiscoveryRecorder(agentTools []fantasy.AgentTool) (ToolDiscoveryR
 	return nil, false
 }
 
-func (a *sessionAgent) recordPromptAssembly(ctx context.Context, call SessionAgentCall, projectionID string, model Model, systemPrompt, promptPrefix string, mcpInstructionServers []string, messages []fantasy.Message, selectedTools []fantasy.AgentTool, selectedToolNames, omittedToolNames []string) {
+type mcpInstructionSnapshot struct {
+	Server  string
+	Content string
+}
+
+func (a *sessionAgent) recordPromptAssembly(ctx context.Context, call SessionAgentCall, projectionID string, model Model, systemPrompt string, systemSections []PromptSectionSummary, promptPrefix string, mcpInstructions []mcpInstructionSnapshot, messages []fantasy.Message, selectedTools []fantasy.AgentTool, selectedToolNames, omittedToolNames []string) {
 	if a.assemblyRecorder == nil {
 		return
 	}
 	step := stepNumber(messages)
+	sections := append([]PromptSectionSummary(nil), systemSections...)
+	sections = appendRuntimePromptSections(sections, promptPrefix, mcpInstructions)
 	systemSummary := PromptSystemSummary{
 		Source:             "coder_prompt",
 		Hash:               hashPromptText(systemPrompt),
@@ -668,12 +684,15 @@ func (a *sessionAgent) recordPromptAssembly(ctx context.Context, call SessionAge
 		Redacted:           true,
 	}
 	skillSummary := promptSkillSummaryFromSystem(systemPrompt)
+	mcpInstructionText := strings.Join(mcpInstructionContents(mcpInstructions), "\n\n")
+	mcpInstructionServers := mcpInstructionServerNames(mcpInstructions)
 	mcpSummary := PromptMCPSummary{
 		ServerCount:      len(mcpInstructionServers),
 		InstructionCount: len(mcpInstructionServers),
 		Servers:          append([]string(nil), mcpInstructionServers...),
-		InstructionHash:  hashPromptText(strings.Join(mcpInstructionServers, "\n")),
-		TokenEstimate:    estimatePromptTokens(strings.Join(mcpInstructionServers, "\n")),
+		ServerListHash:   hashStringList(mcpInstructionServers),
+		InstructionHash:  hashPromptText(mcpInstructionText),
+		TokenEstimate:    estimatePromptTokens(mcpInstructionText),
 		RawContentStored: false,
 	}
 	toolSummary := PromptToolSummary{
@@ -689,6 +708,7 @@ func (a *sessionAgent) recordPromptAssembly(ctx context.Context, call SessionAge
 		Step:         step,
 		Provider:     model.ModelCfg.Provider,
 		Model:        model.ModelCfg.Model,
+		Sections:     sections,
 		System:       systemSummary,
 		Messages:     buildPromptMessageSummary(messages, call.Attachments),
 		Tools:        toolSummary,
@@ -716,6 +736,96 @@ func (a *sessionAgent) buildModelInput(ctx context.Context, snapshot ModelInputS
 		projection.Messages = snapshot.Messages
 	}
 	return projection.Messages, projection, nil
+}
+
+func appendRuntimePromptSections(sections []PromptSectionSummary, promptPrefix string, mcpInstructions []mcpInstructionSnapshot) []PromptSectionSummary {
+	out := make([]PromptSectionSummary, 0, len(sections)+1+len(mcpInstructions))
+	if strings.TrimSpace(promptPrefix) != "" {
+		out = append(out, PromptSectionSummary{
+			ID:            "provider_prefix",
+			Name:          "Provider prefix",
+			Kind:          "provider_prefix",
+			Role:          "system",
+			Order:         len(out) + 1,
+			CachePolicy:   "session_cached",
+			Source:        "provider_config",
+			SourceRefs:    []string{"config://provider/system_prompt_prefix"},
+			Scope:         "provider",
+			Hash:          hashPromptText(promptPrefix),
+			Length:        len(promptPrefix),
+			TokenEstimate: estimatePromptTokens(promptPrefix),
+			Redacted:      true,
+			RawStored:     false,
+			Diagnostics:   "provider prefix is emitted as a separate system message before joined runtime prompt",
+		})
+	}
+	for _, section := range sections {
+		section.Order = len(out) + 1
+		section.SourceRefs = append([]string(nil), section.SourceRefs...)
+		out = append(out, section)
+	}
+	for _, instruction := range mcpInstructions {
+		if strings.TrimSpace(instruction.Content) == "" {
+			continue
+		}
+		out = append(out, PromptSectionSummary{
+			ID:            "mcp_instructions_delta:" + instruction.Server,
+			Name:          "MCP instructions: " + instruction.Server,
+			Kind:          "mcp_instructions_delta",
+			Role:          "system",
+			Order:         len(out) + 1,
+			CachePolicy:   "uncached",
+			Source:        "mcp",
+			SourceRefs:    []string{"mcp://" + instruction.Server + "/instructions"},
+			Scope:         "mcp",
+			Hash:          hashPromptText(instruction.Content),
+			Length:        len(instruction.Content),
+			TokenEstimate: estimatePromptTokens(instruction.Content),
+			Redacted:      true,
+			RawStored:     false,
+			Diagnostics:   "reason=server_instructions; uncached because MCP servers can connect or disconnect between turns",
+		})
+	}
+	return out
+}
+
+func mcpInstructionServerNames(instructions []mcpInstructionSnapshot) []string {
+	names := make([]string, 0, len(instructions))
+	for _, instruction := range instructions {
+		if strings.TrimSpace(instruction.Content) != "" && strings.TrimSpace(instruction.Server) != "" {
+			names = append(names, instruction.Server)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+func mcpInstructionContents(instructions []mcpInstructionSnapshot) []string {
+	contents := make([]string, 0, len(instructions))
+	for _, instruction := range instructions {
+		if strings.TrimSpace(instruction.Content) != "" {
+			contents = append(contents, instruction.Content)
+		}
+	}
+	slices.Sort(contents)
+	return contents
+}
+
+func hashStringList(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	clean := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			clean = append(clean, trimmed)
+		}
+	}
+	if len(clean) == 0 {
+		return ""
+	}
+	slices.Sort(clean)
+	return hashPromptText(strings.Join(clean, "\n"))
 }
 
 func agentToolNames(agentTools []fantasy.AgentTool) []string {
@@ -762,6 +872,17 @@ func promptSkillSummaryFromSystem(systemPrompt string) PromptSkillSummary {
 func extractPromptSkillNames(systemPrompt string) []string {
 	seen := map[string]struct{}{}
 	var names []string
+	addName := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
 	for _, marker := range []string{`name="`, `name='`} {
 		rest := systemPrompt
 		for {
@@ -774,31 +895,45 @@ func extractPromptSkillNames(systemPrompt string) []string {
 			if end <= 0 {
 				break
 			}
-			name := strings.TrimSpace(rest[:end])
-			if name != "" {
-				if _, ok := seen[name]; !ok {
-					seen[name] = struct{}{}
-					names = append(names, name)
-				}
-			}
+			addName(rest[:end])
 			rest = rest[end+1:]
 		}
+	}
+	rest := systemPrompt
+	for {
+		start := strings.Index(strings.ToLower(rest), "<name>")
+		if start < 0 {
+			break
+		}
+		rest = rest[start+len("<name>"):]
+		end := strings.Index(strings.ToLower(rest), "</name>")
+		if end < 0 {
+			break
+		}
+		addName(rest[:end])
+		rest = rest[end+len("</name>"):]
 	}
 	return names
 }
 
 func skillXMLSlice(systemPrompt string) string {
 	lower := strings.ToLower(systemPrompt)
-	start := strings.Index(lower, "<skills")
+	start := strings.Index(lower, "<available_skills")
+	closeTag := "</available_skills>"
+	if start < 0 {
+		start = strings.Index(lower, "<skills")
+		closeTag = "</skills>"
+	}
 	if start < 0 {
 		start = strings.Index(lower, "<skill")
+		closeTag = "</skill>"
 	}
 	if start < 0 {
 		return ""
 	}
-	end := strings.LastIndex(lower, "</skills>")
+	end := strings.LastIndex(lower, closeTag)
 	if end >= start {
-		return systemPrompt[start : end+len("</skills>")]
+		return systemPrompt[start : end+len(closeTag)]
 	}
 	return systemPrompt[start:]
 }
@@ -1582,6 +1717,10 @@ func (a *sessionAgent) SetTools(tools []fantasy.AgentTool) {
 
 func (a *sessionAgent) SetSystemPrompt(systemPrompt string) {
 	a.systemPrompt.Set(systemPrompt)
+}
+
+func (a *sessionAgent) SetSystemPromptSections(sections []PromptSectionSummary) {
+	a.systemSections.SetSlice(sections)
 }
 
 func (a *sessionAgent) Model() Model {

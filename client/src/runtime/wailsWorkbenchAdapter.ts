@@ -830,6 +830,7 @@ interface RuntimePromptAssemblyDTO {
   step?: number;
   model?: string;
   provider?: string;
+  sections?: RuntimePromptSectionDTO[];
   system?: {
     source?: string;
     hash?: string;
@@ -873,6 +874,7 @@ interface RuntimePromptAssemblyDTO {
     serverCount?: number;
     instructionCount?: number;
     servers?: string[];
+    serverListHash?: string;
     instructionHash?: string;
     tokenEstimate?: number;
     rawContentStored?: boolean;
@@ -885,6 +887,24 @@ interface RuntimePromptAssemblyDTO {
   reactiveAttempts?: RuntimeReactiveCompactAttemptDTO[];
   budget?: RuntimeBudgetReportDTO;
   createdAt?: number;
+}
+
+interface RuntimePromptSectionDTO {
+  id?: string;
+  name?: string;
+  kind?: string;
+  role?: string;
+  order?: number;
+  cachePolicy?: string;
+  source?: string;
+  sourceRefs?: string[];
+  scope?: string;
+  hash?: string;
+  length?: number;
+  tokenEstimate?: number;
+  redacted?: boolean;
+  rawStored?: boolean;
+  diagnostics?: string;
 }
 
 interface RuntimeSnipBoundaryDTO {
@@ -3159,6 +3179,27 @@ function mapContextDiagnostics(response?: RuntimePromptAssembliesResponseDTO): C
   const tools = assembly.tools ?? {};
   const skills = assembly.skills ?? {};
   const mcp = assembly.mcp ?? {};
+  const sections = (Array.isArray(assembly.sections) ? assembly.sections : [])
+    .filter((section) => section.id || section.name)
+    .sort((left, right) => (left.order ?? 0) - (right.order ?? 0))
+    .slice(0, 48)
+    .map((section, index) => ({
+      id: section.id || `${section.kind || 'section'}:${index}`,
+      name: section.name || section.id || 'Prompt section',
+      kind: section.kind || 'prompt_section',
+      role: section.role || 'system',
+      order: section.order ?? index + 1,
+      cachePolicy: section.cachePolicy || 'turn_dynamic',
+      source: section.source,
+      sourceRefs: Array.isArray(section.sourceRefs) ? section.sourceRefs : [],
+      scope: section.scope,
+      hash: section.hash,
+      length: section.length,
+      tokenEstimate: section.tokenEstimate,
+      redacted: section.redacted !== false,
+      rawStored: Boolean(section.rawStored),
+      diagnostics: section.diagnostics,
+    }));
   const contextSources = (Array.isArray(assembly.contextSources) ? assembly.contextSources : [])
     .filter((source) => source.id || source.name)
     .slice(0, 24)
@@ -3234,6 +3275,9 @@ function mapContextDiagnostics(response?: RuntimePromptAssembliesResponseDTO): C
     ...contextSources
       .filter((source) => source.state === 'failed' || source.state === 'skipped' || Boolean(source.error))
       .map((source) => `${source.name}: ${source.error || source.reason || source.state}`),
+    ...sections
+      .filter((section) => section.rawStored)
+      .map((section) => `${section.name}: raw section content storage reported`),
     ...(messages.rawPromptStored ? ['Runtime reported raw prompt storage in prompt assembly metadata.'] : []),
     ...(skills.rawContentStored ? ['Runtime reported raw skill content storage in prompt assembly metadata.'] : []),
     ...(mcp.rawContentStored ? ['Runtime reported raw MCP instruction storage in prompt assembly metadata.'] : []),
@@ -3247,6 +3291,7 @@ function mapContextDiagnostics(response?: RuntimePromptAssembliesResponseDTO): C
     provider: assembly.provider,
     model: assembly.model,
     createdAt: assembly.createdAt,
+    sections,
     system: {
       source: system.source,
       hash: system.hash,
@@ -3290,6 +3335,7 @@ function mapContextDiagnostics(response?: RuntimePromptAssembliesResponseDTO): C
       serverCount: mcp.serverCount ?? mcp.servers?.length ?? 0,
       instructionCount: mcp.instructionCount ?? 0,
       servers: Array.isArray(mcp.servers) ? mcp.servers : [],
+      serverListHash: mcp.serverListHash,
       instructionHash: mcp.instructionHash,
       tokenEstimate: mcp.tokenEstimate,
       rawContentStored: Boolean(mcp.rawContentStored),

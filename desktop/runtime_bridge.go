@@ -91,6 +91,7 @@ type RuntimeCompactBoundariesResponse = runtime.RuntimeCompactBoundariesResponse
 type RuntimeCompactToolCallRef = runtime.RuntimeCompactToolCallRef
 type RuntimePromptAssembly = runtime.RuntimePromptAssembly
 type RuntimePromptAssembliesResponse = runtime.RuntimePromptAssembliesResponse
+type RuntimePromptSectionSummary = runtime.RuntimePromptSectionSummary
 type RuntimePromptSystemSummary = runtime.RuntimePromptSystemSummary
 type RuntimePromptMessageSummary = runtime.RuntimePromptMessageSummary
 type RuntimePromptToolSummary = runtime.RuntimePromptToolSummary

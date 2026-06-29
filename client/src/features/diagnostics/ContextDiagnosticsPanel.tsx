@@ -81,8 +81,32 @@ export function ContextDiagnosticsPanel({ diagnostics, onManualCompact, onManual
       <div className={styles.metrics}>
         <Metric icon={<DatabaseOutlined />} label="Budget" value={`${diagnostics.budget.totalEstimatedTokens || 0} tokens`} />
         <Metric icon={<ToolOutlined />} label="Tools" value={`${diagnostics.tools.selectedCount} selected / ${diagnostics.tools.omittedCount} omitted`} />
-        <Metric icon={<FileSearchOutlined />} label="Sources" value={`${diagnostics.contextSources.length} context`} />
+        <Metric icon={<FileSearchOutlined />} label="Sections" value={`${diagnostics.sections.length} prompt`} />
       </div>
+
+      <Section title="Prompt sections">
+        {diagnostics.sections.length ? (
+          diagnostics.sections.map((section) => (
+            <div key={section.id} className={styles.sourceRow}>
+              <div className={styles.sourceTitle}>
+                <Text strong className={styles.truncate}>{section.name}</Text>
+                <Tag color={cachePolicyColor(section.cachePolicy)}>{section.cachePolicy}</Tag>
+              </div>
+              <Text type="secondary" className={styles.detailLine}>
+                {[section.kind, section.role, section.source, section.scope, section.tokenEstimate ? `${section.tokenEstimate} tokens` : undefined].filter(Boolean).join(' / ')}
+              </Text>
+              <div className={styles.inlineTags}>
+                <Tag color={section.redacted ? 'blue' : 'warning'}>{section.redacted ? 'redacted' : 'visible'}</Tag>
+                <Tag color={section.rawStored ? 'error' : 'default'}>{section.rawStored ? 'raw stored' : 'summary only'}</Tag>
+              </div>
+              {section.diagnostics ? <Text type="secondary" className={styles.detailLine}>{section.diagnostics}</Text> : null}
+              {section.hash ? <Text type="secondary" className={styles.hashLine}>{section.hash}</Text> : null}
+            </div>
+          ))
+        ) : (
+          <Text type="secondary">No prompt sections recorded.</Text>
+        )}
+      </Section>
 
       <Section title="Budget">
         <BudgetRow label="Messages" bucket={diagnostics.budget.messages} />
@@ -104,7 +128,7 @@ export function ContextDiagnosticsPanel({ diagnostics, onManualCompact, onManual
           <Tooltip title={diagnostics.skills.xmlHash || 'No skill instruction hash'}>
             <Tag color={diagnostics.skills.xmlPresent ? 'green' : 'default'}>{diagnostics.skills.loadedCount} skills</Tag>
           </Tooltip>
-          <Tooltip title={diagnostics.mcp.instructionHash || 'No MCP instruction hash'}>
+          <Tooltip title={mcpHashTooltip(diagnostics.mcp.serverListHash, diagnostics.mcp.instructionHash)}>
             <Tag color={diagnostics.mcp.instructionCount ? 'purple' : 'default'}>{diagnostics.mcp.serverCount} MCP servers</Tag>
           </Tooltip>
         </div>
@@ -212,6 +236,26 @@ function BudgetRow({ label, bucket }: { label: string; bucket?: BudgetBucketView
       <Text>{bucket ? `${bucket.count} / ${bucket.estimatedTokens}` : '0 / 0'}</Text>
     </div>
   );
+}
+
+function cachePolicyColor(policy: string) {
+  switch (policy) {
+    case 'stable':
+      return 'green';
+    case 'session_cached':
+      return 'cyan';
+    case 'uncached':
+      return 'volcano';
+    default:
+      return 'gold';
+  }
+}
+
+function mcpHashTooltip(serverListHash?: string, instructionHash?: string) {
+  if (!serverListHash && !instructionHash) {
+    return 'No MCP hashes recorded';
+  }
+  return [serverListHash ? `servers ${serverListHash}` : undefined, instructionHash ? `instructions ${instructionHash}` : undefined].filter(Boolean).join(' / ');
 }
 
 function TagList({ values, fallback, color }: { values: string[]; fallback?: string; color?: string }) {

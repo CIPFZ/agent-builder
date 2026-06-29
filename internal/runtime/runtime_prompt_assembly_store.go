@@ -40,6 +40,10 @@ func (s runtimePromptAssemblyStore) Upsert(ctx context.Context, assembly Runtime
 	if assembly.CreatedAt == 0 {
 		assembly.CreatedAt = time.Now().UTC().UnixMilli()
 	}
+	sectionsJSON, err := marshalJSON(assembly.Sections)
+	if err != nil {
+		return RuntimePromptAssembly{}, err
+	}
 	systemJSON, err := marshalJSON(assembly.System)
 	if err != nil {
 		return RuntimePromptAssembly{}, err
@@ -75,9 +79,9 @@ func (s runtimePromptAssemblyStore) Upsert(ctx context.Context, assembly Runtime
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO runtime_prompt_assemblies (
     id, session_id, turn_id, projection_id, step, provider, model,
-    system_json, messages_json, tools_json, skills_json, mcp_json,
+    sections_json, system_json, messages_json, tools_json, skills_json, mcp_json,
     context_sources_json, compact_json, budget_json, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
     session_id = excluded.session_id,
     turn_id = excluded.turn_id,
@@ -85,6 +89,7 @@ ON CONFLICT(id) DO UPDATE SET
     step = excluded.step,
     provider = excluded.provider,
     model = excluded.model,
+    sections_json = excluded.sections_json,
     system_json = excluded.system_json,
     messages_json = excluded.messages_json,
     tools_json = excluded.tools_json,
@@ -96,7 +101,7 @@ ON CONFLICT(id) DO UPDATE SET
     created_at = excluded.created_at`,
 		assembly.ID, assembly.SessionID, assembly.TurnID, nullableString(assembly.ProjectionID), assembly.Step,
 		nullableString(assembly.Provider), nullableString(assembly.Model),
-		systemJSON, messagesJSON, toolsJSON, skillsJSON, mcpJSON,
+		sectionsJSON, systemJSON, messagesJSON, toolsJSON, skillsJSON, mcpJSON,
 		contextJSON, compactJSON, budgetJSON, assembly.CreatedAt,
 	)
 	if err != nil {
@@ -111,7 +116,7 @@ func (s runtimePromptAssemblyStore) Get(ctx context.Context, id string) (Runtime
 	}
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, session_id, turn_id, projection_id, step, provider, model,
-    system_json, messages_json, tools_json, skills_json, mcp_json,
+    sections_json, system_json, messages_json, tools_json, skills_json, mcp_json,
     context_sources_json, compact_json, budget_json, created_at
 FROM runtime_prompt_assemblies
 WHERE id = ?`, strings.TrimSpace(id))
@@ -124,7 +129,7 @@ func (s runtimePromptAssemblyStore) ListByTurn(ctx context.Context, turnID strin
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, session_id, turn_id, projection_id, step, provider, model,
-    system_json, messages_json, tools_json, skills_json, mcp_json,
+    sections_json, system_json, messages_json, tools_json, skills_json, mcp_json,
     context_sources_json, compact_json, budget_json, created_at
 FROM runtime_prompt_assemblies
 WHERE turn_id = ?
@@ -145,7 +150,7 @@ func (s runtimePromptAssemblyStore) ListBySession(ctx context.Context, sessionID
 	}
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, session_id, turn_id, projection_id, step, provider, model,
-    system_json, messages_json, tools_json, skills_json, mcp_json,
+    sections_json, system_json, messages_json, tools_json, skills_json, mcp_json,
     context_sources_json, compact_json, budget_json, created_at
 FROM runtime_prompt_assemblies
 WHERE session_id = ?
@@ -187,10 +192,10 @@ func scanRuntimePromptAssemblyRows(rows *sql.Rows) ([]RuntimePromptAssembly, err
 func scanRuntimePromptAssembly(scanner runtimePromptAssemblyScanner) (RuntimePromptAssembly, error) {
 	var assembly RuntimePromptAssembly
 	var projectionID, provider, model sql.NullString
-	var systemJSON, messagesJSON, toolsJSON, skillsJSON, mcpJSON, contextJSON, compactJSON, budgetJSON sql.NullString
+	var sectionsJSON, systemJSON, messagesJSON, toolsJSON, skillsJSON, mcpJSON, contextJSON, compactJSON, budgetJSON sql.NullString
 	if err := scanner.Scan(
 		&assembly.ID, &assembly.SessionID, &assembly.TurnID, &projectionID, &assembly.Step, &provider, &model,
-		&systemJSON, &messagesJSON, &toolsJSON, &skillsJSON, &mcpJSON,
+		&sectionsJSON, &systemJSON, &messagesJSON, &toolsJSON, &skillsJSON, &mcpJSON,
 		&contextJSON, &compactJSON, &budgetJSON, &assembly.CreatedAt,
 	); err != nil {
 		return RuntimePromptAssembly{}, err
@@ -198,6 +203,9 @@ func scanRuntimePromptAssembly(scanner runtimePromptAssemblyScanner) (RuntimePro
 	assembly.ProjectionID = projectionID.String
 	assembly.Provider = provider.String
 	assembly.Model = model.String
+	if err := decodePromptAssemblyJSON(sectionsJSON.String, &assembly.Sections); err != nil {
+		return RuntimePromptAssembly{}, err
+	}
 	if err := decodePromptAssemblyJSON(systemJSON.String, &assembly.System); err != nil {
 		return RuntimePromptAssembly{}, err
 	}
