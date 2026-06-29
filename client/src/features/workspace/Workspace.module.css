@@ -591,6 +591,7 @@
   overflow: hidden;
   cursor: text;
   scrollbar-color: #d8d8d8 transparent;
+  scrollbar-width: thin;
 }
 
 .terminalScreen :global(.xterm) {
@@ -601,7 +602,28 @@
 .terminalScreen :global(.xterm-viewport) {
   overflow-y: auto;
   background: #ffffff !important;
-  scrollbar-color: #d8d8d8 transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.22) transparent;
+  scrollbar-width: thin;
+}
+
+.terminalScreen :global(.xterm-viewport::-webkit-scrollbar) {
+  width: 7px;
+  height: 7px;
+}
+
+.terminalScreen :global(.xterm-viewport::-webkit-scrollbar-track) {
+  background: transparent;
+}
+
+.terminalScreen :global(.xterm-viewport::-webkit-scrollbar-thumb) {
+  min-height: 36px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.terminalScreen :global(.xterm-viewport::-webkit-scrollbar-thumb:hover) {
+  background: rgba(0, 0, 0, 0.36);
 }
 
 .terminalScreen :global(.xterm-screen) {

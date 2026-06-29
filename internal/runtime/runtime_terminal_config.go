@@ -3,18 +3,12 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 )
-
-const runtimeTerminalDefaultProfileID = "git-bash"
-
-var runtimeTerminalProfiles = []RuntimeTerminalProfile{
-	{ID: "git-bash", Label: "Git Bash"},
-	{ID: "powershell", Label: "PowerShell"},
-	{ID: "cmd", Label: "Command Prompt"},
-}
 
 func (r *runtimeService) TerminalSettings(context.Context) (RuntimeTerminalSettingsResponse, error) {
 	settings, err := loadRuntimeTerminalSettings()
@@ -26,8 +20,15 @@ func (r *runtimeService) TerminalSettings(context.Context) (RuntimeTerminalSetti
 
 func (r *runtimeService) SaveTerminalSettings(_ context.Context, req RuntimeTerminalSettings) (RuntimeTerminalSettingsResponse, error) {
 	profileID := strings.TrimSpace(req.ProfileID)
-	if !runtimeTerminalProfileIDSupported(profileID) {
-		return RuntimeTerminalSettingsResponse{}, fmt.Errorf("unsupported terminal profile %q", profileID)
+	profiles := runtimeTerminalAvailableProfiles()
+	if profileID == "" {
+		profileID = runtimeTerminalDefaultProfileID(profiles)
+	}
+	if len(profiles) == 0 {
+		return RuntimeTerminalSettingsResponse{}, errors.New("no terminal profiles are available on this machine")
+	}
+	if !runtimeTerminalProfileAvailable(profileID, profiles) {
+		return RuntimeTerminalSettingsResponse{}, fmt.Errorf("terminal profile %q is not available on this machine", profileID)
 	}
 	layout, err := resolveDesktopLayout()
 	if err != nil {
@@ -38,7 +39,7 @@ func (r *runtimeService) SaveTerminalSettings(_ context.Context, req RuntimeTerm
 	}
 	settings := RuntimeTerminalSettings{
 		ProfileID: profileID,
-		Profiles:  append([]RuntimeTerminalProfile(nil), runtimeTerminalProfiles...),
+		Profiles:  profiles,
 	}
 	data, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
@@ -58,9 +59,10 @@ func loadRuntimeTerminalSettings() (RuntimeTerminalSettings, error) {
 	if err := ensureDesktopLayout(layout); err != nil {
 		return RuntimeTerminalSettings{}, err
 	}
+	profiles := runtimeTerminalAvailableProfiles()
 	settings := RuntimeTerminalSettings{
-		ProfileID: runtimeTerminalDefaultProfileID,
-		Profiles:  append([]RuntimeTerminalProfile(nil), runtimeTerminalProfiles...),
+		ProfileID: runtimeTerminalDefaultProfileID(profiles),
+		Profiles:  profiles,
 	}
 	data, err := os.ReadFile(layout.TerminalConfigPath)
 	if err != nil {
@@ -73,14 +75,37 @@ func loadRuntimeTerminalSettings() (RuntimeTerminalSettings, error) {
 	if err := json.Unmarshal(data, &saved); err != nil {
 		return RuntimeTerminalSettings{}, fmt.Errorf("failed to parse terminal config: %w", err)
 	}
-	if runtimeTerminalProfileIDSupported(saved.ProfileID) {
+	if runtimeTerminalProfileAvailable(saved.ProfileID, profiles) {
 		settings.ProfileID = saved.ProfileID
 	}
 	return settings, nil
 }
 
-func runtimeTerminalProfileIDSupported(profileID string) bool {
-	for _, profile := range runtimeTerminalProfiles {
+func runtimeTerminalDefaultProfileID(profiles []RuntimeTerminalProfile) string {
+	preferred := []string{"bash", "zsh", "fish", "sh", "pwsh"}
+	switch runtime.GOOS {
+	case "windows":
+		preferred = []string{"git-bash", "pwsh", "powershell", "cmd"}
+	case "darwin":
+		preferred = []string{"zsh", "bash", "fish", "sh", "pwsh"}
+	}
+	for _, id := range preferred {
+		if runtimeTerminalProfileAvailable(id, profiles) {
+			return id
+		}
+	}
+	if len(profiles) > 0 {
+		return profiles[0].ID
+	}
+	return ""
+}
+
+func runtimeTerminalProfileAvailable(profileID string, profiles []RuntimeTerminalProfile) bool {
+	profileID = strings.TrimSpace(profileID)
+	if profileID == "" {
+		return false
+	}
+	for _, profile := range profiles {
 		if profile.ID == profileID {
 			return true
 		}

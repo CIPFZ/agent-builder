@@ -139,6 +139,44 @@ func TestRuntimeTerminalOutputEventPreservesNonUTF8Bytes(t *testing.T) {
 	}
 }
 
+func TestRuntimeTerminalDefaultProfileSelectsAvailablePreferredProfile(t *testing.T) {
+	t.Parallel()
+
+	profiles := []RuntimeTerminalProfile{
+		{ID: "cmd", Label: "Command Prompt"},
+		{ID: "bash", Label: "Bash"},
+		{ID: "zsh", Label: "Zsh"},
+	}
+
+	got := runtimeTerminalDefaultProfileID(profiles)
+	switch runtime.GOOS {
+	case "windows":
+		if got != "cmd" {
+			t.Fatalf("default profile = %q, want cmd", got)
+		}
+	case "darwin":
+		if got != "zsh" {
+			t.Fatalf("default profile = %q, want zsh", got)
+		}
+	default:
+		if got != "bash" {
+			t.Fatalf("default profile = %q, want bash", got)
+		}
+	}
+}
+
+func TestRuntimeTerminalDefaultProfileFallsBackToFirstAvailableProfile(t *testing.T) {
+	t.Parallel()
+
+	profiles := []RuntimeTerminalProfile{{ID: "custom-shell", Label: "Custom Shell"}}
+	if got := runtimeTerminalDefaultProfileID(profiles); got != "custom-shell" {
+		t.Fatalf("default profile = %q, want custom-shell", got)
+	}
+	if got := runtimeTerminalDefaultProfileID(nil); got != "" {
+		t.Fatalf("default profile with no profiles = %q, want empty", got)
+	}
+}
+
 func TestRuntimeRestartClosesActiveTerminals(t *testing.T) {
 	root := t.TempDir()
 	service, sessionA := runtimeTerminalTestService(t, "terminal-restart", root)

@@ -618,6 +618,12 @@ type runtimeTerminalShellProfile struct {
 	args  []string
 }
 
+type runtimeTerminalProfileDefinition struct {
+	id       string
+	label    string
+	resolver func() (runtimeTerminalShellProfile, error)
+}
+
 func runtimeTerminalProfile(req RuntimeTerminalCreateRequest) (runtimeTerminalShellProfile, error) {
 	if strings.TrimSpace(req.ShellPath) != "" {
 		path := strings.TrimSpace(req.ShellPath)
@@ -628,74 +634,142 @@ func runtimeTerminalProfile(req RuntimeTerminalCreateRequest) (runtimeTerminalSh
 			args:  append([]string(nil), req.ShellArgs...),
 		}, nil
 	}
-	switch strings.TrimSpace(req.ProfileID) {
-	case "git-bash":
-		gitBash := runtimeTerminalLookPath(`C:\Program Files\Git\bin\bash.exe`, `C:\Program Files (x86)\Git\bin\bash.exe`)
-		if gitBash == "" {
-			return runtimeTerminalShellProfile{}, errors.New("Git Bash terminal profile is not available")
+	profileID := strings.TrimSpace(req.ProfileID)
+	if profileID == "" {
+		settings, err := loadRuntimeTerminalSettings()
+		if err != nil {
+			return runtimeTerminalShellProfile{}, err
 		}
-		return runtimeTerminalShellProfile{
-			name:  "MINGW64",
-			title: "Git Bash",
-			path:  gitBash,
-			args:  []string{"--login", "-i"},
-		}, nil
-	case "powershell":
-		powershell := runtimeTerminalLookPath("pwsh.exe", "powershell.exe")
-		if powershell == "" {
-			return runtimeTerminalShellProfile{}, errors.New("PowerShell terminal profile is not available")
-		}
-		return runtimeTerminalShellProfile{
-			name:  "PowerShell",
-			title: "PowerShell",
-			path:  powershell,
-			args:  []string{"-NoLogo", "-NoProfile"},
-		}, nil
-	case "cmd":
-		cmd := runtimeTerminalLookPath("cmd.exe")
-		if cmd == "" {
-			return runtimeTerminalShellProfile{}, errors.New("cmd terminal profile is not available")
-		}
-		return runtimeTerminalShellProfile{name: "cmd", title: "cmd", path: cmd}, nil
-	case "":
-	default:
-		return runtimeTerminalShellProfile{}, fmt.Errorf("unsupported terminal profile %q", req.ProfileID)
+		profileID = settings.ProfileID
 	}
+	for _, definition := range runtimeTerminalProfileDefinitions() {
+		if definition.id == profileID {
+			return definition.resolver()
+		}
+	}
+	return runtimeTerminalShellProfile{}, fmt.Errorf("terminal profile %q is not available on this machine", profileID)
+}
+
+func runtimeTerminalAvailableProfiles() []RuntimeTerminalProfile {
+	profiles := make([]RuntimeTerminalProfile, 0, len(runtimeTerminalProfileDefinitions()))
+	for _, definition := range runtimeTerminalProfileDefinitions() {
+		if _, err := definition.resolver(); err == nil {
+			profiles = append(profiles, RuntimeTerminalProfile{ID: definition.id, Label: definition.label})
+		}
+	}
+	return profiles
+}
+
+func runtimeTerminalProfileDefinitions() []runtimeTerminalProfileDefinition {
 	if runtime.GOOS == "windows" {
-		if gitBash := runtimeTerminalLookPath(`C:\Program Files\Git\bin\bash.exe`, `C:\Program Files (x86)\Git\bin\bash.exe`); gitBash != "" {
-			return runtimeTerminalShellProfile{
-				name:  "MINGW64",
-				title: "MINGW64",
-				path:  gitBash,
-				args:  []string{"--login", "-i"},
-			}, nil
+		return []runtimeTerminalProfileDefinition{
+			{id: "git-bash", label: "Git Bash", resolver: runtimeTerminalGitBashProfile},
+			{id: "pwsh", label: "PowerShell 7", resolver: runtimeTerminalPowerShellCoreProfile},
+			{id: "powershell", label: "Windows PowerShell", resolver: runtimeTerminalWindowsPowerShellProfile},
+			{id: "cmd", label: "Command Prompt", resolver: runtimeTerminalCmdProfile},
 		}
-		if powershell := runtimeTerminalLookPath("pwsh.exe", "powershell.exe"); powershell != "" {
-			return runtimeTerminalShellProfile{
-				name:  "PowerShell",
-				title: "PowerShell",
-				path:  powershell,
-				args:  []string{"-NoLogo", "-NoProfile"},
-			}, nil
-		}
-		if cmd := runtimeTerminalLookPath("cmd.exe"); cmd != "" {
-			return runtimeTerminalShellProfile{name: "cmd", title: "cmd", path: cmd}, nil
-		}
-		return runtimeTerminalShellProfile{}, errors.New("no supported Windows shell found")
 	}
+	definitions := []runtimeTerminalProfileDefinition{
+		{id: "bash", label: "Bash", resolver: runtimeTerminalNamedLoginShellProfile("bash", "Bash")},
+		{id: "zsh", label: "Zsh", resolver: runtimeTerminalNamedLoginShellProfile("zsh", "Zsh")},
+		{id: "fish", label: "Fish", resolver: runtimeTerminalNamedLoginShellProfile("fish", "Fish")},
+		{id: "sh", label: "sh", resolver: runtimeTerminalNamedLoginShellProfile("sh", "sh")},
+		{id: "pwsh", label: "PowerShell", resolver: runtimeTerminalPowerShellCoreProfile},
+	}
+	if envShell := strings.TrimSpace(os.Getenv("SHELL")); envShell != "" {
+		envLabel := fmt.Sprintf("System Shell (%s)", filepath.Base(envShell))
+		definitions = append([]runtimeTerminalProfileDefinition{
+			{id: "system-shell", label: envLabel, resolver: runtimeTerminalEnvShellProfile},
+		}, definitions...)
+	}
+	return definitions
+}
+
+func runtimeTerminalGitBashProfile() (runtimeTerminalShellProfile, error) {
+	gitBash := runtimeTerminalLookPath(
+		runtimeTerminalJoinEnvPath("ProgramFiles", "Git", "bin", "bash.exe"),
+		runtimeTerminalJoinEnvPath("ProgramFiles(x86)", "Git", "bin", "bash.exe"),
+		runtimeTerminalJoinEnvPath("LocalAppData", "Programs", "Git", "bin", "bash.exe"),
+		`C:\Program Files\Git\bin\bash.exe`,
+		`C:\Program Files (x86)\Git\bin\bash.exe`,
+	)
+	if gitBash == "" {
+		return runtimeTerminalShellProfile{}, errors.New("Git Bash terminal profile is not available")
+	}
+	return runtimeTerminalShellProfile{
+		name:  "MINGW64",
+		title: "Git Bash",
+		path:  gitBash,
+		args:  []string{"--login", "-i"},
+	}, nil
+}
+
+func runtimeTerminalWindowsPowerShellProfile() (runtimeTerminalShellProfile, error) {
+	powershell := runtimeTerminalLookPath("powershell.exe")
+	if powershell == "" {
+		return runtimeTerminalShellProfile{}, errors.New("Windows PowerShell terminal profile is not available")
+	}
+	return runtimeTerminalShellProfile{
+		name:  "Windows PowerShell",
+		title: "Windows PowerShell",
+		path:  powershell,
+		args:  []string{"-NoLogo", "-NoProfile"},
+	}, nil
+}
+
+func runtimeTerminalPowerShellCoreProfile() (runtimeTerminalShellProfile, error) {
+	powershell := runtimeTerminalLookPath("pwsh", "pwsh.exe")
+	if powershell == "" {
+		return runtimeTerminalShellProfile{}, errors.New("PowerShell 7 terminal profile is not available")
+	}
+	return runtimeTerminalShellProfile{
+		name:  "PowerShell 7",
+		title: "PowerShell 7",
+		path:  powershell,
+		args:  []string{"-NoLogo", "-NoProfile"},
+	}, nil
+}
+
+func runtimeTerminalCmdProfile() (runtimeTerminalShellProfile, error) {
+	cmd := runtimeTerminalLookPath("cmd.exe")
+	if cmd == "" {
+		return runtimeTerminalShellProfile{}, errors.New("cmd terminal profile is not available")
+	}
+	return runtimeTerminalShellProfile{name: "cmd", title: "cmd", path: cmd}, nil
+}
+
+func runtimeTerminalNamedLoginShellProfile(name, title string) func() (runtimeTerminalShellProfile, error) {
+	return func() (runtimeTerminalShellProfile, error) {
+		path := runtimeTerminalLookPath(name)
+		if path == "" {
+			return runtimeTerminalShellProfile{}, fmt.Errorf("%s terminal profile is not available", title)
+		}
+		return runtimeTerminalShellProfile{name: name, title: title, path: path, args: []string{"-l"}}, nil
+	}
+}
+
+func runtimeTerminalEnvShellProfile() (runtimeTerminalShellProfile, error) {
 	shell := strings.TrimSpace(os.Getenv("SHELL"))
 	if shell == "" {
-		shell = runtimeTerminalLookPath("bash", "zsh", "sh")
+		return runtimeTerminalShellProfile{}, errors.New("SHELL is not set")
 	}
-	if shell == "" {
-		return runtimeTerminalShellProfile{}, errors.New("no supported shell found")
+	cleanShell, err := filepath.Abs(os.ExpandEnv(shell))
+	if err != nil {
+		return runtimeTerminalShellProfile{}, err
 	}
-	name := filepath.Base(shell)
-	return runtimeTerminalShellProfile{name: name, title: name, path: shell, args: []string{"-l"}}, nil
+	if info, err := os.Stat(cleanShell); err != nil || info.IsDir() {
+		return runtimeTerminalShellProfile{}, fmt.Errorf("SHELL %s is not executable", shell)
+	}
+	name := filepath.Base(cleanShell)
+	return runtimeTerminalShellProfile{name: name, title: fmt.Sprintf("System Shell (%s)", name), path: cleanShell, args: []string{"-l"}}, nil
 }
 
 func runtimeTerminalLookPath(candidates ...string) string {
 	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
 		if strings.Contains(candidate, `\`) || strings.Contains(candidate, `/`) {
 			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 				return candidate
@@ -707,6 +781,14 @@ func runtimeTerminalLookPath(candidates ...string) string {
 		}
 	}
 	return ""
+}
+
+func runtimeTerminalJoinEnvPath(envName string, elems ...string) string {
+	root := strings.TrimSpace(os.Getenv(envName))
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(append([]string{root}, elems...)...)
 }
 
 func ptyLookPath(name string) (string, error) {
