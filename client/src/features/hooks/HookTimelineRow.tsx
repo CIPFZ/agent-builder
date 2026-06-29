@@ -1,7 +1,7 @@
 import { BranchesOutlined } from '@ant-design/icons';
 import { Tag } from 'antd';
 import type { HookExecutionViewModel } from '../../runtime/workbenchTypes.ts';
-import { executionStatusColor } from './HookExecutionDetailDrawer.tsx';
+import { executionStatusColor } from './hookExecutionUtils.ts';
 import styles from './HookTimelineRow.module.css';
 
 export function HookTimelineRow({

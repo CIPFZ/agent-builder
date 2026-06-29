@@ -768,29 +768,53 @@ function MemorySettings({ project, onList, onDetail, onCreate, onUpdate, onEnabl
   };
 
   useEffect(() => {
-    void loadList();
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) {
+        void loadList();
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectID]);
 
   useEffect(() => {
+    let cancelled = false;
     if (!selectedID) {
-      setDetail(undefined);
-      return;
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setDetail(undefined);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
     }
     void onDetail(selectedID)
       .then((record) => {
-        setDetail(record);
-        form.setFieldsValue({
-          projectId: record.projectId,
-          relativePath: record.relativePath,
-          type: record.type,
-          title: record.title,
-          description: record.description,
-          tags: record.tags,
-          content: record.content || '',
-        });
+        if (!cancelled) {
+          setDetail(record);
+          form.setFieldsValue({
+            projectId: record.projectId,
+            relativePath: record.relativePath,
+            type: record.type,
+            title: record.title,
+            description: record.description,
+            tags: record.tags,
+            content: record.content || '',
+          });
+        }
       })
-      .catch((error) => message.error(error instanceof Error ? error.message : 'Failed to load memory detail'));
+      .catch((error) => {
+        if (!cancelled) {
+          void message.error(error instanceof Error ? error.message : 'Failed to load memory detail');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedID, onDetail, form]);
 
   const filteredRecords = useMemo(() => {

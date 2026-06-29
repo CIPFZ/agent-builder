@@ -144,6 +144,25 @@ const replayedAgain = applyOutputEvent(replayed, {
 });
 assert.equal(selectConversationTimeline(replayedAgain).find((item) => item.id === 'item-assistant-final')?.content, 'final answer updated', 'output event replay is idempotent');
 
+const emptyRuntimeContractStore = hydrateOutputStore({
+  sessionId: 'session-empty-runtime',
+  cursor: '30',
+  version: 1,
+  items: [],
+  messages: [
+    { id: 'legacy-user', sessionId: 'session-empty-runtime', role: 'user', content: 'hello', createdAt: 1 },
+    { id: 'legacy-assistant', sessionId: 'session-empty-runtime', role: 'assistant', content: 'Hi', finished: true, createdAt: 2 },
+  ],
+  assistantSteps: [
+    { id: 'legacy-step', sessionId: 'session-empty-runtime', turnId: 'turn-empty', messageId: 'legacy-assistant', index: 0, status: 'completed', text: 'Hi', thinkingSummary: 'Context source: managed_instructions injected', startedAt: 2, updatedAt: 3 },
+  ],
+  toolCalls: [
+    { id: 'legacy-context-tool', sessionId: 'session-empty-runtime', turnId: 'turn-empty', assistantStepId: 'legacy-step', name: 'Context source: skill injected', source: 'runtime', status: 'completed', startedAt: 3, finishedAt: 4 },
+  ],
+}, createOutputStore('session-empty-runtime'));
+assert.deepEqual(selectConversationTimeline(emptyRuntimeContractStore), [], 'versioned runtime snapshot with empty items must not fall back to legacy timeline composition');
+assert.deepEqual(selectConversationMessages(emptyRuntimeContractStore), [], 'versioned runtime snapshot with empty items must not fall back to legacy messages');
+
 const streamingStore = hydrateOutputStore({
   sessionId: 'session-2',
   messages: [

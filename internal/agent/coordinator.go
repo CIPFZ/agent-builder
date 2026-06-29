@@ -863,10 +863,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		}
 		result.SetSystemPrompt(systemPrompt)
 		result.SetSystemPromptSections(sections)
-		return nil
-	})
 
-	c.readyWg.Go(func() error {
 		tools, err := c.buildTools(ctx, agent, isSubAgent)
 		if err != nil {
 			return err

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { BranchesOutlined } from '@ant-design/icons';
 import { Tag } from 'antd';
 import type { AgentRoleViewModel, AgentTaskViewModel } from '../../runtime/workbenchTypes.ts';
@@ -28,12 +28,6 @@ export function AgentTaskPanel({
   const selectedTask = orderedTasks.find((task) => task.id === effectiveSelectedTaskID) ?? orderedTasks[0];
   const activeTasks = orderedTasks.filter((task) => !isFinalAgentTaskStatus(task.status));
   const finalTasks = orderedTasks.filter((task) => isFinalAgentTaskStatus(task.status));
-
-  useEffect(() => {
-    if (selectedTask?.id && !effectiveSelectedTaskID) {
-      setLocalSelectedTaskID(selectedTask.id);
-    }
-  }, [effectiveSelectedTaskID, selectedTask?.id]);
 
   if (!orderedTasks.length) {
     return null;

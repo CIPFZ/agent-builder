@@ -2472,8 +2472,8 @@ function buildRuntimeTimelineOrder(callchain?: RuntimeReactCallchainDTO): Runtim
   return order;
 }
 
-// Diagnostics-only fallback for legacy/no-output snapshots. The main timeline path is SessionOutput runtime items.
-function mapActivityTimeline(activity?: RuntimeSessionActivityDTO, callchain?: RuntimeReactCallchainDTO): ConversationTimelineItemViewModel[] {
+// Diagnostics-only helper for legacy runtime parity tooling. The main timeline path must come from SessionOutput runtime items.
+export function mapActivityTimeline(activity?: RuntimeSessionActivityDTO, callchain?: RuntimeReactCallchainDTO): ConversationTimelineItemViewModel[] {
   if (!activity) {
     return [];
   }
@@ -2628,7 +2628,7 @@ function mapActivityTimeline(activity?: RuntimeSessionActivityDTO, callchain?: R
 }
 
 // Diagnostics-only fallback for legacy/no-output snapshots. Do not use this to construct the primary conversation path.
-function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], activity: RuntimeSessionActivityDTO, callchain?: RuntimeReactCallchainDTO) {
+export function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], activity: RuntimeSessionActivityDTO, callchain?: RuntimeReactCallchainDTO) {
   const replacement = mapActivityTimeline(activity, callchain);
   const activityMessages = Array.isArray(activity.messages) ? activity.messages : [];
   const activityTurns = Array.isArray(activity.turns) ? activity.turns : [];
@@ -2668,7 +2668,7 @@ function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], act
   return dedupeTimelineItems([...kept, ...replacement]).sort(compareActivityTimelineItems(activityMessages, activityTurns));
 }
 
-function attachAgentTasksToTimeline(items: ConversationTimelineItemViewModel[], tasks?: AgentTaskViewModel[]): ConversationTimelineItemViewModel[] {
+export function attachAgentTasksToTimeline(items: ConversationTimelineItemViewModel[], tasks?: AgentTaskViewModel[]): ConversationTimelineItemViewModel[] {
   if (!tasks?.length) {
     return items;
   }
@@ -2772,7 +2772,7 @@ function compareActivityTimelineItems(messages: RuntimeMessageDTO[], turns: Runt
   };
 }
 
-function mergeConversationMessages(current: ConversationMessageViewModel[], response?: RuntimeMessagesResponseDTO) {
+export function mergeConversationMessages(current: ConversationMessageViewModel[], response?: RuntimeMessagesResponseDTO) {
   const incoming = mapConversation(response);
   if (incoming.length === 0) {
     return current;
@@ -2910,7 +2910,7 @@ function shouldShowTurnTerminal(turn: RuntimeTurnDTO) {
   return turn.status !== 'completed' || Boolean(missingFinal || turn.error);
 }
 
-function mergePendingPermissions(current: PermissionRequestViewModel[], permissions: PermissionRequestViewModel[]) {
+export function mergePendingPermissions(current: PermissionRequestViewModel[], permissions: PermissionRequestViewModel[]) {
   const incomingIDs = new Set(permissions.map((permission) => permission.id));
   return [...current.filter((permission) => !incomingIDs.has(permission.id)), ...permissions].filter((permission) => permission.status === 'pending');
 }
@@ -3621,7 +3621,7 @@ function mapBudgetBucket(bucket?: RuntimeBudgetBucketDTO) {
   };
 }
 
-function attachContextGovernanceToTimeline(
+export function attachContextGovernanceToTimeline(
   items: ConversationTimelineItemViewModel[],
   diagnostics?: ContextDiagnosticsViewModel,
 ): ConversationTimelineItemViewModel[] {
@@ -4203,13 +4203,6 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const agentTasks = activeSessionID ? await hydrateAgentTasks(bridge, activeSessionID) : undefined;
   const todos = activeSessionID ? await hydrateTodos(bridge, activeSessionID) : undefined;
   const agentRoles = fullHydration ? await hydrateAgentRoles(bridge) : undefined;
-  const messagesResponse = activity
-    ? { messages: Array.isArray(activity.messages) ? activity.messages : [] }
-    : activeSessionID && fullHydration
-      ? await optionalRuntimeRequest(() => bridge.SessionMessages?.(activeSessionID) ?? Promise.resolve(undefined))
-    : fullHydration
-      ? await optionalRuntimeRequest(() => bridge.Messages?.() ?? Promise.resolve(undefined))
-    : undefined;
   const modelOptionList = modelsResponse ? modelOptions(modelsResponse) : current.composer.modelOptions;
   const selectedModel = modelsResponse ? modelOptionList.find((model) => model.selected) : current.composer.selectedModel;
   const currentProject = mapProjectFromStatus(status, current.currentProject);
@@ -4232,30 +4225,16 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     : undefined;
   const contextDiagnostics = mapContextDiagnostics(promptAssembliesDTO) ?? (current.contextDiagnostics?.sessionId === activeSessionID ? current.contextDiagnostics : undefined);
   const policy = activity?.policy ?? (refreshPolicy ? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy : undefined);
-  const permissions = (Array.isArray(activity?.permissions) ? activity.permissions : []).map(mapPermission);
   const activeOutputStore = outputStore?.sessionId === activeSessionID ? outputStore : undefined;
   const outputTimeline = activeOutputStore ? selectConversationTimeline(activeOutputStore) : undefined;
   const outputConversation = activeOutputStore ? selectConversationMessages(activeOutputStore) : undefined;
   const outputPendingPermissions = activeOutputStore ? selectPendingPermissions(activeOutputStore) : undefined;
-  // Diagnostics-only fallback: primary conversation rendering must come from SessionOutput runtime items.
-  const fallbackActivityTimeline = activity
-    ? narrowActivity
-      ? mergeActivityTimeline(current.timeline, activity, reactCallchainDTO)
-      : mapActivityTimeline(activity, reactCallchainDTO)
-    : current.timeline;
-  const timeline = outputTimeline
-    ? outputTimeline
-    : attachContextGovernanceToTimeline(attachAgentTasksToTimeline(fallbackActivityTimeline, agentTasks), contextDiagnostics);
-  const conversation = outputConversation ?? (activity && narrowActivity
-    ? mergeConversationMessages(current.conversation, messagesResponse)
-    : messagesResponse
-      ? mapConversation(messagesResponse)
-      : current.conversation);
-  const pendingPermissions = outputPendingPermissions ?? (activity && narrowActivity
-    ? mergePendingPermissions(current.pendingPermissions, permissions)
-    : activity
-      ? permissions.filter((permission) => permission.status === 'pending')
-      : current.pendingPermissions);
+  // Primary conversation rendering is owned by SessionOutput. SessionActivity,
+  // prompt assemblies, and context diagnostics remain diagnostics-only and must
+  // not reconstruct the main timeline if a runtime output snapshot is absent.
+  const timeline = outputTimeline ?? (activeSessionID ? [] : current.timeline);
+  const conversation = outputConversation ?? (activeSessionID ? [] : current.conversation);
+  const pendingPermissions = outputPendingPermissions ?? current.pendingPermissions;
   const skills = mapSkills(skillsResponse) ?? current.settings.skills;
   const plugins = mapPlugins(pluginsResponse) ?? current.settings.plugins;
   const mcpServers = mapMCPServers(mcpServersResponse) ?? current.settings.mcpServers;

@@ -2,7 +2,8 @@ import { BranchesOutlined, FilterOutlined } from '@ant-design/icons';
 import { Checkbox, Empty, Flex, Select, Tag } from 'antd';
 import { useMemo, useState } from 'react';
 import type { HookExecutionSummaryViewModel, HookExecutionViewModel } from '../../runtime/workbenchTypes.ts';
-import { executionStatusColor, HookExecutionDetailDrawer } from './HookExecutionDetailDrawer.tsx';
+import { HookExecutionDetailDrawer } from './HookExecutionDetailDrawer.tsx';
+import { executionStatusColor } from './hookExecutionUtils.ts';
 import styles from './HookExecutionsPanel.module.css';
 
 export function HookExecutionsPanel({
@@ -17,9 +18,9 @@ export function HookExecutionsPanel({
   const [onlyProblem, setOnlyProblem] = useState(false);
   const [onlyChanged, setOnlyChanged] = useState(false);
   const [selected, setSelected] = useState<HookExecutionViewModel | undefined>();
-  const items = summary?.items ?? [];
-  const events = [...new Set(items.map((item) => item.event).filter(Boolean))];
-  const statuses = [...new Set(items.map((item) => item.status).filter(Boolean))];
+  const items = useMemo(() => summary?.items ?? [], [summary?.items]);
+  const events = useMemo(() => [...new Set(items.map((item) => item.event).filter(Boolean))], [items]);
+  const statuses = useMemo(() => [...new Set(items.map((item) => item.status).filter(Boolean))], [items]);
   const filtered = useMemo(
     () =>
       items.filter((item) => {

@@ -1,6 +1,7 @@
 import { Alert, Descriptions, Drawer, Spin, Tag, Typography } from 'antd';
 import { useEffect, useState } from 'react';
 import type { HookExecutionViewModel } from '../../runtime/workbenchTypes.ts';
+import { executionStatusColor } from './hookExecutionUtils.ts';
 import styles from './HookExecutionsPanel.module.css';
 
 const { Text } = Typography;
@@ -18,38 +19,47 @@ export function HookExecutionDetailDrawer({
   onClose: () => void;
   onLoad?: (executionId: string) => Promise<HookExecutionViewModel>;
 }) {
-  const [execution, setExecution] = useState<HookExecutionViewModel | undefined>(fallback);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [loadedExecution, setLoadedExecution] = useState<HookExecutionViewModel | undefined>();
+  const [loadingExecutionId, setLoadingExecutionId] = useState<string>();
+  const [loadError, setLoadError] = useState<{ executionId: string; message: string }>();
+  const execution = loadedExecution?.id === executionId ? loadedExecution : fallback;
+  const loading = Boolean(executionId && loadingExecutionId === executionId);
+  const error = loadError && loadError.executionId === executionId ? loadError.message : '';
 
   useEffect(() => {
-    setExecution(fallback);
-    setError('');
     if (!open || !executionId || !onLoad) {
       return undefined;
     }
     let cancelled = false;
-    setLoading(true);
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setLoadingExecutionId(executionId);
+        setLoadError(undefined);
+      }
+    });
     void onLoad(executionId)
       .then((detail) => {
         if (!cancelled) {
-          setExecution(detail);
+          setLoadedExecution(detail);
         }
       })
       .catch((loadError: unknown) => {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : 'Failed to load hook execution detail.');
+          setLoadError({
+            executionId,
+            message: loadError instanceof Error ? loadError.message : 'Failed to load hook execution detail.',
+          });
         }
       })
       .finally(() => {
         if (!cancelled) {
-          setLoading(false);
+          setLoadingExecutionId((current) => current === executionId ? undefined : current);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [executionId, fallback, onLoad, open]);
+  }, [executionId, onLoad, open]);
 
   return (
     <Drawer open={open} title="Hook execution" width={520} onClose={onClose}>
@@ -146,25 +156,6 @@ function Summary({ title, value, redacted }: { title: string; value?: string; re
       {value}
     </div>
   );
-}
-
-export function executionStatusColor(status?: string) {
-  switch (status) {
-    case 'completed':
-      return 'green';
-    case 'blocked':
-    case 'denied':
-      return 'orange';
-    case 'failed':
-      return 'red';
-    case 'started':
-    case 'running':
-      return 'blue';
-    case 'skipped':
-      return 'default';
-    default:
-      return 'default';
-  }
 }
 
 function formatTime(value?: number) {

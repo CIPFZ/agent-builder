@@ -3,6 +3,7 @@ import { Alert, Card, Descriptions, Empty, Flex, Table, Tag, Tooltip, Typography
 import { useMemo, useState } from 'react';
 import type { ColumnsType } from 'antd/es/table';
 import type { HookExecutionSummaryViewModel, HookViewModel } from '../../runtime/workbenchTypes.ts';
+import { executionStatusColor } from './hookExecutionUtils.ts';
 import styles from './HookSettingsPanel.module.css';
 
 const { Text, Title } = Typography;
@@ -169,23 +170,6 @@ function HookStatusTag({ hook }: { hook: HookViewModel }) {
     return <Tag color="red" icon={<StopOutlined />}>{hook.status || 'disabled'}</Tag>;
   }
   return <Tag color="green" icon={<CheckCircleOutlined />}>{hook.status || 'active'}</Tag>;
-}
-
-function executionStatusColor(status?: string) {
-  switch (status) {
-    case 'completed':
-      return 'green';
-    case 'blocked':
-    case 'denied':
-      return 'orange';
-    case 'failed':
-      return 'red';
-    case 'started':
-    case 'running':
-      return 'blue';
-    default:
-      return 'default';
-  }
 }
 
 function formatTimeout(timeoutMs?: number) {

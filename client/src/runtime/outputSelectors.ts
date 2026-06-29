@@ -7,7 +7,7 @@ import type {
 import type { OutputStore, RuntimeAgentTaskOutput, RuntimeConversationItem, RuntimeOutputAssistantStep, RuntimeOutputToolCall, RuntimeOutputToolResult, RuntimeToolResultView } from './outputTypes.ts';
 
 export function selectConversationMessages(store: OutputStore): ConversationMessageViewModel[] {
-  if (store.version && Object.keys(store.itemsById).length > 0) {
+  if (store.version) {
     return selectConversationMessagesFromRuntimeItems(store);
   }
   return [
@@ -49,7 +49,7 @@ export function selectActiveTurn(store: OutputStore) {
 }
 
 export function selectConversationTimeline(store: OutputStore): ConversationTimelineItemViewModel[] {
-  if (store.version && Object.keys(store.itemsById).length > 0) {
+  if (store.version) {
     return selectRuntimeConversationTimeline(store);
   }
   // Diagnostics-only fallback for legacy snapshots that do not provide runtime-owned conversation items.
