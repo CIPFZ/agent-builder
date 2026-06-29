@@ -19,6 +19,11 @@ import type {
   ProviderTestViewModel,
   ProviderCatalogItemViewModel,
   ProjectActionRequestViewModel,
+  ProjectMemoryCreateViewModel,
+  ProjectMemoryIndexViewModel,
+  ProjectMemoryListViewModel,
+  ProjectMemoryRecordViewModel,
+  ProjectMemoryUpdateViewModel,
   ProviderTypeViewModel,
   OpenProjectRequestViewModel,
   RenameProjectRequestViewModel,
@@ -74,6 +79,46 @@ interface RuntimeProjectDTO {
   isGitRepository?: boolean;
   branch?: string;
   current?: boolean;
+}
+
+interface RuntimeMemoryRecordDTO {
+  id: string;
+  projectId: string;
+  relativePath: string;
+  absolutePath?: string;
+  type: string;
+  title: string;
+  description: string;
+  tags?: string[];
+  enabled: boolean;
+  deletedAt?: string;
+  contentHash: string;
+  tokenEstimate: number;
+  createdAt: string;
+  updatedAt: string;
+  lastIndexedAt: string;
+  lastInjectedAt?: string;
+  preview?: string;
+  content?: string;
+}
+
+interface RuntimeMemoryListResponseDTO {
+  projectId: string;
+  root?: string;
+  records?: RuntimeMemoryRecordDTO[];
+}
+
+interface RuntimeMemoryDetailResponseDTO {
+  record: RuntimeMemoryRecordDTO;
+}
+
+interface RuntimeMemoryIndexResponseDTO {
+  projectId: string;
+  indexed: number;
+  deleted: number;
+  failed: number;
+  startedAt: string;
+  endedAt: string;
 }
 
 interface RuntimeOpenProjectResponseDTO {
@@ -1433,6 +1478,13 @@ interface RuntimeBridgeModule {
   RenameProject?: (req: RenameProjectRequestViewModel) => Promise<RuntimeOpenProjectResponseDTO>;
   OpenProjectInExplorer?: (req: ProjectActionRequestViewModel) => Promise<RuntimeOpenProjectResponseDTO>;
   RemoveProject?: (req: ProjectActionRequestViewModel) => Promise<RuntimeOpenProjectResponseDTO>;
+  ProjectMemories?: (projectID: string) => Promise<RuntimeMemoryListResponseDTO>;
+  ProjectMemory?: (memoryID: string) => Promise<RuntimeMemoryDetailResponseDTO>;
+  CreateProjectMemory?: (req: ProjectMemoryCreateViewModel) => Promise<RuntimeMemoryRecordDTO>;
+  UpdateProjectMemory?: (memoryID: string, req: ProjectMemoryUpdateViewModel) => Promise<RuntimeMemoryRecordDTO>;
+  DisableProjectMemory?: (memoryID: string, req: { enabled: boolean }) => Promise<RuntimeMemoryRecordDTO>;
+  DeleteProjectMemory?: (memoryID: string, req: { reason?: string }) => Promise<RuntimeMemoryRecordDTO>;
+  RefreshProjectMemoryIndex?: (projectID: string) => Promise<RuntimeMemoryIndexResponseDTO>;
   SelectProjectDirectory?: () => Promise<string>;
   Sessions: () => Promise<RuntimeSessionsResponseDTO>;
   Models: () => Promise<RuntimeModelsResponseDTO>;
@@ -5074,7 +5126,98 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       () => staticWorkbenchAdapter.loadMCPServerDetails(current, name),
     );
   },
+  async listProjectMemories(projectID) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.ProjectMemories) {
+      throw new Error('project memory runtime binding is unavailable');
+    }
+    return mapProjectMemoryList(await bridge.ProjectMemories(projectID));
+  },
+  async getProjectMemory(memoryID) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.ProjectMemory) {
+      throw new Error('project memory runtime binding is unavailable');
+    }
+    return mapProjectMemoryRecord((await bridge.ProjectMemory(memoryID)).record);
+  },
+  async createProjectMemory(request) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.CreateProjectMemory) {
+      throw new Error('project memory runtime binding is unavailable');
+    }
+    return mapProjectMemoryRecord(await bridge.CreateProjectMemory(request));
+  },
+  async updateProjectMemory(memoryID, request) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.UpdateProjectMemory) {
+      throw new Error('project memory runtime binding is unavailable');
+    }
+    return mapProjectMemoryRecord(await bridge.UpdateProjectMemory(memoryID, request));
+  },
+  async setProjectMemoryEnabled(memoryID, enabled) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.DisableProjectMemory) {
+      throw new Error('project memory runtime binding is unavailable');
+    }
+    return mapProjectMemoryRecord(await bridge.DisableProjectMemory(memoryID, { enabled }));
+  },
+  async deleteProjectMemory(memoryID, reason) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.DeleteProjectMemory) {
+      throw new Error('project memory runtime binding is unavailable');
+    }
+    return mapProjectMemoryRecord(await bridge.DeleteProjectMemory(memoryID, { reason }));
+  },
+  async refreshProjectMemoryIndex(projectID) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.RefreshProjectMemoryIndex) {
+      throw new Error('project memory runtime binding is unavailable');
+    }
+    return mapProjectMemoryIndex(await bridge.RefreshProjectMemoryIndex(projectID));
+  },
 };
+
+function mapProjectMemoryList(response: RuntimeMemoryListResponseDTO): ProjectMemoryListViewModel {
+  return {
+    projectId: response.projectId,
+    root: response.root,
+    records: (response.records ?? []).map(mapProjectMemoryRecord),
+  };
+}
+
+function mapProjectMemoryRecord(record: RuntimeMemoryRecordDTO): ProjectMemoryRecordViewModel {
+  return {
+    id: record.id,
+    projectId: record.projectId,
+    relativePath: record.relativePath,
+    absolutePath: record.absolutePath,
+    type: record.type,
+    title: record.title,
+    description: record.description,
+    tags: record.tags ?? [],
+    enabled: Boolean(record.enabled),
+    deletedAt: record.deletedAt,
+    contentHash: record.contentHash,
+    tokenEstimate: record.tokenEstimate ?? 0,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    lastIndexedAt: record.lastIndexedAt,
+    lastInjectedAt: record.lastInjectedAt,
+    preview: record.preview,
+    content: record.content,
+  };
+}
+
+function mapProjectMemoryIndex(response: RuntimeMemoryIndexResponseDTO): ProjectMemoryIndexViewModel {
+  return {
+    projectId: response.projectId,
+    indexed: response.indexed,
+    deleted: response.deleted,
+    failed: response.failed,
+    startedAt: response.startedAt,
+    endedAt: response.endedAt,
+  };
+}
 
 function runtimeErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : '运行时请求失败';

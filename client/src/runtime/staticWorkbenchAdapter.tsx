@@ -266,6 +266,27 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
   async loadMCPServerDetails() {
     return runtimeUnavailable();
   },
+  async listProjectMemories() {
+    return runtimeUnavailable();
+  },
+  async getProjectMemory() {
+    return runtimeUnavailable();
+  },
+  async createProjectMemory() {
+    return runtimeUnavailable();
+  },
+  async updateProjectMemory() {
+    return runtimeUnavailable();
+  },
+  async setProjectMemoryEnabled() {
+    return runtimeUnavailable();
+  },
+  async deleteProjectMemory() {
+    return runtimeUnavailable();
+  },
+  async refreshProjectMemoryIndex() {
+    return runtimeUnavailable();
+  },
 };
 
 export const settingAction = { id: 'settings', label: '设置', icon: <SettingOutlined /> };

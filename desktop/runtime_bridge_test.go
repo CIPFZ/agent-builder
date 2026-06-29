@@ -1682,6 +1682,38 @@ func (s *recordingRuntimeService) SearchTools(_ context.Context, req RuntimeTool
 	return RuntimeToolSearchResponse{Query: req.Query}, nil
 }
 
+func (s *recordingRuntimeService) ProjectMemories(context.Context, string) (RuntimeMemoryListResponse, error) {
+	return RuntimeMemoryListResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ProjectMemory(context.Context, string) (RuntimeMemoryDetailResponse, error) {
+	return RuntimeMemoryDetailResponse{}, nil
+}
+
+func (s *recordingRuntimeService) CreateProjectMemory(context.Context, RuntimeMemoryCreateRequest) (RuntimeMemoryRecord, error) {
+	return RuntimeMemoryRecord{}, nil
+}
+
+func (s *recordingRuntimeService) UpdateProjectMemory(context.Context, string, RuntimeMemoryUpdateRequest) (RuntimeMemoryRecord, error) {
+	return RuntimeMemoryRecord{}, nil
+}
+
+func (s *recordingRuntimeService) DisableProjectMemory(context.Context, string, RuntimeMemoryDisableRequest) (RuntimeMemoryRecord, error) {
+	return RuntimeMemoryRecord{}, nil
+}
+
+func (s *recordingRuntimeService) DeleteProjectMemory(context.Context, string, RuntimeMemoryDeleteRequest) (RuntimeMemoryRecord, error) {
+	return RuntimeMemoryRecord{}, nil
+}
+
+func (s *recordingRuntimeService) RefreshProjectMemoryIndex(context.Context, string) (RuntimeMemoryIndexResponse, error) {
+	return RuntimeMemoryIndexResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ProjectMemoryDiagnostics(context.Context, string) (RuntimeMemoryDiagnostics, error) {
+	return RuntimeMemoryDiagnostics{}, nil
+}
+
 func (s *recordingRuntimeService) ContextSources(context.Context) (RuntimeContextSourcesResponse, error) {
 	return RuntimeContextSourcesResponse{}, nil
 }

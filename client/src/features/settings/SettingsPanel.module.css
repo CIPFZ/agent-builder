@@ -252,6 +252,65 @@
   border-bottom: 1px solid #f0f0f0;
 }
 
+.memorySearch {
+  flex: 1 1 320px;
+  max-width: 520px;
+}
+
+.memoryTypeFilter {
+  width: 180px;
+}
+
+.memoryLayout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(360px, 1fr);
+  gap: 18px;
+  align-items: start;
+  margin-top: 18px;
+}
+
+.memoryList {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid #f0f0f0;
+}
+
+.memoryListItem {
+  width: 100%;
+  min-height: 92px;
+  padding: 12px;
+  border: 0;
+  border-bottom: 1px solid #f0f0f0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.memoryListItem:last-child {
+  border-bottom: 0;
+}
+
+.memoryListItem:hover,
+.memoryListItemSelected {
+  background: #fafafa;
+}
+
+.memoryDetail {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #f0f0f0;
+}
+
+.memoryEditor {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+.memoryPreview {
+  white-space: pre-wrap;
+}
+
 @media (max-width: 960px) {
   .inner {
     padding: 72px 32px 96px;
@@ -274,6 +333,10 @@
   }
 
   .mcpLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .memoryLayout {
     grid-template-columns: 1fr;
   }
 

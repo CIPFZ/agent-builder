@@ -49,6 +49,94 @@ type RuntimeOpenProjectResponse struct {
 	Status  RuntimeStatus  `json:"status"`
 }
 
+type RuntimeMemoryRecord struct {
+	ID             string   `json:"id"`
+	ProjectID      string   `json:"projectId"`
+	RelativePath   string   `json:"relativePath"`
+	AbsolutePath   string   `json:"absolutePath,omitempty"`
+	Type           string   `json:"type"`
+	Title          string   `json:"title"`
+	Description    string   `json:"description"`
+	Tags           []string `json:"tags"`
+	Enabled        bool     `json:"enabled"`
+	DeletedAt      string   `json:"deletedAt,omitempty"`
+	ContentHash    string   `json:"contentHash"`
+	TokenEstimate  int      `json:"tokenEstimate"`
+	CreatedAt      string   `json:"createdAt"`
+	UpdatedAt      string   `json:"updatedAt"`
+	LastIndexedAt  string   `json:"lastIndexedAt"`
+	LastInjectedAt string   `json:"lastInjectedAt,omitempty"`
+	Preview        string   `json:"preview,omitempty"`
+	Content        string   `json:"content,omitempty"`
+}
+
+type RuntimeMemoryListResponse struct {
+	ProjectID string                `json:"projectId"`
+	Root      string                `json:"root,omitempty"`
+	Records   []RuntimeMemoryRecord `json:"records"`
+}
+
+type RuntimeMemoryDetailResponse struct {
+	Record RuntimeMemoryRecord `json:"record"`
+}
+
+type RuntimeMemoryCreateRequest struct {
+	ProjectID       string   `json:"projectId,omitempty"`
+	RelativePath    string   `json:"relativePath,omitempty"`
+	Type            string   `json:"type"`
+	Title           string   `json:"title"`
+	Description     string   `json:"description"`
+	Tags            []string `json:"tags,omitempty"`
+	Content         string   `json:"content"`
+	SourceSessionID string   `json:"sourceSessionId,omitempty"`
+	SourceTurnID    string   `json:"sourceTurnId,omitempty"`
+	Confidence      float64  `json:"confidence,omitempty"`
+}
+
+type RuntimeMemoryUpdateRequest struct {
+	RelativePath string   `json:"relativePath,omitempty"`
+	Type         string   `json:"type,omitempty"`
+	Title        string   `json:"title,omitempty"`
+	Description  string   `json:"description,omitempty"`
+	Tags         []string `json:"tags,omitempty"`
+	Content      string   `json:"content"`
+}
+
+type RuntimeMemoryDisableRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+type RuntimeMemoryDeleteRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+type RuntimeMemoryIndexResponse struct {
+	ProjectID string               `json:"projectId"`
+	Indexed   int                  `json:"indexed"`
+	Deleted   int                  `json:"deleted"`
+	Failed    int                  `json:"failed"`
+	Issues    []RuntimeMemoryIssue `json:"issues,omitempty"`
+	StartedAt string               `json:"startedAt"`
+	EndedAt   string               `json:"endedAt"`
+}
+
+type RuntimeMemoryIssue struct {
+	RelativePath string `json:"relativePath,omitempty"`
+	Path         string `json:"path,omitempty"`
+	Error        string `json:"error"`
+}
+
+type RuntimeMemoryDiagnostics struct {
+	ProjectID   string               `json:"projectId"`
+	Root        string               `json:"root,omitempty"`
+	RecordCount int                  `json:"recordCount"`
+	Enabled     int                  `json:"enabled"`
+	Disabled    int                  `json:"disabled"`
+	Deleted     int                  `json:"deleted"`
+	LastIndexed string               `json:"lastIndexed,omitempty"`
+	Issues      []RuntimeMemoryIssue `json:"issues,omitempty"`
+}
+
 type RuntimeModel struct {
 	ID                   string `json:"id"`
 	Name                 string `json:"name"`

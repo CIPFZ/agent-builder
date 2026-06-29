@@ -183,6 +183,51 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ProjectID: projectPathID(r.URL.Path),
 		})
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && projectMemoryPathID(r.URL.Path) != "":
+		value, err := s.service.ProjectMemories(r.Context(), projectMemoryPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && projectMemoryPathID(r.URL.Path) != "":
+		var req RuntimeMemoryCreateRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		req.ProjectID = projectMemoryPathID(r.URL.Path)
+		value, err := s.service.CreateProjectMemory(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && projectMemoryRefreshPathID(r.URL.Path) != "":
+		value, err := s.service.RefreshProjectMemoryIndex(r.Context(), projectMemoryRefreshPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && projectMemoryDiagnosticsPathID(r.URL.Path) != "":
+		value, err := s.service.ProjectMemoryDiagnostics(r.Context(), projectMemoryDiagnosticsPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && memoryPathID(r.URL.Path) != "":
+		value, err := s.service.ProjectMemory(r.Context(), memoryPathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case (r.Method == http.MethodPut || r.Method == http.MethodPatch) && memoryPathID(r.URL.Path) != "":
+		var req RuntimeMemoryUpdateRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.UpdateProjectMemory(r.Context(), memoryPathID(r.URL.Path), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && memoryDisablePathID(r.URL.Path) != "":
+		var req RuntimeMemoryDisableRequest
+		if r.Body != nil && r.ContentLength != 0 && !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.DisableProjectMemory(r.Context(), memoryDisablePathID(r.URL.Path), req)
+		writeRuntimeResult(w, value, err)
+	case (r.Method == http.MethodDelete && memoryPathID(r.URL.Path) != "") || (r.Method == http.MethodPost && memoryDeletePathID(r.URL.Path) != ""):
+		var req RuntimeMemoryDeleteRequest
+		if r.Body != nil && r.ContentLength != 0 && !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		id := memoryPathID(r.URL.Path)
+		if id == "" {
+			id = memoryDeletePathID(r.URL.Path)
+		}
+		value, err := s.service.DeleteProjectMemory(r.Context(), id, req)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/recovery/status":
 		value, err := s.service.RecoveryStatus(r.Context())
 		writeRuntimeResult(w, value, err)
@@ -1429,7 +1474,7 @@ func writeRuntimeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 	w.WriteHeader(status)
 	if value == nil || status == http.StatusNoContent {
 		return
@@ -1543,10 +1588,41 @@ func projectOpenExplorerPathID(path string) string {
 }
 
 func projectPathID(path string) string {
-	if strings.HasSuffix(path, "/rename") || strings.HasSuffix(path, "/open-explorer") {
+	if strings.HasSuffix(path, "/rename") || strings.HasSuffix(path, "/open-explorer") || strings.Contains(path, "/memory") {
 		return ""
 	}
 	id := strings.TrimPrefix(path, "/v1/projects/")
+	if id == path || id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func projectMemoryPathID(path string) string {
+	return trimPathID(path, "/v1/projects/", "/memory")
+}
+
+func projectMemoryRefreshPathID(path string) string {
+	return trimPathID(path, "/v1/projects/", "/memory/refresh")
+}
+
+func projectMemoryDiagnosticsPathID(path string) string {
+	return trimPathID(path, "/v1/projects/", "/memory/diagnostics")
+}
+
+func memoryDisablePathID(path string) string {
+	return trimPathID(path, "/v1/memory/", "/disable")
+}
+
+func memoryDeletePathID(path string) string {
+	return trimPathID(path, "/v1/memory/", "/delete")
+}
+
+func memoryPathID(path string) string {
+	if strings.HasSuffix(path, "/disable") || strings.HasSuffix(path, "/delete") {
+		return ""
+	}
+	id := strings.TrimPrefix(path, "/v1/memory/")
 	if id == path || id == "" || strings.Contains(id, "/") {
 		return ""
 	}

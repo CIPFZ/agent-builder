@@ -9,9 +9,11 @@ import (
 const Version = "v1"
 
 const (
-	MethodGet  = "GET"
-	MethodPost = "POST"
-	MethodPut  = "PUT"
+	MethodGet    = "GET"
+	MethodPost   = "POST"
+	MethodPut    = "PUT"
+	MethodPatch  = "PATCH"
+	MethodDelete = "DELETE"
 )
 
 type Endpoint struct {
@@ -26,6 +28,15 @@ var Endpoints = []Endpoint{
 	{Method: MethodPut, Path: "/v1/config/model"},
 	{Method: MethodPost, Path: "/v1/config/model/verify"},
 	{Method: MethodGet, Path: "/v1/config/models"},
+	{Method: MethodGet, Path: "/v1/projects/{project_id}/memory"},
+	{Method: MethodPost, Path: "/v1/projects/{project_id}/memory"},
+	{Method: MethodPost, Path: "/v1/projects/{project_id}/memory/refresh"},
+	{Method: MethodGet, Path: "/v1/projects/{project_id}/memory/diagnostics"},
+	{Method: MethodGet, Path: "/v1/memory/{memory_id}"},
+	{Method: MethodPut, Path: "/v1/memory/{memory_id}"},
+	{Method: MethodPatch, Path: "/v1/memory/{memory_id}"},
+	{Method: MethodPost, Path: "/v1/memory/{memory_id}/disable"},
+	{Method: MethodDelete, Path: "/v1/memory/{memory_id}"},
 	{Method: MethodGet, Path: "/v1/sessions"},
 	{Method: MethodPost, Path: "/v1/sessions"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}"},
@@ -231,6 +242,15 @@ const (
 	EventUsageUpdated               = "usage.updated"
 	EventAuditRecorded              = "audit.recorded"
 	EventSnapshotRequired           = "snapshot_required"
+	EventMemoryIndexStarted         = "memory.index.started"
+	EventMemoryIndexCompleted       = "memory.index.completed"
+	EventMemoryIndexFailed          = "memory.index.failed"
+	EventMemoryRecordCreated        = "memory.record.created"
+	EventMemoryRecordUpdated        = "memory.record.updated"
+	EventMemoryRecordDisabled       = "memory.record.disabled"
+	EventMemoryRecordDeleted        = "memory.record.deleted"
+	EventMemoryRecordInjected       = "memory.record.injected"
+	EventMemoryRecordSkipped        = "memory.record.skipped"
 )
 
 var EventTypes = []string{
@@ -361,6 +381,15 @@ var EventTypes = []string{
 	EventUsageUpdated,
 	EventAuditRecorded,
 	EventSnapshotRequired,
+	EventMemoryIndexStarted,
+	EventMemoryIndexCompleted,
+	EventMemoryIndexFailed,
+	EventMemoryRecordCreated,
+	EventMemoryRecordUpdated,
+	EventMemoryRecordDisabled,
+	EventMemoryRecordDeleted,
+	EventMemoryRecordInjected,
+	EventMemoryRecordSkipped,
 }
 
 type Event struct {

@@ -176,6 +176,7 @@ func (r *runtimeService) recordPromptAssembly(ctx context.Context, snapshot agen
 	var contextSummary RuntimeTurnContextSummary
 	if contextResp, err := r.ContextSources(ctx); err == nil {
 		contextSources = contextResp.Sources
+		contextSources = append(contextSources, r.memoryContextSourcesForTurn(ctx, snapshot.SessionID, snapshot.TurnID)...)
 		contextSummary = runtimeTurnContextSummary(contextSources)
 	} else {
 		contextSources = append(contextSources, RuntimeContextSource{
@@ -336,6 +337,14 @@ func runtimePromptSectionSummaries(sections []agent.PromptSectionSummary) []Runt
 }
 
 func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot agent.ModelInputSnapshot) (agent.ModelInputProjection, error) {
+	messages, err := r.injectProjectMemory(ctx, agentModelInputSnapshotLite{
+		SessionID: snapshot.SessionID,
+		TurnID:    snapshot.TurnID,
+		Step:      firstPositiveInt(snapshot.Step, 1),
+	}, snapshot.Messages)
+	if err == nil {
+		snapshot.Messages = messages
+	}
 	if err := r.ensureContextManager(ctx); err != nil {
 		return agent.ModelInputProjection{}, err
 	}

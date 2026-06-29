@@ -702,6 +702,55 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     return nextViewModel.settings;
   };
 
+  const listProjectMemories = (projectID: string) => {
+    if (!adapter.listProjectMemories) {
+      throw new Error('Project memory is unavailable');
+    }
+    return adapter.listProjectMemories(projectID);
+  };
+
+  const getProjectMemory = (memoryID: string) => {
+    if (!adapter.getProjectMemory) {
+      throw new Error('Project memory is unavailable');
+    }
+    return adapter.getProjectMemory(memoryID);
+  };
+
+  const createProjectMemory = (request: Parameters<NonNullable<WorkbenchAdapter['createProjectMemory']>>[0]) => {
+    if (!adapter.createProjectMemory) {
+      throw new Error('Project memory is unavailable');
+    }
+    return adapter.createProjectMemory(request);
+  };
+
+  const updateProjectMemory = (memoryID: string, request: Parameters<NonNullable<WorkbenchAdapter['updateProjectMemory']>>[1]) => {
+    if (!adapter.updateProjectMemory) {
+      throw new Error('Project memory is unavailable');
+    }
+    return adapter.updateProjectMemory(memoryID, request);
+  };
+
+  const setProjectMemoryEnabled = (memoryID: string, enabled: boolean) => {
+    if (!adapter.setProjectMemoryEnabled) {
+      throw new Error('Project memory is unavailable');
+    }
+    return adapter.setProjectMemoryEnabled(memoryID, enabled);
+  };
+
+  const deleteProjectMemory = (memoryID: string, reason?: string) => {
+    if (!adapter.deleteProjectMemory) {
+      throw new Error('Project memory is unavailable');
+    }
+    return adapter.deleteProjectMemory(memoryID, reason);
+  };
+
+  const refreshProjectMemoryIndex = (projectID: string) => {
+    if (!adapter.refreshProjectMemoryIndex) {
+      throw new Error('Project memory is unavailable');
+    }
+    return adapter.refreshProjectMemoryIndex(projectID);
+  };
+
   const workbenchViewModel = {
     ...viewModel,
     mode,
@@ -743,6 +792,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           settings={workbenchViewModel.settings}
           hooks={workbenchViewModel.hooks}
           hookExecutions={workbenchViewModel.hookExecutions}
+          project={workbenchViewModel.currentProject}
           onModeChange={changeMode}
           onProviderDelete={deleteConfiguredProvider}
           onProviderDiscoverDraftModels={discoverProviderDraftModels}
@@ -763,6 +813,13 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onSettingsRefresh={refreshSettings}
           onSkillRefresh={refreshSkills}
           onSkillToggle={setSkillEnabled}
+          onProjectMemoryCreate={createProjectMemory}
+          onProjectMemoryDelete={deleteProjectMemory}
+          onProjectMemoryDetail={getProjectMemory}
+          onProjectMemoryEnabledChange={setProjectMemoryEnabled}
+          onProjectMemoryList={listProjectMemories}
+          onProjectMemoryRefresh={refreshProjectMemoryIndex}
+          onProjectMemoryUpdate={updateProjectMemory}
         />
       </main>
     );

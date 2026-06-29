@@ -19,6 +19,16 @@ type RuntimeCreateProjectRequest = runtime.RuntimeCreateProjectRequest
 type RuntimeRenameProjectRequest = runtime.RuntimeRenameProjectRequest
 type RuntimeProjectActionRequest = runtime.RuntimeProjectActionRequest
 type RuntimeOpenProjectResponse = runtime.RuntimeOpenProjectResponse
+type RuntimeMemoryRecord = runtime.RuntimeMemoryRecord
+type RuntimeMemoryListResponse = runtime.RuntimeMemoryListResponse
+type RuntimeMemoryDetailResponse = runtime.RuntimeMemoryDetailResponse
+type RuntimeMemoryCreateRequest = runtime.RuntimeMemoryCreateRequest
+type RuntimeMemoryUpdateRequest = runtime.RuntimeMemoryUpdateRequest
+type RuntimeMemoryDisableRequest = runtime.RuntimeMemoryDisableRequest
+type RuntimeMemoryDeleteRequest = runtime.RuntimeMemoryDeleteRequest
+type RuntimeMemoryIndexResponse = runtime.RuntimeMemoryIndexResponse
+type RuntimeMemoryIssue = runtime.RuntimeMemoryIssue
+type RuntimeMemoryDiagnostics = runtime.RuntimeMemoryDiagnostics
 type RuntimeModel = runtime.RuntimeModel
 type RuntimeModelsResponse = runtime.RuntimeModelsResponse
 type RuntimeSelectedModel = runtime.RuntimeSelectedModel
@@ -283,6 +293,54 @@ func (r *RuntimeBridge) OpenProjectInExplorer(ctx context.Context, req RuntimePr
 func (r *RuntimeBridge) RemoveProject(ctx context.Context, req RuntimeProjectActionRequest) (RuntimeOpenProjectResponse, error) {
 
 	return r.service.RemoveProject(ctx, req)
+
+}
+
+func (r *RuntimeBridge) ProjectMemories(ctx context.Context, projectID string) (RuntimeMemoryListResponse, error) {
+
+	return r.service.ProjectMemories(ctx, projectID)
+
+}
+
+func (r *RuntimeBridge) ProjectMemory(ctx context.Context, memoryID string) (RuntimeMemoryDetailResponse, error) {
+
+	return r.service.ProjectMemory(ctx, memoryID)
+
+}
+
+func (r *RuntimeBridge) CreateProjectMemory(ctx context.Context, req RuntimeMemoryCreateRequest) (RuntimeMemoryRecord, error) {
+
+	return r.service.CreateProjectMemory(ctx, req)
+
+}
+
+func (r *RuntimeBridge) UpdateProjectMemory(ctx context.Context, memoryID string, req RuntimeMemoryUpdateRequest) (RuntimeMemoryRecord, error) {
+
+	return r.service.UpdateProjectMemory(ctx, memoryID, req)
+
+}
+
+func (r *RuntimeBridge) DisableProjectMemory(ctx context.Context, memoryID string, req RuntimeMemoryDisableRequest) (RuntimeMemoryRecord, error) {
+
+	return r.service.DisableProjectMemory(ctx, memoryID, req)
+
+}
+
+func (r *RuntimeBridge) DeleteProjectMemory(ctx context.Context, memoryID string, req RuntimeMemoryDeleteRequest) (RuntimeMemoryRecord, error) {
+
+	return r.service.DeleteProjectMemory(ctx, memoryID, req)
+
+}
+
+func (r *RuntimeBridge) RefreshProjectMemoryIndex(ctx context.Context, projectID string) (RuntimeMemoryIndexResponse, error) {
+
+	return r.service.RefreshProjectMemoryIndex(ctx, projectID)
+
+}
+
+func (r *RuntimeBridge) ProjectMemoryDiagnostics(ctx context.Context, projectID string) (RuntimeMemoryDiagnostics, error) {
+
+	return r.service.ProjectMemoryDiagnostics(ctx, projectID)
 
 }
 

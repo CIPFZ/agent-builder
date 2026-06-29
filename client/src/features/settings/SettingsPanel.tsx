@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import {
   ArrowLeftOutlined,
@@ -9,6 +9,7 @@ import {
   EyeTwoTone,
   PlusOutlined,
   ReloadOutlined,
+  SaveOutlined,
   ThunderboltOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
@@ -34,6 +35,10 @@ import type {
   ConfiguredProviderViewModel,
   HookExecutionSummaryViewModel,
   HookViewModel,
+  ProjectMemoryCreateViewModel,
+  ProjectMemoryRecordViewModel,
+  ProjectMemoryUpdateViewModel,
+  ProjectViewModel,
   ProviderDraftDiscoveryRequestViewModel,
   ProviderCatalogItemViewModel,
   ProviderModelDiscoveryViewModel,
@@ -66,6 +71,7 @@ const protocolOptions = [
 
 interface SettingsPanelProps {
   settings: SettingsViewModel;
+  project?: ProjectViewModel;
   hooks?: HookViewModel[];
   hookExecutions?: HookExecutionSummaryViewModel;
   onModeChange: (mode: WorkbenchMode) => void;
@@ -88,10 +94,18 @@ interface SettingsPanelProps {
   onMCPServerToggle: (name: string, enabled: boolean) => Promise<SettingsViewModel>;
   onMCPToolToggle: (server: string, tool: string, enabled: boolean) => Promise<SettingsViewModel>;
   onMCPServerDetailsLoad: (name: string) => Promise<SettingsViewModel>;
+  onProjectMemoryList: (projectID: string) => Promise<{ records: ProjectMemoryRecordViewModel[]; root?: string }>;
+  onProjectMemoryDetail: (memoryID: string) => Promise<ProjectMemoryRecordViewModel>;
+  onProjectMemoryCreate: (request: ProjectMemoryCreateViewModel) => Promise<ProjectMemoryRecordViewModel>;
+  onProjectMemoryUpdate: (memoryID: string, request: ProjectMemoryUpdateViewModel) => Promise<ProjectMemoryRecordViewModel>;
+  onProjectMemoryEnabledChange: (memoryID: string, enabled: boolean) => Promise<ProjectMemoryRecordViewModel>;
+  onProjectMemoryDelete: (memoryID: string, reason?: string) => Promise<ProjectMemoryRecordViewModel>;
+  onProjectMemoryRefresh: (projectID: string) => Promise<unknown>;
 }
 
 export function SettingsPanel({
   settings,
+  project,
   hooks,
   hookExecutions,
   onModeChange,
@@ -114,6 +128,13 @@ export function SettingsPanel({
   onMCPServerToggle,
   onMCPToolToggle,
   onMCPServerDetailsLoad,
+  onProjectMemoryList,
+  onProjectMemoryDetail,
+  onProjectMemoryCreate,
+  onProjectMemoryUpdate,
+  onProjectMemoryEnabledChange,
+  onProjectMemoryDelete,
+  onProjectMemoryRefresh,
 }: SettingsPanelProps) {
   const [activeKey, setActiveKey] = useState(settings.activeKey);
   const [siderWidth, setSiderWidth] = useState(256);
@@ -157,6 +178,19 @@ export function SettingsPanel({
         );
       case 'hooks':
         return <HookSettingsPanel hooks={hooks} hookExecutions={hookExecutions} />;
+      case 'memory':
+        return (
+          <MemorySettings
+            project={project}
+            onCreate={onProjectMemoryCreate}
+            onDelete={onProjectMemoryDelete}
+            onDetail={onProjectMemoryDetail}
+            onEnabledChange={onProjectMemoryEnabledChange}
+            onList={onProjectMemoryList}
+            onRefresh={onProjectMemoryRefresh}
+            onUpdate={onProjectMemoryUpdate}
+          />
+        );
       case 'common':
         return <CommonSettings settings={settings} onTerminalProfileSelect={onTerminalProfileSelect} />;
       default:
@@ -688,6 +722,261 @@ function ProviderEditorModal({
         </Card>
       </Form>
     </Modal>
+  );
+}
+
+interface MemorySettingsProps {
+  project?: ProjectViewModel;
+  onList: (projectID: string) => Promise<{ records: ProjectMemoryRecordViewModel[]; root?: string }>;
+  onDetail: (memoryID: string) => Promise<ProjectMemoryRecordViewModel>;
+  onCreate: (request: ProjectMemoryCreateViewModel) => Promise<ProjectMemoryRecordViewModel>;
+  onUpdate: (memoryID: string, request: ProjectMemoryUpdateViewModel) => Promise<ProjectMemoryRecordViewModel>;
+  onEnabledChange: (memoryID: string, enabled: boolean) => Promise<ProjectMemoryRecordViewModel>;
+  onDelete: (memoryID: string, reason?: string) => Promise<ProjectMemoryRecordViewModel>;
+  onRefresh: (projectID: string) => Promise<unknown>;
+}
+
+function MemorySettings({ project, onList, onDetail, onCreate, onUpdate, onEnabledChange, onDelete, onRefresh }: MemorySettingsProps) {
+  const [records, setRecords] = useState<ProjectMemoryRecordViewModel[]>([]);
+  const [root, setRoot] = useState('');
+  const [selectedID, setSelectedID] = useState('');
+  const [detail, setDetail] = useState<ProjectMemoryRecordViewModel | undefined>();
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string | undefined>();
+  const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [form] = Form.useForm<ProjectMemoryCreateViewModel>();
+  const projectID = project?.id || '';
+
+  const loadList = async () => {
+    if (!projectID) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await onList(projectID);
+      setRecords(response.records);
+      setRoot(response.root || '');
+      if (!selectedID && response.records[0]) {
+        setSelectedID(response.records[0].id);
+      }
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : 'Failed to load project memory');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectID]);
+
+  useEffect(() => {
+    if (!selectedID) {
+      setDetail(undefined);
+      return;
+    }
+    void onDetail(selectedID)
+      .then((record) => {
+        setDetail(record);
+        form.setFieldsValue({
+          projectId: record.projectId,
+          relativePath: record.relativePath,
+          type: record.type,
+          title: record.title,
+          description: record.description,
+          tags: record.tags,
+          content: record.content || '',
+        });
+      })
+      .catch((error) => message.error(error instanceof Error ? error.message : 'Failed to load memory detail'));
+  }, [selectedID, onDetail, form]);
+
+  const filteredRecords = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return records.filter((record) => {
+      if (typeFilter && record.type !== typeFilter) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      return [record.title, record.description, record.relativePath, record.tags.join(' '), record.preview || ''].join(' ').toLowerCase().includes(query);
+    });
+  }, [records, search, typeFilter]);
+
+  const saveMemory = async () => {
+    const values = await form.validateFields();
+    try {
+      const saved = detail?.id
+        ? await onUpdate(detail.id, {
+            relativePath: values.relativePath,
+            type: values.type,
+            title: values.title,
+            description: values.description,
+            tags: values.tags,
+            content: values.content,
+          })
+        : await onCreate({ ...values, projectId: projectID });
+      setSelectedID(saved.id);
+      setDetail(saved);
+      setEditing(false);
+      await loadList();
+      void message.success('Memory saved');
+    } catch (error) {
+      void message.error(error instanceof Error ? error.message : 'Failed to save memory');
+    }
+  };
+
+  const createMemory = () => {
+    setSelectedID('');
+    setDetail(undefined);
+    setEditing(true);
+    form.setFieldsValue({
+      projectId: projectID,
+      type: 'project',
+      title: '',
+      description: '',
+      tags: [],
+      content: '',
+    });
+  };
+
+  if (!projectID) {
+    return (
+      <>
+        <Title level={2}>Project Memory</Title>
+        <Text type="secondary">Open a project to manage project-scoped memory.</Text>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Flex align="center" justify="space-between" className={styles.providerHeader}>
+        <div>
+          <Title className={styles.providerTitle} level={2}>
+            Project Memory
+          </Title>
+          <Text className={styles.providerSubtitle} type="secondary">
+            {root || project?.path || projectID}
+          </Text>
+        </div>
+        <Flex gap={8}>
+          <Button
+            icon={<ReloadOutlined />}
+            loading={loading}
+            onClick={async () => {
+              await onRefresh(projectID);
+              await loadList();
+            }}
+          />
+          <Button icon={<PlusOutlined />} type="primary" onClick={createMemory}>
+            Create
+          </Button>
+        </Flex>
+      </Flex>
+
+      <section className={styles.section}>
+        <Flex gap={12} wrap="wrap">
+          <Input.Search className={styles.memorySearch} placeholder="Search memory" value={search} onChange={(event) => setSearch(event.target.value)} />
+          <Select
+            allowClear
+            className={styles.memoryTypeFilter}
+            placeholder="Type"
+            options={[
+              { label: 'User', value: 'user' },
+              { label: 'Feedback', value: 'feedback' },
+              { label: 'Project', value: 'project' },
+              { label: 'Reference', value: 'reference' },
+            ]}
+            value={typeFilter}
+            onChange={setTypeFilter}
+          />
+        </Flex>
+
+        <div className={styles.memoryLayout}>
+          <div className={styles.memoryList}>
+            {filteredRecords.map((record) => (
+              <button
+                key={record.id}
+                className={`${styles.memoryListItem} ${selectedID === record.id ? styles.memoryListItemSelected : ''}`}
+                type="button"
+                onClick={() => {
+                  setSelectedID(record.id);
+                  setEditing(false);
+                }}
+              >
+                <Flex align="center" gap={8} justify="space-between">
+                  <Text strong>{record.title}</Text>
+                  <Tag>{record.type}</Tag>
+                </Flex>
+                <Text type="secondary">{record.description}</Text>
+                <Flex gap={4} wrap="wrap">
+                  {record.tags.map((tag) => (
+                    <Tag key={tag}>{tag}</Tag>
+                  ))}
+                  {!record.enabled && <Tag color="orange">disabled</Tag>}
+                  {record.deletedAt && <Tag color="red">deleted</Tag>}
+                </Flex>
+              </button>
+            ))}
+          </div>
+
+          <div className={styles.memoryDetail}>
+            <Form className={styles.providerForm} form={form} layout="vertical">
+              <Flex align="center" justify="space-between">
+                <Text strong>{detail?.id ? 'Memory detail' : 'New memory'}</Text>
+                <Flex gap={8}>
+                  {detail && (
+                    <Switch
+                      checked={detail.enabled}
+                      disabled={Boolean(detail.deletedAt)}
+                      onChange={async (enabled) => {
+                        const updated = await onEnabledChange(detail.id, enabled);
+                        setDetail(updated);
+                        await loadList();
+                      }}
+                    />
+                  )}
+                  <Button icon={<EditOutlined />} onClick={() => setEditing(true)} />
+                  <Button icon={<SaveOutlined />} type="primary" onClick={saveMemory} />
+                  {detail && <Button danger icon={<DeleteOutlined />} onClick={() => void onDelete(detail.id, 'settings_panel').then(loadList)} />}
+                </Flex>
+              </Flex>
+              <Form.Item name="title" rules={[{ required: true }]}>
+                <Input disabled={!editing} placeholder="Title" />
+              </Form.Item>
+              <Form.Item name="type" rules={[{ required: true }]}>
+                <Select
+                  disabled={!editing}
+                  options={[
+                    { label: 'User', value: 'user' },
+                    { label: 'Feedback', value: 'feedback' },
+                    { label: 'Project', value: 'project' },
+                    { label: 'Reference', value: 'reference' },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item name="relativePath">
+                <Input disabled={!editing} placeholder="project/topic.md" />
+              </Form.Item>
+              <Form.Item name="description" rules={[{ required: true }]}>
+                <Input disabled={!editing} placeholder="Description" />
+              </Form.Item>
+              <Form.Item name="tags">
+                <Select disabled={!editing} mode="tags" placeholder="Tags" />
+              </Form.Item>
+              <Form.Item name="content" rules={[{ required: true }]}>
+                <Input.TextArea className={styles.memoryEditor} disabled={!editing} placeholder="Markdown content" rows={12} />
+              </Form.Item>
+              {!editing && <Paragraph className={styles.memoryPreview}>{detail?.content || detail?.preview || 'No memory selected.'}</Paragraph>}
+            </Form>
+          </div>
+        </div>
+      </section>
+    </>
   );
 }
 

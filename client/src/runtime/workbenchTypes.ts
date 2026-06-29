@@ -30,6 +30,61 @@ export interface ProjectActionRequestViewModel {
   projectId: string;
 }
 
+export interface ProjectMemoryRecordViewModel {
+  id: string;
+  projectId: string;
+  relativePath: string;
+  absolutePath?: string;
+  type: string;
+  title: string;
+  description: string;
+  tags: string[];
+  enabled: boolean;
+  deletedAt?: string;
+  contentHash: string;
+  tokenEstimate: number;
+  createdAt: string;
+  updatedAt: string;
+  lastIndexedAt: string;
+  lastInjectedAt?: string;
+  preview?: string;
+  content?: string;
+}
+
+export interface ProjectMemoryListViewModel {
+  projectId: string;
+  root?: string;
+  records: ProjectMemoryRecordViewModel[];
+}
+
+export interface ProjectMemoryCreateViewModel {
+  projectId?: string;
+  relativePath?: string;
+  type: string;
+  title: string;
+  description: string;
+  tags?: string[];
+  content: string;
+}
+
+export interface ProjectMemoryUpdateViewModel {
+  relativePath?: string;
+  type?: string;
+  title?: string;
+  description?: string;
+  tags?: string[];
+  content: string;
+}
+
+export interface ProjectMemoryIndexViewModel {
+  projectId: string;
+  indexed: number;
+  deleted: number;
+  failed: number;
+  startedAt: string;
+  endedAt: string;
+}
+
 export interface SessionViewModel {
   id: string;
   title: string;
@@ -1183,4 +1238,11 @@ export interface WorkbenchAdapter {
   setMCPToolEnabled: (current: WorkbenchViewModel, server: string, tool: string, enabled: boolean) => Promise<WorkbenchViewModel>;
   loadMCPServerDetails: (current: WorkbenchViewModel, name: string) => Promise<WorkbenchViewModel>;
   loadHookExecution?: (executionID: string) => Promise<HookExecutionViewModel>;
+  listProjectMemories?: (projectID: string) => Promise<ProjectMemoryListViewModel>;
+  getProjectMemory?: (memoryID: string) => Promise<ProjectMemoryRecordViewModel>;
+  createProjectMemory?: (request: ProjectMemoryCreateViewModel) => Promise<ProjectMemoryRecordViewModel>;
+  updateProjectMemory?: (memoryID: string, request: ProjectMemoryUpdateViewModel) => Promise<ProjectMemoryRecordViewModel>;
+  setProjectMemoryEnabled?: (memoryID: string, enabled: boolean) => Promise<ProjectMemoryRecordViewModel>;
+  deleteProjectMemory?: (memoryID: string, reason?: string) => Promise<ProjectMemoryRecordViewModel>;
+  refreshProjectMemoryIndex?: (projectID: string) => Promise<ProjectMemoryIndexViewModel>;
 }
