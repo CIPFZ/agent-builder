@@ -12,6 +12,7 @@ import (
 
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
 	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/db"
 	agentbuilderlog "github.com/CIPFZ/agent-builder/internal/log"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
@@ -296,6 +297,8 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 	r.userInputs = newRuntimeUserInputStore(conn)
 	r.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
 	r.refs = newRuntimeRefStore(conn, wsRuntime.Cfg.Config().Options.DataDirectory)
+	r.contextStore = contextmgr.NewSQLStore(conn)
+	r.contextManager = contextmgr.NewManager(contextmgr.ManagerOptions{Store: r.contextStore})
 	r.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
 	r.promptAssemblies = newRuntimePromptAssemblyStore(conn)
 	r.worktrees = newRuntimeWorktreeStore(conn)

@@ -137,6 +137,9 @@ function TimelineProcessItem({ item }: { item: RenderTimelineItem }) {
   if (item.kind === 'diagnostic') {
     return <TurnDiagnosticWarning item={item} />;
   }
+  if (isContextGovernanceItem(item)) {
+    return <ContextGovernanceRow item={item} />;
+  }
   if (item.kind === 'agent_task' && item.agentTask) {
     return <AgentTaskTimelineRow item={item} />;
   }
@@ -144,6 +147,22 @@ function TimelineProcessItem({ item }: { item: RenderTimelineItem }) {
     return <AssistantProcessNote item={item} />;
   }
   return null;
+}
+
+function ContextGovernanceRow({ item }: { item: ConversationTimelineItemViewModel }) {
+  const failed = item.status === 'failed' || Boolean(item.error);
+  return (
+    <div className={styles.contextGovernanceRow} data-testid="timeline-context-governance-row" data-context-kind={item.kind} data-context-status={item.status}>
+      <span className={styles.contextGovernanceIcon}>{failed ? <WarningOutlined /> : <BranchesOutlined />}</span>
+      <div className={styles.contextGovernanceBody}>
+        <div className={styles.contextGovernanceTitle}>
+          <span>{contextGovernanceTitle(item)}</span>
+          {item.status ? <Tag color={failed ? 'error' : 'default'}>{item.status}</Tag> : null}
+        </div>
+        {item.summary || item.error ? <div className={styles.contextGovernanceSummary}>{item.error || item.summary}</div> : null}
+      </div>
+    </div>
+  );
 }
 
 function ToolRunSummary({ item }: { item: ToolCallSummaryRenderItem }) {
@@ -318,7 +337,16 @@ function buildTurnBlocks(items: ConversationTimelineItemViewModel[]): TimelineTu
 }
 
 function isProcessItem(item: ConversationTimelineItemViewModel) {
-  return item.kind === 'thinking' || item.kind === 'tool_call' || item.kind === 'permission' || item.kind === 'progress' || item.kind === 'diagnostic' || item.kind === 'agent_task' || item.kind === 'turn_terminal';
+  return (
+    item.kind === 'thinking' ||
+    item.kind === 'tool_call' ||
+    item.kind === 'permission' ||
+    item.kind === 'progress' ||
+    item.kind === 'diagnostic' ||
+    item.kind === 'agent_task' ||
+    item.kind === 'turn_terminal' ||
+    isContextGovernanceItem(item)
+  );
 }
 
 function isFinalAssistantMessage(item: ConversationTimelineItemViewModel) {
@@ -334,6 +362,33 @@ function shouldOpenProcessTrace(block: TimelineTurnBlock) {
 
 function isActiveTurnStatus(status?: string) {
   return status === 'running' || status === 'queued' || status === 'waiting_permission';
+}
+
+function isContextGovernanceItem(item: ConversationTimelineItemViewModel) {
+  return (
+    item.kind === 'compact_boundary' ||
+    item.kind === 'snip_boundary' ||
+    item.kind === 'microcompact_marker' ||
+    item.kind === 'reactive_compact_retry' ||
+    item.kind === 'tool_result_replacement'
+  );
+}
+
+function contextGovernanceTitle(item: ConversationTimelineItemViewModel) {
+  switch (item.kind) {
+    case 'compact_boundary':
+      return `Context compact${item.title ? `: ${item.title}` : ''}`;
+    case 'snip_boundary':
+      return 'Context snip';
+    case 'microcompact_marker':
+      return 'Tool result microcompact';
+    case 'reactive_compact_retry':
+      return `Reactive compact retry${item.title ? `: ${item.title}` : ''}`;
+    case 'tool_result_replacement':
+      return `Tool result replacement${item.toolCallId ? `: ${item.toolCallId}` : ''}`;
+    default:
+      return item.title || 'Context governance';
+  }
 }
 
 function processTraceLabel(status?: string) {

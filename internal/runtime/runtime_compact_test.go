@@ -3,8 +3,6 @@ package runtime
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +10,6 @@ import (
 
 	"github.com/CIPFZ/agent-builder/internal/db"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
-	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 func TestRuntimeCompactBoundaryStorePersistsBoundary(t *testing.T) {
@@ -72,172 +69,6 @@ func TestRuntimeCompactBoundaryStorePersistsBoundary(t *testing.T) {
 	}
 	if len(sessionBoundaries) != 1 || sessionBoundaries[0].ID != "compact-1" {
 		t.Fatalf("session boundaries = %#v", sessionBoundaries)
-	}
-}
-
-func TestRuntimeFullCompactCompletedPathReinjectsContextAndReadFiles(t *testing.T) {
-	dataDir := t.TempDir()
-	conn, err := db.Connect(context.Background(), dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		db.ResetPool()
-	})
-
-	service := newRuntimeService()
-	workspace := t.TempDir()
-	writeRuntimeFile(t, filepath.Join(workspace, "AGENTS.md"), "project instructions")
-	readPath := filepath.Join(workspace, "main.go")
-	writeRuntimeFile(t, readPath, "package main\n")
-	serviceWithWorkspace(t, service, workspace, dataDir)
-	t.Cleanup(func() {
-		if service.runtime != nil && service.workspace != nil {
-			service.runtime.DeleteWorkspace(service.workspace.ID)
-		}
-	})
-	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
-	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
-	sess, err := service.runtime.CreateSession(context.Background(), service.workspace.ID, "Full compact")
-	if err != nil {
-		t.Fatal(err)
-	}
-	queries := db.New(conn)
-	if err := queries.RecordFileRead(context.Background(), db.RecordFileReadParams{SessionID: sess.ID, TurnID: "turn-read", ToolCallID: "tool-read", Path: "main.go", SizeBytes: 13, MtimeUnix: mustStat(t, readPath).ModTime().Unix(), TokenEstimate: 3, State: "recorded", Reason: "view_tool"}); err != nil {
-		t.Fatal(err)
-	}
-	before := RuntimeBudgetReport{
-		SessionID:            sess.ID,
-		TurnID:               "turn-full",
-		Messages:             RuntimeBudgetBucket{Count: 20, EstimatedTokens: 4000},
-		ContextSources:       RuntimeBudgetBucket{Count: 1, EstimatedTokens: 10},
-		ToolOutputs:          RuntimeBudgetBucket{Count: 0, EstimatedTokens: 0},
-		TotalEstimatedTokens: 4010,
-	}
-	after, boundary := service.maybeFullCompact(context.Background(), sess.ID, "turn-full", "test-model", "continue work", before)
-	if boundary == nil || boundary.Kind != compactKindFull || boundary.Status != compactStatusCompleted {
-		t.Fatalf("full compact boundary = %#v", boundary)
-	}
-	if after.TotalEstimatedTokens >= before.TotalEstimatedTokens {
-		t.Fatalf("expected budget to shrink: before=%#v after=%#v", before, after)
-	}
-	if !slices.ContainsFunc(boundary.ReinjectedRefs, func(ref RuntimeReinjectedRef) bool {
-		return ref.Kind == "agents" && ref.Status == compactStatusCompleted
-	}) {
-		t.Fatalf("AGENTS reinjection missing: %#v", boundary.ReinjectedRefs)
-	}
-	if !slices.ContainsFunc(boundary.ReinjectedRefs, func(ref RuntimeReinjectedRef) bool {
-		return ref.Kind == "read_file" && ref.Status == compactStatusCompleted && strings.HasSuffix(filepath.ToSlash(ref.Path), "/main.go")
-	}) {
-		t.Fatalf("read-file reinjection missing: %#v", boundary.ReinjectedRefs)
-	}
-	events, err := service.Events(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool { return event.Type == runtimeapi.EventCompactFullCompleted }) {
-		t.Fatalf("compact.full.completed missing: %#v", events.Events)
-	}
-	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
-		return event.Type == runtimeapi.EventContextReinjected && event.Payload["compact_id"] == boundary.ID
-	}) {
-		t.Fatalf("context.reinjected missing: %#v", events.Events)
-	}
-}
-
-func TestRuntimeReadFilesReportsStaleAndCompactSkipsStaleReadFile(t *testing.T) {
-	dataDir := t.TempDir()
-	conn, err := db.Connect(context.Background(), dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.ResetPool() })
-
-	service := newRuntimeService()
-	workspace := t.TempDir()
-	readPath := filepath.Join(workspace, "main.go")
-	writeRuntimeFile(t, readPath, "package main\n")
-	serviceWithWorkspace(t, service, workspace, dataDir)
-	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
-	sess, err := service.runtime.CreateSession(context.Background(), service.workspace.ID, "Read stale")
-	if err != nil {
-		t.Fatal(err)
-	}
-	info := mustStat(t, readPath)
-	if err := db.New(conn).RecordFileRead(context.Background(), db.RecordFileReadParams{
-		SessionID:     sess.ID,
-		TurnID:        "turn-read",
-		ToolCallID:    "tool-read",
-		Path:          "main.go",
-		SizeBytes:     info.Size(),
-		MtimeUnix:     info.ModTime().Unix() - 10,
-		TokenEstimate: 3,
-		Partial:       1,
-		State:         "recorded",
-		Reason:        "view_tool",
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	files, err := service.ReadFiles(context.Background(), sess.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(files.Files) != 1 || files.Files[0].State != "stale" || !files.Files[0].Partial {
-		t.Fatalf("read files = %#v", files.Files)
-	}
-	refs := service.reinjectReadFiles(context.Background(), sess.ID, "turn-full", "compact-full")
-	if !slices.ContainsFunc(refs, func(ref RuntimeReinjectedRef) bool {
-		return ref.Kind == "read_file" && ref.Status == compactStatusSkipped && ref.Reason == "read_file_stale_mtime"
-	}) {
-		t.Fatalf("stale read-file reinjection missing: %#v", refs)
-	}
-	events, err := service.Events(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool { return event.Type == runtimeapi.EventReadFileStale }) {
-		t.Fatalf("read_file.stale missing: %#v", events.Events)
-	}
-}
-
-func TestRuntimeFullCompactFailedPathRecordsEventAndAudit(t *testing.T) {
-	t.Parallel()
-
-	dataDir := t.TempDir()
-	conn, err := db.Connect(context.Background(), dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Release(dataDir) })
-	service := newRuntimeService()
-	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
-	boundary := service.recordFailedFullCompact(context.Background(), RuntimeCompactBoundary{
-		ID:        "compact-full-failed",
-		SessionID: "session-1",
-		TurnID:    "turn-1",
-		Trigger:   "test",
-		CreatedAt: time.Now().UnixMilli(),
-	}, errors.New("Authorization: Bearer secret"))
-	if boundary == nil || boundary.Status != compactStatusFailed {
-		t.Fatalf("failed boundary = %#v", boundary)
-	}
-	events, err := service.Events(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.ContainsFunc(events.Events, func(event RuntimeEvent) bool {
-		return event.Type == runtimeapi.EventCompactFailed && event.Payload["error"] == "[REDACTED]"
-	}) {
-		t.Fatalf("redacted compact.failed missing: %#v", events.Events)
-	}
-	audit, err := newRuntimeAuditStore(conn).ListTurn(context.Background(), "turn-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	data := string(mustJSON(t, audit))
-	if strings.Contains(data, "secret") || strings.Contains(data, "Bearer") {
-		t.Fatalf("failed compact audit leaked secret: %s", data)
 	}
 }
 
@@ -348,71 +179,6 @@ func TestRuntimeBudgetAccountingIsDeterministic(t *testing.T) {
 	}
 }
 
-func TestRuntimeMicroCompactPreservesToolCallRefs(t *testing.T) {
-	t.Parallel()
-
-	dataDir := t.TempDir()
-	conn, err := db.Connect(context.Background(), dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Release(dataDir) })
-
-	service := newRuntimeService()
-	service.toolCalls = scheduler.New(NewRuntimeToolCallStoreForDB(conn))
-	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
-	for i := 0; i < 4; i++ {
-		id := "tool-" + string(rune('1'+i))
-		if _, err := service.toolCalls.CreateCall(context.Background(), scheduler.ToolCallRequest{
-			ID:           id,
-			SessionID:    "session-1",
-			TurnID:       "turn-1",
-			Name:         "bash",
-			Source:       scheduler.ToolSourceShell,
-			InputSummary: "cmd",
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := service.toolCalls.CompleteCall(context.Background(), scheduler.ToolCallResult{
-			ToolCallID:    id,
-			Status:        scheduler.ToolCallCompleted,
-			OutputSummary: strings.Repeat("output ", 800),
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	before := RuntimeBudgetReport{
-		SessionID:            "session-1",
-		TurnID:               "turn-1",
-		ToolOutputs:          RuntimeBudgetBucket{Count: 4, EstimatedTokens: 4000},
-		TotalEstimatedTokens: 4000,
-	}
-	after, boundary := service.maybeMicroCompactToolOutputs(context.Background(), "session-1", "turn-1", before)
-	if boundary == nil {
-		t.Fatal("expected micro compact boundary")
-	}
-	if len(boundary.ToolCallRefs) != 2 {
-		t.Fatalf("tool refs = %#v", boundary.ToolCallRefs)
-	}
-	if after.ToolOutputs.EstimatedTokens >= before.ToolOutputs.EstimatedTokens {
-		t.Fatalf("budget did not shrink: before=%#v after=%#v", before, after)
-	}
-	first, err := service.toolCalls.GetCall(context.Background(), "tool-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !first.Compacted || first.CompactRef == "" || first.CompactBoundaryID != boundary.ID {
-		t.Fatalf("compacted tool = %#v boundary=%#v", first, boundary)
-	}
-	recent, err := service.toolCalls.GetCall(context.Background(), "tool-4")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if recent.Compacted {
-		t.Fatalf("recent tool should be preserved: %#v", recent)
-	}
-}
-
 func TestCompactEventsAndAuditRedactSecrets(t *testing.T) {
 	t.Parallel()
 
@@ -459,5 +225,26 @@ func TestCompactEventsAndAuditRedactSecrets(t *testing.T) {
 	}
 	if len(events.Events) != 1 || events.Events[0].Payload["replacement"] != "[REDACTED]" {
 		t.Fatalf("event redaction failed: %#v", events.Events)
+	}
+}
+
+func TestRuntimeCompactBoundaryPayloadParsing(t *testing.T) {
+	t.Parallel()
+
+	boundary := runtimeCompactBoundaryFromPayload(map[string]any{
+		"id":     "compact-1",
+		"kind":   compactKindFull,
+		"status": compactStatusCompleted,
+		"toolCallRefs": []any{
+			map[string]any{"toolCallId": "tool-1", "ref": "runtime://tool-calls/tool-1/output"},
+		},
+		"reinjectedRefs": []any{
+			map[string]any{"id": "agents:/work/AGENTS.md", "kind": "agents", "status": compactStatusCompleted},
+		},
+	})
+	if boundary.ID != "compact-1" || !slices.ContainsFunc(boundary.ToolCallRefs, func(ref RuntimeCompactToolCallRef) bool {
+		return ref.ToolCallID == "tool-1"
+	}) {
+		t.Fatalf("boundary payload = %#v", boundary)
 	}
 }

@@ -1238,6 +1238,19 @@ function CommonSettings({
                 onChange={(value) => void saveTerminalProfile(value)}
               />
             </Flex>
+            <Flex align="center" className={styles.listItem} gap={16} justify="space-between">
+              <Flex vertical>
+                <Text>Context governance</Text>
+                <Text type="secondary">Runtime-owned projection, compact, snip, and retry policy</Text>
+              </Flex>
+              <Flex wrap gap={6} justify="flex-end">
+                <Tag color={settings.contextGovernance.autoCompactEnabled ? 'green' : 'default'}>auto compact</Tag>
+                <Tag color={settings.contextGovernance.snipEnabled ? 'blue' : 'default'}>snip</Tag>
+                <Tag>keep {settings.contextGovernance.microcompactKeepRecent}</Tag>
+                <Tag>retry {settings.contextGovernance.reactiveRetryLimit}</Tag>
+                <Tag color={settings.contextGovernance.manualActions ? 'purple' : 'default'}>manual</Tag>
+              </Flex>
+            </Flex>
           </Flex>
         </Card>
       </section>

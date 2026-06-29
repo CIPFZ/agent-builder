@@ -235,8 +235,8 @@ internal/agent/
 ├── tool_result_guard.go      # Guard 入口：Layer 1-3 流程编排、轮次状态跟踪
 ├── tool_result_truncate.go   # head+tail 截断算法（Layer 2）
 ├── tool_result_persist.go    # 文件写入、空间限制与 TTL 清理（兜底 1+2）
-├── tool_result_microcompact.go  # 微压缩：基于消息 CreatedAt 的旧结果清除（Layer 4，对齐 CC）
-└── agent.go                  # OnToolResult 插入 Guard.Process()；preparePrompt 前调用 Compact()（修改）
+├── tool_result_guard.go      # 单结果 guard；projection microcompact 已迁移到 internal/contextmgr
+└── agent.go                  # OnToolResult 插入 Guard.Process()；preparePrompt 不再执行本地 Compact()
 ```
 
 Guard 持有当前 turn 的结果计数器（内存），每轮开始时重置。微压缩持有 `COMPACTABLE_TOOLS` 集合和最后 assistant 时间戳。
@@ -588,7 +588,7 @@ tool_result_guard:
 | `internal/agent/tool_result_guard.go` | 新增 | Guard 入口，Layer 1-3 流程编排，轮次状态跟踪 |
 | `internal/agent/tool_result_truncate.go` | 新增 | head+tail 截断算法，UTF-8 安全边界（Layer 2） |
 | `internal/agent/tool_result_persist.go` | 新增 | 溢出文件写入，目录管理，空间限制与 TTL 清理（兜底） |
-| `internal/agent/tool_result_microcompact.go` | 新增 | 微压缩：时间清除旧工具结果（Layer 4） |
+| `internal/contextmgr/microcompact.go` | 新增 | projection-level 微压缩：记录 boundary 与 content replacement |
 | `internal/message/content.go` | 修改 | ToolResult 新增 3 个字段 |
 | `internal/config/config.go` | 修改 | 新增 ToolResultGuardConfig |
 | `internal/agent/agent.go` | 修改 | OnToolResult 插入 Guard.Process()；preparePrompt 前调用微压缩 |

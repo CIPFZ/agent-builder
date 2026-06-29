@@ -1211,6 +1211,14 @@ func (s *recordingRuntimeService) PromptAssembliesBySession(_ context.Context, s
 	return s.promptAssemblies, nil
 }
 
+func (s *recordingRuntimeService) ManualCompact(context.Context, runtime.RuntimeContextActionRequest) (runtime.RuntimeManualCompactResponse, error) {
+	return runtime.RuntimeManualCompactResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ManualSnip(context.Context, runtime.RuntimeContextActionRequest) (runtime.RuntimeManualSnipResponse, error) {
+	return runtime.RuntimeManualSnipResponse{}, nil
+}
+
 func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, error) {
 	return s.runs, nil
 }

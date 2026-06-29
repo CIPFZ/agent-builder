@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/agent"
 	"github.com/CIPFZ/agent-builder/internal/db"
@@ -132,26 +133,41 @@ func TestRuntimeRefsCompactTaskReplayAndEvents(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	service := newTestRuntimeServiceWithRefs(t)
-	for i := 0; i < 4; i++ {
-		id := "tool-" + string(rune('1'+i))
-		if _, err := service.toolCalls.CreateCall(ctx, scheduler.ToolCallRequest{ID: id, SessionID: "session-1", TurnID: "turn-1", Name: "bash", Source: scheduler.ToolSourceShell}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := service.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{ToolCallID: id, Status: scheduler.ToolCallCompleted, ModelContent: strings.Repeat("large output ", 80)}); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := service.toolCalls.CreateCall(ctx, scheduler.ToolCallRequest{ID: "tool-1", SessionID: "session-1", TurnID: "turn-1", Name: "bash", Source: scheduler.ToolSourceShell}); err != nil {
+		t.Fatal(err)
 	}
-	before := RuntimeBudgetReport{SessionID: "session-1", TurnID: "turn-1", ToolOutputs: RuntimeBudgetBucket{EstimatedTokens: 1000}, TotalEstimatedTokens: 1200}
-	_, boundary := service.maybeMicroCompactToolOutputs(ctx, "session-1", "turn-1", before)
-	if boundary == nil || len(boundary.ToolCallRefs) == 0 {
-		t.Fatal("expected compact boundary with preserved refs")
+	if _, err := service.toolCalls.CompleteCall(ctx, scheduler.ToolCallResult{ToolCallID: "tool-1", Status: scheduler.ToolCallCompleted, ModelContent: strings.Repeat("large output ", 80)}); err != nil {
+		t.Fatal(err)
 	}
+	ref, err := service.createRuntimeRef(ctx, runtimeRefCreateRequest{
+		SessionID:   "session-1",
+		TurnID:      "turn-1",
+		ToolCallID:  "tool-1",
+		Kind:        runtimeRefKindCompactOriginalOutput,
+		MediaType:   "text/plain",
+		ContentType: "compact_original_output",
+		Payload:     []byte("large output"),
+		Summary:     "original tool output preserved before projection replacement",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.storeRuntimeEvent(runtimeapi.Event{
+		ID:         newRuntimeEventID(),
+		Type:       runtimeapi.EventCompactOutputPreserved,
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID:  "session-1",
+		TurnID:     "turn-1",
+		ToolCallID: "tool-1",
+		Payload:    runtimeRefEventPayload(ref),
+	})
 	call, err := service.toolCalls.GetCall(ctx, "tool-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(call.CompactRef, "runtime://refs/") || len(call.OutputRefs) == 0 {
-		t.Fatalf("compacted call = %#v", call)
+	call.OutputRefs = append(call.OutputRefs, ref.URI)
+	if _, err := service.toolCalls.UpdateCall(ctx, call); err != nil {
+		t.Fatal(err)
 	}
 	task := RuntimeAgentTask{ID: "task-1", ParentSessionID: "session-1", ParentTurnID: "turn-1", ParentToolCallID: "tool-task", Title: "Task", Name: "agent", Status: agentTaskStatusCompleted}
 	task.ArtifactRefs = service.ensureTaskArtifactRefs(ctx, task, []string{"artifact:file:result.txt"})

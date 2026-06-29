@@ -231,7 +231,6 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	contextSummary := r.recordTurnContextSources(sessionID, requestID, contextResp.Sources)
 	budget := r.computeRuntimeBudget(ctx, sessionID, requestID, status.Model, len(prompt), &contextSummary)
 	r.publishBudgetUpdated(sessionID, requestID, budget)
-	r.recordTurnBudgetBoundary(ctx, sessionID, requestID, budget)
 
 	slog.Info("Desktop chat queued", "request_id", requestID, "workspace_id", wsID, "session_id", sessionID, "prompt_len", len(prompt))
 	r.writeAudit(auditEntry{
@@ -752,16 +751,9 @@ func (r *runtimeService) runChat(ctx context.Context, requestID, wsID, sessionID
 	} else {
 		entry.ToolCalls = toolCalls
 	}
-	budgetBeforeCompact := r.computeRuntimeBudget(context.Background(), sessionID, requestID, model, len(prompt), nil)
-	budgetAfterCompact, compactBoundary := r.maybeMicroCompactToolOutputs(context.Background(), sessionID, requestID, budgetBeforeCompact)
-	budgetAfterCompact, fullCompactBoundary := r.maybeFullCompact(context.Background(), sessionID, requestID, model, prompt, budgetAfterCompact)
-	r.publishBudgetUpdated(sessionID, requestID, budgetAfterCompact)
-	entry.Budget = &budgetAfterCompact
-	if fullCompactBoundary != nil {
-		entry.CompactBoundary = fullCompactBoundary
-	} else if compactBoundary != nil {
-		entry.CompactBoundary = compactBoundary
-	}
+	budgetAfterTurn := r.computeRuntimeBudget(context.Background(), sessionID, requestID, model, len(prompt), nil)
+	r.publishBudgetUpdated(sessionID, requestID, budgetAfterTurn)
+	entry.Budget = &budgetAfterTurn
 	if err != nil && !stateCancelled(r, requestID) {
 		entry.Event = "failed"
 		entry.Error = err.Error()

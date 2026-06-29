@@ -47,6 +47,15 @@ const settings = {
   permissionOptions: [],
   defaultEditor: '',
   terminalProfile: '',
+  contextGovernance: {
+    autoCompactEnabled: true,
+    toolResultBudgetChars: 200000,
+    maxSingleToolResultChars: 16000,
+    microcompactKeepRecent: 3,
+    snipEnabled: true,
+    reactiveRetryLimit: 2,
+    manualActions: true,
+  },
   editorOptions: [],
   terminalOptions: [],
   providerTypes: [],
@@ -152,6 +161,12 @@ export const staticWorkbenchAdapter: WorkbenchAdapter = {
     return runtimeUnavailable();
   },
   async markInterruptedDone() {
+    return runtimeUnavailable();
+  },
+  async manualCompact() {
+    return runtimeUnavailable();
+  },
+  async manualSnip() {
     return runtimeUnavailable();
   },
   async resumeRunCheckpoint() {

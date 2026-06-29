@@ -15,18 +15,40 @@ type PromptAssemblyRecorder interface {
 	RecordPromptAssembly(context.Context, PromptAssemblySnapshot) error
 }
 
-type PromptAssemblySnapshot struct {
+type ModelInputBuilder interface {
+	BuildModelInput(context.Context, ModelInputSnapshot) (ModelInputProjection, error)
+}
+
+type ModelInputSnapshot struct {
 	SessionID string
 	TurnID    string
 	Step      int
 	Provider  string
 	Model     string
-	System    PromptSystemSummary
-	Messages  PromptMessageSummary
-	Tools     PromptToolSummary
-	Skills    PromptSkillSummary
-	MCP       PromptMCPSummary
-	CreatedAt int64
+	Source    string
+	Messages  []fantasy.Message
+}
+
+type ModelInputProjection struct {
+	ProjectionID          string
+	Messages              []fantasy.Message
+	CanonicalMessageCount int
+	ProjectedMessageCount int
+}
+
+type PromptAssemblySnapshot struct {
+	SessionID    string
+	TurnID       string
+	ProjectionID string
+	Step         int
+	Provider     string
+	Model        string
+	System       PromptSystemSummary
+	Messages     PromptMessageSummary
+	Tools        PromptToolSummary
+	Skills       PromptSkillSummary
+	MCP          PromptMCPSummary
+	CreatedAt    int64
 }
 
 type PromptSystemSummary struct {

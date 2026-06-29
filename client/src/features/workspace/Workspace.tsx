@@ -59,6 +59,8 @@ interface WorkspaceProps {
   onPromptSubmit: (prompt: string) => Promise<void>;
   onNewConversationDraftChange: (target: NewConversationDraftViewModel) => void;
   onInterruptedDone: (turnID: string) => Promise<void>;
+  onManualCompact?: () => Promise<void>;
+  onManualSnip?: () => Promise<void>;
   onRunCheckpointResume?: (runID: string, checkpointID: string) => Promise<void>;
   onRunTaskExecute?: (runID: string, taskID: string) => Promise<void>;
   onAgentTaskFollowUp?: (taskID: string, message: string) => Promise<void>;
@@ -84,6 +86,8 @@ export function Workspace({
   onPromptSubmit,
   onNewConversationDraftChange,
   onInterruptedDone,
+  onManualCompact,
+  onManualSnip,
   onRunCheckpointResume,
   onRunTaskExecute,
   onAgentTaskFollowUp,
@@ -751,7 +755,7 @@ export function Workspace({
                   <AgentTaskPanel tasks={viewModel.agentTasks} onCancelTask={onAgentTaskCancel} onFollowUp={onAgentTaskFollowUp} />
                   <RunProjectionPreview run={viewModel.runProjection} onResumeCheckpoint={onRunCheckpointResume} onExecuteTask={onRunTaskExecute} />
                   <ReactCallchainInspector callchain={viewModel.reactCallchain} />
-                  <ContextDiagnosticsPanel diagnostics={viewModel.contextDiagnostics} />
+                  <ContextDiagnosticsPanel diagnostics={viewModel.contextDiagnostics} onManualCompact={onManualCompact} onManualSnip={onManualSnip} />
                   <TurnDiagnosticsPanel
                     diagnostics={viewModel.turnDiagnostics}
                     interrupted={viewModel.interruptedTurn}

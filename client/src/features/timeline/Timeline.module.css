@@ -337,6 +337,55 @@
   color: rgb(95 67 0 / 82%);
 }
 
+.contextGovernanceRow {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: start;
+  width: min(720px, 94%);
+  gap: 8px;
+  padding: 7px 0;
+  color: rgb(13 13 13 / 56%);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.contextGovernanceIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: rgb(13 13 13 / 38%);
+}
+
+.contextGovernanceBody {
+  min-width: 0;
+}
+
+.contextGovernanceTitle {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: rgb(13 13 13 / 66%);
+  font-weight: 500;
+}
+
+.contextGovernanceTitle span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contextGovernanceSummary {
+  margin-top: 2px;
+  color: rgb(13 13 13 / 46%);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 720px) {
   .timeline {
     padding-inline: 18px;
@@ -348,7 +397,8 @@
   .processNote,
   .permissionTraceRow,
   .progress,
-  .diagnosticWarning {
+  .diagnosticWarning,
+  .contextGovernanceRow {
     width: 100%;
     max-width: 100%;
   }

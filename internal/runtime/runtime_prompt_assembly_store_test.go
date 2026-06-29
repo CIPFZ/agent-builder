@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/db"
 )
 
@@ -78,6 +79,8 @@ func TestRuntimeRecordPromptAssemblyStoresSummaryEventAndFailedContext(t *testin
 		_ = db.Release(dataDir)
 	})
 	service := newRuntimeService()
+	service.contextStore = contextmgr.NewSQLStore(conn)
+	service.contextManager = contextmgr.NewManager(contextmgr.ManagerOptions{Store: service.contextStore})
 	service.promptAssemblies = newRuntimePromptAssemblyStore(conn)
 	service.eventStore = newRuntimeEventStore(conn)
 	service.compactBoundaries = newRuntimeCompactBoundaryStore(conn)
@@ -138,6 +141,9 @@ func TestRuntimeRecordPromptAssemblyStoresSummaryEventAndFailedContext(t *testin
 	if assembly.ID != "prompt_turn-1_step_002" || assembly.Provider != "openai" || assembly.Model != "test-model" {
 		t.Fatalf("assembly identity = %#v", assembly)
 	}
+	if assembly.ProjectionID != "ctxproj_turn-1_step_002" {
+		t.Fatalf("assembly projection id = %#v", assembly)
+	}
 	if assembly.Messages.RawPromptStored || assembly.Skills.RawContentStored || assembly.MCP.RawContentStored {
 		t.Fatalf("assembly should be summary-only: %#v", assembly)
 	}
@@ -155,6 +161,88 @@ func TestRuntimeRecordPromptAssemblyStoresSummaryEventAndFailedContext(t *testin
 	if len(events.Events) != 1 || events.Events[0].Type != "prompt.assembly.recorded" {
 		t.Fatalf("events = %#v", events.Events)
 	}
+	projections, err := service.contextStore.ListProjectionsByTurn(context.Background(), "turn-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projections) != 1 || projections[0].ID != assembly.ProjectionID || projections[0].ProjectedMessageCount != 3 {
+		t.Fatalf("projections = %#v", projections)
+	}
+	_, err = service.contextStore.UpsertBoundary(context.Background(), contextmgr.Boundary{
+		ID:           "boundary-1",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		ProjectionID: assembly.ProjectionID,
+		Kind:         "micro",
+		Trigger:      "tool_result_limit",
+		Status:       "completed",
+		SummaryRef:   "ctx://summary",
+		MessageRefs:  []string{"message-1"},
+		ToolCallRefs: []string{"tool-1"},
+		CreatedAt:    1300,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.contextStore.UpsertSnipBoundary(context.Background(), contextmgr.SnipBoundary{
+		ID:                 "snip-1",
+		SessionID:          "session-1",
+		TurnID:             "turn-1",
+		ProjectionID:       assembly.ProjectionID,
+		RemovedMessageRefs: []string{"message-2", "message-3"},
+		SummaryRef:         "ctx://snip",
+		Reason:             "manual",
+		CreatedAt:          1301,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.contextStore.UpsertContentReplacement(context.Background(), contextmgr.ContentReplacement{
+		ID:                         "replacement-1",
+		SessionID:                  "session-1",
+		TurnID:                     "turn-1",
+		ProjectionID:               assembly.ProjectionID,
+		ToolCallID:                 "tool-1",
+		Kind:                       "tool_result",
+		OriginalRef:                "ctx://tool-output",
+		ReplacementText:            "[compacted]",
+		OriginalEstimatedTokens:    1000,
+		ReplacementEstimatedTokens: 5,
+		Reason:                     "microcompact_tool_result_limit",
+		CreatedAt:                  1302,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.contextStore.UpsertReactiveAttempt(context.Background(), contextmgr.ReactiveAttempt{
+		ID:           "reactive-1",
+		SessionID:    "session-1",
+		TurnID:       "turn-1",
+		ProjectionID: assembly.ProjectionID,
+		Attempt:      1,
+		Action:       "projection_reduction",
+		Status:       "completed",
+		CreatedAt:    1303,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	enriched, err := service.enrichPromptAssembliesWithContext(context.Background(), assemblies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(enriched[0].ContextBoundaries) != 1 || enriched[0].ContextBoundaries[0].Kind != "micro" {
+		t.Fatalf("context boundaries were not enriched: %#v", enriched[0].ContextBoundaries)
+	}
+	if len(enriched[0].SnipBoundaries) != 1 || len(enriched[0].SnipBoundaries[0].RemovedMessageRefs) != 2 {
+		t.Fatalf("snip boundaries were not enriched: %#v", enriched[0].SnipBoundaries)
+	}
+	if len(enriched[0].Replacements) != 1 || enriched[0].Replacements[0].ToolCallID != "tool-1" {
+		t.Fatalf("replacements were not enriched: %#v", enriched[0].Replacements)
+	}
+	if len(enriched[0].ReactiveAttempts) != 1 || enriched[0].ReactiveAttempts[0].Action != "projection_reduction" {
+		t.Fatalf("reactive attempts were not enriched: %#v", enriched[0].ReactiveAttempts)
+	}
 	rawEvent, err := json.Marshal(events)
 	if err != nil {
 		t.Fatal(err)
@@ -166,12 +254,13 @@ func TestRuntimeRecordPromptAssemblyStoresSummaryEventAndFailedContext(t *testin
 
 func promptAssemblyFixture(id, sessionID, turnID string, step int, createdAt int64) RuntimePromptAssembly {
 	return RuntimePromptAssembly{
-		ID:        id,
-		SessionID: sessionID,
-		TurnID:    turnID,
-		Step:      step,
-		Provider:  "openai",
-		Model:     "test-model",
+		ID:           id,
+		SessionID:    sessionID,
+		TurnID:       turnID,
+		ProjectionID: "projection-" + id,
+		Step:         step,
+		Provider:     "openai",
+		Model:        "test-model",
 		System: RuntimePromptSystemSummary{
 			Source:        "runtime",
 			Hash:          "sha256:system",

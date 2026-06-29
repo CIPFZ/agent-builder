@@ -8,6 +8,12 @@
 - [02-module-function-overview.md](02-module-function-overview.md)：按模块和功能链路整理职责、入口、已实现能力。
 - [03-feature-gap-inventory.md](03-feature-gap-inventory.md)：功能查漏补缺清单，按“已实现、部分实现、可疑缺口、测试缺口”归类。
 - [04-module-deep-dive.md](04-module-deep-dive.md)：分模块全代码详细梳理入口，记录关键文件、核心类型、数据流和测试线索。
+- [05-todo-subagent-comparison.md](05-todo-subagent-comparison.md)：Todo Write 与 Subagent 能力对比，包含参考项目差异和补齐顺序。
+- [06-todo-subagent-implementation-plan.md](06-todo-subagent-implementation-plan.md)：Todo 与 Subagent 的分阶段实施方案。
+- [07-hooks-comparison.md](07-hooks-comparison.md)：Hook 机制梳理对比，覆盖后端 runtime、事件、持久化、前端展示和参考项目差异。
+- [08-hooks-frontend-implementation-plan.md](08-hooks-frontend-implementation-plan.md)：Hook 前端展示与可观测性的完整实施方案。
+- [09-system-prompt-comparison-and-plan.md](09-system-prompt-comparison-and-plan.md)：System Prompt 机制梳理对比，以及按 Claude 式 section graph 拆分的目标方案和路线。
+- [10-error-recovery-implementation-plan.md](10-error-recovery-implementation-plan.md)：Error Recovery 机制完整实施方案，覆盖 runtime 恢复、request hygiene、显式续跑、reactive retry、前端 Recovery Center 和旧结构删除。
 
 ## 梳理原则
 

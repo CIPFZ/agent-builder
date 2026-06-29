@@ -169,7 +169,7 @@ runtime/config UI
 - `internal/agent/tool_search.go`
 - `internal/agent/prompt_assembly.go`
 - `internal/agent/tool_result_guard.go`
-- `internal/agent/tool_result_microcompact.go`
+- `internal/contextmgr/microcompact.go`
 - `internal/agent/task_tools.go`
 - `internal/agent/tools/*.go`
 - `internal/permission/policy.go`
@@ -195,7 +195,7 @@ runtime/config UI
 - 模型/provider 初始化和大小模型切换。
 - MCP server instructions 注入 system prompt。
 - skill prompt 注入，`deny_all` 模式不注入 skills。
-- 工具结果 guard、持久化、截断、microcompact。
+- 工具结果 guard、持久化、截断；microcompact 由 runtime context manager 负责。
 - 子 agent / started task execution。
 - 内置工具覆盖文件、shell/job、搜索/导航、网络、MCP、运行态信息、todos。
 - permission 支持 `ask`、`auto_read`、`full_access`、`plan`、`deny_all`。

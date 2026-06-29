@@ -988,6 +988,84 @@ func TestMarkDeliveredToolResultsPersistsPreparedModelInputEvidence(t *testing.T
 	require.False(t, other.DeliveredToModel)
 }
 
+func TestRunRoutesPreparedMessagesThroughModelInputBuilder(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	recorder := &recordingModelInputRecorder{
+		projectionID: "projection-from-builder",
+		projected: []fantasy.Message{
+			fantasy.NewSystemMessage("projection marker from context manager"),
+		},
+	}
+	model := &scriptedToolDenyModel{
+		streamFunc: func(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
+			require.True(t, promptContainsText(call.Prompt, "projection marker from context manager"), "model input did not use projected messages: %#v", call.Prompt)
+			return func(yield func(fantasy.StreamPart) bool) {
+				if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextStart, ID: "text-1"}) {
+					return
+				}
+				if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, ID: "text-1", Delta: "done"}) {
+					return
+				}
+				yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonStop})
+			}, nil
+		},
+	}
+	agent := testSessionAgent(env, model, model, "test prompt").(*sessionAgent)
+	agent.modelInputBuilder = recorder
+	agent.assemblyRecorder = recorder
+
+	sess, err := env.sessions.Create(t.Context(), "test")
+	require.NoError(t, err)
+	_, err = env.messages.Create(t.Context(), sess.ID, message.CreateMessageParams{
+		Role:  message.User,
+		Parts: []message.ContentPart{message.TextContent{Text: "existing context"}},
+	})
+	require.NoError(t, err)
+	_, err = agent.Run(t.Context(), SessionAgentCall{
+		Prompt:    "hello",
+		SessionID: sess.ID,
+		TurnID:    "turn-1",
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, 1, recorder.buildCalls)
+	require.Len(t, recorder.assemblies, 1)
+	require.Equal(t, "projection-from-builder", recorder.assemblies[0].ProjectionID)
+	require.Equal(t, 1, recorder.assemblies[0].Messages.Count)
+}
+
+func TestPreparePromptDoesNotOwnMicrocompactStrategy(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	agent := testSessionAgent(env, nil, nil, "test prompt").(*sessionAgent)
+
+	sess, err := env.sessions.Create(t.Context(), "test")
+	require.NoError(t, err)
+	_, err = env.messages.Create(t.Context(), sess.ID, message.CreateMessageParams{
+		Role: message.Assistant,
+		Parts: []message.ContentPart{
+			message.ToolCall{ID: "tool-1", Name: "bash", Input: "{}", Finished: true},
+		},
+	})
+	require.NoError(t, err)
+	_, err = env.messages.Create(t.Context(), sess.ID, message.CreateMessageParams{
+		Role: message.Tool,
+		Parts: []message.ContentPart{
+			message.ToolResult{ToolCallID: "tool-1", Name: "bash", Content: "old but canonical tool output"},
+		},
+	})
+	require.NoError(t, err)
+	msgs, err := env.messages.List(t.Context(), sess.ID)
+	require.NoError(t, err)
+
+	history, _ := agent.preparePrompt(msgs, true)
+	require.True(t, promptContainsText(history, "old but canonical tool output"), "preparePrompt should not compact canonical tool output")
+	require.False(t, promptContainsText(history, "Old tool result content cleared"))
+}
+
 type scriptedToolDenyModel struct {
 	streamFunc func(context.Context, fantasy.Call) (fantasy.StreamResponse, error)
 }
@@ -1011,6 +1089,39 @@ func (m *scriptedToolDenyModel) StreamObject(context.Context, fantasy.ObjectCall
 func (m *scriptedToolDenyModel) Provider() string { return "test" }
 
 func (m *scriptedToolDenyModel) Model() string { return "test-model" }
+
+type recordingModelInputRecorder struct {
+	projectionID string
+	projected    []fantasy.Message
+	buildCalls   int
+	assemblies   []PromptAssemblySnapshot
+}
+
+func (r *recordingModelInputRecorder) BuildModelInput(ctx context.Context, snapshot ModelInputSnapshot) (ModelInputProjection, error) {
+	r.buildCalls++
+	return ModelInputProjection{
+		ProjectionID:          r.projectionID,
+		Messages:              append([]fantasy.Message(nil), r.projected...),
+		CanonicalMessageCount: len(snapshot.Messages),
+		ProjectedMessageCount: len(r.projected),
+	}, nil
+}
+
+func (r *recordingModelInputRecorder) RecordPromptAssembly(ctx context.Context, snapshot PromptAssemblySnapshot) error {
+	r.assemblies = append(r.assemblies, snapshot)
+	return nil
+}
+
+func promptContainsText(messages []fantasy.Message, needle string) bool {
+	for _, msg := range messages {
+		for _, part := range msg.Content {
+			if strings.Contains(promptPartSummaryText(part), needle) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 func TestProviderRetryLogFields(t *testing.T) {
 	t.Run("nil provider error", func(t *testing.T) {

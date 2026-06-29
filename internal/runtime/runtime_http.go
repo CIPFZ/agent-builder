@@ -379,6 +379,20 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		value, err := s.service.SubmitUserInput(r.Context(), req)
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/context/manual-compact":
+		var req RuntimeContextActionRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.ManualCompact(r.Context(), req)
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && r.URL.Path == "/v1/context/manual-snip":
+		var req RuntimeContextActionRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		value, err := s.service.ManualSnip(r.Context(), req)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/terminals":
 		var req RuntimeTerminalCreateRequest
 		if r.Body != nil && r.ContentLength != 0 && !decodeRuntimeJSON(w, r, &req) {
@@ -1023,6 +1037,20 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 			return nil, err, true
 		}
 		value, err := s.service.SubmitUserInput(r.Context(), req)
+		return value, err, true
+	case method == http.MethodPost && path == "/v1/context/manual-compact":
+		var req RuntimeContextActionRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			return nil, err, true
+		}
+		value, err := s.service.ManualCompact(r.Context(), req)
+		return value, err, true
+	case method == http.MethodPost && path == "/v1/context/manual-snip":
+		var req RuntimeContextActionRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			return nil, err, true
+		}
+		value, err := s.service.ManualSnip(r.Context(), req)
 		return value, err, true
 	case method == http.MethodGet && userInputPathID(path) != "":
 		value, err := s.service.UserInput(r.Context(), userInputPathID(path))

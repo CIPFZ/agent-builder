@@ -2020,21 +2020,88 @@ type RuntimeBudgetBucket struct {
 }
 
 type RuntimePromptAssembly struct {
-	ID             string                      `json:"id"`
-	SessionID      string                      `json:"sessionId"`
-	TurnID         string                      `json:"turnId"`
-	Step           int                         `json:"step"`
-	Model          string                      `json:"model"`
-	Provider       string                      `json:"provider"`
-	System         RuntimePromptSystemSummary  `json:"system"`
-	Messages       RuntimePromptMessageSummary `json:"messages"`
-	Tools          RuntimePromptToolSummary    `json:"tools"`
-	Skills         RuntimePromptSkillSummary   `json:"skills"`
-	MCP            RuntimePromptMCPSummary     `json:"mcp"`
-	ContextSources []RuntimeContextSource      `json:"contextSources,omitempty"`
-	Compact        []RuntimeCompactBoundary    `json:"compact,omitempty"`
-	Budget         RuntimeBudgetReport         `json:"budget"`
-	CreatedAt      int64                       `json:"createdAt"`
+	ID                string                          `json:"id"`
+	SessionID         string                          `json:"sessionId"`
+	TurnID            string                          `json:"turnId"`
+	ProjectionID      string                          `json:"projectionId,omitempty"`
+	Step              int                             `json:"step"`
+	Model             string                          `json:"model"`
+	Provider          string                          `json:"provider"`
+	System            RuntimePromptSystemSummary      `json:"system"`
+	Messages          RuntimePromptMessageSummary     `json:"messages"`
+	Tools             RuntimePromptToolSummary        `json:"tools"`
+	Skills            RuntimePromptSkillSummary       `json:"skills"`
+	MCP               RuntimePromptMCPSummary         `json:"mcp"`
+	ContextSources    []RuntimeContextSource          `json:"contextSources,omitempty"`
+	Compact           []RuntimeCompactBoundary        `json:"compact,omitempty"`
+	ContextBoundaries []RuntimeContextBoundary        `json:"contextBoundaries,omitempty"`
+	SnipBoundaries    []RuntimeSnipBoundary           `json:"snipBoundaries,omitempty"`
+	Replacements      []RuntimeContentReplacement     `json:"replacements,omitempty"`
+	ReactiveAttempts  []RuntimeReactiveCompactAttempt `json:"reactiveAttempts,omitempty"`
+	Budget            RuntimeBudgetReport             `json:"budget"`
+	CreatedAt         int64                           `json:"createdAt"`
+}
+
+type RuntimeContextBoundary struct {
+	ID               string               `json:"id"`
+	SessionID        string               `json:"sessionId"`
+	TurnID           string               `json:"turnId,omitempty"`
+	ProjectionID     string               `json:"projectionId,omitempty"`
+	Kind             string               `json:"kind"`
+	Trigger          string               `json:"trigger"`
+	Status           string               `json:"status"`
+	SummaryMessageID string               `json:"summaryMessageId,omitempty"`
+	SummaryRef       string               `json:"summaryRef,omitempty"`
+	MessageRefs      []string             `json:"messageRefs,omitempty"`
+	ToolCallRefs     []string             `json:"toolCallRefs,omitempty"`
+	ReinjectedRefs   []string             `json:"reinjectedRefs,omitempty"`
+	BudgetBefore     *RuntimeBudgetReport `json:"budgetBefore,omitempty"`
+	BudgetAfter      *RuntimeBudgetReport `json:"budgetAfter,omitempty"`
+	CreatedAt        int64                `json:"createdAt"`
+	CompletedAt      int64                `json:"completedAt,omitempty"`
+	Error            string               `json:"error,omitempty"`
+}
+
+type RuntimeSnipBoundary struct {
+	ID                 string   `json:"id"`
+	SessionID          string   `json:"sessionId"`
+	TurnID             string   `json:"turnId,omitempty"`
+	ProjectionID       string   `json:"projectionId,omitempty"`
+	RemovedMessageRefs []string `json:"removedMessageRefs,omitempty"`
+	PreservedHeadRef   string   `json:"preservedHeadRef,omitempty"`
+	PreservedTailRef   string   `json:"preservedTailRef,omitempty"`
+	SummaryRef         string   `json:"summaryRef,omitempty"`
+	Reason             string   `json:"reason,omitempty"`
+	CreatedAt          int64    `json:"createdAt"`
+}
+
+type RuntimeContentReplacement struct {
+	ID                         string `json:"id"`
+	SessionID                  string `json:"sessionId"`
+	TurnID                     string `json:"turnId,omitempty"`
+	ProjectionID               string `json:"projectionId,omitempty"`
+	ToolCallID                 string `json:"toolCallId,omitempty"`
+	ToolName                   string `json:"toolName,omitempty"`
+	Kind                       string `json:"kind"`
+	OriginalRef                string `json:"originalRef,omitempty"`
+	ReplacementEstimatedTokens int    `json:"replacementEstimatedTokens,omitempty"`
+	OriginalEstimatedTokens    int    `json:"originalEstimatedTokens,omitempty"`
+	OriginalSizeBytes          int64  `json:"originalSizeBytes,omitempty"`
+	Reason                     string `json:"reason,omitempty"`
+	CreatedAt                  int64  `json:"createdAt"`
+}
+
+type RuntimeReactiveCompactAttempt struct {
+	ID           string `json:"id"`
+	SessionID    string `json:"sessionId"`
+	TurnID       string `json:"turnId"`
+	ProjectionID string `json:"projectionId,omitempty"`
+	Attempt      int    `json:"attempt"`
+	Action       string `json:"action"`
+	Status       string `json:"status"`
+	Error        string `json:"error,omitempty"`
+	CreatedAt    int64  `json:"createdAt"`
+	CompletedAt  int64  `json:"completedAt,omitempty"`
 }
 
 type RuntimePromptSystemSummary struct {
@@ -2095,6 +2162,21 @@ type RuntimePromptMCPSummary struct {
 
 type RuntimePromptAssembliesResponse struct {
 	Assemblies []RuntimePromptAssembly `json:"assemblies"`
+}
+
+type RuntimeContextActionRequest struct {
+	SessionID    string `json:"sessionId,omitempty"`
+	TurnID       string `json:"turnId"`
+	ProjectionID string `json:"projectionId,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+}
+
+type RuntimeManualCompactResponse struct {
+	Boundary RuntimeContextBoundary `json:"boundary"`
+}
+
+type RuntimeManualSnipResponse struct {
+	SnipBoundary RuntimeSnipBoundary `json:"snipBoundary"`
 }
 
 type RuntimeEventsEndpointResponse struct {

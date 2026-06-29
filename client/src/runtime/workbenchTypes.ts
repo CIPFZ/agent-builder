@@ -116,7 +116,20 @@ export interface ConversationMessageViewModel {
   error?: string;
 }
 
-export type ConversationTimelineKind = 'message' | 'thinking' | 'tool_call' | 'permission' | 'progress' | 'diagnostic' | 'agent_task' | 'turn_terminal';
+export type ConversationTimelineKind =
+  | 'message'
+  | 'thinking'
+  | 'tool_call'
+  | 'permission'
+  | 'progress'
+  | 'diagnostic'
+  | 'agent_task'
+  | 'turn_terminal'
+  | 'compact_boundary'
+  | 'snip_boundary'
+  | 'microcompact_marker'
+  | 'reactive_compact_retry'
+  | 'tool_result_replacement';
 
 export interface ConversationTimelineItemViewModel {
   id: string;
@@ -359,6 +372,7 @@ export interface ReactCallchainSourceViewModel {
 export interface ContextDiagnosticsViewModel {
   sessionId: string;
   turnId?: string;
+  projectionId?: string;
   step?: number;
   provider?: string;
   model?: string;
@@ -412,6 +426,9 @@ export interface ContextDiagnosticsViewModel {
   };
   contextSources: ContextSourceViewModel[];
   compactBoundaries: CompactBoundaryViewModel[];
+  snipBoundaries: SnipBoundaryViewModel[];
+  replacements: ContentReplacementViewModel[];
+  reactiveAttempts: ReactiveCompactAttemptViewModel[];
   budget: PromptBudgetViewModel;
   warnings: string[];
 }
@@ -445,6 +462,32 @@ export interface CompactBoundaryViewModel {
   error?: string;
   createdAt?: number;
   completedAt?: number;
+}
+
+export interface SnipBoundaryViewModel {
+  id: string;
+  reason?: string;
+  removedMessageCount: number;
+  summaryRef?: string;
+  createdAt?: number;
+}
+
+export interface ContentReplacementViewModel {
+  id: string;
+  toolCallId?: string;
+  kind: string;
+  reason?: string;
+  originalRef?: string;
+  createdAt?: number;
+}
+
+export interface ReactiveCompactAttemptViewModel {
+  id: string;
+  attempt: number;
+  action: string;
+  status: string;
+  error?: string;
+  createdAt?: number;
 }
 
 export interface PromptBudgetViewModel {
@@ -878,6 +921,7 @@ export interface SettingsViewModel {
   permissionOptions: PermissionModeOptionViewModel[];
   defaultEditor: string;
   terminalProfile: string;
+  contextGovernance: ContextGovernanceSettingsViewModel;
   editorOptions: SettingsOptionViewModel[];
   terminalOptions: SettingsOptionViewModel[];
   providerTypes: ProviderTypeViewModel[];
@@ -889,6 +933,16 @@ export interface SettingsViewModel {
   mcpToolsByServer: Record<string, RuntimeMCPToolViewModel[]>;
   mcpResourcesByServer: Record<string, RuntimeMCPResourceViewModel[]>;
   mcpPromptsByServer: Record<string, RuntimeMCPPromptViewModel[]>;
+}
+
+export interface ContextGovernanceSettingsViewModel {
+  autoCompactEnabled: boolean;
+  toolResultBudgetChars: number;
+  maxSingleToolResultChars: number;
+  microcompactKeepRecent: number;
+  snipEnabled: boolean;
+  reactiveRetryLimit: number;
+  manualActions: boolean;
 }
 
 export interface WorkbenchViewModel {
@@ -942,6 +996,8 @@ export interface WorkbenchAdapter {
   submitUserInput?: (current: WorkbenchViewModel, input: RuntimeUserInputRequestViewModel) => Promise<WorkbenchViewModel>;
   cancelTurn: (current: WorkbenchViewModel, turnID?: string) => Promise<WorkbenchViewModel>;
   markInterruptedDone: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;
+  manualCompact: (current: WorkbenchViewModel, reason?: string) => Promise<WorkbenchViewModel>;
+  manualSnip: (current: WorkbenchViewModel, reason?: string) => Promise<WorkbenchViewModel>;
   resumeRunCheckpoint: (current: WorkbenchViewModel, runID: string, checkpointID: string) => Promise<WorkbenchViewModel>;
   readRunSchedulerPlan: (
     current: WorkbenchViewModel,

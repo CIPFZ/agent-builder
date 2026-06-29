@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
+	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/permission"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 	"github.com/CIPFZ/agent-builder/internal/workbench"
@@ -69,6 +70,8 @@ type RuntimeService interface {
 	SessionCompactBoundaries(context.Context, string) (RuntimeCompactBoundariesResponse, error)
 	PromptAssembliesByTurn(context.Context, string) (RuntimePromptAssembliesResponse, error)
 	PromptAssembliesBySession(context.Context, string, int) (RuntimePromptAssembliesResponse, error)
+	ManualCompact(context.Context, RuntimeContextActionRequest) (RuntimeManualCompactResponse, error)
+	ManualSnip(context.Context, RuntimeContextActionRequest) (RuntimeManualSnipResponse, error)
 	Hooks(context.Context) (RuntimeHooksResponse, error)
 	HookExecutions(context.Context, RuntimeHookExecutionsRequest) (RuntimeHookExecutionsResponse, error)
 	HookExecution(context.Context, string) (RuntimeHookExecutionResponse, error)
@@ -170,6 +173,8 @@ type runtimeService struct {
 	toolEvents           map[string]runtimeToolEventState
 	toolCalls            runtimeToolCallStore
 	refs                 runtimeRefStore
+	contextManager       contextmgr.Manager
+	contextStore         contextmgr.SQLStore
 	compactBoundaries    runtimeCompactBoundaryStore
 	promptAssemblies     runtimePromptAssemblyStore
 	worktrees            runtimeWorktreeStore

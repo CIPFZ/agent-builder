@@ -1,6 +1,6 @@
-import { Alert, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, Tag, Tooltip, Typography } from 'antd';
 import { ApiOutlined, CompressOutlined, DatabaseOutlined, FileSearchOutlined, ProfileOutlined, ToolOutlined } from '@ant-design/icons';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { BudgetBucketViewModel, ContextDiagnosticsViewModel } from '../../runtime/workbenchTypes.ts';
 import styles from './ContextDiagnosticsPanel.module.css';
 
@@ -8,12 +8,26 @@ const { Text } = Typography;
 
 interface ContextDiagnosticsPanelProps {
   diagnostics?: ContextDiagnosticsViewModel;
+  onManualCompact?: () => Promise<void>;
+  onManualSnip?: () => Promise<void>;
 }
 
-export function ContextDiagnosticsPanel({ diagnostics }: ContextDiagnosticsPanelProps) {
+export function ContextDiagnosticsPanel({ diagnostics, onManualCompact, onManualSnip }: ContextDiagnosticsPanelProps) {
+  const [runningAction, setRunningAction] = useState<'compact' | 'snip' | undefined>();
   if (!diagnostics) {
     return null;
   }
+  const runAction = async (action: 'compact' | 'snip', handler?: () => Promise<void>) => {
+    if (!handler || runningAction) {
+      return;
+    }
+    setRunningAction(action);
+    try {
+      await handler();
+    } finally {
+      setRunningAction(undefined);
+    }
+  };
 
   return (
     <aside className={styles.panel} data-testid="context-diagnostics-panel" aria-label="Context diagnostics">
@@ -22,7 +36,31 @@ export function ContextDiagnosticsPanel({ diagnostics }: ContextDiagnosticsPanel
           <ProfileOutlined />
           <span>Context</span>
         </span>
-        <Tag color={diagnostics.system.redacted ? 'blue' : 'warning'}>{diagnostics.system.redacted ? 'summary' : 'check'}</Tag>
+        <div className={styles.headerActions}>
+          <Tooltip title="Record manual compact boundary">
+            <Button
+              aria-label="Record manual compact boundary"
+              disabled={!onManualCompact}
+              icon={<CompressOutlined />}
+              loading={runningAction === 'compact'}
+              size="small"
+              type="text"
+              onClick={() => void runAction('compact', onManualCompact)}
+            />
+          </Tooltip>
+          <Tooltip title="Record manual snip boundary">
+            <Button
+              aria-label="Record manual snip boundary"
+              disabled={!onManualSnip}
+              icon={<FileSearchOutlined />}
+              loading={runningAction === 'snip'}
+              size="small"
+              type="text"
+              onClick={() => void runAction('snip', onManualSnip)}
+            />
+          </Tooltip>
+          <Tag color={diagnostics.system.redacted ? 'blue' : 'warning'}>{diagnostics.system.redacted ? 'summary' : 'check'}</Tag>
+        </div>
       </div>
 
       {diagnostics.warnings.length ? (
@@ -33,6 +71,12 @@ export function ContextDiagnosticsPanel({ diagnostics }: ContextDiagnosticsPanel
         <Text type="secondary">Model</Text>
         <Text className={styles.truncate}>{[diagnostics.provider, diagnostics.model].filter(Boolean).join(' / ') || 'unknown'}</Text>
       </div>
+      {diagnostics.projectionId ? (
+        <div className={styles.modelLine}>
+          <Text type="secondary">Projection</Text>
+          <Text className={styles.truncate}>{diagnostics.projectionId}</Text>
+        </div>
+      ) : null}
 
       <div className={styles.metrics}>
         <Metric icon={<DatabaseOutlined />} label="Budget" value={`${diagnostics.budget.totalEstimatedTokens || 0} tokens`} />
@@ -102,6 +146,32 @@ export function ContextDiagnosticsPanel({ diagnostics }: ContextDiagnosticsPanel
                 </Text>
               </div>
             </div>
+          ))}
+        </Section>
+      ) : null}
+
+      {diagnostics.snipBoundaries.length || diagnostics.replacements.length || diagnostics.reactiveAttempts.length ? (
+        <Section title="Governance">
+          {diagnostics.snipBoundaries.map((boundary) => (
+            <div key={boundary.id} className={styles.compactRow}>
+              <CompressOutlined />
+              <div className={styles.compactBody}>
+                <Text strong className={styles.truncate}>snip</Text>
+                <Text type="secondary" className={styles.detailLine}>
+                  {[boundary.reason, `${boundary.removedMessageCount} removed`, boundary.summaryRef].filter(Boolean).join(' / ')}
+                </Text>
+              </div>
+            </div>
+          ))}
+          {diagnostics.replacements.length ? (
+            <Text type="secondary" className={styles.detailLine}>
+              replacements {diagnostics.replacements.length}
+            </Text>
+          ) : null}
+          {diagnostics.reactiveAttempts.map((attempt) => (
+            <Text key={attempt.id} type={attempt.status === 'failed' ? 'danger' : 'secondary'} className={styles.detailLine}>
+              reactive #{attempt.attempt} {attempt.action} / {attempt.status}
+            </Text>
           ))}
         </Section>
       ) : null}

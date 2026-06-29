@@ -528,6 +528,18 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setViewModel(nextViewModel);
   };
 
+  const manualCompact = async () => {
+    const nextViewModel = await adapter.manualCompact({ ...viewModelRef.current, mode: modeRef.current });
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
+  const manualSnip = async () => {
+    const nextViewModel = await adapter.manualSnip({ ...viewModelRef.current, mode: modeRef.current });
+    setMode(nextViewModel.mode);
+    setViewModel(nextViewModel);
+  };
+
   const resumeRunCheckpoint = async (runID: string, checkpointID: string) => {
     const nextViewModel = await adapter.resumeRunCheckpoint({ ...viewModelRef.current, mode: modeRef.current }, runID, checkpointID);
     setMode(nextViewModel.mode);
@@ -800,6 +812,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onPromptSubmit={sendPrompt}
           onNewConversationDraftChange={updateNewConversationDraft}
           onInterruptedDone={markInterruptedDone}
+          onManualCompact={manualCompact}
+          onManualSnip={manualSnip}
           onRunCheckpointResume={resumeRunCheckpoint}
           onRunTaskExecute={executeRunTask}
           onAgentTaskFollowUp={sendAgentTaskFollowUp}

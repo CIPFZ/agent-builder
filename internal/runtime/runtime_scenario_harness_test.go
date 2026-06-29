@@ -282,37 +282,11 @@ func TestRuntimeScenarioHarnessToolDiscoveryMCPAndSkillGolden(t *testing.T) {
 	}
 }
 
-func TestRuntimeScenarioHarnessCompactBudgetRecoveryGolden(t *testing.T) {
+func TestRuntimeScenarioHarnessRecoveryGolden(t *testing.T) {
 	t.Parallel()
 
 	h := newRuntimeScenarioHarness(t)
 	h.seedTurn("session-compact", "turn-compact")
-	for i := 0; i < 4; i++ {
-		id := "tool-compact-" + string(rune('1'+i))
-		if _, err := h.service.toolCalls.CreateCall(h.ctx, scheduler.ToolCallRequest{
-			ID: id, SessionID: "session-compact", TurnID: "turn-compact", Name: "bash", Source: scheduler.ToolSourceShell, InputSummary: `{"command":"printf output"}`,
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := h.service.toolCalls.CompleteCall(h.ctx, scheduler.ToolCallResult{
-			ToolCallID: id, Status: scheduler.ToolCallCompleted, OutputSummary: strings.Repeat("tool output ", 700),
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	before := RuntimeBudgetReport{SessionID: "session-compact", TurnID: "turn-compact", ToolOutputs: RuntimeBudgetBucket{Count: 4, EstimatedTokens: 4000}, TotalEstimatedTokens: 4000, UpdatedAt: time.Now().UnixMilli()}
-	h.service.recordTurnBudgetBoundary(h.ctx, "session-compact", "turn-compact", before)
-	after, boundary := h.service.maybeMicroCompactToolOutputs(h.ctx, "session-compact", "turn-compact", before)
-	if boundary == nil || after.TotalEstimatedTokens >= before.TotalEstimatedTokens {
-		t.Fatalf("micro compact failed: before=%#v after=%#v boundary=%#v", before, after, boundary)
-	}
-	call, err := h.service.toolCalls.GetCall(h.ctx, "tool-compact-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !call.Compacted || call.OutputSummary != microCompactReplacementText || call.CompactBoundaryID != boundary.ID {
-		t.Fatalf("micro compact invariant failed: %#v boundary=%#v", call, boundary)
-	}
 
 	for i := 0; i < runtimeEventLimit+2; i++ {
 		h.service.storeRuntimeEvent(runtimeapi.Event{Type: "scenario.noop", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), SessionID: "session-compact", TurnID: "turn-compact", Payload: map[string]any{"index": i}})
@@ -353,9 +327,6 @@ func TestRuntimeScenarioHarnessCompactBudgetRecoveryGolden(t *testing.T) {
 	replay := h.replay("turn-compact")
 	if !replay.Summary.Recovery.SnapshotRequired && !events.SnapshotRequired {
 		t.Fatalf("recovery snapshot-required not observable: %#v", replay.Summary.Recovery)
-	}
-	if len(replay.Summary.CompactBoundaries) < 2 || replay.Summary.Budget == nil {
-		t.Fatalf("compact replay missing budget/boundaries: %#v", replay.Summary)
 	}
 	if replay.Source != "runtime_audit_events+runtime_events" {
 		t.Fatalf("replay source = %q, want persisted runtime_events", replay.Source)

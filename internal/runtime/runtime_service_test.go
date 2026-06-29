@@ -4839,6 +4839,14 @@ func (s *recordingRuntimeService) PromptAssembliesBySession(_ context.Context, s
 	return s.promptAssemblies, nil
 }
 
+func (s *recordingRuntimeService) ManualCompact(context.Context, RuntimeContextActionRequest) (RuntimeManualCompactResponse, error) {
+	return RuntimeManualCompactResponse{}, nil
+}
+
+func (s *recordingRuntimeService) ManualSnip(context.Context, RuntimeContextActionRequest) (RuntimeManualSnipResponse, error) {
+	return RuntimeManualSnipResponse{}, nil
+}
+
 func (s *recordingRuntimeService) Runs(context.Context) (RuntimeRunsResponse, error) {
 	return s.runs, nil
 }

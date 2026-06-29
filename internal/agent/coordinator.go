@@ -113,6 +113,7 @@ type coordinator struct {
 	readyWg                errgroup.Group
 	schedulerRecorder      SchedulerRecorder
 	promptAssemblyRecorder PromptAssemblyRecorder
+	modelInputBuilder      ModelInputBuilder
 	discoveryRecorder      ToolDiscoveryRecorder
 	capabilityRecorder     CapabilityScopeRecorder
 	agentTaskRecorder      AgentTaskRecorder
@@ -526,6 +527,9 @@ func NewCoordinator(
 		if recorder, ok := schedulerRecorder[0].(PromptAssemblyRecorder); ok {
 			c.promptAssemblyRecorder = recorder
 		}
+		if builder, ok := schedulerRecorder[0].(ModelInputBuilder); ok {
+			c.modelInputBuilder = builder
+		}
 		if discoveryRecorder, ok := schedulerRecorder[0].(ToolDiscoveryRecorder); ok {
 			c.discoveryRecorder = discoveryRecorder
 		}
@@ -848,6 +852,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		Tools:                nil,
 		Notify:               c.notify,
 		GuardConfig:          c.cfg.Config().Options.ToolResultGuard,
+		ModelInputBuilder:    c.modelInputBuilder,
 		AssemblyRecorder:     c.promptAssemblyRecorder,
 	})
 

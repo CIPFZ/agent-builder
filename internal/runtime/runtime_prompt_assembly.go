@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/agent"
+	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 )
 
@@ -16,6 +17,13 @@ func (r *runtimeSchedulerRecorder) RecordPromptAssembly(ctx context.Context, sna
 		return nil
 	}
 	return r.service.recordPromptAssembly(ctx, snapshot)
+}
+
+func (r *runtimeSchedulerRecorder) BuildModelInput(ctx context.Context, snapshot agent.ModelInputSnapshot) (agent.ModelInputProjection, error) {
+	if r == nil || r.service == nil {
+		return agent.ModelInputProjection{Messages: snapshot.Messages}, nil
+	}
+	return r.service.buildModelInputProjection(ctx, snapshot)
 }
 
 func (r *runtimeService) PromptAssembliesByTurn(ctx context.Context, turnID string) (RuntimePromptAssembliesResponse, error) {
@@ -31,6 +39,9 @@ func (r *runtimeService) PromptAssembliesByTurn(ctx context.Context, turnID stri
 	}
 	assemblies, err := r.promptAssemblies.ListByTurn(ctx, turnID)
 	if err != nil {
+		return RuntimePromptAssembliesResponse{}, err
+	}
+	if assemblies, err = r.enrichPromptAssembliesWithContext(ctx, assemblies); err != nil {
 		return RuntimePromptAssembliesResponse{}, err
 	}
 	return RuntimePromptAssembliesResponse{Assemblies: assemblies}, nil
@@ -56,7 +67,98 @@ func (r *runtimeService) PromptAssembliesBySession(ctx context.Context, sessionI
 	if err != nil {
 		return RuntimePromptAssembliesResponse{}, err
 	}
+	if assemblies, err = r.enrichPromptAssembliesWithContext(ctx, assemblies); err != nil {
+		return RuntimePromptAssembliesResponse{}, err
+	}
 	return RuntimePromptAssembliesResponse{Assemblies: assemblies}, nil
+}
+
+func (r *runtimeService) ManualCompact(ctx context.Context, req RuntimeContextActionRequest) (RuntimeManualCompactResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeManualCompactResponse{}, err
+	}
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	req.TurnID = strings.TrimSpace(req.TurnID)
+	if req.SessionID == "" {
+		r.mu.Lock()
+		req.SessionID = r.sessionID
+		r.mu.Unlock()
+	}
+	if req.SessionID == "" {
+		return RuntimeManualCompactResponse{}, errors.New("session id is required")
+	}
+	if req.TurnID == "" {
+		return RuntimeManualCompactResponse{}, errors.New("turn id is required")
+	}
+	if err := r.ensureContextManager(ctx); err != nil {
+		return RuntimeManualCompactResponse{}, err
+	}
+	result, err := r.contextManager.ManualCompact(ctx, contextmgr.ManualCompactRequest{
+		SessionID:    req.SessionID,
+		TurnID:       req.TurnID,
+		ProjectionID: req.ProjectionID,
+		Reason:       req.Reason,
+	})
+	if err != nil {
+		return RuntimeManualCompactResponse{}, err
+	}
+	r.storeRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      "context.compact.manual",
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID: req.SessionID,
+		TurnID:    req.TurnID,
+		Payload: map[string]any{
+			"boundary_id": result.Boundary.ID,
+			"reason":      result.Boundary.Trigger,
+			"summary":     "manual compact requested",
+		},
+	})
+	return RuntimeManualCompactResponse{Boundary: runtimeContextBoundaryFromContext(result.Boundary)}, nil
+}
+
+func (r *runtimeService) ManualSnip(ctx context.Context, req RuntimeContextActionRequest) (RuntimeManualSnipResponse, error) {
+	if err := r.ensureStarted(ctx); err != nil {
+		return RuntimeManualSnipResponse{}, err
+	}
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	req.TurnID = strings.TrimSpace(req.TurnID)
+	if req.SessionID == "" {
+		r.mu.Lock()
+		req.SessionID = r.sessionID
+		r.mu.Unlock()
+	}
+	if req.SessionID == "" {
+		return RuntimeManualSnipResponse{}, errors.New("session id is required")
+	}
+	if req.TurnID == "" {
+		return RuntimeManualSnipResponse{}, errors.New("turn id is required")
+	}
+	if err := r.ensureContextManager(ctx); err != nil {
+		return RuntimeManualSnipResponse{}, err
+	}
+	result, err := r.contextManager.ManualSnip(ctx, contextmgr.ManualSnipRequest{
+		SessionID:    req.SessionID,
+		TurnID:       req.TurnID,
+		ProjectionID: req.ProjectionID,
+		Reason:       req.Reason,
+	})
+	if err != nil {
+		return RuntimeManualSnipResponse{}, err
+	}
+	r.storeRuntimeEvent(runtimeapi.Event{
+		ID:        newRuntimeEventID(),
+		Type:      "context.snip.manual",
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID: req.SessionID,
+		TurnID:    req.TurnID,
+		Payload: map[string]any{
+			"snip_id": result.SnipBoundary.ID,
+			"reason":  result.SnipBoundary.Reason,
+			"summary": "manual snip requested",
+		},
+	})
+	return RuntimeManualSnipResponse{SnipBoundary: runtimeSnipBoundaryFromContext(result.SnipBoundary)}, nil
 }
 
 func (r *runtimeService) recordPromptAssembly(ctx context.Context, snapshot agent.PromptAssemblySnapshot) error {
@@ -94,6 +196,14 @@ func (r *runtimeService) recordPromptAssembly(ctx context.Context, snapshot agen
 	}
 	promptLength := snapshot.Messages.TokenEstimate * 4
 	budget := r.computeRuntimeBudget(ctx, snapshot.SessionID, snapshot.TurnID, snapshot.Model, promptLength, &contextSummary)
+	projectionID := snapshot.ProjectionID
+	if projectionID == "" {
+		if projection, err := r.recordNoopContextProjection(ctx, snapshot, budget); err == nil {
+			projectionID = projection.ID
+		} else {
+			return err
+		}
+	}
 	disclosure := r.toolDisclosureBudget(snapshot.TurnID)
 	tools := RuntimePromptToolSummary{
 		Selected:       append([]string(nil), snapshot.Tools.Selected...),
@@ -115,12 +225,13 @@ func (r *runtimeService) recordPromptAssembly(ctx context.Context, snapshot agen
 		}
 	}
 	assembly := RuntimePromptAssembly{
-		ID:        runtimePromptAssemblyID(snapshot.TurnID, snapshot.Step),
-		SessionID: snapshot.SessionID,
-		TurnID:    snapshot.TurnID,
-		Step:      firstPositiveInt(snapshot.Step, 1),
-		Provider:  snapshot.Provider,
-		Model:     snapshot.Model,
+		ID:           runtimePromptAssemblyID(snapshot.TurnID, snapshot.Step),
+		SessionID:    snapshot.SessionID,
+		TurnID:       snapshot.TurnID,
+		ProjectionID: projectionID,
+		Step:         firstPositiveInt(snapshot.Step, 1),
+		Provider:     snapshot.Provider,
+		Model:        snapshot.Model,
 		System: RuntimePromptSystemSummary{
 			Source:             snapshot.System.Source,
 			Hash:               snapshot.System.Hash,
@@ -179,6 +290,7 @@ func (r *runtimeService) recordPromptAssembly(ctx context.Context, snapshot agen
 		TurnID:    stored.TurnID,
 		Payload: map[string]any{
 			"assembly_id":            stored.ID,
+			"projection_id":          stored.ProjectionID,
 			"step":                   stored.Step,
 			"provider":               stored.Provider,
 			"model":                  stored.Model,
@@ -191,6 +303,204 @@ func (r *runtimeService) recordPromptAssembly(ctx context.Context, snapshot agen
 		},
 	})
 	return nil
+}
+
+func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot agent.ModelInputSnapshot) (agent.ModelInputProjection, error) {
+	if err := r.ensureContextManager(ctx); err != nil {
+		return agent.ModelInputProjection{}, err
+	}
+	result, err := r.contextManager.BuildModelInput(ctx, contextmgr.BuildInputRequest{
+		SessionID:     snapshot.SessionID,
+		TurnID:        snapshot.TurnID,
+		Step:          firstPositiveInt(snapshot.Step, 1),
+		Provider:      snapshot.Provider,
+		Model:         snapshot.Model,
+		Source:        firstNonEmpty(snapshot.Source, contextmgr.ProjectionSourceMainTurn),
+		ModelMessages: snapshot.Messages,
+	})
+	if err != nil {
+		return agent.ModelInputProjection{}, err
+	}
+	projected := result.ModelMessages
+	if projected == nil {
+		projected = snapshot.Messages
+	}
+	return agent.ModelInputProjection{
+		ProjectionID:          result.Projection.ID,
+		Messages:              projected,
+		CanonicalMessageCount: result.Projection.CanonicalMessageCount,
+		ProjectedMessageCount: result.Projection.ProjectedMessageCount,
+	}, nil
+}
+
+func (r *runtimeService) enrichPromptAssembliesWithContext(ctx context.Context, assemblies []RuntimePromptAssembly) ([]RuntimePromptAssembly, error) {
+	if len(assemblies) == 0 {
+		return assemblies, nil
+	}
+	if err := r.ensureContextManager(ctx); err != nil {
+		return nil, err
+	}
+	for i := range assemblies {
+		projectionID := strings.TrimSpace(assemblies[i].ProjectionID)
+		if projectionID == "" {
+			continue
+		}
+		boundaries, err := r.contextStore.ListBoundariesByProjection(ctx, projectionID)
+		if err != nil {
+			return nil, err
+		}
+		for _, boundary := range boundaries {
+			assemblies[i].ContextBoundaries = append(assemblies[i].ContextBoundaries, runtimeContextBoundaryFromContext(boundary))
+		}
+		snipBoundaries, err := r.contextStore.ListSnipBoundariesByProjection(ctx, projectionID)
+		if err != nil {
+			return nil, err
+		}
+		for _, snip := range snipBoundaries {
+			assemblies[i].SnipBoundaries = append(assemblies[i].SnipBoundaries, runtimeSnipBoundaryFromContext(snip))
+		}
+		replacements, err := r.contextStore.ListContentReplacementsByProjection(ctx, projectionID)
+		if err != nil {
+			return nil, err
+		}
+		for _, replacement := range replacements {
+			assemblies[i].Replacements = append(assemblies[i].Replacements, runtimeContentReplacementFromContext(replacement))
+		}
+		attempts, err := r.contextStore.ListReactiveAttemptsByTurn(ctx, assemblies[i].TurnID)
+		if err != nil {
+			return nil, err
+		}
+		for _, attempt := range attempts {
+			if attempt.ProjectionID == "" || attempt.ProjectionID == projectionID {
+				assemblies[i].ReactiveAttempts = append(assemblies[i].ReactiveAttempts, runtimeReactiveAttemptFromContext(attempt))
+			}
+		}
+	}
+	return assemblies, nil
+}
+
+func (r *runtimeService) ensureContextManager(ctx context.Context) error {
+	if r.contextManager != nil {
+		return nil
+	}
+	db, err := r.workspaceDB(ctx)
+	if err != nil {
+		return err
+	}
+	r.contextStore = contextmgr.NewSQLStore(db)
+	r.contextManager = contextmgr.NewManager(contextmgr.ManagerOptions{Store: r.contextStore})
+	return nil
+}
+
+func (r *runtimeService) recordNoopContextProjection(ctx context.Context, snapshot agent.PromptAssemblySnapshot, budget RuntimeBudgetReport) (contextmgr.Projection, error) {
+	if err := r.ensureContextManager(ctx); err != nil {
+		return contextmgr.Projection{}, err
+	}
+	result, err := r.contextManager.BuildModelInput(ctx, contextmgr.BuildInputRequest{
+		SessionID:         snapshot.SessionID,
+		TurnID:            snapshot.TurnID,
+		Step:              firstPositiveInt(snapshot.Step, 1),
+		Provider:          snapshot.Provider,
+		Model:             snapshot.Model,
+		Source:            contextmgr.ProjectionSourceMainTurn,
+		CanonicalMessages: snapshot.Messages.Count,
+		ProjectedMessages: snapshot.Messages.Count,
+		BudgetBefore:      runtimeBudgetToContextBudget(budget),
+		BudgetAfter:       runtimeBudgetToContextBudget(budget),
+	})
+	if err != nil {
+		return contextmgr.Projection{}, err
+	}
+	return result.Projection, nil
+}
+
+func runtimeBudgetToContextBudget(report RuntimeBudgetReport) *contextmgr.BudgetReport {
+	return &contextmgr.BudgetReport{
+		TotalEstimatedTokens: report.TotalEstimatedTokens,
+		ContextWindow:        report.ContextWindow,
+		Model:                report.Model,
+	}
+}
+
+func runtimeContextBoundaryFromContext(boundary contextmgr.Boundary) RuntimeContextBoundary {
+	return RuntimeContextBoundary{
+		ID:               boundary.ID,
+		SessionID:        boundary.SessionID,
+		TurnID:           boundary.TurnID,
+		ProjectionID:     boundary.ProjectionID,
+		Kind:             boundary.Kind,
+		Trigger:          boundary.Trigger,
+		Status:           boundary.Status,
+		SummaryMessageID: boundary.SummaryMessageID,
+		SummaryRef:       boundary.SummaryRef,
+		MessageRefs:      append([]string(nil), boundary.MessageRefs...),
+		ToolCallRefs:     append([]string(nil), boundary.ToolCallRefs...),
+		ReinjectedRefs:   append([]string(nil), boundary.ReinjectedRefs...),
+		BudgetBefore:     runtimeBudgetFromContextBudget(boundary.BudgetBefore),
+		BudgetAfter:      runtimeBudgetFromContextBudget(boundary.BudgetAfter),
+		CreatedAt:        boundary.CreatedAt,
+		CompletedAt:      boundary.CompletedAt,
+		Error:            boundary.Error,
+	}
+}
+
+func runtimeSnipBoundaryFromContext(snip contextmgr.SnipBoundary) RuntimeSnipBoundary {
+	return RuntimeSnipBoundary{
+		ID:                 snip.ID,
+		SessionID:          snip.SessionID,
+		TurnID:             snip.TurnID,
+		ProjectionID:       snip.ProjectionID,
+		RemovedMessageRefs: append([]string(nil), snip.RemovedMessageRefs...),
+		PreservedHeadRef:   snip.PreservedHeadRef,
+		PreservedTailRef:   snip.PreservedTailRef,
+		SummaryRef:         snip.SummaryRef,
+		Reason:             snip.Reason,
+		CreatedAt:          snip.CreatedAt,
+	}
+}
+
+func runtimeContentReplacementFromContext(replacement contextmgr.ContentReplacement) RuntimeContentReplacement {
+	return RuntimeContentReplacement{
+		ID:                         replacement.ID,
+		SessionID:                  replacement.SessionID,
+		TurnID:                     replacement.TurnID,
+		ProjectionID:               replacement.ProjectionID,
+		ToolCallID:                 replacement.ToolCallID,
+		ToolName:                   replacement.ToolName,
+		Kind:                       replacement.Kind,
+		OriginalRef:                replacement.OriginalRef,
+		ReplacementEstimatedTokens: replacement.ReplacementEstimatedTokens,
+		OriginalEstimatedTokens:    replacement.OriginalEstimatedTokens,
+		OriginalSizeBytes:          replacement.OriginalSizeBytes,
+		Reason:                     replacement.Reason,
+		CreatedAt:                  replacement.CreatedAt,
+	}
+}
+
+func runtimeReactiveAttemptFromContext(attempt contextmgr.ReactiveAttempt) RuntimeReactiveCompactAttempt {
+	return RuntimeReactiveCompactAttempt{
+		ID:           attempt.ID,
+		SessionID:    attempt.SessionID,
+		TurnID:       attempt.TurnID,
+		ProjectionID: attempt.ProjectionID,
+		Attempt:      attempt.Attempt,
+		Action:       attempt.Action,
+		Status:       attempt.Status,
+		Error:        attempt.Error,
+		CreatedAt:    attempt.CreatedAt,
+		CompletedAt:  attempt.CompletedAt,
+	}
+}
+
+func runtimeBudgetFromContextBudget(report *contextmgr.BudgetReport) *RuntimeBudgetReport {
+	if report == nil {
+		return nil
+	}
+	return &RuntimeBudgetReport{
+		ContextWindow:        report.ContextWindow,
+		Model:                report.Model,
+		TotalEstimatedTokens: report.TotalEstimatedTokens,
+	}
 }
 
 func runtimePromptAssemblyID(turnID string, step int) string {

@@ -703,10 +703,18 @@ interface RuntimePromptAssembliesResponseDTO {
   assemblies?: RuntimePromptAssemblyDTO[];
 }
 
+interface RuntimeContextActionRequestDTO {
+  sessionId?: string;
+  turnId: string;
+  projectionId?: string;
+  reason?: string;
+}
+
 interface RuntimePromptAssemblyDTO {
   id?: string;
   sessionId?: string;
   turnId?: string;
+  projectionId?: string;
   step?: number;
   model?: string;
   provider?: string;
@@ -759,7 +767,37 @@ interface RuntimePromptAssemblyDTO {
   };
   contextSources?: RuntimeContextSourceDTO[];
   compact?: RuntimeCompactBoundaryDTO[];
+  contextBoundaries?: RuntimeCompactBoundaryDTO[];
+  snipBoundaries?: RuntimeSnipBoundaryDTO[];
+  replacements?: RuntimeContentReplacementDTO[];
+  reactiveAttempts?: RuntimeReactiveCompactAttemptDTO[];
   budget?: RuntimeBudgetReportDTO;
+  createdAt?: number;
+}
+
+interface RuntimeSnipBoundaryDTO {
+  id?: string;
+  removedMessageRefs?: string[];
+  summaryRef?: string;
+  reason?: string;
+  createdAt?: number;
+}
+
+interface RuntimeContentReplacementDTO {
+  id?: string;
+  toolCallId?: string;
+  kind?: string;
+  reason?: string;
+  originalRef?: string;
+  createdAt?: number;
+}
+
+interface RuntimeReactiveCompactAttemptDTO {
+  id?: string;
+  attempt?: number;
+  action?: string;
+  status?: string;
+  error?: string;
   createdAt?: number;
 }
 
@@ -1260,6 +1298,8 @@ interface RuntimeBridgeModule {
   SessionReactCallchain?: (sessionID: string, limit: number) => Promise<RuntimeReactCallchainDTO>;
   TurnPromptAssemblies?: (turnID: string) => Promise<RuntimePromptAssembliesResponseDTO>;
   SessionPromptAssemblies?: (sessionID: string, limit: number) => Promise<RuntimePromptAssembliesResponseDTO>;
+  ManualCompact?: (req: RuntimeContextActionRequestDTO) => Promise<unknown>;
+  ManualSnip?: (req: RuntimeContextActionRequestDTO) => Promise<unknown>;
   RunProjection?: (req: RuntimeRunProjectionRequestDTO) => Promise<RuntimeRunProjectionResponseDTO>;
   RunSummaries?: () => Promise<RuntimeRunSummariesResponseDTO>;
   RunSummary?: (runID: string) => Promise<RuntimeRunSummaryResponseDTO>;
@@ -1516,6 +1556,15 @@ function promptToUserInput(prompt: string, clientRequestId?: string): RuntimeUse
     ],
     options: clientRequestId ? { clientRequestId } : undefined,
   };
+}
+
+function contextActionRequest(current: WorkbenchViewModel, reason: string): RuntimeContextActionRequestDTO {
+  const sessionId = current.contextDiagnostics?.sessionId || current.sessions.find((session) => session.active)?.id;
+  const turnId = current.contextDiagnostics?.turnId || current.composer.activeTurnId || current.turnDiagnostics?.turnId;
+  if (!turnId) {
+    throw new Error('No turn is available for context governance action');
+  }
+  return { sessionId, turnId, projectionId: current.contextDiagnostics?.projectionId, reason };
 }
 
 function projectNameFromPath(path: string) {
@@ -2780,7 +2829,11 @@ function mapContextDiagnostics(response?: RuntimePromptAssembliesResponseDTO): C
       provenance: source.provenance,
       contentHash: source.contentHash ?? source.content_hash,
     }));
-  const compactBoundaries = (Array.isArray(assembly.compact) ? assembly.compact : [])
+  const compactBoundaryDTOs = [
+    ...(Array.isArray(assembly.compact) ? assembly.compact : []),
+    ...(Array.isArray(assembly.contextBoundaries) ? assembly.contextBoundaries : []),
+  ];
+  const compactBoundaries = compactBoundaryDTOs
     .filter((boundary) => boundary.id || boundary.kind)
     .slice(0, 12)
     .map((boundary) => ({
@@ -2796,6 +2849,38 @@ function mapContextDiagnostics(response?: RuntimePromptAssembliesResponseDTO): C
       createdAt: boundary.createdAt,
       completedAt: boundary.completedAt,
     }));
+  const snipBoundaries = (Array.isArray(assembly.snipBoundaries) ? assembly.snipBoundaries : [])
+    .filter((boundary) => boundary.id)
+    .slice(0, 12)
+    .map((boundary) => ({
+      id: boundary.id || 'snip',
+      reason: boundary.reason,
+      removedMessageCount: Array.isArray(boundary.removedMessageRefs) ? boundary.removedMessageRefs.length : 0,
+      summaryRef: boundary.summaryRef,
+      createdAt: boundary.createdAt,
+    }));
+  const replacements = (Array.isArray(assembly.replacements) ? assembly.replacements : [])
+    .filter((replacement) => replacement.id || replacement.toolCallId)
+    .slice(0, 24)
+    .map((replacement) => ({
+      id: replacement.id || replacement.toolCallId || 'replacement',
+      toolCallId: replacement.toolCallId,
+      kind: replacement.kind || 'tool_result',
+      reason: replacement.reason,
+      originalRef: replacement.originalRef,
+      createdAt: replacement.createdAt,
+    }));
+  const reactiveAttempts = (Array.isArray(assembly.reactiveAttempts) ? assembly.reactiveAttempts : [])
+    .filter((attempt) => attempt.id)
+    .slice(0, 12)
+    .map((attempt) => ({
+      id: attempt.id || 'reactive',
+      attempt: attempt.attempt ?? 0,
+      action: attempt.action || 'unknown',
+      status: attempt.status || 'unknown',
+      error: attempt.error,
+      createdAt: attempt.createdAt,
+    }));
   const warnings = [
     ...contextSources
       .filter((source) => source.state === 'failed' || source.state === 'skipped' || Boolean(source.error))
@@ -2808,6 +2893,7 @@ function mapContextDiagnostics(response?: RuntimePromptAssembliesResponseDTO): C
   return {
     sessionId: assembly.sessionId,
     turnId: assembly.turnId,
+    projectionId: assembly.projectionId,
     step: assembly.step,
     provider: assembly.provider,
     model: assembly.model,
@@ -2861,6 +2947,9 @@ function mapContextDiagnostics(response?: RuntimePromptAssembliesResponseDTO): C
     },
     contextSources,
     compactBoundaries,
+    snipBoundaries,
+    replacements,
+    reactiveAttempts,
     budget: mapPromptBudget(assembly.budget),
     warnings,
   };
@@ -2891,6 +2980,69 @@ function mapBudgetBucket(bucket?: RuntimeBudgetBucketDTO) {
     count: bucket.count ?? 0,
     estimatedTokens: bucket.estimatedTokens ?? 0,
   };
+}
+
+function attachContextGovernanceToTimeline(
+  items: ConversationTimelineItemViewModel[],
+  diagnostics?: ContextDiagnosticsViewModel,
+): ConversationTimelineItemViewModel[] {
+  if (!diagnostics) {
+    return items;
+  }
+  const markers: ConversationTimelineItemViewModel[] = [
+    ...diagnostics.compactBoundaries.map((boundary) => ({
+      id: `context-compact:${boundary.id}`,
+      kind: boundary.kind === 'micro' ? ('microcompact_marker' as const) : ('compact_boundary' as const),
+      sessionId: diagnostics.sessionId,
+      turnId: diagnostics.turnId,
+      title: boundary.kind,
+      status: boundary.status,
+      summary: [boundary.trigger, boundary.summaryRef, `${boundary.messageRefs.length} messages`].filter(Boolean).join(' / '),
+      createdAt: boundary.createdAt ?? diagnostics.createdAt,
+      updatedAt: boundary.completedAt,
+      source: 'runtime_activity' as const,
+      error: boundary.error,
+    })),
+    ...diagnostics.snipBoundaries.map((boundary) => ({
+      id: `context-snip:${boundary.id}`,
+      kind: 'snip_boundary' as const,
+      sessionId: diagnostics.sessionId,
+      turnId: diagnostics.turnId,
+      title: 'snip',
+      status: 'completed',
+      summary: [boundary.reason, `${boundary.removedMessageCount} messages`, boundary.summaryRef].filter(Boolean).join(' / '),
+      createdAt: boundary.createdAt ?? diagnostics.createdAt,
+      source: 'runtime_activity' as const,
+    })),
+    ...diagnostics.replacements.map((replacement) => ({
+      id: `context-replacement:${replacement.id}`,
+      kind: 'tool_result_replacement' as const,
+      sessionId: diagnostics.sessionId,
+      turnId: diagnostics.turnId,
+      toolCallId: replacement.toolCallId,
+      title: replacement.kind,
+      status: 'recorded',
+      summary: [replacement.reason, replacement.originalRef].filter(Boolean).join(' / '),
+      createdAt: replacement.createdAt ?? diagnostics.createdAt,
+      source: 'runtime_activity' as const,
+    })),
+    ...diagnostics.reactiveAttempts.map((attempt) => ({
+      id: `context-reactive:${attempt.id}`,
+      kind: 'reactive_compact_retry' as const,
+      sessionId: diagnostics.sessionId,
+      turnId: diagnostics.turnId,
+      title: attempt.action,
+      status: attempt.status,
+      summary: attempt.error,
+      createdAt: attempt.createdAt ?? diagnostics.createdAt,
+      source: 'runtime_activity' as const,
+      error: attempt.status === 'failed' ? attempt.error : undefined,
+    })),
+  ];
+  if (!markers.length) {
+    return items;
+  }
+  return dedupeTimelineItems([...items, ...markers]).sort((left, right) => (left.createdAt ?? 0) - (right.createdAt ?? 0) || left.id.localeCompare(right.id));
 }
 
 function mapRunSchedulerPlanCandidates(response?: RuntimeRunSchedulerPlanResponseDTO): RunSchedulerTaskCandidateViewModel[] {
@@ -3350,6 +3502,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const promptAssembliesDTO = activeSessionID && refreshActivity
     ? await hydratePromptAssemblies(bridge, activeSessionID, activeTurnId)
     : undefined;
+  const contextDiagnostics = mapContextDiagnostics(promptAssembliesDTO) ?? (current.contextDiagnostics?.sessionId === activeSessionID ? current.contextDiagnostics : undefined);
   const policy = activity?.policy ?? (refreshPolicy ? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy : undefined);
   const permissions = (Array.isArray(activity?.permissions) ? activity.permissions : []).map(mapPermission);
   const activeOutputStore = outputStore?.sessionId === activeSessionID ? outputStore : undefined;
@@ -3361,7 +3514,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       ? mergeActivityTimeline(current.timeline, activity, reactCallchainDTO)
       : mapActivityTimeline(activity, reactCallchainDTO)
     : current.timeline);
-  const timeline = attachAgentTasksToTimeline(baseTimeline, agentTasks);
+  const timeline = attachContextGovernanceToTimeline(attachAgentTasksToTimeline(baseTimeline, agentTasks), contextDiagnostics);
   const conversation = outputConversation ?? (activity && narrowActivity
     ? mergeConversationMessages(current.conversation, messagesResponse)
     : messagesResponse
@@ -3392,7 +3545,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     runProjection: mapRunProjection(runProjection, schedulerTaskCandidates) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
     agentTasks: agentTasks ?? (activeSessionID ? current.agentTasks?.filter((task) => task.parentSessionId === activeSessionID || task.childSessionId === activeSessionID) : []),
     reactCallchain: mapReactCallchain(reactCallchainDTO) ?? (current.reactCallchain?.sessionId === activeSessionID ? current.reactCallchain : undefined),
-    contextDiagnostics: mapContextDiagnostics(promptAssembliesDTO) ?? (current.contextDiagnostics?.sessionId === activeSessionID ? current.contextDiagnostics : undefined),
+    contextDiagnostics,
     pendingPermissions,
     composer: {
       ...current.composer,
@@ -4051,6 +4204,32 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
         );
       },
       () => staticWorkbenchAdapter.markInterruptedDone(current, turnID),
+    );
+  },
+  async manualCompact(current, reason) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.ManualCompact) {
+          return staticWorkbenchAdapter.manualCompact(current, reason);
+        }
+        const req = contextActionRequest(current, reason || 'manual_compact');
+        await bridge.ManualCompact(req);
+        return hydrateWorkbench(current, bridge, { refreshTargets: ['session_activity'] });
+      },
+      () => staticWorkbenchAdapter.manualCompact(current, reason),
+    );
+  },
+  async manualSnip(current, reason) {
+    return withBridge(
+      async (bridge) => {
+        if (!bridge.ManualSnip) {
+          return staticWorkbenchAdapter.manualSnip(current, reason);
+        }
+        const req = contextActionRequest(current, reason || 'manual_snip');
+        await bridge.ManualSnip(req);
+        return hydrateWorkbench(current, bridge, { refreshTargets: ['session_activity'] });
+      },
+      () => staticWorkbenchAdapter.manualSnip(current, reason),
     );
   },
   async resumeRunCheckpoint(current, runID, checkpointID) {

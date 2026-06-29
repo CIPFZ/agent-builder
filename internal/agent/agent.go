@@ -3,8 +3,7 @@
 // It provides session-based AI agent functionality for managing
 // conversations, tool execution, and message handling. It coordinates
 // interactions between language models, messages, sessions, and tools while
-// handling features like automatic summarization, queuing, and token
-// management.
+// handling features like queuing and token management.
 package agent
 
 import (
@@ -46,11 +45,6 @@ import (
 
 const (
 	DefaultSessionName = "Untitled Session"
-
-	// Constants for auto-summarization thresholds
-	largeContextWindowThreshold = 200_000
-	largeContextWindowBuffer    = 20_000
-	smallContextWindowRatio     = 0.2
 )
 
 var userAgent = fmt.Sprintf("Agent-Builder/%s (https://github.com/CIPFZ/agent-builder)", version.Version)
@@ -123,10 +117,10 @@ type sessionAgent struct {
 	messageQueue   *csync.Map[string, []SessionAgentCall]
 	activeRequests *csync.Map[string, context.CancelFunc]
 
-	guard            *ToolResultGuard
-	microcompact     *Microcompact
-	guardConfig      config.ToolResultGuardConfig
-	assemblyRecorder PromptAssemblyRecorder
+	guard             *ToolResultGuard
+	guardConfig       config.ToolResultGuardConfig
+	modelInputBuilder ModelInputBuilder
+	assemblyRecorder  PromptAssemblyRecorder
 }
 
 type SessionAgentOptions struct {
@@ -142,6 +136,7 @@ type SessionAgentOptions struct {
 	Tools                []fantasy.AgentTool
 	Notify               pubsub.Publisher[notify.Notification]
 	GuardConfig          config.ToolResultGuardConfig
+	ModelInputBuilder    ModelInputBuilder
 	AssemblyRecorder     PromptAssemblyRecorder
 }
 
@@ -163,6 +158,7 @@ func NewSessionAgent(
 		messageQueue:         csync.NewMap[string, []SessionAgentCall](),
 		activeRequests:       csync.NewMap[string, context.CancelFunc](),
 		guardConfig:          opts.GuardConfig,
+		modelInputBuilder:    opts.ModelInputBuilder,
 		assemblyRecorder:     opts.AssemblyRecorder,
 	}
 }
@@ -233,11 +229,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		guardCfg = config.DefaultToolResultGuardConfig()
 	}
 	a.guard = NewToolResultGuard(guardCfg, currentSession.ID)
-	compactDur, parseErr := time.ParseDuration(guardCfg.CompactInterval)
-	if parseErr != nil {
-		compactDur = 5 * time.Minute
-	}
-	a.microcompact = NewMicrocompact(compactDur, guardCfg.KeepLastAssistants)
 	a.guard.CleanupOldFiles()
 
 	msgs, err := a.getSessionMessages(ctx, currentSession)
@@ -280,7 +271,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 
 	var currentAssistant *message.Message
 	var stepMessages []fantasy.Message
-	var shouldSummarize bool
 	// Don't send MaxOutputTokens if 0 — some providers (e.g. LM Studio) reject it
 	var maxOutputTokens *int64
 	if call.MaxOutputTokens > 0 {
@@ -348,7 +338,23 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 				prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(promptPrefix)}, prepared.Messages...)
 			}
 
-			a.recordPromptAssembly(callContext, call, largeModel, systemPrompt, promptPrefix, mcpInstructionServers, prepared.Messages, prepared.Tools, selectedToolNames, omittedToolNames)
+			projectionID := ""
+			projectedMessages, projection, buildErr := a.buildModelInput(callContext, ModelInputSnapshot{
+				SessionID: call.SessionID,
+				TurnID:    call.TurnID,
+				Step:      stepNumber(prepared.Messages),
+				Provider:  largeModel.ModelCfg.Provider,
+				Model:     largeModel.ModelCfg.Model,
+				Source:    "main_turn",
+				Messages:  prepared.Messages,
+			})
+			if buildErr != nil {
+				return callContext, prepared, buildErr
+			}
+			projectionID = projection.ProjectionID
+			prepared.Messages = projectedMessages
+
+			a.recordPromptAssembly(callContext, call, projectionID, largeModel, systemPrompt, promptPrefix, mcpInstructionServers, prepared.Messages, prepared.Tools, selectedToolNames, omittedToolNames)
 
 			sessionLock.Lock()
 			stepMessages = cloneFantasyMessages(prepared.Messages)
@@ -493,27 +499,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			return a.messages.Update(genCtx, *currentAssistant)
 		},
 		StopWhen: []fantasy.StopCondition{
-			func(_ []fantasy.StepResult) bool {
-				cw := int64(largeModel.CatwalkCfg.ContextWindow)
-				// If context window is unknown (0), skip auto-summarize
-				// to avoid immediately truncating custom/local models.
-				if cw == 0 {
-					return false
-				}
-				tokens := currentSession.CompletionTokens + currentSession.PromptTokens
-				remaining := cw - tokens
-				var threshold int64
-				if cw > largeContextWindowThreshold {
-					threshold = largeContextWindowBuffer
-				} else {
-					threshold = int64(float64(cw) * smallContextWindowRatio)
-				}
-				if (remaining <= threshold) && !a.disableAutoSummarize {
-					shouldSummarize = true
-					return true
-				}
-				return false
-			},
 			func(steps []fantasy.StepResult) bool {
 				return hasRepeatedToolCalls(steps, loopDetectionWindowSize, loopDetectionMaxRepeats)
 			},
@@ -627,23 +612,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		return nil, err
 	}
 
-	if shouldSummarize {
-		a.activeRequests.Del(call.SessionID)
-		if summarizeErr := a.Summarize(genCtx, call.SessionID, call.ProviderOptions); summarizeErr != nil {
-			return nil, summarizeErr
-		}
-		// If the agent wasn't done...
-		if len(currentAssistant.ToolCalls()) > 0 {
-			existing, ok := a.messageQueue.Get(call.SessionID)
-			if !ok {
-				existing = []SessionAgentCall{}
-			}
-			call.Prompt = fmt.Sprintf("The previous session was interrupted because it got too long, the initial user request was: `%s`", call.Prompt)
-			existing = append(existing, call)
-			a.messageQueue.Set(call.SessionID, existing)
-		}
-	}
-
 	// Release active request before publishing the notification so
 	// subscribers see the final busy state at the moment of receipt.
 	a.activeRequests.Del(call.SessionID)
@@ -683,7 +651,7 @@ func unwrapToolDiscoveryRecorder(agentTools []fantasy.AgentTool) (ToolDiscoveryR
 	return nil, false
 }
 
-func (a *sessionAgent) recordPromptAssembly(ctx context.Context, call SessionAgentCall, model Model, systemPrompt, promptPrefix string, mcpInstructionServers []string, messages []fantasy.Message, selectedTools []fantasy.AgentTool, selectedToolNames, omittedToolNames []string) {
+func (a *sessionAgent) recordPromptAssembly(ctx context.Context, call SessionAgentCall, projectionID string, model Model, systemPrompt, promptPrefix string, mcpInstructionServers []string, messages []fantasy.Message, selectedTools []fantasy.AgentTool, selectedToolNames, omittedToolNames []string) {
 	if a.assemblyRecorder == nil {
 		return
 	}
@@ -715,18 +683,39 @@ func (a *sessionAgent) recordPromptAssembly(ctx context.Context, call SessionAge
 		OmittedCount:  len(omittedToolNames),
 	}
 	_ = a.assemblyRecorder.RecordPromptAssembly(ctx, PromptAssemblySnapshot{
-		SessionID: call.SessionID,
-		TurnID:    call.TurnID,
-		Step:      step,
-		Provider:  model.ModelCfg.Provider,
-		Model:     model.ModelCfg.Model,
-		System:    systemSummary,
-		Messages:  buildPromptMessageSummary(messages, call.Attachments),
-		Tools:     toolSummary,
-		Skills:    skillSummary,
-		MCP:       mcpSummary,
-		CreatedAt: time.Now().UTC().UnixMilli(),
+		SessionID:    call.SessionID,
+		TurnID:       call.TurnID,
+		ProjectionID: projectionID,
+		Step:         step,
+		Provider:     model.ModelCfg.Provider,
+		Model:        model.ModelCfg.Model,
+		System:       systemSummary,
+		Messages:     buildPromptMessageSummary(messages, call.Attachments),
+		Tools:        toolSummary,
+		Skills:       skillSummary,
+		MCP:          mcpSummary,
+		CreatedAt:    time.Now().UTC().UnixMilli(),
 	})
+}
+
+func (a *sessionAgent) buildModelInput(ctx context.Context, snapshot ModelInputSnapshot) ([]fantasy.Message, ModelInputProjection, error) {
+	if a.modelInputBuilder == nil {
+		return snapshot.Messages, ModelInputProjection{Messages: snapshot.Messages}, nil
+	}
+	if strings.TrimSpace(snapshot.TurnID) == "" {
+		snapshot.TurnID = "helper_" + strings.TrimSpace(snapshot.SessionID)
+	}
+	if snapshot.Step <= 0 {
+		snapshot.Step = stepNumber(snapshot.Messages)
+	}
+	projection, err := a.modelInputBuilder.BuildModelInput(ctx, snapshot)
+	if err != nil {
+		return nil, ModelInputProjection{}, err
+	}
+	if projection.Messages == nil {
+		projection.Messages = snapshot.Messages
+	}
+	return projection.Messages, projection, nil
 }
 
 func agentToolNames(agentTools []fantasy.AgentTool) []string {
@@ -920,7 +909,16 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 			if systemPromptPrefix != "" {
 				prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(systemPromptPrefix)}, prepared.Messages...)
 			}
-			return callContext, prepared, nil
+			prepared.Messages, _, err = a.buildModelInput(callContext, ModelInputSnapshot{
+				SessionID: sessionID,
+				TurnID:    "summary_" + sessionID,
+				Step:      stepNumber(prepared.Messages),
+				Provider:  largeModel.ModelCfg.Provider,
+				Model:     largeModel.ModelCfg.Model,
+				Source:    "summary",
+				Messages:  prepared.Messages,
+			})
+			return callContext, prepared, err
 		},
 		OnReasoningDelta: func(id string, text string) error {
 			summaryMessage.AppendReasoningContent(text)
@@ -1050,9 +1048,6 @@ func cloneAgentStringMap(values map[string]string) map[string]string {
 }
 
 func (a *sessionAgent) preparePrompt(msgs []message.Message, supportsImages bool, attachments ...message.Attachment) ([]fantasy.Message, []fantasy.FilePart) {
-	if a.microcompact != nil {
-		msgs = a.microcompact.Compact(msgs)
-	}
 	var history []fantasy.Message
 	if !a.isSubAgent {
 		history = append(history, fantasy.NewUserMessage(
@@ -1322,6 +1317,7 @@ func (a *sessionAgent) generateTitle(ctx context.Context, sessionID string, user
 		)
 	}
 
+	model := smallModel
 	streamCall := fantasy.AgentStreamCall{
 		Prompt: fmt.Sprintf("Generate a concise title for the following content:\n\n%s\n <think>\n\n</think>", userPrompt),
 		PrepareStep: func(callCtx context.Context, opts fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
@@ -1331,12 +1327,20 @@ func (a *sessionAgent) generateTitle(ctx context.Context, sessionID string, user
 					fantasy.NewSystemMessage(systemPromptPrefix),
 				}, prepared.Messages...)
 			}
-			return callCtx, prepared, nil
+			prepared.Messages, _, err = a.buildModelInput(callCtx, ModelInputSnapshot{
+				SessionID: sessionID,
+				TurnID:    "title_" + sessionID,
+				Step:      stepNumber(prepared.Messages),
+				Provider:  model.ModelCfg.Provider,
+				Model:     model.ModelCfg.Model,
+				Source:    "title",
+				Messages:  prepared.Messages,
+			})
+			return callCtx, prepared, err
 		},
 	}
 
 	// Use the small model to generate the title.
-	model := smallModel
 	agent := newAgent(model.Model, titlePrompt, maxOutputTokens)
 	resp, err := agent.Stream(ctx, streamCall)
 	if err == nil {
