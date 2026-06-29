@@ -554,7 +554,7 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 				baseRank = 1000
 			}
 			text, thinking, toolCallIDs := runtimeConversationAssistantParts(msg)
-			if thinking != "" {
+			if thinking != "" && runtimeShouldShowAssistantThinking(msg, p.turns[turnID]) {
 				appendEntry(RuntimeConversationItem{
 					ID:        "assistant-thinking-" + msg.ID,
 					Kind:      "assistant_thinking",
@@ -562,7 +562,7 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 					TurnID:    turnID,
 					Role:      "assistant",
 					Phase:     "intermediate",
-					Status:    runtimeMessageItemStatus(msg),
+					Status:    runtimeThinkingItemStatus(msg, p.turns[turnID]),
 					Summary:   thinking,
 					Content:   thinking,
 					MessageID: msg.ID,
@@ -905,6 +905,29 @@ func runtimeAssistantMessagePhase(msg RuntimeMessage, turn RuntimeTurn, toolCall
 		return "intermediate"
 	}
 	return "final"
+}
+
+func runtimeShouldShowAssistantThinking(msg RuntimeMessage, turn RuntimeTurn) bool {
+	if msg.Role != "assistant" {
+		return false
+	}
+	if !msg.Finished {
+		return true
+	}
+	if turn.ID == "" {
+		return false
+	}
+	return !isRuntimeTurnTerminal(turn.Status)
+}
+
+func runtimeThinkingItemStatus(msg RuntimeMessage, turn RuntimeTurn) string {
+	if msg.Error != "" {
+		return "failed"
+	}
+	if turn.ID != "" && !isRuntimeTurnTerminal(turn.Status) {
+		return "running"
+	}
+	return runtimeMessageItemStatus(msg)
 }
 
 func runtimeMessageItemStatus(msg RuntimeMessage) string {

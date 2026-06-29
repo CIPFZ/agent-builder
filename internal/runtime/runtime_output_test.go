@@ -115,6 +115,39 @@ func TestRuntimeConversationProjectionThinkingAndToolOnlyHidden(t *testing.T) {
 	}
 }
 
+func TestRuntimeConversationProjectionCompletedThinkingHidden(t *testing.T) {
+	snapshot := buildRuntimeOutputProjection(RuntimeSessionActivityWindowResponse{
+		SessionID: "session-1",
+		Messages: []RuntimeMessage{
+			{ID: "user-old", SessionID: "session-1", Role: "user", Content: "old", CreatedAt: 10},
+			{ID: "assistant-old-thinking", SessionID: "session-1", Role: "assistant", Parts: []RuntimeMessagePart{{Type: "reasoning", Thinking: "old plan"}}, CreatedAt: 20, UpdatedAt: 21, Finished: true, FinishReason: "tool_use"},
+			{ID: "assistant-old-final", SessionID: "session-1", Role: "assistant", Parts: []RuntimeMessagePart{{Type: "text", Text: "old done"}}, CreatedAt: 30, UpdatedAt: 31, Finished: true, FinishReason: "end_turn"},
+			{ID: "user-new", SessionID: "session-1", Role: "user", Content: "new", CreatedAt: 40},
+			{ID: "assistant-new-thinking", SessionID: "session-1", Role: "assistant", Parts: []RuntimeMessagePart{{Type: "reasoning", Thinking: "new plan"}}, CreatedAt: 50, UpdatedAt: 51, Finished: true, FinishReason: "tool_use"},
+		},
+		Turns: []RuntimeTurn{
+			{ID: "turn-old", SessionID: "session-1", Status: "completed", UserMessageID: "user-old", LatestAssistantMessageID: "assistant-old-final", StartedAt: 1, FinishedAt: 35},
+			{ID: "turn-new", SessionID: "session-1", Status: "running", UserMessageID: "user-new", StartedAt: 40},
+		},
+	}).snapshot("session-1", "1")
+
+	var thinking []RuntimeConversationItem
+	for _, item := range snapshot.Items {
+		if item.Kind == "assistant_thinking" {
+			thinking = append(thinking, item)
+		}
+	}
+	if len(thinking) != 1 {
+		t.Fatalf("expected only active turn thinking item, got %#v", thinking)
+	}
+	if thinking[0].MessageID != "assistant-new-thinking" || thinking[0].Content != "new plan" {
+		t.Fatalf("unexpected thinking item: %#v", thinking[0])
+	}
+	if thinking[0].Status != "running" {
+		t.Fatalf("active thinking status = %q, want running", thinking[0].Status)
+	}
+}
+
 func TestRuntimeConversationProjectionToolResultPermissionFailureAndOrdering(t *testing.T) {
 	snapshot := buildRuntimeOutputProjection(RuntimeSessionActivityWindowResponse{
 		SessionID: "session-1",
