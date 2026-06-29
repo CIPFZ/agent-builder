@@ -32,6 +32,8 @@ import {
 import type { MenuProps } from 'antd';
 import type {
   ConfiguredProviderViewModel,
+  HookExecutionSummaryViewModel,
+  HookViewModel,
   ProviderDraftDiscoveryRequestViewModel,
   ProviderCatalogItemViewModel,
   ProviderModelDiscoveryViewModel,
@@ -41,6 +43,7 @@ import type {
   SettingsViewModel,
   WorkbenchMode,
 } from '../../runtime/workbenchTypes.ts';
+import { HookSettingsPanel } from '../hooks/HookSettingsPanel.tsx';
 import styles from './SettingsPanel.module.css';
 
 const { Content, Sider } = Layout;
@@ -63,6 +66,8 @@ const protocolOptions = [
 
 interface SettingsPanelProps {
   settings: SettingsViewModel;
+  hooks?: HookViewModel[];
+  hookExecutions?: HookExecutionSummaryViewModel;
   onModeChange: (mode: WorkbenchMode) => void;
   onSettingsRefresh: () => Promise<SettingsViewModel>;
   onProviderSave: (provider: ConfiguredProviderViewModel & { token?: string }) => Promise<ConfiguredProviderViewModel[]>;
@@ -87,6 +92,8 @@ interface SettingsPanelProps {
 
 export function SettingsPanel({
   settings,
+  hooks,
+  hookExecutions,
   onModeChange,
   onSettingsRefresh,
   onProviderSave,
@@ -148,6 +155,8 @@ export function SettingsPanel({
             onMCPToolToggle={onMCPToolToggle}
           />
         );
+      case 'hooks':
+        return <HookSettingsPanel hooks={hooks} hookExecutions={hookExecutions} />;
       case 'common':
         return <CommonSettings settings={settings} onTerminalProfileSelect={onTerminalProfileSelect} />;
       default:

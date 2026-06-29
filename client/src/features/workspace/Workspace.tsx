@@ -17,7 +17,7 @@ import {
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { Button, Dropdown, Empty, Input, Modal, Tooltip, message as antdMessage } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
-import type { NewConversationDraftViewModel, TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
+import type { HookExecutionViewModel, NewConversationDraftViewModel, TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { AgentTaskPanel } from '../agentTasks/AgentTaskPanel.tsx';
 import { PermissionGate } from '../permissions/PermissionGate.tsx';
@@ -74,6 +74,7 @@ interface WorkspaceProps {
   onTerminalInput: (terminalID: string, data: string) => Promise<TerminalViewModel>;
   onTerminalResize: (terminalID: string, columns: number, rows: number) => Promise<TerminalViewModel>;
   onTerminalSubscribe: (terminalID: string, onEvent: (event: TerminalEventViewModel) => void) => Promise<() => void> | (() => void);
+  onHookExecutionLoad?: (executionID: string) => Promise<HookExecutionViewModel>;
 }
 
 export function Workspace({
@@ -101,6 +102,7 @@ export function Workspace({
   onTerminalInput,
   onTerminalResize,
   onTerminalSubscribe,
+  onHookExecutionLoad,
 }: WorkspaceProps) {
   const [messageApi, messageContextHolder] = antdMessage.useMessage();
   const [renameOpen, setRenameOpen] = useState(false);
@@ -585,7 +587,7 @@ export function Workspace({
           {hasTimeline ? (
             <div className={styles.timelineLayout}>
               <div className={styles.timelineColumn}>
-                <Timeline items={viewModel.timeline} onAgentTaskOpen={openAgentTask} />
+                <Timeline items={viewModel.timeline} hookExecutions={viewModel.hookExecutions} onAgentTaskOpen={openAgentTask} onHookExecutionLoad={onHookExecutionLoad} />
               </div>
             </div>
           ) : viewModel.conversation.length > 0 ? (
@@ -773,16 +775,24 @@ export function Workspace({
                 <div className={styles.reviewStack}>
                   <AgentTaskPanel tasks={viewModel.agentTasks} onCancelTask={onAgentTaskCancel} onFollowUp={onAgentTaskFollowUp} />
                   <RunProjectionPreview run={viewModel.runProjection} onResumeCheckpoint={onRunCheckpointResume} onExecuteTask={onRunTaskExecute} />
-                  <ReactCallchainInspector callchain={viewModel.reactCallchain} />
+                  <ReactCallchainInspector callchain={viewModel.reactCallchain} onHookExecutionLoad={onHookExecutionLoad} />
                   <ContextDiagnosticsPanel diagnostics={viewModel.contextDiagnostics} onManualCompact={onManualCompact} onManualSnip={onManualSnip} />
                   <TurnDiagnosticsPanel
                     diagnostics={viewModel.turnDiagnostics}
+                    hookExecutions={viewModel.hookExecutions}
                     interrupted={viewModel.interruptedTurn}
+                    onHookExecutionLoad={onHookExecutionLoad}
                     onInterruptedCopy={copyInterruptedSummary}
                     onInterruptedDone={markInterruptedDone}
                     onInterruptedFollowUp={startInterruptedFollowUp}
                   />
-                  {!viewModel.agentTasks?.length && !viewModel.runProjection && !viewModel.reactCallchain && !viewModel.contextDiagnostics && !viewModel.turnDiagnostics && !viewModel.interruptedTurn ? (
+                  {!viewModel.agentTasks?.length &&
+                  !viewModel.runProjection &&
+                  !viewModel.reactCallchain &&
+                  !viewModel.contextDiagnostics &&
+                  !viewModel.turnDiagnostics &&
+                  !viewModel.interruptedTurn &&
+                  !viewModel.hookExecutions ? (
                     <>
                       <div className={styles.sideToolTitle}>审查</div>
                       <div className={styles.sideToolEmpty}>Review findings, diffs, and approvals will appear here.</div>

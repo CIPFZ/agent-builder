@@ -1,0 +1,140 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(420px, 100%);
+  max-height: calc(100vh - 170px);
+  padding: 12px;
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid #ededed;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 5%);
+}
+
+.header,
+.filters,
+.rowHeader,
+.rowMeta,
+.flags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.header {
+  justify-content: space-between;
+}
+
+.heading {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.filters {
+  flex-wrap: wrap;
+}
+
+.filters :global(.ant-select) {
+  min-width: 132px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  color: inherit;
+  text-align: left;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.row:hover,
+.row:focus-visible {
+  background: #f5f9ff;
+  border-color: #91caff;
+  outline: none;
+}
+
+.rowTitle {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMeta {
+  flex-wrap: wrap;
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.reason,
+.error,
+.mono {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.error {
+  color: #cf1322;
+}
+
+.flags {
+  flex-wrap: wrap;
+}
+
+.empty {
+  padding: 14px 0;
+}
+
+.drawerSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+  min-width: 0;
+}
+
+.summaryBlock {
+  padding: 10px;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+@media (max-width: 1120px) {
+  .panel {
+    width: 100%;
+  }
+}

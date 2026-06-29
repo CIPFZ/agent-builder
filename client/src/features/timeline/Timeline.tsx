@@ -2,15 +2,19 @@ import { useEffect, useState } from 'react';
 import { BranchesOutlined, CheckOutlined, CopyOutlined, DownOutlined, WarningOutlined } from '@ant-design/icons';
 import { Button, Collapse, Progress, Tag, Tooltip, message } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
-import type { ConversationTimelineItemViewModel, ToolCallViewModel } from '../../runtime/workbenchTypes.ts';
+import type { ConversationTimelineItemViewModel, HookExecutionSummaryViewModel, HookExecutionViewModel, ToolCallViewModel } from '../../runtime/workbenchTypes.ts';
 import { ThinkingItem } from './ThinkingItem.tsx';
 import { ToolCallCard } from '../tools/ToolCallCard.tsx';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
+import { HookExecutionDetailDrawer } from '../hooks/HookExecutionDetailDrawer.tsx';
+import { HookTimelineRow } from '../hooks/HookTimelineRow.tsx';
 import styles from './Timeline.module.css';
 
 interface TimelineProps {
   items: ConversationTimelineItemViewModel[];
+  hookExecutions?: HookExecutionSummaryViewModel;
   onAgentTaskOpen?: (taskID: string) => void;
+  onHookExecutionLoad?: (executionID: string) => Promise<HookExecutionViewModel>;
 }
 
 type RenderTimelineItem = ConversationTimelineItemViewModel | ToolCallGroupRenderItem | ToolCallSummaryRenderItem;
@@ -41,42 +45,75 @@ interface TimelineTurnBlock {
   finishedAt?: number;
 }
 
-export function Timeline({ items, onAgentTaskOpen }: TimelineProps) {
+export function Timeline({ items, hookExecutions, onAgentTaskOpen, onHookExecutionLoad }: TimelineProps) {
   const [messageApi, messageContextHolder] = message.useMessage();
+  const [selectedHookExecution, setSelectedHookExecution] = useState<HookExecutionViewModel | undefined>();
   const blocks = buildTurnBlocks(items);
 
   return (
     <div className={styles.timeline} data-testid="conversation-timeline">
       {messageContextHolder}
       {blocks.map((block) => (
-        <TurnBlock key={block.id} block={block} messageApi={messageApi} onAgentTaskOpen={onAgentTaskOpen} />
+        <TurnBlock
+          key={block.id}
+          block={block}
+          hookExecutions={hookExecutions}
+          messageApi={messageApi}
+          onAgentTaskOpen={onAgentTaskOpen}
+          onHookOpen={setSelectedHookExecution}
+        />
       ))}
+      <HookExecutionDetailDrawer
+        executionId={selectedHookExecution?.id}
+        fallback={selectedHookExecution}
+        open={Boolean(selectedHookExecution)}
+        onClose={() => setSelectedHookExecution(undefined)}
+        onLoad={onHookExecutionLoad}
+      />
     </div>
   );
 }
 
 function TurnBlock({
   block,
+  hookExecutions,
   messageApi,
   onAgentTaskOpen,
+  onHookOpen,
 }: {
   block: TimelineTurnBlock;
+  hookExecutions?: HookExecutionSummaryViewModel;
   messageApi: ReturnType<typeof message.useMessage>[0];
   onAgentTaskOpen?: (taskID: string) => void;
+  onHookOpen?: (execution: HookExecutionViewModel) => void;
 }) {
+  const promptHooks = highSignalHooks(hookExecutions, block.turnId).filter((execution) => !execution.toolCallId);
   return (
     <section className={styles.turnBlock} data-testid="timeline-turn-block" data-turn-id={block.turnId}>
       {block.userMessage && <TimelineMessage item={block.userMessage} messageApi={messageApi} />}
-      {block.processItems.length > 0 && <ProcessTrace block={block} onAgentTaskOpen={onAgentTaskOpen} />}
+      {promptHooks.map((execution) => (
+        <HookTimelineRow key={execution.id} execution={execution} onOpen={onHookOpen} />
+      ))}
+      {block.processItems.length > 0 && <ProcessTrace block={block} hookExecutions={hookExecutions} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} />}
       {block.finalMessage && <TimelineMessage item={block.finalMessage} messageApi={messageApi} />}
       {block.looseItems.map((item) => (
-        <TimelineProcessItem key={item.id} item={item} onAgentTaskOpen={onAgentTaskOpen} />
+        <TimelineProcessItem key={item.id} hookExecutions={hookExecutions} item={item} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} />
       ))}
     </section>
   );
 }
 
-function ProcessTrace({ block, onAgentTaskOpen }: { block: TimelineTurnBlock; onAgentTaskOpen?: (taskID: string) => void }) {
+function ProcessTrace({
+  block,
+  hookExecutions,
+  onAgentTaskOpen,
+  onHookOpen,
+}: {
+  block: TimelineTurnBlock;
+  hookExecutions?: HookExecutionSummaryViewModel;
+  onAgentTaskOpen?: (taskID: string) => void;
+  onHookOpen?: (execution: HookExecutionViewModel) => void;
+}) {
   const traceLabel = processTraceSummary(block);
   const groupedItems = compactProcessItems(block.processItems);
   return (
@@ -93,7 +130,7 @@ function ProcessTrace({ block, onAgentTaskOpen }: { block: TimelineTurnBlock; on
             children: (
               <div className={styles.processSteps}>
                 {groupedItems.map((item) => (
-                  <TimelineProcessItem key={item.id} item={item} onAgentTaskOpen={onAgentTaskOpen} />
+                  <TimelineProcessItem key={item.id} hookExecutions={hookExecutions} item={item} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} />
                 ))}
               </div>
             ),
@@ -115,15 +152,39 @@ function ProcessTraceLabel({ block }: { block: TimelineTurnBlock }) {
   );
 }
 
-function TimelineProcessItem({ item, onAgentTaskOpen }: { item: RenderTimelineItem; onAgentTaskOpen?: (taskID: string) => void }) {
+function TimelineProcessItem({
+  item,
+  hookExecutions,
+  onAgentTaskOpen,
+  onHookOpen,
+}: {
+  item: RenderTimelineItem;
+  hookExecutions?: HookExecutionSummaryViewModel;
+  onAgentTaskOpen?: (taskID: string) => void;
+  onHookOpen?: (execution: HookExecutionViewModel) => void;
+}) {
   if (item.kind === 'tool_call_summary') {
     return <ToolRunSummary item={item} onAgentTaskOpen={onAgentTaskOpen} />;
   }
   if (item.kind === 'tool_call_group') {
-    return <ToolCallCard toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />;
+    return (
+      <>
+        <ToolCallCard toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />
+        {item.toolCalls.flatMap((toolCall) => highSignalHooks(hookExecutions, item.turnId, toolCall.id)).map((execution) => (
+          <HookTimelineRow key={execution.id} execution={execution} onOpen={onHookOpen} />
+        ))}
+      </>
+    );
   }
   if (item.kind === 'tool_call' && item.toolCall) {
-    return <ToolCallCard toolCall={item.toolCall} onAgentTaskOpen={onAgentTaskOpen} />;
+    return (
+      <>
+        <ToolCallCard toolCall={item.toolCall} onAgentTaskOpen={onAgentTaskOpen} />
+        {highSignalHooks(hookExecutions, item.turnId, item.toolCall.id).map((execution) => (
+          <HookTimelineRow key={execution.id} execution={execution} onOpen={onHookOpen} />
+        ))}
+      </>
+    );
   }
   if (item.kind === 'permission' && item.permission) {
     return <PermissionTraceRow item={item} />;
@@ -355,6 +416,31 @@ function isProcessItem(item: ConversationTimelineItemViewModel) {
     item.kind === 'agent_task' ||
     item.kind === 'turn_terminal' ||
     isContextGovernanceItem(item)
+  );
+}
+
+function highSignalHooks(summary?: HookExecutionSummaryViewModel, turnId?: string, toolCallId?: string) {
+  if (!turnId && !toolCallId) {
+    return [];
+  }
+  return (summary?.items ?? []).filter((execution) => {
+    if (turnId && execution.turnId && execution.turnId !== turnId) {
+      return false;
+    }
+    if (toolCallId) {
+      return execution.toolCallId === toolCallId && isHighSignalHook(execution);
+    }
+    return !execution.toolCallId && isHighSignalHook(execution);
+  });
+}
+
+function isHighSignalHook(execution: HookExecutionViewModel) {
+  return (
+    execution.status === 'blocked' ||
+    execution.status === 'denied' ||
+    execution.status === 'failed' ||
+    execution.inputRewritten ||
+    execution.contextInjected
   );
 }
 

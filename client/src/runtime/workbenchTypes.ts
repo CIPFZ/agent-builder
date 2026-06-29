@@ -342,6 +342,15 @@ export interface ReactCallchainNodeViewModel {
   startedAt?: number;
   finishedAt?: number;
   evidence?: Record<string, string>;
+  hook?: {
+    executionId?: string;
+    event?: string;
+    status?: HookExecutionStatusViewModel;
+    reason?: string;
+    durationMs?: number;
+    inputRewritten?: boolean;
+    contextInjected?: boolean;
+  };
 }
 
 export interface ReactCallchainSummaryViewModel {
@@ -367,6 +376,81 @@ export interface ReactCallchainSourceViewModel {
   usesPermissions: boolean;
   usesHooks: boolean;
   eventsAreRefreshOnly: boolean;
+}
+
+export type HookExecutionStatusViewModel =
+  | 'started'
+  | 'completed'
+  | 'skipped'
+  | 'blocked'
+  | 'failed'
+  | string;
+
+export interface HookViewModel {
+  id: string;
+  name: string;
+  source: string;
+  event: string;
+  matcher?: string;
+  commandPreview: string;
+  enabled: boolean;
+  status: 'active' | 'invalid' | 'unknown' | string;
+  diagnostics?: string;
+  reason?: string;
+  timeoutMs?: number;
+}
+
+export interface HookExecutionViewModel {
+  id: string;
+  hookId: string;
+  hookName?: string;
+  hookSource?: string;
+  event: string;
+  status: HookExecutionStatusViewModel;
+  sessionId?: string;
+  turnId?: string;
+  toolCallId?: string;
+  taskId?: string;
+  capabilityId?: string;
+  mcpServer?: string;
+  skill?: string;
+  contextRef?: string;
+  policyMode?: string;
+  policyProfile?: string;
+  policyRule?: string;
+  policyDecision?: string;
+  policyReason?: string;
+  headless?: boolean;
+  headlessReason?: string;
+  sandboxDecisionId?: string;
+  sandboxStatus?: string;
+  scopeKind?: string;
+  scopeValue?: string;
+  reason?: string;
+  error?: string;
+  inputSummary?: string;
+  outputSummary?: string;
+  contextSummary?: string;
+  inputRewritten: boolean;
+  contextInjected: boolean;
+  redacted: boolean;
+  startedAt?: number;
+  completedAt?: number;
+  durationMs?: number;
+}
+
+export interface HookExecutionSummaryViewModel {
+  sessionId?: string;
+  items: HookExecutionViewModel[];
+  total: number;
+  started: number;
+  completed: number;
+  blocked: number;
+  failed: number;
+  skipped: number;
+  rewritten: number;
+  contextInjected: number;
+  lastUpdatedAt?: number;
 }
 
 export interface ContextDiagnosticsViewModel {
@@ -1006,6 +1090,8 @@ export interface WorkbenchViewModel {
   todos?: TodoSummaryViewModel;
   reactCallchain?: ReactCallchainViewModel;
   contextDiagnostics?: ContextDiagnosticsViewModel;
+  hooks?: HookViewModel[];
+  hookExecutions?: HookExecutionSummaryViewModel;
   pendingPermissions: PermissionRequestViewModel[];
   composer: ComposerViewModel;
   settings: SettingsViewModel;
@@ -1076,4 +1162,5 @@ export interface WorkbenchAdapter {
   setMCPServerEnabled: (current: WorkbenchViewModel, name: string, enabled: boolean) => Promise<WorkbenchViewModel>;
   setMCPToolEnabled: (current: WorkbenchViewModel, server: string, tool: string, enabled: boolean) => Promise<WorkbenchViewModel>;
   loadMCPServerDetails: (current: WorkbenchViewModel, name: string) => Promise<WorkbenchViewModel>;
+  loadHookExecution?: (executionID: string) => Promise<HookExecutionViewModel>;
 }

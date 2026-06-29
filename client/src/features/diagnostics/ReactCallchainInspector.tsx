@@ -1,15 +1,19 @@
-import { Alert, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, Tag, Tooltip, Typography } from 'antd';
 import { BranchesOutlined, CheckCircleOutlined, CloseCircleOutlined, ToolOutlined } from '@ant-design/icons';
-import type { ReactCallchainNodeViewModel, ReactCallchainViewModel } from '../../runtime/workbenchTypes.ts';
+import { useState } from 'react';
+import type { HookExecutionViewModel, ReactCallchainNodeViewModel, ReactCallchainViewModel } from '../../runtime/workbenchTypes.ts';
+import { HookExecutionDetailDrawer } from '../hooks/HookExecutionDetailDrawer.tsx';
 import styles from './ReactCallchainInspector.module.css';
 
 const { Text } = Typography;
 
 interface ReactCallchainInspectorProps {
   callchain?: ReactCallchainViewModel;
+  onHookExecutionLoad?: (executionID: string) => Promise<HookExecutionViewModel>;
 }
 
-export function ReactCallchainInspector({ callchain }: ReactCallchainInspectorProps) {
+export function ReactCallchainInspector({ callchain, onHookExecutionLoad }: ReactCallchainInspectorProps) {
+  const [selectedHookExecutionID, setSelectedHookExecutionID] = useState('');
   if (!callchain) {
     return null;
   }
@@ -57,7 +61,7 @@ export function ReactCallchainInspector({ callchain }: ReactCallchainInspectorPr
 
       <div className={styles.nodes}>
         {callchain.nodes.map((node) => (
-          <CallchainNodeRow key={node.id} node={node} />
+          <CallchainNodeRow key={node.id} node={node} onHookOpen={setSelectedHookExecutionID} />
         ))}
       </div>
 
@@ -67,6 +71,12 @@ export function ReactCallchainInspector({ callchain }: ReactCallchainInspectorPr
         </Tooltip>
         <Tag color={callchain.source.sessionActivityParity ? 'blue' : 'default'}>activity parity</Tag>
       </div>
+      <HookExecutionDetailDrawer
+        executionId={selectedHookExecutionID}
+        open={Boolean(selectedHookExecutionID)}
+        onClose={() => setSelectedHookExecutionID('')}
+        onLoad={onHookExecutionLoad}
+      />
     </aside>
   );
 }
@@ -80,8 +90,9 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function CallchainNodeRow({ node }: { node: ReactCallchainNodeViewModel }) {
+function CallchainNodeRow({ node, onHookOpen }: { node: ReactCallchainNodeViewModel; onHookOpen: (executionID: string) => void }) {
   const statusKind = node.error ? 'error' : node.status === 'completed' || node.status === 'allowed_once' || node.status === 'allowed_session' ? 'success' : 'default';
+  const isHook = node.kind === 'hook_execution';
   return (
     <div className={styles.node} data-kind={node.kind}>
       <span className={styles.nodeIcon}>{node.kind === 'tool_call' || node.kind === 'tool_result' ? <ToolOutlined /> : node.error ? <CloseCircleOutlined /> : <CheckCircleOutlined />}</span>
@@ -90,18 +101,60 @@ function CallchainNodeRow({ node }: { node: ReactCallchainNodeViewModel }) {
           <Text strong className={styles.truncate}>
             {node.title || node.kind}
           </Text>
-          <Tag color={statusKind === 'success' ? 'success' : statusKind === 'error' ? 'error' : undefined}>{node.status || node.kind}</Tag>
+          <Tag color={isHook ? hookStatusColor(node.hook?.status || node.status) : statusKind === 'success' ? 'success' : statusKind === 'error' ? 'error' : undefined}>{node.hook?.status || node.status || node.kind}</Tag>
         </div>
         <Text type="secondary" className={styles.nodeMeta}>
           #{node.sequence} {node.kind}
           {node.finishReason ? ` / ${node.finishReason}` : ''}
+          {node.hook?.durationMs ? ` / ${formatDuration(node.hook.durationMs)}` : ''}
         </Text>
+        {isHook ? <HookNodeEvidence node={node} onOpen={onHookOpen} /> : null}
         {node.summary ? <Text className={styles.nodeSummary}>{node.summary}</Text> : null}
         {node.error ? <Text type="danger" className={styles.nodeSummary}>{node.error}</Text> : null}
         {node.kind === 'tool_result' ? <ToolResultEvidence node={node} /> : null}
       </div>
     </div>
   );
+}
+
+function HookNodeEvidence({ node, onOpen }: { node: ReactCallchainNodeViewModel; onOpen: (executionID: string) => void }) {
+  return (
+    <div className={styles.nodeTags}>
+      {node.hook?.event || node.evidence?.event ? <Tag color="blue">{node.hook?.event || node.evidence?.event}</Tag> : null}
+      {node.hook?.inputRewritten ? <Tag color="purple">rewritten</Tag> : null}
+      {node.hook?.contextInjected ? <Tag color="cyan">context</Tag> : null}
+      {node.hook?.reason ? <Tag>{node.hook.reason}</Tag> : null}
+      {node.hookExecutionId ? (
+        <Button size="small" type="link" onClick={() => onOpen(node.hookExecutionId || '')}>
+          Details
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function hookStatusColor(status?: string) {
+  switch (status) {
+    case 'completed':
+      return 'success';
+    case 'blocked':
+    case 'denied':
+      return 'warning';
+    case 'failed':
+      return 'error';
+    case 'started':
+    case 'running':
+      return 'processing';
+    default:
+      return undefined;
+  }
+}
+
+function formatDuration(value: number) {
+  if (value < 1000) {
+    return `${value}ms`;
+  }
+  return `${Math.round(value / 100) / 10}s`;
 }
 
 function ToolResultEvidence({ node }: { node: ReactCallchainNodeViewModel }) {

@@ -8,6 +8,9 @@ import type {
   ConversationMessageViewModel,
   ConversationTimelineItemViewModel,
   CreateProjectRequestViewModel,
+  HookExecutionSummaryViewModel,
+  HookExecutionViewModel,
+  HookViewModel,
   InterruptedTurnViewModel,
   PermissionModeOptionViewModel,
   PermissionRequestViewModel,
@@ -118,6 +121,112 @@ interface RuntimeSelectedModelResponseDTO {
 interface RuntimeProviderCatalogResponseDTO {
   providerTypes?: ProviderTypeViewModel[];
   providers?: RuntimeProviderCatalogItemDTO[];
+}
+
+interface RuntimeHooksResponseDTO {
+  hooks?: RuntimeHookDTO[];
+  diagnostics?: string[];
+}
+
+interface RuntimeHookDTO {
+  id?: string;
+  name?: string;
+  source?: string;
+  event?: string;
+  matcher?: string;
+  command?: string;
+  timeout?: number;
+  timeoutMs?: number;
+  timeout_ms?: number;
+  enabled?: boolean;
+  status?: string;
+  diagnostics?: string;
+  reason?: string;
+}
+
+interface RuntimeHookExecutionDTO {
+  id?: string;
+  hookId?: string;
+  hook_id?: string;
+  hookName?: string;
+  hook_name?: string;
+  hookSource?: string;
+  hook_source?: string;
+  event?: string;
+  status?: string;
+  sessionId?: string;
+  session_id?: string;
+  turnId?: string;
+  turn_id?: string;
+  toolCallId?: string;
+  tool_call_id?: string;
+  taskId?: string;
+  task_id?: string;
+  capabilityId?: string;
+  capability_id?: string;
+  mcpServer?: string;
+  mcp_server?: string;
+  skill?: string;
+  contextRef?: string;
+  context_ref?: string;
+  policyMode?: string;
+  policy_mode?: string;
+  policyProfile?: string;
+  policy_profile?: string;
+  policyRule?: string;
+  policy_rule?: string;
+  policyDecision?: string;
+  policy_decision?: string;
+  policyReason?: string;
+  policy_reason?: string;
+  headless?: boolean;
+  headlessReason?: string;
+  headless_reason?: string;
+  sandboxDecisionId?: string;
+  sandbox_decision_id?: string;
+  sandboxStatus?: string;
+  sandbox_status?: string;
+  scopeKind?: string;
+  scope_kind?: string;
+  scopeValue?: string;
+  scope_value?: string;
+  reason?: string;
+  error?: string;
+  inputSummary?: string;
+  input_summary?: string;
+  outputSummary?: string;
+  output_summary?: string;
+  contextSummary?: string;
+  context_summary?: string;
+  inputRewritten?: boolean;
+  input_rewritten?: boolean;
+  contextInjected?: boolean;
+  context_injected?: boolean;
+  redacted?: boolean;
+  startedAt?: number;
+  started_at?: number;
+  completedAt?: number;
+  completed_at?: number;
+  durationMs?: number;
+  duration_ms?: number;
+}
+
+interface RuntimeHookExecutionsRequestDTO {
+  sessionId?: string;
+  turnId?: string;
+  toolCallId?: string;
+  taskId?: string;
+  event?: string;
+  status?: string;
+  limit?: number;
+}
+
+interface RuntimeHookExecutionsResponseDTO {
+  executions?: RuntimeHookExecutionDTO[];
+}
+
+interface RuntimeHookExecutionResponseDTO {
+  execution?: RuntimeHookExecutionDTO;
 }
 
 interface RuntimeProviderCatalogItemDTO {
@@ -1350,6 +1459,9 @@ interface RuntimeBridgeModule {
   SessionReactCallchain?: (sessionID: string, limit: number) => Promise<RuntimeReactCallchainDTO>;
   TurnPromptAssemblies?: (turnID: string) => Promise<RuntimePromptAssembliesResponseDTO>;
   SessionPromptAssemblies?: (sessionID: string, limit: number) => Promise<RuntimePromptAssembliesResponseDTO>;
+  Hooks?: () => Promise<RuntimeHooksResponseDTO>;
+  HookExecutions?: (req: RuntimeHookExecutionsRequestDTO) => Promise<RuntimeHookExecutionsResponseDTO>;
+  HookExecution?: (executionID: string) => Promise<RuntimeHookExecutionResponseDTO>;
   ManualCompact?: (req: RuntimeContextActionRequestDTO) => Promise<unknown>;
   ManualSnip?: (req: RuntimeContextActionRequestDTO) => Promise<unknown>;
   RunProjection?: (req: RuntimeRunProjectionRequestDTO) => Promise<RuntimeRunProjectionResponseDTO>;
@@ -1685,6 +1797,160 @@ function mapProviderCatalogItem(item: RuntimeProviderCatalogItemDTO): ProviderCa
     notes: Array.isArray(item.notes) ? item.notes : [],
     configurable: item.configurable ?? false,
   };
+}
+
+function mapHook(dto: RuntimeHookDTO, index = 0): HookViewModel {
+  const event = dto.event || 'unknown';
+  const timeoutSeconds = dto.timeout;
+  const timeoutMs = dto.timeoutMs ?? dto.timeout_ms ?? (typeof timeoutSeconds === 'number' && timeoutSeconds > 0 ? timeoutSeconds * 1000 : undefined);
+  const rawCommand = dto.command || dto.name || '';
+  const status = normalizeHookStatus(dto.status, dto.enabled);
+  return {
+    id: dto.id || `hook:${event}:${index}`,
+    name: dto.name || event,
+    source: dto.source || 'unknown',
+    event,
+    matcher: dto.matcher || undefined,
+    commandPreview: previewText(rawCommand || dto.name || event, 140),
+    enabled: dto.enabled !== false && status !== 'disabled',
+    status,
+    diagnostics: dto.diagnostics,
+    reason: dto.reason,
+    timeoutMs,
+  };
+}
+
+function mapHooks(response?: RuntimeHooksResponseDTO): HookViewModel[] | undefined {
+  if (!Array.isArray(response?.hooks)) {
+    return undefined;
+  }
+  return response.hooks.map(mapHook);
+}
+
+function mapHookExecution(dto: RuntimeHookExecutionDTO): HookExecutionViewModel {
+  return {
+    id: dto.id || '',
+    hookId: dto.hookId ?? dto.hook_id ?? '',
+    hookName: dto.hookName ?? dto.hook_name,
+    hookSource: dto.hookSource ?? dto.hook_source,
+    event: dto.event || 'unknown',
+    status: dto.status || 'unknown',
+    sessionId: dto.sessionId ?? dto.session_id,
+    turnId: dto.turnId ?? dto.turn_id,
+    toolCallId: dto.toolCallId ?? dto.tool_call_id,
+    taskId: dto.taskId ?? dto.task_id,
+    capabilityId: dto.capabilityId ?? dto.capability_id,
+    mcpServer: dto.mcpServer ?? dto.mcp_server,
+    skill: dto.skill,
+    contextRef: dto.contextRef ?? dto.context_ref,
+    policyMode: dto.policyMode ?? dto.policy_mode,
+    policyProfile: dto.policyProfile ?? dto.policy_profile,
+    policyRule: dto.policyRule ?? dto.policy_rule,
+    policyDecision: dto.policyDecision ?? dto.policy_decision,
+    policyReason: dto.policyReason ?? dto.policy_reason,
+    headless: dto.headless,
+    headlessReason: dto.headlessReason ?? dto.headless_reason,
+    sandboxDecisionId: dto.sandboxDecisionId ?? dto.sandbox_decision_id,
+    sandboxStatus: dto.sandboxStatus ?? dto.sandbox_status,
+    scopeKind: dto.scopeKind ?? dto.scope_kind,
+    scopeValue: dto.scopeValue ?? dto.scope_value,
+    reason: dto.reason,
+    error: dto.error,
+    inputSummary: dto.inputSummary ?? dto.input_summary,
+    outputSummary: dto.outputSummary ?? dto.output_summary,
+    contextSummary: dto.contextSummary ?? dto.context_summary,
+    inputRewritten: Boolean(dto.inputRewritten ?? dto.input_rewritten),
+    contextInjected: Boolean(dto.contextInjected ?? dto.context_injected),
+    redacted: Boolean(dto.redacted),
+    startedAt: dto.startedAt ?? dto.started_at,
+    completedAt: dto.completedAt ?? dto.completed_at,
+    durationMs: dto.durationMs ?? dto.duration_ms,
+  };
+}
+
+function mapHookExecutions(response?: RuntimeHookExecutionsResponseDTO): HookExecutionViewModel[] | undefined {
+  if (!Array.isArray(response?.executions)) {
+    return undefined;
+  }
+  return response.executions.map(mapHookExecution).filter((item) => item.id);
+}
+
+function summarizeHookExecutions(items: HookExecutionViewModel[], sessionId?: string): HookExecutionSummaryViewModel {
+  const summary: HookExecutionSummaryViewModel = {
+    sessionId,
+    items: [...items].sort((left, right) => (right.startedAt ?? 0) - (left.startedAt ?? 0)),
+    total: items.length,
+    started: 0,
+    completed: 0,
+    blocked: 0,
+    failed: 0,
+    skipped: 0,
+    rewritten: 0,
+    contextInjected: 0,
+    lastUpdatedAt: Date.now(),
+  };
+  for (const item of items) {
+    if (item.status === 'started' || item.status === 'running') {
+      summary.started += 1;
+    } else if (item.status === 'completed') {
+      summary.completed += 1;
+    } else if (item.status === 'blocked' || item.status === 'denied') {
+      summary.blocked += 1;
+    } else if (item.status === 'failed') {
+      summary.failed += 1;
+    } else if (item.status === 'skipped') {
+      summary.skipped += 1;
+    }
+    if (item.inputRewritten) {
+      summary.rewritten += 1;
+    }
+    if (item.contextInjected) {
+      summary.contextInjected += 1;
+    }
+  }
+  return summary;
+}
+
+async function hydrateHooks(bridge: RuntimeBridgeModule): Promise<HookViewModel[] | undefined> {
+  return mapHooks(await optionalRuntimeRequest(() => bridge.Hooks?.() ?? Promise.resolve(undefined)));
+}
+
+async function hydrateHookExecutions(bridge: RuntimeBridgeModule, sessionId?: string): Promise<HookExecutionSummaryViewModel | undefined> {
+  if (!bridge.HookExecutions) {
+    return undefined;
+  }
+  if (!sessionId) {
+    return summarizeHookExecutions([]);
+  }
+  const response = await optionalRuntimeRequest(() => bridge.HookExecutions?.({ sessionId, limit: 200 }) ?? Promise.resolve(undefined));
+  return summarizeHookExecutions(mapHookExecutions(response) ?? [], sessionId);
+}
+
+function normalizeHookStatus(status?: string, enabled?: boolean) {
+  if (status === 'enabled' || status === 'configured' || status === 'discovered') {
+    return 'active';
+  }
+  if (status === 'disabled') {
+    return 'invalid';
+  }
+  if (status) {
+    return status;
+  }
+  if (enabled === true) {
+    return 'active';
+  }
+  if (enabled === false) {
+    return 'invalid';
+  }
+  return 'unknown';
+}
+
+function previewText(value: string, limit: number) {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= limit) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, limit - 3))}...`;
 }
 
 function mapSkills(response?: RuntimeSkillsResponseDTO): RuntimeSkillViewModel[] | undefined {
@@ -2778,32 +3044,54 @@ function mapRunProjection(
   };
 }
 
-function mapReactCallchain(callchain?: RuntimeReactCallchainDTO): ReactCallchainViewModel | undefined {
+function mapReactCallchain(callchain?: RuntimeReactCallchainDTO, hookExecutions?: HookExecutionSummaryViewModel): ReactCallchainViewModel | undefined {
   if (!callchain?.sessionId) {
     return undefined;
   }
   const nodes = (Array.isArray(callchain.nodes) ? callchain.nodes : [])
     .filter((node) => node.id && node.kind && typeof node.sequence === 'number')
-    .map((node) => ({
-      id: node.id,
-      parentId: node.parentId,
-      kind: node.kind,
-      sessionId: node.sessionId || callchain.sessionId,
-      turnId: node.turnId,
-      messageId: node.messageId,
-      toolCallId: node.toolCallId,
-      permissionId: node.permissionId,
-      hookExecutionId: node.hookExecutionId,
-      sequence: node.sequence,
-      status: node.status,
-      finishReason: node.finishReason,
-      title: node.title,
-      summary: node.summary,
-      error: node.error,
-      startedAt: node.startedAt,
-      finishedAt: node.finishedAt,
-      evidence: node.evidence,
-    }))
+    .map((node) => {
+      const hook = node.hookExecutionId ? hookExecutions?.items.find((item) => item.id === node.hookExecutionId) : undefined;
+      return {
+        id: node.id,
+        parentId: node.parentId,
+        kind: node.kind,
+        sessionId: node.sessionId || callchain.sessionId,
+        turnId: node.turnId,
+        messageId: node.messageId,
+        toolCallId: node.toolCallId,
+        permissionId: node.permissionId,
+        hookExecutionId: node.hookExecutionId,
+        sequence: node.sequence,
+        status: node.status,
+        finishReason: node.finishReason,
+        title: node.title,
+        summary: node.summary,
+        error: node.error,
+        startedAt: node.startedAt,
+        finishedAt: node.finishedAt,
+        evidence: node.evidence,
+        hook: hook
+          ? {
+              executionId: hook.id,
+              event: hook.event,
+              status: hook.status,
+              reason: hook.reason,
+              durationMs: hook.durationMs,
+              inputRewritten: hook.inputRewritten,
+              contextInjected: hook.contextInjected,
+            }
+          : node.kind === 'hook_execution'
+            ? {
+                executionId: node.hookExecutionId,
+                event: node.evidence?.event,
+                status: node.status,
+                reason: node.summary,
+                durationMs: node.startedAt && node.finishedAt ? Math.max(0, normalizeTimestamp(node.finishedAt) - normalizeTimestamp(node.startedAt)) : undefined,
+              }
+            : undefined,
+      };
+    })
     .sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id));
   const summary = callchain.summary ?? {};
   const source = callchain.source ?? {};
@@ -3605,6 +3893,8 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     fullHydration ? optionalRuntimeRequest(() => bridge.TerminalSettings?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ]);
   const activeSessionID = status?.sessionId || sessionsResponse?.sessions?.find((session) => session.active)?.id;
+  const hooks = fullHydration ? await hydrateHooks(bridge) : undefined;
+  const hookExecutions = activeSessionID ? await hydrateHookExecutions(bridge, activeSessionID) : summarizeHookExecutions([]);
   const outputSnapshot = activeSessionID && refreshActivity
     ? await optionalRuntimeRequest(() => bridge.SessionOutput?.(activeSessionID, { snapshot: true, limit: fullHydration ? undefined : 64 }) ?? Promise.resolve(undefined))
     : undefined;
@@ -3689,8 +3979,10 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     agentTasks: agentTasks ?? (activeSessionID ? current.agentTasks?.filter((task) => task.parentSessionId === activeSessionID || task.childSessionId === activeSessionID) : []),
     agentRoles: agentRoles ?? current.agentRoles,
     todos: todos ?? (current.todos?.sessionId === activeSessionID ? current.todos : undefined),
-    reactCallchain: mapReactCallchain(reactCallchainDTO) ?? (current.reactCallchain?.sessionId === activeSessionID ? current.reactCallchain : undefined),
+    reactCallchain: mapReactCallchain(reactCallchainDTO, hookExecutions) ?? (current.reactCallchain?.sessionId === activeSessionID ? current.reactCallchain : undefined),
     contextDiagnostics,
+    hooks: hooks ?? current.hooks ?? [],
+    hookExecutions: hookExecutions ?? (activeSessionID ? undefined : summarizeHookExecutions([])),
     pendingPermissions,
     composer: {
       ...current.composer,
@@ -4003,10 +4295,12 @@ async function hydrateSettingsOnly(current: WorkbenchViewModel, bridge: RuntimeB
   const skillsResponse = await bridge.Skills?.().catch(() => undefined);
   const pluginsResponse = await bridge.Plugins?.().catch(() => undefined);
   const mcpServersResponse = await bridge.MCPServers?.().catch(() => undefined);
+  const hooks = await hydrateHooks(bridge);
   const providers = mapProviderCatalogItems(providerCatalog) ?? current.settings.providers;
 
   return {
     ...current,
+    hooks: hooks ?? current.hooks ?? [],
     settings: {
       ...current.settings,
       providerTypes: providerCatalog?.providerTypes ?? current.settings.providerTypes,
@@ -4112,6 +4406,17 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       return subscribeRuntimeBridgeEvents(bridge, onEvent);
     }
     return () => undefined;
+  },
+  async loadHookExecution(executionID) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.HookExecution) {
+      throw new Error('runtime hook execution API is unavailable');
+    }
+    const response = await bridge.HookExecution(executionID);
+    if (!response.execution) {
+      throw new Error('runtime hook execution was not found');
+    }
+    return mapHookExecution(response.execution);
   },
   async createSession(current, target) {
     forceDraftChatSubmit = false;

@@ -17,8 +17,10 @@ forward.
 - Hooks are Claude Code-compatible
 - Agent Builder ships with a builtin `agent-builder-hook` skill write, edit, and configure
   hooks; just tell Agent Builder how to configure Agent Builder
-- Agent Builder currently supports just one hook, `PreToolUse`, with plans to support
-  the full gamut; please let us know which hooks you'd like to see next
+- Agent Builder has complete execution chains for `PreToolUse`, `PostToolUse`,
+  `PostToolUseFailure`, and `UserPromptSubmit`. `PreCompact`, `PostCompact`,
+  `PostSampling`, and `Stop` are defined/configurable event names, but their
+  end-to-end trigger chains should be rechecked before relying on them.
 - Hooks run in parallel for speed, but their results compose in config order
   for determinism
 
@@ -30,8 +32,8 @@ forward.
   Language", and so on
 - Inject context: add notes to the model's context whenever certain tools are
   called. For example: "remember to run gofumpt after editing Go files"
-- Auto-approve tools: skip the permission prompt for bash commands that
-  you know are safe
+- Auto-approve the hook boundary for commands that you know are safe, while
+  later permission/sandbox/scope checks still remain authoritative
 - Log certain tool calls
 
 …And lots more. Show us what you're building!
@@ -175,7 +177,8 @@ wins when rewriting input, but first deny wins when blocking.
 
 ## Events
 
-Here are the events you can hook into (spoiler: there's currently just one):
+Agent Builder distinguishes events with a complete runtime execution chain from
+events that are currently defined for configuration/contract compatibility.
 
 ### PreToolUse
 
@@ -199,6 +202,46 @@ agent spawn sub-agents" still works.
 Hooks are keyed by event name. Only `command` is required, and you can omit
 `matcher` to match all tools.
 
+### PostToolUse
+
+This hook fires after a tool call succeeds. Use it to log completed work or
+inject follow-up context into the model-visible tool response.
+
+**Matched against**: the tool name.
+
+### PostToolUseFailure
+
+This hook fires after a tool call returns an error or an error result. Use it to
+record failures, halt a turn, or add recovery context.
+
+**Matched against**: the tool name.
+
+### UserPromptSubmit
+
+This hook fires before a submitted user prompt becomes a turn. It can block the
+prompt, rewrite the prompt, inject context, or prevent continuation according to
+the runtime hook result.
+
+**Matched against**: prompt/input context rather than a specific tool name.
+
+### Defined, But Trigger Chain Requires Review
+
+The following event names are accepted by the runtime contract/config surface,
+but their complete trigger chains should be verified in code before treating
+them as production-ready hooks:
+
+- `PreCompact`
+- `PostCompact`
+- `PostSampling`
+- `Stop`
+
+### Future Extension Events
+
+Events such as permission request/denial, session start/end, subagent lifecycle,
+file change, and worktree lifecycle are future extension candidates. They should
+be designed as runtime-owned contracts before being exposed in configuration or
+the UI.
+
 ## Building Hooks
 
 When a hook fires, Agent Builder:
@@ -211,11 +254,26 @@ When a hook fires, Agent Builder:
 4. Waits for all to finish (or time out), then aggregates results **in config
    order**: deny wins over allow, allow wins over none; `updated_input` patches
    shallow-merge in order.
-5. Applies the result **before** permission checks. If the aggregated decision
-   is `deny`, the tool call is blocked and you never see a permission prompt
-   for it. If it's `allow`, Agent Builder treats that as affirmative pre-approval and
-   also skips the prompt. Silence (no decision) falls through to the normal
-   permission flow.
+5. Applies the result at the hook boundary. If the aggregated decision is
+   `deny`, the current tool call or prompt is blocked. If it is `allow`, the
+   hook has no objection and may pre-approve the hook boundary, but it does not
+   override later permission, sandbox, headless, scope, or deterministic safety
+   checks. Silence (no decision) falls through to the normal runtime flow.
+
+Hook `allow` is not the same as final permission/sandbox approval. Later runtime
+boundaries remain authoritative.
+
+## Runtime Visibility
+
+Hook executions are persisted by the Go runtime and exposed to the frontend as
+`RuntimeHookExecution` records. The desktop UI treats those execution records as
+the source of truth for hook status, reason, errors, input rewrite flags,
+context injection flags, redaction, and timing.
+
+Runtime `hook.*` events are refresh triggers only. The frontend should re-read
+Hook configuration and Hook execution records from the runtime instead of
+deriving hook state from event payloads, tool result text, or rendered message
+content.
 
 Note that you can omit `matcher` and match in your shell script instead,
 however you'll incur some additional overhead as Agent Builder will still parse and
@@ -335,12 +393,13 @@ the input, or still deny/halt with a reason:
 if omitted. Unknown higher versions are still parsed; the field exists so the
 envelope can evolve without a compatibility shim.
 
-`decision: "allow"` is **affirmative**: it pre-approves the tool call and
-bypasses the permission prompt entirely. Silence (no `decision`, or
-`decision: null`) means "no opinion" — the tool still goes through the
-normal permission flow. Use `"allow"` when you want to auto-approve; omit it
-when you only want to inject context or rewrite input without also vouching
-for the call.
+`decision: "allow"` is **affirmative** at the hook boundary. It can mark the
+hook result as no-objection/pre-approved for the current call, but it does not
+override later permission, sandbox, headless, scope, or deterministic safety
+checks. Silence (no `decision`, or `decision: null`) means "no opinion" — the
+tool still goes through the normal runtime flow. Use `"allow"` when you want to
+vouch for the hook boundary; omit it when you only want to inject context or
+rewrite input without also vouching for the call.
 
 `updated_input` is a shallow-merge patch. Keys you include overwrite matching
 keys in `tool_input`; keys you don't include are preserved. If the model called
@@ -388,8 +447,9 @@ When multiple hooks match the same tool call:
 - If **any** hook denies, the tool call is blocked. `reason` values are
   concatenated in config order (newline-separated).
 - If **any** hook halts, the turn ends after the tool call is blocked.
-- If no hook denies or halts but at least one allows, the tool call proceeds
-  **and the permission prompt is skipped**.
+- If no hook denies or halts but at least one allows, the hook boundary records
+  an affirmative result. Later runtime permission/sandbox/scope boundaries still
+  apply.
 - `context` values are concatenated in config order. Strings and arrays compose
   uniformly — each string becomes one entry, and array entries are flattened in.
 - `updated_input` patches shallow-merge in config order against the original
@@ -439,10 +499,11 @@ fi
 exit 0
 ```
 
-### Auto-approve read-only tools
+### Allow read-only tools at the hook boundary
 
-Skip the permission prompt for tools that can't change anything. The hook
-returns `decision: "allow"`, which tells Agent Builder to pre-approve the call:
+Return `decision: "allow"` for tools that can't change anything. This tells
+Agent Builder the hook has no objection to the call. Later runtime permission,
+sandbox, headless, and scope checks still remain authoritative:
 
 ```jsonc
 {
@@ -458,8 +519,8 @@ returns `decision: "allow"`, which tells Agent Builder to pre-approve the call:
 ```
 
 No script file needed — the command is inline. Every `view`/`ls`/`grep`/`glob`
-call now runs without prompting. Add the `bash` tool to this list at your own
-risk; consider a more targeted allowlist instead:
+call now has an affirmative hook result. Add the `bash` tool to this list at
+your own risk; consider a more targeted allowlist instead:
 
 ```bash
 #!/usr/bin/env bash
@@ -470,7 +531,7 @@ case "$AGENT_BUILDER_TOOL_INPUT_COMMAND" in
     echo '{"decision":"allow"}'
     ;;
   *)
-    # Silent — fall through to the normal permission prompt.
+    # Silent — fall through to the normal runtime flow.
     exit 0
     ;;
 esac
@@ -679,9 +740,10 @@ Extends the common envelope:
   // ...common fields...
 
   // "allow" | "deny" | null. null/omitted = no opinion, the tool still goes
-  // through the normal permission prompt. "allow" is affirmative: pre-approves
-  // the tool call and bypasses the prompt. "deny" blocks the call; the model
-  // sees the error and may try something else.
+  // through the normal runtime flow. "allow" is affirmative at the hook
+  // boundary but does not override later permission/sandbox/scope checks.
+  // "deny" blocks the call; the model sees the error and may try something
+  // else.
   "decision": "allow",
 
   // object. Shallow-merge patch against tool_input. Nested objects are
@@ -720,9 +782,9 @@ PreToolUse-specific rules:
 
 4. `decision` precedence: `deny` > `allow` > `null`. First deny determines the
    outcome; subsequent allows don't override. If the final aggregated decision
-   is `allow`, Agent Builder pre-approves the tool call and skips the permission
-   prompt. If it's `null` (no hook allowed), the tool goes through the normal
-   permission flow.
+   is `allow`, Agent Builder records an affirmative hook result, while later
+   permission/sandbox/scope checks still apply. If it's `null` (no hook
+   allowed), the tool goes through the normal runtime flow.
 5. `updated_input` patches shallow-merge sequentially against the original
    `tool_input`. Later patches override earlier ones on colliding keys. Patches
    are **ignored** if the final decision is deny or halt.

@@ -18,6 +18,15 @@ const immediateRefreshEvents = new Set([
   'tool.output.ref.created',
   'output.ref.created',
   'snapshot.required',
+  'hook.discovered',
+  'hook.configured',
+  'hook.execution.started',
+  'hook.execution.completed',
+  'hook.execution.skipped',
+  'hook.execution.blocked',
+  'hook.execution.failed',
+  'hook.context.injected',
+  'hook.input.rewritten',
 ]);
 
 const coalescedRefreshEvents = new Set([

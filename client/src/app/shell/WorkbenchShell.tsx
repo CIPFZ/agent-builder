@@ -209,6 +209,16 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     }
   };
 
+  const loadHookExecution = useCallback(
+    (executionID: string) => {
+      if (!adapter.loadHookExecution) {
+        return Promise.reject(new Error('runtime hook execution API is unavailable'));
+      }
+      return adapter.loadHookExecution(executionID);
+    },
+    [adapter],
+  );
+
   const createSession = (target?: NewConversationDraftViewModel) => {
     const draftSeq = ++newConversationDraftSeqRef.current;
     const currentViewModel = viewModelRef.current;
@@ -731,6 +741,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       <main className={`${styles.shell} ${styles.settingsShell}`} data-testid="workbench-shell">
         <SettingsPanel
           settings={workbenchViewModel.settings}
+          hooks={workbenchViewModel.hooks}
+          hookExecutions={workbenchViewModel.hookExecutions}
           onModeChange={changeMode}
           onProviderDelete={deleteConfiguredProvider}
           onProviderDiscoverDraftModels={discoverProviderDraftModels}
@@ -824,6 +836,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           onTerminalInput={writeTerminalInput}
           onTerminalResize={resizeTerminal}
           onTerminalSubscribe={subscribeTerminalEvents}
+          onHookExecutionLoad={loadHookExecution}
         />
       )}
     </main>

@@ -2,7 +2,8 @@ import { AlertOutlined, CheckOutlined, ClockCircleOutlined, CopyOutlined, FileDo
 import { Button, Tag, Tooltip, Typography } from 'antd';
 import { useState } from 'react';
 import type React from 'react';
-import type { InterruptedToolViewModel, InterruptedTurnViewModel, TurnDiagnosticsViewModel } from '../../runtime/workbenchTypes.ts';
+import type { HookExecutionSummaryViewModel, HookExecutionViewModel, InterruptedToolViewModel, InterruptedTurnViewModel, TurnDiagnosticsViewModel } from '../../runtime/workbenchTypes.ts';
+import { HookExecutionsPanel } from '../hooks/HookExecutionsPanel.tsx';
 import styles from './TurnDiagnosticsPanel.module.css';
 
 const { Text } = Typography;
@@ -13,15 +14,19 @@ export function TurnDiagnosticsPanel({
   onInterruptedCopy,
   onInterruptedDone,
   onInterruptedFollowUp,
+  hookExecutions,
+  onHookExecutionLoad,
 }: {
   diagnostics?: TurnDiagnosticsViewModel;
   interrupted?: InterruptedTurnViewModel;
+  hookExecutions?: HookExecutionSummaryViewModel;
+  onHookExecutionLoad?: (executionId: string) => Promise<HookExecutionViewModel>;
   onInterruptedCopy?: (summary: string) => Promise<void> | void;
   onInterruptedDone?: (turnId: string) => Promise<void> | void;
   onInterruptedFollowUp?: (summary: string) => Promise<void> | void;
 }) {
   const [interruptedExpanded, setInterruptedExpanded] = useState(false);
-  if (!diagnostics && !interrupted) {
+  if (!diagnostics && !interrupted && !hookExecutions) {
     return null;
   }
   const status = diagnostics?.status || interrupted?.status || 'unknown';
@@ -113,6 +118,8 @@ export function TurnDiagnosticsPanel({
           <SignalTag label="cancelled" value={(diagnostics?.permissionCounts ?? interrupted?.permissionCounts)?.cancelled} />
         </div>
       </div>
+
+      <HookExecutionsPanel summary={hookExecutions} onLoadExecution={onHookExecutionLoad} />
 
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Artifact confidence</div>
