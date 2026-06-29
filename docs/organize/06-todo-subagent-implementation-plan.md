@@ -1183,3 +1183,11 @@ npm run build
   - 逐步支持 model/cwd/background。
   - 所有新字段都进入 AgentTask runtime record 和 UI 展示。
   - 不引入未设计完成的 team/fork/remote/swarm 复杂度。
+
+## Implementation note: 2026-06-29
+
+The first AgentTool schema rollout intentionally includes only `description`,
+`role`, and `subagent_type`. `model`, `cwd`, and `run_in_background` remain
+deferred because they need execution-level provider override, scope validation,
+and detached AgentTask lifecycle guarantees before they can be exposed without
+misleading the model or UI.

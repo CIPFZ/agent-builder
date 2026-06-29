@@ -182,6 +182,66 @@
   gap: 5px;
 }
 
+.agentTaskLink {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 9px;
+  gap: 8px;
+  color: rgb(13 13 13 / 72%);
+  font: inherit;
+  text-align: left;
+  background: #f6f7f9;
+  border: 1px solid #e6e8eb;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.agentTaskLink:hover,
+.agentTaskLink:focus-visible {
+  background: #ffffff;
+  border-color: #d8dde3;
+  outline: none;
+}
+
+.agentTaskLinkTitle,
+.agentTaskLinkBody {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.agentTaskLinkTitle {
+  color: rgb(13 13 13 / 52%);
+  font-size: 12px;
+}
+
+.agentTaskLinkBody {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+}
+
+.agentTaskLinkBody strong,
+.agentTaskLinkBody span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentTaskLinkBody strong {
+  color: rgb(13 13 13 / 78%);
+  font-size: 12px;
+}
+
+.agentTaskLinkBody span {
+  color: rgb(13 13 13 / 48%);
+  font-size: 11px;
+}
+
 .successStatus {
   display: inline-flex;
   align-items: center;

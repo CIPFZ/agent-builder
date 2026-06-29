@@ -10,6 +10,7 @@ import styles from './Timeline.module.css';
 
 interface TimelineProps {
   items: ConversationTimelineItemViewModel[];
+  onAgentTaskOpen?: (taskID: string) => void;
 }
 
 type RenderTimelineItem = ConversationTimelineItemViewModel | ToolCallGroupRenderItem | ToolCallSummaryRenderItem;
@@ -40,7 +41,7 @@ interface TimelineTurnBlock {
   finishedAt?: number;
 }
 
-export function Timeline({ items }: TimelineProps) {
+export function Timeline({ items, onAgentTaskOpen }: TimelineProps) {
   const [messageApi, messageContextHolder] = message.useMessage();
   const blocks = buildTurnBlocks(items);
 
@@ -48,26 +49,34 @@ export function Timeline({ items }: TimelineProps) {
     <div className={styles.timeline} data-testid="conversation-timeline">
       {messageContextHolder}
       {blocks.map((block) => (
-        <TurnBlock key={block.id} block={block} messageApi={messageApi} />
+        <TurnBlock key={block.id} block={block} messageApi={messageApi} onAgentTaskOpen={onAgentTaskOpen} />
       ))}
     </div>
   );
 }
 
-function TurnBlock({ block, messageApi }: { block: TimelineTurnBlock; messageApi: ReturnType<typeof message.useMessage>[0] }) {
+function TurnBlock({
+  block,
+  messageApi,
+  onAgentTaskOpen,
+}: {
+  block: TimelineTurnBlock;
+  messageApi: ReturnType<typeof message.useMessage>[0];
+  onAgentTaskOpen?: (taskID: string) => void;
+}) {
   return (
     <section className={styles.turnBlock} data-testid="timeline-turn-block" data-turn-id={block.turnId}>
       {block.userMessage && <TimelineMessage item={block.userMessage} messageApi={messageApi} />}
-      {block.processItems.length > 0 && <ProcessTrace block={block} />}
+      {block.processItems.length > 0 && <ProcessTrace block={block} onAgentTaskOpen={onAgentTaskOpen} />}
       {block.finalMessage && <TimelineMessage item={block.finalMessage} messageApi={messageApi} />}
       {block.looseItems.map((item) => (
-        <TimelineProcessItem key={item.id} item={item} />
+        <TimelineProcessItem key={item.id} item={item} onAgentTaskOpen={onAgentTaskOpen} />
       ))}
     </section>
   );
 }
 
-function ProcessTrace({ block }: { block: TimelineTurnBlock }) {
+function ProcessTrace({ block, onAgentTaskOpen }: { block: TimelineTurnBlock; onAgentTaskOpen?: (taskID: string) => void }) {
   const traceLabel = processTraceSummary(block);
   const groupedItems = compactProcessItems(block.processItems);
   return (
@@ -84,7 +93,7 @@ function ProcessTrace({ block }: { block: TimelineTurnBlock }) {
             children: (
               <div className={styles.processSteps}>
                 {groupedItems.map((item) => (
-                  <TimelineProcessItem key={item.id} item={item} />
+                  <TimelineProcessItem key={item.id} item={item} onAgentTaskOpen={onAgentTaskOpen} />
                 ))}
               </div>
             ),
@@ -106,15 +115,15 @@ function ProcessTraceLabel({ block }: { block: TimelineTurnBlock }) {
   );
 }
 
-function TimelineProcessItem({ item }: { item: RenderTimelineItem }) {
+function TimelineProcessItem({ item, onAgentTaskOpen }: { item: RenderTimelineItem; onAgentTaskOpen?: (taskID: string) => void }) {
   if (item.kind === 'tool_call_summary') {
-    return <ToolRunSummary item={item} />;
+    return <ToolRunSummary item={item} onAgentTaskOpen={onAgentTaskOpen} />;
   }
   if (item.kind === 'tool_call_group') {
-    return <ToolCallCard toolCalls={item.toolCalls} />;
+    return <ToolCallCard toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />;
   }
   if (item.kind === 'tool_call' && item.toolCall) {
-    return <ToolCallCard toolCall={item.toolCall} />;
+    return <ToolCallCard toolCall={item.toolCall} onAgentTaskOpen={onAgentTaskOpen} />;
   }
   if (item.kind === 'permission' && item.permission) {
     return <PermissionTraceRow item={item} />;
@@ -141,7 +150,7 @@ function TimelineProcessItem({ item }: { item: RenderTimelineItem }) {
     return <ContextGovernanceRow item={item} />;
   }
   if (item.kind === 'agent_task' && item.agentTask) {
-    return <AgentTaskTimelineRow item={item} />;
+    return <AgentTaskTimelineRow item={item} onAgentTaskOpen={onAgentTaskOpen} />;
   }
   if (item.kind === 'message') {
     return <AssistantProcessNote item={item} />;
@@ -165,7 +174,7 @@ function ContextGovernanceRow({ item }: { item: ConversationTimelineItemViewMode
   );
 }
 
-function ToolRunSummary({ item }: { item: ToolCallSummaryRenderItem }) {
+function ToolRunSummary({ item, onAgentTaskOpen }: { item: ToolCallSummaryRenderItem; onAgentTaskOpen?: (taskID: string) => void }) {
   const duration = toolCallsDuration(item.toolCalls);
   const kinds = summarizeToolKinds(item.toolCalls);
   return (
@@ -176,7 +185,7 @@ function ToolRunSummary({ item }: { item: ToolCallSummaryRenderItem }) {
         {kinds && <span>{kinds}</span>}
       </summary>
       <div>
-        <ToolCallCard toolCalls={item.toolCalls} />
+        <ToolCallCard toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />
       </div>
     </details>
   );
@@ -229,7 +238,7 @@ function PermissionTraceRow({ item }: { item: ConversationTimelineItemViewModel 
   );
 }
 
-function AgentTaskTimelineRow({ item }: { item: ConversationTimelineItemViewModel }) {
+function AgentTaskTimelineRow({ item, onAgentTaskOpen }: { item: ConversationTimelineItemViewModel; onAgentTaskOpen?: (taskID: string) => void }) {
   const task = item.agentTask;
   if (!task) {
     return null;
@@ -237,7 +246,7 @@ function AgentTaskTimelineRow({ item }: { item: ConversationTimelineItemViewMode
   const refs = [...(task.outputRefs ?? []), ...(task.artifactRefs ?? [])];
   const summary = task.resultSummary || task.promptSummary || '';
   return (
-    <div className={styles.agentTaskRow} data-testid="timeline-agent-task-row" data-task-id={task.id}>
+    <button className={styles.agentTaskRow} data-testid="timeline-agent-task-row" data-task-id={task.id} type="button" onClick={() => onAgentTaskOpen?.(task.id)}>
       <div className={styles.agentTaskIcon}>
         <BranchesOutlined />
       </div>
@@ -260,7 +269,7 @@ function AgentTaskTimelineRow({ item }: { item: ConversationTimelineItemViewMode
         ) : null}
         {refs.length ? <div className={styles.agentTaskRefs}>{refs.slice(0, 3).join(' / ')}</div> : null}
       </div>
-    </div>
+    </button>
   );
 }
 

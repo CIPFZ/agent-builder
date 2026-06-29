@@ -88,6 +88,8 @@ export function getInitialWorkbenchViewModel(mode: WorkbenchMode = 'project'): W
     interruptedTurn: undefined,
     runProjection: undefined,
     agentTasks: [],
+    agentRoles: [],
+    todos: undefined,
     reactCallchain: undefined,
     contextDiagnostics: undefined,
     pendingPermissions: [],

@@ -1,4 +1,5 @@
 import {
+  BranchesOutlined,
   CheckOutlined,
   CloseCircleOutlined,
   CodeOutlined,
@@ -15,18 +16,26 @@ import styles from './ToolCallCard.module.css';
 
 type ToolKind = 'file_read' | 'file_write' | 'file_edit' | 'file_search' | 'shell' | 'generic';
 
-export function ToolCallCard({ toolCall, toolCalls }: { toolCall?: ToolCallViewModel; toolCalls?: ToolCallViewModel[] }) {
+export function ToolCallCard({
+  onAgentTaskOpen,
+  toolCall,
+  toolCalls,
+}: {
+  onAgentTaskOpen?: (taskID: string) => void;
+  toolCall?: ToolCallViewModel;
+  toolCalls?: ToolCallViewModel[];
+}) {
   const calls = toolCalls?.length ? toolCalls : toolCall ? [toolCall] : [];
   if (calls.length === 0) {
     return null;
   }
   if (calls.length > 1) {
-    return <ToolCallGroup toolCalls={calls} />;
+    return <ToolCallGroup toolCalls={calls} onAgentTaskOpen={onAgentTaskOpen} />;
   }
-  return <SingleToolCallCard toolCall={calls[0]} />;
+  return <SingleToolCallCard toolCall={calls[0]} onAgentTaskOpen={onAgentTaskOpen} />;
 }
 
-function SingleToolCallCard({ toolCall }: { toolCall: ToolCallViewModel }) {
+function SingleToolCallCard({ onAgentTaskOpen, toolCall }: { onAgentTaskOpen?: (taskID: string) => void; toolCall: ToolCallViewModel }) {
   const [messageApi, messageContextHolder] = message.useMessage();
   const kind = toolKind(toolCall);
   const output = readableToolOutput(toolCall);
@@ -60,7 +69,7 @@ function SingleToolCallCard({ toolCall }: { toolCall: ToolCallViewModel }) {
               </div>
             ),
             children: hasDetails ? (
-              <ToolDetails toolCall={toolCall} kind={kind} output={output} detail={detail} onCopy={async (text) => copyText(text, messageApi)} />
+              <ToolDetails toolCall={toolCall} kind={kind} output={output} detail={detail} onAgentTaskOpen={onAgentTaskOpen} onCopy={async (text) => copyText(text, messageApi)} />
             ) : null,
           },
         ]}
@@ -69,7 +78,7 @@ function SingleToolCallCard({ toolCall }: { toolCall: ToolCallViewModel }) {
   );
 }
 
-function ToolCallGroup({ toolCalls }: { toolCalls: ToolCallViewModel[] }) {
+function ToolCallGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (taskID: string) => void; toolCalls: ToolCallViewModel[] }) {
   const [messageApi, messageContextHolder] = message.useMessage();
   const kinds = toolCalls.map((call) => toolKind(call));
   const groupKind = new Set(kinds).size === 1 ? kinds[0] : 'generic';
@@ -112,6 +121,7 @@ function ToolCallGroup({ toolCalls }: { toolCalls: ToolCallViewModel[] }) {
                     output={readableToolOutput(call)}
                     detail={toolDetail(call)}
                     title={toolDetailTitle(call, index)}
+                    onAgentTaskOpen={onAgentTaskOpen}
                     onCopy={async (text) => copyText(text, messageApi)}
                   />
                 ))}
@@ -128,6 +138,7 @@ function ToolDetails({
   detail,
   kind,
   onCopy,
+  onAgentTaskOpen,
   output,
   title,
   toolCall,
@@ -135,6 +146,7 @@ function ToolDetails({
   detail?: string;
   kind: ToolKind;
   onCopy: (text: string) => Promise<void>;
+  onAgentTaskOpen?: (taskID: string) => void;
   output: string;
   title?: string;
   toolCall: ToolCallViewModel;
@@ -146,9 +158,11 @@ function ToolDetails({
   const targets = toolTargets(toolCall);
   const workingDir = toolCall.display?.workingDir;
   const command = toolCall.display?.command || toolCall.command;
+  const agentTask = toolCall.agentTask;
 
   return (
     <div className={styles.details}>
+      {agentTask ? <AgentTaskLink toolCall={toolCall} onAgentTaskOpen={onAgentTaskOpen} /> : null}
       {detail && (
         <div className={shellLike ? styles.shellPanel : styles.detailPanel}>
           <div className={styles.panelHeader}>
@@ -246,7 +260,30 @@ function ToolStatus({ status }: { status: string }) {
   return <Tag color={status === 'waiting_permission' ? 'warning' : 'processing'}>{statusLabel(status)}</Tag>;
 }
 
+function AgentTaskLink({ onAgentTaskOpen, toolCall }: { onAgentTaskOpen?: (taskID: string) => void; toolCall: ToolCallViewModel }) {
+  const task = toolCall.agentTask;
+  if (!task) {
+    return null;
+  }
+  return (
+    <button className={styles.agentTaskLink} type="button" onClick={() => onAgentTaskOpen?.(task.id)}>
+      <span className={styles.agentTaskLinkTitle}>
+        <BranchesOutlined />
+        <span>Subagent task</span>
+      </span>
+      <span className={styles.agentTaskLinkBody}>
+        <strong>{task.title || toolCall.display?.title || toolCall.name}</strong>
+        <span>{task.resultSummary || task.promptSummary || task.id}</span>
+      </span>
+      <Tag color={taskStatusColor(task.status)}>{task.status}</Tag>
+    </button>
+  );
+}
+
 function summaryTitle(toolCall: ToolCallViewModel, kind: ToolKind) {
+  if (toolCall.agentTask) {
+    return toolCall.agentTask.title || toolCall.display?.title || 'Subagent task';
+  }
   const name = toolCall.name || 'tool';
   if (kind === 'shell') {
     if (toolCall.status === 'running' || toolCall.status === 'queued') {
@@ -398,7 +435,8 @@ function isShellTool(toolCall: ToolCallViewModel) {
 
 function hasToolDetails(toolCall: ToolCallViewModel, detail?: string, output?: string) {
   return Boolean(
-    detail ||
+    toolCall.agentTask ||
+      detail ||
       output ||
       toolStderr(toolCall) ||
       toolCall.error ||
@@ -410,6 +448,21 @@ function hasToolDetails(toolCall: ToolCallViewModel, detail?: string, output?: s
       toolArtifactCount(toolCall) ||
       toolDiffCount(toolCall),
   );
+}
+
+function taskStatusColor(status?: string) {
+  switch (status) {
+    case 'running':
+    case 'queued':
+      return 'processing';
+    case 'completed':
+      return 'success';
+    case 'failed':
+    case 'interrupted':
+      return 'error';
+    default:
+      return 'default';
+  }
 }
 
 function shouldOpenByDefault(toolCalls: ToolCallViewModel[]) {

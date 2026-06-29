@@ -12,13 +12,14 @@ import {
   MoreOutlined,
   PlusOutlined,
   RightOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
-import { Button, Dropdown, Input, Modal, Tooltip, message as antdMessage } from 'antd';
+import { Button, Dropdown, Empty, Input, Modal, Tooltip, message as antdMessage } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
 import type { NewConversationDraftViewModel, TerminalEventViewModel, TerminalViewModel, WorkbenchViewModel } from '../../runtime/workbenchTypes.ts';
 import { Composer } from '../composer/Composer.tsx';
-import { AgentTaskPanel } from '../diagnostics/AgentTaskPanel.tsx';
+import { AgentTaskPanel } from '../agentTasks/AgentTaskPanel.tsx';
 import { PermissionGate } from '../permissions/PermissionGate.tsx';
 import { RunProjectionPreview } from '../diagnostics/RunProjectionPreview.tsx';
 import { ReactCallchainInspector } from '../diagnostics/ReactCallchainInspector.tsx';
@@ -26,11 +27,13 @@ import { ContextDiagnosticsPanel } from '../diagnostics/ContextDiagnosticsPanel.
 import { TurnDiagnosticsPanel } from '../diagnostics/TurnDiagnosticsPanel.tsx';
 import { Timeline } from '../timeline/Timeline.tsx';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
+import { TodoPanel } from '../todos/TodoPanel.tsx';
+import { TodoTaskBar } from '../todos/TodoTaskBar.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
 import { disposeTerminalRuntime } from './terminalRuntime.ts';
 import styles from './Workspace.module.css';
 
-type RightPanelKind = 'review' | 'files' | 'terminal';
+type RightPanelKind = 'review' | 'files' | 'terminal' | 'tasks';
 
 const RIGHT_PANEL_DEFAULT_WIDTH = 360;
 const RIGHT_PANEL_MIN_WIDTH = 300;
@@ -110,6 +113,7 @@ export function Workspace({
   const [rightPanelTabsOverflow, setRightPanelTabsOverflow] = useState(false);
   const [rightPanelDocked, setRightPanelDocked] = useState(false);
   const [rightPanelMaxValue, setRightPanelMaxValue] = useState(RIGHT_PANEL_MAX_WIDTH);
+  const [selectedAgentTaskID, setSelectedAgentTaskID] = useState('');
   const rightPanelTabsRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -157,6 +161,8 @@ export function Workspace({
   const rightPanelOpen = rightPanelVisible;
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
   const activeSessionID = activeSession?.id ?? '';
+  const hasTodos = Boolean(viewModel.todos?.items.length);
+  const hasAgentTasks = Boolean(viewModel.agentTasks?.length);
   const replaceTerminalTabs = useCallback((terminals: TerminalViewModel[]) => {
     setRightPanelTabs((current) => {
       const projectTabs = current.filter((tab) => tab.kind !== 'terminal');
@@ -190,7 +196,7 @@ export function Workspace({
     [onSessionTerminalsList, replaceTerminalTabs],
   );
   const openSingletonPanel = (kind: Exclude<RightPanelKind, 'terminal'>) => {
-    if (!canUseProjectSideTools) {
+    if (kind !== 'tasks' && !canUseProjectSideTools) {
       void messageApi.warning('文件和审查只在项目中可用');
       return;
     }
@@ -203,10 +209,14 @@ export function Workspace({
     const tab: RightPanelTabState = {
       id: kind,
       kind,
-      title: kind === 'review' ? '审查' : '文件',
+      title: kind === 'review' ? '审查' : kind === 'tasks' ? '任务' : '文件',
     };
     setRightPanelTabs((current) => [...current, tab]);
     setActiveRightPanelID(tab.id);
+  };
+  const openAgentTask = (taskID: string) => {
+    setSelectedAgentTaskID(taskID);
+    openSingletonPanel('tasks');
   };
   const toggleRightPanel = () => {
     if (rightPanelOpen) {
@@ -575,7 +585,7 @@ export function Workspace({
           {hasTimeline ? (
             <div className={styles.timelineLayout}>
               <div className={styles.timelineColumn}>
-                <Timeline items={viewModel.timeline} />
+                <Timeline items={viewModel.timeline} onAgentTaskOpen={openAgentTask} />
               </div>
             </div>
           ) : viewModel.conversation.length > 0 ? (
@@ -604,6 +614,7 @@ export function Workspace({
           ) : (
             <h1 className={styles.title}>{title}</h1>
           )}
+          <TodoTaskBar todos={viewModel.todos} />
           {hasConversation && showJumpToBottom && (
             <button
               aria-label="璺冲埌搴曢儴"
@@ -681,7 +692,7 @@ export function Workspace({
                       aria-selected={activeRightPanelID === tab.id}
                       onClick={() => setActiveRightPanelID(tab.id)}
                     >
-                      {tab.kind === 'review' ? <AuditOutlined /> : tab.kind === 'files' ? <FolderOpenOutlined /> : <ConsoleSqlOutlined />}
+                      {tab.kind === 'review' ? <AuditOutlined /> : tab.kind === 'files' ? <FolderOpenOutlined /> : tab.kind === 'tasks' ? <UnorderedListOutlined /> : <ConsoleSqlOutlined />}
                       <span>{tab.title}</span>
                       <CloseOutlined
                         className={styles.terminalTabClose}
@@ -708,6 +719,7 @@ export function Workspace({
                   canUseProjectSideTools={canUseProjectSideTools}
                   hasFilesTab={rightPanelTabs.some((tab) => tab.kind === 'files')}
                   hasReviewTab={rightPanelTabs.some((tab) => tab.kind === 'review')}
+                  hasTasksTab={rightPanelTabs.some((tab) => tab.kind === 'tasks')}
                   onOpenTool={openRightPanelTool}
                 />
               </div>
@@ -726,6 +738,13 @@ export function Workspace({
                   <span>终端</span>
                   <kbd>Ctrl+`</kbd>
                 </button>
+                {(hasTodos || hasAgentTasks) ? (
+                  <button className={styles.rightPanelLauncherItem} type="button" onClick={() => openRightPanelTool('tasks')}>
+                    <UnorderedListOutlined />
+                    <span>任务</span>
+                    <kbd>Tasks</kbd>
+                  </button>
+                ) : null}
                 {canUseProjectSideTools ? (
                   <button className={styles.rightPanelLauncherItem} type="button" onClick={() => openRightPanelTool('files')}>
                     <FolderOpenOutlined />
@@ -771,6 +790,21 @@ export function Workspace({
                   ) : null}
                 </div>
               </div>
+            ) : activeRightPanelTab?.kind === 'tasks' ? (
+              <div className={styles.sideToolPane} role="tabpanel">
+                <div className={styles.taskStack}>
+                  <TodoPanel todos={viewModel.todos} />
+                  <AgentTaskPanel
+                    agentRoles={viewModel.agentRoles}
+                    selectedTaskID={selectedAgentTaskID}
+                    tasks={viewModel.agentTasks}
+                    onCancelTask={onAgentTaskCancel}
+                    onFollowUp={onAgentTaskFollowUp}
+                    onSelectTask={setSelectedAgentTaskID}
+                  />
+                  {!hasTodos && !hasAgentTasks ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No tasks" /> : null}
+                </div>
+              </div>
             ) : null}
           </aside>
         )}
@@ -783,16 +817,19 @@ function RightPanelAddMenu({
   canUseProjectSideTools,
   hasFilesTab,
   hasReviewTab,
+  hasTasksTab,
   onOpenTool,
 }: {
   className: string;
   canUseProjectSideTools: boolean;
   hasFilesTab: boolean;
   hasReviewTab: boolean;
+  hasTasksTab: boolean;
   onOpenTool: (kind: RightPanelKind) => void;
 }) {
   const items = [
     { key: 'terminal', icon: <ConsoleSqlOutlined />, label: '新建终端' },
+    !hasTasksTab ? { key: 'tasks', icon: <UnorderedListOutlined />, label: '打开任务' } : null,
     canUseProjectSideTools && !hasFilesTab ? { key: 'files', icon: <FolderOpenOutlined />, label: '打开文件' } : null,
     canUseProjectSideTools && !hasReviewTab ? { key: 'review', icon: <AuditOutlined />, label: '打开审查' } : null,
   ].filter((item): item is Exclude<typeof item, null> => Boolean(item));
@@ -802,7 +839,7 @@ function RightPanelAddMenu({
       menu={{
         items,
         onClick: ({ key }) => {
-          if (key === 'terminal' || key === 'files' || key === 'review') {
+          if (key === 'terminal' || key === 'files' || key === 'review' || key === 'tasks') {
             onOpenTool(key);
           }
         },

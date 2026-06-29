@@ -260,9 +260,20 @@
   margin: 8px 0 8px 34px;
   padding: 10px 12px;
   gap: 10px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   background: #ffffff;
   border: 1px solid #e6e8eb;
   border-radius: 8px;
+  cursor: pointer;
+}
+
+.agentTaskRow:hover,
+.agentTaskRow:focus-visible {
+  background: #fafafa;
+  border-color: #d8dde3;
+  outline: none;
 }
 
 .agentTaskIcon {

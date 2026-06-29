@@ -2,6 +2,7 @@ import type {
   AgentTaskMessageViewModel,
   AgentTaskResultViewModel,
   AgentTaskViewModel,
+  AgentRoleViewModel,
   ConfiguredProviderViewModel,
   ContextDiagnosticsViewModel,
   ConversationMessageViewModel,
@@ -31,6 +32,8 @@ import type {
   RunSchedulerPlanRequestViewModel,
   RunSchedulerTaskCandidateViewModel,
   ToolCallViewModel,
+  TodoItemViewModel,
+  TodoSummaryViewModel,
   RuntimeUserInputRequestViewModel,
   RuntimeSkillViewModel,
   SettingsOptionViewModel,
@@ -1080,6 +1083,55 @@ interface RuntimeAgentTaskOutputResponseDTO {
   updatedAt?: number;
 }
 
+interface RuntimeAgentRoleDTO {
+  id?: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  promptSummary?: string;
+  allowedTools?: string[];
+  capabilityScope?: string[];
+  model?: string;
+  provider?: string;
+  cwd?: string;
+  worktree?: string;
+  source?: string;
+}
+
+interface RuntimeAgentRolesResponseDTO {
+  roles?: RuntimeAgentRoleDTO[];
+}
+
+interface RuntimeTodoDTO {
+  id?: string;
+  content?: string;
+  status?: string;
+  activeForm?: string;
+  active_form?: string;
+  createdAt?: number;
+  updatedAt?: number;
+  source?: {
+    kind?: string;
+    label?: string;
+    ref?: string;
+  };
+}
+
+interface RuntimeTodoSummaryDTO {
+  sessionId?: string;
+  turnId?: string;
+  todos?: RuntimeTodoDTO[];
+  pending?: number;
+  inProgress?: number;
+  completed?: number;
+  total?: number;
+  updatedAt?: number;
+}
+
+interface RuntimeTodosResponseDTO {
+  summary?: RuntimeTodoSummaryDTO;
+}
+
 interface RuntimeRunSchedulerPlanRequestDTO {
   runId?: string;
   sessionId?: string;
@@ -1309,7 +1361,10 @@ interface RuntimeBridgeModule {
   ResumeRunCheckpoint?: (runID: string, checkpointID: string) => Promise<RuntimeRunResumeResponseDTO>;
   ExecuteRunTask?: (runID: string, taskID: string) => Promise<RuntimeRunSchedulerExecuteTaskResponseDTO>;
   SessionAgentTasks?: (sessionID: string) => Promise<RuntimeAgentTasksResponseDTO>;
+  SessionTodos?: (sessionID: string) => Promise<RuntimeTodosResponseDTO>;
+  TurnTodos?: (turnID: string) => Promise<RuntimeTodosResponseDTO>;
   AgentTask?: (taskID: string) => Promise<RuntimeAgentTaskResponseDTO>;
+  AgentRoles?: () => Promise<RuntimeAgentRolesResponseDTO>;
   AgentTaskFollowUp?: (taskID: string, req: { direction: string; kind: string; contentSummary: string }) => Promise<RuntimeAgentTaskMessageResponseDTO>;
   CancelAgentTask?: (taskID: string) => Promise<RuntimeAgentTaskResponseDTO>;
   AgentTaskOutput?: (taskID: string) => Promise<RuntimeAgentTaskOutputResponseDTO>;
@@ -2190,6 +2245,7 @@ function attachAgentTasksToTimeline(items: ConversationTimelineItemViewModel[], 
   if (!tasks?.length) {
     return items;
   }
+  const taskByTool = new Map(tasks.filter((task) => task.parentToolCallId).map((task) => [task.parentToolCallId!, task]));
   const taskItems = tasks.map((task) => ({
     id: `agent-task:${task.id}`,
     kind: 'agent_task' as const,
@@ -2215,7 +2271,12 @@ function attachAgentTasksToTimeline(items: ConversationTimelineItemViewModel[], 
   });
   const merged: ConversationTimelineItemViewModel[] = [];
   items.forEach((item) => {
-    merged.push(item);
+    if (item.kind === 'tool_call' && item.toolCallId && item.toolCall) {
+      const agentTask = taskByTool.get(item.toolCallId);
+      merged.push(agentTask ? { ...item, toolCall: { ...item.toolCall, agentTask } } : item);
+    } else {
+      merged.push(item);
+    }
     if (item.kind === 'tool_call' && item.toolCallId) {
       merged.push(...(byTool.get(item.toolCallId) ?? []));
       byTool.delete(item.toolCallId);
@@ -3317,6 +3378,86 @@ async function hydrateAgentTasks(bridge: RuntimeBridgeModule, sessionID?: string
   return detailed.filter((task): task is AgentTaskViewModel => Boolean(task));
 }
 
+async function hydrateTodos(bridge: RuntimeBridgeModule, sessionID?: string): Promise<TodoSummaryViewModel | undefined> {
+  if (!sessionID || !bridge.SessionTodos) {
+    return undefined;
+  }
+  const response = await optionalRuntimeRequest(() => bridge.SessionTodos?.(sessionID) ?? Promise.resolve(undefined));
+  return mapTodoSummary(response?.summary, sessionID);
+}
+
+function mapTodoSummary(summary?: RuntimeTodoSummaryDTO, fallbackSessionID = ''): TodoSummaryViewModel | undefined {
+  if (!summary) {
+    return undefined;
+  }
+  const items = (Array.isArray(summary.todos) ? summary.todos : []).map(mapTodoItem).filter((item): item is TodoItemViewModel => Boolean(item));
+  const pending = typeof summary.pending === 'number' ? summary.pending : items.filter((item) => item.status === 'pending').length;
+  const inProgress = typeof summary.inProgress === 'number' ? summary.inProgress : items.filter((item) => item.status === 'in_progress').length;
+  const completed = typeof summary.completed === 'number' ? summary.completed : items.filter((item) => item.status === 'completed').length;
+  return {
+    sessionId: summary.sessionId || fallbackSessionID,
+    turnId: summary.turnId,
+    items,
+    pending,
+    inProgress,
+    completed,
+    total: typeof summary.total === 'number' ? summary.total : items.length,
+    updatedAt: summary.updatedAt,
+  };
+}
+
+function mapTodoItem(todo: RuntimeTodoDTO, index: number): TodoItemViewModel | undefined {
+  const content = todo.content?.trim();
+  if (!content) {
+    return undefined;
+  }
+  const source = todo.source?.kind
+    ? {
+        kind: todo.source.kind,
+        label: todo.source.label,
+        ref: todo.source.ref,
+      }
+    : undefined;
+  return {
+    id: todo.id || `todo:${index + 1}:${content}`,
+    content,
+    status: todo.status || 'pending',
+    activeForm: todo.activeForm || todo.active_form,
+    createdAt: todo.createdAt,
+    updatedAt: todo.updatedAt,
+    source,
+  };
+}
+
+async function hydrateAgentRoles(bridge: RuntimeBridgeModule): Promise<AgentRoleViewModel[] | undefined> {
+  if (!bridge.AgentRoles) {
+    return undefined;
+  }
+  const response = await optionalRuntimeRequest(() => bridge.AgentRoles?.() ?? Promise.resolve(undefined));
+  const roles = Array.isArray(response?.roles) ? response.roles : undefined;
+  return roles?.map(mapAgentRole).filter((role): role is AgentRoleViewModel => Boolean(role));
+}
+
+function mapAgentRole(role?: RuntimeAgentRoleDTO): AgentRoleViewModel | undefined {
+  if (!role?.id) {
+    return undefined;
+  }
+  return {
+    id: role.id,
+    name: role.name,
+    title: role.title,
+    description: role.description,
+    promptSummary: role.promptSummary,
+    allowedTools: role.allowedTools,
+    capabilityScope: role.capabilityScope,
+    model: role.model,
+    provider: role.provider,
+    cwd: role.cwd,
+    worktree: role.worktree,
+    source: role.source,
+  };
+}
+
 function mapAgentTask(
   task?: RuntimeAgentTaskDTO,
   messages?: RuntimeAgentTaskMessageDTO[],
@@ -3475,6 +3616,8 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     : undefined;
   const schedulerTaskCandidates = actionTargetsInclude(refreshTargets, 'run_scheduler_plan') ? await hydrateRunSchedulerTaskCandidates(bridge, runProjection) : [];
   const agentTasks = activeSessionID ? await hydrateAgentTasks(bridge, activeSessionID) : undefined;
+  const todos = activeSessionID ? await hydrateTodos(bridge, activeSessionID) : undefined;
+  const agentRoles = fullHydration ? await hydrateAgentRoles(bridge) : undefined;
   const messagesResponse = activity
     ? { messages: Array.isArray(activity.messages) ? activity.messages : [] }
     : activeSessionID && fullHydration
@@ -3544,6 +3687,8 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     interruptedTurn: activity ? selectInterruptedTurn(activity, sessionActiveTurn?.id) : current.interruptedTurn,
     runProjection: mapRunProjection(runProjection, schedulerTaskCandidates) ?? (current.runProjection?.primarySessionId === activeSessionID ? current.runProjection : undefined),
     agentTasks: agentTasks ?? (activeSessionID ? current.agentTasks?.filter((task) => task.parentSessionId === activeSessionID || task.childSessionId === activeSessionID) : []),
+    agentRoles: agentRoles ?? current.agentRoles,
+    todos: todos ?? (current.todos?.sessionId === activeSessionID ? current.todos : undefined),
     reactCallchain: mapReactCallchain(reactCallchainDTO) ?? (current.reactCallchain?.sessionId === activeSessionID ? current.reactCallchain : undefined),
     contextDiagnostics,
     pendingPermissions,

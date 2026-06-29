@@ -804,6 +804,14 @@ func (r *RuntimeBridge) TurnAgentTasks(ctx context.Context, turnID string) (Runt
 
 }
 
+func (r *RuntimeBridge) SessionTodos(ctx context.Context, sessionID string) (RuntimeTodosResponse, error) {
+	return r.service.SessionTodos(ctx, sessionID)
+}
+
+func (r *RuntimeBridge) TurnTodos(ctx context.Context, turnID string) (RuntimeTodosResponse, error) {
+	return r.service.TurnTodos(ctx, turnID)
+}
+
 func (r *RuntimeBridge) CancelAgentTask(ctx context.Context, taskID string) (RuntimeAgentTaskResponse, error) {
 
 	return r.service.CancelAgentTask(ctx, taskID)

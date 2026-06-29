@@ -1,0 +1,190 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #edf0f3;
+}
+
+.header,
+.detailHeader,
+.actionButtons,
+.counts {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.header,
+.detailHeader {
+  justify-content: space-between;
+}
+
+.heading {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  color: rgba(0, 0, 0, 0.88);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.55fr) minmax(0, 1fr);
+  min-width: 0;
+  gap: 12px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 6px;
+}
+
+.taskButton {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 0;
+  padding: 8px;
+  gap: 2px;
+  color: rgba(0, 0, 0, 0.68);
+  text-align: left;
+  background: #f6f7f9;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.taskButton:hover,
+.taskButtonActive {
+  color: rgba(0, 0, 0, 0.88);
+  background: #ffffff;
+  border-color: #d9d9d9;
+}
+
+.taskButtonTitle,
+.taskButtonMeta,
+.detailTitle,
+.detailTitle > span,
+.infoRow dd,
+.messageRow p,
+.refs code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.taskButtonTitle {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.taskButtonMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 10px;
+}
+
+.detailTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.roleDescription {
+  padding: 7px 8px;
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 12px;
+  line-height: 1.5;
+  background: #f6f7f9;
+  border-radius: 6px;
+}
+
+.infoGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  gap: 4px;
+}
+
+.infoRow {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  min-width: 0;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.infoRow dt {
+  color: rgba(0, 0, 0, 0.48);
+}
+
+.infoRow dd {
+  margin: 0;
+  color: rgba(0, 0, 0, 0.78);
+  white-space: nowrap;
+}
+
+.refs,
+.messages,
+.actions {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 6px;
+}
+
+.refs code {
+  display: block;
+  padding: 3px 6px;
+  color: rgba(0, 0, 0, 0.72);
+  background: #f6f7f9;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.messageRow {
+  display: grid;
+  grid-template-columns: 24px auto minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.messageRow p {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.actionButtons {
+  justify-content: flex-end;
+}
+
+@media (max-width: 560px) {
+  .body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .list {
+    max-height: 160px;
+    overflow: auto;
+  }
+}

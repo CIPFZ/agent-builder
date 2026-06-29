@@ -169,6 +169,40 @@ func TestRuntimeBridgeForwardsPromptAssemblies(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsTodoQueries(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		todos: RuntimeTodosResponse{Summary: runtime.RuntimeTodoSummary{
+			SessionID: "session-1",
+			Todos: []runtime.RuntimeTodo{{
+				Content:    "Inspect plan",
+				Status:     "in_progress",
+				ActiveForm: "Inspecting plan",
+			}},
+			InProgress: 1,
+			Total:      1,
+		}},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	sessionResp, err := bridge.SessionTodos(context.Background(), "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.todoSessionID != "session-1" || sessionResp.Summary.Total != 1 {
+		t.Fatalf("session todos = %#v service session=%q", sessionResp, service.todoSessionID)
+	}
+
+	turnResp, err := bridge.TurnTodos(context.Background(), "turn-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.todoTurnID != "turn-1" || turnResp.Summary.Total != 1 {
+		t.Fatalf("turn todos = %#v service turn=%q", turnResp, service.todoTurnID)
+	}
+}
+
 func TestRuntimeBridgeForwardsTerminalLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -992,6 +1026,9 @@ type recordingRuntimeService struct {
 	agentTasks                  RuntimeAgentTasksResponse
 	agentTaskOutputID           string
 	agentTaskOutput             RuntimeAgentTaskOutputResponse
+	todos                       RuntimeTodosResponse
+	todoSessionID               string
+	todoTurnID                  string
 	runs                        RuntimeRunsResponse
 	runCheckpointMarkersID      string
 	runCheckpointMarkers        RuntimeRunCheckpointMarkersResponse
@@ -1392,12 +1429,14 @@ func (s *recordingRuntimeService) AgentTaskOutput(_ context.Context, taskID stri
 	return s.agentTaskOutput, nil
 }
 
-func (s *recordingRuntimeService) SessionTodos(context.Context, string) (RuntimeTodosResponse, error) {
-	return RuntimeTodosResponse{}, nil
+func (s *recordingRuntimeService) SessionTodos(_ context.Context, sessionID string) (RuntimeTodosResponse, error) {
+	s.todoSessionID = sessionID
+	return s.todos, nil
 }
 
-func (s *recordingRuntimeService) TurnTodos(context.Context, string) (RuntimeTodosResponse, error) {
-	return RuntimeTodosResponse{}, nil
+func (s *recordingRuntimeService) TurnTodos(_ context.Context, turnID string) (RuntimeTodosResponse, error) {
+	s.todoTurnID = turnID
+	return s.todos, nil
 }
 
 func (s *recordingRuntimeService) Sessions(context.Context) (RuntimeSessionsResponse, error) {

@@ -585,6 +585,48 @@ export interface AgentTaskResultViewModel {
   updatedAt?: number;
 }
 
+export type TodoStatusViewModel = 'pending' | 'in_progress' | 'completed' | string;
+
+export interface TodoItemViewModel {
+  id: string;
+  content: string;
+  status: TodoStatusViewModel;
+  activeForm?: string;
+  createdAt?: number;
+  updatedAt?: number;
+  source?: {
+    kind: string;
+    label?: string;
+    ref?: string;
+  };
+}
+
+export interface TodoSummaryViewModel {
+  sessionId: string;
+  turnId?: string;
+  items: TodoItemViewModel[];
+  pending: number;
+  inProgress: number;
+  completed: number;
+  total: number;
+  updatedAt?: number;
+}
+
+export interface AgentRoleViewModel {
+  id: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  promptSummary?: string;
+  allowedTools?: string[];
+  capabilityScope?: string[];
+  model?: string;
+  provider?: string;
+  cwd?: string;
+  worktree?: string;
+  source?: string;
+}
+
 export interface AgentTaskViewModel {
   id: string;
   parentSessionId: string;
@@ -653,6 +695,7 @@ export interface ToolCallViewModel {
   diffRefs?: string[];
   startedAt?: number;
   finishedAt?: number;
+  agentTask?: AgentTaskViewModel;
 }
 
 export interface ToolCallDisplayViewModel {
@@ -959,6 +1002,8 @@ export interface WorkbenchViewModel {
   interruptedTurn?: InterruptedTurnViewModel;
   runProjection?: RunProjectionViewModel;
   agentTasks?: AgentTaskViewModel[];
+  agentRoles?: AgentRoleViewModel[];
+  todos?: TodoSummaryViewModel;
   reactCallchain?: ReactCallchainViewModel;
   contextDiagnostics?: ContextDiagnosticsViewModel;
   pendingPermissions: PermissionRequestViewModel[];

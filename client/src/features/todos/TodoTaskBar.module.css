@@ -1,0 +1,96 @@
+.taskBar {
+  width: min(820px, calc(100% - 80px));
+  margin: 0 auto 10px;
+  padding: 8px 10px;
+  color: rgb(13 13 13 / 72%);
+  background: #fafafa;
+  border: 1px solid #eceff3;
+  border-radius: 8px;
+}
+
+.summary,
+.current,
+.meta,
+.item {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.summary {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.current {
+  flex: 1 1 auto;
+  gap: 8px;
+}
+
+.icon,
+.itemIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  color: rgb(13 13 13 / 48%);
+}
+
+.currentText,
+.itemText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.currentText {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.meta {
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.progress {
+  width: 90px;
+}
+
+.list {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eceff3;
+}
+
+.item {
+  gap: 8px;
+  font-size: 12px;
+  line-height: 22px;
+}
+
+.item[data-status='completed'] .itemText {
+  color: rgb(13 13 13 / 44%);
+  text-decoration: line-through;
+}
+
+.taskBar :global(.ant-tag) {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+@media (max-width: 820px) {
+  .taskBar {
+    width: min(100% - 48px, 720px);
+  }
+
+  .progress {
+    width: 64px;
+  }
+}
