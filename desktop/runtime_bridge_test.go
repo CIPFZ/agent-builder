@@ -1119,6 +1119,14 @@ func (s *recordingRuntimeService) RetryRecoverableError(_ context.Context, error
 	return RuntimeRecoveryRetryResponse{ErrorID: errorID}, nil
 }
 
+func (s *recordingRuntimeService) Projects(context.Context) (RuntimeProjectsResponse, error) {
+	return RuntimeProjectsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SidebarProjection(context.Context) (RuntimeSidebarProjectionResponse, error) {
+	return RuntimeSidebarProjectionResponse{}, nil
+}
+
 func (s *recordingRuntimeService) OpenProject(_ context.Context, req RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error) {
 	s.openProjectReq = req
 	return s.openProject, nil

@@ -64,6 +64,7 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 
 	r.mu.Lock()
 	wsID := r.workspace.ID
+	activeProjectID := r.activeProjectID
 	requestSessionID := strings.TrimSpace(normalized.SessionID)
 	draftScope := strings.TrimSpace(normalized.Scope)
 	draftProjectID := strings.TrimSpace(normalized.ProjectID)
@@ -77,7 +78,10 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	}
 	r.mu.Unlock()
 	if sessionID == "" {
-		projectID, scope := normalizeRuntimeSessionOwnership(normalized.ProjectID, normalized.Scope, wsID)
+		projectID, scope, err := r.normalizeSessionOwnership(ctx, normalized.ProjectID, normalized.Scope, activeProjectID)
+		if err != nil {
+			return RuntimeChatResponse{}, err
+		}
 		sess, err := r.runtime.CreateSessionWithScope(ctx, wsID, "New chat", projectID, scope)
 		if err != nil {
 			return RuntimeChatResponse{}, fmt.Errorf("failed to create session: %w", err)
@@ -95,6 +99,8 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 				"title": sess.Title,
 			},
 		})
+		draftProjectID = projectID
+		draftScope = scope
 	} else if requestSessionID != "" {
 		if _, err := r.runtime.GetSession(ctx, wsID, sessionID); err != nil {
 			return RuntimeChatResponse{}, fmt.Errorf("failed to select Agent Builder session: %w", err)

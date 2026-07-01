@@ -36,6 +36,7 @@ func TestRuntimeExternalMCPInterruptedStructuredRefsFixture(t *testing.T) {
 	t.Cleanup(func() { _ = mcptools.Close(context.Background()) })
 
 	dir := phase61RuntimeDevDir(t)
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", dir)
 	workingDir := filepath.Join(dir, "workspace")
 	dataDir := filepath.Join(dir, "data")
 	if err := os.MkdirAll(workingDir, 0o700); err != nil {
@@ -138,9 +139,12 @@ func TestRuntimeExternalMCPInterruptedStructuredRefsFixture(t *testing.T) {
 	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 	service.runtimeCtx = ctx
 	service.cancel = cancel
+	project := registerRuntimeMCPTestProject(t, service, workingDir)
 
 	chat, err := service.Chat(ctx, RuntimeChatRequest{
-		Prompt: "Use the external MCP structured_artifact tool to create " + structuredPath + ". Do not use " + prosePath + " as an artifact.",
+		Prompt:    "Use the external MCP structured_artifact tool to create " + structuredPath + ". Do not use " + prosePath + " as an artifact.",
+		ProjectID: project.ID,
+		Scope:     "project",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +162,7 @@ func TestRuntimeExternalMCPInterruptedStructuredRefsFixture(t *testing.T) {
 	if _, err := os.Stat(prosePath); !os.IsNotExist(err) {
 		t.Fatalf("prose-only path should not be created; stat err = %v", err)
 	}
-	if !provider.secondRequestSeen() {
+	if !waitForPhase61SecondRequest(ctx, provider) {
 		t.Fatal("fake provider never received the post-tool request; turn was not interrupted before final completion")
 	}
 
@@ -269,6 +273,7 @@ func TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture(t *testing.T) {
 			t.Cleanup(func() { _ = mcptools.Close(context.Background()) })
 
 			dir := phase61RuntimeDevDir(t)
+			t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", dir)
 			workingDir := filepath.Join(dir, "workspace")
 			dataDir := filepath.Join(dir, "data")
 			if err := os.MkdirAll(workingDir, 0o700); err != nil {
@@ -361,9 +366,12 @@ func TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture(t *testing.T) {
 			service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
 			service.runtimeCtx = ctx
 			service.cancel = cancel
+			project := registerRuntimeMCPTestProject(t, service, workingDir)
 
 			chat, err := service.Chat(ctx, RuntimeChatRequest{
-				Prompt: "Use the MCP structured_artifact tool to create " + structuredPath + ". Do not use " + prosePath + " as an artifact.",
+				Prompt:    "Use the MCP structured_artifact tool to create " + structuredPath + ". Do not use " + prosePath + " as an artifact.",
+				ProjectID: project.ID,
+				Scope:     "project",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -381,7 +389,7 @@ func TestRuntimeHTTPAndSSEMCPInterruptedStructuredRefsFixture(t *testing.T) {
 			if _, err := os.Stat(prosePath); !os.IsNotExist(err) {
 				t.Fatalf("prose-only path should not be created; stat err = %v", err)
 			}
-			if !provider.secondRequestSeen() {
+			if !waitForPhase61SecondRequest(ctx, provider) {
 				t.Fatal("fake provider never received the post-tool request; turn was not interrupted before final completion")
 			}
 			if mcpServer.authRequests.Load() == 0 {
@@ -613,6 +621,23 @@ func phase61RuntimeDevDir(t *testing.T) string {
 	return dir
 }
 
+func registerRuntimeMCPTestProject(t *testing.T, service *runtimeService, workingDir string) runtimeProjectRecord {
+	t.Helper()
+	store, err := service.projectStore(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.UpsertActiveByPath(context.Background(), workingDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.mu.Lock()
+	service.activeProjectID = project.ID
+	service.projectPath = workingDir
+	service.mu.Unlock()
+	return project
+}
+
 type phase66MCPHTTPServer struct {
 	*httptest.Server
 	authRequests atomic.Int32
@@ -712,6 +737,21 @@ func waitForPhase61ToolCompletion(ctx context.Context, service *runtimeService, 
 		time.Sleep(50 * time.Millisecond)
 	}
 	return fmt.Errorf("timed out waiting for MCP structured artifact tool completion; calls=%#v", last)
+}
+
+func waitForPhase61SecondRequest(ctx context.Context, provider *phase61FakeProvider) bool {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if provider.secondRequestSeen() {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return provider.secondRequestSeen()
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	return provider.secondRequestSeen()
 }
 
 type phase61FakeProvider struct {

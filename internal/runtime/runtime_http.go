@@ -151,6 +151,12 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/runtime/status":
 		value, err := s.service.Status(r.Context())
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/sidebar-projection":
+		value, err := s.service.SidebarProjection(r.Context())
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && r.URL.Path == "/v1/projects":
+		value, err := s.service.Projects(r.Context())
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/projects/open":
 		var req RuntimeOpenProjectRequest
 		if !decodeRuntimeJSON(w, r, &req) {

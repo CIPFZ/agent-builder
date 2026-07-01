@@ -14,6 +14,8 @@ import (
 
 type RuntimeStatus = runtime.RuntimeStatus
 type RuntimeProject = runtime.RuntimeProject
+type RuntimeProjectsResponse = runtime.RuntimeProjectsResponse
+type RuntimeSidebarProjectionResponse = runtime.RuntimeSidebarProjectionResponse
 type RuntimeOpenProjectRequest = runtime.RuntimeOpenProjectRequest
 type RuntimeCreateProjectRequest = runtime.RuntimeCreateProjectRequest
 type RuntimeRenameProjectRequest = runtime.RuntimeRenameProjectRequest
@@ -282,6 +284,14 @@ func (r *RuntimeBridge) DiscardInterruptedTurn(ctx context.Context, turnID strin
 
 func (r *RuntimeBridge) RetryRecoverableError(ctx context.Context, errorID string) (RuntimeRecoveryRetryResponse, error) {
 	return r.service.RetryRecoverableError(ctx, errorID)
+}
+
+func (r *RuntimeBridge) Projects(ctx context.Context) (RuntimeProjectsResponse, error) {
+	return r.service.Projects(ctx)
+}
+
+func (r *RuntimeBridge) SidebarProjection(ctx context.Context) (RuntimeSidebarProjectionResponse, error) {
+	return r.service.SidebarProjection(ctx)
 }
 
 func (r *RuntimeBridge) OpenProject(ctx context.Context, req RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error) {

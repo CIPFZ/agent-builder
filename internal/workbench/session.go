@@ -10,7 +10,7 @@ import (
 
 // CreateSession creates a new session in the given workspace.
 func (b *Service) CreateSession(ctx context.Context, workspaceID, title string) (session.Session, error) {
-	return b.CreateSessionWithScope(ctx, workspaceID, title, workspaceID, "project")
+	return b.CreateSessionWithScope(ctx, workspaceID, title, "", "standalone")
 }
 
 // CreateSessionWithScope creates a new session in the given workspace with

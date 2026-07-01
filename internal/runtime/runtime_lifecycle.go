@@ -194,9 +194,7 @@ func (r *runtimeService) ensureWorkspaceStarted(ctx context.Context, requireConf
 		}
 	}
 	workingDir = filepath.Clean(workingDir)
-	projectDataDir := runtimeProjectDataDir(layout.DataDir, workingDir)
-
-	cfg := config.NewRuntimeConfig(workingDir, projectDataDir, false)
+	cfg := config.NewRuntimeConfig(workingDir, layout.DataDir, false)
 	store := config.NewRuntimeStore(workingDir, cfg, layout.ModelConfigPath)
 	_, localResult, selectedModelErr := r.applySelectedConfiguredModel(ctx, store)
 	if selectedModelErr != nil {

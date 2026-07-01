@@ -548,15 +548,16 @@ func (r *runtimeService) runtimeTerminalProject(ctx context.Context, sessionID s
 		r.mu.Unlock()
 		return "", "", errors.New("runtime project is not initialized")
 	}
-	projectID := r.workspace.ID
+	workspaceID := r.workspace.ID
+	projectID := r.activeProjectID
 	projectPath := r.workspace.Path
 	workbenchService := r.runtime
 	r.mu.Unlock()
 
-	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(projectPath) == "" {
+	if strings.TrimSpace(workspaceID) == "" || strings.TrimSpace(projectPath) == "" {
 		return "", "", errors.New("runtime project is not initialized")
 	}
-	if _, err := workbenchService.GetSession(ctx, projectID, sessionID); err != nil {
+	if _, err := workbenchService.GetSession(ctx, workspaceID, sessionID); err != nil {
 		return "", "", fmt.Errorf("failed to read terminal session: %w", err)
 	}
 	projectPath, err := cleanTerminalCWD(projectPath)

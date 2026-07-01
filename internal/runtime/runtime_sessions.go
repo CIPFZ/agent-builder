@@ -61,8 +61,12 @@ func (r *runtimeService) CreateSession(ctx context.Context, req RuntimeSessionCr
 	}
 	r.mu.Lock()
 	wsID := r.workspace.ID
+	activeProjectID := r.activeProjectID
 	r.mu.Unlock()
-	projectID, scope := normalizeRuntimeSessionOwnership(req.ProjectID, req.Scope, wsID)
+	projectID, scope, err := r.normalizeSessionOwnership(ctx, req.ProjectID, req.Scope, activeProjectID)
+	if err != nil {
+		return RuntimeSessionResponse{}, err
+	}
 	sess, err := r.runtime.CreateSessionWithScope(ctx, wsID, title, projectID, scope)
 	if err != nil {
 		return RuntimeSessionResponse{}, fmt.Errorf("failed to create Agent Builder session: %w", err)
@@ -140,7 +144,9 @@ func (r *runtimeService) RenameSession(ctx context.Context, req RuntimeSessionUp
 		sess.Scope = "project"
 	}
 	if sess.Scope == "project" && sess.ProjectID == "" {
-		sess.ProjectID = wsID
+		r.mu.Lock()
+		sess.ProjectID = r.activeProjectID
+		r.mu.Unlock()
 	}
 	if _, err := r.runtime.SaveSession(ctx, wsID, sess); err != nil {
 		return RuntimeSessionsResponse{}, fmt.Errorf("failed to rename Agent Builder session: %w", err)
@@ -166,13 +172,21 @@ func (r *runtimeService) DeleteSession(ctx context.Context, sessionID string) (R
 		return RuntimeSessionsResponse{}, errors.New("session id is required")
 	}
 	r.mu.Lock()
-	wsID := r.workspace.ID
 	activeID := r.sessionID
 	r.mu.Unlock()
 
 	r.closeRuntimeTerminalsForSession(sessionID, "closed", "session deleted")
-	if err := r.runtime.DeleteSession(ctx, wsID, sessionID); err != nil {
-		return RuntimeSessionsResponse{}, fmt.Errorf("failed to delete Agent Builder session: %w", err)
+	conn, err := r.workspaceDB(ctx)
+	if err != nil {
+		return RuntimeSessionsResponse{}, err
+	}
+	if runtimeDeleteMode(ctx, conn) == runtimeDeleteModeSoft {
+		now := time.Now().UnixMilli()
+		if _, err := conn.ExecContext(ctx, `UPDATE sessions SET deleted_at = ?, status = 'deleted' WHERE id = ? AND deleted_at IS NULL`, now, sessionID); err != nil {
+			return RuntimeSessionsResponse{}, fmt.Errorf("failed to soft delete Agent Builder session: %w", err)
+		}
+	} else if err := purgeRuntimeSession(ctx, conn, sessionID, r.refs.root); err != nil {
+		return RuntimeSessionsResponse{}, fmt.Errorf("failed to purge Agent Builder session: %w", err)
 	}
 	if sessionID == activeID {
 		r.mu.Lock()
@@ -863,7 +877,7 @@ func toRuntimeSession(sess session.Session, activeID, workspaceID string) Runtim
 		TotalTokens:      sess.PromptTokens + sess.CompletionTokens,
 		Cost:             sess.Cost,
 	}
-	projectID, scope := normalizeRuntimeSessionOwnership(sess.ProjectID, sess.Scope, workspaceID)
+	projectID, scope := normalizeRuntimeSessionOwnership(sess.ProjectID, sess.Scope)
 	return RuntimeSession{
 		ID:               sess.ID,
 		Title:            firstNonEmpty(sess.Title, "New chat"),
@@ -880,14 +894,36 @@ func toRuntimeSession(sess session.Session, activeID, workspaceID string) Runtim
 	}
 }
 
-func normalizeRuntimeSessionOwnership(projectID, scope, workspaceID string) (string, string) {
+func normalizeRuntimeSessionOwnership(projectID, scope string) (string, string) {
 	scope = strings.TrimSpace(scope)
 	projectID = strings.TrimSpace(projectID)
 	if scope == "standalone" {
 		return "", "standalone"
 	}
-	if projectID == "" {
-		projectID = workspaceID
-	}
 	return projectID, "project"
+}
+
+func (r *runtimeService) normalizeSessionOwnership(ctx context.Context, projectID, scope, activeProjectID string) (string, string, error) {
+	rawScope := strings.TrimSpace(scope)
+	projectID, normalizedScope := normalizeRuntimeSessionOwnership(projectID, scope)
+	if normalizedScope == "standalone" {
+		return "", "standalone", nil
+	}
+	if projectID == "" {
+		projectID = strings.TrimSpace(activeProjectID)
+	}
+	if projectID == "" && rawScope == "" {
+		return "", "standalone", nil
+	}
+	if projectID == "" {
+		return "", "", errors.New("project session requires an active project")
+	}
+	store, err := r.projectStore(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := store.GetActive(ctx, projectID); err != nil {
+		return "", "", fmt.Errorf("project session requires an active project: %w", err)
+	}
+	return projectID, "project", nil
 }

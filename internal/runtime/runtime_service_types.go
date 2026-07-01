@@ -19,6 +19,8 @@ type RuntimeService interface {
 	ResumeInterruptedTurn(context.Context, string, RuntimeResumeInterruptedTurnRequest) (RuntimeTurnResponse, error)
 	DiscardInterruptedTurn(context.Context, string) (RuntimeTurnResponse, error)
 	RetryRecoverableError(context.Context, string) (RuntimeRecoveryRetryResponse, error)
+	Projects(context.Context) (RuntimeProjectsResponse, error)
+	SidebarProjection(context.Context) (RuntimeSidebarProjectionResponse, error)
 	OpenProject(context.Context, RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error)
 	CreateProject(context.Context, RuntimeCreateProjectRequest) (RuntimeOpenProjectResponse, error)
 	RenameProject(context.Context, RuntimeRenameProjectRequest) (RuntimeOpenProjectResponse, error)
@@ -175,6 +177,7 @@ type runtimeService struct {
 	runtimeConfigured    bool
 	runtimeConfigKnown   bool
 	projectPath          string
+	activeProjectID      string
 	sessionID            string
 	runtimeCtx           context.Context
 	cancel               context.CancelFunc

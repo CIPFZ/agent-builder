@@ -83,9 +83,19 @@ interface RuntimeProjectDTO {
   id: string;
   name: string;
   path: string;
+  canonicalPath?: string;
   isGitRepository?: boolean;
   branch?: string;
   current?: boolean;
+  existsOnDisk?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+  lastOpenedAt?: number;
+  deletedAt?: number;
+}
+
+interface RuntimeProjectsResponseDTO {
+  projects?: RuntimeProjectDTO[];
 }
 
 interface RuntimeMemoryRecordDTO {
@@ -144,6 +154,13 @@ interface RuntimeSessionDTO {
 
 interface RuntimeSessionsResponseDTO {
   sessions: RuntimeSessionDTO[];
+}
+
+interface RuntimeSidebarProjectionResponseDTO {
+  projects?: RuntimeProjectDTO[];
+  sessions?: RuntimeSessionDTO[];
+  currentProjectId?: string;
+  activeSessionId?: string;
 }
 
 interface RuntimeSessionResponseDTO {
@@ -1560,6 +1577,8 @@ interface RuntimeBridgeModule {
   ResumeInterruptedTurn?: (turnID: string, req: { mode?: string; prompt?: string; metadata?: Record<string, string> }) => Promise<RuntimeTurnResponseDTO>;
   DiscardInterruptedTurn?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
   RetryRecoverableError?: (errorID: string) => Promise<RuntimeRecoveryRetryResponseDTO>;
+  Projects?: () => Promise<RuntimeProjectsResponseDTO>;
+  SidebarProjection?: () => Promise<RuntimeSidebarProjectionResponseDTO>;
   OpenProject?: (req: OpenProjectRequestViewModel) => Promise<RuntimeOpenProjectResponseDTO>;
   CreateProject?: (req: CreateProjectRequestViewModel) => Promise<RuntimeOpenProjectResponseDTO>;
   RenameProject?: (req: RenameProjectRequestViewModel) => Promise<RuntimeOpenProjectResponseDTO>;
@@ -1755,7 +1774,7 @@ function modelLabel(status?: RuntimeStatusDTO, modelsResponse?: RuntimeModelsRes
   return model || '未配置模型';
 }
 
-function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: string, activeTurns?: RuntimeTurnDTO[], currentProjectID?: string) {
+function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: string, activeTurns?: RuntimeTurnDTO[]) {
   const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
   const activeTurnBySession = new Map(
     (Array.isArray(activeTurns) ? activeTurns : [])
@@ -1766,13 +1785,33 @@ function mapSessions(response?: RuntimeSessionsResponseDTO, activeSessionID?: st
   return sessions.map((session) => ({
     id: session.id,
     title: session.title || '新对话',
-    projectId: session.scope === 'standalone' ? undefined : (session.projectId || currentProjectID),
+    projectId: session.scope === 'standalone' ? undefined : session.projectId,
     scope: session.scope === 'standalone' ? 'standalone' as const : 'project' as const,
     updatedLabel: formatUpdatedLabel(session.updatedAt),
     active: session.active || session.id === activeSessionID,
     busy: activeTurnBySession.has(session.id),
     activeTurnId: activeTurnBySession.get(session.id)?.id,
   }));
+}
+
+function mapProjects(response?: RuntimeProjectsResponseDTO, currentProjectID?: string): WorkbenchViewModel['projects'] {
+  const projects = Array.isArray(response?.projects) ? response.projects : [];
+  return projects
+    .filter((project) => project.id && project.path)
+    .map((project) => ({
+      id: project.id,
+      name: project.name || projectNameFromPath(project.path),
+      path: project.path,
+      canonicalPath: project.canonicalPath,
+      isGitRepository: Boolean(project.isGitRepository),
+      branch: project.branch,
+      current: Boolean(project.current || (currentProjectID && project.id === currentProjectID)),
+      existsOnDisk: project.existsOnDisk ?? true,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+      lastOpenedAt: project.lastOpenedAt,
+      deletedAt: project.deletedAt,
+    }));
 }
 
 function mapProjectFromStatus(status?: RuntimeStatusDTO, current?: WorkbenchViewModel['currentProject']): WorkbenchViewModel['currentProject'] {
@@ -4162,8 +4201,10 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const refreshPolicy = actionTargetsInclude(refreshTargets, 'permissions');
   const [
     status,
+    sidebarProjection,
     recoveryStatus,
     sessionsResponse,
+    projectsResponse,
     modelsResponse,
     providerCatalog,
     configuredProvidersResponse,
@@ -4174,10 +4215,12 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     terminalSettingsResponse,
   ] = await Promise.all([
     optionalRuntimeRequest(() => bridge.Status()),
+    fullHydration ? optionalRuntimeRequest(() => bridge.SidebarProjection?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     fullHydration || actionTargetsInclude(refreshTargets, 'recovery', 'turn_activity', 'permissions', 'mcp_requests', 'run')
       ? optionalRuntimeRequest(() => bridge.RecoveryStatus?.() ?? Promise.resolve(undefined))
       : Promise.resolve(undefined),
     optionalRuntimeRequest(() => bridge.Sessions()),
+    fullHydration ? optionalRuntimeRequest(() => bridge.Projects?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     fullHydration ? bridge.Models().catch(() => undefined) : Promise.resolve(undefined),
     fullHydration ? bridge.ProviderCatalog?.().catch(() => undefined) : Promise.resolve(undefined),
     fullHydration ? bridge.ConfiguredProviders?.().catch(() => undefined) : Promise.resolve(undefined),
@@ -4187,7 +4230,13 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     fullHydration ? optionalRuntimeRequest(() => bridge.MCPServers?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
     fullHydration ? optionalRuntimeRequest(() => bridge.TerminalSettings?.() ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ]);
-  const activeSessionID = status?.sessionId || sessionsResponse?.sessions?.find((session) => session.active)?.id;
+  const projectedSessionsResponse: RuntimeSessionsResponseDTO | undefined = Array.isArray(sidebarProjection?.sessions)
+    ? { sessions: sidebarProjection.sessions }
+    : sessionsResponse;
+  const projectedProjectsResponse: RuntimeProjectsResponseDTO | undefined = Array.isArray(sidebarProjection?.projects)
+    ? { projects: sidebarProjection.projects }
+    : projectsResponse;
+  const activeSessionID = sidebarProjection?.activeSessionId || status?.sessionId || projectedSessionsResponse?.sessions?.find((session) => session.active)?.id;
   const hooks = fullHydration ? await hydrateHooks(bridge) : undefined;
   const hookExecutions = activeSessionID ? await hydrateHookExecutions(bridge, activeSessionID) : summarizeHookExecutions([]);
   const outputSnapshot = activeSessionID && refreshActivity
@@ -4205,8 +4254,10 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   const agentRoles = fullHydration ? await hydrateAgentRoles(bridge) : undefined;
   const modelOptionList = modelsResponse ? modelOptions(modelsResponse) : current.composer.modelOptions;
   const selectedModel = modelsResponse ? modelOptionList.find((model) => model.selected) : current.composer.selectedModel;
-  const currentProject = mapProjectFromStatus(status, current.currentProject);
-  const currentProjectID = status?.explicitProject ? currentProject.id : undefined;
+  const currentProjectID = sidebarProjection?.currentProjectId || projectedProjectsResponse?.projects?.find((project) => project.current)?.id;
+  const mappedProjects = mapProjects(projectedProjectsResponse, currentProjectID);
+  const projects = projectedProjectsResponse ? mappedProjects : current.projects;
+  const currentProject = projects.find((project) => project.current || project.id === currentProjectID) ?? mapProjectFromStatus(status, current.currentProject);
   const activeTurns = Array.isArray(activeTurnsResponse?.turns) ? activeTurnsResponse.turns : [];
   const activityTurns = Array.isArray(activity?.turns) ? activity.turns : [];
   const sessionActiveTurn =
@@ -4245,8 +4296,8 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
   return {
     ...current,
     currentProject,
-    projects: currentProject.path ? [currentProject] : [],
-    sessions: mapSessions(sessionsResponse, status?.sessionId, activeTurns, currentProjectID),
+    projects,
+    sessions: mapSessions(projectedSessionsResponse, activeSessionID, activeTurns),
     conversation,
     timeline,
     outputStore,

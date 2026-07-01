@@ -343,6 +343,18 @@ func runtimeTerminalTestService(t *testing.T, name, projectPath string) (*runtim
 	service.mu.Lock()
 	service.workspace.Path = projectPath
 	service.mu.Unlock()
+	store, err := service.projectStore(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.UpsertActiveByPath(context.Background(), projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.mu.Lock()
+	service.activeProjectID = project.ID
+	service.projectPath = projectPath
+	service.mu.Unlock()
 	return service, runtimeTerminalCreateSession(t, service, "Session A")
 }
 

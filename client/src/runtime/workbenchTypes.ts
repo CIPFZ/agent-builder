@@ -7,9 +7,15 @@ export interface ProjectViewModel {
   id: string;
   name: string;
   path: string;
+  canonicalPath?: string;
   isGitRepository: boolean;
   branch?: string;
   current?: boolean;
+  existsOnDisk?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+  lastOpenedAt?: number;
+  deletedAt?: number;
 }
 
 export interface OpenProjectRequestViewModel {

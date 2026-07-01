@@ -94,6 +94,7 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 func (r *runtimeService) fallbackProjectStatus() RuntimeStatus {
 	r.mu.Lock()
 	projectPath := r.projectPath
+	activeProjectID := r.activeProjectID
 	explicitProject := projectPath != ""
 	sessionID := r.sessionID
 	events := r.eventStats.snapshot()
@@ -104,7 +105,7 @@ func (r *runtimeService) fallbackProjectStatus() RuntimeStatus {
 	}
 	return RuntimeStatus{
 		Ready:           false,
-		WorkspaceID:     runtimeFallbackWorkspaceID(projectPath),
+		WorkspaceID:     firstNonEmpty(activeProjectID, runtimeFallbackWorkspaceID(projectPath)),
 		SessionID:       sessionID,
 		WorkingDir:      projectPath,
 		ExplicitProject: explicitProject,

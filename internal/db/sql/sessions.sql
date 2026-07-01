@@ -30,18 +30,19 @@ INSERT INTO sessions (
 -- name: GetSessionByID :one
 SELECT *
 FROM sessions
-WHERE id = ? LIMIT 1;
+WHERE id = ? AND deleted_at IS NULL LIMIT 1;
 
 -- name: GetLastSession :one
 SELECT *
 FROM sessions
+WHERE deleted_at IS NULL
 ORDER BY updated_at DESC
 LIMIT 1;
 
 -- name: ListSessions :many
 SELECT *
 FROM sessions
-WHERE parent_session_id is NULL
+WHERE parent_session_id is NULL AND deleted_at IS NULL
 ORDER BY updated_at DESC;
 
 -- name: UpdateSession :one
@@ -56,6 +57,7 @@ SET
     scope = ?,
     todos = ?
 WHERE id = ?
+AND deleted_at IS NULL
 RETURNING *;
 
 -- name: UpdateSessionTitleAndUsage :exec

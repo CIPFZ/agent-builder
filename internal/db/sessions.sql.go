@@ -96,6 +96,7 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 const getLastSession = `-- name: GetLastSession :one
 SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, project_id, scope, updated_at, created_at, summary_message_id, todos
 FROM sessions
+WHERE deleted_at IS NULL
 ORDER BY updated_at DESC
 LIMIT 1
 `
@@ -124,7 +125,7 @@ func (q *Queries) GetLastSession(ctx context.Context) (Session, error) {
 const getSessionByID = `-- name: GetSessionByID :one
 SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, project_id, scope, updated_at, created_at, summary_message_id, todos
 FROM sessions
-WHERE id = ? LIMIT 1
+WHERE id = ? AND deleted_at IS NULL LIMIT 1
 `
 
 func (q *Queries) GetSessionByID(ctx context.Context, id string) (Session, error) {
@@ -151,7 +152,7 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (Session, error
 const listSessions = `-- name: ListSessions :many
 SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, project_id, scope, updated_at, created_at, summary_message_id, todos
 FROM sessions
-WHERE parent_session_id is NULL
+WHERE parent_session_id is NULL AND deleted_at IS NULL
 ORDER BY updated_at DESC
 `
 
@@ -221,6 +222,7 @@ SET
     scope = ?,
     todos = ?
 WHERE id = ?
+AND deleted_at IS NULL
 RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, project_id, scope, updated_at, created_at, summary_message_id, todos
 `
 

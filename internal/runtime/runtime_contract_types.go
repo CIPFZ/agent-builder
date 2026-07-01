@@ -21,9 +21,15 @@ type RuntimeProject struct {
 	ID              string `json:"id"`
 	Name            string `json:"name"`
 	Path            string `json:"path"`
+	CanonicalPath   string `json:"canonicalPath,omitempty"`
 	IsGitRepository bool   `json:"isGitRepository"`
 	Branch          string `json:"branch,omitempty"`
 	Current         bool   `json:"current"`
+	ExistsOnDisk    bool   `json:"existsOnDisk"`
+	CreatedAt       int64  `json:"createdAt"`
+	UpdatedAt       int64  `json:"updatedAt"`
+	LastOpenedAt    int64  `json:"lastOpenedAt,omitempty"`
+	DeletedAt       int64  `json:"deletedAt,omitempty"`
 }
 
 type RuntimeOpenProjectRequest struct {
@@ -47,6 +53,17 @@ type RuntimeProjectActionRequest struct {
 type RuntimeOpenProjectResponse struct {
 	Project RuntimeProject `json:"project"`
 	Status  RuntimeStatus  `json:"status"`
+}
+
+type RuntimeProjectsResponse struct {
+	Projects []RuntimeProject `json:"projects"`
+}
+
+type RuntimeSidebarProjectionResponse struct {
+	Projects         []RuntimeProject `json:"projects"`
+	Sessions         []RuntimeSession `json:"sessions"`
+	CurrentProjectID string           `json:"currentProjectId,omitempty"`
+	ActiveSessionID  string           `json:"activeSessionId,omitempty"`
 }
 
 type RuntimeMemoryRecord struct {

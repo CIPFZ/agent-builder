@@ -64,14 +64,16 @@ func TestRuntimeOpenProjectCreatesSwitchesAndClosesTerminals(t *testing.T) {
 	if opened.Project.Path != oldProject || !opened.Project.Current || opened.Status.WorkingDir != oldProject {
 		t.Fatalf("opened project = %#v", opened)
 	}
-	service.mu.Lock()
-	workspaceID := service.workspace.ID
-	service.mu.Unlock()
-	sess, err := service.runtime.CreateSession(context.Background(), workspaceID, "Terminal owner")
+	oldProjectID := opened.Project.ID
+	sessResp, err := service.CreateSession(context.Background(), RuntimeSessionCreateRequest{
+		Title:     "Terminal owner",
+		ProjectID: oldProjectID,
+		Scope:     "project",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: sess.ID, ID: "term-project-switch"}); err != nil {
+	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: sessResp.Session.ID, ID: "term-project-switch"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -89,8 +91,8 @@ func TestRuntimeOpenProjectCreatesSwitchesAndClosesTerminals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sessions.Sessions) != 0 {
-		t.Fatalf("new project should not list old project sessions: %#v", sessions.Sessions)
+	if len(sessions.Sessions) != 1 || sessions.Sessions[0].ID != sessResp.Session.ID || sessions.Sessions[0].ProjectID != oldProjectID {
+		t.Fatalf("global sessions should retain old project session ownership: %#v", sessions.Sessions)
 	}
 	if _, err := service.WriteTerminalInput(context.Background(), "term-project-switch", RuntimeTerminalInputRequest{Data: terminalTestCommand("echo stale")}); err == nil {
 		t.Fatal("terminal should be closed after project switch")
@@ -2760,22 +2762,35 @@ func TestRuntimeCreateSessionPersistsAndSelectsSession(t *testing.T) {
 }
 
 func TestRuntimeCreateSessionPersistsOwnership(t *testing.T) {
-	t.Parallel()
-
+	root := runtimeDevTestRoot(t, "session-ownership")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+	projectPath := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(projectPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	service := newRuntimeService()
 	runtimeWorkbench, workspace := workbenchForSkillTest(t)
 	service.runtime = runtimeWorkbench
 	service.workspace = &apitypes.Workspace{ID: workspace.ID}
+	store, err := service.projectStore(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.UpsertActiveByPath(context.Background(), projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.activeProjectID = project.ID
 
 	projectSession, err := service.CreateSession(context.Background(), RuntimeSessionCreateRequest{
 		Title:     "Project chat",
-		ProjectID: workspace.ID,
+		ProjectID: project.ID,
 		Scope:     "project",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projectSession.Session.Scope != "project" || projectSession.Session.ProjectID != workspace.ID {
+	if projectSession.Session.Scope != "project" || projectSession.Session.ProjectID != project.ID {
 		t.Fatalf("project session ownership = %#v", projectSession.Session)
 	}
 
@@ -2798,7 +2813,7 @@ func TestRuntimeCreateSessionPersistsOwnership(t *testing.T) {
 	for _, sess := range sessions.Sessions {
 		byID[sess.ID] = sess
 	}
-	if byID[projectSession.Session.ID].Scope != "project" || byID[projectSession.Session.ID].ProjectID != workspace.ID {
+	if byID[projectSession.Session.ID].Scope != "project" || byID[projectSession.Session.ID].ProjectID != project.ID {
 		t.Fatalf("listed project session ownership = %#v", byID[projectSession.Session.ID])
 	}
 	if byID[standaloneSession.Session.ID].Scope != "standalone" || byID[standaloneSession.Session.ID].ProjectID != "" {
@@ -4662,6 +4677,14 @@ func (s *recordingRuntimeService) DiscardInterruptedTurn(_ context.Context, turn
 func (s *recordingRuntimeService) RetryRecoverableError(_ context.Context, errorID string) (RuntimeRecoveryRetryResponse, error) {
 	s.retryRecoverableErrorID = errorID
 	return RuntimeRecoveryRetryResponse{ErrorID: errorID, Action: runtimeRecoveryActionMetadata(runtimeRecoveryActionRetryRecoverableError, runtimeRecoveryActionReasonRetryStarted, "error_id", true)}, nil
+}
+
+func (s *recordingRuntimeService) Projects(context.Context) (RuntimeProjectsResponse, error) {
+	return RuntimeProjectsResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SidebarProjection(context.Context) (RuntimeSidebarProjectionResponse, error) {
+	return RuntimeSidebarProjectionResponse{}, nil
 }
 
 func (s *recordingRuntimeService) OpenProject(_ context.Context, req RuntimeOpenProjectRequest) (RuntimeOpenProjectResponse, error) {

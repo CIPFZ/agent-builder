@@ -51,7 +51,10 @@ func (r *runtimeService) RenameProject(ctx context.Context, req RuntimeRenamePro
 	if err != nil {
 		return RuntimeOpenProjectResponse{}, err
 	}
-	if strings.TrimSpace(req.ProjectID) != "" && req.ProjectID != status.WorkspaceID {
+	r.mu.Lock()
+	activeProjectID := r.activeProjectID
+	r.mu.Unlock()
+	if strings.TrimSpace(req.ProjectID) != "" && req.ProjectID != activeProjectID {
 		return RuntimeOpenProjectResponse{}, fmt.Errorf("project %s is not the active project", req.ProjectID)
 	}
 	oldPath, err := normalizeRuntimeProjectPath(status.WorkingDir)
@@ -119,104 +122,125 @@ func (r *runtimeService) RenameProject(ctx context.Context, req RuntimeRenamePro
 }
 
 func (r *runtimeService) OpenProjectInExplorer(ctx context.Context, req RuntimeProjectActionRequest) (RuntimeOpenProjectResponse, error) {
+	store, err := r.projectStore(ctx)
+	if err != nil {
+		return RuntimeOpenProjectResponse{}, err
+	}
+	projectID := strings.TrimSpace(req.ProjectID)
+	if projectID == "" {
+		r.mu.Lock()
+		projectID = r.activeProjectID
+		r.mu.Unlock()
+	}
+	project, err := store.GetActive(ctx, projectID)
+	if err != nil {
+		return RuntimeOpenProjectResponse{}, err
+	}
+	if err := requireRuntimeProjectDirectory(project.Path); err != nil {
+		return RuntimeOpenProjectResponse{}, err
+	}
+	if err := runtimeOpenPathInFileManager(project.Path); err != nil {
+		return RuntimeOpenProjectResponse{}, err
+	}
 	status, err := r.Status(ctx)
 	if err != nil {
 		return RuntimeOpenProjectResponse{}, err
 	}
-	if strings.TrimSpace(req.ProjectID) != "" && req.ProjectID != status.WorkspaceID {
-		return RuntimeOpenProjectResponse{}, fmt.Errorf("project %s is not the active project", req.ProjectID)
-	}
-	projectPath, err := normalizeRuntimeProjectPath(status.WorkingDir)
-	if err != nil {
-		return RuntimeOpenProjectResponse{}, err
-	}
-	if err := requireRuntimeProjectDirectory(projectPath); err != nil {
-		return RuntimeOpenProjectResponse{}, err
-	}
-	if err := runtimeOpenPathInFileManager(projectPath); err != nil {
-		return RuntimeOpenProjectResponse{}, err
-	}
+	r.mu.Lock()
+	activeID := r.activeProjectID
+	r.mu.Unlock()
 	return RuntimeOpenProjectResponse{
-		Project: runtimeProjectFromStatus(status),
+		Project: runtimeProjectRecordToDTO(project, activeID),
 		Status:  status,
 	}, nil
 }
 
 func (r *runtimeService) RemoveProject(ctx context.Context, req RuntimeProjectActionRequest) (RuntimeOpenProjectResponse, error) {
-	status, err := r.Status(ctx)
+	store, err := r.projectStore(ctx)
 	if err != nil {
 		return RuntimeOpenProjectResponse{}, err
 	}
-	if strings.TrimSpace(req.ProjectID) != "" && req.ProjectID != status.WorkspaceID {
-		return RuntimeOpenProjectResponse{}, fmt.Errorf("project %s is not the active project", req.ProjectID)
+	projectID := strings.TrimSpace(req.ProjectID)
+	if projectID == "" {
+		r.mu.Lock()
+		projectID = r.activeProjectID
+		r.mu.Unlock()
 	}
-	projectPath, err := normalizeRuntimeProjectPath(status.WorkingDir)
+	project, err := store.GetActive(ctx, projectID)
 	if err != nil {
-		return RuntimeOpenProjectResponse{}, err
-	}
-	if err := requireRuntimeProjectDirectory(projectPath); err != nil {
-		return RuntimeOpenProjectResponse{}, err
-	}
-	layout, err := resolveDesktopLayout()
-	if err != nil {
-		return RuntimeOpenProjectResponse{}, err
-	}
-	projectDataRoot := filepath.Join(layout.DataDir, "projects")
-	projectDataDir := runtimeProjectDataDir(layout.DataDir, projectPath)
-	if err := ensureRuntimeProjectPathUnderRoot(projectDataRoot, projectDataDir); err != nil {
 		return RuntimeOpenProjectResponse{}, err
 	}
 
-	r.startMu.Lock()
-	r.closeRuntimeTerminals("closed", "project removed")
 	r.mu.Lock()
-	if r.runtime != nil && r.workspace != nil {
-		r.runtime.DeleteWorkspace(r.workspace.ID)
+	wasActive := r.activeProjectID == project.ID
+	r.mu.Unlock()
+
+	r.startMu.Lock()
+	if wasActive {
+		r.closeRuntimeTerminals("closed", "project deleted")
 	}
-	if r.cancel != nil {
-		r.cancel()
+	r.mu.Lock()
+	if wasActive {
+		if r.runtime != nil && r.workspace != nil {
+			r.runtime.DeleteWorkspace(r.workspace.ID)
+		}
+		if r.cancel != nil {
+			r.cancel()
+		}
+		r.runtime = nil
+		r.workspace = nil
+		r.runtimeConfigured = false
+		r.runtimeConfigKnown = false
+		r.projectPath = ""
+		r.activeProjectID = ""
+		r.starting = false
+		r.sessionID = ""
+		r.runtimeCtx = nil
+		r.cancel = nil
+		r.eventStats = runtimeEventStats{}
+		r.requests = make(map[string]runtimeRequestState)
+		r.sessionTurns = make(map[string]string)
+		r.toolEvents = make(map[string]runtimeToolEventState)
+		r.toolCalls = nil
+		r.refs = runtimeRefStore{}
+		r.compactBoundaries = runtimeCompactBoundaryStore{}
+		r.worktrees = runtimeWorktreeStore{}
+		r.sandboxDecisions = runtimeSandboxDecisionStore{}
+		r.hookExecutions = runtimeHookExecutionStore{}
+		r.agentTasks = runtimeAgentTaskStore{}
+		r.turns = runtimeTurnStore{}
+		r.userInputs = runtimeUserInputStore{}
+		r.eventStore = runtimeEventStore{}
+		r.permissionStore = runtimePermissionStore{}
+		r.mcpRequestStore = runtimeMCPRequestStore{}
+		r.runs = runtimeRunStore{}
+		r.transitions = runtimeRunTransitionStore{}
+		r.permissions = make(map[string]pendingRuntimePermission)
+		r.policy = defaultRuntimePolicy()
+		r.capabilityLoads = make(map[string]runtimeCapabilityLoadRecord)
+		r.terminalsByID = make(map[string]*runtimeTerminalState)
+		r.terminalIDsBySession = make(map[string]map[string]struct{})
+		r.recovery = runtimeRecoveryRecord{}
+		r.events = nil
 	}
-	r.runtime = nil
-	r.workspace = nil
-	r.runtimeConfigured = false
-	r.runtimeConfigKnown = false
-	r.projectPath = ""
-	r.starting = false
-	r.sessionID = ""
-	r.runtimeCtx = nil
-	r.cancel = nil
-	r.eventStats = runtimeEventStats{}
-	r.requests = make(map[string]runtimeRequestState)
-	r.sessionTurns = make(map[string]string)
-	r.toolEvents = make(map[string]runtimeToolEventState)
-	r.toolCalls = nil
-	r.refs = runtimeRefStore{}
-	r.compactBoundaries = runtimeCompactBoundaryStore{}
-	r.worktrees = runtimeWorktreeStore{}
-	r.sandboxDecisions = runtimeSandboxDecisionStore{}
-	r.hookExecutions = runtimeHookExecutionStore{}
-	r.agentTasks = runtimeAgentTaskStore{}
-	r.turns = runtimeTurnStore{}
-	r.userInputs = runtimeUserInputStore{}
-	r.eventStore = runtimeEventStore{}
-	r.permissionStore = runtimePermissionStore{}
-	r.mcpRequestStore = runtimeMCPRequestStore{}
-	r.runs = runtimeRunStore{}
-	r.transitions = runtimeRunTransitionStore{}
-	r.permissions = make(map[string]pendingRuntimePermission)
-	r.policy = defaultRuntimePolicy()
-	r.capabilityLoads = make(map[string]runtimeCapabilityLoadRecord)
-	r.terminalsByID = make(map[string]*runtimeTerminalState)
-	r.terminalIDsBySession = make(map[string]map[string]struct{})
-	r.recovery = runtimeRecoveryRecord{}
-	r.events = nil
 	r.mu.Unlock()
 	r.startMu.Unlock()
-	if err := db.Release(projectDataDir); err != nil {
-		return RuntimeOpenProjectResponse{}, fmt.Errorf("failed to release project database: %w", err)
-	}
-	if err := os.RemoveAll(projectDataDir); err != nil {
-		return RuntimeOpenProjectResponse{}, fmt.Errorf("failed to remove project application data: %w", err)
+
+	mode := runtimeDeleteMode(ctx, store.db)
+	if mode == runtimeDeleteModeSoft {
+		if err := store.SoftDelete(ctx, project.ID); err != nil {
+			return RuntimeOpenProjectResponse{}, err
+		}
+	} else {
+		if err := purgeRuntimeProject(ctx, store.db, project.ID, filepath.Join(store.dataDir, "runtime_refs")); err != nil {
+			return RuntimeOpenProjectResponse{}, fmt.Errorf("failed to purge project data: %w", err)
+		}
+		if project.DataDir != "" && project.DataDir != store.dataDir {
+			if err := ensureRuntimeProjectPathUnderRoot(filepath.Join(store.dataDir, "projects"), project.DataDir); err == nil {
+				_ = db.Release(project.DataDir)
+				_ = os.RemoveAll(project.DataDir)
+			}
+		}
 	}
 
 	nextStatus, err := r.Status(ctx)
@@ -242,6 +266,14 @@ func (r *runtimeService) OpenProject(ctx context.Context, req RuntimeOpenProject
 	if err := requireRuntimeProjectDirectory(projectPath); err != nil {
 		return RuntimeOpenProjectResponse{}, err
 	}
+	store, err := r.projectStore(ctx)
+	if err != nil {
+		return RuntimeOpenProjectResponse{}, err
+	}
+	project, err := store.UpsertActiveByPath(ctx, projectPath)
+	if err != nil {
+		return RuntimeOpenProjectResponse{}, err
+	}
 
 	r.startMu.Lock()
 	r.closeRuntimeTerminals("closed", "project switched")
@@ -257,6 +289,7 @@ func (r *runtimeService) OpenProject(ctx context.Context, req RuntimeOpenProject
 	r.runtimeConfigured = false
 	r.runtimeConfigKnown = false
 	r.projectPath = projectPath
+	r.activeProjectID = project.ID
 	r.starting = false
 	r.sessionID = ""
 	r.runtimeCtx = nil
@@ -294,9 +327,64 @@ func (r *runtimeService) OpenProject(ctx context.Context, req RuntimeOpenProject
 		return RuntimeOpenProjectResponse{}, err
 	}
 	return RuntimeOpenProjectResponse{
-		Project: runtimeProjectFromStatus(status),
+		Project: runtimeProjectRecordToDTO(project, project.ID),
 		Status:  status,
 	}, nil
+}
+
+func (r *runtimeService) Projects(ctx context.Context) (RuntimeProjectsResponse, error) {
+	store, err := r.projectStore(ctx)
+	if err != nil {
+		return RuntimeProjectsResponse{}, err
+	}
+	records, err := store.ListActive(ctx)
+	if err != nil {
+		return RuntimeProjectsResponse{}, err
+	}
+	r.mu.Lock()
+	activeID := r.activeProjectID
+	r.mu.Unlock()
+	projects := make([]RuntimeProject, 0, len(records))
+	for _, record := range records {
+		projects = append(projects, runtimeProjectRecordToDTO(record, activeID))
+	}
+	return RuntimeProjectsResponse{Projects: projects}, nil
+}
+
+func (r *runtimeService) SidebarProjection(ctx context.Context) (RuntimeSidebarProjectionResponse, error) {
+	projects, err := r.Projects(ctx)
+	if err != nil {
+		return RuntimeSidebarProjectionResponse{}, err
+	}
+	sessions, err := r.Sessions(ctx)
+	if err != nil {
+		return RuntimeSidebarProjectionResponse{}, err
+	}
+	r.mu.Lock()
+	activeProjectID := r.activeProjectID
+	activeSessionID := r.sessionID
+	r.mu.Unlock()
+	return RuntimeSidebarProjectionResponse{
+		Projects:         projects.Projects,
+		Sessions:         sessions.Sessions,
+		CurrentProjectID: activeProjectID,
+		ActiveSessionID:  activeSessionID,
+	}, nil
+}
+
+func (r *runtimeService) projectStore(ctx context.Context) (runtimeProjectStore, error) {
+	layout, err := resolveDesktopLayout()
+	if err != nil {
+		return runtimeProjectStore{}, err
+	}
+	if err := ensureDesktopLayout(layout); err != nil {
+		return runtimeProjectStore{}, err
+	}
+	conn, err := db.Connect(ctx, layout.DataDir)
+	if err != nil {
+		return runtimeProjectStore{}, err
+	}
+	return newRuntimeProjectStore(conn, layout.DataDir), nil
 }
 
 func runtimeFallbackWorkspaceID(projectPath string) string {
@@ -438,9 +526,11 @@ func runtimeProjectFromStatus(status RuntimeStatus) RuntimeProject {
 		ID:              status.WorkspaceID,
 		Name:            runtimeProjectName(path),
 		Path:            path,
+		CanonicalPath:   runtimeProjectCanonicalPath(path),
 		IsGitRepository: runtimeProjectIsGitRepository(path),
 		Branch:          runtimeProjectBranch(path),
 		Current:         true,
+		ExistsOnDisk:    runtimeProjectExistsOnDisk(path),
 	}
 }
 
