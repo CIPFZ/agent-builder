@@ -362,6 +362,8 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && sessionMessagesPathID(r.URL.Path) != "":
 		value, err := s.service.SessionMessages(r.Context(), sessionMessagesPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionOutputStreamPathID(r.URL.Path) != "":
+		s.handleSessionOutputStream(w, r, sessionOutputStreamPathID(r.URL.Path))
 	case r.Method == http.MethodGet && sessionOutputEventsPathID(r.URL.Path) != "":
 		value, err := s.service.SessionOutputEvents(r.Context(), sessionOutputEventsPathID(r.URL.Path), runtimeQueryCursor(r))
 		writeRuntimeResult(w, value, err)
@@ -1332,6 +1334,41 @@ func (s *runtimeHTTPServer) handleEvents(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+func (s *runtimeHTTPServer) handleSessionOutputStream(w http.ResponseWriter, r *http.Request, sessionID string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming is not supported", http.StatusInternalServerError)
+		return
+	}
+	after := strings.TrimSpace(r.URL.Query().Get("after"))
+	events, unsubscribe := s.service.SubscribeSessionOutputEvents(r.Context(), sessionID, after)
+	defer unsubscribe()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(event)
+			if err != nil {
+				slog.Error("Failed to encode session output SSE event", "error", err)
+				continue
+			}
+			fmt.Fprintf(w, "event: output-event\ndata: %s\n\n", data)
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
 func (s *runtimeHTTPServer) handleTerminalStream(w http.ResponseWriter, r *http.Request, terminalID string) {
 	after, err := parseRuntimeSequence(r.URL.Query().Get("after"))
 	if err != nil {
@@ -1685,6 +1722,10 @@ func sessionOutputPathID(path string) string {
 
 func sessionOutputEventsPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/output/events")
+}
+
+func sessionOutputStreamPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/output/stream")
 }
 
 func sessionActivityPathID(path string) string {

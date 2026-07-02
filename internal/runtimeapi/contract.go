@@ -114,6 +114,9 @@ var Endpoints = []Endpoint{
 	{Method: MethodGet, Path: "/v1/audit/turns/{turn_id}"},
 	{Method: MethodGet, Path: "/v1/audit/sessions/{session_id}"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/compact"},
+	{Method: MethodGet, Path: "/v1/sessions/{session_id}/output"},
+	{Method: MethodGet, Path: "/v1/sessions/{session_id}/output/events"},
+	{Method: MethodGet, Path: "/v1/sessions/{session_id}/output/stream"},
 	{Method: MethodGet, Path: "/v1/events"},
 }
 
@@ -265,7 +268,32 @@ const (
 	EventMemoryRecordDeleted           = "memory.record.deleted"
 	EventMemoryRecordInjected          = "memory.record.injected"
 	EventMemoryRecordSkipped           = "memory.record.skipped"
+	// EventOutputTextDelta is an ephemeral runtime event that streams the
+	// suffix a token added to an assistant message's text or reasoning part.
+	// It is never persisted to the event store nor written to the ring
+	// buffer; consumers apply it advisory-only using ContentLen as an
+	// idempotency key (a delta is applied when ContentLen > knownLen).
+	EventOutputTextDelta = "output.text.delta"
 )
+
+// EphemeralEventTypes lists event types that MUST NOT be persisted to the
+// event store or accumulate in the in-memory ring buffer. They are used for
+// live streaming only. The replay invariant snapshot(c0) + persisted(c0..cN)
+// == snapshot(cN) is defined only over non-ephemeral events.
+var EphemeralEventTypes = []string{
+	EventOutputTextDelta,
+}
+
+// IsEphemeralEventType returns true if the given event type is streaming-only
+// and should be skipped by the persistence layer.
+func IsEphemeralEventType(eventType string) bool {
+	for _, candidate := range EphemeralEventTypes {
+		if eventType == candidate {
+			return true
+		}
+	}
+	return false
+}
 
 var EventTypes = []string{
 	EventRuntimeStarted,
@@ -415,6 +443,7 @@ var EventTypes = []string{
 	EventMemoryRecordDeleted,
 	EventMemoryRecordInjected,
 	EventMemoryRecordSkipped,
+	EventOutputTextDelta,
 }
 
 type Event struct {

@@ -68,6 +68,11 @@ type RuntimeTerminalStreamAckRequest = runtime.RuntimeTerminalStreamAckRequest
 type RuntimeTerminalStreamStopRequest = runtime.RuntimeTerminalStreamStopRequest
 type RuntimeTerminalStreamMessage = runtime.RuntimeTerminalStreamMessage
 type RuntimeTerminalStreamResponse = runtime.RuntimeTerminalStreamResponse
+type RuntimeOutputStreamStartRequest = runtime.RuntimeOutputStreamStartRequest
+type RuntimeOutputStreamStopRequest = runtime.RuntimeOutputStreamStopRequest
+type RuntimeOutputStreamResponse = runtime.RuntimeOutputStreamResponse
+type RuntimeOutputStreamMessage = runtime.RuntimeOutputStreamMessage
+type RuntimeOutputTextDelta = runtime.RuntimeOutputTextDelta
 type RuntimeTerminalProfile = runtime.RuntimeTerminalProfile
 type RuntimeTerminalSettings = runtime.RuntimeTerminalSettings
 type RuntimeTerminalSettingsResponse = runtime.RuntimeTerminalSettingsResponse
@@ -245,6 +250,12 @@ type RuntimeBridge struct {
 	service         runtime.RuntimeService
 	terminalMu      sync.Mutex
 	terminalStreams map[string]*runtimeBridgeTerminalStream
+	outputMu        sync.Mutex
+	outputStreams   map[string]*runtimeBridgeOutputStream
+	// outputStreamBySession lets a new StartSessionOutputStream stop the
+	// previous stream for the same session automatically (session switch
+	// path).
+	outputStreamBySession map[string]string
 }
 
 type runtimeBridgeTerminalStream struct {
@@ -252,12 +263,19 @@ type runtimeBridgeTerminalStream struct {
 	ackCh  chan int64
 }
 
+type runtimeBridgeOutputStream struct {
+	cancel    context.CancelFunc
+	sessionID string
+}
+
 func NewRuntimeBridge() *RuntimeBridge {
 
 	return &RuntimeBridge{
 
-		service:         runtime.NewRuntimeService(),
-		terminalStreams: make(map[string]*runtimeBridgeTerminalStream),
+		service:               runtime.NewRuntimeService(),
+		terminalStreams:       make(map[string]*runtimeBridgeTerminalStream),
+		outputStreams:         make(map[string]*runtimeBridgeOutputStream),
+		outputStreamBySession: make(map[string]string),
 	}
 
 }
@@ -985,6 +1003,158 @@ func (r *RuntimeBridge) SessionOutputEvents(ctx context.Context, sessionID strin
 
 	return r.service.SessionOutputEvents(ctx, sessionID, after)
 
+}
+
+// StartSessionOutputStream opens a per-session push channel that batches
+// RuntimeOutputEvent (including ephemeral text deltas). Emits Wails app
+// events under the name "agent-builder:output-stream" with a 50ms batcher.
+// Only one stream is active per session per bridge; a new call for the
+// same session stops the previous stream first (session switch path).
+func (r *RuntimeBridge) StartSessionOutputStream(ctx context.Context, req RuntimeOutputStreamStartRequest) (RuntimeOutputStreamResponse, error) {
+	app := application.Get()
+	if app == nil {
+		return RuntimeOutputStreamResponse{}, errors.New("desktop application is not initialized")
+	}
+	sessionID := strings.TrimSpace(req.SessionID)
+	if sessionID == "" {
+		return RuntimeOutputStreamResponse{}, errors.New("session id is required")
+	}
+	// Stop any previous stream for this session to avoid dueling emitters.
+	r.outputMu.Lock()
+	if existing, ok := r.outputStreamBySession[sessionID]; ok {
+		r.outputMu.Unlock()
+		r.stopSessionOutputStream(existing)
+		r.outputMu.Lock()
+	}
+	streamID := strings.TrimSpace(req.StreamID)
+	if streamID == "" {
+		streamID = fmt.Sprintf("session-output-stream-%d", time.Now().UnixNano())
+	}
+	eventName := "agent-builder:output-stream"
+	streamCtx, cancel := context.WithCancel(context.Background())
+	events, unsubscribe := r.service.SubscribeSessionOutputEvents(streamCtx, sessionID, req.After)
+	stream := &runtimeBridgeOutputStream{
+		cancel: func() {
+			cancel()
+			unsubscribe()
+		},
+		sessionID: sessionID,
+	}
+	r.outputStreams[streamID] = stream
+	r.outputStreamBySession[sessionID] = streamID
+	r.outputMu.Unlock()
+
+	go r.runSessionOutputStream(streamCtx, app, eventName, streamID, sessionID, events)
+	return RuntimeOutputStreamResponse{StreamID: streamID, EventName: eventName}, nil
+}
+
+// StopSessionOutputStream tears down a stream opened by
+// StartSessionOutputStream. Returns false if the stream is unknown.
+func (r *RuntimeBridge) StopSessionOutputStream(ctx context.Context, req RuntimeOutputStreamStopRequest) (bool, error) {
+	return r.stopSessionOutputStream(strings.TrimSpace(req.StreamID)), nil
+}
+
+func (r *RuntimeBridge) stopSessionOutputStream(streamID string) bool {
+	if streamID == "" {
+		return false
+	}
+	r.outputMu.Lock()
+	stream := r.outputStreams[streamID]
+	if stream != nil {
+		delete(r.outputStreams, streamID)
+		if r.outputStreamBySession[stream.sessionID] == streamID {
+			delete(r.outputStreamBySession, stream.sessionID)
+		}
+	}
+	r.outputMu.Unlock()
+	if stream == nil {
+		return false
+	}
+	stream.cancel()
+	return true
+}
+
+const (
+	runtimeBridgeSessionOutputBatchWait = 50 * time.Millisecond
+	runtimeBridgeSessionOutputBatchMax  = 64
+)
+
+func (r *RuntimeBridge) runSessionOutputStream(
+	ctx context.Context,
+	app *application.App,
+	eventName string,
+	streamID string,
+	sessionID string,
+	events <-chan RuntimeOutputEvent,
+) {
+	defer r.stopSessionOutputStream(streamID)
+	for {
+		batch, ok := nextRuntimeBridgeSessionOutputBatch(ctx, events)
+		if !ok {
+			return
+		}
+		batch = mergeSessionOutputDeltas(batch)
+		app.Event.Emit(eventName, RuntimeOutputStreamMessage{
+			StreamID:  streamID,
+			SessionID: sessionID,
+			Events:    batch,
+		})
+	}
+}
+
+func nextRuntimeBridgeSessionOutputBatch(ctx context.Context, events <-chan RuntimeOutputEvent) ([]RuntimeOutputEvent, bool) {
+	var batch []RuntimeOutputEvent
+	timer := time.NewTimer(runtimeBridgeSessionOutputBatchWait)
+	defer timer.Stop()
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return batch, len(batch) > 0
+			}
+			batch = append(batch, event)
+			if len(batch) >= runtimeBridgeSessionOutputBatchMax {
+				return batch, true
+			}
+		case <-timer.C:
+			if len(batch) > 0 {
+				return batch, true
+			}
+			timer.Reset(runtimeBridgeSessionOutputBatchWait)
+		case <-ctx.Done():
+			return nil, false
+		}
+	}
+}
+
+// mergeSessionOutputDeltas collapses consecutive text-delta events for the
+// same message into one accumulated delta so the front-end sees at most one
+// setState per flush per message. Non-delta events pass through unchanged.
+func mergeSessionOutputDeltas(events []RuntimeOutputEvent) []RuntimeOutputEvent {
+	if len(events) < 2 {
+		return events
+	}
+	out := make([]RuntimeOutputEvent, 0, len(events))
+	for _, event := range events {
+		if event.TextDelta == nil {
+			out = append(out, event)
+			continue
+		}
+		if len(out) == 0 {
+			out = append(out, event)
+			continue
+		}
+		last := &out[len(out)-1]
+		if last.TextDelta != nil && last.TextDelta.MessageID == event.TextDelta.MessageID && last.TextDelta.PartType == event.TextDelta.PartType {
+			last.TextDelta.Delta += event.TextDelta.Delta
+			if event.TextDelta.ContentLen > last.TextDelta.ContentLen {
+				last.TextDelta.ContentLen = event.TextDelta.ContentLen
+			}
+			continue
+		}
+		out = append(out, event)
+	}
+	return out
 }
 
 func (r *RuntimeBridge) SessionActivity(ctx context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {

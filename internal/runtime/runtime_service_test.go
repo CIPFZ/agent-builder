@@ -5163,6 +5163,13 @@ func (s *recordingRuntimeService) SessionOutputEvents(_ context.Context, session
 	return s.outputEvents, nil
 }
 
+func (s *recordingRuntimeService) SubscribeSessionOutputEvents(_ context.Context, sessionID string, after string) (<-chan RuntimeOutputEvent, func()) {
+	s.outputEventsSession = sessionID
+	s.outputEventsAfter = after
+	ch := make(chan RuntimeOutputEvent)
+	return ch, func() {}
+}
+
 func (s *recordingRuntimeService) SessionActivity(_ context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {
 	s.activitySession = sessionID
 	if s.activity.SessionID == "" {

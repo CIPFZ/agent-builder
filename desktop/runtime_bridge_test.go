@@ -204,6 +204,51 @@ func TestRuntimeBridgeForwardsTodoQueries(t *testing.T) {
 	}
 }
 
+func TestMergeSessionOutputDeltasCoalescesConsecutiveSameMessage(t *testing.T) {
+	t.Parallel()
+
+	msgA := runtime.RuntimeOutputEvent{Kind: "output.text.delta", TextDelta: &runtime.RuntimeOutputTextDelta{MessageID: "msg-1", PartType: "text", Delta: "he", ContentLen: 2}}
+	msgB := runtime.RuntimeOutputEvent{Kind: "output.text.delta", TextDelta: &runtime.RuntimeOutputTextDelta{MessageID: "msg-1", PartType: "text", Delta: "llo", ContentLen: 5}}
+	msgC := runtime.RuntimeOutputEvent{Kind: "output.text.delta", TextDelta: &runtime.RuntimeOutputTextDelta{MessageID: "msg-1", PartType: "reasoning", Delta: "?", ContentLen: 1}}
+	msgD := runtime.RuntimeOutputEvent{Kind: "output.text.delta", TextDelta: &runtime.RuntimeOutputTextDelta{MessageID: "msg-2", PartType: "text", Delta: "!", ContentLen: 1}}
+	item := runtime.RuntimeOutputEvent{Kind: "conversation_item.updated"}
+
+	out := mergeSessionOutputDeltas([]runtime.RuntimeOutputEvent{msgA, msgB, msgC, msgD, item})
+	if len(out) != 4 {
+		t.Fatalf("expected 4 merged events, got %d: %#v", len(out), out)
+	}
+	if out[0].TextDelta.Delta != "hello" || out[0].TextDelta.ContentLen != 5 {
+		t.Fatalf("first merged delta = %#v", out[0].TextDelta)
+	}
+	if out[1].TextDelta.PartType != "reasoning" {
+		t.Fatalf("part-type switch should not merge: %#v", out[1].TextDelta)
+	}
+	if out[2].TextDelta.MessageID != "msg-2" {
+		t.Fatalf("message switch should not merge: %#v", out[2].TextDelta)
+	}
+	if out[3].Kind != "conversation_item.updated" {
+		t.Fatalf("non-delta event lost: %#v", out[3])
+	}
+}
+
+func TestStopSessionOutputStreamUnknownStreamIsNoop(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{}
+	bridge := &RuntimeBridge{
+		service:               service,
+		outputStreams:         make(map[string]*runtimeBridgeOutputStream),
+		outputStreamBySession: make(map[string]string),
+	}
+	ok, err := bridge.StopSessionOutputStream(context.Background(), runtime.RuntimeOutputStreamStopRequest{StreamID: "ghost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("unknown stream should not report stopped")
+	}
+}
+
 func TestRuntimeBridgeForwardsTerminalLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -1028,6 +1073,9 @@ type recordingRuntimeService struct {
 	outputEvents                RuntimeOutputEventsResponse
 	outputEventsSessionID       string
 	outputEventsAfter           string
+	outputStreamSessionID       string
+	outputStreamAfter           string
+	outputStreamEvents          []runtime.RuntimeOutputEvent
 	activityWindow              RuntimeSessionActivityWindowResponse
 	turnActivity                RuntimeTurnActivityResponse
 	reactCallchain              RuntimeReactCallchainResponse
@@ -1546,6 +1594,21 @@ func (s *recordingRuntimeService) SessionOutputEvents(_ context.Context, session
 		s.outputEvents.SessionID = sessionID
 	}
 	return s.outputEvents, nil
+}
+
+// SubscribeSessionOutputEvents lets bridge tests script the event stream by
+// pre-seeding outputStreamEvents. On Subscribe, all queued events are
+// enqueued and the returned closer drains the channel. Tests that only
+// exercise the Start/Stop plumbing without queued events can leave the slice
+// nil; the channel stays open and the closer is a no-op.
+func (s *recordingRuntimeService) SubscribeSessionOutputEvents(_ context.Context, sessionID string, after string) (<-chan runtime.RuntimeOutputEvent, func()) {
+	s.outputStreamSessionID = sessionID
+	s.outputStreamAfter = after
+	ch := make(chan runtime.RuntimeOutputEvent, len(s.outputStreamEvents)+8)
+	for _, ev := range s.outputStreamEvents {
+		ch <- ev
+	}
+	return ch, func() { /* leaving channel open is fine for these tests */ }
 }
 
 func (s *recordingRuntimeService) SessionActivity(_ context.Context, sessionID string) (RuntimeSessionActivityResponse, error) {

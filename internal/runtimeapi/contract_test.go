@@ -102,6 +102,9 @@ func TestEndpointsFreezePhase2MinimalAPI(t *testing.T) {
 		{Method: MethodGet, Path: "/v1/audit/turns/{turn_id}"},
 		{Method: MethodGet, Path: "/v1/audit/sessions/{session_id}"},
 		{Method: MethodGet, Path: "/v1/sessions/{session_id}/compact"},
+		{Method: MethodGet, Path: "/v1/sessions/{session_id}/output"},
+		{Method: MethodGet, Path: "/v1/sessions/{session_id}/output/events"},
+		{Method: MethodGet, Path: "/v1/sessions/{session_id}/output/stream"},
 		{Method: MethodGet, Path: "/v1/events"},
 	}
 
@@ -219,5 +222,22 @@ func TestEventValidateRequiresStableEnvelope(t *testing.T) {
 	event.Type = "message"
 	if err := event.Validate(); err == nil {
 		t.Fatal("Validate accepted legacy event type")
+	}
+}
+
+func TestOutputTextDeltaIsEphemeral(t *testing.T) {
+	t.Parallel()
+
+	if !IsEventType(EventOutputTextDelta) {
+		t.Fatal("EventOutputTextDelta must be registered as an event type")
+	}
+	if !IsEphemeralEventType(EventOutputTextDelta) {
+		t.Fatal("output.text.delta must be classified as ephemeral")
+	}
+	// Sanity: none of the load-bearing persisted types leak into ephemeral.
+	for _, persisted := range []string{EventMessageCreated, EventMessageUpdated, EventMessageCompleted, EventToolCallStarted, EventToolCallCompleted, EventTurnStarted, EventTurnCompleted} {
+		if IsEphemeralEventType(persisted) {
+			t.Fatalf("%q must not be classified ephemeral", persisted)
+		}
 	}
 }

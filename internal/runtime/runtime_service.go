@@ -39,6 +39,8 @@ func newRuntimeService() *runtimeService {
 		terminalIDsBySession: make(map[string]map[string]struct{}),
 
 		eventStream: newRuntimeSSEServer(),
+
+		messageStream: make(map[string]*messageStreamCursor),
 	}
 
 	service.httpAPI = newRuntimeHTTPServer(service)

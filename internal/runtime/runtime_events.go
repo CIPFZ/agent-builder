@@ -305,6 +305,7 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 	r.mu.Lock()
 
 	var runtimeEvents []RuntimeEvent
+	var deltaEvents []RuntimeEvent
 	now := time.Now()
 	r.eventStats.lastEventAt = now.UnixMilli()
 	switch payload := event.Payload.(type) {
@@ -314,9 +315,12 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 		turnID := r.sessionTurns[msg.SessionID]
 		r.recordUserMessageForTurnLocked(context.Background(), msg, turnID)
 		r.recordToolCallsFromMessage(context.Background(), msg, turnID, now)
+		deltaEvents = append(deltaEvents, r.deriveOutputTextDeltasLocked(msg, turnID, now)...)
 		runtimeEvent := newMessageRuntimeEvent(now, msg)
 		runtimeEvent.TurnID = turnID
-		runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(runtimeEvent))
+		if kept := r.recordMessageEventWithCoalesceLocked(runtimeEvent, now); kept != nil {
+			runtimeEvents = append(runtimeEvents, *kept)
+		}
 		for _, event := range newToolRuntimeEvents(now, msg, turnID, r.toolEvents) {
 			runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(event))
 		}
@@ -328,9 +332,12 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 		turnID := r.sessionTurns[payload.Payload.SessionID]
 		r.recordUserMessageForTurnLocked(context.Background(), payload.Payload, turnID)
 		r.recordToolCallsFromMessage(context.Background(), payload.Payload, turnID, now)
+		deltaEvents = append(deltaEvents, r.deriveOutputTextDeltasLocked(payload.Payload, turnID, now)...)
 		runtimeEvent := newMessageRuntimeEvent(now, payload.Payload)
 		runtimeEvent.TurnID = turnID
-		runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(runtimeEvent))
+		if kept := r.recordMessageEventWithCoalesceLocked(runtimeEvent, now); kept != nil {
+			runtimeEvents = append(runtimeEvents, *kept)
+		}
 		for _, event := range newToolRuntimeEvents(now, payload.Payload, turnID, r.toolEvents) {
 			runtimeEvents = append(runtimeEvents, r.appendRuntimeEventLocked(event))
 		}
@@ -351,6 +358,11 @@ func (r *runtimeService) recordRuntimeEvent(event pubsub.Event[any]) {
 		r.eventStats.otherEvents++
 	}
 	r.mu.Unlock()
+	// Ephemeral text deltas are pushed immediately with no persistence,
+	// no ring-buffer eviction, and no coalescing debounce.
+	for _, runtimeEvent := range deltaEvents {
+		r.publishRuntimeEvent(runtimeEvent)
+	}
 	for _, runtimeEvent := range runtimeEvents {
 		r.publishRuntimeEvent(runtimeEvent)
 	}
@@ -394,16 +406,23 @@ func (r *runtimeService) appendRuntimeEventLocked(event RuntimeEvent) RuntimeEve
 	if event.CreatedAt == "" {
 		event.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
+	if event.Payload == nil {
+		event.Payload = map[string]any{}
+	}
+	event.Payload = redactRuntimePayload(event.Payload)
+	// Ephemeral runtime events (streaming text deltas etc.) never touch the
+	// ring buffer or the persisted event store — they are pushed straight
+	// to subscribers as advisory increments. They also do not consume
+	// sequence numbers so the persisted cursor semantics stay clean.
+	if runtimeapi.IsEphemeralEventType(event.Type) {
+		return event
+	}
 	if event.Sequence == 0 {
 		r.nextEventSequence++
 		event.Sequence = r.nextEventSequence
 	} else if event.Sequence > r.nextEventSequence {
 		r.nextEventSequence = event.Sequence
 	}
-	if event.Payload == nil {
-		event.Payload = map[string]any{}
-	}
-	event.Payload = redactRuntimePayload(event.Payload)
 	r.events = append(r.events, event)
 	if len(r.events) > runtimeEventLimit {
 		r.events = r.events[len(r.events)-runtimeEventLimit:]
@@ -445,11 +464,20 @@ func (r *runtimeService) ensureEventStream() error {
 }
 
 func (r *runtimeService) publishRuntimeEvent(event RuntimeEvent) {
-	if event.Type == "" || r.eventStream == nil {
+	if event.Type == "" {
 		return
 	}
-	if event.Sequence == 0 {
+	// Ephemeral events don't have a persisted sequence number; they are
+	// still valid to broadcast to per-session subscribers.
+	if event.Sequence == 0 && !runtimeapi.IsEphemeralEventType(event.Type) {
 		event = r.storeRuntimeEvent(event)
+		return
+	}
+	r.publishSessionOutputEventFromRuntime(event)
+	if runtimeapi.IsEphemeralEventType(event.Type) {
+		return
+	}
+	if r.eventStream == nil {
 		return
 	}
 	if err := r.ensureEventStream(); err != nil {

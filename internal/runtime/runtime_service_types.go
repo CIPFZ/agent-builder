@@ -117,6 +117,7 @@ type RuntimeService interface {
 	SessionMessages(context.Context, string) (RuntimeMessagesResponse, error)
 	SessionOutput(context.Context, string, RuntimeOutputRequest) (RuntimeOutputSnapshot, error)
 	SessionOutputEvents(context.Context, string, string) (RuntimeOutputEventsResponse, error)
+	SubscribeSessionOutputEvents(context.Context, string, string) (<-chan RuntimeOutputEvent, func())
 	SessionActivity(context.Context, string) (RuntimeSessionActivityResponse, error)
 	SessionActivityWindow(context.Context, string, int) (RuntimeSessionActivityWindowResponse, error)
 	SessionActivityCursorWindow(context.Context, string, string, int) (RuntimeSessionActivityWindowResponse, error)
@@ -215,6 +216,20 @@ type runtimeService struct {
 	nextEventSequence    int64
 	eventStream          *runtimeSSEServer
 	httpAPI              *runtimeHTTPServer
+	messageStream        map[string]*messageStreamCursor
+	sessionOutputStream  *runtimeSessionOutputBroker
+}
+
+// messageStreamCursor tracks how much of an assistant message's text /
+// reasoning we have already forwarded as an ephemeral delta, and whether we
+// have recently emitted a persisted message.updated so the next one can be
+// coalesced.
+type messageStreamCursor struct {
+	sessionID          string
+	lastTextLen        int
+	lastReasoningLen   int
+	lastUpdateEmitted  int64
+	completed          bool
 }
 
 type RuntimeEvent = runtimeapi.Event

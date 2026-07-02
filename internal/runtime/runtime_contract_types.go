@@ -1831,6 +1831,53 @@ type RuntimeOutputEvent struct {
 	AgentTask     *RuntimeAgentTask         `json:"agentTask,omitempty"`
 	Todos         *RuntimeTodoSummary       `json:"todos,omitempty"`
 	Compact       *RuntimeCompactBoundary   `json:"compact,omitempty"`
+	TextDelta     *RuntimeOutputTextDelta   `json:"textDelta,omitempty"`
+}
+
+// RuntimeOutputTextDelta carries an ephemeral text/reasoning suffix appended
+// to an assistant message. ContentLen is the total length after the delta is
+// applied and doubles as the idempotency key: consumers apply when
+// ContentLen > known, and any full message payload cleanly resets streaming
+// state.
+type RuntimeOutputTextDelta struct {
+	MessageID  string `json:"messageId"`
+	TurnID     string `json:"turnId,omitempty"`
+	PartType   string `json:"partType"`
+	Delta      string `json:"delta"`
+	ContentLen int    `json:"contentLen"`
+}
+
+// RuntimeOutputStreamStartRequest opens a Wails per-session output push
+// channel that emits batches of RuntimeOutputEvent (including ephemeral text
+// deltas). Only one stream may be active per session per bridge; opening a
+// new one stops the previous stream automatically.
+type RuntimeOutputStreamStartRequest struct {
+	SessionID string `json:"sessionId"`
+	StreamID  string `json:"streamId,omitempty"`
+	After     string `json:"after,omitempty"`
+}
+
+// RuntimeOutputStreamStopRequest stops a previously started per-session
+// output stream. It is a no-op if the stream is unknown.
+type RuntimeOutputStreamStopRequest struct {
+	StreamID string `json:"streamId"`
+}
+
+// RuntimeOutputStreamResponse is returned when a stream is successfully
+// opened. EventName is the Wails app event the client should subscribe to
+// for batched RuntimeOutputStreamMessage payloads.
+type RuntimeOutputStreamResponse struct {
+	StreamID  string `json:"streamId"`
+	EventName string `json:"eventName"`
+}
+
+// RuntimeOutputStreamMessage is the batched Wails payload emitted at each
+// flush. Events include persisted diffs and ephemeral text deltas; consumers
+// disambiguate via event.Kind / event.TextDelta.
+type RuntimeOutputStreamMessage struct {
+	StreamID  string               `json:"streamId"`
+	SessionID string               `json:"sessionId"`
+	Events    []RuntimeOutputEvent `json:"events"`
 }
 
 type RuntimeSessionActivityResponse struct {

@@ -3198,6 +3198,33 @@ func TestRuntimeServiceAPIEndpointBindsLoopbackWithToken(t *testing.T) {
 	}
 }
 
+func TestRuntimeHTTPServerSessionOutputStreamHandshake(t *testing.T) {
+	t.Parallel()
+
+	service := newRuntimeService()
+	server := newRuntimeHTTPServer(service)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/v1/sessions/session-1/output/stream", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+server.Token())
+	recorder := newStreamingRecorder()
+	done := make(chan struct{})
+	go func() {
+		server.ServeHTTP(recorder, req)
+		close(done)
+	}()
+	recorder.waitForLine(t, ": connected")
+	cancel()
+	<-done
+	if got := recorder.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+}
+
 func TestRuntimeHTTPServerStreamsRuntimeEvents(t *testing.T) {
 	t.Parallel()
 
