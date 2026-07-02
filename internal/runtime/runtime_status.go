@@ -18,6 +18,7 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 	ws := *r.workspace
 	sessionID := r.sessionID
 	explicitProject := r.projectPath != ""
+	workingDir := firstNonEmpty(r.projectPath, ws.Path)
 	events := r.eventStats.snapshot()
 	requests := r.runtimeRequestsLocked()
 	sessionRequestID := r.sessionTurns[sessionID]
@@ -34,7 +35,7 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 			Ready:           true,
 			WorkspaceID:     ws.ID,
 			SessionID:       sessionID,
-			WorkingDir:      ws.Path,
+			WorkingDir:      workingDir,
 			ExplicitProject: explicitProject,
 			Model:           sessionRequest.Model,
 			Provider:        sessionRequest.Provider,
@@ -80,7 +81,7 @@ func (r *runtimeService) Status(ctx context.Context) (RuntimeStatus, error) {
 		Ready:           info.IsReady,
 		WorkspaceID:     ws.ID,
 		SessionID:       sessionID,
-		WorkingDir:      ws.Path,
+		WorkingDir:      workingDir,
 		ExplicitProject: explicitProject,
 		Model:           info.ModelCfg.Model,
 		Provider:        info.ModelCfg.Provider,

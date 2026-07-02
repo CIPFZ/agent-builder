@@ -16,12 +16,18 @@ func (b *Service) CreateSession(ctx context.Context, workspaceID, title string) 
 // CreateSessionWithScope creates a new session in the given workspace with
 // explicit product ownership metadata.
 func (b *Service) CreateSessionWithScope(ctx context.Context, workspaceID, title, projectID, scope string) (session.Session, error) {
+	return b.CreateSessionWithScopeAndWorkdir(ctx, workspaceID, title, projectID, scope, "", "", true)
+}
+
+// CreateSessionWithScopeAndWorkdir creates a new session with explicit product
+// ownership and execution context metadata.
+func (b *Service) CreateSessionWithScopeAndWorkdir(ctx context.Context, workspaceID, title, projectID, scope, workdir, canonicalWorkdir string, workdirExists bool) (session.Session, error) {
 	ws, err := b.GetWorkspace(workspaceID)
 	if err != nil {
 		return session.Session{}, err
 	}
 
-	return ws.Sessions.CreateWithScope(ctx, title, projectID, scope)
+	return ws.Sessions.CreateWithScopeAndWorkdir(ctx, title, projectID, scope, workdir, canonicalWorkdir, workdirExists)
 }
 
 // GetSession retrieves a session by workspace and session ID.

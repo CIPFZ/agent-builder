@@ -281,6 +281,7 @@ type RuntimeChatRequest struct {
 	SessionID string `json:"sessionId,omitempty"`
 	ProjectID string `json:"projectId,omitempty"`
 	Scope     string `json:"scope,omitempty"`
+	Workdir   string `json:"workdir,omitempty"`
 }
 
 type RuntimeChatResponse struct {
@@ -294,6 +295,7 @@ type RuntimeUserInputRequest struct {
 	SessionID string                  `json:"sessionId,omitempty"`
 	ProjectID string                  `json:"projectId,omitempty"`
 	Scope     string                  `json:"scope,omitempty"`
+	Workdir   string                  `json:"workdir,omitempty"`
 	Mode      string                  `json:"mode"`
 	Items     []RuntimeUserInputItem  `json:"items"`
 	Options   RuntimeUserInputOptions `json:"options,omitempty"`
@@ -322,6 +324,7 @@ type RuntimeNormalizedInput struct {
 	SessionID            string                   `json:"sessionId"`
 	ProjectID            string                   `json:"projectId,omitempty"`
 	Scope                string                   `json:"scope,omitempty"`
+	Workdir              string                   `json:"workdir,omitempty"`
 	Mode                 string                   `json:"mode"`
 	Prompt               string                   `json:"prompt,omitempty"`
 	Messages             []RuntimeMessageDraft    `json:"messages"`
@@ -1639,6 +1642,8 @@ type RuntimeSession struct {
 	Title            string       `json:"title"`
 	ProjectID        string       `json:"projectId,omitempty"`
 	Scope            string       `json:"scope,omitempty"`
+	Workdir          string       `json:"workdir,omitempty"`
+	WorkdirExists    bool         `json:"workdirExists"`
 	MessageCount     int64        `json:"messageCount"`
 	PromptTokens     int64        `json:"promptTokens"`
 	CompletionTokens int64        `json:"completionTokens"`
@@ -1661,6 +1666,7 @@ type RuntimeSessionCreateRequest struct {
 	Title     string `json:"title"`
 	ProjectID string `json:"projectId,omitempty"`
 	Scope     string `json:"scope,omitempty"`
+	Workdir   string `json:"workdir,omitempty"`
 }
 
 type RuntimeSessionUpdateRequest struct {

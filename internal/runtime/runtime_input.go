@@ -296,6 +296,7 @@ func (r *runtimeService) normalizeRuntimeUserInput(ctx context.Context, req Runt
 		SessionID:   strings.TrimSpace(sessionID),
 		ProjectID:   strings.TrimSpace(req.ProjectID),
 		Scope:       strings.TrimSpace(req.Scope),
+		Workdir:     strings.TrimSpace(req.Workdir),
 		Mode:        mode,
 		Prompt:      prompt,
 		Attachments: attachments,

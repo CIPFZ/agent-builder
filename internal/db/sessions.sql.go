@@ -10,17 +10,52 @@ import (
 	"database/sql"
 )
 
+const sessionColumns = `id, parent_session_id, title, scope, project_id, workdir, canonical_workdir, workdir_exists, status, title_source, pinned, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, last_opened_at, deleted_at, summary_message_id, todos`
+
+type sessionScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanSession(row sessionScanner, i *Session) error {
+	return row.Scan(
+		&i.ID,
+		&i.ParentSessionID,
+		&i.Title,
+		&i.Scope,
+		&i.ProjectID,
+		&i.Workdir,
+		&i.CanonicalWorkdir,
+		&i.WorkdirExists,
+		&i.Status,
+		&i.TitleSource,
+		&i.Pinned,
+		&i.MessageCount,
+		&i.PromptTokens,
+		&i.CompletionTokens,
+		&i.Cost,
+		&i.UpdatedAt,
+		&i.CreatedAt,
+		&i.LastOpenedAt,
+		&i.DeletedAt,
+		&i.SummaryMessageID,
+		&i.Todos,
+	)
+}
+
 const createSession = `-- name: CreateSession :one
 INSERT INTO sessions (
     id,
     parent_session_id,
     title,
+    scope,
+    project_id,
+    workdir,
+    canonical_workdir,
+    workdir_exists,
     message_count,
     prompt_tokens,
     completion_tokens,
     cost,
-    project_id,
-    scope,
     summary_message_id,
     updated_at,
     created_at
@@ -34,22 +69,28 @@ INSERT INTO sessions (
     ?,
     ?,
     ?,
+    ?,
+    ?,
+    ?,
     null,
     strftime('%s', 'now'),
     strftime('%s', 'now')
-) RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, project_id, scope, updated_at, created_at, summary_message_id, todos
+) RETURNING ` + sessionColumns + `
 `
 
 type CreateSessionParams struct {
 	ID               string         `json:"id"`
 	ParentSessionID  sql.NullString `json:"parent_session_id"`
 	Title            string         `json:"title"`
+	Scope            string         `json:"scope"`
+	ProjectID        sql.NullString `json:"project_id"`
+	Workdir          sql.NullString `json:"workdir"`
+	CanonicalWorkdir sql.NullString `json:"canonical_workdir"`
+	WorkdirExists    int64          `json:"workdir_exists"`
 	MessageCount     int64          `json:"message_count"`
 	PromptTokens     int64          `json:"prompt_tokens"`
 	CompletionTokens int64          `json:"completion_tokens"`
 	Cost             float64        `json:"cost"`
-	ProjectID        string         `json:"project_id"`
-	Scope            string         `json:"scope"`
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
@@ -57,29 +98,18 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		arg.ID,
 		arg.ParentSessionID,
 		arg.Title,
+		arg.Scope,
+		arg.ProjectID,
+		arg.Workdir,
+		arg.CanonicalWorkdir,
+		arg.WorkdirExists,
 		arg.MessageCount,
 		arg.PromptTokens,
 		arg.CompletionTokens,
 		arg.Cost,
-		arg.ProjectID,
-		arg.Scope,
 	)
 	var i Session
-	err := row.Scan(
-		&i.ID,
-		&i.ParentSessionID,
-		&i.Title,
-		&i.MessageCount,
-		&i.PromptTokens,
-		&i.CompletionTokens,
-		&i.Cost,
-		&i.ProjectID,
-		&i.Scope,
-		&i.UpdatedAt,
-		&i.CreatedAt,
-		&i.SummaryMessageID,
-		&i.Todos,
-	)
+	err := scanSession(row, &i)
 	return i, err
 }
 
@@ -94,7 +124,7 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 }
 
 const getLastSession = `-- name: GetLastSession :one
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, project_id, scope, updated_at, created_at, summary_message_id, todos
+SELECT ` + sessionColumns + `
 FROM sessions
 WHERE deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -104,26 +134,12 @@ LIMIT 1
 func (q *Queries) GetLastSession(ctx context.Context) (Session, error) {
 	row := q.queryRow(ctx, q.getLastSessionStmt, getLastSession)
 	var i Session
-	err := row.Scan(
-		&i.ID,
-		&i.ParentSessionID,
-		&i.Title,
-		&i.MessageCount,
-		&i.PromptTokens,
-		&i.CompletionTokens,
-		&i.Cost,
-		&i.ProjectID,
-		&i.Scope,
-		&i.UpdatedAt,
-		&i.CreatedAt,
-		&i.SummaryMessageID,
-		&i.Todos,
-	)
+	err := scanSession(row, &i)
 	return i, err
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, project_id, scope, updated_at, created_at, summary_message_id, todos
+SELECT ` + sessionColumns + `
 FROM sessions
 WHERE id = ? AND deleted_at IS NULL LIMIT 1
 `
@@ -131,26 +147,12 @@ WHERE id = ? AND deleted_at IS NULL LIMIT 1
 func (q *Queries) GetSessionByID(ctx context.Context, id string) (Session, error) {
 	row := q.queryRow(ctx, q.getSessionByIDStmt, getSessionByID, id)
 	var i Session
-	err := row.Scan(
-		&i.ID,
-		&i.ParentSessionID,
-		&i.Title,
-		&i.MessageCount,
-		&i.PromptTokens,
-		&i.CompletionTokens,
-		&i.Cost,
-		&i.ProjectID,
-		&i.Scope,
-		&i.UpdatedAt,
-		&i.CreatedAt,
-		&i.SummaryMessageID,
-		&i.Todos,
-	)
+	err := scanSession(row, &i)
 	return i, err
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, project_id, scope, updated_at, created_at, summary_message_id, todos
+SELECT ` + sessionColumns + `
 FROM sessions
 WHERE parent_session_id is NULL AND deleted_at IS NULL
 ORDER BY updated_at DESC
@@ -165,21 +167,7 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 	items := []Session{}
 	for rows.Next() {
 		var i Session
-		if err := rows.Scan(
-			&i.ID,
-			&i.ParentSessionID,
-			&i.Title,
-			&i.MessageCount,
-			&i.PromptTokens,
-			&i.CompletionTokens,
-			&i.Cost,
-			&i.ProjectID,
-			&i.Scope,
-			&i.UpdatedAt,
-			&i.CreatedAt,
-			&i.SummaryMessageID,
-			&i.Todos,
-		); err != nil {
+		if err := scanSession(rows, &i); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -218,12 +206,15 @@ SET
     completion_tokens = ?,
     summary_message_id = ?,
     cost = ?,
-    project_id = ?,
     scope = ?,
+    project_id = ?,
+    workdir = ?,
+    canonical_workdir = ?,
+    workdir_exists = ?,
     todos = ?
 WHERE id = ?
 AND deleted_at IS NULL
-RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, project_id, scope, updated_at, created_at, summary_message_id, todos
+RETURNING ` + sessionColumns + `
 `
 
 type UpdateSessionParams struct {
@@ -232,8 +223,11 @@ type UpdateSessionParams struct {
 	CompletionTokens int64          `json:"completion_tokens"`
 	SummaryMessageID sql.NullString `json:"summary_message_id"`
 	Cost             float64        `json:"cost"`
-	ProjectID        string         `json:"project_id"`
 	Scope            string         `json:"scope"`
+	ProjectID        sql.NullString `json:"project_id"`
+	Workdir          sql.NullString `json:"workdir"`
+	CanonicalWorkdir sql.NullString `json:"canonical_workdir"`
+	WorkdirExists    int64          `json:"workdir_exists"`
 	Todos            sql.NullString `json:"todos"`
 	ID               string         `json:"id"`
 }
@@ -245,27 +239,16 @@ func (q *Queries) UpdateSession(ctx context.Context, arg UpdateSessionParams) (S
 		arg.CompletionTokens,
 		arg.SummaryMessageID,
 		arg.Cost,
-		arg.ProjectID,
 		arg.Scope,
+		arg.ProjectID,
+		arg.Workdir,
+		arg.CanonicalWorkdir,
+		arg.WorkdirExists,
 		arg.Todos,
 		arg.ID,
 	)
 	var i Session
-	err := row.Scan(
-		&i.ID,
-		&i.ParentSessionID,
-		&i.Title,
-		&i.MessageCount,
-		&i.PromptTokens,
-		&i.CompletionTokens,
-		&i.Cost,
-		&i.ProjectID,
-		&i.Scope,
-		&i.UpdatedAt,
-		&i.CreatedAt,
-		&i.SummaryMessageID,
-		&i.Todos,
-	)
+	err := scanSession(row, &i)
 	return i, err
 }
 

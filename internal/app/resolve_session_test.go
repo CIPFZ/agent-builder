@@ -34,6 +34,12 @@ func (m *mockSessionService) CreateWithScope(_ context.Context, title, projectID
 	return s, nil
 }
 
+func (m *mockSessionService) CreateWithScopeAndWorkdir(_ context.Context, title, projectID, scope, workdir, canonicalWorkdir string, workdirExists bool) (session.Session, error) {
+	s := session.Session{ID: "new-session-id", Title: title, ProjectID: projectID, Scope: scope, Workdir: workdir, CanonicalWorkdir: canonicalWorkdir, WorkdirExists: workdirExists}
+	m.created = append(m.created, s)
+	return s, nil
+}
+
 func (m *mockSessionService) CreateTitleSession(context.Context, string) (session.Session, error) {
 	return session.Session{}, nil
 }

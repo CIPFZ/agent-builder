@@ -53,14 +53,22 @@ type Session struct {
 	ID               string         `json:"id"`
 	ParentSessionID  sql.NullString `json:"parent_session_id"`
 	Title            string         `json:"title"`
+	Scope            string         `json:"scope"`
+	ProjectID        sql.NullString `json:"project_id"`
+	Workdir          sql.NullString `json:"workdir"`
+	CanonicalWorkdir sql.NullString `json:"canonical_workdir"`
+	WorkdirExists    int64          `json:"workdir_exists"`
+	Status           string         `json:"status"`
+	TitleSource      string         `json:"title_source"`
+	Pinned           int64          `json:"pinned"`
 	MessageCount     int64          `json:"message_count"`
 	PromptTokens     int64          `json:"prompt_tokens"`
 	CompletionTokens int64          `json:"completion_tokens"`
 	Cost             float64        `json:"cost"`
-	ProjectID        string         `json:"project_id"`
-	Scope            string         `json:"scope"`
 	UpdatedAt        int64          `json:"updated_at"`
 	CreatedAt        int64          `json:"created_at"`
+	LastOpenedAt     sql.NullInt64  `json:"last_opened_at"`
+	DeletedAt        sql.NullInt64  `json:"deleted_at"`
 	SummaryMessageID sql.NullString `json:"summary_message_id"`
 	Todos            sql.NullString `json:"todos"`
 }

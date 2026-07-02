@@ -6,11 +6,10 @@ import (
 	"embed"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
-	"testing"
-
-	"github.com/pressly/goose/v3"
+	"time"
 )
 
 var (
@@ -24,20 +23,12 @@ var (
 		"secure_delete": "ON",
 		"busy_timeout":  "30000",
 	}
-	gooseInitOnce sync.Once
-	gooseInitErr  error
 )
 
-//go:embed migrations/*.sql
-var FS embed.FS
+const expectedSchemaGeneration = "1"
 
-func init() {
-	goose.SetBaseFS(FS)
-
-	if testing.Testing() {
-		goose.SetLogger(goose.NopLogger())
-	}
-}
+//go:embed schema.sql
+var schemaFS embed.FS
 
 // connEntry holds a shared database connection and its reference count.
 type connEntry struct {
@@ -51,7 +42,7 @@ var (
 )
 
 // Connect opens a SQLite database connection for the given data
-// directory and runs migrations. If a connection to the same database
+// directory and initializes the final schema. If a connection to the same database
 // file already exists, the existing connection is returned with its
 // reference count incremented. Callers must pair each Connect with a
 // [Release] when they no longer need the connection.
@@ -94,16 +85,29 @@ func Connect(ctx context.Context, dataDir string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	if err := initGoose(); err != nil {
+	if err := ensureSchema(ctx, conn); err != nil {
+		if !isIncompatibleSchema(err) {
+			conn.Close()
+			slog.Error("Failed to initialize database schema", "error", err)
+			return nil, fmt.Errorf("failed to initialize database schema: %w", err)
+		}
 		conn.Close()
-		slog.Error("Failed to initialize goose", "error", err)
-		return nil, fmt.Errorf("failed to initialize goose: %w", err)
-	}
-
-	if err := goose.Up(conn, "migrations"); err != nil {
-		conn.Close()
-		slog.Error("Failed to apply migrations", "error", err)
-		return nil, fmt.Errorf("failed to apply migrations: %w", err)
+		if err := backupAndRecreateDatabase(ctx, dbPath); err != nil {
+			return nil, err
+		}
+		conn, err = openDB(dbPath)
+		if err != nil {
+			return nil, err
+		}
+		conn.SetMaxOpenConns(1)
+		if err = conn.PingContext(ctx); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("failed to connect to recreated database: %w", err)
+		}
+		if err := initializeSchema(ctx, conn); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("failed to initialize recreated database schema: %w", err)
+		}
 	}
 
 	pool[absPath] = &connEntry{db: conn, refCount: 1}
@@ -148,11 +152,77 @@ func ResetPool() {
 	}
 }
 
-func initGoose() error {
-	gooseInitOnce.Do(func() {
-		goose.SetBaseFS(FS)
-		gooseInitErr = goose.SetDialect("sqlite3")
-	})
+type incompatibleSchemaError struct {
+	reason string
+}
 
-	return gooseInitErr
+func (e incompatibleSchemaError) Error() string {
+	return "incompatible database schema: " + e.reason
+}
+
+func isIncompatibleSchema(err error) bool {
+	_, ok := err.(incompatibleSchemaError)
+	return ok
+}
+
+func ensureSchema(ctx context.Context, conn *sql.DB) error {
+	var tableCount int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&tableCount); err != nil {
+		return err
+	}
+	if tableCount == 0 {
+		return initializeSchema(ctx, conn)
+	}
+	var generation string
+	err := conn.QueryRowContext(ctx, `SELECT value FROM runtime_settings WHERE key = 'schema_generation'`).Scan(&generation)
+	if err != nil {
+		return incompatibleSchemaError{reason: "runtime_settings.schema_generation is missing"}
+	}
+	if generation != expectedSchemaGeneration {
+		return incompatibleSchemaError{reason: fmt.Sprintf("schema_generation=%q, expected %q", generation, expectedSchemaGeneration)}
+	}
+	return nil
+}
+
+func initializeSchema(ctx context.Context, conn *sql.DB) error {
+	schema, err := schemaFS.ReadFile("schema.sql")
+	if err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, string(schema)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func backupAndRecreateDatabase(ctx context.Context, dbPath string) error {
+	absPath, err := filepath.Abs(dbPath)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(absPath)
+	timestamp := time.Now().UTC().Format("20060102T150405Z")
+	backupDir := filepath.Join(dir, "backups", "schema-reset-"+timestamp)
+	if err := os.MkdirAll(backupDir, 0o700); err != nil {
+		return fmt.Errorf("failed to create database backup directory: %w", err)
+	}
+	for _, path := range []string{absPath, absPath + "-wal", absPath + "-shm"} {
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("failed to stat database file for backup: %w", err)
+		}
+		target := filepath.Join(backupDir, filepath.Base(path))
+		if err := os.Rename(path, target); err != nil {
+			return fmt.Errorf("failed to backup %s: %w", filepath.Base(path), err)
+		}
+		slog.Warn("Backed up incompatible Agent Builder database", "source", path, "backup", target)
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	return nil
 }

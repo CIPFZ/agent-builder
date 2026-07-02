@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/CIPFZ/agent-builder/internal/db"
-	"github.com/pressly/goose/v3"
 )
 
 func TestRuntimeRunTransitionStoreUpsertsIdempotentlyAndListsInOrder(t *testing.T) {
@@ -80,7 +79,7 @@ func TestRuntimeRunTransitionStoreUpsertsIdempotentlyAndListsInOrder(t *testing.
 	}
 }
 
-func TestRuntimeRunTransitionMigrationRollsDownAndBackUp(t *testing.T) {
+func TestRuntimeRunTransitionFinalSchemaIsInitialized(t *testing.T) {
 	dataDir := t.TempDir()
 	conn, err := db.Connect(context.Background(), dataDir)
 	if err != nil {
@@ -91,19 +90,14 @@ func TestRuntimeRunTransitionMigrationRollsDownAndBackUp(t *testing.T) {
 		db.ResetPool()
 	})
 	if !sqliteTableExists(t, conn, "runtime_run_transitions") {
-		t.Fatal("runtime_run_transitions table missing after migration up")
+		t.Fatal("runtime_run_transitions table missing from final schema")
 	}
-	if err := goose.DownTo(conn, "migrations", 20260609000000); err != nil {
+	var generation string
+	if err := conn.QueryRowContext(context.Background(), `SELECT value FROM runtime_settings WHERE key = 'schema_generation'`).Scan(&generation); err != nil {
 		t.Fatal(err)
 	}
-	if sqliteTableExists(t, conn, "runtime_run_transitions") {
-		t.Fatal("runtime_run_transitions table still exists after migration down")
-	}
-	if err := goose.Up(conn, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if !sqliteTableExists(t, conn, "runtime_run_transitions") {
-		t.Fatal("runtime_run_transitions table missing after migration back up")
+	if generation != "1" {
+		t.Fatalf("schema_generation = %q, want 1", generation)
 	}
 }
 

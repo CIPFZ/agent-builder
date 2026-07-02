@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,11 +65,11 @@ func (r *runtimeService) CreateSession(ctx context.Context, req RuntimeSessionCr
 	wsID := r.workspace.ID
 	activeProjectID := r.activeProjectID
 	r.mu.Unlock()
-	projectID, scope, err := r.normalizeSessionOwnership(ctx, req.ProjectID, req.Scope, activeProjectID)
+	projectID, scope, workdir, canonicalWorkdir, workdirExists, err := r.normalizeSessionCreationContext(ctx, req.ProjectID, req.Scope, req.Workdir, activeProjectID)
 	if err != nil {
 		return RuntimeSessionResponse{}, err
 	}
-	sess, err := r.runtime.CreateSessionWithScope(ctx, wsID, title, projectID, scope)
+	sess, err := r.runtime.CreateSessionWithScopeAndWorkdir(ctx, wsID, title, projectID, scope, workdir, canonicalWorkdir, workdirExists)
 	if err != nil {
 		return RuntimeSessionResponse{}, fmt.Errorf("failed to create Agent Builder session: %w", err)
 	}
@@ -883,6 +885,8 @@ func toRuntimeSession(sess session.Session, activeID, workspaceID string) Runtim
 		Title:            firstNonEmpty(sess.Title, "New chat"),
 		ProjectID:        projectID,
 		Scope:            scope,
+		Workdir:          sess.Workdir,
+		WorkdirExists:    sess.WorkdirExists,
 		MessageCount:     sess.MessageCount,
 		PromptTokens:     sess.PromptTokens,
 		CompletionTokens: sess.CompletionTokens,
@@ -926,4 +930,89 @@ func (r *runtimeService) normalizeSessionOwnership(ctx context.Context, projectI
 		return "", "", fmt.Errorf("project session requires an active project: %w", err)
 	}
 	return projectID, "project", nil
+}
+
+func (r *runtimeService) normalizeSessionCreationContext(ctx context.Context, projectID, scope, workdir, activeProjectID string) (string, string, string, string, bool, error) {
+	projectID, normalizedScope, err := r.normalizeSessionOwnership(ctx, projectID, scope, activeProjectID)
+	if err != nil {
+		return "", "", "", "", false, err
+	}
+	if normalizedScope == "standalone" {
+		normalizedWorkdir, canonical, exists, err := normalizeSessionWorkdir(firstNonEmpty(workdir, runtimeStandaloneDefaultWorkdir()))
+		if err != nil {
+			return "", "", "", "", false, err
+		}
+		return "", "standalone", normalizedWorkdir, canonical, exists, nil
+	}
+	store, err := r.projectStore(ctx)
+	if err != nil {
+		return "", "", "", "", false, err
+	}
+	project, err := store.GetActive(ctx, projectID)
+	if err != nil {
+		return "", "", "", "", false, err
+	}
+	normalizedWorkdir, canonical, exists, err := normalizeSessionWorkdir(firstNonEmpty(workdir, project.Path))
+	if err != nil {
+		return "", "", "", "", false, err
+	}
+	if !runtimeProjectAllowsWorkdir(project, normalizedWorkdir, canonical) {
+		return "", "", "", "", false, fmt.Errorf("project session workdir %q is outside project %q", normalizedWorkdir, project.Path)
+	}
+	return projectID, "project", normalizedWorkdir, canonical, exists, nil
+}
+
+func normalizeSessionWorkdir(path string) (string, string, bool, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", "", false, errors.New("workdir is required")
+	}
+	cleaned := filepath.Clean(path)
+	if !filepath.IsAbs(cleaned) {
+		abs, err := filepath.Abs(cleaned)
+		if err != nil {
+			return "", "", false, fmt.Errorf("failed to resolve workdir: %w", err)
+		}
+		cleaned = abs
+	}
+	info, statErr := os.Stat(cleaned)
+	exists := statErr == nil && info.IsDir()
+	canonical := cleaned
+	if exists {
+		if evaluated, err := filepath.EvalSymlinks(cleaned); err == nil {
+			canonical = filepath.Clean(evaluated)
+		}
+	}
+	return cleaned, runtimeProjectCanonicalPath(canonical), exists, nil
+}
+
+func runtimeStandaloneDefaultWorkdir() string {
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		return home
+	}
+	return runtimeDefaultWorkingDir()
+}
+
+func runtimeProjectAllowsWorkdir(project runtimeProjectRecord, workdir, canonicalWorkdir string) bool {
+	for _, root := range []string{project.Path, project.GitRoot} {
+		if runtimePathContains(root, workdir) || runtimeProjectCanonicalPath(root) == canonicalWorkdir || runtimePathContains(runtimeProjectCanonicalPath(root), canonicalWorkdir) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimePathContains(root, child string) bool {
+	root = strings.TrimSpace(root)
+	child = strings.TrimSpace(child)
+	if root == "" || child == "" {
+		return false
+	}
+	root = filepath.Clean(root)
+	child = filepath.Clean(child)
+	if strings.EqualFold(root, child) {
+		return true
+	}
+	rel, err := filepath.Rel(root, child)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }

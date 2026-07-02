@@ -2,6 +2,7 @@ package filetracker
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,8 +37,12 @@ func setupTest(t *testing.T) *testEnv {
 func (e *testEnv) createSession(t *testing.T, sessionID string) {
 	t.Helper()
 	_, err := e.q.CreateSession(e.ctx, db.CreateSessionParams{
-		ID:    sessionID,
-		Title: "Test Session",
+		ID:               sessionID,
+		Title:            "Test Session",
+		Scope:            "standalone",
+		Workdir:          sql.NullString{String: ".", Valid: true},
+		CanonicalWorkdir: sql.NullString{String: ".", Valid: true},
+		WorkdirExists:    1,
 	})
 	require.NoError(t, err)
 }

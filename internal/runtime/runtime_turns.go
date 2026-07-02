@@ -48,6 +48,7 @@ func (r *runtimeService) Chat(ctx context.Context, req RuntimeChatRequest) (Runt
 		SessionID: req.SessionID,
 		ProjectID: req.ProjectID,
 		Scope:     req.Scope,
+		Workdir:   req.Workdir,
 		Mode:      runtimeInputModePrompt,
 		Items: []RuntimeUserInputItem{{
 			Type: runtimeInputItemText,
@@ -68,6 +69,7 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	requestSessionID := strings.TrimSpace(normalized.SessionID)
 	draftScope := strings.TrimSpace(normalized.Scope)
 	draftProjectID := strings.TrimSpace(normalized.ProjectID)
+	draftWorkdir := strings.TrimSpace(normalized.Workdir)
 	sessionID := requestSessionID
 	if sessionID == "" && draftScope == "" && draftProjectID == "" {
 		sessionID = r.sessionID
@@ -78,11 +80,11 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	}
 	r.mu.Unlock()
 	if sessionID == "" {
-		projectID, scope, err := r.normalizeSessionOwnership(ctx, normalized.ProjectID, normalized.Scope, activeProjectID)
+		projectID, scope, workdir, canonicalWorkdir, workdirExists, err := r.normalizeSessionCreationContext(ctx, normalized.ProjectID, normalized.Scope, normalized.Workdir, activeProjectID)
 		if err != nil {
 			return RuntimeChatResponse{}, err
 		}
-		sess, err := r.runtime.CreateSessionWithScope(ctx, wsID, "New chat", projectID, scope)
+		sess, err := r.runtime.CreateSessionWithScopeAndWorkdir(ctx, wsID, "New chat", projectID, scope, workdir, canonicalWorkdir, workdirExists)
 		if err != nil {
 			return RuntimeChatResponse{}, fmt.Errorf("failed to create session: %w", err)
 		}
@@ -101,6 +103,7 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 		})
 		draftProjectID = projectID
 		draftScope = scope
+		draftWorkdir = workdir
 	} else if requestSessionID != "" {
 		if _, err := r.runtime.GetSession(ctx, wsID, sessionID); err != nil {
 			return RuntimeChatResponse{}, fmt.Errorf("failed to select Agent Builder session: %w", err)
@@ -112,6 +115,7 @@ func (r *runtimeService) submitNormalizedInput(ctx context.Context, normalized R
 	normalized.SessionID = sessionID
 	normalized.ProjectID = draftProjectID
 	normalized.Scope = draftScope
+	normalized.Workdir = draftWorkdir
 	prompt := strings.TrimSpace(normalized.Prompt)
 	if prompt == "" && len(normalized.Attachments) > 0 {
 		prompt = "[attachments]"

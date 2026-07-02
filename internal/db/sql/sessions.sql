@@ -7,12 +7,18 @@ INSERT INTO sessions (
     prompt_tokens,
     completion_tokens,
     cost,
-    project_id,
     scope,
+    project_id,
+    workdir,
+    canonical_workdir,
+    workdir_exists,
     summary_message_id,
     updated_at,
     created_at
 ) VALUES (
+    ?,
+    ?,
+    ?,
     ?,
     ?,
     ?,
@@ -53,8 +59,11 @@ SET
     completion_tokens = ?,
     summary_message_id = ?,
     cost = ?,
-    project_id = ?,
     scope = ?,
+    project_id = ?,
+    workdir = ?,
+    canonical_workdir = ?,
+    workdir_exists = ?,
     todos = ?
 WHERE id = ?
 AND deleted_at IS NULL

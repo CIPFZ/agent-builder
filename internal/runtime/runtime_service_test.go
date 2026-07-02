@@ -46,7 +46,7 @@ func TestLocalModelConfigUsesDesktopConfigPath(t *testing.T) {
 	}
 }
 
-func TestRuntimeOpenProjectCreatesSwitchesAndClosesTerminals(t *testing.T) {
+func TestRuntimeOpenProjectCreatesSwitchesWithoutClosingTerminals(t *testing.T) {
 	root := runtimeDevTestRoot(t, "open-project")
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
 	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
@@ -94,15 +94,16 @@ func TestRuntimeOpenProjectCreatesSwitchesAndClosesTerminals(t *testing.T) {
 	if len(sessions.Sessions) != 1 || sessions.Sessions[0].ID != sessResp.Session.ID || sessions.Sessions[0].ProjectID != oldProjectID {
 		t.Fatalf("global sessions should retain old project session ownership: %#v", sessions.Sessions)
 	}
-	if _, err := service.WriteTerminalInput(context.Background(), "term-project-switch", RuntimeTerminalInputRequest{Data: terminalTestCommand("echo stale")}); err == nil {
-		t.Fatal("terminal should be closed after project switch")
+	if _, err := service.WriteTerminalInput(context.Background(), "term-project-switch", RuntimeTerminalInputRequest{Data: terminalTestCommand("echo still-open")}); err != nil {
+		t.Fatalf("terminal should remain open after lightweight project switch: %v", err)
 	}
+	_, _ = service.DeleteTerminal(context.Background(), "term-project-switch")
 	service.mu.Lock()
 	terminalCount := len(service.terminalsByID)
 	ownershipCount := len(service.terminalIDsBySession)
 	service.mu.Unlock()
 	if terminalCount != 0 || ownershipCount != 0 {
-		t.Fatalf("terminal maps after project switch = terminals:%d ownership:%d, want 0/0", terminalCount, ownershipCount)
+		t.Fatalf("terminal maps after cleanup = terminals:%d ownership:%d, want 0/0", terminalCount, ownershipCount)
 	}
 }
 
@@ -230,7 +231,7 @@ func TestRuntimeCreateProjectSucceedsWithoutConfiguredModel(t *testing.T) {
 	}
 }
 
-func TestRuntimeRenameProjectRenamesDirectoryMigratesSessionsAndClosesTerminals(t *testing.T) {
+func TestRuntimeRenameProjectRenamesDirectoryKeepsSessionsAndClosesTerminals(t *testing.T) {
 	root := runtimeDevTestRoot(t, "rename-project")
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
 	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
@@ -241,7 +242,6 @@ func TestRuntimeRenameProjectRenamesDirectoryMigratesSessionsAndClosesTerminals(
 		t.Fatal(err)
 	}
 	oldPath := created.Project.Path
-	oldDataDir := runtimeProjectDataDir(filepath.Join(root, "data"), oldPath)
 
 	service.mu.Lock()
 	workspaceID := service.workspace.ID
@@ -272,13 +272,6 @@ func TestRuntimeRenameProjectRenamesDirectoryMigratesSessionsAndClosesTerminals(
 	if _, err := os.Stat(wantPath); err != nil {
 		t.Fatalf("renamed project path missing: %v", err)
 	}
-	if _, err := os.Stat(oldDataDir); !os.IsNotExist(err) {
-		t.Fatalf("old project data dir still exists or stat failed unexpectedly: %v", err)
-	}
-	if _, err := os.Stat(runtimeProjectDataDir(filepath.Join(root, "data"), wantPath)); err != nil {
-		t.Fatalf("renamed project data dir missing: %v", err)
-	}
-
 	sessions, err := service.Sessions(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -384,7 +377,7 @@ func TestRuntimeOpenProjectInExplorerRejectsNonCurrentProject(t *testing.T) {
 	}
 }
 
-func TestRuntimeRemoveProjectArchivesAppDataKeepsProjectDirectoryAndClosesTerminals(t *testing.T) {
+func TestRuntimeRemoveProjectPurgesDBKeepsProjectDirectory(t *testing.T) {
 	root := runtimeDevTestRoot(t, "remove-project")
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
 	writeRuntimeDevModelConfig(t, root, "http://127.0.0.1:1")
@@ -395,7 +388,6 @@ func TestRuntimeRemoveProjectArchivesAppDataKeepsProjectDirectoryAndClosesTermin
 		t.Fatal(err)
 	}
 	projectPath := created.Project.Path
-	projectDataDir := runtimeProjectDataDir(filepath.Join(root, "data"), projectPath)
 
 	service.mu.Lock()
 	workspaceID := service.workspace.ID
@@ -407,10 +399,6 @@ func TestRuntimeRemoveProjectArchivesAppDataKeepsProjectDirectoryAndClosesTermin
 	if _, err := service.CreateTerminal(context.Background(), RuntimeTerminalCreateRequest{SessionID: session.ID, ID: "remove-terminal"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(projectDataDir); err != nil {
-		t.Fatalf("project data dir missing before remove: %v", err)
-	}
-
 	removed, err := service.RemoveProject(context.Background(), RuntimeProjectActionRequest{ProjectID: created.Project.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -418,21 +406,19 @@ func TestRuntimeRemoveProjectArchivesAppDataKeepsProjectDirectoryAndClosesTermin
 	if _, err := os.Stat(projectPath); err != nil {
 		t.Fatalf("project directory should be kept: %v", err)
 	}
-	if _, err := os.Stat(projectDataDir); !os.IsNotExist(err) {
-		t.Fatalf("project data dir still exists or stat failed unexpectedly: %v", err)
-	}
 	if removed.Status.WorkingDir == projectPath {
 		t.Fatalf("remove response still points at removed project: %#v", removed.Status)
 	}
-	if _, err := service.WriteTerminalInput(context.Background(), "remove-terminal", RuntimeTerminalInputRequest{Data: terminalTestCommand("echo stale")}); err == nil {
-		t.Fatal("terminal should be closed after project remove")
+	if _, err := service.WriteTerminalInput(context.Background(), "remove-terminal", RuntimeTerminalInputRequest{Data: terminalTestCommand("echo still-open")}); err != nil {
+		t.Fatalf("terminal should remain open after project metadata removal: %v", err)
 	}
+	_, _ = service.DeleteTerminal(context.Background(), "remove-terminal")
 	service.mu.Lock()
 	terminalCount := len(service.terminalsByID)
 	ownershipCount := len(service.terminalIDsBySession)
 	service.mu.Unlock()
 	if terminalCount != 0 || ownershipCount != 0 {
-		t.Fatalf("terminal maps after project remove = terminals:%d ownership:%d, want 0/0", terminalCount, ownershipCount)
+		t.Fatalf("terminal maps after cleanup = terminals:%d ownership:%d, want 0/0", terminalCount, ownershipCount)
 	}
 }
 
@@ -2769,18 +2755,11 @@ func TestRuntimeCreateSessionPersistsOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := newRuntimeService()
-	runtimeWorkbench, workspace := workbenchForSkillTest(t)
-	service.runtime = runtimeWorkbench
-	service.workspace = &apitypes.Workspace{ID: workspace.ID}
-	store, err := service.projectStore(context.Background())
+	opened, err := service.OpenProject(context.Background(), RuntimeOpenProjectRequest{Path: projectPath})
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, err := store.UpsertActiveByPath(context.Background(), projectPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service.activeProjectID = project.ID
+	project := opened.Project
 
 	projectSession, err := service.CreateSession(context.Background(), RuntimeSessionCreateRequest{
 		Title:     "Project chat",

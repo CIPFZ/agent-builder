@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -59,6 +61,12 @@ type Session struct {
 	Cost             float64
 	ProjectID        string
 	Scope            string
+	Workdir          string
+	CanonicalWorkdir string
+	WorkdirExists    bool
+	Status           string
+	TitleSource      string
+	Pinned           bool
 	Todos            []Todo
 	CreatedAt        int64
 	UpdatedAt        int64
@@ -68,6 +76,7 @@ type Service interface {
 	pubsub.Subscriber[Session]
 	Create(ctx context.Context, title string) (Session, error)
 	CreateWithScope(ctx context.Context, title, projectID, scope string) (Session, error)
+	CreateWithScopeAndWorkdir(ctx context.Context, title, projectID, scope, workdir, canonicalWorkdir string, workdirExists bool) (Session, error)
 	CreateTitleSession(ctx context.Context, parentSessionID string) (Session, error)
 	CreateTaskSession(ctx context.Context, toolCallID, parentSessionID, title string) (Session, error)
 	Get(ctx context.Context, id string) (Session, error)
@@ -97,15 +106,28 @@ type service struct {
 }
 
 func (s *service) Create(ctx context.Context, title string) (Session, error) {
-	return s.CreateWithScope(ctx, title, "", "project")
+	return s.CreateWithScope(ctx, title, "", "standalone")
 }
 
 func (s *service) CreateWithScope(ctx context.Context, title, projectID, scope string) (Session, error) {
+	return s.CreateWithScopeAndWorkdir(ctx, title, projectID, scope, "", "", true)
+}
+
+func (s *service) CreateWithScopeAndWorkdir(ctx context.Context, title, projectID, scope, workdir, canonicalWorkdir string, workdirExists bool) (Session, error) {
+	scope = normalizeSessionScope(scope)
+	if scope == "standalone" && strings.TrimSpace(workdir) == "" {
+		workdir = defaultSessionWorkdir()
+		canonicalWorkdir = canonicalSessionWorkdir(workdir)
+		workdirExists = sessionWorkdirExists(workdir)
+	}
 	dbSession, err := s.q.CreateSession(ctx, db.CreateSessionParams{
-		ID:        uuid.New().String(),
-		Title:     title,
-		ProjectID: strings.TrimSpace(projectID),
-		Scope:     normalizeSessionScope(scope),
+		ID:               uuid.New().String(),
+		Title:            title,
+		ProjectID:        nullableTrimmedString(projectID),
+		Scope:            scope,
+		Workdir:          nullableTrimmedString(workdir),
+		CanonicalWorkdir: nullableTrimmedString(canonicalWorkdir),
+		WorkdirExists:    boolInt64(workdirExists),
 	})
 	if err != nil {
 		return Session{}, err
@@ -117,11 +139,21 @@ func (s *service) CreateWithScope(ctx context.Context, title, projectID, scope s
 }
 
 func (s *service) CreateTaskSession(ctx context.Context, toolCallID, parentSessionID, title string) (Session, error) {
+	parent, err := s.Get(ctx, parentSessionID)
+	if err != nil {
+		return Session{}, err
+	}
 	dbSession, err := s.q.CreateSession(ctx, db.CreateSessionParams{
 		ID:              toolCallID,
 		ParentSessionID: sql.NullString{String: parentSessionID, Valid: true},
 		Title:           title,
-		Scope:           "project",
+		Scope:           normalizeSessionScope(parent.Scope),
+		ProjectID:       nullableTrimmedString(parent.ProjectID),
+		Workdir:         nullableTrimmedString(parent.Workdir),
+		CanonicalWorkdir: nullableTrimmedString(
+			parent.CanonicalWorkdir,
+		),
+		WorkdirExists: boolInt64(parent.WorkdirExists),
 	})
 	if err != nil {
 		return Session{}, err
@@ -132,11 +164,21 @@ func (s *service) CreateTaskSession(ctx context.Context, toolCallID, parentSessi
 }
 
 func (s *service) CreateTitleSession(ctx context.Context, parentSessionID string) (Session, error) {
+	parent, err := s.Get(ctx, parentSessionID)
+	if err != nil {
+		return Session{}, err
+	}
 	dbSession, err := s.q.CreateSession(ctx, db.CreateSessionParams{
 		ID:              "title-" + parentSessionID,
 		ParentSessionID: sql.NullString{String: parentSessionID, Valid: true},
 		Title:           "Generate a title",
-		Scope:           "project",
+		Scope:           normalizeSessionScope(parent.Scope),
+		ProjectID:       nullableTrimmedString(parent.ProjectID),
+		Workdir:         nullableTrimmedString(parent.Workdir),
+		CanonicalWorkdir: nullableTrimmedString(
+			parent.CanonicalWorkdir,
+		),
+		WorkdirExists: boolInt64(parent.WorkdirExists),
 	})
 	if err != nil {
 		return Session{}, err
@@ -215,8 +257,13 @@ func (s *service) Save(ctx context.Context, session Session) (Session, error) {
 			Valid:  session.SummaryMessageID != "",
 		},
 		Cost:      session.Cost,
-		ProjectID: strings.TrimSpace(session.ProjectID),
 		Scope:     normalizeSessionScope(session.Scope),
+		ProjectID: nullableTrimmedString(session.ProjectID),
+		Workdir:   nullableTrimmedString(session.Workdir),
+		CanonicalWorkdir: nullableTrimmedString(
+			session.CanonicalWorkdir,
+		),
+		WorkdirExists: boolInt64(session.WorkdirExists),
 		Todos: sql.NullString{
 			String: todosJSON,
 			Valid:  todosJSON != "",
@@ -303,12 +350,53 @@ func (s *service) fromDBItem(item db.Session) Session {
 		CompletionTokens: item.CompletionTokens,
 		SummaryMessageID: item.SummaryMessageID.String,
 		Cost:             item.Cost,
-		ProjectID:        item.ProjectID,
+		ProjectID:        item.ProjectID.String,
 		Scope:            normalizeSessionScope(item.Scope),
+		Workdir:          item.Workdir.String,
+		CanonicalWorkdir: item.CanonicalWorkdir.String,
+		WorkdirExists:    item.WorkdirExists != 0,
+		Status:           item.Status,
+		TitleSource:      item.TitleSource,
+		Pinned:           item.Pinned != 0,
 		Todos:            todos,
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,
 	}
+}
+
+func nullableTrimmedString(value string) sql.NullString {
+	value = strings.TrimSpace(value)
+	return sql.NullString{String: value, Valid: value != ""}
+}
+
+func boolInt64(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func defaultSessionWorkdir() string {
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		return filepath.Clean(home)
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		return filepath.Clean(cwd)
+	}
+	return "."
+}
+
+func canonicalSessionWorkdir(path string) string {
+	path = filepath.Clean(path)
+	if evaluated, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(evaluated)
+	}
+	return path
+}
+
+func sessionWorkdirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func normalizeSessionScope(scope string) string {

@@ -20,7 +20,6 @@ type runtimeProjectRecord struct {
 	Name            string
 	Path            string
 	CanonicalPath   string
-	DataDir         string
 	GitRoot         string
 	Branch          string
 	IsGitRepository bool
@@ -60,7 +59,6 @@ func (s runtimeProjectStore) UpsertActiveByPath(ctx context.Context, path string
 		Name:            runtimeProjectName(path),
 		Path:            path,
 		CanonicalPath:   canonicalPath,
-		DataDir:         runtimeProjectDataDir(s.dataDir, path),
 		GitRoot:         runtimeProjectGitRoot(path),
 		Branch:          runtimeProjectBranch(path),
 		IsGitRepository: runtimeProjectIsGitRepository(path),
@@ -69,15 +67,12 @@ func (s runtimeProjectStore) UpsertActiveByPath(ctx context.Context, path string
 		UpdatedAt:       now,
 		LastOpenedAt:    now,
 	}
-	if err := os.MkdirAll(record.DataDir, 0o700); err != nil {
-		return runtimeProjectRecord{}, fmt.Errorf("failed to create project data directory: %w", err)
-	}
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO projects (
-    id, name, path, canonical_path, data_dir, git_root, branch,
+    id, name, path, canonical_path, git_root, branch,
     is_git_repository, exists_on_disk, created_at, updated_at, last_opened_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		record.ID, record.Name, record.Path, record.CanonicalPath, record.DataDir,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		record.ID, record.Name, record.Path, record.CanonicalPath,
 		nullableString(record.GitRoot), nullableString(record.Branch),
 		runtimeProjectBoolInt(record.IsGitRepository), runtimeProjectBoolInt(record.ExistsOnDisk),
 		record.CreatedAt, record.UpdatedAt, record.LastOpenedAt,
@@ -94,7 +89,7 @@ func (s runtimeProjectStore) Get(ctx context.Context, id string) (runtimeProject
 		return runtimeProjectRecord{}, errRuntimeProjectNotFound
 	}
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, name, path, canonical_path, data_dir, COALESCE(git_root, ''), COALESCE(branch, ''),
+SELECT id, name, path, canonical_path, COALESCE(git_root, ''), COALESCE(branch, ''),
     is_git_repository, exists_on_disk, created_at, updated_at, COALESCE(last_opened_at, 0), COALESCE(deleted_at, 0)
 FROM projects
 WHERE id = ?`, id)
@@ -118,7 +113,7 @@ func (s runtimeProjectStore) GetActive(ctx context.Context, id string) (runtimeP
 
 func (s runtimeProjectStore) ListActive(ctx context.Context) ([]runtimeProjectRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, path, canonical_path, data_dir, COALESCE(git_root, ''), COALESCE(branch, ''),
+SELECT id, name, path, canonical_path, COALESCE(git_root, ''), COALESCE(branch, ''),
     is_git_repository, exists_on_disk, created_at, updated_at, COALESCE(last_opened_at, 0), COALESCE(deleted_at, 0)
 FROM projects
 WHERE deleted_at IS NULL
@@ -181,7 +176,7 @@ UPDATE sessions SET deleted_at = ?, status = 'deleted' WHERE project_id = ? AND 
 
 func (s runtimeProjectStore) getActiveByCanonicalPath(ctx context.Context, canonicalPath string) (runtimeProjectRecord, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, name, path, canonical_path, data_dir, COALESCE(git_root, ''), COALESCE(branch, ''),
+SELECT id, name, path, canonical_path, COALESCE(git_root, ''), COALESCE(branch, ''),
     is_git_repository, exists_on_disk, created_at, updated_at, COALESCE(last_opened_at, 0), COALESCE(deleted_at, 0)
 FROM projects
 WHERE canonical_path = ? AND deleted_at IS NULL
@@ -205,7 +200,6 @@ func scanRuntimeProjectRecord(scanner runtimeProjectScanner) (runtimeProjectReco
 		&record.Name,
 		&record.Path,
 		&record.CanonicalPath,
-		&record.DataDir,
 		&record.GitRoot,
 		&record.Branch,
 		&isGit,

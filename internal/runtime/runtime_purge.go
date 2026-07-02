@@ -39,10 +39,15 @@ func purgeRuntimeSession(ctx context.Context, db *sql.DB, sessionID string, refs
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
-	if err := purgeRuntimeSessionTx(ctx, tx, sessionID, refsRoot); err != nil {
+	refs, err := purgeRuntimeSessionTx(ctx, tx, sessionID, refsRoot)
+	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	deleteRuntimeRefFiles(refs)
+	return nil
 }
 
 func purgeRuntimeProject(ctx context.Context, db *sql.DB, projectID string, refsRoot string) error {
@@ -74,10 +79,13 @@ func purgeRuntimeProject(ctx context.Context, db *sql.DB, projectID string, refs
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	var allRefs []string
 	for _, sessionID := range sessionIDs {
-		if err := purgeRuntimeSessionTx(ctx, tx, sessionID, refsRoot); err != nil {
+		refs, err := purgeRuntimeSessionTx(ctx, tx, sessionID, refsRoot)
+		if err != nil {
 			return err
 		}
+		allRefs = append(allRefs, refs...)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM project_memory_injections WHERE memory_id IN (SELECT id FROM project_memory_records WHERE project_id = ?)`, projectID); err != nil {
 		return err
@@ -88,13 +96,17 @@ func purgeRuntimeProject(ctx context.Context, db *sql.DB, projectID string, refs
 	if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, projectID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	deleteRuntimeRefFiles(allRefs)
+	return nil
 }
 
-func purgeRuntimeSessionTx(ctx context.Context, tx *sql.Tx, sessionID string, refsRoot string) error {
+func purgeRuntimeSessionTx(ctx context.Context, tx *sql.Tx, sessionID string, refsRoot string) ([]string, error) {
 	refs, err := runtimeRefStoragePathsForSession(ctx, tx, sessionID, refsRoot)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	statements := []string{
 		`DELETE FROM runtime_recovery_links WHERE source_turn_id IN (SELECT id FROM runtime_turns WHERE session_id = ?) OR resumed_turn_id IN (SELECT id FROM runtime_turns WHERE session_id = ?)`,
@@ -129,24 +141,28 @@ func purgeRuntimeSessionTx(ctx context.Context, tx *sql.Tx, sessionID string, re
 		`DELETE FROM runtime_audit_events WHERE session_id = ?`,
 		`DELETE FROM read_files WHERE session_id = ?`,
 		`DELETE FROM files WHERE session_id = ?`,
+		`DELETE FROM message_search_fts WHERE session_id = ?`,
 		`DELETE FROM messages WHERE session_id = ?`,
 		`DELETE FROM sessions WHERE id = ? OR parent_session_id = ?`,
 	}
 	for _, stmt := range statements {
 		if strings.Count(stmt, "?") == 2 {
 			if _, err := tx.ExecContext(ctx, stmt, sessionID, sessionID); err != nil {
-				return fmt.Errorf("purging session %s: %w", sessionID, err)
+				return nil, fmt.Errorf("purging session %s: %w", sessionID, err)
 			}
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, stmt, sessionID); err != nil {
-			return fmt.Errorf("purging session %s: %w", sessionID, err)
+			return nil, fmt.Errorf("purging session %s: %w", sessionID, err)
 		}
 	}
-	for _, path := range refs {
+	return refs, nil
+}
+
+func deleteRuntimeRefFiles(paths []string) {
+	for _, path := range paths {
 		_ = os.Remove(path)
 	}
-	return nil
 }
 
 func runtimeRefStoragePathsForSession(ctx context.Context, tx *sql.Tx, sessionID string, refsRoot string) ([]string, error) {

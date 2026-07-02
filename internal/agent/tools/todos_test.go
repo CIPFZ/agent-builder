@@ -28,6 +28,10 @@ func (m *mockTodoSessionService) CreateWithScope(context.Context, string, string
 	return session.Session{}, nil
 }
 
+func (m *mockTodoSessionService) CreateWithScopeAndWorkdir(context.Context, string, string, string, string, string, bool) (session.Session, error) {
+	return session.Session{}, nil
+}
+
 func (m *mockTodoSessionService) CreateTitleSession(context.Context, string) (session.Session, error) {
 	return session.Session{}, nil
 }

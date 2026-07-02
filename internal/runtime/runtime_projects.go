@@ -80,43 +80,10 @@ func (r *runtimeService) RenameProject(ctx context.Context, req RuntimeRenamePro
 		return RuntimeOpenProjectResponse{}, fmt.Errorf("failed to read project directory: %w", err)
 	}
 
-	layout, err := resolveDesktopLayout()
-	if err != nil {
-		return RuntimeOpenProjectResponse{}, err
-	}
-	oldDataDir := runtimeProjectDataDir(layout.DataDir, oldPath)
-	newDataDir := runtimeProjectDataDir(layout.DataDir, newPath)
-
-	r.startMu.Lock()
 	r.closeRuntimeTerminals("closed", "project renamed")
-	r.mu.Lock()
-	if r.runtime != nil && r.workspace != nil {
-		r.runtime.DeleteWorkspace(r.workspace.ID)
-	}
-	if r.cancel != nil {
-		r.cancel()
-	}
-	r.runtime = nil
-	r.workspace = nil
-	r.runtimeConfigured = false
-	r.runtimeConfigKnown = false
-	r.runtimeCtx = nil
-	r.cancel = nil
-	r.starting = false
-	r.mu.Unlock()
-	r.startMu.Unlock()
-	if err := db.Release(oldDataDir); err != nil {
-		return RuntimeOpenProjectResponse{}, fmt.Errorf("failed to release project database: %w", err)
-	}
-
 	if err := os.Rename(oldPath, newPath); err != nil {
 		_, _ = r.OpenProject(ctx, RuntimeOpenProjectRequest{Path: oldPath})
 		return RuntimeOpenProjectResponse{}, fmt.Errorf("failed to rename project directory: %w", err)
-	}
-	if err := renameRuntimeProjectDataDir(oldDataDir, newDataDir); err != nil {
-		_ = os.Rename(newPath, oldPath)
-		_, _ = r.OpenProject(ctx, RuntimeOpenProjectRequest{Path: oldPath})
-		return RuntimeOpenProjectResponse{}, err
 	}
 	return r.OpenProject(ctx, RuntimeOpenProjectRequest{Path: newPath})
 }
@@ -173,58 +140,12 @@ func (r *runtimeService) RemoveProject(ctx context.Context, req RuntimeProjectAc
 
 	r.mu.Lock()
 	wasActive := r.activeProjectID == project.ID
-	r.mu.Unlock()
-
-	r.startMu.Lock()
 	if wasActive {
-		r.closeRuntimeTerminals("closed", "project deleted")
-	}
-	r.mu.Lock()
-	if wasActive {
-		if r.runtime != nil && r.workspace != nil {
-			r.runtime.DeleteWorkspace(r.workspace.ID)
-		}
-		if r.cancel != nil {
-			r.cancel()
-		}
-		r.runtime = nil
-		r.workspace = nil
-		r.runtimeConfigured = false
-		r.runtimeConfigKnown = false
 		r.projectPath = ""
 		r.activeProjectID = ""
-		r.starting = false
 		r.sessionID = ""
-		r.runtimeCtx = nil
-		r.cancel = nil
-		r.eventStats = runtimeEventStats{}
-		r.requests = make(map[string]runtimeRequestState)
-		r.sessionTurns = make(map[string]string)
-		r.toolEvents = make(map[string]runtimeToolEventState)
-		r.toolCalls = nil
-		r.refs = runtimeRefStore{}
-		r.compactBoundaries = runtimeCompactBoundaryStore{}
-		r.worktrees = runtimeWorktreeStore{}
-		r.sandboxDecisions = runtimeSandboxDecisionStore{}
-		r.hookExecutions = runtimeHookExecutionStore{}
-		r.agentTasks = runtimeAgentTaskStore{}
-		r.turns = runtimeTurnStore{}
-		r.userInputs = runtimeUserInputStore{}
-		r.eventStore = runtimeEventStore{}
-		r.permissionStore = runtimePermissionStore{}
-		r.mcpRequestStore = runtimeMCPRequestStore{}
-		r.runs = runtimeRunStore{}
-		r.transitions = runtimeRunTransitionStore{}
-		r.permissions = make(map[string]pendingRuntimePermission)
-		r.policy = defaultRuntimePolicy()
-		r.capabilityLoads = make(map[string]runtimeCapabilityLoadRecord)
-		r.terminalsByID = make(map[string]*runtimeTerminalState)
-		r.terminalIDsBySession = make(map[string]map[string]struct{})
-		r.recovery = runtimeRecoveryRecord{}
-		r.events = nil
 	}
 	r.mu.Unlock()
-	r.startMu.Unlock()
 
 	mode := runtimeDeleteMode(ctx, store.db)
 	if mode == runtimeDeleteModeSoft {
@@ -235,17 +156,15 @@ func (r *runtimeService) RemoveProject(ctx context.Context, req RuntimeProjectAc
 		if err := purgeRuntimeProject(ctx, store.db, project.ID, filepath.Join(store.dataDir, "runtime_refs")); err != nil {
 			return RuntimeOpenProjectResponse{}, fmt.Errorf("failed to purge project data: %w", err)
 		}
-		if project.DataDir != "" && project.DataDir != store.dataDir {
-			if err := ensureRuntimeProjectPathUnderRoot(filepath.Join(store.dataDir, "projects"), project.DataDir); err == nil {
-				_ = db.Release(project.DataDir)
-				_ = os.RemoveAll(project.DataDir)
-			}
-		}
 	}
 
 	nextStatus, err := r.Status(ctx)
 	if err != nil {
 		return RuntimeOpenProjectResponse{}, err
+	}
+	if wasActive && filepath.Clean(nextStatus.WorkingDir) == filepath.Clean(project.Path) {
+		nextStatus.WorkingDir = runtimeDefaultWorkingDir()
+		nextStatus.ExplicitProject = false
 	}
 	return RuntimeOpenProjectResponse{
 		Project: runtimeProjectFromStatus(nextStatus),
@@ -275,52 +194,11 @@ func (r *runtimeService) OpenProject(ctx context.Context, req RuntimeOpenProject
 		return RuntimeOpenProjectResponse{}, err
 	}
 
-	r.startMu.Lock()
-	r.closeRuntimeTerminals("closed", "project switched")
 	r.mu.Lock()
-	if r.runtime != nil && r.workspace != nil {
-		r.runtime.DeleteWorkspace(r.workspace.ID)
-	}
-	if r.cancel != nil {
-		r.cancel()
-	}
-	r.runtime = nil
-	r.workspace = nil
-	r.runtimeConfigured = false
-	r.runtimeConfigKnown = false
 	r.projectPath = projectPath
 	r.activeProjectID = project.ID
-	r.starting = false
 	r.sessionID = ""
-	r.runtimeCtx = nil
-	r.cancel = nil
-	r.eventStats = runtimeEventStats{}
-	r.requests = make(map[string]runtimeRequestState)
-	r.sessionTurns = make(map[string]string)
-	r.toolEvents = make(map[string]runtimeToolEventState)
-	r.toolCalls = nil
-	r.refs = runtimeRefStore{}
-	r.compactBoundaries = runtimeCompactBoundaryStore{}
-	r.worktrees = runtimeWorktreeStore{}
-	r.sandboxDecisions = runtimeSandboxDecisionStore{}
-	r.hookExecutions = runtimeHookExecutionStore{}
-	r.agentTasks = runtimeAgentTaskStore{}
-	r.turns = runtimeTurnStore{}
-	r.userInputs = runtimeUserInputStore{}
-	r.eventStore = runtimeEventStore{}
-	r.permissionStore = runtimePermissionStore{}
-	r.mcpRequestStore = runtimeMCPRequestStore{}
-	r.runs = runtimeRunStore{}
-	r.transitions = runtimeRunTransitionStore{}
-	r.permissions = make(map[string]pendingRuntimePermission)
-	r.policy = defaultRuntimePolicy()
-	r.capabilityLoads = make(map[string]runtimeCapabilityLoadRecord)
-	r.terminalsByID = make(map[string]*runtimeTerminalState)
-	r.terminalIDsBySession = make(map[string]map[string]struct{})
-	r.recovery = runtimeRecoveryRecord{}
-	r.events = nil
 	r.mu.Unlock()
-	r.startMu.Unlock()
 
 	status, err := r.Status(ctx)
 	if err != nil {
@@ -560,28 +438,4 @@ func runtimeProjectBranch(path string) string {
 		return head[:7]
 	}
 	return head
-}
-
-func runtimeProjectDataDir(root, projectPath string) string {
-	sum := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(projectPath))))
-	name := runtimeProjectName(projectPath)
-	name = strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z':
-			return r
-		case r >= 'A' && r <= 'Z':
-			return r
-		case r >= '0' && r <= '9':
-			return r
-		case r == '-' || r == '_':
-			return r
-		default:
-			return '-'
-		}
-	}, name)
-	name = strings.Trim(name, "-")
-	if name == "" {
-		name = "project"
-	}
-	return filepath.Join(root, "projects", name+"-"+hex.EncodeToString(sum[:8]))
 }
