@@ -22,7 +22,7 @@ import (
 )
 
 func (r *runtimeService) workspaceConfig(ctx context.Context) (*config.ConfigStore, string, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return nil, "", err
 	}
 	r.mu.Lock()

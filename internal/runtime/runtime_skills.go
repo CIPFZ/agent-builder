@@ -17,14 +17,14 @@ import (
 )
 
 func (r *runtimeService) Skills(ctx context.Context) (RuntimeSkillsResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeSkillsResponse{}, err
 	}
 	return r.refreshSkills(ctx, false)
 }
 
 func (r *runtimeService) RefreshSkills(ctx context.Context) (RuntimeSkillsResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeSkillsResponse{}, err
 	}
 	return r.refreshSkills(ctx, true)

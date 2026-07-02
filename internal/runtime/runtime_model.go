@@ -21,6 +21,9 @@ func (r *runtimeService) Models(ctx context.Context) (RuntimeModelsResponse, err
 		return RuntimeModelsResponse{Models: configured}, nil
 	}
 	if err := r.ensureStarted(ctx); err != nil {
+		if errors.Is(err, errSelectedModelMissing) {
+			return RuntimeModelsResponse{}, nil
+		}
 		if errors.Is(err, errModelConfigMissing) {
 			cfg, cfgErr := r.readConfiguredModel()
 			if cfgErr != nil {

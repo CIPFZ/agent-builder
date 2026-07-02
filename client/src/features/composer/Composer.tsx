@@ -230,11 +230,11 @@ export function Composer({
                 <DownOutlined className={styles.chevron} />
               </Button>
             </Dropdown>
-            {activeDraftTarget.scope === 'project' && project.isGitRepository && project.branch && (
+            {activeDraftTarget.scope === 'project' && selectedDraftProject?.isGitRepository && selectedDraftProject.branch && (
               <Dropdown menu={menu} trigger={['click']}>
                 <Button className={styles.limitButton} type="text">
                   <BranchesOutlined />
-                  <span>{project.branch}</span>
+                  <span>{selectedDraftProject.branch}</span>
                   <DownOutlined className={styles.chevron} />
                 </Button>
               </Dropdown>

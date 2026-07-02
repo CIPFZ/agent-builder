@@ -10,7 +10,7 @@ import (
 )
 
 func (r *runtimeService) RecoveryStatus(ctx context.Context) (RuntimeRecoveryStatus, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeRecoveryStatus{}, err
 	}
 	expired, err := r.reconcilePendingPermissions(ctx)

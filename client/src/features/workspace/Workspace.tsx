@@ -133,6 +133,9 @@ export function Workspace({
   const hasTimeline = viewModel.timeline.length > 0;
   const hasConversation = viewModel.conversation.length > 0 || hasTimeline;
   const activeSession = viewModel.sessions.find((session) => session.active);
+  const isDraftSurface = !activeSession && !hasConversation && !switchingSessionID;
+  const composerDraftTarget =
+    viewModel.newConversationDraft ?? (isDraftSurface ? defaultComposerDraftTarget(viewModel) : undefined);
   const activePendingPermission = viewModel.pendingPermissions.find((permission) => !activeSession?.id || permission.sessionId === activeSession.id) ?? viewModel.pendingPermissions[0];
   const isSessionSwitching = Boolean(switchingSessionID && activeSession?.id === switchingSessionID && !hasConversation && viewModel.timeline.length === 0);
   const sessionTitle = activeSession?.title || viewModel.currentProject.name || '新对话';
@@ -627,8 +630,8 @@ export function Workspace({
               composer={viewModel.composer}
               project={viewModel.currentProject}
               projects={viewModel.projects}
-              newConversationDraft={viewModel.newConversationDraft}
-              showProjectContext={viewModel.mode === 'project' && hasProjectContext && !hasConversation}
+              newConversationDraft={composerDraftTarget}
+              showProjectContext={Boolean(composerDraftTarget)}
               onNewConversationDraftChange={onNewConversationDraftChange}
               onModelSelect={onModelSelect}
               onPermissionModeSelect={onPermissionModeSelect}
@@ -816,6 +819,13 @@ export function Workspace({
         )}
     </section>
   );
+}
+
+function defaultComposerDraftTarget(viewModel: WorkbenchViewModel): NewConversationDraftViewModel {
+  if (viewModel.currentProject.id) {
+    return { active: true, scope: 'project', projectId: viewModel.currentProject.id };
+  }
+  return { active: true, scope: 'standalone' };
 }
 
 function RightPanelAddMenu({

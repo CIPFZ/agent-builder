@@ -139,6 +139,39 @@ func TestRuntimeStatusDefaultWorkingDirIsNotExplicitProject(t *testing.T) {
 	}
 }
 
+func TestRuntimeStartupReadAPIsDoNotRequireSelectedModel(t *testing.T) {
+	root := runtimeDevTestRoot(t, "startup-read-apis-without-model")
+	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
+
+	service := newRuntimeService()
+	if _, err := service.Status(context.Background()); err != nil {
+		t.Fatalf("Status without selected model: %v", err)
+	}
+	if _, err := service.Models(context.Background()); err != nil {
+		t.Fatalf("Models without selected model: %v", err)
+	}
+	if _, err := service.SidebarProjection(context.Background()); err != nil {
+		t.Fatalf("SidebarProjection without selected model: %v", err)
+	}
+	if _, err := service.Skills(context.Background()); err != nil {
+		t.Fatalf("Skills without selected model: %v", err)
+	}
+	if _, err := service.MCPServers(context.Background()); err != nil {
+		t.Fatalf("MCPServers without selected model: %v", err)
+	}
+	if _, err := service.Plugins(context.Background()); err != nil {
+		t.Fatalf("Plugins without selected model: %v", err)
+	}
+	if _, err := service.RecoveryStatus(context.Background()); err != nil {
+		t.Fatalf("RecoveryStatus without selected model: %v", err)
+	}
+
+	_, err := service.Chat(context.Background(), RuntimeChatRequest{Prompt: "hello"})
+	if !errors.Is(err, errSelectedModelMissing) {
+		t.Fatalf("Chat error = %v, want errSelectedModelMissing", err)
+	}
+}
+
 func TestRuntimeStatusOpenProjectIsExplicitProject(t *testing.T) {
 	root := runtimeDevTestRoot(t, "explicit-project")
 	t.Setenv("AGENT_BUILDER_DESKTOP_ROOT", root)
