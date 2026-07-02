@@ -71,11 +71,28 @@ func TestRuntimeOutputEventsUseStableMonotonicSubSequences(t *testing.T) {
 	events := projection.eventsFromRuntimeEvents([]RuntimeEvent{{
 		ID: "event-1", Sequence: 7, SessionID: "session-1", TurnID: "turn-1", MessageID: "msg-tool", ToolCallID: "tool-1", Type: "tool.call.output", CreatedAt: "2026-06-28T00:00:00Z",
 	}})
-	if len(events) != 3 {
+	// tool.call event now also refreshes the turn's exploration_summary and
+	// the tool_call conversation item, so we expect ≥3 sub-events, all with
+	// strictly monotonic Sequences.
+	if len(events) < 3 {
 		t.Fatalf("events = %#v", events)
 	}
-	if !(events[0].Sequence < events[1].Sequence && events[1].Sequence < events[2].Sequence) || events[0].ToolCall == nil || events[1].ToolResult == nil || events[2].Item == nil {
-		t.Fatalf("event order/linkage = %#v", events)
+	if events[0].ToolCall == nil || events[1].ToolResult == nil {
+		t.Fatalf("first two events order/linkage = %#v", events)
+	}
+	for i := 1; i < len(events); i++ {
+		if events[i].Sequence <= events[i-1].Sequence {
+			t.Fatalf("non-monotonic sub-sequence at %d: %#v", i, events)
+		}
+	}
+	sawExploration := false
+	for _, ev := range events {
+		if ev.Item != nil && ev.Item.Kind == "exploration_summary" {
+			sawExploration = true
+		}
+	}
+	if !sawExploration {
+		t.Fatalf("expected exploration_summary item event, got %#v", events)
 	}
 }
 
@@ -109,9 +126,13 @@ func TestRuntimeConversationProjectionThinkingAndToolOnlyHidden(t *testing.T) {
 		Turns:     []RuntimeTurn{{ID: "turn-1", SessionID: "session-1", Status: "running", UserMessageID: "user-1", StartedAt: 1}},
 		ToolCalls: []RuntimeToolCall{{ID: "tool-1", SessionID: "session-1", TurnID: "turn-1", MessageID: "assistant-tool-only", Name: "view", Source: "builtin", Status: "running", StartedAt: 24}},
 	}).snapshot("session-1", "1")
-	assertConversationKinds(t, snapshot.Items, "user_message", "assistant_thinking", "tool_call", "turn_progress")
+	assertConversationKinds(t, snapshot.Items, "user_message", "exploration_summary", "assistant_thinking", "tool_call", "turn_progress")
 	if item := findConversationItem(t, snapshot.Items, "assistant_message"); item.ID != "" {
 		t.Fatalf("tool-only assistant produced message item: %#v", item)
+	}
+	exploration := findConversationItem(t, snapshot.Items, "exploration_summary")
+	if exploration.Status != "exploring" || exploration.Exploration == nil || exploration.Exploration.ToolTotal != 1 {
+		t.Fatalf("exploration summary = %#v", exploration)
 	}
 }
 
@@ -172,7 +193,7 @@ func TestRuntimeConversationProjectionToolResultPermissionFailureAndOrdering(t *
 		},
 		Permissions: []RuntimePermissionRequest{{ID: "perm-1", SessionID: "session-1", TurnID: "turn-1", ToolCallID: "tool-wait", ToolName: "bash", Action: "run", Status: "denied", CreatedAt: 29, DecidedAt: 31}},
 	}).snapshot("session-1", "1")
-	assertConversationKinds(t, snapshot.Items, "user_message", "assistant_message", "tool_group", "tool_call", "tool_call", "permission_request", "assistant_message")
+	assertConversationKinds(t, snapshot.Items, "user_message", "exploration_summary", "assistant_message", "tool_group", "tool_call", "tool_call", "permission_request", "assistant_message")
 	if findConversationItem(t, snapshot.Items, "tool_result").ID != "" {
 		t.Fatalf("tool result must not be a timeline item: %#v", snapshot.Items)
 	}

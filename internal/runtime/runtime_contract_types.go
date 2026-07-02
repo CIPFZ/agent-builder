@@ -1711,17 +1711,34 @@ type RuntimeToolResult struct {
 }
 
 type RuntimeConversationDisplay struct {
-	Kind            string   `json:"kind,omitempty"`
-	Title           string   `json:"title,omitempty"`
-	Detail          string   `json:"detail,omitempty"`
-	Target          string   `json:"target,omitempty"`
-	PrimaryTarget   string   `json:"primaryTarget,omitempty"`
-	Targets         []string `json:"targets,omitempty"`
-	GroupKey        string   `json:"groupKey,omitempty"`
-	Groupable       bool     `json:"groupable,omitempty"`
-	Quiet           bool     `json:"quiet,omitempty"`
-	DefaultExpanded bool     `json:"defaultExpanded,omitempty"`
-	ToolCallIDs     []string `json:"toolCallIds,omitempty"`
+	Kind            string                     `json:"kind,omitempty"`
+	Title           string                     `json:"title,omitempty"`
+	Detail          string                     `json:"detail,omitempty"`
+	Target          string                     `json:"target,omitempty"`
+	PrimaryTarget   string                     `json:"primaryTarget,omitempty"`
+	Targets         []string                   `json:"targets,omitempty"`
+	GroupKey        string                     `json:"groupKey,omitempty"`
+	Groupable       bool                       `json:"groupable,omitempty"`
+	Quiet           bool                       `json:"quiet,omitempty"`
+	DefaultExpanded bool                       `json:"defaultExpanded,omitempty"`
+	ToolCallIDs     []string                   `json:"toolCallIds,omitempty"`
+	Counts          []RuntimeExplorationCount  `json:"counts,omitempty"`
+}
+
+type RuntimeExplorationCount struct {
+	Kind   string `json:"kind"`
+	Count  int    `json:"count"`
+	Failed int    `json:"failed,omitempty"`
+}
+
+type RuntimeExplorationSummary struct {
+	Status        string                    `json:"status"`
+	ToolCounts    []RuntimeExplorationCount `json:"toolCounts,omitempty"`
+	ToolTotal     int                       `json:"toolTotal,omitempty"`
+	FailedCount   int                       `json:"failedCount,omitempty"`
+	SubagentCount int                       `json:"subagentCount,omitempty"`
+	ThinkingMS    int64                     `json:"thinkingMs,omitempty"`
+	ElapsedMS     int64                     `json:"elapsedMs,omitempty"`
 }
 
 type RuntimeToolResultView struct {
@@ -1760,6 +1777,7 @@ type RuntimeConversationItem struct {
 	AgentTaskID  string                     `json:"agentTaskId,omitempty"`
 	ContextID    string                     `json:"contextId,omitempty"`
 	Display      RuntimeConversationDisplay `json:"display,omitempty"`
+	Exploration  *RuntimeExplorationSummary `json:"exploration,omitempty"`
 	CreatedAt    int64                      `json:"createdAt,omitempty"`
 	UpdatedAt    int64                      `json:"updatedAt,omitempty"`
 }

@@ -212,6 +212,7 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 	status := runtimeNormalizeToolStatus(string(call.Status), display.Kind, call.ExitCode, call.IsError, stringFromMap(redacted, "error"))
 	quiet := runtimeToolQuiet(display.Kind, status)
 	groupable := runtimeToolGroupable(display.Kind, status)
+	groupKey := runtimeToolGroupKey(call.TurnID)
 	return RuntimeToolCall{
 		ID:                             call.ID,
 		SessionID:                      call.SessionID,
@@ -266,42 +267,11 @@ func toRuntimeToolCall(call scheduler.ToolCall) RuntimeToolCall {
 		FinishedAt:                     finishedAt,
 		Error:                          stringFromMap(redacted, "error"),
 		Display:                        display,
-		GroupKey:                       runtimeToolGroupKey(call.TurnID, call.MessageID, display.Kind),
+		GroupKey:                       groupKey,
 		Groupable:                      groupable,
 		Quiet:                          quiet,
 		DefaultExpanded:                runtimeToolDefaultExpanded(status),
 	}
-}
-
-func runtimeNormalizeToolStatus(status, kind string, exitCode int, isError bool, errText string) string {
-	if status == "" {
-		status = string(scheduler.ToolCallPending)
-	}
-	if status == string(scheduler.ToolCallCompleted) && (isError || errText != "" || (kind == "shell" && exitCode != 0)) {
-		return string(scheduler.ToolCallFailed)
-	}
-	return status
-}
-
-func runtimeToolDefaultExpanded(status string) bool {
-	switch status {
-	case string(scheduler.ToolCallRunning), string(scheduler.ToolCallWaitingPermission), string(scheduler.ToolCallFailed), string(scheduler.ToolCallDenied), string(scheduler.ToolCallCancelled), "interrupted":
-		return true
-	default:
-		return false
-	}
-}
-
-func runtimeToolQuiet(kind, status string) bool {
-	return status == string(scheduler.ToolCallCompleted) && (kind == "file_read" || kind == "file_search")
-}
-
-func runtimeToolGroupable(kind, status string) bool {
-	return runtimeToolQuiet(kind, status)
-}
-
-func runtimeToolGroupKey(turnID, messageID, kind string) string {
-	return strings.Join([]string{turnID, messageID, kind}, ":")
 }
 
 func runtimeToolCallDisplay(call scheduler.ToolCall, redacted map[string]any, finishedAt int64) RuntimeToolCallDisplay {
@@ -536,25 +506,7 @@ func runtimeToolDisplayTargetFromText(input string) string {
 }
 
 func runtimeToolDisplayKind(call scheduler.ToolCall) string {
-	name := strings.ToLower(strings.TrimSpace(call.Name))
-	switch {
-	case call.Source == scheduler.ToolSourceShell || call.Risk == "execute" || call.Command != "" || name == "bash" || name == "shell" || name == "cmd" || name == "powershell" || name == "pwsh" || name == "go" || name == "npm" || name == "node" || name == "python":
-		return "shell"
-	case call.Source == scheduler.ToolSourceMCP || call.Source == "plugin" || call.Source == "custom":
-		return "generic"
-	case name == "todos" || name == "todospan" || strings.Contains(name, "todo"):
-		return "generic"
-	case name == "glob" || name == "grep" || name == "list" || name == "ls" || name == "dir" || strings.Contains(name, "search") || strings.Contains(name, "find"):
-		return "file_search"
-	case strings.Contains(name, "edit") || strings.Contains(name, "patch") || strings.Contains(name, "multiedit") || name == "apply_patch":
-		return "file_edit"
-	case strings.Contains(name, "read") || strings.Contains(name, "view") || strings.Contains(name, "open"):
-		return "file_read"
-	case strings.Contains(name, "write") || strings.Contains(name, "create"):
-		return "file_write"
-	default:
-		return "generic"
-	}
+	return runtimeToolPolicyDisplayKind(call)
 }
 
 func stableToolExcerpt(value string) string {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
 
 func (r *runtimeService) SessionOutput(ctx context.Context, sessionID string, req RuntimeOutputRequest) (RuntimeOutputSnapshot, error) {
@@ -475,35 +476,18 @@ func runtimeAssistantStepFromMessage(msg RuntimeMessage, turnID string, index in
 }
 
 func (p runtimeOutputProjection) applyConversationToolPolicy(call RuntimeToolCall) RuntimeToolCall {
-	kind := firstNonEmpty(call.Kind, call.Display.Kind, runtimeConversationToolKind(call))
-	call.Kind = kind
-	call.Display.Kind = kind
-	if call.Status == "" {
-		call.Status = "queued"
-	}
-	if call.Status == "completed" && (call.IsError || call.Error != "" || (kind == "shell" && call.ExitCode != 0)) {
-		call.Status = "failed"
-	}
+	ctx := runtimeToolPolicyContext{}
 	for _, perm := range p.permissions {
 		if perm.ToolCallID != call.ID {
 			continue
 		}
-		switch perm.Status {
-		case "pending":
-			call.Status = "waiting_permission"
-		case "denied", "cancelled", "expired":
-			call.Status = "denied"
-		}
+		ctx.PermissionStatus = perm.Status
 	}
-	if turn, ok := p.turns[call.TurnID]; ok && isRuntimeTurnTerminal(turn.Status) && !isRuntimeToolTerminal(call.Status) {
-		call.Status = "interrupted"
-		call.Error = firstNonEmpty(call.Error, turn.Error, "tool call did not finish before the turn ended")
+	if turn, ok := p.turns[call.TurnID]; ok && isRuntimeTurnTerminal(turn.Status) {
+		ctx.TurnTerminal = true
+		ctx.TurnError = turn.Error
 	}
-	call.Quiet = runtimeToolQuiet(kind, call.Status)
-	call.Groupable = runtimeToolGroupable(kind, call.Status)
-	call.DefaultExpanded = runtimeToolDefaultExpanded(call.Status)
-	call.GroupKey = firstNonEmpty(call.GroupKey, runtimeToolGroupKey(call.TurnID, call.AssistantStepID, kind))
-	return call
+	return applyRuntimeToolPolicy(call, ctx)
 }
 
 type runtimeConversationItemEntry struct {
@@ -770,6 +754,7 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 			}
 		}
 	}
+	p.appendExplorationSummaryItems(&entries, turnStart)
 	sort.SliceStable(entries, func(i, j int) bool {
 		leftTurn := turnStart[entries[i].item.TurnID]
 		rightTurn := turnStart[entries[j].item.TurnID]
@@ -788,56 +773,254 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 		return entries[i].item.ID < entries[j].item.ID
 	})
 	out := map[string]RuntimeConversationItem{}
-	for index, entry := range entries {
+	for _, entry := range entries {
 		item := entry.item
-		item.Sequence = int64(index + 1)
+		item.Sequence = runtimeConversationItemSequence(turnStart[entry.item.TurnID], entry.rank, entry.item.CreatedAt)
 		out[item.ID] = item
 	}
 	return out
 }
 
+// runtimeConversationItemSequence produces a stable per-item sequence value.
+// The formula is turnStartMs*1_000_000 + rank*100 + intraRankCounter, where
+// the counter is a bounded offset of createdAt relative to the turn start.
+// Items generated later within the same rank get higher counters; adding a
+// new item at a different rank never shifts an existing item's sequence.
+// Sort ties (same sequence) are resolved by createdAt+id at consumption sites.
+func runtimeConversationItemSequence(turnStartMs int64, rank int, createdAt int64) int64 {
+	if turnStartMs < 0 {
+		turnStartMs = 0
+	}
+	intra := createdAt - turnStartMs
+	if intra < 0 {
+		intra = 0
+	}
+	if intra > 99 {
+		intra = 99
+	}
+	return turnStartMs*1_000_000 + int64(rank)*100 + intra
+}
+
+// appendExplorationSummaryItems produces one exploration_summary item per
+// turn with any exploration activity (thinking, tool calls, subtasks). The
+// item's ID is stable (exploration-<turnID>) so streaming updates rewrite in
+// place; rank ~500 puts it after user_message but before assistant_thinking.
+func (p runtimeOutputProjection) appendExplorationSummaryItems(entries *[]runtimeConversationItemEntry, turnStart map[string]int64) {
+	type turnCollector struct {
+		toolCalls    []RuntimeToolCall
+		subagents    map[string]struct{}
+		thinkingMS   int64
+		latestUpdate int64
+		hasThinking  bool
+	}
+	byTurn := map[string]*turnCollector{}
+	collector := func(turnID string) *turnCollector {
+		if turnID == "" {
+			return nil
+		}
+		c, ok := byTurn[turnID]
+		if !ok {
+			c = &turnCollector{subagents: map[string]struct{}{}}
+			byTurn[turnID] = c
+		}
+		return c
+	}
+	for _, call := range p.toolCalls {
+		c := collector(call.TurnID)
+		if c == nil {
+			continue
+		}
+		c.toolCalls = append(c.toolCalls, call)
+		if call.Kind == "agent_task" {
+			c.subagents[call.ID] = struct{}{}
+		}
+		updated := firstPositiveInt64(call.FinishedAt, call.StartedAt)
+		if updated > c.latestUpdate {
+			c.latestUpdate = updated
+		}
+	}
+	for _, task := range p.tasks {
+		c := collector(task.ParentTurnID)
+		if c == nil {
+			continue
+		}
+		if task.ID != "" {
+			c.subagents[task.ID] = struct{}{}
+		}
+		updated := firstPositiveInt64(task.UpdatedAt, task.FinishedAt, task.StartedAt)
+		if updated > c.latestUpdate {
+			c.latestUpdate = updated
+		}
+	}
+	messageTurnIDs := runtimeOutputMessageTurnIDs(
+		sortedRuntimeOutputMap(p.messages),
+		sortedRuntimeOutputTurnMap(p.turns),
+		sortedRuntimeOutputToolCallMap(p.toolCalls),
+	)
+	for _, msg := range p.messages {
+		if msg.Role != "assistant" {
+			continue
+		}
+		turnID := messageTurnIDs[msg.ID]
+		c := collector(turnID)
+		if c == nil {
+			continue
+		}
+		var thinkingStart, thinkingEnd int64
+		for _, part := range msg.Parts {
+			if part.Type != "reasoning" {
+				continue
+			}
+			if strings.TrimSpace(part.Thinking) == "" {
+				continue
+			}
+			c.hasThinking = true
+			if part.StartedAt > 0 && (thinkingStart == 0 || part.StartedAt < thinkingStart) {
+				thinkingStart = part.StartedAt
+			}
+			if part.FinishedAt > thinkingEnd {
+				thinkingEnd = part.FinishedAt
+			}
+		}
+		if thinkingStart > 0 && thinkingEnd > thinkingStart {
+			c.thinkingMS += thinkingEnd - thinkingStart
+		}
+	}
+
+	for turnID, c := range byTurn {
+		if len(c.toolCalls) == 0 && len(c.subagents) == 0 && !c.hasThinking {
+			continue
+		}
+		turn, hasTurn := p.turns[turnID]
+		status := "exploring"
+		if hasTurn && isRuntimeTurnTerminal(turn.Status) {
+			switch turn.Status {
+			case "failed":
+				status = "failed"
+			case "cancelled", "interrupted":
+				status = "interrupted"
+			default:
+				status = "done"
+			}
+		}
+		counts := runtimeConversationToolGroupCounts(c.toolCalls)
+		failed := 0
+		for _, cc := range counts {
+			failed += cc.Failed
+		}
+		startMs := turnStart[turnID]
+		endMs := int64(0)
+		if hasTurn {
+			endMs = firstPositiveInt64(turn.FinishedAt, c.latestUpdate)
+			if endMs == 0 {
+				endMs = time.Now().UnixMilli()
+			}
+		} else if c.latestUpdate > 0 {
+			endMs = c.latestUpdate
+		}
+		elapsed := int64(0)
+		if endMs > startMs && startMs > 0 {
+			elapsed = endMs - startMs
+		}
+		summary := &RuntimeExplorationSummary{
+			Status:        status,
+			ToolCounts:    counts,
+			ToolTotal:     len(c.toolCalls),
+			FailedCount:   failed,
+			SubagentCount: len(c.subagents),
+			ThinkingMS:    c.thinkingMS,
+			ElapsedMS:     elapsed,
+		}
+		sessionID := ""
+		if hasTurn {
+			sessionID = turn.SessionID
+		}
+		item := RuntimeConversationItem{
+			ID:          "exploration-" + turnID,
+			Kind:        "exploration_summary",
+			SessionID:   sessionID,
+			TurnID:      turnID,
+			Status:      status,
+			Title:       runtimeExplorationSummaryTitle(summary),
+			Summary:     runtimeExplorationSummaryTitle(summary),
+			Display:     RuntimeConversationDisplay{Counts: counts},
+			Exploration: summary,
+			CreatedAt:   startMs,
+			UpdatedAt:   firstPositiveInt64(endMs, startMs),
+		}
+		*entries = append(*entries, runtimeConversationItemEntry{item: item, rank: 500})
+	}
+}
+
+func runtimeExplorationSummaryTitle(summary *RuntimeExplorationSummary) string {
+	if summary == nil {
+		return ""
+	}
+	if len(summary.ToolCounts) == 0 {
+		if summary.ThinkingMS > 0 {
+			return "Thinking"
+		}
+		return "Exploring"
+	}
+	parts := make([]string, 0, len(summary.ToolCounts))
+	for _, c := range summary.ToolCounts {
+		parts = append(parts, runtimeExplorationCountTitle(c))
+	}
+	return strings.Join(parts, " · ")
+}
+
 func (p runtimeOutputProjection) appendConversationToolItems(entries *[]runtimeConversationItemEntry, stepRank map[string]int) {
 	calls := sortedRuntimeOutputToolCallMap(p.toolCalls)
+	breakers := p.turnGroupBreakerTimes()
 	for i := 0; i < len(calls); {
 		call := calls[i]
-		group := []RuntimeToolCall{call}
-		for j := i + 1; j < len(calls); j++ {
-			next := calls[j]
-			if !call.Groupable || !next.Groupable || call.GroupKey == "" || call.GroupKey != next.GroupKey || call.TurnID != next.TurnID || call.AssistantStepID != next.AssistantStepID {
-				break
+		runtimeGroup := []RuntimeToolCall{call}
+		if call.Groupable {
+			for j := i + 1; j < len(calls); j++ {
+				next := calls[j]
+				if !next.Groupable || next.TurnID != call.TurnID {
+					break
+				}
+				if breakerBetween(breakers[call.TurnID], runtimeGroup[len(runtimeGroup)-1].StartedAt, next.StartedAt) {
+					break
+				}
+				runtimeGroup = append(runtimeGroup, next)
 			}
-			group = append(group, next)
 		}
-		if len(group) > 1 {
+		if len(runtimeGroup) > 1 {
 			var ids []string
-			for _, grouped := range group {
+			for _, grouped := range runtimeGroup {
 				ids = append(ids, grouped.ID)
 			}
-			first := group[0]
-			last := group[len(group)-1]
+			first := runtimeGroup[0]
+			last := runtimeGroup[len(runtimeGroup)-1]
+			counts := runtimeConversationToolGroupCounts(runtimeGroup)
+			groupID := "tool-group-" + first.TurnID + "-" + first.ID
 			*entries = append(*entries, runtimeConversationItemEntry{rank: stepRank[first.AssistantStepID] + 20, item: RuntimeConversationItem{
-				ID:          "tool-group-" + first.GroupKey,
+				ID:          groupID,
 				Kind:        "tool_group",
 				SessionID:   first.SessionID,
 				TurnID:      first.TurnID,
 				ParentID:    first.AssistantItemID,
-				Status:      runtimeConversationGroupStatus(group),
-				Title:       runtimeConversationToolGroupTitle(group),
-				Summary:     runtimeConversationToolGroupTitle(group),
+				Status:      runtimeConversationGroupStatus(runtimeGroup),
+				Title:       runtimeConversationToolGroupTitle(runtimeGroup),
+				Summary:     runtimeConversationToolGroupTitle(runtimeGroup),
 				ToolCallID:  first.ID,
 				ToolCallIDs: ids,
 				Display: RuntimeConversationDisplay{
-					Kind:            first.Kind,
-					GroupKey:        first.GroupKey,
+					Kind:            runtimeConversationToolGroupKind(runtimeGroup),
+					Title:           runtimeConversationToolGroupTitle(runtimeGroup),
+					GroupKey:        firstNonEmpty(first.GroupKey, runtimeToolGroupKey(first.TurnID)),
 					Groupable:       true,
 					Quiet:           true,
 					DefaultExpanded: false,
 					ToolCallIDs:     ids,
+					Counts:          counts,
 				},
 				CreatedAt: first.StartedAt,
 				UpdatedAt: firstPositiveInt64(last.FinishedAt, last.StartedAt),
 			}})
-			i += len(group)
+			i += len(runtimeGroup)
 			continue
 		}
 		*entries = append(*entries, runtimeConversationItemEntry{rank: stepRank[call.AssistantStepID] + 20, item: RuntimeConversationItem{
@@ -868,6 +1051,71 @@ func (p runtimeOutputProjection) appendConversationToolItems(entries *[]runtimeC
 		}})
 		i++
 	}
+}
+
+// turnGroupBreakerTimes returns sorted timestamps of "breaker" events per
+// turn. A groupable tool call cannot join a group with a peer if a breaker
+// falls between their StartedAt times. Breakers: intermediate assistant text
+// messages, permission requests, and agent_task invocations (both the parent
+// tool call and the RuntimeAgentTask record).
+func (p runtimeOutputProjection) turnGroupBreakerTimes() map[string][]int64 {
+	out := map[string][]int64{}
+	appendTime := func(turnID string, ts int64) {
+		if turnID == "" || ts <= 0 {
+			return
+		}
+		out[turnID] = append(out[turnID], ts)
+	}
+	messageTurnIDs := runtimeOutputMessageTurnIDs(
+		sortedRuntimeOutputMap(p.messages),
+		sortedRuntimeOutputTurnMap(p.turns),
+		sortedRuntimeOutputToolCallMap(p.toolCalls),
+	)
+	for _, msg := range p.messages {
+		if msg.Role != "assistant" || msg.Hidden {
+			continue
+		}
+		text, _, _ := runtimeConversationAssistantParts(msg)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		turnID := messageTurnIDs[msg.ID]
+		if phase := runtimeAssistantMessagePhase(msg, p.turns[turnID], 0); phase != "intermediate" {
+			continue
+		}
+		appendTime(turnID, firstPositiveInt64(msg.CreatedAt, msg.UpdatedAt))
+	}
+	for _, perm := range p.permissions {
+		appendTime(perm.TurnID, firstPositiveInt64(perm.CreatedAt, perm.DecidedAt))
+	}
+	for _, task := range p.tasks {
+		appendTime(task.ParentTurnID, firstPositiveInt64(task.StartedAt, task.UpdatedAt))
+	}
+	for _, call := range p.toolCalls {
+		if call.Kind == "agent_task" {
+			appendTime(call.TurnID, call.StartedAt)
+		}
+	}
+	for turnID, times := range out {
+		sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
+		out[turnID] = times
+	}
+	return out
+}
+
+// breakerBetween reports whether any breaker timestamp falls strictly after
+// prev and up to (inclusive) next. Uses inclusive on next so an intermediate
+// text that landed at exactly the next tool's StartedAt still breaks.
+func breakerBetween(times []int64, prev, next int64) bool {
+	if next <= prev {
+		return false
+	}
+	for _, ts := range times {
+		if ts > prev && ts <= next {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeConversationAssistantParts(msg RuntimeMessage) (string, string, []string) {
@@ -954,24 +1202,6 @@ func runtimeToolResultView(result RuntimeToolResult) RuntimeToolResultView {
 	}
 }
 
-func runtimeConversationToolKind(call RuntimeToolCall) string {
-	name := strings.ToLower(strings.TrimSpace(call.Name))
-	switch {
-	case call.Source == "shell" || call.Risk == "execute" || call.Command != "" || name == "bash" || name == "shell" || name == "cmd" || name == "powershell" || name == "pwsh" || name == "go" || name == "npm" || name == "node" || name == "python":
-		return "shell"
-	case name == "glob" || name == "grep" || name == "list" || name == "ls" || name == "dir" || strings.Contains(name, "search") || strings.Contains(name, "find"):
-		return "file_search"
-	case strings.Contains(name, "edit") || strings.Contains(name, "patch") || strings.Contains(name, "multiedit") || name == "apply_patch":
-		return "file_edit"
-	case strings.Contains(name, "read") || strings.Contains(name, "view") || strings.Contains(name, "open"):
-		return "file_read"
-	case strings.Contains(name, "write") || strings.Contains(name, "create"):
-		return "file_write"
-	default:
-		return "generic"
-	}
-}
-
 func runtimeHookHighSignal(hook RuntimeHookExecution) bool {
 	return hook.Status == hookStatusBlocked || hook.Status == hookStatusFailed || hook.InputRewritten || hook.ContextInjected
 }
@@ -985,20 +1215,116 @@ func runtimeConversationGroupStatus(calls []RuntimeToolCall) string {
 	return "completed"
 }
 
+// runtimeConversationToolGroupKind returns the shared kind if all calls
+// agree, else "generic" (mixed group).
+func runtimeConversationToolGroupKind(calls []RuntimeToolCall) string {
+	if len(calls) == 0 {
+		return ""
+	}
+	kind := calls[0].Kind
+	for _, call := range calls[1:] {
+		if call.Kind != kind {
+			return "generic"
+		}
+	}
+	return kind
+}
+
+// runtimeConversationToolGroupCounts collapses the calls into per-kind
+// counts, ordered by kind for deterministic output. Failed counts include
+// non-successful terminal states.
+func runtimeConversationToolGroupCounts(calls []RuntimeToolCall) []RuntimeExplorationCount {
+	if len(calls) == 0 {
+		return nil
+	}
+	order := make([]string, 0, len(calls))
+	byKind := map[string]*RuntimeExplorationCount{}
+	for _, call := range calls {
+		kind := call.Kind
+		if kind == "" {
+			kind = "generic"
+		}
+		entry, ok := byKind[kind]
+		if !ok {
+			entry = &RuntimeExplorationCount{Kind: kind}
+			byKind[kind] = entry
+			order = append(order, kind)
+		}
+		entry.Count++
+		if call.Status != string(scheduler.ToolCallCompleted) {
+			entry.Failed++
+		}
+	}
+	sort.Strings(order)
+	out := make([]RuntimeExplorationCount, 0, len(order))
+	for _, kind := range order {
+		out = append(out, *byKind[kind])
+	}
+	return out
+}
+
 func runtimeConversationToolGroupTitle(calls []RuntimeToolCall) string {
 	if len(calls) == 0 {
 		return "Completed tools"
 	}
-	kind := calls[0].Kind
+	counts := runtimeConversationToolGroupCounts(calls)
+	parts := make([]string, 0, len(counts))
+	for _, c := range counts {
+		parts = append(parts, runtimeExplorationCountTitle(c))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func runtimeExplorationCountTitle(c RuntimeExplorationCount) string {
+	label := runtimeExplorationKindLabel(c.Kind, c.Count)
+	if c.Failed > 0 && c.Failed < c.Count {
+		return fmt.Sprintf("%s(%d failed)", label, c.Failed)
+	}
+	if c.Failed > 0 && c.Failed == c.Count {
+		return fmt.Sprintf("%s (failed)", label)
+	}
+	return label
+}
+
+func runtimeExplorationKindLabel(kind string, count int) string {
 	switch kind {
 	case "file_read":
-		return fmt.Sprintf("Read %d files", len(calls))
+		if count == 1 {
+			return "Read 1 file"
+		}
+		return fmt.Sprintf("Read %d files", count)
 	case "file_search":
-		return fmt.Sprintf("Searched %d times", len(calls))
+		if count == 1 {
+			return "Searched 1 time"
+		}
+		return fmt.Sprintf("Searched %d times", count)
 	case "shell":
-		return fmt.Sprintf("Ran %d commands", len(calls))
+		if count == 1 {
+			return "Ran 1 command"
+		}
+		return fmt.Sprintf("Ran %d commands", count)
+	case "file_edit":
+		if count == 1 {
+			return "Edited 1 file"
+		}
+		return fmt.Sprintf("Edited %d files", count)
+	case "file_write":
+		if count == 1 {
+			return "Wrote 1 file"
+		}
+		return fmt.Sprintf("Wrote %d files", count)
+	case "agent_task":
+		if count == 1 {
+			return "1 subtask"
+		}
+		return fmt.Sprintf("%d subtasks", count)
+	case "todo":
+		return fmt.Sprintf("Updated todos ×%d", count)
 	default:
-		return fmt.Sprintf("Completed %d tools", len(calls))
+		if count == 1 {
+			return "1 tool"
+		}
+		return fmt.Sprintf("%d tools", count)
 	}
 }
 
@@ -1052,41 +1378,63 @@ func (p runtimeOutputProjection) sessionID() string {
 
 func (p runtimeOutputProjection) itemsForRuntimeEvent(event RuntimeEvent) []RuntimeConversationItem {
 	var out []RuntimeConversationItem
+	seen := map[string]struct{}{}
+	add := func(item RuntimeConversationItem) {
+		if _, ok := seen[item.ID]; ok {
+			return
+		}
+		seen[item.ID] = struct{}{}
+		out = append(out, item)
+	}
+	// The exploration_summary item for a turn refreshes on any turn/message/
+	// tool/permission/task event within that turn so counts stream live.
+	if event.TurnID != "" {
+		if item, ok := p.items["exploration-"+event.TurnID]; ok {
+			if event.MessageID != "" || event.ToolCallID != "" ||
+				strings.HasPrefix(event.Type, "task.") ||
+				strings.HasPrefix(event.Type, "permission.") ||
+				strings.HasPrefix(event.Type, "turn.") ||
+				strings.HasPrefix(event.Type, "tool.call.") ||
+				strings.HasPrefix(event.Type, "message.") {
+				add(item)
+			}
+		}
+	}
 	for _, item := range p.items {
 		if event.MessageID != "" && item.MessageID == event.MessageID {
-			out = append(out, item)
+			add(item)
 			continue
 		}
 		if event.ToolCallID != "" && (item.ToolCallID == event.ToolCallID || containsRuntimeOutputString(item.ToolCallIDs, event.ToolCallID)) {
-			out = append(out, item)
+			add(item)
 			continue
 		}
 		permissionID := runtimeOutputPayloadString(event, "permission_id")
 		if permissionID != "" && item.PermissionID == permissionID {
-			out = append(out, item)
+			add(item)
 			continue
 		}
 		hookID := runtimeOutputPayloadString(event, "execution_id")
 		if hookID != "" && item.HookRunID == hookID {
-			out = append(out, item)
+			add(item)
 			continue
 		}
 		taskID := runtimeOutputPayloadString(event, "task_id")
 		if taskID != "" && item.AgentTaskID == taskID {
-			out = append(out, item)
+			add(item)
 			continue
 		}
 		if event.Type == runtimeapi.EventTodoUpdated && item.Kind == "todo_summary" && item.SessionID == event.SessionID {
-			out = append(out, item)
+			add(item)
 			continue
 		}
 		sourceID := runtimeOutputPayloadString(event, "source_id")
 		if sourceID != "" && item.Kind == "context_source" && item.ContextID == sourceID && item.TurnID == event.TurnID {
-			out = append(out, item)
+			add(item)
 			continue
 		}
 		if event.TurnID != "" && item.TurnID == event.TurnID && (strings.HasPrefix(event.Type, "recovery.") || strings.HasPrefix(event.Type, "context.") || strings.HasPrefix(event.Type, "compact.")) {
-			out = append(out, item)
+			add(item)
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
