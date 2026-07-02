@@ -165,6 +165,12 @@ func TestRuntimeStartupReadAPIsDoNotRequireSelectedModel(t *testing.T) {
 	if _, err := service.RecoveryStatus(context.Background()); err != nil {
 		t.Fatalf("RecoveryStatus without selected model: %v", err)
 	}
+	if _, err := service.Turns(context.Background(), "active"); err != nil {
+		t.Fatalf("Turns without selected model: %v", err)
+	}
+	if _, err := service.AgentRoles(context.Background()); err != nil {
+		t.Fatalf("AgentRoles without selected model: %v", err)
+	}
 
 	_, err := service.Chat(context.Background(), RuntimeChatRequest{Prompt: "hello"})
 	if !errors.Is(err, errSelectedModelMissing) {

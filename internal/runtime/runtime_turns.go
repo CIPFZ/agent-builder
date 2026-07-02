@@ -399,7 +399,7 @@ func runtimeTurnFromRequestState(turnID string, state runtimeRequestState) Runti
 }
 
 func (r *runtimeService) Turns(ctx context.Context, status string) (RuntimeTurnsResponse, error) {
-	if err := r.ensureStarted(ctx); err != nil {
+	if err := r.ensureWorkspaceStarted(ctx, false); err != nil {
 		return RuntimeTurnsResponse{}, err
 	}
 	turns, err := r.turns.List(ctx, status)
