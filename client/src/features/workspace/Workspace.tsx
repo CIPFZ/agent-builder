@@ -32,6 +32,8 @@ import { TodoPanel } from '../todos/TodoPanel.tsx';
 import { TodoTaskBar } from '../todos/TodoTaskBar.tsx';
 import { TerminalPane } from './TerminalPane.tsx';
 import { disposeTerminalRuntime } from './terminalRuntime.ts';
+import { useStickToBottom } from './useStickToBottom.ts';
+import { nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
 import styles from './Workspace.module.css';
 
 type RightPanelKind = 'review' | 'files' | 'terminal' | 'tasks';
@@ -125,9 +127,15 @@ export function Workspace({
   const [selectedAgentTaskID, setSelectedAgentTaskID] = useState('');
   const rightPanelTabsRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const scrollPinnedRef = useRef(true);
-  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const {
+    containerRef: scrollContainerRef,
+    showJumpToBottom,
+    jumpToBottom,
+    pinAndScrollToBottom,
+    handleScroll,
+    handleKeyDown: handleScrollKeyDown,
+    handlePointerDown: handleScrollPointerDown,
+  } = useStickToBottom();
   const hasProjectContext = Boolean(viewModel.currentProject.id || viewModel.currentProject.name || viewModel.currentProject.path);
   const canUseProjectSideTools = hasProjectContext;
   const hasTimeline = viewModel.timeline.length > 0;
@@ -150,25 +158,6 @@ export function Workspace({
       <MessageActions content={message.content} createdAt={message.createdAt} messageApi={messageApi} role={message.role} />
     ) : undefined,
   }));
-  const updateJumpToBottomVisibility = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) {
-      setShowJumpToBottom(false);
-      return;
-    }
-    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    scrollPinnedRef.current = distanceToBottom < 120;
-    setShowJumpToBottom(distanceToBottom > 180);
-  }, []);
-  const jumpToBottom = () => {
-    scrollPinnedRef.current = true;
-    scrollContainerRef.current?.scrollTo({
-      top: scrollContainerRef.current.scrollHeight,
-      behavior: 'smooth',
-    });
-  };
-  const timelineLastID = viewModel.timeline.at(-1)?.id ?? '';
-  const conversationLastID = viewModel.conversation.at(-1)?.id ?? '';
   const rightPanelHasTabs = rightPanelTabs.length > 0;
   const rightPanelOpen = rightPanelVisible;
   const activeRightPanelTab = rightPanelTabs.find((tab) => tab.id === activeRightPanelID) ?? rightPanelTabs[0];
@@ -327,6 +316,7 @@ export function Workspace({
       window.removeEventListener('pointermove', updateRightPanelWidth);
       window.removeEventListener('pointerup', stopRightPanelResize);
       window.removeEventListener('pointercancel', stopRightPanelResize);
+      nudgeCursorRecompute();
     };
 
     window.addEventListener('pointermove', updateRightPanelWidth);
@@ -370,28 +360,9 @@ export function Workspace({
     };
   }, [activeSessionID, messageApi, onSessionTerminalsList, replaceTerminalTabs]);
   useEffect(() => {
-    const frame = window.requestAnimationFrame(updateJumpToBottomVisibility);
-    return () => window.cancelAnimationFrame(frame);
-  }, [updateJumpToBottomVisibility, viewModel.conversation.length, viewModel.timeline.length]);
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container || (!timelineLastID && !conversationLastID)) {
-      return undefined;
-    }
-    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    const shouldFollow = scrollPinnedRef.current || distanceToBottom < 160;
-    if (!shouldFollow) {
-      return undefined;
-    }
-    const frame = window.requestAnimationFrame(() => {
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior: viewModel.composer.busy ? 'smooth' : 'auto',
-      });
-      updateJumpToBottomVisibility();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [conversationLastID, timelineLastID, updateJumpToBottomVisibility, viewModel.composer.busy]);
+    // Opening/switching a conversation always lands pinned at the bottom.
+    pinAndScrollToBottom('auto');
+  }, [activeSession?.id, switchingSessionID, pinAndScrollToBottom]);
   useEffect(() => {
     const activeTab = rightPanelTabsRef.current?.querySelector<HTMLElement>('[data-active="true"]');
     activeTab?.scrollIntoView({ block: 'nearest', inline: 'center' });
@@ -475,6 +446,13 @@ export function Workspace({
     onMinimumWorkspaceWidthChange?.(rightPanelOpen ? RIGHT_PANEL_DOCKED_MIN_WORKSPACE_WIDTH : 0);
     return () => onMinimumWorkspaceWidthChange?.(0);
   }, [onMinimumWorkspaceWidthChange, rightPanelOpen]);
+  const handlePromptSubmit = useCallback(
+    async (prompt: string) => {
+      pinAndScrollToBottom('auto');
+      await onPromptSubmit(prompt);
+    },
+    [onPromptSubmit, pinAndScrollToBottom],
+  );
   const openRenameDialog = () => {
     if (!activeSession) {
       void messageApi.warning('请先选择一个对话');
@@ -576,7 +554,9 @@ export function Workspace({
         <div
           ref={hasConversation || isSessionSwitching ? scrollContainerRef : undefined}
           className={hasConversation || isSessionSwitching ? styles.chatContent : styles.content}
-          onScroll={hasConversation || isSessionSwitching ? updateJumpToBottomVisibility : undefined}
+          onKeyDown={hasConversation || isSessionSwitching ? handleScrollKeyDown : undefined}
+          onPointerDown={hasConversation || isSessionSwitching ? handleScrollPointerDown : undefined}
+          onScroll={hasConversation || isSessionSwitching ? handleScroll : undefined}
         >
           {hasTimeline ? (
             <div className={styles.timelineLayout}>
@@ -613,7 +593,7 @@ export function Workspace({
           <TodoTaskBar todos={viewModel.todos} />
           {hasConversation && showJumpToBottom && (
             <button
-              aria-label="璺冲埌搴曢儴"
+              aria-label="跳到底部"
               className={styles.jumpToBottomButton}
               type="button"
               onClick={jumpToBottom}
@@ -636,7 +616,7 @@ export function Workspace({
               onModelSelect={onModelSelect}
               onPermissionModeSelect={onPermissionModeSelect}
               onCancel={onPromptCancel}
-              onSubmit={onPromptSubmit}
+              onSubmit={handlePromptSubmit}
             />
           )}
         </div>
@@ -652,6 +632,7 @@ export function Workspace({
               role="separator"
               tabIndex={0}
               onPointerDown={startRightPanelResize}
+              onPointerLeave={nudgeCursorRecompute}
             />
             {rightPanelHasTabs ? (
               <div className={styles.terminalHeader}>

@@ -1,0 +1,185 @@
+.row {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border-left: 2px solid transparent;
+  color: rgb(13 13 13 / 56%);
+  font-size: 13px;
+  line-height: 1.5;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.rowClickable {
+  cursor: pointer;
+}
+
+.rowClickable:hover,
+.rowClickable:focus-visible {
+  background: rgb(13 13 13 / 4%);
+  outline: none;
+}
+
+.rowError {
+  border-left-color: var(--ant-color-error);
+  background: var(--ant-color-error-bg);
+}
+
+.rowError.rowClickable:hover {
+  background: var(--ant-color-error-bg-hover, var(--ant-color-error-bg));
+}
+
+.rowWarning {
+  border-left-color: var(--ant-color-warning);
+  background: var(--ant-color-warning-bg);
+}
+
+.rowIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 22px;
+  color: rgb(13 13 13 / 40%);
+  font-size: 13px;
+}
+
+.rowError .rowIcon {
+  color: var(--ant-color-error);
+}
+
+.rowWarning .rowIcon {
+  color: var(--ant-color-warning);
+}
+
+.rowBody {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.rowHeader {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  gap: 8px;
+}
+
+.rowTitle {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1 1 auto;
+  color: rgb(13 13 13 / 66%);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowError .rowTitle,
+.rowWarning .rowTitle {
+  color: rgb(13 13 13 / 80%);
+}
+
+.rowMeta {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  color: rgb(13 13 13 / 42%);
+  font-size: 12px;
+}
+
+.rowToggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  color: rgb(13 13 13 / 36%);
+  cursor: pointer;
+  font-size: 11px;
+  transition: transform 160ms ease, background-color 120ms ease;
+}
+
+.rowToggle:hover {
+  background: rgb(13 13 13 / 8%);
+  color: rgb(13 13 13 / 68%);
+}
+
+.rowExtra {
+  overflow-wrap: anywhere;
+  color: rgb(13 13 13 / 48%);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.rowError .rowExtra {
+  color: var(--ant-color-error-text, var(--ant-color-error));
+}
+
+.rowWarning .rowExtra {
+  color: var(--ant-color-warning-text, var(--ant-color-warning));
+}
+
+.rowExpand {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 180ms ease;
+}
+
+.rowExpandOpen {
+  grid-template-rows: 1fr;
+}
+
+.rowExpandInner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.rowExpandOpen .rowExpandInner {
+  padding-top: 6px;
+}
+
+.inline {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0;
+}
+
+.inlineSummary {
+  overflow: hidden;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: rgb(13 13 13 / 52%);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inlineSummary:hover {
+  color: rgb(13 13 13 / 76%);
+}
+
+@media (max-width: 720px) {
+  .row {
+    padding: 6px 4px;
+  }
+}

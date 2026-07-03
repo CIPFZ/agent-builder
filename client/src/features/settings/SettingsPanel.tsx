@@ -49,6 +49,7 @@ import type {
   WorkbenchMode,
 } from '../../runtime/workbenchTypes.ts';
 import { HookSettingsPanel } from '../hooks/HookSettingsPanel.tsx';
+import { nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
 import styles from './SettingsPanel.module.css';
 
 const { Content, Sider } = Layout;
@@ -217,6 +218,7 @@ export function SettingsPanel({
       window.removeEventListener('pointermove', updateSiderWidth);
       window.removeEventListener('pointerup', stopSiderResize);
       window.removeEventListener('pointercancel', stopSiderResize);
+      nudgeCursorRecompute();
     };
 
     window.addEventListener('pointermove', updateSiderWidth);
@@ -276,6 +278,7 @@ export function SettingsPanel({
           role="separator"
           tabIndex={0}
           onPointerDown={startSiderResize}
+          onPointerLeave={nudgeCursorRecompute}
         />
 
         <Content className={styles.content}>

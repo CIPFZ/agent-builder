@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import {
   BranchesOutlined,
   CheckOutlined,
   CloseCircleOutlined,
   CodeOutlined,
   CopyOutlined,
+  DownOutlined,
   EditOutlined,
   FileTextOutlined,
   LoadingOutlined,
@@ -38,13 +40,32 @@ export function ToolCallCard({
 function SingleToolCallCard({ onAgentTaskOpen, toolCall }: { onAgentTaskOpen?: (taskID: string) => void; toolCall: ToolCallViewModel }) {
   const [messageApi, messageContextHolder] = message.useMessage();
   const kind = toolKind(toolCall);
+  const status = toolVisualStatus(toolCall);
+  const failed = isFailedStatus(status);
+
+  if (isQuietRow(toolCall)) {
+    return (
+      <section className={styles.process} data-testid="tool-call-card" data-tool-call-id={toolCall.id} data-tool-kind={kind} data-tool-quiet="true" data-tool-status={status}>
+        {messageContextHolder}
+        <QuietToolRow messageApi={messageApi} toolCall={toolCall} onAgentTaskOpen={onAgentTaskOpen} />
+      </section>
+    );
+  }
+
   const output = readableToolOutput(toolCall);
   const detail = toolDetail(toolCall);
   const hasDetails = hasToolDetails(toolCall, detail, output);
   const defaultActiveKey = shouldOpenByDefault([toolCall]) ? ['details'] : [];
+  const failureExcerpt = failed ? toolFailureExcerpt(toolCall) : '';
 
   return (
-    <section className={styles.process} data-testid="tool-call-card" data-tool-call-id={toolCall.id} data-tool-kind={kind} data-tool-status={toolVisualStatus(toolCall)}>
+    <section
+      className={`${styles.process} ${failed ? styles.processFailed : ''}`}
+      data-testid="tool-call-card"
+      data-tool-call-id={toolCall.id}
+      data-tool-kind={kind}
+      data-tool-status={status}
+    >
       {messageContextHolder}
       <Collapse
         ghost
@@ -59,12 +80,12 @@ function SingleToolCallCard({ onAgentTaskOpen, toolCall }: { onAgentTaskOpen?: (
             label: (
               <div className={styles.summary}>
                 <span className={styles.summaryTitle}>
-                  <ToolIcon kind={kind} status={toolVisualStatus(toolCall)} />
+                  <ToolIcon kind={kind} status={status} />
                   {toolCall.display?.title || summaryTitle(toolCall, kind)}
                 </span>
                 <span className={styles.summaryMeta}>
                   {toolDuration(toolCall)}
-                  <ToolStatus status={toolVisualStatus(toolCall)} />
+                  <ToolStatus status={status} />
                 </span>
               </div>
             ),
@@ -74,6 +95,7 @@ function SingleToolCallCard({ onAgentTaskOpen, toolCall }: { onAgentTaskOpen?: (
           },
         ]}
       />
+      {failureExcerpt && <div className={styles.failureExcerpt}>{failureExcerpt}</div>}
     </section>
   );
 }
@@ -83,12 +105,45 @@ function ToolCallGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (task
   const kinds = toolCalls.map((call) => toolKind(call));
   const groupKind = new Set(kinds).size === 1 ? kinds[0] : 'generic';
   const status = groupStatus(toolCalls);
+  const failed = isFailedStatus(status);
   const startedAt = minTimestamp(toolCalls.map((call) => call.startedAt));
   const finishedAt = maxTimestamp(toolCalls.map((call) => call.finishedAt));
+  const groupId = toolCalls.map((call) => call.id).join(',');
+
+  if (!failed && toolCalls.every((call) => isQuietRow(call))) {
+    return (
+      <section className={styles.process} data-testid="tool-call-card" data-tool-call-id={groupId} data-tool-kind={groupKind} data-tool-quiet="true" data-tool-status={status}>
+        {messageContextHolder}
+        <div className={styles.groupQuietHeader}>
+          <span className={styles.summaryTitle}>
+            <ToolIcon kind={groupKind} status={status} />
+            {groupSummaryTitle(toolCalls, groupKind)}
+          </span>
+          <span className={styles.summaryMeta}>
+            {startedAt && finishedAt && <span>{formatDuration(startedAt, finishedAt)}</span>}
+            <ToolStatus status={status} />
+          </span>
+        </div>
+        <div className={styles.quietGroupList}>
+          {toolCalls.map((call) => (
+            <QuietToolRow key={call.id} messageApi={messageApi} toolCall={call} onAgentTaskOpen={onAgentTaskOpen} />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
   const defaultActiveKey = shouldOpenByDefault(toolCalls) ? ['details'] : [];
+  const failureExcerpt = failed ? groupFailureExcerpt(toolCalls) : '';
 
   return (
-    <section className={styles.process} data-testid="tool-call-card" data-tool-call-id={toolCalls.map((call) => call.id).join(',')} data-tool-kind={groupKind} data-tool-status={status}>
+    <section
+      className={`${styles.process} ${failed ? styles.processFailed : ''}`}
+      data-testid="tool-call-card"
+      data-tool-call-id={groupId}
+      data-tool-kind={groupKind}
+      data-tool-status={status}
+    >
       {messageContextHolder}
       <Collapse
         ghost
@@ -130,7 +185,69 @@ function ToolCallGroup({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (task
           },
         ]}
       />
+      {failureExcerpt && <div className={styles.failureExcerpt}>{failureExcerpt}</div>}
     </section>
+  );
+}
+
+// QuietToolRowList renders a flat list of single-line quiet tool rows. It is
+// used both by ToolCallGroup's all-quiet path and by Timeline's
+// "已完成 N 个工具" summary, which supplies its own header and only needs the
+// row list as its expandable body.
+export function QuietToolRowList({ onAgentTaskOpen, toolCalls }: { onAgentTaskOpen?: (taskID: string) => void; toolCalls: ToolCallViewModel[] }) {
+  const [messageApi, messageContextHolder] = message.useMessage();
+  return (
+    <div className={styles.quietGroupList}>
+      {messageContextHolder}
+      {toolCalls.map((call) => (
+        <QuietToolRow key={call.id} messageApi={messageApi} toolCall={call} onAgentTaskOpen={onAgentTaskOpen} />
+      ))}
+    </div>
+  );
+}
+
+// QuietToolRow is the single-line, low-chrome presentation for a quiet,
+// completed, non-failing tool call: kind icon + title + primary target +
+// duration. The expand chevron only appears on hover/focus; clicking it
+// reveals the full ToolDetails panel inline.
+function QuietToolRow({
+  messageApi,
+  onAgentTaskOpen,
+  toolCall,
+}: {
+  messageApi: ReturnType<typeof message.useMessage>[0];
+  onAgentTaskOpen?: (taskID: string) => void;
+  toolCall: ToolCallViewModel;
+}) {
+  const [open, setOpen] = useState(false);
+  const kind = toolKind(toolCall);
+  const detail = toolDetail(toolCall);
+  const output = readableToolOutput(toolCall);
+  const hasDetails = hasToolDetails(toolCall, detail, output);
+  const target = toolCall.display?.primaryTarget || toolCall.display?.target;
+
+  return (
+    <div className={styles.quietRow} data-testid="tool-call-quiet-row" data-tool-call-id={toolCall.id} data-tool-kind={kind}>
+      <button
+        aria-expanded={hasDetails ? open : undefined}
+        className={styles.quietRowHeader}
+        type="button"
+        onClick={() => hasDetails && setOpen((value) => !value)}
+      >
+        <ToolIcon kind={kind} status={toolVisualStatus(toolCall)} />
+        <span className={styles.quietRowTitle}>{toolCall.display?.title || summaryTitle(toolCall, kind)}</span>
+        {target ? <code className={styles.quietRowTarget}>{target}</code> : null}
+        <span className={styles.quietRowMeta}>{toolDuration(toolCall)}</span>
+        {hasDetails ? <DownOutlined className={styles.quietRowChevron} rotate={open ? 180 : 0} /> : null}
+      </button>
+      {hasDetails ? (
+        <div className={`${styles.quietRowBody} ${open ? styles.quietRowBodyOpen : ''}`}>
+          <div className={styles.quietRowBodyInner}>
+            <ToolDetails detail={detail} kind={kind} output={output} toolCall={toolCall} onAgentTaskOpen={onAgentTaskOpen} onCopy={async (text) => copyText(text, messageApi)} />
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -438,6 +555,23 @@ function taskStatusColor(status?: string) {
     default:
       return 'default';
   }
+}
+
+function isQuietRow(toolCall: ToolCallViewModel) {
+  return toolCall.quiet === true && (toolCall.status === 'completed' || toolCall.status === 'success') && !toolCall.error;
+}
+
+function isFailedStatus(status: string) {
+  return status === 'failed' || status === 'denied' || status === 'cancelled' || status === 'interrupted';
+}
+
+function toolFailureExcerpt(toolCall: ToolCallViewModel) {
+  return toolFailureReason(toolCall) || toolStderr(toolCall) || (toolCall.error ?? '').trim();
+}
+
+function groupFailureExcerpt(toolCalls: ToolCallViewModel[]) {
+  const failedCall = toolCalls.find((call) => isFailedStatus(toolVisualStatus(call)));
+  return failedCall ? toolFailureExcerpt(failedCall) : '';
 }
 
 function shouldOpenByDefault(toolCalls: ToolCallViewModel[]) {

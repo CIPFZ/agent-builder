@@ -1,13 +1,23 @@
 import { useEffect, useState } from 'react';
-import { BranchesOutlined, CheckOutlined, CopyOutlined, DownOutlined, WarningOutlined } from '@ant-design/icons';
+import {
+  BranchesOutlined,
+  CheckOutlined,
+  CopyOutlined,
+  DownOutlined,
+  MessageOutlined,
+  SafetyCertificateOutlined,
+  WarningOutlined,
+} from '@ant-design/icons';
 import { Button, Collapse, Progress, Tag, Tooltip, message } from 'antd';
 import Bubble from '@ant-design/x/es/bubble';
 import type { ConversationTimelineItemViewModel, HookExecutionSummaryViewModel, HookExecutionViewModel, ToolCallViewModel } from '../../runtime/workbenchTypes.ts';
 import { ThinkingItem } from './ThinkingItem.tsx';
-import { ToolCallCard } from '../tools/ToolCallCard.tsx';
+import { ToolCallCard, QuietToolRowList } from '../tools/ToolCallCard.tsx';
 import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { HookExecutionDetailDrawer } from '../hooks/HookExecutionDetailDrawer.tsx';
 import { HookTimelineRow } from '../hooks/HookTimelineRow.tsx';
+import { InlineExpandable, TraceRow } from './TraceRow.tsx';
+import { useLatchedOpen, useMinDisplay, useRatchetCounts } from './hooks.ts';
 import styles from './Timeline.module.css';
 
 interface TimelineProps {
@@ -117,12 +127,14 @@ function ProcessTrace({
 }) {
   const traceLabel = processTraceSummary(block);
   const groupedItems = compactProcessItems(block.processItems);
+  const autoOpen = shouldOpenProcessTrace(block);
+  const [open, setOpen] = useLatchedOpen(autoOpen, block.turnId);
   return (
     <section className={styles.processTrace} data-testid="process-trace" data-process-label={traceLabel} data-process-status={block.status}>
       <Collapse
         ghost
         size="small"
-        defaultActiveKey={shouldOpenProcessTrace(block) ? ['trace'] : []}
+        activeKey={open ? ['trace'] : []}
         expandIcon={({ isActive }) => <DownOutlined rotate={isActive ? 180 : 0} />}
         items={[
           {
@@ -131,24 +143,55 @@ function ProcessTrace({
             children: (
               <div className={styles.processSteps}>
                 {groupedItems.map((item) => (
-                  <TimelineProcessItem key={item.id} hookExecutions={hookExecutions} item={item} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} />
+                  <div key={item.id} className={styles.stepRail} data-step-status={stepStatus(item)}>
+                    <span className={styles.stepDot} aria-hidden="true" />
+                    <div className={styles.stepContent}>
+                      <TimelineProcessItem hookExecutions={hookExecutions} item={item} onAgentTaskOpen={onAgentTaskOpen} onHookOpen={onHookOpen} />
+                    </div>
+                  </div>
                 ))}
               </div>
             ),
           },
         ]}
+        onChange={(keys) => setOpen(Array.isArray(keys) ? keys.includes('trace') : keys === 'trace')}
       />
     </section>
   );
 }
 
+function stepStatus(item: RenderTimelineItem): 'running' | 'failed' | 'done' {
+  if (item.kind === 'tool_call_group' || item.kind === 'tool_call_summary') {
+    if (item.toolCalls.some((call) => isActiveTurnStatus(call.status))) {
+      return 'running';
+    }
+    if (item.toolCalls.some((call) => isFailedStatus(call.status))) {
+      return 'failed';
+    }
+    return 'done';
+  }
+  const status = item.status;
+  if (isActiveTurnStatus(status)) {
+    return 'running';
+  }
+  if (isFailedStatus(status)) {
+    return 'failed';
+  }
+  return 'done';
+}
+
+function isFailedStatus(status?: string) {
+  return status === 'failed' || status === 'denied' || status === 'cancelled' || status === 'interrupted';
+}
+
 function ProcessTraceLabel({ block }: { block: TimelineTurnBlock }) {
   const exploration = block.explorationSummary;
   const summary = exploration?.exploration;
-  const counts = summary?.toolCounts ?? exploration?.displayCounts;
+  const rawCounts = summary?.toolCounts ?? exploration?.displayCounts;
   const status = summary?.status ?? block.status;
+  const counts = useRatchetCounts(rawCounts, block.turnId);
+  const verb = useMinDisplay(explorationStatusVerb(status, summary?.failedCount), 700);
   if (counts && counts.length > 0) {
-    const verb = explorationStatusVerb(status, summary?.failedCount);
     return (
       <span className={styles.processTraceLabel} data-testid="process-trace-label" data-exploration-status={status}>
         <span>{verb}</span>
@@ -301,16 +344,15 @@ function TimelineProcessItem({
 function WorkflowNoticeRow({ item }: { item: ConversationTimelineItemViewModel }) {
   const failed = item.status === 'failed' || item.status === 'interrupted' || Boolean(item.error);
   return (
-    <div className={styles.contextGovernanceRow} data-testid="timeline-workflow-row" data-workflow-kind={item.kind} data-workflow-status={item.status}>
-      <span className={styles.contextGovernanceIcon}>{failed ? <WarningOutlined /> : <BranchesOutlined />}</span>
-      <div className={styles.contextGovernanceBody}>
-        <div className={styles.contextGovernanceTitle}>
-          <span>{item.title || workflowNoticeTitle(item.kind)}</span>
-          {item.status ? <Tag color={failed ? 'error' : 'default'}>{item.status}</Tag> : null}
-        </div>
-        {item.summary || item.error || item.content ? <div className={styles.contextGovernanceSummary}>{item.error || item.summary || item.content}</div> : null}
-      </div>
-    </div>
+    <TraceRow
+      dataAttrs={{ 'data-workflow-kind': item.kind, 'data-workflow-status': item.status }}
+      extra={item.summary || item.error || item.content ? <span>{item.error || item.summary || item.content}</span> : null}
+      icon={failed ? <WarningOutlined /> : <BranchesOutlined />}
+      meta={item.status ? <Tag color={failed ? 'error' : 'default'}>{item.status}</Tag> : null}
+      testId="timeline-workflow-row"
+      title={item.title || workflowNoticeTitle(item.kind)}
+      tone={failed ? 'error' : 'default'}
+    />
   );
 }
 
@@ -332,16 +374,15 @@ function workflowNoticeTitle(kind: string) {
 function ContextGovernanceRow({ item }: { item: ConversationTimelineItemViewModel }) {
   const failed = item.status === 'failed' || Boolean(item.error);
   return (
-    <div className={styles.contextGovernanceRow} data-testid="timeline-context-governance-row" data-context-kind={item.kind} data-context-status={item.status}>
-      <span className={styles.contextGovernanceIcon}>{failed ? <WarningOutlined /> : <BranchesOutlined />}</span>
-      <div className={styles.contextGovernanceBody}>
-        <div className={styles.contextGovernanceTitle}>
-          <span>{contextGovernanceTitle(item)}</span>
-          {item.status ? <Tag color={failed ? 'error' : 'default'}>{item.status}</Tag> : null}
-        </div>
-        {item.summary || item.error ? <div className={styles.contextGovernanceSummary}>{item.error || item.summary}</div> : null}
-      </div>
-    </div>
+    <TraceRow
+      dataAttrs={{ 'data-context-kind': item.kind, 'data-context-status': item.status }}
+      extra={item.summary || item.error ? <span>{item.error || item.summary}</span> : null}
+      icon={failed ? <WarningOutlined /> : <BranchesOutlined />}
+      meta={item.status ? <Tag color={failed ? 'error' : 'default'}>{item.status}</Tag> : null}
+      testId="timeline-context-governance-row"
+      title={contextGovernanceTitle(item)}
+      tone={failed ? 'error' : 'default'}
+    />
   );
 }
 
@@ -349,16 +390,20 @@ function ToolRunSummary({ item, onAgentTaskOpen }: { item: ToolCallSummaryRender
   const duration = toolCallsDuration(item.toolCalls);
   const kinds = summarizeToolKinds(item.toolCalls);
   return (
-    <details className={styles.toolRunSummary} data-testid="tool-run-summary">
-      <summary>
-        <span>已完成 {item.toolCalls.length} 个工具</span>
-        {duration && <span>{duration}</span>}
-        {kinds && <span>{kinds}</span>}
-      </summary>
-      <div>
-        <ToolCallCard toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />
-      </div>
-    </details>
+    <TraceRow
+      expandable
+      icon={<CheckOutlined />}
+      meta={
+        <>
+          {duration && <span>{duration}</span>}
+          {kinds && <span>{kinds}</span>}
+        </>
+      }
+      testId="tool-run-summary"
+      title={`已完成 ${item.toolCalls.length} 个工具`}
+    >
+      <QuietToolRowList toolCalls={item.toolCalls} onAgentTaskOpen={onAgentTaskOpen} />
+    </TraceRow>
   );
 }
 
@@ -409,12 +454,9 @@ function AssistantProcessNote({ item }: { item: ConversationTimelineItemViewMode
     return null;
   }
   return (
-    <details className={styles.processNote} data-testid="timeline-process-note">
-      <summary>{summarizeProcessNote(content)}</summary>
-      <div>
-        <MarkdownMessage content={content} role="assistant" />
-      </div>
-    </details>
+    <TraceRow expandable icon={<MessageOutlined />} testId="timeline-process-note" title={summarizeProcessNote(content)}>
+      <MarkdownMessage content={content} role="assistant" />
+    </TraceRow>
   );
 }
 
@@ -423,12 +465,22 @@ function PermissionTraceRow({ item }: { item: ConversationTimelineItemViewModel 
   if (!permission) {
     return null;
   }
+  const failed = permission.status === 'denied' || permission.status === 'cancelled' || permission.status === 'expired';
+  const reason = permission.reason || permission.policyReason;
   return (
-    <div className={styles.permissionTraceRow} data-testid="permission-trace-row" data-permission-status={permission.status}>
-      <span>{permissionStatusLabel(permission.status)}</span>
-      <code>{permission.target || permission.path || permission.toolName}</code>
-      {permission.reason || permission.policyReason ? <span>{permission.reason || permission.policyReason}</span> : null}
-    </div>
+    <TraceRow
+      dataAttrs={{ 'data-permission-status': permission.status }}
+      extra={reason ? <span>{reason}</span> : null}
+      icon={failed ? <WarningOutlined /> : <SafetyCertificateOutlined />}
+      testId="permission-trace-row"
+      title={
+        <>
+          {permissionStatusLabel(permission.status)}
+          <code className={styles.inlineCode}>{permission.target || permission.path || permission.toolName}</code>
+        </>
+      }
+      tone={failed ? 'error' : 'default'}
+    />
   );
 }
 
@@ -439,31 +491,29 @@ function AgentTaskTimelineRow({ item, onAgentTaskOpen }: { item: ConversationTim
   }
   const refs = [...(task.outputRefs ?? []), ...(task.artifactRefs ?? [])];
   const summary = task.resultSummary || task.promptSummary || '';
+  const failed = task.status === 'failed' || task.status === 'interrupted';
+  const metaLine = [task.role || task.kind, task.provider && task.model ? `${task.provider}/${task.model}` : task.model, task.childSessionId ? `child ${task.childSessionId}` : undefined]
+    .filter(Boolean)
+    .join(' / ');
   return (
-    <button className={styles.agentTaskRow} data-testid="timeline-agent-task-row" data-task-id={task.id} type="button" onClick={() => onAgentTaskOpen?.(task.id)}>
-      <div className={styles.agentTaskIcon}>
-        <BranchesOutlined />
-      </div>
-      <div className={styles.agentTaskBody}>
-        <div className={styles.agentTaskHeader}>
-          <span>{task.title || task.id}</span>
-          <Tag color={agentTaskStatusColor(task.status)}>{task.status}</Tag>
+    <TraceRow
+      clickable
+      dataAttrs={{ 'data-task-id': task.id }}
+      extra={
+        <div className={styles.agentTaskExtra}>
+          <Progress percent={task.progress ?? 0} size="small" showInfo={false} />
+          {metaLine ? <div className={styles.agentTaskMetaLine}>{metaLine}</div> : null}
+          {summary ? <InlineExpandable summary={summarizeProcessNote(summary)}>{summary}</InlineExpandable> : null}
+          {refs.length ? <div className={styles.agentTaskRefsLine}>{refs.slice(0, 3).join(' / ')}</div> : null}
         </div>
-        <Progress percent={task.progress ?? 0} size="small" showInfo={false} />
-        <div className={styles.agentTaskMeta}>
-          {[task.role || task.kind, task.provider && task.model ? `${task.provider}/${task.model}` : task.model, task.childSessionId ? `child ${task.childSessionId}` : undefined]
-            .filter(Boolean)
-            .join(' / ')}
-        </div>
-        {summary ? (
-          <details className={styles.agentTaskSummary}>
-            <summary>{summarizeProcessNote(summary)}</summary>
-            <div>{summary}</div>
-          </details>
-        ) : null}
-        {refs.length ? <div className={styles.agentTaskRefs}>{refs.slice(0, 3).join(' / ')}</div> : null}
-      </div>
-    </button>
+      }
+      icon={<BranchesOutlined />}
+      meta={<Tag color={agentTaskStatusColor(task.status)}>{task.status}</Tag>}
+      testId="timeline-agent-task-row"
+      title={task.title || task.id}
+      tone={failed ? 'error' : 'default'}
+      onRowClick={() => onAgentTaskOpen?.(task.id)}
+    />
   );
 }
 
@@ -473,13 +523,13 @@ function TurnDiagnosticWarning({ item }: { item: ConversationTimelineItemViewMod
     return null;
   }
   return (
-    <div className={styles.diagnosticWarning} data-testid="turn-diagnostic-warning">
-      <WarningOutlined className={styles.diagnosticIcon} />
-      <div className={styles.diagnosticBody}>
-        <div className={styles.diagnosticTitle}>{diagnosticWarningTitle(item)}</div>
-        <div className={styles.diagnosticContent}>{missingArtifacts.length > 0 ? formatMissingArtifacts(missingArtifacts) : item.summary}</div>
-      </div>
-    </div>
+    <TraceRow
+      extra={<span>{missingArtifacts.length > 0 ? formatMissingArtifacts(missingArtifacts) : item.summary}</span>}
+      icon={<WarningOutlined />}
+      testId="turn-diagnostic-warning"
+      title={diagnosticWarningTitle(item)}
+      tone="warning"
+    />
   );
 }
 
@@ -597,6 +647,11 @@ function isFinalAssistantMessage(item: ConversationTimelineItemViewModel) {
 }
 
 function shouldOpenProcessTrace(block: TimelineTurnBlock) {
+  const explorationStatus = block.explorationSummary?.exploration?.status;
+  const failedCount = block.explorationSummary?.exploration?.failedCount ?? 0;
+  if (explorationStatus === 'exploring' || failedCount > 0) {
+    return true;
+  }
   if (!block.finalMessage) {
     return true;
   }
@@ -840,7 +895,12 @@ function diagnosticWarningTitle(item: ConversationTimelineItemViewModel) {
 }
 
 function isCompleteMessage(item: ConversationTimelineItemViewModel) {
-  return item.status === 'success' || item.status === 'error';
+  if (item.streaming) {
+    return false;
+  }
+  // Runtime-echoed items report 'completed'; optimistic/legacy rows use
+  // 'success'. Both are settled messages whose footer (copy + time) may show.
+  return item.status === 'success' || item.status === 'error' || item.status === 'completed';
 }
 
 function MessageFooter({

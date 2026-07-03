@@ -47,6 +47,18 @@
   color: rgb(13 13 13 / 45%);
   font-size: 12px;
   line-height: 20px;
+  /* Copy + timestamp reveal on hover only. Opacity (not display) keeps the
+     footer's line box in flow, so revealing it never shifts the layout. */
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.userBubble:hover .messageFooter,
+.assistantBubble:hover .messageFooter,
+.messageFooter:focus-within {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .userMessageFooter {
@@ -84,7 +96,7 @@
   align-items: center;
   gap: 6px;
   color: rgb(13 13 13 / 52%);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -116,87 +128,107 @@
 .processSteps {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
   max-height: min(62vh, 680px);
   padding-top: 6px;
+  /* The running-dot pulse (.stepDot::after at scale 1.7) reaches ~10px left
+     of the dot; without this padding the overflow:auto box clips it. */
+  padding-left: 10px;
   overflow: auto;
   scrollbar-color: #d9d9d9 transparent;
   scrollbar-width: thin;
 }
 
-.processNote {
-  width: min(720px, 94%);
-  color: rgb(13 13 13 / 76%);
-  font-size: 15px;
-  line-height: 1.65;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.processNote summary,
-.agentTaskSummary summary {
-  min-width: 0;
-  cursor: pointer;
-  overflow: hidden;
-  color: rgb(13 13 13 / 62%);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.processNote[open] summary,
-.agentTaskSummary[open] summary {
-  margin-bottom: 6px;
-}
-
-.processNote > div,
-.agentTaskSummary > div {
-  max-height: 260px;
-  overflow: auto;
-  white-space: normal;
-}
-
-.toolRunSummary {
-  width: min(720px, 94%);
-  color: rgb(13 13 13 / 64%);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.toolRunSummary summary {
-  display: inline-flex;
-  min-width: 0;
-  max-width: 100%;
-  align-items: center;
+.stepRail {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
   gap: 8px;
-  cursor: pointer;
-  color: rgb(13 13 13 / 54%);
 }
 
-.toolRunSummary summary span + span {
-  color: rgb(13 13 13 / 40%);
+.stepRail::before {
+  position: absolute;
+  top: 16px;
+  bottom: -2px;
+  left: 7px;
+  width: 2px;
+  background: var(--ant-color-border-secondary);
+  content: '';
 }
 
-.toolRunSummary > div {
-  margin-top: 8px;
+.stepRail:last-child::before {
+  display: none;
 }
 
-.permissionTraceRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  width: min(720px, 94%);
-  gap: 6px;
-  color: rgb(13 13 13 / 48%);
-  font-size: 13px;
-  line-height: 1.5;
+.stepDot {
+  position: relative;
+  z-index: 1;
+  width: 8px;
+  height: 8px;
+  margin-top: 13px;
+  border-radius: 999px;
+  background: var(--ant-color-border);
 }
 
-.permissionTraceRow code {
+.stepRail[data-step-status='running'] .stepDot {
+  background: var(--ant-color-primary);
+}
+
+.stepRail[data-step-status='running'] .stepDot::after {
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  background: var(--ant-color-primary);
+  opacity: 0.35;
+  animation: stepPulse 1.4s ease-in-out infinite;
+  content: '';
+}
+
+.stepRail[data-step-status='failed'] .stepDot {
+  background: var(--ant-color-error);
+}
+
+@keyframes stepPulse {
+  0% {
+    opacity: 0.45;
+    transform: scale(0.6);
+  }
+
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+
+.stepContent {
+  min-width: 0;
+}
+
+.inlineCode {
+  margin-left: 6px;
   padding: 1px 6px;
   border-radius: 6px;
   background: rgb(13 13 13 / 6%);
   color: rgb(13 13 13 / 68%);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.agentTaskExtra {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.agentTaskMetaLine,
+.agentTaskRefsLine {
+  overflow: hidden;
+  color: rgb(13 13 13 / 42%);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .processTrace :global(.ant-collapse-header) {
@@ -228,7 +260,7 @@
   width: min(720px, 94%);
   padding: 8px 0;
   color: rgb(13 13 13 / 42%);
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -248,176 +280,6 @@
   overflow-wrap: anywhere;
 }
 
-.toolProcessCluster {
-  display: grid;
-  gap: 4px;
-}
-
-.embeddedPermissions {
-  display: grid;
-  gap: 4px;
-  margin-top: -2px;
-}
-
-.diagnosticWarning {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
-  width: min(720px, 94%);
-  padding: 8px 10px;
-  border: 1px solid #ffe58f;
-  border-radius: 8px;
-  background: #fffbe6;
-  color: #5f4300;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.agentTaskRow {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  width: min(760px, 100%);
-  margin: 8px 0 8px 34px;
-  padding: 10px 12px;
-  gap: 10px;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  background: #ffffff;
-  border: 1px solid #e6e8eb;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.agentTaskRow:hover,
-.agentTaskRow:focus-visible {
-  background: #fafafa;
-  border-color: #d8dde3;
-  outline: none;
-}
-
-.agentTaskIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  color: rgba(0, 0, 0, 0.58);
-  background: #f6f7f9;
-  border-radius: 6px;
-}
-
-.agentTaskBody {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 6px;
-}
-
-.agentTaskHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-width: 0;
-  gap: 8px;
-}
-
-.agentTaskHeader span,
-.agentTaskMeta,
-.agentTaskSummary,
-.agentTaskRefs {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agentTaskHeader span {
-  color: rgba(0, 0, 0, 0.88);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.agentTaskMeta,
-.agentTaskRefs {
-  color: rgba(0, 0, 0, 0.48);
-  font-size: 12px;
-}
-
-.agentTaskSummary {
-  color: rgba(0, 0, 0, 0.72);
-  font-size: 12px;
-  white-space: normal;
-}
-
-.diagnosticIcon {
-  margin-top: 2px;
-  color: #d48806;
-}
-
-.diagnosticBody {
-  min-width: 0;
-}
-
-.diagnosticTitle {
-  font-weight: 600;
-}
-
-.diagnosticContent {
-  overflow-wrap: anywhere;
-  color: rgb(95 67 0 / 82%);
-}
-
-.contextGovernanceRow {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  align-items: start;
-  width: min(720px, 94%);
-  gap: 8px;
-  padding: 7px 0;
-  color: rgb(13 13 13 / 56%);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.contextGovernanceIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  color: rgb(13 13 13 / 38%);
-}
-
-.contextGovernanceBody {
-  min-width: 0;
-}
-
-.contextGovernanceTitle {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  color: rgb(13 13 13 / 66%);
-  font-weight: 500;
-}
-
-.contextGovernanceTitle span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.contextGovernanceSummary {
-  margin-top: 2px;
-  color: rgb(13 13 13 / 46%);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
 @media (max-width: 720px) {
   .timeline {
     padding-inline: 18px;
@@ -426,11 +288,7 @@
   .assistantBubble,
   .userBubble,
   .processTrace,
-  .processNote,
-  .permissionTraceRow,
-  .progress,
-  .diagnosticWarning,
-  .contextGovernanceRow {
+  .progress {
     width: 100%;
     max-width: 100%;
   }

@@ -1,7 +1,25 @@
 .process {
   width: min(720px, 94%);
   margin: 2px 0;
+  padding: 0 8px;
+  border-left: 2px solid transparent;
+  border-radius: 6px;
   color: rgb(13 13 13 / 78%);
+}
+
+.processFailed {
+  padding-block: 4px;
+  border-left-color: var(--ant-color-error);
+  background: var(--ant-color-error-bg);
+}
+
+.failureExcerpt {
+  margin: 2px 0 4px;
+  overflow-wrap: anywhere;
+  color: var(--ant-color-error-text, var(--ant-color-error));
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .summary {
@@ -284,6 +302,107 @@
 
 .process :global(.ant-typography) {
   margin-bottom: 0;
+}
+
+.groupQuietHeader {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quietGroupList {
+  display: flex;
+  flex-direction: column;
+  padding-left: 21px;
+}
+
+.quietRow {
+  display: flex;
+  flex-direction: column;
+}
+
+.quietRowHeader {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  background: none;
+  border: 0;
+  color: rgb(13 13 13 / 56%);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.quietRowHeader:hover {
+  color: rgb(13 13 13 / 80%);
+}
+
+.quietRowTitle {
+  overflow: hidden;
+  flex: 0 1 auto;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quietRowTarget {
+  overflow: hidden;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgb(13 13 13 / 5%);
+  color: rgb(13 13 13 / 60%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quietRowMeta {
+  flex: 0 0 auto;
+  color: rgb(13 13 13 / 40%);
+  font-size: 11px;
+}
+
+.quietRowChevron {
+  flex: 0 0 auto;
+  color: rgb(13 13 13 / 36%);
+  font-size: 10px;
+  opacity: 0;
+  transition: opacity 120ms ease, transform 160ms ease;
+}
+
+.quietRow:hover .quietRowChevron,
+.quietRowHeader:focus-visible .quietRowChevron {
+  opacity: 1;
+}
+
+.quietRowBody {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 180ms ease;
+}
+
+.quietRowBodyOpen {
+  grid-template-rows: 1fr;
+}
+
+.quietRowBodyInner {
+  overflow: hidden;
+  min-height: 0;
+  padding-left: 21px;
+}
+
+.quietRowBodyOpen .quietRowBodyInner {
+  padding-top: 4px;
+  padding-bottom: 6px;
 }
 
 @media (max-width: 720px) {

@@ -377,7 +377,7 @@
   bottom: 0;
   left: -4px;
   width: 9px;
-  cursor: col-resize;
+  cursor: ew-resize;
 }
 
 .rightPanelResizer::before {
