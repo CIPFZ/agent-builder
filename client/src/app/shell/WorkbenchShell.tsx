@@ -759,8 +759,8 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setViewModel(nextViewModel);
   };
 
-  const manualCompact = async () => {
-    const nextViewModel = await adapter.manualCompact({ ...viewModelRef.current, mode: modeRef.current });
+  const manualCompact = async (instructions?: string) => {
+    const nextViewModel = await adapter.manualCompact({ ...viewModelRef.current, mode: modeRef.current }, instructions);
     setMode(nextViewModel.mode);
     setViewModel(nextViewModel);
   };

@@ -187,6 +187,8 @@ type RuntimePolicyResponse = runtime.RuntimePolicyResponse
 type RuntimePolicyUpdateRequest = runtime.RuntimePolicyUpdateRequest
 type RuntimeRequests = runtime.RuntimeRequests
 type RuntimeUsage = runtime.RuntimeUsage
+type RuntimeContextUsage = runtime.RuntimeContextUsage
+type RuntimeContextCategory = runtime.RuntimeContextCategory
 type RuntimeEventStats = runtime.RuntimeEventStats
 type RuntimeEventsResponse = runtime.RuntimeEventsResponse
 type RuntimeEventsEndpointResponse = runtime.RuntimeEventsEndpointResponse
@@ -990,6 +992,12 @@ func (r *RuntimeBridge) DeleteSession(ctx context.Context, sessionID string) (Ru
 func (r *RuntimeBridge) SessionMessages(ctx context.Context, sessionID string) (RuntimeMessagesResponse, error) {
 
 	return r.service.SessionMessages(ctx, sessionID)
+
+}
+
+func (r *RuntimeBridge) SessionContextUsage(ctx context.Context, sessionID string) (RuntimeContextUsage, error) {
+
+	return r.service.SessionContextUsage(ctx, sessionID)
 
 }
 

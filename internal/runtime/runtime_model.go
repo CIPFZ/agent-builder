@@ -111,7 +111,7 @@ func (r *runtimeService) configuredProviderModels(ctx context.Context) ([]Runtim
 }
 
 func configuredProviderModelIDs(provider RuntimeConfiguredProvider) []string {
-	return compactModelIDs(append(provider.Models, strings.TrimSpace(provider.DefaultModel)))
+	return compactModelIDs(append(providerModelIDs(provider.Models), strings.TrimSpace(provider.DefaultModel)))
 }
 
 func (r *runtimeService) GetModelConfig(ctx context.Context) (RuntimeConfigResponse, error) {
@@ -161,9 +161,9 @@ func (r *runtimeService) SaveModelConfig(ctx context.Context, req RuntimeModelCo
 	if next.APIKey == "" {
 		next.APIKey = current.APIKey
 	}
-	discovered, discoverErr := discoverModelIDs(ctx, next)
+	discovered, discoverErr := discoverModels(ctx, next)
 	if discoverErr == nil && len(discovered) > 0 {
-		next.Models = discovered
+		next.Models = providerModelIDs(discovered)
 	} else if next.Model != "" {
 		next.Models = mergeModelIDs([]string{next.Model}, req.Models, current.Models)
 	}
@@ -205,7 +205,7 @@ func (r *runtimeService) DiscoverModelConfig(ctx context.Context, req RuntimeMod
 	if err := validateModelConfig(cfg, false); err != nil {
 		return RuntimeModelDiscoveryResponse{}, err
 	}
-	models, err := discoverModelIDs(ctx, cfg)
+	discovered, err := discoverModels(ctx, cfg)
 	if err != nil {
 		return RuntimeModelDiscoveryResponse{
 			Protocol: cfg.Protocol,
@@ -213,6 +213,7 @@ func (r *runtimeService) DiscoverModelConfig(ctx context.Context, req RuntimeMod
 			Error:    err.Error(),
 		}, nil
 	}
+	models := providerModelIDs(discovered)
 	selected := cfg.Model
 	if selected != "" && !slices.Contains(models, selected) {
 		selected = ""
@@ -244,9 +245,9 @@ func (r *runtimeService) VerifyModelConfig(ctx context.Context, req RuntimeModel
 	if cfg.APIKey == "" {
 		cfg.APIKey = current.APIKey
 	}
-	discovered, discoverErr := discoverModelIDs(ctx, cfg)
+	discovered, discoverErr := discoverModels(ctx, cfg)
 	if discoverErr == nil && len(discovered) > 0 {
-		cfg.Models = discovered
+		cfg.Models = providerModelIDs(discovered)
 		if cfg.Model == "" || !slices.Contains(cfg.Models, cfg.Model) {
 			cfg.Model = cfg.Models[0]
 		}

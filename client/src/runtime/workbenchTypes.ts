@@ -122,10 +122,35 @@ export interface ComposerViewModel {
   permissionOptions: PermissionModeOptionViewModel[];
   modelLabel: string;
   capabilityLabel: string;
+  contextUsage?: ContextUsageViewModel;
   selectedModel?: RuntimeModelOptionViewModel;
   modelOptions: RuntimeModelOptionViewModel[];
   busy?: boolean;
   activeTurnId?: string;
+}
+
+export interface ContextUsageViewModel {
+  sessionId: string;
+  model: string;
+  contextWindow: number;
+  usedTokens: number;
+  percentUsed: number;
+  autoCompactAt: number;
+  percentLeft: number;
+  level: 'ok' | 'warning' | 'error' | string;
+  estimated: boolean;
+  outputReserve: number;
+  autoCompactBuffer: number;
+  breakdown: ContextUsageCategoryViewModel[];
+  compactCount: number;
+  updatedAt: number;
+}
+
+export interface ContextUsageCategoryViewModel {
+  key: string;
+  label: string;
+  tokens: number;
+  estimated: boolean;
 }
 
 export interface RuntimeUserInputRequestViewModel {
@@ -198,10 +223,6 @@ export type ConversationTimelineKind =
   | 'agent_task'
   | 'turn_terminal'
   | 'compact_boundary'
-  | 'snip_boundary'
-  | 'microcompact_marker'
-  | 'reactive_compact_retry'
-  | 'tool_result_replacement'
   | 'exploration_summary';
 
 export interface ConversationTimelineItemViewModel {
@@ -1024,7 +1045,8 @@ export interface ConfiguredProviderViewModel {
   authVariable?: string;
   protocol?: string;
   defaultModel?: string;
-  models?: string[];
+  models?: ProviderModelViewModel[];
+  defaultContextWindow?: number;
   tokenConfigured?: boolean;
   token?: string;
   proxy?: string;
@@ -1035,9 +1057,19 @@ export interface ConfiguredProviderViewModel {
   opusModel?: string;
 }
 
+export interface ProviderModelViewModel {
+  id: string;
+  displayName?: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  resolvedContextWindow?: number;
+  resolvedMaxOutputTokens?: number;
+  source?: string;
+}
+
 export interface ProviderModelDiscoveryViewModel {
   providerId: string;
-  models: string[];
+  models: ProviderModelViewModel[];
   error?: string;
 }
 
@@ -1273,7 +1305,7 @@ export interface WorkbenchAdapter {
   markInterruptedDone: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;
   discardInterruptedTurn: (current: WorkbenchViewModel, turnID: string) => Promise<WorkbenchViewModel>;
   retryRecoverableError: (current: WorkbenchViewModel, errorID: string) => Promise<WorkbenchViewModel>;
-  manualCompact: (current: WorkbenchViewModel, reason?: string) => Promise<WorkbenchViewModel>;
+  manualCompact: (current: WorkbenchViewModel, instructions?: string) => Promise<WorkbenchViewModel>;
   manualSnip: (current: WorkbenchViewModel, reason?: string) => Promise<WorkbenchViewModel>;
   resumeRunCheckpoint: (current: WorkbenchViewModel, runID: string, checkpointID: string) => Promise<WorkbenchViewModel>;
   readRunSchedulerPlan: (

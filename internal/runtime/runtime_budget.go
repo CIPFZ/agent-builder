@@ -2,22 +2,20 @@ package runtime
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
+	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/modelmeta"
 )
-
-const defaultRuntimeContextWindow = 200000
 
 func (r *runtimeService) computeRuntimeBudget(ctx context.Context, sessionID, turnID, model string, promptLength int, contextSummary *RuntimeTurnContextSummary) RuntimeBudgetReport {
 	report := RuntimeBudgetReport{
 		SessionID:     sessionID,
 		TurnID:        turnID,
 		Model:         model,
-		ContextWindow: defaultRuntimeContextWindow,
+		ContextWindow: modelmeta.FallbackContextWindow,
 		UpdatedAt:     time.Now().UTC().UnixMilli(),
 	}
 	if promptLength > 0 {
@@ -25,6 +23,7 @@ func (r *runtimeService) computeRuntimeBudget(ctx context.Context, sessionID, tu
 		report.InputBudget.EstimatedTokens = estimateRuntimeTokens(strings.Repeat("x", promptLength))
 	}
 	if r.runtime != nil && r.workspace != nil && sessionID != "" {
+		report.ContextWindow = r.currentRuntimeContextWindow(ctx, model)
 		if msgs, err := r.runtime.ListSessionMessages(ctx, r.workspace.ID, sessionID); err == nil {
 			report.Messages.Count = len(msgs)
 			for _, msg := range msgs {
@@ -81,27 +80,48 @@ func (r *runtimeService) computeRuntimeBudget(ctx context.Context, sessionID, tu
 	return report
 }
 
-func (r *runtimeService) publishBudgetUpdated(sessionID, turnID string, budget RuntimeBudgetReport) {
-	r.storeRuntimeEvent(runtimeapi.Event{
-		ID:        newRuntimeEventID(),
-		Type:      runtimeapi.EventBudgetUpdated,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
-		SessionID: sessionID,
-		TurnID:    turnID,
-		Payload: map[string]any{
-			"total_estimated_tokens": budget.TotalEstimatedTokens,
-			"context_window":         budget.ContextWindow,
-			"messages":               budget.Messages,
-			"context_sources":        budget.ContextSources,
-			"tool_schemas":           budget.ToolSchemas,
-			"skills":                 budget.Skills,
-			"mcp":                    budget.MCP,
-			"tool_outputs":           budget.ToolOutputs,
-			"selected_tool_schemas":  budget.SelectedToolSchemas,
-			"omitted_tool_schemas":   budget.OmittedToolSchemas,
-			"summary":                fmt.Sprintf("%d estimated tokens", budget.TotalEstimatedTokens),
-		},
-	})
+func (r *runtimeService) currentRuntimeContextWindow(ctx context.Context, model string) int {
+	limits := r.currentRuntimeModelLimits(ctx, model)
+	return limits.ContextWindow
+}
+
+func (r *runtimeService) currentRuntimeModelLimits(ctx context.Context, model string) modelmeta.ModelLimits {
+	if r.runtime == nil || r.workspace == nil {
+		return modelmeta.ModelLimits{ContextWindow: modelmeta.FallbackContextWindow, MaxOutputTokens: modelmeta.FallbackMaxOutput, Source: "fallback"}
+	}
+	r.mu.Lock()
+	ws := *r.workspace
+	r.mu.Unlock()
+	workspace, err := r.runtime.GetWorkspace(ws.ID)
+	if err != nil {
+		return modelmeta.ModelLimits{ContextWindow: modelmeta.FallbackContextWindow, MaxOutputTokens: modelmeta.FallbackMaxOutput, Source: "fallback"}
+	}
+	selected := workspace.Cfg.Config().Models[config.SelectedModelTypeLarge]
+	provider, ok := workspace.Cfg.Config().Providers.Get(selected.Provider)
+	if !ok {
+		return modelmeta.ModelLimits{ContextWindow: modelmeta.FallbackContextWindow, MaxOutputTokens: modelmeta.FallbackMaxOutput, Source: "fallback"}
+	}
+	target := strings.TrimSpace(model)
+	if target == "" {
+		target = selected.Model
+	}
+	for _, candidate := range provider.Models {
+		if candidate.ID == target {
+			limits := modelmeta.ModelLimits{
+				ContextWindow:   int(candidate.ContextWindow),
+				MaxOutputTokens: int(candidate.DefaultMaxTokens),
+				Source:          "resolved",
+			}
+			if limits.ContextWindow <= 0 {
+				limits.ContextWindow = modelmeta.FallbackContextWindow
+			}
+			if limits.MaxOutputTokens <= 0 {
+				limits.MaxOutputTokens = modelmeta.FallbackMaxOutput
+			}
+			return limits
+		}
+	}
+	return modelmeta.ModelLimits{ContextWindow: modelmeta.FallbackContextWindow, MaxOutputTokens: modelmeta.FallbackMaxOutput, Source: "fallback"}
 }
 
 func estimateRuntimeTokens(text string) int {

@@ -740,7 +740,10 @@ func TestConfiguredProviderModelsExposeSavedModelList(t *testing.T) {
 		APIEndpoint:  "https://api.deepseek.com/v1",
 		APIKey:       "test-secret-key",
 		DefaultModel: "deepseek-v4-flash",
-		Models:       []string{"deepseek-v4-flash", "deepseek-v4-pro"},
+		Models: []RuntimeProviderModel{
+			{ID: "deepseek-v4-flash"},
+			{ID: "deepseek-v4-pro"},
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -959,7 +962,7 @@ func TestSaveLocalModelConfigWritesDesktopConfig(t *testing.T) {
 	}
 }
 
-func TestDiscoverModelIDsOpenAICompatible(t *testing.T) {
+func TestDiscoverModelsOpenAICompatible(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -969,11 +972,11 @@ func TestDiscoverModelIDsOpenAICompatible(t *testing.T) {
 		if r.Header.Get("Authorization") != "Bearer test-key" {
 			t.Fatalf("Authorization = %q", r.Header.Get("Authorization"))
 		}
-		_, _ = w.Write([]byte(`{"data":[{"id":"deepseek-chat"},{"id":"deepseek-reasoner"},{"id":"deepseek-chat"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"id":"deepseek-chat","context_length":128000,"max_output_tokens":8192},{"id":"deepseek-reasoner"},{"id":"deepseek-chat"}]}`))
 	}))
 	t.Cleanup(server.Close)
 
-	models, err := discoverModelIDs(context.Background(), RuntimeModelConfig{
+	models, err := discoverModels(context.Background(), RuntimeModelConfig{
 		Protocol: "openai",
 		URL:      server.URL,
 		APIKey:   "test-key",
@@ -981,8 +984,75 @@ func TestDiscoverModelIDsOpenAICompatible(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(models, []string{"deepseek-chat", "deepseek-reasoner"}) {
+	if !slices.Equal(providerModelIDs(models), []string{"deepseek-chat", "deepseek-reasoner"}) {
 		t.Fatalf("models = %#v", models)
+	}
+	if models[0].ContextWindow != 128000 || models[0].MaxOutputTokens != 8192 {
+		t.Fatalf("model metadata = %#v", models[0])
+	}
+}
+
+func TestDiscoverModelsParsesProviderMetadataShapes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		payload       string
+		protocol      string
+		wantID        string
+		wantContext   int
+		wantMaxOutput int
+	}{
+		{
+			name:          "openrouter context_length",
+			payload:       `{"data":[{"id":"openrouter/model","context_length":200000,"max_output_tokens":12000}]}`,
+			protocol:      "openai",
+			wantID:        "openrouter/model",
+			wantContext:   200000,
+			wantMaxOutput: 12000,
+		},
+		{
+			name:          "ollama model_info",
+			payload:       `{"models":[{"name":"llama-local","model_info":{"context_length":65536,"max_tokens":4096}}]}`,
+			protocol:      "openai",
+			wantID:        "llama-local",
+			wantContext:   65536,
+			wantMaxOutput: 4096,
+		},
+		{
+			name:          "anthropic display name",
+			payload:       `{"data":[{"id":"claude-sonnet-4","display_name":"Claude Sonnet 4","max_input_tokens":200000,"max_tokens":8192}]}`,
+			protocol:      "anthropic",
+			wantID:        "claude-sonnet-4",
+			wantContext:   200000,
+			wantMaxOutput: 8192,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tt.payload))
+			}))
+			t.Cleanup(server.Close)
+
+			models, err := discoverModels(context.Background(), RuntimeModelConfig{
+				Protocol: tt.protocol,
+				URL:      server.URL,
+				APIKey:   "test-key",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(models) != 1 {
+				t.Fatalf("models = %#v", models)
+			}
+			if models[0].ID != tt.wantID || models[0].ContextWindow != tt.wantContext || models[0].MaxOutputTokens != tt.wantMaxOutput {
+				t.Fatalf("model = %#v", models[0])
+			}
+		})
 	}
 }
 
@@ -3210,8 +3280,16 @@ func TestRecordRuntimeEventEmitsTurnScopedToolEvents(t *testing.T) {
 	service.recordRuntimeEvent(pubsub.Event[any]{
 		Payload: pubsub.Event[message.Message]{Payload: msg},
 	})
-	if len(service.events) != len(want)+1 {
-		t.Fatalf("duplicate tool events were emitted: %#v", service.events)
+	toolEventCounts := map[string]int{}
+	for _, event := range service.events {
+		if event.ToolCallID == "tool-1" {
+			toolEventCounts[event.Type]++
+		}
+	}
+	for _, eventType := range []string{runtimeapi.EventToolCallStarted, runtimeapi.EventToolCallCompleted, runtimeapi.EventToolCallOutput} {
+		if toolEventCounts[eventType] != 1 {
+			t.Fatalf("duplicate tool event %s count=%d events=%#v", eventType, toolEventCounts[eventType], service.events)
+		}
 	}
 }
 
@@ -4445,8 +4523,8 @@ func TestRecordRuntimeEventConvertsSessionAndPermissionPayloads(t *testing.T) {
 func TestTurnRuntimeEventsCarryUsageAndStatus(t *testing.T) {
 	t.Parallel()
 
-	usage := RuntimeUsage{PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7, Cost: 0.01}
-	delta := RuntimeUsage{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3, Cost: 0.001}
+	usage := RuntimeUsage{InputTokens: 3, OutputTokens: 4, CacheReadTokens: 1, CacheCreationTokens: 2, TotalTokens: 10, Cost: 0.01}
+	delta := RuntimeUsage{InputTokens: 1, OutputTokens: 2, CacheReadTokens: 1, CacheCreationTokens: 0, TotalTokens: 4, Cost: 0.001}
 	usageEvent := newUsageRuntimeEvent(time.Now(), "turn-1", "session-1", usage, delta)
 	if usageEvent.Type != runtimeapi.EventUsageUpdated || usageEvent.TurnID != "turn-1" {
 		t.Fatalf("usage event = %#v", usageEvent)
@@ -4556,6 +4634,8 @@ type recordingRuntimeService struct {
 	renamedSession             RuntimeSessionUpdateRequest
 	deletedSession             string
 	messageSession             string
+	contextUsage               RuntimeContextUsage
+	contextUsageSession        string
 	outputSession              string
 	outputRequest              RuntimeOutputRequest
 	output                     RuntimeOutputSnapshot
@@ -4759,7 +4839,7 @@ func (s *recordingRuntimeService) DeleteConfiguredProvider(context.Context, stri
 }
 
 func (s *recordingRuntimeService) DiscoverConfiguredProviderModels(context.Context, string) (RuntimeProviderModelDiscoveryResponse, error) {
-	return RuntimeProviderModelDiscoveryResponse{ProviderID: "provider-1", Models: []string{"test-model"}}, nil
+	return RuntimeProviderModelDiscoveryResponse{ProviderID: "provider-1", Models: []RuntimeProviderModel{{ID: "test-model"}}}, nil
 }
 
 func (s *recordingRuntimeService) TestConfiguredProvider(context.Context, string) (RuntimeProviderTestResponse, error) {
@@ -5143,6 +5223,14 @@ func (s *recordingRuntimeService) DeleteSession(_ context.Context, sessionID str
 func (s *recordingRuntimeService) SessionMessages(_ context.Context, sessionID string) (RuntimeMessagesResponse, error) {
 	s.messageSession = sessionID
 	return RuntimeMessagesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SessionContextUsage(_ context.Context, sessionID string) (RuntimeContextUsage, error) {
+	s.contextUsageSession = sessionID
+	if s.contextUsage.SessionID == "" {
+		s.contextUsage.SessionID = sessionID
+	}
+	return s.contextUsage, nil
 }
 
 func (s *recordingRuntimeService) SessionOutput(_ context.Context, sessionID string, req RuntimeOutputRequest) (RuntimeOutputSnapshot, error) {

@@ -260,15 +260,18 @@ func TestRuntimeConversationProjectionGovernanceItems(t *testing.T) {
 		},
 		Tasks:   []RuntimeAgentTask{{ID: "task-1", ParentSessionID: "session-1", ParentTurnID: "turn-1", ParentToolCallID: "tool-agent", Title: "Investigate", Status: "running", StartedAt: 21, UpdatedAt: 22}},
 		Todos:   &RuntimeTodoSummary{SessionID: "session-1", TurnID: "turn-1", Todos: []RuntimeTodo{{Content: "a", Status: "pending"}}, Pending: 1, Total: 1, UpdatedAt: 30},
-		Compact: []RuntimeCompactBoundary{{ID: "compact-1", SessionID: "session-1", TurnID: "turn-1", Kind: compactKindMicro, Status: compactStatusCompleted, Trigger: "auto", CreatedAt: 40, CompletedAt: 41, ToolCallRefs: []RuntimeCompactToolCallRef{{ToolCallID: "tool-agent", Replacement: "summary", Preserved: true, Reason: "large output"}}}},
+		Compact: []RuntimeCompactBoundary{{ID: "compact-1", SessionID: "session-1", TurnID: "turn-1", Kind: compactKindFull, Status: compactStatusCompleted, Trigger: "manual", CreatedAt: 40, CompletedAt: 41, MessageRefs: []string{"user-1"}}},
 	}).snapshot("session-1", "1")
 	assertHasConversationKind(t, snapshot.Items, "hook_run")
 	assertHasConversationKind(t, snapshot.Items, "agent_task")
 	assertHasConversationKind(t, snapshot.Items, "todo_summary")
-	assertHasConversationKind(t, snapshot.Items, "microcompact_marker")
-	assertHasConversationKind(t, snapshot.Items, "tool_result_replacement")
+	assertHasConversationKind(t, snapshot.Items, "compact_boundary")
 	assertHasConversationKind(t, snapshot.Items, "turn_terminal")
 	assertHasConversationKind(t, snapshot.Items, "recovery_notice")
+	compact := findConversationItem(t, snapshot.Items, "compact_boundary")
+	if compact.ID != "compact-compact-1" || compact.Status != compactStatusCompleted {
+		t.Fatalf("compact boundary item = %#v", compact)
+	}
 	for _, item := range snapshot.Items {
 		if item.HookRunID == "hook-complete" {
 			t.Fatalf("low-signal completed hook leaked into timeline: %#v", item)

@@ -145,10 +145,27 @@ type Message struct {
 	Parts            []ContentPart
 	Model            string
 	Provider         string
+	Usage            Usage
 	Metadata         map[string]string
 	CreatedAt        int64
 	UpdatedAt        int64
 	IsSummaryMessage bool
+}
+
+type Usage struct {
+	InputTokens         int64 `json:"input"`
+	OutputTokens        int64 `json:"output"`
+	CacheReadTokens     int64 `json:"cacheRead"`
+	CacheCreationTokens int64 `json:"cacheCreation"`
+	ReasoningTokens     int64 `json:"reasoning"`
+}
+
+func (u Usage) Total() int64 {
+	return u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheCreationTokens
+}
+
+func (u Usage) IsZero() bool {
+	return u == Usage{}
 }
 
 func (m *Message) Content() TextContent {

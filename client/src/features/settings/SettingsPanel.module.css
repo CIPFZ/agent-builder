@@ -192,6 +192,14 @@
   margin-top: 0;
 }
 
+.providerModelTable {
+  margin-top: 12px;
+}
+
+.providerModelTable :global(.ant-input-number) {
+  width: 116px;
+}
+
 .modeGroup {
   width: min(100%, 680px);
 }

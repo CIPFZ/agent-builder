@@ -8,6 +8,24 @@ import (
 	"database/sql"
 )
 
+type ConfiguredProvider struct {
+	ID                   string         `json:"id"`
+	ProviderID           string         `json:"provider_id"`
+	Name                 string         `json:"name"`
+	Remark               sql.NullString `json:"remark"`
+	Protocol             string         `json:"protocol"`
+	ApiEndpoint          string         `json:"api_endpoint"`
+	ApiKey               sql.NullString `json:"api_key"`
+	ApiKeySecretRef      sql.NullString `json:"api_key_secret_ref"`
+	Proxy                sql.NullString `json:"proxy"`
+	DefaultModel         sql.NullString `json:"default_model"`
+	ModelsJson           string         `json:"models_json"`
+	DefaultContextWindow sql.NullInt64  `json:"default_context_window"`
+	Enabled              int64          `json:"enabled"`
+	CreatedAt            int64          `json:"created_at"`
+	UpdatedAt            int64          `json:"updated_at"`
+}
+
 type File struct {
 	ID        string `json:"id"`
 	SessionID string `json:"session_id"`
@@ -30,6 +48,89 @@ type Message struct {
 	Provider         sql.NullString `json:"provider"`
 	IsSummaryMessage int64          `json:"is_summary_message"`
 	MetadataJson     sql.NullString `json:"metadata_json"`
+	UsageJson        sql.NullString `json:"usage_json"`
+}
+
+type MessageSearchFt struct {
+	MessageID string `json:"message_id"`
+	SessionID string `json:"session_id"`
+	Role      string `json:"role"`
+	Content   string `json:"content"`
+	CreatedAt string `json:"created_at"`
+}
+
+type ModelMetadataCache struct {
+	ProviderID      string        `json:"provider_id"`
+	ModelID         string        `json:"model_id"`
+	ContextWindow   sql.NullInt64 `json:"context_window"`
+	MaxOutputTokens sql.NullInt64 `json:"max_output_tokens"`
+	Source          string        `json:"source"`
+	FetchedAt       int64         `json:"fetched_at"`
+}
+
+type Project struct {
+	ID              string         `json:"id"`
+	Name            string         `json:"name"`
+	Path            string         `json:"path"`
+	CanonicalPath   string         `json:"canonical_path"`
+	GitRoot         sql.NullString `json:"git_root"`
+	Branch          sql.NullString `json:"branch"`
+	IsGitRepository int64          `json:"is_git_repository"`
+	ExistsOnDisk    int64          `json:"exists_on_disk"`
+	CreatedAt       int64          `json:"created_at"`
+	UpdatedAt       int64          `json:"updated_at"`
+	LastOpenedAt    sql.NullInt64  `json:"last_opened_at"`
+	DeletedAt       sql.NullInt64  `json:"deleted_at"`
+}
+
+type ProjectMemoryInjection struct {
+	ID               string         `json:"id"`
+	ProjectID        string         `json:"project_id"`
+	SessionID        string         `json:"session_id"`
+	TurnID           string         `json:"turn_id"`
+	MemoryID         string         `json:"memory_id"`
+	PromptAssemblyID sql.NullString `json:"prompt_assembly_id"`
+	InjectedAt       string         `json:"injected_at"`
+	TokenEstimate    int64          `json:"token_estimate"`
+	SelectionReason  string         `json:"selection_reason"`
+}
+
+type ProjectMemoryRecord struct {
+	ID                   string         `json:"id"`
+	ProjectID            string         `json:"project_id"`
+	RelativePath         string         `json:"relative_path"`
+	Type                 string         `json:"type"`
+	Title                string         `json:"title"`
+	Description          string         `json:"description"`
+	TagsJson             string         `json:"tags_json"`
+	ContentHash          string         `json:"content_hash"`
+	MtimeUnix            int64          `json:"mtime_unix"`
+	SizeBytes            int64          `json:"size_bytes"`
+	TokenEstimate        int64          `json:"token_estimate"`
+	Enabled              int64          `json:"enabled"`
+	DeletedAt            sql.NullString `json:"deleted_at"`
+	CreatedAt            string         `json:"created_at"`
+	UpdatedAt            string         `json:"updated_at"`
+	CreatedFromSessionID sql.NullString `json:"created_from_session_id"`
+	CreatedFromTurnID    sql.NullString `json:"created_from_turn_id"`
+	LastIndexedAt        string         `json:"last_indexed_at"`
+	LastInjectedAt       sql.NullString `json:"last_injected_at"`
+}
+
+type ProviderCatalog struct {
+	ID                 string         `json:"id"`
+	Name               string         `json:"name"`
+	Type               string         `json:"type"`
+	ApiEndpoint        sql.NullString `json:"api_endpoint"`
+	ApiKeyTemplate     sql.NullString `json:"api_key_template"`
+	ModelCount         int64          `json:"model_count"`
+	DefaultLargeModel  sql.NullString `json:"default_large_model"`
+	DefaultSmallModel  sql.NullString `json:"default_small_model"`
+	RequiredFieldsJson string         `json:"required_fields_json"`
+	NotesJson          string         `json:"notes_json"`
+	Configurable       int64          `json:"configurable"`
+	CreatedAt          int64          `json:"created_at"`
+	UpdatedAt          int64          `json:"updated_at"`
 }
 
 type ReadFile struct {
@@ -47,6 +148,617 @@ type ReadFile struct {
 	TokenEstimate int64  `json:"token_estimate"`
 	State         string `json:"state"`
 	Reason        string `json:"reason"`
+}
+
+type RuntimeAgentRole struct {
+	ID                  string         `json:"id"`
+	Name                string         `json:"name"`
+	Title               sql.NullString `json:"title"`
+	Description         sql.NullString `json:"description"`
+	PromptSummary       sql.NullString `json:"prompt_summary"`
+	AllowedToolsJson    sql.NullString `json:"allowed_tools_json"`
+	CapabilityScopeJson sql.NullString `json:"capability_scope_json"`
+	Model               sql.NullString `json:"model"`
+	Provider            sql.NullString `json:"provider"`
+	Cwd                 sql.NullString `json:"cwd"`
+	Worktree            sql.NullString `json:"worktree"`
+	Risk                sql.NullString `json:"risk"`
+	PolicyMetadataJson  sql.NullString `json:"policy_metadata_json"`
+	Source              sql.NullString `json:"source"`
+	CreatedAt           int64          `json:"created_at"`
+	UpdatedAt           int64          `json:"updated_at"`
+}
+
+type RuntimeAgentTask struct {
+	ID                  string         `json:"id"`
+	ParentTurnID        sql.NullString `json:"parent_turn_id"`
+	ParentSessionID     string         `json:"parent_session_id"`
+	ParentToolCallID    sql.NullString `json:"parent_tool_call_id"`
+	ChildSessionID      sql.NullString `json:"child_session_id"`
+	Title               string         `json:"title"`
+	Kind                string         `json:"kind"`
+	Role                sql.NullString `json:"role"`
+	Name                sql.NullString `json:"name"`
+	PromptSummary       sql.NullString `json:"prompt_summary"`
+	Model               sql.NullString `json:"model"`
+	Provider            sql.NullString `json:"provider"`
+	AllowedToolsJson    sql.NullString `json:"allowed_tools_json"`
+	CapabilityScopeJson sql.NullString `json:"capability_scope_json"`
+	Cwd                 sql.NullString `json:"cwd"`
+	Worktree            sql.NullString `json:"worktree"`
+	Status              string         `json:"status"`
+	Progress            int64          `json:"progress"`
+	ResultSummary       sql.NullString `json:"result_summary"`
+	ArtifactRefsJson    sql.NullString `json:"artifact_refs_json"`
+	StartedAt           int64          `json:"started_at"`
+	UpdatedAt           int64          `json:"updated_at"`
+	FinishedAt          sql.NullInt64  `json:"finished_at"`
+	Error               sql.NullString `json:"error"`
+}
+
+type RuntimeAgentTaskMessage struct {
+	ID                string         `json:"id"`
+	TaskID            string         `json:"task_id"`
+	ParentTaskID      sql.NullString `json:"parent_task_id"`
+	ParentTurnID      sql.NullString `json:"parent_turn_id"`
+	ParentSessionID   sql.NullString `json:"parent_session_id"`
+	ChildSessionID    sql.NullString `json:"child_session_id"`
+	Direction         string         `json:"direction"`
+	Kind              string         `json:"kind"`
+	Status            string         `json:"status"`
+	ContentSummary    sql.NullString `json:"content_summary"`
+	PayloadJson       sql.NullString `json:"payload_json"`
+	RelatedToolCallID sql.NullString `json:"related_tool_call_id"`
+	RelatedMessageID  sql.NullString `json:"related_message_id"`
+	ArtifactRefsJson  sql.NullString `json:"artifact_refs_json"`
+	CreatedAt         int64          `json:"created_at"`
+	DeliveredAt       sql.NullInt64  `json:"delivered_at"`
+	Sequence          int64          `json:"sequence"`
+	ProcessedAt       sql.NullInt64  `json:"processed_at"`
+	Error             sql.NullString `json:"error"`
+}
+
+type RuntimeAgentTaskResult struct {
+	TaskID                  string         `json:"task_id"`
+	Status                  string         `json:"status"`
+	Summary                 sql.NullString `json:"summary"`
+	ErrorDetail             sql.NullString `json:"error_detail"`
+	CancellationDetail      sql.NullString `json:"cancellation_detail"`
+	ArtifactRefsJson        sql.NullString `json:"artifact_refs_json"`
+	RelatedMessageRefsJson  sql.NullString `json:"related_message_refs_json"`
+	RelatedToolCallRefsJson sql.NullString `json:"related_tool_call_refs_json"`
+	CompactBoundaryRefsJson sql.NullString `json:"compact_boundary_refs_json"`
+	CreatedAt               int64          `json:"created_at"`
+	UpdatedAt               int64          `json:"updated_at"`
+}
+
+type RuntimeAuditEvent struct {
+	ID           string         `json:"id"`
+	SessionID    sql.NullString `json:"session_id"`
+	TurnID       sql.NullString `json:"turn_id"`
+	Type         string         `json:"type"`
+	CreatedAt    string         `json:"created_at"`
+	PayloadJson  string         `json:"payload_json"`
+	ToolCallID   sql.NullString `json:"tool_call_id"`
+	PermissionID sql.NullString `json:"permission_id"`
+}
+
+type RuntimeCompactBoundary struct {
+	ID                 string         `json:"id"`
+	SessionID          string         `json:"session_id"`
+	TurnID             sql.NullString `json:"turn_id"`
+	Kind               string         `json:"kind"`
+	Trigger            string         `json:"trigger"`
+	Status             string         `json:"status"`
+	BudgetBeforeJson   sql.NullString `json:"budget_before_json"`
+	BudgetAfterJson    sql.NullString `json:"budget_after_json"`
+	SummaryRef         sql.NullString `json:"summary_ref"`
+	MessageRefsJson    sql.NullString `json:"message_refs_json"`
+	ToolCallRefsJson   sql.NullString `json:"tool_call_refs_json"`
+	ReinjectedRefsJson sql.NullString `json:"reinjected_refs_json"`
+	Error              sql.NullString `json:"error"`
+	CreatedAt          int64          `json:"created_at"`
+	CompletedAt        sql.NullInt64  `json:"completed_at"`
+}
+
+type RuntimeContextBoundary struct {
+	ID                 string         `json:"id"`
+	SessionID          string         `json:"session_id"`
+	TurnID             sql.NullString `json:"turn_id"`
+	ProjectionID       sql.NullString `json:"projection_id"`
+	Kind               string         `json:"kind"`
+	Trigger            string         `json:"trigger"`
+	Status             string         `json:"status"`
+	SummaryMessageID   sql.NullString `json:"summary_message_id"`
+	SummaryRef         sql.NullString `json:"summary_ref"`
+	MessageRefsJson    sql.NullString `json:"message_refs_json"`
+	ToolCallRefsJson   sql.NullString `json:"tool_call_refs_json"`
+	ReinjectedRefsJson sql.NullString `json:"reinjected_refs_json"`
+	BudgetBeforeJson   sql.NullString `json:"budget_before_json"`
+	BudgetAfterJson    sql.NullString `json:"budget_after_json"`
+	CreatedAt          int64          `json:"created_at"`
+	CompletedAt        sql.NullInt64  `json:"completed_at"`
+	Error              sql.NullString `json:"error"`
+}
+
+type RuntimeContextContentReplacement struct {
+	ID                         string         `json:"id"`
+	SessionID                  string         `json:"session_id"`
+	TurnID                     sql.NullString `json:"turn_id"`
+	ProjectionID               sql.NullString `json:"projection_id"`
+	ToolCallID                 sql.NullString `json:"tool_call_id"`
+	ToolName                   sql.NullString `json:"tool_name"`
+	Kind                       string         `json:"kind"`
+	OriginalRef                sql.NullString `json:"original_ref"`
+	ReplacementText            string         `json:"replacement_text"`
+	OriginalSizeBytes          int64          `json:"original_size_bytes"`
+	OriginalEstimatedTokens    int64          `json:"original_estimated_tokens"`
+	ReplacementEstimatedTokens int64          `json:"replacement_estimated_tokens"`
+	Reason                     sql.NullString `json:"reason"`
+	CreatedAt                  int64          `json:"created_at"`
+}
+
+type RuntimeContextProjection struct {
+	ID                    string         `json:"id"`
+	SessionID             string         `json:"session_id"`
+	TurnID                string         `json:"turn_id"`
+	Step                  int64          `json:"step"`
+	Provider              sql.NullString `json:"provider"`
+	Model                 sql.NullString `json:"model"`
+	Source                string         `json:"source"`
+	Status                string         `json:"status"`
+	CanonicalMessageCount int64          `json:"canonical_message_count"`
+	ProjectedMessageCount int64          `json:"projected_message_count"`
+	BudgetBeforeJson      sql.NullString `json:"budget_before_json"`
+	BudgetAfterJson       sql.NullString `json:"budget_after_json"`
+	CreatedAt             int64          `json:"created_at"`
+	CompletedAt           sql.NullInt64  `json:"completed_at"`
+	Error                 sql.NullString `json:"error"`
+}
+
+type RuntimeContextProjectionMessage struct {
+	ID                 string         `json:"id"`
+	ProjectionID       string         `json:"projection_id"`
+	SessionID          string         `json:"session_id"`
+	TurnID             string         `json:"turn_id"`
+	Sequence           int64          `json:"sequence"`
+	Role               string         `json:"role"`
+	CanonicalMessageID sql.NullString `json:"canonical_message_id"`
+	Status             string         `json:"status"`
+	ReplacementID      sql.NullString `json:"replacement_id"`
+	TokenEstimate      int64          `json:"token_estimate"`
+	ContentRef         sql.NullString `json:"content_ref"`
+	Summary            sql.NullString `json:"summary"`
+	CreatedAt          int64          `json:"created_at"`
+}
+
+type RuntimeContextReactiveAttempt struct {
+	ID           string         `json:"id"`
+	SessionID    string         `json:"session_id"`
+	TurnID       string         `json:"turn_id"`
+	ProjectionID sql.NullString `json:"projection_id"`
+	Attempt      int64          `json:"attempt"`
+	Action       string         `json:"action"`
+	Status       string         `json:"status"`
+	Error        sql.NullString `json:"error"`
+	CreatedAt    int64          `json:"created_at"`
+	CompletedAt  sql.NullInt64  `json:"completed_at"`
+}
+
+type RuntimeContextReadStateSnapshot struct {
+	ID           string         `json:"id"`
+	SessionID    string         `json:"session_id"`
+	TurnID       sql.NullString `json:"turn_id"`
+	ProjectionID sql.NullString `json:"projection_id"`
+	StateJson    string         `json:"state_json"`
+	CreatedAt    int64          `json:"created_at"`
+}
+
+type RuntimeContextReinjection struct {
+	ID            string         `json:"id"`
+	SessionID     string         `json:"session_id"`
+	TurnID        sql.NullString `json:"turn_id"`
+	ProjectionID  sql.NullString `json:"projection_id"`
+	Kind          string         `json:"kind"`
+	Ref           sql.NullString `json:"ref"`
+	Status        string         `json:"status"`
+	Reason        sql.NullString `json:"reason"`
+	TokenEstimate int64          `json:"token_estimate"`
+	CreatedAt     int64          `json:"created_at"`
+}
+
+type RuntimeContextSnipBoundary struct {
+	ID                     string         `json:"id"`
+	SessionID              string         `json:"session_id"`
+	TurnID                 sql.NullString `json:"turn_id"`
+	ProjectionID           sql.NullString `json:"projection_id"`
+	RemovedMessageRefsJson sql.NullString `json:"removed_message_refs_json"`
+	PreservedHeadRef       sql.NullString `json:"preserved_head_ref"`
+	PreservedTailRef       sql.NullString `json:"preserved_tail_ref"`
+	SummaryRef             sql.NullString `json:"summary_ref"`
+	Reason                 sql.NullString `json:"reason"`
+	CreatedAt              int64          `json:"created_at"`
+}
+
+type RuntimeContextWarning struct {
+	ID           string         `json:"id"`
+	SessionID    string         `json:"session_id"`
+	TurnID       sql.NullString `json:"turn_id"`
+	ProjectionID sql.NullString `json:"projection_id"`
+	Code         string         `json:"code"`
+	Message      string         `json:"message"`
+	Severity     string         `json:"severity"`
+	CreatedAt    int64          `json:"created_at"`
+}
+
+type RuntimeEvent struct {
+	Sequence    int64          `json:"sequence"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	SessionID   sql.NullString `json:"session_id"`
+	TurnID      sql.NullString `json:"turn_id"`
+	MessageID   sql.NullString `json:"message_id"`
+	ToolCallID  sql.NullString `json:"tool_call_id"`
+	PayloadJson string         `json:"payload_json"`
+	CreatedAt   string         `json:"created_at"`
+}
+
+type RuntimeHookExecution struct {
+	ID                string         `json:"id"`
+	HookID            string         `json:"hook_id"`
+	HookName          sql.NullString `json:"hook_name"`
+	HookSource        sql.NullString `json:"hook_source"`
+	Event             string         `json:"event"`
+	Status            string         `json:"status"`
+	SessionID         sql.NullString `json:"session_id"`
+	TurnID            sql.NullString `json:"turn_id"`
+	ToolCallID        sql.NullString `json:"tool_call_id"`
+	TaskID            sql.NullString `json:"task_id"`
+	CapabilityID      sql.NullString `json:"capability_id"`
+	McpServer         sql.NullString `json:"mcp_server"`
+	Skill             sql.NullString `json:"skill"`
+	ContextRef        sql.NullString `json:"context_ref"`
+	PolicyMode        sql.NullString `json:"policy_mode"`
+	PolicyProfile     sql.NullString `json:"policy_profile"`
+	PolicyRule        sql.NullString `json:"policy_rule"`
+	PolicyDecision    sql.NullString `json:"policy_decision"`
+	PolicyReason      sql.NullString `json:"policy_reason"`
+	Headless          int64          `json:"headless"`
+	HeadlessReason    sql.NullString `json:"headless_reason"`
+	SandboxDecisionID sql.NullString `json:"sandbox_decision_id"`
+	SandboxStatus     sql.NullString `json:"sandbox_status"`
+	ScopeKind         sql.NullString `json:"scope_kind"`
+	ScopeValue        sql.NullString `json:"scope_value"`
+	Reason            sql.NullString `json:"reason"`
+	Error             sql.NullString `json:"error"`
+	InputSummary      sql.NullString `json:"input_summary"`
+	OutputSummary     sql.NullString `json:"output_summary"`
+	ContextSummary    sql.NullString `json:"context_summary"`
+	InputRewritten    int64          `json:"input_rewritten"`
+	ContextInjected   int64          `json:"context_injected"`
+	Redacted          int64          `json:"redacted"`
+	StartedAt         int64          `json:"started_at"`
+	CompletedAt       sql.NullInt64  `json:"completed_at"`
+	DurationMs        int64          `json:"duration_ms"`
+}
+
+type RuntimeMcpRequest struct {
+	ID                   string         `json:"id"`
+	Kind                 string         `json:"kind"`
+	Server               string         `json:"server"`
+	CapabilityID         sql.NullString `json:"capability_id"`
+	SessionID            sql.NullString `json:"session_id"`
+	TurnID               sql.NullString `json:"turn_id"`
+	Status               string         `json:"status"`
+	Prompt               sql.NullString `json:"prompt"`
+	Description          sql.NullString `json:"description"`
+	ResponseSummary      sql.NullString `json:"response_summary"`
+	PolicyMode           sql.NullString `json:"policy_mode"`
+	PolicyProfile        sql.NullString `json:"policy_profile"`
+	PolicyDecision       sql.NullString `json:"policy_decision"`
+	PolicyReason         sql.NullString `json:"policy_reason"`
+	PolicyRisk           sql.NullString `json:"policy_risk"`
+	PolicyRuleID         sql.NullString `json:"policy_rule_id"`
+	PolicyRuleSource     sql.NullString `json:"policy_rule_source"`
+	PolicyScopeKind      sql.NullString `json:"policy_scope_kind"`
+	PolicyScopeValue     sql.NullString `json:"policy_scope_value"`
+	PolicyTargetSummary  sql.NullString `json:"policy_target_summary"`
+	PolicyHeadless       sql.NullInt64  `json:"policy_headless"`
+	PolicyHeadlessReason sql.NullString `json:"policy_headless_reason"`
+	CreatedAt            int64          `json:"created_at"`
+	UpdatedAt            int64          `json:"updated_at"`
+	ExpiresAt            sql.NullInt64  `json:"expires_at"`
+	CompletedAt          sql.NullInt64  `json:"completed_at"`
+	Error                sql.NullString `json:"error"`
+	Redacted             int64          `json:"redacted"`
+}
+
+type RuntimePermissionRequest struct {
+	ID                   string         `json:"id"`
+	SessionID            string         `json:"session_id"`
+	TurnID               sql.NullString `json:"turn_id"`
+	ToolCallID           sql.NullString `json:"tool_call_id"`
+	ToolName             string         `json:"tool_name"`
+	Description          sql.NullString `json:"description"`
+	Action               string         `json:"action"`
+	ParamsJson           sql.NullString `json:"params_json"`
+	Path                 sql.NullString `json:"path"`
+	Target               sql.NullString `json:"target"`
+	Risk                 sql.NullString `json:"risk"`
+	Status               string         `json:"status"`
+	CreatedAt            int64          `json:"created_at"`
+	DecidedAt            sql.NullInt64  `json:"decided_at"`
+	PolicyMode           sql.NullString `json:"policy_mode"`
+	PolicyReason         sql.NullString `json:"policy_reason"`
+	Decision             sql.NullString `json:"decision"`
+	PolicyProfile        sql.NullString `json:"policy_profile"`
+	PolicyRuleID         sql.NullString `json:"policy_rule_id"`
+	PolicyRuleSource     sql.NullString `json:"policy_rule_source"`
+	PolicyScopeKind      sql.NullString `json:"policy_scope_kind"`
+	PolicyScopeValue     sql.NullString `json:"policy_scope_value"`
+	PolicyTargetSummary  sql.NullString `json:"policy_target_summary"`
+	PolicyHeadless       sql.NullInt64  `json:"policy_headless"`
+	PolicyHeadlessReason sql.NullString `json:"policy_headless_reason"`
+}
+
+type RuntimePromptAssembly struct {
+	ID                 string         `json:"id"`
+	SessionID          string         `json:"session_id"`
+	TurnID             string         `json:"turn_id"`
+	Step               int64          `json:"step"`
+	Provider           sql.NullString `json:"provider"`
+	Model              sql.NullString `json:"model"`
+	SystemJson         sql.NullString `json:"system_json"`
+	MessagesJson       sql.NullString `json:"messages_json"`
+	ToolsJson          sql.NullString `json:"tools_json"`
+	SkillsJson         sql.NullString `json:"skills_json"`
+	McpJson            sql.NullString `json:"mcp_json"`
+	ContextSourcesJson sql.NullString `json:"context_sources_json"`
+	CompactJson        sql.NullString `json:"compact_json"`
+	BudgetJson         sql.NullString `json:"budget_json"`
+	CreatedAt          int64          `json:"created_at"`
+	ProjectionID       sql.NullString `json:"projection_id"`
+	SectionsJson       sql.NullString `json:"sections_json"`
+}
+
+type RuntimeRecoveryLink struct {
+	ID               string `json:"id"`
+	SourceTurnID     string `json:"source_turn_id"`
+	ResumedTurnID    string `json:"resumed_turn_id"`
+	Action           string `json:"action"`
+	Mode             string `json:"mode"`
+	InterruptionKind string `json:"interruption_kind"`
+	CreatedAt        string `json:"created_at"`
+}
+
+type RuntimeRef struct {
+	ID                string         `json:"id"`
+	Uri               string         `json:"uri"`
+	SessionID         string         `json:"session_id"`
+	TurnID            sql.NullString `json:"turn_id"`
+	ToolCallID        sql.NullString `json:"tool_call_id"`
+	TaskID            sql.NullString `json:"task_id"`
+	Kind              string         `json:"kind"`
+	MediaType         sql.NullString `json:"media_type"`
+	ContentType       sql.NullString `json:"content_type"`
+	SizeBytes         int64          `json:"size_bytes"`
+	EstimatedTokens   int64          `json:"estimated_tokens"`
+	Preview           sql.NullString `json:"preview"`
+	Summary           sql.NullString `json:"summary"`
+	StorageKind       string         `json:"storage_kind"`
+	StoragePath       sql.NullString `json:"storage_path"`
+	InlinePayload     sql.NullString `json:"inline_payload"`
+	RedactionStatus   string         `json:"redaction_status"`
+	CreatedAt         int64          `json:"created_at"`
+	SandboxDecisionID sql.NullString `json:"sandbox_decision_id"`
+	SandboxMode       sql.NullString `json:"sandbox_mode"`
+	SandboxStatus     sql.NullString `json:"sandbox_status"`
+}
+
+type RuntimeRun struct {
+	ID               string         `json:"id"`
+	WorkspaceID      string         `json:"workspace_id"`
+	PrimarySessionID string         `json:"primary_session_id"`
+	Objective        sql.NullString `json:"objective"`
+	Status           string         `json:"status"`
+	CreatedAt        int64          `json:"created_at"`
+	UpdatedAt        int64          `json:"updated_at"`
+	FinishedAt       sql.NullInt64  `json:"finished_at"`
+	DiscardedAt      sql.NullInt64  `json:"discarded_at"`
+	Source           string         `json:"source"`
+	MetadataJson     sql.NullString `json:"metadata_json"`
+}
+
+type RuntimeRunCheckpoint struct {
+	ID                 string         `json:"id"`
+	RunID              string         `json:"run_id"`
+	SessionID          string         `json:"session_id"`
+	TurnID             sql.NullString `json:"turn_id"`
+	TaskID             sql.NullString `json:"task_id"`
+	Status             string         `json:"status"`
+	Summary            sql.NullString `json:"summary"`
+	ArtifactRefsJson   sql.NullString `json:"artifact_refs_json"`
+	DiagnosticRefsJson sql.NullString `json:"diagnostic_refs_json"`
+	CreatedAt          int64          `json:"created_at"`
+	AcknowledgedAt     sql.NullInt64  `json:"acknowledged_at"`
+	DiscardedAt        sql.NullInt64  `json:"discarded_at"`
+	MetadataJson       sql.NullString `json:"metadata_json"`
+}
+
+type RuntimeRunSession struct {
+	RunID      string         `json:"run_id"`
+	SessionID  string         `json:"session_id"`
+	Role       string         `json:"role"`
+	TaskID     sql.NullString `json:"task_id"`
+	TurnID     sql.NullString `json:"turn_id"`
+	WorktreeID sql.NullString `json:"worktree_id"`
+	CreatedAt  int64          `json:"created_at"`
+}
+
+type RuntimeRunTransition struct {
+	ID           string         `json:"id"`
+	RunID        string         `json:"run_id"`
+	SessionID    sql.NullString `json:"session_id"`
+	TurnID       sql.NullString `json:"turn_id"`
+	TaskID       sql.NullString `json:"task_id"`
+	FromStatus   sql.NullString `json:"from_status"`
+	ToStatus     string         `json:"to_status"`
+	Reason       sql.NullString `json:"reason"`
+	Source       string         `json:"source"`
+	EventID      sql.NullString `json:"event_id"`
+	CreatedAt    int64          `json:"created_at"`
+	MetadataJson sql.NullString `json:"metadata_json"`
+}
+
+type RuntimeSandboxDecision struct {
+	ID               string         `json:"id"`
+	SessionID        string         `json:"session_id"`
+	TurnID           sql.NullString `json:"turn_id"`
+	ToolCallID       sql.NullString `json:"tool_call_id"`
+	TaskID           sql.NullString `json:"task_id"`
+	Mode             string         `json:"mode"`
+	Status           string         `json:"status"`
+	Executor         sql.NullString `json:"executor"`
+	Cwd              sql.NullString `json:"cwd"`
+	WorktreeID       sql.NullString `json:"worktree_id"`
+	WorktreePath     sql.NullString `json:"worktree_path"`
+	CommandSummary   sql.NullString `json:"command_summary"`
+	PolicyMode       sql.NullString `json:"policy_mode"`
+	PolicyProfile    sql.NullString `json:"policy_profile"`
+	PolicyRule       sql.NullString `json:"policy_rule"`
+	Reason           sql.NullString `json:"reason"`
+	Error            sql.NullString `json:"error"`
+	AllowedPathsJson sql.NullString `json:"allowed_paths_json"`
+	DeniedPathsJson  sql.NullString `json:"denied_paths_json"`
+	NetworkAllowed   int64          `json:"network_allowed"`
+	NetworkReason    sql.NullString `json:"network_reason"`
+	CreatedAt        int64          `json:"created_at"`
+	CompletedAt      sql.NullInt64  `json:"completed_at"`
+}
+
+type RuntimeSetting struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+type RuntimeToolCall struct {
+	ID                             string         `json:"id"`
+	TurnID                         string         `json:"turn_id"`
+	SessionID                      string         `json:"session_id"`
+	MessageID                      sql.NullString `json:"message_id"`
+	Name                           string         `json:"name"`
+	Source                         string         `json:"source"`
+	Status                         string         `json:"status"`
+	InputSummary                   sql.NullString `json:"input_summary"`
+	OutputSummary                  sql.NullString `json:"output_summary"`
+	Stdout                         sql.NullString `json:"stdout"`
+	Stderr                         sql.NullString `json:"stderr"`
+	IsError                        int64          `json:"is_error"`
+	StartedAt                      int64          `json:"started_at"`
+	FinishedAt                     sql.NullInt64  `json:"finished_at"`
+	Error                          sql.NullString `json:"error"`
+	ModelContent                   sql.NullString `json:"model_content"`
+	StructuredOutput               sql.NullString `json:"structured_output"`
+	CapabilityID                   string         `json:"capability_id"`
+	JobID                          sql.NullString `json:"job_id"`
+	Command                        sql.NullString `json:"command"`
+	Risk                           sql.NullString `json:"risk"`
+	PolicyReason                   sql.NullString `json:"policy_reason"`
+	ExitCode                       int64          `json:"exit_code"`
+	JobStatus                      sql.NullString `json:"job_status"`
+	JobStartedAt                   sql.NullInt64  `json:"job_started_at"`
+	JobFinishedAt                  sql.NullInt64  `json:"job_finished_at"`
+	Compacted                      int64          `json:"compacted"`
+	CompactRef                     sql.NullString `json:"compact_ref"`
+	CompactBoundaryID              sql.NullString `json:"compact_boundary_id"`
+	CompactOriginalEstimatedTokens int64          `json:"compact_original_estimated_tokens"`
+	CompactedAt                    sql.NullInt64  `json:"compacted_at"`
+	PolicyMode                     sql.NullString `json:"policy_mode"`
+	PolicyProfile                  sql.NullString `json:"policy_profile"`
+	PolicyRuleID                   sql.NullString `json:"policy_rule_id"`
+	PolicyRuleSource               sql.NullString `json:"policy_rule_source"`
+	PolicyScopeKind                sql.NullString `json:"policy_scope_kind"`
+	PolicyScopeValue               sql.NullString `json:"policy_scope_value"`
+	PolicyTargetSummary            sql.NullString `json:"policy_target_summary"`
+	ShellRisk                      sql.NullString `json:"shell_risk"`
+	ShellReason                    sql.NullString `json:"shell_reason"`
+	PolicyHeadless                 sql.NullInt64  `json:"policy_headless"`
+	PolicyHeadlessReason           sql.NullString `json:"policy_headless_reason"`
+	OutputRefsJson                 sql.NullString `json:"output_refs_json"`
+	ArtifactRefsJson               sql.NullString `json:"artifact_refs_json"`
+	DiffRefsJson                   sql.NullString `json:"diff_refs_json"`
+	SandboxDecisionID              sql.NullString `json:"sandbox_decision_id"`
+	SandboxMode                    sql.NullString `json:"sandbox_mode"`
+	SandboxStatus                  sql.NullString `json:"sandbox_status"`
+	SandboxExecutor                sql.NullString `json:"sandbox_executor"`
+	SandboxReason                  sql.NullString `json:"sandbox_reason"`
+	SandboxError                   sql.NullString `json:"sandbox_error"`
+}
+
+type RuntimeTurn struct {
+	ID                       string         `json:"id"`
+	SessionID                string         `json:"session_id"`
+	Status                   string         `json:"status"`
+	UserMessageID            sql.NullString `json:"user_message_id"`
+	LatestAssistantMessageID sql.NullString `json:"latest_assistant_message_id"`
+	Provider                 sql.NullString `json:"provider"`
+	Model                    sql.NullString `json:"model"`
+	PromptPreview            sql.NullString `json:"prompt_preview"`
+	UsageBeforeJson          sql.NullString `json:"usage_before_json"`
+	UsageAfterJson           sql.NullString `json:"usage_after_json"`
+	UsageDeltaJson           sql.NullString `json:"usage_delta_json"`
+	StartedAt                int64          `json:"started_at"`
+	UpdatedAt                int64          `json:"updated_at"`
+	FinishedAt               sql.NullInt64  `json:"finished_at"`
+	Error                    sql.NullString `json:"error"`
+}
+
+type RuntimeUserInput struct {
+	ID             string         `json:"id"`
+	SessionID      sql.NullString `json:"session_id"`
+	TurnID         sql.NullString `json:"turn_id"`
+	ProjectID      sql.NullString `json:"project_id"`
+	Scope          sql.NullString `json:"scope"`
+	Mode           string         `json:"mode"`
+	PromptPreview  sql.NullString `json:"prompt_preview"`
+	ItemsJson      string         `json:"items_json"`
+	NormalizedJson string         `json:"normalized_json"`
+	CreatedAt      int64          `json:"created_at"`
+}
+
+type RuntimeWorktree struct {
+	ID             string         `json:"id"`
+	SessionID      string         `json:"session_id"`
+	TurnID         sql.NullString `json:"turn_id"`
+	TaskID         sql.NullString `json:"task_id"`
+	BaseRepoPath   string         `json:"base_repo_path"`
+	WorktreePath   string         `json:"worktree_path"`
+	Branch         string         `json:"branch"`
+	Ref            sql.NullString `json:"ref"`
+	Status         string         `json:"status"`
+	PreservePolicy string         `json:"preserve_policy"`
+	CleanupPolicy  string         `json:"cleanup_policy"`
+	CreatedAt      int64          `json:"created_at"`
+	EnteredAt      sql.NullInt64  `json:"entered_at"`
+	ExitedAt       sql.NullInt64  `json:"exited_at"`
+	CleanedAt      sql.NullInt64  `json:"cleaned_at"`
+	UpdatedAt      int64          `json:"updated_at"`
+	Error          sql.NullString `json:"error"`
+	Owner          sql.NullString `json:"owner"`
+	MetadataJson   sql.NullString `json:"metadata_json"`
+}
+
+type SelectedModel struct {
+	ID                   string         `json:"id"`
+	ConfiguredProviderID string         `json:"configured_provider_id"`
+	ProviderID           string         `json:"provider_id"`
+	Model                string         `json:"model"`
+	Scope                string         `json:"scope"`
+	ProjectID            sql.NullString `json:"project_id"`
+	SessionID            sql.NullString `json:"session_id"`
+	CreatedAt            int64          `json:"created_at"`
+	UpdatedAt            int64          `json:"updated_at"`
 }
 
 type Session struct {

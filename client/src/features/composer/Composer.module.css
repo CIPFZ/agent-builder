@@ -3,6 +3,23 @@
   background: #ffffff;
 }
 
+.contextWarningBar {
+  margin-bottom: 8px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--ant-color-warning) 42%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ant-color-warning) 10%, #fff);
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.contextWarningError {
+  border-color: color-mix(in srgb, var(--ant-color-error) 42%, transparent);
+  background: color-mix(in srgb, var(--ant-color-error) 9%, #fff);
+  color: var(--ant-color-error);
+}
+
 .senderRoot,
 .sender {
   width: 100%;

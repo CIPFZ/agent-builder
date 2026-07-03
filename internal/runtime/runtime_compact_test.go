@@ -211,7 +211,7 @@ func TestCompactEventsAndAuditRedactSecrets(t *testing.T) {
 	}
 
 	service.storeRuntimeEvent(runtimeapi.Event{
-		Type:      runtimeapi.EventCompactMicroCompleted,
+		Type:      runtimeapi.EventCompactCompleted,
 		CreatedAt: "2026-05-24T00:00:00Z",
 		SessionID: "session-1",
 		TurnID:    "turn-1",

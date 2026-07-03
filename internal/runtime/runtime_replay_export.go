@@ -247,8 +247,6 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			}
 		case runtimeapi.EventTaskResultUpdated:
 			summary.AgentTaskResults = append(summary.AgentTaskResults, runtimeReplayTaskResultFromEvent(event))
-		case runtimeapi.EventBudgetUpdated:
-			summary.Budget = runtimeBudgetReportFromPayload(event.Payload)
 		case runtimeapi.EventWorktreeCreated, runtimeapi.EventWorktreeEntered, runtimeapi.EventWorktreeExited, runtimeapi.EventWorktreeCleaned, runtimeapi.EventWorktreeCleanupFailed, runtimeapi.EventWorktreePolicyDenied, runtimeapi.EventWorktreeRecovered, runtimeapi.EventWorktreeMissingPath, runtimeapi.EventWorktreePreserved:
 			if wt := runtimeWorktreeFromPayload(event.Payload); wt.ID != "" {
 				summary.Worktrees = appendRuntimeReplayWorktree(summary.Worktrees, wt)
@@ -307,14 +305,9 @@ func buildRuntimeReplaySummary(auditSummary RuntimeAuditTurnSummary, events []Ru
 			}
 		case runtimeapi.EventPermissionRequested, runtimeapi.EventPermissionDecided:
 			summary.PermissionEvents = append(summary.PermissionEvents, runtimeReplayPermissionFromEvent(event))
-		case runtimeapi.EventCompactBoundaryRecorded, runtimeapi.EventCompactMicroCompleted, runtimeapi.EventCompactFullCompleted, runtimeapi.EventCompactFailed:
+		case runtimeapi.EventCompactStarted, runtimeapi.EventCompactCompleted, runtimeapi.EventCompactFailed:
 			if boundary := runtimeReplayCompactBoundaryFromEvent(event); boundary.ID != "" {
 				summary.CompactBoundaries = appendRuntimeReplayCompactBoundary(summary.CompactBoundaries, boundary)
-			}
-		case runtimeapi.EventCompactOutputPreserved:
-			if ref := runtimeRefFromReplayPayload(event.Payload); ref.ID != "" {
-				summary.OutputRefs = appendRuntimeReplayRef(summary.OutputRefs, ref)
-				summary.CompactOutputRefs = appendRuntimeReplayRef(summary.CompactOutputRefs, ref)
 			}
 		case runtimeapi.EventContextReinjected, runtimeapi.EventContextSourceSkipped, runtimeapi.EventContextSourceFailed:
 			attachRuntimeReplayReinjectedRef(&summary, event)

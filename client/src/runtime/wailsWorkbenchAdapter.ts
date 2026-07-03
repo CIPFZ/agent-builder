@@ -6,6 +6,7 @@ import type {
   ConfiguredProviderViewModel,
   CompactBoundaryViewModel,
   ContextDiagnosticsViewModel,
+  ContextUsageViewModel,
   ConversationMessageViewModel,
   ConversationTimelineItemViewModel,
   CreateProjectRequestViewModel,
@@ -22,6 +23,7 @@ import type {
   PermissionRequestViewModel,
   ProviderDraftDiscoveryRequestViewModel,
   ProviderModelDiscoveryViewModel,
+  ProviderModelViewModel,
   ProviderTestViewModel,
   ProviderCatalogItemViewModel,
   ProjectActionRequestViewModel,
@@ -323,7 +325,8 @@ interface RuntimeConfiguredProviderDTO {
   hasApiKey?: boolean;
   proxy?: string;
   defaultModel?: string;
-  models?: string[];
+  models?: ProviderModelViewModel[];
+  defaultContextWindow?: number;
   enabled: boolean;
 }
 
@@ -337,7 +340,8 @@ interface RuntimeConfiguredProviderRequestDTO {
   apiKey?: string;
   proxy?: string;
   defaultModel?: string;
-  models?: string[];
+  models?: ProviderModelViewModel[];
+  defaultContextWindow?: number;
   enabled: boolean;
 }
 
@@ -955,6 +959,7 @@ interface RuntimeContextActionRequestDTO {
   turnId: string;
   projectionId?: string;
   reason?: string;
+  instructions?: string;
 }
 
 interface RuntimePromptAssemblyDTO {
@@ -1134,6 +1139,30 @@ interface RuntimeBudgetReportDTO {
 interface RuntimeBudgetBucketDTO {
   count?: number;
   estimatedTokens?: number;
+}
+
+interface RuntimeContextUsageDTO {
+  sessionId?: string;
+  model?: string;
+  contextWindow?: number;
+  usedTokens?: number;
+  percentUsed?: number;
+  autoCompactAt?: number;
+  percentLeft?: number;
+  level?: string;
+  estimated?: boolean;
+  outputReserve?: number;
+  autoCompactBuffer?: number;
+  breakdown?: RuntimeContextCategoryDTO[];
+  compactCount?: number;
+  updatedAt?: number;
+}
+
+interface RuntimeContextCategoryDTO {
+  key?: string;
+  label?: string;
+  tokens?: number;
+  estimated?: boolean;
 }
 
 interface RuntimeRunProjectionRequestDTO {
@@ -1620,6 +1649,7 @@ interface RuntimeBridgeModule {
   MarkInterruptedDone?: (turnID: string) => Promise<RuntimeTurnResponseDTO>;
   Messages?: () => Promise<RuntimeMessagesResponseDTO>;
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
+  SessionContextUsage?: (sessionID: string) => Promise<RuntimeContextUsageDTO>;
   SessionOutput?: (sessionID: string, req: { snapshot?: boolean; cursor?: string; limit?: number }) => Promise<RuntimeOutputSnapshot>;
   SessionOutputEvents?: (sessionID: string, after: string) => Promise<RuntimeOutputEventsResponse>;
   StartSessionOutputStream?: (req: { sessionId: string; streamId?: string; after?: string }) => Promise<{ streamId: string; eventName: string }>;
@@ -1956,7 +1986,8 @@ function mapConfiguredProviders(response?: RuntimeConfiguredProvidersResponseDTO
     apiEndpoint: provider.apiEndpoint,
     protocol: provider.protocol,
     defaultModel: provider.defaultModel,
-    models: provider.models,
+    models: provider.models?.map(mapProviderModel),
+    defaultContextWindow: provider.defaultContextWindow,
     tokenConfigured: provider.hasApiKey,
     token: provider.apiKey,
     proxy: provider.proxy,
@@ -3147,67 +3178,33 @@ function mapBudgetBucket(bucket?: RuntimeBudgetBucketDTO) {
   };
 }
 
-export function attachContextGovernanceToTimeline(
-  items: ConversationTimelineItemViewModel[],
-  diagnostics?: ContextDiagnosticsViewModel,
-): ConversationTimelineItemViewModel[] {
-  if (!diagnostics) {
-    return items;
+function mapContextUsage(usage?: RuntimeContextUsageDTO): ContextUsageViewModel | undefined {
+  if (!usage) {
+    return undefined;
   }
-  const markers: ConversationTimelineItemViewModel[] = [
-    ...diagnostics.compactBoundaries.map((boundary) => ({
-      id: `context-compact:${boundary.id}`,
-      kind: boundary.kind === 'micro' ? ('microcompact_marker' as const) : ('compact_boundary' as const),
-      sessionId: diagnostics.sessionId,
-      turnId: diagnostics.turnId,
-      title: boundary.kind,
-      status: boundary.status,
-      summary: [boundary.trigger, boundary.summaryRef, `${boundary.messageRefs.length} messages`].filter(Boolean).join(' / '),
-      createdAt: boundary.createdAt ?? diagnostics.createdAt,
-      updatedAt: boundary.completedAt,
-      source: 'runtime_activity' as const,
-      error: boundary.error,
-    })),
-    ...diagnostics.snipBoundaries.map((boundary) => ({
-      id: `context-snip:${boundary.id}`,
-      kind: 'snip_boundary' as const,
-      sessionId: diagnostics.sessionId,
-      turnId: diagnostics.turnId,
-      title: 'snip',
-      status: 'completed',
-      summary: [boundary.reason, `${boundary.removedMessageCount} messages`, boundary.summaryRef].filter(Boolean).join(' / '),
-      createdAt: boundary.createdAt ?? diagnostics.createdAt,
-      source: 'runtime_activity' as const,
-    })),
-    ...diagnostics.replacements.map((replacement) => ({
-      id: `context-replacement:${replacement.id}`,
-      kind: 'tool_result_replacement' as const,
-      sessionId: diagnostics.sessionId,
-      turnId: diagnostics.turnId,
-      toolCallId: replacement.toolCallId,
-      title: replacement.kind,
-      status: 'recorded',
-      summary: [replacement.reason, replacement.originalRef].filter(Boolean).join(' / '),
-      createdAt: replacement.createdAt ?? diagnostics.createdAt,
-      source: 'runtime_activity' as const,
-    })),
-    ...diagnostics.reactiveAttempts.map((attempt) => ({
-      id: `context-reactive:${attempt.id}`,
-      kind: 'reactive_compact_retry' as const,
-      sessionId: diagnostics.sessionId,
-      turnId: diagnostics.turnId,
-      title: attempt.action,
-      status: attempt.status,
-      summary: attempt.error,
-      createdAt: attempt.createdAt ?? diagnostics.createdAt,
-      source: 'runtime_activity' as const,
-      error: attempt.status === 'failed' ? attempt.error : undefined,
-    })),
-  ];
-  if (!markers.length) {
-    return items;
-  }
-  return dedupeTimelineItems([...items, ...markers]).sort((left, right) => (left.createdAt ?? 0) - (right.createdAt ?? 0) || left.id.localeCompare(right.id));
+  return {
+    sessionId: usage.sessionId ?? '',
+    model: usage.model ?? '',
+    contextWindow: usage.contextWindow ?? 0,
+    usedTokens: usage.usedTokens ?? 0,
+    percentUsed: usage.percentUsed ?? 0,
+    autoCompactAt: usage.autoCompactAt ?? 0,
+    percentLeft: usage.percentLeft ?? 0,
+    level: usage.level ?? 'ok',
+    estimated: Boolean(usage.estimated),
+    outputReserve: usage.outputReserve ?? 0,
+    autoCompactBuffer: usage.autoCompactBuffer ?? 0,
+    compactCount: usage.compactCount ?? 0,
+    updatedAt: usage.updatedAt ?? 0,
+    breakdown: Array.isArray(usage.breakdown)
+      ? usage.breakdown.map((category) => ({
+          key: category.key ?? '',
+          label: category.label ?? category.key ?? '',
+          tokens: category.tokens ?? 0,
+          estimated: Boolean(category.estimated),
+        }))
+      : [],
+  };
 }
 
 function mapRunSchedulerPlanCandidates(response?: RuntimeRunSchedulerPlanResponseDTO): RunSchedulerTaskCandidateViewModel[] {
@@ -3297,7 +3294,13 @@ function toConfiguredProviderRequest(provider: ConfiguredProviderViewModel & { t
     apiKey: provider.token,
     proxy: provider.proxy,
     defaultModel: provider.defaultModel,
-    models: provider.models,
+    models: provider.models?.map((model) => ({
+      id: model.id,
+      displayName: model.displayName,
+      contextWindow: model.contextWindow,
+      maxOutputTokens: model.maxOutputTokens,
+    })),
+    defaultContextWindow: provider.defaultContextWindow,
     enabled: true,
   };
 }
@@ -3315,8 +3318,29 @@ function toRuntimeModelConfigRequest(request: ProviderDraftDiscoveryRequestViewM
 function mapDraftModelDiscovery(response: RuntimeModelDiscoveryResponseDTO): ProviderModelDiscoveryViewModel {
   return {
     providerId: 'draft',
-    models: Array.isArray(response.models) ? response.models : [],
+    models: providerModelsFromIDs(response.models),
     error: response.error,
+  };
+}
+
+function providerModelsFromIDs(models?: string[]): ProviderModelViewModel[] {
+  return Array.isArray(models)
+    ? models
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .map((id) => ({ id }))
+    : [];
+}
+
+function mapProviderModel(model: ProviderModelViewModel): ProviderModelViewModel {
+  return {
+    id: model.id,
+    displayName: model.displayName,
+    contextWindow: model.source === 'user_override' ? model.contextWindow : undefined,
+    maxOutputTokens: model.source === 'user_override' ? model.maxOutputTokens : undefined,
+    resolvedContextWindow: model.contextWindow,
+    resolvedMaxOutputTokens: model.maxOutputTokens,
+    source: model.source,
   };
 }
 
@@ -3656,6 +3680,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     agentTasks,
     todos,
     agentRoles,
+    contextUsage,
   ] = await Promise.all([
     fullHydration ? hydrateHooks(bridge) : Promise.resolve(undefined),
     activeSessionID ? hydrateHookExecutions(bridge, activeSessionID) : Promise.resolve(summarizeHookExecutions([])),
@@ -3676,6 +3701,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     activeSessionID ? hydrateAgentTasks(bridge, activeSessionID) : Promise.resolve(undefined),
     activeSessionID ? hydrateTodos(bridge, activeSessionID) : Promise.resolve(undefined),
     fullHydration ? hydrateAgentRoles(bridge) : Promise.resolve(undefined),
+    activeSessionID ? optionalRuntimeRequest(() => bridge.SessionContextUsage?.(activeSessionID) ?? Promise.resolve(undefined)) : Promise.resolve(undefined),
   ])
   const outputStore = outputSnapshot ? hydrateOutputStore(outputSnapshot, current.outputStore) : current.outputStore;
   const modelOptionList = modelsResponse ? modelOptions(modelsResponse) : current.composer.modelOptions;
@@ -3757,6 +3783,7 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       permissionOptions: permissionModeOptions,
       modelLabel: modelLabel(status, modelsResponse),
       capabilityLabel: capabilityLabel(skills, mcpServers),
+      contextUsage: mapContextUsage(contextUsage) ?? (current.composer.contextUsage?.sessionId === activeSessionID ? current.composer.contextUsage : undefined),
       selectedModel,
       modelOptions: modelOptionList,
       busy,
@@ -4478,17 +4505,20 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       () => staticWorkbenchAdapter.retryRecoverableError(current, errorID),
     );
   },
-  async manualCompact(current, reason) {
+  async manualCompact(current, instructions) {
     return withBridge(
       async (bridge) => {
         if (!bridge.ManualCompact) {
-          return staticWorkbenchAdapter.manualCompact(current, reason);
+          return staticWorkbenchAdapter.manualCompact(current, instructions);
         }
-        const req = contextActionRequest(current, reason || 'manual_compact');
+        const req = contextActionRequest(current, 'manual');
+        if (instructions?.trim()) {
+          req.instructions = instructions.trim();
+        }
         await bridge.ManualCompact(req);
         return hydrateWorkbench(current, bridge, { refreshTargets: ['session_activity'] });
       },
-      () => staticWorkbenchAdapter.manualCompact(current, reason),
+      () => staticWorkbenchAdapter.manualCompact(current, instructions),
     );
   },
   async manualSnip(current, reason) {
@@ -4670,7 +4700,11 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
   async discoverConfiguredProviderModels(providerID) {
     const bridge = await loadRuntimeBridge();
     if (bridge?.DiscoverConfiguredProviderModels) {
-      return bridge.DiscoverConfiguredProviderModels(providerID);
+      const response = await bridge.DiscoverConfiguredProviderModels(providerID);
+      return {
+        ...response,
+        models: response.models.map(mapProviderModel),
+      };
     }
     return staticWorkbenchAdapter.discoverConfiguredProviderModels(providerID);
   },

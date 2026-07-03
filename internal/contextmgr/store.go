@@ -325,6 +325,66 @@ ORDER BY created_at ASC`, strings.TrimSpace(projectionID))
 	return out, nil
 }
 
+func (s SQLStore) ListBoundariesByTurn(ctx context.Context, turnID string) ([]Boundary, error) {
+	if s.db == nil {
+		return nil, errors.New("context governance database is not available")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, session_id, turn_id, projection_id, kind, trigger, status,
+    summary_message_id, summary_ref, message_refs_json, tool_call_refs_json,
+    reinjected_refs_json, budget_before_json, budget_after_json,
+    created_at, completed_at, error
+FROM runtime_context_boundaries
+WHERE turn_id = ?
+ORDER BY created_at ASC`, strings.TrimSpace(turnID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list turn context boundaries: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var out []Boundary
+	for rows.Next() {
+		boundary, err := scanBoundary(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, boundary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate turn context boundaries: %w", err)
+	}
+	return out, nil
+}
+
+func (s SQLStore) ListBoundariesBySession(ctx context.Context, sessionID string) ([]Boundary, error) {
+	if s.db == nil {
+		return nil, errors.New("context governance database is not available")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, session_id, turn_id, projection_id, kind, trigger, status,
+    summary_message_id, summary_ref, message_refs_json, tool_call_refs_json,
+    reinjected_refs_json, budget_before_json, budget_after_json,
+    created_at, completed_at, error
+FROM runtime_context_boundaries
+WHERE session_id = ?
+ORDER BY created_at ASC`, strings.TrimSpace(sessionID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list session context boundaries: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var out []Boundary
+	for rows.Next() {
+		boundary, err := scanBoundary(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, boundary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate session context boundaries: %w", err)
+	}
+	return out, nil
+}
+
 func (s SQLStore) UpsertContentReplacement(ctx context.Context, replacement ContentReplacement) (ContentReplacement, error) {
 	if s.db == nil {
 		return ContentReplacement{}, errors.New("context governance database is not available")

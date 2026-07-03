@@ -10,7 +10,7 @@ import (
 )
 
 const getFileRead = `-- name: GetFileRead :one
-SELECT session_id, path, read_at, turn_id, tool_call_id, size_bytes, content_hash, mtime_unix, offset, read_limit, partial, token_estimate, state, reason FROM read_files
+SELECT session_id, path, read_at, turn_id, tool_call_id, size_bytes, content_hash, mtime_unix, "offset", read_limit, partial, token_estimate, state, reason FROM read_files
 WHERE session_id = ? AND path = ? LIMIT 1
 `
 
@@ -22,12 +22,27 @@ type GetFileReadParams struct {
 func (q *Queries) GetFileRead(ctx context.Context, arg GetFileReadParams) (ReadFile, error) {
 	row := q.queryRow(ctx, q.getFileReadStmt, getFileRead, arg.SessionID, arg.Path)
 	var i ReadFile
-	err := row.Scan(&i.SessionID, &i.Path, &i.ReadAt, &i.TurnID, &i.ToolCallID, &i.SizeBytes, &i.ContentHash, &i.MtimeUnix, &i.Offset, &i.ReadLimit, &i.Partial, &i.TokenEstimate, &i.State, &i.Reason)
+	err := row.Scan(
+		&i.SessionID,
+		&i.Path,
+		&i.ReadAt,
+		&i.TurnID,
+		&i.ToolCallID,
+		&i.SizeBytes,
+		&i.ContentHash,
+		&i.MtimeUnix,
+		&i.Offset,
+		&i.ReadLimit,
+		&i.Partial,
+		&i.TokenEstimate,
+		&i.State,
+		&i.Reason,
+	)
 	return i, err
 }
 
 const listSessionReadFiles = `-- name: ListSessionReadFiles :many
-SELECT session_id, path, read_at, turn_id, tool_call_id, size_bytes, content_hash, mtime_unix, offset, read_limit, partial, token_estimate, state, reason FROM read_files
+SELECT session_id, path, read_at, turn_id, tool_call_id, size_bytes, content_hash, mtime_unix, "offset", read_limit, partial, token_estimate, state, reason FROM read_files
 WHERE session_id = ?
 ORDER BY read_at DESC
 `
@@ -41,7 +56,22 @@ func (q *Queries) ListSessionReadFiles(ctx context.Context, sessionID string) ([
 	items := []ReadFile{}
 	for rows.Next() {
 		var i ReadFile
-		if err := rows.Scan(&i.SessionID, &i.Path, &i.ReadAt, &i.TurnID, &i.ToolCallID, &i.SizeBytes, &i.ContentHash, &i.MtimeUnix, &i.Offset, &i.ReadLimit, &i.Partial, &i.TokenEstimate, &i.State, &i.Reason); err != nil {
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.Path,
+			&i.ReadAt,
+			&i.TurnID,
+			&i.ToolCallID,
+			&i.SizeBytes,
+			&i.ContentHash,
+			&i.MtimeUnix,
+			&i.Offset,
+			&i.ReadLimit,
+			&i.Partial,
+			&i.TokenEstimate,
+			&i.State,
+			&i.Reason,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -118,6 +148,20 @@ type RecordFileReadParams struct {
 }
 
 func (q *Queries) RecordFileRead(ctx context.Context, arg RecordFileReadParams) error {
-	_, err := q.exec(ctx, q.recordFileReadStmt, recordFileRead, arg.SessionID, arg.Path, arg.TurnID, arg.ToolCallID, arg.SizeBytes, arg.ContentHash, arg.MtimeUnix, arg.Offset, arg.ReadLimit, arg.Partial, arg.TokenEstimate, arg.State, arg.Reason)
+	_, err := q.exec(ctx, q.recordFileReadStmt, recordFileRead,
+		arg.SessionID,
+		arg.Path,
+		arg.TurnID,
+		arg.ToolCallID,
+		arg.SizeBytes,
+		arg.ContentHash,
+		arg.MtimeUnix,
+		arg.Offset,
+		arg.ReadLimit,
+		arg.Partial,
+		arg.TokenEstimate,
+		arg.State,
+		arg.Reason,
+	)
 	return err
 }

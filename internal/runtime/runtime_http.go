@@ -362,6 +362,17 @@ func (s *runtimeHTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && sessionMessagesPathID(r.URL.Path) != "":
 		value, err := s.service.SessionMessages(r.Context(), sessionMessagesPathID(r.URL.Path))
 		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodGet && sessionContextUsagePathID(r.URL.Path) != "":
+		value, err := s.service.SessionContextUsage(r.Context(), sessionContextUsagePathID(r.URL.Path))
+		writeRuntimeResult(w, value, err)
+	case r.Method == http.MethodPost && sessionCompactPathID(r.URL.Path) != "":
+		var req RuntimeContextActionRequest
+		if !decodeRuntimeJSON(w, r, &req) {
+			return
+		}
+		req.SessionID = sessionCompactPathID(r.URL.Path)
+		value, err := s.service.ManualCompact(r.Context(), req)
+		writeRuntimeResult(w, value, err)
 	case r.Method == http.MethodGet && sessionOutputStreamPathID(r.URL.Path) != "":
 		s.handleSessionOutputStream(w, r, sessionOutputStreamPathID(r.URL.Path))
 	case r.Method == http.MethodGet && sessionOutputEventsPathID(r.URL.Path) != "":
@@ -1028,6 +1039,17 @@ func (s *runtimeHTTPServer) readDevRuntimeValue(r *http.Request) (any, error, bo
 		return value, err, true
 	case method == http.MethodGet && sessionMessagesPathID(path) != "":
 		value, err := s.service.SessionMessages(r.Context(), sessionMessagesPathID(path))
+		return value, err, true
+	case method == http.MethodGet && sessionContextUsagePathID(path) != "":
+		value, err := s.service.SessionContextUsage(r.Context(), sessionContextUsagePathID(path))
+		return value, err, true
+	case method == http.MethodPost && sessionCompactPathID(path) != "":
+		var req RuntimeContextActionRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			return nil, err, true
+		}
+		req.SessionID = sessionCompactPathID(path)
+		value, err := s.service.ManualCompact(r.Context(), req)
 		return value, err, true
 	case method == http.MethodGet && sessionOutputEventsPathID(path) != "":
 		value, err := s.service.SessionOutputEvents(r.Context(), sessionOutputEventsPathID(path), runtimeDevModuleCursor(r, pathQuery))
@@ -1716,6 +1738,14 @@ func sessionMessagesPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/messages")
 }
 
+func sessionContextUsagePathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/context-usage")
+}
+
+func sessionCompactPathID(path string) string {
+	return trimPathID(path, "/v1/sessions/", "/compact")
+}
+
 func sessionOutputPathID(path string) string {
 	return trimPathID(path, "/v1/sessions/", "/output")
 }
@@ -1937,10 +1967,6 @@ func runtimeDevModuleAfter(r *http.Request, pathQuery url.Values) int64 {
 		return 0
 	}
 	return after
-}
-
-func sessionCompactPathID(path string) string {
-	return trimPathID(path, "/v1/sessions/", "/compact")
 }
 
 func turnAgentTasksPathID(path string) string {

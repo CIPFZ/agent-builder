@@ -20,6 +20,7 @@ import {
   Flex,
   Form,
   Input,
+  InputNumber,
   Layout,
   Menu,
   message,
@@ -27,6 +28,7 @@ import {
   Segmented,
   Select,
   Switch,
+  Table,
   Tag,
   Typography,
 } from 'antd';
@@ -42,6 +44,7 @@ import type {
   ProviderDraftDiscoveryRequestViewModel,
   ProviderCatalogItemViewModel,
   ProviderModelDiscoveryViewModel,
+  ProviderModelViewModel,
   ProviderTestViewModel,
   RuntimeMCPServerViewModel,
   RuntimeModelOptionViewModel,
@@ -524,14 +527,38 @@ function ProviderEditorModal({
   const [messageApi, messageContextHolder] = message.useMessage();
   const defaultProviderID = providers[0]?.id ?? '';
   const [selectedProviderID, setSelectedProviderID] = useState(defaultProviderID);
-  const [runtimeModels, setRuntimeModels] = useState<string[]>([]);
+  const [runtimeModels, setRuntimeModels] = useState<ProviderModelViewModel[]>([]);
   const [actionLoading, setActionLoading] = useState<'models' | 'test' | 'latency' | null>(null);
+  const watchedModels = Form.useWatch('models', form) ?? [];
+  const watchedDefaultContextWindow = Form.useWatch('defaultContextWindow', form);
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderID);
-  const modelOptions = getProviderModelOptions(selectedProvider, runtimeModels);
+  const modelRows = compactProviderModels(watchedModels);
+  const modelOptions = getProviderModelOptions(selectedProvider, providerModelIDs(modelRows.length > 0 ? modelRows : runtimeModels));
+  const hasInvalidModelLimits = hasInvalidProviderModelLimits(modelRows, watchedDefaultContextWindow);
   const providerOptions = providers.map((provider) => ({
     label: provider.id === 'custom' ? 'Custom' : provider.name,
     value: provider.id,
   }));
+
+  const setModelRows = (models: ProviderModelViewModel[]) => {
+    const compact = compactProviderModels(models);
+    form.setFieldValue('models', compact);
+    setRuntimeModels(compact);
+  };
+
+  const updateModelRow = (index: number, patch: Partial<ProviderModelViewModel>) => {
+    const next = [...modelRows];
+    next[index] = { ...next[index], ...patch };
+    setModelRows(next);
+  };
+
+  const addModelRow = () => {
+    setModelRows([...modelRows, { id: '' }]);
+  };
+
+  const removeModelRow = (index: number) => {
+    setModelRows(modelRows.filter((_, rowIndex) => rowIndex !== index));
+  };
 
   const applyPreset = (providerID: string) => {
     const preset = providers.find((provider) => provider.id === providerID);
@@ -544,6 +571,8 @@ function ProviderEditorModal({
       apiEndpoint: preset?.apiEndpoint || '',
       protocol: form.getFieldValue('protocol') || 'openai-compat',
       defaultModel: preset?.defaultLargeModel || preset?.defaultSmallModel || '',
+      models: providerModelsFromIDs([preset?.defaultLargeModel, preset?.defaultSmallModel]),
+      defaultContextWindow: undefined,
       proxy: '',
       token: '',
     });
@@ -579,10 +608,10 @@ function ProviderEditorModal({
               defaultModel: normalizeDefaultModel(values.defaultModel),
               proxy: values.proxy,
             });
-      setRuntimeModels(result.models);
-      form.setFieldValue('models', result.models);
-      if (result.models.length > 0 && !form.getFieldValue('defaultModel')) {
-        form.setFieldValue('defaultModel', result.models[0]);
+      const nextModels = mergeProviderModelRows(modelRows, result.models);
+      setModelRows(nextModels);
+      if (nextModels.length > 0 && !form.getFieldValue('defaultModel')) {
+        form.setFieldValue('defaultModel', nextModels[0].id);
       }
       if (result.error) {
         messageApi.warning(`模型列表未完整刷新：${result.error}`);
@@ -638,7 +667,7 @@ function ProviderEditorModal({
         <Button key="cancel" onClick={onCancel}>
           取消
         </Button>,
-        <Button key="submit" loading={saving} type="primary" onClick={() => form.submit()}>
+        <Button key="submit" disabled={hasInvalidModelLimits} loading={saving} type="primary" onClick={() => form.submit()}>
           {editingProvider ? '保存' : '添加'}
         </Button>,
       ]}
@@ -663,9 +692,6 @@ function ProviderEditorModal({
       <Form className={styles.providerForm} form={form} layout="vertical" preserve={false} requiredMark={false} onFinish={onSave}>
         <Form.Item name="providerId" hidden>
           <Input />
-        </Form.Item>
-        <Form.Item name="models" hidden>
-          <Select mode="multiple" />
         </Form.Item>
 
         <Card className={styles.formCard} styles={{ body: { padding: 18 } }}>
@@ -718,6 +744,86 @@ function ProviderEditorModal({
               <Button aria-label="测速" icon={<ThunderboltOutlined />} loading={actionLoading === 'latency'} onClick={measureLatency} />
             </Flex>
           </Flex>
+
+          <Form.Item label="未知模型默认窗口" name="defaultContextWindow">
+            <InputNumber
+              controls={false}
+              min={16000}
+              max={10000000}
+              placeholder="留空自动解析"
+              status={isInvalidContextWindow(watchedDefaultContextWindow) ? 'error' : undefined}
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+
+          <Flex align="center" justify="space-between">
+            <Text type="secondary">{formatProviderModelSummary(modelRows, watchedDefaultContextWindow)}</Text>
+            <Button size="small" onClick={addModelRow}>
+              添加模型
+            </Button>
+          </Flex>
+
+          <Table<ProviderModelViewModel>
+            className={styles.providerModelTable}
+            columns={[
+              {
+                title: '模型 ID',
+                dataIndex: 'id',
+                render: (_value, row, index) => (
+                  <Input
+                    value={row.id}
+                    onChange={(event) => updateModelRow(index, { id: event.target.value })}
+                  />
+                ),
+              },
+              {
+                title: '上下文窗口',
+                dataIndex: 'contextWindow',
+                render: (_value, row, index) => (
+                  <Flex align="center" gap={8}>
+                    <InputNumber
+                      controls={false}
+                      min={16000}
+                      max={10000000}
+                      placeholder={formatTokenWindow(row.resolvedContextWindow)}
+                      status={isInvalidContextWindow(row.contextWindow) ? 'error' : undefined}
+                      value={row.contextWindow}
+                      onChange={(value) => updateModelRow(index, { contextWindow: value ?? undefined, source: value ? 'user_override' : row.source })}
+                    />
+                    <Tag>{formatModelSource(row.source)}</Tag>
+                  </Flex>
+                ),
+              },
+              {
+                title: '最大输出',
+                dataIndex: 'maxOutputTokens',
+                render: (_value, row, index) => (
+                  <InputNumber
+                    controls={false}
+                    min={1}
+                    placeholder={formatTokenWindow(row.resolvedMaxOutputTokens)}
+                    value={row.maxOutputTokens}
+                    onChange={(value) => updateModelRow(index, { maxOutputTokens: value ?? undefined, source: value ? 'user_override' : row.source })}
+                  />
+                ),
+              },
+              {
+                title: '',
+                dataIndex: 'actions',
+                width: 64,
+                render: (_value, _row, index) => (
+                  <Button danger size="small" type="text" onClick={() => removeModelRow(index)}>
+                    删除
+                  </Button>
+                ),
+              },
+            ]}
+            dataSource={modelRows}
+            locale={{ emptyText: '刷新或添加模型后配置窗口' }}
+            pagination={false}
+            rowKey={(row, index) => `${row.id || 'model'}-${index}`}
+            size="small"
+          />
 
           <Form.Item label="代理" name="proxy">
             <Input placeholder="http://127.0.0.1:7890" />
@@ -1014,6 +1120,87 @@ function getProviderModelOptions(provider?: ProviderCatalogItemViewModel, runtim
   }));
 }
 
+function providerModelsFromIDs(models: Array<string | undefined>) {
+  return compactProviderModels(models.map((id) => ({ id: id ?? '' })));
+}
+
+function providerModelIDs(models: ProviderModelViewModel[]) {
+  return compactProviderModels(models).map((model) => model.id);
+}
+
+function compactProviderModels(models: ProviderModelViewModel[] = []) {
+  const seen = new Set<string>();
+  const compact: ProviderModelViewModel[] = [];
+  for (const model of models) {
+    const id = model.id?.trim();
+    if (!id || seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    compact.push({ ...model, id });
+  }
+  return compact;
+}
+
+function mergeProviderModelRows(existing: ProviderModelViewModel[], discovered: ProviderModelViewModel[]) {
+  const existingByID = new Map(compactProviderModels(existing).map((model) => [model.id, model]));
+  return compactProviderModels(discovered).map((model) => {
+    const current = existingByID.get(model.id);
+    return {
+      ...model,
+      contextWindow: current?.contextWindow,
+      maxOutputTokens: current?.maxOutputTokens,
+      resolvedContextWindow: model.resolvedContextWindow ?? model.contextWindow,
+      resolvedMaxOutputTokens: model.resolvedMaxOutputTokens ?? model.maxOutputTokens,
+      source: current?.contextWindow || current?.maxOutputTokens ? 'user_override' : model.source,
+    };
+  });
+}
+
+function isInvalidContextWindow(value?: number | null) {
+  return typeof value === 'number' && (value < 16000 || value > 10000000);
+}
+
+function hasInvalidProviderModelLimits(models: ProviderModelViewModel[], defaultContextWindow?: number | null) {
+  return isInvalidContextWindow(defaultContextWindow) || models.some((model) => isInvalidContextWindow(model.contextWindow));
+}
+
+function formatModelSource(source?: string) {
+  switch (source) {
+    case 'user_override':
+      return '用户';
+    case 'provider_default':
+      return '兜底';
+    case 'discovered':
+      return '自动获取';
+    case 'builtin':
+      return '内置';
+    default:
+      return '默认';
+  }
+}
+
+function formatTokenWindow(value?: number) {
+  if (!value) {
+    return undefined;
+  }
+  if (value >= 1000000) {
+    return `${Math.round(value / 100000) / 10}M`;
+  }
+  if (value >= 1000) {
+    return `${Math.round(value / 1000)}k`;
+  }
+  return `${value}`;
+}
+
+function formatProviderModelSummary(models: ProviderModelViewModel[], defaultContextWindow?: number | null) {
+  const windows = models
+    .map((model) => model.contextWindow || model.resolvedContextWindow)
+    .filter((value): value is number => Boolean(value));
+  const range = windows.length > 0 ? `${formatTokenWindow(Math.min(...windows))}~${formatTokenWindow(Math.max(...windows))}` : '自动解析';
+  return `${models.length} 个模型 · 窗口 ${range} · 兜底 ${formatTokenWindow(defaultContextWindow ?? undefined) ?? '未设置'}`;
+}
+
 function formatDuration(durationMs?: number) {
   return typeof durationMs === 'number' ? `，${durationMs}ms` : '';
 }
@@ -1032,7 +1219,16 @@ function normalizeConfiguredProvider(
 ): ConfiguredProviderViewModel & { token?: string } {
   const preset = providers.find((provider) => provider.id === values.providerId);
   const defaultModel = normalizeDefaultModel(values.defaultModel);
-  const models = Array.from(new Set([...(values.models ?? []), defaultModel].filter((model): model is string => Boolean(model))));
+  const models = compactProviderModels([
+    ...(values.models ?? []),
+    { id: defaultModel ?? '' },
+  ]).map((model) => ({
+    id: model.id,
+    displayName: model.displayName,
+    contextWindow: model.contextWindow,
+    maxOutputTokens: model.maxOutputTokens,
+    source: model.contextWindow || model.maxOutputTokens ? 'user_override' : undefined,
+  }));
   return {
     id: values.id || values.providerId,
     providerId: values.providerId,
@@ -1042,6 +1238,7 @@ function normalizeConfiguredProvider(
     protocol: values.protocol || 'openai-compat',
     defaultModel,
     models,
+    defaultContextWindow: values.defaultContextWindow,
     tokenConfigured: Boolean(values.token || values.tokenConfigured),
     token: values.token,
     proxy: values.proxy,

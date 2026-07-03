@@ -10,6 +10,7 @@ import {
   StopOutlined,
 } from '@ant-design/icons';
 import type { ComposerViewModel, NewConversationDraftViewModel, ProjectViewModel } from '../../runtime/workbenchTypes.ts';
+import { ContextUsageIndicator } from './ContextUsageIndicator.tsx';
 import { PermissionModeControl } from '../permissions/PermissionModeControl.tsx';
 import styles from './Composer.module.css';
 
@@ -24,6 +25,7 @@ interface ComposerProps {
   onPermissionModeSelect: (mode: string) => Promise<void>;
   onCancel: () => Promise<void>;
   onSubmit: (prompt: string) => Promise<void>;
+  onManualCompact?: () => Promise<void>;
 }
 
 const menu = {
@@ -46,6 +48,7 @@ export function Composer({
   onPermissionModeSelect,
   onCancel,
   onSubmit,
+  onManualCompact,
 }: ComposerProps) {
   const [messageApi, messageContextHolder] = message.useMessage();
   const [draft, setDraft] = useState('');
@@ -65,6 +68,8 @@ export function Composer({
     : composer.modelOptions.filter((model) => model.configuredProviderId);
   const canSubmit = draft.trim().length > 0;
   const isBusy = Boolean(composer.busy);
+  const contextUsage = composer.contextUsage;
+  const showContextWarning = contextUsage && contextUsage.level !== 'ok';
   const requiresSelectedModel = (prompt: string) => !prompt.trim().startsWith('/');
   const warnMissingModel = () => {
     void messageApi.warning('请先在 设置 - 服务商 中配置并选择模型后再使用');
@@ -150,6 +155,7 @@ export function Composer({
       </div>
 
       <div className={styles.rightControls}>
+        <ContextUsageIndicator compacting={isBusy} usage={contextUsage} onManualCompact={onManualCompact} />
         <Dropdown menu={modelMenu} trigger={['click']}>
           <Button className={styles.modelButton} type="text">
             <span className={styles.truncatedLabel}>{composer.modelLabel}</span>
@@ -193,6 +199,13 @@ export function Composer({
   return (
     <div ref={composerRef} className={styles.composerWrap} data-testid="composer">
       {messageContextHolder}
+      {showContextWarning && (
+        <div className={`${styles.contextWarningBar} ${contextUsage.level === 'error' ? styles.contextWarningError : ''}`} data-testid="composer-context-warning">
+          {contextUsage.level === 'warning'
+            ? `距自动压缩还剩 ${contextUsage.percentLeft}%`
+            : `上下文即将用尽（剩余 ${contextUsage.percentLeft}%），请手动压缩`}
+        </div>
+      )}
       <div className={styles.composerShell}>
         <Sender
           autoSize={{ minRows: 1, maxRows: 8 }}

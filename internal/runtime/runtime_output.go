@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/runtimeapi"
 	"github.com/CIPFZ/agent-builder/internal/tools/scheduler"
 )
@@ -117,8 +118,13 @@ func (r *runtimeService) runtimeConversationProjectionInput(ctx context.Context,
 		summary := todos.Summary
 		input.Todos = &summary
 	}
-	if compact, err := r.SessionCompactBoundaries(ctx, sessionID); err == nil {
-		input.Compact = compact.Boundaries
+	if err := r.ensureContextManager(ctx); err == nil {
+		if boundaries, err := r.contextStore.ListBoundariesBySession(ctx, sessionID); err == nil {
+			input.Compact = make([]RuntimeCompactBoundary, 0, len(boundaries))
+			for _, boundary := range boundaries {
+				input.Compact = append(input.Compact, runtimeCompactBoundaryFromContextBoundary(boundary))
+			}
+		}
 	}
 	return input
 }
@@ -426,7 +432,7 @@ func (p runtimeOutputProjection) eventsFromRuntimeEvents(events []RuntimeEvent) 
 				appendEvent(RuntimeOutputEvent{Kind: "todo.updated", EntityID: "todo-summary-" + event.SessionID, Operation: "update", Todos: &todosCopy, TurnID: todosCopy.TurnID})
 			}
 			appendItemEvents("update")
-		case runtimeapi.EventCompactBoundaryRecorded, runtimeapi.EventCompactMicroCompleted, runtimeapi.EventCompactFullCompleted, runtimeapi.EventCompactFailed, runtimeapi.EventCompactOutputPreserved:
+		case runtimeapi.EventCompactStarted, runtimeapi.EventCompactCompleted, runtimeapi.EventCompactFailed:
 			for _, boundary := range p.compact {
 				if boundary.ID == runtimeOutputPayloadString(event, "boundary_id") || boundary.ID == runtimeOutputPayloadString(event, "compact_boundary_id") || boundary.TurnID == event.TurnID {
 					boundaryCopy := boundary
@@ -696,16 +702,19 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 		}
 	}
 	for _, boundary := range sortedRuntimeOutputCompactMap(p.compact) {
-		kind := "compact_boundary"
-		if boundary.Kind == compactKindMicro {
-			kind = "microcompact_marker"
+		if boundary.Kind != "full" {
+			continue
+		}
+		status := boundary.Status
+		if status == contextmgr.ProjectionStatusStarted {
+			status = "compacting"
 		}
 		appendEntry(RuntimeConversationItem{
-			ID:        kind + "-" + boundary.ID,
-			Kind:      kind,
+			ID:        "compact-" + boundary.ID,
+			Kind:      "compact_boundary",
 			SessionID: boundary.SessionID,
 			TurnID:    boundary.TurnID,
-			Status:    boundary.Status,
+			Status:    status,
 			Title:     firstNonEmpty(boundary.Trigger, boundary.Kind),
 			Summary:   runtimeCompactBoundarySummary(boundary),
 			Error:     boundary.Error,
@@ -713,24 +722,6 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 			CreatedAt: boundary.CreatedAt,
 			UpdatedAt: firstPositiveInt64(boundary.CompletedAt, boundary.CreatedAt),
 		}, 5200)
-		for _, ref := range boundary.ToolCallRefs {
-			if ref.Replacement == "" && !ref.Preserved {
-				continue
-			}
-			appendEntry(RuntimeConversationItem{
-				ID:         "tool-result-replacement-" + boundary.ID + "-" + ref.ToolCallID,
-				Kind:       "tool_result_replacement",
-				SessionID:  boundary.SessionID,
-				TurnID:     boundary.TurnID,
-				Status:     boundary.Status,
-				Title:      firstNonEmpty(ref.Name, "tool result replaced"),
-				Summary:    firstNonEmpty(ref.Reason, ref.Replacement),
-				ToolCallID: ref.ToolCallID,
-				ContextID:  boundary.ID,
-				CreatedAt:  boundary.CreatedAt,
-				UpdatedAt:  firstPositiveInt64(boundary.CompletedAt, boundary.CreatedAt),
-			}, 5210)
-		}
 	}
 	for _, turn := range sortedRuntimeOutputTurnMap(p.turns) {
 		if turn.Diagnostics.Warning != "" {
@@ -1383,6 +1374,26 @@ func runtimeCompactBoundarySummary(boundary RuntimeCompactBoundary) string {
 		return fmt.Sprintf("%d messages, %d tool outputs", len(boundary.MessageRefs), len(boundary.ToolCallRefs))
 	}
 	return boundary.Status
+}
+
+func runtimeCompactBoundaryFromContextBoundary(boundary contextmgr.Boundary) RuntimeCompactBoundary {
+	return RuntimeCompactBoundary{
+		ID:               boundary.ID,
+		SessionID:        boundary.SessionID,
+		TurnID:           boundary.TurnID,
+		ProjectionID:     boundary.ProjectionID,
+		Kind:             boundary.Kind,
+		Trigger:          boundary.Trigger,
+		Status:           boundary.Status,
+		BudgetBefore:     runtimeBudgetFromContextBudget(boundary.BudgetBefore),
+		BudgetAfter:      runtimeBudgetFromContextBudget(boundary.BudgetAfter),
+		SummaryMessageID: boundary.SummaryMessageID,
+		SummaryRef:       boundary.SummaryRef,
+		MessageRefs:      append([]string(nil), boundary.MessageRefs...),
+		Error:            boundary.Error,
+		CreatedAt:        boundary.CreatedAt,
+		CompletedAt:      boundary.CompletedAt,
+	}
 }
 
 func runtimeTurnNeedsRecoveryNotice(turn RuntimeTurn, entries []runtimeConversationItemEntry) bool {

@@ -44,6 +44,8 @@ var Endpoints = []Endpoint{
 	{Method: MethodPost, Path: "/v1/sessions"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/messages"},
+	{Method: MethodGet, Path: "/v1/sessions/{session_id}/context-usage"},
+	{Method: MethodPost, Path: "/v1/sessions/{session_id}/compact"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/activity-window"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/run-projection"},
 	{Method: MethodGet, Path: "/v1/sessions/{session_id}/todos"},
@@ -219,12 +221,11 @@ const (
 	EventReadFileRecorded              = "read_file.recorded"
 	EventReadFileStale                 = "read_file.stale"
 	EventReadFileMissing               = "read_file.missing"
-	EventBudgetUpdated                 = "budget.updated"
-	EventCompactBoundaryRecorded       = "compact.boundary.recorded"
-	EventCompactMicroCompleted         = "compact.micro.completed"
-	EventCompactFullCompleted          = "compact.full.completed"
+	EventContextUsageUpdated           = "context.usage.updated"
+	EventPromptAssemblyRecorded        = "prompt.assembly.recorded"
+	EventCompactStarted                = "compact.started"
+	EventCompactCompleted              = "compact.completed"
 	EventCompactFailed                 = "compact.failed"
-	EventCompactOutputPreserved        = "compact.output.preserved"
 	EventSkillDiscoveryStarted         = "skill.discovery.started"
 	EventSkillDiscoveryCompleted       = "skill.discovery.completed"
 	EventSkillDiscoveryFailed          = "skill.discovery.failed"
@@ -394,12 +395,11 @@ var EventTypes = []string{
 	EventReadFileRecorded,
 	EventReadFileStale,
 	EventReadFileMissing,
-	EventBudgetUpdated,
-	EventCompactBoundaryRecorded,
-	EventCompactMicroCompleted,
-	EventCompactFullCompleted,
+	EventContextUsageUpdated,
+	EventPromptAssemblyRecorded,
+	EventCompactStarted,
+	EventCompactCompleted,
 	EventCompactFailed,
-	EventCompactOutputPreserved,
 	EventSkillDiscoveryStarted,
 	EventSkillDiscoveryCompleted,
 	EventSkillDiscoveryFailed,

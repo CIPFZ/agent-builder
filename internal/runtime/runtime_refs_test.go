@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/CIPFZ/agent-builder/internal/agent"
 	"github.com/CIPFZ/agent-builder/internal/db"
@@ -152,15 +151,6 @@ func TestRuntimeRefsCompactTaskReplayAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.storeRuntimeEvent(runtimeapi.Event{
-		ID:         newRuntimeEventID(),
-		Type:       runtimeapi.EventCompactOutputPreserved,
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339Nano),
-		SessionID:  "session-1",
-		TurnID:     "turn-1",
-		ToolCallID: "tool-1",
-		Payload:    runtimeRefEventPayload(ref),
-	})
 	call, err := service.toolCalls.GetCall(ctx, "tool-1")
 	if err != nil {
 		t.Fatal(err)

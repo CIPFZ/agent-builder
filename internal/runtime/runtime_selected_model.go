@@ -10,6 +10,7 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/modelmeta"
 )
 
 var errSelectedModelMissing = errors.New("model is not selected. Configure a provider and select a model before chatting.")
@@ -243,11 +244,33 @@ func applyConfiguredProviderModel(store *config.ConfigStore, provider RuntimeCon
 	if protocol == "anthropic" {
 		providerType = catwalk.TypeAnthropic
 	}
+	configuredModel := configuredProviderModel(provider, modelID)
+	userContextWindow := 0
+	userMaxOutputTokens := 0
+	discoveredContextWindow := 0
+	discoveredMaxOutputTokens := 0
+	if configuredModel.Source == "" || configuredModel.Source == modelmeta.SourceUserOverride {
+		userContextWindow = configuredModel.ContextWindow
+		userMaxOutputTokens = configuredModel.MaxOutputTokens
+	} else if configuredModel.Source == modelmeta.SourceDiscovered {
+		discoveredContextWindow = configuredModel.ContextWindow
+		discoveredMaxOutputTokens = configuredModel.MaxOutputTokens
+	}
+	limits := modelmeta.Resolve(modelmeta.ResolveRequest{
+		ProviderID:                   provider.ProviderID,
+		ModelID:                      modelID,
+		UserContextWindow:            userContextWindow,
+		UserMaxOutputTokens:          userMaxOutputTokens,
+		ProviderDefaultContextWindow: provider.DefaultContextWindow,
+		DiscoveredContextWindow:      discoveredContextWindow,
+		DiscoveredMaxOutputTokens:    discoveredMaxOutputTokens,
+		Catalog:                      configuredProviderCatalogModels(provider.ProviderID),
+	})
 	model := catwalk.Model{
 		ID:               modelID,
-		Name:             modelID,
-		ContextWindow:    64000,
-		DefaultMaxTokens: 4096,
+		Name:             firstNonEmpty(configuredModel.DisplayName, modelID),
+		ContextWindow:    int64(limits.ContextWindow),
+		DefaultMaxTokens: int64(limits.MaxOutputTokens),
 	}
 	providerID := provider.ID
 	store.Config().Providers.Set(providerID, config.ProviderConfig{
@@ -265,6 +288,15 @@ func applyConfiguredProviderModel(store *config.ConfigStore, provider RuntimeCon
 	}
 	store.Config().Models[config.SelectedModelTypeLarge] = selected
 	store.Config().Models[config.SelectedModelTypeSmall] = selected
+}
+
+func configuredProviderModel(provider RuntimeConfiguredProvider, modelID string) RuntimeProviderModel {
+	for _, model := range provider.Models {
+		if model.ID == modelID {
+			return model
+		}
+	}
+	return RuntimeProviderModel{ID: modelID}
 }
 
 func configuredProviderModelProtocol(provider RuntimeConfiguredProvider) string {

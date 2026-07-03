@@ -16,6 +16,7 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"github.com/CIPFZ/agent-builder/internal/config"
+	"github.com/CIPFZ/agent-builder/internal/modelmeta"
 )
 
 func resolveDesktopLayout() (desktopLayout, error) {
@@ -144,7 +145,7 @@ func saveLocalModelConfig(layout desktopLayout, local RuntimeModelConfig) error 
 	return nil
 }
 
-func discoverModelIDs(ctx context.Context, local RuntimeModelConfig) ([]string, error) {
+func discoverModels(ctx context.Context, local RuntimeModelConfig) ([]RuntimeProviderModel, error) {
 	if strings.TrimSpace(local.Protocol) == "" || strings.TrimSpace(local.URL) == "" || strings.TrimSpace(local.APIKey) == "" {
 		return nil, errors.New("protocol, url, and apiKey are required to fetch models")
 	}
@@ -173,32 +174,96 @@ func discoverModelIDs(ctx context.Context, local RuntimeModelConfig) ([]string, 
 		return nil, fmt.Errorf("failed to fetch models: %s", resp.Status)
 	}
 
-	var payload struct {
-		Data []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"display_name"`
-		} `json:"data"`
-		Models []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"models"`
-	}
+	var payload map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil, fmt.Errorf("failed to decode models response: %w", err)
 	}
 
-	models := make([]string, 0, len(payload.Data)+len(payload.Models))
-	for _, model := range payload.Data {
-		models = append(models, firstNonEmpty(strings.TrimSpace(model.ID), strings.TrimSpace(model.DisplayName)))
-	}
-	for _, model := range payload.Models {
-		models = append(models, firstNonEmpty(strings.TrimSpace(model.ID), strings.TrimSpace(model.Name)))
-	}
-	models = compactModelIDs(models)
+	models := make([]RuntimeProviderModel, 0)
+	models = append(models, modelsFromDiscoveryValue(payload["data"])...)
+	models = append(models, modelsFromDiscoveryValue(payload["models"])...)
 	if len(models) == 0 {
 		return nil, errors.New("models response did not include any model ids")
 	}
-	return models, nil
+	return compactProviderModels(models), nil
+}
+
+func modelsFromDiscoveryValue(value any) []RuntimeProviderModel {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	models := make([]RuntimeProviderModel, 0, len(items))
+	for _, item := range items {
+		raw, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		model := RuntimeProviderModel{
+			ID:              firstNonEmpty(stringFromAny(raw["id"]), stringFromAny(raw["name"]), stringFromAny(raw["display_name"])),
+			DisplayName:     firstNonEmpty(stringFromAny(raw["display_name"]), stringFromAny(raw["name"])),
+			ContextWindow:   firstPositiveIntFromMap(raw, "context_length", "contextLength", "max_input_tokens", "input_token_limit"),
+			MaxOutputTokens: firstPositiveIntFromMap(raw, "max_output_tokens", "maxOutputTokens", "max_tokens", "output_token_limit"),
+			Source:          modelmeta.SourceDiscovered,
+		}
+		if nested, ok := raw["model_info"].(map[string]any); ok {
+			model.ContextWindow = firstPositiveModelInt(model.ContextWindow, firstPositiveIntFromMap(nested, "context_length", "contextLength", "max_input_tokens", "input_token_limit"))
+			model.MaxOutputTokens = firstPositiveModelInt(model.MaxOutputTokens, firstPositiveIntFromMap(nested, "max_output_tokens", "maxOutputTokens", "max_tokens", "output_token_limit"))
+		}
+		if nested, ok := raw["details"].(map[string]any); ok {
+			model.ContextWindow = firstPositiveModelInt(model.ContextWindow, firstPositiveIntFromMap(nested, "context_length", "contextLength", "max_input_tokens", "input_token_limit"))
+			model.MaxOutputTokens = firstPositiveModelInt(model.MaxOutputTokens, firstPositiveIntFromMap(nested, "max_output_tokens", "maxOutputTokens", "max_tokens", "output_token_limit"))
+		}
+		if strings.TrimSpace(model.ID) != "" {
+			models = append(models, model)
+		}
+	}
+	return models
+}
+
+func stringFromAny(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return ""
+	}
+}
+
+func firstPositiveIntFromMap(values map[string]any, keys ...string) int {
+	for _, key := range keys {
+		if value := intFromAny(values[key]); value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func firstPositiveModelInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func intFromAny(value any) int {
+	switch typed := value.(type) {
+	case float64:
+		return int(typed)
+	case int:
+		return typed
+	case json.Number:
+		parsed, _ := typed.Int64()
+		return int(parsed)
+	case string:
+		var parsed int
+		if _, err := fmt.Sscanf(strings.TrimSpace(typed), "%d", &parsed); err == nil {
+			return parsed
+		}
+	}
+	return 0
 }
 
 func modelDiscoveryRequest(local RuntimeModelConfig) (string, map[string]string, error) {
@@ -263,11 +328,15 @@ func applyModelConfig(store *config.ConfigStore, local RuntimeModelConfig) {
 		if model == "" {
 			continue
 		}
+		limits := modelmeta.Resolve(modelmeta.ResolveRequest{
+			ProviderID: localProviderID,
+			ModelID:    model,
+		})
 		models = append(models, catwalk.Model{
 			ID:               model,
 			Name:             model,
-			ContextWindow:    64000,
-			DefaultMaxTokens: 4096,
+			ContextWindow:    int64(limits.ContextWindow),
+			DefaultMaxTokens: int64(limits.MaxOutputTokens),
 		})
 	}
 	if len(models) == 0 {

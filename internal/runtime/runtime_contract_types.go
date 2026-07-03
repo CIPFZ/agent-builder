@@ -219,21 +219,22 @@ type RuntimeProviderCatalogResponse struct {
 }
 
 type RuntimeConfiguredProvider struct {
-	ID              string   `json:"id"`
-	ProviderID      string   `json:"providerId"`
-	Name            string   `json:"name"`
-	Remark          string   `json:"remark,omitempty"`
-	Protocol        string   `json:"protocol"`
-	APIEndpoint     string   `json:"apiEndpoint"`
-	APIKeySecretRef string   `json:"apiKeySecretRef,omitempty"`
-	APIKey          string   `json:"apiKey,omitempty"`
-	HasAPIKey       bool     `json:"hasApiKey"`
-	Proxy           string   `json:"proxy,omitempty"`
-	DefaultModel    string   `json:"defaultModel,omitempty"`
-	Models          []string `json:"models,omitempty"`
-	Enabled         bool     `json:"enabled"`
-	CreatedAt       int64    `json:"createdAt"`
-	UpdatedAt       int64    `json:"updatedAt"`
+	ID                   string                 `json:"id"`
+	ProviderID           string                 `json:"providerId"`
+	Name                 string                 `json:"name"`
+	Remark               string                 `json:"remark,omitempty"`
+	Protocol             string                 `json:"protocol"`
+	APIEndpoint          string                 `json:"apiEndpoint"`
+	APIKeySecretRef      string                 `json:"apiKeySecretRef,omitempty"`
+	APIKey               string                 `json:"apiKey,omitempty"`
+	HasAPIKey            bool                   `json:"hasApiKey"`
+	Proxy                string                 `json:"proxy,omitempty"`
+	DefaultModel         string                 `json:"defaultModel,omitempty"`
+	Models               []RuntimeProviderModel `json:"models,omitempty"`
+	DefaultContextWindow int                    `json:"defaultContextWindow,omitempty"`
+	Enabled              bool                   `json:"enabled"`
+	CreatedAt            int64                  `json:"createdAt"`
+	UpdatedAt            int64                  `json:"updatedAt"`
 }
 
 type RuntimeConfiguredProvidersResponse struct {
@@ -241,27 +242,36 @@ type RuntimeConfiguredProvidersResponse struct {
 }
 
 type RuntimeConfiguredProviderRequest struct {
-	ID           string   `json:"id,omitempty"`
-	ProviderID   string   `json:"providerId"`
-	Name         string   `json:"name"`
-	Remark       string   `json:"remark,omitempty"`
-	Protocol     string   `json:"protocol"`
-	APIEndpoint  string   `json:"apiEndpoint"`
-	APIKey       string   `json:"apiKey,omitempty"`
-	Proxy        string   `json:"proxy,omitempty"`
-	DefaultModel string   `json:"defaultModel,omitempty"`
-	Models       []string `json:"models,omitempty"`
-	Enabled      bool     `json:"enabled"`
+	ID                   string                 `json:"id,omitempty"`
+	ProviderID           string                 `json:"providerId"`
+	Name                 string                 `json:"name"`
+	Remark               string                 `json:"remark,omitempty"`
+	Protocol             string                 `json:"protocol"`
+	APIEndpoint          string                 `json:"apiEndpoint"`
+	APIKey               string                 `json:"apiKey,omitempty"`
+	Proxy                string                 `json:"proxy,omitempty"`
+	DefaultModel         string                 `json:"defaultModel,omitempty"`
+	Models               []RuntimeProviderModel `json:"models,omitempty"`
+	DefaultContextWindow int                    `json:"defaultContextWindow,omitempty"`
+	Enabled              bool                   `json:"enabled"`
 }
 
 type RuntimeConfiguredProviderResponse struct {
 	Provider RuntimeConfiguredProvider `json:"provider"`
 }
 
+type RuntimeProviderModel struct {
+	ID              string `json:"id"`
+	DisplayName     string `json:"displayName,omitempty"`
+	ContextWindow   int    `json:"contextWindow,omitempty"`
+	MaxOutputTokens int    `json:"maxOutputTokens,omitempty"`
+	Source          string `json:"source,omitempty"`
+}
+
 type RuntimeProviderModelDiscoveryResponse struct {
-	ProviderID string   `json:"providerId"`
-	Models     []string `json:"models"`
-	Error      string   `json:"error,omitempty"`
+	ProviderID string                 `json:"providerId"`
+	Models     []RuntimeProviderModel `json:"models"`
+	Error      string                 `json:"error,omitempty"`
 }
 
 type RuntimeProviderTestResponse struct {
@@ -1711,18 +1721,18 @@ type RuntimeToolResult struct {
 }
 
 type RuntimeConversationDisplay struct {
-	Kind            string                     `json:"kind,omitempty"`
-	Title           string                     `json:"title,omitempty"`
-	Detail          string                     `json:"detail,omitempty"`
-	Target          string                     `json:"target,omitempty"`
-	PrimaryTarget   string                     `json:"primaryTarget,omitempty"`
-	Targets         []string                   `json:"targets,omitempty"`
-	GroupKey        string                     `json:"groupKey,omitempty"`
-	Groupable       bool                       `json:"groupable,omitempty"`
-	Quiet           bool                       `json:"quiet,omitempty"`
-	DefaultExpanded bool                       `json:"defaultExpanded,omitempty"`
-	ToolCallIDs     []string                   `json:"toolCallIds,omitempty"`
-	Counts          []RuntimeExplorationCount  `json:"counts,omitempty"`
+	Kind            string                    `json:"kind,omitempty"`
+	Title           string                    `json:"title,omitempty"`
+	Detail          string                    `json:"detail,omitempty"`
+	Target          string                    `json:"target,omitempty"`
+	PrimaryTarget   string                    `json:"primaryTarget,omitempty"`
+	Targets         []string                  `json:"targets,omitempty"`
+	GroupKey        string                    `json:"groupKey,omitempty"`
+	Groupable       bool                      `json:"groupable,omitempty"`
+	Quiet           bool                      `json:"quiet,omitempty"`
+	DefaultExpanded bool                      `json:"defaultExpanded,omitempty"`
+	ToolCallIDs     []string                  `json:"toolCallIds,omitempty"`
+	Counts          []RuntimeExplorationCount `json:"counts,omitempty"`
 }
 
 type RuntimeExplorationCount struct {
@@ -2079,10 +2089,36 @@ type RuntimeRequests struct {
 }
 
 type RuntimeUsage struct {
-	PromptTokens     int64   `json:"promptTokens"`
-	CompletionTokens int64   `json:"completionTokens"`
-	TotalTokens      int64   `json:"totalTokens"`
-	Cost             float64 `json:"cost"`
+	InputTokens         int64   `json:"input"`
+	OutputTokens        int64   `json:"output"`
+	CacheReadTokens     int64   `json:"cacheRead"`
+	CacheCreationTokens int64   `json:"cacheCreation"`
+	TotalTokens         int64   `json:"total"`
+	Cost                float64 `json:"cost"`
+}
+
+type RuntimeContextUsage struct {
+	SessionID         string                   `json:"sessionId"`
+	Model             string                   `json:"model"`
+	ContextWindow     int                      `json:"contextWindow"`
+	UsedTokens        int                      `json:"usedTokens"`
+	PercentUsed       int                      `json:"percentUsed"`
+	AutoCompactAt     int                      `json:"autoCompactAt"`
+	PercentLeft       int                      `json:"percentLeft"`
+	Level             string                   `json:"level"`
+	Estimated         bool                     `json:"estimated"`
+	OutputReserve     int                      `json:"outputReserve"`
+	AutoCompactBuffer int                      `json:"autoCompactBuffer"`
+	Breakdown         []RuntimeContextCategory `json:"breakdown"`
+	CompactCount      int                      `json:"compactCount"`
+	UpdatedAt         int64                    `json:"updatedAt"`
+}
+
+type RuntimeContextCategory struct {
+	Key       string `json:"key"`
+	Label     string `json:"label"`
+	Tokens    int    `json:"tokens"`
+	Estimated bool   `json:"estimated"`
 }
 
 type RuntimeEventStats struct {
@@ -2236,21 +2272,23 @@ type RuntimeReplayRecovery struct {
 }
 
 type RuntimeCompactBoundary struct {
-	ID             string                      `json:"id"`
-	SessionID      string                      `json:"sessionId"`
-	TurnID         string                      `json:"turnId,omitempty"`
-	Kind           string                      `json:"kind"`
-	Trigger        string                      `json:"trigger"`
-	Status         string                      `json:"status"`
-	BudgetBefore   *RuntimeBudgetReport        `json:"budgetBefore,omitempty"`
-	BudgetAfter    *RuntimeBudgetReport        `json:"budgetAfter,omitempty"`
-	SummaryRef     string                      `json:"summaryRef,omitempty"`
-	MessageRefs    []string                    `json:"messageRefs,omitempty"`
-	ToolCallRefs   []RuntimeCompactToolCallRef `json:"toolCallRefs,omitempty"`
-	ReinjectedRefs []RuntimeReinjectedRef      `json:"reinjectedRefs,omitempty"`
-	Error          string                      `json:"error,omitempty"`
-	CreatedAt      int64                       `json:"createdAt"`
-	CompletedAt    int64                       `json:"completedAt,omitempty"`
+	ID               string                      `json:"id"`
+	SessionID        string                      `json:"sessionId"`
+	TurnID           string                      `json:"turnId,omitempty"`
+	ProjectionID     string                      `json:"projectionId,omitempty"`
+	Kind             string                      `json:"kind"`
+	Trigger          string                      `json:"trigger"`
+	Status           string                      `json:"status"`
+	BudgetBefore     *RuntimeBudgetReport        `json:"budgetBefore,omitempty"`
+	BudgetAfter      *RuntimeBudgetReport        `json:"budgetAfter,omitempty"`
+	SummaryMessageID string                      `json:"summaryMessageId,omitempty"`
+	SummaryRef       string                      `json:"summaryRef,omitempty"`
+	MessageRefs      []string                    `json:"messageRefs,omitempty"`
+	ToolCallRefs     []RuntimeCompactToolCallRef `json:"toolCallRefs,omitempty"`
+	ReinjectedRefs   []RuntimeReinjectedRef      `json:"reinjectedRefs,omitempty"`
+	Error            string                      `json:"error,omitempty"`
+	CreatedAt        int64                       `json:"createdAt"`
+	CompletedAt      int64                       `json:"completedAt,omitempty"`
 }
 
 type RuntimeCompactToolCallRef struct {
@@ -2474,6 +2512,7 @@ type RuntimeContextActionRequest struct {
 	TurnID       string `json:"turnId"`
 	ProjectionID string `json:"projectionId,omitempty"`
 	Reason       string `json:"reason,omitempty"`
+	Instructions string `json:"instructions,omitempty"`
 }
 
 type RuntimeManualCompactResponse struct {

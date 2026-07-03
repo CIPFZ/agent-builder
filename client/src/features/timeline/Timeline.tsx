@@ -17,6 +17,7 @@ import { MarkdownMessage } from '../markdown/MarkdownMessage.tsx';
 import { HookExecutionDetailDrawer } from '../hooks/HookExecutionDetailDrawer.tsx';
 import { HookTimelineRow } from '../hooks/HookTimelineRow.tsx';
 import { InlineExpandable, TraceRow } from './TraceRow.tsx';
+import { CompactDivider } from './CompactDivider.tsx';
 import { useLatchedOpen, useMinDisplay, useRatchetCounts } from './hooks.ts';
 import styles from './Timeline.module.css';
 
@@ -328,6 +329,9 @@ function TimelineProcessItem({
   }
   if (item.kind === 'hook_run' || item.kind === 'todo_summary' || item.kind === 'recovery_notice') {
     return <WorkflowNoticeRow item={item} />;
+  }
+  if (item.kind === 'compact_boundary') {
+    return <CompactDivider item={item} />;
   }
   if (isContextGovernanceItem(item)) {
     return <ContextGovernanceRow item={item} />;
@@ -663,30 +667,18 @@ function isActiveTurnStatus(status?: string) {
 }
 
 function isContextGovernanceItem(item: ConversationTimelineItemViewModel) {
-  return (
-    item.kind === 'compact_boundary' ||
-    item.kind === 'snip_boundary' ||
-    item.kind === 'microcompact_marker' ||
-    item.kind === 'reactive_compact_retry' ||
-    item.kind === 'tool_result_replacement' ||
-    item.kind === 'context_source'
-  );
+	return (
+		item.kind === 'compact_boundary' ||
+		item.kind === 'context_source'
+	);
 }
 
 function contextGovernanceTitle(item: ConversationTimelineItemViewModel) {
-  switch (item.kind) {
-    case 'compact_boundary':
-      return `Context compact${item.title ? `: ${item.title}` : ''}`;
-    case 'snip_boundary':
-      return 'Context snip';
-    case 'microcompact_marker':
-      return 'Tool result microcompact';
-    case 'reactive_compact_retry':
-      return `Reactive compact retry${item.title ? `: ${item.title}` : ''}`;
-    case 'tool_result_replacement':
-      return `Tool result replacement${item.toolCallId ? `: ${item.toolCallId}` : ''}`;
-    case 'context_source':
-      return `Context source${item.title ? `: ${item.title}` : ''}`;
+	switch (item.kind) {
+		case 'compact_boundary':
+			return `Context compact${item.title ? `: ${item.title}` : ''}`;
+		case 'context_source':
+			return `Context source${item.title ? `: ${item.title}` : ''}`;
     default:
       return item.title || 'Context governance';
   }

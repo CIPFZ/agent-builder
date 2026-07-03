@@ -63,6 +63,23 @@ func TestRuntimeBridgeForwardsUserInput(t *testing.T) {
 	}
 }
 
+func TestRuntimeBridgeForwardsSessionContextUsage(t *testing.T) {
+	t.Parallel()
+
+	service := &recordingRuntimeService{
+		contextUsage: RuntimeContextUsage{SessionID: "session-1", UsedTokens: 123, PercentUsed: 12},
+	}
+	bridge := &RuntimeBridge{service: service}
+
+	usage, err := bridge.SessionContextUsage(context.Background(), "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.contextUsageSessionID != "session-1" || usage.UsedTokens != 123 {
+		t.Fatalf("usage=%#v session=%q", usage, service.contextUsageSessionID)
+	}
+}
+
 func TestRuntimeBridgeForwardsReactCallchain(t *testing.T) {
 	t.Parallel()
 
@@ -1076,6 +1093,8 @@ type recordingRuntimeService struct {
 	outputStreamSessionID       string
 	outputStreamAfter           string
 	outputStreamEvents          []runtime.RuntimeOutputEvent
+	contextUsage                RuntimeContextUsage
+	contextUsageSessionID       string
 	activityWindow              RuntimeSessionActivityWindowResponse
 	turnActivity                RuntimeTurnActivityResponse
 	reactCallchain              RuntimeReactCallchainResponse
@@ -1576,6 +1595,14 @@ func (s *recordingRuntimeService) DeleteSession(context.Context, string) (Runtim
 
 func (s *recordingRuntimeService) SessionMessages(context.Context, string) (RuntimeMessagesResponse, error) {
 	return RuntimeMessagesResponse{}, nil
+}
+
+func (s *recordingRuntimeService) SessionContextUsage(_ context.Context, sessionID string) (RuntimeContextUsage, error) {
+	s.contextUsageSessionID = sessionID
+	if s.contextUsage.SessionID == "" {
+		s.contextUsage.SessionID = sessionID
+	}
+	return s.contextUsage, nil
 }
 
 func (s *recordingRuntimeService) SessionOutput(_ context.Context, sessionID string, req RuntimeOutputRequest) (RuntimeOutputSnapshot, error) {

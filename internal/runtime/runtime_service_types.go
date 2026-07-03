@@ -115,6 +115,7 @@ type RuntimeService interface {
 	RenameSession(context.Context, RuntimeSessionUpdateRequest) (RuntimeSessionsResponse, error)
 	DeleteSession(context.Context, string) (RuntimeSessionsResponse, error)
 	SessionMessages(context.Context, string) (RuntimeMessagesResponse, error)
+	SessionContextUsage(context.Context, string) (RuntimeContextUsage, error)
 	SessionOutput(context.Context, string, RuntimeOutputRequest) (RuntimeOutputSnapshot, error)
 	SessionOutputEvents(context.Context, string, string) (RuntimeOutputEventsResponse, error)
 	SubscribeSessionOutputEvents(context.Context, string, string) (<-chan RuntimeOutputEvent, func())
@@ -225,11 +226,11 @@ type runtimeService struct {
 // have recently emitted a persisted message.updated so the next one can be
 // coalesced.
 type messageStreamCursor struct {
-	sessionID          string
-	lastTextLen        int
-	lastReasoningLen   int
-	lastUpdateEmitted  int64
-	completed          bool
+	sessionID         string
+	lastTextLen       int
+	lastReasoningLen  int
+	lastUpdateEmitted int64
+	completed         bool
 }
 
 type RuntimeEvent = runtimeapi.Event
