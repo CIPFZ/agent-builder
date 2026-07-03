@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/fantasy"
+	"github.com/CIPFZ/agent-builder/internal/agent"
 	"github.com/CIPFZ/agent-builder/internal/apitypes"
 	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/db"
@@ -221,4 +223,80 @@ func TestManualCompactAppendsSummaryAndEvents(t *testing.T) {
 		}},
 	}).snapshot(session.ID, "1")
 	assertHasConversationKind(t, output.Items, "compact_boundary")
+}
+
+func TestBuildModelInputProjectionAutoCompactsAboveThreshold(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runtimeWorkbench, workspace := workbenchForSkillTest(t)
+	service := newRuntimeService()
+	service.runtime = runtimeWorkbench
+	service.workspace = &apitypes.Workspace{ID: workspace.ID, Path: workspace.Path}
+	conn, err := db.Connect(ctx, workspace.Config.Options.DataDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Release(workspace.Config.Options.DataDirectory) })
+
+	session, err := runtimeWorkbench.CreateSession(ctx, workspace.ID, "auto compact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.sessionID = session.ID
+	ws, err := runtimeWorkbench.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ws.Messages.Create(ctx, session.ID, message.CreateMessageParams{
+		Role:  message.User,
+		Parts: []message.ContentPart{message.TextContent{Text: "start a long task"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ws.Messages.Create(ctx, session.ID, message.CreateMessageParams{
+		Role:  message.Assistant,
+		Parts: []message.ContentPart{message.TextContent{Text: "large context anchor"}, message.Finish{Reason: message.FinishReasonEndTurn, Time: time.Now().Unix()}},
+		Usage: message.Usage{InputTokens: 120000, OutputTokens: 12000},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.buildModelInputProjection(ctx, agent.ModelInputSnapshot{
+		SessionID: session.ID,
+		TurnID:    "turn-auto",
+		Step:      1,
+		Model:     "gpt-4o",
+		Messages: []fantasy.Message{
+			fantasy.NewUserMessage("start a long task"),
+			{Role: fantasy.MessageRoleAssistant, Content: []fantasy.MessagePart{fantasy.TextPart{Text: "large context anchor"}}},
+			fantasy.NewUserMessage("continue"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Messages) == 0 || result.ProjectedMessageCount == 0 {
+		t.Fatalf("projection = %#v", result)
+	}
+	updated, err := runtimeWorkbench.GetSession(ctx, workspace.ID, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.SummaryMessageID == "" {
+		t.Fatal("expected auto compact to set session summary message")
+	}
+	events, err := service.Events(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasRuntimeEventType(events.Events, runtimeapi.EventCompactStarted) || !hasRuntimeEventType(events.Events, runtimeapi.EventCompactCompleted) {
+		t.Fatalf("compact events missing: %#v", events.Events)
+	}
+	var completed int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM runtime_context_boundaries WHERE session_id = ? AND kind = 'full' AND trigger = 'auto' AND status = 'completed'`, session.ID).Scan(&completed); err != nil {
+		t.Fatal(err)
+	}
+	if completed != 1 {
+		t.Fatalf("completed auto boundaries = %d", completed)
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/fantasy"
 	"github.com/CIPFZ/agent-builder/internal/agent"
 	"github.com/CIPFZ/agent-builder/internal/contextmgr"
 	"github.com/CIPFZ/agent-builder/internal/db"
@@ -151,7 +152,7 @@ func (r *runtimeService) runManualFullCompact(ctx context.Context, req RuntimeCo
 		return contextmgr.CompactResult{}, r.failManualFullCompact(ctx, started, err)
 	}
 	summaryText := buildManualCompactSummary(messages, req.Instructions)
-	wrappedSummary := compactSummaryMessageText(summaryText, "manual")
+	wrappedSummary := compactSummaryMessageText(summaryText, trigger)
 	messageSvc := message.NewService(db.New(conn))
 	summaryMessage, err := messageSvc.Create(ctx, req.SessionID, message.CreateMessageParams{
 		Role: message.User,
@@ -469,6 +470,28 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 	if err := r.ensureContextManager(ctx); err != nil {
 		return agent.ModelInputProjection{}, err
 	}
+	if !isCompactGuardedTurn(snapshot.TurnID, snapshot.Source) {
+		if usage, usageErr := r.computeContextUsage(ctx, snapshot.SessionID, snapshot.TurnID, snapshot.Model, 0, nil); usageErr == nil && usage.AutoCompactAt > 0 && usage.UsedTokens >= usage.AutoCompactAt {
+			limits := r.currentRuntimeModelLimits(ctx, snapshot.Model)
+			thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens)
+			compactReq := RuntimeContextActionRequest{
+				SessionID:    snapshot.SessionID,
+				TurnID:       snapshot.TurnID,
+				ProjectionID: contextmgr.ProjectionID(snapshot.TurnID, firstPositiveInt(snapshot.Step, 1)),
+				Reason:       "auto",
+				Instructions: "请直接继续当前任务，不要复述摘要、不要向用户提问。",
+			}
+			if compact, compactErr := r.runManualFullCompact(ctx, compactReq); compactErr == nil {
+				if compactedMessages, loadErr := r.modelMessagesAfterRuntimeCompact(ctx, snapshot.SessionID, compact.Boundary.SummaryMessageID, snapshot.Messages, 6); loadErr == nil {
+					snapshot.Messages = compactedMessages
+				}
+			} else if usage.UsedTokens >= thresholds.BlockingAt {
+				return agent.ModelInputProjection{}, fmt.Errorf("上下文超出模型限制,请手动压缩(/compact)或新建会话: %w", compactErr)
+			}
+		}
+	}
+	limits := r.currentRuntimeModelLimits(ctx, snapshot.Model)
+	thresholds := contextThresholds(limits.ContextWindow, limits.MaxOutputTokens)
 	result, err := r.contextManager.BuildModelInput(ctx, contextmgr.BuildInputRequest{
 		SessionID:     snapshot.SessionID,
 		TurnID:        snapshot.TurnID,
@@ -477,6 +500,11 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 		Model:         snapshot.Model,
 		Source:        firstNonEmpty(snapshot.Source, contextmgr.ProjectionSourceMainTurn),
 		ModelMessages: snapshot.Messages,
+		Microcompact: contextmgr.MicrocompactConfig{
+			Enabled:              true,
+			KeepRecent:           5,
+			ToolResultTokenLimit: maxInt(1, thresholds.EffectiveWindow/4),
+		},
 	})
 	if err != nil {
 		return agent.ModelInputProjection{}, err
@@ -491,6 +519,55 @@ func (r *runtimeService) buildModelInputProjection(ctx context.Context, snapshot
 		CanonicalMessageCount: result.Projection.CanonicalMessageCount,
 		ProjectedMessageCount: result.Projection.ProjectedMessageCount,
 	}, nil
+}
+
+func isCompactGuardedTurn(turnID, source string) bool {
+	turnID = strings.TrimSpace(turnID)
+	source = strings.TrimSpace(source)
+	return strings.HasPrefix(turnID, "helper_") ||
+		strings.HasPrefix(turnID, "summary_") ||
+		strings.HasPrefix(turnID, "compact_") ||
+		source == "summary" ||
+		source == "compact"
+}
+
+func (r *runtimeService) modelMessagesAfterRuntimeCompact(ctx context.Context, sessionID, summaryMessageID string, tail []fantasy.Message, keepTail int) ([]fantasy.Message, error) {
+	if strings.TrimSpace(summaryMessageID) == "" {
+		return nil, errors.New("compact summary message id is empty")
+	}
+	wsID, err := r.currentWorkspaceID()
+	if err != nil {
+		return nil, err
+	}
+	messages, err := r.runtime.ListSessionMessages(ctx, wsID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	var summary message.Message
+	for _, msg := range messages {
+		if msg.ID == summaryMessageID {
+			summary = msg
+			break
+		}
+	}
+	if summary.ID == "" {
+		return nil, errors.New("compact summary message not found")
+	}
+	out := summary.ToAIMessage()
+	if keepTail > 0 && len(tail) > keepTail {
+		tail = tail[len(tail)-keepTail:]
+	}
+	out = append(out, cloneFantasyMessages(tail)...)
+	return out, nil
+}
+
+func cloneFantasyMessages(messages []fantasy.Message) []fantasy.Message {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]fantasy.Message, len(messages))
+	copy(out, messages)
+	return out
 }
 
 func (r *runtimeService) enrichPromptAssembliesWithContext(ctx context.Context, assemblies []RuntimePromptAssembly) ([]RuntimePromptAssembly, error) {
