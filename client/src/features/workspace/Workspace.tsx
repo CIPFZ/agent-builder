@@ -298,7 +298,7 @@ export function Workspace({
     },
     [rightPanelMaxWidth],
   );
-  const startRightPanelResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const startRightPanelWidthDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
     const pointerID = event.pointerId;
@@ -311,17 +311,17 @@ export function Workspace({
     const updateRightPanelWidth = (moveEvent: PointerEvent) => {
       setRightPanelWidth(clampRightPanelWidth(startWidth + startX - moveEvent.clientX));
     };
-    const stopRightPanelResize = () => {
+    const stopRightPanelWidthDrag = () => {
       target.releasePointerCapture(pointerID);
       window.removeEventListener('pointermove', updateRightPanelWidth);
-      window.removeEventListener('pointerup', stopRightPanelResize);
-      window.removeEventListener('pointercancel', stopRightPanelResize);
+      window.removeEventListener('pointerup', stopRightPanelWidthDrag);
+      window.removeEventListener('pointercancel', stopRightPanelWidthDrag);
       nudgeCursorRecompute();
     };
 
     window.addEventListener('pointermove', updateRightPanelWidth);
-    window.addEventListener('pointerup', stopRightPanelResize);
-    window.addEventListener('pointercancel', stopRightPanelResize);
+    window.addEventListener('pointerup', stopRightPanelWidthDrag);
+    window.addEventListener('pointercancel', stopRightPanelWidthDrag);
   };
   const scrollRightPanelTabs = (direction: -1 | 1) => {
     const tabs = rightPanelTabsRef.current;
@@ -628,10 +628,10 @@ export function Workspace({
               aria-valuemax={rightPanelMaxValue}
               aria-valuemin={Math.min(RIGHT_PANEL_MIN_WIDTH, rightPanelMaxValue)}
               aria-valuenow={rightPanelWidth}
-              className={styles.rightPanelResizer}
+              className={styles.rightPanelSplitter}
               role="separator"
               tabIndex={0}
-              onPointerDown={startRightPanelResize}
+              onPointerDown={startRightPanelWidthDrag}
               onPointerLeave={nudgeCursorRecompute}
             />
             {rightPanelHasTabs ? (

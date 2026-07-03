@@ -24,7 +24,8 @@ func main() {
 			application.NewService(NewRuntimeBridge()),
 		},
 		Assets: application.AssetOptions{
-			Handler: application.AssetFileServerFS(assets),
+			Handler:    application.AssetFileServerFS(assets),
+			Middleware: patchedWailsRuntimeMiddleware,
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,

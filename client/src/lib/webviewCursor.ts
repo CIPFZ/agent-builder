@@ -1,42 +1,56 @@
-// Workarounds for WebView2 cursor stickiness on Windows.
-//
-// WebView2 does not reliably propagate every CSS cursor transition back to
-// the native Win32 cursor (see MicrosoftEdge/WebView2Feedback#2766). The
-// visible symptom: hover a panel-resize gutter (or the native window border),
-// then move back into the app — the arrow keeps showing the resize cursor
-// until something else forces a cursor update.
-//
-// `nudgeCursorRecompute` forces that update by pinning an explicit cursor on
-// <body> for one frame and then clearing it: the style change makes Chromium
-// re-resolve the effective cursor under the pointer and push it to the OS.
+// Refreshes WebView2 cursor state after crossing native/WebView boundaries or
+// after one of our internal column splitters finishes interacting.
+
+const cursorRecoveryAttribute = 'data-webview-cursor-recovery';
+const cursorRecoveryStyleID = 'webview-cursor-recovery-style';
 
 let nudgeFrame: number | undefined;
+let installed = false;
+
+function ensureCursorRecoveryStyle(): void {
+  if (document.getElementById(cursorRecoveryStyleID)) {
+    return;
+  }
+
+  const style = document.createElement('style');
+  style.id = cursorRecoveryStyleID;
+  style.textContent = `
+html[${cursorRecoveryAttribute}],
+html[${cursorRecoveryAttribute}] * {
+  cursor: default !important;
+}
+`;
+  (document.head || document.documentElement).appendChild(style);
+}
 
 export function nudgeCursorRecompute(): void {
   if (typeof document === 'undefined') {
     return;
   }
-  document.body.style.cursor = 'default';
+
+  ensureCursorRecoveryStyle();
+  document.documentElement.setAttribute(cursorRecoveryAttribute, '');
+
   if (nudgeFrame !== undefined) {
     window.cancelAnimationFrame(nudgeFrame);
   }
+
   nudgeFrame = window.requestAnimationFrame(() => {
-    nudgeFrame = undefined;
-    document.body.style.cursor = '';
+    nudgeFrame = window.requestAnimationFrame(() => {
+      nudgeFrame = undefined;
+      document.documentElement.removeAttribute(cursorRecoveryAttribute);
+    });
   });
 }
 
-let installed = false;
-
-// Entering the webview from outside (native title bar, window resize border,
-// another window) is exactly when a stale OS cursor can survive; refresh it
-// on every re-entry. Idempotent — safe to call from any component setup.
+// Idempotent, safe to call from component setup.
 export function installWebviewCursorRecovery(): void {
   if (installed || typeof document === 'undefined') {
     return;
   }
+
   installed = true;
-  document.documentElement.addEventListener('mouseenter', () => {
-    nudgeCursorRecompute();
-  });
+  document.documentElement.addEventListener('mouseenter', nudgeCursorRecompute);
+  document.documentElement.addEventListener('pointerenter', nudgeCursorRecompute);
+  window.addEventListener('focus', nudgeCursorRecompute);
 }

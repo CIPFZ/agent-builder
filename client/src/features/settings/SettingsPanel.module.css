@@ -9,26 +9,26 @@
   padding: 16px 10px 12px;
 }
 
-.resizer {
+.splitter {
   position: relative;
   flex: 0 0 1px;
   width: 1px;
   height: 100%;
   background: #e5e5e5;
-  cursor: ew-resize;
+  cursor: col-resize;
 }
 
-.resizer::before {
+.splitter::before {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -4px;
-  width: 9px;
+  left: -1px;
+  width: 3px;
   content: "";
 }
 
-.resizer:hover,
-.resizer:focus-visible {
+.splitter:hover,
+.splitter:focus-visible {
   background: #bdbdbd;
   outline: none;
 }
@@ -353,7 +353,7 @@
     height: auto;
   }
 
-  .resizer {
+  .splitter {
     display: none;
   }
 

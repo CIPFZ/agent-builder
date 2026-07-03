@@ -199,7 +199,7 @@ export function SettingsPanel({
     }
   };
 
-  const startSiderResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const startSiderWidthDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const pointerId = event.pointerId;
     const startX = event.clientX;
@@ -213,17 +213,17 @@ export function SettingsPanel({
       setSiderWidth(nextWidth);
     };
 
-    const stopSiderResize = () => {
+    const stopSiderWidthDrag = () => {
       target.releasePointerCapture(pointerId);
       window.removeEventListener('pointermove', updateSiderWidth);
-      window.removeEventListener('pointerup', stopSiderResize);
-      window.removeEventListener('pointercancel', stopSiderResize);
+      window.removeEventListener('pointerup', stopSiderWidthDrag);
+      window.removeEventListener('pointercancel', stopSiderWidthDrag);
       nudgeCursorRecompute();
     };
 
     window.addEventListener('pointermove', updateSiderWidth);
-    window.addEventListener('pointerup', stopSiderResize);
-    window.addEventListener('pointercancel', stopSiderResize);
+    window.addEventListener('pointerup', stopSiderWidthDrag);
+    window.addEventListener('pointercancel', stopSiderWidthDrag);
   };
 
   return (
@@ -274,10 +274,10 @@ export function SettingsPanel({
           aria-valuemax={360}
           aria-valuemin={220}
           aria-valuenow={siderWidth}
-          className={styles.resizer}
+          className={styles.splitter}
           role="separator"
           tabIndex={0}
-          onPointerDown={startSiderResize}
+          onPointerDown={startSiderWidthDrag}
           onPointerLeave={nudgeCursorRecompute}
         />
 

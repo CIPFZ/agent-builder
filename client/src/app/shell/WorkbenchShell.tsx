@@ -31,7 +31,7 @@ const SIDEBAR_DEFAULT_WIDTH = 280;
 const SIDEBAR_MIN_WIDTH = 260;
 const SIDEBAR_MAX_WIDTH = 380;
 const WORKSPACE_MIN_VISIBLE_WIDTH = 360;
-const SHELL_RESIZE_GUTTER_WIDTH = 2;
+const SHELL_SPLITTER_WIDTH = 2;
 const SHELL_MIN_WIDTH = 1080;
 
 function getLayoutWidth() {
@@ -96,7 +96,7 @@ function withFresherOutputStore(nextViewModel: WorkbenchViewModel, current: Work
 }
 
 function getSidebarMaxWidth(workspaceMinVisibleWidth = WORKSPACE_MIN_VISIBLE_WIDTH) {
-  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, getLayoutWidth() - workspaceMinVisibleWidth - SHELL_RESIZE_GUTTER_WIDTH));
+  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, getLayoutWidth() - workspaceMinVisibleWidth - SHELL_SPLITTER_WIDTH));
 }
 
 function clampSidebarWidth(width: number, maxWidth = getSidebarMaxWidth()) {
@@ -125,7 +125,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     !sidebarCollapsed &&
     workspaceMinVisibleWidth > WORKSPACE_MIN_VISIBLE_WIDTH &&
     viewportWidth > 0 &&
-    getLayoutWidth() < SIDEBAR_MIN_WIDTH + SHELL_RESIZE_GUTTER_WIDTH + workspaceMinVisibleWidth;
+    getLayoutWidth() < SIDEBAR_MIN_WIDTH + SHELL_SPLITTER_WIDTH + workspaceMinVisibleWidth;
   const effectiveSidebarCollapsed = sidebarCollapsed || sidebarForceCollapsed;
 
   useEffect(() => {
@@ -980,7 +980,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setWorkspaceMinVisibleWidth(Math.max(WORKSPACE_MIN_VISIBLE_WIDTH, Math.ceil(width)));
   }, []);
 
-  const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const startSidebarWidthDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const pointerId = event.pointerId;
     const startX = event.clientX;
@@ -994,17 +994,17 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       setSidebarWidth(nextWidth);
     };
 
-    const stopSidebarResize = () => {
+    const stopSidebarWidthDrag = () => {
       target.releasePointerCapture(pointerId);
       window.removeEventListener('pointermove', updateSidebarWidth);
-      window.removeEventListener('pointerup', stopSidebarResize);
-      window.removeEventListener('pointercancel', stopSidebarResize);
+      window.removeEventListener('pointerup', stopSidebarWidthDrag);
+      window.removeEventListener('pointercancel', stopSidebarWidthDrag);
       nudgeCursorRecompute();
     };
 
     window.addEventListener('pointermove', updateSidebarWidth);
-    window.addEventListener('pointerup', stopSidebarResize);
-    window.addEventListener('pointercancel', stopSidebarResize);
+    window.addEventListener('pointerup', stopSidebarWidthDrag);
+    window.addEventListener('pointercancel', stopSidebarWidthDrag);
   };
 
   if (mode === 'settings') {
@@ -1072,14 +1072,14 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       {!effectiveSidebarCollapsed && (
         <div
           aria-label="调整侧栏宽度"
-          className={styles.sidebarResizer}
+          className={styles.sidebarSplitter}
           role="separator"
           aria-orientation="vertical"
           aria-valuemin={SIDEBAR_MIN_WIDTH}
           aria-valuemax={sidebarMaxWidth}
           aria-valuenow={sidebarWidth}
           tabIndex={0}
-          onPointerDown={startSidebarResize}
+          onPointerDown={startSidebarWidthDrag}
           onPointerLeave={nudgeCursorRecompute}
         />
       )}

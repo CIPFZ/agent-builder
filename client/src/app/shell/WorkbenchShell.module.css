@@ -1,7 +1,7 @@
 .shell {
   display: grid;
   grid-template-columns: var(--sidebar-width, 280px) 1px minmax(0, 1fr);
-  grid-template-areas: "sidebar resizer workspace";
+  grid-template-areas: "sidebar splitter workspace";
   width: 100vw;
   height: 100vh;
   min-width: 1080px;
@@ -16,7 +16,7 @@
 }
 
 .shell > :nth-child(2) {
-  grid-area: resizer;
+  grid-area: splitter;
   min-height: 0;
 }
 
@@ -27,33 +27,33 @@
   min-height: 0;
 }
 
-.sidebarResizer {
+.sidebarSplitter {
   position: relative;
   z-index: 3;
-  width: 9px;
+  width: 3px;
   height: 100%;
-  margin: 0 -4px;
+  margin: 0 -1px;
   background: transparent;
-  cursor: ew-resize;
+  cursor: col-resize;
 }
 
-.sidebarResizer::before {
+.sidebarSplitter::before {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 4px;
+  left: 1px;
   width: 1px;
   background: #e5e5e5;
   content: "";
 }
 
-.sidebarResizer:hover,
-.sidebarResizer:focus-visible {
+.sidebarSplitter:hover,
+.sidebarSplitter:focus-visible {
   outline: none;
 }
 
-.sidebarResizer:hover::before,
-.sidebarResizer:focus-visible::before {
+.sidebarSplitter:hover::before,
+.sidebarSplitter:focus-visible::before {
   background: #bdbdbd;
 }
 
