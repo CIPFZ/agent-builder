@@ -92,6 +92,27 @@
   color: rgb(13 13 13 / 42%);
 }
 
+.streamingBubble {
+  position: relative;
+}
+
+.streamingCursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: rgb(13 13 13 / 55%);
+  font-weight: 700;
+  animation: streamingCursorBlink 1.05s steps(2, end) infinite;
+}
+
+@keyframes streamingCursorBlink {
+  0%, 60% {
+    opacity: 1;
+  }
+  61%, 100% {
+    opacity: 0;
+  }
+}
+
 .processSteps {
   display: flex;
   flex-direction: column;

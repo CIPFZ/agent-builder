@@ -37,6 +37,7 @@ interface TimelineTurnBlock {
   id: string;
   turnId?: string;
   userMessage?: ConversationTimelineItemViewModel;
+  explorationSummary?: ConversationTimelineItemViewModel;
   processItems: ConversationTimelineItemViewModel[];
   finalMessage?: ConversationTimelineItemViewModel;
   looseItems: ConversationTimelineItemViewModel[];
@@ -142,6 +143,23 @@ function ProcessTrace({
 }
 
 function ProcessTraceLabel({ block }: { block: TimelineTurnBlock }) {
+  const exploration = block.explorationSummary;
+  const summary = exploration?.exploration;
+  const counts = summary?.toolCounts ?? exploration?.displayCounts;
+  const status = summary?.status ?? block.status;
+  if (counts && counts.length > 0) {
+    const verb = explorationStatusVerb(status, summary?.failedCount);
+    return (
+      <span className={styles.processTraceLabel} data-testid="process-trace-label" data-exploration-status={status}>
+        <span>{verb}</span>
+        {counts.map((count) => (
+          <span key={count.kind}>{explorationCountLabel(count)}</span>
+        ))}
+        {summary?.subagentCount ? <span>· {summary.subagentCount} 个子任务</span> : null}
+        {summary?.elapsedMs ? <span>{formatElapsed(summary.elapsedMs)}</span> : null}
+      </span>
+    );
+  }
   const { duration, label, toolCount } = processTraceSummaryParts(block);
   return (
     <span className={styles.processTraceLabel}>
@@ -150,6 +168,64 @@ function ProcessTraceLabel({ block }: { block: TimelineTurnBlock }) {
       {toolCount > 0 && <span>{toolCount} 个工具</span>}
     </span>
   );
+}
+
+function explorationStatusVerb(status?: string, failedCount?: number) {
+  if (failedCount && failedCount > 0) {
+    return '部分失败';
+  }
+  switch (status) {
+    case 'exploring':
+      return '正在探索';
+    case 'done':
+      return '已完成';
+    case 'failed':
+      return '失败';
+    case 'interrupted':
+      return '已中断';
+    default:
+      return '探索';
+  }
+}
+
+function explorationCountLabel(count: { kind: string; count: number; failed?: number }) {
+  const base = (() => {
+    switch (count.kind) {
+      case 'file_read':
+        return count.count === 1 ? '读取 1 个文件' : `读取 ${count.count} 个文件`;
+      case 'file_search':
+        return count.count === 1 ? '搜索 1 次' : `搜索 ${count.count} 次`;
+      case 'shell':
+        return count.count === 1 ? '运行 1 条命令' : `运行 ${count.count} 条命令`;
+      case 'file_edit':
+        return count.count === 1 ? '编辑 1 个文件' : `编辑 ${count.count} 个文件`;
+      case 'file_write':
+        return count.count === 1 ? '写入 1 个文件' : `写入 ${count.count} 个文件`;
+      case 'agent_task':
+        return count.count === 1 ? '1 个子任务' : `${count.count} 个子任务`;
+      default:
+        return count.count === 1 ? '1 个工具' : `${count.count} 个工具`;
+    }
+  })();
+  if (count.failed && count.failed > 0 && count.failed < count.count) {
+    return `${base}(${count.failed} 失败)`;
+  }
+  if (count.failed && count.failed === count.count) {
+    return `${base}(失败)`;
+  }
+  return base;
+}
+
+function formatElapsed(ms: number) {
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+  if (ms < 60_000) {
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return `${minutes}m${seconds}s`;
 }
 
 function TimelineProcessItem({
@@ -287,10 +363,21 @@ function ToolRunSummary({ item, onAgentTaskOpen }: { item: ToolCallSummaryRender
 }
 
 function TimelineMessage({ item, messageApi }: { item: ConversationTimelineItemViewModel; messageApi: ReturnType<typeof message.useMessage>[0] }) {
+  const streaming = Boolean(item.streaming);
+  const displayContent = streaming ? completePartialMarkdown(item.content ?? '') : item.content;
   return (
     <Bubble
-      className={item.role === 'user' ? styles.userBubble : styles.assistantBubble}
-      content={<MarkdownMessage content={item.content} role={item.role} />}
+      className={[
+        item.role === 'user' ? styles.userBubble : styles.assistantBubble,
+        streaming ? styles.streamingBubble : undefined,
+      ].filter(Boolean).join(' ')}
+      typing={false}
+      content={
+        <span data-testid="timeline-message" data-streaming={streaming ? 'true' : undefined}>
+          <MarkdownMessage content={displayContent} role={item.role} />
+          {streaming ? <span className={styles.streamingCursor} aria-hidden="true">▍</span> : null}
+        </span>
+      }
       placement={item.role === 'user' ? 'end' : 'start'}
       variant={item.role === 'user' ? 'filled' : 'borderless'}
       footer={
@@ -302,6 +389,18 @@ function TimelineMessage({ item, messageApi }: { item: ConversationTimelineItemV
       }
     />
   );
+}
+
+// completePartialMarkdown closes obviously unbalanced fenced code blocks so
+// the ReactMarkdown parser doesn't get stuck mid-stream. It only handles the
+// common case of an odd number of ``` fences; everything else falls through
+// unchanged.
+function completePartialMarkdown(content: string): string {
+  const fenceMatches = content.match(/```/g);
+  if (fenceMatches && fenceMatches.length % 2 === 1) {
+    return content + '\n```';
+  }
+  return content;
 }
 
 function AssistantProcessNote({ item }: { item: ConversationTimelineItemViewModel }) {
@@ -414,6 +513,13 @@ function buildTurnBlocks(items: ConversationTimelineItemViewModel[]): TimelineTu
 
     if ((item.kind === 'message' || item.kind === 'user_message') && item.role === 'user') {
       block.userMessage = block.userMessage ?? item;
+      continue;
+    }
+    if (item.kind === 'exploration_summary') {
+      // Runtime-owned per-turn exploration counters go straight to the
+      // process trace header; they should never show up as an inline
+      // trace row.
+      block.explorationSummary = item;
       continue;
     }
     if ((item.kind === 'message' || item.kind === 'assistant_message') && item.role === 'assistant') {
