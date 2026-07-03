@@ -10,10 +10,10 @@ import type {
   WorkbenchViewModel,
   NewConversationDraftViewModel,
 } from '../../runtime/workbenchTypes.ts';
-import { addOptimisticUserSubmit } from '../../runtime/outputReducer.ts';
+import { addOptimisticUserSubmit, applyOutputEvents } from '../../runtime/outputReducer.ts';
 import { createOutputStore } from '../../runtime/outputStore.ts';
-import { selectConversationMessages, selectConversationTimeline } from '../../runtime/outputSelectors.ts';
-import { runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
+import { selectConversationMessages, selectConversationTimeline, selectPendingPermissions } from '../../runtime/outputSelectors.ts';
+import { runtimeEventCoveredByOutputStream, runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
 import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
 import { Sidebar } from '../../features/sidebar/Sidebar.tsx';
 import { SettingsPanel } from '../../features/settings/SettingsPanel.tsx';
@@ -141,7 +141,17 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       refreshTimer = window.setTimeout(refreshFromRuntimeEvent, delay);
     };
 
-    void Promise.resolve(adapter.subscribeRuntimeEvents((event) => scheduleRuntimeRefresh(runtimeEventRefreshDelay(event)))).then((cleanup) => {
+    const streamHandlesEvent = Boolean(adapter.subscribeSessionOutput);
+    void Promise.resolve(adapter.subscribeRuntimeEvents((event) => {
+      // When the per-session output stream is available it already
+      // materializes the message / tool / permission diffs into the
+      // outputStore; the full-workbench refresh is redundant for these
+      // events and would just double the render cost.
+      if (streamHandlesEvent && runtimeEventCoveredByOutputStream(event)) {
+        return;
+      }
+      scheduleRuntimeRefresh(runtimeEventRefreshDelay(event));
+    })).then((cleanup) => {
       if (cancelled) {
         cleanup();
         return;
@@ -158,6 +168,65 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     };
   }, [adapter]);
 
+  // Session output stream: when the adapter exposes subscribeSessionOutput
+  // the live text/tool/permission deltas flow directly into outputStore
+  // without a full refresh cycle. Snapshot_required signals fall back to
+  // the refresh path via requestFullRefresh.
+  const activeSessionID = viewModel.sessions.find((session) => session.active)?.id;
+  useEffect(() => {
+    if (!adapter.subscribeSessionOutput || !activeSessionID) {
+      return undefined;
+    }
+    let cancelled = false;
+    let closer: (() => void) | undefined;
+    const requestFullRefresh = () => {
+      if (cancelled) return;
+      void adapter.refresh({ ...viewModelRef.current, mode: modeRef.current }).then((nextViewModel) => {
+        if (cancelled) return;
+        setMode(nextViewModel.mode);
+        setViewModel(nextViewModel);
+      }).catch(() => undefined);
+    };
+    const onEvents = (events: import('../../runtime/outputTypes.ts').RuntimeOutputEvent[]) => {
+      if (cancelled || events.length === 0) return;
+      setViewModel((current) => {
+        const store = current.outputStore && current.outputStore.sessionId === activeSessionID
+          ? current.outputStore
+          : createOutputStore(activeSessionID);
+        const nextStore = applyOutputEvents(store, events);
+        return {
+          ...current,
+          outputStore: nextStore,
+          conversation: selectConversationMessages(nextStore),
+          timeline: selectConversationTimeline(nextStore),
+          pendingPermissions: selectPendingPermissions(nextStore),
+        };
+      });
+    };
+    void Promise.resolve(
+      adapter.subscribeSessionOutput(activeSessionID, {
+        onEvents,
+        onSnapshotRequired: requestFullRefresh,
+      }, viewModel.outputStore?.cursor),
+    ).then((cleanup) => {
+      if (cancelled) {
+        cleanup?.();
+        return;
+      }
+      closer = cleanup;
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+      if (closer) {
+        try { closer(); } catch { /* ignore */ }
+      }
+    };
+    // We intentionally do not depend on viewModel.outputStore.cursor —
+    // subscribing once per (session, adapter) is enough; the stream itself
+    // carries its own cursor state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adapter, activeSessionID]);
+
   useEffect(() => {
     if (!viewModel.composer.busy && !hasBusySession) {
       return undefined;
@@ -165,6 +234,13 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
 
     let cancelled = false;
     let timer: number | undefined;
+
+    // When the streaming channel is available, the shell no longer needs
+    // aggressive full-workbench refresh loops to render the assistant's
+    // live output. We slow the polling to 3s so hooks/tasks/context still
+    // pick up eventual state changes.
+    const busyIntervalMs = adapter.subscribeSessionOutput ? 3000 : 1200;
+    const backoffMs = adapter.subscribeSessionOutput ? 4000 : 2000;
 
     const refreshUntilIdle = async () => {
       try {
@@ -175,11 +251,11 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
         setMode(nextViewModel.mode);
         setViewModel(nextViewModel);
         if (nextViewModel.composer.busy || nextViewModel.sessions.some((session) => session.busy)) {
-          timer = window.setTimeout(refreshUntilIdle, 1200);
+          timer = window.setTimeout(refreshUntilIdle, busyIntervalMs);
         }
       } catch {
         if (!cancelled) {
-          timer = window.setTimeout(refreshUntilIdle, 2000);
+          timer = window.setTimeout(refreshUntilIdle, backoffMs);
         }
       }
     };

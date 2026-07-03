@@ -863,13 +863,6 @@ interface RuntimeSessionActivityDTO {
   policy: RuntimePolicyDTO;
 }
 
-interface RuntimeTimelineOrder {
-  sequenceByMessageID: Map<string, number>;
-  sequenceByToolCallID: Map<string, number>;
-  sequenceByPermissionID: Map<string, number>;
-  terminalByTurnID: Map<string, RuntimeReactCallNodeDTO>;
-  assistantStepByMessageID: Map<string, RuntimeReactCallNodeDTO>;
-}
 
 interface RuntimeSessionActivityWindowDTO extends RuntimeSessionActivityDTO {
   window?: {
@@ -1629,6 +1622,8 @@ interface RuntimeBridgeModule {
   SessionMessages?: (sessionID: string) => Promise<RuntimeMessagesResponseDTO>;
   SessionOutput?: (sessionID: string, req: { snapshot?: boolean; cursor?: string; limit?: number }) => Promise<RuntimeOutputSnapshot>;
   SessionOutputEvents?: (sessionID: string, after: string) => Promise<RuntimeOutputEventsResponse>;
+  StartSessionOutputStream?: (req: { sessionId: string; streamId?: string; after?: string }) => Promise<{ streamId: string; eventName: string }>;
+  StopSessionOutputStream?: (req: { streamId: string }) => Promise<boolean>;
   SessionActivity?: (sessionID: string) => Promise<RuntimeSessionActivityDTO>;
   SessionActivityWindow?: (sessionID: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
   SessionActivityCursorWindow?: (sessionID: string, cursor: string, limit: number) => Promise<RuntimeSessionActivityWindowDTO>;
@@ -2478,234 +2473,6 @@ function mapToolCall(toolCall: RuntimeToolCallDTO): ToolCallViewModel {
   };
 }
 
-function buildRuntimeTimelineOrder(callchain?: RuntimeReactCallchainDTO): RuntimeTimelineOrder {
-  const order: RuntimeTimelineOrder = {
-    sequenceByMessageID: new Map(),
-    sequenceByToolCallID: new Map(),
-    sequenceByPermissionID: new Map(),
-    terminalByTurnID: new Map(),
-    assistantStepByMessageID: new Map(),
-  };
-  const nodes = Array.isArray(callchain?.nodes) ? callchain.nodes : [];
-  for (const node of nodes) {
-    if (typeof node.sequence !== 'number') {
-      continue;
-    }
-    if (node.messageId && (node.kind === 'user_input' || node.kind === 'assistant_final')) {
-      order.sequenceByMessageID.set(node.messageId, node.sequence);
-    }
-    if (node.messageId && node.kind === 'assistant_step') {
-      order.assistantStepByMessageID.set(node.messageId, node);
-      order.sequenceByMessageID.set(node.messageId, node.sequence);
-    }
-    if (node.toolCallId && node.kind === 'tool_call') {
-      order.sequenceByToolCallID.set(node.toolCallId, node.sequence);
-    }
-    if (node.permissionId && (node.kind === 'permission_request' || node.kind === 'permission_decision')) {
-      order.sequenceByPermissionID.set(node.permissionId, node.sequence);
-    }
-    if (node.turnId && node.kind === 'turn_terminal') {
-      order.terminalByTurnID.set(node.turnId, node);
-    }
-  }
-  return order;
-}
-
-// Diagnostics-only helper for legacy runtime parity tooling. The main timeline path must come from SessionOutput runtime items.
-export function mapActivityTimeline(activity?: RuntimeSessionActivityDTO, callchain?: RuntimeReactCallchainDTO): ConversationTimelineItemViewModel[] {
-  if (!activity) {
-    return [];
-  }
-  const runtimeOrder = buildRuntimeTimelineOrder(callchain);
-  const messagesDTO = Array.isArray(activity.messages) ? activity.messages : [];
-  const toolCallsDTO = Array.isArray(activity.toolCalls) ? activity.toolCalls : [];
-  const permissionsDTO = Array.isArray(activity.permissions) ? activity.permissions : [];
-  const turnsDTO = Array.isArray(activity.turns) ? activity.turns : [];
-  const turnContext = buildTurnContext(messagesDTO, turnsDTO);
-  const messages: ConversationTimelineItemViewModel[] = messagesDTO
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .flatMap((message) => {
-      const timelineItems: ConversationTimelineItemViewModel[] = [];
-      const content = runtimeMessageContent(message);
-      const isIntermediateAssistant = message.role === 'assistant' && runtimeMessageHasToolCalls(message);
-      const assistantStep = message.role === 'assistant' ? runtimeOrder.assistantStepByMessageID.get(message.id) : undefined;
-      const turnId = turnIDForMessage(turnContext, message.id);
-      const messageStatus = timelineMessageStatus(message, turnContext);
-      if (assistantStep?.summary?.trim()) {
-        timelineItems.push({
-          id: `assistant-step:${message.id}`,
-          kind: 'thinking',
-          sessionId: activity.sessionId,
-          turnId: turnId || assistantStep.turnId,
-          messageId: message.id,
-          role: 'assistant',
-          title: assistantStep.title || 'Assistant step',
-          content: assistantStep.summary,
-          summary: assistantStep.summary,
-          status: assistantStep.status || messageStatus,
-          createdAt: assistantStep.startedAt || message.createdAt,
-          updatedAt: assistantStep.finishedAt || message.updatedAt,
-          sequence: assistantStep.sequence,
-          source: 'react_callchain',
-          provider: message.provider,
-          model: message.model,
-          error: assistantStep.error || message.error,
-        });
-      }
-      if ((content.trim() || message.error || message.role === 'user') && (!isIntermediateAssistant || content.trim() || message.error)) {
-        timelineItems.push({
-          id: `message:${message.id}`,
-          kind: 'message',
-          sessionId: activity.sessionId,
-          turnId,
-          messageId: message.id,
-          role: message.role,
-          content,
-          status: messageStatus,
-          phase: isIntermediateAssistant ? 'intermediate' : 'final',
-          createdAt: message.createdAt,
-          updatedAt: message.updatedAt,
-          sequence: runtimeOrder.sequenceByMessageID.get(message.id),
-          source: runtimeOrder.sequenceByMessageID.has(message.id) ? 'react_callchain' : 'runtime_activity',
-          provider: message.provider,
-          model: message.model,
-          error: message.error,
-        });
-      }
-      return timelineItems;
-    });
-  const thinking = runtimeGroupedThinkingItems(messagesDTO, activity.sessionId, turnContext);
-  const toolCalls: ConversationTimelineItemViewModel[] = toolCallsDTO.map((toolCall) => ({
-    id: `tool:${toolCall.id}`,
-    kind: 'tool_call',
-    sessionId: toolCall.sessionId,
-    turnId: toolCall.turnId,
-    messageId: toolCall.messageId,
-    toolCallId: toolCall.id,
-    title: toolCall.name,
-    status: toolCall.status,
-    summary: toolCall.outputSummary || toolCall.inputSummary,
-    createdAt: toolCall.startedAt,
-    updatedAt: toolCall.finishedAt,
-    sequence: runtimeOrder.sequenceByToolCallID.get(toolCall.id),
-    source: runtimeOrder.sequenceByToolCallID.has(toolCall.id) ? 'react_callchain' : 'runtime_activity',
-    error: toolCall.error,
-    toolCall: mapToolCall(toolCall),
-  }));
-  const permissions: ConversationTimelineItemViewModel[] = permissionsDTO.map((permission) => ({
-    id: `permission:${permission.id}`,
-    kind: 'permission',
-    sessionId: permission.sessionId,
-    turnId: permission.turnId,
-    toolCallId: permission.toolCallId,
-    title: permission.toolName,
-    status: permission.status,
-    summary: permission.reason || permission.policyReason,
-    createdAt: permission.createdAt,
-    updatedAt: permission.decidedAt,
-    sequence: runtimeOrder.sequenceByPermissionID.get(permission.id),
-    source: runtimeOrder.sequenceByPermissionID.has(permission.id) ? 'react_callchain' : 'runtime_activity',
-    permission: mapPermission(permission),
-  }));
-  const progress: ConversationTimelineItemViewModel[] = turnsDTO
-    .filter((turn) => !['completed'].includes(turn.status))
-    .map((turn) => ({
-      id: `turn:${turn.id}`,
-      kind: 'progress',
-      sessionId: turn.sessionId,
-      turnId: turn.id,
-      title: '运行进度',
-      status: turn.status,
-      summary: turn.error,
-      createdAt: turn.startedAt,
-      updatedAt: turn.finishedAt,
-      sequence: runtimeOrder.terminalByTurnID.get(turn.id)?.sequence,
-      source: runtimeOrder.terminalByTurnID.has(turn.id) ? 'react_callchain' : 'runtime_fallback',
-      error: turn.error,
-    }));
-  const terminals: ConversationTimelineItemViewModel[] = turnsDTO
-    .filter((turn) => shouldShowTurnTerminal(turn))
-    .map((turn) => {
-      const terminal = runtimeOrder.terminalByTurnID.get(turn.id);
-      const diagnostics = turn.diagnostics;
-      const missingFinal = diagnostics?.missingFinalAssistant || diagnostics?.hasFinalAssistant === false;
-      return {
-        id: `turn-terminal:${turn.id}`,
-        kind: 'turn_terminal' as const,
-        sessionId: turn.sessionId,
-        turnId: turn.id,
-        title: 'Turn terminal',
-        status: turn.status,
-        summary: missingFinal
-          ? diagnostics?.stopReasonMessage || diagnostics?.stopReason || terminal?.summary || turn.error || 'Turn ended without a final assistant message.'
-          : terminal?.summary || diagnostics?.stopReasonMessage || diagnostics?.stopReason || turn.error,
-        createdAt: turn.finishedAt || turn.startedAt,
-        updatedAt: turn.finishedAt,
-        sequence: terminal?.sequence,
-        source: terminal ? 'react_callchain' as const : 'runtime_fallback' as const,
-        error: turn.error,
-        diagnostics: turn.diagnostics,
-      };
-    });
-  const diagnostics: ConversationTimelineItemViewModel[] = turnsDTO
-    .filter((turn) => Boolean(turn.diagnostics?.warning))
-    .map((turn) => ({
-      id: `turn-diagnostics:${turn.id}`,
-      kind: 'diagnostic',
-      sessionId: turn.sessionId,
-      turnId: turn.id,
-      title: 'Turn diagnostics',
-      status: 'warning',
-      summary: turn.diagnostics?.warning,
-      createdAt: turn.finishedAt || turn.startedAt,
-      updatedAt: turn.finishedAt,
-      source: 'runtime_activity',
-      diagnostics: turn.diagnostics,
-    }));
-
-  return [...messages, ...thinking, ...toolCalls, ...permissions, ...progress, ...terminals, ...diagnostics].sort(compareActivityTimelineItems(messagesDTO, turnsDTO));
-}
-
-// Diagnostics-only fallback for legacy/no-output snapshots. Do not use this to construct the primary conversation path.
-export function mergeActivityTimeline(current: ConversationTimelineItemViewModel[], activity: RuntimeSessionActivityDTO, callchain?: RuntimeReactCallchainDTO) {
-  const replacement = mapActivityTimeline(activity, callchain);
-  const activityMessages = Array.isArray(activity.messages) ? activity.messages : [];
-  const activityTurns = Array.isArray(activity.turns) ? activity.turns : [];
-  const activityTurnContext = buildTurnContext(activityMessages, activityTurns);
-  const turnIDs = new Set(activityTurns.map((turn) => turn.id).filter(Boolean));
-  replacement.forEach((item) => {
-    const turnID = item.turnId || turnIDForMessage(activityTurnContext, item.messageId);
-    if (turnID) {
-      turnIDs.add(turnID);
-    }
-  });
-  const messageIDs = new Set(activityMessages.map((message) => message.id).filter(Boolean));
-  const toolCallIDs = new Set((Array.isArray(activity.toolCalls) ? activity.toolCalls : []).map((toolCall) => toolCall.id).filter(Boolean));
-  const permissionIDs = new Set((Array.isArray(activity.permissions) ? activity.permissions : []).map((permission) => permission.id).filter(Boolean));
-  const kept = current.filter((item) => {
-    if (isOptimisticTimelineItem(item) && hasRuntimeReplacementForOptimisticTimeline(item, replacement)) {
-      return false;
-    }
-    if (item.turnId && turnIDs.has(item.turnId)) {
-      return false;
-    }
-    const inferredTurnID = turnIDForMessage(activityTurnContext, item.messageId);
-    if (inferredTurnID && turnIDs.has(inferredTurnID)) {
-      return false;
-    }
-    if (item.messageId && messageIDs.has(item.messageId)) {
-      return false;
-    }
-    if (item.toolCallId && toolCallIDs.has(item.toolCallId)) {
-      return false;
-    }
-    if (item.permission?.id && permissionIDs.has(item.permission.id)) {
-      return false;
-    }
-    return true;
-  });
-  return dedupeTimelineItems([...kept, ...replacement]).sort(compareActivityTimelineItems(activityMessages, activityTurns));
-}
 
 export function attachAgentTasksToTimeline(items: ConversationTimelineItemViewModel[], tasks?: AgentTaskViewModel[]): ConversationTimelineItemViewModel[] {
   if (!tasks?.length) {
@@ -2760,56 +2527,6 @@ export function attachAgentTasksToTimeline(items: ConversationTimelineItemViewMo
   return [...merged, ...unplaced];
 }
 
-function compareActivityTimelineItems(messages: RuntimeMessageDTO[], turns: RuntimeTurnDTO[]) {
-  const turnContext = buildTurnContext(messages, turns);
-  const messageOrder = new Map(messages.map((message, index) => [message.id, index]));
-  return (left: ConversationTimelineItemViewModel, right: ConversationTimelineItemViewModel) => {
-    const leftTurn = left.turnId || turnIDForMessage(turnContext, left.messageId);
-    const rightTurn = right.turnId || turnIDForMessage(turnContext, right.messageId);
-    const leftTurnSort = timelineTurnSortOrder(left, leftTurn, messageOrder, turnContext);
-    const rightTurnSort = timelineTurnSortOrder(right, rightTurn, messageOrder, turnContext);
-    if (leftTurnSort !== rightTurnSort) {
-      return leftTurnSort - rightTurnSort;
-    }
-    const leftTime = timelineSortTime(left, leftTurn, turnContext);
-    const rightTime = timelineSortTime(right, rightTurn, turnContext);
-    if (leftTurn && rightTurn && leftTurn === rightTurn) {
-      const leftOrder = timelineTurnOrder(left, messageOrder, turnContext);
-      const rightOrder = timelineTurnOrder(right, messageOrder, turnContext);
-      if (leftOrder !== rightOrder) {
-        return leftOrder - rightOrder;
-      }
-      const leftRank = timelineKindRank(left);
-      const rightRank = timelineKindRank(right);
-      if (leftRank !== rightRank) {
-        return leftRank - rightRank;
-      }
-    }
-    if (typeof left.sequence === 'number' && typeof right.sequence === 'number' && left.sequence !== right.sequence) {
-      return left.sequence - right.sequence;
-    }
-    if (typeof left.sequence === 'number' && typeof right.sequence !== 'number') {
-      return -1;
-    }
-    if (typeof left.sequence !== 'number' && typeof right.sequence === 'number') {
-      return 1;
-    }
-    const leftSequence = timelineMessageSequenceOrder(left, messageOrder);
-    const rightSequence = timelineMessageSequenceOrder(right, messageOrder);
-    if (leftSequence !== rightSequence && leftSequence < Number.MAX_SAFE_INTEGER && rightSequence < Number.MAX_SAFE_INTEGER) {
-      return leftSequence - rightSequence;
-    }
-    if (leftTime !== rightTime) {
-      return leftTime - rightTime;
-    }
-    const leftMessageOrder = timelineMessageOrder(left, messageOrder);
-    const rightMessageOrder = timelineMessageOrder(right, messageOrder);
-    if (leftMessageOrder !== rightMessageOrder) {
-      return leftMessageOrder - rightMessageOrder;
-    }
-    return left.id.localeCompare(right.id);
-  };
-}
 
 export function mergeConversationMessages(current: ConversationMessageViewModel[], response?: RuntimeMessagesResponseDTO) {
   const incoming = mapConversation(response);
@@ -2875,9 +2592,6 @@ function isOptimisticConversationMessage(message: ConversationMessageViewModel) 
   return message.status === 'loading' || message.id.startsWith('local-') || message.id.startsWith('loading-');
 }
 
-function isOptimisticTimelineItem(item: ConversationTimelineItemViewModel) {
-  return item.status === 'loading' || item.id.startsWith('local-') || item.id.startsWith('loading-');
-}
 
 function hasRuntimeReplacementForOptimisticConversation(message: ConversationMessageViewModel, incoming: ConversationMessageViewModel[]) {
   if (!isOptimisticConversationMessage(message)) {
@@ -2920,33 +2634,6 @@ function sameDisplayContent(left?: string, right?: string) {
 
 function normalizeDisplayContent(value?: string) {
   return (value ?? '').replace(/\s+/g, ' ').trim();
-}
-
-function timelineMessageStatus(message: RuntimeMessageDTO, turnContext: TimelineTurnContext): 'loading' | 'success' | 'error' {
-  if (message.error) {
-    return 'error';
-  }
-  if (message.role !== 'assistant') {
-    return 'success';
-  }
-  const turnId = turnIDForMessage(turnContext, message.id);
-  const turn = turnId ? turnContext.turnByID.get(turnId) : undefined;
-  if (turn && !isFinalTurnStatus(turn.status)) {
-    return 'loading';
-  }
-  if (turn?.error) {
-    return 'error';
-  }
-  return 'success';
-}
-
-function shouldShowTurnTerminal(turn: RuntimeTurnDTO) {
-  if (!isFinalTurnStatus(turn.status)) {
-    return false;
-  }
-  const diagnostics = turn.diagnostics;
-  const missingFinal = diagnostics?.missingFinalAssistant || diagnostics?.hasFinalAssistant === false;
-  return turn.status !== 'completed' || Boolean(missingFinal || turn.error);
 }
 
 export function mergePendingPermissions(current: PermissionRequestViewModel[], permissions: PermissionRequestViewModel[]) {
@@ -3092,206 +2779,6 @@ function mapMCPRequest(request: RuntimeMCPRequestDTO): RuntimeMCPRequestViewMode
   };
 }
 
-interface TimelineTurnContext {
-  turnByID: Map<string, RuntimeTurnDTO>;
-  turnIDByMessageID: Map<string, string>;
-  toolCallOrderByID: Map<string, number>;
-}
-
-function buildTurnContext(messages: RuntimeMessageDTO[], turns: RuntimeTurnDTO[]): TimelineTurnContext {
-  const turnByID = new Map(turns.map((turn) => [turn.id, turn]));
-  const turnIDByMessageID = new Map<string, string>();
-  const toolCallOrderByID = new Map<string, number>();
-  const messageIndex = new Map(messages.map((message, index) => [message.id, index]));
-  let toolCallOrder = 0;
-  for (const message of messages) {
-    for (const part of message.parts ?? []) {
-      if (part.type === 'tool_call' && part.toolCallId && !toolCallOrderByID.has(part.toolCallId)) {
-        toolCallOrderByID.set(part.toolCallId, toolCallOrder);
-        toolCallOrder += 1;
-      }
-    }
-  }
-  for (const turn of turns) {
-    if (turn.userMessageId) {
-      turnIDByMessageID.set(turn.userMessageId, turn.id);
-    }
-    if (turn.latestAssistantMessageId) {
-      turnIDByMessageID.set(turn.latestAssistantMessageId, turn.id);
-      if (!turn.userMessageId) {
-        const assistantIndex = messageIndex.get(turn.latestAssistantMessageId);
-        if (typeof assistantIndex === 'number') {
-          for (let index = assistantIndex - 1; index >= 0; index -= 1) {
-            const candidate = messages[index];
-            if (candidate.role === 'user' && !turnIDByMessageID.has(candidate.id)) {
-              turnIDByMessageID.set(candidate.id, turn.id);
-              for (let relatedIndex = index + 1; relatedIndex <= assistantIndex; relatedIndex += 1) {
-                const related = messages[relatedIndex];
-                if (related.role === 'assistant' && !turnIDByMessageID.has(related.id)) {
-                  turnIDByMessageID.set(related.id, turn.id);
-                }
-              }
-              break;
-            }
-          }
-        }
-      }
-    }
-  }
-  return { turnByID, turnIDByMessageID, toolCallOrderByID };
-}
-
-function timelineMessageOrder(item: ConversationTimelineItemViewModel, messageOrder: Map<string, number>) {
-  if (!item.messageId) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-  return messageOrder.get(item.messageId) ?? Number.MAX_SAFE_INTEGER;
-}
-
-function timelineMessageSequenceOrder(item: ConversationTimelineItemViewModel, messageOrder: Map<string, number>) {
-  const order = timelineMessageOrder(item, messageOrder);
-  if (order === Number.MAX_SAFE_INTEGER) {
-    return order;
-  }
-  if (item.kind === 'message' && item.role === 'user') {
-    return order * 10;
-  }
-  if (item.kind === 'thinking') {
-    return order * 10 + 2;
-  }
-  if (item.kind === 'tool_call') {
-    return order * 10 + 3;
-  }
-  if (item.kind === 'permission') {
-    return order * 10 + 4;
-  }
-  if (item.kind === 'message' && item.role === 'assistant') {
-    return order * 10 + 8;
-  }
-  return order * 10 + 9;
-}
-
-function turnIDForMessage(context: TimelineTurnContext, messageID?: string) {
-  if (!messageID) {
-    return undefined;
-  }
-  return context.turnIDByMessageID.get(messageID);
-}
-
-function timelineSortTime(item: ConversationTimelineItemViewModel, turnID: string | undefined, context: TimelineTurnContext) {
-  const itemTime = normalizeTimestamp(item.createdAt ?? 0);
-  if (itemTime > 0) {
-    return itemTime;
-  }
-  if (turnID) {
-    const turn = context.turnByID.get(turnID);
-    if (turn?.startedAt) {
-      return turn.startedAt;
-    }
-  }
-  return 0;
-}
-
-function timelineTurnSortOrder(
-  item: ConversationTimelineItemViewModel,
-  turnID: string | undefined,
-  messageOrder: Map<string, number>,
-  context: TimelineTurnContext,
-) {
-  const messageIndex = timelineMessageOrder(item, messageOrder);
-  if (messageIndex < Number.MAX_SAFE_INTEGER) {
-    return messageIndex * 1_000;
-  }
-  if (turnID) {
-    const turn = context.turnByID.get(turnID);
-    if (turn?.userMessageId) {
-      const turnUserIndex = messageOrder.get(turn.userMessageId);
-      if (typeof turnUserIndex === 'number') {
-        return turnUserIndex * 1_000 + 500;
-      }
-    }
-    if (turn?.latestAssistantMessageId) {
-      const turnAssistantIndex = messageOrder.get(turn.latestAssistantMessageId);
-      if (typeof turnAssistantIndex === 'number') {
-        return turnAssistantIndex * 1_000;
-      }
-    }
-    if (turn?.startedAt) {
-      return normalizeTimestamp(turn.startedAt);
-    }
-  }
-  const itemTime = normalizeTimestamp(item.createdAt ?? 0);
-  if (itemTime > 0) {
-    return itemTime;
-  }
-  if (item.clientRequestId) {
-    return Number.MAX_SAFE_INTEGER - 2;
-  }
-  return Number.MAX_SAFE_INTEGER - 1;
-}
-
-function timelineKindRank(item: ConversationTimelineItemViewModel) {
-  if (item.kind === 'message' && item.role === 'user') {
-    return 0;
-  }
-  if (item.kind === 'message' && item.role === 'assistant') {
-    return 1;
-  }
-  if (item.kind === 'thinking') {
-    return 2;
-  }
-  if (item.kind === 'tool_call') {
-    return 3;
-  }
-  if (item.kind === 'permission') {
-    return 4;
-  }
-  if (item.kind === 'progress') {
-    return 5;
-  }
-  if (item.kind === 'turn_terminal') {
-    return 6;
-  }
-  if (item.kind === 'diagnostic') {
-    return 7;
-  }
-  return 8;
-}
-
-function timelineTurnOrder(item: ConversationTimelineItemViewModel, messageOrder: Map<string, number>, context: TimelineTurnContext) {
-  if (item.kind === 'message' && item.role === 'user') {
-    return 0 + timelineMessageOrder(item, messageOrder);
-  }
-  if (item.kind === 'thinking') {
-    return 50_000 + timelineMessageOrder(item, messageOrder);
-  }
-  if (item.kind === 'tool_call') {
-    return 100_000 + Math.min(timelineToolCallOrder(item, context) * 10, timelineMessageOrder(item, messageOrder));
-  }
-  if (item.kind === 'permission') {
-    return 100_000 + Math.min(timelineToolCallOrder(item, context) * 10, timelineMessageOrder(item, messageOrder)) + 1;
-  }
-  if (item.kind === 'message' && item.role === 'assistant') {
-    return 800_000 + timelineMessageOrder(item, messageOrder);
-  }
-  if (item.kind === 'progress') {
-    return 900_000;
-  }
-  if (item.kind === 'turn_terminal') {
-    return 905_000;
-  }
-  if (item.kind === 'diagnostic') {
-    return 910_000;
-  }
-  return 920_000;
-}
-
-function timelineToolCallOrder(item: ConversationTimelineItemViewModel, context: TimelineTurnContext) {
-  if (!item.toolCallId) {
-    return 0;
-  }
-  return context.toolCallOrderByID.get(item.toolCallId) ?? 0;
-}
 
 function mapRunProjection(
   response?: RuntimeRunProjectionResponseDTO,
@@ -3797,85 +3284,6 @@ function runtimeMessageContent(message: RuntimeMessageDTO) {
     .map((part) => part.text || part.content || part.data || [part.message, part.details].filter(Boolean).join(': '))
     .filter(Boolean)
     .join('\n\n');
-}
-
-function runtimeMessageHasToolCalls(message: RuntimeMessageDTO) {
-  return Array.isArray(message.parts) && message.parts.some((part) => part.type === 'tool_call' && part.toolCallId);
-}
-
-function runtimeGroupedThinkingItems(messages: RuntimeMessageDTO[], sessionId: string, turnContext: TimelineTurnContext): ConversationTimelineItemViewModel[] {
-  const groups = new Map<
-    string,
-    {
-      content: string[];
-      createdAt?: number;
-      updatedAt?: number;
-      messageId?: string;
-      provider?: string;
-      model?: string;
-      running: boolean;
-    }
-  >();
-
-  messages.forEach((message) => {
-    if (!Array.isArray(message.parts)) {
-      return;
-    }
-    message.parts.forEach((part) => {
-      if (part.type !== 'reasoning' || !part.thinking?.trim()) {
-        return;
-      }
-      const turnId = turnIDForMessage(turnContext, message.id) || `message:${message.id}`;
-      const group = groups.get(turnId) ?? {
-        content: [],
-        messageId: message.id,
-        provider: message.provider,
-        model: message.model,
-        running: false,
-      };
-      group.content.push(part.thinking.trim());
-      group.createdAt = minTimestamp(group.createdAt, part.startedAt || message.createdAt);
-      group.updatedAt = maxTimestamp(group.updatedAt, part.finishedAt);
-      group.running ||= !part.finishedAt;
-      groups.set(turnId, group);
-    });
-  });
-
-  return Array.from(groups.entries()).map(([turnId, group]) => ({
-    id: `thinking:${turnId}`,
-    kind: 'thinking' as const,
-    sessionId,
-    turnId: turnId.startsWith('message:') ? undefined : turnId,
-    messageId: group.messageId,
-    role: 'assistant' as const,
-    title: '思考',
-    content: group.content.join('\n\n'),
-    status: group.running ? 'running' : 'completed',
-    createdAt: group.createdAt,
-    updatedAt: group.updatedAt,
-    provider: group.provider,
-    model: group.model,
-  }));
-}
-
-function minTimestamp(left?: number, right?: number) {
-  if (!left) {
-    return right;
-  }
-  if (!right) {
-    return left;
-  }
-  return Math.min(left, right);
-}
-
-function maxTimestamp(left?: number, right?: number) {
-  if (!left) {
-    return right;
-  }
-  if (!right) {
-    return left;
-  }
-  return Math.max(left, right);
 }
 
 function toConfiguredProviderRequest(provider: ConfiguredProviderViewModel & { token?: string }): RuntimeConfiguredProviderRequestDTO {
@@ -4733,6 +4141,25 @@ export const wailsWorkbenchAdapter: WorkbenchAdapter = {
       return subscribeRuntimeBridgeEvents(bridge, onEvent);
     }
     return () => undefined;
+  },
+  async subscribeSessionOutput(sessionID, handlers, after) {
+    const bridge = await loadRuntimeBridge();
+    if (!bridge?.SessionOutputEvents && !bridge?.StartSessionOutputStream) {
+      return () => undefined;
+    }
+    const { subscribeSessionOutput } = await import('./outputStream.ts');
+    return subscribeSessionOutput({
+      sessionId: sessionID,
+      after,
+      bridge: bridge as unknown as Parameters<typeof subscribeSessionOutput>[0]['bridge'],
+      loadWailsEvents: async () => {
+        try {
+          return (await loadWailsRuntime()) as unknown as Parameters<typeof subscribeSessionOutput>[0]['loadWailsEvents'] extends (() => infer R) ? Awaited<R> : never;
+        } catch { return null; }
+      },
+      onBatch: handlers.onEvents,
+      onSnapshotRequired: handlers.onSnapshotRequired,
+    });
   },
   async loadHookExecution(executionID) {
     const bridge = await loadRuntimeBridge();

@@ -1756,30 +1756,31 @@ type RuntimeToolResultView struct {
 }
 
 type RuntimeConversationItem struct {
-	ID           string                     `json:"id"`
-	Kind         string                     `json:"kind"`
-	SessionID    string                     `json:"sessionId"`
-	TurnID       string                     `json:"turnId,omitempty"`
-	ParentID     string                     `json:"parentId,omitempty"`
-	Sequence     int64                      `json:"sequence"`
-	Role         string                     `json:"role,omitempty"`
-	Phase        string                     `json:"phase,omitempty"`
-	Status       string                     `json:"status,omitempty"`
-	Title        string                     `json:"title,omitempty"`
-	Summary      string                     `json:"summary,omitempty"`
-	Content      string                     `json:"content,omitempty"`
-	Error        string                     `json:"error,omitempty"`
-	MessageID    string                     `json:"messageId,omitempty"`
-	ToolCallID   string                     `json:"toolCallId,omitempty"`
-	ToolCallIDs  []string                   `json:"toolCallIds,omitempty"`
-	PermissionID string                     `json:"permissionId,omitempty"`
-	HookRunID    string                     `json:"hookRunId,omitempty"`
-	AgentTaskID  string                     `json:"agentTaskId,omitempty"`
-	ContextID    string                     `json:"contextId,omitempty"`
-	Display      RuntimeConversationDisplay `json:"display,omitempty"`
-	Exploration  *RuntimeExplorationSummary `json:"exploration,omitempty"`
-	CreatedAt    int64                      `json:"createdAt,omitempty"`
-	UpdatedAt    int64                      `json:"updatedAt,omitempty"`
+	ID              string                     `json:"id"`
+	Kind            string                     `json:"kind"`
+	SessionID       string                     `json:"sessionId"`
+	TurnID          string                     `json:"turnId,omitempty"`
+	ParentID        string                     `json:"parentId,omitempty"`
+	Sequence        int64                      `json:"sequence"`
+	Role            string                     `json:"role,omitempty"`
+	Phase           string                     `json:"phase,omitempty"`
+	Status          string                     `json:"status,omitempty"`
+	Title           string                     `json:"title,omitempty"`
+	Summary         string                     `json:"summary,omitempty"`
+	Content         string                     `json:"content,omitempty"`
+	Error           string                     `json:"error,omitempty"`
+	MessageID       string                     `json:"messageId,omitempty"`
+	ToolCallID      string                     `json:"toolCallId,omitempty"`
+	ToolCallIDs     []string                   `json:"toolCallIds,omitempty"`
+	PermissionID    string                     `json:"permissionId,omitempty"`
+	HookRunID       string                     `json:"hookRunId,omitempty"`
+	AgentTaskID     string                     `json:"agentTaskId,omitempty"`
+	ContextID       string                     `json:"contextId,omitempty"`
+	ClientRequestID string                     `json:"clientRequestId,omitempty"`
+	Display         RuntimeConversationDisplay `json:"display,omitempty"`
+	Exploration     *RuntimeExplorationSummary `json:"exploration,omitempty"`
+	CreatedAt       int64                      `json:"createdAt,omitempty"`
+	UpdatedAt       int64                      `json:"updatedAt,omitempty"`
 }
 
 type RuntimeOutputSnapshot struct {

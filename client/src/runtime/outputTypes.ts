@@ -129,6 +129,23 @@ export interface RuntimeConversationDisplay {
   quiet?: boolean;
   defaultExpanded?: boolean;
   toolCallIds?: string[];
+  counts?: RuntimeExplorationCount[];
+}
+
+export interface RuntimeExplorationCount {
+  kind: string;
+  count: number;
+  failed?: number;
+}
+
+export interface RuntimeExplorationSummary {
+  status: string;
+  toolCounts?: RuntimeExplorationCount[];
+  toolTotal?: number;
+  failedCount?: number;
+  subagentCount?: number;
+  thinkingMs?: number;
+  elapsedMs?: number;
 }
 
 export interface RuntimeToolResultView {
@@ -183,7 +200,9 @@ export interface RuntimeConversationItem {
   hookRunId?: string;
   agentTaskId?: string;
   contextId?: string;
+  clientRequestId?: string;
   display?: RuntimeConversationDisplay;
+  exploration?: RuntimeExplorationSummary;
   createdAt?: number;
   updatedAt?: number;
 }
@@ -265,7 +284,7 @@ export interface RuntimeOutputEvent {
   turnId?: string;
   kind: string;
   entityId: string;
-  operation: 'append' | 'update' | 'delete' | 'snapshot' | string;
+  operation: 'append' | 'update' | 'delete' | 'snapshot' | 'delta' | 'reset' | string;
   createdAt?: number;
   item?: RuntimeConversationItem;
   message?: RuntimeOutputMessage;
@@ -278,6 +297,22 @@ export interface RuntimeOutputEvent {
   agentTask?: RuntimeAgentTaskOutput;
   todos?: unknown;
   compact?: unknown;
+  textDelta?: RuntimeOutputTextDelta;
+}
+
+export interface RuntimeOutputTextDelta {
+  messageId: string;
+  turnId?: string;
+  partType: 'text' | 'reasoning' | string;
+  delta: string;
+  contentLen: number;
+}
+
+export interface RuntimeStreamingState {
+  text: string;
+  thinking: string;
+  textLen: number;
+  thinkingLen: number;
 }
 
 export interface RuntimeOutputEventsResponse {
@@ -309,4 +344,5 @@ export interface OutputStore {
   agentTasksById: Record<string, RuntimeAgentTaskOutput>;
   optimisticByClientRequestId: Record<string, OptimisticUserSubmit>;
   appliedEventIds: Record<string, true>;
+  streamingByMessageId: Record<string, RuntimeStreamingState>;
 }

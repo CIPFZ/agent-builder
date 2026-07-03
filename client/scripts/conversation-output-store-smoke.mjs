@@ -21,128 +21,49 @@ for (const name of ['outputStore', 'outputReducer', 'outputSelectors']) {
 }
 
 const { createOutputStore } = await import(pathToFileURL(path.join(tempDir, 'outputStore.mjs')).href);
-const { addOptimisticUserSubmit, applyOutputEvent, hydrateOutputStore } = await import(pathToFileURL(path.join(tempDir, 'outputReducer.mjs')).href);
-const { selectConversationMessages, selectConversationTimeline, selectPendingPermissions } = await import(pathToFileURL(path.join(tempDir, 'outputSelectors.mjs')).href);
+const { addOptimisticUserSubmit, applyOutputEvent, applyOutputEvents, hydrateOutputStore } = await import(
+  pathToFileURL(path.join(tempDir, 'outputReducer.mjs')).href
+);
+const { selectConversationMessages, selectConversationTimeline, selectPendingPermissions } = await import(
+  pathToFileURL(path.join(tempDir, 'outputSelectors.mjs')).href
+);
 
-let store = createOutputStore('session-1');
-store = addOptimisticUserSubmit(store, { clientRequestId: 'client-1', prompt: 'same text', createdAt: 100, status: 'submitting' });
-store = addOptimisticUserSubmit(store, { clientRequestId: 'client-2', prompt: 'same text', createdAt: 101, status: 'submitting' });
-store = applyOutputEvent(store, {
-  id: 'turn-first',
-  sequence: 1,
-  sessionId: 'session-1',
-  turnId: 'turn-1',
-  kind: 'turn.created',
-  entityId: 'turn-1',
-  operation: 'append',
-  turn: { id: 'turn-1', sessionId: 'session-1', status: 'running', userMessageId: 'msg-1', startedAt: 90 },
-});
-assert.deepEqual(selectConversationMessages(store).map((message) => message.clientRequestId), ['client-1', 'client-2']);
-
-store = applyOutputEvent(store, {
-  id: 'message-client-1',
-  sequence: 2,
-  sessionId: 'session-1',
-  turnId: 'turn-1',
-  kind: 'message.created',
-  entityId: 'msg-1',
-  operation: 'append',
-  message: { id: 'msg-1', sessionId: 'session-1', role: 'user', content: 'same text', clientRequestId: 'client-1', createdAt: 110 },
-});
-assert.deepEqual(selectConversationMessages(store).map((message) => message.clientRequestId), ['client-2', 'client-1']);
+// ── 1. Runtime-owned snapshot: version=1 items are the only conversation source.
 
 const snapshot = {
-  sessionId: 'session-1',
+  sessionId: 'session-runtime',
   cursor: '10',
+  version: 1,
+  items: [
+    { id: 'item-user', kind: 'user_message', sessionId: 'session-runtime', turnId: 'turn-1', sequence: 1000000, role: 'user', content: 'run tools', messageId: 'msg-user', clientRequestId: 'client-A', createdAt: 10 },
+    { id: 'item-exp', kind: 'exploration_summary', sessionId: 'session-runtime', turnId: 'turn-1', sequence: 1050000, status: 'exploring', title: 'Read 2 files', display: { counts: [{ kind: 'file_read', count: 2 }] }, exploration: { status: 'exploring', toolTotal: 2, toolCounts: [{ kind: 'file_read', count: 2 }] }, createdAt: 12 },
+    { id: 'item-tool-group', kind: 'tool_group', sessionId: 'session-runtime', turnId: 'turn-1', sequence: 1102020, status: 'completed', title: 'Read 2 files', summary: 'Read 2 files', toolCallId: 'tool-1', toolCallIds: ['tool-1', 'tool-2'], display: { kind: 'file_read', quiet: true, groupable: true, counts: [{ kind: 'file_read', count: 2 }] }, createdAt: 22 },
+    { id: 'item-assistant-final', kind: 'assistant_message', sessionId: 'session-runtime', turnId: 'turn-1', sequence: 91000039, role: 'assistant', phase: 'final', content: 'done', status: 'completed', messageId: 'msg-final', createdAt: 40 },
+  ],
   messages: [
-    { id: 'msg-user', sessionId: 'session-1', role: 'user', content: 'run tools', clientRequestId: 'client-3', createdAt: 300 },
-  ],
-  turns: [
-    { id: 'turn-2', sessionId: 'session-1', status: 'running', userMessageId: 'msg-user', startedAt: 200 },
-  ],
-  assistantSteps: [
-    { id: 'step-1', sessionId: 'session-1', turnId: 'turn-2', messageId: 'msg-assistant-1', index: 0, status: 'completed', text: 'Checking', thinkingSummary: 'Plan', toolCallIds: ['tool-read-1', 'tool-read-2', 'tool-failed', 'tool-running', 'tool-wait'], startedAt: 310, updatedAt: 350 },
-    { id: 'step-2', sessionId: 'session-1', turnId: 'turn-2', messageId: 'msg-assistant-2', index: 1, status: 'completed', text: 'Done', toolCallIds: ['tool-read-next'], startedAt: 360, updatedAt: 370 },
+    { id: 'msg-user', sessionId: 'session-runtime', role: 'user', content: 'run tools', clientRequestId: 'client-A', createdAt: 10 },
+    { id: 'msg-final', sessionId: 'session-runtime', role: 'assistant', content: 'done', finished: true, createdAt: 40 },
   ],
   toolCalls: [
-    { id: 'tool-read-1', sessionId: 'session-1', turnId: 'turn-2', assistantStepId: 'step-1', name: 'view', source: 'builtin', status: 'completed', display: { kind: 'file_read' }, resultIds: ['result-1'], latestResultId: 'result-1', startedAt: 320, finishedAt: 321 },
-    { id: 'tool-read-2', sessionId: 'session-1', turnId: 'turn-2', assistantStepId: 'step-1', name: 'view', source: 'builtin', status: 'completed', display: { kind: 'file_read' }, resultIds: ['result-2'], latestResultId: 'result-2', startedAt: 322, finishedAt: 323 },
-    { id: 'tool-failed', sessionId: 'session-1', turnId: 'turn-2', assistantStepId: 'step-1', name: 'bash', source: 'builtin', status: 'failed', error: 'boom', startedAt: 324, finishedAt: 325 },
-    { id: 'tool-running', sessionId: 'session-1', turnId: 'turn-2', assistantStepId: 'step-1', name: 'bash', source: 'builtin', status: 'running', startedAt: 326 },
-    { id: 'tool-wait', sessionId: 'session-1', turnId: 'turn-2', assistantStepId: 'step-1', name: 'bash', source: 'builtin', status: 'waiting_permission', startedAt: 327 },
-    { id: 'tool-read-next', sessionId: 'session-1', turnId: 'turn-2', assistantStepId: 'step-2', name: 'view', source: 'builtin', status: 'completed', display: { kind: 'file_read' }, startedAt: 361, finishedAt: 362 },
-  ],
-  toolResults: [
-    { id: 'result-1', sessionId: 'session-1', turnId: 'turn-2', messageId: 'tool-msg-1', toolCallId: 'tool-read-1', toolName: 'view', status: 'success', contentPreview: 'a.go', createdAt: 321 },
-    { id: 'result-2', sessionId: 'session-1', turnId: 'turn-2', messageId: 'tool-msg-2', toolCallId: 'tool-read-2', toolName: 'view', status: 'success', contentPreview: 'b.go', createdAt: 323 },
-  ],
-  permissions: [
-    { id: 'perm-1', sessionId: 'session-1', turnId: 'turn-2', toolCallId: 'tool-wait', toolName: 'bash', action: 'run', status: 'pending', createdAt: 328 },
+    { id: 'tool-1', sessionId: 'session-runtime', turnId: 'turn-1', name: 'view', source: 'builtin', kind: 'file_read', status: 'completed', quiet: true, groupable: true, display: { kind: 'file_read', title: 'Read file' }, startedAt: 21, finishedAt: 22 },
+    { id: 'tool-2', sessionId: 'session-runtime', turnId: 'turn-1', name: 'view', source: 'builtin', kind: 'file_read', status: 'completed', quiet: true, groupable: true, display: { kind: 'file_read', title: 'Read file' }, startedAt: 23, finishedAt: 24 },
   ],
 };
 
-store = hydrateOutputStore(snapshot, createOutputStore('session-1'));
-const timeline = selectConversationTimeline(store);
-assert.equal(timeline[0].id, 'message-msg-user', 'user message stays before turn progress even when turn starts first');
-assert(timeline.some((item) => item.id.startsWith('tool-group-step-1') && item.summary === 'Read 2 files'), 'completed tools are grouped per assistant step');
-assert(timeline.some((item) => item.id === 'tool-step-2-tool-read-next'), 'next assistant step is not mixed into previous completed group');
-assert(timeline.some((item) => item.toolCallId === 'tool-failed' && item.status === 'failed'), 'failed tool remains visible');
-assert(timeline.some((item) => item.toolCallId === 'tool-running' && item.status === 'running'), 'running tool remains visible');
-assert(timeline.some((item) => item.kind === 'permission' && item.permission?.id === 'perm-1'), 'waiting permission remains visible');
-assert.equal(selectPendingPermissions(store).length, 1);
+let optimisticStore = createOutputStore('session-runtime');
+optimisticStore = addOptimisticUserSubmit(optimisticStore, { clientRequestId: 'client-A', prompt: 'run tools', createdAt: 5, status: 'submitting' });
+optimisticStore = hydrateOutputStore(snapshot, optimisticStore);
 
-let runtimeStore = createOutputStore('session-runtime');
-runtimeStore = addOptimisticUserSubmit(runtimeStore, { clientRequestId: 'client-runtime', prompt: 'runtime prompt', createdAt: 1, status: 'submitting' });
-runtimeStore = hydrateOutputStore({
-  sessionId: 'session-runtime',
-  cursor: '20',
-  version: 1,
-  items: [
-    { id: 'item-user', kind: 'user_message', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 1, role: 'user', content: 'runtime prompt', messageId: 'msg-runtime-user', createdAt: 10 },
-    { id: 'item-tool-group', kind: 'tool_group', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 3, status: 'completed', title: 'Read 2 files', summary: 'Read 2 files', toolCallId: 'tool-read-1', toolCallIds: ['tool-read-1', 'tool-read-2'], display: { kind: 'file_read', quiet: true, groupable: true, defaultExpanded: false, toolCallIds: ['tool-read-1', 'tool-read-2'] }, createdAt: 20 },
-    { id: 'item-context', kind: 'context_source', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 4, status: 'failed', title: 'file', summary: 'unreadable', error: 'unreadable', contextId: 'file:/work/broken.md', display: { kind: 'file', target: '/work/broken.md' }, createdAt: 25 },
-    { id: 'item-assistant-final', kind: 'assistant_message', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 5, role: 'assistant', phase: 'final', content: 'final answer', status: 'completed', messageId: 'msg-runtime-final', createdAt: 30 },
-  ],
-  messages: [
-    { id: 'msg-runtime-user', sessionId: 'session-runtime', role: 'user', content: 'runtime prompt', clientRequestId: 'client-runtime', createdAt: 10 },
-    { id: 'msg-runtime-final', sessionId: 'session-runtime', role: 'assistant', content: 'final answer', finished: true, createdAt: 30 },
-  ],
-  toolCalls: [
-    { id: 'tool-read-1', sessionId: 'session-runtime', turnId: 'turn-runtime', name: 'view', source: 'builtin', kind: 'file_read', status: 'completed', quiet: true, groupable: true, defaultExpanded: false, display: { kind: 'file_read', title: 'Read file' }, result: { id: 'result-1', messageId: 'tool-result-msg', status: 'success', contentPreview: 'file contents' }, startedAt: 20, finishedAt: 21 },
-    { id: 'tool-read-2', sessionId: 'session-runtime', turnId: 'turn-runtime', name: 'view', source: 'builtin', kind: 'file_read', status: 'completed', quiet: true, groupable: true, defaultExpanded: false, display: { kind: 'file_read', title: 'Read file' }, startedAt: 22, finishedAt: 23 },
-  ],
-  toolResults: [
-    { id: 'result-1', sessionId: 'session-runtime', turnId: 'turn-runtime', messageId: 'tool-result-msg', toolCallId: 'tool-read-1', toolName: 'view', status: 'success', contentPreview: 'file contents', createdAt: 21 },
-  ],
-}, runtimeStore);
-const runtimeTimeline = selectConversationTimeline(runtimeStore);
-assert.deepEqual(runtimeTimeline.map((item) => item.id), ['item-user', 'item-tool-group', 'item-context', 'item-assistant-final'], 'runtime sequence controls item ordering');
-assert.equal(runtimeTimeline.some((item) => item.kind === 'tool_result'), false, 'runtime tool result is not a standalone row');
+const runtimeTimeline = selectConversationTimeline(optimisticStore);
+assert.deepEqual(runtimeTimeline.map((item) => item.id), ['item-user', 'item-exp', 'item-tool-group', 'item-assistant-final'], 'runtime sequence controls item ordering');
 assert.equal(runtimeTimeline.find((item) => item.id === 'item-tool-group')?.kind, 'tool_group', 'runtime tool group is rendered directly');
-assert.equal(runtimeTimeline.find((item) => item.id === 'item-context')?.kind, 'context_source', 'high-signal runtime context governance is an explicit item');
-assert.equal(selectConversationMessages(runtimeStore).some((message) => message.id.startsWith('optimistic-')), false, 'runtime user item replaces optimistic submit');
+const exploration = runtimeTimeline.find((item) => item.id === 'item-exp');
+assert.equal(exploration?.exploration?.toolTotal, 2, 'exploration_summary carries toolTotal');
+assert.deepEqual(exploration?.displayCounts?.[0], { kind: 'file_read', count: 2 }, 'exploration_summary counts propagate to displayCounts');
+const runtimeMessages = selectConversationMessages(optimisticStore);
+assert.equal(runtimeMessages.some((message) => message.id.startsWith('optimistic-')), false, 'runtime user_message with matching clientRequestId replaces optimistic submit');
 
-const replayed = applyOutputEvent(runtimeStore, {
-  id: 'runtime-event-1',
-  sequence: 2101,
-  sessionId: 'session-runtime',
-  turnId: 'turn-runtime',
-  kind: 'conversation_item.updated',
-  entityId: 'item-assistant-final',
-  operation: 'update',
-  item: { id: 'item-assistant-final', kind: 'assistant_message', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 5, role: 'assistant', phase: 'final', content: 'final answer updated', status: 'completed' },
-});
-const replayedAgain = applyOutputEvent(replayed, {
-  id: 'runtime-event-1',
-  sequence: 2101,
-  sessionId: 'session-runtime',
-  turnId: 'turn-runtime',
-  kind: 'conversation_item.updated',
-  entityId: 'item-assistant-final',
-  operation: 'update',
-  item: { id: 'item-assistant-final', kind: 'assistant_message', sessionId: 'session-runtime', turnId: 'turn-runtime', sequence: 5, role: 'assistant', phase: 'final', content: 'should not apply twice', status: 'completed' },
-});
-assert.equal(selectConversationTimeline(replayedAgain).find((item) => item.id === 'item-assistant-final')?.content, 'final answer updated', 'output event replay is idempotent');
+// ── 2. Empty-items runtime snapshot must not fall back to any legacy path.
 
 const emptyRuntimeContractStore = hydrateOutputStore({
   sessionId: 'session-empty-runtime',
@@ -151,29 +72,130 @@ const emptyRuntimeContractStore = hydrateOutputStore({
   items: [],
   messages: [
     { id: 'legacy-user', sessionId: 'session-empty-runtime', role: 'user', content: 'hello', createdAt: 1 },
-    { id: 'legacy-assistant', sessionId: 'session-empty-runtime', role: 'assistant', content: 'Hi', finished: true, createdAt: 2 },
-  ],
-  assistantSteps: [
-    { id: 'legacy-step', sessionId: 'session-empty-runtime', turnId: 'turn-empty', messageId: 'legacy-assistant', index: 0, status: 'completed', text: 'Hi', thinkingSummary: 'Context source: managed_instructions injected', startedAt: 2, updatedAt: 3 },
-  ],
-  toolCalls: [
-    { id: 'legacy-context-tool', sessionId: 'session-empty-runtime', turnId: 'turn-empty', assistantStepId: 'legacy-step', name: 'Context source: skill injected', source: 'runtime', status: 'completed', startedAt: 3, finishedAt: 4 },
   ],
 }, createOutputStore('session-empty-runtime'));
-assert.deepEqual(selectConversationTimeline(emptyRuntimeContractStore), [], 'versioned runtime snapshot with empty items must not fall back to legacy timeline composition');
-assert.deepEqual(selectConversationMessages(emptyRuntimeContractStore), [], 'versioned runtime snapshot with empty items must not fall back to legacy messages');
+assert.deepEqual(selectConversationTimeline(emptyRuntimeContractStore), [], 'runtime snapshot with empty items must not fall back to legacy timeline composition');
+assert.deepEqual(selectConversationMessages(emptyRuntimeContractStore), [], 'runtime snapshot with empty items must not fall back to legacy messages');
 
-const streamingStore = hydrateOutputStore({
-  sessionId: 'session-2',
+// ── 3. Delta reducer: contentLen guard + suffix append + overlay clears on completion.
+
+let streamingStore = createOutputStore('session-stream');
+streamingStore = hydrateOutputStore({
+  sessionId: 'session-stream',
+  cursor: '0',
+  version: 1,
+  items: [
+    { id: 'assistant-msg-stream', kind: 'assistant_message', sessionId: 'session-stream', turnId: 'turn-stream', sequence: 100, role: 'assistant', phase: 'intermediate', content: '', status: 'streaming', messageId: 'msg-stream', createdAt: 100 },
+  ],
   messages: [
-    { id: 'msg-stream', sessionId: 'session-2', role: 'assistant', content: 'partial', finished: false, createdAt: 500 },
+    { id: 'msg-stream', sessionId: 'session-stream', role: 'assistant', content: '', finished: false, createdAt: 100 },
   ],
-  assistantSteps: [
-    { id: 'step-stream', sessionId: 'session-2', turnId: 'turn-stream', messageId: 'msg-stream', index: 0, status: 'streaming', text: 'partial', startedAt: 500, updatedAt: 501 },
-  ],
-}, createOutputStore('session-2'));
-assert.equal(selectConversationMessages(streamingStore)[0].status, 'loading', 'streaming assistant conversation message is not complete');
-assert.equal(selectConversationTimeline(streamingStore).find((item) => item.id === 'assistant-step-stream')?.status, 'loading', 'streaming assistant timeline message is not complete');
+}, streamingStore);
+
+streamingStore = applyOutputEvent(streamingStore, {
+  id: 'delta-1',
+  sequence: 0,
+  sessionId: 'session-stream',
+  kind: 'output.text.delta',
+  entityId: 'msg-stream',
+  operation: 'delta',
+  textDelta: { messageId: 'msg-stream', partType: 'text', delta: 'hel', contentLen: 3 },
+});
+streamingStore = applyOutputEvent(streamingStore, {
+  id: 'delta-2',
+  sequence: 0,
+  sessionId: 'session-stream',
+  kind: 'output.text.delta',
+  entityId: 'msg-stream',
+  operation: 'delta',
+  textDelta: { messageId: 'msg-stream', partType: 'text', delta: 'lo world', contentLen: 11 },
+});
+
+let timelineAfterDeltas = selectConversationTimeline(streamingStore);
+let streamingItem = timelineAfterDeltas.find((item) => item.messageId === 'msg-stream');
+assert.equal(streamingItem?.content, 'hello world', 'delta suffix appended');
+assert.equal(streamingItem?.streaming, true, 'streaming flag set while overlay is active');
+const messagesAfterDeltas = selectConversationMessages(streamingStore);
+assert.equal(messagesAfterDeltas.find((message) => message.id === 'assistant-msg-stream')?.content, 'hello world', 'conversation view uses streamed text');
+
+// Idempotent: replaying the same delta must not re-append.
+streamingStore = applyOutputEvent(streamingStore, {
+  id: 'delta-2-again',
+  sequence: 0,
+  sessionId: 'session-stream',
+  kind: 'output.text.delta',
+  entityId: 'msg-stream',
+  operation: 'delta',
+  textDelta: { messageId: 'msg-stream', partType: 'text', delta: 'lo world', contentLen: 11 },
+});
+timelineAfterDeltas = selectConversationTimeline(streamingStore);
+streamingItem = timelineAfterDeltas.find((item) => item.messageId === 'msg-stream');
+assert.equal(streamingItem?.content, 'hello world', 'delta idempotent when contentLen already applied');
+
+// Out-of-order (contentLen smaller than known) is rejected.
+streamingStore = applyOutputEvent(streamingStore, {
+  id: 'delta-stale',
+  sequence: 0,
+  sessionId: 'session-stream',
+  kind: 'output.text.delta',
+  entityId: 'msg-stream',
+  operation: 'delta',
+  textDelta: { messageId: 'msg-stream', partType: 'text', delta: 'oops', contentLen: 5 },
+});
+timelineAfterDeltas = selectConversationTimeline(streamingStore);
+streamingItem = timelineAfterDeltas.find((item) => item.messageId === 'msg-stream');
+assert.equal(streamingItem?.content, 'hello world', 'out-of-order stale delta must not shrink content');
+
+// Full message.completed clears the overlay so subsequent snapshots take over.
+streamingStore = applyOutputEvent(streamingStore, {
+  id: 'msg-complete',
+  sequence: 100,
+  sessionId: 'session-stream',
+  kind: 'message.updated',
+  entityId: 'msg-stream',
+  operation: 'update',
+  message: { id: 'msg-stream', sessionId: 'session-stream', role: 'assistant', content: 'hello world', finished: true, createdAt: 100 },
+});
+assert.equal(streamingStore.streamingByMessageId['msg-stream'], undefined, 'overlay cleared when message.finished arrives');
+
+// ── 4. Pending permissions selector still works from runtime permissions.
+streamingStore = applyOutputEvent(streamingStore, {
+  id: 'perm-event',
+  sequence: 200,
+  sessionId: 'session-stream',
+  kind: 'permission.created',
+  entityId: 'perm-1',
+  operation: 'append',
+  permission: { id: 'perm-1', sessionId: 'session-stream', turnId: 'turn-stream', toolCallId: 'tool-x', toolName: 'bash', action: 'run', status: 'pending', createdAt: 300 },
+});
+assert.equal(selectPendingPermissions(streamingStore).length, 1, 'pending permission surfaced via runtime event');
+
+// ── 5. applyOutputEvents batch order is preserved.
+
+let batchStore = createOutputStore('session-batch');
+batchStore = applyOutputEvents(batchStore, [
+  {
+    id: 'batch-1',
+    sequence: 1,
+    sessionId: 'session-batch',
+    kind: 'turn.created',
+    entityId: 'turn-batch',
+    operation: 'append',
+    turn: { id: 'turn-batch', sessionId: 'session-batch', status: 'running', userMessageId: 'msg-batch', startedAt: 1 },
+  },
+  {
+    id: 'batch-2',
+    sequence: 2,
+    sessionId: 'session-batch',
+    kind: 'conversation_item.created',
+    entityId: 'user-batch',
+    operation: 'append',
+    item: { id: 'user-batch', kind: 'user_message', sessionId: 'session-batch', turnId: 'turn-batch', sequence: 1000000, role: 'user', content: 'batched', messageId: 'msg-batch', clientRequestId: 'client-batch', createdAt: 1 },
+  },
+]);
+const batchTimeline = selectConversationTimeline(batchStore);
+assert.equal(batchTimeline[0].id, 'user-batch', 'batch application delivers items in order');
+assert.equal(batchTimeline[0].clientRequestId, 'client-batch', 'runtime item carries clientRequestId through the reducer');
 
 const nearBottomShouldFollow = (distanceToBottom, pinned) => pinned || distanceToBottom < 160;
 assert.equal(nearBottomShouldFollow(40, false), true, 'new output follows near bottom');

@@ -1,5 +1,5 @@
 import { createOutputStore } from './outputStore.ts';
-import type { OptimisticUserSubmit, OutputStore, RuntimeOutputEvent, RuntimeOutputSnapshot } from './outputTypes.ts';
+import type { OptimisticUserSubmit, OutputStore, RuntimeOutputEvent, RuntimeOutputSnapshot, RuntimeStreamingState } from './outputTypes.ts';
 
 export function hydrateOutputStore(snapshot: RuntimeOutputSnapshot | undefined, previous?: OutputStore): OutputStore {
   if (!snapshot) {
@@ -9,8 +9,14 @@ export function hydrateOutputStore(snapshot: RuntimeOutputSnapshot | undefined, 
   store.cursor = snapshot.cursor;
   store.version = snapshot.version;
   store.optimisticByClientRequestId = { ...(previous?.sessionId === snapshot.sessionId ? previous.optimisticByClientRequestId : {}) };
+  // Fresh snapshots supersede any live streaming buffers; the snapshot's
+  // messages/items already carry the accumulated content.
+  store.streamingByMessageId = {};
   for (const item of snapshot.items ?? []) {
     store.itemsById[item.id] = item;
+    if (item.clientRequestId) {
+      delete store.optimisticByClientRequestId[item.clientRequestId];
+    }
   }
   for (const message of snapshot.messages ?? []) {
     store.messagesById[message.id] = message;
@@ -40,7 +46,15 @@ export function hydrateOutputStore(snapshot: RuntimeOutputSnapshot | undefined, 
 }
 
 export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent): OutputStore {
-  if (!event?.id || store.appliedEventIds[event.id]) {
+  if (!event) {
+    return store;
+  }
+  // Delta events are ephemeral and idempotent; the id may be reused across
+  // ticks or omitted entirely. Handle them before the dedup check.
+  if (event.textDelta) {
+    return applyTextDeltaEvent(store, event);
+  }
+  if (!event.id || store.appliedEventIds[event.id]) {
     return store;
   }
   const next: OutputStore = {
@@ -57,6 +71,7 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
     agentTasksById: { ...store.agentTasksById },
     optimisticByClientRequestId: { ...store.optimisticByClientRequestId },
     appliedEventIds: { ...store.appliedEventIds, [event.id]: true },
+    streamingByMessageId: { ...store.streamingByMessageId },
   };
   if (event.operation === 'delete') {
     delete next.itemsById[event.entityId];
@@ -67,15 +82,27 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
     delete next.toolResultsById[event.entityId];
     delete next.permissionsById[event.entityId];
     delete next.agentTasksById[event.entityId];
+    delete next.streamingByMessageId[event.entityId];
     return next;
   }
   if (event.item) {
     next.itemsById[event.item.id] = { ...next.itemsById[event.item.id], ...event.item };
-    if (event.item.role === 'user') {
+    if (event.item.clientRequestId) {
+      delete next.optimisticByClientRequestId[event.item.clientRequestId];
+    } else if (event.item.role === 'user') {
       for (const message of Object.values(next.messagesById)) {
         if (message.id === event.item.messageId && message.clientRequestId) {
           delete next.optimisticByClientRequestId[message.clientRequestId];
         }
+      }
+    }
+    // Any full assistant message/thinking payload supersedes the live
+    // streaming buffer for that message; drop it so we don't double-append.
+    if (event.item.messageId && (event.item.kind === 'assistant_message' || event.item.kind === 'assistant_thinking')) {
+      const messageId = event.item.messageId;
+      const isTerminal = event.item.status && event.item.status !== 'streaming';
+      if (isTerminal) {
+        delete next.streamingByMessageId[messageId];
       }
     }
   }
@@ -83,6 +110,9 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
     next.messagesById[event.message.id] = { ...next.messagesById[event.message.id], ...event.message };
     if (event.message.clientRequestId) {
       delete next.optimisticByClientRequestId[event.message.clientRequestId];
+    }
+    if (event.message.finished) {
+      delete next.streamingByMessageId[event.message.id];
     }
   }
   if (event.turn) {
@@ -104,6 +134,41 @@ export function applyOutputEvent(store: OutputStore, event: RuntimeOutputEvent):
     next.agentTasksById[event.agentTask.id] = { ...next.agentTasksById[event.agentTask.id], ...event.agentTask };
   }
   return next;
+}
+
+function applyTextDeltaEvent(store: OutputStore, event: RuntimeOutputEvent): OutputStore {
+  const delta = event.textDelta;
+  if (!delta || !delta.messageId) {
+    return store;
+  }
+  const partType = delta.partType === 'reasoning' ? 'reasoning' : 'text';
+  const previous = store.streamingByMessageId[delta.messageId] ?? emptyStreamingState();
+  const knownLen = partType === 'reasoning' ? previous.thinkingLen : previous.textLen;
+  // contentLen is the total length after this delta is applied. Any tick
+  // that reports a shorter (or equal) total than what we already applied
+  // is a duplicate or out-of-order fragment; drop it.
+  if (typeof delta.contentLen === 'number' && delta.contentLen <= knownLen) {
+    return store;
+  }
+  const nextState: RuntimeStreamingState = { ...previous };
+  if (partType === 'reasoning') {
+    nextState.thinking = (previous.thinking ?? '') + (delta.delta ?? '');
+    nextState.thinkingLen = typeof delta.contentLen === 'number' ? delta.contentLen : nextState.thinking.length;
+  } else {
+    nextState.text = (previous.text ?? '') + (delta.delta ?? '');
+    nextState.textLen = typeof delta.contentLen === 'number' ? delta.contentLen : nextState.text.length;
+  }
+  return {
+    ...store,
+    streamingByMessageId: {
+      ...store.streamingByMessageId,
+      [delta.messageId]: nextState,
+    },
+  };
+}
+
+function emptyStreamingState(): RuntimeStreamingState {
+  return { text: '', thinking: '', textLen: 0, thinkingLen: 0 };
 }
 
 export function applyOutputEvents(store: OutputStore, events: RuntimeOutputEvent[] | undefined): OutputStore {

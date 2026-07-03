@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { OutputStore } from './outputTypes.ts';
+import type { OutputStore, RuntimeExplorationCount, RuntimeExplorationSummary } from './outputTypes.ts';
 
 export type WorkbenchMode = 'project' | 'new-chat' | 'settings' | 'plugins';
 
@@ -201,7 +201,8 @@ export type ConversationTimelineKind =
   | 'snip_boundary'
   | 'microcompact_marker'
   | 'reactive_compact_retry'
-  | 'tool_result_replacement';
+  | 'tool_result_replacement'
+  | 'exploration_summary';
 
 export interface ConversationTimelineItemViewModel {
   id: string;
@@ -224,6 +225,9 @@ export interface ConversationTimelineItemViewModel {
   provider?: string;
   model?: string;
   error?: string;
+  streaming?: boolean;
+  exploration?: RuntimeExplorationSummary;
+  displayCounts?: RuntimeExplorationCount[];
   toolCall?: ToolCallViewModel;
   permission?: PermissionRequestViewModel;
   agentTask?: AgentTaskViewModel;
@@ -1241,6 +1245,14 @@ export interface WorkbenchAdapter {
   loadInitialViewModel: (mode?: WorkbenchMode) => Promise<WorkbenchViewModel>;
   refresh: (current: WorkbenchViewModel) => Promise<WorkbenchViewModel>;
   subscribeRuntimeEvents?: (onEvent: (event: RuntimeEventViewModel) => void) => Promise<() => void> | (() => void);
+  subscribeSessionOutput?: (
+    sessionID: string,
+    handlers: {
+      onEvents: (events: import('./outputTypes.ts').RuntimeOutputEvent[]) => void;
+      onSnapshotRequired: () => void;
+    },
+    after?: string,
+  ) => Promise<() => void> | (() => void);
   openProject: (current: WorkbenchViewModel, request: OpenProjectRequestViewModel) => Promise<WorkbenchViewModel>;
   createProject: (current: WorkbenchViewModel, request: CreateProjectRequestViewModel) => Promise<WorkbenchViewModel>;
   renameProject: (current: WorkbenchViewModel, request: RenameProjectRequestViewModel) => Promise<WorkbenchViewModel>;

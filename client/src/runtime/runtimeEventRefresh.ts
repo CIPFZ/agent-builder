@@ -67,6 +67,22 @@ export function runtimeEventRefreshDelay(event: RuntimeEventViewModel) {
   return 180;
 }
 
+// runtimeEventCoveredByOutputStream reports whether the event is one that
+// the per-session output stream already delivers as a materialized batch.
+// When the stream is available, the shell skips the full-workbench refresh
+// path for these types to avoid duplicate work — status, usage, and
+// recovery events still need the classic refresh loop.
+export function runtimeEventCoveredByOutputStream(event: RuntimeEventViewModel) {
+  const type = event.type || '';
+  if (!type) return false;
+  return (
+    type.startsWith('message.') ||
+    type.startsWith('tool.call.') ||
+    type === 'permission.requested' ||
+    type === 'permission.decided'
+  );
+}
+
 export function nextRuntimeEventSequence(current: number, event: RuntimeEventViewModel) {
   return typeof event.sequence === 'number' && Number.isFinite(event.sequence) && event.sequence > current ? event.sequence : current;
 }

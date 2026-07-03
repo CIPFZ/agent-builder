@@ -29,14 +29,13 @@ assertIncludes(adapter, "const runtimeBridgePath = '/bindings/github.com/CIPFZ/a
 assertNotIncludes(adapter, 'runtimeHTTPBridge', 'adapter must not use the legacy HTTP bridge');
 assertNotIncludes(adapter, 'runtimeFetch<', 'adapter must not call runtime HTTP routes');
 assertNotIncludes(adapter, 'action.metadata.normalized', 'React must not infer normalized evidence from action metadata');
-assertIncludes(adapter, 'function compareActivityTimelineItems(messages: RuntimeMessageDTO[], turns: RuntimeTurnDTO[])', 'activity timeline merge must preserve runtime turn ordering');
-assertIncludes(adapter, 'return dedupeTimelineItems([...kept, ...replacement]).sort(compareActivityTimelineItems(activityMessages, activityTurns));', 'merged runtime activity must not fall back to timestamp/id-only sorting');
-assertIncludes(adapter, 'const inferredTurnID = turnIDForMessage(activityTurnContext, item.messageId);', 'merged runtime activity must replace same-turn stale timeline items');
-assertNotIncludes(
-  adapter,
-  'return [...kept, ...replacement].sort((left, right) => {',
-  'merged runtime activity must not reorder same-turn user/tool/assistant items by local timestamp/id heuristics',
-);
+// mapActivityTimeline / mergeActivityTimeline / compareActivityTimelineItems
+// were removed with the two-phase conversation refactor — the runtime-owned
+// SessionOutput projection is now the only conversation timeline source.
+// See docs/organize/12-conversation-two-phase-and-streaming-refactor-plan.md.
+assertNotIncludes(adapter, 'function mapActivityTimeline(', 'legacy SessionActivity-derived timeline path must be removed');
+assertNotIncludes(adapter, 'function mergeActivityTimeline(', 'legacy SessionActivity-derived timeline merge must be removed');
+assertNotIncludes(adapter, 'function compareActivityTimelineItems(', 'legacy SessionActivity-derived comparator must be removed');
 assertIncludes(composer, "const requiresSelectedModel = (prompt: string) => !prompt.trim().startsWith('/');", 'composer must not block slash commands before runtime normalization');
 assertIncludes(composer, 'requiresSelectedModel(prompt) && !composer.selectedModel?.configuredProviderId', 'model selection guard must apply only to model-backed prompt submits');
 

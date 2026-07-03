@@ -520,16 +520,17 @@ func (p runtimeOutputProjection) buildConversationItems(messageTurnIDs map[strin
 		switch msg.Role {
 		case "user":
 			appendEntry(RuntimeConversationItem{
-				ID:        "user-message-" + msg.ID,
-				Kind:      "user_message",
-				SessionID: msg.SessionID,
-				TurnID:    turnID,
-				Role:      "user",
-				Status:    runtimeMessageItemStatus(msg),
-				Content:   msg.Content,
-				MessageID: msg.ID,
-				CreatedAt: msg.CreatedAt,
-				UpdatedAt: firstPositiveInt64(msg.UpdatedAt, msg.CreatedAt),
+				ID:              "user-message-" + msg.ID,
+				Kind:            "user_message",
+				SessionID:       msg.SessionID,
+				TurnID:          turnID,
+				Role:            "user",
+				Status:          runtimeMessageItemStatus(msg),
+				Content:         msg.Content,
+				MessageID:       msg.ID,
+				ClientRequestID: msg.ClientRequestID,
+				CreatedAt:       msg.CreatedAt,
+				UpdatedAt:       firstPositiveInt64(msg.UpdatedAt, msg.CreatedAt),
 			}, 0)
 		case "assistant":
 			stepID := "assistant-step-" + msg.ID
