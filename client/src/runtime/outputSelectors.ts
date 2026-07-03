@@ -6,6 +6,17 @@ import type {
 } from './workbenchTypes.ts';
 import type { OutputStore, RuntimeAgentTaskOutput, RuntimeConversationItem, RuntimeOutputToolCall, RuntimeOutputToolResult, RuntimeToolResultView } from './outputTypes.ts';
 
+// Mirrors runtimeConversationItemSequence in internal/runtime/runtime_output.go:
+// sequence = (turnStartMs / 100) * RUNTIME_SEQUENCE_SPAN + rank + intra.
+// Keeping the same scale lets an optimistic user submit slot between the
+// previous turn's items (smaller turn-start base) and the runtime items of the
+// turn it triggers (turn start >= submit time, response ranks > 0).
+const RUNTIME_SEQUENCE_SPAN = 100_000;
+
+export function optimisticSubmitSequence(createdAtMs: number): number {
+  return Math.floor(createdAtMs / 100) * RUNTIME_SEQUENCE_SPAN;
+}
+
 export function selectConversationMessages(store: OutputStore): ConversationMessageViewModel[] {
   return selectConversationMessagesFromRuntimeItems(store);
 }
@@ -80,6 +91,11 @@ function selectRuntimeConversationTimeline(store: OutputStore): ConversationTime
       content: submit.prompt,
       status: submit.status === 'error' ? 'error' : 'loading',
       createdAt: submit.createdAt,
+      // Without a sequence the shared comparator treats the item as 0 and
+      // pins it to the very top of the timeline; project the submit time
+      // onto the runtime sequence scale instead so it sorts after history
+      // and before the turn it triggers.
+      sequence: optimisticSubmitSequence(submit.createdAt),
       clientRequestId: submit.clientRequestId,
       error: submit.error,
       source: 'runtime_activity',

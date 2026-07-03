@@ -34,7 +34,7 @@
   height: 100%;
   margin: 0 -4px;
   background: transparent;
-  cursor: col-resize;
+  cursor: ew-resize;
 }
 
 .sidebarResizer::before {

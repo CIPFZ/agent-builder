@@ -3645,21 +3645,39 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
     ? { projects: sidebarProjection.projects }
     : projectsResponse;
   const activeSessionID = sidebarProjection?.activeSessionId || status?.sessionId || projectedSessionsResponse?.sessions?.find((session) => session.active)?.id;
-  const hooks = fullHydration ? await hydrateHooks(bridge) : undefined;
-  const hookExecutions = activeSessionID ? await hydrateHookExecutions(bridge, activeSessionID) : summarizeHookExecutions([]);
-  const outputSnapshot = activeSessionID && refreshActivity
-    ? await optionalRuntimeRequest(() => bridge.SessionOutput?.(activeSessionID, { snapshot: true, limit: fullHydration ? undefined : 64 }) ?? Promise.resolve(undefined))
-    : undefined;
+  // Batch A: independent hydration requests that only depend on activeSessionID /
+  // fullHydration / refreshActivity / refreshRuns — fired together to cut round trips.
+  const [
+    hooks,
+    hookExecutions,
+    outputSnapshot,
+    activity,
+    runProjection,
+    agentTasks,
+    todos,
+    agentRoles,
+  ] = await Promise.all([
+    fullHydration ? hydrateHooks(bridge) : Promise.resolve(undefined),
+    activeSessionID ? hydrateHookExecutions(bridge, activeSessionID) : Promise.resolve(summarizeHookExecutions([])),
+    activeSessionID && refreshActivity
+      ? optionalRuntimeRequest(() => bridge.SessionOutput?.(activeSessionID, { snapshot: true, limit: fullHydration ? undefined : 64 }) ?? Promise.resolve(undefined))
+      : Promise.resolve(undefined),
+    // Narrow-then-wide activity fallback stays sequential internally (narrow hint
+    // must fail before we fall back to the full SessionActivity request).
+    activeSessionID && refreshActivity
+      ? (async () => {
+          const narrowActivity = await hydrateNarrowActivityFromHint(bridge, activeSessionID)
+          return narrowActivity ?? (await optionalRuntimeRequest(() => bridge.SessionActivity?.(activeSessionID) ?? Promise.resolve(undefined)))
+        })()
+      : Promise.resolve(undefined),
+    activeSessionID && bridge.RunProjection && refreshRuns
+      ? optionalRuntimeRequest(() => bridge.RunProjection?.({ sessionId: activeSessionID, limit: 24 }) ?? Promise.resolve(undefined))
+      : Promise.resolve(undefined),
+    activeSessionID ? hydrateAgentTasks(bridge, activeSessionID) : Promise.resolve(undefined),
+    activeSessionID ? hydrateTodos(bridge, activeSessionID) : Promise.resolve(undefined),
+    fullHydration ? hydrateAgentRoles(bridge) : Promise.resolve(undefined),
+  ])
   const outputStore = outputSnapshot ? hydrateOutputStore(outputSnapshot, current.outputStore) : current.outputStore;
-  const narrowActivity = activeSessionID && refreshActivity ? await hydrateNarrowActivityFromHint(bridge, activeSessionID) : undefined;
-  const activity = narrowActivity ?? (activeSessionID && refreshActivity ? await optionalRuntimeRequest(() => bridge.SessionActivity?.(activeSessionID) ?? Promise.resolve(undefined)) : undefined);
-  const runProjection = activeSessionID && bridge.RunProjection && refreshRuns
-    ? await optionalRuntimeRequest(() => bridge.RunProjection?.({ sessionId: activeSessionID, limit: 24 }) ?? Promise.resolve(undefined))
-    : undefined;
-  const schedulerTaskCandidates = actionTargetsInclude(refreshTargets, 'run_scheduler_plan') ? await hydrateRunSchedulerTaskCandidates(bridge, runProjection) : [];
-  const agentTasks = activeSessionID ? await hydrateAgentTasks(bridge, activeSessionID) : undefined;
-  const todos = activeSessionID ? await hydrateTodos(bridge, activeSessionID) : undefined;
-  const agentRoles = fullHydration ? await hydrateAgentRoles(bridge) : undefined;
   const modelOptionList = modelsResponse ? modelOptions(modelsResponse) : current.composer.modelOptions;
   const selectedModel = modelsResponse ? modelOptionList.find((model) => model.selected) : current.composer.selectedModel;
   const currentProjectID = sidebarProjection?.currentProjectId || projectedProjectsResponse?.projects?.find((project) => project.current)?.id;
@@ -3676,14 +3694,26 @@ async function hydrateWorkbench(current: WorkbenchViewModel, bridge: RuntimeBrid
       ? status.requests.sessionBusy
       : Boolean(sessionActiveTurn);
   const activeTurnId = status?.requests?.sessionRequestId || sessionActiveTurn?.id || (busy ? current.composer.activeTurnId : undefined);
-  const reactCallchainDTO = activeSessionID && refreshActivity
-    ? await hydrateReactCallchain(bridge, activeSessionID, activeTurnId)
-    : undefined;
-  const promptAssembliesDTO = activeSessionID && refreshActivity
-    ? await hydratePromptAssemblies(bridge, activeSessionID, activeTurnId)
-    : undefined;
+  // Batch B: requests that depend on Batch A results (runProjection / activity)
+  // or on activeTurnId (derived synchronously above) — independent of each other.
+  const [
+    schedulerTaskCandidates,
+    reactCallchainDTO,
+    promptAssembliesDTO,
+    policy,
+  ] = await Promise.all([
+    actionTargetsInclude(refreshTargets, 'run_scheduler_plan') ? hydrateRunSchedulerTaskCandidates(bridge, runProjection) : Promise.resolve([]),
+    activeSessionID && refreshActivity
+      ? hydrateReactCallchain(bridge, activeSessionID, activeTurnId)
+      : Promise.resolve(undefined),
+    activeSessionID && refreshActivity
+      ? hydratePromptAssemblies(bridge, activeSessionID, activeTurnId)
+      : Promise.resolve(undefined),
+    activity?.policy ?? (refreshPolicy
+      ? optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)).then((response) => response?.policy)
+      : undefined),
+  ]);
   const contextDiagnostics = mapContextDiagnostics(promptAssembliesDTO) ?? (current.contextDiagnostics?.sessionId === activeSessionID ? current.contextDiagnostics : undefined);
-  const policy = activity?.policy ?? (refreshPolicy ? (await optionalRuntimeRequest(() => bridge.GetPolicy?.() ?? Promise.resolve(undefined)))?.policy : undefined);
   const activeOutputStore = outputStore?.sessionId === activeSessionID ? outputStore : undefined;
   const outputTimeline = activeOutputStore ? selectConversationTimeline(activeOutputStore) : undefined;
   const outputConversation = activeOutputStore ? selectConversationMessages(activeOutputStore) : undefined;

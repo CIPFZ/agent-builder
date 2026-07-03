@@ -10,8 +10,10 @@ import type {
   WorkbenchViewModel,
   NewConversationDraftViewModel,
 } from '../../runtime/workbenchTypes.ts';
+import type { OutputStore } from '../../runtime/outputTypes.ts';
 import { addOptimisticUserSubmit, applyOutputEvents } from '../../runtime/outputReducer.ts';
 import { createOutputStore } from '../../runtime/outputStore.ts';
+import { installWebviewCursorRecovery, nudgeCursorRecompute } from '../../lib/webviewCursor.ts';
 import { selectConversationMessages, selectConversationTimeline, selectPendingPermissions } from '../../runtime/outputSelectors.ts';
 import { runtimeEventCoveredByOutputStream, runtimeEventRefreshDelay } from '../../runtime/runtimeEventRefresh.ts';
 import { PluginCenter } from '../../features/plugins/PluginCenter.tsx';
@@ -39,6 +41,60 @@ function getLayoutWidth() {
   return Math.max(window.innerWidth, SHELL_MIN_WIDTH);
 }
 
+// withFresherOutputStore reconciles a freshly hydrated view model with the
+// live one. Full refreshes are async: their snapshot may predate output-stream
+// events that were already applied to the current store, and optimistic user
+// submits may have been added while the refresh was in flight. Applying such
+// a snapshot verbatim would roll the conversation back mid-stream (visible as
+// the timeline "jumping") until the next refresh. Rules:
+//   - carry over in-flight optimistic submits the snapshot has not echoed yet;
+//   - if the snapshot's cursor is behind what the stream already applied,
+//     keep the current store (and its derived projections) instead.
+function withFresherOutputStore(nextViewModel: WorkbenchViewModel, current: WorkbenchViewModel): WorkbenchViewModel {
+  const next = nextViewModel.outputStore;
+  const curr = current.outputStore;
+  if (!next || !curr || !next.sessionId || next.sessionId !== curr.sessionId) {
+    return nextViewModel;
+  }
+  const nextCursor = Number(next.cursor ?? '') || 0;
+  const currCursor = Math.max(Number(curr.cursor ?? '') || 0, Math.floor((curr.lastSequence ?? 0) / 100));
+  if (nextCursor > 0 && currCursor > nextCursor) {
+    return {
+      ...nextViewModel,
+      outputStore: curr,
+      conversation: selectConversationMessages(curr),
+      timeline: selectConversationTimeline(curr),
+      pendingPermissions: selectPendingPermissions(curr),
+    };
+  }
+  const echoed = new Set<string>();
+  for (const item of Object.values(next.itemsById)) {
+    if (item.clientRequestId) {
+      echoed.add(item.clientRequestId);
+    }
+  }
+  let mergedOptimistic = next.optimisticByClientRequestId;
+  for (const [key, submit] of Object.entries(curr.optimisticByClientRequestId)) {
+    if (!(key in mergedOptimistic) && !echoed.has(key)) {
+      if (mergedOptimistic === next.optimisticByClientRequestId) {
+        mergedOptimistic = { ...mergedOptimistic };
+      }
+      mergedOptimistic[key] = submit;
+    }
+  }
+  if (mergedOptimistic === next.optimisticByClientRequestId) {
+    return nextViewModel;
+  }
+  const store = { ...next, optimisticByClientRequestId: mergedOptimistic };
+  return {
+    ...nextViewModel,
+    outputStore: store,
+    conversation: selectConversationMessages(store),
+    timeline: selectConversationTimeline(store),
+    pendingPermissions: selectPendingPermissions(store),
+  };
+}
+
 function getSidebarMaxWidth(workspaceMinVisibleWidth = WORKSPACE_MIN_VISIBLE_WIDTH) {
   return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, getLayoutWidth() - workspaceMinVisibleWidth - SHELL_RESIZE_GUTTER_WIDTH));
 }
@@ -60,6 +116,10 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   const modeRef = useRef(mode);
   const sessionMutationSeqRef = useRef(0);
   const newConversationDraftSeqRef = useRef(0);
+  // Most-recently-seen output store per session. Switching back to a session
+  // renders its cached conversation instantly (no blank/loading flash) while
+  // the authoritative hydrate catches up in the background.
+  const sessionStoreCacheRef = useRef(new Map<string, OutputStore>());
   const hasBusySession = viewModel.sessions.some((session) => session.busy);
   const sidebarForceCollapsed =
     !sidebarCollapsed &&
@@ -71,6 +131,27 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   useEffect(() => {
     viewModelRef.current = viewModel;
   }, [viewModel]);
+
+  useEffect(() => {
+    const store = viewModel.outputStore;
+    if (!store?.sessionId) {
+      return;
+    }
+    const cache = sessionStoreCacheRef.current;
+    cache.delete(store.sessionId);
+    cache.set(store.sessionId, store);
+    while (cache.size > 8) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      cache.delete(oldest);
+    }
+  }, [viewModel.outputStore]);
+
+  useEffect(() => {
+    installWebviewCursorRecovery();
+  }, []);
 
   useEffect(() => {
     const updateViewportWidth = () => setViewportWidth(window.innerWidth);
@@ -115,11 +196,12 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       }
       refreshing = true;
       queued = false;
+      const epoch = sessionMutationSeqRef.current;
       try {
         const nextViewModel = await adapter.refresh({ ...viewModelRef.current, mode: modeRef.current });
-        if (!cancelled) {
+        if (!cancelled && sessionMutationSeqRef.current === epoch) {
           setMode(nextViewModel.mode);
-          setViewModel(nextViewModel);
+          setViewModel((current) => withFresherOutputStore(nextViewModel, current));
         }
       } catch {
         // Polling remains active while busy; event refresh is an opportunistic fast path.
@@ -179,20 +261,32 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     }
     let cancelled = false;
     let closer: (() => void) | undefined;
+    let snapshotRequested = false;
     const requestFullRefresh = () => {
       if (cancelled) return;
+      const epoch = sessionMutationSeqRef.current;
       void adapter.refresh({ ...viewModelRef.current, mode: modeRef.current }).then((nextViewModel) => {
-        if (cancelled) return;
+        if (cancelled || sessionMutationSeqRef.current !== epoch) return;
         setMode(nextViewModel.mode);
-        setViewModel(nextViewModel);
+        setViewModel((current) => withFresherOutputStore(nextViewModel, current));
       }).catch(() => undefined);
     };
     const onEvents = (events: import('../../runtime/outputTypes.ts').RuntimeOutputEvent[]) => {
       if (cancelled || events.length === 0) return;
+      // If the live store belongs to another session (e.g. the first prompt
+      // of a draft created this session moments ago), incremental events
+      // cannot reconstruct the conversation on their own: carry the
+      // optimistic submits over and pull a full snapshot to backfill items
+      // (like the user_message echo) the stream started too late to see.
+      const liveStore = viewModelRef.current.outputStore;
+      const storeIsStale = !liveStore || liveStore.sessionId !== activeSessionID;
       setViewModel((current) => {
         const store = current.outputStore && current.outputStore.sessionId === activeSessionID
           ? current.outputStore
-          : createOutputStore(activeSessionID);
+          : {
+              ...createOutputStore(activeSessionID),
+              optimisticByClientRequestId: { ...(current.outputStore?.optimisticByClientRequestId ?? {}) },
+            };
         const nextStore = applyOutputEvents(store, events);
         return {
           ...current,
@@ -202,6 +296,10 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           pendingPermissions: selectPendingPermissions(nextStore),
         };
       });
+      if (storeIsStale && !snapshotRequested) {
+        snapshotRequested = true;
+        requestFullRefresh();
+      }
     };
     void Promise.resolve(
       adapter.subscribeSessionOutput(activeSessionID, {
@@ -243,13 +341,21 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     const backoffMs = adapter.subscribeSessionOutput ? 4000 : 2000;
 
     const refreshUntilIdle = async () => {
+      const epoch = sessionMutationSeqRef.current;
       try {
         const nextViewModel = await adapter.refresh({ ...viewModelRef.current, mode });
         if (cancelled) {
           return;
         }
+        if (sessionMutationSeqRef.current !== epoch) {
+          // The conversation context changed while this refresh was in
+          // flight (session switch / draft / new prompt); its snapshot
+          // describes a stale context and must not clobber the new one.
+          timer = window.setTimeout(refreshUntilIdle, busyIntervalMs);
+          return;
+        }
         setMode(nextViewModel.mode);
-        setViewModel(nextViewModel);
+        setViewModel((current) => withFresherOutputStore(nextViewModel, current));
         if (nextViewModel.composer.busy || nextViewModel.sessions.some((session) => session.busy)) {
           timer = window.setTimeout(refreshUntilIdle, busyIntervalMs);
         }
@@ -293,6 +399,10 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
 
   const createSession = (target?: NewConversationDraftViewModel) => {
     const draftSeq = ++newConversationDraftSeqRef.current;
+    // Entering the draft surface changes the active conversation context;
+    // bump the mutation epoch so in-flight refreshes for the previous
+    // session are discarded instead of restoring its content.
+    sessionMutationSeqRef.current += 1;
     const currentViewModel = viewModelRef.current;
     const currentMode = modeRef.current;
     const draftTarget = target ?? defaultDraftTarget(currentViewModel);
@@ -303,6 +413,9 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       sessions: currentViewModel.sessions.map((session) => ({ ...session, active: false })),
       conversation: [],
       timeline: [],
+      // The output store must not leak across conversations: a stale store
+      // would swallow the next optimistic submit and resurface old items.
+      outputStore: createOutputStore(''),
       turnDiagnostics: undefined,
       runProjection: undefined,
       reactCallchain: undefined,
@@ -340,14 +453,17 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
 
   const updateNewConversationDraft = (target: NewConversationDraftViewModel) => {
     newConversationDraftSeqRef.current += 1;
+    sessionMutationSeqRef.current += 1;
     const current = viewModelRef.current;
+    const leavingActiveSession = current.sessions.some((session) => session.active);
     const next: WorkbenchViewModel = {
       ...current,
       mode: 'new-chat',
       newConversationDraft: target,
       sessions: current.sessions.map((session) => ({ ...session, active: false })),
-      conversation: current.sessions.some((session) => session.active) ? [] : current.conversation,
-      timeline: current.sessions.some((session) => session.active) ? [] : current.timeline,
+      conversation: leavingActiveSession ? [] : current.conversation,
+      timeline: leavingActiveSession ? [] : current.timeline,
+      outputStore: leavingActiveSession ? createOutputStore('') : current.outputStore,
       turnDiagnostics: undefined,
       runProjection: undefined,
       reactCallchain: undefined,
@@ -396,13 +512,15 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     newConversationDraftSeqRef.current += 1;
     const mutationSeq = ++sessionMutationSeqRef.current;
     const currentViewModel = viewModelRef.current;
+    const cachedStore = sessionStoreCacheRef.current.get(sessionID);
     const optimisticViewModel: WorkbenchViewModel = {
       ...currentViewModel,
       mode: 'new-chat',
       newConversationDraft: undefined,
       sessions: currentViewModel.sessions.map((session) => ({ ...session, active: session.id === sessionID })),
-      conversation: [],
-      timeline: [],
+      conversation: cachedStore ? selectConversationMessages(cachedStore) : [],
+      timeline: cachedStore ? selectConversationTimeline(cachedStore) : [],
+      outputStore: cachedStore ?? createOutputStore(sessionID),
       turnDiagnostics: undefined,
       runProjection: undefined,
       reactCallchain: undefined,
@@ -447,6 +565,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   };
 
   const deleteSession = (sessionID: string) => {
+    sessionStoreCacheRef.current.delete(sessionID);
     newConversationDraftSeqRef.current += 1;
     const mutationSeq = ++sessionMutationSeqRef.current;
     const currentViewModel = viewModelRef.current;
@@ -459,6 +578,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       sessions: currentViewModel.sessions.filter((session) => session.id !== sessionID),
       conversation: wasActive ? [] : currentViewModel.conversation,
       timeline: wasActive ? [] : currentViewModel.timeline,
+      outputStore: wasActive ? createOutputStore('') : currentViewModel.outputStore,
       turnDiagnostics: wasActive ? undefined : currentViewModel.turnDiagnostics,
       runProjection: wasActive ? undefined : currentViewModel.runProjection,
       reactCallchain: wasActive ? undefined : currentViewModel.reactCallchain,
@@ -495,13 +615,22 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
   };
 
   const sendPrompt = async (prompt: string) => {
+    // Submitting may create a brand new session (draft flow); treat it as a
+    // conversation-context mutation so stale in-flight refreshes are dropped.
+    const mutationSeq = ++sessionMutationSeqRef.current;
     const currentViewModel = viewModelRef.current;
     const currentMode = modeRef.current;
     const createdAt = Date.now();
     const clientRequestId = `prompt-${createdAt}`;
     const userID = `local-${createdAt}`;
     const loadingID = `loading-${createdAt}`;
-    const baseOutputStore = currentViewModel.outputStore ?? createOutputStore(currentViewModel.sessions.find((session) => session.active)?.id ?? '');
+    const activeSessionId = currentViewModel.sessions.find((session) => session.active)?.id ?? '';
+    // Never seed the optimistic submit into a store that belongs to another
+    // session (e.g. a stale store surviving a draft transition): the stream
+    // consumer keys everything on the active session's store.
+    const baseOutputStore = currentViewModel.outputStore && currentViewModel.outputStore.sessionId === activeSessionId
+      ? currentViewModel.outputStore
+      : createOutputStore(activeSessionId);
     const optimisticOutputStore = addOptimisticUserSubmit(baseOutputStore, {
       clientRequestId,
       prompt,
@@ -560,12 +689,18 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
     setViewModel(optimisticViewModel);
     try {
       const nextViewModel = await adapter.sendPrompt(optimisticViewModel, prompt, { clientRequestId });
+      if (sessionMutationSeqRef.current !== mutationSeq) {
+        return;
+      }
       modeRef.current = nextViewModel.mode;
       viewModelRef.current = nextViewModel;
       setSwitchingSessionID('');
       setMode(nextViewModel.mode);
       setViewModel(nextViewModel);
     } catch (error) {
+      if (sessionMutationSeqRef.current !== mutationSeq) {
+        return;
+      }
       const failedOutputStore = {
         ...optimisticOutputStore,
         optimisticByClientRequestId: {
@@ -864,6 +999,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
       window.removeEventListener('pointermove', updateSidebarWidth);
       window.removeEventListener('pointerup', stopSidebarResize);
       window.removeEventListener('pointercancel', stopSidebarResize);
+      nudgeCursorRecompute();
     };
 
     window.addEventListener('pointermove', updateSidebarWidth);
@@ -944,6 +1080,7 @@ export function WorkbenchShell({ adapter, viewModel: initialViewModel }: Workben
           aria-valuenow={sidebarWidth}
           tabIndex={0}
           onPointerDown={startSidebarResize}
+          onPointerLeave={nudgeCursorRecompute}
         />
       )}
       {mode === 'plugins' ? (
